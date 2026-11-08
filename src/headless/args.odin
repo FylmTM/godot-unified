@@ -26,7 +26,8 @@ usage :: proc() -> ! {
   eos-client --code CODE --ticks T [--bucket B] [--relays allow|force|none]
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
-  bench    --enemies E --window W --ticks N [--seed S] [--players P]`,
+  bench    --enemies E --window W --ticks N [--seed S] [--players P]
+  any mode: [--game NAME] picks a variant of the game (e.g. its play tuning)`,
 	)
 	os.exit(2)
 }

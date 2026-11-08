@@ -54,7 +54,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 		found ||= e.kind == u16(survivor.Event_Kind.Match_Started) && e.slot == 0
 	}
 	testing.expect(t, found)
-	for _ in 0 ..< 2 * survivor.SPAWN_EVERY_TICKS {
+	for _ in 0 ..< 2 * survivor.TUNINGS[.Play].spawn_every_ticks {
 		step_with(s, {0, 1}, {})
 	}
 	testing.expect(t, s.state.enemies.count > 0)
@@ -81,7 +81,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.state.phase, survivor.Phase.Lobby)
 	testing.expect_value(t, s.state.enemies.count, 0)
 	testing.expect(t, s.state.players[0].alive && s.state.players[1].alive && !s.state.players[2].active)
-	testing.expect_value(t, s.state.players[0].level, 0)
+	testing.expect_value(t, s.state.players[0].level, 1)
 	testing.expect_value(t, s.state.matches, 1)
 	h = survivor.hud(&s.state, s.tick)
 	testing.expect_value(t, h.phase_name, "lobby")
@@ -104,5 +104,58 @@ joining_mid_match_spawns_at_the_start_spot :: proc(t: ^testing.T) {
 time_constants_are_whole_ticks :: proc(t: ^testing.T) {
 	testing.expect_value(t, survivor.RESPAWN_TICKS, 192)
 	testing.expect_value(t, survivor.OVER_HOLD_TICKS, 320)
-	testing.expect_value(t, survivor.WAVE_TICKS, 640)
+	testing.expect_value(t, survivor.TUNINGS[.Play].wave_ticks, 1920)
+	testing.expect_value(t, survivor.TUNINGS[.Stress].spawn_every_ticks, 20)
+}
+
+@(test)
+levels_start_at_one :: proc(t: ^testing.T) {
+	s := sim.create(&survivor.GAME, 2)
+	defer sim.destroy(s)
+	step_with(s, {0}, {})
+	testing.expect_value(t, s.state.players[0].level, 1)
+	h := survivor.hud(&s.state, s.tick)
+	testing.expect_value(t, h.players[0].level, 1)
+	testing.expect_value(t, h.players[0].xp_next, survivor.TUNINGS[.Play].xp_first)
+	stress := sim.create(&survivor.GAME_STRESS, 2)
+	defer sim.destroy(stress)
+	testing.expect_value(t, stress.state.tuning, survivor.Tuning_Kind.Stress)
+}
+
+@(test)
+no_items_inside_the_start_circle :: proc(t: ^testing.T) {
+	for i in 0 ..< survivor.ITEM_COUNT {
+		c := survivor.item_position(i)
+		testing.expectf(t, c.x * c.x + c.z * c.z > 4.0 * 4.0, "item %d at %v", i, c)
+	}
+}
+
+// The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin), 2 seeds:
+// guards the tuning's targets (spec/GAME.md). `survivor bot` measures more seeds.
+@(test)
+play_tuning_with_the_bot :: proc(t: ^testing.T) {
+	for seed in 1 ..= u64(2) {
+		s := sim.create(&survivor.GAME, seed)
+		defer sim.destroy(s)
+		first_level: f32 = -1
+		for s.tick < 200 * survivor.TICK_HZ && s.state.phase != .Over {
+			in_: survivor.Inputs
+			in_.present = {0}
+			in_.input[0] = survivor.bot_input(&s.state, 0, s.tick + 1)
+			sim.step(s, &in_)
+			if first_level < 0 && s.state.players[0].level > 1 {
+				first_level = f32(s.tick - s.state.match_tick) * survivor.DT
+			}
+		}
+		survived := f32((s.state.phase == .Over ? s.state.over_tick : s.tick) - s.state.match_tick) * survivor.DT
+		testing.expectf(
+			t,
+			first_level > 10 && first_level < 45,
+			"seed %d: first level-up at %.1f s",
+			seed,
+			first_level,
+		)
+		testing.expectf(t, survived > 100, "seed %d: survived %.1f s", seed, survived)
+		testing.expectf(t, s.state.wave >= 3, "seed %d: wave %d", seed, s.state.wave)
+	}
 }

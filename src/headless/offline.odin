@@ -12,7 +12,10 @@ import "../sim"
 
 // What a game's headless binary supplies besides its sim.Game.
 Headless :: struct($S, $I, $W: typeid, $P: int) {
-	game:          ^sim.Game(S, I, W, P),
+	game:          ^sim.Game(S, I, W, P), // the default
+	// Other variants of the game (e.g. other tunings), selected with `--game NAME` (sim.Game.name)
+	// on any mode.
+	variants:      []^sim.Game(S, I, W, P),
 	// Scripted input of `slot` for tick t; `state` is the caller's current state (nil if none).
 	script:        proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).

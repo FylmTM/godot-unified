@@ -419,7 +419,7 @@ func _wave() -> int:
 
 
 func _xp_next(level: int) -> int:
-	return 10 + level * 5
+	return 8 + (level - 1) * 4  # the sim's `play` tuning (spec/GAME.md)
 
 
 # --- Tick ---------------------------------------------------------------------------------------
