@@ -8,6 +8,7 @@ others are its parts and also run on their own. Command list: [`../README.md`](.
 | `dev.py` | build / test / check / fmt / vet / all. Prints each step's time and keeps the last ones in `out/timings.json`. |
 | `check.py` | T1-T9 of `spec/CORE.md` §4 against `out/<mode>/unified` (it does not build). |
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library. |
+| `release.py` | Playable game builds: extension, Godot export, codesign, zip, smoke test. `docs/RELEASE.md`. |
 | `ci.py` | CI helpers: Odin release download, pinned odinfmt build, ninja, the job summary. |
 | `common.py` | Platform tags, MSVC environment, clang-cl lookup. |
 

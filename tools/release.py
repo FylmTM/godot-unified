@@ -526,9 +526,10 @@ Test build of **{name} {version}** (commit `{commit}`). Unsigned prerelease for 
 
 ## Opening it
 
-- **macOS:** unzip, then right-click `{name}.app` → **Open** → **Open**. If macOS still refuses, open
-  System Settings → Privacy & Security, scroll to the message about `{name}`, and click **Open Anyway**. The app
-  is ad-hoc signed, not notarized, so Gatekeeper asks once.
+- **macOS:** unzip and open `{name}.app`. The app is ad-hoc signed, not notarized, so macOS blocks the first
+  launch: click **Done**, open System Settings → Privacy & Security, scroll down to the message about `{name}`,
+  click **Open Anyway** and confirm. (On macOS 14 and older, right-click the app → **Open** → **Open** also works.)
+  Last resort, in Terminal: `xattr -dr com.apple.quarantine {name}.app`.
 - **Windows:** unzip the whole folder, run `{name}.exe`. If SmartScreen says "Windows protected your PC", click
   **More info** → **Run anyway**.
 {game_notes}"""

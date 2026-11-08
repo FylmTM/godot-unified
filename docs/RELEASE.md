@@ -10,11 +10,11 @@ git tag survivor-v0.1.0 && git push origin survivor-v0.1.0      # <game>-v<versi
 ```
 
 `.github/workflows/release.yml` then builds `games/survivor` on a Windows and a macOS runner with `tools/release.py`
-(dependencies, release extension with the `EOS_*` repo secrets in its environment, Godot 4.7.2 headless import and export, ad-hoc
-codesign on macOS, zip, a ~5 s headless smoke test of the unpacked zip) and publishes a GitHub **prerelease** named
-after the tag: `<game>-<version>-macos-arm64.zip`, `<game>-<version>-windows-x64.zip`, `SHA256SUMS.txt`, and tester
-notes (how to open an unsigned build, plus `games/<game>/RELEASE_NOTES.md`). Only the orchestrator pushes tags. A
-failed run publishes nothing; delete the tag, fix, tag again.
+(dependencies, release extension with the `EOS_*` repo secrets in its environment, Godot 4.7.2 headless import and
+export, ad-hoc codesign on macOS, zip, a ~5 s headless smoke test of the unpacked zip) and publishes a GitHub
+**prerelease** named after the tag: `<game>-<version>-macos-arm64.zip`, `<game>-<version>-windows-x64.zip`,
+`SHA256SUMS.txt`, and tester notes (how to open an unsigned build, plus `games/<game>/RELEASE_NOTES.md`). Only the
+orchestrator pushes tags. A failed run publishes nothing; delete the tag, fix, tag again.
 
 ## Locally (macOS)
 
