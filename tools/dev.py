@@ -14,6 +14,7 @@
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
+    python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release]   # windowed bot play check
     python tools/dev.py game validate|walk|shots|import [--game survivor]   # Godot project checks (tools/game.py)
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
@@ -380,6 +381,32 @@ def offline_checksums(gdir, ticks, seed):
     return None
 
 
+def cmd_game_play(gdir, argv):
+    """The real-play check (game/tools/play_check.gd): a bot plays single player (or --bench N / --coop) in a window
+    with the real extension; screenshots go to <game>/.uni/shots/. Needs a display (not CI)."""
+    minutes = float(argv[argv.index("--minutes") + 1]) if "--minutes" in argv else 3.0
+    if "--no-build" not in argv:
+        cmd_game_build(gdir, "release" if "--release" in argv else "dev")
+    ensure_imported(gdir)
+    extra = ["--minutes", str(minutes), "--shots=res://.uni/shots"]
+    if "--bench" in argv:
+        extra += ["--bench", argv[argv.index("--bench") + 1]]
+    if "--coop" in argv:
+        extra.append("--coop")
+    r = run_godot(["--path", gdir, "--resolution", "1280x720", "-s", "res://game/tools/play_check.gd", "--"] + extra,
+                  timeout=minutes * 60 + 360)
+    for line in r.stdout.splitlines():
+        if line.startswith("  ok") or line.startswith("  FAIL"):
+            log(line)
+    res = last_json_after(r.stdout, "PLAY_JSON ")
+    if res is None:
+        sys.stdout.write((r.stdout + r.stderr)[-4000:])
+        raise SystemExit("dev: the play check printed no result")
+    print(json.dumps(res))
+    if r.returncode != 0 or not res.get("ok"):
+        raise SystemExit("dev: game play failed")
+
+
 def cmd_game_editor_check(gdir):
     if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
@@ -419,6 +446,8 @@ def cmd_game(argv):
         return subprocess.call(cmd)
     elif sub == "headless":
         cmd_game_headless(gdir, rest)
+    elif sub == "play":
+        cmd_game_play(gdir, rest)
     elif sub == "editor-check":
         cmd_game_editor_check(gdir)
     else:

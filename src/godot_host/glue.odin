@@ -89,6 +89,9 @@ Glue :: struct($S, $I, $W: typeid) {
 	scripted:    proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
 	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot).
 	hud:         proc(f: ^Frame, d: ^gd.Dictionary),
+	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
+	// enemies). Single player only: it changes the initial state, which every peer would have to share.
+	bench:       proc(s: ^S, w: ^W, n: int),
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:   proc(e: sim.Event) -> view.Key,
@@ -135,6 +138,7 @@ Start :: struct {
 	seed:     u64,
 	ticks:    u32, // 0: endless
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
+	bench:    int, // Single only: Glue.bench(n) after the game's init (dev benchmarks)
 	profile:  string, // netsim profile on the client link ("": none)
 }
 

@@ -114,6 +114,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
+	bench:     sim.Game(S, I, W, P), // the game with Glue.bench after init (req.bench > 0)
 	nets:      [dynamic]^netcode.Net_Sim, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
 }
@@ -137,6 +138,8 @@ g_game: rawptr
 g_glue: rawptr
 @(private)
 g_driver: rawptr
+@(private)
+g_bench_n: int
 
 // Installs the game: call once, before godot_host.entry.
 install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
@@ -399,7 +402,20 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 	}
 	switch r.mode {
 	case .Single:
-		d.host = netcode.host_create(g, host_cfg, hooks)
+		if r.bench > 0 && d.glue.bench != nil {
+			// The same game, with the benchmark state prepared after init (this process is the only peer).
+			g_bench_n = r.bench
+			d.bench = g^
+			d.bench.init = proc(s: ^S, w: ^W, seed: u64) {
+				game := (^sim.Game(S, I, W, P))(g_game)
+				glue := (^Glue(S, I, W))(g_glue)
+				game.init(s, w, seed)
+				glue.bench(s, w, g_bench_n)
+			}
+			d.host = netcode.host_create(&d.bench, host_cfg, hooks)
+		} else {
+			d.host = netcode.host_create(g, host_cfg, hooks)
+		}
 	case .Host_Direct:
 		link, ok := netcode.udp_listen(r.port)
 		if !ok {

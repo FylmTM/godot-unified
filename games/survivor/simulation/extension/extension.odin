@@ -91,6 +91,7 @@ GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 	},
 	hud = hud,
 	event_key = event_key,
+	bench = survivor.bench_prepare,
 }
 
 // Which scene view an event belongs to: player events (slot set) -> that player's view, barrel explosions
