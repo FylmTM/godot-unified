@@ -7,6 +7,7 @@ name: release
 on:
   push:
     tags: ["*-v*"]
+    branches: [claude/release-ci-d7767a]  # TEMP: validation only, reverted before merge
   workflow_dispatch:
     inputs:
       game_dir:
