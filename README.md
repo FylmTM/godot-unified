@@ -18,6 +18,12 @@ src/                 the `unified` collection (-collection:unified=src); one pac
   sim/               harness: ring of snapshots, checksum, portable snapshots, input log, offline modes
   netcode/           links (loopback, UDP, netsim), reliable channel, relay, client, sessions
   cli/               the `unified` CLI of spec/CORE.md §3 (package main)
+  gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
+  view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
+  imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
+  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note
+  godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync (spec/godot_host.md)
+games/<game>/        a game in the agreed layout: project.godot, game/ (Godot), simulation/ (Odin: sim, extension)
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
   lint/              determinism lint: bans core:math, matrix, f64 in game, ... per package
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
@@ -51,7 +57,15 @@ python tools/dev.py check [--only T1,T7]        # release build, then T1-T9 (too
 python tools/dev.py fmt [--check]               # odinfmt over src/ and tests/
 python tools/dev.py vet                         # odin check, strict flags, darwin/linux/windows targets
 python tools/dev.py all                         # fmt --check, vet, test, check: what CI runs
+python tools/dev.py gen                         # Godot bindings (src/gdext/*.gen.odin, git-ignored), ~1 s, cached
+python tools/dev.py godot-test                  # gdext binding tests under headless Godot (~2 s)
+python tools/dev.py game build survivor [dev|release]   # games/survivor/.uni/bin/libsurvivor.* (~1 s dev)
+python tools/dev.py game run survivor [-- --devui]      # windowed; also: editor, headless --ticks N, editor-check
 ```
+
+Godot: the standard (non-.NET) 4.7.2 build, found via `$GODOT`, `godot` on PATH, `.toolchains/godot/`, or
+`/Applications` / `~/tools/godot` on macOS. Dear ImGui is fetched and built by `tools/imgui.py` on first use
+(clang++ / clang-cl, ~2.5 s).
 
 | Mode | Flags | Use | Build (M4 Pro) |
 |---|---|---|---:|
