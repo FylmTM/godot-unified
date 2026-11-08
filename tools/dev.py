@@ -7,6 +7,7 @@
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py all                     # fmt --check, vet, test, check (what CI runs)
+    python tools/dev.py game [validate|walk|shots|import] [--game survivor]   # Godot project checks (tools/game.py)
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -192,6 +193,9 @@ def main():
         cmd_fmt(check="--check" in rest)
     elif cmd == "vet":
         cmd_vet()
+    elif cmd == "game":
+        import game
+        game.cmd_game(rest)
     elif cmd == "all":
         cmd_fmt(check=True)
         cmd_vet()

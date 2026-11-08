@@ -1,0 +1,3 @@
+# Build outputs (game library, exports, screenshots, test output) and Godot's import cache.
+/.uni/
+/.godot/
