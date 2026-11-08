@@ -32,12 +32,13 @@ jobs:
         with:
           path: .toolchains
           key: toolchains-linux-x64-${{ env.ODIN_TAG }}-${{ hashFiles('tools/ci.py') }}
-      - name: Odin + odinfmt
+      # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
+      - name: Odin
+        run: python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
+      - name: odinfmt
         run: |
-          python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-          export PATH="$(dirname "$(find .toolchains/odin -maxdepth 3 -type f -name odin | head -1)"):$PATH"
-          python3 tools/ci.py odinfmt .toolchains/odinfmt
           odin version
+          python3 tools/ci.py odinfmt .toolchains/odinfmt
 
       - name: fmt --check
         run: python3 tools/dev.py fmt --check
@@ -68,10 +69,9 @@ jobs:
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
+      # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
       - name: Odin
-        run: |
-          ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-          odin version
+        run: ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
 
       # Box3D: rebuilt only when the pinned commit, the fork patch or the recipe change. Building it needs
       # CMake + Ninja (and clang-cl with the MSVC environment on Windows, which box3d.py loads itself).
@@ -83,7 +83,9 @@ jobs:
       - if: steps.box3d-cache.outputs.cache-hit != 'true'
         run: ${{ matrix.py }} tools/ci.py ensure-ninja
       - name: Box3D
-        run: ${{ matrix.py }} tools/box3d.py
+        run: |
+          odin version
+          ${{ matrix.py }} tools/box3d.py
 
       - name: odin test
         run: ${{ matrix.py }} tools/dev.py test

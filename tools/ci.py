@@ -76,6 +76,15 @@ def cmd_odin(tag, dest):
     log("odin: " + str(odin))
 
 
+def odin_exe():
+    """odin on PATH, else the one `ci.py odin` unpacked into .toolchains/odin (its $GITHUB_PATH entry only
+    takes effect in later CI steps)."""
+    found = common.which("odin") or next(iter(find_odin(REPO / ".toolchains" / "odin", "odin" + EXE)), None)
+    if not found:
+        raise SystemExit("odinfmt: odin not found on PATH or in .toolchains/odin")
+    return str(Path(found).resolve())
+
+
 def cmd_odinfmt(dest):
     dest = Path(dest).expanduser().resolve()
     out = dest / ("odinfmt" + EXE)
@@ -92,7 +101,7 @@ def cmd_odinfmt(dest):
     log("odinfmt: fetching OLS @ %s" % OLS_COMMIT[:10])
     subprocess.run(git + ["fetch", "-q", "--depth", "1", "origin", OLS_COMMIT], check=True)
     subprocess.run(git + ["checkout", "-q", "--force", "FETCH_HEAD"], check=True)
-    cmd = ["odin", "build", "tools/odinfmt/main.odin", "-file", "-collection:src=src", "-o:speed",
+    cmd = [odin_exe(), "build", "tools/odinfmt/main.odin", "-file", "-collection:src=src", "-o:speed",
            "-out:" + str(out)]
     log("+ " + " ".join(cmd))
     subprocess.run(cmd, cwd=str(src), check=True)
