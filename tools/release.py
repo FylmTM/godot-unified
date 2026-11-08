@@ -323,10 +323,11 @@ def build_extension(game, h):
         out.parent.mkdir(parents=True, exist_ok=True)
         if out.is_symlink():
             out.unlink()
-        defines = ["-define:%s=%s" % (k, v) for k, v in sorted(os.environ.items()) if k.startswith("EOS_") and v]
+        # No EOS_* defines here: odin rejects unused ones, and the game build reads them from the environment
+        # (which also keeps the secrets off command lines and logs).
         run(["odin", "build", game / "simulation" / "extension", "-build-mode:dll", "-out:" + out.as_posix(),
              "-collection:unified=" + (REPO / "src").as_posix(), "-o:speed", "-vet", "-strict-style", "-vet-tabs",
-             "-warnings-as-errors"] + defines, cwd=REPO)
+             "-warnings-as-errors"], cwd=REPO)
     for ext, lib in libs:
         if not lib.is_file():
             raise SystemExit("release: %s names %s, which the build did not produce" % (ext.name, lib))
