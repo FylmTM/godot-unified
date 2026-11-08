@@ -26,12 +26,34 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   A GDScript-facing contract (UnifiedSession / SimView / SimBulkView, InputMap actions) was fixed up front so they
   can work in parallel.
 - **Python tooling stays for now** (`tools/dev.py` grows game commands); the Odin CLI replacing it comes later.
-- **Docs:** OctoEscape references removed; physics-engine comparisons removed from research and archive; AGENTS.md
+- **Docs:** references to the developer's other game removed; physics-engine comparisons removed from research and archive; AGENTS.md
   rule: don't name products we take ideas from (the one "inspired by" line aside) or the developer's other games.
 
 ## Work done
 
-- f313149 Quantum/Photon mentions scrubbed from all repo files except one AGENTS.md line; spike decisions recorded.
+- f313149 mentions of the product we take ideas from scrubbed from all repo files except one AGENTS.md line; spike decisions recorded.
 - 5f71f4d AGENTS.md naming rule, `docs/EOS.md` (setup steps), this log.
-- Docs: OctoEscape and its character names removed everywhere; physics-engine comparisons removed (research/01 now
+- Docs: the developer's other game and its character names removed everywhere; physics-engine comparisons removed (research/01 now
   states only our decision and rules; `archive/bench/p/` deleted).
+- EOS setup done by the developer: C SDK v1.19.2.1 at `~/tools/EOS-SDK-58105819-Release-v1.19.2.1/SDK`, IDs in
+  `~/.config/unified/eos.ini`, five `EOS_*` GitHub secrets set. Passed to the online-eos and release-ci sessions.
+- Headless-Godot spike follow-up (branch `claude/nifty-panini-064f1c`, 08a178b): standard-build numbers added; Linux
+  Xvfb/Mesa screenshots are good enough for tolerance-based golden screenshots.
+- GDExtension spike follow-up (`claude/competent-hawking-a92edb`, dadfe88): standard build; the macOS `.app` export
+  works with the library in Frameworks and the same sim hash.
+- a5c9bc5 **core-lib M1 merged:** generic `sim` (`sim.Game(S, I, W, P)`, tables/handles, `rng_below`, events),
+  `physics` plug-in, `dmath`, `netcode` step API + hooks + host (`host_add_link` for extra transports), `headless`;
+  the survivor runs at 64 Hz as `out/<mode>/survivor`; T1–T9 + Rosetta pass, CI green. Its decisions (accepted):
+  presence bitmask from the relay instead of an "absent" button; tick number kept by the harness and checksummed;
+  max players `P` is compile-time (≤ 32); one fixed 24-byte event record (kind, slot, entity, position, value);
+  physics bodies hashed in state memory order via RTTI; tolerance 100 ms (7 ticks at 64 Hz), delay ceiling 100 ms,
+  prediction cap 166 ms; max datagram 1152 bytes (fits EOS P2P); queued snapshot requests; a joiner replays from
+  tick 0 if no snapshot source; hello carries a build-compat id; stateless scripted test inputs; xorshift32 RNG kept.
+- 8fd4f79 **online-eos merged:** `src/eos` (runtime-loaded EOS 1.19.2.1 bindings: device-ID login, lobby by 6-char
+  code without ambiguous characters, P2P `netcode.Link`), `tools/eos.py` (stages the SDK, packs it as the draft
+  release `eos-sdk-1.19.2.1`), headless `survivor eos-host/eos-client`. Verified between two processes on this Mac:
+  direct 2 ms RTT, forced Epic relay ~150 ms RTT, 0 desyncs, late join over P2P. Decisions: unreliable P2P for all
+  traffic (our channel does reliability); search by lobby attribute with retries (new lobbies take 1–2 s to index);
+  SDK in a draft release (no git tag), so CI jobs that fetch it need `contents: write`; macOS keychain prompts stay
+  on in games, off for headless runs; `tools/eos.py` writes SDK copies without the browser's quarantine flag (the
+  quarantined dylib hung on load).

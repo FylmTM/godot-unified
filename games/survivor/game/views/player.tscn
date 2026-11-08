@@ -1,0 +1,70 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/views/player_view.gd" id="1_view"]
+
+[sub_resource type="StandardMaterial3D" id="body_mat"]
+albedo_color = Color(1, 0.54, 0.24, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.5
+rim_enabled = true
+rim = 0.45
+rim_tint = 0.3
+
+[sub_resource type="CapsuleMesh" id="body_mesh"]
+radius = 0.45
+height = 1.8
+radial_segments = 16
+rings = 4
+
+[sub_resource type="StandardMaterial3D" id="visor_mat"]
+albedo_color = Color(0.08, 0.09, 0.13, 1)
+metallic = 0.4
+roughness = 0.15
+
+[sub_resource type="BoxMesh" id="visor_mesh"]
+material = SubResource("visor_mat")
+size = Vector3(0.62, 0.2, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="ring_mat"]
+shading_mode = 0
+albedo_color = Color(1, 0.54, 0.24, 1)
+
+[sub_resource type="TorusMesh" id="ring_mesh"]
+inner_radius = 0.6
+outer_radius = 0.72
+rings = 24
+ring_segments = 4
+
+[node name="Player" type="Node3D"]
+script = ExtResource("1_view")
+kind = &"player"
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="Mesh" type="MeshInstance3D" parent="Body"]
+mesh = SubResource("body_mesh")
+surface_material_override/0 = SubResource("body_mat")
+
+[node name="Visor" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.42, 0.3)
+mesh = SubResource("visor_mesh")
+
+[node name="Ring" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.25, 0, 0, 0, 1, 0, -0.86, 0)
+cast_shadow = 0
+mesh = SubResource("ring_mesh")
+surface_material_override/0 = SubResource("ring_mat")
+
+[node name="Name" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+pixel_size = 0.01
+billboard = 1
+no_depth_test = true
+fixed_size = false
+render_priority = 10
+outline_render_priority = 9
+modulate = Color(1, 0.8, 0.6, 1)
+text = "P1"
+font_size = 44
+outline_size = 16

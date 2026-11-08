@@ -1,0 +1,20 @@
+; The game's GDExtension: the survivor sim + unified (godot_host, view, netcode, devui), built from
+; simulation/extension into the hidden artifacts folder (git-ignored). Without it the game runs on MockSession.
+[configuration]
+
+entry_symbol = "survivor_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.uni/bin/libsurvivor.dylib"
+macos.release = "res://.uni/bin/libsurvivor.dylib"
+windows.x86_64 = "res://.uni/bin/survivor.dll"
+linux.x86_64 = "res://.uni/bin/libsurvivor.so"
+
+; The EOS SDK runtime library, copied into .uni/bin by `dev.py game build`, shipped with exports.
+[dependencies]
+
+macos = {"res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks"}
+windows.x86_64 = {"res://.uni/bin/EOSSDK-Win64-Shipping.dll": ""}

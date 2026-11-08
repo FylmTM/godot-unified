@@ -1,0 +1,17 @@
+[gd_scene format=3]
+
+[ext_resource type="Shader" path="res://game/shaders/start_circle.gdshader" id="1_circle"]
+
+[sub_resource type="ShaderMaterial" id="circle_mat"]
+render_priority = 0
+shader = ExtResource("1_circle")
+shader_parameter/radius = 6.0
+
+[sub_resource type="PlaneMesh" id="circle_mesh"]
+material = SubResource("circle_mat")
+size = Vector2(16, 16)
+
+[node name="StartCircle" type="MeshInstance3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0)
+cast_shadow = 0
+mesh = SubResource("circle_mesh")
