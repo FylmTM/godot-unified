@@ -22,8 +22,8 @@ usage :: proc() -> ! {
            [--late-join P@T] [--log F] [--seed S]
   relay    --port P --players N --ticks T --log F
   client   --connect HOST:PORT --player I --ticks T [--profile ideal|wan|bad]
-  eos-host   --ticks T [--players N] [--relays allow|force|none] [--code-file F] [--log F]
-  eos-client --code CODE --ticks T [--relays allow|force|none]
+  eos-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--relays allow|force|none] [--code-file F] [--log F]
+  eos-client --code CODE --ticks T [--bucket B] [--relays allow|force|none]
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --enemies E --window W --ticks N [--seed S] [--players P]`,
