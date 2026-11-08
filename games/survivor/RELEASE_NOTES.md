@@ -3,7 +3,7 @@
 - **Move:** WASD or arrow keys, gamepad left stick. **Dash:** Space / pad A.
 - **Level up:** pick an upgrade with 1 / 2 / 3 (pad X / Y / B).
 - **Menu:** Esc. **Dev UI:** F1 (included in every test build for now).
-- **Single player** starts a match right away. Everyone spawns inside the circle; the match starts when any player
+- **Single player** puts you in the arena. Everyone spawns inside the circle; the match starts when any player
   walks out of it.
 
 ## Playing with a friend (online)
