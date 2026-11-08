@@ -8,6 +8,7 @@ import "core:time"
 import "unified:devui"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
+import "unified:sim"
 import "unified:view"
 
 Session_Node :: struct {
@@ -300,7 +301,9 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 	name := event_name(e.kind)
 	pos := gd.Vector3{e.pos.x, e.pos.y, e.pos.z}
 	if m.action == .Confirm {
-		gd.emit_signal(s.obj, gd.sn("sim_event"), gd.sn(name)^, i64(m.tick), i64(e.entity), pos, f64(e.value))
+		// player events carry the slot as their entity (UI: slot colours, "is it me")
+		entity := e.slot != sim.NO_SLOT ? i64(e.slot) : i64(e.entity)
+		gd.emit_signal(s.obj, gd.sn("sim_event"), gd.sn(name)^, i64(m.tick), entity, pos, f64(e.value))
 		devui.log(
 			m.tick,
 			"%s entity %d slot %d value %.2f",

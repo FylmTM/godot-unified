@@ -234,10 +234,19 @@ views_sync :: proc(root: gd.Node3D, f: ^Frame, fresh: bool, alpha: f32, dt: f32)
 	if fresh {
 		view.set_begin(&V.set)
 		for &it in f.scene[:f.n_scene] {
+			old := view.set_get(&V.set, it.key)
+			revived := old != nil && old.phase == .Lingering
 			e, spawned := view.set_see(&V.set, it.key)
 			if spawned do e.view = spawn_view(root, &it)
 			v := e.view
 			if v == nil do continue
+			if revived && v.has_event && alive(v.id) {
+				// a rollback brought it back during its linger: undo the exit animation
+				d := gd.dict_new()
+				r := gd.call_script(v.node, gd.sn("_sim_event"), gd.sn("revived")^, d)
+				gd.variant_destroy(&r)
+				gd.Dictionary_destroy(&d)
+			}
 			v.entity, v.slot = it.entity, it.slot
 			if it.has_prev do view.track_push(&v.track, f.tick - 1, {it.prev_pos, quat_or_identity(it.prev_rot)})
 			view.track_push(&v.track, f.tick, {it.pos, quat_or_identity(it.rot)})

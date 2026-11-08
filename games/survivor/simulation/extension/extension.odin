@@ -138,14 +138,15 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 		out.n_bulk += 1
 		b^ = {
 			kind = BULK_PROJECTILE,
-			pos  = pj.pos,
+			pos  = {pj.pos.x, 0, pj.pos.z}, // bulk meshes are lifted in the game's shader
 			yaw  = math.atan2(pj.vel.x, pj.vel.z),
 		}
 		if prev != nil {
 			ps := &prev.projectiles.slots[idx]
 			if ps.alive && ps.generation == pr.slots[idx].generation {
 				b.has_prev = true
-				b.prev_pos = prev.projectiles.items[idx].pos
+				pp := prev.projectiles.items[idx].pos
+				b.prev_pos = {pp.x, 0, pp.z}
 			}
 		}
 	}
