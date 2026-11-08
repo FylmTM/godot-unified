@@ -1,0 +1,2500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>unified Core API Atlas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reference atlas. One concept per section, three language columns that line up across the page;
+   a sticky header carries the column labels so the eye never loses which column is which. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #161b22; --muted: #5a6472; --rule: #d9dee5;
+  --code-bg: #f1f3f6; --accent: #2d4bd6;
+  --cpp: #3b6ac9; --odin: #1f8a7a; --rust: #b4532a;
+  --tk-kw: #8a2bb0; --tk-str: #1d7a3a; --tk-num: #a0520e; --tk-com: #7b8794; --tk-type: #1f5fae; --tk-attr: #9a6b00;
+  --good: #1d7a3a; --warn: #9a6b00; --bad: #b3261e;
+  --font-display: "Schibsted Grotesk", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1216; --panel: #161a20; --ink: #e6e9ee; --muted: #9aa4b2; --rule: #2a313b; --code-bg: #12161b; --accent: #8ea2ff;
+  --cpp: #7fa3ee; --odin: #4fc3b0; --rust: #e2885f;
+  --tk-kw: #d39bf0; --tk-str: #7ccf8f; --tk-num: #e8a86a; --tk-com: #6f7b89; --tk-type: #7fb4f0; --tk-attr: #e3c069;
+  --good: #7ccf8f; --warn: #e3c069; --bad: #f2867c; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1216; --panel: #161a20; --ink: #e6e9ee; --muted: #9aa4b2; --rule: #2a313b; --code-bg: #12161b; --accent: #8ea2ff;
+  --cpp: #7fa3ee; --odin: #4fc3b0; --rust: #e2885f;
+  --tk-kw: #d39bf0; --tk-str: #7ccf8f; --tk-num: #e8a86a; --tk-com: #6f7b89; --tk-type: #7fb4f0; --tk-attr: #e3c069;
+  --good: #7ccf8f; --warn: #e3c069; --bad: #f2867c; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.masthead { padding-block: 40px 24px; max-width: 1500px; margin: 0 auto; }
+.masthead h1 { font: 800 clamp(30px, 4.4vw, 52px)/1.05 var(--font-display); letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
+.masthead .kicker { font: 600 12px/1 var(--font-code); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 14px; }
+.intro { max-width: 72ch; color: var(--ink); }
+.intro p { margin: 0 0 10px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sticky { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--rule); }
+.sticky .bar { max-width: 1500px; margin: 0 auto; display: grid; grid-template-columns: 220px 1fr; gap: 20px; align-items: center; padding-block: 10px; }
+.sticky .labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.sticky .labels span { font: 700 15px/1 var(--font-display); padding-left: 10px; border-left: 4px solid; }
+.sticky .tools { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.tools button { font: 600 12px var(--font-body); border: 1px solid var(--rule); background: var(--bg); color: var(--ink); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+.tools button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.lbl-cpp { border-color: var(--cpp) !important; } .lbl-odin { border-color: var(--odin) !important; } .lbl-rust { border-color: var(--rust) !important; }
+.layout { max-width: 1500px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; padding-block: 24px 80px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 64px); align-self: start; max-height: calc(100vh - 90px); overflow: auto; font-size: 13.5px; }
+nav.toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc .nav-group { font: 700 11px/1 var(--font-code); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-top: 14px; padding-bottom: 4px; }
+nav.toc a { color: var(--ink); text-decoration: none; display: block; padding: 3px 8px; border-radius: 5px; }
+nav.toc a:hover, nav.toc a.active { background: var(--code-bg); color: var(--accent); }
+main { min-width: 0; display: grid; gap: 30px; }
+.summary { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 18px 8px; }
+.summary h2 { font: 800 22px/1.2 var(--font-display); margin: 0 0 10px; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-top: 1px solid var(--rule); }
+thead th { font: 700 13px var(--font-display); border-top: 0; }
+tbody th { font-weight: 600; width: 22%; }
+td.good { color: var(--good); } td.warn { color: var(--warn); } td.bad { color: var(--bad); }
+h2.group-title { font: 800 28px/1.1 var(--font-display); letter-spacing: -0.01em; margin: 26px 0 -8px; padding-top: 6px; border-top: 3px solid var(--ink); }
+.concept { scroll-margin-top: 80px; }
+.concept-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.concept-head h3 { font: 700 21px/1.2 var(--font-display); margin: 0; text-wrap: balance; }
+.edge { font: 600 12px/1 var(--font-code); color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 4px 9px; }
+.look { margin: 6px 0 12px; max-width: 90ch; color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.col { min-width: 0; display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--rule); border-top: 4px solid; border-radius: 8px; padding: 10px; }
+.col-cpp { border-top-color: var(--cpp); } .col-odin { border-top-color: var(--odin); } .col-rust { border-top-color: var(--rust); }
+.col-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; }
+.col-head .lang { font: 700 14px var(--font-display); }
+.status { font: 600 10.5px/1 var(--font-code); text-transform: uppercase; letter-spacing: .08em; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--rule); color: var(--muted); }
+.status-real { color: var(--good); border-color: var(--good); }
+.status-sketch { color: var(--warn); border-color: var(--warn); border-style: dashed; }
+.status-mixed { color: var(--accent); border-color: var(--accent); }
+.src { font: 11.5px var(--font-code); color: var(--muted); overflow-wrap: anywhere; }
+pre.code { margin: 0; background: var(--code-bg); border-radius: 6px; padding: 10px 12px; overflow: auto; max-height: 560px; font: 12.5px/1.5 var(--font-code); tab-size: 4; }
+body.wrap-code pre.code { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.code .k { color: var(--tk-kw); } pre.code .s { color: var(--tk-str); } pre.code .n { color: var(--tk-num); }
+pre.code .c { color: var(--tk-com); font-style: italic; } pre.code .t { color: var(--tk-type); } pre.code .a { color: var(--tk-attr); }
+.note { margin: 0; font-size: 13.5px; }
+.missing { color: var(--muted); font-style: italic; }
+body.hide-sketch .col:has(.status-sketch) pre.code, body.hide-sketch .col:has(.status-sketch) .note { display: none; }
+.lists .cols .col h4 { font: 700 13px var(--font-display); text-transform: uppercase; letter-spacing: .08em; margin: 6px 0 0; color: var(--muted); }
+.lists ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
+.closing { max-width: 80ch; }
+@media (max-width: 1100px) {
+  .layout, .sticky .bar { grid-template-columns: minmax(0, 1fr); }
+  nav.toc { display: none; }
+}
+@media (max-width: 820px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .sticky .labels { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="masthead">
+<p class="kicker">unified · phase 2 · core API atlas</p>
+<h1>The same core, written three ways</h1>
+<div class="intro"><p>Each section shows one concept of the <code>unified</code> core, written in all three phase-2 implementations: the same spec (<code>spec/CORE.md</code>, <code>spec/GAME.md</code>), three independent codebases, all passing T1–T9 on macOS, Linux x64 and Windows x64. Columns use the same game concepts (enemies, barrels, players), so you can read across a row.</p><p>Real code is quoted from <code>impl/&lt;lang&gt;</code> with its file and line range. Where something doesn't exist yet (events to the view, config, most of reflection), the column shows a sketch of how it would look in that language, written in that codebase's style. The Odin sketches were type-checked against the real packages. Every implementation is a research prototype, so read for the shape of each language, not the polish of each line.</p><p>The notes under each snippet were written by the agent that knew that codebase, and they're candid about each language's friction. The pill next to a section title is my reading of which language expresses that concept best.</p></div>
+<div class="legend"><span><span class="status status-real">real</span> code from impl/&lt;lang&gt;</span><span><span class="status status-sketch">sketch</span> how it would look; not built yet</span><span><span class="status status-mixed">mixed</span> real code plus a sketched part</span></div>
+</header>
+</div>
+<div class="sticky wrap"><div class="bar"><div class="tools"><button type="button" id="wrap-toggle" aria-pressed="false">Wrap lines</button><button type="button" id="sketch-toggle" aria-pressed="false">Hide sketches</button></div>
+<div class="labels"><span class="lbl-cpp">C++</span><span class="lbl-odin">Odin</span><span class="lbl-rust">Rust</span></div></div></div>
+<div class="wrap"><div class="layout">
+<nav class="toc" aria-label="Concepts"><ul><li class="nav-group">Overview</li><li><a href="#summary">Where they differ</a></li><li class="nav-group">Data model and systems</li><li><a href="#layout">Project layout</a></li><li><a href="#components">Components and the state block</a></li><li><a href="#spawn">Spawning entities</a></li><li><a href="#despawn">Despawning, free lists and handles</a></li><li><a href="#query">Writing a system</a></li><li><a href="#schedule">System order per tick</a></li><li class="nav-group">Physics and rollback</li><li><a href="#physics-binding">Binding and calling Box3D</a></li><li><a href="#snapshot">Snapshot save and restore</a></li><li><a href="#checksum">Checksums</a></li><li><a href="#rollback-loop">The client&#x27;s rollback loop</a></li><li class="nav-group">Netcode</li><li><a href="#input">Input and pushing it</a></li><li><a href="#netcode-start">Starting a relay and a client</a></li><li><a href="#transport">Transport abstraction and network simulator</a></li><li><a href="#late-join">Late join</a></li><li class="nav-group">Talking to the view layer</li><li><a href="#events-to-view">Sim events to the view</a></li><li><a href="#view-read">View reading state with interpolation</a></li><li><a href="#godot">Driving Godot</a></li><li class="nav-group">Dev tooling</li><li><a href="#reflection">Reflection and introspection</a></li><li><a href="#serialization">Serializing custom types</a></li><li><a href="#config">Tunable config</a></li><li><a href="#tests">Tests</a></li><li><a href="#determinism-guards">Determinism guards</a></li><li class="nav-group">Everyday development</li><li><a href="#errors">Error handling</a></li><li><a href="#build">Building and running</a></li><li class="nav-group">Wrap-up</li><li><a href="#lists">Strengths and pain points</a></li></ul></nav>
+<main>
+<section class="summary" id="summary"><h2>Where they differ</h2><div class="table-scroll"><table><thead><tr><th>Topic</th><th>C++</th><th>Odin</th><th>Rust</th></tr></thead><tbody><tr><th scope="row">Proving the state block is snapshot-safe (no pointers, no padding)</th><td class="warn">~100-line homemade template check plus -Wpadded; compile-time, but our own machinery</td><td class="warn">RTTI walk at startup and in tests; a pointer compiles and panics at launch</td><td class="good">#[derive(Pod)]: a pointer or padding is a compile error</td></tr><tr><th scope="row">Calling C libraries (Box3D now; Steam, FMOD later)</th><td class="good">Include the header; zero glue</td><td class="good">~300 lines of easy hand bindings with #assert layout checks</td><td class="warn">~680 lines: extern decls, layout asserts, and safe wrappers</td></tr><tr><th scope="row">Reflection for dev tools (inspector, desync diff, config)</th><td class="bad">No field names without Boost.PFR or X-macros; real reflection is C++26 (~2027)</td><td class="good">Built-in RTTI with struct tags: zero per-type code, zero build cost</td><td class="warn">A macro or a proc-macro derive; each derive adds uncached build time</td></tr><tr><th scope="row">Serialization of custom types</th><td class="bad">Encode and decode mirrored by hand (~220 lines for 9 messages)</td><td class="good">Raw bytes for the block, free JSON via RTTI; binary messages by hand</td><td class="good">bytemuck for the block, serde for files (proc macro cost, [T;32] limit)</td></tr><tr><th scope="row">Polymorphism (transports; the Godot API)</th><td class="good">Virtual interfaces and decorators</td><td class="warn">Structs of proc pointers plus rawptr casts; no methods</td><td class="good">Traits and generics; runtime choice needs hand-written enums</td></tr><tr><th scope="row">Writing systems that touch several tables</th><td class="good">Plain loops, no friction</td><td class="good">Plain loops, no friction</td><td class="warn">Index loops and split borrows; whole-State helpers clash with field borrows</td></tr><tr><th scope="row">Memory and lifetime safety</th><td class="bad">Runtime only: sanitizers and sync-test; silent UB possible</td><td class="warn">Bounds checks on; no RAII, so everything is freed by convention</td><td class="good">Compile-time; unsafe confined to the binding crate by a lint</td></tr><tr><th scope="row">Determinism guards</th><td class="warn">Flags you must set; banned-API checks still TODO</td><td class="warn">No FMA by default; libm and matrix traps guarded only by a comment</td><td class="good">Safe defaults; banned APIs need a 10-line clippy.toml</td></tr><tr><th scope="row">Godot</th><td class="good">Official godot-cpp; RTTI and static-init papercuts</td><td class="warn">Our own generator; manual refcounting (first version leaked 822 objects)</td><td class="good">gdext is mature and safe; 24 s fresh builds</td></tr><tr><th scope="row">Error handling</th><td class="warn">bool and out-params; nothing forces a check</td><td class="warn">Values and or_return; nothing forces a check</td><td class="good">Result and ?; the compiler forces handling</td></tr><tr><th scope="row">Build loop (fresh / one-line edit)</th><td class="good">2.0 s / 0.4 s</td><td class="good">0.4 s / 0.4 s; release builds slow at 100k lines</td><td class="good">5.8 s / 0.45 s</td></tr><tr><th scope="row">Rollback at 1000 enemies (step + 8-tick re-sim)</th><td class="">1.16 ms</td><td class="good">0.62 ms</td><td class="">0.79 ms</td></tr><tr><th scope="row">Toolchain problems found in phase 2</th><td class="good">None blocking</td><td class="bad">Stdlib XXH3 bug, Windows linker quirk, CRT mismatch</td><td class="good">A toolchain-pin papercut</td></tr></tbody></table></div></section>
+<h2 class="group-title" id="g-data">Data model and systems</h2><section class="concept" id="layout"><header class="concept-head"><h3>Project layout</h3><span class="edge">Rust: layering enforced</span></header><p class="look">How the language turns modules into architecture. Rust&#x27;s crate graph makes &#x27;netcode can&#x27;t see game types&#x27; a compile error; Odin&#x27;s directory-equals-package is the least ceremony; C++ relies on which CMake targets link which.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/README.md (Structure), impl/cpp/CMakeLists.txt:102-147</span></div><pre class="code" data-lang="tree"><code>impl/cpp/
+├── build.py              # python build.py dev|release|asan|tsan|release-x64  (CMake + Ninja driver)
+├── CMakeLists.txt        # one static lib per module; flags shared via an INTERFACE target
+├── third_party/xxhash/   # vendored xxhash.h (only external source)
+└── src/                  # deps point down: cli → net → sim → game → physics → core
+    ├── core/     base.h (u8..f32, UNI_CHECK, bounds-checked Array), pod_check.h, bytes.h,
+    │             hash, input.h, input_log, json, platform{,_posix,_win}.cpp
+    ├── physics/  physics.{h,cpp}  (the only TU that includes box3d.h), world_state_ext.cpp
+    ├── game/     state.h (the block), tables.h, pool.h, world.cpp, systems.cpp, script.cpp
+    ├── sim/      sim.{h,cpp}: Sim (block + world + scratch), Snapshot, Ring&lt;16&gt;, portable format
+    ├── net/      transport.h, socket_{posix,win}.cpp, loopback, netsim, host (reliable channel),
+    │             protocol, relay, client, session
+    └── cli/      main, args, offline.cpp (sim/synctest/replay/snapshot/resume/bench), net_commands.cpp</code></pre><p class="note">Plain header/source pairs grouped into CMake static libs; the layering is a convention enforced only by which targets link which (nothing stops game/ from including net/ headers). Platform code is selected per OS in CMake rather than with #ifdefs scattered through the code.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/README.md (Structure)</span></div><pre class="code" data-lang="tree"><code>impl/odin/
+├── build.py                    dev|release [--check] [--arch x86_64] -&gt; out/&lt;mode&gt;/unified
+└── src/                        imports are one-way: cli -&gt; netcode -&gt; core -&gt; game -&gt; box3d
+    ├── box3d/box3d.odin        hand-written Box3D bindings + fork save/restore, 38 #asserts (294 lines)
+    ├── game/                   package game: the sim (967 lines)
+    │   ├── state.odin          constants, Input, components, Pool($T, $N), the State block
+    │   ├── world.odin          world build, body create/destroy, Body_Ref &lt;-&gt; BodyId
+    │   ├── systems.odin        tick(): systems 1-11 in GAME.md order
+    │   └── script.odin         scripted test inputs
+    ├── core/                   package core: harness (589 lines)
+    │   ├── sim.odin            Sim, 16-slot ring, save/restore, checksum, portable snapshot
+    │   ├── pod.odin            RTTI pointer-freedom + padding walk (pod_test.odin: odin test)
+    │   ├── log.odin            input log (&quot;UNIL&quot;)
+    │   ├── bytes.odin          little-endian Writer / Reader
+    │   └── offline.odin        sim / synctest / replay / snapshot / resume / bench
+    ├── netcode/                package netcode, not `net` (core:net owns that name) (1714 lines)
+    │   ├── link.odin           Link (datagram proc-table) + in-process loopback hub
+    │   ├── udp.odin            core:net UDP link
+    │   ├── netsim.odin         seeded latency/jitter/loss/dup/reorder wrapper
+    │   ├── channel.odin        transport: send(peer, bytes, Delivery), poll() -&gt; events
+    │   ├── proto.odin          message ids, input wire packing
+    │   ├── relay.odin          Quantum-style relay
+    │   ├── client.odin         verified/predicted frames, rollback, delay, time sync, late join
+    │   └── session.odin        in-process relay + N client threads
+    └── cli/                    package main (287 lines)
+        ├── main.odin  netmodes.odin  args.odin
+        └── platform_windows.odin / platform_other.odin   (#+build !windows)</code></pre><p class="note">Directory = package, so the tree is the module graph; no manifest, no package manager. The only naming friction: package names are program-wide, so `net` was taken by core:net.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/README.md (Structure); impl/rust/Cargo.toml</span></div><pre class="code" data-lang="tree"><code>impl/rust/                       Cargo workspace, edition 2024, rustc 1.98 (rust-toolchain.toml)
+├── build.py                     tools/box3d.py --json -&gt; BOX3D_LIB_DIR -&gt; cargo build -&gt; out/&lt;mode&gt;/unified
+├── Cargo.toml                   [workspace.lints.rust] unsafe_code = &quot;forbid&quot;; dev/release profiles
+└── crates/
+    ├── box3d-sys/               the ONLY crate allowed to write `unsafe`
+    │   ├── build.rs             links libbox3d.a / box3d.lib built by tools/box3d.py
+    │   └── src/ffi.rs           hand-written extern &quot;C&quot;: 28 fns, 26 #[repr(C)] structs, const layout asserts
+    │       src/lib.rs           safe World / WorldState / BodyKey wrapper, runtime verify_layout(), tests
+    ├── simcore/                 game-agnostic: Input, trait Simulation, trait InputSource, SnapshotRing(16),
+    │                            synctest, InputLog (UNIL), Trace, tiny Json writer, bench stats
+    ├── game/                    survivor-lite: state.rs (the Pod block), world.rs (creation order),
+    │                            systems.rs (systems 1-11), grid.rs, script.rs, lib.rs (impl Simulation for Game)
+    ├── netcode/                 depends on simcore only (never on game):
+    │                            transport.rs (Transport + Datagram traits, Endpoint = reliable lane),
+    │                            loopback.rs, udp.rs, netsim.rs, wire.rs, proto.rs (enum Msg),
+    │                            relay.rs, client.rs (generic over S: Simulation)
+    └── unified/                 the CLI binary: main.rs, args.rs, offline.rs, net.rs</code></pre><p class="note">The crate graph enforces the architecture: netcode cannot name a game type, and only box3d-sys may use unsafe (a workspace lint, not a convention). Five crates cost nothing noticeable in build time here; a dependency edge is a one-line Cargo.toml change.</p></div></div></section><section class="concept" id="components"><header class="concept-head"><h3>Components and the state block</h3><span class="edge">Rust: compile-time proof</span></header><p class="look">The core&#x27;s key property is that the whole sim state is pointer-free and padding-free, so a snapshot is a memcpy and the bytes are the checksum. Compare how each language proves it.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/game/state.h:31-36,66-74,94-127; impl/cpp/src/core/pod_check.h:77-98</span></div><pre class="code" data-lang="cpp"><code>// game/state.h
+#pragma clang diagnostic push
+#pragma clang diagnostic error &quot;-Wpadded&quot;   // no implicit padding: the block&#x27;s bytes are its fields
+
+struct Enemy {
+    f32 x, z, vx, vz;
+    i32 hp;
+    u8 kind; // EnemyKind
+    u8 alive;
+    u8 climbing;
+    u8 contact_cooldown;
+};
+// ...
+struct State {
+    u64 seed; u32 tick; u32 rng; // ...
+    Array&lt;Player, MAX_PLAYERS&gt; players;
+    Array&lt;Item, ITEM_COUNT&gt; items;
+    Array&lt;Enemy, MAX_ENEMIES&gt; enemies;
+    SlotPool&lt;MAX_ENEMIES&gt; enemy_pool;
+    // ... projectiles, gems + their pools
+};
+#pragma clang diagnostic pop
+
+static_assert(uni::pod::is_portable_pod&lt;State&gt;(), &quot;State must be a pointer-free POD&quot;);
+static_assert(sizeof(Player) == 60 &amp;&amp; sizeof(Item) == 16 &amp;&amp; sizeof(Enemy) == 24 /* ... */);
+
+// core/pod_check.h: Boost.PFR-style aggregate walk (brace-init field counting + structured bindings)
+template &lt;class F&gt;
+constexpr bool field_ok() {
+    if constexpr (std::is_arithmetic_v&lt;F&gt; || std::is_enum_v&lt;F&gt;) return true;
+    else if constexpr (IsArray&lt;F&gt;::value) return field_ok&lt;typename IsArray&lt;F&gt;::Elem&gt;();
+    else if constexpr (std::is_pointer_v&lt;F&gt; || std::is_reference_v&lt;F&gt; ||
+                       std::is_member_pointer_v&lt;F&gt; || std::is_array_v&lt;F&gt;) return false;
+    else if constexpr (std::is_aggregate_v&lt;F&gt; &amp;&amp; std::is_trivially_copyable_v&lt;F&gt; &amp;&amp; std::is_standard_layout_v&lt;F&gt;)
+        return decltype(fields_ok(std::declval&lt;F&amp;&gt;()))::value;   // recurse into nested structs
+    else return false;
+}</code></pre><p class="note">Components are plain structs-of-scalars in one aggregate, which is natural C++. But pointer-freedom isn&#x27;t a language property: it took a ~100-line template trick (with a hand-written 24-rung structured-binding ladder) plus -Wpadded, which forces manual `reserved0..2` fields and stores enums as raw `u8` to control size. All compile-time, at least.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/game/state.odin:81-151; impl/odin/src/core/pod.odin:50-54; impl/odin/src/core/sim.odin:39-40</span></div><pre class="code" data-lang="odin"><code>Enemy :: struct {
+	using slot:       Slot,
+	pos:              [2]f32, // x, z
+	vel:              [2]f32,
+	hp:               i32,
+	speed:            f32,
+	radius:           f32,
+	damage:           i32,
+	contact_cooldown: u16,
+	kind:             Enemy_Kind,
+	climbing:         bool,
+}
+
+// Common header of pooled entities: stable index, generation for handles, free-list link.
+Slot :: struct {
+	next_free:  i32,
+	generation: u16,
+	alive:      bool,
+	_pad:       u8,
+}
+// ...
+// The whole simulation state: one pointer-free block (checked at startup by core.check_pod).
+State :: struct {
+	tick:        u32,
+	rng:         u32,
+	// ...
+	players:     [MAX_PLAYERS]Player,
+	items:       [ITEM_COUNT]Item,
+	enemies:     Pool(Enemy, MAX_ENEMIES),
+	projectiles: Pool(Projectile, MAX_PROJECTILES),
+	gems:        Pool(Gem, MAX_GEMS),
+}
+
+// core/pod.odin: walks type_info_of(T); rejects pointers, slices, strings, maps AND implicit padding
+check_pod :: proc($T: typeid) {
+	if r := pod_violation(type_info_of(T), fmt.tprint(typeid_of(T))); r != &quot;&quot; {
+		fmt.panicf(&quot;state block is not plain data: %s&quot;, r)
+	}
+}
+// core/sim.odin: sim_create :: proc(...) { check_pod(game.State) ... }</code></pre><p class="note">Components are plain structs in fixed arrays; `using slot` flattens the pool header so systems write `e.alive`. Pointer-freedom is a 54-line RTTI walk run at startup and in `odin test`, not a type error: a pointer added to Enemy compiles fine and only panics at launch. The no-implicit-padding rule (so raw bytes = canonical serialization) means hand-placed `_pad` fields.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/state.rs:31-150,204-205</span></div><pre class="code" data-lang="rust"><code>use bytemuck::{Pod, Zeroable};
+/// A Box3D body id without its world index. `live == 0`: no body.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
+pub struct BodyRef { pub index1: i32, pub generation: u16, pub live: u16 }
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct Player {
+    pub body: BodyRef,
+    pub pos: [f32; 3],
+    pub hp: i32,
+    // ... xp, level, pending_levelups, fire_interval, move_speed, dash_*, respawn
+    pub active: u8,        // bool is not Pod: flags are u8
+    pub alive: u8,
+    pub prev_buttons: u8,  // 3 x u8 after 4-byte fields:
+    pub _pad: u8,          // padding must be spelled out, or the derive fails to compile
+}
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct Enemies {                       // SoA, fixed capacity, stable indices
+    pub px: [f32; MAX_ENEMIES],
+    // ... pz, vx, vz, hp
+    pub generation: [u16; MAX_ENEMIES],
+    pub kind: [u8; MAX_ENEMIES],           // 0 grunt, 1 runner, 2 brute (index into KINDS)
+    pub alive: [u8; MAX_ENEMIES],
+    // ... free, climbing, contact_cd, free_count, count
+}
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct State {
+    pub tick: u32,
+    // ... rng, seed_lo, seed_hi, enemy_limit, initial_mask
+    pub players: [Player; MAX_PLAYERS],
+    pub items: [BodyRef; N_ITEMS],         // crate + barrel bodies in grid order
+    pub barrels: [Barrel; N_BARRELS],
+    pub enemies: Enemies,                  // ... projectiles, gems
+}
+pub const STATE_BYTES: usize = core::mem::size_of::&lt;State&gt;();
+const _: () = assert!(core::mem::align_of::&lt;State&gt;() == 4 &amp;&amp; STATE_BYTES.is_multiple_of(4) &amp;&amp; STATE_BYTES &lt; 128 * 1024);</code></pre><p class="note">#[derive(Pod)] is the strongest pointer-freedom check of the three languages: any reference, Box, Vec, raw pointer or implicit padding is a compile error, so bytes_of(&amp;state) is canonical by construction. The price is C-style data: no bool, no Option, no Rust enums in the block (kind is a u8 index, BodyRef uses a `live` sentinel), and padding fields written by hand. The 65 KB block is created with bytemuck::zeroed_box() so it never lands on the stack.</p></div></div></section><section class="concept" id="spawn"><header class="concept-head"><h3>Spawning entities</h3><span class="edge">Even</span></header><p class="look">Spawning an enemy, plus a barrel with a Box3D body. All three end up as plain functions over fixed pools; the differences are how &#x27;table full&#x27; is reported and how a slot is reset.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/game/systems.cpp:15-19,44-59,524-529</span></div><pre class="code" data-lang="cpp"><code>// Enemy: kinematic, lives only in the block. Slot from the stable-index free list.
+void spawn_enemy(State&amp; s) {
+    u32 k = xorshift32(s.rng) % 8u;
+    f32 jx = (f32)(xorshift32(s.rng) % 1000u) / 1000.0f * 2.0f - 1.0f;
+    f32 jz = (f32)(xorshift32(s.rng) % 1000u) / 1000.0f * 2.0f - 1.0f;
+    u32 roll = xorshift32(s.rng) % 10u;
+    u8 kind = roll &lt; 7u ? GRUNT : (roll &lt; 9u ? RUNNER : BRUTE);
+    int slot = pool_alloc(s.enemy_pool);
+    UNI_CHECK(slot &gt;= 0, &quot;enemy pool exhausted&quot;);
+    Enemy&amp; e = s.enemies[slot];
+    e = Enemy{};
+    e.x = SPAWN_RING * RING_C[k] + jx;
+    e.z = SPAWN_RING * RING_S[k] + jz;
+    e.hp = ENEMY_SPECS[kind].hp;
+    e.kind = kind;
+    e.alive = 1;
+}
+
+// Barrel: a Box3D body; the block stores only the world-independent BodyRef.
+phys::BodyRef spawn_item_body(phys::World&amp; world, int i) {
+    Vec3 pos{item_x(i), 1.0f, item_z(i)};
+    if (item_is_barrel(i)) return world.add_capsule(pos, 0.4f, 0.3f, 1.0f, phys::CAT_BARREL, false, true);
+    return world.add_dynamic_box(pos, 0.5f, 1.0f, phys::CAT_CRATE);
+}
+
+// barrels_system: respawn 600 ticks after an explosion
+if (it.respawn_timer &gt; 0 &amp;&amp; --it.respawn_timer == 0) {
+    it.body = spawn_item_body(world, i);
+    it.hp = BARREL_HP;
+    it.alive = 1;
+}</code></pre><p class="note">Straightforward imperative code; `e = Enemy{}` zeroes the slot so stale bytes never reach the checksum. Nothing in the type system stops you writing a field you forgot to reset, or using a `kind` u8 outside 0..2 (it indexes ENEMY_SPECS unchecked in release).</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/game/systems.odin:144-158; impl/odin/src/game/state.odin:158-176; impl/odin/src/game/world.odin:62-80; impl/odin/src/game/systems.odin:480-487 (summarized)</span></div><pre class="code" data-lang="odin"><code>// game/systems.odin: an enemy is just a pool slot (no physics body)
+spawn_enemy :: proc(s: ^State, kind: Enemy_Kind, pos: [2]f32) -&gt; i32 {
+	idx := pool_alloc(&amp;s.enemies)
+	if idx &lt; 0 {
+		return -1
+	}
+	st := ENEMY_STATS[kind]
+	e := &amp;s.enemies.items[idx]
+	e.kind = kind
+	e.pos = pos
+	e.hp = st.hp
+	e.speed = st.speed
+	e.radius = st.radius
+	e.damage = st.damage
+	return idx
+}
+
+// game/state.odin: pool_alloc :: proc(p: ^Pool($T, $N)) -&gt; i32  (free list LIFO, else high_water)
+
+// game/world.odin: a barrel is an Item slot + a Box3D body kept as a Body_Ref (no world index)
+create_item_body :: proc(ph: ^Physics, i: int) -&gt; Body_Ref {
+	bd := b3.DefaultBodyDef()
+	bd.type = .dynamicBody
+	bd.position = v3(item_position(i))
+	body := b3.CreateBody(ph.world, &amp;bd)
+	sd := b3.DefaultShapeDef()
+	sd.density = 1
+	sd.baseMaterial.userMaterialId = MAT_ITEM_BASE + u64(i)
+	if item_kind(i) == .Barrel {
+		sd.filter.categoryBits = CAT_BARREL
+		capsule := b3.Capsule{{0, -0.3, 0}, {0, 0.3, 0}, 0.4}
+		b3.CreateCapsuleShape(body, &amp;sd, &amp;capsule)
+	} else {
+		// ... crate: MakeBoxHull + CreateHullShape
+	}
+	return body_ref(body)
+}
+// game/systems.odin (sys_barrels, 600 ticks after an explosion): it.body = create_item_body(ph, i)</code></pre><p class="note">Spawning is a free function over the concrete pool; Pool($T, $N) is a parapoly struct so alloc/free are written once for all pools. Box3D&#x27;s C designated-init style maps 1:1 (DefaultBodyDef + field writes). No builder/ECS ceremony, but also no type that says &quot;this entity has a body&quot;: Body_Ref is just a field.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/systems.rs:122-163,416-428; impl/rust/crates/game/src/world.rs:82-92</span></div><pre class="code" data-lang="rust"><code>// systems.rs: an enemy is a free-list slot in the SoA tables (no physics body)
+pub fn spawn_enemy(s: &amp;mut State, x: f32, z: f32, kind: u8) -&gt; Option&lt;Handle&gt; {
+    let h = s.enemies.alloc()?;            // None when all 1200 slots are taken
+    let e = &amp;mut s.enemies;
+    let i = h.index as usize;
+    e.px[i] = x;
+    e.pz[i] = z;
+    e.vx[i] = 0.0;
+    e.vz[i] = 0.0;
+    e.hp[i] = KINDS[kind as usize].hp;
+    e.kind[i] = kind;
+    e.climbing[i] = 0;
+    e.contact_cd[i] = 0;
+    Some(h)
+}
+// in spawner(): kind_from_roll(xorshift32(&amp;mut s.rng) % 10) -&gt; 0 grunt | 1 runner | 2 brute
+//               spawn_enemy(s, x, z, kind);
+
+// world.rs: a barrel is a Box3D body; the block stores only its portable BodyRef
+pub fn create_barrel(w: &amp;mut World, item: usize, barrel: usize) -&gt; BodyRef {
+    let k = w.create_body(&amp;dynamic(item_position(item), false, true));
+    w.add_capsule(
+        k,
+        v3(0.0, -BARREL_HALF_SEGMENT, 0.0),
+        v3(0.0, BARREL_HALF_SEGMENT, 0.0),
+        BARREL_RADIUS,
+        &amp;shape(CAT_WORLD, UID_BARREL | barrel as u64),   // user id comes back from ray casts
+    );
+    body_ref(k)
+}
+
+// systems.rs, barrels(): respawn 600 ticks after an explosion (physics churn inside rollback windows)
+if left == 0 {
+    let item = br.item as usize;
+    s.barrels[b].body = create_barrel(w, item, b);
+    s.barrels[b].hp = BARREL_HP;
+    s.items[item] = s.barrels[b].body;
+}</code></pre><p class="note">Spawning is plain functions over &amp;mut State plus &amp;mut World; the `?` on alloc() makes &quot;table full&quot; a value, not a silent overwrite. Nothing ties the BodyRef in the block to the body&#x27;s lifetime in Box3D: that invariant is kept by hand, as in C.</p></div></div></section><section class="concept" id="despawn"><header class="concept-head"><h3>Despawning, free lists and handles</h3><span class="edge">Even</span></header><p class="look">Stable indices are a determinism requirement (swap-remove reorders). Generational handles exist in sketch form everywhere; watch how each one represents &#x27;no target&#x27;.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-mixed">mixed</span><span class="src">impl/cpp/src/game/pool.h:31-37; impl/cpp/src/game/systems.cpp:418-425,538-547 (EnemyRef is a sketch)</span></div><pre class="code" data-lang="cpp"><code>// REAL: free list in the block (LIFO, stable indices, no swap-remove)
+template &lt;int N&gt;
+void pool_free(SlotPool&lt;N&gt;&amp; p, int slot) {
+    UNI_ASSERT(p.count &gt; 0);
+    p.next_free[slot] = p.free_head;
+    p.free_head = (u16)slot;
+    --p.count;
+}
+// deaths_system
+if (!e.alive || e.hp &gt; 0) continue;
+e.alive = 0;
+pool_free(s.enemy_pool, i);
+
+// REAL: the only generational handle today is Box3D&#x27;s; a stale barrel hit is rejected by generation
+static int barrel_by_body(const State&amp; s, phys::BodyRef body) {
+    for (int i = 0; i &lt; ITEM_COUNT; ++i) {
+        const Item&amp; it = s.items[i];
+        if (it.alive &amp;&amp; it.kind == BARREL &amp;&amp; it.body.index1 == body.index1 &amp;&amp; it.body.generation == body.generation)
+            return i;
+    }
+    return -1;
+}
+
+// SKETCH: generational enemy handles (enemies are referenced only by index today)
+struct EnemyRef { u16 slot; u16 gen; };                 // fits -Wpadded, pointer-free
+template &lt;int N&gt; struct SlotPool { /* ... */ Array&lt;u16, N&gt; gen; };
+template &lt;int N&gt; void pool_free(SlotPool&lt;N&gt;&amp; p, int slot) { /* ... */ p.gen[slot]++; }
+inline Enemy* get(State&amp; s, EnemyRef r) {
+    if (r.slot &gt;= s.enemy_pool.high_water || s.enemy_pool.gen[r.slot] != r.gen) return nullptr; // stale
+    Enemy&amp; e = s.enemies[r.slot];
+    return e.alive ? &amp;e : nullptr;
+}</code></pre><p class="note">The free list is ~40 lines of templates over fixed arrays and works well. Generational entity handles don&#x27;t exist yet because nothing holds an enemy reference across ticks; adding them is easy, but `get()` hands back a raw pointer that a caller can keep past the next free, and only ASan or sync-test would notice.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">impl/odin/src/game/state.odin:114-126,178-199; impl/odin/src/game/systems.odin:570-573; impl/odin/src/game/world.odin:98-101</span></div><pre class="code" data-lang="odin"><code>// Handle :: struct {index: u16, generation: u16}   (state.odin:123)
+pool_free :: proc(p: ^Pool($T, $N), idx: i32) {
+	it := &amp;p.items[idx]
+	assert(it.alive)
+	gen := it.generation + 1
+	it^ = {}
+	it.generation = gen
+	it.next_free = p.free_head
+	p.free_head = idx
+	p.count -= 1
+}
+
+pool_get :: proc(p: ^Pool($T, $N), h: Handle) -&gt; ^T {
+	it := &amp;p.items[h.index]
+	if !it.alive || it.generation != h.generation {
+		return nil
+	}
+	return it
+}
+
+// game/systems.odin (sys_deaths): no swap-remove, index stays stable
+		value := ENEMY_STATS[e.kind].xp
+		pool_free(&amp;s.enemies, i)
+		s.kills += 1
+
+// game/world.odin: physics entities also destroy their Box3D body
+destroy_body :: proc(ph: ^Physics, r: ^Body_Ref) {
+	b3.DestroyBody(body_id(ph, r^))
+	r^ = {}
+}
+
+// SKETCH: nothing stores a Handle yet. A homing projectile would validate its target like this:
+	if target := pool_get(&amp;s.enemies, pr.target); pr.has_target &amp;&amp; target != nil {
+		// steer towards target.pos
+	} else {
+		pr.has_target = false // enemy died, or its slot was reused (generation moved on)
+	}</code></pre><p class="note">Free list + generation bump is ~20 lines; `pool_get` returning `^T`-or-nil plus `if x := ...; x != nil` reads well. Honest gaps: Handle/pool_get are currently unused, and `Handle{}` is not a null handle (slot 0 at generation 0 matches it), so the sketch needs a separate `has_target` flag; a `distinct` handle type per pool would also be cheap to add but isn&#x27;t there.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-mixed">mixed</span><span class="src">impl/rust/crates/game/src/state.rs:173-196; impl/rust/crates/game/src/systems.rs:520-536,433-438; impl/rust/crates/box3d-sys/src/lib.rs:91-96</span></div><pre class="code" data-lang="rust"><code>// state.rs, inside macro_rules! impl_table (shared by Enemies, Projectiles, Gems)
+pub fn release(&amp;mut self, i: usize) {
+    debug_assert!(self.alive[i] == 1);
+    self.alive[i] = 0;
+    self.generation[i] = self.generation[i].wrapping_add(1);   // invalidates old Handles
+    self.free[self.free_count as usize] = i as u16;
+    self.free_count += 1;
+    self.count -= 1;
+}
+pub fn is_live(&amp;self, h: Handle) -&gt; bool {
+    let i = h.index as usize;
+    i &lt; $n &amp;&amp; self.alive[i] == 1 &amp;&amp; self.generation[i] == h.generation
+}
+
+// systems.rs, deaths_and_xp(): stable indices, no swap-remove
+let xp = KINDS[s.enemies.kind[i] as usize].xp;
+s.enemies.release(i);
+if let Some(h) = s.gems.alloc() { /* drop a gem at (x, z) */ }
+
+// systems.rs, barrels(): a physics entity is destroyed in Box3D and its ref zeroed
+w.destroy_body(key(br.body));
+s.barrels[b].body = BodyRef::default();       // live = 0
+
+// box3d-sys/src/lib.rs: stale body ids are caught in debug builds only
+fn body_id(&amp;self, b: BodyKey) -&gt; b3BodyId {
+    let id = b3BodyId { index1: b.index1, world0: self.id.index1 - 1, generation: b.generation };
+    debug_assert!(unsafe { b3Body_IsValid(id) }, &quot;stale body {b:?}&quot;);
+    id
+}
+
+// SKETCH (is_live has no caller today: nothing stores a Handle across ticks yet)
+let h: Handle = s.projectiles.target[j];        // e.g. a homing projectile&#x27;s target
+if !s.enemies.is_live(h) { /* enemy died, or its slot was reused: retarget */ }</code></pre><p class="note">The table code is a macro_rules! over three SoA structs because a generic `Table&lt;T&gt;` would need either AoS or a trait per column; a macro was the low-friction choice. Handles are Pod (index + generation) so they can live in the block. Honest gap: is_live() has no caller yet, and the Box3D id check is debug-only.</p></div></div></section><section class="concept" id="query"><header class="concept-head"><h3>Writing a system</h3><span class="edge">C++ and Odin: least friction</span></header><p class="look">No ECS query DSL anywhere: systems are loops over fixed arrays, which keeps iteration order explicit. Rust&#x27;s borrow checker shows up here as split borrows and scratch buffers passed separately.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/game/systems.cpp:349-368,274-288</span></div><pre class="code" data-lang="cpp"><code>// 5. contact damage: iterate live slots up to the high-water mark, in index order
+static void contact_system(State&amp; s, phys::World&amp; world) {
+    const int n = s.enemy_pool.high_water;
+    for (int i = 0; i &lt; n; ++i) {
+        Enemy&amp; e = s.enemies[i];
+        if (!e.alive) continue;
+        if (e.contact_cooldown &gt; 0) e.contact_cooldown--;
+        if (e.contact_cooldown &gt; 0) continue;
+        const EnemySpec&amp; spec = ENEMY_SPECS[e.kind];
+        f32 rr = spec.radius + PLAYER_RADIUS;
+        for (int p = 0; p &lt; MAX_PLAYERS; ++p) {
+            const Player&amp; pl = s.players[p];
+            if (!pl.alive) continue;
+            if (dist2(pl.x, pl.z, e.x, e.z) &lt; rr * rr) {
+                e.contact_cooldown = CONTACT_COOLDOWN;
+                damage_player(s, world, p, spec.damage);
+                break;
+            }
+        }
+    }
+}
+
+// 4. enemy steering: neighbour query over the spatial grid via a template + lambda
+for_neighbours(g, xi, zi, [&amp;](i32 j) {
+    if (j == i) return;
+    const Enemy&amp; o = s.enemies[j];
+    f32 ox = xi - o.x, oz = zi - o.z;
+    f32 d2 = ox * ox + oz * oz;
+    f32 rr = ri + ENEMY_SPECS[o.kind].radius;
+    if (d2 &lt; rr * rr &amp;&amp; d2 &gt; 0.00000001f) { f32 inv = 0.5f / d2; sepx = sepx + ox * inv; sepz = sepz + oz * inv; }
+});</code></pre><p class="note">No ECS or query DSL: plain loops over fixed arrays with an `alive` check, plus a templated `for_neighbours` that inlines the lambda (zero cost). Easy to read and to reason about iteration order, which is what determinism needs; the cost is that &#x27;alive and in range&#x27; filtering is repeated by hand in every system.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/game/systems.odin:327-357</span></div><pre class="code" data-lang="odin"><code>// 5. Contact damage, one hit per enemy per 30 ticks.
+@(private)
+sys_contact :: proc(s: ^State, ph: ^Physics) {
+	for i in 0 ..&lt; s.enemies.high_water {
+		e := &amp;s.enemies.items[i]
+		if !e.alive {
+			continue
+		}
+		if e.contact_cooldown &gt; 0 {
+			e.contact_cooldown -= 1
+			continue
+		}
+		for p in 0 ..&lt; MAX_PLAYERS {
+			pl := &amp;s.players[p]
+			if !pl.alive {
+				continue
+			}
+			dx := pl.pos.x - e.pos.x
+			dz := pl.pos.z - e.pos.y
+			rr := e.radius + 0.45
+			if dx * dx + dz * dz &lt; rr * rr {
+				pl.hp -= e.damage
+				e.contact_cooldown = 30
+				if pl.hp &lt;= 0 {
+					player_dies(s, ph, p)
+				}
+				break
+			}
+		}
+	}
+}</code></pre><p class="note">A system is a plain proc taking `^State`; a &quot;query&quot; is an index loop to high_water with an alive check. Mutating two tables at once (enemy + player) needs no borrow juggling. There is no query abstraction or iterator; the `for i ..&lt; hw { e := &amp;...; if !e.alive {continue} }` preamble repeats in every system (Odin has no user iterators beyond procs returning (value, ok)).</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/systems.rs:185-240,287-313; impl/rust/crates/game/src/lib.rs:141</span></div><pre class="code" data-lang="rust"><code>// System 4 (trimmed): phase 1 reads old positions, writes velocities to a scratch buffer
+pub fn enemies(s: &amp;mut State, w: &amp;World, grid: &amp;mut Grid, nv: &amp;mut [[f32; 2]], t: u32) {
+    grid.build(&amp;s.enemies);
+    for i in 0..MAX_ENEMIES {
+        if s.enemies.alive[i] == 0 { continue; }
+        let e = &amp;s.enemies;                          // shared borrow for the whole phase-1 body
+        let kd = KINDS[e.kind[i] as usize];
+        let (x, z) = (e.px[i], e.pz[i]);
+        // ... desired velocity towards nearest_alive_player(s, x, z) ...
+        let (mut sepx, mut sepz) = (0.0f32, 0.0f32);
+        grid.for_each_near(x, z, |j| {               // closure reads `e`, mutates locals: fine
+            if j == i { return; }
+            let ox = x - e.px[j];
+            let oz = z - e.pz[j];
+            // ... push 0.5 / d2 within r_i + r_j
+        });
+        // ... blend, clamp to speed * 1.5
+        nv[i] = [nvx, nvz];                          // can&#x27;t write e.vx[i] while `e` is borrowed
+        s.enemies.climbing[i] = climbing;            // OK: `e`&#x27;s last use was above (NLL)
+    }
+    // phase 2: integrate from nv, pillar push-out, arena clamp (takes &amp;mut s.enemies)
+}
+
+// System 5: disjoint field borrows of one &amp;mut State are fine inside one function
+for pl in s.players.iter_mut() {
+    // ...
+    if dx * dx + dz * dz &lt; reach * reach {
+        pl.hp -= kd.damage;
+        s.enemies.contact_cd[i] = CONTACT_COOLDOWN;   // s.players and s.enemies: different fields
+        break;
+    }
+}
+reap_players(s, w);                                   // needs all of `s` again: after the loop
+
+// Game::step splits &amp;mut self into its parts before calling systems
+let Game { s, world, grid, nv } = self;</code></pre><p class="note">Friction is low because systems are index loops over SoA arrays, which the borrow checker handles field-by-field; the Jacobi scratch buffer `nv` lives outside State and is threaded in as a separate &amp;mut. What you give up is ECS-style queries and iterator chains (`for (pos, vel) in zip(...)`): zipping several mutable columns needs split borrows, so the code uses `alive[i] == 0 { continue }` loops with bounds checks. Helpers that take the whole `&amp;mut State` (reap_players) can&#x27;t be called while a field is borrowed.</p></div></div></section><section class="concept" id="schedule"><header class="concept-head"><h3>System order per tick</h3><span class="edge">Even</span></header><p class="look">All three settled on &#x27;the schedule is a function body&#x27;: order is source order, and each system&#x27;s parameters say what it touches.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/game/systems.cpp:592-606</span></div><pre class="code" data-lang="cpp"><code>void step(State&amp; s, phys::World&amp; world, Scratch&amp; scratch, const uni::Input (&amp;inputs)[MAX_PLAYERS]) {
+    const u32 t = s.tick;
+    players_system(s, world, inputs);       // 1
+    levelup_system(s, inputs);              // 2
+    spawner_system(s, t);                   // 3
+    enemies_system(s, world, scratch, t);   // 4
+    contact_system(s, world);               // 5
+    attack_system(s);                       // 6
+    projectiles_system(s, world, scratch);  // 7
+    barrels_system(s, world);               // 8
+    deaths_system(s);                       // 9
+    world.step(DT, SUBSTEPS);               // 10
+    readback(s, world);                     // 11
+    s.tick = t + 1;
+}</code></pre><p class="note">The schedule is just a function with calls in order: no registration, so the order is obvious and greppable. Each system declares what it touches only through its parameter list (`world` or not), which is a convention, not something the compiler enforces.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/game/systems.odin:40-55; impl/odin/src/core/sim.odin:64-78</span></div><pre class="code" data-lang="odin"><code>// One tick: systems 1-11. `tick` advances to the new tick number at the end.
+tick :: proc(s: ^State, ph: ^Physics, sc: ^Scratch, inputs: ^Inputs) {
+	t := s.tick + 1
+	sys_players(s, ph, inputs)
+	sys_levelup(s, inputs)
+	sys_spawner(s, t)
+	sys_enemies(s, ph, sc, t)
+	sys_contact(s, ph)
+	sys_attack(s)
+	sys_projectiles(s, ph, sc)
+	sys_barrels(s, ph, t)
+	sys_deaths(s)
+	b3.World_Step(ph.world, DT, SUBSTEPS)
+	read_back(s, ph)
+	s.tick = t
+}
+
+// core/sim.odin: the harness wraps every tick with a ring save
+sim_step :: proc(sim: ^Sim, inputs: game.Inputs) {
+	inputs := inputs
+	game.tick(&amp;sim.state, &amp;sim.phys, &amp;sim.scratch, &amp;inputs)
+	sim_save(sim)
+}
+
+sim_save :: proc(sim: ^Sim) {
+	slot := &amp;sim.ring[sim.state.tick % RING]
+	slot.block = sim.state
+	b3.World_SaveState(sim.phys.world, sim.phys.cache, slot.phys)
+	slot.tick = sim.state.tick
+	slot.valid = true
+}</code></pre><p class="note">The schedule is the call list: explicit order, each system takes exactly what it touches (state, physics, scratch, inputs), easy to read and step through. No registration mechanism: adding a system is one line here; a data-driven table `[]proc(^Ctx)` would need a uniform context struct because signatures differ.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/lib.rs:139-154</span></div><pre class="code" data-lang="rust"><code>impl Simulation for Game {
+    type Slot = Slot;
+
+    fn step(&amp;mut self, inputs: &amp;InputSet) {
+        let t = self.s.tick;
+        let Game { s, world, grid, nv } = self;        // split borrows once, pass parts explicitly
+        systems::players(s, world, inputs);            // 1  (&amp;mut World: sets velocities)
+        systems::level_up(s, inputs);                  // 2
+        systems::spawner(s, t);                        // 3
+        systems::enemies(s, world, grid, nv, t);       // 4  (&amp;World: climb ray casts)
+        systems::contact_damage(s, world);             // 5
+        systems::auto_attack(s);                       // 6
+        systems::projectiles(s, world, grid);          // 7
+        systems::barrels(s, world);                    // 8
+        systems::deaths_and_xp(s);                     // 9
+        world.step(simcore::DT, consts::SUBSTEPS);     // 10
+        systems::read_back(s, world);                  // 11
+        s.tick = t + 1;
+    }
+    // ...
+}</code></pre><p class="note">The schedule is a function body: order is the source order, and each system&#x27;s signature documents exactly what it touches (&amp;World vs &amp;mut World, grid, scratch). No registration, no dynamic dispatch. A data-driven schedule would need `Vec&lt;Box&lt;dyn FnMut(&amp;mut Ctx)&gt;&gt;` with a context struct, which loses those per-system borrow signatures.</p></div></div></section><h2 class="group-title" id="g-rollback">Physics and rollback</h2><section class="concept" id="physics-binding"><header class="concept-head"><h3>Binding and calling Box3D</h3><span class="edge">C++: zero glue</span></header><p class="look">The cost of reaching a C library. This repeats for Steamworks, EOS, FMOD and anything else native.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/physics/physics.h:37-42,93; impl/cpp/src/physics/physics.cpp:121-130; impl/cpp/src/game/systems.cpp:253-258</span></div><pre class="code" data-lang="cpp"><code>// physics.h: no box3d.h here; the rest of the code sees only these types
+struct RayHit {
+    bool hit = false;
+    Vec3 point;
+    u64 category = 0;
+    BodyRef body;
+};
+RayHit cast_ray_closest(Vec3 origin, Vec3 translation) const;
+
+// physics.cpp: the C API is called directly; no FFI declarations to write
+#include &quot;box3d/box3d.h&quot;
+RayHit World::cast_ray_closest(Vec3 origin, Vec3 translation) const {
+    b3RayResult r = b3World_CastRayClosest(unpack(world_id_), v3(origin), v3(translation), b3DefaultQueryFilter());
+    RayHit hit;
+    if (!r.hit) return hit;
+    hit.hit = true;
+    hit.point = v3(r.point);
+    hit.category = b3Shape_GetFilter(r.shapeId).categoryBits;   // categories survive snapshots; userData doesn&#x27;t
+    hit.body = ref_of(b3Shape_GetBody(r.shapeId));
+    return hit;
+}
+
+// call site (enemy climb check)
+phys::RayHit hit = world.cast_ray_closest({e.x, 3.0f, e.z}, {0.0f, -3.0f, 0.0f});
+e.climbing = (hit.hit &amp;&amp; (hit.category &amp; (phys::CAT_CRATE | phys::CAT_BARREL)) != 0 &amp;&amp; hit.point.y &gt; 0.8f) ? 1 : 0;</code></pre><p class="note">This is C++&#x27;s biggest structural advantage: Box3D&#x27;s header is included as-is, so a new function is usable immediately, with no extern declarations, layout mirroring or bindgen. The 227-line `physics/` wrapper exists only to keep box3d.h out of the other modules and to strip the per-world index from body ids.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/box3d/box3d.odin:14-18,170-181,249-262,340-343; impl/odin/src/game/systems.odin:224-234</span></div><pre class="code" data-lang="odin"><code>when ODIN_OS == .Windows {
+	foreign import lib &quot;system:box3d.lib&quot;
+} else {
+	foreign import lib &quot;system:box3d&quot;
+}
+
+RayResult :: struct {
+	shapeId:        ShapeId,
+	point:          Pos,
+	normal:         Vec3,
+	userMaterialId: u64,
+	fraction:       f32,
+	// ... triangleIndex, childIndex, nodeVisits, leafVisits: c.int
+	hit:            bool,
+}
+
+@(default_calling_convention = &quot;c&quot;, link_prefix = &quot;b3&quot;)
+foreign lib {
+	DefaultQueryFilter :: proc() -&gt; QueryFilter ---
+	World_Step :: proc(worldId: WorldId, timeStep: f32, subStepCount: c.int) ---
+	World_CastRayClosest :: proc(worldId: WorldId, origin: Pos, translation: Vec3, filter: QueryFilter) -&gt; RayResult ---
+	// ...
+}
+
+// Layouts checked against a C probe on the pinned headers (38 of these).
+#assert(size_of(RayResult) == 64)
+#assert(offset_of(RayResult, point) == 8)
+#assert(offset_of(RayResult, hit) == 60)
+
+// game/systems.odin (sys_enemies): every 8 ticks per enemy, ray down for &quot;climbing&quot;
+	ray_filter := b3.DefaultQueryFilter()
+	ray_filter.maskBits = CAT_CRATE | CAT_BARREL
+	// ...
+		if (u32(i) + t) % 8 == 0 {
+			r := b3.World_CastRayClosest(ph.world, {e.pos.x, 3, e.pos.y}, {0, -3, 0}, ray_filter)
+			e.climbing = r.hit &amp;&amp; r.point.y &gt; 0.8
+		}</code></pre><p class="note">Binding C is nearly copy-paste: `link_prefix=&quot;b3&quot;` strips the prefix, structs by value just work, and compile-time `#assert(offset_of(...))` guards the ABI. 294 hand-written lines (vendor:box3d targets an older ABI). Annoying: `foreign import` won&#x27;t take an absolute or #config path, so the lib dir goes through -extra-linker-flags, and Windows needs the `.lib` suffix.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/box3d-sys/src/ffi.rs:211-224,327-342,398; impl/rust/crates/box3d-sys/src/lib.rs:182-191; impl/rust/crates/game/src/systems.rs:397-404</span></div><pre class="code" data-lang="rust"><code>// ffi.rs: hand-written, field order copied from box3d.h
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct b3RayResult {
+    pub shapeId: b3ShapeId,
+    pub point: b3Pos,
+    pub normal: b3Vec3,
+    pub userMaterialId: u64,
+    pub fraction: f32,
+    // ... triangleIndex, childIndex, nodeVisits, leafVisits
+    pub hit: bool,
+}
+unsafe extern &quot;C&quot; {
+    pub fn b3World_CastRayClosest(worldId: b3WorldId, origin: b3Pos, translation: b3Vec3,
+                                  filter: b3QueryFilter) -&gt; b3RayResult;
+}
+check_layout!(b3RayResult, 64, 8, point @ 8, userMaterialId @ 32, fraction @ 40, hit @ 60);  // const asserts
+
+// lib.rs: the safe wrapper (the only place `unsafe` appears)
+pub fn cast_ray_closest(&amp;self, origin: Vec3, translation: Vec3, mask_bits: u64) -&gt; Option&lt;RayHit&gt; {
+    // SAFETY: pure by-value call.
+    let mut filter = unsafe { b3DefaultQueryFilter() };
+    filter.maskBits = mask_bits;
+    // SAFETY: valid world; filter.name is the default (null).
+    let r = unsafe { b3World_CastRayClosest(self.id, origin, translation, filter) };
+    r.hit.then_some(RayHit { point: r.point, fraction: r.fraction, user_id: r.userMaterialId })
+}
+
+// systems.rs, projectiles(): game code sees Option&lt;RayHit&gt;, never a raw id
+if let Some(h) = w.cast_ray_closest(v3(ox, oy, oz), v3(nx - ox, 0.0, nz - oz), RAY_MASK) {
+    if h.user_id &amp; !0xFFFF_FFFF == UID_BARREL {
+        let b = (h.user_id &amp; 0xFFFF_FFFF) as usize;
+        s.barrels[b].hp -= damage;
+    }
+    s.projectiles.release(j);
+}</code></pre><p class="note">Two layers per function: a raw extern decl (with const size/offset asserts and a runtime cross-check against the C library&#x27;s own sizeof/offsetof), then a safe method with a SAFETY comment. That is 679 lines for 28 functions, the most binding code of the three languages, but game code is entirely safe and gets Option instead of a `hit` flag. bindgen was rejected because it needs libclang on every CI runner.</p></div></div></section><section class="concept" id="snapshot"><header class="concept-head"><h3>Snapshot save and restore</h3><span class="edge">Even</span></header><p class="look">Identical in spirit: the block is copied by value and Box3D&#x27;s state goes through the fork. Save takes 7–8 µs and restore 10–12 µs in every language. The difference is who owns the Box3D buffer&#x27;s lifetime.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/sim/sim.cpp:31-39; impl/cpp/src/sim/sim.h:59-67; impl/cpp/src/physics/physics.cpp:134-140</span></div><pre class="code" data-lang="cpp"><code>void Sim::save(Snapshot&amp; out) {
+    std::memcpy(out.state.get(), state_.get(), sizeof(game::State));   // the whole 66 KB block
+    world_-&gt;save(out.physics);                                          // fork: b3World_SaveState
+}
+
+void Sim::restore(const Snapshot&amp; in) {
+    std::memcpy(state_.get(), in.state.get(), sizeof(game::State));
+    UNI_CHECK(world_-&gt;restore(in.physics), &quot;b3World_RestoreState failed&quot;);
+}
+
+// physics.cpp
+usize World::save(Snapshot&amp; out) {
+    int n = b3World_SaveState(unpack(world_id_), cache_, out.raw());
+    UNI_CHECK(n &gt; 0, &quot;b3World_SaveState failed&quot;);
+    return (usize)n;
+}
+bool World::restore(const Snapshot&amp; in) { return b3World_RestoreState(unpack(world_id_), cache_, in.raw()); }
+
+// sim.h: 16-slot ring indexed by tick
+class Ring {
+public:
+    Snapshot&amp; at(u32 tick) { return slots_[tick % RING_SIZE]; }
+    bool has(u32 tick) { return at(tick).tick() == tick; }
+private:
+    Snapshot slots_[RING_SIZE];
+};</code></pre><p class="note">Snapshots are literally memcpy, which is the idiomatic C++ fast path (8 µs save, 11 µs restore with physics). `phys::Snapshot` is an RAII move-only wrapper over the fork&#x27;s `b3WorldState*`, so ring slots reuse their buffers with no per-tick allocation.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/core/sim.odin:16-21,45-47,71-88</span></div><pre class="code" data-lang="odin"><code>Snapshot :: struct {
+	tick:  u32,
+	valid: bool,
+	block: game.State,
+	phys:  ^b3.WorldState,
+}
+
+// sim_create: one reusable Box3D state buffer per ring slot
+	for &amp;slot in sim.ring {
+		slot.phys = b3.CreateWorldState()
+	}
+
+// Saves the current state into ring slot tick % RING.
+sim_save :: proc(sim: ^Sim) {
+	slot := &amp;sim.ring[sim.state.tick % RING]
+	slot.block = sim.state
+	b3.World_SaveState(sim.phys.world, sim.phys.cache, slot.phys)
+	slot.tick = sim.state.tick
+	slot.valid = true
+}
+
+// Restores the saved state of `tick` (it must still be in the ring).
+sim_restore :: proc(sim: ^Sim, tick: u32) -&gt; bool {
+	slot := &amp;sim.ring[tick % RING]
+	if !slot.valid || slot.tick != tick {
+		return false
+	}
+	sim.state = slot.block
+	return b3.World_RestoreState(sim.phys.world, sim.phys.cache, slot.phys)
+}</code></pre><p class="note">Saving the ~95 KB block is a plain struct assignment (`slot.block = sim.state`), which is exactly a memcpy; no Clone/derive or copy constructor to keep honest. Save 8-9 µs, restore 11-12 µs. The Box3D half is an opaque `^WorldState` with manual Create/Destroy; nothing ties its lifetime to the Snapshot.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/lib.rs:28-33,168-177; impl/rust/crates/box3d-sys/src/lib.rs:198-211; impl/rust/crates/simcore/src/ring.rs:16-33</span></div><pre class="code" data-lang="rust"><code>// game/src/lib.rs: a ring slot = a copy of the block + a reusable Box3D image
+pub struct Slot { block: Box&lt;State&gt;, phys: WorldState, tick: u32 }
+
+fn save(&amp;mut self, slot: &amp;mut Slot) {
+    *slot.block = *self.s;                 // the memcpy: State is Copy (Pod), 65 KB
+    self.world.save(&amp;mut slot.phys);       // b3World_SaveState into the slot&#x27;s buffer
+    slot.tick = self.s.tick;
+}
+fn restore(&amp;mut self, slot: &amp;Slot) {
+    *self.s = *slot.block;
+    assert!(self.world.restore(&amp;slot.phys), &quot;b3World_RestoreState failed&quot;);
+}
+
+// box3d-sys/src/lib.rs
+pub fn save(&amp;mut self, st: &amp;mut WorldState) -&gt; usize {
+    self.primed = true;
+    // SAFETY: valid world, our cache, and an owned state.
+    let n = unsafe { b3World_SaveState(self.id, self.cache.as_ptr(), st.0.as_ptr()) };
+    assert!(n &gt; 0, &quot;b3World_SaveState failed&quot;);
+    n as usize
+}
+
+// simcore/src/ring.rs: generic over any Simulation, slot = tick % 16
+pub fn save(&amp;mut self, sim: &amp;mut S) {
+    let t = sim.tick() as usize;
+    sim.save(&amp;mut self.slots[t % RING]);
+}
+pub fn restore(&amp;self, sim: &amp;mut S, tick: u32) {
+    let slot = self.get(tick).unwrap_or_else(|| panic!(&quot;snapshot ring lost tick {tick}&quot;));
+    sim.restore(slot);
+}</code></pre><p class="note">Snapshot is literally `*slot.block = *self.s` because State is Copy; no unsafe, no serialization, 7-8 us save / 10-11 us restore with physics. Slot is an associated type of the Simulation trait, so the ring and netcode never see State or WorldState. WorldState owns a C allocation and frees it in Drop, so slots can&#x27;t leak.</p></div></div></section><section class="concept" id="checksum"><header class="concept-head"><h3>Checksums</h3><span class="edge">Rust: guaranteed</span></header><p class="look">Because the block has no padding, its raw bytes are the canonical serialization in all three. Only Rust gets that guarantee from the type system; the other two get it from discipline plus checks.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/game/world.cpp:58-86</span></div><pre class="code" data-lang="cpp"><code>namespace {
+struct BodyHashWriter {
+    u8* p;
+    void f(f32 v) {
+        u32 bits = v == 0.0f ? 0u : std::bit_cast&lt;u32&gt;(v); // -0.0 -&gt; +0.0
+        std::memcpy(p, &amp;bits, 4);
+        p += 4;
+    }
+    void body(const phys::BodyState&amp; b) {
+        f(b.pos.x), f(b.pos.y), f(b.pos.z);
+        f(b.qx), f(b.qy), f(b.qz), f(b.qs);
+        f(b.lin.x), f(b.lin.y), f(b.lin.z);
+        f(b.ang.x), f(b.ang.y), f(b.ang.z);
+    }
+};
+} // namespace
+
+u64 checksum(const State&amp; s, const phys::World&amp; world) {
+    uni::Hasher h;
+    h.update(&amp;s, sizeof(State)); // padding-free little-endian block: its bytes are the canonical form
+    u8 buf[(MAX_PLAYERS + ITEM_COUNT) * 13 * 4];
+    BodyHashWriter w{buf};
+    for (int p = 0; p &lt; MAX_PLAYERS; ++p)
+        if (s.players[p].alive) w.body(world.body_state(s.players[p].body));
+    for (int i = 0; i &lt; ITEM_COUNT; ++i)
+        if (s.items[i].alive) w.body(world.body_state(s.items[i].body));
+    h.update(buf, (usize)(w.p - buf));
+    return h.digest();
+}</code></pre><p class="note">Because -Wpadded plus the static asserts guarantee no padding and a little-endian target, the canonical serialization is just the raw block: one hash call over 66 KB. That shortcut depends on discipline (a stray `bool`, or a field order that adds padding, is a compile error only because of the pragma), and it would break on a big-endian target, which is asserted away.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/core/sim.odin:14,100-139</span></div><pre class="code" data-lang="odin"><code>#assert(ODIN_ENDIAN == .Little) // the block&#x27;s in-memory bytes are its canonical LE serialization
+
+@(private)
+put_f32 :: #force_inline proc(buf: []u8, at: ^int, v: f32) {
+	bits := transmute(u32)v
+	if bits == 0x8000_0000 {
+		bits = 0 // -0.0 -&gt; +0.0
+	}
+	intrinsics.unaligned_store((^u32le)(&amp;buf[at^]), u32le(bits))
+	at^ += 4
+}
+
+@(private)
+put_body :: proc(sim: ^Sim, n: ^int, r: game.Body_Ref) {
+	id := game.body_id(&amp;sim.phys, r)
+	p := b3.Body_GetPosition(id)
+	q := b3.Body_GetRotation(id)
+	v := b3.Body_GetLinearVelocity(id)
+	w := b3.Body_GetAngularVelocity(id)
+	for f in ([13]f32{p.x, p.y, p.z, q.v.x, q.v.y, q.v.z, q.s, v.x, v.y, v.z, w.x, w.y, w.z}) {
+		put_f32(sim.hash_buf[:], n, f)
+	}
+}
+
+sim_checksum :: proc(sim: ^Sim) -&gt; u64 {
+	intrinsics.mem_copy_non_overlapping(&amp;sim.hash_buf[0], &amp;sim.state, size_of(game.State))
+	n := size_of(game.State)
+	for &amp;it in sim.state.items {
+		if it.alive {
+			put_body(sim, &amp;n, it.body)
+		}
+	}
+	// ... same for players
+	return xxhash.XXH3_64_default(sim.hash_buf[:n])
+}</code></pre><p class="note">Because the POD walk forbids padding and the target is asserted little-endian, the block&#x27;s raw bytes ARE the canonical serialization: no per-field serializer. Endian types (`u32le`) and `transmute` make the float canonicalization explicit. Papercut: core:hash/xxhash&#x27;s streaming XXH3 returns wrong digests for some lengths, hence the copy into one buffer and a one-shot hash.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/lib.rs:78-101,159-166</span></div><pre class="code" data-lang="rust"><code>fn checksum(&amp;self) -&gt; u64 {
+    let mut h = Xxh3::new();
+    h.update(bytemuck::bytes_of(&amp;*self.s));        // the whole block: Pod =&gt; no padding, LE target
+    let mut bodies = Vec::with_capacity((N_ITEMS + 4) * 52);
+    self.body_bytes(&amp;mut bodies);
+    h.update(&amp;bodies);
+    h.digest()
+}
+
+fn body_bytes(&amp;self, out: &amp;mut Vec&lt;u8&gt;) {
+    let w = &amp;self.world;
+    let mut put = |b: state::BodyRef| {
+        let k = world::key(b);
+        let p = w.position(k);
+        let q = w.rotation(k);
+        let v = w.linear_velocity(k);
+        let a = w.angular_velocity(k);
+        for f in [p.x, p.y, p.z, q.v.x, q.v.y, q.v.z, q.s, v.x, v.y, v.z, a.x, a.y, a.z] {
+            let f = if f == 0.0 { 0.0f32 } else { f };   // -0.0 -&gt; +0.0
+            out.extend_from_slice(&amp;f.to_le_bytes());
+        }
+    };
+    for i in 0..N_ITEMS {
+        if self.s.items[i].live != 0 { put(self.s.items[i]); }
+    }
+    for pl in self.s.players.iter() {
+        if pl.alive != 0 { put(pl.body); }
+    }
+}</code></pre><p class="note">Canonical serialization of the block is free: bytes_of() is only possible because the derive proved there is no padding, and simcore has compile_error! on big-endian targets. Only the physics bodies need a hand-written field walk. The flip side is that the hash covers raw f32 bits, so -0.0 vs +0.0 inside the block would also count (it hasn&#x27;t mattered: cross-platform traces match).</p></div></div></section><section class="concept" id="rollback-loop"><header class="concept-head"><h3>The client&#x27;s rollback loop</h3><span class="edge">Even (Odin fastest)</span></header><p class="look">The heart of the netcode: restore the verified frame, apply finalized inputs, re-predict. All three read close to the spec.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/net/client.cpp:247-290</span></div><pre class="code" data-lang="cpp"><code>void Client::simulate(u32 t) {
+    Record&amp; r = records_[t % RECORD_RING];
+    r.tick = t;
+    r.used = best_inputs(t);              // finalized if we have it, else last final + my own input
+    sim_-&gt;step(r.used);
+    r.checksum = sim_-&gt;checksum();
+}
+
+void Client::reconcile() {
+    const u32 upto = std::min(frontier_, local_);
+    if (upto &lt;= verified_) return;
+    u32 wrong = 0;
+    for (u32 t = verified_ + 1; t &lt;= upto; ++t) {          // compare predictions with finals
+        const Record&amp; r = records_[t % RECORD_RING];
+        if (!r.used.same_inputs(finals_[t % FINAL_RING].inputs)) { wrong = t; break; }
+    }
+    if (wrong) {                                           // restore before the first wrong tick
+        UNI_CHECK(ring_-&gt;has(wrong - 1), &quot;rollback target tick %u is not in the ring&quot;, wrong - 1);
+        sim_-&gt;restore(ring_-&gt;at(wrong - 1));
+        for (u32 t = wrong; t &lt;= local_; ++t) {            // re-simulate to the present, re-saving
+            if (t &gt; wrong) sim_-&gt;save(ring_-&gt;at(t - 1));
+            simulate(t);
+        }
+        const u32 depth = local_ - wrong + 1;
+        result_.rollbacks++;
+        result_.rollback_depth_max = std::max(result_.rollback_depth_max, depth);
+        // ...
+    }
+    for (u32 t = verified_ + 1; t &lt;= upto; ++t) verify(t);  // checksum reports every 16th tick
+    verified_ = upto;
+}</code></pre><p class="note">The core loop is compact and reads like the spec. Ring-buffer indexing (`t % RING`) is unchecked arithmetic over plain indices: a mistake shows up as a wrong tick, caught by the `r.tick == t` asserts (dev only) or by `ring_-&gt;has()`, not by the type system.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/netcode/client.odin:250-293</span></div><pre class="code" data-lang="odin"><code>// Advances the verified frame with newly finalized ticks, rolling back on a misprediction.
+advance_verified :: proc(c: ^Client) {
+	new_v := c.fin_upto
+	if c.sim == nil || new_v &lt;= c.verified {
+		return
+	}
+	old_v := c.verified
+	limit := min(new_v, c.predicted)
+	m: u32 = 0
+	for t in old_v + 1 ..= limit {
+		if c.pred_inputs[t % PRED_RING] != c.fin[t].inputs {
+			m = t
+			break
+		}
+	}
+	if m != 0 {
+		ok := core.sim_restore(c.sim, m - 1)
+		assert(ok, &quot;rollback target not in the snapshot ring&quot;)
+		depth := int(c.predicted - (m - 1))
+		c.rollbacks += 1
+		// ... depth stats
+		for t in m ..= new_v {
+			core.sim_step(c.sim, c.fin[t].inputs)
+			record_checksum(c)
+		}
+		for t in new_v + 1 ..= c.predicted {
+			in_ := predicted_inputs(c, t)
+			c.pred_inputs[t % PRED_RING] = in_
+			core.sim_step(c.sim, in_)
+			record_checksum(c)
+		}
+		c.predicted = max(c.predicted, new_v)
+	} else if new_v &gt; c.predicted {
+		// ... verified overtook prediction: step with finalized inputs
+	}
+	c.verified = new_v
+	// ... report every 16th verified checksum to the relay
+}</code></pre><p class="note">Reads like the spec: array `!=` compares whole `[4]Input` values, inclusive ranges `..=` match tick math. Rolls back only from the first mispredicted tick. The sim has one mutable frame (predicted) and the verified frame is implicit in the ring, so no second State copy is needed. Fastest of the three at 0.62 ms step + 8-tick re-sim (bounds checks on).</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/netcode/src/client.rs:113-166</span></div><pre class="code" data-lang="rust"><code>impl&lt;S: Simulation&gt; Core&lt;S&gt; {
+    fn predict(&amp;self, tick: u32) -&gt; InputSet {
+        let base = self.finalized[self.f as usize].expect(&quot;finalized base&quot;);
+        let mut set = base;                                  // remotes: last finalized input repeated
+        set[self.own] = self.local[tick as usize].unwrap_or(base[self.own]);
+        set
+    }
+    /// Consume newly finalized ticks: verify, roll back if a prediction was wrong, catch up.
+    fn process_finalized(&amp;mut self) -&gt; Vec&lt;(u32, u64)&gt; {
+        while self.f &lt; self.n &amp;&amp; self.finalized[self.f as usize + 1].is_some() {
+            self.f += 1;
+        }
+        if self.f.min(self.l) &lt;= self.v { return Vec::new(); }
+        let upto = self.f.min(self.l);
+        // first mispredicted tick M (whole-InputSet comparison via derived PartialEq)
+        let bad = (self.v + 1..=upto).find(|&amp;t| Some(self.used[t as usize]) != self.finalized[t as usize]);
+        if let Some(m) = bad {
+            self.ring.restore(&amp;mut self.sim, m - 1);        // last correct tick, not V
+            for t in m..=self.l {
+                let set = if t &lt;= self.f { self.finalized[t as usize].unwrap() } else { self.predict(t) };
+                self.step(t, set);                           // step + ring.save + checksum every 16th
+                self.rep.resimulated_ticks += 1;
+            }
+            // ... rep.rollbacks += 1; depth_sum / depth_max from depth = L - M + 1
+        }
+        let old = self.v;
+        self.v = self.f.min(self.l);                         // no restore at all if nothing mispredicted
+        let mut out = Vec::new();
+        for t in (old + 1)..=self.v {
+            if t % 16 == 0 {
+                out.push((t, self.pending_cs.remove(&amp;t).expect(&quot;checksum of a verified tick&quot;)));
+            }
+        }
+        self.pending_cs.retain(|&amp;t, _| t &gt; self.v);
+        out
+    }
+}</code></pre><p class="note">The core loop is ~50 lines, generic over S: Simulation, with Option&lt;InputSet&gt; per tick making &quot;not finalized yet&quot; explicit. Putting sim, ring and bookkeeping in one Core struct with methods sidesteps borrow fights (`self.ring.restore(&amp;mut self.sim, ..)` borrows two different fields). The outer `run` loop, by contrast, is a 270-line function with many `let mut` locals: Rust didn&#x27;t push toward a smaller state machine there.</p></div></div></section><h2 class="group-title" id="g-net">Netcode</h2><section class="concept" id="input"><header class="concept-head"><h3>Input and pushing it</h3><span class="edge">Even</span></header><p class="look">A 4-byte input struct. Whole-value equality makes misprediction checks one line in every language; C++ and Odin hand-write the wire packing twice.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/core/input.h:13-24; impl/cpp/src/net/protocol.cpp:12-17; impl/cpp/src/net/client.cpp:306-314,316-334</span></div><pre class="code" data-lang="cpp"><code>struct Input {
+    i8 move_x = 0; // -127..127
+    i8 move_z = 0;
+    u8 buttons = 0; // bit 0 dash, bit 7 absent
+    u8 choice = 0;  // 0 none, 1..3 level-up option
+    bool absent() const { return (buttons &amp; BUTTON_ABSENT) != 0; }
+    friend bool operator==(const Input&amp;, const Input&amp;) = default;
+};
+static_assert(sizeof(Input) == 4);
+
+// wire packing (protocol.cpp): explicit, little-endian, 4 bytes
+void put_input(ByteWriter&amp; w, const uni::Input&amp; in) {
+    w.put_i8(in.move_x);
+    w.put_i8(in.move_z);
+    w.put_u8(in.buttons);
+    w.put_u8(in.choice);
+}
+
+// client: sample on the synced clock for clock_ + delay; fill gaps when the delay grows
+void Client::generate_inputs(u32 upto) {
+    // ...
+    if (upto &lt;= last_generated_) return; // the delay shrank: the first input sent for a tick stands
+    for (u32 t = last_generated_ + 1; t &lt; upto; ++t) my_inputs_[t % FINAL_RING] = MyInput{t, last_input_};
+    last_input_ = script_-&gt;input(upto, sim_-&gt;levelup_pending(me_));
+    my_inputs_[upto % FINAL_RING] = MyInput{upto, last_input_};
+    last_generated_ = upto;
+}
+// send_inputs(): every unacked input (&lt;= 32) goes out unreliably each packet
+for (u32 t = first; t &lt;= last_generated_; ++t) m.inputs.push_back(my_inputs_[t % FINAL_RING].input);
+std::vector&lt;u8&gt; bytes = encode(m);
+host_-&gt;send(relay_, bytes.data(), bytes.size(), Delivery::Unreliable);</code></pre><p class="note">Defaulted `operator==` (C++20) makes prediction checks one-liners. The same 4-byte packing is hand-written twice (protocol.cpp and input_log.cpp), since nothing derives it from the struct.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/game/state.odin:19-32; impl/odin/src/netcode/proto.odin:46-59; impl/odin/src/netcode/client.odin:311-329</span></div><pre class="code" data-lang="odin"><code>BUTTON_DASH :: u8(1 &lt;&lt; 0)
+BUTTON_ABSENT :: u8(1 &lt;&lt; 7)
+
+// One player&#x27;s input for one tick (4 bytes on the wire and in the log).
+Input :: struct {
+	move_x:  i8,
+	move_z:  i8,
+	buttons: u8,
+	choice:  u8,
+}
+Inputs :: [MAX_PLAYERS]Input
+
+// netcode/proto.odin: wire packing, field by field
+w_input :: proc(w: ^core.Writer, in_: game.Input) {
+	core.w_u8(w, u8(in_.move_x))
+	core.w_u8(w, u8(in_.move_z))
+	core.w_u8(w, in_.buttons)
+	core.w_u8(w, in_.choice)
+}
+
+// netcode/client.odin: local input goes into c.own[t] for t up to local + delay, then
+// send_inputs() resends every unacked tick (&lt;= 32) each frame.
+generate_inputs :: proc(c: ^Client) {
+	target := min(c.local + c.delay, c.ticks)
+	first_gen := c.own_last &lt; c.first_tick
+	for t := c.own_last + 1; t &lt;= target; t += 1 {
+		if t &lt; target &amp;&amp; !first_gen {
+			c.own[t] = c.own[t - 1] // delay grew: repeat the last input, no gap
+		} else {
+			pending: i32 = 0
+			if c.sim != nil {
+				pending = c.sim.state.players[c.cfg.player].pending_levelups
+			}
+			c.own[t] = game.script_input(&amp;c.script, t, pending)
+		}
+		c.own_last = t
+	}
+}</code></pre><p class="note">Input is a 4-byte struct; `==` works on it directly (used for misprediction checks). Wire packing is hand-written and duplicated (core/log.odin write_inputs and netcode/proto.odin w_input do the same 4 writes). There is no public push-input API yet: the client pulls from the scripted generator; a real game would replace the `script_input` call with a sampled device input.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/simcore/src/input.rs:11-38; impl/rust/crates/simcore/src/sim.rs:29-32; impl/rust/crates/game/src/script.rs:70-74; impl/rust/crates/netcode/src/client.rs:169-181</span></div><pre class="code" data-lang="rust"><code>// simcore/src/input.rs
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Pod, Zeroable)]
+pub struct Input { pub move_x: i8, pub move_z: i8, pub buttons: u8, pub choice: u8 }
+pub type InputSet = [Input; MAX_PLAYERS];
+
+impl Input {
+    pub const ABSENT: Input = Input { move_x: 0, move_z: 0, buttons: ABSENT, choice: 0 };
+    /// Wire / log encoding: `i8, i8, u8, u8`.
+    pub fn to_bytes(self) -&gt; [u8; 4] { [self.move_x as u8, self.move_z as u8, self.buttons, self.choice] }
+    pub fn from_bytes(b: [u8; 4]) -&gt; Input {
+        Input { move_x: b[0] as i8, move_z: b[1] as i8, buttons: b[2], choice: b[3] }
+    }
+}
+
+// simcore/src/sim.rs: where a client&#x27;s own input comes from (scripted bot, gamepad, ...)
+pub trait InputSource&lt;S&gt; {
+    fn input(&amp;mut self, sim: &amp;S, player: usize, tick: u32) -&gt; Input;
+}
+impl InputSource&lt;Game&gt; for PlayerScript {        // game/src/script.rs
+    fn input(&amp;mut self, sim: &amp;Game, player: usize, tick: u32) -&gt; Input {
+        self.0.input(tick, sim.s.players[player].pending_levelups)
+    }
+}
+
+// netcode/src/client.rs: sample for L + delay, fill gaps when the delay grew
+let target = (l + delay).min(self.n);
+if target &gt; self.last_sent &amp;&amp; target &gt;= self.first_own {
+    let from = (self.last_sent + 1).max(self.first_own);
+    for t in from..target {
+        self.local[t as usize].get_or_insert(self.last_input);   // repeat last input
+    }
+    let inp = source.input(&amp;self.sim, self.own, target);
+    self.local[target as usize].get_or_insert(inp);              // first input for a tick wins
+    self.last_input = inp;
+    self.last_sent = target;
+}</code></pre><p class="note">Input derives PartialEq, so misprediction detection is `used[t] != finalized[t]` on whole InputSets. `as u8`/`as i8` casts are defined bit reinterpretations in Rust (no UB). InputSource is a generic parameter, so a real gamepad source plugs in without touching netcode; the sim is passed by shared reference, so the source can read state (pending level-ups) but cannot mutate it.</p></div></div></section><section class="concept" id="netcode-start"><header class="concept-head"><h3>Starting a relay and a client</h3><span class="edge">Even</span></header><p class="look">Session setup. All three use blocking run loops on threads today; a Godot host will need a per-frame update() API in every language.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/cli/net_commands.cpp:76-91,106-123</span></div><pre class="code" data-lang="cpp"><code>int cmd_relay(const Args&amp; a) {
+    net::RelayConfig rc;
+    rc.initial_players = (int)a.num(&quot;--players&quot;, 2);
+    rc.ticks = (u32)a.num(&quot;--ticks&quot;, 3600);
+    i64 port = a.num(&quot;--port&quot;, -1);
+    // ...
+    std::string err;
+    auto sock = net::open_udp(net::Address{0, (u16)port}, err); // all interfaces: LAN play
+    if (!sock) usage_error(&quot;relay: %s&quot;, err.c_str());
+    net::Relay relay(rc, std::make_unique&lt;net::Host&gt;(std::move(sock), /*accept_incoming=*/true));
+    net::RelayResult r = relay.run();     // blocks; in `session` it runs on its own std::thread
+    // ...
+}
+
+int cmd_client(const Args&amp; a) {
+    net::Address relay;
+    std::string target = a.need(&quot;--connect&quot;);
+    if (!net::parse_host_port(target, relay)) usage_error(&quot;--connect expects HOST:PORT (got &#x27;%s&#x27;)&quot;, target.c_str());
+    net::ClientConfig cc;
+    cc.player = (u8)a.num(&quot;--player&quot;, -1);
+    cc.ticks = (u32)a.num(&quot;--ticks&quot;, 0);
+    std::string err;
+    auto sock = net::open_udp(net::Address{0, 0}, err);
+    if (!sock) usage_error(&quot;client: %s&quot;, err.c_str());
+    sock = net::wrap_netsim(std::move(sock), profile_flag(a), 1000003u + (u64)cc.player * 7919u + 17u);
+    net::Client client(cc, std::make_unique&lt;net::Host&gt;(std::move(sock), false), relay);
+    net::ClientResult r = client.run();
+    print_json_line(net::to_json(r));
+    return r.ok ? 0 : 1;
+}</code></pre><p class="note">Composition by `unique_ptr` ownership: socket → optional netsim decorator → Host (reliable channel) → Relay/Client. It reads cleanly and moves are explicit. Both `run()` loops block, so a game embedding them must give each its own std::thread, which is how `session` works.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/cli/netmodes.odin:62-110</span></div><pre class="code" data-lang="odin"><code>mode_relay :: proc(a: ^Args) -&gt; bool {
+	// ... parse --port, --players, --ticks
+	link, lok := netcode.udp_listen(port)
+	if !lok {
+		die(&quot;unified relay: cannot bind UDP port %d&quot;, port)
+	}
+	cfg := netcode.Relay_Config {
+		ticks         = ticks,
+		seed          = 1,
+		start_players = players,
+		timeout_s     = f64(ticks) / 60 * 3 + 120,
+		name          = &quot;relay&quot;,
+	}
+	r := netcode.relay_create(cfg, link)
+	defer netcode.relay_destroy(r)
+	ok := netcode.relay_run(r) // blocks: owns the 60 Hz clock until all clients verified the end
+	// ...
+}
+
+mode_client :: proc(a: ^Args) -&gt; bool {
+	// ... parse --connect HOST:PORT (cnet.parse_endpoint), --player, --ticks
+	link, lok := netcode.udp_connect(ep)
+	if !lok {
+		die(&quot;unified client: cannot open a UDP socket&quot;)
+	}
+	link = netcode.netsim_wrap(link, profile_opt(a), u32(player) * 104729 + 17)
+	cfg := netcode.Client_Config {
+		player    = player,
+		timeout_s = f64(ticks) / 60 * 3 + 120,
+		name      = fmt.tprintf(&quot;client%d&quot;, player),
+	}
+	c := netcode.client_create(cfg, link)
+	defer netcode.client_destroy(c)
+	ok := netcode.client_run(c)
+	fmt.println(netcode.client_json(c))
+	// ...
+}</code></pre><p class="note">Setup is config struct literal + create/run/destroy with `defer`; named-field literals keep it readable. In-process sessions (session.odin) start the relay on a `core:thread` with `thread.create_and_start_with_poly_data2`. `client_run`/`relay_run` own their loop (poll, step, flush, sleep 1 ms); there&#x27;s no `update()`-per-frame API yet, which a Godot host would need.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/unified/src/net.rs:29-54,206-242</span></div><pre class="code" data-lang="rust"><code>/// Runs a client on any datagram socket, wrapped in the netsim unless the profile is ideal.
+fn run_client&lt;D: Datagram + &#x27;static&gt;(sock: D, relay: D::Addr, prof: Profile, net_seed: u64,
+                                     seed: u64, cfg: ClientConfig) -&gt; Result&lt;ClientReport, String&gt; {
+    let mut ep: Box&lt;dyn Transport&gt; = if prof.is_ideal() {
+        let mut ep = Endpoint::new(sock, false);
+        let _ = ep.connect(relay);
+        Box::new(ep)
+    } else {
+        let mut ep = Endpoint::new(NetSim::new(sock, prof, net_seed), false);
+        let _ = ep.connect(relay);
+        Box::new(ep)
+    };
+    let script = PlayerScript(ScriptGen::new(seed, cfg.player as usize));
+    client::run(&amp;mut *ep, 0, &amp;cfg, |seed, mask| Game::new(seed, mask, MAX_ENEMIES as u32), script)
+}
+
+// `unified relay --port P --players N --ticks T`
+pub fn relay(a: &amp;Args) -&gt; Out {
+    let port: u16 = a.req(&quot;port&quot;)?;
+    // ... players, ticks, bind
+    let sock = UdpDatagram::bind((bind, port)).map_err(|e| format!(&quot;bind {bind}:{port}: {e}&quot;))?;
+    let cfg = RelayConfig { slots: players, initial_mask: ((1u32 &lt;&lt; players.min(4)) - 1) as u8, ticks,
+                            seed: 1, tolerance: TOLERANCE, start_timeout: Duration::from_secs(120) };
+    let mut ep = Endpoint::new(sock, true);              // accept = true: relay side
+    let rep = relay::run(&amp;mut ep, &amp;cfg, None)?;          // blocks until the session ends
+    // ... write rep.log, print JSON
+}
+
+// `unified client --connect HOST:PORT --player I --ticks T [--profile wan]`
+pub fn client(a: &amp;Args) -&gt; Out {
+    // ... connect, player, ticks = a.req(..)?;  prof = profile(a)?  (&quot;ideal&quot; | &quot;wan&quot; | &quot;bad&quot;)
+    let addr: SocketAddr = connect.to_socket_addrs().map_err(|e| format!(&quot;--connect {connect}: {e}&quot;))?
+        .next().ok_or(&quot;--connect: no address&quot;)?;
+    let sock = UdpDatagram::bind(if addr.is_ipv4() { &quot;0.0.0.0:0&quot; } else { &quot;[::]:0&quot; }).map_err(|e| e.to_string())?;
+    let rep = run_client(sock, addr, prof, 31 + player as u64, 1, ClientConfig::new(player))?;
+    Ok((rep.json(), rep.final_tick == ticks))
+}</code></pre><p class="note">relay::run and client::run are blocking functions on a `&amp;mut dyn Transport`; session mode just runs them on std::threads, no async runtime. The game is injected as a closure `|seed, mask| Game::new(..)`, so netcode stays game-agnostic. The duplicated if/else arms exist because Endpoint&lt;D&gt; and Endpoint&lt;NetSim&lt;D&gt;&gt; are different types that only unify after boxing.</p></div></div></section><section class="concept" id="transport"><header class="concept-head"><h3>Transport abstraction and network simulator</h3><span class="edge">Rust and C++</span></header><p class="look">This is the polymorphism test: a socket wrapped by a network simulator wrapped by a reliable channel. Odin, with no interfaces, needs proc-pointer structs and rawptr casts here.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/net/transport.h:15-33; impl/cpp/src/net/socket.h:29-36; impl/cpp/src/net/netsim.h:29-35; impl/cpp/src/net/session.cpp:10-13</span></div><pre class="code" data-lang="cpp"><code>enum class Delivery : u8 { Unreliable, Reliable };
+
+struct Event {
+    enum class Kind : u8 { Connected, Disconnected, Message };
+    Kind kind;
+    PeerId peer;
+    std::vector&lt;u8&gt; data; // Message only
+};
+
+class Transport {                       // implemented by Host (reliability + fragmentation)
+public:
+    virtual ~Transport() = default;
+    virtual void send(PeerId peer, const u8* data, usize size, Delivery delivery) = 0;
+    virtual void poll(std::vector&lt;Event&gt;&amp; events) = 0;
+    virtual void disconnect(PeerId peer) = 0;
+};
+
+class DatagramSocket {                  // UDP, LoopbackHub endpoint, or NetSimSocket
+public:
+    virtual ~DatagramSocket() = default;
+    virtual void send_to(const Address&amp; to, const u8* data, usize size) = 0;
+    virtual bool recv_from(Address&amp; from, std::vector&lt;u8&gt;&amp; data) = 0;   // non-blocking
+    virtual Address local_address() const = 0;
+};
+
+// Decorator below the reliability layer: seeded latency/jitter/loss/dup/reorder
+class NetSimSocket final : public DatagramSocket {
+public:
+    NetSimSocket(std::unique_ptr&lt;DatagramSocket&gt; inner, const Profile&amp; profile, u64 seed);
+    // ...
+};
+
+std::unique_ptr&lt;DatagramSocket&gt; wrap_netsim(std::unique_ptr&lt;DatagramSocket&gt; inner, const Profile&amp; profile, u64 seed) {
+    if (profile.ideal()) return inner;
+    return std::make_unique&lt;NetSimSocket&gt;(std::move(inner), profile, seed);
+}</code></pre><p class="note">Classic virtual interfaces plus a decorator: familiar and cheap at these packet rates. One wart: `priority_queue::top()` is const, so moving a payload out needed a `const_cast` (netsim.cpp:85). The Event&#x27;s `std::vector` payload allocates per message, which is fine here but not free.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/netcode/link.odin:14-29; impl/odin/src/netcode/netsim.odin:52-62,140-147; impl/odin/src/netcode/channel.odin:18-33,139,163</span></div><pre class="code" data-lang="odin"><code>// The datagram layer: a hand-rolled &quot;interface&quot; (proc pointers + rawptr), no traits in Odin.
+Link :: struct {
+	data: rawptr,
+	send: proc(data: rawptr, to: Peer, bytes: []u8),
+	recv: proc(data: rawptr, buf: []u8) -&gt; (n: int, from: Peer, ok: bool),
+	close: proc(data: rawptr),
+}
+
+// netcode/netsim.odin: a wrapper is another Link that owns the inner one.
+netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32) -&gt; Link {
+	if profile.latency == 0 &amp;&amp; profile.loss == 0 &amp;&amp; profile.duplicate == 0 &amp;&amp; profile.reorder == 0 {
+		return inner
+	}
+	ns := new(Net_Sim)
+	ns.inner = inner
+	ns.profile = profile
+	ns.rng = seed == 0 ? 0x9E3779B9 : seed
+	return {data = ns, send = netsim_send, recv = netsim_recv, close = netsim_close}
+}
+
+@(private)
+netsim_recv :: proc(data: rawptr, buf: []u8) -&gt; (n: int, from: Peer, ok: bool) {
+	ns := (^Net_Sim)(data)
+	pump(ns)
+	p := pop_due(&amp;ns.incoming, now_us()) or_return
+	defer delete(p.bytes)
+	return copy(buf, p.bytes), p.peer, true
+}
+
+// netcode/channel.odin: the CORE.md transport interface on top of any Link
+Delivery :: enum u8 {Unreliable, Reliable}
+Event_Kind :: enum u8 {Connected, Disconnected, Message}
+Event :: struct {
+	kind: Event_Kind,
+	peer: Peer,
+	data: []u8, // temp-allocated; valid until the caller frees the temp allocator
+}
+channel_send :: proc(ch: ^Channel, peer: Peer, data: []u8, d: Delivery) { /* ... */ }
+channel_poll :: proc(ch: ^Channel) -&gt; []Event { /* ... */ }</code></pre><p class="note">(Enum bodies collapsed onto one line.) Without interfaces, polymorphism is a struct of proc pointers plus `rawptr` and a cast `(^Net_Sim)(data)` in every impl: works, but type safety stops at the cast. `or_return` on the (value, ok) pair is neat. Event bytes live in context.temp_allocator, freed once per loop iteration (`free_all`), a convention that nothing enforces.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/netcode/src/transport.rs:17-45; impl/rust/crates/netcode/src/netsim.rs:125-142; impl/rust/crates/unified/src/net.rs:92-125</span></div><pre class="code" data-lang="rust"><code>// transport.rs
+pub enum Delivery { Unreliable, Reliable }
+pub enum Event { Connected(PeerId), Disconnected(PeerId), Message(PeerId, Vec&lt;u8&gt;) }
+
+/// `send(peer, bytes, unreliable|reliable)`, `poll() -&gt; events`, connect/disconnect.
+pub trait Transport: Send {
+    fn send(&amp;mut self, peer: PeerId, data: &amp;[u8], delivery: Delivery);
+    fn poll(&amp;mut self, events: &amp;mut Vec&lt;Event&gt;);
+    fn disconnect(&amp;mut self, peer: PeerId);
+    fn reliable_pending(&amp;self, peer: PeerId) -&gt; usize;
+}
+/// An unreliable datagram socket. Endpoint&lt;D: Datagram&gt; adds peers + the reliable lane on top.
+pub trait Datagram: Send {
+    type Addr: Copy + Eq + Hash + Debug + Send;
+    fn send_to(&amp;mut self, to: Self::Addr, bytes: &amp;[u8]);
+    fn recv_from(&amp;mut self) -&gt; Option&lt;(Self::Addr, Vec&lt;u8&gt;)&gt;;
+}
+// netsim.rs: the simulator is itself a Datagram, so it slots *under* the reliable lane
+impl&lt;D: Datagram&gt; Datagram for NetSim&lt;D&gt; {
+    type Addr = D::Addr;
+    fn send_to(&amp;mut self, to: D::Addr, bytes: &amp;[u8]) {
+        let now = Instant::now();
+        for due in self.schedule(now) {           // seeded: [] = lost, 2 entries = duplicated
+            self.order += 1;
+            self.outgoing.push(Delayed { due, order: self.order, addr: to, data: bytes.to_vec() });
+        }
+        self.flush(now);
+    }
+    fn recv_from(&amp;mut self) -&gt; Option&lt;(D::Addr, Vec&lt;u8&gt;)&gt; {
+        if self.ready.is_empty() { self.flush(Instant::now()); }
+        self.ready.pop_front()
+    }
+}
+// net.rs: the associated Addr type rules out `Box&lt;dyn Datagram&gt;`, so session dispatches by hand
+enum Sock { Loop(netcode::loopback::LoopbackSocket), Udp(UdpDatagram) }
+thread::spawn(move || match relay_sock {
+    Sock::Loop(s) =&gt; run_relay(s, &amp;rcfg, Some(&amp;progress)),
+    Sock::Udp(s) =&gt; run_relay(s, &amp;rcfg, Some(&amp;progress)),
+});</code></pre><p class="note">Layering composes well: NetSim&lt;D&gt; wraps any Datagram, and Endpoint&lt;NetSim&lt;UdpDatagram&gt;&gt; is a monomorphized stack with no virtual calls below the Transport object. The Send bound makes moving a transport into a thread a compile-checked property. The annoyance is the associated Addr type: loopback addresses are u32 and UDP&#x27;s are SocketAddr, so choosing a transport at runtime needs a hand-written enum and duplicated match arms.</p></div></div></section><section class="concept" id="late-join"><header class="concept-head"><h3>Late join</h3><span class="edge">Even (fork gap)</span></header><p class="look">Sending a snapshot to a joiner. All three needed the same unsafe workaround to load Box3D state from bytes; that&#x27;s a gap in our fork, not a language difference.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/net/client.cpp:402-415,199-212; impl/cpp/src/sim/sim.cpp:49-62,87-97</span></div><pre class="code" data-lang="cpp"><code>// provider: reliable, auto-fragmented 134 KB message
+void Client::serve_snapshot() {
+    if (!snapshot_request_ || verified_ &lt; snapshot_request_-&gt;min_tick || !have_final(verified_)) return;
+    SnapshotMsg m;
+    m.for_player = snapshot_request_-&gt;for_player;
+    m.tick = verified_;
+    m.inputs_at_tick = finals_[verified_ % FINAL_RING].inputs;
+    m.snapshot = verified_ == local_ ? sim_-&gt;encode_portable() : sim::Sim::encode_portable(ring_-&gt;at(verified_));
+    std::vector&lt;u8&gt; bytes = encode(m);
+    host_-&gt;send(relay_, bytes.data(), bytes.size(), Delivery::Reliable);
+    snapshot_request_.reset();
+}
+
+// portable format: &quot;UNIS&quot;, version, layout hash, block bytes, Box3D image
+w.put_bytes(SNAP_MAGIC, 4);
+w.put_u16(SNAP_VERSION);
+w.put_u16(0);
+w.put_u64(game::state_layout_hash());           // constexpr hash of sizeof/offsetof
+w.put_u32((u32)sizeof(game::State));
+w.put_u32((u32)snap.physics.size());
+w.put_bytes(snap.state.get(), sizeof(game::State));
+w.put_bytes(snap.physics.data(), snap.physics.size());
+
+// joiner
+void Client::on_snapshot(const SnapshotMsg&amp; m) {
+    sim_ = std::make_unique&lt;sim::Sim&gt;();
+    std::string err;
+    if (!sim_-&gt;load_portable(m.snapshot.data(), m.snapshot.size(), err)) { result_.error = cfg_.label + &quot;: &quot; + err; return; }
+    finals_[m.tick % FINAL_RING] = FinalSlot{m.tick, m.inputs_at_tick};
+    last_final_ = m.inputs_at_tick;
+    begin_running(m.tick);      // fast-forward on finalized inputs only
+}
+// load_portable: build the tick-0 world (primes Box3D&#x27;s geometry registry), then memcpy + restore
+setup(1, game::MAX_PLAYERS);
+snap.physics.assign(image, phys_bytes);   // world_state_ext.cpp: mirrors a private Box3D struct</code></pre><p class="note">The block ships as raw bytes guarded by a constexpr layout hash, so portability is cheap. Loading the Box3D image needed `world_state_ext.cpp`, which `reinterpret_cast`s a private C struct and verifies it against the public getters. C++ let that hack compile with no friction, which is convenient but also how silent ABI bugs get in.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/netcode/client.odin:428-446,213-224; impl/odin/src/core/sim.odin:197-209; impl/odin/src/box3d/box3d.odin:307-315</span></div><pre class="code" data-lang="odin"><code>// Provider: encode the verified snapshot and send it in 1000-byte reliable chunks.
+serve_snapshot :: proc(c: ^Client) {
+	if !c.snap_req || c.sim == nil || c.verified &lt; c.snap_min {
+		return
+	}
+	c.snap_req = false
+	data := core.snapshot_encode(c.sim, c.verified, context.temp_allocator)
+	// ... Snap_Begin {joiner, tick, total bytes}
+	for off := 0; off &lt; len(data); off += SNAP_CHUNK {
+		cw := msg_begin(.Snap_Chunk)
+		core.w_u8(&amp;cw, u8(c.snap_joiner))
+		core.w_u32(&amp;cw, u32(off))
+		core.w_bytes(&amp;cw, data[off:min(off + SNAP_CHUNK, len(data))])
+		csend(c, &amp;cw, .Reliable)
+	}
+}
+// Joiner: once all chunks are in, rebuild the world and restore.
+load_snapshot :: proc(c: ^Client) {
+	c.sim = core.sim_from_snapshot(c.snap_buf[:])
+	// ... error if nil; verified = predicted = c.sim.state.tick
+}
+
+// core/sim.odin (sim_from_snapshot): fresh world -&gt; block bytes -&gt; Box3D image
+	sim := sim_create(seed, players)
+	intrinsics.mem_copy_non_overlapping(&amp;sim.state, raw_data(block), size_of(game.State))
+	// ...
+	if !b3.World_RestoreStateFromBytes(sim.phys.world, sim.phys.cache, phys) {
+	// ...
+// box3d/box3d.odin WORKAROUND: the fork can&#x27;t load foreign bytes; mirror its private buffer.
+World_RestoreStateFromBytes :: proc(worldId: WorldId, cache: ^WorldStateCache, image: []u8) -&gt; bool {
+	st := CreateWorldState()
+	defer DestroyWorldState(st)
+	buf := (^Rec_Buffer)(st)
+	buf^ = {data = raw_data(image), capacity = c.int(len(image)), size = c.int(len(image))}
+	ok := World_RestoreState(worldId, cache, st)
+	buf^ = {}
+	return ok
+}</code></pre><p class="note">Restoring the block from bytes is one memcpy (portable because pointer-free, padding-free, LE). Odin made the Box3D workaround easy (cast an opaque pointer to a mirrored struct), which is exactly the kind of unchecked reach-into-private-layout the language never stops you from doing. Temp allocator keeps the encoded snapshot free of manual delete.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/netcode/src/client.rs:320-364; impl/rust/crates/game/src/lib.rs:206-213</span></div><pre class="code" data-lang="rust"><code>// provider side: once V &gt;= J - 1, send the verified slot as portable bytes, chunked, reliable
+if let Some((joiner, min_tick)) = snap_request
+    &amp;&amp; ready
+    &amp;&amp; c.v &gt;= min_tick
+{
+    let slot = c.ring.get(c.v).expect(&quot;verified slot in ring&quot;);
+    let bytes = S::export_slot(slot);                       // &quot;UNIS&quot; | ver | lens | block | Box3D image | xxh3
+    let inputs = c.finalized[c.v as usize].unwrap();
+    send(t, &amp;Msg::SnapshotBegin { joiner, tick: c.v, total: bytes.len() as u32, inputs }, Delivery::Reliable);
+    for (k, chunk) in bytes.chunks(CHUNK).enumerate() {
+        let m = Msg::SnapshotChunk { joiner, offset: (k * CHUNK) as u32, data: chunk.to_vec() };
+        send(t, &amp;m, Delivery::Reliable);
+    }
+    snap_request = None;
+}
+// joiner side: once every chunk arrived, import and continue from that tick (fast-forward follows)
+if !ready
+    &amp;&amp; let Some((tick, inputs, buf, got)) = &amp;snap
+    &amp;&amp; *got == buf.len()
+{
+    c.sim.import(buf).map_err(|e| format!(&quot;client {own}: snapshot import failed: {e}&quot;))?;
+    if c.sim.tick() != *tick { return Err(format!(&quot;client {own}: snapshot is tick {}, expected {tick}&quot;, c.sim.tick())); }
+    c.ring.save(&amp;mut c.sim);
+    c.finalized[*tick as usize] = Some(*inputs);
+    (c.f, c.v, c.l) = (*tick, *tick, *tick);
+    // ... last_sent, rep.snapshot_tick / snapshot_bytes, eprintln!
+    ready = true;
+}
+// game/src/lib.rs: import = validate header + hash, restore Box3D from bytes, then the block
+fn import(&amp;mut self, bytes: &amp;[u8]) -&gt; Result&lt;(), String&gt; {
+    let (block, phys) = parse_snapshot(bytes)?;               // magic, version, sizes, xxh3
+    if !self.world.restore_bytes(phys) {                       // fork API gap: fakes b3WorldState (unsafe)
+        return Err(&quot;Box3D rejected the physics image (b3World_RestoreState)&quot;.into());
+    }
+    *self.s = bytemuck::pod_read_unaligned(block);
+    Ok(())
+}</code></pre><p class="note">Edition-2024 let-chains (`if let .. &amp;&amp; ..`) keep the state-machine checks flat. The block side of a portable snapshot is one pod_read_unaligned; the hard part was Box3D, where restore_bytes passes a hand-built struct mirroring a private C type through a pointer cast, verified at runtime. The (c.f, c.v, c.l) line is a condensed form of three assignments in the source.</p></div></div></section><h2 class="group-title" id="g-view">Talking to the view layer</h2><section class="concept" id="events-to-view"><header class="concept-head"><h3>Sim events to the view</h3><span class="edge">Odin and Rust</span></header><p class="look">Sketched in all three: explosions and hits reaching the view, deduplicated across re-simulations and cancelled when a rollback changes history. Sum types (Odin unions, Rust enums) make this pleasant; C++ uses std::variant or tags.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="cpp"><code>// game/events.h (sketch): events are NOT in the State block; each (re)simulation of a tick regenerates them.
+enum class EventKind : u8 { BarrelExploded, EnemyKilled, PlayerDied, GemCollected };
+struct SimEvent {
+    u32 tick;
+    EventKind kind;
+    u16 entity;          // item/enemy slot: stable thanks to the free list (no swap-remove)
+    phys::Vec3 pos;
+    u64 key() const { return ((u64)tick &lt;&lt; 32) | ((u64)kind &lt;&lt; 16) | entity; }
+};
+using EventSink = std::vector&lt;SimEvent&gt;;   // scratch, reserved once
+
+// systems.cpp: explode() gains a sink parameter
+ev.push_back({s.tick + 1, EventKind::BarrelExploded, (u16)barrel, c});
+
+// net/client.cpp: each Record keeps its tick&#x27;s events; a re-sim overwrites them
+void Client::simulate(u32 t) {
+    Record&amp; r = records_[t % RECORD_RING];
+    r.used = best_inputs(t);
+    r.events.clear();
+    sim_-&gt;step(r.used, r.events);
+    publish(t, r.events, /*verified=*/t &lt;= frontier_);
+}
+
+// view/event_feed.h (main thread; the client thread pushes through a mutex-guarded queue)
+class EventFeed {
+public:
+    void on_tick(u32 t, std::span&lt;const SimEvent&gt; evs, bool verified, std::vector&lt;SimEvent&gt;&amp; play,
+                 std::vector&lt;SimEvent&gt;&amp; cancel) {
+        for (auto it = shown_.begin(); it != shown_.end();) {        // mispredicted: re-sim no longer emits it
+            bool still = it-&gt;second.tick != t ||
+                         std::ranges::any_of(evs, [&amp;](const SimEvent&amp; e) { return e.key() == it-&gt;first; });
+            if (!still) { cancel.push_back(it-&gt;second); it = shown_.erase(it); } else ++it;
+        }
+        for (const SimEvent&amp; e : evs)
+            if (shown_.emplace(e.key(), e).second) play.push_back(e);  // dedup: a re-sim doesn&#x27;t replay it
+        if (verified) std::erase_if(shown_, [&amp;](auto&amp; kv) { return kv.second.tick &lt;= t; }); // confirmed
+    }
+private:
+    std::unordered_map&lt;u64, SimEvent&gt; shown_;
+};</code></pre><p class="note">Nothing exists yet. The natural C++ shape is a plain event vector per simulated tick, keyed by (tick, kind, stable slot) so re-sims dedup, plus a view-side feed. The threading handoff (client thread to render thread) is manual: a mutex or SPSC queue you write and TSan-check yourself.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="odin"><code>// Game side: systems push tagged-union events into Scratch (outside the block, never hashed);
+// the harness copies them into ring slot t % RING, overwritten when tick t is re-simulated.
+Barrel_Exploded :: struct { item: u16, pos: [3]f32 }
+Enemy_Killed :: struct { slot: game.Handle, kind: game.Enemy_Kind, pos: [2]f32 }
+Sim_Event :: union { Barrel_Exploded, Enemy_Killed }
+Tick_Events :: sa.Small_Array(64, Sim_Event) // core:container/small_array, fixed capacity
+//   in sys_barrels next to `s.explosions += 1`: sa.push_back(&amp;sc.events, Barrel_Exploded{u16(i), center})
+
+Event_Key :: struct { tick: u32, kind: typeid, subject: u32 }
+
+event_key :: proc(t: u32, ev: Sim_Event) -&gt; Event_Key {
+	switch e in ev {
+	case Barrel_Exploded: return {t, Barrel_Exploded, u32(e.item)}
+	case Enemy_Killed:    return {t, Enemy_Killed, u32(e.slot.index) | u32(e.slot.generation) &lt;&lt; 16}
+	}
+	return {}
+}
+
+// View side: ticks from..to were (re)simulated this frame; everything &lt;= verified is final.
+view_events_sync :: proc(v: ^View_Events, ring: ^Event_Ring, from, to, verified: u32) {
+	for k, &amp;s in v.seen {
+		if k.tick &gt;= from &amp;&amp; k.tick &lt;= to {s.live = false}
+	}
+	for t in from ..= to {
+		for ev in sa.slice(&amp;ring.events[t % core.RING]) {
+			key := event_key(t, ev)
+			if key not_in v.seen {
+				view_fire(ev, confirmed = t &lt;= verified) // VFX/SFX once, even if re-simulated 8 times
+			}
+			v.seen[key] = {ev, true}
+		}
+	}
+	dead := make([dynamic]Event_Key, context.temp_allocator)
+	for k, s in v.seen {
+		if k.tick &gt; verified {continue}
+		if !s.live {view_cancel(s.ev)} // predicted, then rolled back out of existence
+		append(&amp;dead, k)
+	}
+	for k in dead {delete_key(&amp;v.seen, k)}
+}</code></pre><p class="note">Sketch (type-checked against impl/odin with `odin check`; struct literals collapsed to one line for space). Tagged unions + `switch e in ev` make event kinds cheap and exhaustive, and `typeid` works as a map-key component. Dedup identity needs a stable subject id, which the generational slot provides; Odin gives no help keeping events out of the hashed block beyond putting them in Scratch.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="rust"><code>// SKETCH: game/src/events.rs. Events live beside the block, never in it; systems only push.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SimEvent {
+    BarrelExploded { barrel: u8, pos: [f32; 3] },
+    EnemyKilled { enemy: Handle, kind: u8 },        // kind: 0 grunt, 1 runner, 2 brute
+    GemCollected { player: u8, value: u8 },
+}
+impl SimEvent {
+    /// Identity across re-simulation. No floats: f32 is not Eq/Hash, so the key is built by hand.
+    pub fn key(&amp;self) -&gt; (u8, u32) {
+        match *self {
+            SimEvent::BarrelExploded { barrel, .. } =&gt; (0, barrel as u32),
+            SimEvent::EnemyKilled { enemy, .. } =&gt; (1, (enemy.index as u32) &lt;&lt; 16 | enemy.generation as u32),
+            SimEvent::GemCollected { player, value } =&gt; (2, (player as u32) &lt;&lt; 8 | value as u32),
+        }
+    }
+}
+// Simulation::step gains an out-param:  fn step(&amp;mut self, inputs: &amp;InputSet, ev: &amp;mut Vec&lt;SimEvent&gt;);
+// barrels():  ev.push(SimEvent::BarrelExploded { barrel: b as u8, pos: [c.x, c.y, c.z] });
+pub enum ViewEvent { Play(SimEvent), Cancel(SimEvent), Confirm(SimEvent) }
+
+/// View side; the client calls it after every (re)simulated range and when V advances.
+#[derive(Default)]
+pub struct EventLedger { shown: BTreeMap&lt;(u32, (u8, u32)), SimEvent&gt; }   // (tick, key) -&gt; already played
+impl EventLedger {
+    pub fn simulated(&amp;mut self, from: u32, to: u32, fresh: &amp;[(u32, SimEvent)], out: &amp;mut Vec&lt;ViewEvent&gt;) {
+        let gone: Vec&lt;_&gt; = self.shown.range((from, (0, 0))..=(to, (u8::MAX, u32::MAX))).filter(|(k, _)| !fresh.iter().any(|(t, e)| (*t, e.key()) == **k))
+            .map(|(k, e)| (*k, *e)).collect();
+        for (k, e) in gone { self.shown.remove(&amp;k); out.push(ViewEvent::Cancel(e)); }   // mispredicted
+        for &amp;(t, e) in fresh {
+            if self.shown.insert((t, e.key()), e).is_none() { out.push(ViewEvent::Play(e)); }  // dedup re-sim
+        }
+    }
+    pub fn verified(&amp;mut self, v: u32, out: &amp;mut Vec&lt;ViewEvent&gt;) {
+        while self.shown.first_key_value().is_some_and(|(&amp;(t, _), _)| t &lt;= v) {
+            let (_, e) = self.shown.pop_first().unwrap();
+            out.push(ViewEvent::Confirm(e));                 // e.g. commit the decal, keep the sound
+        }
+    }
+}</code></pre><p class="note">Nothing like this exists yet. Rust&#x27;s enums-with-data make the event type and the Play/Cancel/Confirm protocol pleasant to write, and the collect-then-mutate dance (`gone` Vec) is the usual borrow-checker tax for removing from a map while iterating it. f32 not being Eq/Hash forces an explicit identity key, which is arguably correct for dedup anyway. A predicted explosion that shifts by one tick after rollback becomes Cancel + Play; smoothing that is view policy.</p></div></div></section><section class="concept" id="view-read"><header class="concept-head"><h3>View reading state with interpolation</h3><span class="edge">Rust: read-only by type</span></header><p class="look">The view reads the predicted frames and interpolates between them. Watch who stops the view from mutating sim state: Rust by type (&amp;State), C++ by const, Odin not at all.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="cpp"><code>// view/interp.h (sketch): the view reads two consecutive predicted states and blends by alpha.
+// The previous state comes from the Sim&#x27;s own snapshot ring (as bench/b&#x27;s bridge does), so no extra copies.
+struct ViewFrame {
+    const game::State* prev;
+    const game::State* curr;
+    f32 alpha;                          // fixed-step accumulator remainder / DT (render-only float)
+};
+
+ViewFrame Client::view_frame(f32 alpha) const {     // call between client steps (same thread or under a lock)
+    const game::State&amp; cur = sim_-&gt;state();
+    const game::State&amp; prv = ring_-&gt;has(local_ - 1) ? *ring_-&gt;at(local_ - 1).state : cur;
+    return {&amp;prv, &amp;cur, alpha};
+}
+
+void write_enemies(const ViewFrame&amp; f, float* xforms /* Godot MultiMesh 3x4 */, int&amp; count) {
+    count = 0;
+    const int n = f.curr-&gt;enemy_pool.high_water;
+    for (int i = 0; i &lt; n; ++i) {
+        const game::Enemy&amp; b = f.curr-&gt;enemies[i];
+        if (!b.alive) continue;
+        const game::Enemy&amp; a = f.prev-&gt;enemies[i];
+        const bool fresh = !a.alive || a.kind != b.kind;   // just (re)spawned in this slot: don&#x27;t lerp from old
+        const f32 x = fresh ? b.x : a.x + (b.x - a.x) * f.alpha;
+        const f32 z = fresh ? b.z : a.z + (b.z - a.z) * f.alpha;
+        const f32 s = game::ENEMY_SPECS[b.kind].radius * 2.0f;
+        float* o = xforms + 12 * count++;
+        o[0] = s; o[1] = 0; o[2] = 0; o[3]  = x;
+        o[4] = 0; o[5] = s; o[6] = 0; o[7]  = s * 0.5f;
+        o[8] = 0; o[9] = 0; o[10] = s; o[11] = z;
+    }
+}
+// Rollbacks can teleport entities between frames; a view-side error offset that decays over ~100 ms
+// (stored per slot in the view, never in the block) would hide the snap.</code></pre><p class="note">Reading the block from the view is trivially cheap because it&#x27;s plain structs; bench/b already does exactly this for its sim at 0.1–0.2 ms/frame. The risk is lifetime: the view holds raw `const State*` into a ring that the client thread overwrites, so it needs a lock or a copy per frame, and C++ won&#x27;t flag a mistake there.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">bench/b/godot-odin/src/bench/bridge.odin:78-83 (real precedent); rest sketch</span></div><pre class="code" data-lang="odin"><code>// Real precedent (bench/b/godot-odin bridge.odin): the previous tick&#x27;s block comes from the
+// sim&#x27;s snapshot ring, so agents interpolate with no extra copy.
+prev_state :: proc(br: ^Bridge) -&gt; ^sim.State {
+	t := br.s.state.tick
+	if t == 0 do return &amp;br.s.state
+	return &amp;br.s.ring[(t - 1) % sim.RING]
+}
+
+// SKETCH for impl/odin: enemy i at render time, alpha in [0,1) between predicted ticks P-1 and P.
+// A slot whose generation changed was freed and reused in between: snap, don&#x27;t lerp across.
+enemy_render_pos :: proc(sim: ^core.Sim, i: int, alpha: f32) -&gt; (pos: [2]f32, visible: bool) {
+	cur := &amp;sim.state.enemies.items[i]
+	if !cur.alive {
+		return
+	}
+	t := sim.state.tick
+	if t == 0 || !core.sim_has_snapshot(sim, t - 1) {
+		return cur.pos, true
+	}
+	prev := &amp;sim.ring[(t - 1) % core.RING].block.enemies.items[i]
+	if !prev.alive || prev.generation != cur.generation {
+		return cur.pos, true
+	}
+	return prev.pos + (cur.pos - prev.pos) * alpha, true
+}
+
+// Bodies live in Box3D, not the block: the view keeps its own [2]pose per item, captured
+// after every client update (as bench/b&#x27;s Bridge does with prop_pos[0..1]).
+capture_poses :: proc(sim: ^core.Sim, vf: ^View_Frame) {
+	vf.items[0] = vf.items[1]
+	for &amp;it, i in sim.state.items {
+		if !it.alive {continue}
+		id := game.body_id(&amp;sim.phys, it.body)
+		p := b3.Body_GetPosition(id)
+		vf.items[1][i] = {{p.x, p.y, p.z}, b3.Body_GetRotation(id)}
+	}
+}</code></pre><p class="note">Read-only access is just pointers into the block and ring; `[2]f32` array arithmetic makes the lerp one expression. Nothing enforces read-only (Odin has no const pointers), so a view bug can mutate sim state; after a rollback the ring&#x27;s P-1 slot is the re-simulated one, which is what we want. Sketch type-checked against impl/odin.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="rust"><code>// SKETCH: simcore/src/sim.rs. Expose the block read-only, still without netcode knowing the game.
+pub trait Simulation {
+    type Slot;
+    type Block: bytemuck::Pod;                          // = game::state::State
+    fn block(&amp;self) -&gt; &amp;Self::Block;
+    fn slot_block(slot: &amp;Self::Slot) -&gt; &amp;Self::Block;
+    // ... existing methods
+}
+pub trait View&lt;S: Simulation&gt; {
+    fn frame(&amp;mut self, prev: &amp;S::Block, curr: &amp;S::Block, alpha: f32);
+}
+
+// SKETCH: netcode/src/client.rs, after the tick scheduler. The ring already holds L-1, and after a
+// rollback it holds the re-simulated L-1, so the view sees corrected history for free.
+let curr = c.sim.block();
+let prev = c.ring.get(c.l - 1).map(S::slot_block).unwrap_or(curr);
+let alpha = ((now - (next_tick_at - TICK_US)) / TICK_US).clamp(0.0, 1.0) as f32;
+view.frame(prev, curr, alpha);                         // shared borrows only: the view can&#x27;t mutate the sim
+
+// SKETCH: game/src/view.rs. Enemies interpolate per slot, guarded by generation.
+pub fn write_enemies(prev: &amp;State, cur: &amp;State, t: f32, out: &amp;mut [f32]) {   // MultiMesh: 12 floats each
+    let (p, c) = (&amp;prev.enemies, &amp;cur.enemies);
+    for (i, o) in out.chunks_exact_mut(12).take(MAX_ENEMIES).enumerate() {
+        if c.alive[i] == 0 { o.fill(0.0); continue; }                       // zero basis = hidden
+        let same = p.alive[i] == 1 &amp;&amp; p.generation[i] == c.generation[i];   // slot reused? don&#x27;t lerp
+        let (x0, z0) = if same { (p.px[i], p.pz[i]) } else { (c.px[i], c.pz[i]) };
+        let x = x0 + (c.px[i] - x0) * t;
+        let z = z0 + (c.pz[i] - z0) * t;
+        let s = KINDS[c.kind[i] as usize].radius / 0.4;                     // grunt / runner / brute
+        o.copy_from_slice(&amp;[s, 0.0, 0.0, x, 0.0, s, 0.0, 0.2, 0.0, 0.0, s, z]);
+    }
+}</code></pre><p class="note">Reading the Pod block is easy and compile-time read-only (&amp;State). The friction is in generics: because netcode is generic over Simulation, every view-facing type needs an associated type (Block) threaded through the trait. Crates and barrels are not in the block (only BodyRefs), so their poses need a per-tick pose cache read from Box3D like bench/b&#x27;s Driver prev/curr, which a rollback must also rewrite.</p></div></div></section><section class="concept" id="godot"><header class="concept-head"><h3>Driving Godot</h3><span class="edge">C++ and Rust</span></header><p class="look">From the Benchmark B variants. C++ uses Godot&#x27;s official binding; Rust uses gdext; Odin uses our own generator with manual refcounting.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">bench/b/godot-cpp/src/register_types.cpp:11-14; bench/b/godot-cpp/src/view.cpp:208-221,347-378 (drives the bench/a sim, not impl/cpp)</span></div><pre class="code" data-lang="cpp"><code>// register_types.cpp: GDExtension entry point
+static void initialize(ModuleInitializationLevel level) {
+    if (level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
+    GDREGISTER_RUNTIME_CLASS(BenchMain);    // runtime-only: a placeholder in the editor
+}
+
+// view.cpp: nodes are built in code; one MultiMesh per entity kind
+static Ref&lt;MultiMesh&gt; add_multimesh(Node* parent, const Ref&lt;Mesh&gt;&amp; mesh, int count, bool colors,
+                                    PackedFloat32Array&amp; buf) {
+    Ref&lt;MultiMesh&gt; mm;
+    mm.instantiate();
+    mm-&gt;set_transform_format(MultiMesh::TRANSFORM_3D);
+    mm-&gt;set_use_colors(colors);
+    mm-&gt;set_mesh(mesh);
+    mm-&gt;set_instance_count(count);
+    buf.resize(count * (bridge::XFORM_FLOATS + (colors ? 4 : 0)));
+    MultiMeshInstance3D* mmi = memnew(MultiMeshInstance3D);
+    mmi-&gt;set_multimesh(mm);
+    parent-&gt;add_child(mmi);
+    return mm;
+}
+
+void BenchMain::_process(double) {
+    // ... frame timing
+    driver_.advance(dt);                               // fixed 60 Hz steps inside Godot&#x27;s frame
+    driver_.write_props(buf_cubes_.ptrw(), buf_spheres_.ptrw());   // interpolated, straight into
+    driver_.write_agents(buf_agents_.ptrw());                       // Godot&#x27;s buffer memory
+    // ... players (+ per-instance colours)
+    mm_cubes_-&gt;set_buffer(buf_cubes_);                 // one call per kind, 1304 instances total
+    mm_spheres_-&gt;set_buffer(buf_spheres_);
+    mm_players_-&gt;set_buffer(buf_players_);
+    mm_agents_-&gt;set_buffer(buf_agents_);
+    update_cameras();
+}</code></pre><p class="note">Same language as the engine: the sim links straight into the GDExtension dylib, and `ptrw()` writes interpolated transforms directly into Godot&#x27;s buffers (0.1–0.2 ms/frame of our own work in release). The papercuts are C++-specific. Building our TU with `-fno-rtti` crashed in godot-cpp&#x27;s `__dynamic_cast`, Godot `String`s can&#x27;t be used in static initializers, and statics holding `Ref&lt;&gt;` crashed at exit. A fresh build with a godot-cpp build profile takes 5.5 s; with all bindings it&#x27;s about 57 s.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">bench/b/godot-odin/src/godot/api.gen.odin:13179-13185; bench/b/godot-odin/src/godot/runtime.odin:88-107; bench/b/godot-odin/src/bench/view.odin:238-249,334-337; barrel sync is a sketch</span></div><pre class="code" data-lang="odin"><code>// Generated wrapper (src/godot/api.gen.odin): class = struct with `using base_`, method = Class_method.
+Node3D_set_position :: proc(self: Node3D, position: Vector3) {
+	@(static) _mb: rawptr
+	if _mb == nil do _mb = method_bind(&quot;Node3D&quot;, &quot;set_position&quot;, 3460891852)
+	_a0 := position
+	_args := [?]rawptr{&amp;_a0}
+	gdi.object_method_bind_ptrcall(_mb, self.ptr, &amp;_args[0], nil)
+}
+
+// Real view code (bench/b/godot-odin view.odin): one capsule node per player, built once...
+		mi := gd.MeshInstance3D_new()
+		gd.MeshInstance3D_set_mesh(mi, cap)
+		gd.unref(cap) // RefCounted from _new() comes with refcount 1 that WE own
+		gd.Node_add_child(world, mi)
+		app.players[p] = mi
+// ...and moved every frame from interpolated sim state
+		pos := lerp3(br.player_pos[0][p], br.player_pos[1][p], alpha)
+		gd.Node3D_set_position(app.players[p], {pos.x, pos.y, pos.z})
+
+// SKETCH: barrels come and go (explode, respawn, or un-explode after a rollback), so nodes
+// are reconciled with the sim state every frame. Nothing frees them for us.
+sync_items :: proc(v: ^Item_Views, world: gd.Node3D, s: ^game.State, poses: ^[game.ITEM_COUNT][3]f32) {
+	for &amp;it, i in s.items {
+		node := &amp;v.nodes[i]
+		switch {
+		case it.alive &amp;&amp; node.ptr == nil:
+			node^ = gd.MeshInstance3D_new()
+			gd.MeshInstance3D_set_mesh(node^, v.mesh) // CapsuleMesh passes as Mesh via `using`
+			gd.Node_add_child(world, node^) // the scene tree owns the node now
+		case !it.alive &amp;&amp; node.ptr != nil:
+			gd.Node_queue_free(node^) // freed at end of frame; any copy of the handle now dangles
+			node^ = {}
+		}
+		if node.ptr != nil {
+			p := poses[i]
+			gd.Node3D_set_position(node^, {p.x, p.y, p.z})
+		}
+	}
+}</code></pre><p class="note">Works well once bindings exist (ours: a 695-line generator over extension_api.json + 94-line runtime; 18.5k generated lines build in 0.55 s), and `using` gives usable class subtyping. But lifetimes are fully manual: no RAII, so every RefCounted needs `defer gd.unref(x)` (the first version leaked 822 objects), and node handles are raw pointers that dangle after queue_free. Extension classes, signals/callables and varargs aren&#x27;t bound yet (est. 2-4k more lines). Enemies (1200) go through MultiMesh buffers in bench/b, not nodes. Sketch type-checked against the generated bindings.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">bench/b/godot-rust/src/view.rs:59-68,82-97,152-188,340-352; bench/b/godot-rust/src/lib.rs:9-12</span></div><pre class="code" data-lang="rust"><code>#[gdextension]
+unsafe impl ExtensionLibrary for BenchB {}                      // lib.rs: the one required unsafe
+#[derive(GodotClass)]
+#[class(base = Node3D, init)]
+pub struct BenchMain {
+    base: Base&lt;Node3D&gt;,
+    scene: Option&lt;Scene&gt;,        // Driver (sim + fixed-step accumulator) + MultiMesh batches + cameras
+}
+struct Batch { mm: Gd&lt;MultiMesh&gt;, buf: PackedFloat32Array }
+impl BenchMain {
+    // &quot;spawn&quot;: one MultiMeshInstance3D node per entity class (1000 agents = one node)
+    fn add_multimesh(&amp;mut self, mesh: Gd&lt;Mesh&gt;, count: usize, colors: bool) -&gt; Batch {
+        let mut mm = MultiMesh::new_gd();                       // RefCounted: freed with the last Gd
+        mm.set_transform_format(TransformFormat::TRANSFORM_3D);
+        // ... set_use_colors(colors), set_mesh(&amp;mesh)
+        mm.set_instance_count(count as i32);
+        let mut buf = PackedFloat32Array::new();               // + resize(count * floats per instance)
+        let mut mmi = MultiMeshInstance3D::new_alloc();         // Node: owned by the tree once added
+        mmi.set_multimesh(&amp;mm);
+        self.base_mut().add_child(&amp;mmi);
+        Batch { mm, buf }
+    }
+}
+#[godot_api]
+impl INode3D for BenchMain {
+    // &quot;update&quot;: fixed 60 Hz sim steps inside Godot&#x27;s frame, interpolated poses, one upload per batch
+    fn process(&amp;mut self, _delta: f64) {
+        // ... dt from Instant
+        let s = self.scene.as_mut().unwrap();
+        s.driver.advance(dt);                                    // runs 0..n sim ticks, keeps alpha
+        s.driver.write_props(s.cubes.buf.as_mut_slice(), s.spheres.buf.as_mut_slice());
+        s.driver.write_agents(s.agents.buf.as_mut_slice());     // lerp previous ring slot -&gt; current
+        for b in [&amp;mut s.cubes, &amp;mut s.spheres, &amp;mut s.players, &amp;mut s.agents] { b.upload(); } // set_buffer
+        self.update_cameras();
+        if !self.scene.as_ref().unwrap().offscreen.is_empty() {    // screenshot mode
+            let _guard = self.base_mut();       // without this: runtime &quot;bind_mut() failed, already bound&quot;
+            RenderingServer::singleton().force_draw();
+        }
+    }
+}</code></pre><p class="note">gdext is mature and safe: Gd&lt;T&gt; handles, typed enums, Option for nullable returns, typed signals, and godot-cpp&#x27;s two lifetime crashes can&#x27;t be expressed. Rust writes straight into Godot&#x27;s PackedFloat32Array via as_mut_slice(), so the bridge has no Godot types. Costs: the borrow model is enforced at runtime across Godot callbacks (re-entrant signal = panic until you hold base_mut()), names differ from Godot docs (GltfDocument, GString), and full codegen makes a fresh dev build 23.5 s with a 3.7 GB rustc peak. Note: bench/b drives bench/a&#x27;s sim, not impl/rust&#x27;s Game.</p></div></div></section><h2 class="group-title" id="g-tooling">Dev tooling</h2><section class="concept" id="reflection"><header class="concept-head"><h3>Reflection and introspection</h3><span class="edge">Odin: built in</span></header><p class="look">What an in-game inspector, desync field diff and tuning sliders cost. This is where the languages differ most: Odin has runtime type info built in, C++ has nothing until C++26, and Rust needs macros.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-mixed">mixed</span><span class="src">real part: impl/cpp/src/core/pod_check.h:41-91 (field types only, no names); rest is a sketch</span></div><pre class="code" data-lang="cpp"><code>// dev/inspect.h (sketch). Boost.PFR 1.91 (header-only, C++20) supplies field NAMES; the recursion mirrors
+// pod_check.h. Zero per-component boilerplate for names and types. C++26 reflection (P2996) isn&#x27;t in
+// upstream clang or MSVC yet; PFR&#x27;s BOOST_PFR_USE_CPP26_REFLECTION is the migration switch.
+#include &lt;boost/pfr.hpp&gt;
+
+template &lt;class T, class Fn&gt;                          // fn(std::string_view path, auto&amp; scalar)
+void visit_fields(T&amp; obj, std::string&amp; path, Fn&amp;&amp; fn) {
+    using U = std::remove_const_t&lt;T&gt;;
+    if constexpr (std::is_arithmetic_v&lt;U&gt; || std::is_enum_v&lt;U&gt;) {
+        fn(std::string_view(path), obj);
+    } else if constexpr (uni::pod::IsArray&lt;U&gt;::value) {  // uni::Array holds a C array: PFR can&#x27;t walk it
+        for (int i = 0; i &lt; U::size(); ++i) {
+            const usize mark = path.size();
+            path += &#x27;[&#x27; + std::to_string(i) + &#x27;]&#x27;; visit_fields(obj[i], path, fn); path.resize(mark);
+        }
+    } else {
+        constexpr auto names = boost::pfr::names_as_array&lt;U&gt;();
+        boost::pfr::for_each_field(obj, [&amp;](auto&amp; field, std::size_t i) {
+            const usize mark = path.size();
+            path += path.empty() ? &quot;&quot; : &quot;.&quot;; path += names[i]; visit_fields(field, path, fn); path.resize(mark);
+        });
+    }
+}
+
+// Inspector write: set_field(state, &quot;players[0].hp&quot;, 100)   (dev builds, between ticks)
+template &lt;class T&gt; bool set_field(T&amp; obj, std::string_view want, double v) {
+    std::string path; bool hit = false;
+    visit_fields(obj, path, [&amp;](std::string_view p, auto&amp; f) { if (p == want) { f = (std::remove_cvref_t&lt;decltype(f)&gt;)v; hit = true; } });
+    return hit;
+}
+
+// Desync diff: same walk, compare the same byte offset in the other client&#x27;s block
+void diff(const game::State&amp; a, const game::State&amp; b, std::vector&lt;std::string&gt;&amp; out) {
+    std::string path;
+    visit_fields(a, path, [&amp;](std::string_view p, const auto&amp; f) {
+        const usize off = (usize)((const u8*)&amp;f - (const u8*)&amp;a);
+        if (std::memcmp((const u8*)&amp;b + off, &amp;f, sizeof f) != 0 &amp;&amp; out.size() &lt; 32) out.emplace_back(p);
+    });
+}</code></pre><p class="note">The repo already reflects field types at compile time (pod_check.h), but not names. PFR gives names, read and write by path, and desync diffs with zero per-component boilerplate, but only for plain aggregates. Enums stored as `u8` show as numbers, and anything needing metadata (ranges, &#x27;tunable&#x27;, display names) needs an extra X-macro line per field. That is roughly 1 line per annotated field, and per-type instantiation adds compile time. True reflection is C++26, which isn&#x27;t on our compilers before ~2027.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">impl/odin/src/core/pod.odin:12-48 (real RTTI walk); inspector/diff are sketches</span></div><pre class="code" data-lang="odin"><code>// Real core/pod.odin walks type_info_of(game.State) the same way; dev tools reuse it.
+// Inspector: list a component&#x27;s fields, incl. optional struct tags (speed: f32 `tune:&quot;0..10&quot;`).
+list_fields :: proc($T: typeid) {
+	for f in reflect.struct_fields_zipped(T) {
+		fmt.printfln(&quot;%-18s %-10v @%3d %s&quot;, f.name, f.type.id, f.offset, reflect.struct_tag_get(f.tag, &quot;tune&quot;))
+	}
+}
+
+// Inspector write by name: set_field(sim.state.enemies.items[i], &quot;speed&quot;, 3.5)
+// (an addressable argument passed as `any` aliases the real element; verified).
+set_field :: proc(obj: any, name: string, value: f64) -&gt; bool {
+	v := reflect.struct_field_value_by_name(obj, name, allow_using = true)
+	switch v.id {
+	case f32:  (^f32)(v.data)^ = f32(value)
+	case i32:  (^i32)(v.data)^ = i32(value)
+	case bool: (^bool)(v.data)^ = value != 0
+	case:      return false
+	}
+	return true
+}
+// Desync diff: two State blocks -&gt; &quot;state.enemies.items[412].pos[1]: 3.25 vs 3.2500002&quot;
+diff :: proc(ti: ^runtime.Type_Info, a, b: rawptr, path: string, out: ^[dynamic]string) {
+	if runtime.memory_compare(a, b, ti.size) == 0 {
+		return
+	}
+	#partial switch v in runtime.type_info_base(ti).variant {
+	case runtime.Type_Info_Struct:
+		for i in 0 ..&lt; int(v.field_count) {
+			o := v.offsets[i]
+			diff(v.types[i], rawptr(uintptr(a) + o), rawptr(uintptr(b) + o), fmt.tprintf(&quot;%s.%s&quot;, path, v.names[i]), out)
+		}
+	case runtime.Type_Info_Array:
+		for i in 0 ..&lt; v.count {
+			o := uintptr(i * v.elem_size)
+			diff(v.elem, rawptr(uintptr(a) + o), rawptr(uintptr(b) + o), fmt.tprintf(&quot;%s[%d]&quot;, path, i), out)
+		}
+	case:
+		append(out, fmt.tprintf(&quot;%s: %v vs %v&quot;, path, any{a, ti.id}, any{b, ti.id}))
+	}
+}</code></pre><p class="note">Odin&#x27;s best mechanism here is built-in RTTI (type_info_of / core:reflect + struct tags): always emitted, zero build cost, works on any type including parapoly Pool(Enemy, 1200). Boilerplate per component: zero (an optional tag per tunable field). Downside: it&#x27;s runtime and untyped, so a field rename silently breaks a saved inspector layout, and there&#x27;s no compile-time field loop. Sketches type-checked with `odin check` (case bodies collapsed onto one line for space).</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="rust"><code>// SKETCH: simcore/src/reflect.rs. macro_rules! only: no proc-macro crate, no syn, ~0 build cost.
+pub enum Ty { F32, I32, U32, U16, U8, Array { elem: &amp;&#x27;static Ty, len: usize },
+              Struct { name: &amp;&#x27;static str, size: usize, fields: &amp;&#x27;static [Field] } }   // + fn size(&amp;self)
+pub struct Field { pub name: &amp;&#x27;static str, pub offset: usize, pub ty: &amp;&#x27;static Ty }
+pub trait Reflect: bytemuck::Pod { const TY: &amp;&#x27;static Ty; }
+macro_rules! prim { ($($t:ty =&gt; $v:ident),*) =&gt; { $(impl Reflect for $t { const TY: &amp;&#x27;static Ty = &amp;Ty::$v; })* } }
+prim!(f32 =&gt; F32, i32 =&gt; I32, u32 =&gt; U32, u16 =&gt; U16, u8 =&gt; U8);
+impl&lt;T: Reflect, const N: usize&gt; Reflect for [T; N] { const TY: &amp;&#x27;static Ty = &amp;Ty::Array { elem: T::TY, len: N }; }
+/// Wraps a component declaration: emits the same Pod struct plus its const field table.
+macro_rules! component {
+    ($(#[$m:meta])* pub struct $name:ident { $(pub $f:ident : $t:ty),* $(,)? }) =&gt; {
+        $(#[$m])* #[repr(C)] #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        pub struct $name { $(pub $f: $t),* }
+        impl Reflect for $name {
+            const TY: &amp;&#x27;static Ty = &amp;Ty::Struct { name: stringify!($name), size: size_of::&lt;$name&gt;(), fields: &amp;[
+                $(Field { name: stringify!($f), offset: core::mem::offset_of!($name, $f), ty: &lt;$t as Reflect&gt;::TY }),*
+            ] };
+        }
+    };
+}
+// per component, the whole cost is wrapping the declaration (State, Enemies, Player... the same way):
+component! { #[derive(Debug, Default)] pub struct Barrel { pub body: BodyRef, pub item: u32, pub hp: i32, pub respawn: u32 } }
+/// Inspector: &quot;barrels.3.hp&quot; / &quot;enemies.px.517&quot; -&gt; (byte offset in the block, type)
+pub fn locate(mut ty: &amp;&#x27;static Ty, path: &amp;str) -&gt; Option&lt;(usize, &amp;&#x27;static Ty)&gt; {
+    let mut off = 0;
+    for part in path.split(&#x27;.&#x27;) {
+        match *ty {
+            Ty::Struct { fields, .. } =&gt; { let f = fields.iter().find(|f| f.name == part)?; off += f.offset; ty = f.ty; }
+            Ty::Array { elem, len } =&gt; { let i: usize = part.parse().ok().filter(|&amp;i| i &lt; len)?; off += i * elem.size(); ty = elem; }
+            _ =&gt; return None,
+        }
+    }
+    Some((off, ty))
+}
+pub fn set_i32(s: &amp;mut State, path: &amp;str, v: i32) -&gt; bool {     // write a field by name, no unsafe
+    let Some((off, Ty::I32)) = locate(State::TY, path) else { return false };
+    bytemuck::bytes_of_mut(s)[off..off + 4].copy_from_slice(&amp;v.to_le_bytes());
+    true
+}
+// desync diff: first differing byte of two clients&#x27; blocks -&gt; path_of(State::TY, off) = &quot;enemies.px.517&quot;</code></pre><p class="note">Pick: a macro_rules! component wrapper. Because the block is already Pod, offset_of! + bytes_of_mut give safe by-name read/write and a byte-exact desync diff with no unsafe. Cost: zero extra lines per field, one wrapper per struct; field doc comments and #[attrs] need the macro extended, and errors inside macro expansions read worse than plain code. Alternatives: an own #[derive(Reflect)] proc macro (syn is already compiled for bytemuck_derive, so roughly +1-2 s fresh [estimate], but proc macros re-expand on every incremental build and sccache never caches them); facet (derive via unsynn, a few crates, roughly +3-6 s fresh [estimate]); bevy_reflect (dyn Reflect + TypeRegistry, best egui-inspector story but only inside Bevy, roughly +15-30 s fresh [estimate]).</p></div></div></section><section class="concept" id="serialization"><header class="concept-head"><h3>Serializing custom types</h3><span class="edge">Odin and Rust</span></header><p class="look">Save files, debug dumps, network messages. The block itself is free everywhere (raw bytes); the differences are in everything else.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-mixed">mixed</span><span class="src">real: impl/cpp/src/net/protocol.cpp:66-75,145-155; sketch below</span></div><pre class="code" data-lang="cpp"><code>// REAL: every message has a hand-written encode AND decode (9 messages, ~220 lines)
+std::vector&lt;u8&gt; encode(const WelcomeMsg&amp; m) {
+    BEGIN(Msg::Welcome);                 // macro: vector + ByteWriter + tag
+    w.put_u8(m.player);
+    w.put_u8(m.initial_players);
+    w.put_u64(m.seed);
+    w.put_u32(m.ticks);
+    w.put_u32(m.join_tick);
+    w.put_i64(m.start_us);
+    return out;
+}
+bool decode(const std::vector&lt;u8&gt;&amp; data, WelcomeMsg&amp; m) {
+    ByteReader r(nullptr, 0);
+    if (!open(data, Msg::Welcome, r)) return false;
+    m.player = r.get_u8();
+    m.initial_players = r.get_u8();
+    m.seed = r.get_u64();
+    // ... must stay in the same order as encode(), by hand
+    return r.ok();
+}
+
+// SKETCH: one function serves both directions (the bitsery/cereal idiom, no dependency, no exceptions)
+struct Writer { ByteWriter&amp; w;  template &lt;class T&gt; void operator()(const T&amp; v) { w.put_bytes(&amp;v, sizeof v); } };
+struct Reader { ByteReader&amp; r;  template &lt;class T&gt; void operator()(T&amp; v) {
+    if (const u8* p = r.get_bytes(sizeof v)) std::memcpy(&amp;v, p, sizeof v); } };
+
+template &lt;class Ar, class T&gt;                            // plain aggregates: zero boilerplate via PFR
+    requires(std::is_aggregate_v&lt;T&gt; &amp;&amp; uni::pod::is_portable_pod&lt;T&gt;())
+void serialize(Ar&amp; ar, T&amp; t) { boost::pfr::for_each_field(t, [&amp;](auto&amp; f) { ar(f); }); }
+
+template &lt;class Ar&gt;                                     // types with vectors: one explicit list
+void serialize(Ar&amp; ar, FinalMsg&amp; m) {
+    ar(m.relay_time_us); ar(m.echo_client_time_us); ar(m.echo_hold_us); ar(m.input_ack); ar(m.first_tick);
+    u8 n = (u8)m.ticks.size(); ar(n); m.ticks.resize(n);
+    for (auto&amp; t : m.ticks) serialize(ar, t);
+}</code></pre><p class="note">Today it&#x27;s the most repetitive part of the codebase: encode and decode are mirrored by hand, and input packing is duplicated across files. The idiomatic fix (an `Ar&amp;` visitor, plus PFR for PODs) halves it, but C++ offers no derive, so anything non-aggregate still needs a field list someone keeps in sync.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">impl/odin/src/core/log.odin:38-55; impl/odin/src/core/bytes.odin:66-78; json/cbor dump is a sketch</span></div><pre class="code" data-lang="odin"><code>// Real: binary formats are hand-written with a little-endian Writer/Reader (core/bytes.odin).
+write_inputs :: proc(w: ^Writer, inputs: ^game.Inputs) {
+	for in_ in inputs {
+		w_u8(w, u8(in_.move_x))
+		w_u8(w, u8(in_.move_z))
+		w_u8(w, in_.buttons)
+		w_u8(w, in_.choice)
+	}
+}
+
+read_inputs :: proc(r: ^Reader) -&gt; (out: game.Inputs) {
+	for &amp;in_ in out {
+		in_.move_x = i8(r_u8(r))
+		// ... move_z, buttons, choice
+	}
+	return
+}
+
+// One generic reader for all integer widths, constrained with a where clause.
+@(private)
+r_le :: proc(r: ^Reader, $T: typeid) -&gt; T where intrinsics.type_is_integer(T) {
+	b := r_bytes(r, size_of(T))
+	if b == nil {
+		return 0
+	}
+	v: T
+	intrinsics.mem_copy_non_overlapping(&amp;v, raw_data(b), size_of(T))
+	return v
+}
+
+// SKETCH: debug dumps / save files need no per-type code: core:encoding/json and
+// core:encoding/cbor serialize any value by RTTI (`json:&quot;name&quot;` tags rename fields).
+dump_enemies :: proc(s: ^game.State) -&gt; ([]u8, json.Marshal_Error) {
+	alive := make([dynamic]game.Enemy, context.temp_allocator)
+	for &amp;e in s.enemies.items[:s.enemies.high_water] {
+		if e.alive {append(&amp;alive, e)}
+	}
+	return json.marshal(alive[:], {pretty = true}, context.temp_allocator)
+}
+// The state block itself never needs this: its bytes are already canonical (see checksum).</code></pre><p class="note">Two tiers: pointer-free POD needs no serializer at all (raw bytes), and arbitrary types get JSON/CBOR by reflection with zero code. The middle tier, compact versioned binary messages, is written field by field (Reader&#x27;s sticky `ok` flag keeps decoders short); there&#x27;s no derive, so a field added to Input must be added to every writer/reader by hand.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-mixed">mixed</span><span class="src">impl/rust/crates/netcode/src/proto.rs:92-172 (trimmed); impl/rust/crates/game/src/lib.rs:191,211</span></div><pre class="code" data-lang="rust"><code>// netcode/src/proto.rs (real): hand-rolled LE codec; decode is total (truncated packet -&gt; None)
+pub fn encode(&amp;self) -&gt; Vec&lt;u8&gt; {
+    let mut w = W::new();
+    match self {
+        Msg::Checksum { tick, hash } =&gt; { w.u8(5).u32(*tick).u64(*hash); }
+        Msg::SnapshotChunk { joiner, offset, data } =&gt; { w.u8(8).u8(*joiner).u32(*offset).bytes(data); }
+        // ... Frames, Inputs, Hello, Welcome, SnapshotRequest, SnapshotBegin, Bye
+    }
+    w.0
+}
+pub fn decode(b: &amp;[u8]) -&gt; Option&lt;Msg&gt; {
+    let mut r = R::new(b);
+    Some(match r.u8()? {
+        5 =&gt; Msg::Checksum { tick: r.u32()?, hash: r.u64()? },
+        8 =&gt; Msg::SnapshotChunk { joiner: r.u8()?, offset: r.u32()?, data: r.rest().to_vec() },
+        // ...
+        _ =&gt; return None,
+    })
+}
+
+// game/src/lib.rs (real): the state block needs no codec at all
+let block = bytemuck::bytes_of(&amp;*slot.block);              // export
+*self.s = bytemuck::pod_read_unaligned(block);             // import from any alignment / process
+
+// SKETCH: serde for save files and human-readable debug dumps (not a dependency today)
+#[derive(serde::Serialize, serde::Deserialize)]          // AoS components: just add the derive
+pub struct Player { /* ... */ }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Enemies {
+    #[serde(with = &quot;serde_big_array::BigArray&quot;)]         // serde&#x27;s array impls stop at [T; 32], so every
+    pub px: [f32; MAX_ENEMIES],                          // 1200-long SoA column needs this (or serde_with)
+    // ...
+}
+// dump: serde_json::to_writer_pretty(file, &amp;*game.s)?;  wire stays hand-rolled / bytemuck</code></pre><p class="note">For wire and snapshots the codebase deliberately avoids serde: a 60-line W/R pair plus an enum gives exhaustive, bounds-checked encode/decode, and bytemuck covers the block. serde would be the idiomatic route for save files and debug dumps, but it adds serde_derive (another proc macro) and has the [T; 32] array limit that bites SoA tables.</p></div></div></section><section class="concept" id="config"><header class="concept-head"><h3>Tunable config</h3><span class="edge">Odin and Rust</span></header><p class="look">Immutable tuning data outside the snapshot, hot-reloaded in dev. Sketched everywhere. Watch the determinism caveat: peers must agree on the parsed bits, not the text.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="cpp"><code>// game/tuning.h (sketch): outside the State block, read-only inside step(), pointer-free so it can be hashed.
+struct EnemySpec { i32 hp; f32 speed; f32 radius; i32 damage; i32 xp; };
+struct Tuning {
+    Array&lt;EnemySpec, 3&gt; enemies;         // grunt, runner, brute
+    f32 player_speed;
+    f32 explosion_radius;
+    f32 explosion_impulse;
+    i32 explosion_enemy_damage;
+    u16 barrel_respawn;
+    u16 reserved;                        // -Wpadded
+};
+static_assert(uni::pod::is_portable_pod&lt;Tuning&gt;());
+inline constexpr Tuning DEFAULT_TUNING{{{{10, 2.0f, 0.4f, 5, 1}, {6, 3.2f, 0.35f, 3, 1}, {40, 1.2f, 0.7f, 12, 5}}},
+                                       6.0f, 5.0f, 12.0f, 25, 600, 0};
+
+void step(State&amp; s, phys::World&amp; w, Scratch&amp; g, const Tuning&amp; cfg, const uni::Input (&amp;in)[MAX_PLAYERS]);
+
+// dev/tuning_file.cpp: &quot;enemies[2].speed = 1.4&quot; lines, applied through the inspector&#x27;s set_field()
+bool load_tuning(const std::string&amp; path, Tuning&amp; out, std::string&amp; error) {
+    std::vector&lt;u8&gt; text;
+    if (!uni::platform::read_file(path, text)) { error = &quot;cannot read &quot; + path; return false; }
+    Tuning t = DEFAULT_TUNING;
+    for (std::string_view line : lines(text)) {
+        auto [key, value] = split_assign(line);            // trims; skips &#x27;#&#x27; comments
+        if (!set_field(t, key, std::strtod(std::string(value).c_str(), nullptr))) {
+            error = &quot;unknown key &quot; + std::string(key); return false;
+        }
+    }
+    out = t;
+    return true;
+}
+
+// Hot reload (dev only): the host checks the file&#x27;s mtime once per frame and swaps `Tuning` between ticks.
+// u64 tuning_hash = uni::xxh3_64(&amp;cfg, sizeof cfg) goes into Welcome and ChecksumMsg,
+// so peers with different tuning are rejected instead of silently desyncing.</code></pre><p class="note">Config is just another POD struct, so the same pod_check, hashing and PFR path-setter apply with no new machinery. There is no JSON/TOML reader in the repo. Adding one means choosing between libraries that assume exceptions (nlohmann) or need C++23 (glaze), against this codebase&#x27;s `-fno-exceptions` C++20, so a tiny line-based format via the reflection walker is the low-friction route.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="odin"><code>// Today: tunables are a global enumerated array, compiled in.
+ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
+	.Grunt  = {10, 2.0, 0.4, 5, 1},
+	.Runner = {6, 3.2, 0.35, 3, 1},
+	.Brute  = {40, 1.2, 0.7, 12, 5},
+}
+// SKETCH: a Config outside the snapshot. Read-only inside a tick, swapped only between ticks,
+// identical on every peer (its XXH3 goes into Welcome so a mismatch is caught at join).
+Enemy_Tuning :: struct {
+	hp:     i32,
+	speed:  f32 `tune:&quot;0..10&quot;`,
+	radius: f32,
+	damage: i32,
+	xp:     i32,
+}
+Config :: struct {
+	grunt, runner, brute: Enemy_Tuning,
+	barrel_hp:            i32,
+}
+
+CONFIG_PATH :: &quot;tuning.json&quot;
+CONFIG_EMBEDDED :: #load(&quot;tuning.json&quot;) // shipped builds: baked into the binary
+HOT_RELOAD :: #config(HOT_RELOAD, ODIN_DEBUG)
+
+Config_Error :: union #shared_nil {
+	os.Error,
+	json.Unmarshal_Error,
+}
+
+config_load :: proc(cfg: ^Config) -&gt; Config_Error {
+	data := CONFIG_EMBEDDED
+	if HOT_RELOAD {
+		data = os.read_entire_file(CONFIG_PATH, context.temp_allocator) or_return
+	}
+	next: Config
+	json.unmarshal(data, &amp;next, allocator = context.temp_allocator) or_return
+	cfg^ = next // all-or-nothing: a bad edit keeps the old values
+	return nil
+} // + config_poll(): os.stat mtime check between ticks -&gt; config_load</code></pre><p class="note">Odin covers this with stock parts: `#load` embeds the file, `#config` flips hot reload per build, json.unmarshal fills the struct by RTTI, and a `#shared_nil` error union lets `or_return` propagate both os and json errors. Sketch type-checked in dev and release. Caveat: text-&gt;f32 parsing must give identical bits on every peer, so ship the parsed bytes or hash the struct, not the file.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-sketch">sketch</span></div><pre class="code" data-lang="rust"><code>// SKETCH: game/src/tuning.rs. Outside the State block; immutable while a session runs.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnemyTuning { pub hp: i32, pub speed: f32, pub radius: f32, pub damage: i32, pub xp: u8 }
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct Tuning {
+    pub grunt: EnemyTuning, pub runner: EnemyTuning, pub brute: EnemyTuning,
+    pub barrel_hp: i32, pub explosion_radius: f32, pub explosion_impulse: f32,
+}
+impl Tuning {
+    /// Returns the parsed config and a hash of its bytes (sent in Welcome; peers must agree).
+    pub fn load(path: &amp;Path) -&gt; Result&lt;(Tuning, u64), String&gt; {
+        let text = std::fs::read_to_string(path).map_err(|e| format!(&quot;{}: {e}&quot;, path.display()))?;
+        let t: Tuning = toml::from_str(&amp;text).map_err(|e| format!(&quot;{}: {e}&quot;, path.display()))?;
+        Ok((t, xxh3_64(text.as_bytes())))     // std float parsing is correctly rounded on every platform
+    }
+    pub fn kind(&amp;self, k: u8) -&gt; &amp;EnemyTuning { [&amp;self.grunt, &amp;self.runner, &amp;self.brute][k as usize] }
+}
+
+pub struct Game { pub s: Box&lt;State&gt;, world: World, tuning: Arc&lt;Tuning&gt;, /* grid, nv */ }
+
+// systems take it as a plain shared borrow next to &amp;mut State: no borrow conflict
+pub fn spawn_enemy(s: &amp;mut State, cfg: &amp;Tuning, x: f32, z: f32, kind: u8) -&gt; Option&lt;Handle&gt; {
+    // ... e.hp[i] = cfg.kind(kind).hp;
+}
+
+// dev only: swap between ticks, never inside step(). A rollback re-sim after the swap would use the
+// new values, so in a networked session a reload must be a relay-scheduled change at a future tick.
+#[cfg(debug_assertions)]
+pub fn poll_reload(&amp;mut self, watch: &amp;mut TuningWatch) {      // TuningWatch: mtime poll or `notify`
+    if let Some(t) = watch.changed() { self.tuning = Arc::new(t); }
+}</code></pre><p class="note">Natural in Rust: serde + toml give typed, validated config in a few lines (deny_unknown_fields catches typos), and Arc&lt;Tuning&gt; shared by reference makes &quot;immutable during sim&quot; a type-level fact. Costs: serde_derive and toml add a proc macro and ~10 crates (a few seconds fresh [estimate]). Hot reload needs either a restart or explicit swap points; there&#x27;s no in-language hot patching for the sim.</p></div></div></section><section class="concept" id="tests"><header class="concept-head"><h3>Tests</h3><span class="edge">Odin and Rust</span></header><p class="look">Determinism is tested black-box through tools/check.py in all three. Odin and Rust have built-in test runners; C++ needs a framework.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-mixed">mixed</span><span class="src">real: impl/cpp/src/cli/offline.cpp:123-145 (synctest, driven by tools/check.py T1); doctest part is a sketch</span></div><pre class="code" data-lang="cpp"><code>// REAL: the determinism test is a CLI mode; tools/check.py runs it (T1) and gates on &quot;mismatches&quot;: 0
+for (u32 k = 1; k &lt;= ticks; ++k) {
+    sim.save(ring.at(k - 1));
+    inputs[k] = script.at(k, sim);
+    sim.step(inputs[k]);
+    forward[k] = sim.checksum();
+    if (k &lt; w) continue;
+    sim.restore(ring.at(k - w));                      // roll back W ticks ...
+    for (u32 j = k - w + 1; j &lt;= k; ++j) {            // ... and re-simulate with the recorded inputs
+        if (j &gt; k - w + 1) sim.save(ring.at(j - 1));
+        sim.step(inputs[j]);
+        if (sim.checksum() != forward[j]) ++mismatches;
+    }
+}
+
+// SKETCH: in-process unit tests with doctest (no framework is wired up today)
+#define DOCTEST_CONFIG_NO_EXCEPTIONS
+#include &lt;doctest/doctest.h&gt;
+
+TEST_CASE(&quot;barrel explosion survives rollback&quot;) {
+    sim::Sim a, b;
+    a.setup(9, 4);                                    // seed 9 is known to explode a barrel
+    b.setup(9, 4);
+    cli::ScriptedInputs script(9, 4);
+    sim::Snapshot snap;
+    for (u32 k = 1; k &lt;= 1200; ++k) {
+        if (k == 600) a.save(snap);
+        uni::TickInputs in = script.at(k, a);
+        a.step(in);
+        b.step(in);
+    }
+    CHECK(a.checksum() == b.checksum());
+    CHECK(a.state().barrels_exploded &gt; 0);
+    a.restore(snap);
+    CHECK(a.tick() == 599);
+}</code></pre><p class="note">There are no unit tests: all verification is black-box through the CLI and tools/check.py, which suits a determinism-first core and is language-neutral. A C++ unit layer means picking and wiring a framework (doctest, Catch2 or GTest plus CTest), which is cheap but noticeably less integrated than a built-in `test` command.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">impl/odin/src/core/pod_test.odin:1-34 (real); determinism test is a sketch (ran and passed against impl/odin)</span></div><pre class="code" data-lang="odin"><code>package core
+
+import &quot;core:testing&quot;
+
+import &quot;../game&quot;
+
+@(test)
+pod_accepts_state :: proc(t: ^testing.T) {
+	testing.expect_value(t, pod_violation(type_info_of(game.State)), &quot;&quot;)
+	testing.expect_value(t, pod_violation(type_info_of(Log_Tick)), &quot;&quot;)
+}
+
+@(test)
+pod_rejects_pointers_and_padding :: proc(t: ^testing.T) {
+	With_Ptr :: struct {
+		a: i32,
+		p: ^i32,
+	}
+	Padded :: struct {
+		a: u8,
+		b: u32,
+	}
+	testing.expect(t, pod_violation(type_info_of(With_Ptr)) != &quot;&quot;)
+	testing.expect(t, pod_violation(type_info_of(Padded)) != &quot;&quot;)
+	// ... slices, nested padding, string
+}
+
+// SKETCH (not in the repo; compiled and passed in 0.35 s via `odin test`):
+@(test)
+synctest_is_clean :: proc(t: ^testing.T) {
+	mismatches, resimulated, _ := core.run_synctest(ticks = 600, window = 8, seed = 1, players = 4)
+	testing.expect_value(t, mismatches, 0)
+	testing.expect(t, resimulated &gt; 0)
+}
+// + snapshot_round_trip_is_bit_exact: encode tick 300, sim_from_snapshot, step both to 600,
+//   expect_value(sim_checksum(b), sim_checksum(a)) every tick</code></pre><p class="note">`odin test` is built in: tests run on parallel threads with a per-test tracking allocator (leak report), no framework. Only the POD walker is unit-tested; determinism is tested end-to-end by tools/check.py through the CLI. Running tests needs `-extra-linker-flags:-L&lt;box3d lib dir&gt;` by hand because of the foreign-import path limitation.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/game/src/lib.rs:222-260</span></div><pre class="code" data-lang="rust"><code>#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn deterministic_and_restorable() {
+        let run = |n: u32| {
+            let mut g = Game::new(3, Game::mask_of(4), 1200);
+            let mut sc = Scripted::new(3, 4);
+            for _ in 0..n {
+                let i = sc.next(&amp;g);
+                g.step(&amp;i);
+            }
+            g.checksum()
+        };
+        assert_eq!(run(300), run(300));
+        // portable snapshot at 200, run on to 300, compare against a game rebuilt from the bytes
+        let mut g = Game::new(3, Game::mask_of(4), 1200);
+        let mut sc = Scripted::new(3, 4);
+        for _ in 0..200 {
+            let i = sc.next(&amp;g);
+            g.step(&amp;i);
+        }
+        let mut slot = g.new_slot();
+        g.save(&amp;mut slot);
+        let bytes = Game::export_slot(&amp;slot);
+        let mut sc2 = Scripted::new(3, 4);
+        for _ in 0..100 {
+            let i = sc.next(&amp;g);
+            g.step(&amp;i);
+        }
+        let mut h = Game::from_snapshot(&amp;bytes).unwrap();
+        assert_eq!(h.tick(), 200);
+        for _ in 0..100 { let i = sc2.next(&amp;h); h.step(&amp;i); }
+        assert_eq!(g.checksum(), h.checksum());
+    }
+}</code></pre><p class="note">`cargo test --workspace` runs this plus box3d-sys&#x27;s layout test (Rust layouts vs. the linked C library) and a protocol round-trip; build.rs fetches Box3D itself so no setup is needed. Tests live next to the code and run in parallel threads, which works because each Game owns its own Box3D world (world creation is behind a static Mutex). Heavier determinism checks (synctest, cross-platform traces) live in tools/check.py, not Rust tests.</p></div></div></section><section class="concept" id="determinism-guards"><header class="concept-head"><h3>Determinism guards</h3><span class="edge">Rust: safe defaults</span></header><p class="look">What stops someone, human or agent, from calling sin() or iterating a hash map inside the sim.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-mixed">mixed</span><span class="src">real: impl/cpp/CMakeLists.txt:44-56,63-87; impl/cpp/src/game/state.h:17-18; impl/cpp/src/core/bytes.h:11; poison header is a sketch</span></div><pre class="code" data-lang="cpp"><code># CMakeLists.txt: flags on every target of ours (Box3D is prebuilt with contraction off too)
+target_compile_options(uni_flags INTERFACE
+    -Wall -Wextra -Wshadow -Werror
+    -ffp-contract=off -fwrapv -fno-math-errno -fno-fast-math     # no FMA, defined signed overflow
+    -fno-exceptions -fno-rtti)
+# clang-cl: /W4 /WX -Wshadow /GR- /clang:-ffp-contract=off /clang:-fwrapv /clang:-fno-math-errno
+# dev:  -O1 -g, UNI_CHECKS=1 (bounds-checked uni::Array), _LIBCPP_HARDENING_MODE_EXTENSIVE / _GLIBCXX_ASSERTIONS
+# asan: -fsanitize=address,undefined -fno-sanitize-recover=undefined      tsan: -fsanitize=thread
+
+// compile-time layout facts
+constexpr f32 DT = 0.016666668f;
+static_assert(std::bit_cast&lt;u32&gt;(DT) == 0x3C888889u);
+static_assert(std::endian::native == std::endian::little, &quot;unified assumes a little-endian target&quot;);
+static_assert(uni::pod::is_portable_pod&lt;State&gt;(), &quot;State must be a pointer-free POD&quot;);
+#pragma clang diagnostic error &quot;-Wpadded&quot;          // around every state struct
+
+// SKETCH (not in the repo): ban libm transcendentals in sim TUs; included last by game/*.cpp
+// game/det_guard.h
+#pragma once
+#include &lt;cmath&gt;                                   // sqrt/fabs stay allowed
+#pragma clang poison sin cos tan atan2 exp log pow sinf cosf atan2f expf powf
+#pragma clang poison rand srand time clock         // no hidden global RNG or wall clock in the sim
+// + CI: a grep/clang-tidy check that game/ and sim/ never include &lt;random&gt;, &lt;chrono&gt;, &lt;unordered_map&gt;</code></pre><p class="note">C++ gives the most direct control: one flag set covers our code and Box3D&#x27;s C, and all three sanitizers ran clean. But the guards are opt-in and mostly runtime. Nothing in the repo yet bans `std::sin`, `std::unordered_map` iteration or uninitialized locals in sim code; `-ftrivial-auto-var-init=zero` and the poison header are still TODO. UB is only caught when a sanitizer or sync-test happens to exercise it.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-mixed">mixed</span><span class="src">impl/odin/build.py:31-35; impl/odin/src/game/systems.odin:1-2,21-24; impl/odin/src/netcode/client.odin:349-353; lint is a sketch</span></div><pre class="code" data-lang="odin"><code># build.py: same flags on every platform; bounds checks stay ON in release (~5% cost)
+COMMON = [&quot;-vet&quot;, &quot;-strict-style&quot;, &quot;-vet-tabs&quot;, &quot;-warnings-as-errors&quot;]
+MODES = {&quot;dev&quot;: [&quot;-o:none&quot;, &quot;-debug&quot;], &quot;release&quot;: [&quot;-o:speed&quot;]}
+
+// game/systems.odin: the policy is a comment + a private sqrt wrapper
+// Float math is scalar f32 `+ − × ÷` and sqrt only, written in
+// the order the spec gives; no `matrix` types and no core:math (determinism traps, see README).
+@(private)
+sqrtf :: #force_inline proc(x: f32) -&gt; f32 {
+	return intrinsics.sqrt(x)
+}
+
+// netcode/client.odin: core:math is allowed outside the sim (never feeds it)
+want_delay :: proc(rtt_us: f64) -&gt; u32 {
+	d := math.ceil((rtt_us / 1000 / 2 + 8) / 16.667)
+	return u32(clamp(d, 1, 6))
+}
+
+// SKETCH tools/simlint: the compiler&#x27;s parser as a library (core:odin/parser), run by build.py.
+BANNED_IMPORTS := [?]string{&quot;core:math&quot;, &quot;core:math/linalg&quot;, &quot;core:math/rand&quot;, &quot;core:time&quot;, &quot;core:os&quot;}
+
+lint_file :: proc(path: string) -&gt; (ok: bool) {
+	// ... read file into ast.File{src, fullpath}; parser.parse_file(&amp;p, &amp;file) or_return
+	ok = true
+	for imp in file.imports {
+		name := strings.trim(imp.fullpath, &quot;\&quot;&quot;)
+		for b in BANNED_IMPORTS {
+			if name == b {
+				fmt.eprintfln(&quot;%s(%d): sim package imports %s&quot;, path, imp.pos.line, b)
+				ok = false
+			}
+		}
+	}
+	// ... ast.walk with a Visitor that flags ^ast.Matrix_Type (FMA on arm64 only)
+	return
+}</code></pre><p class="note">Odin emits no implicit FMA contraction, so plain f32 code is deterministic by default, but the traps (core:math sin/cos lower to libm, `matrix` multiply fuses on arm64 only, float-&gt;int casts are poison out of range) are guarded only by a comment today. There&#x27;s no clippy-style banned-API config; the ~45-line lint sketch above was type-checked and run on the repo (it flags client.odin&#x27;s core:math, showing it needs a per-package allow-list).</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-mixed">mixed</span><span class="src">impl/rust/Cargo.toml:20-21; impl/rust/crates/simcore/src/lib.rs:20-26; impl/rust/crates/box3d-sys/src/lib.rs:8; impl/rust/crates/game/src/grid.rs:18-21; tools/box3d.py:171</span></div><pre class="code" data-lang="rust"><code># impl/rust/Cargo.toml (real): unsafe is a compile error outside box3d-sys
+[workspace.lints.rust]
+unsafe_code = &quot;forbid&quot;
+
+// crates/simcore/src/lib.rs (real)
+pub const DT: f32 = 0.016666668;
+const _: () = assert!(DT.to_bits() == 0x3C88_8889);          // the literal must round to the spec&#x27;s bits
+#[cfg(not(target_endian = &quot;little&quot;))]
+compile_error!(&quot;unified assumes a little-endian target&quot;);     // bytes_of(&amp;state) is the checksum input
+
+// crates/box3d-sys/src/lib.rs (real)
+#![deny(unsafe_op_in_unsafe_fn)]
+
+// crates/game/src/grid.rs (real): float -&gt; int `as` is defined in Rust (saturating, NaN -&gt; 0), not UB
+let c = ((p + ARENA) * 0.5) as i32;
+c.clamp(0, GRID - 1)
+
+// Real but implicit: rustc never contracts a*b+c to FMA and has no fast-math flag; State is Pod
+// (no padding bytes to poison the hash); Box3D is built with -ffp-contract=off by tools/box3d.py.
+
+# SKETCH, NOT PRESENT: crates/game/clippy.toml. Today nothing stops f32::sin or mul_add in sim code,
+# and CI does not run clippy.
+disallowed-methods = [
+  { path = &quot;f32::mul_add&quot;, reason = &quot;FMA rounding differs from a*b+c&quot; },
+  { path = &quot;f32::sin&quot;, reason = &quot;std transcendentals vary by platform; write our own&quot; },
+  { path = &quot;f32::cos&quot; }, { path = &quot;f32::powf&quot; }, { path = &quot;f32::exp&quot; }, { path = &quot;f32::atan2&quot; },
+  { path = &quot;std::time::Instant::now&quot;, reason = &quot;no wall clock inside the sim&quot; },
+]
+disallowed-types = [{ path = &quot;std::collections::HashMap&quot;, reason = &quot;randomized iteration order&quot; }]
+# CI: cargo clippy -p game -p simcore -- -D clippy::disallowed_methods -D clippy::disallowed_types</code></pre><p class="note">Most of Rust&#x27;s guards are defaults rather than configuration: no FMA contraction, defined float-&gt;int casts, overflow checks in dev, Pod forbidding padding, and unsafe confined by a lint. It held up: ARM64, x86_64 (Rosetta), Linux and Windows all produce identical traces. The gap is that transcendentals and HashMap are only banned by discipline; the clippy.toml above is a 10-line fix that isn&#x27;t in the repo.</p></div></div></section><h2 class="group-title" id="g-everyday">Everyday development</h2><section class="concept" id="errors"><header class="concept-head"><h3>Error handling</h3><span class="edge">Rust</span></header><p class="look">Sockets, file parsing, CLI arguments. Rust forces every failure to be handled; the other two rely on discipline.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/src/core/base.h:30-36; impl/cpp/src/net/socket_posix.cpp:68-85; impl/cpp/src/core/input_log.cpp:41-58; impl/cpp/src/cli/args.cpp:42-49</span></div><pre class="code" data-lang="cpp"><code>// 1. invariants: always-on check -&gt; fatal (abort with file:line); no exceptions anywhere (-fno-exceptions)
+#define UNI_CHECK(cond, ...) \
+    do { if (!(cond)) ::uni::fatal(__FILE__, __LINE__, __VA_ARGS__); } while (0)
+
+// 2. recoverable setup errors: null/false + an out-param message
+std::unique_ptr&lt;DatagramSocket&gt; open_udp(const Address&amp; bind_addr, std::string&amp; error) {
+    int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd &lt; 0) { error = std::string(&quot;socket: &quot;) + std::strerror(errno); return nullptr; }
+    // ...
+    if (::bind(fd, reinterpret_cast&lt;const sockaddr*&gt;(&amp;sa), sizeof sa) != 0) {
+        error = std::string(&quot;bind &quot;) + to_string(bind_addr) + &quot;: &quot; + std::strerror(errno);
+        ::close(fd);
+        return nullptr;
+    }
+    return std::make_unique&lt;UdpSocket&gt;(fd);
+}
+
+// 3. parsing: a sticky-error ByteReader (short reads yield zeros, ok() goes false), checked once
+u16 version = r.get_u16();
+if (version != INPUT_LOG_VERSION) { error = &quot;unsupported input log version &quot; + std::to_string(version); return false; }
+log.seed = r.get_u64();
+log.players = r.get_u8();
+u32 count = r.get_u32();
+if (!r.ok() || r.remaining() != (usize)count * TICK_BYTES || log.players &gt; MAX_PLAYERS) {
+    error = &quot;truncated or inconsistent input log&quot;;
+    return false;
+}
+
+// 4. CLI: print and exit(2)
+i64 Args::num(const char* flag, i64 def) const {
+    // ...
+    long long n = std::strtoll(v-&gt;c_str(), &amp;end, 10);
+    if (!end || *end != &#x27;\0&#x27; || v-&gt;empty()) usage_error(&quot;%s expects an integer, got &#x27;%s&#x27;&quot;, flag, v-&gt;c_str());
+    return (i64)n;
+}</code></pre><p class="note">C-style and consistent: abort on broken invariants, `bool`/null plus a `std::string&amp;` out-param for expected failures, and a sticky-error reader so decoders check once at the end. It works, but nothing forces callers to look at a returned `false` (no `[[nodiscard]]` on these), and the cleanup in `open_udp` is manual `close(fd)` on each early return. `std::expected` (C++23) would be the modern upgrade.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/src/cli/args.odin:29-32,60-73; impl/odin/src/core/log.odin:63-84; impl/odin/src/netcode/udp.odin:18-27</span></div><pre class="code" data-lang="odin"><code>die :: proc(format: string, args: ..any) -&gt; ! {
+	fmt.eprintfln(format, ..args)
+	os.exit(2)
+}
+opt_int :: proc(a: ^Args, key: string, def := 0, required := false, lo := 0, hi := max(int)) -&gt; int {
+	// ... v, ok := a.opts[key]; missing -&gt; default, or die() if required
+	n, nok := strconv.parse_int(v)
+	if !nok || n &lt; lo || n &gt; hi {
+		die(&quot;unified %s: --%s must be an integer in [%d, %d], got %q&quot;, a.mode, key, lo, hi, v)
+	}
+	return n
+}
+// Parsing: multiple returns + a reader whose `ok` goes false on any short read.
+log_read :: proc(path: string) -&gt; (lg: Input_Log, ok: bool) {
+	data, err := os.read_entire_file(path, context.allocator)
+	if err != nil {
+		return
+	}
+	defer delete(data)
+	r := reader_make(data)
+	magic := r_bytes(&amp;r, 4)
+	version := r_u16(&amp;r)
+	// ... seed, players, n := tick count
+	if !r.ok || string(magic) != LOG_MAGIC || version != LOG_VERSION || lg.players &gt; game.MAX_PLAYERS ||
+	   r_remaining(&amp;r) != n * 17 {
+		return
+	}
+	// ...
+	return lg, r.ok
+}
+// Sockets (netcode/udp.odin): typed core:net errors, explicit cleanup, Link + ok out.
+udp_listen :: proc(port: int) -&gt; (l: Link, ok: bool) {
+	sock, err := cnet.make_bound_udp_socket(cnet.IP4_Any, port)
+	if err != nil {
+		return
+	}
+	if cnet.set_blocking(sock, false) != nil {
+		cnet.close(sock)
+		return
+	} // ...</code></pre><p class="note">Errors are values: multiple returns, named results with bare `return`, `or_return`, `defer`, and `-&gt; !` for fatal paths. Simple and explicit; the codebase mostly collapses errors to `ok: bool` + an eprintln, so callers lose the reason (e.g. log_read can&#x27;t say *why* a log is bad). Nothing forces handling: an ignored second return value is fine to the compiler unless -vet catches it.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/crates/unified/src/args.rs:23-36; impl/rust/crates/simcore/src/log.rs:78-84; impl/rust/crates/unified/src/net.rs:211; impl/rust/crates/netcode/src/client.rs:325; impl/rust/crates/unified/src/main.rs:32-44</span></div><pre class="code" data-lang="rust"><code>// unified/src/args.rs: errors are Strings; `?` converts &amp;str/String via Into
+pub fn opt&lt;T: FromStr&gt;(&amp;self, key: &amp;str) -&gt; Result&lt;Option&lt;T&gt;, String&gt; {
+    match self.kv.get(key) {
+        None =&gt; Ok(None),
+        Some(v) =&gt; v.parse().map(Some).map_err(|_| format!(&quot;--{key}: bad value {v:?}&quot;)),
+    }
+}
+pub fn req&lt;T: FromStr&gt;(&amp;self, key: &amp;str) -&gt; Result&lt;T, String&gt; {
+    self.opt(key)?.ok_or_else(|| format!(&quot;--{key} is required&quot;))
+}
+
+// simcore/src/log.rs: io::Error -&gt; String with the path attached
+pub fn read(path: &amp;Path) -&gt; Result&lt;InputLog, String&gt; {
+    let mut b = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_to_end(&amp;mut b))
+        .map_err(|e| format!(&quot;{}: {e}&quot;, path.display()))?;
+    InputLog::from_bytes(&amp;b)              // &quot;not an input log (bad magic)&quot;, &quot;input log version 2, expected 1&quot;
+}
+
+// unified/src/net.rs: socket setup
+let sock = UdpDatagram::bind((bind, port)).map_err(|e| format!(&quot;bind {bind}:{port}: {e}&quot;))?;
+// netcode/src/client.rs: snapshot import
+c.sim.import(buf).map_err(|e| format!(&quot;client {own}: snapshot import failed: {e}&quot;))?;
+
+// unified/src/main.rs: one exit path: JSON error line, non-zero exit
+match r {
+    Ok((json, ok)) =&gt; { println!(&quot;{}&quot;, json.render()); if !ok { std::process::exit(1); } }
+    Err(e) =&gt; {
+        eprintln!(&quot;unified {}: {e}&quot;, args.mode);
+        println!(&quot;{}&quot;, Json::obj().with(&quot;mode&quot;, args.mode.as_str()).with(&quot;error&quot;, e).render());
+        std::process::exit(1);
+    }
+}
+// invariant violations panic instead: ring.restore -&gt; panic!(&quot;snapshot ring lost tick {tick}&quot;)</code></pre><p class="note">Result&lt;_, String&gt; + `?` + map_err(format!) everywhere: no thiserror/anyhow (keeps the dependency tree at 12 packages), and the compiler forces every fallible call to be handled. Strings mean callers can&#x27;t match on error kinds; that hasn&#x27;t mattered for a CLI, but a game would want an enum. Windows&#x27; WSAECONNRESET on UDP recv is handled by matching io::ErrorKind (udp.rs:40).</p></div></div></section><section class="concept" id="build"><header class="concept-head"><h3>Building and running</h3><span class="edge">Odin (dev)</span></header><p class="look">Commands and measured times. All three are fast for the core; Odin is fastest in dev and slowest for big release builds.</p><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span><span class="status status-real">real</span><span class="src">impl/cpp/README.md (build commands, Build times); docs/PHASE2.md (Numbers)</span></div><pre class="code" data-lang="tree"><code>python impl/cpp/build.py dev|release     # -&gt; impl/cpp/out/&lt;mode&gt;/unified[.exe]   (any cwd; no shell)
+python impl/cpp/build.py asan|tsan       # ASan+UBSan / TSan builds (local)
+python impl/cpp/build.py release-x64     # macOS only: x86_64 binary (Rosetta)
+python tools/check.py cpp                # T1-T9
+
+# build.py: tools/box3d.py --json (prebuilt -O2 Box3D) -&gt; cmake -G Ninja (clang++ / clang-cl) -&gt; cmake --build
+# Toolchain: Apple clang 21, CMake 4.4.5, Ninja 1.13.2, C++20; clang-cl + /MD on Windows
+
+# Build times (M4 Pro, Box3D already built)      release   dev
+#   fresh (configure + 23 TUs)                    2.1 s     2.0 s
+#   one-line edit in game/systems.cpp             0.41 s    0.42 s
+#   one-line edit in net/client.cpp               0.77 s
+#   touch game/state.h (the block header)         0.90 s
+#   no-op                                         0.11 s
+# Godot variant (bench/b/godot-cpp): fresh incl. godot-cpp with build profile 5.5 s; sim edit 0.27-0.29 s;
+#   view edit 0.85 s; all godot-cpp bindings ~57 s fresh</code></pre><p class="note">Fast enough to be a non-issue: 2 s fresh and under 1 s incremental, because the code is orthodox C++ with almost no STL-heavy templates in hot headers. The cost is plumbing: 116 lines of build.py plus 147 lines of CMake, including translating every flag for clang-cl (`/clang:`), replacing CMake&#x27;s default per-config flags, and keeping `/EHsc` on Windows only because the MSVC STL headers expect it.</p></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span><span class="status status-real">real</span><span class="src">impl/odin/README.md; impl/odin/build.py:92-93</span></div><pre class="code" data-lang="tree"><code># build (Python 3 driver; Box3D comes prebuilt from tools/box3d.py)
+python impl/odin/build.py dev                  # -&gt; impl/odin/out/dev/unified      -o:none -debug
+python impl/odin/build.py release              # -&gt; impl/odin/out/release/unified  -o:speed (one LLVM module)
+python impl/odin/build.py release --check      # + odin check for linux_amd64, windows_amd64, darwin_arm64
+python tools/check.py odin                     # T1-T9
+odin test src/core -extra-linker-flags:-L&lt;box3d lib dir&gt;
+
+# what build.py runs
+odin build src/cli -out:out/dev/unified -o:none -debug \
+    -vet -strict-style -vet-tabs -warnings-as-errors \
+    -extra-linker-flags:&quot;-L&lt;box3d lib dir&gt;&quot;
+
+# run
+out/release/unified synctest --ticks 3600 --window 8
+out/release/unified session --clients 4 --transport loopback --profile bad --ticks 3600
+
+# build times (M4 Pro, warm; whole-program, so fresh == one-line edit)
+#   dev        0.4 s fresh / 0.4 s edit
+#   release    2.5 s (single module; -use-separate-modules 0.7 s but the sim runs ~1.8x slower)
+#   odin check 0.05 s</code></pre><p class="note">Fastest edit loop of the three for dev (0.4 s, no cache to warm, nothing per-worktree). The catch: release is one LLVM module (2.5 s here, and bench/s showed it blowing up at ~100k lines), and switching to separate modules costs ~1.8x sim speed because cross-package inlining is lost.</p></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span><span class="status status-real">real</span><span class="src">impl/rust/README.md (Build times, T9); bench/b/godot-rust/README.md (Timings)</span></div><pre class="code" data-lang="tree"><code>python impl/rust/build.py dev          # -&gt; impl/rust/out/dev/unified      (runs tools/box3d.py --json, then cargo)
+python impl/rust/build.py release      # -&gt; impl/rust/out/release/unified
+python impl/rust/build.py release --target x86_64-apple-darwin   # Rosetta determinism check
+cd impl/rust &amp;&amp; cargo test --workspace # layout, protocol, snapshot tests (build.rs builds Box3D if needed)
+python tools/check.py rust             # T1-T9 through the CLI
+
+# M4 Pro, wall clock including the box3d.py up-to-date check
+#                          dev      release
+# fresh (empty target/)    5.8 s    4.3 s     mostly syn for bytemuck_derive; Box3D is prebuilt C
+# edit one game constant   0.5 s    1.2 s
+# edit netcode             0.4 s    1.4 s
+#
+# profiles: dev = own crates opt-level 1, incremental, overflow checks; deps opt-level 3
+#           release = opt-level 3, codegen-units 4, no LTO
+# deps: bytemuck 1.25 (derive), xxhash-rust 0.8 (xxh3): 12 packages in Cargo.lock
+# T9 release: step 94 us + 8-tick re-sim 727 us = 0.82 ms (target &lt;= 6 ms); snapshot 134,689 bytes
+# Godot host (bench/b/godot-rust, gdext 0.5.5): fresh dev 23.5 s, 3.7 GB rustc peak; edits 0.57-0.69 s</code></pre><p class="note">For the headless core Rust&#x27;s build cost is fine: a few seconds fresh, sub-second edits. The fresh cost is dominated by the one proc macro (bytemuck&#x27;s derive pulling syn), which is the cost every further derive (serde, reflection) would add to. With a Godot host the fresh build goes to ~24 s because of gdext&#x27;s generated bindings, still well below Bevy&#x27;s 2 minutes.</p></div></div></section>
+<section class="concept lists" id="lists"><header class="concept-head"><h3>Strengths and pain points, in each implementer's words</h3></header><div class="cols"><div class="col col-cpp"><div class="col-head"><span class="lang">C++</span></div><h4>Strengths</h4><ul><li>Box3D (C) and godot-cpp are used natively: box3d.h is included directly, so new physics calls need no FFI declarations or layout mirroring. The 227-line physics/ module is a convenience wrapper, not a binding.</li><li>The POD block plus memcpy is the idiomatic path: save 8 µs and restore 11 µs, and with no padding the raw block bytes are the canonical checksum and the portable snapshot format, guarded by a constexpr layout hash.</li><li>Complete, uniform control over floats and UB via compiler flags shared with Box3D&#x27;s C build. Windows (clang-cl, Winsock, timers) worked first time, and ASan+UBSan and TSan are clean, including late join.</li><li>Zero-cost abstractions where wanted: templated SlotPool&lt;N&gt;, lambda-taking `for_neighbours`, RAII `phys::Snapshot`, defaulted `operator==` for input prediction checks, and `unique_ptr` composition of socket → netsim → host → client.</li><li>Fast iteration: 2 s fresh build and 0.4 s for a one-line sim edit. The Godot GDExtension variant is 5.5 s fresh with a build profile, and the view&#x27;s own work is 0.1–0.2 ms/frame.</li><li>Systems and the schedule are plain functions and loops over fixed arrays: easy for humans and agents to read, and iteration order (which determinism depends on) is explicit.</li></ul><h4>Pain points</h4><ul><li>No reflection in C++20: proving the block is pointer-free took a ~100-line Boost.PFR-style trick with a hand-written 24-rung structured-binding ladder, and field NAMES (for an inspector, desync diff or config) still need Boost.PFR or X-macros. C++26 reflection isn&#x27;t in upstream clang or MSVC (likely 2027 or later).</li><li>Layout discipline is manual: -Wpadded as an error forces hand-placed `reserved0..2` fields and size asserts, and enums are stored as raw `u8` (`u8 kind; // EnemyKind`), giving up type safety to control bytes.</li><li>Serialization has no derive: each of 9 protocol messages has a hand-mirrored encode and decode (~220 lines), and the 4-byte input packing is written twice (protocol.cpp and input_log.cpp).</li><li>Safety is runtime-only: bounds checks exist only in dev builds (UNI_CHECKS, libc++ hardening), UB and data races are caught only by ASan/UBSan/TSan runs or sync-test, and the language allowed `reinterpret_cast` onto a private Box3D struct (world_state_ext.cpp) with no friction.</li><li>Determinism bans are not enforced: nothing stops `std::sin`, `&lt;random&gt;`, unordered-container iteration or uninitialized locals in sim code. The poison header, `-ftrivial-auto-var-init` and clang-tidy are still TODO.</li><li>Toolchain plumbing: CMake plus a per-platform flag translation layer (clang-cl `/clang:`, `/EHsc` kept only for MSVC STL headers), and godot-cpp&#x27;s RTTI requirement conflicts with the sim&#x27;s `-fno-rtti` (it crashed until the view TU enabled RTTI). There&#x27;s no built-in test runner either: tests are CLI modes driven by Python.</li></ul></div><div class="col col-odin"><div class="col-head"><span class="lang">Odin</span></div><h4>Strengths</h4><ul><li>The state-block design is idiomatic Odin: fixed arrays, enumerated arrays (`[Enemy_Kind]Enemy_Stats`), a parapoly `Pool($T, $N)`, zero-init; snapshot = struct assignment, checksum = raw bytes, portable restore = one memcpy.</li><li>C interop is nearly free: 294 lines of hand bindings with `link_prefix`, by-value structs and 38 compile-time `#assert` layout checks; Godot&#x27;s GDExtension C API bound via a generator in under a day with no calling-convention bugs.</li><li>Fast, cache-free builds: 0.4 s dev builds whether fresh or after a one-line edit, `odin check` in 0.05 s, nothing per worktree.</li><li>Rich RTTI at zero build cost: the 54-line POD walker, and inspector/field-by-name write/desync diff/JSON dumps need zero per-component code (sketches type-checked).</li><li>Best measured performance and smallest code: 0.62 ms step + 8-tick re-sim with bounds checks on, 3,851 lines total, plain loops with no borrow-checker friction across tables.</li><li>Small, regular language with built-in `odin test` (parallel, leak-tracking), `context.temp_allocator` for per-frame scratch, `or_return`/multiple returns for errors, and `#load`/`#config` for embedding and build switches.</li></ul><h4>Pain points</h4><ul><li>Pointer-freedom and no-padding are enforced by a startup/`odin test` RTTI walk, not the type system: a pointer or padding added to a component compiles and only panics at launch. The padding rule forces hand-placed `_pad` fields.</li><li>No interfaces/traits or methods: the transport is a struct of proc pointers + `rawptr` with an unchecked cast in every implementation, and the Godot API becomes 1,837 `Class_method(self, ...)` free functions with `using base_` embedding for subtyping.</li><li>No destructors/RAII: every heap object (channels, netsim queues, Box3D world states, Godot RefCounted objects) is freed by convention with `defer`/explicit close; the Godot bench&#x27;s first version leaked 822 objects, and Godot node handles dangle after queue_free.</li><li>No derive/macros or compile-time execution: binary wire formats are written field by field (Input&#x27;s 4-byte packing exists twice), and anything beyond RTTI (typed system registration, generated packers) would need a codegen step.</li><li>Determinism traps are not compiler-guarded (core:math transcendentals via libm, `matrix` FMA on arm64 only, poison float-&gt;int casts); today the policy is a comment, and a banned-API lint would be our own core:odin/parser tool.</li><li>Stdlib/toolchain maturity papercuts hit during phase 2: wrong streaming XXH3 digests in core:hash/xxhash, `foreign import` refusing absolute/#config paths, RADLINK mangling a quoted LIBPATH, CRT mismatch on Windows, and program-wide package names (`net` taken).</li></ul></div><div class="col col-rust"><div class="col-head"><span class="lang">Rust</span></div><h4>Strengths</h4><ul><li>bytemuck::Pod proves at compile time that the block has no pointers and no padding, so the checksum is xxh3(bytes_of(&amp;state)), a snapshot is `*slot.block = *state` (7-8 us save), and the portable format is pod_read_unaligned. No unsafe is involved.</li><li>unsafe is confined by a workspace lint (unsafe_code = &quot;forbid&quot;) to box3d-sys. Game, netcode and CLI code are entirely safe, and the C layouts are checked by const asserts with offset_of! plus a runtime check against the linked library.</li><li>Traits keep the architecture honest: netcode depends only on simcore and is generic over Simulation and InputSource; NetSim&lt;D&gt; wraps any Datagram and sits under the reliable lane with zero-cost composition; Send bounds make the thread hand-offs compile-checked.</li><li>Determinism comes mostly from defaults: no FMA contraction, no fast-math, defined float-to-int casts, overflow checks in dev. Traces matched across macOS ARM64, x86_64 (Rosetta), Linux and Windows, and over mixed-architecture UDP sessions.</li><li>Enums with data plus Option and `?` make the protocol and parsers exhaustive and total (a truncated packet decodes to None, never an out-of-bounds read). Result&lt;_, String&gt; keeps error paths explicit with 12 packages in the whole dependency tree.</li><li>Builds and tooling are good for a headless core: 5.8 s fresh, 0.4-0.5 s per edit, cargo test with in-file tests (including a layout test against the C library). gdext offers a mature, safe Godot path with 0.6 s edit rebuilds.</li></ul><h4>Pain points</h4><ul><li>Pod&#x27;s rules turn the state block into C-style data: no bool, Option or Rust enums (flags are u8, enemy kind is a u8 index into KINDS, BodyRef uses a `live` sentinel), and padding must be written out as `_pad` fields, or the derive refuses to compile.</li><li>C binding cost: 679 hand-written lines (extern decls, 26 #[repr(C)] structs, const offset asserts, a runtime layout cross-check, SAFETY comments) for 28 Box3D functions. Restoring physics from bytes needed a pointer cast to a mirrored private C struct.</li><li>Generics with associated types don&#x27;t erase easily: Datagram::Addr rules out Box&lt;dyn Datagram&gt;, so choosing loopback or UDP at runtime needs a hand-written `enum Sock` and duplicated match arms. Exposing state or events to a view would mean adding associated types (Block, Event) to the Simulation trait.</li><li>Borrow splitting shapes the code: Game::step destructures self, the Jacobi scratch buffer lives outside State and is passed separately, helpers that take all of &amp;mut State can&#x27;t run while a field is borrowed, and systems use index loops over SoA columns rather than iterator or query ergonomics.</li><li>No built-in reflection. An inspector, desync field diff or save files need a macro_rules! wrapper or more proc macros (serde, facet or bevy_reflect), and each proc macro adds uncached build time. serde&#x27;s array support stops at [T; 32], which hits the 1200-long SoA columns.</li><li>Some determinism bans are only discipline: there is no clippy.toml banning f32::sin/mul_add/HashMap in sim crates, and CI doesn&#x27;t run clippy. With Godot, gdext enforces borrows at runtime across engine callbacks, so a re-entrant signal hung the screenshot mode until base_mut() was held.</li></ul></div></div></section>
+<section class="closing"><h3>What might nudge the decision</h3><p><strong>If dev tooling and simplicity weigh most, Odin.</strong> Reflection is built in at zero cost, which is exactly what an in-game inspector, desync diff and config need. It's also the least code and the fastest loop. You pay in safety (no RAII, runtime-only layout checks), in polymorphism (proc-pointer structs), in maturity (a stdlib bug and two toolchain quirks in one phase), and in owning the Godot bindings.</p><p><strong>If guarantees weigh most, Rust.</strong> The compiler proves the snapshot property and confines unsafe code, errors can't be ignored, and determinism mostly comes from defaults. You pay in binding code for every C library, in borrow-shaped data layout, and in macro-based reflection with a build-time cost.</p><p><strong>If native reach weighs most, C++.</strong> Box3D, Steam, FMOD and godot-cpp are all used directly, with zero glue. You pay in reflection and serialization (nothing built in until C++26), and in safety that only exists when a sanitizer or sync-test happens to run the bad path.</p><p><strong>Suggested reading order for each implementation:</strong> the state block (components), the main systems file, the rollback loop, then the transport. The source paths are on each real snippet above.</p></section>
+</main></div></div>
+<script>
+(function () {
+  var KW = {
+    cpp: "alignas alignof auto bool break case catch char class const constexpr consteval continue default delete do double else enum explicit extern false float for friend if inline int long namespace new noexcept nullptr operator private protected public return short signed sizeof static static_assert static_cast reinterpret_cast struct switch template this throw true try typedef typename union unsigned using virtual void volatile while uint8_t uint16_t uint32_t uint64_t int8_t int16_t int32_t int64_t size_t std",
+    odin: "package import foreign proc struct enum union bit_set map dynamic distinct using when if else for in not_in switch case return defer or_return or_else break continue fallthrough cast transmute auto_cast nil true false context struct_tag where do size_of align_of offset_of type_of typeid_of type_info_of i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool b8 int uint rawptr string cstring any typeid rune",
+    rust: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 usize isize bool str char Option Result Some None Ok Err Vec Box"
+  };
+  var RX = {};
+  Object.keys(KW).forEach(function (l) {
+    var kws = KW[l].split(" ").join("|");
+    var attr = l === "rust" ? "#!?\\[[^\\]\\n]*\\]" : l === "odin" ? "@\\([^)\\n]*\\)|@\\w+|#\\w+" : "^\\s*#\\s*\\w+";
+    RX[l] = new RegExp("(//[^\\n]*|/\\*[\\s\\S]*?\\*/)|(\"(?:\\\\.|[^\"\\\\])*\"|`[^`]*`)|(" + attr + ")|\\b(" + kws + ")\\b|\\b(0x[0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d+)?(?:[eE][+-]?\\d+)?[fFuUlL]*)\\b|\\b([A-Z][A-Za-z0-9_]*)\\b", "gm");
+  });
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  document.querySelectorAll("pre.code").forEach(function (pre) {
+    var lang = pre.getAttribute("data-lang"); var rx = RX[lang]; if (!rx) return;
+    var code = pre.querySelector("code"); var src = code.textContent; var out = ""; var last = 0; var m;
+    rx.lastIndex = 0;
+    while ((m = rx.exec(src)) !== null) {
+      if (m[0].length === 0) { rx.lastIndex++; continue; }
+      out += esc(src.slice(last, m.index));
+      var cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "a" : m[4] ? "k" : m[5] ? "n" : "t";
+      out += '<span class="' + cls + '">' + esc(m[0]) + "</span>";
+      last = m.index + m[0].length;
+    }
+    out += esc(src.slice(last)); code.innerHTML = out;
+  });
+  function toggle(id, cls) {
+    var b = document.getElementById(id);
+    b.addEventListener("click", function () {
+      var on = b.getAttribute("aria-pressed") !== "true";
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      document.body.classList.toggle(cls, on);
+    });
+  }
+  toggle("wrap-toggle", "wrap-code"); toggle("sketch-toggle", "hide-sketch");
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        links.forEach(function (a) { a.classList.toggle("active", a.getAttribute("href") === "#" + e.target.id); });
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    document.querySelectorAll("section[id]").forEach(function (s) { io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

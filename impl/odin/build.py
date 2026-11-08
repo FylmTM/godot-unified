@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Build the Odin implementation of the unified core.
 
-    python impl/odin/build.py dev|release [--arch x86_64] [--check]
+    python impl/odin/build.py dev|release|debug [--arch x86_64] [--check]
 
-dev     -> impl/odin/out/dev/unified[.exe]      -o:none -debug, bounds checks on
+dev     -> impl/odin/out/dev/unified[.exe]      -o:speed -use-separate-modules -debug, bounds checks on.
+           The everyday build: optimized code in per-package LLVM modules builds in under a second
+           (about as fast as -o:none) and runs ~5x faster than -o:none (1000-enemy rollback: 1.26 ms
+           vs 6.2 ms on an M4 Pro).
 release -> impl/odin/out/release/unified[.exe]  -o:speed (one LLVM module), bounds checks on
+debug   -> impl/odin/out/debug/unified[.exe]    -o:none -debug: unoptimized, for stepping in a debugger
 
 Works from any cwd and needs only Python 3 and `odin` on PATH. Box3D (static library + headers with
 the save/restore fork) comes from `python tools/box3d.py --json`; its library directory is passed to
@@ -30,8 +34,9 @@ EXE = ".exe" if IS_WINDOWS else ""
 
 COMMON = ["-vet", "-strict-style", "-vet-tabs", "-warnings-as-errors"]
 MODES = {
-    "dev": ["-o:none", "-debug"],
+    "dev": ["-o:speed", "-use-separate-modules", "-debug"],
     "release": ["-o:speed"],
+    "debug": ["-o:none", "-debug"],
 }
 
 
@@ -75,7 +80,7 @@ def odin_build(args, cwd):
 def main():
     argv = sys.argv[1:]
     if not argv or argv[0] not in MODES:
-        raise SystemExit("usage: build.py dev|release [--arch x86_64] [--check]")
+        raise SystemExit("usage: build.py dev|release|debug [--arch x86_64] [--check]")
     mode = argv[0]
     arch = None
     check = "--check" in argv

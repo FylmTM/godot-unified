@@ -55,6 +55,8 @@ developer before starting the next one.
      - a snapshot saved on one platform and restored on another
    - **CI:** GitHub Actions on Linux x64 and Windows x64 only. macOS is checked locally. Iterate locally first; CI is
      the final check. **→ report and ask.**
+   - **Done 2026-11-08** (`docs/PHASE2.md`): all three languages pass T1–T9 on macOS, Linux x64 and Windows x64, and
+     Mac-made snapshots restore bit-exactly on Linux and Windows. Awaiting the developer's language decision.
 3. **Godot integration (was phase 2/3):** extension vs LibGodot, the shared Godot project, and the survivor game with
    a view layer in the remaining languages.
 
