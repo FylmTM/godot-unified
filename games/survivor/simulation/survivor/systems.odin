@@ -79,7 +79,7 @@ sys_phase :: proc(s: ^State, w: ^World, t: u32, ev: ^[dynamic]sim.Event) {
 			}
 		}
 	case .Match:
-		s.wave = (t - s.match_tick) / WAVE_TICKS
+		s.wave = (t - s.match_tick) / tuning(s).wave_ticks
 		if present == 0 {
 			reset_world(s, w, ev)
 		} else if alive == 0 && !s.endless {
@@ -201,10 +201,16 @@ sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
 // 3. Spawner: n enemies every 20 ticks while below the cap.
 @(private)
 sys_spawner :: proc(s: ^State, t: u32) {
-	if s.phase != .Match || (t - s.match_tick) % SPAWN_EVERY_TICKS != 0 {
+	tn := tuning(s)
+	if s.phase != .Match || (t - s.match_tick) % tn.spawn_every_ticks != 0 {
 		return
 	}
-	n := min(4 + s.wave * 3, 40)
+	present: u32 = 0
+	for &pl in s.players {
+		present += u32(pl.active)
+	}
+	n := min(tn.spawn_base + s.wave * tn.spawn_per_wave, tn.spawn_cap)
+	n = n * (100 + tn.extra_player_pct * (max(present, 1) - 1)) / 100
 	for _ in 0 ..< n {
 		if u32(s.enemies.count) >= s.enemy_cap {
 			break
@@ -225,7 +231,7 @@ spawn_enemy :: proc(s: ^State, kind: Enemy_Kind, pos: [2]f32, t: u32) -> bool {
 	e.spawn_tick = t
 	e.kind = kind
 	e.pos = pos
-	e.hp = st.hp
+	e.hp = st.hp * (100 + tuning(s).hp_pct_per_wave * i32(s.wave)) / 100
 	e.speed = st.speed
 	e.radius = st.radius
 	e.damage = st.damage
@@ -682,8 +688,8 @@ sys_deaths :: proc(s: ^State, t: u32, ev: ^[dynamic]sim.Event) {
 	}
 	for p in 0 ..< MAX_PLAYERS {
 		pl := &s.players[p]
-		for pl.xp >= xp_next(pl.level) {
-			pl.xp -= xp_next(pl.level)
+		for pl.xp >= xp_next(s, pl.level) {
+			pl.xp -= xp_next(s, pl.level)
 			pl.level += 1
 			pl.pending_levelups += 1
 			sim.emit(ev, Event_Kind.Level_Up, u32(p), pl.pos, f32(pl.level), p)
@@ -708,6 +714,7 @@ bench_prepare :: proc(s: ^State, w: ^World, n: int) {
 	s.enemy_cap = u32(n)
 	s.phase = .Match // the spawner refills to n from tick 1 on
 	s.endless = true
+	s.tuning = .Stress
 	s.circle_radius = 0
 	prespawn_enemies(s, n)
 }
@@ -724,7 +731,8 @@ prespawn_enemies :: proc(s: ^State, n: int) {
 	}
 }
 
-// XP needed for the next level from `level`.
-xp_next :: proc(level: i32) -> i32 {
-	return 10 + level * 5
+// XP needed for the next level from `level` (levels start at 1).
+xp_next :: proc(s: ^State, level: i32) -> i32 {
+	tn := tuning(s)
+	return tn.xp_first + (max(level, 1) - 1) * tn.xp_step
 }

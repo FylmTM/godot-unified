@@ -25,8 +25,6 @@ CONTACT_COOLDOWN_S :: 0.5
 FIRE_INTERVAL_S :: 0.3125
 FIRE_INTERVAL_MIN_S :: 0.09375
 FIRE_LEVELUP_S :: 0.03125 // fire interval reduction per "fire rate" level-up
-SPAWN_EVERY_S :: 0.3125
-WAVE_S :: 10.0
 PROJECTILE_LIFE_S :: 1.0
 CLIMB_CHECK_S :: 0.125
 OVER_HOLD_S :: 5.0
@@ -39,8 +37,6 @@ CONTACT_COOLDOWN_TICKS :: u16(CONTACT_COOLDOWN_S * TICK_HZ)
 FIRE_INTERVAL_TICKS :: i32(FIRE_INTERVAL_S * TICK_HZ)
 FIRE_INTERVAL_MIN_TICKS :: i32(FIRE_INTERVAL_MIN_S * TICK_HZ)
 FIRE_LEVELUP_TICKS :: i32(FIRE_LEVELUP_S * TICK_HZ)
-SPAWN_EVERY_TICKS :: u32(SPAWN_EVERY_S * TICK_HZ)
-WAVE_TICKS :: u32(WAVE_S * TICK_HZ)
 PROJECTILE_LIFE_TICKS :: i32(PROJECTILE_LIFE_S * TICK_HZ)
 CLIMB_CHECK_TICKS :: u32(CLIMB_CHECK_S * TICK_HZ)
 OVER_HOLD_TICKS :: u32(OVER_HOLD_S * TICK_HZ)
@@ -137,6 +133,56 @@ Gem :: struct {
 	spawn_tick: u32,
 }
 
+// The pace of a match. `play` is what people play; `stress` is the dense spawner the headless tests
+// and the bench use (hundreds of enemies within a minute).
+Tuning_Kind :: enum u8 {
+	Play,
+	Stress,
+}
+
+Tuning :: struct {
+	spawn_every_ticks: u32, // a spawn burst every this many ticks of the match
+	spawn_base:        u32, // enemies per burst in wave 0, for one player
+	spawn_per_wave:    u32, // + per wave
+	spawn_cap:         u32, // max per burst, for one player
+	extra_player_pct:  u32, // burst size +x% per present player beyond the first
+	wave_ticks:        u32,
+	hp_pct_per_wave:   i32, // enemy HP +x% per wave
+	xp_first:          i32, // XP from level 1 to 2
+	xp_step:           i32, // + per level after that
+}
+
+TUNINGS := [Tuning_Kind]Tuning {
+	// Measured with `survivor bot` (the bot policy in bot.odin, 16 seeds): 1 player levels up first at
+	// a median 28 s (17-40 s) and survives a median 273 s (110-361 s); 2 players: 25 s and 240 s.
+	.Play = {
+		spawn_every_ticks = u32(2.0 * TICK_HZ),
+		spawn_base = 2,
+		spawn_per_wave = 1,
+		spawn_cap = 20,
+		extra_player_pct = 50,
+		wave_ticks = u32(30.0 * TICK_HZ),
+		hp_pct_per_wave = 10,
+		xp_first = 8,
+		xp_step = 4,
+	},
+	.Stress = {
+		spawn_every_ticks = u32(0.3125 * TICK_HZ),
+		spawn_base = 4,
+		spawn_per_wave = 3,
+		spawn_cap = 40,
+		extra_player_pct = 0,
+		wave_ticks = u32(10.0 * TICK_HZ),
+		hp_pct_per_wave = 0,
+		xp_first = 10,
+		xp_step = 5,
+	},
+}
+
+tuning :: #force_inline proc(s: ^State) -> ^Tuning {
+	return &TUNINGS[s.tuning]
+}
+
 // lobby: present players gather in the start circle, no enemies; the match starts on the tick a
 // player's centre leaves the circle. match: waves. over: every present player died at once; after
 // OVER_HOLD_S the world resets and the lobby begins again.
@@ -160,7 +206,8 @@ State :: struct {
 	circle_radius: f32, // the start circle while in the lobby, 0 otherwise
 	phase:         Phase,
 	endless:       bool, // never leave the match (bench: hold a fixed population)
-	_pad:          [2]u8,
+	tuning:        Tuning_Kind,
+	_pad:          u8,
 	players:       [MAX_PLAYERS]Player,
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),

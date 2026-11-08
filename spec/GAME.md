@@ -21,7 +21,8 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   table, not trig: `c = [1, 0.70710677, 0, −0.70710677, −1, −0.70710677, 0, 0.70710677]`, `s = [0, 0.70710677, 1,
   0.70710677, 0, −0.70710677, −1, −0.70710677]`.
 - 32 crates (dynamic boxes, half 0.5, density 1) and 8 barrels (dynamic capsules r 0.4, center1 (0,−0.3,0),
-  center2 (0,0.3,0), density 1), on a 5×8 grid. Item `i = 0..39`: `x = (i % 8)·4 − 14`, `z = (i / 8)·4 − 8`, y = 1.
+  center2 (0,0.3,0), density 1), on a 5×8 grid. Item `i = 0..39`: `x = (i % 8)·4 − 14`, `z = (i / 8)·4 − 8`, y = 1,
+  except the two spots inside the start circle: crate 19 at (−2, 12) and crate 20 at (2, −12).
   Barrels are the items where `i % 5 == 2`; the rest are crates. Barrels have 30 HP.
 - Players `p = 0..3`: dynamic capsules (r 0.45, center1 (0,−0.45,0), center2 (0,0.45,0)), rotation locked, sleep off,
   created when the slot becomes present, at their start spot `(±1.5, 1, ±1.5)` in order (+,+) (−,+) (+,−) (−,−),
@@ -44,7 +45,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - **lobby** (tick 0, and after every reset): no spawner, no enemies; `circle_radius = 3.5` (the start circle at the
   arena centre). The match starts on the tick (after the physics step) where any alive present player's centre is
   more than 3.5 m from the centre in XZ: `phase = match`, `match_tick = t`, `matches += 1`, `match_started`.
-- **match**: waves as below, `wave = (t − match_tick) / WAVE_TICKS`. When every present player is dead at the same
+- **match**: waves as below, `wave = (t − match_tick) / wave` (Tuning). When every present player is dead at the same
   time: `phase = over`, `over_tick = t`, `match_over` (value = seconds survived). When nobody is present: reset.
 - **over**: dead players don't count down their respawn; after `OVER_HOLD_S = 5` s the world resets: every dynamic
   body is destroyed, then items (in index order) and present players (at their start spots, fresh progress,
@@ -53,8 +54,33 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 ## Constants (seconds)
 
 Respawn 3 s; barrel respawn 10 s; dash 0.125 s, cooldown 1.5 s; contact cooldown 0.5 s; fire interval 0.3125 s
-(level-up −0.03125 s, min 0.09375 s); spawn every 0.3125 s; wave 10 s; projectile life 1 s; climb check every
+(level-up −0.03125 s, min 0.09375 s); projectile life 1 s; climb check every
 0.125 s; over hold 5 s; start circle 3.5 m. Speeds are per second (`·DT` per tick).
+
+## Tuning (`state.tuning`, `TUNINGS`)
+
+The pace of a match: a spawn burst every `every`, of `n = min(base + per_wave·wave, cap) · (100 + extra·(present − 1))
+/ 100` enemies; waves last `wave`; enemy HP is scaled by `(100 + hp·wave) / 100`; XP for the next level is
+`xp_first + (level − 1)·xp_step` (levels start at 1).
+
+| | every | base | per_wave | cap | extra | wave | hp | xp_first | xp_step |
+|---|---|---|---|---|---|---|---|---|---|
+| `play` (the game, `GAME`) | 2 s | 2 | 1 | 20 | 50% | 30 s | 10% | 8 | 4 |
+| `stress` (`GAME_STRESS`: headless modes, T1-T9, bench) | 0.3125 s | 4 | 3 | 40 | 0% | 10 s | 0% | 10 | 5 |
+
+`play` was tuned with `survivor bot --players N --seeds 16` (the bot policy in `bot.odin`: orbit the arena, flee the
+nearest enemies, collect gems, dash out of contact, level-ups round-robin). Medians (min-max) over 16 seeds:
+
+| players | first level-up | survival (match over) |
+|---|---|---|
+| 1 | 28 s (17-40) | 273 s (110-361) |
+| 2 | 25 s (18-34) | 240 s (167-369) |
+| 3 | 21 s (13-39) | 317 s (244-539) |
+| 4 | 26 s (12-41) | 354 s (207-600+) |
+
+The same bot under `stress` dies at 16-30 s, half the time before its first level-up. The windowed bot of
+`dev.py game play` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `tests/survivor` guards the targets
+on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
 
 ## Systems (run in this order every tick)
 
@@ -66,8 +92,8 @@ Respawn 3 s; barrel respawn 10 s; dash 0.125 s, cooldown 1.5 s; contact cooldown
      with full HP (`player_respawned`). HP max 100.
 2. **Level-up:** if the player has `pending_levelups > 0` and `choice ∈ 1..3`, apply option
    1 = fire rate (interval −0.03125 s, min 0.09375 s), 2 = damage +3, 3 = move speed +0.5, then `pending_levelups −= 1`.
-3. **Spawner** (match only): every 0.3125 s after `match_tick`, spawn `n = min(4 + wave·3, 40)` enemies while
-   alive enemies < 1200.
+3. **Spawner** (match only): every `every` after `match_tick`, spawn `n` enemies (Tuning) while alive enemies
+   < 1200; their HP is scaled by the wave.
    - Spawn position: on the ring of radius 27, using the angle table above with
      `k = rng_below(8)`, `jitter = rng_below(1000) / 1000 · 2 − 1` added to x and z.
    - Enemy kinds by `rng_below(10)`:
@@ -114,7 +140,7 @@ Respawn 3 s; barrel respawn 10 s; dash 0.125 s, cooldown 1.5 s; contact cooldown
      indices) and drops a gem worth grunt 1 / runner 1 / brute 5 XP.
    - Max 1024 gems; if full, the XP goes straight to the nearest player.
    - Gems within 1.5 m of an alive player are collected by the lowest-index such player.
-   - Level threshold `10 + level·5`. Reaching it increments `level` and `pending_levelups` (`level_up`, value = the new
+   - Level threshold `xp_first + (level − 1)·xp_step` (Tuning; level starts at 1). Reaching it increments `level` and `pending_levelups` (`level_up`, value = the new
      level). Enemy deaths emit `enemy_died`, collected gems `gem_collected`.
 10. **Physics step:** `b3World_Step(DT, 4)`.
 12. **Phases** (above), after the read-back.
@@ -146,7 +172,7 @@ inputs this way and sends them through the netcode. T4 compares against the rela
 
 ## Expected scale
 
-Scripted players leave the circle within a second; within 3600 ticks there are matches with a few hundred enemies,
+The headless modes run `stress`: scripted players leave the circle within a second; within 3600 ticks there are matches with a few hundred enemies,
 game overs and resets. `bench --enemies 1000` pre-spawns to 1000 and holds there (the match never ends in bench) to
 measure the rollback cost. `tests/survivor` adds a scenario that forces barrel explosions, deaths, respawns and
 resets every few ticks, checked by sync-test and by a networked session under the `bad` profile.

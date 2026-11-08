@@ -58,7 +58,7 @@ hud :: proc(s: ^State, tick: u32) -> (h: Hud) {
 			hp               = max(pl.hp, 0),
 			hp_max           = PLAYER_HP,
 			xp               = pl.xp,
-			xp_next          = xp_next(pl.level),
+			xp_next          = xp_next(s, pl.level),
 			level            = pl.level,
 			pending_levelups = pl.pending_levelups,
 			respawn_s        = pl.alive || !pl.active ? 0 : f32(pl.respawn) * DT,

@@ -48,6 +48,7 @@ EVENT_NAMES := []string {
 	"player_left",
 }
 
+// The game as played (`play` tuning).
 GAME := Game {
 	name = "survivor",
 	tick_hz = TICK_HZ,
@@ -59,10 +60,32 @@ GAME := Game {
 	event_names = EVENT_NAMES,
 }
 
+// The same game with the `stress` tuning: what the headless tests, T1-T9 and the bench run.
+GAME_STRESS := Game {
+	name = "survivor-stress",
+	tick_hz = TICK_HZ,
+	world_create = world_create,
+	world_destroy = world_destroy,
+	extras = proc(w: ^World) -> []sim.Extra {return w.extras[:]},
+	init = proc(s: ^State, w: ^World, seed: u64) {
+		init(s, w, seed)
+		s.tuning = .Stress
+	},
+	tick = tick,
+	event_names = EVENT_NAMES,
+}
+
 // Start spots, inside the start circle.
 PLAYER_START := [MAX_PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
 item_position :: proc(i: int) -> [3]f32 {
+	// The two grid spots inside the start circle move to free lanes north and south.
+	switch i {
+	case 19:
+		return {-2, 1, 12}
+	case 20:
+		return {2, 1, -12}
+	}
 	return {f32(i % 8) * 4 - 14, 1, f32(i / 8) * 4 - 8}
 }
 
@@ -177,6 +200,7 @@ player_reset_stats :: proc(s: ^State, p: int) {
 	active := pl.active
 	pl^ = {
 		fire_interval = FIRE_INTERVAL_TICKS,
+		level         = 1,
 		speed         = PLAYER_SPEED,
 		pos           = PLAYER_START[p],
 		active        = active,
