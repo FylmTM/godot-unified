@@ -1,0 +1,160 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://game/arena/level.tscn" id="1_level"]
+[ext_resource type="Script" path="res://game/arena/arena.gd" id="2_arena"]
+[ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="3_circle"]
+[ext_resource type="Shader" path="res://game/shaders/bulk.gdshader" id="4_bulk"]
+[ext_resource type="Shader" path="res://game/shaders/gem.gdshader" id="5_gem"]
+[ext_resource type="Script" path="res://game/views/bulk_view.gd" id="6_bulk"]
+[ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="7_camera"]
+[ext_resource type="Script" path="res://game/fx/fx.gd" id="8_fx"]
+[ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="9_hud"]
+[ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="10_pause"]
+
+[sub_resource type="ShaderMaterial" id="grunt_mat"]
+render_priority = 0
+shader = ExtResource("4_bulk")
+shader_parameter/albedo = Color(0.22, 0.4, 0.7, 1)
+shader_parameter/lift = 0.55
+
+[sub_resource type="CapsuleMesh" id="grunt_mesh"]
+material = SubResource("grunt_mat")
+radius = 0.4
+height = 1.1
+radial_segments = 6
+rings = 1
+
+[sub_resource type="MultiMesh" id="grunt_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("grunt_mesh")
+instance_count = 512
+visible_instance_count = 0
+
+[sub_resource type="ShaderMaterial" id="runner_mat"]
+render_priority = 0
+shader = ExtResource("4_bulk")
+shader_parameter/albedo = Color(0.12, 0.66, 0.7, 1)
+shader_parameter/lift = 0.48
+
+[sub_resource type="CylinderMesh" id="runner_mesh"]
+material = SubResource("runner_mat")
+top_radius = 0.0
+bottom_radius = 0.42
+height = 0.95
+radial_segments = 3
+rings = 1
+
+[sub_resource type="MultiMesh" id="runner_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("runner_mesh")
+instance_count = 512
+visible_instance_count = 0
+
+[sub_resource type="ShaderMaterial" id="brute_mat"]
+render_priority = 0
+shader = ExtResource("4_bulk")
+shader_parameter/albedo = Color(0.4, 0.22, 0.66, 1)
+shader_parameter/lift = 0.65
+
+[sub_resource type="BoxMesh" id="brute_mesh"]
+material = SubResource("brute_mat")
+size = Vector3(1.3, 1.3, 1.3)
+
+[sub_resource type="MultiMesh" id="brute_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("brute_mesh")
+instance_count = 512
+visible_instance_count = 0
+
+[sub_resource type="ShaderMaterial" id="projectile_mat"]
+render_priority = 0
+shader = ExtResource("4_bulk")
+shader_parameter/albedo = Color(1, 0.95, 0.7, 1)
+shader_parameter/emission_color = Color(1, 0.8, 0.35, 1)
+shader_parameter/emission_energy = 5.0
+shader_parameter/lift = 0.75
+shader_parameter/pop_in = false
+shader_parameter/rim = 0.0
+
+[sub_resource type="SphereMesh" id="projectile_mesh"]
+material = SubResource("projectile_mat")
+radius = 0.2
+height = 0.4
+radial_segments = 8
+rings = 4
+
+[sub_resource type="MultiMesh" id="projectile_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("projectile_mesh")
+instance_count = 512
+visible_instance_count = 0
+
+[sub_resource type="ShaderMaterial" id="gem_mat"]
+render_priority = 0
+shader = ExtResource("5_gem")
+
+[sub_resource type="SphereMesh" id="gem_mesh"]
+material = SubResource("gem_mat")
+radius = 0.26
+height = 0.62
+radial_segments = 4
+rings = 1
+
+[sub_resource type="MultiMesh" id="gem_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("gem_mesh")
+instance_count = 1024
+visible_instance_count = 0
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("2_arena")
+
+[node name="Level" parent="." instance=ExtResource("1_level")]
+
+[node name="StartCircle" parent="." instance=ExtResource("3_circle")]
+
+[node name="Views" type="Node3D" parent="."]
+
+[node name="Grunts" type="MultiMeshInstance3D" parent="Views"]
+multimesh = SubResource("grunt_mm")
+script = ExtResource("6_bulk")
+kind = &"grunt"
+
+[node name="Runners" type="MultiMeshInstance3D" parent="Views"]
+multimesh = SubResource("runner_mm")
+script = ExtResource("6_bulk")
+kind = &"runner"
+
+[node name="Brutes" type="MultiMeshInstance3D" parent="Views"]
+multimesh = SubResource("brute_mm")
+script = ExtResource("6_bulk")
+kind = &"brute"
+
+[node name="Projectiles" type="MultiMeshInstance3D" parent="Views"]
+cast_shadow = 0
+multimesh = SubResource("projectile_mm")
+script = ExtResource("6_bulk")
+kind = &"projectile"
+
+[node name="Gems" type="MultiMeshInstance3D" parent="Views"]
+cast_shadow = 0
+multimesh = SubResource("gem_mm")
+script = ExtResource("6_bulk")
+kind = &"gem"
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866025, 0, -0.866025, 0.5, 0, 20, 12)
+fov = 50.0
+script = ExtResource("7_camera")
+
+[node name="Fx" type="Node3D" parent="."]
+script = ExtResource("8_fx")
+
+[node name="HUD" parent="." instance=ExtResource("9_hud")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("10_pause")]
