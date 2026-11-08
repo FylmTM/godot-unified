@@ -1,8 +1,9 @@
 # unified: context
 
-`unified` is a research project for a purpose-built game engine. Think Unity + Photon Quantum merged into one thing:
-an ECS simulation with predict/rollback netcode built in, code-first, AI-agent-first, with fast iteration loops. It is
-assembled from strong open-source foundations, and rendering is never written from scratch.
+`unified` is a purpose-built core for cooperative games with deterministic rollback netcode: Photon Quantum's model
+(deterministic sim, input relay, prediction and rollback), code-first, AI-agent-first, with fast iteration loops.
+It is written in **Odin**, with **Godot** as the host for rendering, audio, UI and the editor. Rendering is never
+written from scratch.
 
 The testbed is a slice of OctoEscape (`/Users/dmitry.v/work/personal/OctoEscape`): a 3D co-op game where players are
 octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGENTS.md`), `docs/ai/architecture.md`,
@@ -18,6 +19,15 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
 - The developer never really uses the Editor: levels are built from code, art comes from Blender scripts, everything
   is driven from the CLI. Dev tools should live inside the game.
 
+## Decisions
+
+- **Language: Odin** (sign-off pending). C++, Rust, C# and Zig were prototyped and benchmarked; the research and
+  results are in `archive/`.
+- **Host: Godot 4.7.x via GDExtension** (LibGodot only if GDExtension blocks something concrete).
+- **Physics: Box3D**, our fork with world save/restore. Jolt is the fallback.
+- **Numbers:** f32 with deterministic discipline (decided; fixed point rejected).
+- **Netcode:** Quantum-style host relay (decided; GGPO-style mesh rejected).
+
 ## Answers so far (2026-11-07)
 
 - **Scope**: hobby time, but ambitious, because AI agents do most of the work. Build features when they're needed;
@@ -26,8 +36,6 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
 - **Platforms**: Steam on Windows x64, macOS ARM, Linux / Steam Deck. Consoles ignored for now (a theoretical path is
   nice, not required).
 - **Crossplay Mac ARM ↔ Windows x64 is required**, so determinism must hold across architectures.
-- **Numbers**: likely deterministic floats (mature open-source physics is float-based), still to be confirmed by
-  research.
 - **Scale**: 2–4 players, 60 Hz, up to 1000+ entities (survivor / tower-defense style sections). Full rigid-body
   physics is wanted (physics-sandbox games), inside rollback.
 - **Simulation threading**: single-threaded and deterministic first; parallel only where measurements demand it.
@@ -54,10 +62,8 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
 - **Octopus rig**: view-only and procedural today; physically grabbing things is worth experimenting with.
 - **Animation / audio**: unknown needs; prefer whatever the host offers; avoid licence costs (FMOD only if it's
   clearly worth it).
-- **UI**: two layers likely (dev tools + game UI); prefers immediate-mode or reactive. Interested in PanGui, egui,
-  gpui, and s&box's Razor (HTML/CSS components).
-- **Languages**: Rust familiar from work and its compile times acceptable; C++, Odin, Zig, C# all considered; no real
-  Odin/Zig experience. Open to other languages and tech the research turns up.
+- **UI**: game UI in Godot (GDScript allowed in the view layer); dev tools in-game. Prefers immediate-mode or
+  reactive.
 - **Version control**: git + LFS.
 
 ## Key design idea so far
@@ -69,4 +75,5 @@ checksums. That mode is what makes "works in single player ⇒ works online" a p
 simulation state (predicted frames for motion, verified frames for scores, events for effects) and never writes it;
 player input is the only way in.
 
-Research lives in `docs/research/`.
+Current research is in `docs/research/` (physics, simulation structure, netcode, agent tooling, prior art). Research
+on the stacks and hosts we didn't choose is in `docs/archive/`.

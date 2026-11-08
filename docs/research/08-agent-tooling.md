@@ -1,7 +1,7 @@
 # 08 · Agent tooling and in-game dev tools
 
 How agents and the developer drive, test, inspect and look at a running unified game without an editor. Researched
-2026-11-07. Claims I could not check against a primary source are marked *(unverified)*.
+2026-11-07, adapted 2026-11-08 for Odin and Godot (the `uni` CLI name is a placeholder: the `unified` CLI design is pending sign-off). Claims I could not check against a primary source are marked *(unverified)*.
 
 ## TL;DR and recommendation
 
@@ -76,8 +76,6 @@ Sources: `OctoEscape/AGENTS.md`, `docs/ai/workflow.md`, `docs/ai/feedback.md`, `
 | **Netcode for Entities PlayMode Tools** ([docs](https://docs.unity3d.com/Packages/com.unity.netcode@1.9/manual/playmode-tool.html)) | Thin clients with fake input. RTT delay, jitter, loss, presets (4G, Broadband), packet fuzz, command-line init, dev builds only | Blueprint for the net sim panel and bots |
 | **Tracy** ([tracy-capture](https://dyn.manpages.debian.org/unstable/tracy-capture/tracy-capture.1), [rust client](https://docs.rs/crate/tracy-client/=0.18.2)) | Headless `tracy-capture -o f -s secs`, `tracy-csvexport`, `ondemand` mode. LAN broadcast (turn it off). Versions must be pinned together | `perf.capture` wraps tracy-capture and returns CSV |
 | **RenderDoc** ([in-app API](https://renderdoc.org/docs/in_application_api.html), [Python](https://renderdoc.org/docs/python_api/index.html)) | In-app capture triggers. The Python replay module must be built from source | `gpu.capture` when loaded. Analysis stays manual |
-| **Bevy example runner / Pixel Eagle** ([workflow](https://www.github.com/TheBevyFlock/bevy-example-runner/blob/e32e792658b0ebb79c9989596be1c6e76cebdd81/.github/workflows/run-on-pr.yml)) | Screenshots of every example on Linux, macOS and Windows, hashed, then compared against main. TAA and external data make some examples unstable. DX12 was dropped for crashing in CI ([maintainer comment](https://redlib.hackliberty.org/r/rust/comments/1dvbms6/bevy_014/lbo23yk/?context=3)) | Golden images work for smoke and regressions but need a blessing UI and tolerances |
-| **bevy-inspector-egui** ([lib.rs](https://www.lib.rs/crates/bevy-inspector-egui)) | Reflection-driven world inspector, per-type drawers | Generic inspector nearly free given a registry |
 
 MCP itself ([2025-11-25 transports](https://modelcontextprotocol.info/specification/2025-11-25/basic/transports/))
 has two standard transports. **stdio** means the client spawns the server. **Streamable HTTP** must validate `Origin`
@@ -87,7 +85,7 @@ adapter, not in the game.
 
 ## Control protocol design
 
-**Layering.** The core's `Session` API is a Rust-style trait or struct, the one tests use. The control server
+**Layering.** The core's `Session` API is the one tests use. The control server
 (feature `dev-tools`) is JSON-RPC 2.0 framed as newline-delimited JSON. Two clients sit on top: `uni` (CLI: `uni
 query`, `uni step`, `uni shot`, …) and `uni mcp` (a stdio MCP server that discovers or launches instances and maps
 ~15 coarse tools onto RPC methods). The CLI is the primary agent interface. It costs no tool-schema context, it
@@ -207,15 +205,14 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 | F3 feedback | Screenshots with and without UI, snapshot, replay (from start, or the last keyframe plus inputs), **view state** (camera, selected peer, UI screen), log ring, perf stats, build/content hashes, note, registry-generated `feedback.md`. `uni feedback list/show/entity/grep/check/promote/done` |
 | Free cam | View-only camera detached from the sim. Its pose is exposed so `view.shot {camera}` reproduces a frame |
 | Perf overlay | Per-system timing in the scheduler (plus Tracy zones), rollback/resim counters, entities, memory, net stats; same data via `perf.stats` |
-| Logs / events | `tracing`-style structured logs into a ring buffer. Sim events tagged with tick and peer, streamable as notifications |
+| Logs / events | Structured logs into a ring buffer. Sim events tagged with tick and peer, streamable as notifications |
 
 ## Parallel agent workflow
 
 - **Self-contained worktrees.** Each builds and runs its own binary; only caches are shared.
 - **No port allocation.** Control sockets live under `<worktree>/.uni/run/<id>/`. Network tests bind port 0 and
   publish the port in `control.json`. No fixed ports.
-- **Build caches.** Cargo locks its target dir, so a shared one would serialize agents. Use per-worktree targets with
-  a shared `sccache`, and OctoEscape's "build under lock, run from a private copy" for test runners.
+- **Build caches.** Use per-worktree build outputs (Odin builds are sub-second), and OctoEscape's "build under lock, run from a private copy" for test runners.
 - **Content caches.** Processed glTF, shaders and level snapshots go in a content-addressed `~/.cache/unified/`.
   Worktrees already share LFS objects through the common git dir.
 - **Machine-wide slots.** A lock-file semaphore caps heavy jobs (GPU windows, fuzzes, Blender), like OctoEscape's
@@ -224,8 +221,8 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 
 ## Risks and unknowns
 
-1. **Language choice drives reflection.** Rust needs derives (bevy_reflect-like), which cost compile time. Zig and
-   Odin offer comptime or RTTI instead. Settle this together with the language research.
+1. **Reflection in Odin.** The type registry can come from Odin's runtime type info or generated layout
+   descriptors; settle in the module spec.
 2. **Physics state inside snapshots.** Scrub, sync-test and replays assume the physics engine's internal state is
    in the block, or round-trips deterministically. This is the riskiest dependency, shared with the physics research.
 3. **Snapshot memory.** The block size of a 1000-entity physics world is unknown. The keyframe interval trades
@@ -238,7 +235,7 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 
 ## Spike proposal
 
-Build a toy: a POD block with 3 component types and 1000 entities, a derive-based registry, a loopback session with 2
+Build a toy: a POD block with 3 component types and 1000 entities, a layout-descriptor registry, a loopback session with 2
 peers and netsim, the control server on a UDS, the `uni` CLI, `uni mcp`, and an offscreen screenshot via the chosen
 renderer.
 
