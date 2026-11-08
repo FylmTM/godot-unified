@@ -438,10 +438,14 @@ def lipo_archs(path):
 def thin_to_arm64(app):
     """Godot's macOS template is universal only (its presets can't pick arm64 alone), but our extension is
     arm64: drop the x86_64 slice so an Intel Mac refuses the app up front instead of failing to load the
-    extension, and the download shrinks by ~half the engine."""
-    for exe in (app / "Contents" / "MacOS").iterdir():
-        if len(lipo_archs(exe)) > 1:
-            run(["lipo", exe, "-thin", "arm64", "-output", exe])
+    extension, and the download shrinks by ~half the engine. Universal libraries (the EOS SDK) get the same.
+    Their original signatures break; the ad-hoc codesign that follows re-signs everything."""
+    frameworks = app / "Contents" / "Frameworks"
+    files = list((app / "Contents" / "MacOS").iterdir())
+    files += sorted(frameworks.glob("*.dylib")) if frameworks.is_dir() else []
+    for f in files:
+        if len(lipo_archs(f)) > 1:
+            run(["lipo", f, "-thin", "arm64", "-output", f])
 
 
 def sign_and_zip(target, zip_path):

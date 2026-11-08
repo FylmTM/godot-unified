@@ -36,6 +36,7 @@ project with a tiny Odin GDExtension that checks the pipeline without any game c
   and no `ERROR` lines. The game may use the `--smoke-test` user argument.
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `release.py`
   fails if one is missing from the export (and, on tag builds with EOS, if the EOS SDK library is).
-- Online: once `tools/eos.py` exists, tag builds need the five `EOS_*` secrets and fail unless the game build
-  compiled each value into the extension (`-define`s from `python tools/eos.py defines`); testers' machines have
-  no EOS config. The build job has `contents: write` because the EOS SDK is a draft-release asset.
+- Online: when the extension imports `unified:eos`, every CI build needs the five `EOS_*` secrets and fails unless
+  the game build compiled each value into the extension (`-define`s from `python tools/eos.py defines`) and the
+  export ships the EOS SDK library; testers' machines have no EOS config. The build job has `contents: write`
+  because the EOS SDK is a draft-release asset.
