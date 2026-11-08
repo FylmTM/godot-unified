@@ -57,3 +57,7 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   SDK in a draft release (no git tag), so CI jobs that fetch it need `contents: write`; macOS keychain prompts stay
   on in games, off for headless runs; `tools/eos.py` writes SDK copies without the browser's quarantine flag (the
   quarantined dylib hung on load).
+- 604f775 **game-client merged:** `games/survivor/` Godot content (main menu, settings, connect/lobby overlay with
+  the code and LAN host address, arena, start circle, views, HUD, level-up panel, match-over, Esc menu, procedural
+  music), a GDScript `MockSession` with the same contract, `tools/game.py` (`dev.py game validate|walk|shots|import`).
+  Verified on main: validate 22 scripts + 16 resources OK in 2.3 s; the headless UI walk (14 steps) OK in 3 s.

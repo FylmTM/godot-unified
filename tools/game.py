@@ -1,4 +1,5 @@
-"""Game project checks with headless Godot (Python 3.9+, stdlib only). Used by `dev.py game`:
+"""Game project checks with headless Godot (Python 3.9+, stdlib only). Used by `dev.py game` (or run this file
+directly with the same arguments: `python tools/game.py validate`):
 
     python tools/dev.py game validate [--game survivor]   # compile scripts, load scenes, run the menu 30 frames
     python tools/dev.py game walk                         # scripted UI walk with the mock session (headless)
@@ -169,3 +170,8 @@ def _front_app():
 def _restore_app(bundle):
     if bundle and bundle != "[ NULL ]":
         subprocess.run(["open", "-b", bundle], capture_output=True)
+
+
+if __name__ == "__main__":
+    import sys
+    cmd_game(sys.argv[1:])
