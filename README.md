@@ -1,43 +1,78 @@
 # unified
 
-`unified` is a hobby research project for a purpose-built game engine: an ECS-style deterministic simulation with
-Photon-Quantum-style predict/rollback netcode built in. It's code-first and agent-first, for co-op games that need
-Mac ARM ↔ Windows x64 crossplay. The current phase (phase 2) builds the same headless core (fixed-tick sim, Box3D
-physics with a save/restore fork, snapshots, checksums, sync-test, replays, an input relay with prediction, rollback
-and late join) in **C++, Odin and Rust**, then picks the language. Read [`docs/PLAN.md`](docs/PLAN.md) for the phases
-and decisions, [`docs/CONTEXT.md`](docs/CONTEXT.md) for the background, and [`spec/`](spec/) for what the core must do.
+A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
+Godot as the host. Fixed-tick deterministic sim, Box3D physics with a save/restore fork, snapshots, checksums,
+sync-test, replays, and a Photon-Quantum-style input relay with prediction, rollback and late join. Rules for
+working on it: [`AGENTS.md`](AGENTS.md). Current work: [`docs/WORK.md`](docs/WORK.md). Plan and decisions:
+[`docs/PLAN.md`](docs/PLAN.md). What the core must do: [`spec/`](spec/).
 
 ## Layout
 
 ```
-spec/CORE.md, spec/GAME.md     the phase 2 spec: core + netcode + CLI + tests, and the headless test game
-docs/                          plan, context, research write-ups
-bench/                         earlier benchmarks (specs and RESULTS.md files only; sources stay local)
-third_party/box3d.patch        Box3D save/restore fork, applied by tools/box3d.py
-tools/box3d.py                 fetch + patch + build Box3D for the host (shared by all languages)
-tools/check.py                 language-neutral test harness (T1-T9) driving impl/<lang>/out/<mode>/unified
-tools/ci.py                    CI helpers (job detection, Odin setup, summary table)
-impl/cpp, impl/odin, impl/rust implementations; each has build.py dev|release and a README with its report
-testdata/<lang>/               committed macOS ARM64 reference logs, traces and snapshots (T7/T8)
-.github/workflows/ci.yml       Linux x64 + Windows x64 × cpp/odin/rust
+src/                 the `unified` collection (-collection:unified=src); one package per directory
+  box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
+  pod/               plain-data check for state blocks (RTTI walk: no pointers, no padding) (leaf)
+  wire/              little-endian Writer/Reader for every binary format (leaf)
+  game/              survivor-lite test game (spec/GAME.md): state block, pools, systems, world
+  sim/               harness: ring of snapshots, checksum, portable snapshots, input log, offline modes
+  netcode/           links (loopback, UDP, netsim), reliable channel, relay, client, sessions
+  cli/               the `unified` CLI of spec/CORE.md §3 (package main)
+tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
+  lint/              determinism lint: bans core:math, matrix, f64 in game, ... per package
+testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
+third_party/         box3d.patch (the fork); tools/box3d.py fetches + builds Box3D under third_party/box3d/
+tools/               dev.py (the entry point), check.py (T1-T9), box3d.py, ci.py
+ols.json, odinfmt.json   editor (OLS) and formatter configuration
 ```
 
-## Build and test locally (macOS)
+Imports point one way: `cli → netcode → sim → game → box3d`, with `pod` and `wire` as leaves. Inside `src/`
+packages import each other by relative path; consumers (tests, later games) import `unified:<pkg>`.
 
-You need Python 3.9+, git, CMake, Ninja and Xcode's clang, plus the toolchain for whichever language you're working
-on. For C++, clang is enough. For Odin, `odin` `dev-2026-11` on PATH. For Rust, rustup; `impl/rust/rust-toolchain.toml`
-pins 1.98.
+## Toolchain
+
+- **Odin** `dev-2026-11` on PATH (macOS: `brew install odin`; CI downloads the release).
+- **Python 3.9+** for `tools/` (stdlib only).
+- **Box3D build:** git, CMake, Ninja and clang (macOS/Linux) or clang-cl (Windows; found on PATH, in
+  `C:\Program Files\LLVM` or Visual Studio). Only needed the first time; `tools/box3d.py` caches the result.
+- **odinfmt** (the formatter, part of OLS), pinned to OLS `85d88870`. Install it with
+  `python tools/ci.py odinfmt ~/.local/share/unified-odinfmt` and put that directory on PATH (or set `ODINFMT`).
+- **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` collection, the strict checker
+  flags, format on save with `odinfmt.json`).
+
+## Commands
+
+Everything goes through `tools/dev.py`; each command prints its time.
 
 ```
-python3 tools/box3d.py                  # once (later runs are a no-op): Box3D -> third_party/box3d/build/macos-arm64
-python3 tools/box3d.py --arch x86_64    # optional: macos-x64 Box3D, for Rosetta determinism checks
-
-python3 impl/cpp/build.py release       # -> impl/cpp/out/release/unified    (likewise odin, rust; or `dev`)
-python3 tools/check.py cpp              # build + T1-T9; summary in impl/cpp/out/check.json
-python3 tools/check.py odin --only T1,T2
-python3 tools/check.py rust --regen     # deliberately rewrite testdata/rust/ (macOS ARM64 only)
+python tools/dev.py build [dev|release|debug]   # -> out/<mode>/unified[.exe]; builds Box3D on first use
+python tools/dev.py test                        # odin test: unit tests + determinism lint (all packages)
+python tools/dev.py check [--only T1,T7]        # release build, then T1-T9 (tools/check.py), ~70 s
+python tools/dev.py fmt [--check]               # odinfmt over src/ and tests/
+python tools/dev.py vet                         # odin check, strict flags, darwin/linux/windows targets
+python tools/dev.py all                         # fmt --check, vet, test, check: what CI runs
 ```
 
-CI runs the same `tools/box3d.py` and `tools/check.py <lang>` on Linux x64 and Windows x64 (clang-cl) for each
-language that has a `build.py`, and prints a comparison table in the run summary. For details see
-[`tools/README.md`](tools/README.md) and [`testdata/README.md`](testdata/README.md).
+| Mode | Flags | Use | Build (M4 Pro) |
+|---|---|---|---:|
+| `dev` | `-o:speed -use-separate-modules -debug` | everyday: optimized, debuggable | 0.9 s |
+| `release` | `-o:speed` (one LLVM module) | fastest binary; what `check` and CI test | 2.5 s |
+| `debug` | `-o:none -debug` | stepping in a debugger | 0.4 s |
+
+All modes add `-vet -strict-style -vet-tabs -warnings-as-errors`; bounds checks stay on. The plain Odin commands
+work too (the bindings import Box3D's static library by relative path): `odin build src/cli`,
+`odin test tests -all-packages -collection:unified=src`.
+
+Rosetta determinism check on Apple Silicon (x86_64 build against the macos-x64 Box3D):
+
+```
+python tools/dev.py build release --arch x86_64
+python tools/check.py --only T1,T7,T8
+```
+
+Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/dev.py check --regen` (see
+[`testdata/README.md`](testdata/README.md)).
+
+## CI
+
+`.github/workflows/ci.yml`: a `lint` job (format check, vet) and `test` jobs on Linux x64 and Windows x64 (`odin
+test`, then T1-T9 with the T9 bench and step timings in the job summary). Odin, odinfmt and Box3D are cached.

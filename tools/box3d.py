@@ -19,8 +19,11 @@ Steps (each skipped when already done, so a repeat run takes well under a second
 
 Compiler: one family everywhere. clang/clang++ on macOS and Linux, clang-cl on Windows (from PATH,
 else C:\\Program Files\\LLVM, else Visual Studio's bundled LLVM) with the MSVC environment loaded via
-vswhere/vcvarsall if the shell is not already a developer prompt. The MSVC runtime is /MD
-(MultiThreadedDLL), the default of Rust's and Odin's MSVC targets. Override with --cc/--cxx.
+vswhere/vcvarsall if the shell is not already a developer prompt. The MSVC runtime is the static
+one (/MT, MultiThreaded), which is what Odin links by default (libcmt), so the program has one CRT
+and needs no linker overrides. Override the compiler with --cc/--cxx.
+
+Other tools import this module and call ensure() (no subprocess, ~10 ms when up to date).
 """
 
 import argparse
@@ -107,9 +110,9 @@ def ensure_source(patch_sha):
     return True
 
 
-def pick_compilers(args):
-    if args.cc:
-        return args.cc, args.cxx or args.cc
+def pick_compilers(cc=None, cxx=None):
+    if cc:
+        return cc, cxx or cc
     if IS_WINDOWS:
         cl = common.find_clang_cl()
         if not cl:
@@ -159,7 +162,7 @@ def cmake_args(cc, cxx, install_dir, arch):
         a += ["-DCMAKE_OSX_ARCHITECTURES=" + ("x86_64" if arch == "x64" else "arm64"),
               "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + MACOS_DEPLOYMENT_TARGET]
     if IS_WINDOWS:
-        a += ["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"]
+        a += ["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]  # static CRT (/MT), like Odin
     return a
 
 
@@ -174,10 +177,89 @@ def verify_flags(work):
         cmd = e.get("command") or " ".join(e.get("arguments", []))
         missing = [f for f in required if f not in cmd]
         bad = [f for f in forbidden if f in cmd]
+        if IS_WINDOWS:
+            flags = cmd.replace("/", "-").split()
+            if "-MT" not in flags:
+                missing.append("/MT (static CRT)")
+            bad += [f for f in ("-MD", "-MDd", "-MTd") if f in flags]
         if missing or bad:
             raise SystemExit("box3d: flag check failed for %s: missing %s, forbidden %s\n%s"
                              % (e["file"], missing, bad, cmd))
     return len(entries)
+
+
+def fast_key(tag, patch_sha):
+    """Inputs checked on every call without starting a compiler: the recipe (this file), the commit
+    and the patch. A compiler upgrade is not detected here: run with --clean after one."""
+    me = hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    return hashlib.sha256(("%s %s %s %s %s" % (RECIPE_VERSION, BOX3D_COMMIT, patch_sha, tag, me)).encode()).hexdigest()[:16]
+
+
+def ensure(arch=None, cc=None, cxx=None, clean=False):
+    """Builds Box3D for `arch` (default: host) if needed and returns its description (box3d.json)."""
+    arch = common.norm_arch(arch) if arch else common.host_arch()
+    if arch != common.host_arch() and not IS_MACOS:
+        raise SystemExit("box3d: cross builds are only supported on macOS (x86_64 for Rosetta)")
+    tag = common.platform_tag(arch)
+    out = ROOT / "build" / tag
+    work = ROOT / "work" / tag
+    desc_path = out / "box3d.json"
+    lib_name = "box3d.lib" if IS_WINDOWS else "libbox3d.a"
+    if clean:
+        for p in (SRC, SRC_STAMP, out, work):
+            if p.is_dir():
+                shutil.rmtree(p)
+            elif p.exists():
+                p.unlink()
+
+    patch_sha = hashlib.sha256(patch_bytes()).hexdigest()
+    fkey = fast_key(tag, patch_sha)
+    desc = None
+    if desc_path.exists():
+        try:
+            desc = json.loads(desc_path.read_text())
+        except ValueError:
+            desc = None
+    if desc and desc.get("fast_key") == fkey and (out / "lib" / lib_name).exists():
+        return desc
+
+    t0 = time.time()
+    common.ensure_msvc_env()
+    cc, cxx = pick_compilers(cc, cxx)
+    for tool in ("cmake", "ninja"):
+        if not common.which(tool):
+            raise SystemExit("box3d: %s not found on PATH (ninja: `python -m pip install ninja`)" % tool)
+    cfg = cmake_args(cc, cxx, out, arch)
+    compiler = compiler_version(cc)
+    ensure_source(patch_sha)
+    for p in (out, work):
+        if p.exists():
+            shutil.rmtree(p)
+    work.mkdir(parents=True)
+    log("box3d: building %s with %s" % (tag, compiler))
+    run(["cmake", "-S", SRC, "-B", work] + cfg, quiet=True)
+    run(["cmake", "--build", work, "--target", "box3d"], quiet=True)
+    n = verify_flags(work)
+    run(["cmake", "--install", work], quiet=True)
+    lib = out / "lib" / lib_name
+    if not lib.exists():
+        raise SystemExit("box3d: expected %s after install" % lib)
+    desc = {
+        "fast_key": fkey,
+        "platform": tag,
+        "commit": BOX3D_COMMIT,
+        "patch_sha256": patch_sha,
+        "compiler": compiler,
+        "cmake_args": cfg,
+        "verified_sources": n,
+        "dir": out.as_posix(),
+        "include_dir": (out / "include").as_posix(),
+        "lib": lib.as_posix(),
+        "msvc_runtime": "MT" if IS_WINDOWS else None,
+    }
+    desc_path.write_text(json.dumps(desc, indent=2) + "\n")
+    log("box3d: built %s in %.1fs; flags verified on %d sources" % (tag, time.time() - t0, n))
+    return desc
 
 
 def main():
@@ -188,93 +270,9 @@ def main():
     ap.add_argument("--clean", action="store_true", help="delete the checkout and this platform's build first")
     ap.add_argument("--json", action="store_true", help="print the build description as one JSON line on stdout")
     args = ap.parse_args()
-
-    arch = common.norm_arch(args.arch) if args.arch else common.host_arch()
-    if arch != common.host_arch() and not IS_MACOS:
-        raise SystemExit("box3d: cross builds are only supported on macOS (x86_64 for Rosetta)")
-    tag = common.platform_tag(arch)
-    out = ROOT / "build" / tag
-    work = ROOT / "work" / tag
-    desc_path = out / "box3d.json"
-    if args.clean:
-        for p in (SRC, SRC_STAMP, out, work):
-            if p.is_dir():
-                shutil.rmtree(p)
-            elif p.exists():
-                p.unlink()
-
-    t0 = time.time()
-    common.ensure_msvc_env()
-    cc, cxx = pick_compilers(args)
-    patch_sha = hashlib.sha256(patch_bytes()).hexdigest()
-    cfg = cmake_args(cc, cxx, out, arch)
-    inputs = {
-        "recipe": RECIPE_VERSION,
-        "commit": BOX3D_COMMIT,
-        "patch_sha256": patch_sha,
-        "cmake_args": cfg,
-        "compiler": compiler_version(cc),
-    }
-    key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()[:16]
-    lib_name = "box3d.lib" if IS_WINDOWS else "libbox3d.a"
-
-    desc = None
-    if desc_path.exists():
-        try:
-            desc = json.loads(desc_path.read_text())
-        except ValueError:
-            desc = None
-    if desc and desc.get("key") == key and (out / "lib" / lib_name).exists():
-        log("box3d: up to date (%s, key %s)" % (tag, key))
-    else:
-        if not common.which("cmake"):
-            raise SystemExit("box3d: cmake not found on PATH")
-        if not common.which("ninja"):
-            raise SystemExit("box3d: ninja not found on PATH (e.g. `python -m pip install ninja`)")
-        ensure_source(patch_sha)
-        for p in (out, work):
-            if p.exists():
-                shutil.rmtree(p)
-        work.mkdir(parents=True)
-        log("box3d: building %s with %s" % (tag, inputs["compiler"]))
-        run(["cmake", "-S", SRC, "-B", work] + cfg, quiet=True)
-        run(["cmake", "--build", work, "--target", "box3d"], quiet=True)
-        n = verify_flags(work)
-        run(["cmake", "--install", work], quiet=True)
-        lib = out / "lib" / lib_name
-        if not lib.exists():
-            raise SystemExit("box3d: expected %s after install" % lib)
-        if IS_WINDOWS:
-            link_libs = []
-        elif IS_MACOS:
-            link_libs = []
-        else:
-            link_libs = ["m", "pthread"]
-        desc = {
-            "key": key,
-            "platform": tag,
-            "commit": BOX3D_COMMIT,
-            "patch_sha256": patch_sha,
-            "compiler": inputs["compiler"],
-            "cmake_args": cfg,
-            "verified_sources": n,
-            "dir": out.as_posix(),
-            "include_dir": (out / "include").as_posix(),
-            "lib_dir": (out / "lib").as_posix(),
-            "lib": lib.as_posix(),
-            "link_libs": link_libs,
-            "msvc_runtime": "MD" if IS_WINDOWS else None,
-            "defines": [],
-        }
-        desc_path.write_text(json.dumps(desc, indent=2) + "\n")
-        log("box3d: built in %.1fs; flags verified on %d sources" % (time.time() - t0, n))
-
-    log("box3d: include %s" % desc["include_dir"])
-    log("box3d: lib     %s" % desc["lib"])
-    if args.json:
-        print(json.dumps(desc))
-    else:
-        print(desc["dir"])
+    desc = ensure(args.arch, args.cc, args.cxx, args.clean)
+    log("box3d: %s up to date: %s" % (desc["platform"], desc["lib"]))
+    print(json.dumps(desc) if args.json else desc["dir"])
 
 
 if __name__ == "__main__":

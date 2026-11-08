@@ -47,8 +47,23 @@ game built on it will be a slice of OctoEscape (`~/work/personal/OctoEscape`).
 
 ## Layout and commands
 
-The repository is being reshaped into an idiomatic Odin project. Until that lands, see `README.md` and
-`docs/WORK.md`. This section will list the exact commands for build, test, check, format, benchmark and CI.
+Odin packages live in `src/` (the `unified` collection, one package per directory: `box3d`, `pod`, `wire`, `game`,
+`sim`, `netcode`, `cli`); imports point one way, `cli → netcode → sim → game → box3d`, with `pod` and `wire` as
+leaves. Tests are `odin test` packages in `tests/` (one per module, importing `unified:<pkg>`; `tests/lint` is the
+determinism lint). `README.md` has the full layout and toolchain. Commands, all from the repo root, any OS:
+
+```
+python tools/dev.py build [dev|release|debug]   # out/<mode>/unified; dev ~1 s, release ~2.5 s
+python tools/dev.py test                        # odin test, every package (~2 s)
+python tools/dev.py check [--only T1,T7]        # release build + T1-T9 end-to-end (~70 s)
+python tools/dev.py fmt [--check]               # odinfmt (pinned, see README)
+python tools/dev.py vet                         # odin check, strict flags, all targets (<1 s)
+python tools/dev.py all                         # everything CI runs
+python tools/dev.py build release --arch x86_64 && python tools/check.py --only T1,T7,T8   # Rosetta check
+```
+
+Run `fmt`, `vet` and `test` before handing work back; run `check` when the sim, netcode or CLI changed. A new
+package in `src/` needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
 
 ## Where things are
 

@@ -5,3 +5,5 @@
 testdata/**/*.log binary
 testdata/**/*.snap binary
 testdata/**/*.trace text eol=lf
+*.odin text eol=lf
+*.json text eol=lf

@@ -1,9 +1,0 @@
-[package]
-name = "box3d-sys"
-description = "Hand-written FFI for the subset of Box3D (pinned commit + save/restore fork) used by unified, plus a thin safe wrapper"
-edition.workspace = true
-rust-version.workspace = true
-version.workspace = true
-publish.workspace = true
-links = "box3d"
-build = "build.rs"
