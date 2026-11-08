@@ -11,7 +11,7 @@ commands: `README.md`.
 
 ## 1. Simulation harness
 
-- **Fixed tick:** 60 Hz, `DT = 0.016666668f` (bits `0x3C888889`). f32 only, no FMA contraction
+- **Fixed tick:** a per-game power of two, 64 Hz for the survivor: `dt = 1/64` exactly. f32 only, no FMA contraction
   (`-ffp-contract=off`, or `/fp:precise` with clang-cl's `/clang:-ffp-contract=off`), no transcendentals except the
   deterministic ones we write ourselves (only `+ − × ÷ sqrt` from hardware). Single-threaded sim. Box3D with 1 worker.
 - **State block:** one pointer-free block (fixed-capacity tables, generational entity handles, globals, RNG). It's
@@ -27,14 +27,15 @@ commands: `README.md`.
 - **Input:** per player per tick, 4 bytes: `move_x i8, move_z i8, buttons u8, choice u8` (`GAME.md`). An absent or
   disconnected player has all zeros and the "absent" flag.
 - **Input log (replay file):** a binary format, versioned, little-endian. Header: magic `UNIL`, version u16,
-  seed u64, player count u8, tick count u32. Then per tick `[4 × input]` plus a per-player "replaced by relay" bitmask
-  (u8). Replaying a log must reproduce the exact checksums of the session that recorded it.
+  seed u64, slot count u8, input size u16, tick count u32. Then per tick a "present" and a "replaced by relay"
+  bitmask (u32 each) and `[slots × input]` (v2, spec/sim.md). Replaying a log must reproduce the exact checksums of
+  the session that recorded it.
 - **Sync-test:** every tick, save; once W ticks exist, restore W ticks back, re-simulate W ticks with the recorded
   inputs, and compare each tick's checksum to the forward one. Mismatches are fatal.
 
 ## 2. Netcode (input relay)
 
-- **Relay:** owns the tick clock (60 Hz, monotonic time). It collects inputs that clients send stamped with their
+- **Relay:** owns the tick clock (the game's rate, monotonic time). It collects inputs that clients send stamped with their
   target tick, and **finalizes tick T** when all connected players' inputs for T have arrived or the hard tolerance
   has expired (relay clock ≥ T + `tolerance`, default 6 ticks). A missing input is replaced by that player's last
   finalized input with the "replaced" flag. The relay broadcasts finalized input sets over the unreliable channel,
@@ -75,6 +76,9 @@ commands: `README.md`.
   and inputs are bit-packed (2 × i8 + u8 + u8 per tick).
 
 ## 3. CLI (`tools/check.py` relies on it)
+
+The modes come from `unified:headless`; the binary is the game's headless binary (`out/<mode>/survivor`). Below,
+`unified <mode>` stands for it. Current API and formats: `spec/sim.md`, `spec/netcode.md`.
 
 All modes print a final JSON line on stdout. Non-zero exit = failure.
 

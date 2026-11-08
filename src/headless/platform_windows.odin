@@ -1,4 +1,4 @@
-package main
+package headless
 
 import win "core:sys/windows"
 

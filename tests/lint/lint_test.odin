@@ -11,9 +11,11 @@ import "core:strings"
 import "core:testing"
 
 SRC_DIR :: #directory + "/../../src"
+GAMES_DIR :: #directory + "/../../games"
 
 Rule :: struct {
 	pkg:           string,
+	dir:           string, // "" : src/<pkg>; else relative to the repo root
 	ban_imports:   []string, // import path prefixes
 	allow_imports: []string, // exceptions to ban_imports
 	ban_idents:    []string, // identifiers, e.g. types or intrinsics
@@ -34,31 +36,64 @@ FLOAT_TRAPS :: []string {
 	"complex128",
 }
 
+GAME_IMPORTS :: []string{"core:math", "core:time", "core:math/rand", "core:os", "core:thread", "core:sync"}
+GAME_IDENTS :: []string {
+	"fused_mul_add",
+	"quaternion64",
+	"quaternion128",
+	"quaternion256",
+	"complex32",
+	"complex64",
+	"complex128",
+	"f64",
+	"f16",
+}
+
 RULES := []Rule {
-	// Simulation state and systems: f32 only, no clocks, no randomness besides the state's RNG.
+	// Game simulation code: f32 only, no clocks, files or threads, no randomness besides the
+	// state's RNG.
 	{
-		pkg = "game",
-		ban_imports = {"core:math", "core:time", "core:math/rand", "core:os"},
+		pkg = "survivor",
+		dir = "games/survivor/simulation/survivor",
+		ban_imports = GAME_IMPORTS,
 		allow_imports = MATH_OK,
-		ban_idents = {
-			"fused_mul_add",
-			"quaternion64",
-			"quaternion128",
-			"quaternion256",
-			"complex32",
-			"complex64",
-			"complex128",
-			"f64",
-			"f16",
-		},
+		ban_idents = GAME_IDENTS,
 		ban_matrix = true,
 	},
+	// Library code that runs inside a tick: the same rules as game code.
+	{pkg = "dmath", ban_imports = GAME_IMPORTS, allow_imports = MATH_OK, ban_idents = GAME_IDENTS, ban_matrix = true},
+	// physics guards Box3D world creation with a mutex (core:sync), nothing else of the kind.
+	{
+		pkg = "physics",
+		ban_imports = {"core:math", "core:time", "core:math/rand", "core:os", "core:thread"},
+		allow_imports = MATH_OK,
+		ban_idents = GAME_IDENTS,
+		ban_matrix = true,
+	},
+	// The harness: f32 traps and core:math banned; it reads files (logs) and that's fine.
 	{pkg = "sim", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "box3d", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
-	{pkg = "pod", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
-	// Netcode feeds inputs into the sim and owns real-time clocks (fine), but stays off core:math.
+	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
+	// stay off core:math.
 	{pkg = "netcode", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	// The survivor's headless binary (package main): only wires the game into unified:headless.
+	{
+		pkg = "headless_main",
+		dir = "games/survivor/simulation/headless",
+		ban_imports = MATH,
+		allow_imports = MATH_OK,
+		ban_idents = FLOAT_TRAPS,
+		ban_matrix = true,
+	},
+}
+
+rule_dir :: proc(r: Rule) -> string {
+	if r.dir != "" {
+		return strings.concatenate({SRC_DIR, "/../", r.dir}, context.temp_allocator)
+	}
+	return strings.concatenate({SRC_DIR, "/", r.pkg}, context.temp_allocator)
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.
@@ -131,7 +166,7 @@ banned_import :: proc(r: Rule, path: string) -> bool {
 @(test)
 library_follows_determinism_rules :: proc(t: ^testing.T) {
 	for r in RULES {
-		dir := strings.concatenate({SRC_DIR, "/", r.pkg}, context.temp_allocator)
+		dir := rule_dir(r)
 		infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
 		if !testing.expectf(t, err == nil, "cannot list %s: %v", dir, err) {
 			continue
@@ -154,32 +189,37 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
-// Every library package has a rule, so a new one can't skip the lint. The CLI (package main) is
-// the only exception: it is the host program, not simulation code.
+// Every library package and every package of the survivor's simulation/ has a rule, so a new one
+// can't skip the lint.
 @(test)
 every_package_has_a_rule :: proc(t: ^testing.T) {
-	infos, err := os.read_all_directory_by_path(SRC_DIR, context.temp_allocator)
-	if !testing.expectf(t, err == nil, "cannot list %s: %v", SRC_DIR, err) {
-		return
-	}
-	outer: for fi in infos {
-		if fi.type != .Directory || fi.name == "cli" {
-			continue
+	check_dir :: proc(t: ^testing.T, dir, prefix: string) {
+		infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
+		if !testing.expectf(t, err == nil, "cannot list %s: %v", dir, err) {
+			return
 		}
-		for r in RULES {
-			if r.pkg == fi.name {
-				continue outer
+		outer: for fi in infos {
+			if fi.type != .Directory {
+				continue
 			}
+			for r in RULES {
+				if (r.dir == "" && prefix == "src" && r.pkg == fi.name) ||
+				   r.dir == strings.concatenate({prefix, "/", fi.name}, context.temp_allocator) {
+					continue outer
+				}
+			}
+			testing.expectf(t, false, "%s/%s has no determinism rule in tests/lint/lint_test.odin", prefix, fi.name)
 		}
-		testing.expectf(t, false, "src/%s has no determinism rule in tests/lint/lint_test.odin", fi.name)
 	}
+	check_dir(t, SRC_DIR, "src")
+	check_dir(t, GAMES_DIR + "/survivor/simulation", "games/survivor/simulation")
 }
 
 // The lint itself: each banned construct is caught, and comments, strings and allowed imports
 // are not flagged.
 @(test)
 lint_catches_violations :: proc(t: ^testing.T) {
-	bad := `package game
+	bad := `package survivor
 import "core:math"
 import la "core:math/linalg"
 import "core:time"
@@ -187,7 +227,7 @@ M :: matrix[2, 2]f32
 x: f64
 y := intrinsics.fused_mul_add(a, b, c)
 `
-	clean := `package game
+	clean := `package survivor
 import "core:math/bits"
 import "base:intrinsics"
 // matrix f64 "core:math" in a comment
