@@ -12,5 +12,7 @@
    clipboard); send it to your friend.
 2. The friend picks **Join with code**, types the code and presses **Join**. macOS and Windows can play together.
 3. Connections go through Epic Online Services relays; no ports to open. If joining fails, check the code and try
-   again. If it keeps failing, send us the log: `~/Library/Application Support/Godot/app_userdata/<game>/logs/`
-   on macOS, `%APPDATA%\Godot\app_userdata\<game>\logs\` on Windows.
+   again. If it keeps failing, send us the log: `~/Library/Application Support/Godot/app_userdata/Survivor/logs/`
+   on macOS, `%APPDATA%\Godot\app_userdata\Survivor\logs\` on Windows.
+4. First time online: macOS asks once per new build to let Survivor use a keychain item (the anonymous device ID):
+   click **Always Allow**. Windows may show a Firewall prompt: click **Allow access**.
