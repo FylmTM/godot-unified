@@ -1,5 +1,5 @@
-// Datagram framing over EOS P2P. An EOS packet carries at most 1170 bytes and the netcode channel
-// sends datagrams up to netcode.MAX_DATAGRAM (1400), so larger datagrams are split:
+// Datagram framing over EOS P2P. An EOS packet carries at most 1170 bytes; netcode.MAX_DATAGRAM
+// fits in one, but the link doesn't rely on it: larger datagrams are split:
 //
 //   whole    = u8 0, bytes                                  (<= 1169 bytes of payload)
 //   fragment = u8 1, u16 id, u8 index, u8 count, bytes      (<= 1165 bytes per part)
@@ -8,14 +8,12 @@
 // channel above treats like any other loss. Pure code, no EOS calls: tested without the network.
 package eos
 
-import "../netcode"
-
 P2P_MAX_PACKET :: 1170
 FRAME_WHOLE :: 0
 FRAME_PART :: 1
 PART_HEADER :: 5
 PART_MAX :: P2P_MAX_PACKET - PART_HEADER
-MAX_PARTS :: (netcode.MAX_DATAGRAM + PART_MAX - 1) / PART_MAX
+MAX_PARTS :: 4 // datagrams up to 4 * PART_MAX = 4660 bytes
 REASM_SLOTS :: 4
 
 // Splits `bytes` into EOS packets; calls `emit` for each. `next_id` numbers fragmented datagrams.
@@ -49,7 +47,7 @@ Reasm_Slot :: struct {
 	used:  bool,
 	id:    u16,
 	count: u8,
-	have:  u8, // bitmask of parts received (count <= 8 for our datagram sizes)
+	have:  u8, // bitmask of parts received
 	age:   u32,
 	lens:  [MAX_PARTS]u16,
 	data:  [MAX_PARTS * PART_MAX]u8,

@@ -3,13 +3,15 @@
 //   init      load the SDK library next to the game, EOS_Initialize, create the platform
 //   host      device-ID login -> create a lobby (max 4) with a random code attribute -> Ready
 //   join      device-ID login -> search the lobby by code -> join -> host = lobby owner -> Ready
-//   link      once Ready: a netcode.Link over P2P (host: peers 1.. = joiners; joiner: peer 0 = host)
+//   link      a netcode.Link over P2P (host: peers 1.. = joiners; joiner: peer 0 = host); it exists
+//             from host/join on and carries nothing until Ready
 //   leave     destroy/leave the lobby, close P2P connections -> Idle (login is kept)
 //
-// Every EOS call happens under one mutex, from whichever thread calls `poll` or uses the link; EOS
-// callbacks run inside Platform_Tick, so they never lock. The netcode thread drives EOS through the
-// link (recv ticks the platform); while no link is in use, the host program calls `poll` (e.g.
-// each frame). Status is read with `status`, from any thread.
+// Every EOS call happens under one mutex, from whichever thread calls `poll`/`pump` or uses the
+// link; EOS callbacks run inside Platform_Tick, so they never lock. The thread running the netcode
+// drives EOS (the link's recv ticks the platform, `pump` too). Status is read with `status`, from any
+// thread. open_host / open_join / pump / close are the transport shape a host program's session
+// loop uses (godot_host.Transport).
 package eos
 
 import "base:runtime"
@@ -57,6 +59,10 @@ Init_Options :: struct {
 	product_version: string,
 	cache_dir:       string, // EOS cache; empty = <tmp>/unified-eos
 	relay_control:   Maybe(Relay_Control), // default Allow_Relays
+	// macOS: let the keychain ask the user when the stored device ID belongs to another build of
+	// the program. Off by default: the read fails at once and a fresh anonymous ID is made instead
+	// (a dialog would block the session thread until answered).
+	keychain_prompts: bool,
 }
 
 Online :: struct {
@@ -96,6 +102,16 @@ Online :: struct {
 	last_tick_us:   i64,
 	sent, received: int,
 	send_errors:    int,
+	reported_code:  bool,
+	reported_fail:  bool,
+	events:         [32]Link_Event,
+	n_events:       int,
+}
+
+// A transport-level event for netcode.Link.event.
+Link_Event :: struct {
+	peer:      netcode.Peer,
+	connected: bool,
 }
 
 @(private)
@@ -104,8 +120,8 @@ g: Online
 // --- public API ---------------------------------------------------------------------------------
 
 // The directories searched for the SDK library when none are given: $UNIFIED_EOS_LIB_DIR, the
-// executable's directory, then (dev builds on the machine that built them) the SDK staged in this
-// repo by tools/eos.py.
+// executable's directory (and ../Frameworks on macOS, where an exported .app keeps it), then (dev
+// builds on the machine that built them) the SDK staged in this repo by tools/eos.py.
 default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	dirs := make([dynamic]string, allocator)
 	if d := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); d != "" {
@@ -113,6 +129,10 @@ default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	}
 	if exe, err := os.get_executable_directory(allocator); err == nil {
 		append(&dirs, exe)
+		when ODIN_OS == .Darwin {
+			fw, _ := filepath.join({exe, "..", "Frameworks"}, allocator)
+			append(&dirs, fw)
+		}
 	}
 	append(&dirs, STAGED_SDK_BIN)
 	return dirs[:]
@@ -131,6 +151,9 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 	o.ctx = runtime.default_context()
 	o.relay_control = opts.relay_control.? or_else .Allow_Relays
+	if !opts.keychain_prompts {
+		disable_keychain_prompts()
+	}
 	dirs := opts.lib_dirs
 	if len(dirs) == 0 {
 		dirs = default_lib_dirs()
@@ -235,9 +258,6 @@ join :: proc(bucket: string, code: string) -> bool {
 		o := &g
 		sync.guard(&o.mu)
 		set_detail(o, "%q is not a game code (6 letters and digits)", code)
-		if o.stage != .Off {
-			o.stage = .Failed
-		}
 		return false
 	}
 	return begin(.Join, bucket, c)
@@ -289,16 +309,61 @@ status :: proc(allocator := context.temp_allocator) -> (s: Status) {
 	return
 }
 
-// The datagram link over P2P for the netcode (call once Ready). Host: peer i >= 1 is the i-th
-// joiner that sent a packet; joiner: peer 0 is the host. The link ticks EOS on every recv that
-// finds nothing (at most every TICK_EVERY_US), so the thread running the netcode keeps EOS alive.
+// The datagram link over P2P for the netcode, valid once host/join started (it drops sends and
+// receives nothing until Ready). Host: peer i >= 1 is the i-th joiner that sent a packet; joiner:
+// peer 0 is the host. The link ticks EOS on every recv that finds nothing (at most every
+// TICK_EVERY_US), so the thread running the netcode keeps EOS alive.
 link :: proc() -> (l: netcode.Link, ok: bool) {
 	o := &g
 	sync.guard(&o.mu)
-	if o.stage != .Ready {
+	if o.stage == .Off || o.role == .None {
 		return
 	}
-	return {data = o, send = link_send, recv = link_recv, close = link_close}, true
+	return {data = o, send = link_send, recv = link_recv, close = link_close, event = link_event}, true
+}
+
+// --- transport shape (godot_host.Transport) -----------------------------------------------------
+
+// Starts hosting and returns the link at once (init must have succeeded).
+open_host :: proc(bucket: string) -> (l: netcode.Link, ok: bool) {
+	if !host(bucket) {
+		return
+	}
+	return link()
+}
+
+// Starts joining `code` and returns the link at once; a bad code fails here.
+open_join :: proc(bucket, code: string) -> (l: netcode.Link, ok: bool) {
+	if !join(bucket, code) {
+		return
+	}
+	return link()
+}
+
+Pump_Result :: struct {
+	code:   string, // set once, when the host's lobby code is published
+	failed: string, // set once, when the session failed (reason)
+}
+
+// Ticks EOS and reports what changed since the last call. Strings use `allocator`.
+pump :: proc(allocator := context.temp_allocator) -> (r: Pump_Result) {
+	o := &g
+	sync.guard(&o.mu)
+	tick(o)
+	if o.stage == .Ready && o.role == .Host && !o.reported_code {
+		o.reported_code = true
+		r.code = strings.clone(string(o.code[:]), allocator)
+	}
+	if o.stage == .Failed && !o.reported_fail {
+		o.reported_fail = true
+		r.failed = strings.clone(string(o.detail[:o.detail_len]), allocator)
+	}
+	return
+}
+
+// Ends the session (same as leave).
+close :: proc() {
+	leave()
 }
 
 // Leaves the session: destroys (host) or leaves (joiner) the lobby, closes P2P. The login stays.
@@ -345,6 +410,9 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	}
 	o.role = role
 	o.code = code
+	o.reported_code = false
+	o.reported_fail = false
+	o.n_events = 0
 	o.bucket = {}
 	copy(o.bucket[:len(o.bucket) - 1], bucket)
 	o.detail_len = 0
@@ -759,7 +827,17 @@ on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info)
 		}
 		if host_gone {
 			o.in_lobby = false
+			push_event(o, 0, false)
 			fail(o, "the host closed the game")
+		}
+	}
+	gone := info.current_status == .Left || info.current_status == .Disconnected || info.current_status == .Kicked
+	if o.role == .Host && gone {
+		for &r, i in o.remotes {
+			if r.used && cstr(r.id_str[:]) == cstr(buf[:]) {
+				r.connected = false
+				push_event(o, netcode.Peer(i), false)
+			}
 		}
 	}
 }
@@ -829,6 +907,7 @@ on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established
 	r := &o.remotes[i]
 	r.connected = true
 	r.network = info.network_type
+	push_event(o, netcode.Peer(i), true)
 	log_line("P2P connected to %s (%v)", cstr(r.id_str[:]), info.network_type)
 }
 
@@ -841,6 +920,7 @@ on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 		return
 	}
 	o.remotes[i].connected = false
+	push_event(o, netcode.Peer(i), false)
 	log_line("P2P connection to %s closed (reason %d)", cstr(o.remotes[i].id_str[:]), info.reason)
 }
 
@@ -944,10 +1024,7 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: netcode.Peer, ok: b
 		return
 	}
 	for attempt in 0 ..< 2 {
-		for {
-			if o.stage != .Ready {
-				break
-			}
+		for o.stage == .Ready {
 			pkt: [P2P_MAX_PACKET]u8
 			peer: Product_User_Id
 			sock: P2P_Socket_Id
@@ -986,6 +1063,27 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: netcode.Peer, ok: b
 @(private)
 link_close :: proc(data: rawptr) {
 	// The session outlives the netcode objects; `leave` ends it.
+}
+
+@(private)
+link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
+	o := (^Online)(data)
+	sync.guard(&o.mu)
+	if o.n_events == 0 {
+		return
+	}
+	e := o.events[0]
+	copy(o.events[:], o.events[1:o.n_events])
+	o.n_events -= 1
+	return e.peer, e.connected ? .Connected : .Disconnected, true
+}
+
+@(private)
+push_event :: proc(o: ^Online, peer: netcode.Peer, connected: bool) {
+	if o.n_events < len(o.events) {
+		o.events[o.n_events] = {peer, connected}
+		o.n_events += 1
+	}
 }
 
 // --- helpers ------------------------------------------------------------------------------------

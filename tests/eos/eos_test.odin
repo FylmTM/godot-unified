@@ -70,6 +70,8 @@ code_parse_is_forgiving_but_strict :: proc(t: ^testing.T) {
 	}
 }
 
+BIG :: eos.MAX_PARTS * eos.PART_MAX
+
 Wire :: struct {
 	pkts: [dynamic][]u8,
 }
@@ -89,18 +91,19 @@ testing_expect_size :: proc(n: int) {
 @(test)
 framing_round_trips_every_size :: proc(t: ^testing.T) {
 	id: u16
-	src: [netcode.MAX_DATAGRAM]u8
+	src: [BIG]u8
 	for &b, i in src {
 		b = u8(i * 7 + 3)
 	}
-	out: [netcode.MAX_DATAGRAM]u8
+	out: [BIG]u8
 	r: eos.Reasm
-	for size in 0 ..= netcode.MAX_DATAGRAM {
+	testing.expect(t, netcode.MAX_DATAGRAM + 1 <= eos.P2P_MAX_PACKET) // netcode datagrams go whole
+	for size in 0 ..= BIG {
 		w := Wire {
 			pkts = make([dynamic][]u8, context.temp_allocator),
 		}
 		eos.frame_split(src[:size], &id, collect, &w)
-		testing.expect_value(t, len(w.pkts), size + 1 <= eos.P2P_MAX_PACKET ? 1 : 2)
+		testing.expect_value(t, len(w.pkts), size + 1 <= eos.P2P_MAX_PACKET ? 1 : (size + eos.PART_MAX - 1) / eos.PART_MAX)
 		got := -1
 		for p, i in w.pkts {
 			n, ok := eos.frame_join(&r, p, out[:])
@@ -119,8 +122,8 @@ framing_round_trips_every_size :: proc(t: ^testing.T) {
 @(test)
 framing_survives_reorder_and_loss :: proc(t: ^testing.T) {
 	id: u16
-	src: [netcode.MAX_DATAGRAM]u8
-	out: [netcode.MAX_DATAGRAM]u8
+	src: [2000]u8
+	out: [BIG]u8
 	r: eos.Reasm
 	w := Wire {
 		pkts = make([dynamic][]u8, context.temp_allocator),
@@ -139,7 +142,7 @@ framing_survives_reorder_and_loss :: proc(t: ^testing.T) {
 	for i in order {
 		n, ok := eos.frame_join(&r, w.pkts[i], out[:])
 		if ok {
-			testing.expect_value(t, n, netcode.MAX_DATAGRAM)
+			testing.expect_value(t, n, len(src))
 			k := int(out[0])
 			testing.expect(t, k != 3)
 			for b in out[:n] {
