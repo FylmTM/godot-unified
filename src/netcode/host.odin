@@ -9,7 +9,8 @@ Host_Config :: struct {
 	seed:    u64,
 	ticks:   u32, // 0: endless
 	compat:  u64,
-	name:    string,
+	name:    string, // for log lines
+	player:  string, // the host player's display name
 	poll_us: i64,
 	quiet:   bool,
 }
@@ -41,6 +42,7 @@ host_create :: proc(game: ^sim.Game($S, $I, $W, $P), cfg: Host_Config, hooks: Ho
 		slot    = 0,
 		compat  = cfg.compat,
 		name    = cfg.name,
+		player  = cfg.player,
 		poll_us = cfg.poll_us,
 		quiet   = cfg.quiet,
 	}

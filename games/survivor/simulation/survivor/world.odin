@@ -59,7 +59,8 @@ GAME := Game {
 	event_names = EVENT_NAMES,
 }
 
-PLAYER_START := [MAX_PLAYERS][3]f32{{4, 1, 4}, {-4, 1, 4}, {4, 1, -4}, {-4, 1, -4}}
+// Start spots, inside the start circle.
+PLAYER_START := [MAX_PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
 item_position :: proc(i: int) -> [3]f32 {
 	return {f32(i % 8) * 4 - 14, 1, f32(i / 8) * 4 - 8}
@@ -146,23 +147,39 @@ world_destroy :: proc(w: ^World) {
 	free(w)
 }
 
-// The tick-0 state: items with their bodies; players join when they are first present.
+// The tick-0 state: the lobby, items with their bodies; players join when they are first present.
 init :: proc(s: ^State, w: ^World, seed: u64) {
 	s.seed = u32(seed)
 	s.rng = sim.rng_seed(seed)
 	s.enemy_cap = MAX_ENEMIES
+	s.phase = .Lobby
+	s.circle_radius = START_RADIUS
 	for i in 0 ..< ITEM_COUNT {
-		it := &s.items[i]
-		it.kind = item_kind(i)
-		it.alive = true
-		it.hp = it.kind == .Barrel ? BARREL_HP : 0
-		it.body = create_item_body(w, i)
+		item_reset(s, w, i)
 	}
 	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		pl.fire_interval = 20
-		pl.speed = 6
-		pl.pos = PLAYER_START[p]
+		player_reset_stats(s, p)
+	}
+}
+
+item_reset :: proc(s: ^State, w: ^World, i: int) {
+	it := &s.items[i]
+	it.kind = item_kind(i)
+	it.alive = true
+	it.hp = it.kind == .Barrel ? BARREL_HP : 0
+	it.respawn_tick = 0
+	it.body = create_item_body(w, i)
+}
+
+// Fresh progress for slot p (no body, not alive; `active` is kept).
+player_reset_stats :: proc(s: ^State, p: int) {
+	pl := &s.players[p]
+	active := pl.active
+	pl^ = {
+		fire_interval = FIRE_INTERVAL_TICKS,
+		speed         = PLAYER_SPEED,
+		pos           = PLAYER_START[p],
+		active        = active,
 	}
 }
 
@@ -182,11 +199,7 @@ player_spawn :: proc(s: ^State, w: ^World, p: int) {
 
 // The player leaves: body gone, progress reset (a rejoin starts fresh).
 player_deactivate :: proc(s: ^State, w: ^World, p: int) {
-	pl := &s.players[p]
-	destroy_body(w, &pl.body)
-	pl^ = {
-		fire_interval = 20,
-		speed         = 6,
-		pos           = PLAYER_START[p],
-	}
+	destroy_body(w, &s.players[p].body)
+	s.players[p].active = false
+	player_reset_stats(s, p)
 }

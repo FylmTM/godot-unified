@@ -14,6 +14,7 @@ Client_Config :: struct {
 	slot:      int, // the slot to ask for; -1: any free slot
 	join_tick: u32, // the earliest tick to become present (0: as soon as possible)
 	compat:    u64, // build/game id the relay checks (0: none)
+	player:    string, // the player's display name (sent to the relay, shared with everyone)
 	name:      string, // for log lines
 	poll_us:   i64, // 0: DEFAULT_POLL_US
 	quiet:     bool,
@@ -121,6 +122,14 @@ Client :: struct($S, $I, $W: typeid, $P: int) {
 	stall_ticks:   int,
 	resim_ticks:   int,
 	delay_changes: int,
+	// roster from the relay
+	connected:     [P]bool,
+	names:         [P]Player_Name,
+}
+
+// The display name of the player in `slot` ("" if none or unknown).
+client_player_name :: proc(c: ^Client($S, $I, $W, $P), slot: int) -> string {
+	return name_string(&c.names[slot]) if slot >= 0 && slot < P else ""
 }
 
 // Creates a client talking to a relay over `link` (the client owns it). Nothing is sent until the
@@ -327,6 +336,17 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 		}
 		if c.snap_total > 0 && len(c.snap_buf) == c.snap_total && c.sim == nil {
 			load_snapshot(c)
+		}
+	case .Roster:
+		if int(wire.r_u8(&rd)) == P {
+			for p in 0 ..< P {
+				conn := wire.r_u8(&rd) != 0
+				name := r_name(&rd)
+				if rd.ok {
+					c.connected[p] = conn
+					c.names[p] = name
+				}
+			}
 		}
 	case .End:
 		if c.end_us == 0 {
@@ -629,6 +649,8 @@ client_step :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (wake_us: i64) {
 		wire.w_u8(w, c.cfg.slot < 0 ? ANY_SLOT : u8(c.cfg.slot))
 		wire.w_u32(w, c.cfg.join_tick)
 		wire.w_u64(w, c.cfg.compat)
+		name := name_of(c.cfg.player)
+		w_name(w, &name)
 		csend(c, w, .Reliable, now)
 		c.hello_sent = true
 		set_status(c, .Connecting, "")

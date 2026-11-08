@@ -1,13 +1,13 @@
 {
-  "generated": "2026-11-08T22:04:50Z",
+  "generated": "2026-11-08T22:49:17Z",
   "platform": "macos-arm64",
   "build_mode": "release",
-  "git_commit": "5f71f4d1101e03fccb9b1273ea6e4717be3d14be",
+  "git_commit": "e7a40d2a31f910c1cb04bc56af34ad4c0ea96485",
   "seed": 7,
   "players": 4,
   "ticks": 3600,
   "snapshot_tick": 1800,
-  "final_checksum": "772050f8b4d0f7b5",
+  "final_checksum": "40097e511381ee39",
   "commands": [
     "survivor sim --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log",
     "survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap"
