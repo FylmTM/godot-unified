@@ -15,6 +15,7 @@ import "../eos"
 import "../netcode"
 import "../sim"
 
+// Lobbies only match within a bucket; --bucket survivor/1 meets the game's own builds.
 EOS_BUCKET :: "unified-headless/1"
 
 @(private)
@@ -54,8 +55,11 @@ eos_wait_ready :: proc(timeout_s: f64) -> (st: eos.Status, ok: bool) {
 }
 
 mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "ticks", "relays", "code-file", "log", "players")
+	check_known(a, "ticks", "relays", "code-file", "log", "players", "wait-s", "bucket")
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
+	// --wait-s N: keep the lobby open up to N s until a remote player connects, then start the clock
+	// (a joiner far away, e.g. a CI runner that still has to build, plays the whole session).
+	wait_s := opt_int(a, "wait-s", 0, lo = 0, hi = 3600)
 	want := opt_int(a, "players", 2, lo = 1, hi = P) // the session counts as played once this many joined
 	if !eos_start(a, "unified-headless") {
 		return false
@@ -63,7 +67,7 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	defer eos.shutdown()
 	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
 	t0 := time.tick_now()
-	link, lok := eos.open_host(EOS_BUCKET)
+	link, lok := eos.open_host(opt_str(a, "bucket", EOS_BUCKET))
 	if !lok {
 		fmt.eprintfln("eos-host: %s", eos.status().detail)
 		return false
@@ -77,6 +81,18 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	fmt.eprintfln("eos-host: game code %s (as %s, lobby ready in %.0f ms)", st.code, st.local, ready_ms)
 	if path := opt_str(a, "code-file"); path != "" {
 		_ = os.write_entire_file(path, st.code)
+	}
+	if wait_s > 0 {
+		sw := time.tick_now()
+		for eos.status().peers == 0 {
+			if time.duration_seconds(time.tick_since(sw)) > f64(wait_s) {
+				fmt.eprintfln("eos-host: nobody joined in %d s", wait_s)
+				return false
+			}
+			eos.poll()
+			time.sleep(5 * time.Millisecond)
+		}
+		fmt.eprintfln("eos-host: a player connected after %.1f s, starting", time.duration_seconds(time.tick_since(sw)))
 	}
 	user := Script_User(S, I, W, P){h, 1}
 	host := netcode.host_create(
@@ -108,20 +124,21 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		ok &&= sim.log_write(path, &r.log)
 	}
 	fmt.printfln(
-		`{{"mode":"eos-host","code":"%s","lobby_ready_ms":%.0f,"players":%d,"desyncs":%d,"finalized":%d,"net":%s,"ok":%v}}`,
+		`{{"mode":"eos-host","code":"%s","lobby_ready_ms":%.0f,"players":%d,"desyncs":%d,"finalized":%d,"net":%s,"client":%s,"ok":%v}}`,
 		st.code,
 		ready_ms,
 		joined,
 		r.desyncs,
 		r.finalized,
 		netcode.channel_stats_json(r.ch),
+		netcode.client_json(host.client),
 		ok,
 	)
 	return ok && r.desyncs == 0
 }
 
 mode_eos_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "code", "ticks", "relays")
+	check_known(a, "code", "ticks", "relays", "bucket")
 	code := opt_str(a, "code", required = true)
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
 	if !eos_start(a, "unified-headless") {
@@ -130,7 +147,7 @@ mode_eos_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	defer eos.shutdown()
 	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
 	t0 := time.tick_now()
-	link, lok := eos.open_join(EOS_BUCKET, code)
+	link, lok := eos.open_join(opt_str(a, "bucket", EOS_BUCKET), code)
 	if !lok {
 		fmt.eprintfln("eos-client: %s", eos.status().detail)
 		return false
