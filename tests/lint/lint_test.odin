@@ -59,6 +59,9 @@ RULES := []Rule {
 	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// Netcode feeds inputs into the sim and owns real-time clocks (fine), but stays off core:math.
 	{pkg = "netcode", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	// Host side (Godot bindings, view, dev UI): never feeds back into the sim; no bans beyond `matrix`, so a
+	// stray Godot-side construct can't creep into a shared helper unnoticed.
+	{pkg = "gdext"},
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.

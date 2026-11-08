@@ -1,0 +1,13 @@
+; The binding test extension (tests/godot/ext), built by `python tools/dev.py godot-test`.
+[configuration]
+
+entry_symbol = "gdext_test_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+macos.debug = "res://.uni/bin/libgdext_test.dylib"
+macos.release = "res://.uni/bin/libgdext_test.dylib"
+linux.x86_64 = "res://.uni/bin/libgdext_test.so"
+windows.x86_64 = "res://.uni/bin/gdext_test.dll"

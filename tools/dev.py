@@ -7,6 +7,8 @@
     python tools/dev.py fmt [--check]           # odinfmt over src/ and tests/
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py all                     # fmt --check, vet, test, check (what CI runs)
+    python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
+    python tools/dev.py godot-test              # binding tests: tests/godot under headless Godot
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -44,6 +46,8 @@ MODES = {
 # Tests build like dev: optimized enough that the sim tests take milliseconds, fast to compile.
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
 VET_TARGETS = ["darwin_arm64", "darwin_amd64", "linux_amd64", "windows_amd64"]
+# Packages vet type-checks (with everything they import); libraries no test imports go here too.
+VET_PACKAGES = ["src/cli", "tests", "tests/godot/ext"]
 FMT_DIRS = ["src", "tests"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
@@ -87,8 +91,92 @@ def cmd_build(mode="dev", arch=None):
     return exe
 
 
+GDEXT = REPO / "src" / "gdext"
+GEN_OUTPUTS = [GDEXT / "api.gen.odin", GDEXT / "gdi" / "gdi.gen.odin"]
+
+
+def cmd_gen(force=False):
+    """Generates the Godot bindings from the committed API dump (no Godot needed). Skipped when the inputs
+    (api/*.json, bindings.txt, the generator's source) hash the same as last time and the outputs exist."""
+    import hashlib
+    inputs = sorted((GDEXT / "api").glob("*.json")) + [GDEXT / "bindings.txt"] + sorted((GDEXT / "gen").glob("*.odin"))
+    h = hashlib.sha1()
+    for p in inputs:
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    key = h.hexdigest()
+    out = REPO / "out" / "gen"
+    stamp = out / "gdext.stamp"
+    if not force and stamp.exists() and stamp.read_text() == key and all(p.exists() for p in GEN_OUTPUTS):
+        return 0.0
+    t0 = time.time()
+    out.mkdir(parents=True, exist_ok=True)
+    (GDEXT / "gdi").mkdir(exist_ok=True)
+    gen = out / ("gdext_gen" + EXE)
+    run_odin(["build", "src/gdext/gen", "-out:" + gen.as_posix(), "-o:minimal"] + VET, "build the binding generator")
+    r = subprocess.run([str(gen), str(GDEXT / "api"), str(GDEXT / "bindings.txt"), str(GDEXT)], cwd=str(REPO))
+    if r.returncode != 0:
+        raise SystemExit("dev: binding generator failed (exit %d)" % r.returncode)
+    stamp.write_text(key)
+    secs = time.time() - t0
+    log("dev: gen -> src/gdext/*.gen.odin in %.2fs" % secs)
+    return secs
+
+
+def build_extension(pkg, out, mode="dev", extra=()):
+    """Builds an Odin package as a shared library (a GDExtension)."""
+    cmd_gen()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return run_odin(["build", pkg, "-build-mode:dll", "-out:" + out.as_posix(), COLLECTION] + MODES[mode] + VET
+                    + list(extra), "build " + pkg)
+
+
+def ensure_extension_list(project, gdextension):
+    """Godot loads the extensions listed in .godot/extension_list.cfg, which the editor writes on its first scan.
+    Writing it here lets a fresh checkout run (and run headless) without opening the editor once."""
+    p = project / ".godot" / "extension_list.cfg"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    want = gdextension + "\n"
+    if not p.exists() or p.read_text() != want:
+        p.write_text(want)
+
+
+def run_godot(args, timeout, cwd=None):
+    """Runs Godot with a timeout (a headless Godot whose extension fails to load never exits)."""
+    cmd = [common.find_godot()] + [str(a) for a in args]
+    log("+ " + " ".join(cmd))
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        sys.stdout.write(out)
+        raise SystemExit("dev: Godot timed out after %ds (did the extension load?)" % timeout)
+    return r
+
+
+def godot_errors(text):
+    return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
+
+
+def cmd_godot_test():
+    t0 = time.time()
+    proj = REPO / "tests" / "godot"
+    build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
+    ensure_extension_list(proj, "res://gdext_test.gdextension")
+    r = run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)
+    out = r.stdout + r.stderr
+    sys.stdout.write(r.stdout)
+    errs = godot_errors(out)
+    for e in errs:
+        log("godot: " + e)
+    if r.returncode != 0 or errs or "GDEXT TESTS: 0 failed" not in out:
+        raise SystemExit("dev: godot-test failed (exit %d, %d error line(s))" % (r.returncode, len(errs)))
+    log("dev: godot-test passed in %.2fs" % (time.time() - t0))
+
+
 def cmd_test():
     box3d.ensure()
+    cmd_gen()
     out = REPO / "out" / "test"
     out.mkdir(parents=True, exist_ok=True)
     exe = out / ("unified_tests" + EXE)
@@ -99,12 +187,13 @@ def cmd_test():
 
 def cmd_vet():
     """odin check of the CLI and the tests for every supported target, in parallel."""
-    jobs = [(pkg, t) for t in VET_TARGETS for pkg in ("src/cli", "tests")]
+    cmd_gen()
+    jobs = [(pkg, t) for t in VET_TARGETS for pkg in VET_PACKAGES]
     t0 = time.time()
 
     def one(job):
         pkg, target = job
-        extra = ["-no-entry-point"] if pkg == "tests" else []
+        extra = [] if pkg == "src/cli" else ["-no-entry-point"]
         r = subprocess.run([odin(), "check", pkg, "-target:" + target, COLLECTION] + extra + VET,
                            cwd=str(REPO), capture_output=True, text=True)
         return job, r.returncode, (r.stdout + r.stderr).strip()
@@ -117,7 +206,7 @@ def cmd_vet():
                 log("vet: %s -target:%s FAILED\n%s" % (pkg, target, text))
     if failed:
         raise SystemExit("dev: vet failed: " + ", ".join(failed))
-    log("dev: vet ok (%s x %s) in %.2fs" % ("src/cli, tests", ", ".join(VET_TARGETS), time.time() - t0))
+    log("dev: vet ok (%s x %s) in %.2fs" % (", ".join(VET_PACKAGES), ", ".join(VET_TARGETS), time.time() - t0))
 
 
 def find_odinfmt():
@@ -134,7 +223,7 @@ def cmd_fmt(check=False):
     t0 = time.time()
     with tempfile.TemporaryDirectory(prefix="unified-fmt-") as tmp:
         for d in FMT_DIRS:
-            shutil.copytree(str(REPO / d), str(Path(tmp) / d))
+            shutil.copytree(str(REPO / d), str(Path(tmp) / d), ignore=shutil.ignore_patterns("*.gen.odin"))
         r = subprocess.run([exe, "-config:" + str(REPO / "odinfmt.json"), "-w", tmp],
                            capture_output=True, text=True)
         if r.returncode != 0:
@@ -142,6 +231,8 @@ def cmd_fmt(check=False):
         changed = []
         for d in FMT_DIRS:
             for src in sorted((REPO / d).rglob("*.odin")):
+                if src.name.endswith(".gen.odin"):
+                    continue  # generated (python tools/dev.py gen)
                 rel = src.relative_to(REPO)
                 fmt = Path(tmp) / rel
                 if not filecmp.cmp(str(src), str(fmt), shallow=False):
@@ -181,6 +272,10 @@ def main():
         cmd_build(mode, arch)
     elif cmd == "test":
         cmd_test()
+    elif cmd == "gen":
+        cmd_gen(force="--force" in rest)
+    elif cmd == "godot-test":
+        cmd_godot_test()
     elif cmd == "check":
         cmd_check(rest)
     elif cmd == "fmt":

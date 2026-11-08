@@ -18,3 +18,9 @@ zig-out/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)
 !/testdata/**/ref.log
+
+# Generated Godot bindings (python tools/dev.py gen)
+*.gen.odin
+
+# Godot build outputs (game libraries, exports) and import caches
+.uni/
