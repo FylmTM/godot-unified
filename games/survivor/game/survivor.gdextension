@@ -13,8 +13,9 @@ macos.release = "res://.uni/bin/libsurvivor.dylib"
 windows.x86_64 = "res://.uni/bin/survivor.dll"
 linux.x86_64 = "res://.uni/bin/libsurvivor.so"
 
-; The EOS SDK runtime library, copied into .uni/bin by `dev.py game build`, shipped with exports.
+; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .uni/bin).
 [dependencies]
 
-macos = {"res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks"}
-windows.x86_64 = {"res://.uni/bin/EOSSDK-Win64-Shipping.dll": ""}
+macos.debug = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+macos.release = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "res://.uni/bin/EOSSDK-Win64-Shipping.dll": "" }
