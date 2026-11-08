@@ -25,6 +25,7 @@
 
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -293,6 +294,29 @@ def release_libraries(game, h):
     return libs
 
 
+def release_dependencies(game, h):
+    """Files the .gdextension [dependencies] sections ship with this host's export (e.g. the EOS SDK)."""
+    deps = []
+    for ext in gdextensions(game):
+        entries = read_cfg_section(ext, "dependencies")
+        key = next((k for k in h["lib_keys"] if k in entries), None)
+        if key is not None:
+            deps += [res_path(game, r) for r in re.findall(r'"(res://[^"]+)"', entries[key])]
+    return deps
+
+
+def eos_runtime_library():
+    """The EOS SDK runtime library for this host, from tools/eos.py (None when the repo has no EOS)."""
+    if not (REPO / "tools" / "eos.py").is_file():
+        return None
+    out = subprocess.run([sys.executable, str(REPO / "tools" / "eos.py"), "--json"], capture_output=True, text=True,
+                         cwd=str(REPO))
+    try:
+        return Path(json.loads(out.stdout.strip().splitlines()[-1])["lib"])
+    except (ValueError, KeyError, IndexError):
+        raise SystemExit("release: `tools/eos.py --json` failed:\n" + out.stdout + out.stderr)
+
+
 def dev_doc():
     sys.path.insert(0, str(REPO / "tools"))
     import dev
@@ -395,15 +419,15 @@ def export(godot, game, h, name):
     return target
 
 
-def check_payload(target, libs):
-    """Every release library made it into the export, as a real file (not a link into .uni/)."""
-    for _, lib in libs:
+def check_payload(target, files):
+    """Every library the game needs made it into the export, as a real file (not a link into .uni/)."""
+    for lib in files:
         found = list(target.rglob(lib.name) if target.is_dir() else target.parent.rglob(lib.name))
         if not found:
             raise SystemExit("release: %s is missing from the export" % lib.name)
         if any(p.is_symlink() for p in found):
             raise SystemExit("release: %s is a symlink in the export" % lib.name)
-        if IS_MACOS and "arm64" not in lipo_archs(found[0]):
+        if IS_MACOS and lib.suffix == ".dylib" and "arm64" not in lipo_archs(found[0]):
             raise SystemExit("release: %s has architectures %s, want arm64" % (lib.name, lipo_archs(found[0])))
 
 
@@ -519,7 +543,12 @@ def cmd_build(game, version, embed_env, smoke_test):
     write_extension_list(game)
     godot_step(godot, game, ["--import"], "import", IMPORT_TIMEOUT)
     target = export(godot, game, h, name)
-    check_payload(target, libs)
+    files = [lib for _, lib in libs] + release_dependencies(game, h)
+    if any(k.startswith("EOS_") for k in embed_env):
+        eos_lib = eos_runtime_library()
+        if eos_lib is not None and eos_lib.name not in {f.name for f in files}:
+            files.append(eos_lib)
+    check_payload(target, files)
     zip_path = game / ".uni" / "release" / ("%s-%s-%s.zip" % (name, version, h["platform"]))
     sign_and_zip(target, zip_path)
     if smoke_test:
