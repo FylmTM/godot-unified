@@ -36,6 +36,7 @@ Args :: struct {
 	seed:      i64,
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
+	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
 }
 
 @(private)
@@ -65,6 +66,14 @@ register_session_class :: proc() {
 		},
 		ready = proc(i: rawptr) {session_ready((^Session_Node)(i))},
 		process = proc(i: rawptr, dt: f64) {session_process((^Session_Node)(i), dt)},
+		// While the dev UI wants the mouse or keyboard, the game's GUI and _unhandled_input don't get them.
+		input = proc(i: rawptr, ev: gd.InputEvent) {
+			if !devui.wants_mouse() && !devui.wants_keyboard() do return
+			is_key := gd.object_cast(gd.InputEventKey, ev, "InputEventKey").ptr != nil
+			if (is_key && devui.wants_keyboard()) || (!is_key && devui.wants_mouse()) {
+				gd.Viewport_set_input_as_handled(gd.Node_get_viewport(node_of((^Session_Node)(i))))
+			}
+		},
 		notification = proc(i: rawptr, what: i32) {
 			s := (^Session_Node)(i)
 			switch what {
@@ -166,6 +175,11 @@ session_ready :: proc(s: ^Session_Node) {
 		if s.args.seed != 0 do s.seed = s.args.seed
 		if s.args.ticks != 0 do s.ticks = i64(s.args.ticks)
 		s.quit_at_end = s.args.quit
+		if s.args.lag_ms > 0 {
+			l := f32(s.args.lag_ms)
+			devui.netsim = {true, l, l / 4, 1}
+			set_netsim({true, l, l / 4, 1})
+		}
 	}
 	if !devui.is_ready() do devui.init({visible = s.args.devui})
 	switch {
@@ -342,6 +356,11 @@ dev_frame :: proc(s: ^Session_Node, dt: f64) {
 		devui.stat("session", "%s", STATUS_NAMES[s.status])
 	}
 	devui.frame(dt)
+	if devui.netsim_changed {
+		devui.netsim_changed = false
+		n := devui.netsim
+		set_netsim({n.enabled, n.latency_ms, n.jitter_ms, n.loss_pct})
+	}
 }
 
 // ---- command line (user args after `--`)
@@ -376,6 +395,8 @@ parse_args :: proc() -> (a: Args) {
 			a.seed = v
 		case "--join":
 			a.join = strings.clone(next(strs, &i))
+		case "--lag":
+			a.lag_ms, _ = strconv.parse_int(next(strs, &i))
 		case "--host-port":
 			a.host_port, _ = strconv.parse_int(next(strs, &i))
 		}

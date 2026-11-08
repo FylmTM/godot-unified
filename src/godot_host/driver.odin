@@ -42,6 +42,40 @@ set_transport :: proc(t: ^Transport) {
 	transport = t
 }
 
+// Network impairment for remote links (the dev UI's Netsim panel): the main thread publishes settings, the
+// session thread applies them to every wrapped link.
+Netsim_Settings :: struct {
+	enabled:    bool,
+	latency_ms: f32, // one way
+	jitter_ms:  f32,
+	loss_pct:   f32,
+}
+
+@(private)
+netsim_req: struct {
+	mu:  sync.Mutex,
+	gen: u32,
+	set: Netsim_Settings,
+}
+
+set_netsim :: proc(n: Netsim_Settings) {
+	sync.mutex_lock(&netsim_req.mu)
+	netsim_req.set = n
+	sync.atomic_add(&netsim_req.gen, 1)
+	sync.mutex_unlock(&netsim_req.mu)
+}
+
+@(private)
+netsim_profile :: proc(n: Netsim_Settings) -> netcode.Profile {
+	if !n.enabled do return {name = "devui"}
+	return {
+		name = "devui",
+		latency = i64(n.latency_ms * 1000),
+		jitter = i64(n.jitter_ms * 1000),
+		loss = u32(n.loss_pct * 10),
+	}
+}
+
 @(private)
 Tick_Event :: struct {
 	tick:  u32,
@@ -79,6 +113,21 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
+	nets:      [dynamic]^netcode.Net_Sim, // wrapped remote links (owned by the channel)
+	net_gen:   u32,
+}
+
+// Wraps a remote link in a netsim (always, so the dev UI can impair it live; with zero settings it only queues).
+@(private)
+wrap_link :: proc(d: ^Driver($S, $I, $W, $P), link: netcode.Link) -> netcode.Link {
+	w := netcode.netsim_wrap(link, {name = "devui", latency = 1}, u32(d.req.seed) | 1)
+	ns := (^netcode.Net_Sim)(w.data)
+	sync.mutex_lock(&netsim_req.mu)
+	ns.profile = netsim_profile(netsim_req.set)
+	d.net_gen = netsim_req.gen
+	sync.mutex_unlock(&netsim_req.mu)
+	append(&d.nets, ns)
+	return w
 }
 
 @(private)
@@ -150,6 +199,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		delete(d.req.name)
 		delete(d.req.profile)
 		delete(d.result)
+		delete(d.nets)
 		free(d)
 		g_driver = nil
 	}
@@ -291,6 +341,12 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 	for {
 		now := netcode.now_us()
 		if d.uses_tp && transport.pump != nil do transport.pump(transport.user, &d.tev)
+		if len(d.nets) > 0 && sync.atomic_load(&netsim_req.gen) != d.net_gen {
+			sync.mutex_lock(&netsim_req.mu)
+			for ns in d.nets do ns.profile = netsim_profile(netsim_req.set)
+			d.net_gen = netsim_req.gen
+			sync.mutex_unlock(&netsim_req.mu)
+		}
 		if sync.atomic_load(&d.stop_req) && !d.stopping {
 			d.stopping = true
 			d.stop_at = now
@@ -343,8 +399,8 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 			return false
 		}
 		d.host = netcode.host_create(g, host_cfg, hooks)
-		netcode.host_add_link(d.host, link)
 		post_text(d, .Lobby_Code, fmt.tprintf("%d", netcode.udp_bound_port(&link)))
+		netcode.host_add_link(d.host, wrap_link(d, link))
 	case .Host_Online:
 		d.uses_tp = true
 		link, ok := transport.open_host(transport.user, &d.tev)
@@ -353,7 +409,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 			return false
 		}
 		d.host = netcode.host_create(g, host_cfg, hooks)
-		netcode.host_add_link(d.host, link)
+		netcode.host_add_link(d.host, wrap_link(d, link))
 	case .Join_Direct:
 		ep, ok := cnet.parse_endpoint(r.arg)
 		if !ok {
@@ -372,7 +428,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 			post_status(d, .Failed, "cannot open a UDP socket")
 			return false
 		}
-		d.client = netcode.client_create(g, client_cfg, link, hooks)
+		d.client = netcode.client_create(g, client_cfg, wrap_link(d, link), hooks)
 	case .Join_Online:
 		d.uses_tp = true
 		link, ok := transport.open_join(transport.user, r.arg, &d.tev)
@@ -380,7 +436,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 			post_status(d, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, r.arg))
 			return false
 		}
-		d.client = netcode.client_create(g, client_cfg, link, hooks)
+		d.client = netcode.client_create(g, client_cfg, wrap_link(d, link), hooks)
 	}
 	if d.host != nil do d.client = d.host.client
 	return true
