@@ -79,3 +79,23 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
 - Next round, in parallel: release-ci runs the Windows dispatch + a local macOS release build; online-eos tests real
   macOS ↔ Windows play through EOS with a Windows CI runner as the remote player; godot-layer adapts `hud()`, names
   and bulk effects to M2 and does a windowed real-play check; game-client polishes the feel with the real extension.
+- 0e89bff **Merged release-ci fixes, godot-m2, game-feel, eos-crossplay:**
+  - Release builds pass on main for both platforms: Windows on CI (EOS IDs compiled in, EOS DLL shipped) and macOS
+    locally (38.5 MB zip after thinning the EOS dylib to arm64). Every CI build of an EOS game checks the IDs are
+    compiled in. Tester notes cover the keychain and firewall prompts.
+  - The extension uses M2: `hud()` from the sim, roster names, hit-flash/age effects. `dev.py game play`: a bot
+    plays single player in a window (also `--bench N`, `--coop`); the dev UI works in release builds.
+  - Game feel: steeper leading camera, a start ring that warns as you near its edge and bursts at match start, hit
+    and low-HP feedback, gamepad rumble and menu navigation, a match-over summary with best time, lobby code
+    auto-copied for the host and auto-pasted for the joiner. `dev.py game tour` (real session, headless) and
+    `game coop` (two processes through EOS via the menus) added.
+  - **macOS ↔ Windows over the internet through EOS: 3 of 3 runs, 0 checksum mismatches** (a Mac host and a Windows
+    CI runner as the remote player; `crossplay` workflow, dispatch only, Windows runner).
+  - Verified on main: fmt, vet, test, check T1–T9, release build, headless hash = offline, validate (0.5 s), walk
+    (15 steps, 3.2 s), tour (2.6 s), godot-test, editor-check.
+- **Found:** the game was unbalanced (a solo bot died at 0:17 before any level-up), two crates sat inside the start
+  circle, and levels started at 0. Decided: keep the stress spawner for tests/bench as `stress`, add a default
+  `play` tuning (first level-up ~20–30 s, solo survival ~3–5 min, ramp by wave, scaled by player count), measured
+  with a headless bot; move the crates out; levels start at 1. core-lib is on it.
+- **Needs your attention:** a macOS keychain (SecurityAgent) dialog appeared around 02:10, most likely from an EOS
+  test binary. Agents won't type a password into it; online-eos is checking whether it can be withdrawn safely.
