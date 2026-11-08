@@ -49,6 +49,10 @@ jobs:
     name: test / ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # Read access to the EOS SDK's draft release (tools/eos.py): drafts are listed only to tokens that
+    # can write to the repo. The job writes nothing.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
