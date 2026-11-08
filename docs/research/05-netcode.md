@@ -1,7 +1,7 @@
 # 05: Netcode architecture and transports
 
 Research date: 2026-11-07. Claims marked **[unverified]** come from memory or one secondary source. **[estimate]**
-means my own arithmetic. The phase 2 core (`../PHASE2.md`) implemented and validated the relay, prediction, rollback, adaptive delay, time sync and late join; where it disagrees with this doc, the code and `spec/CORE.md` win. Quantum facts come from the SDK in OctoEscape
+means my own arithmetic. The phase 2 core (`../archive/PHASE2.md`) implemented and validated the relay, prediction, rollback, adaptive delay, time sync and late join; where it disagrees with this doc, the code and `spec/CORE.md` win. Quantum facts come from the SDK in OctoEscape
 (Quantum 3.1.0 Preview, build 2249): its offline doc mirror (`Assets/Photon/Quantum/Documentation~`, snapshot of
 doc.photonengine.com from 2026-10-09), `Quantum.Engine.xml`, and **defaults read by instantiating
 `DeterministicSessionConfig` from `Quantum.Engine.dll` via reflection**. Those are the real defaults, not the values
@@ -294,7 +294,7 @@ decorator wraps any of them with a profile, seed and clock.
 
 ## 6. Validation
 
-Phase 2 covered consistency, no-stall, time sync, late join, UDP and cross-platform snapshots (`../PHASE2.md`). Still open:
+Phase 2 covered consistency, no-stall, time sync, late join, UDP and cross-platform snapshots (`../archive/PHASE2.md`). Still open:
 Steam transport on a real link, bandwidth and desync-report checks. Network profiles used:
 
 *good* is 30 ± 5 ms with 0 % loss. *Typical* is 80 ± 15 ms with 1 % loss. *Bad* is 150 ± 40 ms with

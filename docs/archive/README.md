@@ -1,12 +1,13 @@
 # Archive
 
 Research, benchmarks and investigations for the stacks and options we **didn't choose** (the project is Odin + Godot +
-Box3D). Kept for reference; nothing here is maintained, and code paths it mentions (`bench/`, `impl/cpp`,
+Box3D), plus the results of finished phases. Kept for reference; nothing here is maintained, and code paths it mentions (`bench/`, `impl/cpp`,
 `impl/rust`, `scripts/`, `deps/`) no longer exist (see git history, e.g. the commit before the archive move).
 All dates are 2026-11-07/08 and all measurements are on an Apple M4 Pro.
 
 | File | What it is · key conclusion |
 |---|---|
+| `PHASE2.md` | Phase 2 results for the chosen stack: verdict, numbers, problems found (Box3D fork gaps, Odin's XXH3 bug). The baseline for the core's benchmarks. |
 | `PHASE2-comparison.md` | Phase 2: the same deterministic core + rollback netcode in C++, Odin, Rust. All pass T1–T9 on macOS, Linux x64, Windows x64. Odin fastest (0.62 ms rollback at 1000 enemies) and smallest (3.9k lines); builds 0.4 s. |
 | `stacks/COMPARISON.md` | Even rubric comparison of Rust, Odin, Zig, C++, C#. Language-neutral; led to the benchmarks below. |
 | `stacks/{cpp,csharp,rust,zig,odin}.md`, `TEMPLATE.md` | One research doc per language on the same rubric (ecosystem, determinism, bindings, tooling, agent fit); `TEMPLATE.md` is the rubric. |

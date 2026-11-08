@@ -1,8 +1,8 @@
 # Phase 2 results: the core (sim + rollback netcode)
 
 2026-11-08. Spec: `spec/CORE.md`, `spec/GAME.md`. Built in C++, Odin and Rust; the cross-language comparison (numbers,
-lines, build times, agent cost, per-language problems) is in `archive/PHASE2-comparison.md`. Odin was chosen. This
-page keeps what still applies.
+lines, build times, agent cost, per-language problems) is in `PHASE2-comparison.md`. Odin was chosen. This
+page keeps the Odin-relevant results; its open items moved to `docs/WORK.md`.
 
 ## Verdict
 

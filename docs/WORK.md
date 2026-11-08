@@ -2,6 +2,14 @@
 
 Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 
+## Phases
+
+1. **Physics rollback spike:** done. The Box3D fork is bit-exact under rollback and across ARM64/x64.
+2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen (final sign-off pending).
+3. **Architecture and Godot integration:** now. Design decisions below, spikes in progress, then module specs.
+4. **The library for real:** built from the signed-off specs, with a demo game in this repo.
+5. **The OctoEscape slice.**
+
 ## Decided
 
 - **Generics:** libraries are generic over each game's types with compile-time parametric polymorphism
@@ -102,6 +110,8 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 
 ## Next (after sign-offs)
 
+- After the spikes: move the local, untracked `bench/` (12 GB of old benchmark sources) to
+  `~/work/personal/unified-bench` and drop its `.gitignore` line.
 - Module specs for the agreed architecture, each signed off before building.
 - The `unified` CLI (replaces `tools/*.py`).
 - Box3D fork: public load-from-bytes API, clearing stale bytes, and a full test suite for our use of Box3D.

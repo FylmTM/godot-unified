@@ -6,7 +6,7 @@ audio, UI), and how entity templates and levels are authored. Sources: the Quant
 OctoEscape's own docs and view scripts, `bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end.
 Claims I couldn't check against a primary source are marked *(unverified)*.
 
-`docs/PLAN.md` already decided the direction: "`.tscn` scenes per entity kind… GDScript allowed in the view layer…
+The plan already decided the direction: "`.tscn` scenes per entity kind… GDScript allowed in the view layer…
 the extension runs the sim and maps sim entities to scenes". This doc works out how, and what Quantum teaches.
 
 ## TL;DR

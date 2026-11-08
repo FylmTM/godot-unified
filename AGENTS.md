@@ -67,8 +67,8 @@ package in `src/` needs a rule in `tests/lint/lint_test.odin` (the lint test fai
 
 ## Where things are
 
-- `docs/WORK.md`: current and upcoming work.
-- `docs/PLAN.md`: phases and decisions so far.
+- `docs/WORK.md`: phases, decisions, current and upcoming work.
+- `docs/CONTEXT.md`: why `unified` exists and the developer's requirements.
 - `spec/`: specs (core and test game today; module specs to come).
 - `docs/archive/`: research and benchmarks for the stacks we didn't choose (C++, Rust, C#, Zig, Bevy...), kept for
   reference.

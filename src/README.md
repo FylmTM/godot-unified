@@ -2,7 +2,7 @@
 
 The `unified` collection: the phase-2 core of `spec/CORE.md` (deterministic sim, snapshot ring, checksums,
 sync-test, replay, Quantum-style relay netcode) with the survivor-lite test game of `spec/GAME.md`. Commands and
-toolchain: [`../README.md`](../README.md). Phase-2 measurements (build times, T9, lines of code): `docs/PHASE2.md`.
+toolchain: [`../README.md`](../README.md). Phase-2 measurements (build times, T9, lines of code): `docs/archive/PHASE2.md`.
 
 ## Packages
 
@@ -46,7 +46,7 @@ is literal, per GAME.md. `tests/lint` enforces the import and type bans per pack
 ## Box3D binding
 
 Hand-written, ~300 code lines, 38 layout `#assert`s (sizes/offsets from a C probe against the pinned headers; the
-layouts are the same on x64 Linux/Windows). Based on bench/a's bindings for the same commit, plus `DestroyBody`,
+layouts are the same on x64 Linux/Windows). Based on benchmark A's bindings (archived) for the same commit, plus `DestroyBody`,
 `ApplyLinearImpulseToCenter` and the fork API. `vendor:box3d` targets an older commit with a different ABI.
 
 The static library is imported by a relative path per target
@@ -79,7 +79,7 @@ XXH3-64 (seed 0) over the block bytes followed by every alive body in entity ord
 position, rotation, linear and angular velocity, −0.0 → +0.0. The bytes are copied into one buffer and hashed
 one-shot. **Odin bug found:** `core:hash/xxhash`'s *streaming* XXH3 (`XXH3_64_update/digest`) returns wrong digests
 for some input lengths (e.g. 100,097 bytes; ~25% of lengths between 100k and 300k), while `XXH3_64_default` matches
-the C reference (`xxhash.h`). Checked with a small program against bench/a's `xxhash.h`.
+the C reference (`xxhash.h`). Checked with a small program against the C reference `xxhash.h`.
 
 ## Netcode, threads, sockets, timing
 

@@ -28,7 +28,7 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
 - **Numbers:** f32 with deterministic discipline (decided; fixed point rejected).
 - **Netcode:** Quantum-style host relay (decided; GGPO-style mesh rejected).
 
-## Answers so far (2026-11-07)
+## Requirements (the developer's answers, 2026-11-07)
 
 - **Scope**: hobby time, but ambitious, because AI agents do most of the work. Build features when they're needed;
   design the core architecture carefully up front. For now the engine is for the developer; it may be open-sourced
@@ -40,8 +40,8 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
   physics is wanted (physics-sandbox games), inside rollback.
 - **Simulation threading**: single-threaded and deterministic first; parallel only where measurements demand it.
 - **Netcode**: Quantum-style. The host runs an input relay that stamps the official inputs for each tick, so a laggy
-  player never stalls the others. Input delay and rollback window to be learned (study Quantum's defaults). Late
-  join and reconnect come later. No backend.
+  player never stalls the others. Late join is built (phase 2); reconnect comes later. No
+  backend.
 - **Transports** (pluggable): in-process loopback, direct UDP / LAN, a self-hosted relay, Steam (Datagram Relay), later
   maybe Epic Online Services.
 - **Co-op testing**: N clients per process × a transport, with views on or off (headless). Headless loopback with a
@@ -75,5 +75,6 @@ checksums. That mode is what makes "works in single player ⇒ works online" a p
 simulation state (predicted frames for motion, verified frames for scores, events for effects) and never writes it;
 player input is the only way in.
 
-Current research is in `docs/research/` (physics, simulation structure, netcode, agent tooling, prior art). Research
+Current research is in `docs/research/` (physics, simulation structure, netcode, agent tooling, prior art, Godot
+integration, view binding, AI tooling). Research
 on the stacks and hosts we didn't choose is in `docs/archive/`.

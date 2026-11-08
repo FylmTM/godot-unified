@@ -1,25 +1,13 @@
 # unified core: spec (phase 2)
 
 Goal: prove we can build the `unified` core, a deterministic simulation plus Quantum-style rollback netcode, that is
-bit-identical across platforms. It was first built in C++, Odin and Rust (comparison: `docs/archive/`; Odin was chosen), headless, with no Godot.
+bit-identical across platforms. It was built headless (no Godot) in C++, Odin and Rust; Odin was chosen (comparison:
+`docs/archive/`). The code is `src/` and the harness `tools/check.py`. This spec stays the contract for that code and
+for T1–T9 until the module specs replace it.
 
-Hashes were per language and need not match across languages. The implementation must be deterministic across *platforms* (macOS ARM64 locally, Linux x64 and
-Windows x64 in CI) and across runs, rollbacks, processes and network conditions. The test game is in `spec/GAME.md`.
-
-Repository layout:
-
-```
-spec/CORE.md, spec/GAME.md     these specs
-third_party/box3d.patch        Box3D save/restore fork (applied to the pinned commit by tools/box3d.py)
-tools/box3d.py                 fetch + patch + build Box3D (static lib) for the host platform, used by all languages
-tools/check.py                 the language-neutral test harness (drives the binaries through the CLI below)
-impl/cpp, impl/odin, impl/rust implementations; each has build.py (dev|release) → out/<mode>/unified[.exe]
-testdata/                      committed reference input logs, traces and snapshots (macOS-generated, compared in CI)
-.github/workflows/ci.yml       Linux x64 + Windows x64
-```
-
-Build scripts are Python 3 (stdlib only), so the same commands work on macOS, Linux and Windows. There is no bash on
-the Windows path.
+The implementation must be deterministic across *platforms* (macOS ARM64 locally, Linux x64 and Windows x64 in CI)
+and across runs, rollbacks, processes and network conditions. The test game is in `spec/GAME.md`. Layout and
+commands: `README.md`.
 
 ## 1. Simulation harness
 
@@ -86,7 +74,7 @@ the Windows path.
 - **Wire format:** our own; cross-language interop isn't required. It's little-endian with explicit sizes,
   and inputs are bit-packed (2 × i8 + u8 + u8 per tick).
 
-## 3. CLI (identical in all languages; `tools/check.py` relies on it)
+## 3. CLI (`tools/check.py` relies on it)
 
 All modes print a final JSON line on stdout. Non-zero exit = failure.
 
@@ -124,7 +112,7 @@ Conventions `tools/check.py` relies on:
 Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% duplicates, 1% reordering); `bad`
 (120 ms ± 40 ms, 8% loss, 3% duplicates, 5% reordering).
 
-## 4. Tests (`tools/check.py <lang>`; locally and in CI)
+## 4. Tests (`tools/check.py`; locally and in CI)
 
 | # | Test | Pass |
 |---|---|---|
@@ -134,24 +122,10 @@ Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% dup
 | T4 | `replay` of the T3 `bad` session's log | trace equals that session's verified checksums |
 | T5 | UDP: `relay` + 3 `client` processes (one with `--profile bad`), 1800 ticks | 0 desyncs |
 | T6 | `session --late-join 3@1200` (4th player joins at tick 1200) under `wan` | 0 desyncs after joining; the joiner's checksums match from its first verified tick |
-| T7 | **Cross-platform:** `replay` of `testdata/<lang>/ref.log` | trace equals `testdata/<lang>/ref.trace` (generated on macOS ARM64, committed) |
-| T8 | **Cross-platform snapshot:** `resume --in testdata/<lang>/ref-1800.snap --ticks 1800` | trace equals ticks 1801–3600 of `ref.trace` |
+| T7 | **Cross-platform:** `replay` of `testdata/ref.log` | trace equals `testdata/ref.trace` (generated on macOS ARM64, committed) |
+| T8 | **Cross-platform snapshot:** `resume --in testdata/ref-1800.snap --ticks 1800` | trace equals ticks 1801–3600 of `ref.trace` |
 | T9 | `bench --enemies 1000 --window 8` | reported (not gated). Target: forward step + 8-tick re-sim ≤ 6 ms. |
 
-The CI matrix is {Linux x64, Windows x64} × {cpp, odin, rust}. It runs T1–T9, uploads the traces and the bench JSON as
-artifacts, and a final job prints a comparison table. macOS is checked locally with the same `tools/check.py`. The
-`testdata/` references are regenerated only deliberately (`tools/check.py <lang> --regen`), which updates the
-committed files.
-
-## 5. What each implementation reports
-
-`impl/<lang>/README.md`:
-- toolchain versions
-- structure
-- how pointer-freedom is enforced
-- Box3D binding approach and size
-- how threads, sockets and timing are handled
-- lines of code (core / netcode / game / bindings)
-- build times (fresh, edit)
-- a T9 table
-- papercuts, especially platform-specific ones (Windows sockets, timers, path handling)
+CI runs T1–T9 on Linux x64 and Windows x64 and puts the T9 bench in the job summary. macOS is checked locally with
+the same `tools/check.py`. The `testdata/` references are regenerated only deliberately (`tools/dev.py check
+--regen`, see `testdata/README.md`), which updates the committed files.

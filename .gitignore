@@ -1,15 +1,5 @@
-# Benchmarks stay local (sources, generated projects, toolchain caches, build outputs, licensed SDK copies, game art).
-# Only their specs and write-ups are versioned, plus the Box3D fork patch, which the core build applies.
-/bench/**
-!/bench/**/
-!/bench/**/RESULTS.md
-!/bench/**/SPEC.md
-!/bench/NET10.md
-!/bench/s/PERF.md
-!/bench/s/gen/IR.md
-!/bench/c/C1-SPEC.md
-!/bench/c/C2-SPEC.md
-!/bench/p/box3d/fork.patch
+# Old benchmark sources, kept on disk until they move out of the repo (write-ups: docs/archive/bench/).
+/bench/
 
 # Build outputs and local scratch, anywhere
 .DS_Store
@@ -22,10 +12,6 @@ bin/
 .zig-cache/
 zig-out/
 .godot/
-
-# Agent run folders hold only links back to bench/a/SPEC.md
-/bench/c/runs/
-/bench/c/c2-base/
 
 # Box3D sources and builds are fetched by tools/box3d.py
 /third_party/box3d/
