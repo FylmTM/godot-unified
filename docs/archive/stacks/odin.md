@@ -13,7 +13,7 @@ APIs, because Odin has no 3D engine of its own and the project rule is that rend
 |---|---|---|
 | Language | Odin `dev-2026-11a` (3 Nov 2026), pinned per monthly release ([releases](https://github.com/odin-lang/Odin/releases)) | LLVM backend only. Pre-1.0 (§7). |
 | Sim state | Our own store: one block of fixed arrays, `#soa` tables, `distinct u32` generational handles, `[dynamic; N]T` inline lists, `bit_set` flags | All built-in language features (§4) |
-| Physics | **Box3D via `vendor:box3d`**, rebuilt from source with `-ffp-contract=off` (§4). Jolt via [joltc-odin](https://github.com/jrdurandt/joltc-odin) as the fallback | Box3D ships in Odin's official vendor collection ([newsletter, Aug 2026](https://odin-lang.org/news/newsletter-2026-spring-summer/)) |
+| Physics | **Box3D via `vendor:box3d`**, rebuilt from source with `-ffp-contract=off` (§4) | Box3D ships in Odin's official vendor collection ([newsletter, Aug 2026](https://odin-lang.org/news/newsletter-2026-spring-summer/)) |
 | Host / renderer | **Godot 4.7 as the view.** Variant A: Godot owns the process and loads our Odin DLL through GDExtension ([odin-godot](https://github.com/dresswithpockets/odin-godot)). Variant B: Odin owns `main` and embeds Godot through the LibGodot C API (Godot 4.6+), with hand-written bindings | No engine-grade renderer exists in Odin. SDL3 GPU, sokol, wgpu and raylib are all vendored, but they're APIs to *write* a renderer on |
 | Game UI | Godot `Control` nodes driven from Odin, or [Clay](https://github.com/nicbarker/clay) (official Odin bindings) laid out in Odin and drawn through Godot's `RenderingServer` canvas | |
 | Dev UI | Dear ImGui through [Capati/odin-imgui](https://github.com/Capati/odin-imgui) (1.92.9b docking, generated with dear_bindings, active Sep 2026), plus a small backend that hands ImGui draw lists to Godot's canvas | The backend is ours to write: ~300–500 lines **(estimate)** |
@@ -57,7 +57,7 @@ parallel. There is no incremental compilation and nothing to cache, so "clean" a
 prebuilts for some libraries (raylib on all platforms; Box3D for Windows, macOS and linux-amd64; SDL3 for Windows only,
 so macOS and Linux need it from brew, the distro or a source build). Other libraries ship `build.sh`/`build.bat`
 scripts that call the system `cc`/`cl`. **We'd own a deps script** that builds Box3D (C, ~30 files, seconds), cimgui
-(C++, ~10–20 s), Clay (one header) and, if needed, joltc + Jolt (C++/CMake, a minute or two) **(estimates)**, with
+(C++, ~10–20 s) and Clay (one header) **(estimates)**, with
 pinned flags, keyed by a content hash, into `~/.cache/unified/deps/<hash>/`. Every worktree links from there, so a new
 worktree builds no C. Unlike Zig or Rust's `cc` crate, the toolchain can't compile C itself, but that also means no
 C-build cache to warm per worktree.
@@ -79,8 +79,6 @@ libraries need a C wrapper.
 | Library | How from Odin | Maintenance | Effort |
 |---|---|---|---|
 | **Box3D** | `vendor:box3d`, official; last changes 28 Oct 2026 (source-read, GitHub API) | Core team | None (rebuild flags only, §4) |
-| **Jolt** (C++) | joltc → [joltc-odin](https://github.com/jrdurandt/joltc-odin) (17★, generated, Jul 2026) | One person, small | Build joltc yourself; regenerate on bumps; low–medium |
-| Rapier (Rust) | Its C bindings (see doc 01), then bindgen | Unverified quality | Medium; adds a Rust toolchain to the build |
 | **Godot** (C++) | GDExtension C interface: [odin-godot](https://github.com/dresswithpockets/odin-godot) (168★, pushed Sep 2026, "Work In Progress", targets 4.4 and generates class bindings from `extension_api.json`). LibGodot: no Odin binding found | WIP, one maintainer | **Medium–high**: we'd likely fork and maintain the generator for 4.7+ |
 | Bevy | Rust only | — | Not reachable |
 | sokol | [sokol-odin](https://github.com/floooh/sokol-odin), official from floooh (289★, pushed 6 Nov 2026), generated with sokol-shdc Odin output | Upstream author | None |
@@ -199,14 +197,14 @@ field by field), serialization, protocol schemas, and tuning write-back.
 
 ## 6. Ecosystem fit per subsystem
 
-- **Physics: good.** Box3D is first-class: officially vendored, plain C, the strongest cross-arch determinism CI
-  (doc 01). Its missing rollback API (needs a fork patch) is the same for every language. Jolt is reachable through
-  joltc. Nothing native to Odin.
+- **Physics: good.** Box3D is first-class: officially vendored, plain C, strong cross-arch determinism CI (doc 01).
+  Its missing rollback API (needs a fork patch) is the same for every language. Nothing native to Odin.
 - **Rendering host: the weak point.** Odin has excellent low-level graphics bindings (SDL3 GPU, sokol, wgpu, Vulkan,
   Metal, D3D) and raylib, and no engine. The realistic host is Godot through GDExtension or LibGodot, using
-  work-in-progress community bindings that we'd likely take over. That brings back a two-object-model bridge
-  (sim handles → Godot RIDs/nodes), thinner than OctoEscape's Unity↔sim bridge but real. Using `RenderingServer` directly from Odin
-  avoids nodes. Godot also limits us to one instance per process (doc 03), so N client views become N viewports.
+  work-in-progress community bindings that we'd likely take over. That brings back a two-object-model bridge (sim
+  handles → Godot RIDs/nodes), thinner than the current game's Unity↔sim bridge but real. Using `RenderingServer`
+  directly from Odin avoids nodes. Godot also limits us to one instance per process (doc 03), so N client views become N
+  viewports.
 - **Game UI:** Godot Controls, or Clay plus our own draw path. No egui, Noesis or RmlUi without shims.
 - **Dev UI:** Dear ImGui (docking) bindings are current, but the Godot backend is ours. In the Odin-only fallback
   host, ImGui + SDL GPU works out of the box.
@@ -317,13 +315,13 @@ build script. **Work other stacks own that Odin gets free:** the Box3D binding (
 | Clean build | 4 | Odin code builds in seconds with no cache. C/C++ deps are a one-time cached script, and Godot's per-worktree import is extra |
 | Incremental build | 5 | Every build is a full build of about 1–3 s for our size (estimate; a synthetic 1M-line benchmark reports 1.1–1.8 s on an M4 Pro) |
 | Worktree parallelism | 5 | No per-worktree target directory, no locks, nothing to warm. C libs come from one shared cache |
-| C/C++ interop | 4 | C is trivial and much of our list is officially vendored. C++ (Jolt, Godot, ImGui) needs C wrappers, and there's no built-in C compiler |
+| C/C++ interop | 4 | C is trivial and much of our list is officially vendored. C++ (Godot, ImGui) needs C wrappers, and there's no built-in C compiler |
 | Determinism control | 3 | No implicit contraction and full control, but real traps: `matrix` FMA on arm64 only, libm `core:math`, poison casts, vendored prebuilts |
 | Arena / snapshot fit | 4 | The most idiomatic fit (zero-init, allocators, `#soa`, `[dynamic; N]T`), but pointer-freedom is enforced by an RTTI test, not the compiler |
 | Safety vs agent bugs | 3 | Bounds checks, defined overflow, zero-init, vet and tracking allocator, but no protection from use-after-free, races or nil |
 | Reflection / metaprogramming | 4 | Rich RTTI with struct tags covers the registry cheaply. No compile-time execution or macros, so anything more needs codegen |
 | Rendering host options | 2 | No engine. Godot only through WIP community GDExtension bindings or a hand-bound LibGodot. The rest are APIs to write a renderer on |
-| Physics options | 4 | Box3D officially vendored, Jolt via joltc-odin, Rapier via C. Same snapshot gaps as C |
+| Physics options | 4 | Box3D officially vendored. Same snapshot gap as C |
 | Netcode / transports | 3 | UDP in core, ENet vendored, Steam via a hand-maintained one-person binding. EOS and QUIC must be generated |
 | UI options | 3 | Current ImGui docking and Clay bindings. Game UI means Godot Controls or Clay plus our own draw path. No egui, Noesis or RmlUi |
 | Language stability | 3 | The language is "pretty much done", but there's no 1.0, no roadmap, and core-library breaks every few months |

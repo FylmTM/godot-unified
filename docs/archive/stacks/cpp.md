@@ -3,7 +3,7 @@
 Researched 2026-11-07. **(unverified)** marks claims not confirmed from a primary source; **(estimate)** marks
 numbers derived by reasoning, not measured. Facts reused from docs 01–08 link back to them.
 
-The case in one paragraph: almost every library `unified` wants is already C or C++ (Jolt, Box3D, Godot, Dear ImGui,
+The case in one paragraph: almost every library `unified` wants is already C or C++ (Box3D, Godot, Dear ImGui,
 RmlUi, NoesisGUI, Steamworks, EOS, GameNetworkingSockets, Tracy, miniaudio). In C++ none of them needs a binding,
 a wrapper or a lagging community crate, and one compiler and one set of float flags cover the sim *and* the physics.
 What you pay is the weakest compile-time safety of the five stacks, a build and package story you assemble yourself,
@@ -21,10 +21,7 @@ and slower builds unless the code is written in a disciplined "orthodox C++" sty
 - **Sim state store**: the pointer-free store from doc 02, in C++. One arena block holds sparse-set component tables,
   generational handles, globals and inline fixed-capacity collections. Snapshot = `memcpy`, checksum = XXH3 over
   the block. Systems are plain functions over typed queries (`for (auto [e, pos, vel] : q.each<Pos, Vel>(f))`).
-- **Physics**: **Jolt 5.6** used directly in C++ (`CROSS_PLATFORM_DETERMINISTIC`, `CharacterVirtual` for
-  wall-crawling) or **Box3D** (C17), raced in the physics spike exactly as in doc 01. In C++, Jolt is no longer
-  "the fallback behind a C wrapper": it is native, and its `StateRecorder`/`CreateBodyWithID` lifecycle work
-  (doc 01) is written against its real API. Rapier is reachable only through its C bindings, so it drops out.
+- **Physics**: **Box3D** (C17), compiled directly with our flags.
 - **Host/renderer**: **Godot 4.7 (4.8 when stable) with the game as a GDExtension written against `godot-cpp`**,
   Godot's official C++ binding ([docs](https://docs.godotengine.org/en/4.7/tutorials/scripting/cpp/about_godot_cpp.html)).
   It runs on a stock prebuilt engine binary: no engine compile. The sim and net live in a plain static library with
@@ -59,7 +56,7 @@ No measurements exist for this exact layout. Everything below is an **estimate**
 library sizes and the published mechanisms. The build-speed spike must measure it.
 
 **Third-party code is built once, not per worktree.** C++'s strongest build property for agent worktrees is that a
-dependency is a binary artifact (`.a`/`.lib` plus headers) whose path is independent of the worktree. Build Jolt,
+dependency is a binary artifact (`.a`/`.lib` plus headers) whose path is independent of the worktree. Build
 Box3D, godot-cpp, ImGui, GameNetworkingSockets, zstd and the rest once per (toolchain, flags, version) hash into
 `~/.cache/unified/deps/<hash>/`, or let vcpkg's binary cache do it. Every worktree then links against that prefix.
 Cargo's per-`target/` dependency builds (doc 04) have no equivalent cost here.
@@ -69,7 +66,7 @@ Cargo's per-`target/` dependency builds (doc 04) have no equivalent cost here.
 | Godot engine | **0 s** (official prebuilt binary, GDExtension path) | `godot-cpp` doesn't require compiling the engine ([docs](https://docs.godotengine.org/en/4.7/tutorials/scripting/cpp/about_godot_cpp.html)) |
 | LibGodot shared library (variant B) | 10–25 min, once per Godot version | about 1.5M+ lines of C++ via SCons **(estimate)**; no official prebuilt libgodot found **(unverified)** |
 | godot-cpp | 2–5 min | binds the whole class DB **(estimate)** |
-| Jolt | 1–2 min; Box3D under 15 s | ~250 TUs vs a small C17 codebase **(estimate)** |
+| Box3D | under 15 s | a small C17 codebase **(estimate)** |
 | GameNetworkingSockets + protobuf/crypto | several minutes | doc 05 calls this build "real work on three OSes" |
 
 **Our code.** Assume 40–60k lines after the slice (engine plus game), compiled as ~10–20 unity TUs.
@@ -101,8 +98,6 @@ Cargo's per-`target/` dependency builds (doc 04) have no equivalent cost here.
 | Library | How we'd use it from C++ | Effort |
 |---|---|---|
 | Box3D (C) | Direct `#include`; compile with our flags | None |
-| Jolt (C++) | Direct, native API; no JoltC needed | None (lifecycle glue is ours anyway) |
-| Rapier (Rust) | Its in-repo C bindings + a Rust toolchain in the build | Medium; two compilers back in play |
 | libgodot / GDExtension | `godot-cpp` (official, generated from `extension_api.json`), or the GDExtension C API directly; LibGodot's C entry point for embedding | Low (official, first-class) |
 | Bevy | Not reachable | — |
 | sokol, SDL3 GPU, raylib, bgfx | Native C/C++ headers | None |
@@ -123,7 +118,7 @@ Cargo's per-`target/` dependency builds (doc 04) have no equivalent cost here.
 | QUIC | msquic (C API), quiche (C API over Rust), ngtcp2 (C) | Low–medium |
 | cgltf, zstd, xxHash, Tracy | Native | None |
 
-The only libraries out of reach are the Rust-only ones: Bevy, egui, Kira and Rapier's native API. Everything else
+The only libraries out of reach are the Rust-only ones: Bevy, egui and Kira. Everything else
 is a CMake `add_subdirectory`/vcpkg line. Upstream fixes land on day one, with no binding to wait for. Doc 03's
 "Godot is a bridge" objection also weakens. From C++ there is no FFI layer and no second object model in a second
 language, only Godot's object model next to our sim.
@@ -134,14 +129,14 @@ language, only Godot's object model next to our sim.
 - **FMA contraction**: clang contracts by default (`-ffp-contract=on`) since v14, and that bites on ARM64. GCC
   defaults to `fast`. MSVC stopped contracting under `/fp:precise` only in VS2022 (doc 01). Set
   **`-ffp-contract=off`** (clang-cl: `/clang:-ffp-contract=off`) as Box3D's CMake does, and never use
-  `-ffast-math` or `/fp:fast`. Because we compile Jolt and Box3D ourselves with the same toolchain file, one
+  `-ffast-math` or `/fp:fast`. Because we compile Box3D ourselves with the same toolchain file, one
   setting covers sim and physics uniformly. A Rust stack mixes rustc's semantics with clang's for C deps.
 - **libm**: ban `std::sin`/`cos`/`atan2`/`exp`/`pow` in sim code (a clang-tidy check plus a header that `#error`s
-  on `<cmath>` in sim TUs). Use Jolt's `Sin`/`Cos`/`ATan2` or Box3D-style hand-written approximations in one math
+  on `<cmath>` in sim TUs). Use Box3D-style hand-written approximations in one math
   module.
-- **Proven in production**: Jolt verifies `CROSS_PLATFORM_DETERMINISTIC` on 14 configurations, and Box3D checks one
-  set of goldens across macOS ARM, Windows x64 (MSVC *and* clang-cl) and Linux at -O0 and -O2 (doc 01). Both are
-  C/C++ codebases built with exactly the flags above, which makes this the strongest existence proof of any stack.
+- **Proven in production**: Box3D checks one set of goldens across macOS ARM, Windows x64 (MSVC *and* clang-cl) and
+  Linux at -O0 and -O2 (doc 01). It is a C codebase built with exactly the flags above, which makes this the strongest
+  existence proof of any stack.
 - **C++-specific traps**: `std::sort` and `std::hash` differ per STL, so use our own stable sort and fixed hashes.
   Uninitialized locals and members hold garbage that can differ per run: use `-ftrivial-auto-var-init=zero` plus
   default member initializers. **Padding bytes** poison a checksum over the block. `memset` the arena at creation,
@@ -202,14 +197,11 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
 
 ## 6. Ecosystem fit per subsystem
 
-- **Physics**: the best of any stack. Jolt native (AAA-proven, best character controller, deterministic
-  cross-platform mode), Box3D native (strongest cross-arch CI; Catto said on 2026-07-25 that rollback snapshots
+- **Physics**: Box3D native (strong cross-arch CI; Catto said on 2026-07-25 that rollback snapshots
   "almost" work, [discussion](https://github.com/erincatto/box3d/discussions/99)). Box2D 3.2 already exposes
   `b2World_GetSnapshot`/`RestoreFromSnapshot` ([docs](https://box2d.org/documentation/group__snapshot.html)), the
-  likely shape of Box3D's API. A small fork patch to Box3D is a C edit in our own tree. Note: Godot 4.6+ bundles
-  Jolt as its default 3D physics. We'd run *our own* Jolt in the sim. Two copies in one process need hidden
-  visibility (`-fvisibility=hidden`) to avoid symbol clashes on macOS/Linux **(unverified risk)**.
-- **Rendering host**: the widest choice. Godot natively (official C++ bindings, prebuilt binaries, the OctoEscape
+  likely shape of Box3D's API. A small fork patch to Box3D is a C edit in our own tree.
+- **Rendering host**: the widest choice. Godot natively (official C++ bindings, prebuilt binaries, the target
   look with least effort per doc 03), LibGodot embedding, Wicked Engine, Filament, Ogre-Next 3.0 (Metal/Vulkan/D3D11,
   [Phoronix](https://www.phoronix.com/news/OGRE-Next-3.0)), The Forge, plus bgfx, sokol and SDL3 GPU as lower
   layers. Only Bevy is missing, and Bevy is the strongest *code-first* option in doc 03. Godot's import cache
@@ -242,9 +234,9 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
   stack).
 - **Governance and funding**: WG21, plus three funded compiler vendors (LLVM with Apple/Google, GCC, Microsoft). No
   bus-factor risk at the language level.
-- **Libraries**: Godot (foundation, the largest open-source engine), Jolt (one main author, used by Guerrilla and
-  Godot), Box3D (one author, alpha), Dear ImGui (one main author, funded, ubiquitous). Library bus factors are the
-  same for every stack. C++ just reaches them without a binding maintainer in between.
+- **Libraries**: Godot (foundation, the largest open-source engine), Box3D (one author, alpha), Dear ImGui (one main
+  author, funded, ubiquitous). Library bus factors are the same for every stack. C++ just reaches them without a binding
+  maintainer in between.
 - **Shipped games**: essentially all of them, every AAA engine included.
 
 ## 8. Tooling and developer experience
@@ -263,7 +255,7 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
   toolchain file that forces global flags, and a CI check that greps the compile commands.
 - **Error messages**: template errors are still long; concepts help. Orthodox C++ avoids most of this by avoiding
   heavy templates.
-- **AI agent fluency**: the largest training corpus of any systems language, and Godot C++, Jolt, ImGui, Steamworks
+- **AI agent fluency**: the largest training corpus of any systems language, and Godot C++, ImGui, Steamworks
   and Tracy all appear heavily in it. API churn is low (Godot 4.x and godot-cpp are stable; ImGui 1.92's font
   redesign is the biggest recent break). The problem is dialect spread (C++98 to C++23 idioms mixed) and footguns
   that compile: agents write code that builds and passes tests while carrying UB (section 4's 2× figure). An
@@ -279,7 +271,7 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
 - **Cross-compilation**: clang can target all three, but in practice the macOS SDK and Windows SDK licensing push
   you to native CI runners (GitHub macOS ARM, Windows, Linux), which cross-platform checksum CI needs anyway.
 - **Consoles**: the best path of any stack. Console SDKs are C/C++, Godot has console ports through vendors,
-  Jolt/Box3D/ImGui all run there, and Live++ supports Xbox and PlayStation. This doesn't matter now, but it costs
+  Box3D/ImGui all run there, and Live++ supports Xbox and PlayStation. This doesn't matter now, but it costs
   nothing to keep open.
 
 ## 10. Feasibility for unified
@@ -288,10 +280,10 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
 - Every library is native and current on release day: physics, renderer host, UI, audio, Steam, EOS, Tracy. No
   binding layer, no `-sys` crate lag, no "bindings are immature" footnotes (EOS and GNS in doc 05 become non-issues).
 - **Godot becomes a first-class host**, not a bridge to a foreign language. If the render spike shows Godot reaching
-  the OctoEscape look with less work (doc 03's own verdict), C++ is the language that uses Godot best.
+  the target look with less work (doc 03's own verdict), C++ is the language that uses Godot best.
 - The pointer-free block, memcpy snapshots and handle tables are idiomatic C/C++. Frame-over-arena sim code
   translates almost line for line.
-- One compiler and one flag set for sim plus physics, with Box3D/Jolt as working proof of cross-arch determinism
+- One compiler and one flag set for sim plus physics, with Box3D as working proof of cross-arch determinism
   in exactly this toolchain.
 - Worktrees: prebuilt deps in a shared prefix plus ccache `base_dir` is a well-trodden setup with no global build
   lock.
@@ -307,9 +299,9 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
 - **Hot reload on macOS** is DLL reload only. Live++ doesn't exist there.
 
 **Work we'd own vs other stacks**: we'd write the registry macros and the safety tooling that Rust derives and the
-borrow checker give for free. We would *not* write or maintain bindings for Jolt, Godot, ImGui, Steamworks, EOS or
-GNS, which the Rust/Odin/Zig/C# stacks must wrap or depend on community wrappers for. We'd also lose Bevy, egui,
-Kira and Rapier.
+borrow checker give for free. We would *not* write or maintain bindings for Godot, ImGui, Steamworks, EOS or
+GNS, which the Rust/Odin/Zig/C# stacks must wrap or depend on community wrappers for. We'd also lose Bevy, egui
+and Kira.
 
 **Biggest risks**
 1. Agent-introduced UB and memory bugs costing debugging sessions, mitigated by handles, sync-test and sanitizers,
@@ -319,11 +311,10 @@ Kira and Rapier.
 3. Host choice: Godot's main-loop ownership, `.godot/` import cache and editor-only GI bake (doc 03), or LibGodot's
    youth (one instance per process, embedding still maturing,
    [migeran/libgodot](https://github.com/migeran/libgodot)).
-4. The Jolt-inside-Godot symbol clash, and Godot's own Jolt being tempting to use (it isn't rollback-safe for us).
 
 **Spike additions for this stack**: (a) a build-speed spike with CMake + Ninja + unity + ccache `base_dir` across 4
 worktrees on the M4 Pro (pass: fresh worktree ≤ 30 s with a warm sibling, sim one-line change ≤ 3 s); (b) an ASan +
-UBSan headless run of the determinism spike on macOS and Linux; (c) a minimal GDExtension that draws 300 Jolt
+UBSan headless run of the determinism spike on macOS and Linux; (c) a minimal GDExtension that draws 300 Box3D
 bodies from a pure-C++ sim block, with sync-test on.
 
 ## 11. Scorecard
@@ -334,12 +325,12 @@ bodies from a pure-C++ sim block, with sync-test on.
 | Incremental build | 4 | A unity-batched, light-header sim TU plus an ld-prime relink is about 2–3 s (estimate), but it degrades fast if headers bloat |
 | Worktree parallelism | 4 | Binary deps independent of worktree paths, ccache `base_dir` sharing and no global lock. Godot's `.godot/` cache and per-worktree object dirs still duplicate some work |
 | C/C++ interop | 5 | Every listed library except the Rust-only ones is native; zero bindings to maintain |
-| Determinism control | 4 | Full per-TU float control, with one toolchain for sim and physics proven by Jolt/Box3D CI. But the defaults contract FMA, and STL sort/hash, padding, uninitialized memory and UB are extra traps |
+| Determinism control | 4 | Full per-TU float control, with one toolchain for sim and physics proven by Box3D CI. But the defaults contract FMA, and STL sort/hash, padding, uninitialized memory and UB are extra traps |
 | Arena / snapshot fit | 4 | POD blocks, `memcpy` and handles are idiomatic. The language doesn't forbid pointers in components, so registry `static_assert`s must |
 | Safety vs agent bugs | 2 | UAF, overflow UB and bounds errors compile cleanly. Sanitizers, hardening and sync-test catch them only at runtime (AI C++ ~2× runtime violations) |
 | Reflection / metaprogramming | 3 | PFR aggregate reflection and X-macros work today. C++26 reflection exists only in GCC 16 and a clang fork, so not on our macOS/Windows compilers before ~2027 |
 | Rendering host options | 5 | Godot natively (official C++ binding, LibGodot), Wicked, Filament, Ogre-Next, The Forge, bgfx/sokol; only Bevy is out |
-| Physics options | 5 | Jolt and Box3D native, with the best character controller and the strongest cross-arch CI; fork patches are trivial |
+| Physics options | 5 | Box3D native, with strong cross-arch CI; fork patches are trivial |
 | Netcode / transports | 5 | Steamworks, EOS C SDK, GameNetworkingSockets, ENet and msquic all native |
 | UI options | 5 | Dear ImGui, RmlUi, NoesisGUI, Godot Controls and Clay all native; PanGui's C++ path is coming. Only egui is missing |
 | Language stability | 5 | ISO standard, backward compatible, C++20 now a compiler default |
