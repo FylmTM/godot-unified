@@ -340,7 +340,7 @@ def build_extension(game, h):
     libs = release_libraries(game, h)
     if not libs:
         raise SystemExit("release: %s has no .gdextension" % game)
-    if "tools/dev.py game" in dev_doc():
+    if "tools/dev.py game build" in dev_doc():
         run([sys.executable, REPO / "tools" / "dev.py", "game", "build", game, "release"], cwd=REPO)
     else:
         if len(libs) != 1:

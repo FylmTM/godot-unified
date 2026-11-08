@@ -11,7 +11,7 @@ on:
     inputs:
       game_dir:
         description: Game folder (a Godot project with export_presets.cfg)
-        default: experiments/release-standin
+        default: games/survivor
 
 concurrency:
   group: release-${{ github.ref }}
@@ -48,7 +48,7 @@ jobs:
             version="${tag##*-v}"
             matrix="{\"include\":[$win,$mac]}"
           else
-            game_dir="${INPUT_GAME_DIR:-experiments/release-standin}"
+            game_dir="${INPUT_GAME_DIR:-games/survivor}"
             version="dev-${GITHUB_SHA::7}"
             matrix="{\"include\":[$win]}"
           fi
