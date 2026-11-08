@@ -1,32 +1,32 @@
 # unified: context
 
-`unified` is a purpose-built core for cooperative games with deterministic rollback netcode: Photon Quantum's model
+`unified` is a purpose-built core for cooperative games with deterministic rollback netcode
 (deterministic sim, input relay, prediction and rollback), code-first, AI-agent-first, with fast iteration loops.
 It is written in **Odin**, with **Godot** as the host for rendering, audio, UI and the editor. Rendering is never
 written from scratch.
 
 The testbed is a slice of OctoEscape (`/Users/dmitry.v/work/personal/OctoEscape`): a 3D co-op game where players are
-octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGENTS.md`), `docs/ai/architecture.md`,
-`docs/QUANTUM.md` and `docs/ai/workflow.md` show how it is built today.
+octopuses, currently built on Unity 6 with a commercial deterministic netcode SDK. Its agent guide (`AGENTS.md`) and
+`docs/` show how it is built today.
 
 ## Why
 
 - Unity is the bottleneck: Editor refresh and domain reloads, crashes, dialogs that block tools, only one agent at a
   time can use the Editor, and testing co-op needs a build or multiplayer play mode.
-- Quantum is great (determinism, replays, snapshots, headless tests), but it has costs: the Unity world and the
-  Quantum world are glued together by a bridge, `.qtn` codegen, map baking, an asset DB export, physics separate from
-  Unity's, and a commercial service dependency (we want Steam relay instead).
+- The deterministic SDK is great (determinism, replays, snapshots, headless tests), but it has costs: the Unity world
+  and the sim world are glued together by a bridge, schema codegen, map baking, an asset DB export, physics separate
+  from Unity's, and a commercial service dependency (we want Steam relay instead).
 - The developer never really uses the Editor: levels are built from code, art comes from Blender scripts, everything
   is driven from the CLI. Dev tools should live inside the game.
 
 ## Decisions
 
-- **Language: Odin** (sign-off pending). C++, Rust, C# and Zig were prototyped and benchmarked; the research and
+- **Language: Odin** (signed off 2026-11-09). C++, Rust, C# and Zig were prototyped and benchmarked; the research and
   results are in `archive/`.
 - **Host: Godot 4.7.x via GDExtension** (LibGodot only if GDExtension blocks something concrete).
 - **Physics: Box3D**, our fork with world save/restore. Jolt is the fallback.
 - **Numbers:** f32 with deterministic discipline (decided; fixed point rejected).
-- **Netcode:** Quantum-style host relay (decided; GGPO-style mesh rejected).
+- **Netcode:** host input relay (decided; GGPO-style mesh rejected).
 
 ## Requirements (the developer's answers, 2026-11-07)
 
@@ -39,8 +39,8 @@ octopuses, currently built on Unity 6 + Photon Quantum 3. Its agent guide (`AGEN
 - **Scale**: 2–4 players, 60 Hz, up to 1000+ entities (survivor / tower-defense style sections). Full rigid-body
   physics is wanted (physics-sandbox games), inside rollback.
 - **Simulation threading**: single-threaded and deterministic first; parallel only where measurements demand it.
-- **Netcode**: Quantum-style. The host runs an input relay that stamps the official inputs for each tick, so a laggy
-  player never stalls the others. Late join is built (phase 2); reconnect comes later. No
+- **Netcode**: relay-stamped rollback. The host runs an input relay that stamps the official inputs for each tick,
+  so a laggy player never stalls the others. Late join is built (phase 2); reconnect comes later. No
   backend.
 - **Transports** (pluggable): in-process loopback, direct UDP / LAN, a self-hosted relay, Steam (Datagram Relay), later
   maybe Epic Online Services.

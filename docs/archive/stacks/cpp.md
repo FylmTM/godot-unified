@@ -18,7 +18,7 @@ and slower builds unless the code is written in a disciplined "orthodox C++" sty
   flags. MSVC stays a CI cross-check, as in Box3D's CI ([build.yml](https://github.com/erincatto/box3d/blob/main/.github/workflows/build.yml)).
   Pure C17 for sim modules that agents might otherwise over-engineer is an option, but C++ gives `static_assert`,
   `constexpr`, templates for typed queries and namespaces at little cost.
-- **Sim state store**: the Quantum model from doc 02, in C++. One arena block holds sparse-set component tables,
+- **Sim state store**: the pointer-free store from doc 02, in C++. One arena block holds sparse-set component tables,
   generational handles, globals and inline fixed-capacity collections. Snapshot = `memcpy`, checksum = XXH3 over
   the block. Systems are plain functions over typed queries (`for (auto [e, pos, vel] : q.each<Pos, Vel>(f))`).
 - **Physics**: **Jolt 5.6** used directly in C++ (`CROSS_PLATFORM_DETERMINISTIC`, `CharacterVirtual` for
@@ -153,8 +153,8 @@ language, only Godot's object model next to our sim.
 **Arena fit.** This is C++'s home ground. A `struct World { Header h; Table<Pos> pos; ... }` inside one aligned
 block, `static_assert(std::is_trivially_copyable_v<T> && std::is_standard_layout_v<T>)` on every component, handles
 as `u32 index + u32 generation`, and `memcpy` snapshots are idiomatic. Game devs have written this for 25 years
-(Quantum's own frame layout is the same idea). Allocators are explicit: a linear frame allocator for per-tick
-scratch, and the persistent block. Nothing allocates behind your back unless you include the STL. **What the
+(commercial deterministic engines use the same frame layout). Allocators are explicit: a linear frame allocator for
+per-tick scratch, and the persistent block. Nothing allocates behind your back unless you include the STL. **What the
 language doesn't do**: it won't stop a raw pointer or a `std::vector` member from entering a component. A trivially
 copyable type can still hold a `T*`. The registry (section 5) closes this by iterating each component's fields at
 compile time and `static_assert`ing that none is a pointer, reference or non-registered type.
@@ -194,7 +194,7 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
   2. **X-macros / a field-list macro** (`UNI_COMPONENT(Health, F(f32, hp) F(f32, max, Range(0,100)))`): zero
      template cost, and attributes (ranges, "tunable", "replicated") ride along. Ugly but explicit and very
      agent-legible.
-  3. **Codegen** from a schema or a libclang scan: the most powerful, but it brings back the `.qtn`-style step
+  3. **Codegen** from a schema or a libclang scan: the most powerful, but it brings back the schema-codegen step
      CONTEXT.md wants gone.
 - **Recommendation**: (1) for field names and types, (2)'s attribute macro only where metadata is needed, and the
   pointer-ban `static_assert` from section 4 driven by the same field iteration. Workable, and less elegant than
@@ -289,7 +289,7 @@ The registry has to drive the inspector, desync diff, serialization/protocol sch
   binding layer, no `-sys` crate lag, no "bindings are immature" footnotes (EOS and GNS in doc 05 become non-issues).
 - **Godot becomes a first-class host**, not a bridge to a foreign language. If the render spike shows Godot reaching
   the OctoEscape look with less work (doc 03's own verdict), C++ is the language that uses Godot best.
-- The pointer-free block, memcpy snapshots and handle tables are idiomatic C/C++. Quantum-style frame code
+- The pointer-free block, memcpy snapshots and handle tables are idiomatic C/C++. Frame-over-arena sim code
   translates almost line for line.
 - One compiler and one flag set for sim plus physics, with Box3D/Jolt as working proof of cross-arch determinism
   in exactly this toolchain.

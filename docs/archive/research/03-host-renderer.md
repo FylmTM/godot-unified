@@ -11,7 +11,7 @@ light.** Nothing else beats both.
 
 Why Bevy wins for *this* project:
 
-1. **One language, one build, no bridge.** The whole reason for `unified` is to delete the Unity↔Quantum glue: two
+1. **One language, one build, no bridge.** The whole reason for `unified` is to delete the Unity↔sim glue: two
    worlds, codegen, asset DB export and import steps. With Bevy, sim, view, dev tools and agent API are one Cargo
    workspace. View systems read `&Frame` with the sim's own Rust types, `cargo run` starts the game, and there is no
    project import cache per worktree. With Godot + godot-rust, the Rust sim lives inside a C++ engine with its own

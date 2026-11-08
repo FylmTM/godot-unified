@@ -1,8 +1,8 @@
 # unified
 
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
-**Godot** as the host for rendering, audio, UI and the editor. Think Photon Quantum's model (deterministic sim,
-input relay, prediction and rollback), rebuilt for speed, code-first workflows and AI-agent development. The first
+**Godot** as the host for rendering, audio, UI and the editor. Inspired by Photon Quantum's model (deterministic
+sim, input relay, prediction and rollback), built for speed, code-first workflows and AI-agent development. The first
 game built on it will be a slice of OctoEscape (`~/work/personal/OctoEscape`).
 
 ## Roles

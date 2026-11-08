@@ -1,21 +1,20 @@
 # 11: View binding and authoring (sim entities ↔ Godot)
 
 Research for `unified` (2026-11-08). How sim entities get their Godot-side views (scenes, materials, animation, VFX,
-audio, UI), and how entity templates and levels are authored. Sources: the Quantum 3.1 manual mirrored in OctoEscape
-(`Assets/Photon/Quantum/Documentation~/manual`, generated 2026-10-09), the SDK source `QuantumEntityViewUpdater.cs`,
-OctoEscape's own docs and view scripts, `bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end.
-Claims I couldn't check against a primary source are marked *(unverified)*.
+audio, UI), and how entity templates and levels are authored. Sources: OctoEscape's own docs and view scripts,
+`bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end. Claims I couldn't check against a
+primary source are marked *(unverified)*.
 
 The plan already decided the direction: "`.tscn` scenes per entity kind… GDScript allowed in the view layer…
-the extension runs the sim and maps sim entities to scenes". This doc works out how, and what Quantum teaches.
+the extension runs the sim and maps sim entities to scenes". This doc works out how.
 
 ## TL;DR
 
-- **Quantum's model is worth copying almost whole**: a sim component names a view asset; one updater diffs sim
-  entities against live views every render frame; views poll predicted/verified frames; events are deduplicated,
-  confirmed or cancelled; interpolation and rollback error correction live in the updater, not in game scripts.
-- **Fix three things Quantum gets wrong for us:** (1) views keyed by `EntityRef` get *hijacked* and churn after a
-  rollback, so key them by a deterministic **spawn key** instead; (2) events are global and every view filters
+- **The core loop**: a sim component names a view asset; one updater diffs sim entities against live views every
+  render frame; views poll predicted/verified frames; events are deduplicated, confirmed or cancelled; interpolation
+  and rollback error correction live in the updater, not in game scripts.
+- **Fix three things that hurt in OctoEscape's view layer:** (1) views keyed by entity handle get *hijacked* and churn
+  after a rollback, so key them by a deterministic **spawn key** instead; (2) events are global and every view filters
   (`ToyView` subscribes to every `ToyPicked`), so **route entity events to that entity's view**; (3) authoring needs a
   bake step, an asset DB and editor-only tooling (OctoEscape's slowest loops), so make **prototypes code/data-first**
   and levels files both sides read.
@@ -23,87 +22,50 @@ the extension runs the sim and maps sim entities to scenes". This doc works out 
   path, all interpolation, error correction, pooling and event bookkeeping in a host-agnostic Odin `view` package,
   and a thin Godot adapter. Prototypes in Odin code plus data files; levels from glTF/layout files, previewed in Godot.
 
-## 1. How Quantum does it
+## 1. Lessons from OctoEscape's view layer
 
-### Binding and lifecycle
-
-- The sim has a `View` component holding an `AssetRef<EntityView>`; the asset points at a prefab. Adding a
-  `QuantumEntityView` to an entity-prototype prefab fills `View` automatically ("Self" view), or the prototype can
-  point at a separate view asset. Setting `View` to null in the sim destroys the view; changing it recreates it
-  ([entity views](https://doc.photonengine.com/quantum/v3/manual/entityview), EVU source `CreateViewIfNeeded`).
-- `QuantumEntityViewUpdater` (EVU), once per Unity frame after the session update: `SyncViews(Verified, Verified)`
-  then `SyncViews(Predicted, NonVerified)`. Each prefab has a **Bind Behaviour**: `NonVerified` views are created
-  from the predicted frame (projectiles), `Verified` ones only from verified frames (player characters, so no false
-  spawns). Live views live in `Dictionary<EntityRef, QuantumEntityView>`; a view whose entity is missing from this
-  update's set is **destroyed after event dispatch** (`OnObservedGameUpdatedAfterEvents`), so events about a dying
-  entity still find it.
-- **Pooling** is opt-in (`QuantumEntityViewPool`, or override `CreateEntityViewInstance`/`DestroyEntityViewInstance`).
-  Pooled views must unsubscribe from events on deactivate. **Manual Disposal** skips the destroy so a death event
-  can play out on the view, which then returns itself.
-- **Map entities** (prototypes baked into a scene) don't instantiate: the scene's GameObjects are pre-placed and
-  linked by `MapEntityLink.Index`, then activated or disabled.
-- **Hijacking** ([doc](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/entityref-hijacking)): a
-  predicted spawn gets `EntityRef X`; the verified re-simulation creates another entity first, which now gets `X`.
-  Same view asset: the old view is relinked to the wrong entity and "was initialized with the wrong data". Different
-  asset: destroy and recreate. Quantum's advice: bind on Verified, or make views re-poll everything every frame.
-- **View culling** (3.0.3+): `IQuantumEntityViewCulling` filters which entities get views; **prediction culling**
-  skips simulating far entities in predicted frames
-  ([doc](https://doc.photonengine.com/quantum/v3/manual/prediction-culling)).
-
-### Reading frames and interpolating
-
-- Views get `Verified`, `Predicted`, `PredictedPrevious` (predicted − 1) and `PreviousUpdatePredicted` (last
-  update's head, re-simulated) ([frames](https://doc.photonengine.com/quantum/v3/manual/frames)). View components
-  (`QuantumEntityViewComponent<TContext>`) get `OnInitialize`, `OnActivate(frame)`, `OnUpdateView`,
-  `OnLateUpdateView`, `OnDeactivate`, plus a shared **context** object on the EVU
-  ([view components](https://doc.photonengine.com/quantum/v3/manual/entity-view-component)).
-- Interpolation modes, chosen per prefab: **Prediction** (lerp predicted−1 → predicted by render alpha, plus error
-  correction: the jump a rollback causes is decayed at a rate ramped by error size, snapped below a minimum, teleported
-  above a distance); **Snapshot** (verified frames only, ~4 ticks behind, never wrong); **Auto** (snapshot while
-  prediction-culled); **Exponential decay** (3.1: ease the transform toward the sim each frame; cheap, tolerates
-  external writes). Sim-side `transform->Teleport(f, pos)` makes the view snap.
-
-### Events
-
-- Fired from any frame, dispatched once per update after `OnUpdateView` (so views for new entities exist). Duplicates
-  from re-simulation are dropped by hashing (event id, tick, fields), with `nothashed` for jittery fields. Non-synced
-  events are later **confirmed or cancelled** (`CallbackEventConfirmed/Canceled`, keyed by `EventKey`); `synced`
-  events fire only from verified frames; `local`/`remote` filter by player
-  ([events](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/game-events)). Polling is advised for
-  continuous visuals, events for one-offs; late joiners never get past events
-  ([events vs polling](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/events-vs-polling)).
-
-### Prototypes, assets, maps
-
-- A **prototype** is a serialized entity: component set plus initial values, authored as `QuantumEntityPrototype` +
-  generated `QPrototype*` MonoBehaviours on a GameObject. A prefab becomes an `EntityPrototype` asset in the DB;
-  `frame.Create(AssetRef)` **materializes** it. Fields can be excluded (`[ExcludeFromPrototype]`) and component
-  prototypes extended with shared read-only data
-  ([prototypes](https://doc.photonengine.com/quantum/v3/manual/entity-prototypes),
-  [materialization](https://doc.photonengine.com/quantum/v3/manual/materialization)). No hierarchies (3.1 adds
-  compound prototypes with a shared lifetime, no transform hierarchy).
-- **Assets** are ScriptableObjects with a deterministic `AssetGuid`, indexed into `QuantumUnityDB` on import
-  ([assets](https://doc.photonengine.com/quantum/v3/manual/assets/assets-unity)).
-- **Map baking**: a Unity scene with `QuantumMapData` bakes static colliders, navmesh and scene prototypes into a
-  `Map` asset, on save/play/build; custom data through `MapDataBakerCallback`
-  ([map baking](https://doc.photonengine.com/quantum/v3/manual/maps/map-baking)). The editor bake isn't deterministic
-  (float → FP), so runtime bakes must be shared, not recomputed.
+- **Binding.** A sim component names the view asset; clearing it destroys the view, changing it recreates it. One
+  updater per render frame diffs entities against live views. Each kind binds on **predicted** frames (projectiles:
+  responsive) or **verified** ones (player characters: no false spawns). A view whose entity is gone is destroyed
+  **after event dispatch**, so events about a dying entity still find it. Pooled views must unsubscribe from events
+  on deactivate, and a manual-disposal flag lets a death event play out before the view returns itself. Pre-placed
+  level entities are linked by index, not instantiated.
+- **Hijacking.** Views keyed by entity handle break under rollback: a predicted spawn gets handle X; the verified
+  re-simulation creates another entity first, which now gets X. With the same view asset, the old view is relinked to
+  the wrong entity with the wrong data; with a different one, it is destroyed and recreated. Binding on verified, or
+  re-polling everything every frame, only works around it.
+- **Frames and interpolation.** Views read the verified frame, the predicted one, predicted − 1, and the previous
+  update's head (re-simulated). Interpolation modes per kind: **prediction** (lerp predicted−1 → predicted by render
+  alpha, plus error correction: the jump a rollback causes is decayed at a rate ramped by error size, snapped below a
+  minimum, teleported above a distance); **snapshot** (verified frames only, ~4 ticks behind, never wrong);
+  **exponential decay** (ease the transform toward the sim each frame; cheap, tolerates external writes). A sim-side
+  teleport makes the view snap.
+- **Events.** Dispatched once per update after the views update, so views for new entities exist. Duplicates from
+  re-simulation are dropped by hashing (event id, tick, fields), with jittery fields left out. Non-synced events are
+  later **confirmed or cancelled**; synced events fire only from verified frames. Poll for continuous visuals, use
+  events for one-offs; late joiners never get past events.
+- **Prototypes and maps.** A prototype is a serialized entity (component set plus initial values), materialized at
+  spawn. In OctoEscape it is authored on a Unity prefab through generated components and indexed into an asset DB;
+  level scenes are baked into a map asset (static colliders, navmesh, scene prototypes) on save, play and build. The
+  bake isn't deterministic (float → fixed point), so its output must be shared, not recomputed.
+- **Culling.** View culling filters which entities get views; prediction culling skips far entities in predicted
+  frames.
 
 ### What OctoEscape actually used, and what hurt
 
-- **All 305** `QuantumEntityView`s in OctoEscape's prefabs and scenes have `BindBehaviour: 0` (NonVerified),
-  `InterpolationMode: 3` (Exponential decay), no Manual Disposal, no view flags, no `QuantumEntityViewPool`. 30 view
-  components; `OctopusView` alone is 1,125 lines (its own body smoothing over sim re-attachments, the procedural rig).
+- **All 305** entity views in OctoEscape's prefabs and scenes bind on predicted frames with exponential decay, no
+  manual disposal, no view flags, no pooling. 30 view components; `OctopusView` alone is 1,125 lines (its own body
+  smoothing over sim re-attachments, the procedural rig).
 - Events: `GameAudio`/`GameEffects` subscribe globally; per-entity views (`ToyView`) subscribe to every
-  `ToyPicked`/`ToySlapped` and filter by entity. **No code handles `CallbackEventCanceled`**: cancelled puffs just
-  play. Celebrations come from *verified state* that `GameAudio` watches, not events (FEEL §2.4). Time is in ticks
+  `ToyPicked`/`ToySlapped` and filter by entity. **No code handles cancelled events**: cancelled puffs just play.
+  Celebrations come from *verified state* that `GameAudio` watches, not events (FEEL §2.4). Time is in ticks
   (`StartFrame`); the view derives elapsed time.
-- What hurt (OctoEscape `docs/QUANTUM.md`, decisions 170–172): Quantum DB refresh ~20 s when an asset is added;
-  prototypes' collider layer filled by `PreSerialize` on prefab save, which builders must replicate; maps rebaked on
-  scene save; codegen line-ending patch inside the SDK; a JSON export of the whole DB versioned just so tests can run
-  without the editor; a loaded `Map` asset object holding live state (two sessions in one process read freed memory).
-  **Levels were never hand-placed in Unity**: `LevelBuilder` regenerates them from Python/Blender `layout.json`
-  ("hand edits… are lost on a rebuild"). The editor was a bake target, not the authoring tool.
+- What hurt (OctoEscape decisions 170–172): an asset DB refresh of ~20 s when an asset is added; prototypes' collider
+  layer filled on prefab save, which builders must replicate; maps rebaked on scene save; a codegen line-ending patch
+  inside the SDK; a JSON export of the whole DB versioned just so tests can run without the editor; a loaded map
+  asset holding live state (two sessions in one process read freed memory). **Levels were never hand-placed in
+  Unity**: `LevelBuilder` regenerates them from Python/Blender `layout.json` ("hand edits… are lost on a rebuild").
+  The editor was a bake target, not the authoring tool.
 
 ## 2. Design options for unified + Godot
 
@@ -134,7 +96,7 @@ frame :: proc "c" () {
 - **Cons**: nothing visible or tweakable in the editor; animation, VFX, audio and UI all become Odin code against
   Godot APIs, with manual refcounting (bench B leaked 822 objects before `defer unref`); against PLAN's decision.
 
-### (B) Godot owns views: a `.tscn` per kind (Quantum EntityView analogue)
+### (B) Godot owns views: a `.tscn` per kind
 
 The extension pools and spawns `res://views/<kind>.tscn`, writes the interpolated transform, and calls the scene's
 script; view logic is GDScript reading read-only sim state.
@@ -158,7 +120,7 @@ func _sim_despawned() -> void:           # reset for the pool
 
 - **Pros**: assets, materials, AnimationTree, GPUParticles, AudioStreamPlayer3D all authored and previewed in the
   editor; GDScript hot-reloads; matches PLAN; the scene is the obvious place for per-kind settings (bind mode,
-  smoothing, linger, pool size as `@export`s on the root, like Quantum's prefab fields).
+  smoothing, linger, pool size as `@export`s on the root).
 - **Cons**: per-node cost at 1000+ (Godot's own docs: nodes have "extra overhead" and servers are for "tens of
   thousands of instances"); GDScript needs a typed way to read sim state, which needs **extension class
   registration** (missing in our Odin bindings: ~1–1.5k lines, 1–2 weeks per bench B's estimate); bench B's `frame`
@@ -192,7 +154,7 @@ gd.RenderingServer_multimesh_set_buffer(rs, mm[kind], buf)
 
 ### Authoring templates (prototypes) and levels
 
-| | **T1: Godot scenes as source, baked (Quantum-like)** | **T2: code/data-first** |
+| | **T1: Godot scenes as source, baked** | **T2: code/data-first** |
 |---|---|---|
 | Prototype | `.tscn` with a `SimPrototype` node and one Resource per component (`ToyComponent.tres`), classes generated from the Odin structs | Odin spawn procs (`spawn_toy(f, at, cfg)`) plus tuning data files the sim loads and hot-reloads |
 | Level | Godot scene with prototype instances and collision shapes; `unified bake` parses the `.tscn` text (no Godot needed) into a level blob | glTF from the Blender/Python pipeline (geometry + node extras: `{"sim": {"kind": "hoop", "channel": 3}}`) or OctoEscape-style `layout.json`; sim reads colliders and markers, Godot imports the same file for visuals |
@@ -210,14 +172,14 @@ The shared Odin `view` package handles all of these the same way for every optio
 | Concern | Mechanism (all options) | A | B | C |
 |---|---|---|---|---|
 | **Spawn/despawn churn** | Bind per kind on `.Predicted` or `.Verified`. Views keyed by **`View.key`**, not handle: if a rollback re-creates the same logical entity under another handle, the view is *rebound*, not recreated (no hijacking). A view whose entity disappears **lingers hidden** for `linger_ticks` (default: until that tick is verified) and is revived if the key reappears; only then does it go back to the pool. Per-kind pools, prewarmed. | free-list of instances | `SimView` pool per kind; `_sim_despawned` must reset | as B; bulk = swap-remove in the buffer |
-| **Predicted events and cancellation** | Event buffer per tick stored with the snapshot ring; key = (type, tick, entity key, hashed fields); confirmed or cancelled when the tick is verified; `synced` only from verified. Dispatch after spawns, before despawns (Quantum's order). Entity events go to that view, every event also to global listeners (signals on `UnifiedSession`). | Odin callbacks | `_sim_event`, `_sim_event_cancelled` | bulk kinds: global routers only |
-| **Interpolation, teleports** | Odin computes every pose: lerp/nlerp of predicted−1 → predicted (both from the snapshot ring, which holds re-simulated states after a rollback), plus Quantum-style error correction (keep the last rendered pose, decay the offset, snap below a minimum, teleport above a distance), snap when `View.teleport` changes. Our own clock, not Godot's physics interpolation: the tick rate is nudged ±2% for time sync (`CORE.md`) and rollbacks rewrite history. | written to RS | written to `Node3D.transform` before `_sim_update` | both |
+| **Predicted events and cancellation** | Event buffer per tick stored with the snapshot ring; key = (type, tick, entity key, hashed fields); confirmed or cancelled when the tick is verified; `synced` only from verified. Dispatch after spawns (new views exist), before despawns (dying views still get them). Entity events go to that view, every event also to global listeners (signals on `UnifiedSession`). | Odin callbacks | `_sim_event`, `_sim_event_cancelled` | bulk kinds: global routers only |
+| **Interpolation, teleports** | Odin computes every pose: lerp/nlerp of predicted−1 → predicted (both from the snapshot ring, which holds re-simulated states after a rollback), plus error correction (keep the last rendered pose, decay the offset, snap below a minimum, teleport above a distance), snap when `View.teleport` changes. Our own clock, not Godot's physics interpolation: the tick rate is nudged ±2% for time sync (`CORE.md`) and rollbacks rewrite history. | written to RS | written to `Node3D.transform` before `_sim_update` | both |
 | **Determinism boundary** | The view API is read-only (`SimFrame` has no setters); the only way in is input and commands. In dev builds, checksum the state block before and after the view phase (one XXH3 over the block) to catch native writes. | needs that check most | GDScript cannot write at all | same |
 | **Editor preview** | | none, unless the extension draws in the editor | open `views/<kind>.tscn`; a `@tool` script can fake state | bulk resources preview as a mesh |
 | **1000+ entities** | | proven: ~1 ms CPU for 1300 instances (bench B) | unmeasured; GDScript `_sim_update` on 1000 nodes is probably several ms *(unverified)* | bulk path proven; scenes only for tens to low hundreds |
 
-Also worth copying later: Quantum's snapshot-interpolation mode (verified-only, delayed) for remote entities, view
-culling, and prediction culling. None are needed for 4 players in one level.
+Also worth adding later: a snapshot-interpolation mode (verified-only, delayed) for remote entities, view culling,
+and prediction culling. None are needed for 4 players in one level.
 
 ## 4. Recommendation
 
@@ -264,12 +226,12 @@ cancel fades, celebrations from verified state or synced events, loops from stat
 2. **Class registration in our Odin bindings** (1–2 weeks est.) is the price of B and C: `SimView`, `SimFrame` and
    virtuals need it. Accept it, or start with a push-only bridge (Odin sets properties and calls `Object.callp`, no
    GDScript→Odin calls) and register classes later?
-3. **Authoring: T2 (code/data-first, glTF/layout levels), T1 (Godot scenes baked, Quantum-like) or T3 (Godot level
+3. **Authoring: T2 (code/data-first, glTF/layout levels), T1 (Godot scenes baked) or T3 (Godot level
    scenes with markers only)?** I recommend T2, since OctoEscape's levels already come from scripts.
 4. **Spawn keys**: OK to require every spawn to carry a deterministic key (a few lines per spawn site, enforced by
    the spawn API), in exchange for no hijacking and no view churn?
-5. **Default bind and smoothing**: OctoEscape used NonVerified + Exponential decay everywhere. Keep that as the
-   default, with Verified for player characters as Quantum suggests?
+5. **Default bind and smoothing**: OctoEscape binds on predicted frames with exponential decay everywhere. Keep
+   that as the default, with Verified for player characters?
 6. **How much view logic in GDScript vs Odin?** The octopus rig (1,125 + rig lines today) is the test: GDScript for
    speed of iteration, or Odin for speed and the "one language" rule? (Research 07 suggested writing the rig ourselves,
    host-agnostic.)
@@ -278,24 +240,9 @@ cancel fades, celebrations from verified state or synced events, loops from stat
 
 ## Sources
 
-Quantum 3.1 manual (local mirror, URLs from each page's front matter):
-[entity view](https://doc.photonengine.com/quantum/v3/manual/entityview),
-[entity view component](https://doc.photonengine.com/quantum/v3/manual/entity-view-component),
-[frames](https://doc.photonengine.com/quantum/v3/manual/frames),
-[events and callbacks](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/game-events),
-[events vs polling](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/events-vs-polling),
-[EntityRef hijacking](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/entityref-hijacking),
-[mispredictions and entity views](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/mispredictions-and-entity-views),
-[entity prototypes](https://doc.photonengine.com/quantum/v3/manual/entity-prototypes),
-[materialization](https://doc.photonengine.com/quantum/v3/manual/materialization),
-[maps](https://doc.photonengine.com/quantum/v3/manual/maps/overview),
-[map baking](https://doc.photonengine.com/quantum/v3/manual/maps/map-baking),
-[assets in Unity](https://doc.photonengine.com/quantum/v3/manual/assets/assets-unity),
-[prediction culling](https://doc.photonengine.com/quantum/v3/manual/prediction-culling).
-SDK source read: `OctoEscape/Assets/Photon/Quantum/Runtime/QuantumEntityViewUpdater.cs` (`OnObservedGameUpdated`,
-`CreateViewIfNeeded`) and the enums in `QuantumUnityRuntime.cs`. OctoEscape: `docs/QUANTUM.md`,
-`docs/ai/architecture.md`, `docs/FEEL.md` §2.4, `docs/ai/decisions.md` 170–172, `Assets/Game/Scripts/Toys/ToyView.cs`,
-`Feedback/GameAudio.cs`, and a count of `QuantumEntityView` settings over every prefab and scene.
+OctoEscape: `docs/ai/architecture.md`, `docs/FEEL.md` §2.4, `docs/ai/decisions.md` 170–172,
+`Assets/Game/Scripts/Toys/ToyView.cs`, `Feedback/GameAudio.cs`, and a count of entity-view settings over every prefab
+and scene.
 
 Godot prior art:
 - netfox: [RollbackSynchronizer](https://foxssake.github.io/netfox/latest/netfox/nodes/rollback-synchronizer/)

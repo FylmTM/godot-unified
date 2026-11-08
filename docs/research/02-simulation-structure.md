@@ -9,9 +9,9 @@ the host Godot, so code sketches and ECS-library comparisons were cut (kept in g
 - **A small, purpose-built ECS-ish state store, independent of any host engine.** No off-the-shelf ECS for
   simulation state: every mainstream one (bevy_ecs, hecs, flecs, EnTT, shipyard) stores components in
   allocator-owned columns and snapshots by per-type clone or serialization. None gives "the whole state is one
-  pointer-free block", which is the project's key idea. Projects that took rollback seriously (bones, petek, massive,
-  Quantum) all built their own store. About 2–4k lines **(unverified estimate)**.
-- **Layout: Quantum's model.** Generational entity handles, one sparse-set table per component type, a globals block
+  pointer-free block", which is the project's key idea. Projects that took rollback seriously (bones, petek, massive)
+  all built their own store. About 2–4k lines **(unverified estimate)**.
+- **Layout: one frame.** Generational entity handles, one sparse-set table per component type, a globals block
   (tick, RNG, player slots), and an in-arena heap for the few dynamic collections. No pointers, no padding, no
   `usize`: state is plain bytes. A snapshot is a memcpy, a checksum is XXH3 over the bytes, late join sends the
   bytes, and a desync diff is a field-level byte diff driven by layout descriptors.
@@ -21,63 +21,29 @@ the host Godot, so code sketches and ECS-library comparisons were cut (kept in g
 - **Gameplay code is plain functions over typed queries in an explicit, ordered list.** The always-on **sync-test
   mode** catches what static checks miss.
 
-## Quantum's model: what it does, what to copy, what to drop
+## The frame model: what to keep, what to avoid
 
-What Quantum does (Quantum 3 manual):
+The model commercial rollback engines use: all mutable state lives in one frame (sparse-set component tables plus a
+heap for dynamic collections, as blittable structs), systems are stateless, and several frame copies sit in a ring
+sized by the rollback window, so a pointer into a frame is valid only within that frame.
 
-- **Frame = all mutable state.** "All gameplay data (game state) is kept either in the sparse-set ECS data
-  structures (entities and components) or in our custom heap-allocator (dynamic collections and custom data), as
-  blittable memory-aligned C# structs" ([intro](https://doc.photonengine.com/quantum/v3/quantum-intro)). Systems
-  must be stateless ([systems](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/systems)).
-- **Several frame copies in a ring.** "Quantum's rollback model maintains a variable sized frame buffer… several
-  copies of the game state data… are kept in memory blocks at separate locations", so any pointer is valid only
-  within one Frame ([systems](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/systems)). The ring size is
-  `RollbackWindow` ([config](https://doc.photonengine.com/quantum/v3/manual/config-files)). That copying a frame is a
-  block copy of component buffers plus heap pages is my reading of the SDK **(unverified)**.
-- **Sparse sets.** A filter walks the smallest component set and discards entities missing the others
-  ([components](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/components)). `EntityRef` = index plus a
-  version bumped when a slot is reused
-  ([API](https://doc-api.photonengine.com/en/quantum/v3/struct_quantum_1_1_entity_ref.html)). Singleton components
-  are enforced "deep in the core of the ECS data buffers".
-- **Frame heap.** `list<T>`, `dictionary<K,V>` and `hash_set<T>` are pointers into a paged heap
-  (`HeapPageShift` = 15, `HeapPageCount` = 256 by default, so 8 MB). They must be allocated and freed by hand or with
-  `[AllocateOnComponentAdded]` / `[FreeOnComponentRemoved]`. Forgetting to null a freed pointer "will result in
-  non-deterministic behavior", and a dictionary value pointer goes stale on growth
-  ([DSL](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/dsl)). The DSL reorders fields to avoid padding.
-- **Signals** are generated interfaces that systems implement: synchronous, decoupled calls between systems
-  ([DSL](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/dsl)).
-- **Events** fire from every (re)simulation. Duplicates are removed by a hash of event id, tick and fields
-  (`nothashed` excludes fields). Non-`synced` events are confirmed or cancelled once their frame is verified;
-  `synced` events dispatch only on verified input
-  ([events](https://doc.photonengine.com/quantum/v3/manual/quantum-ecs/game-events)).
-- **Commands** are serialized, polymorphic one-off messages that travel with a tick's input
-  ([commands](https://doc.photonengine.com/quantum/v3/manual/commands)). **Assets** are immutable `AssetObject`s
-  referenced by `AssetRef<T>` GUIDs from a DB outside the frame
-  ([assets](https://doc.photonengine.com/quantum/v3/manual/assets/assets-simulation)). The RNG session lives in the
-  frame ([RNG](https://doc.photonengine.com/quantum/v3/manual/rngsession)).
-- **Physics is in the frame and "stateless"**: the broadphase is rebuilt every tick, and CCD is speculative because
-  sweep CCD would be too expensive without persistent state
-  ([queries](https://doc.photonengine.com/quantum/v3/manual/physics/queries)).
-- **Prediction culling** runs only entities near the local player in predicted frames
-  ([culling](https://doc.photonengine.com/quantum/v3/manual/prediction-culling)). **Checksums** are sent every
-  `ChecksumInterval` ticks, and there is a costly cross-platform checksum mode
-  ([config](https://doc.photonengine.com/quantum/v3/manual/config-files)).
+**Keep:** the frame as the single source of truth; stateless systems; generational handles (index plus a version
+bumped when a slot is reused); sparse sets; the globals block and RNG in state; immutable assets by reference, outside
+the frame; the event model (hashed dedup, synced and non-synced, cancel on rollback); commands next to input;
+predicted, predicted-previous and verified frames for the view; periodic checksums; field packing.
 
-**Copy:** the frame as the single source of truth; stateless systems; generational handles; sparse sets; the
-globals block and RNG in state; immutable assets by reference; the event model (hashed dedup, synced and non-synced,
-cancel on rollback); commands next to input; predicted, predicted-previous and verified frames for the view;
-checksums; field packing.
+**Avoid:**
 
-**Drop or change:**
-
-- **The `.qtn` DSL and codegen.** Plain Odin structs plus compile-time checks replace it.
+- **A separate schema DSL and codegen.** Plain Odin structs plus compile-time checks replace it.
 - **Raw pointers into the frame.** Use handles.
-- **Manual heap free.** Prefer inline fixed collections. Where heap collections exist, the derive generates their
+- **A paged frame heap freed by hand.** A freed pointer left non-null breaks determinism, and a map value pointer goes
+  stale on growth. Prefer inline fixed collections. Where heap collections exist, the derive generates their
   free-on-remove step.
-- **The `SystemsConfig` asset.** OctoEscape's own notes say "an unregistered system silently never runs". Use a
-  compile-time list instead.
+- **Systems registered in a config asset.** OctoEscape's own notes say "an unregistered system silently never runs".
+  Use a compile-time list instead.
 - **Signal interfaces.** Plain function calls do the job.
-- **Stateless in-frame physics.** We want a mature external engine instead (with its own state problem, below).
+- **Stateless in-frame physics** (broadphase rebuilt every tick, speculative CCD only). We want a mature external
+  engine instead (with its own state problem, below).
 - **Prediction culling.** Not needed at 2–4 players and 1000 entities. Keep the hook.
 
 ## Why not an existing ECS
@@ -100,8 +66,8 @@ Frame (one 64-byte-aligned byte block, little-endian; Win x64 and macOS ARM are 
 ```
 
 - **Entity** = `{ index: u32, generation: u32 }`. `f.get::<T>(e)` returns `None` for a stale handle.
-- **Sparse sets, not archetypes.** Add and remove are O(1) with no row moves. A join walks the smallest table, as in
-  Quantum. At 1000+ entities, speed is not the constraint. Simplicity and determinism are. Each component type is
+- **Sparse sets, not archetypes.** Add and remove are O(1) with no row moves. A join walks the smallest table. At
+  1000+ entities, speed is not the constraint. Simplicity and determinism are. Each component type is
   one contiguous dense `[T]`: SoA across components, AoS within one.
 - **Deterministic order for free.** Dense order follows the history of operations (swap-remove included), and that
   history is part of the state. Iteration is therefore identical everywhere, with no sorting.
@@ -159,20 +125,18 @@ transforms. The view world is derived and disposable.
 ### How the view reads state
 
 - **Frames:** `predicted` (motion), `predicted_previous` (for interpolation), `verified` (scores, UI that must not
-  flicker), as in Quantum's [frames](https://doc.photonengine.com/quantum/v3/manual/frames). The view gets `&Frame`
-  only.
+  flicker). The view gets `&Frame` only.
 - **Interpolation:** render at `lerp(prev, curr, alpha)` with alpha taken from the tick accumulator. **Error
   correction:** when a rollback moves an entity's rendered pose, keep the old pose as an offset and decay it over
-  about 100–200 ms. Quantum's `PreviousUpdatePredicted` exists for this.
+  about 100–200 ms.
 - **Mapping:** `HashMap<Entity, ViewEntity>` plus the slot's `kind` and `origin` (a deterministic spawn key). This
-  avoids Quantum's documented **EntityRef hijacking**, where a rollback reassigns a handle to a different logical
-  entity ([doc](https://doc.photonengine.com/quantum/v3/concepts-and-patterns/entityref-hijacking)). Per kind: bind
+  avoids **handle hijacking**, where a rollback reassigns a handle to a different logical entity. Per kind: bind
   on predicted (responsive) or on verified (no false spawns).
 - **View-only state** (the procedural tentacle rig, hit-stop, smoothing) lives on the host's view entities, keyed by
   sim handle. It is never hashed, survives rollbacks, and is rebuilt if the view entity is recreated.
-- **Events:** a per-tick event buffer outside the arena, stored with the snapshot ring. The dispatcher uses
-  Quantum's rules: dedup by (tick, type, hash of non-`nothashed` fields), confirm or cancel on verification
-  (cancellable effects such as a sound can fade out), `synced` events only from verified ticks.
+- **Events:** a per-tick event buffer outside the arena, stored with the snapshot ring. The dispatcher
+  dedups by (tick, type, hash of the hashed fields), confirms or cancels on verification (cancellable effects such as
+  a sound can fade out), and fires synced events only from verified ticks.
 
 ## Risks and unknowns
 

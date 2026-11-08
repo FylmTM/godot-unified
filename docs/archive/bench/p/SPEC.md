@@ -50,7 +50,7 @@ covered by its effect on these values over time.
   exist, restore the snapshot from W ticks ago, re-simulate W ticks with the recorded inputs, and require the hash at
   every re-simulated tick to equal the forward hash recorded for that tick. Print mismatches (first tick and count)
   and exit non-zero if any. **Must be 0 over 3600 ticks.**
-- `--cost --window W [--bodies 300|1000]`: Quantum-shaped rollback cost. Each tick:
+- `--cost --window W [--bodies 300|1000]`: full-rollback cost. Each tick:
   1. save the physics state (and the state block)
   2. restore to W ticks back
   3. re-simulate W ticks

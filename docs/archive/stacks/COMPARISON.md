@@ -27,7 +27,7 @@ the real choice is among four families:
    and the language and its ecosystem are young.
 
 In every Godot family, the sim stays a separate core that Godot only reads (doc 02). That's a thinner bridge than
-Unity + Quantum (no codegen, no map baking if levels come from glTF). But it's still two object models, and Godot
+OctoEscape's Unity one (no codegen, no map baking if levels come from glTF). But it's still two object models, and Godot
 brings its `.godot/` import cache per worktree and lightmap baking that only runs in the editor (doc 03).
 
 ## Scorecards side by side (each researcher scored their own stack; 5 = best)
@@ -84,13 +84,13 @@ ecosystem and maturity first and C++/C# pull further ahead.
 |---|---|---|---|
 | Build speed, worktrees | **Odin** | No cache needed; a full build is seconds | C# (no native compile), C++ with discipline |
 | C library interop | **Zig**, **C++** | Zig's build compiles C/C++ from source; C++ is native | Odin (much of our list is officially vendored) |
-| State block and reflection | **Zig** (comptime), **C#** (source generators + Quantum precedent) | The compiler checks layout, the registry is cheap | Odin (RTTI + tags), Rust (bytemuck + derive) |
+| State block and reflection | **Zig** (comptime), **C#** (source generators + commercial precedent) | The compiler checks layout, the registry is cheap | Odin (RTTI + tags), Rust (bytemuck + derive) |
 | Determinism | Rust, Zig, C++ (tie) | No implicit FMA contraction, or one flag set covering everything | Odin and C# have specific traps (Odin `matrix` FMA on arm64 and libm in `core:math`; no spec guarantee for C#) |
 | Safety vs agent bugs | **Rust** | Memory errors don't compile | C# (managed) |
 | Rendering, physics, net, UI | **C++** | Everything native | C# (official Godot, EOS, FMOD SDKs), Rust (Bevy, Rapier, egui) |
 | Stability and maturity | **C++**, **C#** | Standards and big vendors | Rust (language yes, Bevy no) |
 | Agent fluency | **C#** | Largest stable corpus | C++, Rust |
-| Reusing OctoEscape | **C#** | ~22k lines of Quantum sim code port behind a facade | — (all others rewrite) |
+| Reusing OctoEscape | **C#** | ~22k lines of C# sim code port behind a facade | — (all others rewrite) |
 | "Unified": one language, no bridge | **Rust + Bevy** | Sim, view and tools in one Cargo workspace | — (all others go through Godot) |
 
 ## Each family in one paragraph
@@ -101,7 +101,7 @@ relink only with dynamic linking, no good cross-worktree cache yet. And it pays 
 we'd write (EOS, LibGodot). Pick it if "unified" and safety are worth slower builds.
 
 **C# + Godot.** The pragmatic pick: fast iteration with no native builds, the best agent fluency, official SDKs, a
-proven Godot host, and the only stack where your Quantum code moves over largely intact. Its one technical
+proven Godot host, and the only stack where your C# sim code moves over largely intact. Its one technical
 question is the big one: **no published result shows .NET floats identical across x64 and ARM64.** That takes a
 day to test on your Mac plus your Windows PC, and it decides the family. Pick it if the test passes and a Godot
 bridge is acceptable.

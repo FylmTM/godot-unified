@@ -1,7 +1,7 @@
 # 09: Prior art
 
 Projects, talks and write-ups that docs 01–08 didn't cover, and what they teach us (2026-11-07). Topics
-those docs already handle (GGRS, Quantum's defaults, Box3D/Jolt determinism, Bevy Remote Protocol, Godot MCP
+those docs already handle (GGRS, relay defaults, Box3D/Jolt determinism, Bevy Remote Protocol, Godot MCP
 bridges, Factorio's CRC, AoE/StarCraft lockstep, Overwatch/For Honor) are only cross-referenced here. Claims I
 couldn't check against a primary source are marked *(unverified)*. Where I read source code, I say so.
 
@@ -9,8 +9,8 @@ couldn't check against a primary source are marked *(unverified)*. Where I read 
 
 1. **Every shipped 3D rigid-body game with rollback heals with authoritative state rather than trusting
    determinism alone.** Rocket League, Roblox Server Authority (2026), Unreal Chaos resimulation, SnapNet (Rivals 2),
-   PurrNet and Teardown all correct clients from server state. Quantum is the exception, and it pays with
-   fixed-point physics written in-house. → **For unified:** keep input-only determinism as the model, but give the
+   PurrNet and Teardown all correct clients from server state. The exceptions pay with fixed-point physics
+   written in-house. → **For unified:** keep input-only determinism as the model, but give the
    relay a *heal* path: on a checksum mismatch, the host sends the zstd state block (the late-join payload we already
    plan) and the client re-bases. A cross-architecture float bug then costs a hitch, not a dead session. PurrNet ships
    exactly this as `DesyncPolicy.Resync`.
@@ -23,9 +23,10 @@ couldn't check against a primary source are marked *(unverified)*. Where I read 
    between Windows versions. → Add a **cold-vs-warm replay test** to CI: replay the same input log in a fresh process
    and in a long-lived process (after rollbacks, hot reloads and level reloads), and compare per-tick hashes.
 4. **Several clients in one process only works if it's designed in from day one.** Teardown built "multiple game
-   instances in one process" for debugging and dropped it because of "historical design choices". Photon Fusion's
-   Multi-Peer Mode warns that "statics and singletons will run into conflicts". → Lint-ban mutable statics/globals in
-   sim and net code. Everything hangs off a `Session` value. Test with 4 sessions in one process (phase 2 does).
+   instances in one process" for debugging and dropped it because of "historical design choices". A commercial
+   netcode SDK's multi-peer mode warns that static and singleton state breaks when several peers share a process.
+   → Lint-ban mutable statics/globals in sim and net code. Everything hangs off a `Session` value. Test with 4
+   sessions in one process (phase 2 does).
 5. **Split determinism domains when one piece is too big to sync.** Teardown's destruction is a deterministic stream
    of fixed-point commands ("cut hole at voxel x,y,z"), while transforms are prioritized state sync within about
    1 Mbit per client. → If a future system (voxels, huge swarms) won't fit our rollback budget, it can run as a
@@ -72,7 +73,7 @@ PurrNet is an MIT Unity networking library. Its prediction layer is a separate r
   approximation**, with a max absolute error I computed at 0.0016, and `Cos(x) = Sin(x + π/2)`. There are vector and
   quaternion types too (`SVec2/3/4`, `SQuat`).
 - **`FP`** (`FixedPoint/FP.cs`): a `long` in **Q32.32** (`MathFP.Shift = 32`). The licence is FixPointCS (Jere
-  Sanisalo, Petri Kero). As in Quantum, the implicit `float → FP` conversion deliberately throws.
+  Sanisalo, Petri Kero). The implicit `float → FP` conversion deliberately throws.
 
 **How determinism is achieved.** By construction: sim math is integer-only, so neither RyuJIT, IL2CPP nor the CPU
 can change results. The rules come from the docs: `float` only in `UpdateView`, `PredictedTime`/`PredictedRandom`
@@ -120,12 +121,11 @@ hash should be 64-bit.
   and flycast's arm64 dynarec desyncs from x86_64 ([issue](https://github.com/inada-s/flycast/issues/370)). Both are
   native or emulator cases, not .NET. It stays a measure-it item.
 - **Fixed-point libraries:** [FixedMath.Net](https://github.com/asik/FixedMath.Net) (Q31.32, old), [FixedMathSharp](https://www.nuget.org/packages/FixedMathSharp/7.0.0)
-  (Q32.32, active on NuGet), FixPointCS (inside PurrDiction), and Quantum `FP` (Q48.16, 01). Q32.32 is the common
+  (Q32.32, active on NuGet), FixPointCS (inside PurrDiction), and commercial Q48.16 (01). Q32.32 is the common
   choice when you need range.
 - **Netick** (free, server-authoritative state sync) runs several "sandboxes", servers and clients, in one Unity
-  process ([docs](https://netick.gitbook.io/v1/core-concepts)). **Fusion** has the same in Multi-Peer Mode
-  ([docs](https://doc.photonengine.com/fusion/v2/manual/testing-and-tooling/multipeer)). Neither requires
-  determinism.
+  process ([docs](https://netick.gitbook.io/v1/core-concepts)). A commercial state-sync SDK has the same in
+  a multi-peer mode. Neither requires determinism.
 - **SnapNet** "Strict determinism not required": server-authoritative prediction plus rollback for gameplay and rigid
   bodies, as plugins for Unreal and Unity ([site](https://www.snapnet.dev/)). Its default budget is up to 50 ms
   covered by input delay (3 frames), then up to 100 ms by prediction (6 frames)
@@ -138,8 +138,8 @@ hash should be 64-bit.
 - **Lightyear 0.31** (Bevy 0.20, [repo](https://github.com/cBournhonesque/lightyear)). Server-authoritative
   prediction, interpolation and lag compensation. It also offers **deterministic input-only replication**,
   "compatible with both lockstep and prediction/rollback", plus host-client mode and Steam/WebTransport via `aeronet`.
-  Whether its deterministic mode has the *server* stamp inputs the way Quantum does is *unverified*. Worth reading its input
-  buffer and transport code.
+  Whether its deterministic mode has the *server* stamp inputs, as our relay does, is *unverified*.
+  Worth reading its input buffer and transport code.
 - **bones / Fish Folk Jumpy** ([networking doc](https://docs.rs/crate/bones_framework/latest/source/src/networking.md)).
   A "Game" of "Sessions", each with its own ECS world, built so it can be snapshotted. P2P GGRS over pluggable
   matchmaker sockets (online, LAN), and `--sync-test-check-distance 7` for local rollback testing. The lesson is the
@@ -254,8 +254,8 @@ hash should be 64-bit.
 | **Kimbatt deterministic Unity Physics** | DOTS Physics on soft floats | n/a | A whole float physics engine *can* be mechanically ported to soft float. No perf numbers, 4 commits |
 
 **The pattern:** nobody we found ships input-only, cross-architecture-deterministic, float rigid-body physics inside
-rollback. Quantum does it with fixed point; Box3D and Jolt claim it in CI. That keeps physics determinism the project's biggest
-risk, and it's why TL;DR #1 (heal by state) is the insurance.
+rollback. Fixed-point engines do it with integers; Box3D and Jolt claim it in CI. That keeps physics determinism the
+project's biggest risk, and it's why TL;DR #1 (heal by state) is the insurance.
 
 ## 5. AI-agent-first game development
 
@@ -293,18 +293,18 @@ risk, and it's why TL;DR #1 (heal by state) is the insurance.
    Release builds default to resync, dev builds to report + dump (PurrNet).
 2. **An input-redundancy window with a full-state cliff** (PurrNet: 32 ticks). It merges our planned redundant
    inputs and late join into one mechanism.
-3. **Tick-salted, 64-bit hashes of verified ticks only**, so latency never causes false positives (PurrNet, Quantum).
+3. **Tick-salted, 64-bit hashes of verified ticks only**, so latency never causes false positives (PurrNet).
 4. **Typed mismatch reports** (MISSING / EXTRA / REORDER / DIFFERENT) per table, plus offline replay of the two
    peers' logs (snopek).
 5. **A cold-vs-warm replay CI job** (bones, Riot).
-6. **No mutable statics** in sim/net, enforced by lint, and N sessions per process from day one (Teardown, Fusion).
+6. **No mutable statics** in sim/net, enforced by lint, and N sessions per process from day one (Teardown, Netick).
 7. **Loop mode** on the timeline: snapshot at A plus an A→B input loop while tuning hot-reloads (Handmade Hero).
 8. **Reverse step** in the agent API: restore the nearest snapshot and resim to T−1 (Tomorrow Corp).
 9. **An op log** (object, field, old, new) for editor and agent edits, separate from sim state (The Machinery).
 10. **A physics CI canary** à la Box2D (the step at which everything sleeps, plus a transform hash) next to the
     per-tick trace. **Jolt-style "check determinism"** (save, step, restore, step, compare) inside the physics seam.
 11. **Physics events deduped by (tick, contact key)**, with gameplay consequences only from verified ticks (PurrNet,
-    Quantum's synced events).
+    synced events).
 12. **Agent harness rules:** turn caps, identical-call loop detection, a script endpoint with asserts, pass only on
     sim-state evidence, and instructive errors (Roblox, FLE, forge).
 13. **A layout hash in snapshot headers** to choose between state-keeping hot reload and restart + replay (Zylinski).
@@ -317,7 +317,7 @@ risk, and it's why TL;DR #1 (heal by state) is the insurance.
   what it checksums (08).
 - **Pointer- or address-keyed ordering** that changes with the OS allocator (Riot), and **dangling pointers into
   reused memory** (Demigod).
-- **Globals and singletons** blocking multi-instance testing (Teardown abandoned it; Fusion warns).
+- **Globals and singletons** blocking multi-instance testing (Teardown abandoned it; a commercial SDK warns).
 - **Soft float that isn't correctly rounded**: deterministic but incompatible with hardware floats, so one stray
   `float` desyncs. Fast trig approximations like Bhaskara (about 0.0016 error) leak into gameplay feel.
 - **Physics restore that ignores structural changes** (Jolt `RestoreState`, Box2D internal state). Bodies created or

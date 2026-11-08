@@ -1,7 +1,7 @@
 # src: how the code works
 
 The `unified` collection: the phase-2 core of `spec/CORE.md` (deterministic sim, snapshot ring, checksums,
-sync-test, replay, Quantum-style relay netcode) with the survivor-lite test game of `spec/GAME.md`. Commands and
+sync-test, replay, input-relay netcode) with the survivor-lite test game of `spec/GAME.md`. Commands and
 toolchain: [`../README.md`](../README.md). Phase-2 measurements (build times, T9, lines of code): `docs/archive/PHASE2.md`.
 
 ## Packages

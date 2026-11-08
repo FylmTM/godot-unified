@@ -4,11 +4,10 @@ Research date: 2026-11-07. Desk research only: nothing was installed or built. *
 memory or from one secondary source. **[estimate]** marks my own extrapolation, which a spike has to confirm. This doc
 argues for C#'s best realistic setup and is just as direct about its problems.
 
-**One-paragraph pitch.** C# is the language in which the design `unified` wants already exists and ships: Photon
-Quantum is a C# simulation over an unmanaged frame heap of blittable structs, with code generation and memcpy-style
-frame copies ([Quantum `Heap` API](https://doc-api.photonengine.com/en/quantum/current/struct_quantum_1_1_allocator_1_1_heap.html)).
-OctoEscape's ~25k lines of Quantum simulation code are C# today, and they already build and test headless under plain
-.NET outside Unity (`OctoEscape/docs/QUANTUM.md`, "Headless simulation"). The price is a float-determinism story that
+**One-paragraph pitch.** C# is the language in which the design `unified` wants already exists and ships:
+commercial deterministic engines run C# simulations over an unmanaged frame heap of blittable structs, with code
+generation and memcpy-style frame copies. OctoEscape's ~25k lines of simulation code are C# today, and they already
+build and test headless under plain .NET outside Unity. The price is a float-determinism story that
 rests on maintainer statements and CI rather than on a language spec, and a native renderer (Godot) reached across a
 managed/native seam.
 
@@ -18,7 +17,7 @@ managed/native seam.
 |---|---|---|
 | Language / toolchain | **.NET 10 LTS** (Nov 2025, supported to Nov 2028, [SD Times](https://sdtimes.com/msft/microsoft-announces-release-of-net-10-lts/)), C# 14, SDK pinned in `global.json` | .NET 11 (STS) is due this month **[unverified date]**. Stay on the LTS and move up deliberately. |
 | Runtime | CoreCLR JIT for dev and tests; **self-contained** publish for players (pins the exact runtime, so every peer runs the same JIT); NativeAOT as a later option for shipping | See §4 on the JIT-vs-AOT determinism trap |
-| Sim state store | Own Quantum-shaped store: one `NativeMemory.AllocZeroed` block, component tables of `where T : unmanaged` structs, generational handles, `[InlineArray]` fixed-capacity collections, a source generator for the type registry | ~2–4k lines, as estimated in doc 02 |
+| Sim state store | Own arena store: one `NativeMemory.AllocZeroed` block, component tables of `where T : unmanaged` structs, generational handles, `[InlineArray]` fixed-capacity collections, a source generator for the type registry | ~2–4k lines, as estimated in doc 02 |
 | Math | Own `float`-based `Vec3`/`Quat`/`Mat` types (scalar, no `Vector<T>`), trig from **CoreMathSharp** (managed CORE-MATH port, correctly rounded, [NuGet](https://www.nuget.org/packages/AndanteSoft.CoreMathSharp)) or our own polynomials | `System.Numerics` and `Math.Sin` banned in the sim |
 | Physics | **Jolt** through **JoltPhysicsSharp** (2.22, Jul 2026, net9/net10, [nubrowse](https://nubrowse.com/packages/JoltPhysicsSharp)), with our own native build of `joltc` using `CROSS_PLATFORM_DETERMINISTIC`. Race **Box3D** through the [Box3D](https://www.nuget.org/packages/Box3D) NuGet (tracks upstream, dated builds to 2026-07-30) | BepuPhysics2 is pure C# but only same-machine deterministic (§6) |
 | Host / renderer | **Godot 4.7 .NET** (official GodotSharp). Godot owns the process; sim and net are plain .NET class libraries that never reference GodotSharp. N clients = N sims + N `SubViewport`s | Fallbacks: **Stride 4.4** (all-C#), or Godot hosted from C# through LibGodot (the `2dog` project), if that matures |
@@ -151,7 +150,7 @@ keeping it in sync with the binding. C++-only libraries need a C shim, as in eve
 - **Native libs** follow the C/C++ rules: `-ffp-contract=off` for Box3D (its CMake already does) and Jolt's
   cross-platform-deterministic build. Assert MXCSR/FPCR after foreign calls (doc 01).
 - **Known results:** I found **no published cross-architecture float lockstep result for CoreCLR**. Most C# lockstep
-  games use fixed point (Quantum's `FP`, FixedMath.Net). That's the biggest open question for this stack, and the
+  games use fixed point (commercial SDKs, FixedMath.Net). That's the biggest open question for this stack, and the
   determinism spike answers it.
 
 **Memory model: the best fit of any managed language, and arguably a natural fit.**
@@ -159,14 +158,14 @@ keeping it in sync with the binding. C++-only libraries need a C shim, as in eve
 - `NativeMemory.AllocZeroed` / `AlignedAlloc` give one GC-invisible block. `where T : unmanaged` makes it a
   **compile error** to put a `class`, `string`, array or `List<T>` in a component, so no managed references can leak
   into sim state. `[InlineArray(N)]` (C# 12) gives fixed inline buffers. Snapshot = `Buffer.MemoryCopy` / `Span.CopyTo`.
-  Checksum = `XxHash3` over the span. Quantum ships exactly this model.
+  Checksum = `XxHash3` over the span. Commercial engines ship exactly this model.
 - **Gaps the compiler doesn't cover:** `unmanaged` still allows raw pointers (`T*`) and implicit padding. Add a small
   Roslyn analyzer (cheap, in-repo) that bans pointer fields in components and requires `sizeof(T)` to equal the sum of
   the fields. Padding bytes would otherwise make checksums depend on stack garbage. Locals are zero-initialized by
   default, which helps but isn't a guarantee for padding.
-- **Access style:** the store hands out `ref T` (safe syntax, no `unsafe` in gameplay code) instead of Quantum's raw
-  `T*` (OctoEscape's sim has ~290 `unsafe` lines). A `ref` into a table that reallocates during a structural change
-  dangles silently: no borrow checker. Mitigations: fixed-capacity tables (allocated once in the block, which a
+- **Access style:** the store hands out `ref T` (safe syntax, no `unsafe` in gameplay code) instead of raw `T*`
+  pointers (OctoEscape's sim has ~290 `unsafe` lines). A `ref` into a table that reallocates during a structural
+  change dangles silently: no borrow checker. Mitigations: fixed-capacity tables (allocated once in the block, which a
   snapshot design wants anyway), deferred structural changes (command buffers applied between systems), and a debug
   mode that validates generations on every access.
 - **Agent bugs.** Managed code is memory-safe, with bounds-checked arrays and spans, null-reference warnings,
@@ -182,9 +181,9 @@ C# has both halves, and both are cheap.
   walk fields, read values from a `Span<byte>` at an offset, show them. Dev tools can lean on it without writing any
   code generation.
 - **Incremental source generators** produce an AOT-safe type registry at compile time: component IDs, field offsets
-  and types, serializers, bit-packed input/protocol schemas, inspector metadata. That replaces Quantum's `.qtn` DSL
+  and types, serializers, bit-packed input/protocol schemas, inspector metadata. That replaces a separate schema DSL
   with plain `partial struct`s and attributes. The developer keeps C# as the only source of truth, which fixes one of
-  CONTEXT.md's Quantum complaints.
+  CONTEXT.md's complaints about the current SDK.
 - **Roslyn analyzers** enforce sim rules at compile time (banned APIs, no pointer fields, no padding, no allocations in
   systems). This is a real, underrated advantage: agent mistakes become red squiggles in the IDE and errors in CI.
 - **Build cost:** a well-written incremental generator adds milliseconds per build. A badly written one (one that
@@ -237,7 +236,8 @@ C# has both halves, and both are cheap.
   are each one or two people. Godot's C# module is a small team inside Godot. Its long-planned move to GDExtension has
   been "future" since 2023 ([GameFromScratch](https://gamefromscratch.com/the-future-of-c-in-godot/)).
 - **Shipped games:** an enormous set through Unity (Mono/IL2CPP), plus *Slay the Spire 2* (Godot C#), s&box,
-  FNA/MonoGame titles (*Celeste*, *Stardew Valley* **[unverified which runtime each ships]**), and Quantum titles.
+  FNA/MonoGame titles (*Celeste*, *Stardew Valley* **[unverified which runtime each ships]**), and commercial
+  deterministic-netcode titles.
   Unity itself is migrating to CoreCLR (6.x→7.0 timeline in flux,
   [Ocean View Games](https://oceanviewgames.co.uk/blog/posts/unity-path-to-coreclr)), which grows the modern-.NET game
   community.
@@ -256,7 +256,7 @@ C# has both halves, and both are cheap.
   rarely write stale APIs. Two caveats. (1) Agents default to idiomatic *enterprise* C# (classes, LINQ, `List<T>`,
   allocations) and to **Unity-isms** (MonoBehaviour habits, `UnityEngine.Mathf`). The analyzers above catch most of it.
   (2) Godot's C# API is less common in training data than GDScript, and Godot 3→4 API drift confuses agents
-  **[unverified magnitude]**. The 25k lines of Quantum-style gameplay in OctoEscape serve as an in-repo style guide that
+  **[unverified magnitude]**. The 25k lines of rollback gameplay in OctoEscape serve as an in-repo style guide that
   no other stack has.
 - **Small things that help agents:** `dotnet run app.cs` file-based scripts (.NET 10) for tools, one CLI for build,
   test, format and publish, and portable IL builds (build on any OS, run on any OS).
@@ -276,22 +276,23 @@ C# has both halves, and both are cheap.
 ## 10. Feasibility for unified
 
 **What C# makes easy**
-- **The port.** OctoEscape's sim is ~22k lines of hand-written C# (~25k with QuantumUser): ~1,300 lines touch `FP`,
-  ~1,100 `FPVector3`, ~730 `EntityRef`, ~120 `GetPointer`, and only ~90 touch Quantum's 3D physics/KCC (grep counts).
-  A clean-room **Quantum-shaped facade** (`Frame`, `EntityRef`, filters, signals, events, and an `FP` that wraps
-  `float` with the same operators) lets most gameplay move with mechanical edits instead of a rewrite. No other stack
-  can reuse that code. The view's ~33k lines mostly need rewriting for Godot regardless (MonoBehaviour→Node), but its
+- **The port.** OctoEscape's sim is ~22k lines of hand-written C# (~25k in all): ~1,300 lines touch the fixed-point
+  scalar, ~1,100 the fixed-point vector, ~730 entity refs, ~120 raw component pointers, and only ~90 touch the SDK's
+  3D physics/KCC (grep counts). A clean-room **facade** with the same shapes (frame, entity refs, filters, signals,
+  events, and a fixed-point type that wraps `float` with the same operators) lets most gameplay move with mechanical
+  edits instead of a rewrite. No other stack can reuse that code. The view's ~33k lines mostly need rewriting for Godot regardless (MonoBehaviour→Node), but its
   pure logic (rig math, camera, procedural animation) moves over as C#.
-- **The arena design**, enforced by `unmanaged` and analyzers, with a production precedent (Quantum).
+- **The arena design**, enforced by `unmanaged` and analyzers, with a production precedent (commercial C#
+  deterministic engines).
 - **Dev tools and the agent API**: reflection, source generators, an MCP SDK, Unix sockets, JSON source gen.
 - **Fast inner loop with no native builds per worktree**, plus hot reload where it's cheap.
 - **Platform SDKs**: official EOS C#, mature Steamworks.NET, official FMOD C#, and the clearest console path.
 
 **What C# makes hard**
 - **Float determinism without a contract**: we own the proof (analyzers + cross-arch CI from day one).
-- **Two worlds again**: a managed sim and a native C++ renderer that owns the process. That's thinner than Unity +
-  Quantum (no bridge codegen, no baking, sim never references Godot), but still a seam with marshaling and GC on the
-  view side. The view has to watch allocations to avoid Gen0 hitches. The sim allocates nothing.
+- **Two worlds again**: a managed sim and a native C++ renderer that owns the process. That's thinner than OctoEscape's
+  Unity bridge (no bridge codegen, no baking, sim never references Godot), but still a seam with marshaling and GC on
+  the view side. The view has to watch allocations to avoid Gen0 hitches. The sim allocates nothing.
 - **Native dependency packaging**: every C library = binding + three native binaries + flags we control. NuGet natives
   usually aren't built with determinism flags, so we maintain a small CMake "natives" pipeline.
 - **Godot as host is editor-shaped** (import cache per worktree, editor-only lightmap bake, one instance per
@@ -300,12 +301,12 @@ C# has both halves, and both are cheap.
 **Work we own that other stacks get for free:** the native build pipeline for Jolt/Box3D (the Zig and C++ stacks get
 it from their build systems), Rapier bindings (Rust gets it natively), our own scalar math types (Rust has glam's
 scalar mode), and determinism analyzers.
-**Work other stacks own that C# gets free:** the Quantum-shaped gameplay code, the type registry (reflection), Steam
+**Work other stacks own that C# gets free:** OctoEscape's gameplay code, the type registry (reflection), Steam
 and EOS SDKs, a console path, hot reload, and fast per-worktree builds.
 
 **Biggest risks**
 1. CoreCLR float equality across x64/ARM64 is unproven publicly. Spike 1 must run C# sim + Jolt on mac and Windows
-   and compare per-tick hashes. If it fails, a fallback exists (a port of Quantum's `FP`), but physics would stay
+   and compare per-tick hashes. If it fails, a fallback exists (a fixed-point port), but physics would stay
    float, so the mix gets awkward.
 2. Godot host friction (process ownership, `.godot/` cache, GodotSharp allocations, .NET 8 baseline) could eat the
    build-speed advantage. Stride or LibGodot-from-C# (`2dog`) are the outs.
@@ -322,7 +323,7 @@ and EOS SDKs, a console path, hot reload, and fast per-worktree builds.
 | Worktree parallelism | 4 | Shared NuGet cache and compiler server, tiny `obj/`. The Godot `.godot/` import cache per worktree is the main duplicate |
 | C/C++ interop | 4 | LibraryImport/ClangSharp are good, many official/active bindings. Per-RID native packaging and our own flagged builds are ongoing chores |
 | Determinism control | 3 | RyuJIT doesn't contract (maintainer stance), but there's no spec or flag. JIT codegen is per-CPU, and BCL traps need banning. Unproven cross-arch publicly |
-| Arena / snapshot fit | 4 | `unmanaged` constraint + NativeMemory + Quantum precedent. Pointers/padding need an analyzer, and `ref`s can dangle |
+| Arena / snapshot fit | 4 | `unmanaged` constraint + NativeMemory + commercial precedent. Pointers/padding need an analyzer, and `ref`s can dangle |
 | Safety vs agent bugs | 4 | Managed code is memory-safe with good exceptions and analyzers. The small unsafe store core has no borrow checker |
 | Reflection / metaprogramming | 5 | Runtime reflection for dev tools plus incremental source generators and analyzers, all cheap |
 | Rendering host options | 4 | Official, proven Godot C# and an all-C# Stride. No Bevy/Filament. LibGodot-from-C# is immature |

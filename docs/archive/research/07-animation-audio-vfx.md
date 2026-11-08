@@ -13,15 +13,15 @@ Claims marked **(unverified)** were not confirmed from a primary source during t
   host-agnostic Rust crate); don't depend on any engine's IK.
 - **Keep gameplay timing in the sim, in ticks.** The game already does this (`SlapHitTime`, `SlapArea` arcs): "the
   simulation decides, the rig sells it". Avoid root motion and animation-driven hitboxes. If they are ever needed,
-  copy Quantum: pull data out of the clips into sim assets and sample them by tick.
+  bake them: pull data out of the clips into sim assets and sample them by tick.
 - **Audio**: no middleware. On **Bevy**, use **bevy_seedling (Firewheel)**, with **bevy_kira_audio** as the
   conservative fallback. Don't use plain `bevy_audio` (no buses or effects). On **Godot**, the built-in audio
   (buses, `AudioStreamRandomizer`, `AudioStreamInteractive`, Area reverb) is enough. FMOD is free at this scale
   but closed source, GUI-authored, and only reachable from Rust through community bindings: not worth it now.
 - **Rollback sound**: put it in the engine, not the host. Fire feedback on predicted events, deduplicate by
   (type, entity, tick, hashed fields), and on cancel fade out over a few ms. Celebrations play from verified
-  events. Loops come from state, not events. This is Quantum's model, and it works with any audio library that has
-  voice handles, stop-with-fade and a start offset.
+  events. Loops come from state, not events. This works with any audio library that has voice handles,
+  stop-with-fade and a start offset.
 - **VFX**: on **Godot**, `GPUParticles3D` + `ParticleProcessMaterial` + flipbooks + shader materials. On **Bevy**,
   `bevy_hanabi` works but is "under heavy development". FEEL.md caps a frequent hit at about 20–30 particles, so a
   small in-house CPU particle and mesh-effect layer (instanced, defined in code or text) is a credible alternative
@@ -94,13 +94,10 @@ Root motion, ragdolls, retargeting and motion matching are not needed.
 
 ### Animation-driven gameplay under rollback
 
-Quantum bakes Unity Mecanim controllers (states, transitions, clips) into deterministic assets. Under
-predict/rollback, animations "snap to the correct state and clip time". Hierarchical states are not supported
-([Quantum Animator addon 3.0.13](https://doc.photonengine.com/quantum/v3/addons/animator/overview)). Its sample
-extends the baker to sample specific bones from clips for sword hitboxes and runs root motion inside the movement
-system ([Quantum Animator sample](https://doc.photonengine.com/quantum/current/technical-samples/quantum-animator-sample/project-architecture)).
-That is real cost: a baker, fixed-point curve sampling, and a second animation state machine in the sim. For
-`unified`:
+The full answer is to bake animation controllers (states, transitions, clips) into deterministic sim assets, so
+under predict/rollback animations snap to the correct state and clip time. Bones sampled from clips can then drive
+hitboxes, and root motion can run inside the movement system. That is real cost: a baker, fixed-point curve
+sampling, and a second animation state machine in the sim. For `unified`:
 
 1. **Default**: gameplay timing is tick constants and simple shapes in the sim (as today). The view poses to match:
    the slap's swing "runs ahead so the lagging tip arrives on time". No clips in the sim.
@@ -186,14 +183,14 @@ FEEL.md §6 rule except the 50 ms merge and priority stealing, which are small c
 
 ## Rollback considerations
 
-Quantum's model ([game events](https://doc.photonengine.com/quantum/current/manual/quantum-ecs/game-events)):
+The usual model for sim events under rollback:
 - events fire from predicted frames
-- duplicates from re-simulation are suppressed by hashing event id, tick and fields (`nothashed` excludes jittery
-  fields like positions)
-- each predicted event is later **confirmed or cancelled** (`CallbackEventConfirmed` / `CallbackEventCanceled`)
-- `synced` events fire only on verified frames: no false positives, some latency
+- duplicates from re-simulation are suppressed by hashing event id, tick and fields (jittery fields
+  like positions are left out)
+- each predicted event is later **confirmed or cancelled**
+- synced events fire only on verified frames: no false positives, some latency
 
-OctoEscape already uses it this way (QUANTUM.md, FEEL §2.4).
+OctoEscape already uses it this way (FEEL §2.4).
 
 For `unified`, this belongs in the engine core, host-agnostic:
 

@@ -1,6 +1,6 @@
 # unified core: spec (phase 2)
 
-Goal: prove we can build the `unified` core, a deterministic simulation plus Quantum-style rollback netcode, that is
+Goal: prove we can build the `unified` core, a deterministic simulation plus relay-stamped rollback netcode, that is
 bit-identical across platforms. It was built headless (no Godot) in C++, Odin and Rust; Odin was chosen (comparison:
 `docs/archive/`). The code is `src/` and the harness `tools/check.py`. This spec stays the contract for that code and
 for T1–T9 until the module specs replace it.
@@ -32,7 +32,7 @@ commands: `README.md`.
 - **Sync-test:** every tick, save; once W ticks exist, restore W ticks back, re-simulate W ticks with the recorded
   inputs, and compare each tick's checksum to the forward one. Mismatches are fatal.
 
-## 2. Netcode (Quantum-style input relay)
+## 2. Netcode (input relay)
 
 - **Relay:** owns the tick clock (60 Hz, monotonic time). It collects inputs that clients send stamped with their
   target tick, and **finalizes tick T** when all connected players' inputs for T have arrived or the hard tolerance

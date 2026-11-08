@@ -10,7 +10,7 @@ locally, Linux x64 and Windows x64 in CI (run 42492702833, all green), and x86_6
 The core proved out:
 - deterministic simulation with Box3D physics inside the snapshot
 - sync-test, and replay of the relay's official input log
-- a Quantum-style relay with prediction, rollback, adaptive input delay and time sync
+- an input relay with prediction, rollback, adaptive input delay and time sync
 - multi-process UDP, and late join
 - **snapshots made on macOS ARM64 restore bit-exactly on Linux x64 and Windows x64** (T8 in all languages)
 

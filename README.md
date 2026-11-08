@@ -2,7 +2,7 @@
 
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 Godot as the host. Fixed-tick deterministic sim, Box3D physics with a save/restore fork, snapshots, checksums,
-sync-test, replays, and a Photon-Quantum-style input relay with prediction, rollback and late join. Rules for
+sync-test, replays, and an input relay with prediction, rollback and late join. Rules for
 working on it: [`AGENTS.md`](AGENTS.md). Plan, decisions and current work:
 [`docs/WORK.md`](docs/WORK.md). Why and what for: [`docs/CONTEXT.md`](docs/CONTEXT.md). What the core must do:
 [`spec/`](spec/).

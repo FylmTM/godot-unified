@@ -1,4 +1,4 @@
-// The Quantum-style input relay (CORE.md §2). No game logic: it owns the 60 Hz tick clock,
+// The input relay (CORE.md §2). No game logic: it owns the 60 Hz tick clock,
 // collects inputs stamped with their target tick, finalizes tick T once every connected active
 // player's input for T is in or the clock reaches T + tolerance (a missing input becomes the
 // player's last finalized one, flagged "replaced"), broadcasts finalized ticks unreliably with

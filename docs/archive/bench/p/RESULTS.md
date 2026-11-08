@@ -36,21 +36,21 @@ not at 1000.
 Configuration differs: Box3D runs 4 substeps and Jolt 1 collision step, its usual setting. So Box3D is faster
 despite doing more solver iterations. Simulation quality (stacking, jitter) wasn't compared.
 
-## Baseline: Photon Quantum 3.1.0 Preview (`bench/p/quantum/`)
+## Baseline: a commercial fixed-point deterministic engine
 
-The same scenario, headless .NET 10 with the developer's licensed Quantum libraries:
+The same scenario, headless .NET 10, on the engine's own physics:
 - fixed-point math
 - 4 substeps × 2 iterations, warm start on, sleeping on
-- single-threaded (`ThreadCount = 1`)
-- rollback = `Frame.CopyFrom`, as Quantum's own rollback does
+- single-threaded
+- rollback = a full frame copy, as the engine's own rollback does
 
-**Correctness:** sync-test gives 0 mismatches over 28,744 re-simulated ticks with the new stateful PGS solver, the
-3.0-default hybrid solver and the legacy solver. x64 under Rosetta is byte-identical.
+**Correctness:** sync-test gives 0 mismatches over 28,744 re-simulated ticks with its stateful PGS solver, its hybrid
+solver and its legacy solver. x64 under Rosetta is byte-identical.
 
-**Quantum 3.1's new PGS solver is stateful**, but its warm-start cache lives in the frame heap. So a frame copy is
+**Its PGS solver is stateful**, but its warm-start cache lives in the frame heap. So a frame copy is
 still a complete rollback, with nothing extra to snapshot. Dropping the cache after a restore gives 28,537 mismatches.
 
-| Rollback per tick (mean µs) | Quantum PGS | Quantum hybrid | Box3D fork | Jolt |
+| Rollback per tick (mean µs) | Fixed-point PGS | Fixed-point hybrid | Box3D fork | Jolt |
 |---|---|---|---|---|
 | 300 bodies: save + restore | 43 | 37 | 77 | 137 |
 | 300 bodies: re-sim 8 ticks | 4,320 | 3,417 | 884 | 2,381 |
@@ -60,14 +60,14 @@ still a complete rollback, with nothing extra to snapshot. Dropping the cache af
 | State copied per snapshot, 300 / 1000 | ~420 KB / 1.39 MB (frame) | | 525 KB / 2.24 MB | 99 KB / 427 KB |
 
 Comparability caveats:
-- Quantum is fixed-point C#; the others are f32 C++.
-- Solver work differs: Quantum 4×2, Box3D 4 substeps, Jolt 1 step with 10+2 iterations.
-- Quantum's statics live in the map, not the frame.
-- Quantum normally runs physics across worker threads; these numbers are single-threaded.
+- The baseline is fixed-point C#; the others are f32 C++.
+- Solver work differs: baseline 4×2, Box3D 4 substeps, Jolt 1 step with 10+2 iterations.
+- The baseline's statics live in the map, not the frame.
+- The baseline normally runs physics across worker threads; these numbers are single-threaded.
 
-So the order is clear: **single-threaded, the Box3D fork rolls back ~4× (300) to ~5× (1000) cheaper than Quantum
-3.1**, and Jolt ~2× cheaper. Quantum's advantage is architectural: rollback can't miss state, because there's only
-one place for it.
+So the order is clear: **single-threaded, the Box3D fork rolls back ~4× (300) to ~5× (1000) cheaper than the
+fixed-point baseline**, and Jolt ~2× cheaper. The baseline's advantage is architectural: rollback can't miss state,
+because there's only one place for it.
 
 ## Bindings for the other languages
 

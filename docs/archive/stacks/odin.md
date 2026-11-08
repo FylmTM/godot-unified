@@ -205,7 +205,7 @@ field by field), serialization, protocol schemas, and tuning write-back.
 - **Rendering host: the weak point.** Odin has excellent low-level graphics bindings (SDL3 GPU, sokol, wgpu, Vulkan,
   Metal, D3D) and raylib, and no engine. The realistic host is Godot through GDExtension or LibGodot, using
   work-in-progress community bindings that we'd likely take over. That brings back a two-object-model bridge
-  (sim handles → Godot RIDs/nodes), thinner than Unity↔Quantum but real. Using `RenderingServer` directly from Odin
+  (sim handles → Godot RIDs/nodes), thinner than OctoEscape's Unity↔sim bridge but real. Using `RenderingServer` directly from Odin
   avoids nodes. Godot also limits us to one instance per process (doc 03), so N client views become N viewports.
 - **Game UI:** Godot Controls, or Clay plus our own draw path. No egui, Noesis or RmlUi without shims.
 - **Dev UI:** Dear ImGui (docking) bindings are current, but the Godot backend is ours. In the Odin-only fallback

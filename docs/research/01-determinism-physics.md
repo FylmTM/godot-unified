@@ -24,14 +24,14 @@ Avian were compared too and dropped; see `../archive/research/00-synthesis.md` a
 
 ## Options compared
 
-|  | **Box3D (v0.1)** | **Jolt 5.6** | **Quantum (ref.)** |
+|  | **Box3D (v0.1)** | **Jolt 5.6** | **Fixed point, stateless (ref.)** |
 |---|---|---|---|
-| Language / licence | C17 / MIT | C++17 / MIT | C#, closed, commercial |
+| Language / licence | C17 / MIT | C++17 / MIT | Usually closed, commercial |
 | Cross-arch determinism | Default on, **CI goldens on mac ARM, Win x64, Win ARM64, Linux** | `CROSS_PLATFORM_DETERMINISTIC` (~8% slower), **CI on 14 targets** | Q48.16 integers, by construction |
-| Multithreaded determinism | Yes, any worker count | Yes (same binary), but callback/query *order* is not | Single sim thread |
+| Multithreaded determinism | Yes, any worker count | Yes (same binary), but callback/query *order* is not | Usually a single sim thread |
 | Save/restore API | Full world snapshot exists, **internal only** (recording/replay) | `SaveState`/`RestoreState` with filter (public); **no add/remove** | The frame *is* the state (memcpy) |
 | Caches in snapshot | Same, plus id pools | Bodies, contacts (warm start), constraints; **not the broad-phase tree** | Stateless engine |
-| Character controller | Mover, "experimental" | `CharacterVirtual` (best in class, any up axis) | KCC addon (+Y hard-coded) |
+| Character controller | Mover, "experimental" | `CharacterVirtual` (best in class, any up axis) | Varies |
 | Queries | Ray/shape cast, overlap, mover casts (recorded and checked on replay) | Narrow-phase results consistent, **order varies** | Yes |
 | Maturity | 4 months, alpha, no PRs accepted | AAA shipped, ~5 years | Shipped titles |
 | Bindings | Trivial FFI; `boxddd`, `box3d-sys`, pure-Rust port | `joltc`/`JoltC` → `oxijolt` (Rust), `zphysics` (Zig) | n/a |
@@ -60,11 +60,10 @@ FMA contraction off in every compiled unit (Box3D included).
 
 ## Fixed point: options and costs
 
-- **Photon Quantum `FP`**: Q48.16 in an `int64`
-  ([docs](https://doc.photonengine.com/quantum/current/manual/quantum-ecs/fixed-point)). Usable range is ±32767 if
-  you want to square a value safely, with a resolution of 1.5e-5. Trig uses polynomials, sqrt and inverse trig use
-  small LUTs. Quantum 3.1 moved its default tick to **64 Hz** because 1/60 is not exact in FP. OctoEscape already
-  hits the precision floor ("`FP.Epsilon` is 0.001: never compare squared per-tick steps").
+- **Q48.16 in an `int64`**, the common commercial choice. Usable range is ±32767 if you want to square a value
+  safely, with a resolution of 1.5e-5. Trig uses polynomials, sqrt and inverse trig use small LUTs. 1/60 is not
+  exact in fixed point, which pushes such engines to a **64 Hz** tick. OctoEscape already hits the precision floor
+  (its epsilon is 0.001: "never compare squared per-tick steps").
 - **Others**: BEPUphysicsint, a fixed-point fork of Bepu **v1** that has to run single-threaded; soft-float
   (Berkeley SoftFloat), which is exact but roughly 10–100× slower (estimate).
 
@@ -130,9 +129,9 @@ needs conversion for the view and GPU. Decisive: **no mature open-source fixed-p
 
 ## Rollback performance budget
 
-**Model**: Quantum-style. Each tick advances the verified frame by one confirmed step, restores, and re-predicts up
-to "now". With host-stamped inputs the prediction depth is about RTT / 16.7 ms − input delay: 4–8 frames at 60–130
-ms RTT with 0–2 frames of delay. **Per tick: 1 + P steps, 1 physics save, 1 restore, 1–2 block memcpys.**
+**Model**: relay-stamped rollback. Each tick advances the verified frame by one confirmed step, restores, and
+re-predicts up to "now". With host-stamped inputs the prediction depth is about RTT / 16.7 ms − input delay: 4–8
+frames at 60–130 ms RTT with 0–2 frames of delay. **Per tick: 1 + P steps, 1 physics save, 1 restore, 1–2 block memcpys.**
 
 **Budget**: give the sim about 8 ms of the 16.7 ms frame (render and audio on other threads). At P = 8 that leaves
 **~0.9 ms per step for everything**; at P = 4, ~1.6 ms.
@@ -154,11 +153,10 @@ deterministic multithreading (all three engines have it) or a shallower predicti
 1. **Sleeping**: islands put to sleep cost nearly nothing, and props mostly rest.
 2. **Separate swarm agents from rigid bodies**: kinematic agents in the ECS, pushing props through a few explicit
    impulses.
-3. **Input delay of 1–3 frames** to shrink P. Quantum recommends a little delay to reduce mispredictions.
+3. **Input delay of 1–3 frames** to shrink P. A little delay reduces mispredictions.
 4. **Snapshot only verified frames**: one save per tick, never per predicted frame.
-5. **Prediction culling** ([Quantum](https://doc.photonengine.com/quantum/current/manual/prediction-culling)):
-   skip predicting far-away entities. For physics that means freezing out-of-area islands in predicted steps;
-   verified steps still simulate everything.
+5. **Prediction culling**: skip predicting far-away entities. For physics that means freezing out-of-area islands
+   in predicted steps; verified steps still simulate everything.
 6. **Deterministic multithreading** inside the physics step, only when measurements demand it.
 7. **Skip predicting what players can't perceive** (Catto's falling-building example): tagged cosmetic debris runs
    view-side.
@@ -172,16 +170,15 @@ for tuning curves, `floor`/`round`/`trunc` (exact), and a quaternion `slerp`/`nl
   fine, as long as every peer uses the same code.
 - **Enforcement**: one `detmath` module, a check banning `core:math` transcendentals in sim code, a debug assertion on the FP environment, and per-tick checksum CI.
 
-## Photon Quantum as reference: what we lose and gain
+## Fixed point and stateless physics as reference: what we lose and gain
 
-Quantum does everything in Q48.16 with its own "stateless" 2D/3D physics engine
-([intro](https://doc.photonengine.com/quantum/v2/quantum-intro)). The broad phase and contacts are rebuilt from the
-frame, so the frame copy *is* the full state. Exact internals are not public (unverified).
+A fixed-point sim with its own "stateless" physics rebuilds the broad phase and contacts from the frame, so the frame
+copy *is* the full state.
 
 - **We lose**: determinism by construction regardless of compiler, a one-memcpy snapshot that includes physics,
   and years of production netcode tuning.
 - **We gain**: sub-stepping and warm-starting solvers (better stacking per µs), wide SIMD, no ±32k range or
-  `FP.Epsilon` traps, one number type shared with view and GPU, mature controllers and queries, no licence or
+  epsilon traps, one number type shared with view and GPU, mature controllers and queries, no licence or
   service.
 - **The price**: pinned toolchains and cross-arch checksum CI become core infrastructure, and the physics snapshot
   sits beside the block instead of inside it.

@@ -5,13 +5,37 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 ## Phases
 
 1. **Physics rollback spike:** done. The Box3D fork is bit-exact under rollback and across ARM64/x64.
-2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen (final sign-off pending).
+2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen, signed off 2026-11-09.
 3. **Architecture and Godot integration:** now. Design decisions below, spikes in progress, then module specs.
 4. **The library for real:** built from the signed-off specs, with a demo game in this repo.
 5. **The OctoEscape slice.**
 
 ## Decided
 
+- **Module map** (2026-11-09), the base for the module specs. Packages split only where determinism rules differ, a
+  consumer needs one piece without another, or third-party code lives; everything else merges. Imports point one
+  way, and the CLI never links the sim.
+  - Deterministic: `sim` (state tables, handles, RTTI tooling, plain-data check, and the generic harness: tick,
+    snapshot ring, checksum, sync-test, replay, events), `physics` (thin Box3D layer: body refs, save/restore/hash,
+    determinism settings), `dmath` (deterministic f32 math).
+  - Leaves: `wire` (byte reader/writer), `box3d` and `gdext` (third-party bindings).
+  - Real-time: `netcode`, `view` (interpolation, smoothing, pools, event confirm/cancel; no Godot).
+  - Tools: `headless` (a game's headless binary modes plus test helpers: scenarios, virtual clock, fuzzing),
+    `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot_host`
+    (everything that touches Godot), `cli`.
+  - Dev builds only: `imgui` (vendored odin-imgui, pinned, with two local fixes) and `devui` (the ImGui Godot
+    backend, RTTI inspector, overlay). Shipping builds carry no ImGui.
+  - **Physics is a plug-in:** `sim` knows nothing about Box3D; physics registers save/restore/hash/serialize procs
+    as extra state. The game owns a `World` struct (everything outside the block) and its tick takes it.
+  - The test game moves out of `src/` to `games/survivor/`, laid out like a real game repo.
+- **Tick rate: a per-game power of two (32, 64, 128 Hz), default 64 Hz.** `dt` is exact (`1/64`), so every `x * dt`
+  rounds once less and tick ↔ second conversions are exact. Every time constant is written in seconds and converted
+  with `dt`; no raw tick counts in specs or game code. Costs 6.7% more ticks than 60 Hz; the view interpolates to
+  any display rate. The survivor timers and `testdata/` get regenerated when the core moves.
+- **Defaults for the specs:** an unbiased bounded RNG in `sim` (`rng_below(n)`, Lemire's method; no `% n` for
+  ranges); the relay's hard tolerance and the input-delay formula derive from milliseconds and the tick length;
+  `view` interpolates from a per-view transform history with exponential-decay smoothing, not whole-frame copies;
+  local mode caps clock catch-up after a breakpoint or pause.
 - **Generics:** libraries are generic over each game's types with compile-time parametric polymorphism
   (`net.Client(My_State, My_Input)`).
 - **v1 covers all four areas** (core + physics + netcode, replays and dev tools, Godot view layer, CLI and skills),
@@ -49,7 +73,20 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
     pooling, event confirm/cancel.
   - Views keyed by deterministic spawn keys; events routed to their entity's view.
 - **Bindings register Godot classes from the start**, so `SimView` and `SimBulkView` are visible in the editor and
-  GDScript view scripts can talk to the sim (like Quantum view scripts in Unity). Budget: ~1–2 weeks of binding work.
+  GDScript view scripts can talk to the sim. Budget: ~1–2 weeks of binding work (the spike left ~7–10 days).
+- **Godot bindings:** commit `extension_api.json` for the baseline Godot (**4.7**) plus `bindings.txt` (the subset
+  we bind); the Odin bindings are generated into a git-ignored cache; `compatibility_minimum` = the baseline. CI runs
+  the binding tests on every supported Godot version.
+- **Standard (non-.NET) Godot** for development and CI (locally `~/tools/godot/Godot_v4.7.2.app`).
+- **Godot integration rules from the GDExtension spike:**
+  - `netcode` gets a step API: `client_step`/`relay_step` with host-owned loops, hooks (input, frame published, ticks
+    verified), stop calls, and sleeping until the next deadline instead of a 1 ms poll.
+  - Sim and netcode threads use the real-time thread class on macOS by default; Linux uses plain sleeps, measured in
+    CI.
+  - Hot reload v1 is editor reload only (0.46 s, registered properties kept, the sim restarts). Reload in a running
+    game is designed into the netcode step API and built later.
+  - GDScript gets one `_sim_event(e)` virtual on `SimView` (it carries cancel), plus a signal for UI.
+  - Scene views up to a few hundred per kind, MultiMesh bulk views above that.
 - **View logic:** GDScript by default; Odin for anything performance-critical or shared across games (e.g. the
   tentacle rig).
 
@@ -64,8 +101,11 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   - Anything that affects the sim goes through typed control-socket commands, recorded as tick-stamped debug commands
     (replayable; generic set-by-path via reflection).
   - View-side inspection uses a dev-only GDScript eval that can't touch sim state.
-- **No mandatory Godot editor** (target). The headless-Godot investigation decides whether an editor bridge is ever
-  needed.
+- **No editor bridge, no daemon.** Agents run cold headless Godot processes (import ~2 s, scene edit 0.25 s,
+  validation 0.5 s). A thin optional editor plugin (~150 lines) lets an open editor and agents coexist (reload
+  before focus, no dialogs, no lost edits). New worktrees seed `.godot/` by cloning the main checkout's. Texture
+  import defaults are pinned so editor and headless imports match. Screenshots of a running game go through the
+  control server; one-off scene shots run windowed and restore focus.
 
 - **Testing layers**, each run with `unified test <layer>` and a time budget:
   - **L0 module:** `odin test` per package, plus a Box3D suite (every call we use, exact save/restore,
@@ -79,7 +119,8 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   proves renders in CI.
 - **F3 captures everything cheap:** screenshot, snapshot, input log, frame dump, view state (scene tree and
   view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
-- **Dev UI is immediate-mode**, chosen between microui and Dear ImGui by a spike.
+- **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
+  frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).
 
 ## Done
 
@@ -92,27 +133,20 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 ## In discussion (this thread)
 
 1. **Godot follow-ups:** how entity kinds and levels are authored (code/data-first recommended,
-   `docs/research/11-view-binding.md`), default interpolation and smoothing per kind, the 1000-scene-view benchmark.
-2. **Dev tooling and AI:** CLI command set and control-protocol details (spec to come); headless Godot investigation
-   pending.
-3. **Testing strategy:** layers decided; the testing spec is to come.
+   `docs/research/11-view-binding.md`), default interpolation and smoothing per kind.
 
 ## In progress (sessions)
 
-- **GDExtension spike** (1 day, includes class registration groundwork): sim and netcode on our own thread with p99
-  jitter under 1 ms, the editor opens the project, game-library hot reload under 1 s, a gamepad on macOS, headless
-  hashes in CI.
-- **Dev UI spike:** microui (Odin vendor) vs Dear ImGui (Odin bindings plus our own Godot backend, or `imgui-godot`):
-  integration effort, dependency cost, quality, performance.
-- **Headless Godot investigation** (also: what renders in CI for golden screenshots): cold/warm `--import`, headless
-  scene edits via `--script`, screenshots without an editor, editor open while agents edit (reload dialog), 5
-  worktrees in parallel.
+- **Spike follow-ups:** Linux screenshots in Docker (xvfb, llvmpipe), the macOS `.app` export with the export
+  templates, and the numbers re-measured on the standard Godot build. Spike code and reports stay on their branches:
+  `claude/competent-hawking-a92edb` (GDExtension), `claude/nifty-panini-064f1c` (headless Godot),
+  `claude/adoring-ritchie-323df3` (dev UI).
 
 ## Next (after sign-offs)
 
-- After the spikes: move the local, untracked `bench/` (12 GB of old benchmark sources) to
-  `~/work/personal/unified-bench` and drop its `.gitignore` line.
-- Module specs for the agreed architecture, each signed off before building.
+- Module specs, each signed off before building, in this order: `sim` (with the physics plug-in and real system code
+  showing the API), `physics`, `netcode`, `view`, `headless`, `cli`. Open for `sim`: table detection, `using` as
+  component, optional components, cross-table helpers, events, desync recovery policy.
 - The `unified` CLI (replaces `tools/*.py`).
 - Box3D fork: public load-from-bytes API, clearing stale bytes, and a full test suite for our use of Box3D.
 - A test scenario that forces explosions and barrel respawns inside rollback windows.
