@@ -38,6 +38,8 @@ func _initialize() -> void:
 	await process_frame
 	check("_ready virtual", t.is_readied())
 	check("_process virtual", t.processed_count() > 0, t.processed_count())
+	await process_frame
+	check("dev UI draws (ImGui -> canvas items)", t.devui_items() > 0, t.devui_items())
 	check("one live instance", t.instances() == 1, t.instances())
 	t.queue_free()
 	print("GDEXT TESTS: %d failed" % failed)

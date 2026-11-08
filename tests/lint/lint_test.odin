@@ -63,6 +63,8 @@ RULES := []Rule {
 	// stray Godot-side construct can't creep into a shared helper unnoticed.
 	{pkg = "gdext"},
 	{pkg = "view"},
+	{pkg = "imgui"},
+	{pkg = "devui"},
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.

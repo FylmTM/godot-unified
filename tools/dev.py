@@ -34,6 +34,7 @@ from pathlib import Path
 
 import box3d
 import common
+import imgui
 from common import REPO, EXE, log
 
 VET = ["-vet", "-strict-style", "-vet-tabs", "-warnings-as-errors"]
@@ -161,6 +162,7 @@ def godot_errors(text):
 def cmd_godot_test():
     t0 = time.time()
     proj = REPO / "tests" / "godot"
+    imgui.ensure()
     build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
     ensure_extension_list(proj, "res://gdext_test.gdextension")
     r = run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)

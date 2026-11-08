@@ -24,3 +24,6 @@ zig-out/
 
 # Godot build outputs (game libraries, exports) and import caches
 .uni/
+
+# Dear ImGui sources and builds are fetched by tools/imgui.py
+/third_party/imgui/

@@ -4,6 +4,7 @@ package gdext_test_ext
 
 import "base:runtime"
 import "core:fmt"
+import "unified:devui"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 
@@ -33,6 +34,7 @@ gdext_test_init :: proc "c" (
 	init.deinitialize = proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 		if level != .INITIALIZATION_SCENE do return
 		context = runtime.default_context()
+		devui.shutdown()
 		gd.unregister_class(&tester)
 		gd.shutdown()
 	}
@@ -44,8 +46,19 @@ register :: proc() {
 		name = "Tester",
 		parent = "Node3D",
 		size = size_of(Tester),
-		ready = proc(i: rawptr) {(^Tester)(i).readied = true},
-		process = proc(i: rawptr, dt: f64) {(^Tester)(i).processed += 1},
+		ready = proc(i: rawptr) {
+			(^Tester)(i).readied = true
+			devui.init({visible = true})
+		},
+		process = proc(i: rawptr, dt: f64) {
+			t := (^Tester)(i)
+			t.processed += 1
+			devui.inspect("tester", t^)
+			devui.plot("dt ms", f32(dt * 1000))
+			devui.stat("processed", "%d", t.processed)
+			devui.log(u32(t.processed), "frame %d", t.processed)
+			devui.frame(dt)
+		},
 	}
 	c := &tester
 	gd.register_class(c)
@@ -106,5 +119,9 @@ register :: proc() {
 	gd.bind_method(c, "sn_same", proc(t: ^Tester) -> bool {return gd.sn("abc") == gd.sn("abc")})
 	gd.bind_method(c, "is_readied", proc(t: ^Tester) -> bool {return t.readied})
 	gd.bind_method(c, "processed_count", proc(t: ^Tester) -> i64 {return t.processed})
+	gd.bind_method(c, "devui_items", proc(t: ^Tester) -> i64 {
+		items, _ := devui.frame_stats()
+		return i64(items)
+	})
 	gd.bind_method(c, "instances", proc(t: ^Tester) -> i64 {return i64(tester.instances)})
 }
