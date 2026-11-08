@@ -99,3 +99,16 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   with a headless bot; move the crates out; levels start at 1. core-lib is on it.
 - **Needs your attention:** a macOS keychain (SecurityAgent) dialog appeared around 02:10, most likely from an EOS
   test binary. Agents won't type a password into it; online-eos is checking whether it can be withdrawn safely.
+- 31e257a **Merged survivor tuning and the crossplay follow-up:**
+  - Two tunings stored in the state: `play` (the game) and `stress` (the old dense spawner, kept for T1–T9, the
+    scenario test and the bench). `play`: a spawn burst every 2 s of 2 + 1 per wave (max 20), +50% per extra player,
+    30 s waves, +10% enemy HP per wave, XP for the next level 8 at level 1 then +4 per level. Tuned with a
+    deterministic headless bot over 16 seeds: 1 player reaches the first level-up at 28 s and survives 273 s
+    (median); 2 players 25 s / 240 s; 3–4 players run a little past 5 minutes (respawns while others live). A test
+    guards the targets. Crates moved out of the start circle; levels start at 1. `--game NAME` picks a game variant
+    in the headless binary.
+  - Crossplay from main through `workflow_dispatch`: 0 mismatches, also with the Windows side running the exported
+    release zip (the build a friend runs).
+  - The keychain dialog came from an EOS CLI test run at 02:10 whose process is gone; it's harmless, and **Deny**
+    dismisses it. `spec/eos.md` and the tester notes explain keychain prompts in dev runs.
+  - Verified on main: all local checks green; local macOS release build + smoke test OK (19 s).
