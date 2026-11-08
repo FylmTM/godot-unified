@@ -63,6 +63,33 @@ def which(name):
     return shutil.which(name)
 
 
+GODOT_VERSION = "4.7.2"
+
+
+def find_godot():
+    """The Godot editor binary: $GODOT, `godot` on PATH, the CI download in .toolchains/godot/, then the usual
+    macOS install places (standard build, not .NET)."""
+    import glob
+    if os.environ.get("GODOT"):
+        return os.environ["GODOT"]
+    for c in (which("godot"), REPO / ".toolchains" / "godot" / ("godot" + EXE)):
+        if c and Path(c).is_file():
+            return str(c)
+    for pat in ("/Applications/Godot*.app", os.path.expanduser("~/tools/godot/Godot*.app")):
+        for app in sorted(glob.glob(pat), key=lambda a: ("mono" in a, a)):
+            exe = Path(app) / "Contents" / "MacOS" / "Godot"
+            if exe.exists() and "mono" not in app:
+                return str(exe)
+    raise SystemExit("no Godot %s found: set GODOT=/path/to/godot (standard build, not .NET)" % GODOT_VERSION)
+
+
+def lib_name(stem):
+    """Shared library file name on this OS: libX.dylib, libX.so, X.dll."""
+    if IS_WINDOWS:
+        return stem + ".dll"
+    return "lib%s.%s" % (stem, "dylib" if IS_MACOS else "so")
+
+
 # --- MSVC environment (Windows) -------------------------------------------------------------------
 
 def _vswhere():

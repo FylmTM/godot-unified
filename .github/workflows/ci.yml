@@ -1,5 +1,6 @@
-# Odin only. Three parallel jobs: `lint` (format check + vet for every target, Linux) and `test` on Linux x64
-# and Windows x64 (odin test, then T1-T9 of spec/CORE.md §4 with the T9 bench in the job summary).
+# Odin only. Parallel jobs: `lint` (format check + vet for every target, Linux), `test` on Linux x64 and
+# Windows x64 (odin test, then T1-T9 of spec/CORE.md §4 with the T9 bench in the job summary), and `godot`
+# (Linux x64: the GDExtension binding tests and the game's headless checks under headless Godot 4.7.2).
 # macOS is checked locally with the same commands (README.md). Toolchains and Box3D are cached.
 name: ci
 
@@ -120,3 +121,61 @@ jobs:
             out/check/
           if-no-files-found: ignore
           retention-days: 14
+
+  godot:
+    name: godot headless / linux-x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_VERSION: 4.7.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: .toolchains/odin
+          key: odin-${{ env.ODIN_TAG }}-linux-x64
+      - name: Odin
+        run: python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
+
+      - id: box3d-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/box3d/build/linux-x64
+          key: box3d-linux-x64-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+      - if: steps.box3d-cache.outputs.cache-hit != 'true'
+        run: python3 tools/ci.py ensure-ninja
+      - name: Box3D
+        run: python3 tools/box3d.py
+
+      - uses: actions/cache@v4
+        with:
+          path: third_party/imgui/build/linux-x64
+          key: imgui-linux-x64-${{ hashFiles('tools/imgui.py') }}
+      - name: Dear ImGui
+        run: python3 tools/imgui.py
+
+      - uses: actions/cache@v4
+        with:
+          path: .toolchains/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x64
+      - name: Godot (standard build)
+        run: |
+          mkdir -p .toolchains/godot
+          if [ ! -x .toolchains/godot/godot ]; then
+            curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+            unzip -q /tmp/godot.zip -d /tmp/godot
+            mv "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" .toolchains/godot/godot
+          fi
+          .toolchains/godot/godot --version
+
+      - name: binding tests (tests/godot)
+        run: python3 tools/dev.py godot-test
+      - name: game headless session + editor check
+        run: |
+          for g in games/*/; do
+            g=$(basename "$g")
+            [ -f "games/$g/project.godot" ] || { echo "games/$g: no project.godot yet, skipped"; continue; }
+            python3 tools/dev.py game headless "$g" --ticks 256
+            python3 tools/dev.py game editor-check "$g"
+          done

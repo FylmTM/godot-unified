@@ -19,5 +19,14 @@ zig-out/
 # Reference input logs (a global *.log ignore would otherwise drop them)
 !/testdata/**/ref.log
 
+# Generated Godot bindings (python tools/dev.py gen)
+*.gen.odin
+
+# Godot build outputs (game libraries, exports) and import caches
+.uni/
+
+# Dear ImGui sources and builds are fetched by tools/imgui.py
+/third_party/imgui/
+
 # EOS SDK (headers + shipping libraries), staged by tools/eos.py
 /third_party/eos/

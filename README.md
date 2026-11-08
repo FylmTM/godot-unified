@@ -18,9 +18,15 @@ src/                 the `unified` collection (-collection:unified=src); one pac
   physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image (spec/sim.md)
   dmath/             deterministic f32 helpers
   netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks (spec/netcode.md)
+  gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
+  view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
+  imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
+  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note
+  godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync (spec/godot_host.md)
   headless/          a game's headless binary: the CORE.md §3 modes, generic over the game
 games/survivor/      the test game, laid out like a game repo (Godot project root)
-  simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary
+  simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
+                     extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
   lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
   toy/               a tiny game for the library's own tests
@@ -56,7 +62,15 @@ python tools/dev.py check [--only T1,T7]        # release build, then T1-T9 (too
 python tools/dev.py fmt [--check]               # odinfmt over src/, tests/ and games/*/simulation/
 python tools/dev.py vet                         # odin check, strict flags, darwin/linux/windows targets
 python tools/dev.py all                         # fmt --check, vet, test, check: what CI runs
+python tools/dev.py gen                         # Godot bindings (src/gdext/*.gen.odin, git-ignored), ~1 s, cached
+python tools/dev.py godot-test                  # gdext binding tests under headless Godot (~2 s)
+python tools/dev.py game build survivor [dev|release]   # games/survivor/.uni/bin/libsurvivor.* (~1 s dev)
+python tools/dev.py game run survivor [-- --devui]      # windowed; also: editor, headless --ticks N, editor-check
 ```
+
+Godot: the standard (non-.NET) 4.7.2 build, found via `$GODOT`, `godot` on PATH, `.toolchains/godot/`, or
+`/Applications` / `~/tools/godot` on macOS. Dear ImGui is fetched and built by `tools/imgui.py` on first use
+(clang++ / clang-cl, ~2.5 s).
 
 | Mode | Flags | Use | Build (M4 Pro) |
 |---|---|---|---:|

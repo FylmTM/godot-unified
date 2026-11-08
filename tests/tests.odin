@@ -12,4 +12,5 @@ package tests
 @(require) import "physics"
 @(require) import "sim"
 @(require) import "survivor"
+@(require) import "view"
 @(require) import "wire"
