@@ -4,12 +4,11 @@ Research date: 2026-11-07. Desk research only: nothing was installed or built. *
 memory or from one secondary source. **[estimate]** marks my own extrapolation, which a spike has to confirm. This doc
 argues for C#'s best realistic setup and is just as direct about its problems.
 
-**One-paragraph pitch.** C# is the language in which the design `unified` wants already exists and ships:
-commercial deterministic engines run C# simulations over an unmanaged frame heap of blittable structs, with code
-generation and memcpy-style frame copies. OctoEscape's ~25k lines of simulation code are C# today, and they already
-build and test headless under plain .NET outside Unity. The price is a float-determinism story that
-rests on maintainer statements and CI rather than on a language spec, and a native renderer (Godot) reached across a
-managed/native seam.
+**One-paragraph pitch.** C# is the language in which the design `unified` wants already exists and ships: commercial
+deterministic engines run C# simulations over an unmanaged frame heap of blittable structs, with code generation and
+memcpy-style frame copies. The current Unity game's ~25k lines of simulation code are C# today, and they already build
+and test headless under plain .NET outside Unity. The price is a float-determinism story that rests on maintainer
+statements and CI rather than on a language spec, and a native renderer (Godot) reached across a managed/native seam.
 
 ## 1. Best realistic setup
 
@@ -19,7 +18,7 @@ managed/native seam.
 | Runtime | CoreCLR JIT for dev and tests; **self-contained** publish for players (pins the exact runtime, so every peer runs the same JIT); NativeAOT as a later option for shipping | See §4 on the JIT-vs-AOT determinism trap |
 | Sim state store | Own arena store: one `NativeMemory.AllocZeroed` block, component tables of `where T : unmanaged` structs, generational handles, `[InlineArray]` fixed-capacity collections, a source generator for the type registry | ~2–4k lines, as estimated in doc 02 |
 | Math | Own `float`-based `Vec3`/`Quat`/`Mat` types (scalar, no `Vector<T>`), trig from **CoreMathSharp** (managed CORE-MATH port, correctly rounded, [NuGet](https://www.nuget.org/packages/AndanteSoft.CoreMathSharp)) or our own polynomials | `System.Numerics` and `Math.Sin` banned in the sim |
-| Physics | **Jolt** through **JoltPhysicsSharp** (2.22, Jul 2026, net9/net10, [nubrowse](https://nubrowse.com/packages/JoltPhysicsSharp)), with our own native build of `joltc` using `CROSS_PLATFORM_DETERMINISTIC`. Race **Box3D** through the [Box3D](https://www.nuget.org/packages/Box3D) NuGet (tracks upstream, dated builds to 2026-07-30) | BepuPhysics2 is pure C# but only same-machine deterministic (§6) |
+| Physics | **Box3D** through the [Box3D](https://www.nuget.org/packages/Box3D) NuGet (tracks upstream, dated builds to 2026-07-30) | |
 | Host / renderer | **Godot 4.7 .NET** (official GodotSharp). Godot owns the process; sim and net are plain .NET class libraries that never reference GodotSharp. N clients = N sims + N `SubViewport`s | Fallbacks: **Stride 4.4** (all-C#), or Godot hosted from C# through LibGodot (the `2dog` project), if that matures |
 | Game UI | Godot `Control` nodes built from C# code; **PanGui** (C#-first) if it goes public; NoesisGUI as the paid fallback | |
 | Dev UI | **Dear ImGui** through [imgui-godot](https://github.com/pkdawson/imgui-godot) (C# + ImGui.NET), or **Hexa.NET.ImGui** (Dear ImGui 1.92.9b, docking, Jul 2026, [NuGet](https://www.nuget.org/profiles/HexaEngine)) on a custom backend | Inspector built on our type registry (doc 08) |
@@ -29,18 +28,18 @@ managed/native seam.
 | Agent API | Control server on a Unix domain socket (supported on all three OSes) + the official MCP C# SDK (`ModelContextProtocol` NuGet) **[unverified version]** | |
 | Build | `dotnet` SDK / MSBuild, `.slnx`, `Directory.Build.props`, Central Package Management, Roslyn analyzers (`BannedApiAnalyzers`) as errors in the sim project; native libs built once by a CMake script and packaged as a local NuGet feed | |
 
-Projects: `Unified.Sim` (store, math, physics seam), `Unified.Net`, `Unified.Session` (agent API), `Octo.Sim`
-(gameplay), `Octo.View.Godot`, `Tests.*`. Only the last two view projects reference Godot. Headless tests run with
-`dotnet test` on Sim + Net + Octo.Sim, which is how OctoEscape's `Tools/test-sim.sh` already works.
+Projects: `Unified.Sim` (store, math, physics seam), `Unified.Net`, `Unified.Session` (agent API), `Game.Sim`
+(gameplay), `Game.View.Godot`, `Tests.*`. Only the last two view projects reference Godot. Headless tests run with
+`dotnet test` on Sim + Net + Game.Sim, which is how the current game's sim tests already run.
 
 ## 2. Build speed
 
 I found no published Apple Silicon numbers for warm `dotnet build` on a game-sized solution, so the numbers below are
-**[estimate]**s with their reasoning. OctoEscape's `Tests/Simulation` is a ready-made benchmark: timing
-`Tools/test-sim.sh` on the M4 Pro would replace these estimates in five minutes.
+**[estimate]**s with their reasoning. The current game's sim test suite is a ready-made benchmark:
+timing it on the M4 Pro would replace these estimates in five minutes.
 
 - **What gets compiled.** Only our C#. Godot ships as a prebuilt .NET editor and export templates, so no C++ engine
-  build. Native libraries (`joltc`, Box3D, Tracy) are built once per version by a CMake script and published to a local
+  build. Native libraries (Box3D, Tracy) are built once per version by a CMake script and published to a local
   NuGet feed or a `~/.cache` folder keyed by version and flags. After that, every worktree uses them as prebuilt
   binaries. This is where C# avoids most of the C/C++ build pain that the Rust, Zig and Odin stacks pay per worktree.
 - **Clean build of a fresh worktree** [estimate]: `dotnet restore` against a warm global package cache
@@ -48,7 +47,7 @@ I found no published Apple Silicon numbers for warm `dotnet build` on a game-siz
   (engine + sim + view + tests) in about 15–30 s on a fast laptop. If Godot hosts, add a first `godot --headless
   --import` for the worktree's `.godot/` cache. With code-first assets and runtime glTF loading that cache stays small,
   but each worktree still pays it (doc 03). Estimated total: **20–45 s**.
-- **Incremental, one-line sim change** [estimate]: Roslyn recompiles only `Octo.Sim` (about 25k lines) in ~1–2 s
+- **Incremental, one-line sim change** [estimate]: Roslyn recompiles only `Game.Sim` (about 25k lines) in ~1–2 s
   through the warm compiler server (VBCSCompiler, shared across worktrees). Because reference assemblies are on by
   default since .NET 5, downstream projects skip `CoreCompile` when the public API didn't change
   ([dotnet/msbuild #6560](https://github.com/dotnet/msbuild/pull/6560)). MSBuild's fixed per-project cost (evaluation,
@@ -82,8 +81,6 @@ keeping it in sync with the binding. C++-only libraries need a C shim, as in eve
 | Library | How from C# | Effort / state |
 |---|---|---|
 | **Box3D** (C) | [Happypig375/Box3D](https://github.com/Happypig375/Box3D) NuGet (raw, tracks the C API, dated builds) or [Box3D.NET](https://www.nuget.org/packages/Box3D.NET/) (idiomatic, alloc-free) | Low. Alpha upstream, community bindings. Its snapshot API isn't public (doc 01) |
-| **Jolt** (C++) | JoltPhysicsSharp over `joltc`, same author (Amer Koleci), active | Low to use. **Must rebuild natives** with `CROSS_PLATFORM_DETERMINISTIC` and `-ffp-contract=off` **[unverified whether the NuGet natives set it]** |
-| **Rapier** (Rust) | Official C API in `bindings/c` ([rapier.rs](https://rapier.rs/docs/user_guides/c/getting_started_c)) + ClangSharp | Medium: no C# binding exists, and Cargo joins our native build |
 | libgodot / GDExtension | **GodotSharp is official** (Godot hosts .NET). LibGodot from C#: `2dog` ([NuGet](https://www.nuget.org/packages/2dog.gdextension/), Jul 2026, MIT, ~300 downloads) | Official route: none. LibGodot route: experimental |
 | Bevy | Unreachable (Rust only) | — |
 | sokol | [sokol-cs](https://www.Github.com/bottlenoselabs/sokol-cs) (C2CS-generated), Sokol.NET | Low, but it's an abstraction layer, not a renderer |
@@ -142,13 +139,13 @@ keeping it in sync with the binding. C++-only libraries need a C shim, as in eve
   ([breaking change](https://learn.microsoft.com/en-us/dotnet/core/compatibility/jit/9.0/fp-to-integer)). The page
   says ARM64 "already" saturated, so the platforms converge.
 - **Transcendentals**: CoreMathSharp is correctly rounded and fully managed, so it's identical everywhere by
-  construction (its own claim, unaudited). Or port Box3D/Jolt-style polynomial approximations.
+  construction (its own claim, unaudited). Or port Box3D-style polynomial approximations.
 - **JIT vs AOT, and runtime versions.** JIT codegen depends on the CPU and runtime version at run time. Self-contained
   publishing pins the runtime per build, and the version handshake (doc 01) covers the rest. If we ever ship NativeAOT
   while dev builds use the JIT, banning width-dependent APIs keeps both paths equal. CI must compare checksums across
   JIT-mac, JIT-win, and AOT builds.
-- **Native libs** follow the C/C++ rules: `-ffp-contract=off` for Box3D (its CMake already does) and Jolt's
-  cross-platform-deterministic build. Assert MXCSR/FPCR after foreign calls (doc 01).
+- **Native libs** follow the C/C++ rules: `-ffp-contract=off` for Box3D (its CMake already does). Assert MXCSR/FPCR
+  after foreign calls (doc 01).
 - **Known results:** I found **no published cross-architecture float lockstep result for CoreCLR**. Most C# lockstep
   games use fixed point (commercial SDKs, FixedMath.Net). That's the biggest open question for this stack, and the
   determinism spike answers it.
@@ -164,7 +161,7 @@ keeping it in sync with the binding. C++-only libraries need a C shim, as in eve
   the fields. Padding bytes would otherwise make checksums depend on stack garbage. Locals are zero-initialized by
   default, which helps but isn't a guarantee for padding.
 - **Access style:** the store hands out `ref T` (safe syntax, no `unsafe` in gameplay code) instead of raw `T*`
-  pointers (OctoEscape's sim has ~290 `unsafe` lines). A `ref` into a table that reallocates during a structural
+  pointers (the current game's sim has ~290 `unsafe` lines). A `ref` into a table that reallocates during a structural
   change dangles silently: no borrow checker. Mitigations: fixed-capacity tables (allocated once in the block, which a
   snapshot design wants anyway), deferred structural changes (command buffers applied between systems), and a debug
   mode that validates generations on every access.
@@ -194,12 +191,7 @@ C# has both halves, and both are cheap.
 
 ## 6. Ecosystem fit per subsystem
 
-- **Physics.** Jolt (mature, cross-platform determinism mode, a C# binding by the joltc author) is the safe choice.
-  Box3D (two bindings) is the challenger, as in doc 01. **BepuPhysics2**, the best pure-C# engine, is out for crossplay:
-  determinism is single-machine only, and SIMD width follows the CPU
-  ([issue #42](https://github.com/bepu/bepuphysics2/issues/42),
-  [docs](https://docsearch.algolia.com/mcp/docs/repo/bepu/bepuphysics2)). Rapier needs our own binding. Doc 01's open
-  issues (Jolt's restore lifecycle gap, Box3D's private snapshot) are the same in every language.
+- **Physics.** Box3D through two bindings. Its private snapshot (doc 01) is the same issue in every language.
 - **Rendering host.** Godot .NET is official, mature, and proven: *Slay the Spire 2* (Godot + C#, 4-player co-op,
   Windows/macOS/Linux/Deck) became the biggest Godot release ever in March 2026
   ([GamingOnLinux](https://gamingonlinux.com/2026/03/slay-the-spire-2-is-out-now-in-early-access)). Costs: Godot owns
@@ -220,7 +212,7 @@ C# has both halves, and both are cheap.
 - **Netcode / transports.** Steam (Steamworks.NET, active), EOS (official C# SDK), UDP (`Socket`, LiteNetLib), QUIC
   (built-in, weak on macOS). Our relay/rollback code is ours in any language.
 - **Profiling.** Tracy bindings, `dotnet-trace` / `dotnet-counters`, EventPipe, Rider's profilers.
-- **Testing.** `dotnet test` (MSTest/xUnit/NUnit) with parallel runs, already used by OctoEscape. Property testing
+- **Testing.** `dotnet test` (MSTest/xUnit/NUnit) with parallel runs, already used by the current game. Property testing
   with FsCheck/CsCheck.
 - **Hot reload.** The richest of the five stacks: .NET Hot Reload for method bodies, Godot's assembly reload in the
   editor, s&box-style assembly swapping (MIT code to study). Configs and shaders through file watching, as elsewhere.
@@ -232,7 +224,7 @@ C# has both halves, and both are cheap.
   typical example: small, and good for us). LTS releases get 3 years.
 - **Governance and funding:** Microsoft builds and funds .NET under the .NET Foundation, MIT-licensed, developed in
   the open on GitHub. The bus factor for the language and runtime is as low as it gets.
-- **Game-library bus factor is the weak spot:** JoltPhysicsSharp, Hexa.NET.ImGui, the Box3D bindings and Tracy-CSharp
+- **Game-library bus factor is the weak spot:** Hexa.NET.ImGui, the Box3D bindings and Tracy-CSharp
   are each one or two people. Godot's C# module is a small team inside Godot. Its long-planned move to GDExtension has
   been "future" since 2023 ([GameFromScratch](https://gamefromscratch.com/the-future-of-c-in-godot/)).
 - **Shipped games:** an enormous set through Unity (Mono/IL2CPP), plus *Slay the Spire 2* (Godot C#), s&box,
@@ -248,7 +240,7 @@ C# has both halves, and both are cheap.
   debugger, profiler, Godot plugin, hot reload. VS Code with C# Dev Kit or the open-source Roslyn LSP works for agents
   and editors. Visual Studio is Windows-only.
 - **Debugger:** managed debugging is first-class everywhere. **Mixed managed+native stepping isn't available on
-  macOS** **[unverified for 2026 Rider]**, so debugging inside Jolt/Box3D from a C# frame means attaching lldb
+  macOS** **[unverified for 2026 Rider]**, so debugging inside Box3D from a C# frame means attaching lldb
   separately. On Windows, Visual Studio has mixed mode.
 - **Errors:** Roslyn diagnostics are clear and fast, and analyzers extend them with our own rules.
 - **Packages:** NuGet with Central Package Management and lock files. Natives ride in `runtimes/<rid>/native`.
@@ -256,8 +248,8 @@ C# has both halves, and both are cheap.
   rarely write stale APIs. Two caveats. (1) Agents default to idiomatic *enterprise* C# (classes, LINQ, `List<T>`,
   allocations) and to **Unity-isms** (MonoBehaviour habits, `UnityEngine.Mathf`). The analyzers above catch most of it.
   (2) Godot's C# API is less common in training data than GDScript, and Godot 3→4 API drift confuses agents
-  **[unverified magnitude]**. The 25k lines of rollback gameplay in OctoEscape serve as an in-repo style guide that
-  no other stack has.
+  **[unverified magnitude]**. The 25k lines of rollback gameplay in the current game serve as an in-repo style guide
+  that no other stack has.
 - **Small things that help agents:** `dotnet run app.cs` file-based scripts (.NET 10) for tools, one CLI for build,
   test, format and publish, and portable IL builds (build on any OS, run on any OS).
 
@@ -276,12 +268,11 @@ C# has both halves, and both are cheap.
 ## 10. Feasibility for unified
 
 **What C# makes easy**
-- **The port.** OctoEscape's sim is ~22k lines of hand-written C# (~25k in all): ~1,300 lines touch the fixed-point
-  scalar, ~1,100 the fixed-point vector, ~730 entity refs, ~120 raw component pointers, and only ~90 touch the SDK's
-  3D physics/KCC (grep counts). A clean-room **facade** with the same shapes (frame, entity refs, filters, signals,
-  events, and a fixed-point type that wraps `float` with the same operators) lets most gameplay move with mechanical
-  edits instead of a rewrite. No other stack can reuse that code. The view's ~33k lines mostly need rewriting for Godot regardless (MonoBehaviour→Node), but its
-  pure logic (rig math, camera, procedural animation) moves over as C#.
+- **The port.** The current game's sim is ~22k lines of hand-written C# (~25k in all). A clean-room **facade** with the
+  same shapes (frame, entity refs, filters, signals, events, and a fixed-point type that wraps `float` with the same
+  operators) lets most gameplay move with mechanical edits instead of a rewrite. No other stack can reuse that code. The
+  view's ~33k lines mostly need rewriting for Godot regardless (MonoBehaviour→Node), but its pure logic (rig math,
+  camera, procedural animation) moves over as C#.
 - **The arena design**, enforced by `unmanaged` and analyzers, with a production precedent (commercial C#
   deterministic engines).
 - **Dev tools and the agent API**: reflection, source generators, an MCP SDK, Unix sockets, JSON source gen.
@@ -290,27 +281,27 @@ C# has both halves, and both are cheap.
 
 **What C# makes hard**
 - **Float determinism without a contract**: we own the proof (analyzers + cross-arch CI from day one).
-- **Two worlds again**: a managed sim and a native C++ renderer that owns the process. That's thinner than OctoEscape's
-  Unity bridge (no bridge codegen, no baking, sim never references Godot), but still a seam with marshaling and GC on
-  the view side. The view has to watch allocations to avoid Gen0 hitches. The sim allocates nothing.
+- **Two worlds again**: a managed sim and a native C++ renderer that owns the process. That's thinner than the current
+  game's Unity bridge (no bridge codegen, no baking, sim never references Godot), but still a seam with marshaling and
+  GC on the view side. The view has to watch allocations to avoid Gen0 hitches. The sim allocates nothing.
 - **Native dependency packaging**: every C library = binding + three native binaries + flags we control. NuGet natives
   usually aren't built with determinism flags, so we maintain a small CMake "natives" pipeline.
 - **Godot as host is editor-shaped** (import cache per worktree, editor-only lightmap bake, one instance per
   process). This is the same issue as in doc 03.
 
-**Work we own that other stacks get for free:** the native build pipeline for Jolt/Box3D (the Zig and C++ stacks get
-it from their build systems), Rapier bindings (Rust gets it natively), our own scalar math types (Rust has glam's
+**Work we own that other stacks get for free:** the native build pipeline for Box3D (the Zig and C++ stacks get it
+from their build systems), our own scalar math types (Rust has glam's
 scalar mode), and determinism analyzers.
-**Work other stacks own that C# gets free:** OctoEscape's gameplay code, the type registry (reflection), Steam
+**Work other stacks own that C# gets free:** the current game's gameplay code, the type registry (reflection), Steam
 and EOS SDKs, a console path, hot reload, and fast per-worktree builds.
 
 **Biggest risks**
-1. CoreCLR float equality across x64/ARM64 is unproven publicly. Spike 1 must run C# sim + Jolt on mac and Windows
+1. CoreCLR float equality across x64/ARM64 is unproven publicly. Spike 1 must run C# sim + Box3D on mac and Windows
    and compare per-tick hashes. If it fails, a fallback exists (a fixed-point port), but physics would stay
    float, so the mix gets awkward.
 2. Godot host friction (process ownership, `.godot/` cache, GodotSharp allocations, .NET 8 baseline) could eat the
    build-speed advantage. Stride or LibGodot-from-C# (`2dog`) are the outs.
-3. Physics snapshot completeness (Jolt's lifecycle gap, Box3D's private snapshot) is language-neutral, but C# adds a
+3. Physics snapshot completeness (Box3D's private snapshot) is language-neutral, but C# adds a
    binding layer we may have to patch.
 4. GC hitches in the view under 4 split-screen views **[unverified magnitude]**.
 
@@ -327,7 +318,7 @@ and EOS SDKs, a console path, hot reload, and fast per-worktree builds.
 | Safety vs agent bugs | 4 | Managed code is memory-safe with good exceptions and analyzers. The small unsafe store core has no borrow checker |
 | Reflection / metaprogramming | 5 | Runtime reflection for dev tools plus incremental source generators and analyzers, all cheap |
 | Rendering host options | 4 | Official, proven Godot C# and an all-C# Stride. No Bevy/Filament. LibGodot-from-C# is immature |
-| Physics options | 4 | Jolt (active binding) and Box3D (two bindings) reachable. Bepu fails crossplay. Rapier needs a hand binding |
+| Physics options | 4 | Box3D reachable through two bindings |
 | Netcode / transports | 4 | Steam and EOS (official C#) and UDP are trivial. QUIC on macOS needs our own libmsquic packaging |
 | UI options | 4 | Dear ImGui, Godot Controls, native Noesis, PanGui's home language. No Razor-like layer for Godot off the shelf |
 | Language stability | 5 | Mature (2002), backward compatible, yearly releases with documented minor breaks, 3-year LTS |

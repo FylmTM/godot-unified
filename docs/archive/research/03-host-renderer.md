@@ -6,7 +6,7 @@ or one secondary article). Version facts come from bevy.org, godotengine.org, cr
 ## TL;DR and recommendation
 
 **Build on Bevy (0.20, pinned) as the host and view. The deterministic `sim` crate stays engine-agnostic. Godot 4 is
-the fallback, chosen only if the spike shows Bevy can't reach the OctoEscape look or can't produce baked bounce
+the fallback, chosen only if the spike shows Bevy can't reach the target look or can't produce baked bounce
 light.** Nothing else beats both.
 
 Why Bevy wins for *this* project:
@@ -20,7 +20,7 @@ Why Bevy wins for *this* project:
 2. **Code-first by construction.** Bevy has no editor (it isn't shipped yet, and we don't want one). Everything is
    code, glTF, WGSL/WESL and RON/TOML. Godot is code-capable but editor-shaped: LightmapGI bakes only in the editor,
    assets go through the editor's importer, and its docs and community assume the editor.
-3. **The OctoEscape topology fits.** N windows and cameras in one `App` are first-class: `multiple_windows` and
+3. **The target topology fits.** N windows and cameras in one `App` are first-class: `multiple_windows` and
    `split_screen` examples ship with Bevy. Headless rendering to an image is an official example. Bevy's
    `RemotePlugin` (BRP) already has an MCP server (`bevy_brp_mcp` 0.23, which tracks Bevy 0.20). Godot allows
    **one `GodotInstance` per process** ([docs](https://docs.godotengine.org/en/stable/classes/class_godotinstance.html)).
@@ -167,16 +167,14 @@ Scores are relative to this project's needs (✓ good, ~ workable, ✗ poor).
 - **Flax** (C++/C#). A good renderer (SDF GI), but source-available with a royalty licence and editor-first. No.
 - **Renderling** (Rust, wgpu, GI-focused). Last crate release Sep 2024: too early.
 
-## What the OctoEscape look needs, and coverage
-
-From `OctoEscape/docs/ART.md` §4, §6 and `docs/ai/architecture.md` "Look and rendering".
+## What the target look needs, and coverage
 
 | Need (today in URP) | Bevy | Godot |
 |---|---|---|
-| `Stylized` lit shader: palette color, vertex colors, banded toon (1–4 bands, softness), shadow tint, wrap, lit rim, world noise, height gradient, sway | `ExtendedMaterial<StandardMaterial, _>` or a custom `Material` calling `bevy_pbr` lighting functions; vertex sway in the vertex stage. Band and tint logic must hook into the light loop. **This is the spike's core question** | Spatial shader with `light()` and `vertex()`: first-class, least effort |
+| Stylized lit shader: palette color, vertex colors, banded toon (1–4 bands, softness), shadow tint, wrap, lit rim, world noise, height gradient, sway | `ExtendedMaterial<StandardMaterial, _>` or a custom `Material` calling `bevy_pbr` lighting functions; vertex sway in the vertex stage. Band and tint logic must hook into the light loop. **This is the spike's core question** | Spatial shader with `light()` and `vertex()`: first-class, least effort |
 | PBR path for chrome and glossy slick (toon off) | `StandardMaterial` | `StandardMaterial3D` |
-| Inverted-hull ink outline (`Stylized Outlined`) | `bevy_mod_outline` (vertex extrusion) | next-pass material or 4.5 stencil Outline mode |
-| Screen-space looks (`StylizeFeature`: depth+normal outlines, posterize, pixelate, paper, halftone, hue isolate) | depth/normal prepass + fullscreen material or a post-process render-graph node | `CompositorEffect` (compute) with depth and normal-roughness buffers |
+| Inverted-hull ink outline | `bevy_mod_outline` (vertex extrusion) | next-pass material or 4.5 stencil Outline mode |
+| Screen-space looks (depth+normal outlines, posterize, pixelate, paper, halftone, hue isolate) | depth/normal prepass + fullscreen material or a post-process render-graph node | `CompositorEffect` (compute) with depth and normal-roughness buffers |
 | Interactable highlight rim (mask after transparents, rim after post) | custom render-graph node, or `bevy_mod_outline` jump-flood | stencil (4.5+) or next pass |
 | Glass, hologram (additive), three water looks (screen-space refraction and reflection, depth foam) | transmission, SSR, depth prepass in custom materials | `SCREEN_TEXTURE` / `DEPTH_TEXTURE` in shaders, SSR |
 | One shadowed key light per room, the rest unshadowed; cookies | per-light `shadows_enabled`; cookies **(unverified in 0.20)** | per-light shadows; projector textures |
@@ -191,8 +189,7 @@ From `OctoEscape/docs/ART.md` §4, §6 and `docs/ai/architecture.md` "Look and r
 
 Verdict: **Godot covers the look with less work; Bevy covers everything with more code, except probe baking, which
 neither gives us code-first.** The look is mostly custom shaders and screen-space passes we own in either engine. In
-Unity we already wrote them (the `Stylized` family, `StylizeFeature`, `HighlightFeature`), so porting them is a known
-cost.
+Unity we already wrote them, so porting them is a known cost.
 
 **Baked bounce without an editor**, options in order of preference to test:
 1. **Bake our own irradiance volume at level load (or cache it on disk keyed by the level's content hash)** with a
@@ -203,7 +200,7 @@ cost.
    our own exporter: Blender stays the source of truth, but it's a pipeline step and EEVEE Next compatibility is
    unknown.
 3. Bake lighting into vertex colors in Blender (Cycles): cheap and robust for static chunky geometry, but no bounce on
-   dynamic octopuses.
+   dynamic characters.
 4. Godot fallback: LightmapGI via a scripted headless editor bake, or SDFGI with no bake at all.
 
 ## Risks and unknowns
@@ -220,7 +217,7 @@ cost.
 - **Toon lighting integration in Bevy (medium).** Banding inside Bevy's clustered PBR loop (with shadows, probes and
   multiple lights) may mean forking `pbr_functions` / `pbr_lighting` WGSL, which breaks across releases.
 - **Shader compile hitches (medium, unverified for 0.20).** Pipelines compile asynchronously on first use, so meshes
-  pop in. OctoEscape already warms up shaders before captures. Needs a warmup or pre-compile pass.
+  pop in. The current Unity game already warms up shaders before captures. Needs a warmup or pre-compile pass.
 - **wgpu/Metal platform bugs (low–medium).** Mac is the primary dev machine; wgpu's Metal backend is mature but less
   battle-tested than Godot's own.
 - **Look ceiling vs Unity (medium).** URP-specific polish (APV quality, mature SMAA/TAA, Volume blending) has to be
@@ -256,7 +253,7 @@ colliders, entity kinds and lights (as glTF extras or `KHR_lights_punctual`). Lo
 **Pass / fail.**
 - **Look:** the developer judges side-by-side captures (same camera) against the Unity Play Mode capture of the
   chamber as "as good or better" on at least 3 of 4 angles. The toon bands respect shadows and multiple lights.
-- **Bounce:** dynamic objects (an octopus stand-in) pick up colored bounce from the room. No editor and no manual step:
+- **Bounce:** dynamic objects (a character stand-in) pick up colored bounce from the room. No editor and no manual step:
   rebuilding the level from the Blender script plus `cargo run` reproduces it.
 - **Perf:** chamber at 1080p ≤ 6 ms GPU on an M-series Mac; 60 fps at 1280×800 on a Steam Deck (or Linux iGPU stand-in).
 - **Iteration:** shader edit visible ≤ 1 s with no restart; Blender re-export visible without a restart; view-crate

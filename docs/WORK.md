@@ -88,7 +88,7 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   - GDScript gets one `_sim_event(e)` virtual on `SimView` (it carries cancel), plus a signal for UI.
   - Scene views up to a few hundred per kind, MultiMesh bulk views above that.
 - **View logic:** GDScript by default; Odin for anything performance-critical or shared across games (e.g. the
-  tentacle rig).
+  character rig).
 
 - **CLI in Odin**, replacing every `tools/*.py` script (migrated into subcommands, then deleted). `--json` output
   and a time budget on every command.

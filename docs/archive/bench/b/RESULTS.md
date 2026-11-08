@@ -1,6 +1,6 @@
 # Benchmark B: results (2026-11-08, Apple M4 Pro, macOS 26.7, quiet machine)
 
-Four hosts draw the same content: the `01_Start` room exported from Blender, plus the unchanged Benchmark A sim
+Four hosts draw the same content: a room exported from Blender, plus the unchanged Benchmark A sim
 (300 props, 4 players, 1000 agents) at 60 Hz with interpolation. They all use the same toon look, support 4 OS windows
 on one sim, and have a screenshot mode. Measured with `bench/b/measure.sh` (hyperfine). A fresh worktree means
 Benchmark A's sources plus the variant's sources copied to a new tree, then the offline fetch and the build.

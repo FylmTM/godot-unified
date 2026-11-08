@@ -16,29 +16,27 @@ where told.
 
 ## Content
 
-- **Static level:** the OctoEscape room `01_Start`, exported from
-  `/Users/dmitry.v/work/personal/OctoEscape/ArtSource/LabExperiments/01_Start/start.blend` with headless Blender
+- **Static level:** a room from the developer's current game, exported from Blender with headless Blender
   (`blender` on PATH) to `bench/b/assets/start.glb` (glTF binary, Y-up, materials as base colours, Blender custom
   properties exported as glTF extras). Whoever needs it first exports it with a script at
-  `bench/b/assets/export.py` so the export can be reproduced. Never modify OctoEscape.
+  `bench/b/assets/export.py` so the export can be reproduced.
 - **Dynamic content from the sim**, stepped at a fixed 60 Hz, drawn with interpolation between the previous and
   current tick:
   - 300 props (even ids cubes 1 m, odd spheres 1 m diameter)
-  - 4 players (capsules, radius 0.5, height 2, in the four player colours of OctoEscape's `docs/ART.md`)
+  - 4 players (capsules, radius 0.5, height 2, in four distinct player colours)
   - 1000 agents (small instanced meshes, e.g. 0.4 m cones or cubes)
 
   Place the sim's arena (100 × 100 m, centred at the origin) where it fits the room. Exact alignment doesn't matter.
 - **Camera:** a third-person camera following a player, about 10 m back and 6 m up, looking at the player.
 
-## Look (stylized, matching OctoEscape: `docs/ART.md`)
+## Look (stylized, matching the current game)
 
 - Toon shading: 2–3 diffuse bands, tinted shadows, a rim light
 - one directional light with shadows, hemisphere/ambient light
 - SSAO if the host has it, bloom, outlines (inverted hull or post-process)
 
-Reference: a Unity screenshot from `/Users/dmitry.v/work/personal/OctoEscape/Logs/agent/shots/` (pick the closest
-to the room; copy it to `bench/b/assets/unity-ref.png`). Aim for "same family of look", not a pixel match. Note
-which features you got, how, and what you couldn't.
+Reference: a Unity screenshot of the room, copied to `bench/b/assets/unity-ref.png`. Aim for "same family of look", not
+a pixel match. Note which features you got, how, and what you couldn't.
 
 ## Modes (CLI flags, identical across variants)
 
