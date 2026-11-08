@@ -17,8 +17,8 @@ on:
         description: Lobby code the Mac host printed
         required: true
       ticks:
-        description: Session length in ticks; must equal the host's --ticks (2880 = 45 s at 64 Hz)
-        default: "2880"
+        description: Session length in ticks; must equal the host's --ticks (15360 = 4 min at 64 Hz)
+        default: "15360"
       client:
         description: source (headless binary built here) or export (Windows zip of a release run)
         default: source
@@ -68,12 +68,12 @@ jobs:
           # dispatches only workflows that are on the default branch).
           CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"; BUCKET="$IN_BUCKET"
           echo "CODE=$CODE" >> "$GITHUB_ENV"
-          echo "TICKS=${TICKS:-2880}" >> "$GITHUB_ENV"
+          echo "TICKS=${TICKS:-15360}" >> "$GITHUB_ENV"
           echo "client=${CLIENT:-source}" >> "$GITHUB_OUTPUT"
           echo "release_run=$RELEASE_RUN" >> "$GITHUB_OUTPUT"
           echo "relays=${RELAYS:-allow}" >> "$GITHUB_OUTPUT"
           echo "BUCKET=${BUCKET:-survivor/1}" >> "$GITHUB_ENV"
-          echo "code $CODE, ticks ${TICKS:-2880}, client ${CLIENT:-source}, relays ${RELAYS:-allow}"
+          echo "code $CODE, ticks ${TICKS:-15360}, client ${CLIENT:-source}, relays ${RELAYS:-allow}"
 
       # --- client=source: the headless binary, built here --------------------------------------------------
       - if: steps.p.outputs.client == 'source'
