@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Small helpers used by .github/workflows/ci.yml (Python 3.9+, stdlib only).
+"""Toolchain setup and the job summary for .github/workflows/ci.yml (Python 3.9+, stdlib only).
 
-    python tools/ci.py detect <lang>             # sets `present=true|false` in $GITHUB_OUTPUT
-    python tools/ci.py ensure-ninja              # pip-installs ninja if it isn't on PATH
-    python tools/ci.py odin <tag> <dest>         # downloads + unpacks an Odin release, adds it to $GITHUB_PATH
-    python tools/ci.py summary <artifacts-dir>   # markdown comparison table from all check.json files
+    python tools/ci.py odin <tag> <dest>     # download + unpack an Odin release; add it to $GITHUB_PATH
+    python tools/ci.py odinfmt <dest>        # build odinfmt from OLS at OLS_COMMIT with the odin on PATH
+    python tools/ci.py ensure-ninja          # pip-install ninja if missing (only needed to build Box3D)
+    python tools/ci.py summary               # markdown for $GITHUB_STEP_SUMMARY from out/
+
+`odinfmt` also works locally: it is the supported way to install the pinned formatter (put <dest> on
+PATH or set ODINFMT=<dest>/odinfmt). Every step is a no-op when its output already exists.
 """
 
 import io
@@ -18,11 +21,13 @@ import zipfile
 from pathlib import Path
 
 import common
-from common import REPO, log
+from common import REPO, EXE, log
 
-LANGS = ["cpp", "odin", "rust"]
-PLATFORMS = ["linux-x64", "windows-x64"]
-TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]
+# OLS (odinfmt) pinned to the build VS Code's OLS extension shipped on 2026-10-25
+# (nightly-2026-10-25-85d88870). Formatting can change between OLS versions: bump deliberately,
+# then run `python tools/dev.py fmt` and commit the result.
+OLS_URL = "https://github.com/DanielGavin/ols.git"
+OLS_COMMIT = "85d88870aebe1fb61b07db838e9db5728e6586ec"
 
 
 def gh_append(var, text):
@@ -30,27 +35,6 @@ def gh_append(var, text):
     if path:
         with open(path, "a", encoding="utf-8") as f:
             f.write(text)
-    else:
-        log("[%s] %s" % (var, text.rstrip()))
-
-
-def cmd_detect(lang):
-    present = (REPO / "impl" / lang / "build.py").exists()
-    gh_append("GITHUB_OUTPUT", "present=%s\n" % ("true" if present else "false"))
-    if not present:
-        msg = "impl/%s/build.py does not exist yet: skipping the %s job." % (lang, lang)
-        log(msg)
-        gh_append("GITHUB_STEP_SUMMARY", "%s\n" % msg)
-
-
-def cmd_ensure_ninja():
-    if common.which("ninja"):
-        log("ninja: " + common.which("ninja"))
-        return
-    log("ninja not on PATH: installing it from PyPI")
-    subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "ninja"], check=True)
-    scripts = Path(sys.executable).parent / ("Scripts" if common.IS_WINDOWS else "")
-    gh_append("GITHUB_PATH", str(scripts) + "\n")
 
 
 def find_odin(dest, exe):
@@ -62,10 +46,10 @@ def find_odin(dest, exe):
 
 def cmd_odin(tag, dest):
     dest = Path(dest).resolve()
-    exe = "odin.exe" if common.IS_WINDOWS else "odin"
+    exe = "odin" + EXE
     found = find_odin(dest, exe)
     if not found:
-        osname = {"linux": "linux", "windows": "windows", "macos": "macos"}[common.host_os()]
+        osname = common.host_os()
         arch = {"x64": "amd64", "arm64": "arm64"}[common.host_arch()]
         ext = "zip" if common.IS_WINDOWS else "tar.gz"
         asset = "odin-%s-%s-%s.%s" % (osname, arch, tag, ext)
@@ -92,72 +76,83 @@ def cmd_odin(tag, dest):
     log("odin: " + str(odin))
 
 
-def fmt_cell(t):
-    if t is None:
-        return "-"
-    s = t.get("status", "?").upper()
-    return "%s %.0fs" % (s, t.get("seconds", 0))
+def cmd_odinfmt(dest):
+    dest = Path(dest).expanduser().resolve()
+    out = dest / ("odinfmt" + EXE)
+    stamp = dest / "odinfmt.commit"
+    if out.exists() and stamp.exists() and stamp.read_text().strip() == OLS_COMMIT:
+        log("odinfmt: %s (OLS %s)" % (out, OLS_COMMIT[:10]))
+        return
+    src = dest / "ols-src"
+    src.mkdir(parents=True, exist_ok=True)
+    git = ["git", "-c", "advice.detachedHead=false", "-C", str(src)]
+    if not (src / ".git").exists():
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["remote", "add", "origin", OLS_URL], check=True)
+    log("odinfmt: fetching OLS @ %s" % OLS_COMMIT[:10])
+    subprocess.run(git + ["fetch", "-q", "--depth", "1", "origin", OLS_COMMIT], check=True)
+    subprocess.run(git + ["checkout", "-q", "--force", "FETCH_HEAD"], check=True)
+    cmd = ["odin", "build", "tools/odinfmt/main.odin", "-file", "-collection:src=src", "-o:speed",
+           "-out:" + str(out)]
+    log("+ " + " ".join(cmd))
+    subprocess.run(cmd, cwd=str(src), check=True)
+    stamp.write_text(OLS_COMMIT + "\n")
+    log("odinfmt: built %s" % out)
 
 
-def cmd_summary(art_dir):
-    runs = {}
-    for p in sorted(Path(art_dir).rglob("check.json")):
-        try:
-            j = json.loads(p.read_text())
-        except ValueError:
-            continue
-        runs[(j.get("lang"), j.get("platform"))] = j
-    cols = [(l, p) for l in LANGS for p in PLATFORMS]
-    out = ["## unified core: T1-T9 (spec/CORE.md §4)", ""]
-    out.append("| | " + " | ".join("%s<br>%s" % c for c in cols) + " |")
-    out.append("|---|" + "---|" * len(cols))
-    row = ["build"]
-    for c in cols:
-        j = runs.get(c)
-        if j is None:
-            row.append("not run")
-        else:
-            b = j.get("build") or {}
-            row.append(("ok %.0fs" % b.get("seconds", 0)) if b.get("ok") else "FAIL")
-    out.append("| " + " | ".join(row) + " |")
-    for t in TESTS:
-        out.append("| %s | " % t + " | ".join(
-            fmt_cell((runs.get(c) or {}).get("tests", {}).get(t)) if c in runs else "-" for c in cols) + " |")
-    out.append("| **all** | " + " | ".join(
-        ("**PASS**" if runs[c].get("ok") else "**FAIL**") if c in runs else "-" for c in cols) + " |")
-    out += ["", "Columns without a check.json were skipped (no impl/<lang>/build.py yet) or cancelled.", ""]
+def cmd_ensure_ninja():
+    if common.which("ninja"):
+        log("ninja: " + common.which("ninja"))
+        return
+    log("ninja not on PATH: installing it from PyPI")
+    subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "ninja"], check=True)
+    scripts = Path(sys.executable).parent / ("Scripts" if common.IS_WINDOWS else "")
+    gh_append("GITHUB_PATH", str(scripts) + "\n")
 
-    out += ["### T9 bench (`bench --enemies 1000 --window 8`; target: step + 8-tick re-sim <= 6 ms)", "",
-            "| lang | platform | step mean / p99 (us) | re-sim mean / p99 (us) | step + re-sim (ms) | save / restore (us) "
-            "| snapshot (KiB) |", "|---|---|---|---|---|---|---|"]
-    for c in cols:
-        t9 = (runs.get(c) or {}).get("tests", {}).get("T9")
-        d = (t9 or {}).get("data") or {}
-        if "step_mean_us" not in d:
-            continue
-        out.append("| %s | %s | %.0f / %.0f | %.0f / %.0f | %.2f%s | %.0f / %.0f | %.0f |" % (
-            c[0], c[1], d["step_mean_us"], d["step_p99_us"], d["resim_mean_us"], d["resim_p99_us"],
-            d["step_plus_resim_us"] / 1000, "" if d["within_target"] else " (over)",
-            d["save_mean_us"], d["restore_mean_us"], d["snapshot_bytes"] / 1024))
-    fails = [(c, t, r) for c in cols for t, r in (runs.get(c) or {}).get("tests", {}).items()
-             if r.get("status") != "pass"]
-    if fails:
-        out += ["", "### Failures", ""]
-        for (l, p), t, r in fails:
-            out.append("- **%s %s %s**: %s" % (l, p, t, r.get("detail", "").replace("\n", " ")[:500]))
+
+def cmd_summary():
+    out = ["## unified: %s" % common.platform_tag(), ""]
+    timings_path = REPO / "out" / "timings.json"
+    if timings_path.exists():
+        t = json.loads(timings_path.read_text())
+        out += ["| step | seconds |", "|---|---:|"]
+        out += ["| `dev.py %s` | %.1f |" % (k, v) for k, v in t.items()]
+        out.append("")
+    check_path = REPO / "out" / "check.json"
+    if not check_path.exists():
+        out.append("No out/check.json: T1-T9 did not run.")
+        print("\n".join(out))
+        return
+    j = json.loads(check_path.read_text())
+    out += ["### T1-T9 (spec/CORE.md §4): %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
+            "| test | result | seconds | detail |", "|---|---|---:|---|"]
+    for name, r in j.get("tests", {}).items():
+        detail = r.get("detail", "").replace("|", "\\|").replace("\n", " ")[:300]
+        out.append("| %s | %s | %.1f | %s |" % (name, r.get("status", "?").upper(), r.get("seconds", 0), detail))
+    d = (j.get("tests", {}).get("T9") or {}).get("data") or {}
+    if "step_mean_us" in d:
+        out += ["", "### T9 bench (`bench --enemies 1000 --window 8 --ticks 600`, release)", "",
+                "| | mean µs | p99 µs |", "|---|---:|---:|",
+                "| forward step | %.0f | %.0f |" % (d["step_mean_us"], d["step_p99_us"]),
+                "| save | %.0f | |" % d["save_mean_us"],
+                "| restore | %.0f | |" % d["restore_mean_us"],
+                "| 8-tick re-sim | %.0f | %.0f |" % (d["resim_mean_us"], d["resim_p99_us"]),
+                "| **step + re-sim** | **%.0f** (%s 6 ms budget) | |" % (
+                    d["step_plus_resim_us"], "within" if d["within_target"] else "**OVER**"),
+                "", "Snapshot: %d bytes." % d["snapshot_bytes"]]
     print("\n".join(out))
 
 
 def main():
     a = sys.argv[1:]
-    if len(a) == 2 and a[0] == "detect":
-        cmd_detect(a[1])
+    if len(a) == 3 and a[0] == "odin":
+        cmd_odin(a[1], a[2])
+    elif len(a) == 2 and a[0] == "odinfmt":
+        cmd_odinfmt(a[1])
     elif a == ["ensure-ninja"]:
         cmd_ensure_ninja()
-    elif len(a) == 3 and a[0] == "odin":
-        cmd_odin(a[1], a[2])
-    elif len(a) == 2 and a[0] == "summary":
-        cmd_summary(a[1])
+    elif a == ["summary"]:
+        cmd_summary()
     else:
         print(__doc__, file=sys.stderr)
         return 2

@@ -1,27 +1,25 @@
 #!/usr/bin/env python3
-"""Language-neutral test harness for the unified core (spec/CORE.md §4).
+"""The end-to-end tests T1-T9 of spec/CORE.md §4, run against the CLI binary.
 
-    python tools/check.py <lang> [--only T1,T3] [--build-mode release|dev] [--regen [--force]]
-                                 [--no-build] [--jobs N] [--timeout-scale X]
+    python tools/dev.py check [options]       # builds first (release), then runs this
+    python tools/check.py [--mode release|dev|debug] [--only T1,T3] [--regen [--force]]
+                          [--jobs N] [--timeout-scale X]
 
-Builds impl/<lang> with `python impl/<lang>/build.py <mode>`, then drives
-impl/<lang>/out/<mode>/unified[.exe] through the CLI of spec/CORE.md §3 and runs T1-T9.
-Prints one PASS/FAIL/SKIP line per test with its wall time, writes a JSON summary to
-impl/<lang>/out/check.json (stdout/stderr, traces, logs and bench JSON of every command go to
-impl/<lang>/out/check/), and exits 0 only if every selected test passed.
+Drives out/<mode>/unified[.exe] through the CLI of spec/CORE.md §3 (it does not build it). Prints
+one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
+(each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
+selected test passed. Exit codes: 0 all passed, 1 a test failed, 2 usage error or no binary.
 
-Exit codes: 0 all passed, 1 a test or the build failed, 2 usage error or no implementation.
-
-Reference data for T7/T8 (testdata/<lang>/, see testdata/README.md) is regenerated with --regen,
-only on macOS ARM64 unless --force:
+Reference data for T7/T8 (testdata/, see testdata/README.md) is regenerated with --regen, only on
+macOS ARM64 unless --force:
     unified sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
     unified snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
 then self-checked (replay of ref.log == ref.trace; resume of ref-1800.snap == ticks 1801-3600 of
 ref.trace) before the files replace the committed ones.
 
-Conventions check.py relies on (spec/CORE.md §3): ticks are numbered from 1 (the state after the
-k-th step is tick k; `--ticks N` ends at tick N), every trace line is "%06d %016x" for ticks
-1..N in order, and every mode prints one JSON object as its last stdout line.
+Conventions (spec/CORE.md §3): ticks are numbered from 1 (the state after the k-th step is tick k;
+`--ticks N` ends at tick N), every trace line is "%06d %016x" for ticks 1..N in order, and every
+mode prints one JSON object as its last stdout line.
 """
 
 import argparse
@@ -60,10 +58,10 @@ class Fail(Exception):
 # --- process helpers ------------------------------------------------------------------------------
 
 class Ctx:
-    def __init__(self, lang, impl, mode, outdir, scale, jobs):
-        self.lang, self.impl, self.mode, self.out, self.scale, self.jobs = lang, impl, mode, outdir, scale, jobs
-        self.binary = impl / "out" / mode / ("unified" + EXE)
-        self.testdata = REPO / "testdata" / lang
+    def __init__(self, mode, outdir, scale, jobs):
+        self.mode, self.out, self.scale, self.jobs = mode, outdir, scale, jobs
+        self.binary = binary_path(mode)
+        self.testdata = REPO / "testdata"
         self.cache = {}  # results shared between tests (T3 -> T4)
 
     def path(self, *parts):
@@ -401,8 +399,8 @@ def ref_paths(base):
 def t7(ctx):
     logf, trf, _ = ref_paths(ctx.testdata)
     if not logf.exists() or not trf.exists():
-        raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/check.py %s --regen`"
-                   % (ctx.rel(ctx.testdata), ctx.lang))
+        raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/dev.py check --regen`"
+                   % ctx.rel(ctx.testdata))
     hdr = read_log_header(logf)
     ref = read_trace(trf, REF_TICKS)
     tr = ctx.path("T7", "replay.trace")
@@ -410,15 +408,14 @@ def t7(ctx):
     got = read_trace(tr, hdr["ticks"])
     if got != ref:
         raise Fail("replay of ref.log differs from ref.trace at " + first_diff(got, ref))
-    return "replay of testdata/%s/ref.log == ref.trace (%d ticks, final %s)" % (
-        ctx.lang, len(ref), ref[-1].split()[1]), {}
+    return "replay of testdata/ref.log == ref.trace (%d ticks, final %s)" % (len(ref), ref[-1].split()[1]), {}
 
 
 def t8(ctx):
     _, trf, snap = ref_paths(ctx.testdata)
     if not snap.exists() or not trf.exists():
-        raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/check.py %s --regen`"
-                   % (ctx.rel(ctx.testdata), ctx.lang))
+        raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/dev.py check --regen`"
+                   % ctx.rel(ctx.testdata))
     ref = read_trace(trf, REF_TICKS)[REF_SNAP_TICK:]
     tr = ctx.path("T8", "resume.trace")
     run(ctx, "T8/resume", ["resume", "--in", snap, "--ticks", REF_TICKS - REF_SNAP_TICK, "--trace", tr], 300)
@@ -450,6 +447,9 @@ def t9(ctx):
 
 
 TESTS = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7, "T8": t8, "T9": t9}
+# Paced by the 60 Hz relay clock (~60 s, ~30 s, ~60 s of wall time, little CPU): started together up front so they
+# overlap each other and T1/T2. T9 (timing-sensitive) runs after all of them have finished.
+REALTIME = ["T3", "T5", "T6"]
 
 
 # --- regen ----------------------------------------------------------------------------------------
@@ -510,34 +510,25 @@ def git_commit():
     return r.stdout.strip() or None
 
 
-def build(lang, impl, mode):
-    common.ensure_msvc_env()
-    env = dict(os.environ, UNIFIED_REPO=str(REPO), UNIFIED_PLATFORM=common.platform_tag())
-    cmd = [sys.executable, str(impl / "build.py"), mode]
-    log("+ " + " ".join(cmd))
-    t0 = time.time()
-    try:
-        r = subprocess.run(cmd, cwd=str(impl), env=env, timeout=3600)
-        rc = r.returncode
-    except subprocess.TimeoutExpired:
-        rc = "timeout"
-    return rc == 0, time.time() - t0, rc
+def binary_path(mode):
+    return REPO / "out" / mode / ("unified" + EXE)
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Run the spec/CORE.md §4 tests (T1-T9) against impl/<lang>.")
-    ap.add_argument("lang", help="cpp, odin or rust (the directory under impl/)")
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/CORE.md §4 tests (T1-T9).")
+    ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
+                    help="which build to test: out/<mode>/unified (default release)")
     ap.add_argument("--only", help="comma-separated subset, e.g. T1,T3")
-    ap.add_argument("--build-mode", default="release", choices=["release", "dev"])
-    ap.add_argument("--no-build", action="store_true", help="use the existing binary")
-    ap.add_argument("--regen", action="store_true", help="regenerate testdata/<lang>/ (macOS ARM64 only) first")
+    ap.add_argument("--regen", action="store_true", help="regenerate testdata/ (macOS ARM64 only) first")
     ap.add_argument("--force", action="store_true", help="allow --regen on a platform other than macOS ARM64")
-    ap.add_argument("--jobs", type=int, default=max(1, min(6, (os.cpu_count() or 2) // 2)),
-                    help="T3 sessions run in parallel (default: half the CPUs, max 6)")
+    ap.add_argument("--jobs", type=int, default=6,
+                    help="T3 sessions run in parallel (default 6: all at once; they are paced by the 60 Hz "
+                         "clock, not by the CPU)")
+    ap.add_argument("--serial", action="store_true",
+                    help="run the real-time tests T3, T5, T6 one after another instead of overlapped")
     ap.add_argument("--timeout-scale", type=float, default=None,
-                    help="multiply every timeout (default 1, or 4 for --build-mode dev)")
-    ap.add_argument("--impl-dir", help=argparse.SUPPRESS)  # harness self-test: an implementation elsewhere
-    args = ap.parse_args()
+                    help="multiply every timeout (default 1, 2 for dev, 8 for debug builds)")
+    args = ap.parse_args(argv)
 
     only = ALL_TESTS
     if args.only:
@@ -547,54 +538,33 @@ def main():
             ap.error("unknown test(s): " + ", ".join(bad))
         only = [t for t in ALL_TESTS if t in only]
 
-    impl = Path(args.impl_dir).resolve() if args.impl_dir else REPO / "impl" / args.lang
-    if not (impl / "build.py").exists():
-        log("check: %s has no build.py: the '%s' implementation hasn't landed yet." % (impl, args.lang))
-        log("check: expected impl/%s/build.py (dev|release) producing impl/%s/out/<mode>/unified%s; nothing to test."
-            % (args.lang, args.lang, EXE))
-        return 2
-
-    scale = args.timeout_scale or (4.0 if args.build_mode == "dev" else 1.0)
-    outdir = impl / "out" / "check"
+    scale = args.timeout_scale or {"release": 1.0, "dev": 2.0, "debug": 8.0}[args.mode]
+    outdir = REPO / "out" / "check"
     if outdir.exists():
         import shutil
         shutil.rmtree(outdir)
     outdir.mkdir(parents=True)
-    ctx = Ctx(args.lang, impl, args.build_mode, outdir, scale, max(1, args.jobs))
+    ctx = Ctx(args.mode, outdir, scale, max(1, args.jobs))
+    if not ctx.binary.exists():
+        log("check: %s not found: build it first (`python tools/dev.py build %s`), or run `python tools/dev.py "
+            "check`, which builds" % (ctx.rel(ctx.binary), args.mode))
+        return 2
     summary = {
-        "lang": args.lang, "platform": common.platform_tag(), "mode": args.build_mode,
+        "platform": common.platform_tag(), "mode": args.mode,
         "git_commit": git_commit(), "python": sys.version.split()[0],
         "started": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "ok": False, "build": None, "tests": {},
+        "ok": False, "tests": {},
     }
-    summary_path = impl / "out" / "check.json"
+    summary_path = REPO / "out" / "check.json"
 
     def write_summary():
         summary_path.write_text(json.dumps(summary, indent=2) + "\n")
 
-    log("check: %s on %s (%s build), outputs in %s" % (args.lang, summary["platform"], args.build_mode,
-                                                       ctx.rel(outdir)))
-    if args.no_build:
-        summary["build"] = {"ok": True, "skipped": True}
-    else:
-        ok, secs, rc = build(args.lang, impl, args.build_mode)
-        summary["build"] = {"ok": ok, "seconds": round(secs, 2), "exit": rc}
-        if not ok:
-            print("BUILD FAIL  %6.1fs  build.py %s exited %s" % (secs, args.build_mode, rc), flush=True)
-            write_summary()
-            return 1
-        print("BUILD ok    %6.1fs" % secs, flush=True)
-    if not ctx.binary.exists():
-        print("BUILD FAIL  binary %s not found" % ctx.rel(ctx.binary), flush=True)
-        summary["build"]["ok"] = False
-        write_summary()
-        return 1
-
+    log("check: %s on %s, outputs in %s" % (ctx.rel(ctx.binary), summary["platform"], ctx.rel(outdir)))
     if args.regen:
         regen(ctx, args.force)
 
-    t_all = time.time()
-    for name in only:
+    def timed(name):
         t0 = time.time()
         try:
             detail, data = TESTS[name](ctx)
@@ -603,7 +573,21 @@ def main():
             detail, data, status = str(e), {}, "fail"
         except Exception as e:  # a harness bug must not hide the other tests' results
             detail, data, status = "harness error: %r" % e, {}, "fail"
-        secs = time.time() - t0
+        return detail, data, status, time.time() - t0
+
+    t_all = time.time()
+    early = {}
+    pool = None
+    if not args.serial:
+        overlap = [n for n in REALTIME if n in only]
+        if overlap:
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(overlap))
+            early = {n: pool.submit(timed, n) for n in overlap}
+            log("check: %s run concurrently (--serial to disable)" % ", ".join(overlap))
+    for name in only:
+        if name == "T9" and pool is not None:
+            pool.shutdown(wait=True)  # no sessions running while the bench measures
+        detail, data, status, secs = early[name].result() if name in early else timed(name)
         summary["tests"][name] = {"status": status, "seconds": round(secs, 2), "detail": detail, "data": data}
         print("%-3s %-4s %6.1fs  %s" % (name, status.upper(), secs, detail), flush=True)
         write_summary()
@@ -612,9 +596,8 @@ def main():
     summary["ok"] = not failed
     summary["seconds"] = round(time.time() - t_all, 2)
     write_summary()
-    print(json.dumps({"lang": args.lang, "platform": summary["platform"], "ok": summary["ok"],
-                      "passed": len(only) - len(failed), "failed": failed, "seconds": summary["seconds"],
-                      "summary": ctx.rel(summary_path)}), flush=True)
+    print(json.dumps({"platform": summary["platform"], "ok": summary["ok"], "passed": len(only) - len(failed),
+                      "failed": failed, "seconds": summary["seconds"], "summary": ctx.rel(summary_path)}), flush=True)
     return 0 if summary["ok"] else 1
 
 
