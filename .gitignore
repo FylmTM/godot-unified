@@ -26,3 +26,9 @@ zig-out/
 # Agent run folders hold only links back to bench/a/SPEC.md
 /bench/c/runs/
 /bench/c/c2-base/
+
+# Box3D sources and builds are fetched by tools/box3d.py
+/third_party/box3d/
+
+# CI toolchain downloads (tools/ci.py odin)
+/.toolchains/

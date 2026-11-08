@@ -1,0 +1,7 @@
+# The Box3D fork patch must keep LF endings on Windows checkouts (tools/box3d.py also normalizes it).
+*.patch text eol=lf
+*.py text eol=lf
+# Reference data compared byte-for-byte or line-by-line by tools/check.py.
+testdata/**/*.log binary
+testdata/**/*.snap binary
+testdata/**/*.trace text eol=lf

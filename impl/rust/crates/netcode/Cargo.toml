@@ -1,0 +1,13 @@
+[package]
+name = "netcode"
+description = "Quantum-style input relay, predicting/rolling-back client, transports (loopback, UDP, netsim)"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+simcore.workspace = true
+
+[lints]
+workspace = true

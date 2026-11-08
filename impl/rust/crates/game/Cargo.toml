@@ -1,0 +1,16 @@
+[package]
+name = "game"
+description = "Survivor-lite (spec/GAME.md): the state block, world setup, systems and scripted inputs"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+box3d-sys.workspace = true
+simcore.workspace = true
+bytemuck.workspace = true
+xxhash-rust.workspace = true
+
+[lints]
+workspace = true

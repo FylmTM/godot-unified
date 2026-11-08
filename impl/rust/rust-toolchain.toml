@@ -1,0 +1,7 @@
+# Placeholder written with the shared CI (phase 2 infra); the Rust implementation owns this file.
+# CI runs `rustup toolchain install` in impl/rust, so this pin is what Linux/Windows CI builds with.
+# Keep it on 1.98.x ("1.98" = latest 1.98 patch release) unless the toolchain decision changes.
+[toolchain]
+channel = "1.98"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

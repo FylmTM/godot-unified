@@ -1,0 +1,125 @@
+# Phase 2 core checks: {Linux x64, Windows x64} x {cpp, odin, rust}, each running tools/check.py (T1-T9).
+# macOS is checked locally with the same script. A language whose impl/<lang>/build.py doesn't exist yet
+# skips all its steps (the job stays green). See tools/README.md.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ODIN_TAG: dev-2026-11
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  check:
+    name: ${{ matrix.lang }} / ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        lang: [cpp, odin, rust]
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - id: detect
+        run: python tools/ci.py detect ${{ matrix.lang }}
+
+      # Windows: one compiler family everywhere, so Box3D (and the C++ impl) use clang-cl + Ninja.
+      # clang-cl needs the MSVC environment (headers, libs, linker); Odin and Rust link with the MSVC linker too.
+      - if: steps.detect.outputs.present == 'true' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - if: steps.detect.outputs.present == 'true'
+        name: Toolchain report
+        run: |
+          python tools/ci.py ensure-ninja
+          cmake --version
+          ninja --version
+
+      # --- Odin: pinned release, cached -------------------------------------------------------------
+      - if: steps.detect.outputs.present == 'true' && matrix.lang == 'odin'
+        uses: actions/cache@v4
+        with:
+          path: .toolchains/odin
+          key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
+      - if: steps.detect.outputs.present == 'true' && matrix.lang == 'odin'
+        name: Set up Odin
+        run: python tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
+      - if: steps.detect.outputs.present == 'true' && matrix.lang == 'odin'
+        run: odin version
+
+      # --- Rust: toolchain pinned by impl/rust/rust-toolchain.toml ------------------------------------
+      - if: steps.detect.outputs.present == 'true' && matrix.lang == 'rust'
+        name: Set up Rust
+        working-directory: impl/rust
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo --version
+      - if: steps.detect.outputs.present == 'true' && matrix.lang == 'rust'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: impl/rust -> target
+          key: ${{ matrix.platform }}
+
+      # --- Box3D (shared by all languages), cached on commit + patch + build recipe --------------------
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/cache@v4
+        with:
+          path: third_party/box3d/build/${{ matrix.platform }}
+          key: box3d-${{ matrix.platform }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+      - if: steps.detect.outputs.present == 'true'
+        name: Box3D
+        run: python tools/box3d.py
+
+      - if: steps.detect.outputs.present == 'true'
+        name: check.py ${{ matrix.lang }}
+        run: python tools/check.py ${{ matrix.lang }}
+
+      - if: always() && steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-${{ matrix.lang }}-${{ matrix.platform }}
+          path: |
+            impl/${{ matrix.lang }}/out/check.json
+            impl/${{ matrix.lang }}/out/check/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  summary:
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: check-*
+          path: artifacts
+      - name: Comparison table
+        run: python3 tools/ci.py summary artifacts | tee -a "$GITHUB_STEP_SUMMARY"
