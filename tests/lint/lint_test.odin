@@ -77,6 +77,8 @@ RULES := []Rule {
 	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
 	// stay off core:math.
 	{pkg = "netcode", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
+	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// The survivor's headless binary (package main): only wires the game into unified:headless.
 	{
