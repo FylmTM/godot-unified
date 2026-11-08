@@ -17,6 +17,7 @@ import "core:testing"
 import "unified:eos"
 
 INCLUDE_DIR :: #directory + "/../../third_party/eos/SDK/Include"
+LIB_DIR :: #directory + "/../../third_party/eos/SDK/Bin"
 
 Layout :: struct {
 	odin:   typeid,
@@ -266,10 +267,7 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	if os.exists(stamp) {
 		return
 	}
-	dir := os.get_env("TMPDIR", context.temp_allocator)
-	if dir == "" {
-		dir = "."
-	}
+	dir := os.temp_directory(context.temp_allocator) or_else "."
 	src, _ := filepath.join({dir, "unified-eos-layout.c"}, context.temp_allocator)
 	exe, _ := filepath.join(
 		{dir, ODIN_OS == .Windows ? "unified-eos-layout.exe" : "unified-eos-layout"},
@@ -357,4 +355,30 @@ find_on_path :: proc(name: string) -> (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// The staged SDK library for this OS loads, every bound function resolves, and EOS initializes
+// (no credentials or network needed). This is what proves the Windows DLL in CI.
+@(test)
+sdk_library_loads :: proc(t: ^testing.T) {
+	path := LIB_DIR + "/" + eos.LIB_NAME
+	if !os.exists(path) {
+		log.info("EOS SDK library not staged (python tools/eos.py); load check skipped")
+		return
+	}
+	api: eos.Api
+	if !testing.expectf(t, eos.api_load(&api, path), "%s: load or symbol lookup failed", path) {
+		return
+	}
+	opts := eos.Initialize_Options {
+		api_version     = eos.INITIALIZE_API_LATEST,
+		product_name    = "unified-test",
+		product_version = "1",
+	}
+	r := api.Initialize(&opts)
+	testing.expectf(t, r == .Success, "EOS_Initialize: %v", r)
+	testing.expect_value(t, string(api.EResult_ToString(.NotFound)), "EOS_NotFound")
+	if r == .Success {
+		testing.expect_value(t, api.Shutdown(), eos.Result.Success)
+	}
 }

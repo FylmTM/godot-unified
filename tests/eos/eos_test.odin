@@ -175,10 +175,7 @@ framing_survives_reorder_and_loss :: proc(t: ^testing.T) {
 
 @(test)
 credentials_come_from_the_ini :: proc(t: ^testing.T) {
-	dir := os.get_env("TMPDIR", context.temp_allocator)
-	if dir == "" {
-		dir = "."
-	}
+	dir := os.temp_directory(context.temp_allocator) or_else "."
 	path, _ := filepath.join({dir, "unified-eos-test.ini"}, context.temp_allocator)
 	ini := "[eos]\nproduct_id=p1\nsandbox_id = s2\ndeployment_id=d3\nclient_id=c4\nclient_secret=x5\n"
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)ini) == nil)
