@@ -44,6 +44,8 @@ STAGED_SDK_BIN :: #directory + "/../../third_party/eos/SDK/Bin"
 TICK_EVERY_US :: 500 // the link ticks EOS at most this often when it finds no packet
 SOCKET_PREFIX :: "unified-"
 MAX_MEMBERS :: 4
+SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in searches
+SEARCH_RETRY_US :: 1_200_000
 
 Remote :: struct {
 	used:      bool,
@@ -55,15 +57,16 @@ Remote :: struct {
 }
 
 Init_Options :: struct {
-	lib_dirs:         []string, // where to look for the SDK library; empty = default_lib_dirs()
-	product_name:     string,
-	product_version:  string,
-	cache_dir:        string, // EOS cache; empty = <tmp>/unified-eos
-	relay_control:    Maybe(Relay_Control), // default Allow_Relays
-	// macOS: let the keychain ask the user when the stored device ID belongs to another build of
-	// the program. Off by default: the read fails at once and a fresh anonymous ID is made instead
-	// (a dialog would block the session thread until answered).
-	keychain_prompts: bool,
+	lib_dirs:            []string, // where to look for the SDK library; empty = default_lib_dirs()
+	product_name:        string,
+	product_version:     string,
+	cache_dir:           string, // EOS cache; empty = <tmp>/unified-eos
+	relay_control:       Maybe(Relay_Control), // default Allow_Relays
+	// macOS: fail instead of asking the user when the stored device ID belongs to another build of
+	// the program (headless tools; a dialog would block the session thread until answered). Games
+	// leave it off: the player allows access once per build (never for runs inside Godot.app,
+	// whose signature is stable).
+	no_keychain_prompts: bool,
 }
 
 Online :: struct {
@@ -103,6 +106,8 @@ Online :: struct {
 	last_tick_us:   i64,
 	sent, received: int,
 	send_errors:    int,
+	searches:       int, // lobby searches made for this join (a new lobby takes a moment to be found)
+	search_at_us:   i64, // when to search again (0: not scheduled)
 	reported_code:  bool,
 	reported_fail:  bool,
 	events:         [32]Link_Event,
@@ -152,7 +157,7 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 	o.ctx = runtime.default_context()
 	o.relay_control = opts.relay_control.? or_else .Allow_Relays
-	if !opts.keychain_prompts {
+	if opts.no_keychain_prompts {
 		disable_keychain_prompts()
 	}
 	dirs := opts.lib_dirs
@@ -374,6 +379,30 @@ leave :: proc() {
 	end_session(o)
 }
 
+// Deletes this machine's device ID (the next login makes a new anonymous user). For test tools,
+// so runs leave nothing behind; blocks up to ~5 s while EOS completes it.
+forget_device :: proc() {
+	o := &g
+	sync.guard(&o.mu)
+	if o.platform == nil {
+		return
+	}
+	done := false
+	do_ := Connect_Delete_Device_Id_Options {
+		api_version = CONNECT_DELETEDEVICEID_API_LATEST,
+	}
+	o.api.Connect_DeleteDeviceId(o.connect, &do_, &done, proc "c" (info: ^Result_Callback_Info) {
+		(^bool)(info.client_data)^ = true
+	})
+	for _ in 0 ..< 500 {
+		tick(o)
+		if done {
+			return
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+}
+
 // Releases the platform; call once at exit. EOS can't be initialized again in this process.
 shutdown :: proc() {
 	o := &g
@@ -413,6 +442,8 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	o.code = code
 	o.reported_code = false
 	o.reported_fail = false
+	o.searches = 0
+	o.search_at_us = 0
 	o.n_events = 0
 	o.bucket = {}
 	copy(o.bucket[:len(o.bucket) - 1], bucket)
@@ -436,6 +467,10 @@ tick :: proc(o: ^Online) {
 	o.api.Platform_Tick(o.platform)
 	pump_main_run_loop()
 	o.last_tick_us = netcode.now_us()
+	if o.search_at_us != 0 && o.last_tick_us >= o.search_at_us && o.stage == .Lobby && o.role == .Join {
+		o.search_at_us = 0
+		start_lobby(o)
+	}
 }
 
 @(private)
@@ -532,15 +567,18 @@ on_login :: proc "c" (info: ^Connect_Login_Callback_Info) {
 		}
 		create_device_id(o)
 	case .UnexpectedError:
-		// The stored device ID can't be read (macOS: the keychain entry belongs to another build of
-		// this binary and prompts are off). The identity is anonymous, so start a fresh one.
-		if o.device_tries >= 2 {
-			o.login_busy = false
-			fail(o, "login: the device ID can't be read or replaced")
-			return
+		o.login_busy = false
+		when ODIN_OS == .Darwin {
+			// The keychain entry belongs to another build of this program and access was denied
+			// (or prompts are off).
+			fail(
+				o,
+				"login: the device ID in the keychain belongs to another build; allow access, or delete it: security delete-generic-password -s %s",
+				KEYCHAIN_SERVICE,
+			)
+		} else {
+			fail(o, "login: %s", o.api.EResult_ToString(info.result_code))
 		}
-		o.fresh_device = true
-		start_login(o)
 	case .InvalidUser:
 		// First login with this device ID: create the product user.
 		cu := Connect_Create_User_Options {
@@ -657,6 +695,7 @@ start_lobby :: proc(o: ^Online) {
 		local_user_id = o.local,
 	}
 	pending_search = search
+	o.searches += 1
 	o.api.LobbySearch_Find(search, &fo, o, on_search_done)
 	set_detail(o, "looking for game %s", string(o.code[:]))
 }
@@ -753,6 +792,10 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 		return
 	}
 	if count == 0 {
+		if o.searches < SEARCH_TRIES {
+			o.search_at_us = netcode.now_us() + SEARCH_RETRY_US
+			return
+		}
 		fail(o, "no game with code %s", string(o.code[:]))
 		return
 	}

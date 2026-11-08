@@ -2,7 +2,9 @@
 // runs a host (relay + the host's own player in slot 0) whose relay also serves an EOS P2P link,
 // publishes a lobby and prints its code; `eos-client` joins by code and plays a remote slot (a late
 // join: the host's clock is already running). Inputs are the game's script. Two processes on one
-// machine need two Product User IDs: run one of them with UNIFIED_EOS_FRESH_DEVICE=1.
+// machine need two Product User IDs: run one of them with UNIFIED_EOS_FRESH_DEVICE=1. Each run
+// deletes its device ID at exit: on macOS the keychain entry belongs to the binary that made it,
+// and a rebuilt binary could not read or replace it without a dialog.
 package headless
 
 import "core:fmt"
@@ -27,7 +29,7 @@ eos_start :: proc(a: ^Args, product: string) -> bool {
 	case:
 		die("%s: --relays must be allow, force or none", a.mode)
 	}
-	if !eos.init({product_name = product, product_version = "1", relay_control = rc}) {
+	if !eos.init({product_name = product, product_version = "1", relay_control = rc, no_keychain_prompts = true}) {
 		fmt.eprintfln("%s: EOS unavailable: %s", a.mode, eos.status().detail)
 		return false
 	}
@@ -59,6 +61,7 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		return false
 	}
 	defer eos.shutdown()
+	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
 	t0 := time.tick_now()
 	link, lok := eos.open_host(EOS_BUCKET)
 	if !lok {
@@ -125,6 +128,7 @@ mode_eos_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		return false
 	}
 	defer eos.shutdown()
+	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
 	t0 := time.tick_now()
 	link, lok := eos.open_join(EOS_BUCKET, code)
 	if !lok {
