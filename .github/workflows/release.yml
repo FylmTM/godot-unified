@@ -1,0 +1,162 @@
+# Playable game builds (docs/RELEASE.md). A tag `<game>-v<version>` (e.g. survivor-v0.1.0) builds games/<game> for
+# windows-x64 and macos-arm64 with tools/release.py, smoke-tests each export on its runner, and publishes a GitHub
+# prerelease with both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline: Windows
+# only (macOS runners are for tag builds), any game folder, no release.
+name: release
+
+on:
+  push:
+    tags: ["*-v*"]
+  workflow_dispatch:
+    inputs:
+      game_dir:
+        description: Game folder (a Godot project with export_presets.cfg)
+        default: experiments/release-standin
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ODIN_TAG: dev-2026-11
+  GODOT_VERSION: 4.7.2
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  meta:
+    name: what to build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      game_dir: ${{ steps.m.outputs.game_dir }}
+      version: ${{ steps.m.outputs.version }}
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        env:
+          INPUT_GAME_DIR: ${{ inputs.game_dir }}
+        run: |
+          win='{"os":"windows-latest","platform":"windows-x64","py":"python","templates":"~/AppData/Roaming/Godot/export_templates"}'
+          mac='{"os":"macos-latest","platform":"macos-arm64","py":"python3","templates":"~/Library/Application Support/Godot/export_templates"}'
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+            game_dir="games/${tag%-v*}"
+            version="${tag##*-v}"
+            matrix="{\"include\":[$win,$mac]}"
+          else
+            game_dir="${INPUT_GAME_DIR:-experiments/release-standin}"
+            version="dev-${GITHUB_SHA::7}"
+            matrix="{\"include\":[$win]}"
+          fi
+          if [ ! -f "$game_dir/project.godot" ] || [ ! -f "$game_dir/export_presets.cfg" ]; then
+            echo "::error::$game_dir is not a game folder (needs project.godot and export_presets.cfg)"
+            exit 1
+          fi
+          echo "game_dir=$game_dir" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Building \`$game_dir\` version \`$version\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: build / ${{ matrix.platform }}
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.meta.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GAME_DIR: ${{ needs.meta.outputs.game_dir }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      EOS_PRODUCT_ID: ${{ secrets.EOS_PRODUCT_ID }}
+      EOS_SANDBOX_ID: ${{ secrets.EOS_SANDBOX_ID }}
+      EOS_DEPLOYMENT_ID: ${{ secrets.EOS_DEPLOYMENT_ID }}
+      EOS_CLIENT_ID: ${{ secrets.EOS_CLIENT_ID }}
+      EOS_CLIENT_SECRET: ${{ secrets.EOS_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      # A pip that can install ninja on every runner (macOS's system Python refuses, PEP 668).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: .toolchains/odin
+          key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
+      # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
+      - name: Odin
+        run: ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
+
+      - id: box3d-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/box3d/build/${{ matrix.platform }}
+          key: box3d-${{ matrix.platform }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+      - if: steps.box3d-cache.outputs.cache-hit != 'true'
+        run: ${{ matrix.py }} tools/ci.py ensure-ninja
+
+      # The Godot editor (.toolchains/godot) and this platform's export templates (Godot's standard folder).
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .toolchains/godot
+            ${{ matrix.templates }}/${{ env.GODOT_VERSION }}.stable
+          key: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-${{ hashFiles('tools/release.py') }}
+          restore-keys: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-
+
+      # Dependencies, extension, import, export, sign, zip, smoke test: tools/release.py.
+      - name: release.py build
+        run: |
+          odin version
+          require=""
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ -f tools/eos.py ]; then
+            require="--require-env EOS_PRODUCT_ID,EOS_SANDBOX_ID,EOS_DEPLOYMENT_ID,EOS_CLIENT_ID,EOS_CLIENT_SECRET"
+          fi
+          ${{ matrix.py }} tools/release.py build "$GAME_DIR" --version "$VERSION" $require
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            ${{ needs.meta.outputs.game_dir }}/.uni/release/*.zip
+            ${{ needs.meta.outputs.game_dir }}/.uni/release/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: prerelease
+    if: github.ref_type == 'tag'
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GAME_DIR: ${{ needs.meta.outputs.game_dir }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: gh release create
+        run: |
+          cd dist
+          cat *.sha256 > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          cd ..
+          python3 tools/release.py notes "$GAME_DIR" --tag "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease \
+            --title "$(basename "$GAME_DIR") $VERSION" --notes-file notes.md \
+            dist/*.zip dist/SHA256SUMS.txt
