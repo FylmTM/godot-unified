@@ -6,8 +6,9 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 
 1. **Physics rollback spike:** done. The Box3D fork is bit-exact under rollback and across ARM64/x64.
 2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen, signed off 2026-11-09.
-3. **Architecture and Godot integration:** now. Design decisions below, spikes in progress, then module specs.
-4. **The library for real:** built from the signed-off specs, with a demo game in this repo.
+3. **Architecture and Godot integration:** done for a first pass (spikes, module specs pending review, the library
+   reshaped into the module map).
+4. **The library for real:** in progress. `games/survivor/` is the first playable game on it (`survivor-v0.1.0`).
 5. **A larger 3D co-op game** migrated from Unity.
 
 ## Decided
@@ -130,26 +131,22 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 - Upstream Odin XXH3 streaming fix: odin-lang/Odin#8257 is open, from `FylmTM/Odin:fix-xxh3-streaming-tail`. Its CI
   waits for a maintainer to approve workflows.
 
-## In discussion (this thread)
+## Awaiting the developer's review
 
-1. **Godot follow-ups:** how entity kinds and levels are authored (code/data-first recommended,
-   `docs/research/11-view-binding.md`), default interpolation and smoothing per kind.
+- Everything decided and built autonomously on the night of 2026-11-09: `docs/LOG.md` (start there).
+- Module specs written that night and marked "pending developer review": the files in `spec/` other than CORE.md
+  and GAME.md (sim, netcode, eos, godot_host, view, devui, the survivor client, ...).
+- The first playable build: `survivor-v0.1.0` (GitHub prerelease; single player + online via EOS; macOS arm64 and
+  Windows x64).
 
-## In progress (sessions)
+## Next
 
-- **Spike follow-ups:** Linux screenshots in Docker (xvfb, llvmpipe), the macOS `.app` export with the export
-  templates, and the numbers re-measured on the standard Godot build. Spike code and reports stay on their branches:
-  `claude/competent-hawking-a92edb` (GDExtension), `claude/nifty-panini-064f1c` (headless Godot),
-  `claude/adoring-ritchie-323df3` (dev UI).
-
-## Next (after sign-offs)
-
-- Module specs, each signed off before building, in this order: `sim` (with the physics plug-in and real system code
-  showing the API), `physics`, `netcode`, `view`, `headless`, `cli`. Open for `sim`: table detection, `using` as
-  component, optional components, cross-table helpers, events, desync recovery policy.
-- The `unified` CLI (replaces `tools/*.py`).
-- Box3D fork: public load-from-bytes API, clearing stale bytes, and a full test suite for our use of Box3D.
-- A test scenario that forces explosions and barrel respawns inside rollback windows.
+- Play `survivor-v0.1.0` with a friend; collect feedback (balance, feel, connection issues).
+- Review and sign off the specs; fold the review into the code.
+- How entity kinds and levels are authored (code/data-first recommended, `docs/research/11-view-binding.md`).
+- The `unified` CLI in Odin (replaces `tools/*.py`).
+- Box3D fork: public load-from-bytes API and clearing stale bytes, plus a full test suite for our use of Box3D.
+- Golden screenshots in CI (Linux Xvfb/Mesa proved good enough by the headless-Godot spike).
 
 ## Deferred
 

@@ -112,3 +112,8 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   - The keychain dialog came from an EOS CLI test run at 02:10 whose process is gone; it's harmless, and **Deny**
     dismisses it. `spec/eos.md` and the tester notes explain keychain prompts in dev runs.
   - Verified on main: all local checks green; local macOS release build + smoke test OK (19 s).
+- **Tagged `survivor-v0.1.0` on 31e257a** after CI on main passed (run 42536768520: format + vet, Linux, Windows,
+  headless Godot). Release run 42536959936 passed (Windows build, macOS build, prerelease). The prerelease
+  "survivor 0.1.0" has `survivor-0.1.0-macos-arm64.zip` (38.5 MB), `survivor-0.1.0-windows-x64.zip` (47.8 MB) and
+  `SHA256SUMS.txt`. Re-checked the published macOS zip here: checksum OK, ad-hoc signed, ships `libsurvivor.dylib`
+  and the EOS dylib in Frameworks, headless smoke test exit 0 with no errors.
