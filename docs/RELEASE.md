@@ -22,11 +22,11 @@ orchestrator pushes tags. A failed run publishes nothing; delete the tag, fix, t
 python tools/release.py build games/survivor    # -> games/survivor/.uni/release/survivor-dev-<sha>-macos-arm64.zip
 ```
 
-~20 s warm (~50 s cold). Godot comes from `$GODOT`, `~/tools/godot/Godot_v4.7.2.app` or a download into `.toolchains/godot/`;
-export templates go to Godot's standard folder (only this platform's files, pulled from the official `.tpz` by
-range requests). Without a tag, CI checks the pipeline with **Actions → release → Run workflow** (Windows only; any
-game folder, default `games/survivor`; `experiments/release-standin` is a minimal project with a tiny Odin
-GDExtension that checks the pipeline without any game code).
+~20 s warm (~50 s cold). Godot comes from `$GODOT`, `~/tools/godot/Godot_v4.7.2.app` or a download into
+`.toolchains/godot/`; export templates go to Godot's standard folder (only this platform's files, pulled from the
+official `.tpz` by range requests). Without a tag, CI checks the pipeline with **Actions → release → Run
+workflow** (Windows only; any game folder, default `games/survivor`; `experiments/release-standin` is a minimal
+project with a tiny Odin GDExtension that checks the pipeline without any game code).
 
 ## Rules for a game
 
