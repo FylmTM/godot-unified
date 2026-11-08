@@ -268,6 +268,9 @@ events_fire_cancel_confirm :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(tr.out), 1)
 	testing.expect_value(t, tr.out[0], view.Tracked(Ev){.Confirm, boom})
 	clear(&tr.out)
+	// re-simulating a verified tick (a rollback that starts there) fires nothing again
+	sim_tick(&tr, 5, boom)
+	testing.expect_value(t, len(tr.out), 0)
 	// a re-simulated tick that produces a different event: fire the new one
 	sim_tick(&tr, 7, Ev{7, 1, 1})
 	sim_tick(&tr, 7, Ev{7, 1, 2})

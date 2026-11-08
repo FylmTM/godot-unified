@@ -37,11 +37,12 @@ Pending :: struct($E: typeid) {
 }
 
 Event_Tracker :: struct($E: typeid) {
-	id_of:    proc(e: E) -> Event_Id,
-	pending:  map[Event_Id]Pending(E), // fired, not yet verified
-	verified: u32,
-	cur_tick: u32,
-	out:      [dynamic]Tracked(E),
+	id_of:        proc(e: E) -> Event_Id,
+	pending:      map[Event_Id]Pending(E), // fired, not yet verified
+	verified:     u32,
+	has_verified: bool,
+	cur_tick:     u32,
+	out:          [dynamic]Tracked(E),
 }
 
 tracker_init :: proc(t: ^Event_Tracker($E), id_of: proc(e: E) -> Event_Id) {
@@ -53,6 +54,8 @@ tracker_destroy :: proc(t: ^Event_Tracker($E)) {
 	delete(t.out)
 }
 
+// Ticks at or below the verified one are final: re-simulating them (a rollback that starts there) changes
+// nothing the view has not already confirmed, so their events are ignored.
 tracker_begin_tick :: proc(t: ^Event_Tracker($E), tick: u32) {
 	t.cur_tick = tick
 	for id, &p in t.pending {
@@ -62,6 +65,7 @@ tracker_begin_tick :: proc(t: ^Event_Tracker($E), tick: u32) {
 
 tracker_event :: proc(t: ^Event_Tracker($E), e: E) {
 	id := t.id_of(e)
+	if t.has_verified && id.tick <= t.verified do return
 	if p, ok := &t.pending[id]; ok {
 		p.seen = true
 		p.event = e
@@ -72,6 +76,7 @@ tracker_event :: proc(t: ^Event_Tracker($E), e: E) {
 }
 
 tracker_end_tick :: proc(t: ^Event_Tracker($E), tick: u32) {
+	if t.has_verified && tick <= t.verified do return
 	for id, p in t.pending {
 		if id.tick == tick && !p.seen {
 			append(&t.out, Tracked(E){.Cancel, p.event})
@@ -82,8 +87,9 @@ tracker_end_tick :: proc(t: ^Event_Tracker($E), tick: u32) {
 
 // Ticks up to `verified` are final: their pending events are confirmed.
 tracker_verified :: proc(t: ^Event_Tracker($E), verified: u32) {
-	if verified <= t.verified && t.verified != 0 do return
+	if t.has_verified && verified <= t.verified do return
 	t.verified = verified
+	t.has_verified = true
 	for id, p in t.pending {
 		if id.tick <= verified {
 			append(&t.out, Tracked(E){.Confirm, p.event})

@@ -1,0 +1,17 @@
+; The survivor's extension (simulation/extension: the sim, godot_host, dev UI), built into the hidden .uni/ by
+; `python tools/dev.py game build survivor [dev|release]`. Dev builds on macOS are versioned files behind this
+; name (a symlink) so editor hot reload loads new code; release builds are a plain file.
+[configuration]
+
+entry_symbol = "survivor_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.uni/bin/libsurvivor.dylib"
+macos.release = "res://.uni/bin/libsurvivor.dylib"
+windows.debug.x86_64 = "res://.uni/bin/survivor.dll"
+windows.release.x86_64 = "res://.uni/bin/survivor.dll"
+linux.debug.x86_64 = "res://.uni/bin/libsurvivor.so"
+linux.release.x86_64 = "res://.uni/bin/libsurvivor.so"

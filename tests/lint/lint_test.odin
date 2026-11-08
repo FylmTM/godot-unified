@@ -65,6 +65,7 @@ RULES := []Rule {
 	{pkg = "view"},
 	{pkg = "imgui"},
 	{pkg = "devui"},
+	{pkg = "godot_host"},
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.
