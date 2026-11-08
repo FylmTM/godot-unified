@@ -5,7 +5,6 @@ package netcode
 
 import cnet "core:net"
 
-RELAY_PEER :: Peer(0)
 MAX_UDP_PEERS :: 16
 
 Udp_Link :: struct {

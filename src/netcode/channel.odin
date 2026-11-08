@@ -1,5 +1,7 @@
 // The transport interface (CORE.md §2): send(peer, bytes, unreliable|reliable), poll() -> events,
-// connect/disconnect events. It runs the same minimal reliability protocol over any link:
+// connect/disconnect events. A channel multiplexes any number of links (the relay serves its host's
+// in-process client and remote peers at once) and numbers every (link, link peer) pair as one
+// channel Peer. It runs the same minimal reliability protocol over every link:
 //
 //   datagram = u8 magic, u8 version, u32 seq, u32 ack, u32 ack_bits, u16 chunk count, chunks
 //   chunk    = u8 kind (0 unreliable, 1 reliable), [u32 message id if reliable], u16 len, bytes
@@ -10,8 +12,8 @@
 // they arrive (possibly duplicated or reordered by the network).
 package netcode
 
+import "base:runtime"
 import "core:fmt"
-import "core:time"
 
 import "../wire"
 
@@ -29,10 +31,10 @@ Event_Kind :: enum u8 {
 Event :: struct {
 	kind: Event_Kind,
 	peer: Peer,
-	data: []u8, // temp-allocated; valid until the caller frees the temp allocator
+	data: []u8, // valid until the next channel_poll
 }
 
-MAX_PEERS :: 16
+MAX_PEERS :: 32
 SENT_RING :: 1024
 MAX_IDS_PER_PACKET :: 64
 FLUSH_BUDGET :: 96 * 1024 // reliable bytes per peer per flush
@@ -43,11 +45,13 @@ DGRAM_VERSION :: 1
 HEADER_BYTES :: 16
 
 Channel :: struct {
-	link:   Link,
+	links:  [dynamic]Link,
 	conns:  [MAX_PEERS]Conn,
 	events: [dynamic]Event,
 	rx:     [MAX_DATAGRAM]u8,
 	stats:  Channel_Stats,
+	arena:  runtime.Arena, // event payloads, reset by each poll
+	tx:     wire.Writer,
 }
 
 Channel_Stats :: struct {
@@ -70,6 +74,9 @@ Sent_Packet :: struct {
 }
 
 Conn :: struct {
+	used:        bool, // the (link, lpeer) mapping is assigned
+	link:        int,
+	lpeer:       Peer,
 	active:      bool,
 	last_recv:   i64,
 	last_sent:   i64,
@@ -89,10 +96,16 @@ Conn :: struct {
 	rel_early:   map[u32][]u8,
 }
 
-channel_make :: proc(link: Link) -> ^Channel {
+channel_make :: proc() -> ^Channel {
 	ch := new(Channel)
-	ch.link = link
+	ch.tx = wire.writer_make(MAX_DATAGRAM)
 	return ch
+}
+
+// Adds a link; the channel owns it from now on (closed by channel_destroy). Returns its index.
+channel_add_link :: proc(ch: ^Channel, link: Link) -> int {
+	append(&ch.links, link)
+	return len(ch.links) - 1
 }
 
 channel_destroy :: proc(ch: ^Channel) {
@@ -100,8 +113,47 @@ channel_destroy :: proc(ch: ^Channel) {
 		conn_reset(&c)
 	}
 	delete(ch.events)
-	link_close(&ch.link)
+	for &l in ch.links {
+		link_close(&l)
+	}
+	delete(ch.links)
+	delete(ch.tx.buf)
+	runtime.arena_destroy(&ch.arena)
 	free(ch)
+}
+
+// The channel Peer for a link's peer, assigning one on first use (-1 when all are taken).
+channel_peer :: proc(ch: ^Channel, link: int, lpeer: Peer) -> Peer {
+	free_slot := -1
+	for &c, i in ch.conns {
+		if c.used && c.link == link && c.lpeer == lpeer {
+			return Peer(i)
+		}
+		if !c.used && free_slot < 0 {
+			free_slot = i
+		}
+	}
+	if free_slot < 0 {
+		return -1
+	}
+	c := &ch.conns[free_slot]
+	c^ = {}
+	c.used = true
+	c.link = link
+	c.lpeer = lpeer
+	return Peer(free_slot)
+}
+
+// Forgets a peer at once (no Disconnected event): after it said goodbye.
+channel_drop :: proc(ch: ^Channel, peer: Peer) {
+	if int(peer) >= 0 && int(peer) < MAX_PEERS {
+		conn_reset(&ch.conns[peer])
+	}
+}
+
+@(private)
+arena_bytes :: proc(ch: ^Channel, b: []u8) -> []u8 {
+	return clone_bytes(b, runtime.arena_allocator(&ch.arena))
 }
 
 @(private)
@@ -125,7 +177,11 @@ conn_reset :: proc(c: ^Conn) {
 conn_open :: proc(ch: ^Channel, peer: Peer, now: i64) -> ^Conn {
 	c := &ch.conns[peer]
 	if !c.active {
+		link, lpeer := c.link, c.lpeer
 		conn_reset(c)
+		c.used = true
+		c.link = link
+		c.lpeer = lpeer
 		c.active = true
 		c.last_recv = now
 		c.next_seq = 1
@@ -136,11 +192,11 @@ conn_open :: proc(ch: ^Channel, peer: Peer, now: i64) -> ^Conn {
 }
 
 // Queues a message; it goes out on the next flush.
-channel_send :: proc(ch: ^Channel, peer: Peer, data: []u8, d: Delivery) {
-	if int(peer) < 0 || int(peer) >= MAX_PEERS {
+channel_send :: proc(ch: ^Channel, peer: Peer, data: []u8, d: Delivery, now: i64) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !ch.conns[peer].used {
 		return
 	}
-	c := conn_open(ch, peer, now_us())
+	c := conn_open(ch, peer, now)
 	assert(len(data) <= MAX_DATAGRAM - HEADER_BYTES - 7)
 	if d == .Reliable {
 		append(&c.rel_out, Rel_Msg{id = c.next_rel_id, data = clone_bytes(data)})
@@ -159,19 +215,35 @@ channel_rtt_us :: proc(ch: ^Channel, peer: Peer) -> f64 {
 	return ch.conns[peer].srtt_us
 }
 
-// Receives everything pending and returns the events (valid until the temp allocator is freed).
-channel_poll :: proc(ch: ^Channel) -> []Event {
+// Receives everything pending on every link and returns the events (valid until the next poll).
+channel_poll :: proc(ch: ^Channel, now: i64) -> []Event {
 	clear(&ch.events)
-	now := now_us()
-	for {
-		n, from, ok := link_recv(&ch.link, ch.rx[:])
-		if !ok {
-			break
+	runtime.arena_free_all(&ch.arena)
+	for &l, li in ch.links {
+		if l.event != nil {
+			for {
+				lp, kind, ok := l.event(l.data)
+				if !ok {
+					break
+				}
+				peer := channel_peer(ch, li, lp)
+				if kind == .Disconnected && peer >= 0 && ch.conns[peer].active {
+					conn_reset(&ch.conns[peer])
+					append(&ch.events, Event{kind = .Disconnected, peer = peer})
+				}
+			}
 		}
-		if int(from) < 0 || int(from) >= MAX_PEERS {
-			continue
+		for {
+			n, from, ok := link_recv(&l, ch.rx[:])
+			if !ok {
+				break
+			}
+			peer := channel_peer(ch, li, from)
+			if peer < 0 {
+				continue
+			}
+			handle_datagram(ch, peer, ch.rx[:n], now)
 		}
-		handle_datagram(ch, from, ch.rx[:n], now)
 	}
 	for &c, i in ch.conns {
 		if c.active && now - c.last_recv > DISCONNECT_US {
@@ -263,7 +335,7 @@ handle_datagram :: proc(ch: ^Channel, from: Peer, bytes: []u8, now: i64) {
 			return
 		}
 		if kind == 0 {
-			append(&ch.events, Event{kind = .Message, peer = from, data = clone_bytes(data, context.temp_allocator)})
+			append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, data)})
 			continue
 		}
 		c.ack_pending = true
@@ -276,14 +348,14 @@ handle_datagram :: proc(ch: ^Channel, from: Peer, bytes: []u8, now: i64) {
 			}
 			continue
 		}
-		append(&ch.events, Event{kind = .Message, peer = from, data = clone_bytes(data, context.temp_allocator)})
+		append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, data)})
 		c.rel_next += 1
 		for {
 			b, ok := c.rel_early[c.rel_next]
 			if !ok {
 				break
 			}
-			append(&ch.events, Event{kind = .Message, peer = from, data = clone_bytes(b, context.temp_allocator)})
+			append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, b)})
 			delete(b)
 			delete_key(&c.rel_early, c.rel_next)
 			c.rel_next += 1
@@ -323,17 +395,17 @@ end_packet :: proc(ch: ^Channel, pb: ^Packet_Builder, c: ^Conn, peer: Peer, now:
 	c.next_seq += 1
 	c.last_sent = now
 	c.ack_pending = false
-	link_send(&ch.link, peer, pb.w.buf[:])
+	link_send(&ch.links[c.link], c.lpeer, pb.w.buf[:])
 	ch.stats.datagrams_sent += 1
 	ch.stats.bytes_sent += len(pb.w.buf)
 }
 
 // Sends everything queued, plus due resends and pending acks, as datagrams.
-channel_flush :: proc(ch: ^Channel) {
-	now := now_us()
+channel_flush :: proc(ch: ^Channel, now: i64) {
 	pb := Packet_Builder {
-		w = wire.writer_make(MAX_DATAGRAM, context.temp_allocator),
+		w = ch.tx,
 	}
+	defer ch.tx = pb.w
 	for &c, i in ch.conns {
 		if !c.active {
 			continue
@@ -398,8 +470,4 @@ channel_stats_json :: proc(ch: ^Channel) -> string {
 		s.bytes_recv,
 		s.resends,
 	)
-}
-
-sleep_ms :: proc(ms: int) {
-	time.sleep(time.Duration(ms) * time.Millisecond)
 }

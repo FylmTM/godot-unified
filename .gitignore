@@ -18,3 +18,6 @@ zig-out/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)
 !/testdata/**/ref.log
+
+# EOS SDK (headers + shipping libraries), staged by tools/eos.py
+/third_party/eos/

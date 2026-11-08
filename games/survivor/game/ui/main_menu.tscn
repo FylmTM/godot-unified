@@ -1,0 +1,263 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="PackedScene" path="res://game/arena/level.tscn" id="2_level"]
+[ext_resource type="Script" path="res://game/ui/orbit_camera.gd" id="3_orbit"]
+[ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="4_circle"]
+
+[sub_resource type="Gradient" id="fade_grad"]
+offsets = PackedFloat32Array(0, 0.55, 1)
+colors = PackedColorArray(0.082, 0.094, 0.129, 0.96, 0.082, 0.094, 0.129, 0.7, 0.082, 0.094, 0.129, 0)
+
+[sub_resource type="GradientTexture2D" id="fade_tex"]
+gradient = SubResource("fade_grad")
+width = 256
+height = 4
+
+[node name="MainMenu" type="Node"]
+script = ExtResource("1_menu")
+
+[node name="Level" parent="." instance=ExtResource("2_level")]
+
+[node name="StartCircle" parent="." instance=ExtResource("4_circle")]
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="Camera" type="Camera3D" parent="."]
+fov = 50.0
+script = ExtResource("3_orbit")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Fade" type="TextureRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 760.0
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("fade_tex")
+expand_mode = 1
+
+[node name="Left" type="MarginContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 520.0
+grow_vertical = 2
+theme_override_constants/margin_left = 80
+theme_override_constants/margin_top = 72
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 48
+
+[node name="VBox" type="VBoxContainer" parent="UI/Root/Left"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="UI/Root/Left/VBox"]
+layout_mode = 2
+theme_type_variation = &"Title"
+text = "SURVIVOR"
+
+[node name="Subtitle" type="Label" parent="UI/Root/Left/VBox"]
+layout_mode = 2
+theme_type_variation = &"Dim"
+text = "Hold the circle. Then step out and survive together."
+
+[node name="Gap" type="Control" parent="UI/Root/Left/VBox"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+
+[node name="Buttons" type="VBoxContainer" parent="UI/Root/Left/VBox"]
+custom_minimum_size = Vector2(340, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+theme_override_constants/separation = 10
+
+[node name="Single" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "Single player"
+alignment = 0
+
+[node name="Host" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+text = "Host online"
+alignment = 0
+
+[node name="Join" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+text = "Join with code"
+alignment = 0
+
+[node name="Address" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+text = "Join by address (LAN)"
+alignment = 0
+
+[node name="Settings" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+text = "Settings"
+alignment = 0
+
+[node name="Quit" type="Button" parent="UI/Root/Left/VBox/Buttons"]
+layout_mode = 2
+text = "Quit"
+alignment = 0
+
+[node name="Spacer" type="Control" parent="UI/Root/Left/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Footer" type="Label" parent="UI/Root/Left/VBox"]
+layout_mode = 2
+theme_type_variation = &"Dim"
+text = "v0.1.0"
+
+[node name="Side" type="CenterContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -680.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="JoinPanel" type="PanelContainer" parent="UI/Root/Side"]
+visible = false
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="UI/Root/Side/JoinPanel"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="UI/Root/Side/JoinPanel/VBox"]
+layout_mode = 2
+theme_type_variation = &"Heading"
+text = "Join a friend"
+
+[node name="Hint" type="Label" parent="UI/Root/Side/JoinPanel/VBox"]
+layout_mode = 2
+theme_type_variation = &"Dim"
+text = "Enter the 6-character lobby code your host shared."
+autowrap_mode = 3
+
+[node name="Code" type="LineEdit" parent="UI/Root/Side/JoinPanel/VBox"]
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_font_sizes/font_size = 40
+placeholder_text = "ABC123"
+alignment = 1
+context_menu_enabled = false
+caret_blink = true
+
+[node name="Error" type="Label" parent="UI/Root/Side/JoinPanel/VBox"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.365, 0.424, 1)
+theme_override_font_sizes/font_size = 16
+text = "error"
+autowrap_mode = 3
+
+[node name="Row" type="HBoxContainer" parent="UI/Root/Side/JoinPanel/VBox"]
+layout_mode = 2
+
+[node name="Back" type="Button" parent="UI/Root/Side/JoinPanel/VBox/Row"]
+layout_mode = 2
+text = "Back"
+
+[node name="Paste" type="Button" parent="UI/Root/Side/JoinPanel/VBox/Row"]
+layout_mode = 2
+tooltip_text = "Paste from the clipboard"
+text = "Paste"
+
+[node name="Go" type="Button" parent="UI/Root/Side/JoinPanel/VBox/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"PrimaryButton"
+disabled = true
+text = "Join"
+
+[node name="AddressPanel" type="PanelContainer" parent="UI/Root/Side"]
+visible = false
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="UI/Root/Side/AddressPanel"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="UI/Root/Side/AddressPanel/VBox"]
+layout_mode = 2
+theme_type_variation = &"Heading"
+text = "Join by address"
+
+[node name="Hint" type="Label" parent="UI/Root/Side/AddressPanel/VBox"]
+layout_mode = 2
+theme_type_variation = &"Dim"
+text = "Direct connection for LAN and development: host:port."
+autowrap_mode = 3
+
+[node name="Address" type="LineEdit" parent="UI/Root/Side/AddressPanel/VBox"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+placeholder_text = "127.0.0.1:7777"
+
+[node name="Error" type="Label" parent="UI/Root/Side/AddressPanel/VBox"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.365, 0.424, 1)
+theme_override_font_sizes/font_size = 16
+text = "error"
+autowrap_mode = 3
+
+[node name="Row" type="HBoxContainer" parent="UI/Root/Side/AddressPanel/VBox"]
+layout_mode = 2
+
+[node name="Back" type="Button" parent="UI/Root/Side/AddressPanel/VBox/Row"]
+layout_mode = 2
+text = "Back"
+
+[node name="Go" type="Button" parent="UI/Root/Side/AddressPanel/VBox/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"PrimaryButton"
+text = "Connect"
+
+[node name="HostLan" type="Button" parent="UI/Root/Side/AddressPanel/VBox"]
+layout_mode = 2
+tooltip_text = "Others on your network join with this machine's address"
+text = "Host on LAN instead (port 7777)"
+
+[node name="ErrorPanel" type="PanelContainer" parent="UI/Root/Side"]
+visible = false
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="UI/Root/Side/ErrorPanel"]
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="UI/Root/Side/ErrorPanel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.365, 0.424, 1)
+theme_type_variation = &"Heading"
+text = "Couldn't connect"
+
+[node name="Message" type="Label" parent="UI/Root/Side/ErrorPanel/VBox"]
+custom_minimum_size = Vector2(400, 0)
+layout_mode = 2
+text = "message"
+autowrap_mode = 3
+
+[node name="Ok" type="Button" parent="UI/Root/Side/ErrorPanel/VBox"]
+layout_mode = 2
+size_flags_horizontal = 8
+theme_type_variation = &"PrimaryButton"
+text = "OK"
