@@ -268,6 +268,18 @@ def extension_uses_eos(gdir):
                for p in (gdir / "simulation" / "extension").glob("*.odin"))
 
 
+def ensure_imported(gdir):
+    """A fresh checkout has no Godot import cache: import once (warm: skipped), so the timed run doesn't."""
+    if (gdir / ".godot" / "imported").is_dir():
+        return
+    t0 = time.time()
+    r = run_godot(["--headless", "--path", gdir, "--import"], timeout=300)
+    if r.returncode != 0:
+        sys.stdout.write((r.stdout + r.stderr)[-3000:])
+        raise SystemExit("dev: Godot import failed")
+    log("dev: imported %s in %.1fs" % (rel(gdir), time.time() - t0))
+
+
 def stage_eos(bin_dir):
     """EOS (tools/eos.py): copies the SDK's runtime library next to the game library (the .gdextension's
     [dependencies] ships it from there) and returns the credential -define flags from EOS_* env vars. The
@@ -310,6 +322,7 @@ def cmd_game_headless(gdir, argv):
         raise SystemExit("dev: --ticks must be a multiple of 16 (clients checksum every 16th verified tick)")
     if "--no-build" not in argv:
         cmd_game_build(gdir, "release" if "--release" in argv else "dev")
+    ensure_imported(gdir)
     t0 = time.time()
     r = run_godot(["--headless", "--path", gdir, "--", "--autostart", "--scripted", "--quit-at-end",
                    "--ticks", ticks, "--seed", seed], timeout=ticks / 64 + 30)
