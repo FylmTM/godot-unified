@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a playable game release: extension, Godot export, signing, zip, smoke test (Python 3.9+, stdlib only).
 
-    python tools/release.py build <game_dir> [--version V] [--require-env A,B] [--no-smoke]
+    python tools/release.py build <game_dir> [--version V] [--embed-env A,B] [--no-smoke]
     python tools/release.py notes <game_dir> --tag TAG         # prerelease notes (markdown) on stdout
     python tools/release.py godot                              # only fetch Godot + this host's export templates
 
@@ -10,7 +10,9 @@
 .github/workflows/release.yml (tag builds). Steps, each one fails loudly:
   1. dependencies: Box3D, then tools/imgui.py, tools/eos.py and `dev.py gen` when they exist,
   2. the game's GDExtension in release mode (`dev.py game build <game_dir> release` when dev.py has it, else
-     `odin build <game_dir>/simulation/extension -build-mode:dll`), written where the game's .gdextension says,
+     `odin build <game_dir>/simulation/extension -build-mode:dll`), written where the game's .gdextension says;
+     with --embed-env, each named environment variable must be set and its value must appear in the library
+     (tag builds: the EOS IDs, which testers' machines don't have),
   3. Godot GODOT_VERSION (GODOT env, .toolchains/godot/, ~/tools/godot/, /Applications, else downloaded into
      .toolchains/godot/) and its export templates in Godot's standard folder (only this host's files are pulled
      out of the official .tpz with HTTP range reads: ~120 MB instead of 1.3 GB),
@@ -488,16 +490,28 @@ def default_version():
     return "dev-" + (sha or "local")
 
 
-def cmd_build(game, version, require_env, smoke_test):
+def check_embedded(libs, names):
+    """Each value is compiled into one of the libraries (found as bytes; the values are never printed)."""
+    blobs = [lib.read_bytes() for _, lib in libs]
+    absent = [k for k in names if not any(os.environ[k].encode() in b for b in blobs)]
+    if absent:
+        raise SystemExit("release: the extension does not contain the value of %s (not passed as -define?)"
+                         % ", ".join(absent))
+    log("release: %s compiled into the extension" % ", ".join(names))
+
+
+def cmd_build(game, version, embed_env, smoke_test):
     t0 = time.time()
     h = host()
     game = game.resolve()
     name = game.name
-    missing = [k for k in require_env if not os.environ.get(k)]
+    missing = [k for k in embed_env if not os.environ.get(k)]
     if missing:
         raise SystemExit("release: missing environment (repo secrets?): " + ", ".join(missing))
     build_dependencies()
     libs = build_extension(game, h)
+    if embed_env:
+        check_embedded(libs, embed_env)
     t = step("Godot + export templates")
     godot = find_godot(h)
     ensure_templates(h)
@@ -556,7 +570,7 @@ def main():
         return a[a.index(flag) + 1] if flag in a else default
 
     if a[0] == "build" and len(a) >= 2:
-        req = [k for k in (opt("--require-env") or "").split(",") if k]
+        req = [k for k in (opt("--embed-env") or "").split(",") if k]
         cmd_build(Path(a[1]), opt("--version") or default_version(), req, "--no-smoke" not in a)
     elif a[0] == "notes" and len(a) >= 2 and "--tag" in a:
         cmd_notes(Path(a[1]), opt("--tag"))

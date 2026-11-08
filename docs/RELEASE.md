@@ -34,3 +34,6 @@ game folder, default `experiments/release-standin`, a minimal project with a tin
 - The extension prints `unified: extension initialized` when it loads; the smoke test requires that line, exit 0
   and no `ERROR` lines. The game may use the `--smoke-test` user argument.
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section.
+- Online: once `tools/eos.py` exists, tag builds need the five `EOS_*` secrets and fail unless the game build
+  compiled each value into the extension (`-define`s from `python tools/eos.py defines`); testers' machines have
+  no EOS config. The build job has `contents: write` because the EOS SDK is a draft-release asset.
