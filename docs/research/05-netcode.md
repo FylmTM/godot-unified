@@ -1,7 +1,7 @@
 # 05: Netcode architecture and transports
 
 Research date: 2026-11-07. Claims marked **[unverified]** come from memory or one secondary source. **[estimate]**
-means my own arithmetic, to be confirmed by the spike at the end. Quantum facts come from the SDK in OctoEscape
+means my own arithmetic. The phase 2 core (`../PHASE2.md`) implemented and validated the relay, prediction, rollback, adaptive delay, time sync and late join; where it disagrees with this doc, the code and `spec/CORE.md` win. Quantum facts come from the SDK in OctoEscape
 (Quantum 3.1.0 Preview, build 2249): its offline doc mirror (`Assets/Photon/Quantum/Documentation~`, snapshot of
 doc.photonengine.com from 2026-10-09), `Quantum.Engine.xml`, and **defaults read by instantiating
 `DeterministicSessionConfig` from `Quantum.Engine.dll` via reflection**. Those are the real defaults, not the values
@@ -17,7 +17,7 @@ client, the host's own included, predicts and rolls back against that stream. Do
    player's last repeatable input or a neutral one, flagged `ReplacedByRelay`. It broadcasts the set and keeps the
    full input log. That log is the replay, the late-join tail and the desync oracle. The relay runs in the host
    process on its own thread. The same code runs headless on a VPS as the "self-hosted relay".
-2. **Defaults for 2–4-player physics co-op at 60 Hz** [estimate, tune in the spike]: adaptive input delay **min 1
+2. **Defaults for 2–4-player physics co-op at 60 Hz** [estimate, tune with the phase 2 harness]: adaptive input delay **min 1
    tick**, max 6, growing above about 80 ms RTT (Quantum's formula, with a lower start ping). Prediction capped at
    **10 ticks**: past that, the client slows its clock instead of predicting further. A state ring of 16 frames.
    Hard tolerance about 6–7 ticks. Checksum every verified tick in dev builds and every 16 in release.
@@ -27,14 +27,13 @@ client, the host's own included, predicts and rolls back against that stream. Do
    wire.** Every unreliable packet carries all unacknowledged ticks. That costs about 5 KB/s up and 10 KB/s down per
    client for 4 players [estimate]. Bandwidth is a non-issue. Rollback CPU is the issue.
 4. **Transports sit behind one small message trait** (unreliable + reliable lanes, poll-based). The order:
-   in-process loopback with a deterministic network simulator first, then raw UDP or QUIC (`quinn`), then Steam
-   `ISteamNetworkingSockets` over SDR via `steamworks` 0.13.1 (P2P listen/connect, lanes and poll groups are bound).
-   EOS comes later: it is free, but its Rust bindings are immature.
+   in-process loopback with a deterministic network simulator first, then raw UDP (done in phase 2), then Steam
+   `ISteamNetworkingSockets` over SDR (needs C bindings from Odin). EOS comes later: it is free, but immature.
 5. **Late join**: the host's client sends the latest verified state block (zstd, optionally XORed against the
    level's initial state). The relay sends the input tail and the joiner fast-forwards.
 
 Biggest unknowns: rollback cost of full rigid-body physics with 1000 entities, the physics state's snapshot size,
-and the real behaviour of `steamworks-rs` networking. The spike below measures them.
+and the real behaviour of Steam networking from Odin.
 
 ## 1. Quantum's model, with its defaults
 
@@ -148,13 +147,8 @@ Over Steam, the host's connections can all go through SDR, so no IPs are exposed
 non-host clients, about RTT/2 more than a direct mesh link, and a host advantage (the host's client has about 0 RTT
 to the relay). For co-op that advantage is harmless.
 
-Other open-source references: [backroll-rs](https://github.com/houraiteahouse/backroll-rs) (GGPO in Rust,
-inactive since 2022), [fortress-rollback](https://crates.io/crates/fortress-rollback) (a hardened GGRS fork, 0.13.0
-from Aug 2026, not evaluated), [GekkoNet](https://awesome.ecosyste.ms/projects/github.com%2Fheatxd%2Fgekkonet) (C/C++
-GGPO-style, BSD-2), [Backdash](https://lucasteles.github.io/Backdash/docs/introduction) (C#),
-[NetplayJS](https://github.com/rameshvarun/netplayjs) (TypeScript and WebRTC, with rollback and lockstep wrappers;
-lockstep is recommended for physics you can't rewind), and [lightyear](https://crates.io/crates/lightyear) (Bevy,
-server-authoritative with prediction, 0.31.0, has a Steam transport). None of them implements a Quantum-style relay.
+Other open-source references: GekkoNet (C/C++ GGPO-style, BSD-2), Backdash (C#), NetplayJS (TypeScript; lockstep
+is recommended for physics you can't rewind), backroll-rs and GGRS (Rust), lightyear (Bevy, server-authoritative). None of them implements a Quantum-style relay.
 We write that layer. It is small. **Borrow from GGRS**: the SyncTest design, its input-queue edge cases (its
 changelog is a list of real bugs: input-delay gaps, packets encoded against old frames, catch-up overruns) and its
 spectator catch-up.
@@ -266,36 +260,22 @@ Any home connection handles this. Batching two ticks per packet would halve the 
 | Transport | Notes |
 |---|---|
 | **Loopback** | In-process channel hub plus the network simulator. The workhorse for tests, agents and CI |
-| **Direct UDP / LAN** | Own thin protocol (sequence, ack bits, one reliable stream), or `quinn` 0.11.12: QUIC with unreliable datagrams (RFC 9221) and streams for the reliable lanes, pure Rust, TLS 1.3, congestion control |
+| **Direct UDP / LAN** | Own thin protocol (sequence, ack bits, one reliable stream), as built in phase 2 |
 | **Self-hosted relay** | **The headless Relay itself on a VPS**, reached over UDP/QUIC. Clients connect outbound, so no NAT traversal and no packet forwarder are needed. TURN or WebRTC ([matchbox](https://github.com/johanhelsing/matchbox)) would only matter for a P2P mesh, which we don't use |
-| **Steam** | `ISteamNetworkingSockets`: `CreateListenSocketP2P` / `ConnectP2P` go over SDR automatically. Traffic is "authenticated, encrypted, and rate-limited" and IPs are hidden ([SDR](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay), [networking](https://partner.steamgames.com/doc/features/multiplayer/networking)). Lobbies handle discovery and invites; the lobby owner is the host. Choose Sockets over `ISteamNetworkingMessages` (UDP-like, implicit sessions, built on the same code; [docs](https://partner.steamgames.com/doc/api/ISteamNetworkingMessages)), because we want explicit connection state for the host. Rust: [`steamworks`](https://github.com/Noxime/steamworks-rs) 0.13.1 (May 2026) binds `connect_p2p`, `create_listen_socket_p2p`, `configure_connection_lanes`, poll groups and connection status, plus a networking-messages module ([source](https://docs.rs/crate/steamworks/0.13.1/source/src/networking_sockets.rs)) |
-| **GameNetworkingSockets (open source)** | BSD-3. Same API, encryption, lanes and fake-lag. P2P through WebRTC ICE with your own signaling. **No SDR** ("only available on Steam"; [repo](https://github.com/ValveSoftware/GameNetworkingSockets)). It *can* serve the dev and self-hosted relay over direct IP. The C++ build (OpenSSL or libsodium, protobuf) is real work on three OSes, the [`game-networking-sockets`](https://crates.io/crates/game-networking-sockets) 0.3.0 crate is unproven, and linking it next to `steam_api` might clash on symbols **[unverified]**. I'd use quinn or raw UDP for non-Steam instead |
-| **EOS P2P** | Free, cross-store, NAT punch with automatic relay fallback (`EOS_RC_AllowRelays/ForceRelays/NoRelays`). **Max packet 1170 B** (`EOS_P2P_MAX_PACKET_SIZE`). Reliability modes: unreliable-unordered, reliable-unordered, reliable-ordered. Needs EOS Connect login (ProductUserId). Rust: [`eos-sys`/`eos-rs`](https://docs.rs/eos-sys/0.1.1/eos_sys/) 0.1.1, about 200 downloads, immature. Relay cost and quotas not verified **[unverified]**. Later |
+| **Steam** | `ISteamNetworkingSockets`: `CreateListenSocketP2P` / `ConnectP2P` go over SDR automatically. Traffic is "authenticated, encrypted, and rate-limited" and IPs are hidden ([SDR](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay), [networking](https://partner.steamgames.com/doc/features/multiplayer/networking)). Lobbies handle discovery and invites; the lobby owner is the host. Choose Sockets over `ISteamNetworkingMessages` (UDP-like, implicit sessions, built on the same code; [docs](https://partner.steamgames.com/doc/api/ISteamNetworkingMessages)), because we want explicit connection state for the host. Odin: bind the Steamworks C API (flat API header) ourselves |
+| **GameNetworkingSockets (open source)** | BSD-3. Same API, encryption, lanes and fake-lag. P2P through WebRTC ICE with your own signaling. **No SDR** ("only available on Steam"; [repo](https://github.com/ValveSoftware/GameNetworkingSockets)). It *can* serve the dev and self-hosted relay over direct IP. The C++ build (OpenSSL or libsodium, protobuf) is real work on three OSes and linking it next to `steam_api` might clash on symbols **[unverified]**. Raw UDP is enough for non-Steam |
+| **EOS P2P** | Free, cross-store, NAT punch with automatic relay fallback (`EOS_RC_AllowRelays/ForceRelays/NoRelays`). **Max packet 1170 B** (`EOS_P2P_MAX_PACKET_SIZE`). Reliability modes: unreliable-unordered, reliable-unordered, reliable-ordered. Needs EOS Connect login (ProductUserId). Relay cost and quotas not verified **[unverified]**. Later |
 
 **The trait** is message-based, non-blocking and polled from the net thread. Reliability for inputs lives above it,
 through redundancy, so transports only need unreliable datagrams plus one reliable ordered stream.
 
-```rust
-pub struct PeerId(u32);
-#[derive(Clone, Copy)] pub enum Lane { Input, Control, Bulk }      // GNS lanes / QUIC streams / channels
-#[derive(Clone, Copy)] pub enum Delivery { Unreliable, Reliable }  // Reliable = ordered within its lane
+Shape (the real one is in `spec/CORE.md`): `PeerId`; lanes (Input, Control, Bulk); delivery (Unreliable, or Reliable =
+ordered within its lane); events (Connected, Disconnected, Message); and `poll(now)`, `send(to, lane, delivery, data)`,
+`flush()` (one datagram per peer per tick), `disconnect`, `stats(peer)` (rtt, jitter, loss, queued bytes) and
+`max_datagram()` (keep inputs ≤ ~1100 B: EOS 1170, SDR MTU). Backends are Loopback hub, UDP, later Steam; a `NetSim`
+decorator wraps any of them with a profile, seed and clock.
 
-pub enum NetEvent { Connected(PeerId), Disconnected(PeerId, Reason), Message { from: PeerId, lane: Lane, data: Bytes } }
-
-pub trait Transport: Send {
-    fn poll(&mut self, now: Instant, out: &mut Vec<NetEvent>);
-    fn send(&mut self, to: PeerId, lane: Lane, d: Delivery, data: &[u8]) -> Result<(), SendError>;
-    fn flush(&mut self);                                  // end of tick: one datagram per peer
-    fn disconnect(&mut self, peer: PeerId, reason: Reason);
-    fn stats(&self, peer: PeerId) -> Option<LinkStats>;   // rtt, jitter, loss, queued bytes
-    fn max_datagram(&self) -> usize;                      // keep inputs ≤ ~1100 B (EOS 1170, SDR MTU)
-}
-// Construction is per backend: Loopback::hub(), Udp::bind/connect(addr), Steam::listen_p2p()/connect_p2p(steam_id),
-// Quic::..., plus NetSim::wrap(inner, profile, seed, clock) as a decorator.
-```
-
-`now` is passed in, so the simulator and the tests control time. A backend's own threads (Steam callbacks, quinn's
-async runtime) stay behind `poll`.
+`now` is passed in, so the simulator and the tests control time. A backend's own threads (Steam callbacks) stay behind `poll`.
 
 ## 5. Risks and unknowns
 
@@ -306,38 +286,18 @@ async runtime) stay behind `poll`.
 2. **Snapshot size and memcpy per tick.** If the physics engine's internal state doesn't fit the pointer-free
    block, rollback and late join get expensive or impossible. Measure.
 3. **Cross-arch determinism.** Covered elsewhere, but the netcode's only defence is detection plus diffs.
-4. **steamworks-rs in practice.** The bindings exist, but threading, callback pumping and SDR latency are untested
-   here. SDR sometimes adds latency, and sometimes improves the route.
+4. **Steam networking from Odin.** Threading, callback pumping and SDR latency are untested here. SDR sometimes adds latency, and sometimes improves the route.
 5. **Quantum internals we inferred**: whether ticks finalize early, the exact clock and offset relationship, the
    snapshot codec. They don't block us, because we're designing our own.
 6. **Host advantage and host loss.** Fine for co-op. Migration is deferred.
 7. **Timer precision** for the relay thread on macOS (App Nap, coalescing) and Windows (`timeBeginPeriod`).
 
-## 6. Spike proposal
+## 6. Validation
 
-**Goal**: prove the relay model before the engine depends on it. Build a crate `unified-net` with Relay, Client
-(ring, rollback, slew, adaptive delay), Loopback plus NetSim, UDP and Steam transports. Use a toy deterministic sim
-(1000 entities with integer motion and collisions, a hashable block), then swap in the chosen physics.
+Phase 2 covered consistency, no-stall, time sync, late join, UDP and cross-platform snapshots (`../PHASE2.md`). Still open:
+Steam transport on a real link, bandwidth and desync-report checks. Network profiles used:
 
-Network profiles: *good* is 30 ± 5 ms with 0 % loss. *Typical* is 80 ± 15 ms with 1 % loss. *Bad* is 150 ± 40 ms with
+*good* is 30 ± 5 ms with 0 % loss. *Typical* is 80 ± 15 ms with 1 % loss. *Bad* is 150 ± 40 ms with
 5 % bursty loss, 1 % duplication and 1 % reordering.
 
-Pass/fail:
-
-1. **Consistency**: 4 clients plus a host-relay in one process run 10 sim-minutes per profile with random scripted
-   input. Zero checksum mismatches, and every client's verified hash equals an offline replay of the relay log.
-2. **No stall**: one client goes to 100 % loss for 3 s. The others' verified frame never lags the relay clock by
-   more than tolerance + 2 ticks. The victim's inputs are marked `Replaced`, and it recovers without a snapshot.
-3. **Time sync**: on *typical*, replaced inputs stay under 0.5 % and slack ≥ 0 holds for 99 % of ticks. After a
-   +100 ms latency step, the client re-converges within 2 s.
-4. **Bandwidth**: on *typical*, at most 6 KB/s up and 12 KB/s down per client.
-5. **Late join**: a joiner gets a 1 MB raw block (compressed) at 80 ms RTT with a 256 KB/s cap and is in sync within
-   3 s. Log the compressed size.
-6. **Desync tooling**: a single-bit flip injected into one client is detected on the next verified tick. The report
-   names the entity, component and field, and per-system replay names the system.
-7. **Real network**: the same session over UDP between a Mac (ARM) and a Windows x64 machine stays in sync for
-   10 minutes.
-8. **Steam**: two accounts join through a lobby, connect over `connect_p2p` (SDR) and pass test 1 on a real link.
-   Log RTT compared with direct UDP.
-9. **Budget**: a 10-tick rollback of the toy sim takes under 4 ms. Repeat with real physics as a go/no-go input for
-   the defaults in §3.
+Pass/fail criteria not yet covered: see git history of this file for the original list.

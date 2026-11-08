@@ -1,11 +1,9 @@
 # unified core: spec (phase 2)
 
 Goal: prove we can build the `unified` core, a deterministic simulation plus Quantum-style rollback netcode, that is
-bit-identical across platforms. It's implemented in **C++, Odin and Rust** (`impl/<lang>/`), headless, with no Godot.
-The language decision is made from this phase (`docs/PLAN.md`).
+bit-identical across platforms. It was first built in C++, Odin and Rust (comparison: `docs/archive/`; Odin was chosen), headless, with no Godot.
 
-Each language implements this spec idiomatically: its own module structure, its own code. **Hashes don't need to match
-across languages.** Each language must be deterministic across *platforms* (macOS ARM64 locally, Linux x64 and
+Hashes were per language and need not match across languages. The implementation must be deterministic across *platforms* (macOS ARM64 locally, Linux x64 and
 Windows x64 in CI) and across runs, rollbacks, processes and network conditions. The test game is in `spec/GAME.md`.
 
 Repository layout:
@@ -29,7 +27,7 @@ the Windows path.
   (`-ffp-contract=off`, or `/fp:precise` with clang-cl's `/clang:-ffp-contract=off`), no transcendentals except the
   deterministic ones we write ourselves (only `+ − × ÷ sqrt` from hardware). Single-threaded sim. Box3D with 1 worker.
 - **State block:** one pointer-free block (fixed-capacity tables, generational entity handles, globals, RNG). It's
-  checked by the language's idiomatic mechanism (static asserts / `bytemuck::Pod` / RTTI assert). Physics bodies are
+  checked by the language's idiomatic mechanism (for Odin, a type-info assert). Physics bodies are
   referenced by stored Box3D ids. The Box3D world is the only state outside the block.
 - **Snapshot:** `memcpy(block)` plus `b3World_SaveState` (the fork). Restore = `memcpy` back plus
   `b3World_RestoreState`. There's a ring of 16 snapshots.
@@ -62,7 +60,7 @@ the Windows path.
     the current tick. Skip the restore if every prediction was right.
   - **Prediction cap:** at most 10 ticks ahead of verified; past that the client stalls its *simulation* (no new
     predicted ticks). It keeps sampling and sending inputs on the synced clock. Otherwise a capped client's inputs
-    arrive after the relay's tolerance, all get replaced, and it stays capped (found in the C++ implementation).
+    arrive after the relay's tolerance, all get replaced, and it stays capped (found in the C++ implementation, phase 2).
 - **Input delay:** the client sends its input for `local_tick + delay`.
   `delay = clamp(ceil((rtt_ms / 2 + 8) / 16.667), 1, 6)` ticks. It's re-evaluated every second, with changes limited
   to ±1 per second. Delay changes must not create gaps: when the delay grows, repeat the last input for the skipped
@@ -85,7 +83,7 @@ the Windows path.
   - `udp`: localhost or LAN, with a minimal reliable channel (sequence numbers, ack bitfield, resend)
   - `netsim`: a wrapper around either one, with latency, jitter, loss, duplication and reordering from a seeded RNG,
     so test runs are reproducible
-- **Wire format:** the language's own; cross-language interop isn't required. It's little-endian with explicit sizes,
+- **Wire format:** our own; cross-language interop isn't required. It's little-endian with explicit sizes,
   and inputs are bit-packed (2 × i8 + u8 + u8 per tick).
 
 ## 3. CLI (identical in all languages; `tools/check.py` relies on it)

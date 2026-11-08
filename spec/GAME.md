@@ -48,7 +48,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
      - 7..8 → runner: HP 6, speed 3.2, radius 0.35, damage 3
      - 9 → brute: HP 40, speed 1.2, radius 0.7, damage 12
    - `rng` is the state block's xorshift32 (seed from the CLI; 0 → 1).
-4. **Enemies** (kinematic, no physics bodies; same spatial-grid approach as `bench/a`: cell 2 m over the 60×60 arena,
+4. **Enemies** (kinematic, no physics bodies; same spatial-grid approach as the archived benchmark A: cell 2 m over the 60×60 arena,
    counting sort, items in index order):
    - Target = the nearest alive player (lowest index on ties).
    - Desired = `normalize(target − pos) · speed`, then add separation from neighbours in the 3×3 cells within

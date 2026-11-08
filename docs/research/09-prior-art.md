@@ -1,7 +1,7 @@
 # 09: Prior art
 
-Projects, talks and write-ups that docs 01–08 and `stacks/` didn't cover, and what they teach us (2026-11-07). Topics
-those docs already handle (GGRS, Quantum's defaults, Rapier/Box3D/Jolt determinism, Bevy Remote Protocol, Godot MCP
+Projects, talks and write-ups that docs 01–08 didn't cover, and what they teach us (2026-11-07). Topics
+those docs already handle (GGRS, Quantum's defaults, Box3D/Jolt determinism, Bevy Remote Protocol, Godot MCP
 bridges, Factorio's CRC, AoE/StarCraft lockstep, Overwatch/For Honor) are only cross-referenced here. Claims I
 couldn't check against a primary source are marked *(unverified)*. Where I read source code, I say so.
 
@@ -17,7 +17,7 @@ couldn't check against a primary source are marked *(unverified)*. Where I read 
 2. **PurrNet gets C# determinism by not using hardware floats at all.** Its `sfloat` is a soft float that keeps the
    IEEE binary32 bit layout but does every operation in integer code. Its `FP` is Q32.32 fixed point. Both are
    vendored MIT code (§1). → The C# family's open question (RyuJIT x64 vs ARM64) has a known fallback, at a CPU cost.
-   But nobody has published a hardware-float lockstep result for .NET, so benchmark A in COMPARISON.md still decides it.
+   (C# was dropped; see `../archive/`.)
 3. **Passing sync-test doesn't prove determinism.** Fish Folk's bones docs warn about bugs that "only exhibit
    themselves when restarting the game". Riot found map orders that depended on allocator addresses, which differed
    between Windows versions. → Add a **cold-vs-warm replay test** to CI: replay the same input log in a fresh process
@@ -25,7 +25,7 @@ couldn't check against a primary source are marked *(unverified)*. Where I read 
 4. **Several clients in one process only works if it's designed in from day one.** Teardown built "multiple game
    instances in one process" for debugging and dropped it because of "historical design choices". Photon Fusion's
    Multi-Peer Mode warns that "statics and singletons will run into conflicts". → Lint-ban mutable statics/globals in
-   `sim` and `net`. Everything hangs off a `Session` value. Test with 4 sessions in one process from the first spike.
+   sim and net code. Everything hangs off a `Session` value. Test with 4 sessions in one process (phase 2 does).
 5. **Split determinism domains when one piece is too big to sync.** Teardown's destruction is a deterministic stream
    of fixed-point commands ("cut hole at voxel x,y,z"), while transforms are prioritized state sync within about
    1 Mbit per client. → If a future system (voxels, huge swarms) won't fit our rollback budget, it can run as a
@@ -114,7 +114,7 @@ hash should be 64-bit.
   ([2020 thread](https://forum.unity.com/threads/what-is-the-current-state-of-the-cross-platform-determinism-of-unity-physics.922055/)).
   I found no x64 ↔ ARM64 Unity Physics result. **Take:** a vendor that controls its compiler still made
   cross-arch float determinism a compiler mode, not a default. That supports our "one math module + CI" stance.
-- **RyuJIT x64 vs ARM64:** no new evidence beyond `stacks/csharp.md`. Searches turned up only anecdotes: FAF players
+- **RyuJIT x64 vs ARM64:** no new evidence beyond `../archive/stacks/csharp.md`. Searches turned up only anecdotes: FAF players
   on ARM Windows report `_controlfp` behaving differently
   ([forum](https://forum.faforever.com/topic/2796/desync-on-all-replays-and-games-with-windows-11-arm-on-m1-max-apple/21)),
   and flycast's arm64 dynarec desyncs from x86_64 ([issue](https://github.com/inada-s/flycast/issues/370)). Both are
@@ -138,8 +138,8 @@ hash should be 64-bit.
 - **Lightyear 0.31** (Bevy 0.20, [repo](https://github.com/cBournhonesque/lightyear)). Server-authoritative
   prediction, interpolation and lag compensation. It also offers **deterministic input-only replication**,
   "compatible with both lockstep and prediction/rollback", plus host-client mode and Steam/WebTransport via `aeronet`.
-  Whether its deterministic mode has the *server* stamp inputs the way Quantum does is *unverified*. If we go Rust,
-  read its input buffer and transport code before writing ours.
+  Whether its deterministic mode has the *server* stamp inputs the way Quantum does is *unverified*. Worth reading its input
+  buffer and transport code.
 - **bones / Fish Folk Jumpy** ([networking doc](https://docs.rs/crate/bones_framework/latest/source/src/networking.md)).
   A "Game" of "Sessions", each with its own ECS world, built so it can be snapshotted. P2P GGRS over pluggable
   matchmaker sockets (online, LAN), and `--sync-test-check-distance 7` for local rollback testing. The lesson is the
@@ -223,7 +223,7 @@ hash should be 64-bit.
 - **Roblox/Luau**: client and server disagree by 1 ulp (04). Its new prediction is state-corrected (§2).
 - **s&box** ([hotload wiki](https://wiki.facepunch.com/sbox/Hotload)). C# hotload "within a few milliseconds" swaps
   types and migrates object state. Faster when only method bodies change. `[SkipHotload]`/`IHotloadManaged` for state
-  that can be rebuilt. Take: if we go C#, field migration on hot reload is solved prior art.
+  that can be rebuilt.
 - **Defold, Wicked Engine, sokol-based engines.** Small-team engines that stay alive by keeping scope tight. Nothing
   new for determinism.
 - **Mach (Zig)** spent years on its own GPU layer (`mach-gpu` was deprecated, `sysgpu` folded into the main repo,
@@ -254,7 +254,7 @@ hash should be 64-bit.
 | **Kimbatt deterministic Unity Physics** | DOTS Physics on soft floats | n/a | A whole float physics engine *can* be mechanically ported to soft float. No perf numbers, 4 commits |
 
 **The pattern:** nobody we found ships input-only, cross-architecture-deterministic, float rigid-body physics inside
-rollback. Quantum does it with fixed point; Box3D and Rapier claim it in CI. That keeps spike 1 the project's biggest
+rollback. Quantum does it with fixed point; Box3D and Jolt claim it in CI. That keeps physics determinism the project's biggest
 risk, and it's why TL;DR #1 (heal by state) is the insurance.
 
 ## 5. AI-agent-first game development
