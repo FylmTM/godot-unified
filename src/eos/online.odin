@@ -20,6 +20,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import "../netcode"
 
@@ -54,11 +55,11 @@ Remote :: struct {
 }
 
 Init_Options :: struct {
-	lib_dirs:        []string, // where to look for the SDK library; empty = default_lib_dirs()
-	product_name:    string,
-	product_version: string,
-	cache_dir:       string, // EOS cache; empty = <tmp>/unified-eos
-	relay_control:   Maybe(Relay_Control), // default Allow_Relays
+	lib_dirs:         []string, // where to look for the SDK library; empty = default_lib_dirs()
+	product_name:     string,
+	product_version:  string,
+	cache_dir:        string, // EOS cache; empty = <tmp>/unified-eos
+	relay_control:    Maybe(Relay_Control), // default Allow_Relays
 	// macOS: let the keychain ask the user when the stored device ID belongs to another build of
 	// the program. Off by default: the read fails at once and a fresh anonymous ID is made instead
 	// (a dialog would block the session thread until answered).
@@ -387,7 +388,7 @@ shutdown :: proc() {
 		if !o.in_lobby {
 			break
 		}
-		netcode.sleep_ms(10)
+		time.sleep(10 * time.Millisecond)
 	}
 	o.api.Platform_Release(o.platform)
 	o.api.Shutdown()

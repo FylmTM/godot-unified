@@ -1,4 +1,4 @@
-package main
+package headless
 
 import "core:fmt"
 import "core:os"
@@ -12,8 +12,9 @@ Args :: struct {
 }
 
 usage :: proc() -> ! {
+	fmt.eprintf("usage: %s <mode> [options]\n", len(os.args) > 0 ? os.args[0] : "headless")
 	fmt.eprintln(
-		`usage: unified <mode> [options]
+		`
   sim      --ticks N [--seed S] [--players P] [--trace F] [--log F]
   synctest --ticks N --window W [--seed S] [--players P]
   replay   --log F --trace F
@@ -21,8 +22,8 @@ usage :: proc() -> ! {
            [--late-join P@T] [--log F] [--seed S]
   relay    --port P --players N --ticks T --log F
   client   --connect HOST:PORT --player I --ticks T [--profile ideal|wan|bad]
-  eos-relay  --players N --ticks T [--relays allow|force|none] [--code-file F] [--log F]
-  eos-client --code CODE --player I --ticks T [--relays allow|force|none]
+  eos-host   --ticks T [--players N] [--relays allow|force|none] [--code-file F] [--log F]
+  eos-client --code CODE --ticks T [--relays allow|force|none]
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --enemies E --window W --ticks N [--seed S] [--players P]`,
@@ -44,7 +45,7 @@ parse_args :: proc() -> (a: Args) {
 	for i := 1; i < len(argv); i += 2 {
 		k := argv[i]
 		if !strings.has_prefix(k, "--") || i + 1 >= len(argv) {
-			die("unified: bad argument %q", k)
+			die("bad argument %q", k)
 		}
 		a.opts[k[2:]] = argv[i + 1]
 	}
@@ -56,7 +57,7 @@ opt_str :: proc(a: ^Args, key: string, def := "", required := false) -> string {
 		return v
 	}
 	if required {
-		die("unified %s: --%s is required", a.mode, key)
+		die("%s: --%s is required", a.mode, key)
 	}
 	return def
 }
@@ -65,13 +66,13 @@ opt_int :: proc(a: ^Args, key: string, def := 0, required := false, lo := 0, hi 
 	v, ok := a.opts[key]
 	if !ok {
 		if required {
-			die("unified %s: --%s is required", a.mode, key)
+			die("%s: --%s is required", a.mode, key)
 		}
 		return def
 	}
 	n, nok := strconv.parse_int(v)
 	if !nok || n < lo || n > hi {
-		die("unified %s: --%s must be an integer in [%d, %d], got %q", a.mode, key, lo, hi, v)
+		die("%s: --%s must be an integer in [%d, %d], got %q", a.mode, key, lo, hi, v)
 	}
 	return n
 }
@@ -84,6 +85,6 @@ check_known :: proc(a: ^Args, known: ..string) {
 				continue outer
 			}
 		}
-		die("unified %s: unknown option --%s", a.mode, k)
+		die("%s: unknown option --%s", a.mode, k)
 	}
 }

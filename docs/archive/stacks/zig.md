@@ -18,7 +18,7 @@ agents write stale Zig.
 |---|---|---|
 | Toolchain | **Zig 0.17.1** (2026-11-02), pinned per repo with a `.zigversion`/anyzig-style shim; upgrade deliberately once per release | 0.17.0 shipped 2026-10-01, 0.16.0 on 2026-04-13 ([index.json](https://ziglang.org/download/index.json)). No 1.0 date. |
 | Sim state store | Custom store: one `[]align(64) u8` block carved into fixed-capacity tables by a comptime-generated layout; generational handles; a `FixedBufferAllocator` over the block for scratch | Comptime walks every component type and rejects pointers, slices and padding at compile time (§4, §5) |
-| Physics | **Jolt via `zphysics`** (zig-gamedev, active, has an `enable_cross_platform_determinism` option), racing **Box3D** (plain C, a trivial build) | zphysics needs two fixes before use: `-ffp-contract=off` and a state save/restore API in its C wrapper (§3, §4) |
+| Physics | **Box3D** (plain C, a trivial build) | |
 | Host / renderer | **Godot 4.6+ via the GDExtension C API**, with Zig bindings we generate ourselves from `extension_api.json` + `gdextension_interface.json`. Either Godot hosts a Zig GDExtension, or Zig hosts Godot through LibGodot | `godot-zig` is stale (last push Dec 2024, Zig 0.13, Godot 4.3). There is no Bevy (Rust only) |
 | Game UI | Godot Control nodes (when Godot hosts), or **Clay** (C layout library) drawn by the host | |
 | Dev UI | **Dear ImGui via `zgui`** (zig-gamedev, includes ImPlot; min Zig 0.16.0), or Godot's own UI | |
@@ -66,7 +66,7 @@ Zig emits one LLVM module per artifact, so the LLVM emit runs as one serial job.
 
 **C/C++ dependencies.** `zig build` compiles C and C++ with the bundled Clang, libc++ and libc headers for every
 target. Objects are cached by content hash, and no CMake or system compiler is needed. This is Zig's best build
-feature: Jolt, ImGui, Box3D, miniaudio and SDL3 all build from source the same way on all three OSes.
+feature: ImGui, Box3D, miniaudio and SDL3 all build from source the same way on all three OSes.
 - **Linker:** Zig's own linkers, with LLD as the fallback.
 - **Caching across worktrees:** The global cache (`~/.cache/zig`) is shared by design and uses file locks, so
   concurrent builds are safe. Since February 2026, fetched packages are unpacked into a per-project `zig-pkg/`, with
@@ -87,8 +87,6 @@ macros, which then need hand-written declarations.
 | Library | Route from Zig | State / effort |
 |---|---|---|
 | **Box3D** (C) | Compile with `zig build`, translate `box3d.h` | Trivial (hours). Upstream **Box2D already ships a `build.zig`** with translate-c and `-ffp-contract=off`. Box3D does not yet (checked 2026-11-07) |
-| **Jolt** (C++) | `zphysics`: Jolt built from source plus its own JoltC wrapper | Maintained (last commit 2026-10-24, min Zig 0.15.1). **Its C flags lack `-ffp-contract=off`**, which Jolt's own CMake adds for cross-platform determinism. **Its C API exposes no `SaveState`/`RestoreState`** (grep of `JoltPhysicsC.h`). We would fork it and add both: days of work |
-| **Rapier** | Its C bindings (CI-tested in the Rapier repo, per doc 01), linked as a Rust static lib | Medium; brings a Rust toolchain into the build |
 | **libgodot / GDExtension** | The C interface is designed for this: `--dump-gdextension-interface` emits a C header and `gdextension_interface.json` ([docs](https://docs.godotengine.org/en/stable/engine_details/engine_api/gdextension/gdextension_interface_json_file.html)). Generate the class bindings from `extension_api.json` with a Zig build step | `godot-zig` (304★) last pushed 2024-12-29 and targets Zig 0.13 + Godot 4.3. We'd write our own generator: **2–4 weeks of agent work** for a usable subset [estimate]. Zig's lazy analysis means unused generated bindings cost no compile time |
 | **Bevy** | Unreachable from Zig. The only route is inverting it: a Rust/Bevy host linking a Zig `sim` static lib over the C ABI | Two toolchains (§10) |
 | **sokol** | `sokol-zig` by sokol's author, min Zig 0.16 | Excellent, active (pushed 2026-11-06). But it's a graphics API, so we'd write the renderer |
@@ -187,8 +185,7 @@ declarations. Reflection code is exactly what breaks between releases.
 
 ## 6. Ecosystem fit per subsystem
 
-- **Physics:** Jolt (zphysics) and Box3D are both a good fit; Jolt needs a fork for flags and snapshots (§3). The
-  Zig community has no physics engine of its own.
+- **Physics:** Box3D is a good fit (§3). The Zig community has no physics engine of its own.
 - **Rendering host:** Godot through our own bindings is the only full-featured renderer path. sokol-zig, SDL3 GPU,
   zgpu (Dawn) and bgfx are solid foundations, but they mean writing a renderer, which `unified` rules out. **Mach**
   is pre-1.0, its GitHub mirror was last pushed in May 2026, and it is not a 3D engine
@@ -344,7 +341,7 @@ build systems and a C ABI seam at the view boundary. The seam is already narrow,
 | Safety vs agent bugs | 3 | Safe modes catch overflow and out-of-bounds; no temporal safety (Bun's main complaint); lazy analysis hides errors in uncalled code |
 | Reflection / metaprogramming | 5 | Comptime `@typeInfo` covers inspector, diff, schema and serialization with no codegen; reflection builtins churn |
 | Rendering host options | 3 | Godot reachable through its C API, but we write and own the bindings; the rest (sokol, SDL3, bgfx) means writing a renderer |
-| Physics options | 4 | Jolt via maintained zphysics (needs a fork for snapshots and flags), Box3D trivial, Rapier via its C API |
+| Physics options | 4 | Box3D trivial |
 | Netcode / transports | 4 | Steam flat API, EOS, GNS, ENet, msquic all C; no maintained Steam binding, a generator to write |
 | UI options | 3 | zgui is a strong dev UI; game UI depends on Godot or Clay plus our renderer; RmlUi/Noesis need shims |
 | Language stability | 1 | Pre-1.0 with big breaks in 0.15, 0.16 and 0.17 (some silent), and no 1.0 date |

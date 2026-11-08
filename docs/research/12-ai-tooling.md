@@ -21,19 +21,18 @@ them. Researched 2026-11-08. *(unverified)* marks claims not checked against a p
    frontmatter, and every `unified …` command they mention must exist. Packaging (plugin vs CLI sync) is decided
    when the first game repo consumes `unified` as a library.
 
-## What OctoEscape taught
+## What the current Unity game taught
 
-Sources: `OctoEscape/AGENTS.md`, `docs/ai/workflow.md`, `docs/ai/feedback.md`, `Tools/`. 08 covers the
-harness-level lessons. These are the tooling ones.
+08 covers the harness-level lessons. These are the tooling ones.
 
 **Worked, keep:**
 
-- **A table of steps with time budgets** (`workflow.md` "The loop"), plus the rule that a step slower than its
+- **A table of steps with time budgets**, plus the rule that a step slower than its
   budget is a bug. The CLI should print each step's time against its budget.
-- **Narrowest proof first**: a filter for `test-sim.sh`, then the everyday set before a check-in, and fuzzes once
+- **Narrowest proof first**: a test filter, then the everyday set before a check-in, and fuzzes once
   at the end of a big task, skipped when nothing they guard changed.
-- **`play.sh` verbs** (`shot`, `ui`, `key`, `mouse`, `teleport`, `view`, `friend`, `time`) and probes (`camtrace`,
-  `DevTrace.Record`). Agents used small, named verbs reliably.
+- **Small play verbs** (`shot`, `ui`, `key`, `mouse`, `teleport`, `view`, `friend`, `time`) and probes (a camera
+  trace, a per-frame value trace). Agents used small, named verbs reliably.
 - **F3 feedback with a cheapest-first procedure** (`show` + screenshot, then `entity`/`grep`, then a headless repro,
   then `done`). The procedure itself is a skill in all but name.
 - **Concurrency rules**: build under a lock, run from a private copy, numbered slots for heavy jobs, "one Unity
@@ -41,13 +40,13 @@ harness-level lessons. These are the tooling ones.
 
 **Unity forced (design away):**
 
-- **Sprawl.** About 17 bash, PowerShell and Python entry points, plus `lib/platform.sh` to keep bash 3.2 and Git
-  Bash happy. That is the "random scripts in random languages" AGENTS.md now forbids.
+- **Sprawl.** About 17 bash, PowerShell and Python entry points, plus a shim to keep bash 3.2 and Git Bash happy. That
+  is the "random scripts in random languages" AGENTS.md now forbids.
 - **The bridge is C# strings.** `u eval "UnityEngine.Object.FindFirstObjectByType<…>().SetView(${2}f, …)"` inside
   bash. Quoting, `f` suffixes, no `using`, and timeouts in two units are lessons agents had to learn the hard way.
 - **The bridge dies with the Editor.** Compile errors put Unity in Safe Mode, where the Pipeline package doesn't
   load, so `unity command` can't connect (Unity's own `unity-cli` skill warns about this). Modal dialogs block
-  everything and need an Accessibility-API presser (`dialogs.sh`).
+  everything and need an Accessibility-API presser.
 - **What Unity's CLI got right, and we copy:** `--json` on every command; the CLI as the single agent entry point
   (`unity command`, `unity run --command`); an attribute (`[CliCommand]`) for adding project commands; and
   `unity mcp configure`, which registers its MCP server in 16 clients. (Unity's skill `unity-cli/SKILL.md` v0.1.2-beta,
@@ -165,9 +164,9 @@ read it, and the nearest file wins.
 
 ## The `unified` CLI
 
-**Why one tool.** AGENTS.md already mandates it. OctoEscape shows the alternative. The single help surface also
-makes it cheap to teach: one skill, one `--help` tree. 08's spike criterion ("a fresh agent with only `uni --help`…")
-applies to the whole tool.
+**Why one tool.** AGENTS.md already mandates it. The current Unity game shows the alternative. The single help surface
+also makes it cheap to teach: one skill, one `--help` tree. 08's spike criterion
+("a fresh agent with only `uni --help`…") applies to the whole tool.
 
 **Language: Odin, one binary.**
 
@@ -213,7 +212,7 @@ measure)*: a no-op check under 50 ms, a rebuild under 3 s. CI calls the same shi
 |---|---|---|
 | setup | `doctor`, `setup` (pinned Odin, Godot 4.7.x, Box3D fork) | `tools/box3d.py`, CI install steps |
 | build | `build [core\|ext\|runner\|all] [--mode dev\|release] [--arch x86_64]` | `impl/*/build.py` |
-| test | `test [filter] [--sync-test k] [--fuzz quick\|full] [--no-cache]` | `tools/check.py`, OctoEscape's `test-sim.sh` |
+| test | `test [filter] [--sync-test k] [--fuzz quick\|full] [--no-cache]` | `tools/check.py` |
 | check | `check` (fmt check, vet, determinism lint: banned imports/types, FMA flags), `fmt` | lint scripts |
 | bench | `bench [name] [--compare <ref>] [--ci]` | ad-hoc bench runners |
 | run | `run headless …`, `run game [--peers N] [--netsim …]`, `ls`, `stop <id>` | `play.sh` |
@@ -232,8 +231,8 @@ instances through `.unified/run/<id>/control.json`. Eval:
 
 - **The sim gets no eval.** Mutations go through debug commands on the input path (08), so determinism holds.
 - **An optional dev-only `unified eval '<expr>'`** in the game runs Godot's `Expression` against a chosen node. It
-  is an escape hatch for view-side questions, logged and off in release builds. Curated verbs come first. OctoEscape
-  shows eval strings becoming the primary API when verbs are missing.
+  is an escape hatch for view-side questions, logged and off in release builds. Curated verbs come first. The current
+  Unity game shows eval strings becoming the primary API when verbs are missing.
 
 **Talking to an open editor (optional bridge).** A `@tool` EditorPlugin in the shared Godot project
 (`addons/unified/`) listens only while the editor runs and writes `.unified/editor.json`. Verbs:
@@ -256,7 +255,7 @@ class in our GDExtension (Odin only, harder to iterate). With the editor closed,
   - Hand-written scenes stay minimal (no default values).
   - New `ext_resource` entries use paths; Godot fills in UIDs on the next import or save.
   - Never edit `.godot/` or `.import` files.
-  - Generated scenes, if any, are marked and rebuilt by a `unified` command, as OctoEscape's LevelBuilder did.
+  - Generated scenes, if any, are marked and rebuilt by a `unified` command, as the current game's level builder does.
 - **Validate:**
   - `unified godot check` runs a headless import, then runs the project for N frames with `--quit-after` and
     `--log-file`, and parses `SCRIPT ERROR`/`ERROR` lines into JSON.
@@ -283,7 +282,7 @@ class in our GDExtension (Odin only, harder to iterate). With the editor closed,
 |---|---|---|
 | `unified-cli` | The loop, budgets and concurrency rules; links to the generated command reference; ``!`unified status --json` `` | Building, testing, running |
 | `godot` | 4.7 project rules: text-edit rules, import and reload, `godot docs`, bridge verbs, gotchas | `paths: godot/**, **/*.tscn, **/*.gd` |
-| `feedback` | F3 procedure (port of OctoEscape's `feedback.md`) | "check in-game feedback" |
+| `feedback` | F3 procedure (port of the current game's cheapest-first procedure) | "check in-game feedback" |
 | `desync` | Debugging a checksum mismatch or replay divergence: per-system hashes, diff, shrink | On failure |
 | `module-spec` | Writing a spec for sign-off (format, length) | New or changed module |
 
@@ -316,7 +315,7 @@ updates for a project with one developer. **A** is for publishing `unified` to o
    reload dialog bites?
 5. **Eval escape hatch** (`Expression`, dev builds only): yes or no?
 6. **Agents:** Claude Code only, or also Codex (adds `.agents/skills` symlinks)?
-7. **Skills list:** are the five above right? Anything from OctoEscape's `docs/ai/` to carry over?
+7. **Skills list:** are the five above right? Anything from the current game's agent docs to carry over?
 8. **Game-repo distribution** (A/B/C): decide now or at the first game repo?
 9. **LSP:** add an `ols` (and GDScript) `.lsp.json` plugin to the project?
 10. **MCP adapter** (`unified mcp`): never, or later for clients without a shell?

@@ -103,7 +103,11 @@ framing_round_trips_every_size :: proc(t: ^testing.T) {
 			pkts = make([dynamic][]u8, context.temp_allocator),
 		}
 		eos.frame_split(src[:size], &id, collect, &w)
-		testing.expect_value(t, len(w.pkts), size + 1 <= eos.P2P_MAX_PACKET ? 1 : (size + eos.PART_MAX - 1) / eos.PART_MAX)
+		testing.expect_value(
+			t,
+			len(w.pkts),
+			size + 1 <= eos.P2P_MAX_PACKET ? 1 : (size + eos.PART_MAX - 1) / eos.PART_MAX,
+		)
 		got := -1
 		for p, i in w.pkts {
 			n, ok := eos.frame_join(&r, p, out[:])
