@@ -66,3 +66,23 @@ the game's extension wires them (`init` first, with the game library's directory
   Product User ID. Measured 2026-11-09 on one Mac: lobby ready 3.2–3.6 s, join 4.0–4.7 s; direct RTT 1.8–2.1 ms;
   relayed RTT 149–152 ms (input delay 6, ~54 rollbacks of depth ~9 in 30 s); late join with a 161 KB snapshot over
   P2P; 0 desyncs.
+
+## Crossplay (macOS ↔ Windows over the internet)
+
+`.github/workflows/eos-crossplay.yml` (manual, Windows runner only): a Mac hosts, the runner joins by code and plays
+the scripted session; both sides print their verified checksums. Mac side, the game itself:
+`godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`
+(`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
+ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
+(a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
+`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/1` works too where the binary owns
+the keychain entry (not on a Mac where Godot.app made the device ID).
+
+Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every run 0 mismatches:
+
+| Windows client | Path | Common verified checksums | RTT | Delay | Rollbacks (avg depth) | Stall ticks |
+|---|---|---:|---:|---:|---:|---:|
+| headless, built on the runner | Direct (NAT traversal) | 1137 | 204 ms | 7 | 689 (11.0) | 378 |
+| headless, built on the runner | forced relays | 802 | 170 ms | 6 | 491 (10.0) | 97 |
+| release export (compiled-in IDs, shipped DLL) | Relayed (EOS's choice) | 770 | 200 ms | 7 | 467 (10.9) | 499 |
+

@@ -92,7 +92,10 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 			eos.poll()
 			time.sleep(5 * time.Millisecond)
 		}
-		fmt.eprintfln("eos-host: a player connected after %.1f s, starting", time.duration_seconds(time.tick_since(sw)))
+		fmt.eprintfln(
+			"eos-host: a player connected after %.1f s, starting",
+			time.duration_seconds(time.tick_since(sw)),
+		)
 	}
 	user := Script_User(S, I, W, P){h, 1}
 	host := netcode.host_create(

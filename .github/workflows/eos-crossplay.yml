@@ -11,10 +11,6 @@
 name: eos-crossplay
 
 on:
-  # TEMP until this file is on main (GitHub dispatches only workflows on the default branch): a push to
-  # claude/eos-crossplay-run runs with the parameters in .github/crossplay-request.env.
-  push:
-    branches: [claude/eos-crossplay-run]
   workflow_dispatch:
     inputs:
       code:
@@ -45,7 +41,7 @@ env:
 
 jobs:
   join:
-    name: join ${{ inputs.code || 'from request file' }} (${{ inputs.client }})
+    name: join ${{ inputs.code }} (${{ inputs.client }})
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -68,11 +64,9 @@ jobs:
           IN_RELAYS: ${{ inputs.relays }}
           IN_BUCKET: ${{ inputs.bucket }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            . .github/crossplay-request.env
-          else
-            CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"; BUCKET="$IN_BUCKET"
-          fi
+          # Also the place to read a request file from, for a temporary push trigger on a branch (GitHub
+          # dispatches only workflows that are on the default branch).
+          CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"; BUCKET="$IN_BUCKET"
           echo "CODE=$CODE" >> "$GITHUB_ENV"
           echo "TICKS=${TICKS:-2880}" >> "$GITHUB_ENV"
           echo "client=${CLIENT:-source}" >> "$GITHUB_OUTPUT"
