@@ -9,13 +9,16 @@ var _circle_fade := 1.0
 
 
 func _ready() -> void:
-	Game.session.view_root = _views
+	if &"view_root" in Game.session:
+		Game.session.view_root = _views
+	else:
+		push_warning("arena: the session has no view_root property; views won't spawn (see spec/survivor-client.md)")
 	Game.session.sim_event.connect(_on_sim_event)
 	$Fx.camera = _camera
 
 
 func _exit_tree() -> void:
-	if Game.session.view_root == _views:
+	if &"view_root" in Game.session and Game.session.view_root == _views:
 		Game.session.view_root = null
 
 

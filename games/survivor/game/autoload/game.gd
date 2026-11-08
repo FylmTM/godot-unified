@@ -65,6 +65,10 @@ func _ready() -> void:
 	fps_layer.add_child(_fps_label)
 	Settings.changed.connect(_on_setting_changed)
 	_fit_window.call_deferred()
+	# Release smoke test (tools/release.py runs the export headless with `-- --smoke-test`): exercise the sim too.
+	if "--smoke-test" in OS.get_cmdline_user_args():
+		print("survivor: smoke test, %s session, starting single player" % ("mock" if is_mock else "native"))
+		play_single.call_deferred()
 
 
 func _process(_delta: float) -> void:

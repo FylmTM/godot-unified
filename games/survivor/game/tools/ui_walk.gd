@@ -49,6 +49,22 @@ func _run() -> void:
 	await _shot("01_menu")
 	_step("main menu")
 
+	# Settings: open from the menu, toggle Show FPS with a click (applies at once), Done.
+	await _click(_find(current_scene, "UI/Root/Left/VBox/Buttons/Settings"))
+	var panel: Control = _find(current_scene, "UI/Root/Side/SettingsPanel")
+	var fps_toggle := _settings_control(panel, "Show FPS") as CheckButton
+	await _click(fps_toggle)
+	var settings: Node = root.get_node(^"Settings")
+	_expect(settings.get_value(&"show_fps") == true, "Show FPS toggles the setting")
+	_expect(game._fps_label.visible, "the FPS counter shows")
+	await _frames(3)
+	await _shot("01b_settings")
+	await _click(fps_toggle)
+	_expect(settings.get_value(&"show_fps") == false and not game._fps_label.visible, "Show FPS toggles back")
+	await _click(_find(panel, "VBox/Back"))
+	_expect(not panel.visible, "Done closes the settings")
+	_step("settings panel")
+
 	# Single player -> arena, lobby phase.
 	await _click(_find(current_scene, "UI/Root/Left/VBox/Buttons/Single"))
 	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "Arena", 3.0, "arena loads")
@@ -271,6 +287,17 @@ func _press_action(action: StringName) -> void:
 		Input.parse_input_event(e)
 		await process_frame
 	await process_frame
+
+
+## The input control next to a label in the settings grid.
+func _settings_control(panel: Control, label: String) -> Control:
+	var grid := panel.get_node(^"VBox/Grid")
+	for i in grid.get_child_count() - 1:
+		var c := grid.get_child(i)
+		if c is Label and c.text == label:
+			return grid.get_child(i + 1)
+	_fail("settings row not found: " + label)
+	return null
 
 
 func _player_views() -> int:

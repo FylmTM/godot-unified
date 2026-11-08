@@ -62,18 +62,65 @@ def run_godot(proj, args, timeout, marker=None, quiet=False):
     return ok, data, secs
 
 
+IMPORTED = {".svg", ".png", ".jpg", ".webp", ".wav", ".ogg", ".mp3", ".glb", ".gltf", ".fbx", ".ttf", ".otf"}
+
+
+def import_signature(proj):
+    """What an import depends on: global class names (class_name lines), new scripts (.uid files), imported assets
+    (path + mtime). Editing a script body or a scene needs no import, so the edit loop skips it (~1.5 s)."""
+    parts = []
+    for p in sorted((proj / "game").rglob("*")):
+        rel = p.relative_to(proj).as_posix()
+        if p.suffix == ".gd":
+            names = [l.strip() for l in p.read_text(errors="replace").splitlines() if l.startswith("class_name ")]
+            parts.append("%s %s %s" % (rel, names, (p.parent / (p.name + ".uid")).exists()))
+        elif p.suffix.lower() in IMPORTED:
+            parts.append("%s %d" % (rel, p.stat().st_mtime_ns))
+    return "\n".join(parts)
+
+
 def ensure_imported(proj):
-    cache = proj / ".godot" / "global_script_class_cache.cfg"
-    stale = not cache.exists()
-    if not stale:
-        t = cache.stat().st_mtime
-        stale = any(p.stat().st_mtime > t for p in (proj / "game").rglob("*.gd"))
-    if stale:
+    stamp = proj / ".godot" / "unified_import.sig"
+    sig = import_signature(proj)
+    if not (proj / ".godot" / "global_script_class_cache.cfg").exists() or not stamp.exists() or stamp.read_text() != sig:
         ok, _, secs = run_godot(proj, ["--headless", "--import"], 120, quiet=True)
         log("game: import %.1fs" % secs)
         if not ok:
             raise SystemExit("game: import failed")
-        cache.touch()
+        stamp.write_text(import_signature(proj))  # the import may have added .uid files
+    exts = sync_extension_list(proj)
+    log("game: extensions: %s" % (", ".join(exts) if exts else "none built (mock session)"))
+
+
+HOST_KEYS = {"macos": ["macos.debug", "macos.release", "macos"], "windows": ["windows.x86_64", "windows"],
+             "linux": ["linux.x86_64", "linux"]}
+
+
+def sync_extension_list(proj):
+    """Godot loads the GDExtensions listed in .godot/extension_list.cfg (written by the import scan). List only those
+    whose library for this host exists: a missing library is an error on every run, and the game falls back to its
+    mock session anyway. Returns the extensions listed."""
+    listed = []
+    for ext in sorted((proj / "game").rglob("*.gdextension")):
+        libs = {}
+        section = ""
+        for line in ext.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("["):
+                section = line
+            elif section == "[libraries]" and "=" in line and not line.startswith(";"):
+                k, v = line.split("=", 1)
+                libs[k.strip()] = v.strip().strip('"')
+        for key in HOST_KEYS[common.host_os()]:
+            if key in libs and (proj / libs[key].replace("res://", "")).exists():
+                listed.append("res://" + ext.relative_to(proj).as_posix())
+                break
+    path = proj / ".godot" / "extension_list.cfg"
+    want = "".join(e + "\n" for e in listed)
+    if not path.exists() or path.read_text() != want:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(want)
+    return listed
 
 
 def cmd_game(argv):
@@ -86,7 +133,7 @@ def cmd_game(argv):
     ensure_imported(proj)
     if sub == "validate":
         ok, data, secs = run_godot(
-            proj, ["--headless", "-s", "res://game/tools/validate.gd", "--", "--mock", "--no-settings"], 60, "VALIDATE_JSON")
+            proj, ["--headless", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60, "VALIDATE_JSON")
     elif sub == "walk":
         ok, data, secs = run_godot(
             proj, ["--headless", "-s", "res://game/tools/ui_walk.gd", "--", "--mock", "--no-settings"], 90, "WALK_JSON")
