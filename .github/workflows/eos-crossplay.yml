@@ -1,7 +1,8 @@
 # Internet crossplay check through EOS (spec/eos.md, "Crossplay"): a Windows runner joins a lobby that a
 # developer's Mac hosts, plays the scripted session and reports its verified checksums. Manual only:
 #
-#   survivor eos-host --ticks 2880 --wait-s 900 --code-file code.txt     (on the Mac, prints the code)
+#   godot --headless --path games/survivor -- --host-online --scripted --ticks 23040 --quit-at-end
+#   (or: survivor eos-host --ticks 2880 --wait-s 900 --bucket survivor/1 --code-file code.txt)
 #   gh workflow run eos-crossplay.yml -f code=ABC234 -f client=source    (or client=export)
 #
 # client=source builds the survivor headless binary on the runner (EOS IDs from the repo secrets, read at
@@ -31,6 +32,9 @@ on:
       relays:
         description: allow or force (client=source only; the export uses the game's default, allow)
         default: allow
+      bucket:
+        description: client=source only, lobby bucket (survivor/1 = the game's; unified-headless/1 = eos-host's)
+        default: survivor/1
 
 permissions:
   contents: read
@@ -62,17 +66,19 @@ jobs:
           IN_CLIENT: ${{ inputs.client }}
           IN_RUN: ${{ inputs.release_run }}
           IN_RELAYS: ${{ inputs.relays }}
+          IN_BUCKET: ${{ inputs.bucket }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             . .github/crossplay-request.env
           else
-            CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"
+            CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"; BUCKET="$IN_BUCKET"
           fi
           echo "CODE=$CODE" >> "$GITHUB_ENV"
           echo "TICKS=${TICKS:-2880}" >> "$GITHUB_ENV"
           echo "client=${CLIENT:-source}" >> "$GITHUB_OUTPUT"
           echo "release_run=$RELEASE_RUN" >> "$GITHUB_OUTPUT"
           echo "relays=${RELAYS:-allow}" >> "$GITHUB_OUTPUT"
+          echo "BUCKET=${BUCKET:-survivor/1}" >> "$GITHUB_ENV"
           echo "code $CODE, ticks ${TICKS:-2880}, client ${CLIENT:-source}, relays ${RELAYS:-allow}"
 
       # --- client=source: the headless binary, built here --------------------------------------------------
@@ -109,7 +115,7 @@ jobs:
         run: |
           mkdir -p out/crossplay
           set +e
-          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "${{ steps.p.outputs.relays }}" \
+          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "${{ steps.p.outputs.relays }}" --bucket "$BUCKET" \
             > out/crossplay/client.json 2> out/crossplay/client.log
           rc=$?
           set -e

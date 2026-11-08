@@ -80,7 +80,7 @@ Online :: struct {
 	relay_control:  Relay_Control,
 	stage:          Stage,
 	role:           Role,
-	detail:         [160]u8,
+	detail:         [320]u8,
 	detail_len:     int,
 	lib_path:       [512]u8,
 	// login
@@ -157,6 +157,13 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 	o.ctx = runtime.default_context()
 	o.relay_control = opts.relay_control.? or_else .Allow_Relays
+	// $UNIFIED_EOS_RELAYS=force|none overrides the default (testing relays from a game build).
+	switch os.get_env("UNIFIED_EOS_RELAYS", context.temp_allocator) {
+	case "force":
+		o.relay_control = .Force_Relays
+	case "none":
+		o.relay_control = .No_Relays
+	}
 	if opts.no_keychain_prompts {
 		disable_keychain_prompts()
 	}
