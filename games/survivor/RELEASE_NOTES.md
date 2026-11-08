@@ -15,4 +15,5 @@
    again. If it keeps failing, send us the log: `~/Library/Application Support/Godot/app_userdata/Survivor/logs/`
    on macOS, `%APPDATA%\Godot\app_userdata\Survivor\logs\` on Windows.
 4. First time online: macOS asks once per new build to let Survivor use a keychain item (the anonymous device ID):
-   click **Always Allow**. Windows may show a Firewall prompt: click **Allow access**.
+   click **Always Allow**. **Deny** is safe too (online play then fails with a message; nothing else changes).
+   Windows may show a Firewall prompt: click **Allow access**.
