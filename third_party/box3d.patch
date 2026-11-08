@@ -6,7 +6,7 @@ diff -ruN a/include/box3d/box3d.h b/include/box3d/box3d.h
  /**@}*/ // recording
  
 +/**
-+ * @defgroup world_state World state (FORK bench/p)
++ * @defgroup world_state World state (FORK)
 + * @brief Save and restore the full simulation state of a world for rollback.
 + * A state is a raw struct image of the world (bodies, shapes, contacts with warm-start impulses,
 + * islands and sleep sets, broad-phase trees, constraint graph, id pools). Restore overwrites the
@@ -59,7 +59,7 @@ diff -ruN a/src/world_state.c b/src/world_state.c
 +// SPDX-FileCopyrightText: 2026 Erin Catto
 +// SPDX-License-Identifier: MIT
 +
-+// FORK (bench/p): public world save/restore for rollback, a thin wrapper over the internal
++// FORK: public world save/restore for rollback, a thin wrapper over the internal
 +// snapshot serializer that the recording player uses for keyframes (world_snapshot.c).
 +// Save = b3SerializeWorld into a reusable buffer, interning shape geometry into a registry
 +// owned by the cache. Restore = b3DeserializeIntoShell in place over the live world, exactly

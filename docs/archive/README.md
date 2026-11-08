@@ -21,5 +21,4 @@ All dates are 2026-11-07/08 and all measurements are on an Apple M4 Pro.
 | `bench/b/` | Benchmark B: four hosts (Bevy, Godot + C++/C#/Odin; Rust added later) on the same content. Godot builds in seconds; Bevy fresh dev build 2 min. |
 | `bench/c/` | Benchmark C (`C1/C2-SPEC.md`): agent productivity, add a feature and fix a bug, 5 languages × 2 runs. All passed; costs within ~1.5× of each other. |
 | `bench/s/` | Scale test: one game description emitted at 10k, 50k and 100k lines in 5 languages (`IR.md`, `PERF.md`): build and edit times at scale. |
-| `bench/p/` | Physics rollback spike (`SPEC.md`): Box3D fork vs Jolt, both bit-exact; Box3D ≈ 1.0 / 4.2 ms per tick at 300 / 1000 bodies, Jolt 2.5 / 9.3. Box3D chosen. The fork patch is `third_party/box3d.patch`. |
 | `bench/NET10.md` | C# .NET 8 vs .NET 10: determinism unchanged, small build differences. C# was dropped (~2.6× slower gameplay code). |

@@ -3,7 +3,7 @@
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 **Godot** as the host for rendering, audio, UI and the editor. Inspired by Photon Quantum's model (deterministic
 sim, input relay, prediction and rollback), built for speed, code-first workflows and AI-agent development. The first
-game built on it will be a slice of OctoEscape (`~/work/personal/OctoEscape`).
+game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games follow.
 
 ## Roles
 
@@ -33,6 +33,8 @@ game built on it will be a slice of OctoEscape (`~/work/personal/OctoEscape`).
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
 - **Narrow, purpose-built tooling.** No random scripts in random languages. Tooling converges on one `unified` CLI
   (design pending sign-off). Agents must know exactly how to operate everything: keep the commands below current.
+- **Don't name products we take ideas from, or the developer's other games, in repo files** (the one line above
+  aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally.
 - **Design for the library, not the demo.** Every change considers how `unified` will be used as a library by
   several co-op games with Godot, now and later.
 

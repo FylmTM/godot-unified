@@ -1,40 +1,25 @@
 # 01: Determinism, numbers and physics
 
-Research date: 2026-11-07, updated 2026-11-08 after the phase 1 and 2 results. Versions checked: Jolt 5.6.0, Box3D
-v0.1.0 (main at 2026-10-27), Box2D 3.2. "Unverified" marks anything not confirmed from a primary source. Rapier and
-Avian were compared too and dropped; see `../archive/research/00-synthesis.md` and `../archive/bench/p/RESULTS.md`.
+Research date: 2026-11-07, updated 2026-11-08 after the phase 1 and 2 results. Versions checked: Box3D v0.1.0 (main
+at 2026-10-27), Box2D 3.2. "Unverified" marks anything not confirmed from a primary source.
 
-## Decisions and recommendation
+## Decisions
 
-1. **IEEE `f32` with deterministic discipline, not fixed point.** Every mature open-source 3D physics engine is
-   float-based, and Jolt and Box3D test **bit-identical results across ARM64 and x64 in CI**. Fixed point would mean
-   writing our own rigid-body engine: years of work and worse quality per CPU cycle.
-2. **Physics: the Box3D fork.** Decided after the phase 1 spike (`../archive/bench/p/RESULTS.md`): bit-exact under
-   sync-test with spawn/despawn churn, bit-exact on x86-64 under Rosetta, about 1.0 / 4.2 ms per tick of rollback at
-   300 / 1000 bodies (Jolt: 2.5 / 9.3 ms). Box3D already has a complete internal world snapshot; the fork exposes it.
-   Open: a public load-from-bytes API with self-contained geometry, and clearing stale pointer bytes (see
-   `PHASE2.md`). Jolt is the fallback if dynamics quality or the character controller decides it.
+1. **IEEE `f32` with deterministic discipline, not fixed point.** Box3D is float-based and tests **bit-identical
+   results across ARM64 and x64 in CI**. Fixed point would mean writing our own rigid-body engine.
+2. **Physics: our Box3D fork with world save/restore** (`third_party/box3d.patch`). Measured in phase 1: bit-exact
+   under sync-test with spawn/despawn churn, bit-exact on x86-64 under Rosetta and against ARM64, about 1.0 / 4.2 ms
+   per tick of rollback at 300 / 1000 bodies. Box3D already has a complete internal world snapshot; the fork exposes
+   it. Open: a public load-from-bytes API with self-contained geometry, and clearing stale pointer bytes (see
+   `../archive/PHASE2.md`). Jolt is the fallback if dynamics quality or the character controller decides it.
 3. **Keep the 1000+ swarm agents out of the rigid-body engine.** Agents live in our contiguous state block, move
    kinematically with a spatial hash, and only *query* physics. Rigid bodies stay at roughly 200–400 **awake** at
    once. Sleeping bodies are almost free.
 4. **Physics is the one subsystem outside the "one pointer-free block" design.** A snapshot is
    `memcpy(block) + physics.save()`: **one save and one restore per tick**, not one per predicted frame.
-5. **Determinism is enforced by tooling, not by hope:** a pinned toolchain, no FMA contraction, one deterministic
+5. **Determinism is enforced by tooling, not by hope:** a pinned toolchain, no FMA contraction (Box3D included), the
+   Box3D AVX2 path compiled out (x64 runs the same 4-wide solver as ARM64), Box3D with 1 worker, one deterministic
    math module, lints that ban `core:math` transcendentals in sim code, and per-tick checksum CI.
-
-## Options compared
-
-|  | **Box3D (v0.1)** | **Jolt 5.6** | **Fixed point, stateless (ref.)** |
-|---|---|---|---|
-| Language / licence | C17 / MIT | C++17 / MIT | Usually closed, commercial |
-| Cross-arch determinism | Default on, **CI goldens on mac ARM, Win x64, Win ARM64, Linux** | `CROSS_PLATFORM_DETERMINISTIC` (~8% slower), **CI on 14 targets** | Q48.16 integers, by construction |
-| Multithreaded determinism | Yes, any worker count | Yes (same binary), but callback/query *order* is not | Usually a single sim thread |
-| Save/restore API | Full world snapshot exists, **internal only** (recording/replay) | `SaveState`/`RestoreState` with filter (public); **no add/remove** | The frame *is* the state (memcpy) |
-| Caches in snapshot | Same, plus id pools | Bodies, contacts (warm start), constraints; **not the broad-phase tree** | Stateless engine |
-| Character controller | Mover, "experimental" | `CharacterVirtual` (best in class, any up axis) | Varies |
-| Queries | Ray/shape cast, overlap, mover casts (recorded and checked on replay) | Narrow-phase results consistent, **order varies** | Yes |
-| Maturity | 4 months, alpha, no PRs accepted | AAA shipped, ~5 years | Shipped titles |
-| Bindings | Trivial FFI; `boxddd`, `box3d-sys`, pure-Rust port | `joltc`/`JoltC` → `oxijolt` (Rust), `zphysics` (Zig) | n/a |
 
 ## Float determinism: what breaks it and how to control it
 
@@ -45,35 +30,20 @@ operations are **bit-exact everywhere**. The traps are everything around them:
 |---|---|---|
 | **FMA contraction** (`a*b+c` fused, one rounding) | **Clang contracts by default since v14** (`-ffp-contract=on`), and that bites on ARM64 where FMA is baseline ([LLVM commit](https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20211108/391738.html), [OpenFOAM report](https://develop.openfoam.com/Development/openfoam/-/issues/2958)). GCC defaults to `fast` in GNU mode. MSVC stopped contracting under `/fp:precise` only in VS2022 ([MS docs](https://learn.microsoft.com/en-us/cpp/build/reference/fp-specify-floating-point-behavior)). | C/C++: `-ffp-contract=off` (clang-cl: `/clang:-ffp-contract=off`, as [Box3D's CMake](https://github.com/erincatto/box3d/blob/main/CMakeLists.txt) does), MSVC `/fp:precise` without `/fp:contract`. |
 | **Fast-math / reassociation** | `-ffast-math`, `/fp:fast`, Odin/LLVM fast-math flags | Never in sim code. Erin Catto measured no real speedup ([Box2D blog](https://box2d.org/posts/2024/08/determinism/)). |
-| **libm transcendentals** (`sin`, `cos`, `atan2`, `exp`, `pow`) | Different CRTs give different last bits. Box2D found `atan2f` differs across platforms. | Our own or a pinned implementation (below). Jolt asks you to use its `Sin`/`Cos`; Box2D/Box3D hand-code `atan2`/`cos`/`sin`. |
+| **libm transcendentals** (`sin`, `cos`, `atan2`, `exp`, `pow`) | Different CRTs give different last bits. Box2D found `atan2f` differs across platforms. | Our own or a pinned implementation (below). Box2D/Box3D hand-code `atan2`/`cos`/`sin`. |
 | **x87 / excess precision** | 32-bit x86 only | Irrelevant: all our targets are 64-bit SSE2/NEON. |
 | **SIMD width / horizontal ops** | A different reduction order (dot products, sums) on SSE vs NEON vs AVX. Approximate `rsqrtps`/`frsqrte` differ by ISA. | Same lane width on every platform, or scalar. Box3D's goldens match across NEON, x64 SIMD and scalar ARM64. Never use approximate reciprocal instructions. |
-| **min/max and signed zero** | x86 `minss` returns the 2nd operand on ties/NaN, ARM `fmin` orders −0 < +0. Rapier's CI once found "diverged serialized snapshots on aarch64 for months" from this. | Hash *values* with canonicalized ±0. Run CI on real ARM. |
-| **Denormals / FTZ / rounding mode** | Thread-local MXCSR/FPCR. Some audio or graphics middleware sets FTZ/DAZ. | Assert the FP environment at sim-thread start and after each foreign call. Jolt lists this explicitly. |
+| **min/max and signed zero** | x86 `minss` returns the 2nd operand on ties/NaN, ARM `fmin` orders −0 < +0. | Hash *values* with canonicalized ±0. Run CI on real ARM. |
+| **Denormals / FTZ / rounding mode** | Thread-local MXCSR/FPCR. Some audio or graphics middleware sets FTZ/DAZ. | Assert the FP environment at sim-thread start and after each foreign call. |
 | **NaN payloads** | Non-deterministic sign and payload per RFC 3514. On x87 they change across returns. | Treat NaN as a bug: assert in debug builds, quarantine. Never hash raw NaN bits. |
-| **Non-float nondeterminism** | `std::sort` (unstable, differs per STL), `std::hash`, random-seeded hash maps, parallel reductions, iteration over pointer-keyed maps, thread timing | Stable sorts on total keys, fixed-seed hashers, ordered containers in sim state. Jolt lists `std::sort`/`push_heap`/`std::hash` as traps. |
+| **Non-float nondeterminism** | `std::sort` (unstable, differs per STL), `std::hash`, random-seeded hash maps, parallel reductions, iteration over pointer-keyed maps, thread timing | Stable sorts on total keys, fixed-seed hashers, ordered containers in sim state. |
 | **Compiler/toolchain changes** | Determinism is "brittle" (Catto). One codegen change breaks it. | Pin the Odin and C compiler versions per release. Both peers must run the same build (enforce a version handshake). |
 
 **Odin** (LLVM backend): what its built-in `sin` and friends lower to, and its contraction default, were
 **unverified** at research time. Policy: our own math plus per-tick checksum CI, no `core:math` transcendentals, and
 FMA contraction off in every compiled unit (Box3D included).
 
-## Fixed point: options and costs
-
-- **Q48.16 in an `int64`**, the common commercial choice. Usable range is ±32767 if you want to square a value
-  safely, with a resolution of 1.5e-5. Trig uses polynomials, sqrt and inverse trig use small LUTs. 1/60 is not
-  exact in fixed point, which pushes such engines to a **64 Hz** tick. OctoEscape already hits the precision floor
-  (its epsilon is 0.001: "never compare squared per-tick steps").
-- **Others**: BEPUphysicsint, a fixed-point fork of Bepu **v1** that has to run single-threaded; soft-float
-  (Berkeley SoftFloat), which is exact but roughly 10–100× slower (estimate).
-
-**Costs**: multiplies need a 128-bit intermediate; division is a 64-bit `idiv`; there is no wide 64-bit SIMD
-multiply, so the 4–8-lane solvers are out; overflow and precision trade-offs leak into gameplay; and every number
-needs conversion for the view and GPU. Decisive: **no mature open-source fixed-point 3D rigid-body engine exists.**
-
-## Engine details
-
-### Box3D (Erin Catto, C17, MIT)
+## Box3D (Erin Catto, C17, MIT)
 
 - Announced 2026-06-30 as alpha ([post](https://box2d.org/posts/2026/06/announcing-box3d/)). It is a 3D fork of
   Box2D v3: Soft Step sub-stepping solver, graph coloring, wide-SIMD contacts, CCD, triangle meshes, height fields,
@@ -83,8 +53,7 @@ needs conversion for the view and GPU. Decisive: **no mature open-source fixed-p
   `/fp:precise` and custom `atan2`/`sin`/`cos`. Multithreaded results match across worker counts. CI checks one set
   of golden hashes (ragdoll, wave pile, mesh drop, and a scene of queries issued during the step) on macOS ARM,
   Windows x64 (MSVC and clang-cl), Windows ARM64 scalar and Linux, at -O0 and -O2
-  ([test_determinism.c](https://github.com/erincatto/box3d/blob/main/test/test_determinism.c)). That is the strongest
-  cross-arch evidence of the three.
+  ([test_determinism.c](https://github.com/erincatto/box3d/blob/main/test/test_determinism.c)).
 - **Rollback**: the [FAQ](https://github.com/erincatto/box3d/blob/main/docs/faq.md) says "Box3D does not have
   rollback determinism", because it "caches a lot of internal state". The internal `b3SerializeWorld` /
   `b3DeserializeIntoShell` ([recording.md](https://github.com/erincatto/box3d/blob/main/docs/recording.md)) capture
@@ -92,40 +61,16 @@ needs conversion for the view and GPU. Decisive: **no mature open-source fixed-p
   pools**: exactly what rollback needs. The replay player already restores a keyframe, re-steps and checks hashes:
   rollback in all but name. Limits: a restore needs a fresh "shell" world; the image is a raw struct image gated on
   a layout hash (same build only); user data and callbacks are not captured; and "Box3D does not yet expose a
-  standalone save-state / restore API", so we would need a small fork patch or an upstream request. **Unverified
+  standalone save-state / restore API", so our fork adds one. **Unverified
   idea**: route all allocations (`b3SetAllocator`) into a fixed-address arena and memcpy it plus the static
   `b3_worlds[]` slot.
 - **Character**: `b3World_CastMover` / `CollideMover` / `b3SolvePlanes`, a geometric capsule mover with no
-  built-in up axis. Marked "experimental"; better movement is on the roadmap. OctoEscape writes its own controller
-  on raw casts anyway.
+  built-in up axis. Marked "experimental"; better movement is on the roadmap. We write our own controller on raw
+  casts anyway.
 - **Performance** (author's numbers, [benchmark/](https://github.com/erincatto/box3d/tree/main/benchmark)): M2 Air,
   one thread, `large_pyramid` (5,050 boxes) runs at 9.0 ms/step and `many_pyramids` (~10,800 boxes) at 19.2 ms/step,
   so **about 1.8 µs per awake stacked body per step**. Scaling is about 3.2× on 4 threads.
 - **Bindings**: plain C; our Odin bindings are hand-written (phase 2: 294 lines).
-
-### Jolt 5.6 (Jorrit Rouwe, C++, MIT)
-
-- **Determinism**: same binary means deterministic. `CROSS_PLATFORM_DETERMINISTIC` costs ~8% and holds across
-  compilers, OS and architectures, verified every build on 14 configurations
-  ([docs](https://jrouwe.github.io/JoltPhysics/#deterministic-simulation)). The docs also say this feature is "less
-  tested than other features". Caveats: broad-phase queries are not deterministic, narrow-phase hit *order* varies,
-  listeners fire from many threads in any order, and `GetActiveBodies` order varies. Gameplay must sort every query
-  result by `BodyID`.
-- **Save/restore**: `SaveState(recorder, EStateRecorderState, filter)` covers global state, bodies, contacts (warm
-  start) and constraints; the filter can skip static or sleeping bodies. **But**
-  ([docs](https://jrouwe.github.io/JoltPhysics/#rolling-back-a-simulation)) it saves only what `Update` modifies:
-  API-changed properties (friction and so on) are ours to restore, and if bodies are added or removed inside the
-  window "RestoreState will not work". We would re-add them with stable IDs (`CreateBodyWithID`), the biggest
-  integration cost for a freely spawning ECS. The samples' "Check Determinism" mode is the same idea as our
-  sync-test.
-- **Character**: `CharacterVirtual` is the most complete controller here: stairs, slopes, moving platforms, and an
-  arbitrary up vector / local frame (a good fit for wall-crawling).
-### Others
-
-- **Box2D v3.2** (2D reference): cross-platform determinism is a "first-class feature" since 3.1. No rollback
-  support, for the same internal-state reason ([FAQ](https://box2d.org/documentation/md_questions.html)).
-- **PhysX**: determinism is local only. No complete save/restore. **Bepu v2**: no cross-platform guarantee.
-- **Rapier, Avian**: Rust engines, dropped with Rust; their findings are in the archive.
 
 ## Rollback performance budget
 
@@ -147,7 +92,7 @@ frames at 60–130 ms RTT with 0–2 frames of delay. **Per tick: 1 + P steps, 1
 | Physics save + restore | Box3D raw image: 8 / 11 µs measured | once |
 
 So **~200–400 awake bodies plus 1000 kinematic agents fit on one thread at P ≤ 8**. 1000 awake bodies needs
-deterministic multithreading (all three engines have it) or a shallower prediction depth.
+deterministic multithreading (Box3D has it) or a shallower prediction depth.
 
 **Mitigations**, in order of value:
 1. **Sleeping**: islands put to sleep cost nearly nothing, and props mostly rest.
@@ -166,32 +111,17 @@ deterministic multithreading (all three engines have it) or a shallower predicti
 The sim needs `sqrt` (IEEE-exact, so hardware is fine), `sin`/`cos`/`sincos`, `atan2`, `asin`/`acos`, `exp`/`ln`/`pow`
 for tuning curves, `floor`/`round`/`trunc` (exact), and a quaternion `slerp`/`nlerp` built on those. Plan:
 - **Odin**: our own `detmath` package (hardware `+ − × ÷ sqrt` only) with polynomial transcendentals.
-- **Cheaper approximations** where speed matters (Box3D's `b3ComputeCosSin`/`b3Atan2`, Jolt's `Sin`/`Cos`/`ATan2`):
-  fine, as long as every peer uses the same code.
+- **Cheaper approximations** where speed matters (Box3D's `b3ComputeCosSin`/`b3Atan2`): fine, as long as every peer
+  uses the same code.
 - **Enforcement**: one `detmath` module, a check banning `core:math` transcendentals in sim code, a debug assertion on the FP environment, and per-tick checksum CI.
-
-## Fixed point and stateless physics as reference: what we lose and gain
-
-A fixed-point sim with its own "stateless" physics rebuilds the broad phase and contacts from the frame, so the frame
-copy *is* the full state.
-
-- **We lose**: determinism by construction regardless of compiler, a one-memcpy snapshot that includes physics,
-  and years of production netcode tuning.
-- **We gain**: sub-stepping and warm-starting solvers (better stacking per µs), wide SIMD, no ±32k range or
-  epsilon traps, one number type shared with view and GPU, mature controllers and queries, no licence or
-  service.
-- **The price**: pinned toolchains and cross-arch checksum CI become core infrastructure, and the physics snapshot
-  sits beside the block instead of inside it.
 
 ## Risks and unknowns
 
-1. **Box3D snapshot API**: internal today; the fork must expose load-from-bytes (see `PHASE2.md`).
+1. **Box3D snapshot API**: internal today; the fork must expose load-from-bytes (see `../archive/PHASE2.md`).
 2. **Box3D maturity**: alpha, one author, no PRs, the API will change, and the FAQ disclaims rollback, so we would
    own that property.
-3. **Our own code breaks determinism** more often than the engines do: HashMap order, std trig, signed zeros,
+3. **Our own code breaks determinism** more often than Box3D does: HashMap order, std trig, signed zeros,
    padding bytes in hashed structs. Sync-test and checksum CI are needed from day one.
 4. **Toolchain drift**: an Odin/LLVM upgrade can change codegen. Peers must run identical builds (Box3D snapshots are build-specific anyway). Re-baseline goldens on each upgrade.
-5. **Arbitrary-up character movement** (wall-crawling): only Jolt has a mature controller for it. Elsewhere we keep
-   writing our own, as today.
-6. **Query order** after a restore: Jolt's varies; Box3D's is believed stable (unverified). Always sort
-   hits by a stable id.
+5. **Arbitrary-up character movement** (wall-crawling): Box3D's mover is experimental, so we write our own controller.
+6. **Query order** after a restore: Box3D's is believed stable (unverified). Always sort hits by a stable id.

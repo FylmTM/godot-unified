@@ -8,7 +8,7 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen, signed off 2026-11-09.
 3. **Architecture and Godot integration:** now. Design decisions below, spikes in progress, then module specs.
 4. **The library for real:** built from the signed-off specs, with a demo game in this repo.
-5. **The OctoEscape slice.**
+5. **A larger 3D co-op game** migrated from Unity.
 
 ## Decided
 
@@ -40,7 +40,7 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   (`net.Client(My_State, My_Input)`).
 - **v1 covers all four areas** (core + physics + netcode, replays and dev tools, Godot view layer, CLI and skills),
   at least minimally. Until every piece is proven end to end, demo and test games live **inside this repo**;
-  OctoEscape migrates only after that.
+  real games migrate only after that.
 - **State model: (c) hybrid.** Games own typed fixed tables; `unified` discovers them by Odin RTTI over the game's
   `State`, so the inspector, desync diff, set-by-path, serialization and dumps need no per-component code. No code
   generation. Evidence: `experiments/state-models/REPORT.md` (branch `claude/state-models-proto-840d93`, not merged).
