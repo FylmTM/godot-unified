@@ -32,3 +32,6 @@ zig-out/
 
 # CI toolchain downloads (tools/ci.py odin)
 /.toolchains/
+
+# Reference input logs (a global *.log ignore would otherwise drop them)
+!/testdata/**/ref.log

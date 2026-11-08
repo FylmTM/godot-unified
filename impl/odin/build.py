@@ -55,7 +55,12 @@ def linker_flags(desc):
     if IS_WINDOWS:
         # tools/box3d.py builds Box3D with the DLL CRT (/MD), while Odin links the static one
         # (/defaultlib:libcmt). Use one CRT for the whole program: swap libcmt for msvcrt.
-        return '/LIBPATH:"%s" /NODEFAULTLIB:libcmt /DEFAULTLIB:msvcrt' % lib_dir.replace("/", "\\")
+        # No quotes around the path: Odin's default Windows linker (RADLINK) keeps them and mangles the path
+        # (/LIBPATH:"D:\x" became D:\D:\x in CI). The CI checkout path has no spaces.
+        path = lib_dir.replace("/", "\\")
+        if " " in path:
+            raise SystemExit("build: Box3D lib path contains spaces, which RADLINK's /LIBPATH can't take: " + path)
+        return "/LIBPATH:%s /NODEFAULTLIB:libcmt /DEFAULTLIB:msvcrt" % path
     flags = ["-L" + lib_dir] + ["-l" + l for l in desc.get("link_libs", [])]
     return " ".join(flags)
 
