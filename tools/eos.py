@@ -5,12 +5,14 @@
     python tools/eos.py pack            # zip the pruned SDK -> out/eos-sdk-<version>.zip (for the release)
     python tools/eos.py upload          # pack, then upload it to the draft GitHub release eos-sdk-<version>
     python tools/eos.py defines         # print the -define flags for the EOS_* environment variables
+                                        # (build scripts: eos.defines(), and eos.redacted(cmd) to log)
     python tools/eos.py --json          # ensure, then print {"root", "version", "lib"} as one JSON line
 
 Only the pruned SDK is kept: SDK/Include/*, the shipping libraries for macOS (universal dylib),
 Windows x64 (dll + import lib) and Linux x64 (so), and a VERSION file. Sources, in order:
   1. third_party/eos/ already populated with the pinned version: done (~1 ms),
-  2. a local SDK unzipped by hand: $UNIFIED_EOS_SDK, ~/tools/eos-sdk, or ~/tools/EOS-SDK-*-v<version>,
+  2. a local SDK unzipped by hand: $UNIFIED_EOS_SDK or $EOS_SDK (the unzipped root or its SDK/ dir),
+     ~/tools/eos-sdk, or ~/tools/EOS-SDK-*-v<version>,
   3. the asset eos-sdk-<version>.zip of the draft release eos-sdk-<version> of FylmTM/unified, through
      the GitHub API with resumable download (token: $GH_TOKEN / $GITHUB_TOKEN, else `gh auth token`;
      a draft is visible to tokens with push access, so CI jobs need `contents: write`).
@@ -57,8 +59,10 @@ def ready():
 
 def local_sdk():
     cands = []
-    if os.environ.get("UNIFIED_EOS_SDK"):
-        cands.append(Path(os.environ["UNIFIED_EOS_SDK"]))
+    for k in ("UNIFIED_EOS_SDK", "EOS_SDK"):
+        if os.environ.get(k):
+            p = Path(os.environ[k])
+            cands.append(p.parent if p.name == "SDK" else p)  # the unzipped root or its SDK/ dir
     tools = Path.home() / "tools"
     cands.append(tools / "eos-sdk")
     cands += sorted(tools.glob("EOS-SDK-*-v" + VERSION))
@@ -233,6 +237,19 @@ def defines():
         if v:
             flags.append("-define:%s=%s" % (k, v))
     return flags
+
+
+def redacted(cmd):
+    """`cmd` for logging: the values of EOS -define flags replaced (the client secret ships in builds
+    but never goes into logs)."""
+    out = []
+    for a in cmd:
+        a = str(a)
+        for k in ENV_DEFINES:
+            if a.startswith("-define:%s=" % k):
+                a = "-define:%s=***" % k
+        out.append(a)
+    return out
 
 
 def main():
