@@ -280,10 +280,19 @@ views_sync :: proc(root: gd.Node3D, f: ^Frame, fresh: bool, alpha: f32, dt: f32)
 
 // Predicted events (and their cancellations) go to the view of their entity, or of their player slot.
 views_event :: proc(e: sim.Event, name: string, tick: u32, cancelled, predicted: bool) {
-	for _, &en in V.set.entries {
+	key := api.event_key != nil ? api.event_key(e) : view.Key(0)
+	if api.event_key != nil && key == 0 do return
+	for k, &en in V.set.entries {
 		v := en.view
 		if v == nil || !v.has_event || !alive(v.id) do continue
-		match := (e.entity != 0 && v.entity == e.entity) || (e.slot != 0xFF && v.slot >= 0 && u8(v.slot) == e.slot)
+		match: bool
+		if api.event_key != nil {
+			match = k == key
+		} else if e.slot != sim.NO_SLOT {
+			match = v.slot >= 0 && u8(v.slot) == e.slot
+		} else {
+			match = e.entity != 0 && v.entity == e.entity
+		}
 		if !match do continue
 		d := gd.dict_new()
 		gd.dict_set(&d, "tick", i64(tick))

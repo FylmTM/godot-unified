@@ -330,8 +330,7 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 session_hud :: proc(s: ^Session_Node) -> gd.Dictionary {
 	d := gd.dict_new()
 	if api.installed && api.hud != nil && s.frame != nil {
-		names := []string{s.name}
-		api.hud(s.frame, names, &d)
+		api.hud(s.frame, &d)
 		return d
 	}
 	// no session yet: every contract key, empty

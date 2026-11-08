@@ -8,6 +8,8 @@ import "unified:view"
 // What a frame shows, cut down from the game's State on the session thread (the game's `extract` fills it).
 // Fixed capacities: the Frame lives in a triple buffer, three copies, no allocation per frame.
 MAX_SCENE_ITEMS :: 256
+MAX_NAMED :: 8 // player slots whose display names travel in the Frame
+NAME_BYTES :: 32
 MAX_BULK_ITEMS :: 4096
 HUD_BYTES :: 4096
 
@@ -51,6 +53,7 @@ Frame :: struct {
 	local_slot: i32, // -1 until the relay assigns one
 	published:  u64, // publish counter (0: nothing yet)
 	net:        Net_Stats,
+	names:      [MAX_NAMED][NAME_BYTES]u8, // display names from the relay's roster, by slot (NUL-padded)
 	n_scene:    int,
 	n_bulk:     int,
 	scene:      [MAX_SCENE_ITEMS]Scene_Item,
@@ -84,8 +87,11 @@ Glue :: struct($S, $I, $W: typeid) {
 	sample:      proc(a: Actions, slot: int, tick: u32, state: ^S) -> I,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
 	scripted:    proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
-	// Main thread: the HUD Dictionary (contract v0) from a frame (nil before the first one).
-	hud:         proc(f: ^Frame, names: []string, d: ^gd.Dictionary),
+	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot).
+	hud:         proc(f: ^Frame, d: ^gd.Dictionary),
+	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
+	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
+	event_key:   proc(e: sim.Event) -> view.Key,
 	compat:      u64, // build/game id the relay checks (0: none)
 }
 
@@ -162,4 +168,13 @@ Message :: struct {
 	event:  sim.Event,
 	text:   [128]u8,
 	len:    u8,
+}
+
+// A player's display name from the frame's roster ("" when unknown).
+frame_player_name :: proc(f: ^Frame, slot: int) -> string {
+	if slot < 0 || slot >= MAX_NAMED do return ""
+	n := &f.names[slot]
+	l := 0
+	for l < NAME_BYTES && n[l] != 0 do l += 1
+	return string(n[:l])
 }

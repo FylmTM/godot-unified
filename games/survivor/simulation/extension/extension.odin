@@ -12,6 +12,7 @@ import "unified:gdext/gdi"
 import gh "unified:godot_host"
 import "unified:netcode"
 import "unified:physics"
+import "unified:sim"
 import "unified:view"
 
 import "../survivor"
@@ -89,6 +90,15 @@ GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 		return survivor.script(seed, slot, tick, state)
 	},
 	hud = hud,
+	event_key = event_key,
+}
+
+// Which scene view an event belongs to: player events (slot set) -> that player's view, barrel explosions
+// -> the barrel (entity = item index + 1); enemy and gem events have no scene view (bulk).
+event_key :: proc(e: sim.Event) -> view.Key {
+	if e.slot != sim.NO_SLOT do return view.Key(PLAYER_KEY + int(e.slot))
+	if survivor.Event_Kind(e.kind) == .Barrel_Exploded && e.entity >= 1 do return view.Key(ITEM_KEY + int(e.entity) - 1)
+	return 0
 }
 
 // ---- input
@@ -143,7 +153,7 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 			key    = view.Key(ITEM_KEY + i),
 			kind   = item.kind == .Barrel ? SCENE_BARREL : SCENE_CRATE,
 			slot   = -1,
-			entity = u32(i),
+			entity = u32(i + 1), // barrel_exploded's entity: item index + 1
 			pos    = {p.x, p.y, p.z},
 			rot    = {q.v.x, q.v.y, q.v.z, q.s},
 		}
@@ -156,9 +166,10 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 		b := &out.bulk[out.n_bulk]
 		out.n_bulk += 1
 		b^ = {
-			kind = u8(e.kind),
-			pos  = {e.pos.x, 0, e.pos.y},
-			yaw  = (e.vel.x != 0 || e.vel.y != 0) ? math.atan2(e.vel.x, e.vel.y) : 0,
+			kind   = u8(e.kind),
+			pos    = {e.pos.x, 0, e.pos.y},
+			yaw    = (e.vel.x != 0 || e.vel.y != 0) ? math.atan2(e.vel.x, e.vel.y) : 0,
+			custom = {hit_flash(out.tick, e.hit_tick), age_s(out.tick, e.spawn_tick), 0, 0},
 		}
 		if prev != nil {
 			ps := &prev.enemies.slots[idx]
@@ -196,69 +207,44 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 		b := &out.bulk[out.n_bulk]
 		out.n_bulk += 1
 		b^ = {
-			kind = BULK_GEM,
-			pos  = {g.pos.x, 0, g.pos.y},
+			kind   = BULK_GEM,
+			pos    = {g.pos.x, 0, g.pos.y},
+			custom = {0, age_s(out.tick, g.spawn_tick), 0, 0},
 		}
 	}
-	extract_hud(cur, (^Hud)(&out.hud[0]))
+	(^survivor.Hud)(&out.hud[0])^ = survivor.hud(cur, out.tick)
 }
 
-// ---- HUD (contract v0): extracted on the session thread, turned into a Dictionary on the main thread
+#assert(size_of(survivor.Hud) <= gh.HUD_BYTES)
 
-Hud_Player :: struct {
-	present, alive: bool,
-	hp, hp_max:     i32,
-	xp, xp_next:    i32,
-	level, pending: i32,
-	respawn_s:      f32,
+HIT_FLASH_S :: 0.15
+
+// Bulk custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
+hit_flash :: proc(tick, hit_tick: u32) -> f32 {
+	if hit_tick == 0 || tick < hit_tick do return 0
+	return max(0, 1 - f32(tick - hit_tick) * survivor.DT / HIT_FLASH_S)
 }
 
-Hud :: struct {
-	tick:          u32,
-	wave:          i32,
-	enemies_alive: i32,
-	circle_radius: f32,
-	phase:         u8, // 0 lobby, 1 match, 2 over
-	players:       [survivor.MAX_PLAYERS]Hud_Player,
+age_s :: proc(tick, spawn_tick: u32) -> f32 {
+	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
 }
 
-#assert(size_of(Hud) <= gh.HUD_BYTES)
+// ---- HUD (contract v0): survivor.hud on the session thread, a Dictionary on the main thread
 
-PHASE_NAMES := [3]string{"lobby", "match", "over"}
-
-extract_hud :: proc(s: ^S, h: ^Hud) {
-	h^ = {}
-	h.enemies_alive = s.enemies.count
-	h.phase = 1 // the sim has no match phases yet: always "match"
-	for p in 0 ..< survivor.MAX_PLAYERS {
-		pl := &s.players[p]
-		h.players[p] = {
-			present   = pl.active,
-			alive     = pl.alive,
-			hp        = pl.hp,
-			hp_max    = survivor.PLAYER_HP,
-			xp        = pl.xp,
-			xp_next   = 10 + pl.level * 5,
-			level     = pl.level,
-			pending   = pl.pending_levelups,
-			respawn_s = pl.alive ? 0 : f32(pl.respawn) / survivor.TICK_HZ,
-		}
-	}
-}
-
-hud :: proc(f: ^gh.Frame, names: []string, d: ^gd.Dictionary) {
-	h := (^Hud)(&f.hud[0])
-	gd.dict_set(d, "phase", PHASE_NAMES[min(int(h.phase), 2)])
-	gd.dict_set(d, "tick", i64(f.tick))
-	gd.dict_set(d, "time_s", f64(f.tick) / f64(survivor.TICK_HZ))
+hud :: proc(f: ^gh.Frame, d: ^gd.Dictionary) {
+	h := (^survivor.Hud)(&f.hud[0])
+	gd.dict_set(d, "phase", h.phase_name)
+	gd.dict_set(d, "tick", i64(h.tick))
+	gd.dict_set(d, "time_s", f64(h.time_s))
 	gd.dict_set(d, "wave", i64(h.wave))
 	gd.dict_set(d, "enemies_alive", i64(h.enemies_alive))
 	gd.dict_set(d, "circle_radius", f64(h.circle_radius))
+	gd.dict_set(d, "matches", i64(h.matches))
 	gd.dict_set(d, "local_slot", i64(f.local_slot))
 	players := gd.array_new()
-	for &p, i in h.players {
+	for &p in h.players {
 		pd := gd.dict_new()
-		gd.dict_set(&pd, "slot", i64(i))
+		gd.dict_set(&pd, "slot", i64(p.slot))
 		gd.dict_set(&pd, "present", p.present)
 		gd.dict_set(&pd, "alive", p.alive)
 		gd.dict_set(&pd, "hp", i64(p.hp))
@@ -266,9 +252,9 @@ hud :: proc(f: ^gh.Frame, names: []string, d: ^gd.Dictionary) {
 		gd.dict_set(&pd, "xp", i64(p.xp))
 		gd.dict_set(&pd, "xp_next", i64(p.xp_next))
 		gd.dict_set(&pd, "level", i64(p.level))
-		gd.dict_set(&pd, "pending_levelups", i64(p.pending))
+		gd.dict_set(&pd, "pending_levelups", i64(p.pending_levelups))
 		gd.dict_set(&pd, "respawn_s", f64(p.respawn_s))
-		if i == int(f.local_slot) && len(names) > 0 do gd.dict_set(&pd, "name", names[0])
+		if name := gh.frame_player_name(f, p.slot); name != "" do gd.dict_set(&pd, "name", name)
 		gd.array_push_move(&players, &pd)
 	}
 	gd.dict_set_move(d, "players", &players)
