@@ -5,15 +5,15 @@
     python tools/check.py [--mode release|dev|debug] [--only T1,T3] [--regen [--force]]
                           [--jobs N] [--timeout-scale X]
 
-Drives out/<mode>/unified[.exe] through the CLI of spec/CORE.md §3 (it does not build it). Prints
+Drives out/<mode>/survivor[.exe] (the survivor's headless binary) through the CLI of spec/CORE.md §3 (it does not build it). Prints
 one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
 (each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
 selected test passed. Exit codes: 0 all passed, 1 a test failed, 2 usage error or no binary.
 
 Reference data for T7/T8 (testdata/, see testdata/README.md) is regenerated with --regen, only on
 macOS ARM64 unless --force:
-    unified sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
-    unified snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
+    survivor sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
+    survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
 then self-checked (replay of ref.log == ref.trace; resume of ref-1800.snap == ticks 1801-3600 of
 ref.trace) before the files replace the committed ones.
 
@@ -47,8 +47,8 @@ BENCH_TICKS = 600
 BENCH_TARGET_US = 6000.0
 ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]
 TRACE_RE = re.compile(r"^(\d{6,}) ([0-9a-f]{16})$")
-LOG_HEADER = struct.Struct("<4sHQBI")  # magic, version, seed, players, ticks
-LOG_TICK_BYTES = 4 * 4 + 1
+LOG_HEADER = struct.Struct("<4sHQBHI")  # magic, version, seed, slots, input size, ticks
+LOG_SLOTS = 4
 
 
 class Fail(Exception):
@@ -165,14 +165,20 @@ def read_log_header(path):
     data = Path(path).read_bytes()
     if len(data) < LOG_HEADER.size:
         raise Fail("%s: shorter than the input-log header" % path)
-    magic, version, seed, players, ticks = LOG_HEADER.unpack_from(data)
+    magic, version, seed, slots, isize, ticks = LOG_HEADER.unpack_from(data)
     if magic != b"UNIL":
         raise Fail("%s: bad magic %r (want b'UNIL')" % (path, magic))
-    info = {"version": version, "seed": seed, "players": players, "ticks": ticks, "bytes": len(data)}
-    want = LOG_HEADER.size + ticks * LOG_TICK_BYTES
+    info = {"version": version, "seed": seed, "slots": slots, "ticks": ticks, "bytes": len(data)}
+    # per tick: present u32, replaced u32, slots x input
+    tick_bytes = 8 + slots * isize
+    want = LOG_HEADER.size + ticks * tick_bytes
     info["size_ok"] = len(data) == want
     if not info["size_ok"]:
-        log("  note: %s is %d bytes; header + %d x 17 bytes = %d" % (path, len(data), ticks, want))
+        log("  note: %s is %d bytes; header + %d x %d bytes = %d" % (path, len(data), ticks, tick_bytes, want))
+    if ticks > 0 and info["size_ok"]:
+        # players = slots present at tick 1
+        present = struct.unpack_from("<I", data, LOG_HEADER.size)[0]
+        info["players"] = bin(present).count("1")
     return info
 
 
@@ -194,8 +200,11 @@ def need(obj, key, what):
     return obj[key]
 
 
+TICK_HZ = 64
+
+
 def session_timeout(ticks):
-    return ticks / 60.0 * 4 + 90
+    return ticks / float(TICK_HZ) * 4 + 90
 
 
 def free_udp_port():
@@ -447,7 +456,7 @@ def t9(ctx):
 
 
 TESTS = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7, "T8": t8, "T9": t9}
-# Paced by the 60 Hz relay clock (~60 s, ~30 s, ~60 s of wall time, little CPU): started together up front so they
+# Paced by the 64 Hz relay clock (~60 s, ~30 s, ~60 s of wall time, little CPU): started together up front so they
 # overlap each other and T1/T2. T9 (timing-sensitive) runs after all of them have finished.
 REALTIME = ["T3", "T5", "T6"]
 
@@ -493,9 +502,9 @@ def regen(ctx, force):
         "seed": REF_SEED, "players": REF_PLAYERS, "ticks": REF_TICKS, "snapshot_tick": REF_SNAP_TICK,
         "final_checksum": ref[-1].split()[1],
         "commands": [
-            "unified sim --ticks %d --players %d --seed %d --trace ref.trace --log ref.log"
+            "survivor sim --ticks %d --players %d --seed %d --trace ref.trace --log ref.log"
             % (REF_TICKS, REF_PLAYERS, REF_SEED),
-            "unified snapshot --ticks %d --players %d --seed %d --out ref-%d.snap"
+            "survivor snapshot --ticks %d --players %d --seed %d --out ref-%d.snap"
             % (REF_SNAP_TICK, REF_PLAYERS, REF_SEED, REF_SNAP_TICK),
         ],
     }
@@ -510,19 +519,22 @@ def git_commit():
     return r.stdout.strip() or None
 
 
+BINARY = "survivor"  # the survivor's headless binary (games/survivor/simulation/headless)
+
+
 def binary_path(mode):
-    return REPO / "out" / mode / ("unified" + EXE)
+    return REPO / "out" / mode / (BINARY + EXE)
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/CORE.md §4 tests (T1-T9).")
     ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
-                    help="which build to test: out/<mode>/unified (default release)")
+                    help="which build to test: out/<mode>/survivor (default release)")
     ap.add_argument("--only", help="comma-separated subset, e.g. T1,T3")
     ap.add_argument("--regen", action="store_true", help="regenerate testdata/ (macOS ARM64 only) first")
     ap.add_argument("--force", action="store_true", help="allow --regen on a platform other than macOS ARM64")
     ap.add_argument("--jobs", type=int, default=6,
-                    help="T3 sessions run in parallel (default 6: all at once; they are paced by the 60 Hz "
+                    help="T3 sessions run in parallel (default 6: all at once; they are paced by the 64 Hz "
                          "clock, not by the CPU)")
     ap.add_argument("--serial", action="store_true",
                     help="run the real-time tests T3, T5, T6 one after another instead of overlapped")

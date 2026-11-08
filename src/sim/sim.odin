@@ -1,216 +1,236 @@
-// The simulation harness (CORE.md §1): the state block plus the Box3D world, a ring of 16
-// snapshots (block memcpy + b3World_SaveState), the canonical checksum, and portable snapshots.
+// The deterministic simulation harness, generic over a game's types at compile time:
+//
+//   S  the state block: plain data (no pointers, no padding), so a snapshot is a copy and its bytes
+//      are the checksum input. Games put sim.Table(T, N) tables, handles and an Rng in it.
+//   I  one player's input for one tick (plain data).
+//   W  the game's World: everything outside the block (physics world, per-tick scratch). Rollback
+//      state outside the block is registered as Extra state (physics.extra does that for Box3D).
+//   P  player slots (1..32).
+//
+// The harness owns the tick counter, a ring of RING snapshots (block copy + every Extra's save),
+// the events each tick emitted, and the checksum. Ticks are numbered from 1: the state after the
+// k-th step is tick k; tick 0 is the initial state.
 package sim
 
 import "base:intrinsics"
-import "core:fmt"
 import "core:hash/xxhash"
 
-import b3 "../box3d"
-import "../game"
-import "../pod"
-import "../wire"
-
 RING :: 16
+MAX_SLOTS :: 32
 
 #assert(ODIN_ENDIAN == .Little) // the block's in-memory bytes are its canonical LE serialization
 
-Snapshot :: struct {
-	tick:  u32,
-	valid: bool,
-	block: game.State,
-	phys:  ^b3.WorldState,
+Players :: bit_set[0 ..< MAX_SLOTS;u32]
+
+// What a tick consumes: every slot's input plus who is in the game. A slot not in `present` has a
+// zero input. `replaced` marks inputs the relay substituted (the player's last one) because the
+// real one came too late; it is informational, games should not branch on it.
+Inputs :: struct($I: typeid, $P: int) where P >= 1 && P <= MAX_SLOTS {
+	present:  Players,
+	replaced: Players,
+	input:    [P]I,
 }
 
-Sim :: struct {
-	state:    game.State,
-	phys:     game.Physics,
-	scratch:  game.Scratch,
-	ring:     [RING]Snapshot,
-	seed:     u32,
-	players:  int, // active at tick 0
-	// Checksum input: the block's bytes followed by the bodies. Hashed one-shot, because
-	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths
-	// (e.g. 100097 bytes; checked against the C reference), while XXH3_64_default is correct.
-	hash_buf: [size_of(game.State) + (game.ITEM_COUNT + game.MAX_PLAYERS) * 13 * 4]u8,
+// An event a tick emits for the view (sounds, effects, UI). Events are deterministic, kept per tick
+// in the ring and re-emitted when a tick is re-simulated, so a view can show predicted events at
+// once and confirm or cancel them when the tick is verified. Not part of the checksum.
+Event :: struct {
+	kind:   u16, // the game's event enum value
+	slot:   u8, // player slot it concerns, NO_SLOT if none
+	_pad:   u8,
+	entity: u32, // the game's entity key (e.g. handle_key), 0 if none
+	pos:    [3]f32,
+	value:  f32,
 }
 
-// Creates the world for (seed, players) at tick 0 and saves tick 0 into the ring. That first save
-// also fills the world's geometry registry in a fixed order, which is what lets an image saved by
-// another process (late join, `resume`) restore here.
-create :: proc(seed: u32, players: int) -> ^Sim {
-	pod.check(game.State)
-	sim := new(Sim)
-	sim.seed = seed
-	sim.players = players
-	game.world_create(&sim.state, &sim.phys, seed, players)
-	for &slot in sim.ring {
-		slot.phys = b3.CreateWorldState()
+NO_SLOT :: u8(0xFF)
+
+// Appends an event; `kind` is any enum of the game.
+emit :: proc(
+	events: ^[dynamic]Event,
+	kind: $K,
+	entity: u32 = 0,
+	pos := [3]f32{},
+	value: f32 = 0,
+	slot := -1,
+) where intrinsics.type_is_enum(K) {
+	append(
+		events,
+		Event{kind = u16(kind), slot = slot < 0 ? NO_SLOT : u8(slot), entity = entity, pos = pos, value = value},
+	)
+}
+
+// Rollback state that lives outside the block (physics). The harness calls `save`/`restore` with
+// the ring slot index (tick % RING), so an Extra keeps RING saved copies of its own.
+Extra :: struct {
+	name:    string,
+	data:    rawptr,
+	save:    proc(data: rawptr, slot: int),
+	restore: proc(data: rawptr, slot: int) -> bool,
+	// Appends the canonical bytes of the current state to `out` (checksum input). `state` points
+	// at the block, for extras whose order follows references stored in it.
+	hash:    proc(data: rawptr, state: rawptr, out: ^[dynamic]u8),
+	// Portable bytes of a ring slot (valid until that slot is saved again).
+	image:   proc(data: rawptr, slot: int) -> []u8,
+	// Loads portable bytes (from `image`, possibly another machine) into the live state.
+	load:    proc(data: rawptr, bytes: []u8) -> bool,
+}
+
+// A game, as the harness, netcode and tools see it.
+Game :: struct($S, $I, $W: typeid, $P: int) {
+	name:          string,
+	tick_hz:       int, // a power of two (32, 64, 128); dt = 1 / tick_hz exactly
+	// The World for a session with this seed: physics world, static geometry, scratch buffers.
+	world_create:  proc(seed: u64) -> ^W,
+	world_destroy: proc(w: ^W),
+	// The World's rollback state (nil: none).
+	extras:        proc(w: ^W) -> []Extra,
+	// Fills the tick-0 state (the block is zeroed before). May create physics bodies.
+	init:          proc(s: ^S, w: ^W, seed: u64),
+	// Advances the state from tick t-1 to tick t.
+	tick:          proc(s: ^S, w: ^W, t: u32, inputs: ^Inputs(I, P), events: ^[dynamic]Event),
+	// Names of the event kinds, indexed by kind (for views and tools).
+	event_names:   []string,
+}
+
+Ring_Slot :: struct($S: typeid) {
+	tick:   u32,
+	valid:  bool,
+	state:  S,
+	events: [dynamic]Event, // emitted by the step that produced `tick`
+}
+
+Sim :: struct($S, $I, $W: typeid, $P: int) {
+	game:     ^Game(S, I, W, P),
+	seed:     u64,
+	tick:     u32,
+	state:    S,
+	world:    ^W,
+	extras:   []Extra,
+	ring:     [RING]Ring_Slot(S),
+	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
+	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
+	hash_buf: [dynamic]u8,
+}
+
+// XXH3-64 (seed 0), one-shot.
+hash_bytes :: proc(b: []u8) -> u64 {
+	return xxhash.XXH3_64_default(b)
+}
+
+// Seconds -> ticks at `hz`, rounded to nearest (exact for the power-of-two rates and any
+// seconds value that is a multiple of 1/hz).
+ticks_of :: proc "contextless" (seconds: f32, hz: int) -> u32 {
+	return u32(seconds * f32(hz) + 0.5)
+}
+
+// Creates the World and the tick-0 state, and saves tick 0 into the ring. That first save also
+// lets physics fill its geometry registry in a fixed order, which is what makes a portable
+// snapshot from another process restore here.
+create :: proc(game: ^Game($S, $I, $W, $P), seed: u64) -> ^Sim(S, I, W, P) {
+	check_plain(S)
+	check_plain(Inputs(I, P))
+	assert(game.tick_hz > 0 && game.tick_hz & (game.tick_hz - 1) == 0, "tick_hz must be a power of two")
+	s := new(Sim(S, I, W, P))
+	s.game = game
+	s.seed = seed
+	s.world = game.world_create(seed)
+	if game.extras != nil {
+		s.extras = game.extras(s.world)
 	}
-	save(sim)
-	return sim
+	game.init(&s.state, s.world, seed)
+	save(s)
+	return s
 }
 
-destroy :: proc(sim: ^Sim) {
-	for &slot in sim.ring {
-		b3.DestroyWorldState(slot.phys)
+destroy :: proc(s: ^Sim($S, $I, $W, $P)) {
+	for &slot in s.ring {
+		delete(slot.events)
 	}
-	game.world_destroy(&sim.phys)
-	free(sim)
+	delete(s.hash_buf)
+	s.game.world_destroy(s.world)
+	free(s)
 }
 
-tick :: proc(sim: ^Sim) -> u32 {
-	return sim.state.tick
+// One tick without saving it (benchmarks time the two halves apart); step is advance + save.
+advance :: proc(s: ^Sim($S, $I, $W, $P), inputs: ^Inputs(I, P)) {
+	t := s.tick + 1
+	slot := &s.ring[t % RING]
+	clear(&slot.events)
+	s.game.tick(&s.state, s.world, t, inputs, &slot.events)
+	s.tick = t
 }
 
 // Advances one tick with the given inputs and saves the new state into the ring.
-step :: proc(sim: ^Sim, inputs: game.Inputs) {
-	inputs := inputs
-	game.tick(&sim.state, &sim.phys, &sim.scratch, &inputs)
-	save(sim)
+step :: proc(s: ^Sim($S, $I, $W, $P), inputs: ^Inputs(I, P)) {
+	advance(s, inputs)
+	save(s)
 }
 
-// Saves the current state into ring slot tick % RING.
-save :: proc(sim: ^Sim) {
-	slot := &sim.ring[sim.state.tick % RING]
-	slot.block = sim.state
-	b3.World_SaveState(sim.phys.world, sim.phys.cache, slot.phys)
-	slot.tick = sim.state.tick
+// Saves the current state into ring slot tick % RING (keeping that slot's events).
+save :: proc(s: ^Sim($S, $I, $W, $P)) {
+	idx := int(s.tick % RING)
+	slot := &s.ring[idx]
+	slot.state = s.state
+	for &e in s.extras {
+		e.save(e.data, idx)
+	}
+	slot.tick = s.tick
 	slot.valid = true
 }
 
 // Restores the saved state of `tick` (it must still be in the ring).
-restore :: proc(sim: ^Sim, tick: u32) -> bool {
-	slot := &sim.ring[tick % RING]
+restore :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> bool {
+	idx := int(tick % RING)
+	slot := &s.ring[idx]
 	if !slot.valid || slot.tick != tick {
 		return false
 	}
-	sim.state = slot.block
-	return b3.World_RestoreState(sim.phys.world, sim.phys.cache, slot.phys)
+	s.state = slot.state
+	s.tick = tick
+	for &e in s.extras {
+		if !e.restore(e.data, idx) {
+			return false
+		}
+	}
+	return true
 }
 
-// Size of the physics image of the current tick's ring slot.
-physics_bytes :: proc(sim: ^Sim) -> int {
-	return int(b3.WorldState_GetSize(sim.ring[sim.state.tick % RING].phys))
-}
-
-has_snapshot :: proc(sim: ^Sim, tick: u32) -> bool {
-	slot := &sim.ring[tick % RING]
+has_tick :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> bool {
+	slot := &s.ring[tick % RING]
 	return slot.valid && slot.tick == tick
 }
 
-@(private)
-put_f32 :: #force_inline proc(buf: []u8, at: ^int, v: f32) {
-	bits := transmute(u32)v
-	if bits == 0x8000_0000 {
-		bits = 0 // -0.0 -> +0.0
-	}
-	intrinsics.unaligned_store((^u32le)(&buf[at^]), u32le(bits))
-	at^ += 4
+// The saved state of `tick`, or nil when it is not in the ring.
+state_at :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> ^S {
+	slot := &s.ring[tick % RING]
+	return &slot.state if slot.valid && slot.tick == tick else nil
 }
 
-@(private)
-put_body :: proc(sim: ^Sim, n: ^int, r: game.Body_Ref) {
-	id := game.body_id(&sim.phys, r)
-	p := b3.Body_GetPosition(id)
-	q := b3.Body_GetRotation(id)
-	v := b3.Body_GetLinearVelocity(id)
-	w := b3.Body_GetAngularVelocity(id)
-	for f in ([13]f32{p.x, p.y, p.z, q.v.x, q.v.y, q.v.z, q.s, v.x, v.y, v.z, w.x, w.y, w.z}) {
-		put_f32(sim.hash_buf[:], n, f)
-	}
+// The events the step to `tick` emitted (empty when the tick is not in the ring).
+events_at :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> []Event {
+	slot := &s.ring[tick % RING]
+	return slot.events[:] if slot.valid && slot.tick == tick else nil
 }
 
-// XXH3-64 (seed 0) over the block's bytes (pointer-free, no padding, little-endian: its canonical
-// serialization in field order), then every alive physics body in entity order (items 0..39,
-// players 0..3): position, rotation, linear and angular velocity.
-checksum :: proc(sim: ^Sim) -> u64 {
-	intrinsics.mem_copy_non_overlapping(&sim.hash_buf[0], &sim.state, size_of(game.State))
-	n := size_of(game.State)
-	for &it in sim.state.items {
-		if it.alive {
-			put_body(sim, &n, it.body)
-		}
+// XXH3-64 (seed 0) over the tick (u32 LE), the block's bytes (its canonical serialization, in
+// field order) and then each Extra's canonical bytes.
+checksum :: proc(s: ^Sim($S, $I, $W, $P)) -> u64 {
+	clear(&s.hash_buf)
+	t := transmute([4]u8)u32le(s.tick)
+	append(&s.hash_buf, ..t[:])
+	append(&s.hash_buf, ..([^]u8)(&s.state)[:size_of(S)])
+	for &e in s.extras {
+		e.hash(e.data, &s.state, &s.hash_buf)
 	}
-	for &pl in sim.state.players {
-		if pl.alive {
-			put_body(sim, &n, pl.body)
-		}
-	}
-	return xxhash.XXH3_64_default(sim.hash_buf[:n])
+	return hash_bytes(s.hash_buf[:])
 }
 
-// --- portable snapshot ----------------------------------------------------------------------------
-// "UNIS", version u16, 0 u16, seed u32, players u32, tick u32, block size u32, physics size u32,
-// payload XXH3 u64, then the block bytes and the b3World_SaveState image. Both parts are fixed-width
-// little-endian data without pointers (Box3D nulls pointer fields and refers to shape geometry by
-// registry index), so the file restores on another OS or CPU.
-
-SNAP_MAGIC :: "UNIS"
-SNAP_VERSION :: 1
-
-// Encodes the ring snapshot of `tick` into a new byte slice.
-snapshot_encode :: proc(sim: ^Sim, tick: u32, allocator := context.allocator) -> []u8 {
-	slot := &sim.ring[tick % RING]
-	assert(slot.valid && slot.tick == tick)
-	block := ([^]u8)(&slot.block)[:size_of(game.State)]
-	phys := b3.WorldState_GetData(slot.phys)[:b3.WorldState_GetSize(slot.phys)]
-	w := wire.writer_make(36 + len(block) + len(phys), allocator)
-	wire.w_bytes(&w, transmute([]u8)string(SNAP_MAGIC))
-	wire.w_u16(&w, SNAP_VERSION)
-	wire.w_u16(&w, 0)
-	wire.w_u32(&w, sim.seed)
-	wire.w_u32(&w, u32(sim.players))
-	wire.w_u32(&w, tick)
-	wire.w_u32(&w, u32(len(block)))
-	wire.w_u32(&w, u32(len(phys)))
-	digest_at := len(w.buf)
-	wire.w_u64(&w, 0)
-	wire.w_bytes(&w, block)
-	wire.w_bytes(&w, phys)
-	d := transmute([8]u8)u64le(xxhash.XXH3_64_default(w.buf[36:]))
-	copy(w.buf[digest_at:], d[:])
-	return w.buf[:]
-}
-
-// Builds a new Sim from a portable snapshot. Returns nil if the bytes are not a valid snapshot.
-from_snapshot :: proc(data: []u8) -> ^Sim {
-	r := wire.reader_make(data)
-	magic := wire.r_bytes(&r, 4)
-	version := wire.r_u16(&r)
-	_ = wire.r_u16(&r)
-	seed := wire.r_u32(&r)
-	players := int(wire.r_u32(&r))
-	tick := wire.r_u32(&r)
-	block_size := int(wire.r_u32(&r))
-	phys_size := int(wire.r_u32(&r))
-	digest := wire.r_u64(&r)
-	block := wire.r_bytes(&r, block_size)
-	phys := wire.r_bytes(&r, phys_size)
-	if !r.ok ||
-	   string(magic) != SNAP_MAGIC ||
-	   version != SNAP_VERSION ||
-	   block_size != size_of(game.State) ||
-	   players > game.MAX_PLAYERS {
-		fmt.eprintln("snapshot: bad header or size")
-		return nil
+// Size in bytes of a full snapshot of the current tick (block + extras' images).
+snapshot_size :: proc(s: ^Sim($S, $I, $W, $P)) -> int {
+	n := size_of(S)
+	for &e in s.extras {
+		n += len(e.image(e.data, int(s.tick % RING)))
 	}
-	if xxhash.XXH3_64_default(data[36:]) != digest {
-		fmt.eprintln("snapshot: payload checksum mismatch")
-		return nil
-	}
-	sim := create(seed, players)
-	intrinsics.mem_copy_non_overlapping(&sim.state, raw_data(block), size_of(game.State))
-	if sim.state.tick != tick {
-		fmt.eprintln("snapshot: block tick does not match the header")
-		destroy(sim)
-		return nil
-	}
-	if !b3.World_RestoreStateFromBytes(sim.phys.world, sim.phys.cache, phys) {
-		fmt.eprintln("snapshot: Box3D rejected the physics image (layout hash or geometry registry mismatch)")
-		destroy(sim)
-		return nil
-	}
-	save(sim)
-	return sim
+	return n
 }
