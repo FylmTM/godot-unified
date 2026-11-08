@@ -27,6 +27,7 @@ const PROJECTILE_SPEED := 16.0
 const PROJECTILE_LIFE := 1.0
 
 const MAX_ENEMIES := 400
+const LINGER := 0.25  # seconds a despawned scene view stays (the native host's LINGER_S)
 const ENEMY_CAPACITY := 512  # per bulk kind; matches the MultiMesh instance_count in arena.tscn
 const PILLAR_RING := 14.0
 const START := [Vector3(2, 0, 2), Vector3(-2, 0, 2), Vector3(2, 0, -2), Vector3(-2, 0, -2)]
@@ -44,6 +45,8 @@ var over_seconds := 6.0
 ## Seconds after hosting until the bot friend joins.
 var bot_join_seconds := 3.0
 ## Parent for spawned views; set by the arena on load, null when leaving (contract extension, see the spec).
+## Microseconds the last _process took (fake sim ticks + view/bulk updates), for measurements.
+var cost_us := 0
 var view_root: Node3D:
 	set = _set_view_root
 
@@ -84,7 +87,7 @@ class Enemy:
 	var xp := 1
 	var cooldown := 0.0
 	var flash := 0.0
-	var age := 0.0
+	var age := DT  # > 0: the bulk shaders read age 0 as "no custom data"
 
 
 class Shot:
@@ -98,7 +101,7 @@ class Shot:
 class Gem:
 	var pos := Vector3.ZERO
 	var xp := 1
-	var age := 0.0
+	var age := DT
 
 
 class Item:
@@ -264,6 +267,16 @@ func debug_grant_levelup() -> void:
 	_check_level(p)
 
 
+## Blows up the barrel nearest to the local player (effects screenshots).
+func debug_explode_nearest_barrel() -> void:
+	var best: Item = null
+	for it in _items:
+		if it.alive and it.kind == &"barrel" and (best == null or it.pos.distance_to(_players[_local_slot].pos) < best.pos.distance_to(_players[_local_slot].pos)):
+			best = it
+	if best != null:
+		_explode(best)
+
+
 func debug_spawn(count: int, radius := 27.0) -> void:
 	for i in count:
 		_spawn_enemy(radius)
@@ -396,6 +409,12 @@ func _xp_next(level: int) -> int:
 
 
 func _process(delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
+	_process_inner(delta)
+	cost_us = Time.get_ticks_usec() - t0
+
+
+func _process_inner(delta: float) -> void:
 	for t in _timers.duplicate():
 		t[0] -= delta
 		if t[0] <= 0.0:
@@ -801,7 +820,8 @@ func _emit(kind: StringName, entity: int, pos: Vector3, value: float) -> void:
 	sim_event.emit(kind, _tick, entity, pos, value)
 	var view: Node3D = _views.get(entity)
 	if view != null and view.has_method(&"_sim_event"):
-		view._sim_event(kind, {"tick": _tick, "position": pos, "value": value})
+		var slot := entity if entity < 4 else -1
+		view._sim_event(kind, {"tick": _tick, "entity": entity, "slot": slot, "position": pos, "value": value, "predicted": false, "cancelled": false})
 
 
 func _make_code() -> String:
@@ -863,16 +883,23 @@ func _spawn_view(kind: StringName, entity: int, slot: int) -> void:
 	_views[entity] = node
 
 
-func _despawn_view(entity: int) -> void:
+## Like the native host: tell the view (`despawned`), keep it LINGER seconds for an exit animation, then free it.
+func _despawn_view(entity: int, linger := true) -> void:
 	var node: Node3D = _views.get(entity)
-	if node != null:
-		_views.erase(entity)
+	if node == null:
+		return
+	_views.erase(entity)
+	if not linger or not node.is_inside_tree():
 		node.queue_free()
+		return
+	if node.has_method(&"_sim_event"):
+		node._sim_event(&"despawned", {})
+	get_tree().create_timer(LINGER).timeout.connect(node.queue_free)
 
 
 func _clear_views() -> void:
 	for entity in _views.keys():
-		_despawn_view(entity)
+		_despawn_view(entity, false)
 
 
 ## Views get the body centre, like the native sim reports it (the fake sim works on the floor plane).

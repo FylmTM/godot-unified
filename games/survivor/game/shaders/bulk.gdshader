@@ -15,7 +15,8 @@ varying float flash;
 
 void vertex() {
 	flash = INSTANCE_CUSTOM.r;
-	if (pop_in) {
+	// Age 0 means "no custom data" (a host that doesn't fill it): full size, no pop-in.
+	if (pop_in && INSTANCE_CUSTOM.g > 0.0) {
 		float s = clamp(INSTANCE_CUSTOM.g * 4.0, 0.0, 1.0);
 		VERTEX *= s * (1.0 + 0.15 * sin(s * 3.14159));
 	}

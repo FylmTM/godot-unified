@@ -2,7 +2,7 @@
 ; simulation/extension into the hidden artifacts folder (git-ignored). Without it the game runs on MockSession.
 [configuration]
 
-entry_symbol = "unified_init"
+entry_symbol = "survivor_init"
 compatibility_minimum = "4.7"
 reloadable = true
 

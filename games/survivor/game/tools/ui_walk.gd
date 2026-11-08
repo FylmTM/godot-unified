@@ -148,6 +148,9 @@ func _run() -> void:
 	await _wait_for(func() -> bool: return _bulk_count(&"projectile") > 0, 3.0, "co-op auto-attack fires")
 	if shots_dir != "":
 		await _wait_seconds(2.0)  # let the fight develop for the picture
+	await _measure_frames("co-op match, %d enemies" % game.hud.enemies_alive)
+	mock.debug_explode_nearest_barrel()
+	await _frames(4)
 	await _shot("07_match_coop")
 	_step("co-op match")
 	game.leave_to_menu()
@@ -209,7 +212,8 @@ func _finish() -> void:
 	print("WALK_JSON " + JSON.stringify({"ok": ok, "ms": ms, "steps": _steps, "failed": _failed, "errors": cap.errors}))
 	OS.remove_logger(cap)
 	for p in root.get_node(^"Sfx").get_children():
-		p.stop()  # a sound still playing at quit shows up as a leaked AudioStreamWAV
+		p.stop()
+	print("music synthesis: %d us last frame" % root.get_node(^"Sfx").music.cost_us)  # a sound still playing at quit shows up as a leaked AudioStreamWAV
 	quit(0 if ok else 1)
 
 
@@ -298,6 +302,26 @@ func _settings_control(panel: Control, label: String) -> Control:
 			return grid.get_child(i + 1)
 	_fail("settings row not found: " + label)
 	return null
+
+
+## Wall time per frame and the mock session's own cost (fake sim + view/bulk writes) over 60 frames.
+func _measure_frames(what: String) -> void:
+	var mock: Node = root.get_node(^"Game").session
+	var frame_total := 0.0
+	var frame_max := 0.0
+	var mock_total := 0.0
+	var t := Time.get_ticks_usec()
+	for i in 60:
+		await process_frame
+		var now := Time.get_ticks_usec()
+		var ms := (now - t) / 1000.0
+		t = now
+		frame_total += ms
+		frame_max = maxf(frame_max, ms)
+		mock_total += mock.cost_us / 1000.0
+	var music_us: int = root.get_node(^"Sfx").music.cost_us
+	print("  perf  %s: frame %.2f ms mean, %.2f ms max; mock session %.2f ms; music %d us (time scale %.0f)" % [
+		what, frame_total / 60.0, frame_max, mock_total / 60.0, music_us, Engine.time_scale])
 
 
 func _player_views() -> int:

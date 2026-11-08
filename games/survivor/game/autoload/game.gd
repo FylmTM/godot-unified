@@ -34,6 +34,7 @@ var _overlay_layer: CanvasLayer
 var _connect_overlay: Control
 var _fps_label: Label
 var _debug_label: Label
+var _frame_ms := 16.7
 
 
 func _ready() -> void:
@@ -71,10 +72,12 @@ func _ready() -> void:
 		play_single.call_deferred()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	hud = session.hud()
+	Sfx.music.set_intensity(1.0 if hud.get("phase", "") == "match" and flow == Flow.PLAYING else 0.0)
+	_frame_ms = lerpf(_frame_ms, delta * 1000.0 / maxf(Engine.time_scale, 0.001), 0.05)
 	if _fps_label.visible:
-		_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+		_fps_label.text = "%d FPS  ·  %.1f ms" % [roundi(1000.0 / maxf(_frame_ms, 0.01)), _frame_ms]
 	if _debug_label != null and _debug_label.visible:
 		_debug_label.text = _debug_text()
 

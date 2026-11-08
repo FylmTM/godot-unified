@@ -6,6 +6,7 @@ const RATE := 22050
 const VOICES := 12
 const MIN_GAP := {&"pop": 0.03, &"gem": 0.04, &"hit": 0.05}
 
+var music: AudioStreamPlayer
 var _streams := {}
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
@@ -24,6 +25,8 @@ func _ready() -> void:
 	_streams[&"over"] = _arpeggio([523.25, 415.3, 329.63, 261.63], 0.14, 0.3)
 	_streams[&"die"] = _tone(0.45, 330.0, 70.0, 0.6, 0.3)
 	_streams[&"respawn"] = _arpeggio([329.63, 493.88, 659.25], 0.06, 0.25)
+	music = preload("res://game/autoload/music.gd").new()
+	add_child(music)
 	for i in VOICES:
 		var p := AudioStreamPlayer.new()
 		p.bus = &"SFX"

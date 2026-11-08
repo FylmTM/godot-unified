@@ -18,6 +18,8 @@ var _last_hp := -1.0
 var _ghost_t := 0.0
 var _bob := 0.0
 var _has_pos := false
+var _leaving := false
+var _exit: Tween
 
 
 func _ready() -> void:
@@ -32,6 +34,9 @@ func _ready() -> void:
 
 
 func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
+	if _leaving:
+		return
+	quaternion = Quaternion.IDENTITY  # the host may set the root's rotation; the body turns by yaw below
 	var dt := get_process_delta_time()
 	if _has_pos and dt > 0.0:
 		_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 20.0))
@@ -53,6 +58,18 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 		if _ghost_t <= 0.0:
 			_ghost_t = GHOST_EVERY
 			_spawn_ghost()
+
+
+func _sim_event(kind: StringName, _data: Dictionary) -> void:
+	if kind == &"despawned":  # died or left: shrink away during the host's linger time
+		_leaving = true
+		_exit = create_tween()
+		_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	elif kind == &"revived" and _leaving:  # a rollback brought it back within the linger time
+		_leaving = false
+		if _exit != null:
+			_exit.kill()
+		scale = Vector3.ONE
 
 
 func _update_hud_state(dt: float) -> void:

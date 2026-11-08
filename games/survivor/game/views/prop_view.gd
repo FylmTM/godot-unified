@@ -1,11 +1,13 @@
 extends GameView
-## Crates and barrels: follow the sim position and yaw; pop in when spawned (barrels respawn after exploding).
+## Crates and barrels: the host sets position and the full physics rotation (they tumble); pop in when spawned
+## (barrels respawn after exploding), shrink away when despawned.
 
 ## Scale up from nothing when spawned (off for static decoration, e.g. the menu backdrop).
 @export var pop_in := true
 
 @onready var _body: Node3D = $Body
 var _age := 0.0
+var _exit: Tween
 
 
 func _ready() -> void:
@@ -23,5 +25,12 @@ func _process(delta: float) -> void:
 		set_process(false)
 
 
-func _sim_update(_pos: Vector3, yaw: float, _alpha: float) -> void:
-	rotation.y = yaw
+func _sim_event(kind: StringName, _data: Dictionary) -> void:
+	if kind == &"despawned":
+		set_process(false)
+		_exit = create_tween()
+		_exit.tween_property(_body, "scale", Vector3.ONE * 0.01, 0.15)
+	elif kind == &"revived":  # a rollback brought it back within the linger time
+		if _exit != null:
+			_exit.kill()
+		_body.scale = Vector3.ONE
