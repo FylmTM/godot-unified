@@ -1,0 +1,64 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/views/prop_view.gd" id="1_view"]
+
+[sub_resource type="StandardMaterial3D" id="red"]
+albedo_color = Color(0.86, 0.22, 0.2, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.45
+rim_enabled = true
+rim = 0.3
+
+[sub_resource type="CylinderMesh" id="drum"]
+material = SubResource("red")
+top_radius = 0.4
+bottom_radius = 0.4
+height = 1.4
+radial_segments = 14
+rings = 1
+
+[sub_resource type="StandardMaterial3D" id="stripe_mat"]
+albedo_color = Color(1.4, 1.05, 0.25, 1)
+shading_mode = 0
+
+[sub_resource type="CylinderMesh" id="stripe"]
+material = SubResource("stripe_mat")
+top_radius = 0.42
+bottom_radius = 0.42
+height = 0.12
+radial_segments = 14
+rings = 1
+
+[sub_resource type="StandardMaterial3D" id="lid_mat"]
+albedo_color = Color(0.3, 0.08, 0.08, 1)
+diffuse_mode = 3
+
+[sub_resource type="CylinderMesh" id="lid"]
+material = SubResource("lid_mat")
+top_radius = 0.3
+bottom_radius = 0.34
+height = 0.08
+radial_segments = 14
+rings = 1
+
+[node name="Barrel" type="Node3D"]
+script = ExtResource("1_view")
+kind = &"barrel"
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="Drum" type="MeshInstance3D" parent="Body"]
+mesh = SubResource("drum")
+
+[node name="StripeTop" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
+mesh = SubResource("stripe")
+
+[node name="StripeBottom" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.35, 0)
+mesh = SubResource("stripe")
+
+[node name="Lid" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.73, 0)
+mesh = SubResource("lid")
