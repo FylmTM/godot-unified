@@ -363,7 +363,10 @@ def offline_checksums(gdir, ticks, seed):
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["build", pkg.as_posix(), "-out:" + exe.as_posix(), COLLECTION] + MODES["release"] + VET,
              "build the headless binary")
-    r = subprocess.run([str(exe), "sim", "--ticks", str(ticks), "--players", "1", "--seed", str(seed)],
+    # --game <name>: the variant the game itself runs (its sim.Game name = the game's directory name); the
+    # headless binary's default may be a test variant (survivor: the `stress` tuning).
+    r = subprocess.run([str(exe), "sim", "--ticks", str(ticks), "--players", "1", "--seed", str(seed),
+                        "--game", gdir.name],
                        capture_output=True, text=True, timeout=120)
     for line in reversed(r.stdout.splitlines()):
         line = line.strip()

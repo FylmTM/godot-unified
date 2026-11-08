@@ -11,6 +11,19 @@ import "../sim"
 run :: proc(h: ^Headless($S, $I, $W, $P)) {
 	platform_init()
 	a := parse_args()
+	if name, has := a.opts["game"]; has {
+		delete_key(&a.opts, "game")
+		found := h.game.name == name
+		for g in h.variants {
+			if !found && g.name == name {
+				h.game = g
+				found = true
+			}
+		}
+		if !found {
+			die("unknown --game %q", name)
+		}
+	}
 	ok := true
 	switch a.mode {
 	case "sim":

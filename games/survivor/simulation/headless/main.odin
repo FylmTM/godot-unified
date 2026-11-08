@@ -8,6 +8,7 @@ import "unified:headless"
 
 HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
 	game = &survivor.GAME_STRESS,
+	variants = {&survivor.GAME}, // --game survivor: the `play` tuning, as the game runs it
 	script = survivor.script,
 	summary = survivor.summary,
 	bench_prepare = survivor.bench_prepare,
