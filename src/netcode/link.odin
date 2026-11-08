@@ -1,23 +1,35 @@
-// Datagram links: the unreliable bottom layer under the channel (channel.odin). A link moves
-// whole datagrams between numbered peers, without blocking. Implementations: an in-process
-// loopback hub and UDP sockets; netsim.odin wraps either one.
+// Datagram links: the unreliable bottom layer under the channel (channel.odin), and the interface
+// a transport implements (loopback and UDP here, EOS P2P in its own package). A link moves whole
+// datagrams of at most MAX_DATAGRAM bytes between peers it numbers itself, without blocking.
+// Reliability, ordering, acks, keepalives and timeouts are the channel's job, the same on every
+// link. netsim.odin wraps any link with simulated latency and loss.
 package netcode
 
 import "core:mem"
 import "core:sync"
 import "core:time"
 
+// A link's own number for a remote endpoint (>= 0). A client-side link talks to one peer, 0.
 Peer :: distinct i32
 
-MAX_DATAGRAM :: 1400
+// Fits EOS P2P packets (1170 bytes) and every common UDP path.
+MAX_DATAGRAM :: 1152
+
+Link_Event_Kind :: enum u8 {
+	Connected,
+	Disconnected, // the transport knows the peer is gone (the channel then drops it at once)
+}
 
 Link :: struct {
 	data:  rawptr,
 	// Queues one datagram to `to`. Losing it is allowed.
 	send:  proc(data: rawptr, to: Peer, bytes: []u8),
 	// Returns the next received datagram (copied into buf), or ok = false when there is none.
+	// A datagram from a new remote endpoint gets a new Peer number.
 	recv:  proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool),
 	close: proc(data: rawptr),
+	// Optional: transport-level connection events (nil: the channel's own timeouts only).
+	event: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
 }
 
 link_send :: proc(l: ^Link, to: Peer, bytes: []u8) {
@@ -34,12 +46,16 @@ link_close :: proc(l: ^Link) {
 	}
 }
 
-now_tick :: proc() -> time.Tick {
-	return time.tick_now()
-}
-
+// Monotonic microseconds: the time base every *_step call takes.
 now_us :: proc() -> i64 {
 	return time.tick_now()._nsec / 1000
+}
+
+// Sleeps until `wake_us` (a now_us value); returns at once if it has passed.
+sleep_until :: proc(wake_us: i64) {
+	if d := wake_us - now_us(); d > 0 {
+		time.sleep(time.Duration(d) * time.Microsecond)
+	}
 }
 
 // --- loopback --------------------------------------------------------------------------------------

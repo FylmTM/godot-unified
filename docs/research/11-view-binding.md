@@ -1,8 +1,8 @@
 # 11: View binding and authoring (sim entities ↔ Godot)
 
 Research for `unified` (2026-11-08). How sim entities get their Godot-side views (scenes, materials, animation, VFX,
-audio, UI), and how entity templates and levels are authored. Sources: OctoEscape's own docs and view scripts,
-`bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end. Claims I couldn't check against a
+audio, UI), and how entity templates and levels are authored. Sources: the view layer of the developer's current Unity
+game, `bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end. Claims I couldn't check against a
 primary source are marked *(unverified)*.
 
 The plan already decided the direction: "`.tscn` scenes per entity kind… GDScript allowed in the view layer…
@@ -13,16 +13,16 @@ the extension runs the sim and maps sim entities to scenes". This doc works out 
 - **The core loop**: a sim component names a view asset; one updater diffs sim entities against live views every
   render frame; views poll predicted/verified frames; events are deduplicated, confirmed or cancelled; interpolation
   and rollback error correction live in the updater, not in game scripts.
-- **Fix three things that hurt in OctoEscape's view layer:** (1) views keyed by entity handle get *hijacked* and churn
-  after a rollback, so key them by a deterministic **spawn key** instead; (2) events are global and every view filters
-  (`ToyView` subscribes to every `ToyPicked`), so **route entity events to that entity's view**; (3) authoring needs a
-  bake step, an asset DB and editor-only tooling (OctoEscape's slowest loops), so make **prototypes code/data-first**
-  and levels files both sides read.
+- **Fix three things that hurt in the current game's view layer:** (1) views keyed by entity handle get *hijacked* and
+  churn after a rollback, so key them by a deterministic **spawn key** instead; (2) events are global and every view
+  filters (a per-entity view subscribes to every event of its kind), so **route entity events to that entity's view**;
+  (3) authoring needs a bake step, an asset DB and editor-only tooling (the slowest loops today), so make **prototypes
+  code/data-first** and levels files both sides read.
 - **Recommendation: option C** (scenes for rich kinds, native MultiMesh for bulk kinds), with B's API as the default
   path, all interpolation, error correction, pooling and event bookkeeping in a host-agnostic Odin `view` package,
   and a thin Godot adapter. Prototypes in Odin code plus data files; levels from glTF/layout files, previewed in Godot.
 
-## 1. Lessons from OctoEscape's view layer
+## 1. Lessons from the current game's view layer
 
 - **Binding.** A sim component names the view asset; clearing it destroys the view, changing it recreates it. One
   updater per render frame diffs entities against live views. Each kind binds on **predicted** frames (projectiles:
@@ -45,26 +45,25 @@ the extension runs the sim and maps sim entities to scenes". This doc works out 
   later **confirmed or cancelled**; synced events fire only from verified frames. Poll for continuous visuals, use
   events for one-offs; late joiners never get past events.
 - **Prototypes and maps.** A prototype is a serialized entity (component set plus initial values), materialized at
-  spawn. In OctoEscape it is authored on a Unity prefab through generated components and indexed into an asset DB;
+  spawn. Today it is authored on a Unity prefab through generated components and indexed into an asset DB;
   level scenes are baked into a map asset (static colliders, navmesh, scene prototypes) on save, play and build. The
   bake isn't deterministic (float → fixed point), so its output must be shared, not recomputed.
 - **Culling.** View culling filters which entities get views; prediction culling skips far entities in predicted
   frames.
 
-### What OctoEscape actually used, and what hurt
+### What the current game actually used, and what hurt
 
-- **All 305** entity views in OctoEscape's prefabs and scenes bind on predicted frames with exponential decay, no
-  manual disposal, no view flags, no pooling. 30 view components; `OctopusView` alone is 1,125 lines (its own body
-  smoothing over sim re-attachments, the procedural rig).
-- Events: `GameAudio`/`GameEffects` subscribe globally; per-entity views (`ToyView`) subscribe to every
-  `ToyPicked`/`ToySlapped` and filter by entity. **No code handles cancelled events**: cancelled puffs just play.
-  Celebrations come from *verified state* that `GameAudio` watches, not events (FEEL §2.4). Time is in ticks
-  (`StartFrame`); the view derives elapsed time.
-- What hurt (OctoEscape decisions 170–172): an asset DB refresh of ~20 s when an asset is added; prototypes' collider
+- **Every** entity view binds on predicted frames with exponential decay: no manual disposal, no view flags, no
+  pooling. The player-character view alone is over 1,000 lines (its own body smoothing over sim re-attachments, the
+  procedural rig).
+- Events: audio and effects subscribe globally; per-entity views subscribe to every event of a kind and filter by
+  entity. **No code handles cancelled events**: cancelled effects just play. Celebrations come from *verified state*
+  that the audio code watches, not events. Time is in ticks; the view derives elapsed time.
+- What hurt: an asset DB refresh of ~20 s when an asset is added; prototypes' collider
   layer filled on prefab save, which builders must replicate; maps rebaked on scene save; a codegen line-ending patch
   inside the SDK; a JSON export of the whole DB versioned just so tests can run without the editor; a loaded map
   asset holding live state (two sessions in one process read freed memory). **Levels were never hand-placed in
-  Unity**: `LevelBuilder` regenerates them from Python/Blender `layout.json` ("hand edits… are lost on a rebuild").
+  Unity**: a level builder regenerates them from Python/Blender layout files ("hand edits… are lost on a rebuild").
   The editor was a bake target, not the authoring tool.
 
 ## 2. Design options for unified + Godot
@@ -73,7 +72,7 @@ Shared by all options (host-agnostic, in Odin): every viewed entity has a hashed
 
 ```odin
 View :: struct {
-	kind:     Kind, // game enum: .Octopus, .Toy, .Dart, ...; .None = no view
+	kind:     Kind, // game enum: .Player, .Toy, .Dart, ...; .None = no view
 	key:      u32,  // deterministic spawn key: map index, or hash(spawn tick, spawner key, per-tick seq)
 	teleport: u8,   // bumped by teleport(); the view snaps when it changes
 }
@@ -157,9 +156,9 @@ gd.RenderingServer_multimesh_set_buffer(rs, mm[kind], buf)
 | | **T1: Godot scenes as source, baked** | **T2: code/data-first** |
 |---|---|---|
 | Prototype | `.tscn` with a `SimPrototype` node and one Resource per component (`ToyComponent.tres`), classes generated from the Odin structs | Odin spawn procs (`spawn_toy(f, at, cfg)`) plus tuning data files the sim loads and hot-reloads |
-| Level | Godot scene with prototype instances and collision shapes; `unified bake` parses the `.tscn` text (no Godot needed) into a level blob | glTF from the Blender/Python pipeline (geometry + node extras: `{"sim": {"kind": "hoop", "channel": 3}}`) or OctoEscape-style `layout.json`; sim reads colliders and markers, Godot imports the same file for visuals |
+| Level | Godot scene with prototype instances and collision shapes; `unified bake` parses the `.tscn` text (no Godot needed) into a level blob | glTF from the Blender/Python pipeline (geometry + node extras: `{"sim": {"kind": "hoop", "channel": 3}}`) or a `layout.json`; sim reads colliders and markers, Godot imports the same file for visuals |
 | Editor preview | native: the prototype scene is also its view | an `EditorScenePostImport` script swaps markers for their kind's view scene, so the level looks right in the editor |
-| Pros | drag, place and tweak in the editor; one file per kind | no bake, no DB, no generated Godot classes; tests and agents never need the editor; one source of truth; matches how OctoEscape levels are made today |
+| Pros | drag, place and tweak in the editor; one file per kind | no bake, no DB, no generated Godot classes; tests and agents never need the editor; one source of truth; matches how the current game's levels are made |
 | Cons | generated per-component classes, a bake step, two schemas to keep in sync: the family of pains listed above | placement happens in Blender/scripts, not in Godot; numbers need hot reload to tweak live |
 
 A middle option (T3): Godot level scenes containing only `SimMarker` nodes (kind + a few exported overrides), parsed
@@ -227,22 +226,18 @@ cancel fades, celebrations from verified state or synced events, loops from stat
    virtuals need it. Accept it, or start with a push-only bridge (Odin sets properties and calls `Object.callp`, no
    GDScript→Odin calls) and register classes later?
 3. **Authoring: T2 (code/data-first, glTF/layout levels), T1 (Godot scenes baked) or T3 (Godot level
-   scenes with markers only)?** I recommend T2, since OctoEscape's levels already come from scripts.
+   scenes with markers only)?** I recommend T2, since the current game's levels already come from scripts.
 4. **Spawn keys**: OK to require every spawn to carry a deterministic key (a few lines per spawn site, enforced by
    the spawn API), in exchange for no hijacking and no view churn?
-5. **Default bind and smoothing**: OctoEscape binds on predicted frames with exponential decay everywhere. Keep
+5. **Default bind and smoothing**: the current game binds on predicted frames with exponential decay everywhere. Keep
    that as the default, with Verified for player characters?
-6. **How much view logic in GDScript vs Odin?** The octopus rig (1,125 + rig lines today) is the test: GDScript for
+6. **How much view logic in GDScript vs Odin?** The character rig (over 1,000 lines today) is the test: GDScript for
    speed of iteration, or Odin for speed and the "one language" rule? (Research 07 suggested writing the rig ourselves,
    host-agnostic.)
 7. **Benchmark before deciding**: 1000 `SimView` scenes with a trivial `_sim_update` vs 1000 bulk instances, to set
    the scene-count budget per frame.
 
 ## Sources
-
-OctoEscape: `docs/ai/architecture.md`, `docs/FEEL.md` §2.4, `docs/ai/decisions.md` 170–172,
-`Assets/Game/Scripts/Toys/ToyView.cs`, `Feedback/GameAudio.cs`, and a count of entity-view settings over every prefab
-and scene.
 
 Godot prior art:
 - netfox: [RollbackSynchronizer](https://foxssake.github.io/netfox/latest/netfox/nodes/rollback-synchronizer/)

@@ -1,9 +1,7 @@
 // Network simulator: wraps a link and impairs both directions (latency, jitter, loss,
 // duplication, reordering) with a seeded RNG. Applied on the client side, so one wrapper shapes
-// the whole client <-> relay path.
+// the whole client <-> relay path. With a Virtual_Clock it runs on test time instead of real time.
 package netcode
-
-import "../game"
 
 Profile :: struct {
 	name:      string,
@@ -37,6 +35,27 @@ Net_Sim :: struct {
 	incoming: [dynamic]Sim_Packet,
 	scratch:  [MAX_DATAGRAM]u8,
 	stats:    Net_Sim_Stats,
+	clock:    ^Virtual_Clock,
+}
+
+// Test time (µs) shared by netsims and the code that steps sessions on a virtual clock.
+Virtual_Clock :: struct {
+	now: i64,
+}
+
+@(private)
+clock_now :: proc(c: ^Virtual_Clock) -> i64 {
+	return c.now if c != nil else now_us()
+}
+
+@(private)
+xorshift32 :: proc(x: ^u32) -> u32 {
+	v := x^
+	v ~= v << 13
+	v ~= v >> 17
+	v ~= v << 5
+	x^ = v
+	return v
 }
 
 Sim_Packet :: struct {
@@ -50,7 +69,7 @@ Net_Sim_Stats :: struct {
 }
 
 // Wraps `inner`; the result owns it. An ideal profile returns `inner` unchanged.
-netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32) -> Link {
+netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Clock = nil) -> Link {
 	if profile.latency == 0 && profile.loss == 0 && profile.duplicate == 0 && profile.reorder == 0 {
 		return inner
 	}
@@ -58,12 +77,19 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32) -> Link {
 	ns.inner = inner
 	ns.profile = profile
 	ns.rng = seed == 0 ? 0x9E3779B9 : seed
-	return {data = ns, send = netsim_send, recv = netsim_recv, close = netsim_close}
+	ns.clock = clock
+	return {
+		data = ns,
+		send = netsim_send,
+		recv = netsim_recv,
+		close = netsim_close,
+		event = inner.event == nil ? nil : netsim_event,
+	}
 }
 
 @(private)
 roll :: proc(ns: ^Net_Sim, per_mille: u32) -> bool {
-	return per_mille > 0 && game.xorshift32(&ns.rng) % 1000 < per_mille
+	return per_mille > 0 && xorshift32(&ns.rng) % 1000 < per_mille
 }
 
 // Queues zero, one or two copies of the datagram with their delivery times.
@@ -79,14 +105,14 @@ impair :: proc(ns: ^Net_Sim, q: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8) {
 		copies = 2
 		ns.stats.duplicated += 1
 	}
-	now := now_us()
+	now := clock_now(ns.clock)
 	for _ in 0 ..< copies {
 		delay := ns.profile.latency
 		if ns.profile.jitter > 0 {
-			delay += i64(game.xorshift32(&ns.rng) % u32(2 * ns.profile.jitter + 1)) - ns.profile.jitter
+			delay += i64(xorshift32(&ns.rng) % u32(2 * ns.profile.jitter + 1)) - ns.profile.jitter
 		}
 		if roll(ns, ns.profile.reorder) {
-			delay += 16_667 * i64(1 + game.xorshift32(&ns.rng) % 3)
+			delay += 16_000 * i64(1 + xorshift32(&ns.rng) % 3)
 			ns.stats.reordered += 1
 		}
 		append(q, Sim_Packet{at = now + max(delay, 0), peer = peer, bytes = clone_bytes(bytes)})
@@ -112,7 +138,7 @@ pop_due :: proc(q: ^[dynamic]Sim_Packet, now: i64) -> (p: Sim_Packet, ok: bool) 
 
 @(private)
 pump :: proc(ns: ^Net_Sim) {
-	now := now_us()
+	now := clock_now(ns.clock)
 	for {
 		p, ok := pop_due(&ns.outgoing, now)
 		if !ok {
@@ -141,9 +167,15 @@ netsim_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
 netsim_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool) {
 	ns := (^Net_Sim)(data)
 	pump(ns)
-	p := pop_due(&ns.incoming, now_us()) or_return
+	p := pop_due(&ns.incoming, clock_now(ns.clock)) or_return
 	defer delete(p.bytes)
 	return copy(buf, p.bytes), p.peer, true
+}
+
+@(private)
+netsim_event :: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool) {
+	ns := (^Net_Sim)(data)
+	return ns.inner.event(ns.inner.data)
 }
 
 @(private)
@@ -159,10 +191,4 @@ netsim_close :: proc(data: rawptr) {
 	delete(ns.incoming)
 	link_close(&ns.inner)
 	free(ns)
-}
-
-clone_bytes :: proc(b: []u8, allocator := context.allocator) -> []u8 {
-	c := make([]u8, len(b), allocator)
-	copy(c, b)
-	return c
 }

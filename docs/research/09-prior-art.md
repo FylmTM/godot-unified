@@ -1,19 +1,18 @@
 # 09: Prior art
 
 Projects, talks and write-ups that docs 01–08 didn't cover, and what they teach us (2026-11-07). Topics
-those docs already handle (GGRS, relay defaults, Box3D/Jolt determinism, Bevy Remote Protocol, Godot MCP
+those docs already handle (GGRS, relay defaults, Box3D determinism, Bevy Remote Protocol, Godot MCP
 bridges, Factorio's CRC, AoE/StarCraft lockstep, Overwatch/For Honor) are only cross-referenced here. Claims I
 couldn't check against a primary source are marked *(unverified)*. Where I read source code, I say so.
 
 ## TL;DR: the 10 most actionable insights
 
-1. **Every shipped 3D rigid-body game with rollback heals with authoritative state rather than trusting
-   determinism alone.** Rocket League, Roblox Server Authority (2026), Unreal Chaos resimulation, SnapNet (Rivals 2),
-   PurrNet and Teardown all correct clients from server state. The exceptions pay with fixed-point physics
-   written in-house. → **For unified:** keep input-only determinism as the model, but give the
-   relay a *heal* path: on a checksum mismatch, the host sends the zstd state block (the late-join payload we already
-   plan) and the client re-bases. A cross-architecture float bug then costs a hitch, not a dead session. PurrNet ships
-   exactly this as `DesyncPolicy.Resync`.
+1. **Every shipped 3D rigid-body game with rollback heals with authoritative state rather than trusting determinism
+   alone.** Rocket League, Roblox Server Authority (2026), Unreal Chaos resimulation, SnapNet (Rivals 2), PurrNet and
+   Teardown all correct clients from server state. → **For unified:** keep input-only determinism as the model, but give
+   the relay a *heal* path: on a checksum mismatch, the host sends the zstd state block (the late-join payload we
+   already plan) and the client re-bases. A cross-architecture float bug then costs a hitch, not a dead session. PurrNet
+   ships exactly this as `DesyncPolicy.Resync`.
 2. **PurrNet gets C# determinism by not using hardware floats at all.** Its `sfloat` is a soft float that keeps the
    IEEE binary32 bit layout but does every operation in integer code. Its `FP` is Q32.32 fixed point. Both are
    vendored MIT code (§1). → The C# family's open question (RyuJIT x64 vs ARM64) has a known fallback, at a CPU cost.
@@ -121,8 +120,7 @@ hash should be 64-bit.
   and flycast's arm64 dynarec desyncs from x86_64 ([issue](https://github.com/inada-s/flycast/issues/370)). Both are
   native or emulator cases, not .NET. It stays a measure-it item.
 - **Fixed-point libraries:** [FixedMath.Net](https://github.com/asik/FixedMath.Net) (Q31.32, old), [FixedMathSharp](https://www.nuget.org/packages/FixedMathSharp/7.0.0)
-  (Q32.32, active on NuGet), FixPointCS (inside PurrDiction), and commercial Q48.16 (01). Q32.32 is the common
-  choice when you need range.
+  (Q32.32, active on NuGet) and FixPointCS (inside PurrDiction). Q32.32 is the common choice when you need range.
 - **Netick** (free, server-authoritative state sync) runs several "sandboxes", servers and clients, in one Unity
   process ([docs](https://netick.gitbook.io/v1/core-concepts)). A commercial state-sync SDK has the same in
   a multi-peer mode. Neither requires determinism.
@@ -131,7 +129,6 @@ hash should be 64-bit.
   covered by input delay (3 frames), then up to 100 ms by prediction (6 frames)
   ([rollback post](https://www.snapnet.dev/blog/netcode-architectures-part-2-rollback/)). That's close to our
   proposal of 1+ ticks of delay and a 10-frame cap.
-- **BEPUphysics v2**: fixed-point only via the v1 fork (01); nothing new found.
 
 ## 2. Rollback and prediction frameworks
 
@@ -250,11 +247,10 @@ hash should be 64-bit.
 | **Unreal Chaos** | Chaos | Resim / predictive interpolation | Resimulate only past a divergence threshold |
 | **PurrNet** | PhysX | Save/restore rigidbody state, re-step, correct | Dedupe physics events across resims; only verified-tick events go to gameplay |
 | **Box2D v3** ([determinism post](https://box2d.org/posts/2024/08/determinism/)) | Box2D | n/a | "There is no mechanism for rolling back this internal state". Its suggestion: don't predict what players won't notice (a falling building). Cross-platform CI canary: the step at which all bodies sleep, plus a transform hash |
-| **Jolt** ([docs](https://jrouwe.github.io/JoltPhysics/)) | Jolt | n/a | `CROSS_PLATFORM_DETERMINISTIC` costs about 8%. The Samples app's "Check Determinism" rewinds and re-runs every step (a built-in sync-test). `SaveState` breaks if bodies were added or removed in the window, so reuse IDs (`CreateBodyWithID`) |
 | **Kimbatt deterministic Unity Physics** | DOTS Physics on soft floats | n/a | A whole float physics engine *can* be mechanically ported to soft float. No perf numbers, 4 commits |
 
 **The pattern:** nobody we found ships input-only, cross-architecture-deterministic, float rigid-body physics inside
-rollback. Fixed-point engines do it with integers; Box3D and Jolt claim it in CI. That keeps physics determinism the
+rollback. Box3D claims cross-architecture determinism in CI, not inside rollback. That keeps physics determinism the
 project's biggest risk, and it's why TL;DR #1 (heal by state) is the insurance.
 
 ## 5. AI-agent-first game development
@@ -275,7 +271,7 @@ project's biggest risk, and it's why TL;DR #1 (heal by state) is the insurance.
   control protocol with structured state and use screenshots only to verify visuals.
 - **GBQA** ([paper](https://arxiv.org/abs/2604.02648)): 30 games, 124 seeded bugs. The best model (Claude 4.6 Opus,
   thinking) found 48%. **playtest-agent** ([repo](https://github.com/kevinnie2003/playtest-agent)) scores bug hunting
-  by precision/recall against switchable seeded bugs. Take: seed bugs into the OctoEscape slice to measure our agent
+  by precision/recall against switchable seeded bugs. Take: seed bugs into the first game's slice to measure our agent
   harness the same way.
 - **forge** ([repo mirror](https://gh.r-mj.com/Ijtihed/forge); Rust/Bevy, 2 stars). "An engine where the LLM is the
   user." GUI/MCP parity (every editor click is the same JSON command), errors shaped as `{category, message, expected,
@@ -302,7 +298,7 @@ project's biggest risk, and it's why TL;DR #1 (heal by state) is the insurance.
 8. **Reverse step** in the agent API: restore the nearest snapshot and resim to T−1 (Tomorrow Corp).
 9. **An op log** (object, field, old, new) for editor and agent edits, separate from sim state (The Machinery).
 10. **A physics CI canary** à la Box2D (the step at which everything sleeps, plus a transform hash) next to the
-    per-tick trace. **Jolt-style "check determinism"** (save, step, restore, step, compare) inside the physics seam.
+    per-tick trace. A **"check determinism" mode** (save, step, restore, step, compare) inside the physics seam.
 11. **Physics events deduped by (tick, contact key)**, with gameplay consequences only from verified ticks (PurrNet,
     synced events).
 12. **Agent harness rules:** turn caps, identical-call loop detection, a script endpoint with asserts, pass only on
@@ -320,7 +316,7 @@ project's biggest risk, and it's why TL;DR #1 (heal by state) is the insurance.
 - **Globals and singletons** blocking multi-instance testing (Teardown abandoned it; a commercial SDK warns).
 - **Soft float that isn't correctly rounded**: deterministic but incompatible with hardware floats, so one stray
   `float` desyncs. Fast trig approximations like Bhaskara (about 0.0016 error) leak into gameplay feel.
-- **Physics restore that ignores structural changes** (Jolt `RestoreState`, Box2D internal state). Bodies created or
+- **Physics restore that ignores structural changes** (Box2D's internal state, for example). Bodies created or
   destroyed inside the window need ID reuse or a world rebuild.
 - **Firing gameplay effects from predicted physics callbacks** (PurrNet's multi-fire bug).
 - **Late join that replays history.** It grows without bound, so Teardown caps it and disables JIP. A state transfer

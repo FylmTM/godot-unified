@@ -47,5 +47,7 @@ when ODIN_OS == .Darwin {
 		}
 	}
 } else {
+	_ :: c
+	_ :: fmt
 	set_thread_class :: proc(k: Thread_Class, tick_hz: int) {}
 }

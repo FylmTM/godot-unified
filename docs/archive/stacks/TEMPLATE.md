@@ -18,7 +18,7 @@ where they apply, but don't inherit its conclusions.
    compiling C libs, caching), linker, and caching across worktrees.
 3. **C/C++ interop and bindings**: per library in the list below, how you'd use it from this language (an official
    binding, a community binding with its maintenance state, generated, hand-written), and the effort. Note C++-only
-   libraries (Jolt, Godot) and how they're reached (a C wrapper, the GDExtension C API).
+   libraries (Godot, Dear ImGui) and how they're reached (a C wrapper, the GDExtension C API).
 4. **Determinism and memory model**: float control (FMA contraction, fast-math, libm), how naturally an arena with
    one pointer-free block and memcpy snapshots fits, allocators, zero-init, preventing pointers/heap data in sim
    state, and how the language's safety (or lack of it) affects agent-written bugs (use-after-free, races, UB).
@@ -37,10 +37,9 @@ where they apply, but don't inherit its conclusions.
 
 ## Libraries to cover in section 3
 
-Physics: Box3D (C), Jolt (C++, via JoltC/joltc), Rapier (Rust; via its C bindings if not Rust). Host/renderer:
-libgodot / GDExtension C API, Bevy (Rust only), sokol, SDL3 (GPU API), wgpu-native, raylib, bgfx, Filament, The
-Forge. UI: Dear ImGui (cimgui), Clay, egui (Rust only), RmlUi, NoesisGUI, PanGui (if any API is public). Audio:
-miniaudio, FMOD, Kira (Rust only), SoLoud, Steam Audio. Net: Steamworks (flat C API), EOS C SDK,
+Physics: Box3D (C). Host/renderer: libgodot / GDExtension C API, Bevy (Rust only), sokol, SDL3 (GPU API), wgpu-native,
+raylib, bgfx, Filament, The Forge. UI: Dear ImGui (cimgui), Clay, egui (Rust only), RmlUi, NoesisGUI, PanGui (if any API
+is public). Audio: miniaudio, FMOD, Kira (Rust only), SoLoud, Steam Audio. Net: Steamworks (flat C API), EOS C SDK,
 GameNetworkingSockets, ENet, a QUIC library (msquic / quiche / quinn). Misc: cgltf / gltf, zstd, xxHash, Tracy.
 
 ## Scorecard rubric (1–5; 5 = best for unified)

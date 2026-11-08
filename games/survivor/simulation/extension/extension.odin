@@ -17,7 +17,11 @@ import "../survivor"
 S :: survivor.State
 
 @(export, link_name = "survivor_init")
-survivor_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+survivor_init :: proc "c" (
+	gpa: gdi.InterfaceGetProcAddress,
+	lib: gdi.ClassLibraryPtr,
+	init: ^gdi.Initialization,
+) -> gdi.Bool {
 	context = runtime.default_context()
 	gh.install(&survivor.GAME, GLUE)
 	return gh.entry(gpa, lib, init)
@@ -162,11 +166,11 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 // ---- HUD (contract v0): extracted on the session thread, turned into a Dictionary on the main thread
 
 Hud_Player :: struct {
-	present, alive:   bool,
-	hp, hp_max:       i32,
-	xp, xp_next:      i32,
-	level, pending:   i32,
-	respawn_s:        f32,
+	present, alive: bool,
+	hp, hp_max:     i32,
+	xp, xp_next:    i32,
+	level, pending: i32,
+	respawn_s:      f32,
 }
 
 Hud :: struct {
@@ -229,4 +233,3 @@ hud :: proc(f: ^gh.Frame, names: []string, d: ^gd.Dictionary) {
 	}
 	gd.dict_set_move(d, "players", &players)
 }
-

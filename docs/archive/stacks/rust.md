@@ -15,7 +15,7 @@ Two host variants, one shared core. The core is the same in both, and that rule 
 | Toolchain | Rust **1.99.1** stable (released 2026-10-15, [blog](https://blog.rust-lang.org/releases/)), edition 2024, pinned with `rust-toolchain.toml` | Nightly only for build-speed experiments (Cranelift, `-Zthreads`) |
 | Sim state | Own store: one `#[repr(C)]` block of `bytemuck::Pod` tables, generational handles, fixed-capacity collections (doc 02, about 2–4k lines) | `bytemuck` 1.25 |
 | Math | `glam` 0.34 with `scalar-math` + `libm` 0.2 | Same config Rapier/Parry test for determinism |
-| Physics | **Rapier 0.36.1** (`enhanced-determinism`), Box3D via `boxddd` 0.4 or Jolt via `oxijolt` 1.5 as alternates | Doc 01 |
+| Physics | **Rapier 0.36.1** (`enhanced-determinism`) or Box3D via `boxddd` 0.4 | |
 | Host A | **Bevy 0.20.1**, pinned, `default-features = false` with only the plugins we use, `bevy/dynamic_linking` in dev | The feature-rich option |
 | Host B | **wgpu 30 + winit 0.30 + our thin forward renderer**, or **Godot 4.7 via gdext `godot` 0.5.5** (Godot hosts, Rust is a GDExtension) | sokol via `floooh/sokol-rust` and SDL3 GPU via `sdl3` 0.22 are thinner still |
 | Game UI | A: `bevy_ui` + BSN (+ `bevy_flair`). B (wgpu): egui skinned, or Clay/Taffy + own SDF quads. B (Godot): Control nodes | Doc 06 |
@@ -27,7 +27,7 @@ Two host variants, one shared core. The core is the same in both, and that rule 
 | Build | Cargo workspace; `cargo nextest`; ld-prime on macOS, rust-lld on Windows/Linux; `opt-level=1` ours / `3` deps; per-worktree `target/` seeded from a warm clone; sccache for C/C++ and dependency rlibs | Section 2 |
 
 **My pick for unified, if Rust wins:** Host A (Bevy, pinned and trimmed), because it is the only Rust host that
-covers the OctoEscape look without writing a renderer. Host B (wgpu) is the build-speed choice but violates "rendering
+covers the target look without writing a renderer. Host B (wgpu) is the build-speed choice but violates "rendering
 is never written from scratch" for shadows, SSAO, probes and post. Godot via gdext is the look-per-effort choice but
 re-creates a bridge (two object models, Godot owns the process). Scores below use Bevy unless noted.
 
@@ -67,10 +67,10 @@ The rubric's 5 means **under 30 s clean**. **No realistic Rust game stack gets t
 ### How C/C++ dependencies build
 
 Each `-sys` crate compiles its C/C++ in `build.rs` with the `cc` or `cmake` crate into that worktree's `target/`.
-Rapier, egui, Kira and quinn have no C, but Jolt (`oxijolt`, via joltc), Box3D (`boxddd-sys`, vendored C via `cc`),
+Rapier, egui, Kira and quinn have no C, but Box3D (`boxddd-sys`, vendored C via `cc`),
 zstd, GameNetworkingSockets (protobuf + OpenSSL) and Steam Audio do. `bindgen` needs libclang at build time unless
 the crate ships pregenerated bindings; most good `-sys` crates now do (`eos-sys`, `boxddd-sys`). Two costs follow:
-C++ like Jolt adds tens of seconds per clean worktree **[estimate]**, and **every C dependency must get
+C++ adds tens of seconds per clean worktree **[estimate]**, and **every C dependency must get
 `-ffp-contract=off` through `CFLAGS` or a patched build script**, because Clang contracts to FMA by default on ARM64
 (doc 01). Compare Zig, where `build.zig` compiles C with `zig cc` into one global cache shared by every checkout.
 
@@ -126,7 +126,6 @@ reverse), `cc`/`cmake` in `build.rs`, and `cxx`/`autocxx` for C++. The friction 
 | Library | Rust route (version, date) | Effort |
 |---|---|---|
 | **Box3D** (C) | `boxddd` 0.4.0 (2026-08, vendored C via `cc`, pregenerated bindings, "experimental"); `box3d` 0.3.1 (another author); `box3d-rust` pure port claims bit-exact | Low to write raw; young wrappers track an alpha engine |
-| **Jolt** (C++) | `oxijolt` 1.5.0+jolt-5.6.0 (2026-11-01) over amerkoleci/joltc, safe API incl. characters; young, one author. `rolt`/`joltc-sys` stale (Jolt 5.0, 2024) | Medium; C++ build per worktree |
 | **Rapier** | Native | None |
 | **libgodot / GDExtension** | GDExtension: `godot` 0.5.5 (2026-08), mature, generated from Godot's class DB, MPL-2.0; v0.5 broke the API in early 2026. **LibGodot (Rust hosts Godot): not supported**, gdext [#1488](https://github.com/godot-rust/gdext/issues/1488) open, "help wanted"; third-party `libgodot` 0.1.0 (2026-10-23, 13 downloads) | GDExtension low; LibGodot high (write it) |
 | **Bevy** | Native | None |
@@ -157,7 +156,7 @@ reverse), `cc`/`cmake` in `build.rs`, and `cxx`/`autocxx` for C++. The friction 
 
 **Verdict.** For *this* list Rust is better off than the brief feared: most libraries have a current crate, and the
 three biggest (physics, renderer, QUIC) are native. The real friction is concentrated in **EOS** (write it),
-**LibGodot** (write it), **FMOD** (pick among three half-maintained crates), and **young Jolt/Box3D wrappers**. In
+**LibGodot** (write it), **FMOD** (pick among three half-maintained crates), and **young Box3D wrappers**. In
 Odin or Zig each of those is "import the header and call it", and a Steam/EOS-style callback API is *less* code
 without Rust's ownership rules. In Rust it's a raw `-sys` layer plus a wrapper that holds `unsafe` invariants.
 
@@ -178,7 +177,7 @@ without Rust's ownership rules. In Rust it's a raw `-sys` layer plus a wrapper t
 - **Borrow-checker friction.** Systems that mutate several tables of one `&mut State` need split borrows, index-based
   access or a small "query" helper. It's solvable (doc 02), but it's where agents spend compile cycles.
 - **Physics.** Rapier's snapshot is `serde` (bincode), not a memcpy, so it lives beside the block through a
-  `SnapshotPart` trait. Its cost is unmeasured (doc 01).
+  `SnapshotPart` trait. Its cost is unmeasured.
 - **Agent bugs.** Safe Rust removes use-after-free, double free, data races, and uninitialized reads, and debug builds
   trap integer overflow and out-of-bounds indexing. Remaining risks: `unsafe` at FFI seams (Steam/EOS callbacks,
   `Pod` casts), logic bugs, `HashMap` iteration order (clippy ban), and panics.
@@ -204,7 +203,7 @@ hash (snapshots, protocol), serialization (replays, tuning write-back to RON/TOM
 
 | Subsystem | What exists | What we'd write |
 |---|---|---|
-| Physics | Rapier native with cross-platform determinism and a whole-world snapshot (CI on Linux x86/ARM + wasm, not macOS/Windows); Avian (Bevy-bound); Box3D and Jolt via young bindings | The `SnapshotPart` seam, sorting query results |
+| Physics | Rapier native; Box3D via young bindings | The `SnapshotPart` seam, sorting query results |
 | Rendering | Bevy (strong, churny); wgpu (excellent, low-level); Godot via gdext; SDL3 GPU, sokol, raylib | Toon material, probe baker (doc 03) on Bevy; *everything* on wgpu |
 | Game UI | `bevy_ui` + BSN + `bevy_flair`; Noesis (third-party, paid); Blitz (watch) | Juice kit; on wgpu, a UI layer |
 | Dev UI | **egui** (best-in-class immediate-mode tools, `egui_plot`, docking) | Inspector over our registry |
@@ -252,7 +251,7 @@ hash (snapshots, protocol), serialization (replays, tuning write-back to RON/TOM
 - `aarch64-apple-darwin`, `x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu` are all Tier 1. The Deck is Linux
   x86-64. wgpu maps to Metal, DX12/Vulkan and Vulkan.
 - Cross-compiling pure Rust is easy (`cargo-zigbuild`, `cargo-xwin`), but `-sys` crates with C++ and CMake
-  (Jolt, GNS) make cross builds painful, so CI builds natively per OS.
+  (GNS) make cross builds painful, so CI builds natively per OS.
 - Consoles: Rust runs on them under NDA toolchains (studios have done it) **[unverified details]**. Bevy and wgpu
   have no official console backends. Godot has third-party console ports, which favours the gdext variant.
 
@@ -261,7 +260,7 @@ hash (snapshots, protocol), serialization (replays, tuning write-back to RON/TOM
 **Easy in Rust:**
 - The Pod state block, enforced by the compiler (no pointers, no padding).
 - Safe agent-written gameplay and no memory corruption hunts.
-- Rapier with cross-platform determinism and full snapshots, native.
+- Native physics (Rapier).
 - egui dev tools.
 - quinn, Kira, Steam.
 - One language from sim to renderer (Bevy), and the best package manager and test tooling.
@@ -279,7 +278,7 @@ hash (snapshots, protocol), serialization (replays, tuning write-back to RON/TOM
 **Work we own that others get free:**
 - Vs Zig: a global C build cache and trivial C imports.
 - Vs Odin: built-in RTTI, and `vendor:` packages (raylib, SDL3, Box2D, miniaudio, cgltf) without wrapper crates.
-- Vs C++: direct Jolt, Godot and Filament.
+- Vs C++: direct Godot and Filament.
 
 **Work others own that Rust gets free:**
 - Rapier, Bevy, egui, Kira, quinn, wgpu.
@@ -311,7 +310,7 @@ Scores are for Bevy (host A) unless a row notes that host B is better.
 | Safety vs agent bugs | **5** | Safe Rust rules out UAF, races and uninitialized memory; debug overflow and bounds traps; `unsafe` confined to FFI seams |
 | Reflection / metaprogramming | **3** | Derive macros work and agents know them, but there's no built-in RTTI or comptime, and proc macros cost uncached build time |
 | Rendering host options | **4** | Bevy is a real renderer (no GI baker), wgpu, Godot via mature gdext; no LibGodot, Filament or Forge bindings; Bevy churn |
-| Physics options | **4** | Rapier native with cross-platform determinism and full snapshots (macOS/Windows not in its CI); Jolt and Box3D via young bindings |
+| Physics options | **4** | Rapier native; Box3D via young bindings |
 | Netcode / transports | **4** | quinn native, `steamworks` current, GNS crate; EOS bindings effectively absent |
 | UI options | **4** | egui is the best dev-UI option anywhere; game UI on bevy_ui is workable but churny; no RmlUi; Noesis third-party |
 | Language stability | **5** | 1.0 since 2015 with editions and a compatibility promise (Bevy itself would score 2) |

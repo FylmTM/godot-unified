@@ -11,7 +11,7 @@ All dates are 2026-11-07/08 and all measurements are on an Apple M4 Pro.
 | `PHASE2-comparison.md` | Phase 2: the same deterministic core + rollback netcode in C++, Odin, Rust. All pass T1–T9 on macOS, Linux x64, Windows x64. Odin fastest (0.62 ms rollback at 1000 enemies) and smallest (3.9k lines); builds 0.4 s. |
 | `stacks/COMPARISON.md` | Even rubric comparison of Rust, Odin, Zig, C++, C#. Language-neutral; led to the benchmarks below. |
 | `stacks/{cpp,csharp,rust,zig,odin}.md`, `TEMPLATE.md` | One research doc per language on the same rubric (ecosystem, determinism, bindings, tooling, agent fit); `TEMPLATE.md` is the rubric. |
-| `research/00-synthesis.md` | Original all-Rust stack proposal (Bevy, Rapier, egui). Superseded; language-neutral findings live in `docs/research/`. |
+| `research/00-synthesis.md` | Original all-Rust stack proposal (Bevy, egui). Superseded; language-neutral findings live in `docs/research/`. |
 | `research/03-host-renderer.md` | Host and renderer comparison (Bevy, Godot, others). Godot chosen. |
 | `research/04-language-iteration.md` | Languages, compile times, hot reload. Odin chosen. |
 | `research/06-ui.md` | UI options (assumed Bevy: egui, bevy_ui, ...). Superseded by Godot UI. |

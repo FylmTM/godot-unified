@@ -5,13 +5,12 @@ Claims marked **(unverified)** were not confirmed from a primary source during t
 
 ## TL;DR and recommendations
 
-- **The testbed needs little from an animation system.** Everything that moves in OctoEscape today is procedural:
-  `OctopusRig` (Verlet + FABRIK), `CrabView` (code-driven leg lift and claw clack), `OctosView` and the collectibles.
-  A grep of `Assets/Game/Scripts` finds no Animator controllers in use (one `Animator` reference, in `PingMarker`).
-  So the core need is **"write bone transforms from code every frame"**, plus glTF skinning and morph targets. Clip
-  blending is a later, smaller need. Both hosts cover it. **Write the rig yourself** (port `OctopusRig` as a
+- **The testbed needs little from an animation system.** Everything that moves in the current game is procedural: the
+  main character's rig (Verlet + FABRIK), code-driven creature walks and the collectibles. No Animator controllers are
+  in use. So the core need is **"write bone transforms from code every frame"**, plus glTF skinning and morph targets.
+  Clip blending is a later, smaller need. Both hosts cover it. **Write the rig yourself** (port the rig as a
   host-agnostic Rust crate); don't depend on any engine's IK.
-- **Keep gameplay timing in the sim, in ticks.** The game already does this (`SlapHitTime`, `SlapArea` arcs): "the
+- **Keep gameplay timing in the sim, in ticks.** The game already does this (hit times and hit arcs are sim data): "the
   simulation decides, the rig sells it". Avoid root motion and animation-driven hitboxes. If they are ever needed,
   bake them: pull data out of the clips into sim assets and sample them by tick.
 - **Audio**: no middleware. On **Bevy**, use **bevy_seedling (Firewheel)**, with **bevy_kira_audio** as the
@@ -23,23 +22,21 @@ Claims marked **(unverified)** were not confirmed from a primary source during t
   events. Loops come from state, not events. This works with any audio library that has voice handles,
   stop-with-fade and a start offset.
 - **VFX**: on **Godot**, `GPUParticles3D` + `ParticleProcessMaterial` + flipbooks + shader materials. On **Bevy**,
-  `bevy_hanabi` works but is "under heavy development". FEEL.md caps a frequent hit at about 20–30 particles, so a
-  small in-house CPU particle and mesh-effect layer (instanced, defined in code or text) is a credible alternative
-  and the most agent-friendly. Cartoon looks come mostly from **shaders on simple meshes** (erosion, scrolling
-  noise, toon ramps) and flipbooks, not from particle counts.
+  `bevy_hanabi` works but is "under heavy development". The game's feel rules cap a frequent hit at about 20–30
+  particles, so a small in-house CPU particle and mesh-effect layer (instanced, defined in code or text) is a credible
+  alternative and the most agent-friendly. Cartoon looks come mostly from **shaders on simple meshes** (erosion,
+  scrolling noise, toon ramps) and flipbooks, not from particle counts.
 
 ## What the game actually needs
 
-From `docs/ai/architecture.md` (View) and `docs/FEEL.md` in OctoEscape:
-
 | Area | Need | Engine feature it maps to |
 |---|---|---|
-| Octopus | 8 arms, Verlet chains pulled to goal shapes, FABRIK reach, world collision, written to the skinned model's bones; squash/stretch on springs | skinning + per-frame joint writes + view-side raycasts |
-| Crabs, Octos, collectibles | procedural walk cycles, claw clacks, faces, idles | same; maybe blendshapes for faces |
+| Main character | 8 arms, Verlet chains pulled to goal shapes, FABRIK reach, world collision, written to the skinned model's bones; squash/stretch on springs | skinning + per-frame joint writes + view-side raycasts |
+| Other creatures, collectibles | procedural walk cycles, claw clacks, faces, idles | same; maybe blendshapes for faces |
 | Future clip characters | Blender glTF clips, cross-fades, an upper-body layer (mask), additive hit reactions, clip events for footsteps | clip player + blend tree + masks + additive + events |
-| Juice | damped springs, easing, hit-stop per view (FEEL §4.2, §5), no camera shake | plain code; tweens nice to have |
-| Sound | 3–6 random takes, ±1–2 semitone pitch, 3D linear rolloff 4–40 m, non-spatial "news", voice cap 3–4 per clip, 50 ms merge, priorities, voice ducking 4–6 dB, music under voice, synthesized gap-fillers (`SfxBuilder`) | buses, sends/sidechain or bus tweens, voice pools with stealing, random containers, streaming |
-| Voice | Octos lines with subtitles, a synthesized warble fallback | streaming playback + a procedural generator node |
+| Juice | damped springs, easing, hit-stop per view, no camera shake | plain code; tweens nice to have |
+| Sound | 3–6 random takes, ±1–2 semitone pitch, 3D linear rolloff 4–40 m, non-spatial "news", voice cap 3–4 per clip, 50 ms merge, priorities, voice ducking 4–6 dB, music under voice, synthesized gap-fillers | buses, sends/sidechain or bus tweens, voice pools with stealing, random containers, streaming |
+| Voice | Character lines with subtitles, a synthesized warble fallback | streaming playback + a procedural generator node |
 | VFX | puffs, sparks, stars, dust rings along surface normals, trails, dizzy ring billboards; short (0.2–2 s); ≤ 20–30 particles per frequent hit; strict colour language; no glow but the flash | small particle bursts, flipbooks, mesh effects, billboards |
 
 Root motion, ragdolls, retargeting and motion matching are not needed.
@@ -61,7 +58,7 @@ Root motion, ragdolls, retargeting and motion matching are not needed.
 - **IK**: none built in. The crates are stale: `bevy_mod_inverse_kinematics` targets Bevy 0.16
   ([docs.rs](https://docs.rs/crate/bevy_mod_inverse_kinematics/latest)), `bevy_fabrik` targets 0.15
   ([docs.rs](https://docs.rs/bevy_fabrik)), and `bevy_ik` is abandoned ([GitHub](https://github.com/gschup/bevy_ik)).
-  This doesn't matter, because the octopus needs a custom solver anyway. glTF joints are ordinary entities with
+  This doesn't matter, because the character rig needs a custom solver anyway. glTF joints are ordinary entities with
   `Transform`s, so a rig system writes them directly after animation runs. That fits the "plain functions over
   typed queries" style well.
 
@@ -75,7 +72,7 @@ Root motion, ragdolls, retargeting and motion matching are not needed.
   `SpringBoneSimulator3D` and `BoneConstraint3D`. 4.6 brought IK back: `TwoBoneIK3D`, `SplineIK3D`, `FABRIK3D`,
   `CCDIK3D`, `JacobianIK3D` and `LimitAngularVelocityModifier3D`, with 19 new modifiers across 4.4–4.6 ([Godot,
   Dec 2025](https://godotengine.org/article/inverse-kinematics-returns-to-godot-4-6/)). `SpringBoneSimulator3D` would
-  give crab antennae and Octos' dangly bits for free. The octopus would be a custom modifier, or bone poses written
+  give secondary motion for free. The character rig would be a custom modifier, or bone poses written
   from the GDExtension side. 4.7 added animation editor polish and `Tween.tween_await()`
   ([4.7 release page](https://godotengine.org/releases/4.7/)).
 - Godot's toolset here is clearly richer. The question is whether `unified` uses it: if the sim is Rust and Godot is
@@ -88,7 +85,7 @@ Root motion, ragdolls, retargeting and motion matching are not needed.
   rewrite of the runtime aimed at cross-platform determinism for lockstep games
   ([lib.rs](https://lib.rs/crates/ozz-animation-rs)). It needs nightly Rust, and its licence and maintenance were
   not checked **(unverified)**. It is the obvious pick if sim-side clip sampling is ever needed.
-- **The rig itself**: OctoEscape's rig is a few hundred lines of math (Verlet, FABRIK, springs). As a host-free crate
+- **The rig itself**: the current rig is a few hundred lines of math (Verlet, FABRIK, springs). As a host-free crate
   (`glam` in, joint transforms out, with a raycast callback for world collision) it works under either host and in
   headless screenshot tests. **This is the most valuable animation work item.**
 
@@ -131,7 +128,7 @@ underwater), Doppler, emission cones and panning strength ([4.7 docs](https://do
 `AudioStreamRandomizer` covers takes and pitch. `AudioStreamInteractive` gives music clips with beat- and bar-synced
 transitions ([docs](https://docs.godotengine.org/en/stable/classes/class_audiostreaminteractive.html)). 4.7 revamped
 the bus UI ([4.7 RC notes](https://godotengine.org/article/release-candidate-godot-4-7-rc-3/)). This covers every
-FEEL.md §6 rule except the 50 ms merge and priority stealing, which are small code.
+feel rule except the 50 ms merge and priority stealing, which are small code.
 
 ### Middleware and spatial libraries
 
@@ -172,8 +169,8 @@ FEEL.md §6 rule except the 50 ms merge and priority stealing, which are small c
   hand-made meshes (spheres, rings, cones, star shapes) with an unlit shader doing alpha erosion (a noise texture
   thresholded by a lifetime curve), scrolling UVs, polar UVs for rings, a toon ramp and vertex-colour tint, plus 5–20
   billboard particles for sparkle. Flipbooks cover puffs and smoke. CartoonFX packs are exactly this. With the
-  colour rules and particle budget in FEEL.md, a **library of ~10 shader-driven "primitives" + a tiny burst
-  emitter**, parameterized by impact strength (FEEL §5, "one parameter drives every layer"), would replace
+  colour rules and particle budget in the feel rules, a **library of ~10 shader-driven "primitives" + a tiny burst
+  emitter**, parameterized by impact strength ("one parameter drives every layer"), would replace
   CartoonFX.
 - **Agent-friendliness**: best is effects as data (RON/TOML: emitter params, curves, colour from the palette tokens)
   hot-reloaded, with the agent API's screenshot and time-stepping to judge the result. hanabi's Rust builder is
@@ -190,27 +187,28 @@ The usual model for sim events under rollback:
 - each predicted event is later **confirmed or cancelled**
 - synced events fire only on verified frames: no false positives, some latency
 
-OctoEscape already uses it this way (FEEL §2.4).
+The current game already uses it this way.
 
 For `unified`, this belongs in the engine core, host-agnostic:
 
 1. **Event key** = (type, entity handle, tick, hashed fields). The view keeps a set of played keys inside the
    rollback window. Re-simulation that produces the same key plays nothing new.
 2. **Cancel**: a key that doesn't reappear by the time its tick is verified is cancelled. Audio fades the voice out
-   over 10–30 ms if it is still playing (a stopped "pop" is fine; FEEL says a cancelled puff "never plays twice").
+   over 10–30 ms if it is still playing (a stopped "pop" is fine; the feel rules say a cancelled puff "never plays
+   twice").
    VFX fade out early.
 3. **Late discovery**: an event first seen during a rollback for a tick N frames ago plays with a start offset, or
    is skipped if it is short and stale. `bevy_roll_safe` (Bevy 0.19) provides a rollback-safe `bevy_audio` wrapper.
    Its roadmap still lists "seeking in time-critical audio" ([GitHub](https://github.com/johanhelsing/bevy_roll_safe)).
    That is a useful reference, not a dependency.
-4. **Verified-only** for celebrations and irreversible news (a goal done, a door opening for good), as OctoEscape
-   does today.
+4. **Verified-only** for celebrations and irreversible news (a goal done, a door opening for good), as the current
+   game does today.
 5. **Loops and continuous sound come from state, not events** (crawl patter from predicted velocity, machine hum
    from entity state). State-driven audio is rollback-proof by construction.
 6. **Audio library requirements**: voice handles, stop with fade, a start offset/seek, and per-bus volume tweens.
    Kira, Firewheel and Godot all meet them. Godot needs a small tween to stop with a fade.
 
-Visual animation stays view-side and needs no rollback. It reads predicted state, smoothed (FEEL §2.4), and
+Visual animation stays view-side and needs no rollback. It reads predicted state, smoothed, and
 derives clip time from sim ticks so a correction doesn't restart a clip.
 
 ## Per-host summary
@@ -219,13 +217,13 @@ derives clip time from sim ticks so a correction doesn't restart a clip.
 |---|---|---|
 | Clip playback + blend/additive/masks/events | built in (`AnimationGraph`) | built in (`AnimationTree`), richer (state machines, blend spaces) |
 | IK / procedural | none; write joint `Transform`s (own rig crate) | `SkeletonModifier3D`, FABRIK/CCD/TwoBone IK, spring bones |
-| Octopus rig | own crate, natural fit | own crate across GDExtension, or a custom modifier |
+| Character rig | own crate, natural fit | own crate across GDExtension, or a custom modifier |
 | Audio | **bevy_seedling** (fallback bevy_kira_audio) | built in buses + 3D players + randomizer + interactive music |
 | Rollback audio | engine event layer (own) | engine event layer (own) |
 | Particles | bevy_hanabi (GPU, code) or in-house CPU bursts | GPUParticles3D + process material + flipbooks |
 | Cartoon shaders | WGSL/WESL materials (hot-reloadable) | Godot shading language, visual shader optional |
 | Licence cost | none | none |
-| Avoid | `bevy_audio` for this game, stale IK crates, FMOD | FMOD/Wwise plugins, AnimationTree for the octopus |
+| Avoid | `bevy_audio` for this game, stale IK crates, FMOD | FMOD/Wwise plugins, AnimationTree for the character rig |
 
 ## Risks and unknowns
 
@@ -234,7 +232,7 @@ derives clip time from sim ticks so a correction doesn't restart a clip.
 - **Firewheel maturity**: the audit found undefined behaviour and only a cpal backend. Upstreaming isn't scheduled.
 - **Godot boundary cost**: if Godot is only the view over a Rust sim, using AnimationTree, particles and audio means
   marshalling across GDExtension every frame. Godot's tools are better, but less of them is reachable "code-first".
-- **The developer can't easily judge animation and audio quality**: lean on FEEL.md's numeric rules (pitch ranges,
+- **The developer can't easily judge animation and audio quality**: lean on the feel rules' numbers (pitch ranges,
   durations, budgets) as tests, and on agent screenshots and recordings. Audio has no screenshot. Consider an
   in-game audio debug overlay (active voices, bus levels, last 20 events), plus offline renders that an agent can
   analyse (peak, LUFS: seedling has a `loudness` analyzer).

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Build, test, format and vet unified: the one entry point (Python 3.9+, stdlib only, any OS).
 
-    python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/unified[.exe]
+    python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/survivor[.exe]
     python tools/dev.py test                    # odin test: unit tests + determinism lint
     python tools/dev.py check [check.py opts]   # release build, then T1-T9 (tools/check.py)
-    python tools/dev.py fmt [--check]           # odinfmt over src/ and tests/
+    python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py all                     # fmt --check, vet, test, check (what CI runs)
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
@@ -21,8 +21,10 @@ Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds c
   debug    -o:none -debug                          unoptimized, for stepping in a debugger
 
 Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The bindings import the
-static library by relative path, so plain `odin build src/cli` / `odin test tests -all-packages
--collection:unified=src` work too once it is built; this script only adds the flags and timings.
+static library by relative path, so plain `odin build games/survivor/simulation/headless
+-collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
+is built; this script only adds the flags and timings. The binary built is the survivor test game's
+headless binary (the CLI modes of spec/CORE.md §3 come from unified:headless).
 --arch x86_64 (macOS only) builds for darwin_amd64 against the macos-x64 Box3D, for Rosetta checks.
 """
 
@@ -52,9 +54,12 @@ MODES = {
 # Tests build like dev: optimized enough that the sim tests take milliseconds, fast to compile.
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
 VET_TARGETS = ["darwin_arm64", "darwin_amd64", "linux_amd64", "windows_amd64"]
-# Packages vet type-checks (with everything they import); libraries no test imports go here too.
-VET_PACKAGES = ["src/cli", "tests", "tests/godot/ext"]
-FMT_DIRS = ["src", "tests"]
+FMT_DIRS = ["src", "tests", "games/survivor/simulation"]
+HEADLESS = "games/survivor/simulation/headless"  # the binary build/check use
+BINARY = "survivor"
+# Packages vet type-checks (with everything they import): the headless binary, the tests, the binding test
+# extension and the game's extension.
+VET_PACKAGES = [HEADLESS, "tests", "tests/godot/ext", "games/survivor/simulation/extension"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
     python tools/ci.py odinfmt ~/.local/share/unified-odinfmt
@@ -91,8 +96,9 @@ def cmd_build(mode="dev", arch=None):
     box3d.ensure(arch)
     out = REPO / "out" / mode
     out.mkdir(parents=True, exist_ok=True)
-    exe = out / ("unified" + EXE)
-    secs = run_odin(["build", "src/cli", "-out:" + exe.as_posix()] + MODES[mode] + VET + target, "odin build")
+    exe = out / (BINARY + EXE)
+    secs = run_odin(["build", HEADLESS, COLLECTION, "-out:" + exe.as_posix()] + MODES[mode] + VET + target,
+                    "odin build")
     log("dev: build %s -> %s in %.2fs" % (mode, exe.relative_to(REPO).as_posix(), secs))
     return exe
 
@@ -371,14 +377,14 @@ def cmd_test():
 
 
 def cmd_vet():
-    """odin check of the CLI and the tests for every supported target, in parallel."""
+    """odin check of the headless binary, the tests and the extensions for every supported target, in parallel."""
     cmd_gen()
     jobs = [(pkg, t) for t in VET_TARGETS for pkg in VET_PACKAGES]
     t0 = time.time()
 
     def one(job):
         pkg, target = job
-        extra = [] if pkg == "src/cli" else ["-no-entry-point"]
+        extra = [] if pkg == HEADLESS else ["-no-entry-point"]
         r = subprocess.run([odin(), "check", pkg, "-target:" + target, COLLECTION] + extra + VET,
                            cwd=str(REPO), capture_output=True, text=True)
         return job, r.returncode, (r.stdout + r.stderr).strip()

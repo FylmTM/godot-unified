@@ -12,28 +12,33 @@ working on it: [`AGENTS.md`](AGENTS.md). Plan, decisions and current work:
 ```
 src/                 the `unified` collection (-collection:unified=src); one package per directory
   box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
-  pod/               plain-data check for state blocks (RTTI walk: no pointers, no padding) (leaf)
   wire/              little-endian Writer/Reader for every binary format (leaf)
-  game/              survivor-lite test game (spec/GAME.md): state block, pools, systems, world
-  sim/               harness: ring of snapshots, checksum, portable snapshots, input log, offline modes
-  netcode/           links (loopback, UDP, netsim), reliable channel, relay, client, sessions
-  cli/               the `unified` CLI of spec/CORE.md §3 (package main)
+  sim/               the deterministic harness, generic over a game: tables + handles, RNG, plain-data check,
+                     snapshot ring, checksum, events, input log, portable snapshot (spec/sim.md)
+  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image (spec/sim.md)
+  dmath/             deterministic f32 helpers
+  netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks (spec/netcode.md)
   gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
   view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
   imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
   devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note
   godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync (spec/godot_host.md)
-games/<game>/        a game in the agreed layout: project.godot, game/ (Godot), simulation/ (Odin: sim, extension)
+  headless/          a game's headless binary: the CORE.md §3 modes, generic over the game
+games/survivor/      the test game, laid out like a game repo (Godot project root)
+  simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
+                     extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
-  lint/              determinism lint: bans core:math, matrix, f64 in game, ... per package
+  lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
+  toy/               a tiny game for the library's own tests
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
 third_party/         box3d.patch (the fork); tools/box3d.py fetches + builds Box3D under third_party/box3d/
 tools/               dev.py (the entry point), check.py (T1-T9), box3d.py, ci.py
 ols.json, odinfmt.json   editor (OLS) and formatter configuration
 ```
 
-Imports point one way: `cli → netcode → sim → game → box3d`, with `pod` and `wire` as leaves. Inside `src/`
-packages import each other by relative path; consumers (tests, later games) import `unified:<pkg>`.
+Imports point one way: `headless → netcode → sim`, `physics → sim, box3d`, a game's sim package → `sim`, `physics`,
+`dmath`; `wire` is a leaf. Inside `src/` packages import each other by relative path; games and tests import
+`unified:<pkg>`.
 
 ## Toolchain
 
@@ -51,10 +56,10 @@ packages import each other by relative path; consumers (tests, later games) impo
 Everything goes through `tools/dev.py`; each command prints its time.
 
 ```
-python tools/dev.py build [dev|release|debug]   # -> out/<mode>/unified[.exe]; builds Box3D on first use
+python tools/dev.py build [dev|release|debug]   # -> out/<mode>/survivor[.exe]; builds Box3D on first use
 python tools/dev.py test                        # odin test: unit tests + determinism lint (all packages)
 python tools/dev.py check [--only T1,T7]        # release build, then T1-T9 (tools/check.py), ~70 s
-python tools/dev.py fmt [--check]               # odinfmt over src/ and tests/
+python tools/dev.py fmt [--check]               # odinfmt over src/, tests/ and games/*/simulation/
 python tools/dev.py vet                         # odin check, strict flags, darwin/linux/windows targets
 python tools/dev.py all                         # fmt --check, vet, test, check: what CI runs
 python tools/dev.py gen                         # Godot bindings (src/gdext/*.gen.odin, git-ignored), ~1 s, cached
@@ -74,8 +79,8 @@ Godot: the standard (non-.NET) 4.7.2 build, found via `$GODOT`, `godot` on PATH,
 | `debug` | `-o:none -debug` | stepping in a debugger | 0.4 s |
 
 All modes add `-vet -strict-style -vet-tabs -warnings-as-errors`; bounds checks stay on. The plain Odin commands
-work too (the bindings import Box3D's static library by relative path): `odin build src/cli`,
-`odin test tests -all-packages -collection:unified=src`.
+work too (the bindings import Box3D's static library by relative path): `odin build
+games/survivor/simulation/headless -collection:unified=src`, `odin test tests -all-packages -collection:unified=src`.
 
 Rosetta determinism check on Apple Silicon (x86_64 build against the macos-x64 Box3D):
 

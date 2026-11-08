@@ -1,4 +1,4 @@
 #+build !windows
-package main
+package headless
 
 platform_init :: proc() {}
