@@ -117,3 +117,6 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   "survivor 0.1.0" has `survivor-0.1.0-macos-arm64.zip` (38.5 MB), `survivor-0.1.0-windows-x64.zip` (47.8 MB) and
   `SHA256SUMS.txt`. Re-checked the published macOS zip here: checksum OK, ad-hoc signed, ships `libsurvivor.dylib`
   and the EOS dylib in Frameworks, headless smoke test exit 0 with no errors.
+- Started an independent fresh-eyes review of the online play path (netcode, eos, godot_host, extension, sim) for
+  playtest bugs: host leaving, rejoin, stalls, backgrounded windows, long sessions, repeated host/leave/join. Fixes
+  land on main after the tag (a later build), not in v0.1.0.
