@@ -38,6 +38,7 @@ Args :: struct {
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
 	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
+	bench:     int, // single player sessions hold this many enemies (Glue.bench)
 	online:    bool, // host_online at once
 	join_code: string, // join_online this code at once
 }
@@ -139,6 +140,7 @@ register_session_class :: proc() {
 	gd.bind_method(c, "is_running", proc(s: ^Session_Node) -> bool {return api.installed && api.running()})
 	gd.bind_method(c, "get_tick", proc(s: ^Session_Node) -> i64 {return i64(s.last_tick)})
 	gd.bind_method(c, "toggle_devui", proc(s: ^Session_Node) {devui.visible = !devui.visible})
+	gd.bind_method(c, "is_devui_visible", proc(s: ^Session_Node) -> bool {return devui.visible})
 	gd.bind_signal(c, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(c, "lobby_code", {"code", string})
 	gd.bind_signal(
@@ -212,6 +214,7 @@ session_start :: proc(s: ^Session_Node, req: Start) -> bool {
 	}
 	api.wait() // a finished session's thread
 	req := req
+	if req.mode == .Single do req.bench = s.args.bench
 	req.seed = u64(s.seed)
 	req.ticks = u32(max(s.ticks, 0))
 	req.name = s.name
@@ -330,8 +333,7 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 session_hud :: proc(s: ^Session_Node) -> gd.Dictionary {
 	d := gd.dict_new()
 	if api.installed && api.hud != nil && s.frame != nil {
-		names := []string{s.name}
-		api.hud(s.frame, names, &d)
+		api.hud(s.frame, &d)
 		return d
 	}
 	// no session yet: every contract key, empty
@@ -410,6 +412,8 @@ parse_args :: proc() -> (a: Args) {
 			a.seed = v
 		case "--join":
 			a.join = strings.clone(next(strs, &i))
+		case "--bench":
+			a.bench, _ = strconv.parse_int(next(strs, &i))
 		case "--host-online":
 			a.online = true
 		case "--join-code":

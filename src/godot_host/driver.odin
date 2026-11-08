@@ -27,8 +27,9 @@ Api :: struct {
 	running:     proc() -> bool,
 	front:       proc() -> (f: ^Frame, fresh: bool),
 	pop:         proc() -> (m: Message, ok: bool),
-	hud:         proc(f: ^Frame, names: []string, d: rawptr),
+	hud:         proc(f: ^Frame, d: rawptr),
 	state:       proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	event_key:   proc(e: sim.Event) -> view.Key, // the game's event -> scene view mapping (nil: default routing)
 	result:      proc() -> string, // the finished session's result JSON (after a Result message)
 }
 
@@ -113,6 +114,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
+	bench:     sim.Game(S, I, W, P), // the game with Glue.bench after init (req.bench > 0)
 	nets:      [dynamic]^netcode.Net_Sim, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
 }
@@ -136,6 +138,8 @@ g_game: rawptr
 g_glue: rawptr
 @(private)
 g_driver: rawptr
+@(private)
+g_bench_n: int
 
 // Installs the game: call once, before godot_host.entry.
 install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
@@ -152,6 +156,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		bulk_kinds  = glue.bulk_kinds,
 		actions     = glue.actions,
 		event_names = game.event_names,
+		event_key   = glue.event_key,
 	}
 	api.start = proc(req: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
@@ -216,9 +221,9 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		if g_driver == nil do return {}, false
 		return view.queue_pop(&(^D)(g_driver).queue)
 	}
-	api.hud = proc(f: ^Frame, names: []string, d: rawptr) {
+	api.hud = proc(f: ^Frame, d: rawptr) {
 		glue := (^Glue(S, I, W))(g_glue)
-		if glue.hud != nil do glue.hud(f, names, auto_cast d)
+		if glue.hud != nil do glue.hud(f, auto_cast d)
 	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
@@ -298,7 +303,6 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			prev := f.tick > 0 ? sim.state_at(s, f.tick - 1) : nil
 			out := view.triple_back(&d.frames)
 			out.n_scene, out.n_bulk = 0, 0
-			d.glue.extract(cur, prev, s.world, out)
 			c := d.client
 			d.published += 1
 			out.published = d.published
@@ -314,6 +318,11 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 				resim_ticks = i32(c.resim_ticks),
 				depth_max   = i32(c.depth_max),
 			}
+			for slot in 0 ..< min(P, MAX_NAMED) {
+				out.names[slot] = {}
+				copy(out.names[slot][:NAME_BYTES - 1], netcode.client_player_name(c, slot))
+			}
+			d.glue.extract(cur, prev, s.world, out)
 			view.triple_publish(&d.frames)
 			if sync.atomic_load(&want_state) {
 				view.triple_back(&d.states)^ = cur^
@@ -377,6 +386,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 	g := d.game
 	hooks := driver_hooks(d)
 	host_cfg := netcode.Host_Config {
+		player = r.name,
 		seed   = r.seed,
 		ticks  = r.ticks,
 		compat = d.glue.compat,
@@ -384,6 +394,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 		quiet  = true,
 	}
 	client_cfg := netcode.Client_Config {
+		player = r.name,
 		slot   = -1,
 		compat = d.glue.compat,
 		name   = "client",
@@ -391,7 +402,20 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 	}
 	switch r.mode {
 	case .Single:
-		d.host = netcode.host_create(g, host_cfg, hooks)
+		if r.bench > 0 && d.glue.bench != nil {
+			// The same game, with the benchmark state prepared after init (this process is the only peer).
+			g_bench_n = r.bench
+			d.bench = g^
+			d.bench.init = proc(s: ^S, w: ^W, seed: u64) {
+				game := (^sim.Game(S, I, W, P))(g_game)
+				glue := (^Glue(S, I, W))(g_glue)
+				game.init(s, w, seed)
+				glue.bench(s, w, g_bench_n)
+			}
+			d.host = netcode.host_create(&d.bench, host_cfg, hooks)
+		} else {
+			d.host = netcode.host_create(g, host_cfg, hooks)
+		}
 	case .Host_Direct:
 		link, ok := netcode.udp_listen(r.port)
 		if !ok {
