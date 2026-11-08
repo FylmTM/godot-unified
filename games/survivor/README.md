@@ -23,6 +23,9 @@ python tools/dev.py game validate   # compile scripts, load scenes, unknown .tsc
 python tools/dev.py game walk       # headless UI walk with the mock: menu, settings, single, lobby, match,
                                     # level-up, Esc menu, game over, host, join error (~2.5 s)
 python tools/dev.py game shots      # the walk in a window; PNGs in games/survivor/.uni/shots/ (steals focus)
+python tools/dev.py game build survivor   # the game library -> .uni/bin/
+python tools/dev.py game tour       # the real game, headless: menu -> lobby -> match (~2.6 s); --shots: a whole
+                                    # match in a window, PNGs in games/survivor/.uni/tour/
 ```
 
 ## Controls

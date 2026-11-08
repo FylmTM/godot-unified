@@ -12,6 +12,10 @@ const GHOST_EVERY := 0.025
 var _mat: StandardMaterial3D
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
+## Smoothed velocity (m/s) from the interpolated positions; the camera leads with it.
+var velocity: Vector3:
+	get:
+		return _vel
 var _yaw := 0.0
 var _flash := 0.0
 var _last_hp := -1.0

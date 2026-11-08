@@ -18,6 +18,7 @@ const DEFAULTS := {
 	&"render_scale": ["video", 1.0],
 	&"show_fps": ["video", false],
 	&"player_name": ["player", ""],
+	&"best_time": ["stats", 0.0],
 }
 
 var _values := {}

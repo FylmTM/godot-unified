@@ -14,7 +14,7 @@
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
-    python tools/dev.py game validate|walk|shots|import [--game survivor]   # Godot project checks (tools/game.py)
+    python tools/dev.py game validate|walk|shots|tour|import [--game survivor]   # Godot project checks (tools/game.py)
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -395,7 +395,7 @@ def cmd_game_editor_check(gdir):
         raise SystemExit("dev: editor-check failed")
 
 
-GAME_PY_COMMANDS = ("validate", "walk", "shots", "import")  # tools/game.py (the game client's project checks)
+GAME_PY_COMMANDS = ("validate", "walk", "shots", "tour", "import")  # tools/game.py (the game client's project checks)
 
 
 def cmd_game(argv):

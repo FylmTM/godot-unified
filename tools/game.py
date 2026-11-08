@@ -4,6 +4,9 @@ directly with the same arguments: `python tools/game.py validate`):
     python tools/dev.py game validate [--game survivor]   # compile scripts, load scenes, run the menu 30 frames
     python tools/dev.py game walk                         # scripted UI walk with the mock session (headless)
     python tools/dev.py game shots                        # the walk in a window, PNGs to games/<game>/.uni/shots/
+    python tools/dev.py game tour [--shots]               # the real game (library built): single player through
+                                                          # lobby/match; headless quick check, or windowed with
+                                                          # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
     python tools/dev.py game import                       # refresh Godot's import cache (.godot/)
 
 Godot: $GODOT, else `godot` on PATH, else ~/tools/godot/Godot_v4.7.2.app (macOS). Every run has a timeout (Godot
@@ -91,6 +94,7 @@ def ensure_imported(proj):
         stamp.write_text(import_signature(proj))  # the import may have added .uid files
     exts = sync_extension_list(proj)
     log("game: extensions: %s" % (", ".join(exts) if exts else "none built (mock session)"))
+    return exts
 
 
 HOST_KEYS = {"macos": ["macos.debug", "macos.release", "macos"], "windows": ["windows.x86_64", "windows"],
@@ -131,7 +135,7 @@ def cmd_game(argv):
     if sub == "import":
         ensure_imported(proj)
         return
-    ensure_imported(proj)
+    exts = ensure_imported(proj)
     if sub == "validate":
         ok, data, secs = run_godot(
             proj, ["--headless", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60, "VALIDATE_JSON")
@@ -148,8 +152,22 @@ def cmd_game(argv):
                 180, "WALK_JSON")
         finally:
             _restore_app(front)
+    elif sub == "tour":
+        if not exts:
+            raise SystemExit("game: the tour needs the game library: python tools/dev.py game build %s" % game)
+        if "--shots" in argv:
+            front = _front_app()
+            try:
+                ok, data, secs = run_godot(
+                    proj, ["--resolution", "1280x720", "-s", "res://game/tools/tour.gd", "--", "--no-settings",
+                           "--shots=res://.uni/tour"], 240, "TOUR_JSON")
+            finally:
+                _restore_app(front)
+        else:
+            ok, data, secs = run_godot(
+                proj, ["--headless", "-s", "res://game/tools/tour.gd", "--", "--no-settings", "--quick"], 60, "TOUR_JSON")
     else:
-        raise SystemExit("game: unknown subcommand %r (validate, walk, shots, import)" % sub)
+        raise SystemExit("game: unknown subcommand %r (validate, walk, shots, tour, import)" % sub)
     log("game: %s %s in %.1fs" % (sub, "OK" if ok else "FAILED", secs))
     if not ok:
         raise SystemExit(1)
