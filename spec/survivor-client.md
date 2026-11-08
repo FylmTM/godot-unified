@@ -40,6 +40,10 @@ and load without the library (Godot replaces unknown native node types with a pl
   projectile, gem). 3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the
   floor plane (y = 0), the shaders lift the meshes.
 - `set_player_name(name)` and `hud().players[i].name` (extension, optional): names fall back to "P<n>".
+- `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the lobby panel shows this
+  machine's first private IPv4 `host:port` where the code would be.
+- Views may get `_sim_event("despawned", {})` (they linger ~0.25 s; exit animation) and `_sim_event("revived", {})`
+  when a rollback brings one back; the host also sets the root's rotation (player views reset it).
 - Single player emits `status_changed("connected", …)` from `start_single()`; failures carry a readable detail.
 - Input is sampled natively from the InputMap; GDScript only handles `menu` (Esc) and, with the mock, `toggle_devui`.
 
