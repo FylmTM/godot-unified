@@ -29,6 +29,7 @@ Api :: struct {
 	pop:         proc() -> (m: Message, ok: bool),
 	hud:         proc(f: ^Frame, names: []string, d: rawptr),
 	state:       proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	result:      proc() -> string, // the finished session's result JSON (after a Result message)
 }
 
 api: Api
@@ -77,6 +78,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	tracker:   view.Event_Tracker(Tick_Event),
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
+	result:    string,
 }
 
 @(private)
@@ -147,6 +149,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		delete(d.req.arg)
 		delete(d.req.name)
 		delete(d.req.profile)
+		delete(d.result)
 		free(d)
 		g_driver = nil
 	}
@@ -166,6 +169,10 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	api.hud = proc(f: ^Frame, names: []string, d: rawptr) {
 		glue := (^Glue(S, I, W))(g_glue)
 		if glue.hud != nil do glue.hud(f, names, auto_cast d)
+	}
+	api.result = proc() -> string {
+		if g_driver == nil do return ""
+		return (^D)(g_driver).result
 	}
 	api.state = proc() -> any {
 		if g_driver == nil do return nil
@@ -302,7 +309,8 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 		if d.uses_tp do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
-	post_text(d, .Result, netcode.client_json(d.client))
+	d.result = clone_json(netcode.client_json(d.client))
+	post(d, Message{kind = .Result})
 	driver_close(d)
 	sync.atomic_store(&d.finished, true)
 }
@@ -387,6 +395,11 @@ driver_close :: proc(d: ^Driver($S, $I, $W, $P)) {
 	}
 	d.host, d.client = nil, nil
 	if d.uses_tp && transport.close != nil do transport.close(transport.user)
+}
+
+@(private)
+clone_json :: proc(s: string) -> string {
+	return strings.clone(s)
 }
 
 @(private)

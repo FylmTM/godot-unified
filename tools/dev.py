@@ -187,6 +187,13 @@ def cmd_godot_test():
     log("dev: godot-test passed in %.2fs" % (time.time() - t0))
 
 
+def rel(p):
+    try:
+        return p.relative_to(REPO).as_posix()
+    except ValueError:
+        return str(p)
+
+
 def game_dir(name):
     """A game by name (games/<name>) or by path."""
     p = Path(name)
@@ -244,8 +251,7 @@ def cmd_game_build(gdir, mode="dev", arch=None):
                 if t.exists():
                     os.replace(str(t), str(out.with_suffix(ext)))
     ensure_extension_list(gdir, "res://game/%s.gdextension" % name)
-    log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, out.relative_to(REPO).as_posix(),
-                                                              time.time() - t0, secs))
+    log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, rel(out), time.time() - t0, secs))
     return out
 
 
@@ -298,8 +304,8 @@ def cmd_game_headless(gdir, argv):
 
 
 def offline_checksums(gdir, ticks, seed):
-    """The checksums the offline headless binary (simulation/headless) reports for one scripted player, keyed by
-    tick; None when the game has no headless binary."""
+    """The checksum the offline headless binary (simulation/headless, mode sim) reports for one scripted player at
+    the last tick, as {tick: checksum}; None when the game has no headless binary."""
     pkg = gdir / "simulation" / "headless"
     if not pkg.is_dir():
         return None
@@ -307,8 +313,8 @@ def offline_checksums(gdir, ticks, seed):
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["build", pkg.as_posix(), "-out:" + exe.as_posix(), COLLECTION] + MODES["release"] + VET,
              "build the headless binary")
-    r = subprocess.run([str(exe), "sim", "--ticks", str(ticks), "--players", "1", "--seed", str(seed),
-                        "--checksums", "16"], capture_output=True, text=True, timeout=120)
+    r = subprocess.run([str(exe), "sim", "--ticks", str(ticks), "--players", "1", "--seed", str(seed)],
+                       capture_output=True, text=True, timeout=120)
     for line in reversed(r.stdout.splitlines()):
         line = line.strip()
         if line.startswith("{"):

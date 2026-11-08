@@ -268,7 +268,7 @@ drain_messages :: proc(s: ^Session_Node) {
 		case .Event:
 			route_event(s, m)
 		case .Result:
-			fmt.printfln("unified: result %s", text)
+			fmt.printfln("unified: result %s", api.result())
 			if s.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(s)), 0)
 		}
 	}
