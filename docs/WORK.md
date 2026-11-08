@@ -1,6 +1,6 @@
 # Work
 
-Updated 2026-11-08. Language: **Odin**. Host: **Godot via GDExtension**.
+Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 
 ## Decided
 
@@ -45,26 +45,63 @@ Updated 2026-11-08. Language: **Odin**. Host: **Godot via GDExtension**.
 - **View logic:** GDScript by default; Odin for anything performance-critical or shared across games (e.g. the
   tentacle rig).
 
+- **CLI in Odin**, replacing every `tools/*.py` script (migrated into subcommands, then deleted). `--json` output
+  and a time budget on every command.
+- **Skills ship as a Claude Code plugin inside the `unified` repo** (`.claude-plugin/marketplace.json`,
+  `skills/<name>/SKILL.md`). `unified init` commits `.claude/settings.json` in the game repo
+  (`extraKnownMarketplaces` with a `directory` source at `./unified`, plus `enabledPlugins`). Skills load in place,
+  so they always match the library. The `unified` repo uses the same mechanism with path `./`. To verify: the relative
+  path works.
+- **Live-game tooling split:**
+  - Anything that affects the sim goes through typed control-socket commands, recorded as tick-stamped debug commands
+    (replayable; generic set-by-path via reflection).
+  - View-side inspection uses a dev-only GDScript eval that can't touch sim state.
+- **No mandatory Godot editor** (target). The headless-Godot investigation decides whether an editor bridge is ever
+  needed.
+
+- **Testing layers**, each run with `unified test <layer>` and a time budget:
+  - **L0 module:** `odin test` per package, plus a Box3D suite (every call we use, exact save/restore,
+    cross-platform golden traces, old replays still play after an upgrade). Under 3 s.
+  - **L1 sim:** scenarios asserting by reflection path, sync-test always on, fuzzing with shrinking. Under 10 s.
+  - **L2 netcode:** in-process sessions on a **virtual clock** with the seeded network simulator. Under 10 s.
+  - **L3 multi-instance:** real UDP processes, plus headless Godot game smoke tests.
+  - **L4 cross-platform:** committed reference traces and snapshots, replayed in CI.
+  - **View logic** (`unified:view`) is tested in Odin at L1 speed.
+- **Golden screenshots in CI from the start**, tolerance-based, using whatever the headless-Godot investigation
+  proves renders in CI.
+- **F3 captures everything cheap:** screenshot, snapshot, input log, frame dump, view state (scene tree and
+  view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
+- **Dev UI is immediate-mode**, chosen between microui and Dear ImGui by a spike.
+
 ## Done
 
 - Odin-only cleanup merged: `src/` collection, `tests/` packages, `tools/dev.py`, OLS and odinfmt config, Odin-only
-  CI, Box3D with the static C runtime on Windows, null-handle and `core:math` fixes.
+  CI (green on Linux and Windows, run 42519083182), Box3D with the static C runtime on Windows, null-handle and `core:math` fixes.
 - Docs reviewed; the other stacks archived in `docs/archive/`.
-- Upstream Odin XXH3 streaming fix drafted in `~/work/personal/odin` (branch `fix-xxh3-streaming-tail`,
-  `PR_DRAFT.md`). It's for the developer to submit.
+- Upstream Odin XXH3 streaming fix: odin-lang/Odin#8257 is open, from `FylmTM/Odin:fix-xxh3-streaming-tail`. Its CI
+  waits for a maintainer to approve workflows.
 
 ## In discussion (this thread)
 
 1. **Godot follow-ups:** how entity kinds and levels are authored (code/data-first recommended,
    `docs/research/11-view-binding.md`), default interpolation and smoothing per kind, the 1000-scene-view benchmark.
-2. **Dev tooling and AI:** the `unified` CLI in Odin, text-first Godot work, our own skills in `.claude/skills`
-   (`12-ai-tooling.md`).
-3. **Testing strategy:** every layer, F3 feedback, frame dumps, replays, smoke tests, CI benchmarks.
+2. **Dev tooling and AI:** CLI command set and control-protocol details (spec to come); headless Godot investigation
+   pending.
+3. **Testing strategy:** layers decided; the testing spec is to come.
+
+## In progress (sessions)
+
+- **GDExtension spike** (1 day, includes class registration groundwork): sim and netcode on our own thread with p99
+  jitter under 1 ms, the editor opens the project, game-library hot reload under 1 s, a gamepad on macOS, headless
+  hashes in CI.
+- **Dev UI spike:** microui (Odin vendor) vs Dear ImGui (Odin bindings plus our own Godot backend, or `imgui-godot`):
+  integration effort, dependency cost, quality, performance.
+- **Headless Godot investigation** (also: what renders in CI for golden screenshots): cold/warm `--import`, headless
+  scene edits via `--script`, screenshots without an editor, editor open while agents edit (reload dialog), 5
+  worktrees in parallel.
 
 ## Next (after sign-offs)
 
-- GDExtension spike (1 day, includes class registration groundwork): sim and netcode on our own thread with p99 jitter under 1 ms, the editor opens the
-  project, game-library hot reload under 1 s, a gamepad on macOS, headless hashes in CI.
 - Module specs for the agreed architecture, each signed off before building.
 - The `unified` CLI (replaces `tools/*.py`).
 - Box3D fork: public load-from-bytes API, clearing stale bytes, and a full test suite for our use of Box3D.
