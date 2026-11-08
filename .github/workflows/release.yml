@@ -7,7 +7,6 @@ name: release
 on:
   push:
     tags: ["*-v*"]
-    branches: [claude/release-ci-d7767a]  # TEMP: validation only, reverted before merge
   workflow_dispatch:
     inputs:
       game_dir:
@@ -111,8 +110,7 @@ jobs:
           path: |
             .toolchains/godot
             ${{ matrix.templates }}/${{ env.GODOT_VERSION }}.stable
-          key: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-${{ hashFiles('tools/release.py') }}
-          restore-keys: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-
+          key: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-v1
 
       # Dependencies, extension, import, export, sign, zip, smoke test: tools/release.py.
       - name: release.py build
