@@ -55,6 +55,13 @@ the game's extension wires them (`init` first, with the game library's directory
   different build (a new ad-hoc signature) needs the user to allow access once; inside Godot.app (editor, dev
   runs) the owner is Godot itself, so no prompt. Headless tools set `no_keychain_prompts` (fail instead of a
   dialog) and `forget_device` at exit, so the next build starts clean.
+- **Keychain dialogs in dev runs.** A "wants to use your confidential information stored in
+  com.epicgames.sdk.connect.access_token" dialog means a binary that doesn't own the entry asked for it. To avoid it:
+  play online from Godot (editor, `dev.py game run`, `godot --headless --path games/survivor`), which owns the
+  entry; the headless `survivor` binary never shows the dialog (it fails with "the device ID in the keychain
+  belongs to another build" instead), so don't mix it with Godot runs on one Mac; an exported build asks once per
+  build (Always Allow is fine: it is the game's own anonymous ID). A dialog whose process has exited (killed or
+  crashed while waiting) stays on screen: click **Deny**, which grants nothing. Never script around it.
 
 ## Testing
 
@@ -85,4 +92,6 @@ Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every 
 | headless, built on the runner | Direct (NAT traversal) | 1137 | 204 ms | 7 | 689 (11.0) | 378 |
 | headless, built on the runner | forced relays | 802 | 170 ms | 6 | 491 (10.0) | 97 |
 | release export (compiled-in IDs, shipped DLL) | Relayed (EOS's choice) | 770 | 200 ms | 7 | 467 (10.9) | 499 |
+| headless, `workflow_dispatch` from main (477cf5a) | Relayed | 773 | 229 ms | 7 | 471 (11.0) | 254 |
+| release export of main (run 42535534651) | Relayed | 847 | 189 ms | 7 | 509 (11.0) | 282 |
 
