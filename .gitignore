@@ -27,3 +27,6 @@ zig-out/
 
 # Dear ImGui sources and builds are fetched by tools/imgui.py
 /third_party/imgui/
+
+# EOS SDK (headers + shipping libraries), staged by tools/eos.py
+/third_party/eos/
