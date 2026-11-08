@@ -92,17 +92,19 @@ Glue :: struct($S, $I, $W: typeid) {
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so
 // godot_host never imports a platform SDK. All procs run on the session thread.
 Transport :: struct {
-	name:      string,
-	user:      rawptr,
+	name:       string,
+	user:       rawptr,
 	// Host: open the transport and return the link the relay serves remote players on. Report the join
 	// code with ev.code (now or later, from pump).
-	open_host: proc(user: rawptr, ev: ^Transport_Events) -> (netcode.Link, bool),
+	open_host:  proc(user: rawptr, ev: ^Transport_Events) -> (netcode.Link, bool),
 	// Join: return the link to the host's relay (packets may flow only once the transport connects).
-	open_join: proc(user: rawptr, code: string, ev: ^Transport_Events) -> (netcode.Link, bool),
+	open_join:  proc(user: rawptr, code: string, ev: ^Transport_Events) -> (netcode.Link, bool),
 	// Called every loop iteration while a session uses the transport (e.g. EOS_Platform_Tick).
-	pump:      proc(user: rawptr, ev: ^Transport_Events),
+	pump:       proc(user: rawptr, ev: ^Transport_Events),
 	// The session ended (its links are already closed).
-	close:     proc(user: rawptr),
+	close:      proc(user: rawptr),
+	// Optional, MAIN thread, every frame (e.g. pumping the macOS main run loop for the SDK's HTTP).
+	main_frame: proc(user: rawptr),
 }
 
 Transport_Events :: struct {

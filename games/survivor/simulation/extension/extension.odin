@@ -6,9 +6,11 @@ package survivor_extension
 import "base:runtime"
 import "core:math"
 import b3 "unified:box3d"
+import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import gh "unified:godot_host"
+import "unified:netcode"
 import "unified:physics"
 import "unified:view"
 
@@ -24,7 +26,44 @@ survivor_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	gh.install(&survivor.GAME, GLUE)
+	gh.set_transport(&EOS_TRANSPORT)
 	return gh.entry(gpa, lib, init)
+}
+
+// ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
+
+// Game + net protocol version: lobby search only finds lobbies of the same bucket.
+SURVIVOR_BUCKET :: "survivor/1"
+
+@(private)
+eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
+	if eos.init({product_name = "survivor", product_version = "0.1"}) do return true
+	ev.fail(ev.ctx, eos.status().detail)
+	return false
+}
+
+EOS_TRANSPORT := gh.Transport {
+	name = "EOS",
+	open_host = proc(_: rawptr, ev: ^gh.Transport_Events) -> (netcode.Link, bool) {
+		if !eos_init(ev) do return {}, false
+		l, ok := eos.open_host(SURVIVOR_BUCKET)
+		if !ok do ev.fail(ev.ctx, eos.status().detail)
+		return l, ok
+	},
+	open_join = proc(_: rawptr, code: string, ev: ^gh.Transport_Events) -> (netcode.Link, bool) {
+		if !eos_init(ev) do return {}, false
+		l, ok := eos.open_join(SURVIVOR_BUCKET, code)
+		if !ok do ev.fail(ev.ctx, eos.status().detail)
+		return l, ok
+	},
+	pump = proc(_: rawptr, ev: ^gh.Transport_Events) {
+		r := eos.pump()
+		if r.code != "" do ev.code(ev.ctx, r.code)
+		if r.failed != "" do ev.fail(ev.ctx, r.failed)
+	},
+	close = proc(_: rawptr) {eos.close()},
+	// EOS's HTTP completes through the macOS main run loop, which headless Godot doesn't pump.
+	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
 }
 
 // View kinds: res://game/views/<kind>.tscn for scene views, `kind` of the bulk views (group sim_bulk).

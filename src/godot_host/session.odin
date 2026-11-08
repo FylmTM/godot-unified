@@ -38,6 +38,8 @@ Args :: struct {
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
 	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
+	online:    bool, // host_online at once
+	join_code: string, // join_online this code at once
 }
 
 @(private)
@@ -190,8 +192,12 @@ session_ready :: proc(s: ^Session_Node) {
 		session_start(s, {mode = .Host_Direct, port = s.args.host_port, scripted = s.args.scripted})
 	case s.args.join != "":
 		session_start(s, {mode = .Join_Direct, arg = s.args.join, scripted = s.args.scripted})
+	case s.args.online:
+		session_start(s, {mode = .Host_Online, scripted = s.args.scripted})
+	case s.args.join_code != "":
+		session_start(s, {mode = .Join_Online, arg = s.args.join_code, scripted = s.args.scripted})
 	}
-	s.args.autostart, s.args.host_port, s.args.join = false, 0, ""
+	s.args.autostart, s.args.host_port, s.args.join, s.args.online, s.args.join_code = false, 0, "", false, ""
 }
 
 @(private)
@@ -248,6 +254,7 @@ emit_status :: proc(s: ^Session_Node, st: Status_Kind, detail: string) {
 session_process :: proc(s: ^Session_Node, dt: f64) {
 	if is_editor() || active != s do return
 	sample_input(devui.wants_keyboard())
+	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
 	t0 := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
 	fresh := false
@@ -279,6 +286,7 @@ drain_messages :: proc(s: ^Session_Node) {
 		case .Status:
 			emit_status(s, m.status, text)
 		case .Lobby_Code:
+			fmt.printfln("unified: lobby code %s", text)
 			gd.emit_signal(s.obj, gd.sn("lobby_code"), text)
 		case .Event:
 			route_event(s, m)
@@ -326,9 +334,13 @@ session_hud :: proc(s: ^Session_Node) -> gd.Dictionary {
 		api.hud(s.frame, names, &d)
 		return d
 	}
+	// no session yet: every contract key, empty
 	gd.dict_set(&d, "phase", "lobby")
 	gd.dict_set(&d, "tick", 0)
 	gd.dict_set(&d, "time_s", 0.0)
+	gd.dict_set(&d, "wave", 0)
+	gd.dict_set(&d, "enemies_alive", 0)
+	gd.dict_set(&d, "circle_radius", 0.0)
 	gd.dict_set(&d, "local_slot", -1)
 	players := gd.array_new()
 	gd.dict_set_move(&d, "players", &players)
@@ -398,6 +410,10 @@ parse_args :: proc() -> (a: Args) {
 			a.seed = v
 		case "--join":
 			a.join = strings.clone(next(strs, &i))
+		case "--host-online":
+			a.online = true
+		case "--join-code":
+			a.join_code = strings.clone(next(strs, &i))
 		case "--lag":
 			a.lag_ms, _ = strconv.parse_int(next(strs, &i))
 		case "--host-port":

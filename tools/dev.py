@@ -229,8 +229,10 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     else:
         tmp = out.with_name(out.name + ".tmp" + (".dll" if common.IS_WINDOWS else ""))
     tag = "-define:UNIFIED_BUILD_TAG=%s-%s" % (mode, time.strftime("%Y%m%d-%H%M%S"))
+    eos_defines = stage_eos(out.parent)
     secs = run_odin(["build", (gdir / "simulation" / "extension").as_posix(), "-build-mode:dll",
-                     "-out:" + tmp.as_posix(), COLLECTION, tag] + MODES[mode] + VET + target, "build the extension")
+                     "-out:" + tmp.as_posix(), COLLECTION, tag] + eos_defines + MODES[mode] + VET + target,
+                    "build the extension")
     if versioned:
         link = out.with_name(out.name + ".new")
         if link.is_symlink() or link.exists():
@@ -253,6 +255,29 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     ensure_extension_list(gdir, "res://game/%s.gdextension" % name)
     log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, rel(out), time.time() - t0, secs))
     return out
+
+
+def stage_eos(bin_dir):
+    """EOS (tools/eos.py): copies the SDK's runtime library next to the game library (the .gdextension's
+    [dependencies] ships it from there) and returns the credential -define flags from EOS_* env vars. The
+    library is loaded at run time, so a missing SDK only disables online play (warned, not fatal)."""
+    if not (REPO / "tools" / "eos.py").exists():
+        return []
+    import eos
+    try:
+        eos.ensure()
+    except SystemExit as e:
+        log("dev: warning: EOS SDK not staged (%s); online play will be unavailable" % e)
+        return eos.defines()
+    src = eos.lib_path()
+    dst = bin_dir / src.name
+    if src.exists() and (not dst.exists() or dst.stat().st_size != src.stat().st_size):
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".tmp")
+        with open(src, "rb") as a, open(tmp, "wb") as b:  # a fresh copy: no clone of a quarantined file
+            shutil.copyfileobj(a, b)
+        os.replace(str(tmp), str(dst))
+    return eos.defines()
 
 
 def last_json_after(text, prefix):
