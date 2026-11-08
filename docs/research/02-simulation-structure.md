@@ -39,11 +39,9 @@ predicted, predicted-previous and verified frames for the view; periodic checksu
 - **A paged frame heap freed by hand.** A freed pointer left non-null breaks determinism, and a map value pointer goes
   stale on growth. Prefer inline fixed collections. Where heap collections exist, the derive generates their
   free-on-remove step.
-- **Systems registered in a config asset.** OctoEscape's own notes say "an unregistered system silently never runs".
-  Use a compile-time list instead.
+- **Systems registered in a config asset.** An unregistered system silently never runs. Use a compile-time list
+  instead.
 - **Signal interfaces.** Plain function calls do the job.
-- **Stateless in-frame physics** (broadphase rebuilt every tick, speculative CCD only). We want a mature external
-  engine instead (with its own state problem, below).
 - **Prediction culling.** Not needed at 2–4 players and 1000 entities. Keep the hook.
 
 ## Why not an existing ECS
@@ -132,7 +130,7 @@ transforms. The view world is derived and disposable.
 - **Mapping:** `HashMap<Entity, ViewEntity>` plus the slot's `kind` and `origin` (a deterministic spawn key). This
   avoids **handle hijacking**, where a rollback reassigns a handle to a different logical entity. Per kind: bind
   on predicted (responsive) or on verified (no false spawns).
-- **View-only state** (the procedural tentacle rig, hit-stop, smoothing) lives on the host's view entities, keyed by
+- **View-only state** (the procedural character rig, hit-stop, smoothing) lives on the host's view entities, keyed by
   sim handle. It is never hashed, survives rollbacks, and is rebuilt if the view entity is recreated.
 - **Events:** a per-tick event buffer outside the arena, stored with the snapshot ring. The dispatcher
   dedups by (tick, type, hash of the hashed fields), confirms or cancels on verification (cancellable effects such as
