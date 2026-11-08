@@ -14,6 +14,7 @@
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
+    python tools/dev.py game validate|walk|shots|import [--game survivor]   # Godot project checks (tools/game.py)
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -74,9 +75,14 @@ def odin():
     return exe
 
 
+def redact(args):
+    """Command-line args for logging: values of -define:EOS_* (credentials) replaced."""
+    return [a.split("=", 1)[0] + "=***" if str(a).startswith("-define:EOS_") else str(a) for a in args]
+
+
 def run_odin(args, what):
     cmd = [odin()] + args
-    log("+ " + " ".join(cmd))
+    log("+ " + " ".join(redact(cmd)))
     t0 = time.time()
     r = subprocess.run(cmd, cwd=str(REPO))
     secs = time.time() - t0
@@ -257,12 +263,17 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     return out
 
 
+def extension_uses_eos(gdir):
+    return any('"unified:eos"' in p.read_text(errors="replace")
+               for p in (gdir / "simulation" / "extension").glob("*.odin"))
+
+
 def stage_eos(bin_dir):
     """EOS (tools/eos.py): copies the SDK's runtime library next to the game library (the .gdextension's
     [dependencies] ships it from there) and returns the credential -define flags from EOS_* env vars. The
     library is loaded at run time, so a missing SDK only disables online play (warned, not fatal)."""
-    if not (REPO / "tools" / "eos.py").exists():
-        return []
+    if not (REPO / "tools" / "eos.py").exists() or not extension_uses_eos(bin_dir.parent.parent):
+        return []  # odin rejects -defines nothing declares
     import eos
     try:
         eos.ensure()
@@ -371,7 +382,13 @@ def cmd_game_editor_check(gdir):
         raise SystemExit("dev: editor-check failed")
 
 
+GAME_PY_COMMANDS = ("validate", "walk", "shots", "import")  # tools/game.py (the game client's project checks)
+
+
 def cmd_game(argv):
+    if argv and argv[0] in GAME_PY_COMMANDS and (REPO / "tools" / "game.py").exists():
+        import game
+        return game.cmd_game(argv) or 0
     if len(argv) < 2:
         raise SystemExit("usage: dev.py game build|run|editor|headless|editor-check <game> ...")
     sub, gdir, rest = argv[0], game_dir(argv[1]), argv[2:]
