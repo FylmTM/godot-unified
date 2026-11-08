@@ -31,6 +31,10 @@ main :: proc() {
 		ok = mode_relay(&a)
 	case "client":
 		ok = mode_client(&a)
+	case "eos-relay":
+		ok = mode_eos_relay(&a)
+	case "eos-client":
+		ok = mode_eos_client(&a)
 	case:
 		usage()
 	}

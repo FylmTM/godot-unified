@@ -4,6 +4,7 @@
 // collection. Each package also runs on its own, e.g. `odin test tests/game -collection:unified=src`.
 package tests
 
+@(require) import "eos"
 @(require) import "game"
 @(require) import "lint"
 @(require) import "netcode"

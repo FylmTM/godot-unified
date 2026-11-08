@@ -59,6 +59,8 @@ RULES := []Rule {
 	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// Netcode feeds inputs into the sim and owns real-time clocks (fine), but stays off core:math.
 	{pkg = "netcode", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
+	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.
