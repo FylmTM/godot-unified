@@ -48,6 +48,7 @@ Relay :: struct($I: typeid, $P: int) {
 	peer_of:     [P]Peer,
 	player_of:   [MAX_PEERS]int,
 	welcomed:    [P]bool,
+	names:       [P]Player_Name,
 	connected:   [P]bool,
 	done:        [P]bool,
 	base_known:  [P]bool, // finalized ticks can be streamed to this client
@@ -166,6 +167,7 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 	want := wire.r_u8(rd)
 	join := wire.r_u32(rd)
 	compat := wire.r_u64(rd)
+	name := r_name(rd)
 	if !rd.ok || r.player_of[peer] >= 0 || r.ending {
 		return
 	}
@@ -205,6 +207,8 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 	r.player_of[peer] = p
 	r.connected[p] = true
 	r.done[p] = false
+	r.names[p] = name
+	send_roster(r, now)
 	if !r.started {
 		r.active_from[p] = 1
 		r.base_known[p] = true
@@ -369,13 +373,31 @@ broadcast :: proc(r: ^Relay($I, $P), now: i64) {
 	}
 }
 
+// Tells every connected client who is in which slot, with names.
 @(private)
-player_gone :: proc(r: ^Relay($I, $P), p: int, why: string) {
+send_roster :: proc(r: ^Relay($I, $P), now: i64) {
+	w := msg_begin(&r.w, .Roster)
+	wire.w_u8(w, u8(P))
+	for p in 0 ..< P {
+		wire.w_u8(w, u8(r.connected[p]))
+		w_name(w, &r.names[p])
+	}
+	for p in 0 ..< P {
+		if r.connected[p] {
+			relay_send(r, p, w, .Reliable, now)
+		}
+	}
+}
+
+@(private)
+player_gone :: proc(r: ^Relay($I, $P), p: int, why: string, now: i64) {
 	r.connected[p] = false
 	r.welcomed[p] = false
 	r.player_of[r.peer_of[p]] = -1
 	r.peer_of[p] = -1
+	r.names[p] = {}
 	relay_log(r, "player %d %s", p, why)
+	send_roster(r, now)
 }
 
 @(private)
@@ -414,7 +436,7 @@ handle_relay_msg :: proc(r: ^Relay($I, $P), peer: Peer, data: []u8, now: i64) {
 	case .Done:
 		r.done[p] = true
 	case .Leave:
-		player_gone(r, p, "left")
+		player_gone(r, p, "left", now)
 		channel_drop(r.ch, peer)
 	}
 }
@@ -427,7 +449,7 @@ relay_step :: proc(r: ^Relay($I, $P), now: i64) -> (wake_us: i64) {
 		case .Connected:
 		case .Disconnected:
 			if p := r.player_of[ev.peer]; p >= 0 {
-				player_gone(r, p, "disconnected")
+				player_gone(r, p, "disconnected", now)
 			}
 		case .Message:
 			handle_relay_msg(r, ev.peer, ev.data, now)

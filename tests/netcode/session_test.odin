@@ -56,7 +56,7 @@ net_make :: proc(n: ^Net, ticks: u32, remotes: int) {
 	n.hub = netcode.hub_create(8)
 	n.host = netcode.host_create(
 		&toy.GAME,
-		{seed = SEED, ticks = ticks, name = "host", quiet = true},
+		{seed = SEED, ticks = ticks, name = "host", player = "Ada", quiet = true},
 		hooks_for(&n.watch[0]),
 	)
 	netcode.host_add_link(n.host, netcode.loopback_link(n.hub, 0))
@@ -68,7 +68,12 @@ net_make :: proc(n: ^Net, ticks: u32, remotes: int) {
 net_join :: proc(n: ^Net, profile: netcode.Profile, slot := -1) -> ^Client {
 	k := len(n.clients) + 1
 	link := netcode.netsim_wrap(netcode.loopback_link(n.hub, netcode.Peer(k)), profile, u32(k) * 7919, &n.clock)
-	c := netcode.client_create(&toy.GAME, {slot = slot, name = "remote", quiet = true}, link, hooks_for(&n.watch[k]))
+	c := netcode.client_create(
+		&toy.GAME,
+		{slot = slot, name = "remote", player = k == 1 ? "Grace" : "Linus", quiet = true},
+		link,
+		hooks_for(&n.watch[k]),
+	)
 	append(&n.clients, c)
 	return c
 }
@@ -178,6 +183,13 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	testing.expect(t, late.first_tick > 64 * 3)
 	testing.expect(t, late.verified > late.first_tick)
 	expect_agree(t, &n)
+	// The roster: every client knows every name.
+	for c in ([]^Client{n.host.client, n.clients[0], late}) {
+		testing.expect_value(t, netcode.client_player_name(c, 0), "Ada")
+		testing.expect_value(t, netcode.client_player_name(c, 1), "Grace")
+		testing.expect_value(t, netcode.client_player_name(c, 2), "Linus")
+		testing.expect(t, c.connected[0] && c.connected[1] && c.connected[2] && !c.connected[3])
+	}
 	// The first remote leaves: it disappears from `present` and the others go on.
 	netcode.client_stop(n.clients[0], n.clock.now)
 	net_run(&n, 2)

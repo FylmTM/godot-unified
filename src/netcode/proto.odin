@@ -5,7 +5,8 @@ package netcode
 import "../sim"
 import "../wire"
 
-PROTOCOL_VERSION :: 2
+PROTOCOL_VERSION :: 3
+NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
 TOLERANCE_MS :: 100 // relay hard tolerance: a tick is finalized at the latest this long after it is due
@@ -57,7 +58,7 @@ want_delay :: proc(rtt_us: f64, tm: Timing) -> u32 {
 }
 
 Msg :: enum u8 {
-	Hello = 1, // c->r R: protocol u16, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64
+	Hello = 1, // c->r R: protocol u16, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, name len u8 + bytes
 	Welcome, // r->c R: slot u8, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32
 	Reject, // r->c R: reason u8
 	Inputs, // c->r U: slot u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs
@@ -69,6 +70,7 @@ Msg :: enum u8 {
 	Done, // c->r R: slot u8, final tick u32 (fixed-length sessions)
 	End, // r->c R: the session is over (or the host left)
 	Leave, // c->r R: the client leaves its slot
+	Roster, // r->c R: slots u8, then per slot: connected u8, name len u8 + bytes
 }
 
 Reject_Reason :: enum u8 {
@@ -76,6 +78,35 @@ Reject_Reason :: enum u8 {
 	Slot_Taken,
 	Incompatible,
 	Not_Started, // a non-starting slot asked to join before the clock started
+}
+
+// A player name as fixed bytes (plain data, no allocation).
+Player_Name :: struct {
+	len:   u8,
+	bytes: [NAME_MAX]u8,
+}
+
+name_of :: proc(s: string) -> (n: Player_Name) {
+	n.len = u8(copy(n.bytes[:], s)) // a cut may split a UTF-8 sequence; names are display-only
+	return
+}
+
+name_string :: proc(n: ^Player_Name) -> string {
+	return string(n.bytes[:n.len])
+}
+
+@(private)
+w_name :: proc(w: ^wire.Writer, n: ^Player_Name) {
+	wire.w_u8(w, n.len)
+	wire.w_bytes(w, n.bytes[:n.len])
+}
+
+@(private)
+r_name :: proc(r: ^wire.Reader) -> (n: Player_Name) {
+	l := min(int(wire.r_u8(r)), NAME_MAX)
+	copy(n.bytes[:], wire.r_bytes(r, l))
+	n.len = u8(l)
+	return
 }
 
 @(private)
