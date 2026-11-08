@@ -178,6 +178,16 @@ func host_online() -> void:
 		_after(bot_join_seconds, _bot_join.bind(1)))
 
 
+## Host for direct (LAN/dev) connections on a UDP port: no lobby code; friends join with host:port.
+func host_direct(port: int) -> void:
+	_reset_world(0)
+	_set_status("connecting", "Opening port %d" % port)
+	_after(0.3, func() -> void:
+		_set_status("connected", "Hosting on port %d" % port)
+		_running = true
+		_after(bot_join_seconds, _bot_join.bind(1)))
+
+
 func join_online(code: String) -> void:
 	var c := code.strip_edges().to_upper()
 	_set_status("connecting", "Joining lobby " + c)
@@ -275,6 +285,13 @@ func debug_explode_nearest_barrel() -> void:
 			best = it
 	if best != null:
 		_explode(best)
+
+
+## Simulates losing the connection mid-session.
+func debug_disconnect() -> void:
+	_running = false
+	_clear_views()
+	_set_status("disconnected", "Connection to the host was lost.")
 
 
 func debug_spawn(count: int, radius := 27.0) -> void:

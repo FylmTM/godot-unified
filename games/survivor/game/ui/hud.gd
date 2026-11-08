@@ -23,6 +23,7 @@ const KEY_HINTS := ["1 / X", "2 / Y", "3 / B"]
 @onready var _side: PanelContainer = $Root/Side
 @onready var _side_heading: Label = $Root/Side/VBox/Heading
 @onready var _code_row: Control = $Root/Side/VBox/CodeRow
+@onready var _code_label: Label = $Root/Side/VBox/CodeRow/Label
 @onready var _code: Label = $Root/Side/VBox/CodeRow/Code
 @onready var _copy: Button = $Root/Side/VBox/CodeRow/Copy
 @onready var _list: VBoxContainer = $Root/Side/VBox/List
@@ -140,11 +141,19 @@ func _update_side(lobby: bool) -> void:
 	if not _side.visible:
 		return
 	_side_heading.text = "Lobby" if lobby else "Squad"
-	_code_row.visible = lobby and Game.lobby_code != ""
-	_code.text = Game.lobby_code
+	_code_row.visible = lobby and (Game.lobby_code != "" or Game.lan_address != "")
+	_code_label.text = "Code" if Game.lobby_code != "" else "LAN"
+	_code.text = Game.lobby_code if Game.lobby_code != "" else Game.lan_address
+	_code.add_theme_font_size_override(&"font_size", 30 if Game.lobby_code != "" else 18)
 	_side_hint.visible = lobby
 	if present.size() < 2:
-		_side_hint.text = "Waiting for a friend. Share the code; they join from the main menu." if Game.mode == Game.Mode.HOST else "Waiting for players."
+		match Game.mode:
+			Game.Mode.HOST:
+				_side_hint.text = "Waiting for a friend. Share the code; they join from the main menu."
+			Game.Mode.HOST_LAN:
+				_side_hint.text = "Waiting for a friend. They pick Join by address and type the address above."
+			_:
+				_side_hint.text = "Waiting for players."
 	else:
 		_side_hint.text = "Anyone walking out of the circle starts the match."
 	var local_slot: int = Game.hud.get("local_slot", 0)
@@ -228,7 +237,7 @@ func _choose(option: int) -> void:
 
 
 func _copy_code() -> void:
-	DisplayServer.clipboard_set(Game.lobby_code)
+	DisplayServer.clipboard_set(Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0))
 	Sfx.play(&"gem")
 	_copy.text = "Copied!"
 	get_tree().create_timer(1.2).timeout.connect(func() -> void:

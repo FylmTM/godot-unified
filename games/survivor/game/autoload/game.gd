@@ -12,7 +12,9 @@ signal status_changed(status: String, detail: String)
 signal lobby_code_changed(code: String)
 
 enum Flow { MENU, CONNECTING, PLAYING }
-enum Mode { SINGLE, HOST, JOIN }
+enum Mode { SINGLE, HOST, HOST_LAN, JOIN }
+
+const LAN_PORT := 7777
 
 const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const ARENA_SCENE := "res://game/arena/arena.tscn"
@@ -25,6 +27,8 @@ var mode := Mode.SINGLE
 var status := "idle"
 var status_detail := ""
 var lobby_code := ""
+## When hosting on LAN: the address friends join (host:port, first private IPv4), shown where the code would be.
+var lan_address := ""
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
 ## The sim's HUD dictionary (contract: phase, tick, time_s, wave, ...), refreshed every frame.
@@ -102,6 +106,14 @@ func host_online() -> void:
 	session.host_online()
 
 
+func host_direct(port := LAN_PORT) -> void:
+	_begin(Mode.HOST_LAN)
+	lan_address = ", ".join(_lan_ips().map(func(ip: String) -> String: return "%s:%d" % [ip, port]))
+	if lan_address == "":
+		lan_address = "127.0.0.1:%d" % port
+	session.host_direct(port)
+
+
 func join_online(code: String) -> void:
 	_begin(Mode.JOIN)
 	session.join_online(code)
@@ -118,6 +130,7 @@ func leave_to_menu(error := "") -> void:
 	if status != "idle":
 		session.leave()
 	lobby_code = ""
+	lan_address = ""
 	_hide_connect_overlay()
 	if flow != Flow.MENU:
 		_set_flow(Flow.MENU)
@@ -149,11 +162,22 @@ func _begin(m: Mode) -> void:
 	mode = m
 	last_error = ""
 	lobby_code = ""
+	lan_address = ""
 	if session.has_method(&"set_player_name"):
 		session.set_player_name(Settings.get_value(&"player_name"))
 	_set_flow(Flow.CONNECTING)
 	if m != Mode.SINGLE:
 		_show_connect_overlay()
+
+
+## Private IPv4 addresses of this machine (what a LAN friend types).
+static func _lan_ips() -> Array:
+	var out := []
+	for ip: String in IP.get_local_addresses():
+		if ip.begins_with("192.168.") or ip.begins_with("10.") or (ip.begins_with("172.") and int(ip.split(".")[1]) >= 16 and int(ip.split(".")[1]) <= 31):
+			out.append(ip)
+	out.sort()
+	return out.slice(0, 1)
 
 
 func _set_flow(f: Flow) -> void:

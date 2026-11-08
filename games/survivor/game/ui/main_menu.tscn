@@ -231,6 +231,11 @@ size_flags_horizontal = 3
 theme_type_variation = &"PrimaryButton"
 text = "Connect"
 
+[node name="HostLan" type="Button" parent="UI/Root/Side/AddressPanel/VBox"]
+layout_mode = 2
+tooltip_text = "Others on your network join with this machine's address"
+text = "Host on LAN instead (port 7777)"
+
 [node name="ErrorPanel" type="PanelContainer" parent="UI/Root/Side"]
 visible = false
 custom_minimum_size = Vector2(460, 0)

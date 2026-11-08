@@ -153,6 +153,21 @@ func _run() -> void:
 	await _frames(4)
 	await _shot("07_match_coop")
 	_step("co-op match")
+
+	# Losing the connection mid-match returns to the menu with the reason.
+	mock.debug_disconnect()
+	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "MainMenu" and _find(current_scene, "UI/Root/Side/ErrorPanel").visible, 3.0, "disconnect shows the error on the menu")
+	_expect(String(_find(current_scene, "UI/Root/Side/ErrorPanel/VBox/Message").text).begins_with("Disconnected"), "error names the disconnect")
+	await _click(_find(current_scene, "UI/Root/Side/ErrorPanel/VBox/Ok"))
+	_step("disconnect -> menu with the reason")
+
+	# Host on LAN from the address panel: the lobby panel shows this machine's address instead of a code.
+	await _click(_find(current_scene, "UI/Root/Left/VBox/Buttons/Address"))
+	await _click(_find(current_scene, "UI/Root/Side/AddressPanel/VBox/HostLan"))
+	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "Arena", 3.0, "LAN host reaches the arena")
+	await _frames(2)
+	_expect(String(_find(current_scene, "HUD/Root/Side/VBox/CodeRow/Code").text).ends_with(":7777"), "lobby panel shows host:port")
+	_step("hosted on LAN: %s" % game.lan_address)
 	game.leave_to_menu()
 	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "MainMenu", 3.0, "leave returns to the menu")
 

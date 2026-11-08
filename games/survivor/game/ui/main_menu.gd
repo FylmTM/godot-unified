@@ -37,6 +37,7 @@ func _ready() -> void:
 	_addr.text_submitted.connect(func(_t: String) -> void: _join_address())
 	$UI/Root/Side/AddressPanel/VBox/Row/Go.pressed.connect(_click.bind(_join_address))
 	$UI/Root/Side/AddressPanel/VBox/Row/Back.pressed.connect(_click.bind(_show.bind(null)))
+	$UI/Root/Side/AddressPanel/VBox/HostLan.pressed.connect(_click.bind(Game.host_direct.bind(Game.LAN_PORT)))
 	$UI/Root/Side/ErrorPanel/VBox/Ok.pressed.connect(_click.bind(_show.bind(null)))
 	if Game.last_error != "":
 		$UI/Root/Side/ErrorPanel/VBox/Message.text = Game.last_error
