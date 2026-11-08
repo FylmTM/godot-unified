@@ -1,0 +1,211 @@
+extends SceneTree
+## A tour of the real game with the native session (the game library must be built), driven by input actions:
+##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
+## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the
+## match is lost -> over -> back to the lobby -> leave. `--quick` stops after the match has enemies (a headless
+## smoke check of the real flow, a few seconds). Prints steps and `TOUR_JSON {...}`; exits 1 on failure or errors.
+
+var cap: Logger
+var shots_dir := ""
+var quick := false
+var _t0 := 0
+var _started := false
+var _failed := ""
+var _done := false
+var _steps: Array[Dictionary] = []
+
+
+func _init() -> void:
+	cap = load("res://game/tools/log_capture.gd").new()
+	OS.add_logger(cap)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shots="):
+			shots_dir = a.trim_prefix("--shots=")
+		elif a == "--quick":
+			quick = true
+
+
+func _process(_delta: float) -> bool:
+	if not _started:
+		_started = true
+		_t0 = Time.get_ticks_msec()
+		_run()
+	return false
+
+
+func _run() -> void:
+	var game: Node = root.get_node(^"Game")
+	if game.is_mock:
+		_fail("the tour needs the game library (python tools/dev.py game build survivor)")
+		return
+	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
+	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 5.0, "main menu")
+	await _seconds(0.5)
+	await _shot("r01_menu")
+	_step("menu (native session)")
+
+	await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Single"))
+	await _wait_for(func() -> bool: return _scene_is("Arena"), 5.0, "arena")
+	await _wait_for(func() -> bool: return game.hud.get("phase") == "lobby" and _player_views() >= 1, 8.0, "lobby with the player")
+	await _seconds(1.0)
+	await _shot("r02_lobby")
+	_step("lobby: circle %.1f m, %d views" % [game.hud.circle_radius, current_scene.get_node(^"Views").get_child_count()])
+
+	# Walk out of the circle (diagonally, between the crates).
+	Input.action_press(&"move_right")
+	Input.action_press(&"move_back")
+	await _seconds(0.25)
+	await _shot("r02b_leaving")  # the ring heats up near the edge
+	await _wait_for(func() -> bool: return game.hud.get("phase") == "match", 6.0, "walking out starts the match")
+	_step("match started")
+	await _seconds(0.15)
+	Input.action_release(&"move_back")
+	await _shot("r03_match_start")  # shockwave + flash
+	await _wait_for(func() -> bool: return int(game.hud.enemies_alive) > 0, 8.0, "enemies spawn")
+	_step("enemies: %d" % game.hud.enemies_alive)
+	if quick:
+		_release_all()
+		_finish()
+		return
+
+	# Kite in a big circle so the auto-attack works and gems get collected.
+	var dirs := [[&"move_right"], [&"move_right", &"move_back"], [&"move_back"], [&"move_left", &"move_back"], [&"move_left"], [&"move_left", &"move_forward"], [&"move_forward"], [&"move_right", &"move_forward"]]
+	var leveled := false
+	var shot_fight := false
+	var shot_dead := false
+	for i in 400:  # up to ~40 s
+		_release_all()
+		for a: StringName in dirs[(i / 4) % dirs.size()]:
+			Input.action_press(a)
+		if i % 25 == 0:
+			_press(&"dash")
+		await _seconds(0.1)
+		if not shot_fight and int(game.hud.enemies_alive) > 25:
+			shot_fight = true
+			await _shot("r04_fight")
+		if int(game.local_player().get("pending_levelups", 0)) > 0 and not leveled:
+			leveled = true
+			await _seconds(0.3)
+			await _shot("r05_levelup")
+			_press(&"levelup_2")
+			_step("level-up offered and chosen (key 2)")
+		if (leveled and shot_fight and i > 150) or game.hud.get("phase") != "match":
+			break
+		if not game.local_player().get("alive", true) and not shot_dead:
+			shot_dead = true
+			await _seconds(0.25)
+			await _shot("r05b_down")
+	_release_all()
+	await _shot("r06_fight_later")
+	_step("fight: wave %d, %d enemies, level %d" % [game.hud.wave, game.hud.enemies_alive, game.local_player().get("level", 0)])
+
+	# Stand still until the horde wins.
+	await _wait_for(func() -> bool: return game.hud.get("phase") == "over", 90.0, "the match is lost")
+	await _seconds(0.8)
+	await _shot("r07_over")
+	_step("match over after %.0f s" % game.hud.time_s)
+	await _wait_for(func() -> bool: return game.hud.get("phase") == "lobby", 10.0, "back to the lobby")
+	await _seconds(0.8)
+	await _shot("r08_back_in_lobby")
+	_step("back in the lobby")
+	game.leave_to_menu()
+	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 5.0, "leave")
+	_step("left to the menu")
+	_finish()
+
+
+func _scene_is(n: String) -> bool:
+	return current_scene != null and current_scene.name == n
+
+
+func _player_views() -> int:
+	var n := 0
+	for v in current_scene.get_node(^"Views").get_children():
+		if v is GameView and v.kind == &"player":
+			n += 1
+	return n
+
+
+func _release_all() -> void:
+	for a: StringName in [&"move_left", &"move_right", &"move_forward", &"move_back", &"dash", &"levelup_1", &"levelup_2", &"levelup_3"]:
+		Input.action_release(a)
+
+
+func _press(a: StringName) -> void:
+	Input.action_press(a)
+	await process_frame
+	await process_frame
+	Input.action_release(a)
+
+
+func _step(name: String) -> void:
+	if _failed != "":
+		return
+	var ms := Time.get_ticks_msec() - _t0
+	_steps.append({"step": name, "ms": ms})
+	print("  ok  %6d ms  %s" % [ms, name])
+
+
+func _fail(msg: String) -> void:
+	if _failed != "":
+		return
+	_failed = msg
+	print("  FAIL  " + msg)
+	_finish()
+
+
+func _finish() -> void:
+	if _done:
+		return
+	_done = true
+	var errors: Array = cap.errors.filter(func(e: Dictionary) -> bool: return not String(e.msg).contains("ObjectDB"))
+	var ok := _failed == "" and errors.is_empty()
+	print("tour: %d steps, %s in %d ms" % [_steps.size(), "OK" if ok else "FAILED", Time.get_ticks_msec() - _t0])
+	if not cap.errors.is_empty() or not cap.warnings.is_empty():
+		print(cap.report())
+	print("TOUR_JSON " + JSON.stringify({"ok": ok, "steps": _steps, "failed": _failed, "errors": errors}))
+	OS.remove_logger(cap)
+	var game: Node = root.get_node(^"Game")
+	if game.status != "idle":
+		game.session.leave()
+	quit(0 if ok else 1)
+
+
+func _seconds(s: float) -> void:
+	var end := Time.get_ticks_msec() + int(s * 1000.0)
+	while Time.get_ticks_msec() < end and _failed == "":
+		await process_frame
+
+
+func _wait_for(cond: Callable, timeout_s: float, what: String) -> void:
+	var end := Time.get_ticks_msec() + int(timeout_s * 1000.0)
+	while _failed == "":
+		if cond.call():
+			return
+		if Time.get_ticks_msec() > end:
+			_fail("timed out (%.0f s): %s" % [timeout_s, what])
+			return
+		await process_frame
+
+
+func _click(c: Control) -> void:
+	var pos := c.get_viewport().get_final_transform() * (c.get_global_transform_with_canvas() * (c.size / 2.0))
+	for pressed: bool in [true, false]:
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = pressed
+		e.position = pos
+		e.global_position = pos
+		Input.parse_input_event(e)
+		await process_frame
+	await process_frame
+
+
+func _shot(name: String) -> void:
+	if shots_dir == "" or _failed != "":
+		return
+	await RenderingServer.frame_post_draw
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	var path := shots_dir.path_join(name + ".png")
+	root.get_texture().get_image().save_png(path)
+	print("  shot " + ProjectSettings.globalize_path(path))

@@ -159,6 +159,14 @@ alignment = 1
 context_menu_enabled = false
 caret_blink = true
 
+[node name="Pasted" type="Label" parent="UI/Root/Side/JoinPanel/VBox"]
+visible = false
+layout_mode = 2
+theme_type_variation = &"Dim"
+theme_override_colors/font_color = Color(0.365, 1, 0.694, 1)
+theme_override_font_sizes/font_size = 14
+text = "Filled in from your clipboard"
+
 [node name="Error" type="Label" parent="UI/Root/Side/JoinPanel/VBox"]
 visible = false
 layout_mode = 2

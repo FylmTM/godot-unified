@@ -41,6 +41,7 @@ func _ready() -> void:
 	$UI/Root/Side/ErrorPanel/VBox/Ok.pressed.connect(_click.bind(_show.bind(null)))
 	if Game.last_error != "":
 		$UI/Root/Side/ErrorPanel/VBox/Message.text = Game.last_error
+		$UI/Root/Side/ErrorPanel/VBox/Heading.text = "Disconnected" if Game.last_error.begins_with("Disconnected") else "Couldn't connect"
 		Game.last_error = ""
 		_show(_error_panel)
 	else:
@@ -81,6 +82,7 @@ func _show(panel: Control) -> void:
 		_buttons.get_node(^"Single").grab_focus()
 	elif panel == _join_panel:
 		_code_error.visible = false
+		_prefill_code()
 		_code.grab_focus()
 		_code.caret_column = _code.text.length()
 	elif panel == _addr_panel:
@@ -116,8 +118,21 @@ func _on_code_changed(text: String) -> void:
 	_code_error.visible = false
 
 
+## Opening the Join panel with a lobby code on the clipboard (copied from a chat) fills it in.
+func _prefill_code() -> void:
+	var clip := Game.clipboard_get().strip_edges()
+	var code := _clean_code(clip)
+	var looks_like_code := code.length() == 6 and clip.length() <= 12
+	$UI/Root/Side/JoinPanel/VBox/Pasted.visible = looks_like_code and _code.text != code
+	if looks_like_code and _code.text == "":
+		_code.text = code
+		_on_code_changed(code)
+	else:
+		$UI/Root/Side/JoinPanel/VBox/Pasted.visible = false
+
+
 func _paste_code() -> void:
-	_code.text = _clean_code(DisplayServer.clipboard_get())
+	_code.text = _clean_code(Game.clipboard_get())
 	_on_code_changed(_code.text)
 	_code.caret_column = _code.text.length()
 	_code.grab_focus()

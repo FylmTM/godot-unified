@@ -51,7 +51,19 @@ and load without the library (Godot replaces unknown native node types with a pl
 
 `python tools/dev.py game validate` (compile every script, load and instantiate every scene, flag unknown `.tscn`
 properties, run the menu 30 frames; ~0.5 s) and `game walk` (headless scripted walk through every flow with the mock,
-real input events; ~2.5 s). `game shots` runs the walk in a window and writes PNGs to `games/survivor/.uni/shots/`.
+real input events; ~2.5 s). `game shots` runs the walk in a window and writes PNGs to `games/survivor/.uni/shots/`. `game tour` plays the real
+game (library built): headless, menu → single → lobby → walk out → match with enemies (~2.6 s); `--shots` plays a
+whole match in a window to game over and back to the lobby, PNGs in `games/survivor/.uni/tour/`.
+
+## Feel
+
+Camera: 62° pitch, closer in the lobby, look-ahead along the player's velocity. Start: the ring warms to orange and
+pulses faster as a player nears its edge (the hint changes too); the match start bursts it outwards with a short
+flash, shake and rumble. Damage: red screen edges (capped), low-HP pulse below 30 %, rumble, hit flash on the player.
+XP bar flashes on pickup; level-up cards pop when picked (key, pad or click) and the panel lingers 0.35 s. Match over:
+time, wave, level, best time (`user://settings.cfg`), countdown to the lobby (assumes the sim's 5 s hold). Hints
+and level-up key labels follow the last input device; pads get A/B on `ui_accept`/`ui_cancel` (none by default in
+Godot 4.7). The host's code is copied to the clipboard on arrival; the Join panel prefills a code found on it.
 `tools/game.py` lists in `.godot/extension_list.cfg` only the extensions whose library exists for this host.
 
 ## Art direction

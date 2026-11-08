@@ -10,6 +10,8 @@ extends Node
 signal flow_changed(flow: Flow)
 signal status_changed(status: String, detail: String)
 signal lobby_code_changed(code: String)
+## The last input came from a gamepad (true) or keyboard/mouse (false): hints and key labels follow it.
+signal input_device_changed(pad: bool)
 
 enum Flow { MENU, CONNECTING, PLAYING }
 enum Mode { SINGLE, HOST, HOST_LAN, JOIN }
@@ -33,6 +35,8 @@ var lan_address := ""
 var last_error := ""
 ## The sim's HUD dictionary (contract: phase, tick, time_s, wave, ...), refreshed every frame.
 var hud: Dictionary = {}
+## True while the player is using a gamepad (last input event came from one).
+var using_pad := false
 
 var _overlay_layer: CanvasLayer
 var _connect_overlay: Control
@@ -84,6 +88,35 @@ func _process(delta: float) -> void:
 		_fps_label.text = "%d FPS  ·  %.1f ms" % [roundi(1000.0 / maxf(_frame_ms, 0.01)), _frame_ms]
 	if _debug_label != null and _debug_label.visible:
 		_debug_label.text = _debug_text()
+
+
+func _input(event: InputEvent) -> void:
+	var pad := event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.5)
+	var kbm := event is InputEventKey or event is InputEventMouseButton
+	if (pad and not using_pad) or (kbm and using_pad):
+		using_pad = pad
+		input_device_changed.emit(pad)
+
+
+## A short rumble on the gamepad in use (no-op without one).
+func rumble(weak: float, strong: float, seconds: float) -> void:
+	for d in Input.get_connected_joypads():
+		Input.start_joy_vibration(d, weak, strong, seconds)
+
+
+## Clipboard access that is a no-op where the display server has none (headless tools).
+static func clipboard_get() -> String:
+	return DisplayServer.clipboard_get() if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD) else ""
+
+
+static func clipboard_set(text: String) -> void:
+	if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		DisplayServer.clipboard_set(text)
+
+
+## "keyboard text" or "pad text", whichever device the player uses.
+func hint(keys: String, pad: String) -> String:
+	return pad if using_pad else keys
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -203,7 +236,11 @@ func _on_status_changed(new_status: String, detail: String) -> void:
 
 
 func _on_lobby_code(code: String) -> void:
+	if mode == Mode.HOST_LAN:
+		return  # the native LAN host reports its port here; friends need the address (lan_address)
 	lobby_code = code
+	if mode == Mode.HOST and code != "":
+		clipboard_set(code)  # the host's next move is pasting it to a friend
 	lobby_code_changed.emit(code)
 
 
@@ -222,6 +259,8 @@ func _hide_connect_overlay() -> void:
 func _on_setting_changed(key: StringName, value: Variant) -> void:
 	if key == &"show_fps":
 		_fps_label.visible = value
+	elif key == &"player_name" and session.has_method(&"set_player_name"):
+		session.set_player_name(value)  # takes effect when the next session starts
 
 
 ## macOS Retina: the project size is in pixels, so a 1280x720 window opens at half size. Scale it once at boot.

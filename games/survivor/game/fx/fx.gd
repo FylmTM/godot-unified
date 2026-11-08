@@ -54,14 +54,37 @@ func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool
 			_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 			_shake(0.45 if local else 0.2)
 			Sfx.play(&"die")
+			if local:
+				Game.rumble(0.6, 1.0, 0.5)
 		&"player_respawned":
 			_ring(pos + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
 			_burst(pos + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
 			Sfx.play(&"respawn", -4.0)
 		&"match_started":
 			Sfx.play(&"start")
+			Game.rumble(0.3, 0.5, 0.25)
 		&"match_over":
 			Sfx.play(&"over")
+
+
+## The match starts: the start circle bursts outwards across the arena.
+func shockwave(from_radius: float) -> void:
+	var r := MeshInstance3D.new()
+	r.mesh = _ring_mesh
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(UiTheme.CYAN * 1.3, 0.9)
+	r.material_override = m
+	r.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(r)
+	r.position = Vector3(0, 0.08, 0)
+	r.scale = Vector3(from_radius, 1.0, from_radius)
+	var tw := r.create_tween().set_parallel()
+	tw.tween_property(r, "scale", Vector3(34, 1, 34), 0.9).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUART)
+	tw.tween_property(m, "albedo_color:a", 0.0, 0.9).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(r.queue_free)
+	_shake(0.3)
 
 
 func _explosion(pos: Vector3, radius: float) -> void:
@@ -81,6 +104,7 @@ func _explosion(pos: Vector3, radius: float) -> void:
 	_ring(pos + Vector3(0, 0.15, 0), FIRE, radius, 0.4)
 	_shake(0.55)
 	Sfx.play(&"boom")
+	Game.rumble(0.4, 0.8, 0.3)
 
 
 ## A one-shot cube spray; frees itself after its lifetime.

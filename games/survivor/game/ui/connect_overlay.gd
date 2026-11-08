@@ -15,10 +15,10 @@ func _ready() -> void:
 	Game.status_changed.connect(func(_s: String, _d: String) -> void: _refresh())
 	Game.lobby_code_changed.connect(func(_c: String) -> void: _refresh())
 	_copy.pressed.connect(_copy_code)
-	$Center/Panel/VBox/Cancel.pressed.connect(func() -> void:
+	$Center/Panel/VBox/Bottom/Cancel.pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
-	$Center/Panel/VBox/Cancel.grab_focus()
+	$Center/Panel/VBox/Bottom/Cancel.grab_focus()
 	_refresh()
 
 
@@ -39,10 +39,11 @@ func _refresh() -> void:
 	_detail.text = Game.status_detail if Game.status_detail != "" else "Talking to the lobby service."
 	_code_box.visible = Game.lobby_code != ""
 	_code.text = Game.lobby_code
+	$Center/Panel/VBox/Bottom/KeyHint.text = Game.hint("Esc to cancel", "B to cancel")
 
 
 func _copy_code() -> void:
-	DisplayServer.clipboard_set(Game.lobby_code)
+	Game.clipboard_set(Game.lobby_code)
 	Sfx.play(&"gem")
 	_copy.text = "Copied!"
 	get_tree().create_timer(1.2).timeout.connect(func() -> void:

@@ -8,7 +8,10 @@ const UPGRADES := [
 	["Damage", "+3 damage per shot"],
 	["Move speed", "+0.5 m/s"],
 ]
-const KEY_HINTS := ["1 / X", "2 / Y", "3 / B"]
+const KEYS := ["1", "2", "3"]
+const PAD_KEYS := ["X", "Y", "B"]
+## The sim holds "over" this long before returning to the lobby (spec/GAME.md); only for the countdown text.
+const OVER_HOLD_S := 5.0
 
 @onready var _card_name: Label = $Root/PlayerCard/VBox/Top/Name
 @onready var _card_level: Label = $Root/PlayerCard/VBox/Top/Level
@@ -35,11 +38,22 @@ const KEY_HINTS := ["1 / X", "2 / Y", "3 / B"]
 @onready var _pending: Label = $Root/LevelUp/VBox/Pending
 @onready var _over: Control = $Root/GameOver
 @onready var _hp_fill: StyleBoxFlat = _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
+@onready var _vignette: ShaderMaterial = $Root/Vignette.material
+@onready var _flash: ColorRect = $Root/Flash
+@onready var _hint_main: Label = $Root/Hint/Main
+@onready var _hint_keys: Label = $Root/Hint/Keys
+@onready var _options: HBoxContainer = $Root/LevelUp/VBox/Options
 
 var _rows: Array[Dictionary] = []
 var _last_wave := 0
 var _last_phase := ""
 var _t := 0.0
+var _last_hp := -1.0
+var _last_xp := -1
+var _hurt := 0.0  # 0..1, decays: the red edge flash after taking damage
+var _levelup_hold := 0.0  # keeps the panel up briefly after a choice so the picked card can be seen
+var _over_since := 0.0
+var _new_best := false
 
 
 func _ready() -> void:
@@ -47,10 +61,11 @@ func _ready() -> void:
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size = Vector2(200, 112)
-		b.text = "%s\n%s\n[%s]" % [UPGRADES[i][0], UPGRADES[i][1], KEY_HINTS[i]]
 		b.add_theme_font_size_override(&"font_size", 18)
 		b.pressed.connect(_choose.bind(i + 1))
-		$Root/LevelUp/VBox/Options.add_child(b)
+		_options.add_child(b)
+	Game.input_device_changed.connect(func(_pad: bool) -> void: _label_keys())
+	_label_keys()
 	for i in 4:
 		_rows.append(_make_row())
 	_copy.pressed.connect(_copy_code)
@@ -63,10 +78,13 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	for i in 3:
+		if Input.is_action_just_pressed(StringName("levelup_%d" % (i + 1))) and _levelup.visible:
+			_picked(i)  # the sim reads the key itself; this is only the visual feedback
 	_refresh(delta)
 
 
-func _refresh(_delta: float) -> void:
+func _refresh(delta: float) -> void:
 	var h := Game.hud
 	var phase: String = h.get("phase", "lobby")
 	var me := Game.local_player()
@@ -85,6 +103,19 @@ func _refresh(_delta: float) -> void:
 		_xp.max_value = maxi(me.xp_next, 1)
 		_xp.value = me.xp
 		_xp_text.text = "XP %d / %d" % [me.xp, me.xp_next]
+		# Feedback: red edges and a rumble when hurt; the XP bar flashes on a gem.
+		if _last_hp >= 0.0 and me.hp < _last_hp - 0.01 and me.alive:
+			_hurt = minf(_hurt + 0.25 + (_last_hp - me.hp) / maxf(me.hp_max, 1.0) * 1.5, 0.6)
+			Game.rumble(0.25, 0.35, 0.12)
+		_last_hp = me.hp
+		if _last_xp >= 0 and int(me.xp) > _last_xp:
+			_xp.modulate = Color(2.2, 2.2, 2.2)
+			_xp.create_tween().tween_property(_xp, "modulate", Color.WHITE, 0.3)
+		_last_xp = me.xp
+	var hp_ratio: float = float(me.get("hp", 1)) / maxf(float(me.get("hp_max", 1)), 1.0)
+	var low: float = (0.25 + 0.15 * sin(_t * 6.0)) * (1.0 - hp_ratio / 0.3) if hp_ratio < 0.3 and me.get("alive", false) and phase == "match" else 0.0
+	_hurt = maxf(_hurt - delta * 2.5, 0.0) if me.get("alive", false) else 0.0
+	_vignette.set_shader_parameter(&"intensity", clampf(maxf(_hurt, low), 0.0, 0.6))
 
 	# Wave, time, enemies.
 	_top.visible = not lobby
@@ -93,10 +124,16 @@ func _refresh(_delta: float) -> void:
 	var n: int = h.get("enemies_alive", 0)
 	_enemies.text = "%d %s" % [n, "enemy" if n == 1 else "enemies"]
 
-	# Start hint.
+	# Start hint: warms up as a player nears the circle's edge.
 	_hint.visible = lobby
 	if lobby:
-		_hint.modulate.a = 0.65 + 0.35 * sin(_t * 3.0)
+		var urgency: float = get_parent().get(&"start_urgency") if get_parent().get(&"start_urgency") != null else 0.0
+		_hint_main.text = "Step out to start the match!" if urgency > 0.5 else "Walk out of the circle to start"
+		_hint_main.add_theme_color_override(&"font_color", UiTheme.CYAN.lerp(UiTheme.ACCENT, urgency))
+		_hint.modulate.a = lerpf(0.65 + 0.35 * sin(_t * 3.0), 1.0, urgency)
+		_hint_keys.text = Game.hint(
+			"WASD / arrows to move  ·  Space to dash  ·  Esc for the menu",
+			"Left stick to move  ·  A to dash  ·  Start for the menu")
 
 	_update_side(lobby)
 
@@ -109,26 +146,74 @@ func _refresh(_delta: float) -> void:
 	# Level-up choice.
 	var pending: int = me.get("pending_levelups", 0)
 	var show_levelup: bool = pending > 0 and phase == "match" and me.get("alive", false)
+	_levelup_hold = maxf(_levelup_hold - delta, 0.0)
 	if show_levelup and not _levelup.visible:
+		for b: Button in _options.get_children():
+			b.modulate = Color.WHITE
+			b.scale = Vector2.ONE
 		_levelup.scale = Vector2(0.9, 0.9)
 		_levelup.pivot_offset = _levelup.size / 2.0
 		_levelup.create_tween().tween_property(_levelup, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK)
-	_levelup.visible = show_levelup
+	_levelup.visible = show_levelup or _levelup_hold > 0.0
 	_pending.text = "Choose an upgrade" + ("  ·  %d pending" % pending if pending > 1 else "")
 
 	# Match over.
 	if phase == "over" and _last_phase != "over":
-		$Root/GameOver/Center/Panel/VBox/Survived.text = "You survived %s" % _clock(h.get("time_s", 0.0))
-		$Root/GameOver/Center/Panel/VBox/Stats.text = "Reached wave %d  ·  level %d" % [h.get("wave", 0), me.get("level", 1)]
+		_on_match_over(h, me)
 	_over.visible = phase == "over"
 	_banner.visible = phase != "over"
 	if phase == "over":
-		$Root/GameOver/Center/Panel/VBox/Back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
+		var left := ceilf(OVER_HOLD_S - (_t - _over_since))
+		var back: Label = $Root/GameOver/Center/Panel/VBox/Back
+		back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
+		back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
+		$Root/GameOver/Center/Panel/VBox/MenuHint.text = Game.hint("Esc: menu", "Start: menu")
 
 	if phase == "match" and int(h.get("wave", 0)) > _last_wave and _last_wave > 0:
 		_show_banner("WAVE %d" % h.wave, UiTheme.CYAN)
 	_last_wave = h.get("wave", 0) if phase == "match" else 0
 	_last_phase = phase
+
+
+func _on_match_over(h: Dictionary, me: Dictionary) -> void:
+	_over_since = _t
+	var time_s: float = h.get("time_s", 0.0)
+	var vbox := $Root/GameOver/Center/Panel/VBox
+	vbox.get_node(^"Title").text = "GAME OVER"
+	vbox.get_node(^"Survived").text = "You survived %s" % _clock(time_s)
+	vbox.get_node(^"Stats").text = "Wave %d  ·  level %d  ·  %d enemies left" % [h.get("wave", 0), me.get("level", 0), h.get("enemies_alive", 0)]
+	var best: float = Settings.get_value(&"best_time")
+	_new_best = time_s > best + 0.01
+	if _new_best:
+		Settings.set_value(&"best_time", time_s)
+	var best_label: Label = vbox.get_node(^"Best")
+	best_label.text = "New best!" if _new_best else "Best: %s" % _clock(best)
+	best_label.add_theme_color_override(&"font_color", Color("ffd23f") if _new_best else UiTheme.TEXT_DIM)
+	var panel: Control = $Root/GameOver/Center/Panel
+	panel.pivot_offset = panel.size / 2.0
+	panel.scale = Vector2(0.85, 0.85)
+	panel.modulate.a = 0.0
+	var tw := panel.create_tween().set_parallel()
+	tw.tween_property(panel, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(panel, "modulate:a", 1.0, 0.25)
+
+
+func _label_keys() -> void:
+	var keys: Array = PAD_KEYS if Game.using_pad else KEYS
+	for i in _options.get_child_count():
+		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [UPGRADES[i][0], UPGRADES[i][1], keys[i]]
+
+
+## Visual feedback for a level-up pick (key, pad button or click): pop the card, hold the panel a moment.
+func _picked(i: int) -> void:
+	var b: Button = _options.get_child(i)
+	b.pivot_offset = b.size / 2.0
+	b.modulate = Color(1.6, 1.4, 0.6)
+	var tw := b.create_tween()
+	tw.tween_property(b, "scale", Vector2(1.12, 1.12), 0.08)
+	tw.tween_property(b, "scale", Vector2.ONE, 0.12)
+	_levelup_hold = 0.35
+	Sfx.play(&"click")
 
 
 func _update_side(lobby: bool) -> void:
@@ -207,13 +292,17 @@ func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, val
 	match kind:
 		&"match_started":
 			_show_banner("SURVIVE!", UiTheme.ACCENT)
+			_flash.color.a = 0.12
+			_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
 		&"level_up":
 			if entity == int(Game.hud.get("local_slot", 0)):
 				_show_banner("LEVEL %d" % int(value), Color("ffd23f"))
 		&"player_joined":
-			_show_banner("A PLAYER JOINED", UiTheme.GOOD, 32)
+			if entity != int(Game.hud.get("local_slot", 0)):  # your own join is not news
+				_show_banner("%s JOINED" % _name_of(entity).to_upper(), UiTheme.GOOD, 32)
 		&"player_left":
-			_show_banner("A PLAYER LEFT", UiTheme.TEXT_DIM, 32)
+			if entity != int(Game.hud.get("local_slot", 0)):
+				_show_banner("%s LEFT" % _name_of(entity).to_upper(), UiTheme.TEXT_DIM, 32)
 
 
 func _show_banner(text: String, color: Color, size := 60) -> void:
@@ -232,12 +321,19 @@ func _show_banner(text: String, color: Color, size := 60) -> void:
 
 
 func _choose(option: int) -> void:
-	Sfx.play(&"click")
+	_picked(option - 1)
 	Game.session.choose_levelup(option)
 
 
+func _name_of(slot: int) -> String:
+	for p: Dictionary in Game.hud.get("players", []):
+		if p.get("slot", -1) == slot:
+			return Game.player_name(p)
+	return "P%d" % (slot + 1)
+
+
 func _copy_code() -> void:
-	DisplayServer.clipboard_set(Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0))
+	Game.clipboard_set(Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0))
 	Sfx.play(&"gem")
 	_copy.text = "Copied!"
 	get_tree().create_timer(1.2).timeout.connect(func() -> void:

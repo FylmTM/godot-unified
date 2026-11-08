@@ -4,6 +4,12 @@ directly with the same arguments: `python tools/game.py validate`):
     python tools/dev.py game validate [--game survivor]   # compile scripts, load scenes, run the menu 30 frames
     python tools/dev.py game walk                         # scripted UI walk with the mock session (headless)
     python tools/dev.py game shots                        # the walk in a window, PNGs to games/<game>/.uni/shots/
+    python tools/dev.py game tour [--shots]               # the real game (library built): single player through
+                                                          # lobby/match; headless quick check, or windowed with
+                                                          # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
+    python tools/dev.py game coop [--shots]               # real online co-op over EOS: a host and a headless
+                                                          # joiner (typed code) in two processes (~25 s; manual:
+                                                          # EOS may show macOS keychain prompts)
     python tools/dev.py game import                       # refresh Godot's import cache (.godot/)
 
 Godot: $GODOT, else `godot` on PATH, else ~/tools/godot/Godot_v4.7.2.app (macOS). Every run has a timeout (Godot
@@ -91,6 +97,7 @@ def ensure_imported(proj):
         stamp.write_text(import_signature(proj))  # the import may have added .uid files
     exts = sync_extension_list(proj)
     log("game: extensions: %s" % (", ".join(exts) if exts else "none built (mock session)"))
+    return exts
 
 
 HOST_KEYS = {"macos": ["macos.debug", "macos.release", "macos"], "windows": ["windows.x86_64", "windows"],
@@ -131,7 +138,7 @@ def cmd_game(argv):
     if sub == "import":
         ensure_imported(proj)
         return
-    ensure_imported(proj)
+    exts = ensure_imported(proj)
     if sub == "validate":
         ok, data, secs = run_godot(
             proj, ["--headless", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60, "VALIDATE_JSON")
@@ -148,11 +155,66 @@ def cmd_game(argv):
                 180, "WALK_JSON")
         finally:
             _restore_app(front)
+    elif sub == "tour":
+        if not exts:
+            raise SystemExit("game: the tour needs the game library: python tools/dev.py game build %s" % game)
+        if "--shots" in argv:
+            front = _front_app()
+            try:
+                ok, data, secs = run_godot(
+                    proj, ["--resolution", "1280x720", "-s", "res://game/tools/tour.gd", "--", "--no-settings",
+                           "--shots=res://.uni/tour"], 240, "TOUR_JSON")
+            finally:
+                _restore_app(front)
+        else:
+            ok, data, secs = run_godot(
+                proj, ["--headless", "-s", "res://game/tools/tour.gd", "--", "--no-settings", "--quick"], 60, "TOUR_JSON")
+    elif sub == "coop":
+        if not exts:
+            raise SystemExit("game: coop needs the game library: python tools/dev.py game build %s" % game)
+        ok, data, secs = cmd_coop(proj, "--shots" in argv)
     else:
-        raise SystemExit("game: unknown subcommand %r (validate, walk, shots, import)" % sub)
+        raise SystemExit("game: unknown subcommand %r (validate, walk, shots, tour, coop, import)" % sub)
     log("game: %s %s in %.1fs" % (sub, "OK" if ok else "FAILED", secs))
     if not ok:
         raise SystemExit(1)
+
+
+def cmd_coop(proj, shots):
+    """Host (windowed with --shots, else headless) and a headless joiner with a fresh EOS device id, as two Godot
+    processes; the host hands the lobby code over through a file."""
+    code = proj / ".uni" / "coop_code.txt"
+    code.parent.mkdir(parents=True, exist_ok=True)
+    if code.exists():
+        code.unlink()
+    env = dict(os.environ, USER="Friend", USERNAME="Friend", UNIFIED_EOS_FRESH_DEVICE="1")
+    join_log = proj / ".uni" / "coop_join.log"
+    with open(join_log, "w") as jl:
+        joiner = subprocess.Popen(
+            [find_godot(), "--path", str(proj), "--headless", "-s", "res://game/tools/coop.gd", "--", "--no-settings",
+             "--role=join", "--code-file=res://.uni/coop_code.txt"], stdout=jl, stderr=subprocess.STDOUT, env=env)
+    host_args = ["-s", "res://game/tools/coop.gd", "--", "--no-settings", "--role=host",
+                 "--code-file=res://.uni/coop_code.txt"]
+    front = _front_app() if shots else None
+    try:
+        if shots:
+            host_args = ["--resolution", "1280x720"] + host_args + ["--shots=res://.uni/coop"]
+        else:
+            host_args = ["--headless"] + host_args
+        ok, data, secs = run_godot(proj, host_args, 180, "COOP_JSON")
+    finally:
+        _restore_app(front)
+    try:
+        joiner.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        joiner.kill()
+    jdata = None
+    for line in join_log.read_text(errors="replace").splitlines():
+        if line.startswith("COOP_JSON "):
+            jdata = json.loads(line[len("COOP_JSON "):])
+        elif "[join]" in line:
+            print(line)
+    return ok and jdata is not None and jdata.get("ok"), data, secs
 
 
 def _front_app():

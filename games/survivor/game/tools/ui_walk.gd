@@ -65,6 +65,20 @@ func _run() -> void:
 	_expect(not panel.visible, "Done closes the settings")
 	_step("settings panel")
 
+	# Controller: d-pad to Settings, A opens it, B closes it; the game notices the pad.
+	_find(current_scene, "UI/Root/Left/VBox/Buttons/Single").grab_focus()
+	for i in 4:
+		await _pad(JOY_BUTTON_DPAD_DOWN)
+	_expect(get_root().gui_get_focus_owner() == _find(current_scene, "UI/Root/Left/VBox/Buttons/Settings"), "d-pad moves focus to Settings")
+	await _pad(JOY_BUTTON_A)
+	_expect(panel.visible, "pad A opens the focused Settings")
+	await _pad(JOY_BUTTON_B)
+	_expect(not panel.visible, "pad B closes the panel")
+	_expect(game.using_pad, "the game switched to pad hints")
+	await _type("q")  # any key switches back to keyboard hints (not Space: it presses the focused button)
+	_expect(not game.using_pad, "a key switches back to keyboard hints")
+	_step("controller menu navigation")
+
 	# Single player -> arena, lobby phase.
 	await _click(_find(current_scene, "UI/Root/Left/VBox/Buttons/Single"))
 	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "Arena", 3.0, "arena loads")
@@ -175,6 +189,7 @@ func _run() -> void:
 	await _frames(3)
 	await _click(_find(current_scene, "UI/Root/Left/VBox/Buttons/Join"))
 	var code_edit: LineEdit = _find(current_scene, "UI/Root/Side/JoinPanel/VBox/Code")
+	code_edit.clear()  # windowed runs may have prefilled it from the real clipboard
 	await _type("zz-zz zz")  # messy input: cleaned to ZZZZZZ
 	await _frames(2)  # LineEdit emits text_changed deferred
 	_expect(code_edit.text == "ZZZZZZ", "code field cleans and uppercases input (got '%s')" % code_edit.text)
@@ -280,6 +295,17 @@ func _click(c: Control) -> void:
 		e.pressed = pressed
 		e.position = pos
 		e.global_position = pos
+		Input.parse_input_event(e)
+		await process_frame
+	await process_frame
+
+
+## Press and release a gamepad button through the event pipeline.
+func _pad(button: JoyButton) -> void:
+	for pressed: bool in [true, false]:
+		var e := InputEventJoypadButton.new()
+		e.button_index = button
+		e.pressed = pressed
 		Input.parse_input_event(e)
 		await process_frame
 	await process_frame
