@@ -10,6 +10,10 @@
 name: eos-crossplay
 
 on:
+  # TEMP until this file is on main (GitHub dispatches only workflows on the default branch): a push to
+  # claude/eos-crossplay-run runs with the parameters in .github/crossplay-request.env.
+  push:
+    branches: [claude/eos-crossplay-run]
   workflow_dispatch:
     inputs:
       code:
@@ -37,7 +41,7 @@ env:
 
 jobs:
   join:
-    name: join ${{ inputs.code }} (${{ inputs.client }})
+    name: join ${{ inputs.code || 'from request file' }} (${{ inputs.client }})
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -48,35 +52,53 @@ jobs:
         shell: bash
     env:
       GH_TOKEN: ${{ github.token }}
-      CODE: ${{ inputs.code }}
-      TICKS: ${{ inputs.ticks }}
     steps:
       - uses: actions/checkout@v4
+      - id: p
+        name: Parameters
+        env:
+          IN_CODE: ${{ inputs.code }}
+          IN_TICKS: ${{ inputs.ticks }}
+          IN_CLIENT: ${{ inputs.client }}
+          IN_RUN: ${{ inputs.release_run }}
+          IN_RELAYS: ${{ inputs.relays }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            . .github/crossplay-request.env
+          else
+            CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"
+          fi
+          echo "CODE=$CODE" >> "$GITHUB_ENV"
+          echo "TICKS=${TICKS:-2880}" >> "$GITHUB_ENV"
+          echo "client=${CLIENT:-source}" >> "$GITHUB_OUTPUT"
+          echo "release_run=$RELEASE_RUN" >> "$GITHUB_OUTPUT"
+          echo "relays=${RELAYS:-allow}" >> "$GITHUB_OUTPUT"
+          echo "code $CODE, ticks ${TICKS:-2880}, client ${CLIENT:-source}, relays ${RELAYS:-allow}"
 
       # --- client=source: the headless binary, built here --------------------------------------------------
-      - if: inputs.client == 'source'
+      - if: steps.p.outputs.client == 'source'
         uses: actions/cache@v4
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-windows-x64
-      - if: inputs.client == 'source'
+      - if: steps.p.outputs.client == 'source'
         name: Odin
         run: python tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-      - if: inputs.client == 'source'
+      - if: steps.p.outputs.client == 'source'
         id: box3d-cache
         uses: actions/cache@v4
         with:
           path: third_party/box3d/build/windows-x64
           key: box3d-windows-x64-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
-      - if: inputs.client == 'source' && steps.box3d-cache.outputs.cache-hit != 'true'
+      - if: steps.p.outputs.client == 'source' && steps.box3d-cache.outputs.cache-hit != 'true'
         run: python tools/ci.py ensure-ninja
-      - if: inputs.client == 'source'
+      - if: steps.p.outputs.client == 'source'
         name: Build survivor (release) + EOS SDK
         run: |
           python tools/box3d.py
           python tools/eos.py
           python tools/dev.py build release
-      - if: inputs.client == 'source'
+      - if: steps.p.outputs.client == 'source'
         name: eos-client
         env:
           EOS_PRODUCT_ID: ${{ secrets.EOS_PRODUCT_ID }}
@@ -87,7 +109,7 @@ jobs:
         run: |
           mkdir -p out/crossplay
           set +e
-          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "${{ inputs.relays }}" \
+          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "${{ steps.p.outputs.relays }}" \
             > out/crossplay/client.json 2> out/crossplay/client.log
           rc=$?
           set -e
@@ -96,10 +118,10 @@ jobs:
           exit $rc
 
       # --- client=export: the Windows zip of a release run ------------------------------------------------
-      - if: inputs.client == 'export'
+      - if: steps.p.outputs.client == 'export'
         name: Download the Windows export
         run: |
-          run="${{ inputs.release_run }}"
+          run="${{ steps.p.outputs.release_run }}"
           if [ -z "$run" ]; then
             run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
           fi
@@ -107,7 +129,7 @@ jobs:
           gh run download "$run" -R "$GITHUB_REPOSITORY" -n windows-x64 -D dist
           mkdir -p game && unzip -q dist/*.zip -d game
           find game -maxdepth 3 -type f | head -20
-      - if: inputs.client == 'export'
+      - if: steps.p.outputs.client == 'export'
         name: Run the export headless (--join-code, scripted)
         run: |
           mkdir -p out/crossplay
@@ -130,7 +152,7 @@ jobs:
         name: Summary
         run: |
           {
-            echo "### crossplay ${{ inputs.client }}, code \`$CODE\`, $TICKS ticks"
+            echo "### crossplay ${{ steps.p.outputs.client }}, code \`$CODE\`, $TICKS ticks"
             echo '```'
             grep -o '"ok":[a-z]*\|"network":"[A-Za-z]*"\|"rtt_ms":[0-9.]*\|"rollbacks":[0-9]*\|"final_tick":[0-9]*\|"join_tick":[0-9]*\|"delay":[0-9]*' out/crossplay/client.json 2>/dev/null | tr '\n' ' '
             echo
@@ -139,7 +161,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crossplay-${{ inputs.client }}-${{ inputs.code }}
+          name: crossplay-${{ steps.p.outputs.client }}-${{ env.CODE }}
           path: out/crossplay/
           if-no-files-found: ignore
           retention-days: 14
