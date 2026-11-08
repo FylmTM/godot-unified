@@ -1,0 +1,14 @@
+; Engine configuration file.
+; Stand-in game for validating tools/release.py and .github/workflows/release.yml before a real game exists.
+
+config_version=5
+
+[application]
+
+config/name="unified release stand-in"
+run/main_scene="res://game/main.tscn"
+config/features=PackedStringArray("4.7")
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true

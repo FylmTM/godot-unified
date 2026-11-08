@@ -32,7 +32,7 @@ tests/               `odin test` packages, one per module, black-box via the col
   toy/               a tiny game for the library's own tests
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
 third_party/         box3d.patch (the fork); tools/box3d.py fetches + builds Box3D under third_party/box3d/
-tools/               dev.py (the entry point), check.py (T1-T9), box3d.py, ci.py
+tools/               dev.py (the entry point), check.py (T1-T9), box3d.py, ci.py, release.py (game builds)
 ols.json, odinfmt.json   editor (OLS) and formatter configuration
 ```
 
@@ -96,3 +96,4 @@ Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/d
 
 `.github/workflows/ci.yml`: a `lint` job (format check, vet) and `test` jobs on Linux x64 and Windows x64 (`odin
 test`, then T1-T9 with the T9 bench and step timings in the job summary). Odin, odinfmt and Box3D are cached.
+`.github/workflows/release.yml` makes playable game builds for `<game>-v*` tags only (`docs/RELEASE.md`).
