@@ -21,14 +21,14 @@ Everything else (sokol, SDL3 GPU, bgfx, wgpu, raylib) means writing our own rend
 the real choice is among four families:
 
 1. **Rust + Bevy**: one language, the thinnest bridge, the best memory safety. Slow builds per worktree, Bevy churn.
-2. **C# + Godot**: the fastest path to a working game; OctoEscape's sim code ports almost 1:1.
+2. **C# + Godot**: the fastest path to a working game; the current Unity game's sim code ports almost 1:1.
 3. **C++ + Godot**: every library native, maximum ecosystem; memory-safety risk with agent-written code.
 4. **Odin or Zig + Godot**: the fastest builds and the best fit for the state block; we'd own the Godot bindings,
    and the language and its ecosystem are young.
 
-In every Godot family, the sim stays a separate core that Godot only reads (doc 02). That's a thinner bridge than
-OctoEscape's Unity one (no codegen, no map baking if levels come from glTF). But it's still two object models, and Godot
-brings its `.godot/` import cache per worktree and lightmap baking that only runs in the editor (doc 03).
+In every Godot family, the sim stays a separate core that Godot only reads (doc 02). That's a thinner bridge than the
+current game's Unity one (no codegen, no map baking if levels come from glTF). But it's still two object models, and
+Godot brings its `.godot/` import cache per worktree and lightmap baking that only runs in the editor (doc 03).
 
 ## Scorecards side by side (each researcher scored their own stack; 5 = best)
 
@@ -90,7 +90,7 @@ ecosystem and maturity first and C++/C# pull further ahead.
 | Rendering, physics, net, UI | **C++** | Everything native | C# (official Godot, EOS, FMOD SDKs), Rust (Bevy, Rapier, egui) |
 | Stability and maturity | **C++**, **C#** | Standards and big vendors | Rust (language yes, Bevy no) |
 | Agent fluency | **C#** | Largest stable corpus | C++, Rust |
-| Reusing OctoEscape | **C#** | ~22k lines of C# sim code port behind a facade | — (all others rewrite) |
+| Reusing the current game | **C#** | ~22k lines of C# sim code port behind a facade | — (all others rewrite) |
 | "Unified": one language, no bridge | **Rust + Bevy** | Sim, view and tools in one Cargo workspace | — (all others go through Godot) |
 
 ## Each family in one paragraph
@@ -106,8 +106,8 @@ question is the big one: **no published result shows .NET floats identical acros
 day to test on your Mac plus your Windows PC, and it decides the family. Pick it if the test passes and a Godot
 bridge is acceptable.
 
-**C++ + Godot.** The maximum-ecosystem pick: every library native, Godot first-class, Jolt and Box3D determinism
-proven with exactly this toolchain, the best console path. It pays in agent-written memory bugs that compile
+**C++ + Godot.** The maximum-ecosystem pick: every library native, Godot first-class, Box3D determinism proven
+with exactly this toolchain, the best console path. It pays in agent-written memory bugs that compile
 cleanly (caught only by sanitizers and sync-test at runtime), in build-hygiene discipline, and in macro-based
 reflection until C++26 reflection reaches clang (~2027).
 

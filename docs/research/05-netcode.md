@@ -137,7 +137,7 @@ instead of predicting deeper, so CPU stays bounded (a window of 64 is too deep f
 
 **Input packing.** Gameplay declares an input struct. Codegen or a derive produces a bit writer:
 `button` = 1 bit, sticks as an 8-bit angle plus 4-bit magnitude, camera yaw as 16 bits absolute, pitch 12 bits.
-OctoEscape already uses absolute yaw/pitch, and absolute values make "repeat last input" correct. Floats are
+Absolute yaw/pitch make "repeat last input" correct. Floats are
 quantized **before** they enter the sim, so every peer sees identical integers. On
 the wire, each tick is coded as "unchanged" (1 bit) or as an XOR delta against the previous tick of the same player.
 

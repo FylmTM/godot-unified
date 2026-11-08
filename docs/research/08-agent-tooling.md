@@ -13,18 +13,15 @@ How agents and the developer drive, test, inspect and look at a running unified 
   ports to allocate**. Large results (PNG, snapshots) go to an artifacts directory, and responses return paths.
 - **A type registry is the prerequisite.** The inspector, diff viewer, protocol schemas, tuning sliders and F3
   summaries are all generated from it.
-- **Every mutation goes through the simulation's input path** (debug commands stamped on a tick, the same way
-  OctoEscape's `DebugTeleportCommand` works). Edits and tuning changes are therefore recorded in the replay, and
+- **Every mutation goes through the simulation's input path** (debug commands stamped on a tick, like a debug
+  teleport command). Edits and tuning changes are therefore recorded in the replay, and
   "agent poked it" never breaks determinism.
 - **Tests:** a per-test setup that costs milliseconds, by cloning a cached "level loaded" snapshot; sync-test on by
   default; replays with build/content hashes (exact checksums within one build, outcome assertions across builds);
   seeded, shrinkable fuzzing; a checksum-trace diff across macOS ARM, Windows x64 and Linux in CI. Golden
   screenshots only on software rasterizers (WARP or lavapipe) with tolerances. Hosted macOS GPUs are not trustworthy.
 
-## Lessons from OctoEscape's current tooling
-
-Sources: `OctoEscape/AGENTS.md`, `docs/ai/workflow.md`, `docs/ai/feedback.md`, `Tools/`,
-`Tests/Simulation/Harness/`.
+## Lessons from the current Unity game's tooling
 
 **Keep (these worked and should carry over almost verbatim):**
 
@@ -33,20 +30,19 @@ Sources: `OctoEscape/AGENTS.md`, `docs/ai/workflow.md`, `docs/ai/feedback.md`, `
 - **The F3 bundle.** A summary `feedback.md` (with ready-to-paste `teleport` and `view` lines), screenshot, log,
   frame dump, snapshot and replay, read cheapest first (`show`, then `entity`, then `grep`, then a headless repro).
   "Never read `frame.txt` whole" generalizes to: queries project fields and paginate.
-- **`Fuzz.Run`.** A fixed worker count with runs dealt round-robin, so a failure reproduces on every machine.
-  `FUZZ=quick` keeps every fourth run.
-- **`test-sim.sh` mechanics.** Shards balanced by last-run times; builds under a lock with runs from a private copy,
+- **Fuzz runner.** A fixed worker count with runs dealt round-robin, so a failure reproduces on every machine.
+  A quick mode keeps every fourth run.
+- **Test runner mechanics.** Shards balanced by last-run times; builds under a lock with runs from a private copy,
   so agents can test concurrently; fuzzes skipped when nothing they guard changed.
 - **The smoke test.** `-smoke-test` exits 0 or 1, and a desync counts as a failure. Timings are a written budget.
-- **Small probes.** `DevTrace.Record` (a value every frame), `camtrace`, and `shot` (camera only) versus `ui` (with
-  overlay).
+- **Small probes.** A value traced every frame, a camera trace, and screenshots with and without the UI overlay.
 
 **What Unity forced (design these away):**
 
-- **One Editor, one stream** (decision 139). Only one agent can touch the game at a time. In unified, every
+- **One Editor, one stream.** Only one agent can touch the game at a time. In unified, every
   worktree runs its own binary.
 - **The control channel is C# strings sent to `unity eval`** (no `using`, `f` suffixes, timeouts), and Unity's
-  modal dialogs need an Accessibility-API dialog presser (`dialogs.sh`). Unified's API is typed, discoverable, and
+  modal dialogs need an Accessibility-API dialog presser. Unified's API is typed, discoverable, and
   has no UI that can block it.
 - **Input injection hacks.** `QueueStateEvent`, a `RunInBackground` settings swap, typed text that can't reach UI
   Toolkit. Unified injects input at the sim input layer, per player.
@@ -89,7 +85,7 @@ adapter, not in the game.
 (feature `dev-tools`) is JSON-RPC 2.0 framed as newline-delimited JSON. Two clients sit on top: `uni` (CLI: `uni
 query`, `uni step`, `uni shot`, …) and `uni mcp` (a stdio MCP server that discovers or launches instances and maps
 ~15 coarse tools onto RPC methods). The CLI is the primary agent interface. It costs no tool-schema context, it
-composes with `jq`, and OctoEscape already shows that bash-driven agents do well with it.
+composes with `jq`, and bash-driven agents already do well with that shape in the current Unity game.
 
 **Transport.** The default is a Unix socket (mode 0600); Windows has supported AF_UNIX since Windows 10 1803 *(well
 known; untested here)*. `--control tcp` binds `127.0.0.1:0` and writes the port and a token to `control.json`;
@@ -124,14 +120,14 @@ an optional view), connected by a transport (loopback with netsim by default). C
 → {"jsonrpc":"2.0","id":1,"method":"session.start","params":{"level":"lab/hub_brain","peers":2,"transport":"loopback","netsim":{"latency_ms":60,"jitter_ms":10,"loss":0.01},"headless":false}}
 ← {"jsonrpc":"2.0","id":1,"result":{"session":"s1","tick":0,"peers":[{"id":0,"role":"host"},{"id":1,"role":"client"}]}}
 
-→ {"jsonrpc":"2.0","id":2,"method":"world.query","params":{"peer":1,"frame":"predicted","with":["Octopus","Transform"],"fields":["Transform.pos","Octopus.mode"],"limit":20}}
-← {"jsonrpc":"2.0","id":2,"result":{"tick":431,"rows":[{"e":"E.206.1","Transform.pos":[3.2,0.0,-1.5],"Octopus.mode":"Crawl"}],"cursor":null}}
+→ {"jsonrpc":"2.0","id":2,"method":"world.query","params":{"peer":1,"frame":"predicted","with":["Player","Transform"],"fields":["Transform.pos","Player.mode"],"limit":20}}
+← {"jsonrpc":"2.0","id":2,"result":{"tick":431,"rows":[{"e":"E.206.1","Transform.pos":[3.2,0.0,-1.5],"Player.mode":"Crawl"}],"cursor":null}}
 
 → {"jsonrpc":"2.0","id":3,"method":"world.edit","params":{"entity":"E.206.1","component":"Transform","path":"pos","value":[0,2,0]}}
 ← {"jsonrpc":"2.0","id":3,"result":{"applied_at_tick":432,"recorded":true}}
 
 → {"jsonrpc":"2.0","id":4,"method":"input.press","params":{"peer":1,"player":1,"input":{"buttons":["Jump"]},"ticks":6}}
-→ {"jsonrpc":"2.0","id":5,"method":"clock.step_until","params":{"query":{"entity":"E.206.1","where":"Octopus.grounded == false"},"timeout_ticks":30}}
+→ {"jsonrpc":"2.0","id":5,"method":"clock.step_until","params":{"query":{"entity":"E.206.1","where":"Player.grounded == false"},"timeout_ticks":30}}
 ← {"jsonrpc":"2.0","id":5,"result":{"met":true,"tick":437}}
 
 → {"jsonrpc":"2.0","id":6,"method":"view.shot","params":{"peer":1,"ui":false,"size":[1280,720]}}
@@ -156,7 +152,7 @@ window needed. A separate-process client (real UDP or Steam) has its own socket,
 
 - **Cheap worlds.** Assets are parsed once per process into immutable shared data, and each level is cached as a
   **"level loaded" snapshot**, so a test starts with a memcpy: well under 10 ms of setup, against ~3 s in
-  OctoEscape today. With no globals, tests run on threads in one process.
+  the current Unity game. With no globals, tests run on threads in one process.
 - **Sync-test by default.** Each test tick also rolls back `k` frames (k ≈ rollback window, e.g. 8) and re-simulates,
   comparing whole-block hashes. CI runs it on everything; a local `--fast` turns it off. A mismatch dumps both
   blocks, gives a registry-aware diff, and reruns with per-system hashing to name the first system that diverged
@@ -167,9 +163,9 @@ window needed. A separate-process client (real UDP or Steam) has its own socket,
   keyframe snapshots every N seconds. **Same hashes → exact:** every checksum must match. **Different build →
   scenario:** the replay runs with attached outcome assertions (`expect` lines: "reaches door D by tick 1800", "never
   below floor"). When outcomes still hold, `uni replay bless` re-records the checksums. `uni feedback promote <id>`
-  turns an F3 entry into such a test (OctoEscape's manual "copy the numbers into a test" step, automated).
+  turns an F3 entry into such a test (the manual "copy the numbers into a test" step, automated).
 - **Fuzzing.** Seeded input generators (random walk, action-biased, macro grammar) and invariants as functions over
-  the world (bounds, no NaN, entity caps). Runs are dealt deterministically, as in `Fuzz.Run`. A failure is just an
+  the world (bounds, no NaN, entity caps). Runs are dealt deterministically, as above. A failure is just an
   input sequence, so **delta-debug shrinking** is cheap. Coverage-guided fuzzing over input bytes can come later.
 - **Cross-platform checksum CI.** A matrix of `macos-15` (arm64), `windows-latest` (x64) and `ubuntu-latest` (x64,
   the Steam Deck proxy). Each runs the replay corpus headless and uploads `trace.tsv` (`replay, tick, hash`) as an
@@ -212,11 +208,12 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 - **Self-contained worktrees.** Each builds and runs its own binary; only caches are shared.
 - **No port allocation.** Control sockets live under `<worktree>/.uni/run/<id>/`. Network tests bind port 0 and
   publish the port in `control.json`. No fixed ports.
-- **Build caches.** Use per-worktree build outputs (Odin builds are sub-second), and OctoEscape's "build under lock, run from a private copy" for test runners.
+- **Build caches.** Use per-worktree build outputs (Odin builds are sub-second), and "build under lock, run from a
+  private copy" for test runners.
 - **Content caches.** Processed glTF, shaders and level snapshots go in a content-addressed `~/.cache/unified/`.
   Worktrees already share LFS objects through the common git dir.
-- **Machine-wide slots.** A lock-file semaphore caps heavy jobs (GPU windows, fuzzes, Blender), like OctoEscape's
-  Blender slots. Instances are headless by default.
+- **Machine-wide slots.** A lock-file semaphore caps heavy jobs (GPU windows, fuzzes, Blender), like the Blender
+  slots in the current Unity game. Instances are headless by default.
 - **Artifacts.** `.uni/run/<id>/artifacts/`, gitignored, with paths printed in every result and old runs pruned.
 
 ## Risks and unknowns

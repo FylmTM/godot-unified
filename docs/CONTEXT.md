@@ -5,17 +5,15 @@
 It is written in **Odin**, with **Godot** as the host for rendering, audio, UI and the editor. Rendering is never
 written from scratch.
 
-The testbed is a slice of OctoEscape (`/Users/dmitry.v/work/personal/OctoEscape`): a 3D co-op game where players are
-octopuses, currently built on Unity 6 with a commercial deterministic netcode SDK. Its agent guide (`AGENTS.md`) and
-`docs/` show how it is built today.
+The first real game will be a 3D co-op game, migrated later from the developer's current Unity game.
 
 ## Why
 
 - Unity is the bottleneck: Editor refresh and domain reloads, crashes, dialogs that block tools, only one agent at a
   time can use the Editor, and testing co-op needs a build or multiplayer play mode.
-- The deterministic SDK is great (determinism, replays, snapshots, headless tests), but it has costs: the Unity world
-  and the sim world are glued together by a bridge, schema codegen, map baking, an asset DB export, physics separate
-  from Unity's, and a commercial service dependency (we want Steam relay instead).
+- The commercial deterministic netcode SDK used today is great (determinism, replays, snapshots, headless tests), but
+  it has costs: the Unity world and the sim world are glued together by a bridge, schema codegen, map baking, an asset
+  DB export, physics separate from Unity's, and a commercial service dependency (we want Steam relay instead).
 - The developer never really uses the Editor: levels are built from code, art comes from Blender scripts, everything
   is driven from the CLI. Dev tools should live inside the game.
 
@@ -24,7 +22,7 @@ octopuses, currently built on Unity 6 with a commercial deterministic netcode SD
 - **Language: Odin** (signed off 2026-11-09). C++, Rust, C# and Zig were prototyped and benchmarked; the research and
   results are in `archive/`.
 - **Host: Godot 4.7.x via GDExtension** (LibGodot only if GDExtension blocks something concrete).
-- **Physics: Box3D**, our fork with world save/restore. Jolt is the fallback.
+- **Physics: Box3D**, our fork with world save/restore.
 - **Numbers:** f32 with deterministic discipline (decided; fixed point rejected).
 - **Netcode:** host input relay (decided; GGPO-style mesh rejected).
 
@@ -59,7 +57,7 @@ octopuses, currently built on Unity 6 with a commercial deterministic netcode SD
   WASM, ...) is fine if it fits really well.
 - **Levels**: Blender (glTF + custom properties) + code; an in-game editor later. No baking step.
 - **Content**: nothing gets ported from Unity's third-party packs; rebuild in code or use what the renderer provides.
-- **Octopus rig**: view-only and procedural today; physically grabbing things is worth experimenting with.
+- **Character rigs**: view-only and procedural; physically grabbing things is worth experimenting with.
 - **Animation / audio**: unknown needs; prefer whatever the host offers; avoid licence costs (FMOD only if it's
   clearly worth it).
 - **UI**: game UI in Godot (GDScript allowed in the view layer); dev tools in-game. Prefers immediate-mode or
