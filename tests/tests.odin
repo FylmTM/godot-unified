@@ -9,4 +9,5 @@ package tests
 @(require) import "netcode"
 @(require) import "pod"
 @(require) import "sim"
+@(require) import "view"
 @(require) import "wire"

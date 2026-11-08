@@ -62,6 +62,7 @@ RULES := []Rule {
 	// Host side (Godot bindings, view, dev UI): never feeds back into the sim; no bans beyond `matrix`, so a
 	// stray Godot-side construct can't creep into a shared helper unnoticed.
 	{pkg = "gdext"},
+	{pkg = "view"},
 }
 
 // Returns one line per violation in `src` (file `name`) under rule `r`.
