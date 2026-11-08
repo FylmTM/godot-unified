@@ -61,3 +61,21 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   the code and LAN host address, arena, start circle, views, HUD, level-up panel, match-over, Esc menu, procedural
   music), a GDScript `MockSession` with the same contract, `tools/game.py` (`dev.py game validate|walk|shots|import`).
   Verified on main: validate 22 scripts + 16 resources OK in 2.3 s; the headless UI walk (14 steps) OK in 3 s.
+- c6f33d2 **core-lib M2 merged:** survivor phases (lobby with a 3.5 m start circle, match, over → 5 s → world reset),
+  every time constant in seconds (non-whole tick counts don't compile), `rng_below`, `survivor.hud`, the ten view
+  events, a scenario test forcing explosions/deaths/respawns/resets inside rollback windows (sync-test windows 8 and
+  13, plus host + 3 clients under the `bad` profile on a virtual clock). Decisions: player display names travel in
+  the netcode hello and a relay roster (protocol v3); enemies and gems keep spawn/hit ticks for view effects; leaving
+  resets a player's progress; barrel entity keys are 1-based; `level_up` fires when the level is reached.
+- 4c9b99d **godot-layer merged:** `src/gdext` (generator, committed 4.7 `extension_api.json` + `bindings.txt`,
+  generated code cached), `src/godot_host` (UnifiedSession, SimView, SimBulkView), `src/view`, `src/imgui` +
+  `src/devui` (in all builds), the survivor extension with EOS wired in, `dev.py gen|godot-test|game ...`.
+- 642121a **release-ci merged:** `.github/workflows/release.yml` (tags `<game>-v*` → macOS arm64 + Windows x64 zips
+  in a GitHub prerelease, with smoke tests; `workflow_dispatch` = Windows only), `tools/release.py` (the same
+  locally), `docs/RELEASE.md`. Decision: macOS arm64 only (exported universal, thinned to arm64), since the
+  developer's Mac is Apple Silicon and the friend is on Windows.
+- Verified on main after the merges: fmt, vet (4 targets), test, check T1–T9 (rollback 0.61 ms at 1000 enemies),
+  `game build survivor release`, `game headless` (hash = offline), validate, walk, godot-test, editor-check.
+- Next round, in parallel: release-ci runs the Windows dispatch + a local macOS release build; online-eos tests real
+  macOS ↔ Windows play through EOS with a Windows CI runner as the remote player; godot-layer adapts `hud()`, names
+  and bulk effects to M2 and does a windowed real-play check; game-client polishes the feel with the real extension.
