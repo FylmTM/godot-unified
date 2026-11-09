@@ -168,3 +168,20 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   smoke test clean. The v0.1.0 release notes now say it is superseded.
 - Merged `claude/eos-crossplay-v011` (b870bdc): the four survivor-v0.1.1 crossplay rows and the Direct/Relayed label
   note in `spec/eos.md`. Docs only.
+
+## 2026-11-09 morning
+
+- **First-use hitches** (developer report: hitches in v0.1.1 solo "when sounds first load"): the sounds are synthesized
+  at boot; the hitches are shader compiles of effect materials made in code at their first use (first kill 32 ms,
+  match start 35 ms, first hit ~75 ms on an empty shader cache). One cause: the hit flash toggled
+  `emission_enabled`, which switches the material's shader variant. Fix in progress in its own session
+  (branch `claude/first-use-hitches`), with `dev.py game tour --frames [--cold]` to measure.
+- **Project audit:** an independent session audited main (6994822): 64 findings (6 must, 35 should, 23 nice),
+  report at https://claude.ai/artifact/LTiRdnU68qT23QTGHzNmcK. The developer asked for all of it to be fixed. It's
+  split by area into three parallel sessions so files don't collide: audit-core (netcode, sim, lint, Box3D and
+  check tests), audit-godot (gdext, godot_host, eos, devui, GDScript), audit-tools (Python tools, CI, release, docs).
+  Overrides of the audit: the dev UI stays in all builds (a compile switch is added, defaulting on); this log and
+  WORK.md stay with the orchestrator; wrapping Box3D step/queries in `physics` goes to the physics-coop session.
+- **Second game started:** a co-op third-person physics sandbox (platforms, jump pads, carry, throw, two-player heavy
+  carry, a short route), in its own session. The developer said not to wait for sign-off; its design decisions are
+  recorded in its spec as pending review.
