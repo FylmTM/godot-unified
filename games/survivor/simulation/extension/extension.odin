@@ -4,6 +4,7 @@
 package survivor_extension
 
 import "base:runtime"
+import "core:fmt"
 import "core:math"
 import b3 "unified:box3d"
 import "unified:eos"
@@ -40,7 +41,7 @@ SURVIVOR_BUCKET :: "survivor/2"
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
-	if eos.init({product_name = "survivor", product_version = "0.1"}) do return true
+	if eos.init({product_name = "survivor", product_version = gh.app_version}) do return true
 	ev.fail(ev.ctx, eos.status().detail)
 	return false
 }
@@ -71,7 +72,7 @@ EOS_TRANSPORT := gh.Transport {
 	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
 
-// View kinds: res://game/views/<kind>.tscn for scene views, `kind` of the bulk views (group sim_bulk).
+// View kinds: <scene_dir>/<kind>.tscn for scene views, `kind` of the bulk views (group sim_bulk).
 SCENE_PLAYER :: 0
 SCENE_CRATE :: 1
 SCENE_BARREL :: 2
@@ -83,6 +84,7 @@ BUTTON_LEVELUP_1 :: 1
 
 GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 	scene_kinds = {"player", "crate", "barrel"},
+	scene_dir = "res://game/views",
 	bulk_kinds = {"grunt", "runner", "brute", "projectile", "gem"},
 	actions = {
 		move = {"move_left", "move_right", "move_forward", "move_back"},
@@ -94,6 +96,7 @@ GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 		return survivor.script(seed, slot, tick, state)
 	},
 	hud = hud,
+	constants = constants,
 	event_key = event_key,
 	bench = survivor.bench_prepare,
 }
@@ -242,6 +245,19 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 // ---- HUD (contract v0): survivor.hud on the session thread, a Dictionary on the main thread
 
 hud :: proc(f: ^gh.Frame, d: ^gd.Dictionary) {
+	if f == nil { 	// no session yet: every key, empty
+		gd.dict_set(d, "phase", "lobby")
+		gd.dict_set(d, "tick", 0)
+		gd.dict_set(d, "time_s", 0.0)
+		gd.dict_set(d, "wave", 0)
+		gd.dict_set(d, "enemies_alive", 0)
+		gd.dict_set(d, "circle_radius", 0.0)
+		gd.dict_set(d, "matches", 0)
+		gd.dict_set(d, "local_slot", -1)
+		empty := gd.array_new()
+		gd.dict_set_move(d, "players", &empty)
+		return
+	}
 	h := (^survivor.Hud)(&f.hud[0])
 	gd.dict_set(d, "phase", h.phase_name)
 	gd.dict_set(d, "tick", i64(h.tick))
@@ -268,4 +284,41 @@ hud :: proc(f: ^gh.Frame, d: ^gd.Dictionary) {
 		gd.array_push_move(&players, &pd)
 	}
 	gd.dict_set_move(d, "players", &players)
+}
+
+// ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
+
+UPGRADE_NAMES := [3]string{"Fire rate", "Damage", "Move speed"}
+
+constants :: proc(d: ^gd.Dictionary) {
+	gd.dict_set(d, "over_hold_s", f64(survivor.OVER_HOLD_S))
+	gd.dict_set(d, "arena_half", f64(survivor.ARENA_HALF))
+	gd.dict_set(d, "start_radius", f64(survivor.START_RADIUS))
+	gd.dict_set(d, "dash_cooldown_s", f64(survivor.DASH_COOLDOWN_S))
+	gd.dict_set(d, "player_respawn_s", f64(survivor.PLAYER_RESPAWN_S))
+	gd.dict_set(d, "max_enemies", i64(survivor.MAX_ENEMIES))
+	// level-up options 1..3 (survivor.choice_encode), in the sim's order
+	ups := gd.array_new()
+	details := [3]string {
+		"Shoot more often",
+		fmt.tprintf("+%d damage per shot", survivor.DAMAGE_LEVELUP),
+		fmt.tprintf("+%.1f m/s", survivor.SPEED_LEVELUP),
+	}
+	for name, i in UPGRADE_NAMES {
+		u := gd.dict_new()
+		gd.dict_set(&u, "name", name)
+		gd.dict_set(&u, "detail", details[i])
+		gd.array_push_move(&ups, &u)
+	}
+	gd.dict_set_move(d, "upgrades", &ups)
+	// the item grid as the match starts (crates and barrels; the menu backdrop shows it)
+	items := gd.array_new()
+	for i in 0 ..< survivor.ITEM_COUNT {
+		p := survivor.item_position(i)
+		it := gd.dict_new()
+		gd.dict_set(&it, "position", gd.Vector3{p.x, p.y, p.z})
+		gd.dict_set(&it, "kind", survivor.item_kind(i) == .Barrel ? "barrel" : "crate")
+		gd.array_push_move(&items, &it)
+	}
+	gd.dict_set_move(d, "items", &items)
 }

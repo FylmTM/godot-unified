@@ -28,7 +28,7 @@ set_power_throttling :: proc(control: u32) {
 	_ = SetProcessInformation(win.GetCurrentProcess(), PROCESS_POWER_THROTTLING, &st, size_of(st)) // Windows 8+; best effort
 }
 
-set_thread_class :: proc(k: Thread_Class, tick_hz: int) {}
+set_realtime_thread :: proc(tick_hz: int) {}
 
 session_power_begin :: proc() {
 	if power_on do return

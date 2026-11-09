@@ -141,7 +141,7 @@ scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 	if ps, ok := V.scenes[kind]; ok do return ps, true
 	if V.missing[kind] do return {}, false
 	name := int(kind) < len(api.scene_kinds) ? api.scene_kinds[kind] : fmt.tprintf("kind%d", kind)
-	path := fmt.tprintf("res://game/views/%s.tscn", name)
+	path := fmt.tprintf("%s/%s.tscn", api.scene_dir, name)
 	res := gd.ResourceLoader_load(gd.ResourceLoader_singleton(), path, "", .CACHE_MODE_REUSE)
 	if res.ptr == nil {
 		gd.print_error(fmt.tprintf("unified: cannot load %s", path))

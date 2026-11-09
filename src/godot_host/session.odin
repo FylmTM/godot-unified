@@ -4,8 +4,8 @@ package godot_host
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:time"
-import "unified:devui"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
@@ -75,9 +75,9 @@ register_session_class :: proc() {
 		process = proc(i: rawptr, dt: f64) {session_process((^Session_Node)(i), dt)},
 		// While the dev UI wants the mouse or keyboard, the game's GUI and _unhandled_input don't get them.
 		input = proc(i: rawptr, ev: gd.InputEvent) {
-			if !devui.wants_mouse() && !devui.wants_keyboard() do return
+			if !dev_wants_mouse() && !dev_wants_keyboard() do return
 			is_key := gd.object_cast(gd.InputEventKey, ev, "InputEventKey").ptr != nil
-			if (is_key && devui.wants_keyboard()) || (!is_key && devui.wants_mouse()) {
+			if (is_key && dev_wants_keyboard()) || (!is_key && dev_wants_mouse()) {
 				gd.Viewport_set_input_as_handled(gd.Node_get_viewport(node_of((^Session_Node)(i))))
 			}
 		},
@@ -88,7 +88,7 @@ register_session_class :: proc() {
 				if active == s {
 					session_end(s)
 					views_clear()
-					devui.shutdown()
+					dev_shutdown()
 					active = nil
 				}
 			case gd.Object_NOTIFICATION_EXTENSION_RELOADED:
@@ -141,19 +141,25 @@ register_session_class :: proc() {
 			if api.installed do api.stop()
 		},
 	)
-	gd.bind_method(c, "choose_levelup", proc(s: ^Session_Node, option: i64) {
-		press_button(button_index(fmt.tprintf("levelup_%d", option)))
-	}, {"option"})
+	gd.bind_method(c, "press_action", proc(s: ^Session_Node, action: string) {
+		i := button_index(action)
+		if i < 0 {
+			gd.print_warning(fmt.tprintf("unified: press_action(%q): not one of the game's button actions", action))
+			return
+		}
+		press_button(i)
+	}, {"action"})
 	gd.bind_method(c, "set_player_name", proc(s: ^Session_Node, name: string) {
 		delete(s.name)
 		s.name = strings.clone(name)
 	}, {"name"})
 	gd.bind_method(c, "hud", session_hud)
+	gd.bind_method(c, "constants", session_constants)
 	gd.bind_method(c, "get_status", proc(s: ^Session_Node) -> string {return STATUS_NAMES[s.status]})
 	gd.bind_method(c, "is_running", proc(s: ^Session_Node) -> bool {return api.installed && api.running()})
 	gd.bind_method(c, "get_tick", proc(s: ^Session_Node) -> i64 {return i64(s.last_tick)})
-	gd.bind_method(c, "toggle_devui", proc(s: ^Session_Node) {devui.visible = !devui.visible})
-	gd.bind_method(c, "is_devui_visible", proc(s: ^Session_Node) -> bool {return devui.visible})
+	gd.bind_method(c, "toggle_devui", proc(s: ^Session_Node) {dev_toggle()})
+	gd.bind_method(c, "is_devui_visible", proc(s: ^Session_Node) -> bool {return dev_visible()})
 	gd.bind_signal(c, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(c, "lobby_code", {"code", string})
 	gd.bind_signal(
@@ -195,11 +201,13 @@ session_ready :: proc(s: ^Session_Node) {
 		s.quit_at_end = s.args.quit
 		if s.args.lag_ms > 0 {
 			l := f32(s.args.lag_ms)
-			devui.netsim = {true, l, l / 4, 1}
 			set_netsim({true, l, l / 4, 1})
 		}
+		read_app_version()
 	}
-	if !devui.is_ready() do devui.init({visible = s.args.devui})
+	lag: Netsim_Settings
+	if s.args.lag_ms > 0 do lag = {true, f32(s.args.lag_ms), f32(s.args.lag_ms) / 4, 1}
+	dev_init(s.args.devui, lag)
 	switch {
 	case s.args.autostart:
 		session_start(s, {mode = .Single, scripted = s.args.scripted})
@@ -287,7 +295,7 @@ session_shutdown_all :: proc() {
 	if active != nil do session_end(active)
 	if api.installed do api.wait()
 	views_clear()
-	devui.shutdown()
+	dev_shutdown()
 	active = nil
 }
 
@@ -303,7 +311,7 @@ emit_status :: proc(s: ^Session_Node, st: Status_Kind, detail: string) {
 @(private)
 session_process :: proc(s: ^Session_Node, dt: f64) {
 	if is_editor() || active != s do return
-	sample_input(devui.wants_keyboard())
+	sample_input(dev_wants_keyboard())
 	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
 	t0 := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
@@ -323,6 +331,7 @@ session_process :: proc(s: ^Session_Node, dt: f64) {
 	drain_messages(s)
 	start_pending(s)
 	s.sync_us = f32(time.duration_microseconds(time.tick_since(t0)))
+	sync.atomic_store(&want_state, dev_visible())
 	dev_frame(s, dt)
 }
 
@@ -364,7 +373,7 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 		// player events carry the slot as their entity (UI: slot colours, "is it me")
 		entity := e.slot != sim.NO_SLOT ? i64(e.slot) : i64(e.entity)
 		gd.emit_signal(s.obj, gd.sn("sim_event"), gd.sn(name)^, i64(m.tick), entity, pos, f64(e.value))
-		devui.log(
+		dev_log(
 			m.tick,
 			"%s entity %d slot %d value %.2f",
 			name,
@@ -381,52 +390,19 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 @(private)
 session_hud :: proc(s: ^Session_Node) -> gd.Dictionary {
 	d := gd.dict_new()
-	if api.installed && api.hud != nil && s.frame != nil {
-		api.hud(s.frame, &d)
-		return d
-	}
-	// no session yet: every contract key, empty
-	gd.dict_set(&d, "phase", "lobby")
-	gd.dict_set(&d, "tick", 0)
-	gd.dict_set(&d, "time_s", 0.0)
-	gd.dict_set(&d, "wave", 0)
-	gd.dict_set(&d, "enemies_alive", 0)
-	gd.dict_set(&d, "circle_radius", 0.0)
-	gd.dict_set(&d, "local_slot", -1)
-	players := gd.array_new()
-	gd.dict_set_move(&d, "players", &players)
+	// before the first frame the game fills every contract key with its empty value
+	if api.installed && api.hud != nil do api.hud(s.frame, &d)
 	return d
 }
 
-// ---- dev UI
-
+// The game's constants for scripts (Glue.constants) plus `tick_hz`.
 @(private)
-dev_frame :: proc(s: ^Session_Node, dt: f64) {
-	want_state = devui.visible
-	if devui.visible && s.frame != nil {
-		f := s.frame
-		devui.stat("tick", "%d  verified %d  slot %d", f.tick, f.verified, f.local_slot)
-		devui.stat(
-			"net",
-			"rtt %.0f ms  delay %d  rollbacks %d  resim %d",
-			f.net.rtt_ms,
-			f.net.delay,
-			f.net.rollbacks,
-			f.net.resim_ticks,
-		)
-		devui.stat("views", "%d scene  %d bulk  sync %.0f us", f.n_scene, f.n_bulk, s.sync_us)
-		devui.plot("frame ms", f32(dt * 1000), 0, 50)
-		devui.plot("rtt ms", f.net.rtt_ms, 0, 300)
-		if st := api.state(); st != nil do devui.inspect("predicted state (read-only)", st)
-	} else if devui.visible {
-		devui.stat("session", "%s", STATUS_NAMES[s.status])
-	}
-	devui.frame(dt)
-	if devui.netsim_changed {
-		devui.netsim_changed = false
-		n := devui.netsim
-		set_netsim({n.enabled, n.latency_ms, n.jitter_ms, n.loss_pct})
-	}
+session_constants :: proc(s: ^Session_Node) -> gd.Dictionary {
+	d := gd.dict_new()
+	if !api.installed do return d
+	gd.dict_set(&d, "tick_hz", i64(api.tick_hz))
+	if api.constants != nil do api.constants(&d)
+	return d
 }
 
 // ---- command line (user args after `--`)

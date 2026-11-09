@@ -154,7 +154,7 @@ world_create :: proc(seed: u64) -> ^World {
 	w := new(World)
 	w.phys = physics.create()
 	w.extras[0] = physics.extra(w.phys, State)
-	add_static_box(w, {0, -0.5, 0}, {32, 0.5, 32}) // ground
+	add_static_box(w, {0, -0.5, 0}, {ARENA_HALF, 0.5, ARENA_HALF}) // ground
 	add_static_box(w, {30.5, 1.5, 0}, {0.5, 1.5, 31}) // walls: inner faces at x, z = ±30
 	add_static_box(w, {-30.5, 1.5, 0}, {0.5, 1.5, 31})
 	add_static_box(w, {0, 1.5, 30.5}, {31, 1.5, 0.5})
