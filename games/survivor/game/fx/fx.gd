@@ -29,6 +29,17 @@ func _ready() -> void:
 	_shrink = Curve.new()
 	_shrink.add_point(Vector2(0, 1))
 	_shrink.add_point(Vector2(1, 0))
+	_warm_up()
+
+
+## Draws each effect material once, under the floor, while the arena loads. A new material's shader compiles the
+## first time it's drawn, which otherwise hitches the frame of the first kill or ring (on an exported game's first
+## launch 0.4-0.7 s; 30 ms in dev runs). Lights need no warm-up (they don't change a material's shader). A new effect
+## material needs a line here; `game tour --frames --cold` measures every first use.
+func _warm_up() -> void:
+	var at := Vector3(0, -4, 0)
+	_burst(at, Color.WHITE, 1, 0.0, 0.1, 0.1, 0.0)  # vertex-coloured cubes: kills, gems, level-ups, deaths
+	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
 
 
 func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool) -> void:
@@ -129,8 +140,8 @@ func _burst(pos: Vector3, color: Color, amount: int, speed: float, life: float, 
 	p.angular_velocity_max = 360.0
 	p.color = color
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.position = pos  # before entering the tree: a CPUParticles3D starts emitting where it enters
 	add_child(p)
-	p.position = pos
 	p.emitting = true
 	p.finished.connect(p.queue_free)
 
