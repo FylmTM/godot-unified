@@ -65,3 +65,83 @@ Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% dup
 CI runs T1–T9 on Linux x64 and Windows x64 and puts the T9 bench in the job summary. macOS is checked locally with
 the same `tools/check.py`. The reference runs (each game's `simulation/tests/testdata/`) are regenerated only deliberately
 (`tools/dev.py check --regen`, see the README there), which updates the committed files.
+
+## End-to-end suites (pending sign-off: #60, #61, #67)
+
+**Pending the developer's sign-off; nothing below is built yet.** When it is, it replaces the T1-T9 section above
+and `tools/check.py`. Decided in the testing sitting (#4): each game has its own end-to-end suite of Odin tests calling
+`unified:headless` in-process; the library provides the standard scenarios as procs and every in-repo game calls each
+one explicitly; tests are named for what they check; no platform assumptions.
+
+### Where things are
+
+- **`unified:headless/scenarios`** (`src/headless/scenarios/`): the standard scenarios, one proc each. A test-only
+  sub-package (it imports `core:testing`); game binaries never import it. The `headless` lint rule covers it.
+- **Each game's suite:** `games/<game>/simulation/tests/suite_test.odin`: one `@(test)` per standard scenario call,
+  then the game's own scenarios. Its reference run stays in `simulation/tests/testdata/`.
+- **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests, with the toy's reference run in
+  `tests/scenarios/testdata/`. It is the template a game's suite copies: the standard part is identical in shape.
+
+### API
+
+```odin
+Suite :: struct($S, $I, $W: typeid, $P: int) {
+	h:       ^headless.Headless(S, I, W, P),
+	players: int, // scripted players in offline runs
+	seed:    u64,
+	ticks:   u32, // length of offline runs and sessions
+	ref:     Reference,
+}
+Reference :: struct {
+	dir:                  string, // #directory + "/testdata"
+	ticks, snapshot_tick: u32,    // ref.trace covers 1..ticks; ref-<snapshot_tick>.snap
+	seed:                 u64,
+	players:              int,
+}
+```
+
+| Proc | Passes when |
+|---|---|
+| `rollback_every_tick(t, s, window = 8)` | restoring `window` ticks back and re-simulating, every tick: 0 mismatches |
+| `runs_match(t, s)` | two scripted runs: identical traces |
+| `session_agrees(t, s, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
+| `session_log_replays(t, s, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
+| `late_join_agrees(t, s, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
+| `reference_replays(t, s)` | replay of `ref.log` equals `ref.trace` |
+| `reference_resumes(t, s)` | resume of the snapshot equals the rest of `ref.trace` |
+
+Failures name the scenario's parameters and the first tick that differs. `session_run` returns structured
+per-client results (final tick, verified checksums, rollbacks and depth, stall ticks) instead of JSON strings; the
+CLI builds its JSON from them. A suite reads as a list of sentences:
+
+```odin
+@(test)
+rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
+@(test)
+four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
+```
+
+Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc once
+(friendslop gains the sessions, the resume and a reference snapshot it lacks today).
+
+### Running
+
+- **One group: every scenario runs in `python tools/dev.py test`**, at full length, in the same compile and parallel
+  run as the unit tests. Each scenario is its own test, so the runner spreads them over the cores: the wall time
+  grows by the slowest scenario, not by their sum. If the suites push `dev.py test` over its budget, the remedy is a
+  shorter scenario in that game's suite, not a second tier. One game alone:
+  `odin test games/<game>/simulation/tests -collection:unified=src`.
+- **`python tools/dev.py check`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
+  processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
+  (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless`).
+- **CI**, on Linux x64 and Windows x64: `dev.py test` (every suite and every reference run: the cross-check), then
+  `dev.py check`. The bench leaves with #62; this lands with it or after it, so CI's summary keeps the bench.
+
+### Reference runs (#61)
+
+A reference run is a committed run every platform must reproduce. `python tools/dev.py regen <game>|toy`, on any
+machine, runs that suite's reference tests with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes
+`ref.log`, `ref.trace` and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes
+`ref.json` (where it was made: OS, architecture, Odin version, build flags, commit; when; the parameters). Nothing
+else in the tools, suites or docs names a platform: no Rosetta step, no `--arch` (`dev.py build`, `game build`,
+`box3d.py`). Known consequence: cross-architecture is proven only while the dev machine and CI differ in CPU.
