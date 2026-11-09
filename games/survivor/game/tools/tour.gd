@@ -75,7 +75,7 @@ func _run() -> void:
 	var shot_dead := false
 	for i in 400:  # up to ~40 s
 		_release_all()
-		for a: StringName in dirs[(i / 4) % dirs.size()]:
+		for a: StringName in dirs[floori(i / 4.0) % dirs.size()]:
 			Input.action_press(a)
 		if i % 25 == 0:
 			_press(&"dash")
@@ -168,7 +168,7 @@ func _finish() -> void:
 	var game: Node = root.get_node(^"Game")
 	if game.status != "idle":
 		game.session.leave()
-	quit(0 if ok else 1)
+	game.quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit
 
 
 func _seconds(s: float) -> void:

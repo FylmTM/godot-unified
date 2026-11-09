@@ -9,4 +9,5 @@ extends MultiMeshInstance3D
 func _ready() -> void:
 	add_to_group(&"sim_bulk")
 	# The arena bounds: skip per-frame AABB work and never cull a populated MultiMesh by accident.
-	custom_aabb = AABB(Vector3(-32, -1, -32), Vector3(64, 6, 64))
+	var h := float(Game.constants.arena_half)
+	custom_aabb = AABB(Vector3(-h, -1, -h), Vector3(2 * h, 6, 2 * h))

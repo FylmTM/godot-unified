@@ -6,12 +6,13 @@ extends Node3D
 @onready var _circle: MeshInstance3D = $StartCircle
 @onready var _camera: Camera3D = $Camera
 var _circle_fade := 1.0
-var _radius := 3.5
+var _radius := 0.0
 ## 0..1: how close the furthest player is to the start circle's edge (drives the ring and the HUD hint).
 var start_urgency := 0.0
 
 
 func _ready() -> void:
+	_radius = float(Game.constants.start_radius)
 	if &"view_root" in Game.session:
 		Game.session.view_root = _views
 	else:
@@ -59,8 +60,8 @@ func any_player_view() -> Node3D:
 	return null
 
 
-func _on_sim_event(kind: StringName, _tick: int, entity: int, position: Vector3, value: float) -> void:
+func _on_sim_event(kind: StringName, _tick: int, entity: int, pos: Vector3, value: float) -> void:
 	var local := entity == int(Game.hud.get("local_slot", 0))
 	if kind == &"match_started":
 		$Fx.shockwave(_radius)
-	$Fx.play(kind, entity, position, value, local)
+	$Fx.play(kind, entity, pos, value, local)

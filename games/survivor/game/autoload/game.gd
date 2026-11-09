@@ -4,8 +4,10 @@ extends Node
 ##   MENU --start/host/join--> CONNECTING --"connected"--> PLAYING --leave--> MENU
 ##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
 ##
-## The session is the native `UnifiedSession` when the game library is loaded, else the GDScript `MockSession`
-## (same API). `-- --mock` forces the mock. Everything reads the sim through `Game.hud` (refreshed once per frame).
+## The session is the native `UnifiedSession` when the game library is loaded. In a dev run without it (or with
+## `-- --mock`) it is the GDScript mock (game/session/mock_session.gd, same API); exports never ship the mock and show
+## a fatal screen instead. Everything reads the sim through `Game.hud` (refreshed once per frame) and its fixed
+## numbers through `Game.constants` (the session's `constants()`, read once).
 
 signal flow_changed(flow: Flow)
 signal status_changed(status: String, detail: String)
@@ -21,6 +23,8 @@ const LAN_PORT := 7777
 const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const ARENA_SCENE := "res://game/arena/arena.tscn"
 const CONNECT_OVERLAY := preload("res://game/ui/connect_overlay.tscn")
+## Loaded by path, not class name: exports exclude game/session/ (export_presets.cfg).
+const MOCK_SESSION := "res://game/session/mock_session.gd"
 
 var session: Node
 var is_mock := false
@@ -35,6 +39,8 @@ var lan_address := ""
 var last_error := ""
 ## The sim's HUD dictionary (contract: phase, tick, time_s, wave, ...), refreshed every frame.
 var hud: Dictionary = {}
+## The sim's fixed numbers (contract: tick_hz, over_hold_s, arena_half, start_radius, upgrades, items, ...).
+var constants: Dictionary = {}
 ## True while the player is using a gamepad (last input event came from one).
 var using_pad := false
 
@@ -49,17 +55,23 @@ func _ready() -> void:
 	process_priority = -100  # refresh `hud` before any other node reads it
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	UiTheme.install()
-	var force_mock := "--mock" in OS.get_cmdline_user_args()
+	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
+	var exported := OS.has_feature("template")
+	var force_mock := not exported and "--mock" in OS.get_cmdline_user_args()
 	if not force_mock and ClassDB.class_exists(&"UnifiedSession"):
 		session = ClassDB.instantiate(&"UnifiedSession")
+	elif exported:
+		_fatal()
+		return
 	else:
-		session = MockSession.new()
+		session = load(MOCK_SESSION).new()
 		is_mock = true
 	session.name = "Session"
 	add_child(session)
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
 	hud = session.hud()
+	constants = session.constants()
 
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer = 50
@@ -98,6 +110,21 @@ func _input(event: InputEvent) -> void:
 		input_device_changed.emit(pad)
 
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		quit_app()
+
+
+## Quits the app (menus, the window's close button, tools). Audio stops first and the quit waits (at most 1 s)
+## until the AudioServer has freed its playbacks; quitting with a sound playing reports it as leaked at exit.
+func quit_app(exit_code := 0) -> void:
+	var playbacks := Sfx.shut_down()
+	var deadline := Time.get_ticks_msec() + 1000
+	while Time.get_ticks_msec() < deadline and playbacks.any(func(w: WeakRef) -> bool: return w.get_ref() != null):
+		await get_tree().process_frame
+	get_tree().quit(exit_code)
+
+
 ## A short rumble on the gamepad in use (no-op without one).
 func rumble(weak: float, strong: float, seconds: float) -> void:
 	for d in Input.get_connected_joypads():
@@ -105,13 +132,23 @@ func rumble(weak: float, strong: float, seconds: float) -> void:
 
 
 ## Clipboard access that is a no-op where the display server has none (headless tools).
-static func clipboard_get() -> String:
+func clipboard_get() -> String:
 	return DisplayServer.clipboard_get() if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD) else ""
 
 
-static func clipboard_set(text: String) -> void:
+func clipboard_set(text: String) -> void:
 	if DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
 		DisplayServer.clipboard_set(text)
+
+
+## A Copy button's action: puts `text` on the clipboard and shows "Copied!" on the button for a moment.
+func copy_with_feedback(button: Button, text: String) -> void:
+	clipboard_set(text)
+	Sfx.play(&"gem")
+	button.text = "Copied!"
+	get_tree().create_timer(1.2).timeout.connect(func() -> void:
+		if is_instance_valid(button):
+			button.text = "Copy")
 
 
 ## "keyboard text" or "pad text", whichever device the player uses.
@@ -183,7 +220,7 @@ func local_player() -> Dictionary:
 
 
 ## Display name for a HUD player entry: the synced name when the session has one, else "P<n>".
-static func player_name(p: Dictionary) -> String:
+func player_name(p: Dictionary) -> String:
 	var n := String(p.get("name", ""))
 	return n if n != "" else "P%d" % (int(p.get("slot", 0)) + 1)
 
@@ -272,11 +309,53 @@ func _fit_window() -> void:
 	var scale := DisplayServer.screen_get_scale()
 	if scale <= 1.0:
 		return
-	var size := Vector2i(Vector2(1280, 720) * scale)
 	var usable := DisplayServer.screen_get_usable_rect()
-	size = size.min(usable.size * 9 / 10)
+	var size := Vector2i((Vector2(1280, 720) * scale).min(Vector2(usable.size) * 0.9))
 	DisplayServer.window_set_size(size)
-	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
+	DisplayServer.window_set_position(usable.position + Vector2i(Vector2(usable.size - size) * 0.5))
+
+
+## Exported build without the game library: nothing can run, so say so and offer Quit (never the mock).
+func _fatal() -> void:
+	push_error("survivor: the game library failed to load (UnifiedSession missing); the export is broken")
+	set_process(false)
+	set_process_unhandled_input(false)
+	get_tree().unload_current_scene.call_deferred()
+	var layer := CanvasLayer.new()
+	layer.layer = 200
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = UiTheme.BG
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(center)
+	var panel := PanelContainer.new()
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(box)
+	var title := Label.new()
+	title.theme_type_variation = &"Heading"
+	title.text = "The game library failed to load"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var detail := Label.new()
+	detail.theme_type_variation = &"Dim"
+	detail.text = "This copy of the game is incomplete or damaged. Download it again."
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(detail)
+	var quit := Button.new()
+	quit.theme_type_variation = &"PrimaryButton"
+	quit.text = "Quit"
+	quit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	quit.pressed.connect(quit_app)
+	box.add_child(quit)
+	quit.grab_focus.call_deferred()
+	_fit_window.call_deferred()
+	if "--smoke-test" in OS.get_cmdline_user_args():
+		quit_app.call_deferred(1)
 
 
 func _toggle_debug() -> void:

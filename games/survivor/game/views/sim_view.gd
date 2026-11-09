@@ -1,6 +1,6 @@
 class_name GameView
 extends Node3D
-## Base for scene views (`res://game/views/<kind>.tscn`). The session (native `UnifiedSession` or `MockSession`)
+## Base for scene views (`res://game/views/<kind>.tscn`). The session (native `UnifiedSession` or the mock)
 ## instantiates the scene under its `view_root`, sets `kind`, `entity` and `slot` before adding it, then every
 ## frame sets `position` (and the root's rotation) and calls `_sim_update`; events for this entity arrive through
 ## `_sim_event`, including `despawned` (the view then lingers ~0.25 s for an exit animation before it is freed).
