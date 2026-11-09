@@ -130,7 +130,7 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
   (`survivor/3` at protocol 5); `sim.compat_of` refuses a peer with another build.
 - **Tooling:** `dev.py all` is exactly what CI runs; `dev.py game <sub> <game>` takes the game positionally
-  everywhere; x86_64 builds go to `out/<mode>-x64/`. CI: only `eos-sdk.yml` has a write token (it runs no repo code);
+  everywhere. CI: only `eos-sdk.yml` has a write token (it runs no repo code);
   runners, actions (by SHA) and downloads (SHA-256) are pinned.
 - **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
   frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).

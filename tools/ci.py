@@ -163,18 +163,18 @@ def cmd_summary():
         out.append("")
     check_path = REPO / "out" / "check.json"
     if not check_path.exists():
-        out.append("No out/check.json: T1-T9 did not run.")
+        out.append("No out/check.json: `dev.py check` did not run.")
         print("\n".join(out))
         return
     j = json.loads(check_path.read_text())
-    out += ["### T1-T9 (src/headless/SPEC.md (T1-T9)): %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
+    out += ["### `dev.py check`: %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
             "| test | result | seconds | detail |", "|---|---|---:|---|"]
     for name, r in j.get("tests", {}).items():
         detail = r.get("detail", "").replace("|", "\\|").replace("\n", " ")[:300]
         out.append("| %s | %s | %.1f | %s |" % (name, r.get("status", "?").upper(), r.get("seconds", 0), detail))
-    d = (j.get("tests", {}).get("T9") or {}).get("data") or {}
+    d = (j.get("tests", {}).get("bench") or {}).get("data") or {}
     if "step_mean_us" in d:
-        out += ["", "### T9 bench (`bench --enemies 1000 --window 8 --ticks 600`, release)", "",
+        out += ["", "### Rollback bench (survivor `bench --enemies 1000 --window 8 --ticks 600`, release)", "",
                 "| | mean µs | p99 µs |", "|---|---:|---:|",
                 "| forward step | %.0f | %.0f |" % (d["step_mean_us"], d["step_p99_us"]),
                 "| save | %.0f | |" % d["save_mean_us"],

@@ -2,7 +2,6 @@
 """Fetch and build Dear ImGui (docking) + dear_bindings' C API as one static library, for src/imgui.
 
     python tools/imgui.py                  # host build -> third_party/imgui/build/<platform>/libimgui.a (imgui.lib)
-    python tools/imgui.py --arch x86_64    # macOS only: x86_64 build (macos-x64)
     python tools/imgui.py --clean          # wipe the sources and this platform's build first
 
 Pinned: Dear ImGui v1.92.9b-docking (git tag), dear_bindings v0.21's generated C API for that tag (release
@@ -76,7 +75,7 @@ def lib_path(tag):
     return ROOT / "build" / tag / ("imgui.lib" if IS_WINDOWS else "libimgui.a")
 
 
-def compiler(arch):
+def compiler():
     if IS_WINDOWS:
         common.ensure_msvc_env()
         cl = common.find_clang_cl()
@@ -89,7 +88,7 @@ def compiler(arch):
     flags = [cxx, "-c", "-std=c++11", "-O2", "-DNDEBUG", "-fPIC", "-fno-exceptions", "-fno-rtti"] + \
             ["-D" + d for d in DEFINES] + ["-I" + str(SRC)]
     if IS_MACOS:
-        flags += ["-arch", "x86_64" if common.norm_arch(arch or common.host_arch()) == "x64" else "arm64",
+        flags += ["-arch", "x86_64" if common.host_arch() == "x64" else "arm64",
                   "-mmacosx-version-min=" + MACOS_DEPLOYMENT_TARGET]
     return flags, (shutil.which("llvm-ar") or "ar")
 
@@ -99,16 +98,16 @@ def recipe_key(tag):
     return hashlib.sha1(("%d %s %s %s %s" % (RECIPE_VERSION, IMGUI_TAG, DB_TAG, DEFINES, tag)).encode()).hexdigest()
 
 
-def ensure(arch=None):
-    """Builds the static library for this platform (arch: macOS x86_64 for Rosetta) unless it is up to date."""
-    tag = common.platform_tag(arch)
+def ensure():
+    """Builds the static library for this platform unless it is up to date."""
+    tag = common.platform_tag()
     out = lib_path(tag)
     stamp = out.parent / "imgui.stamp"
     if out.exists() and stamp.exists() and stamp.read_text().strip() == recipe_key(tag):
         return out
     t0 = time.time()
     ensure_source()
-    flags, ar = compiler(arch)
+    flags, ar = compiler()
     obj_dir = ROOT / "obj" / tag
     obj_dir.mkdir(parents=True, exist_ok=True)
     objs = []
@@ -135,13 +134,12 @@ def ensure(arch=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arch")
     ap.add_argument("--clean", action="store_true")
     a = ap.parse_args()
     if a.clean:
         shutil.rmtree(SRC, ignore_errors=True)
-        shutil.rmtree(lib_path(common.platform_tag(a.arch)).parent, ignore_errors=True)
-    out = ensure(a.arch)
+        shutil.rmtree(lib_path(common.platform_tag()).parent, ignore_errors=True)
+    out = ensure()
     print(out)
     return 0
 

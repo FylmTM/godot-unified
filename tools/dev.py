@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Build, test, format and vet unified: the one entry point (Python 3.9+, stdlib only, any OS).
 
-    python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/survivor[.exe] (x86_64: out/<mode>-x64/)
-    python tools/dev.py test                    # odin test: unit tests + determinism lint
-    python tools/dev.py check [--arch x86_64] [--no-rosetta] [check.py opts]   # release build, then T1-T9
-                                                # (tools/check.py); a full check on an ARM64 Mac first runs T1,T7,T8
-                                                # of the x86_64 build under Rosetta (--no-rosetta skips it)
+    python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{survivor,friendslop,toy}[.exe]
+    python tools/dev.py test                    # odin test: unit tests, every end-to-end suite, determinism lint
+    python tools/dev.py check                   # release build, then the real-UDP multi-process test (toy) and
+                                                # the survivor's rollback bench
+    python tools/dev.py regen <game>|toy        # regenerate a reference run (simulation/tests/testdata/)
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
@@ -13,7 +13,7 @@
     python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
                                                 # validate, walk (CI's godot job runs exactly this)
     python tools/dev.py all                     # fmt --check, vet, test, check, godot-checks (everything CI runs)
-    python tools/dev.py game build <game> [dev|release] [--arch x86_64]   # games/<game>/.out/bin/lib<game>.*
+    python tools/dev.py game build <game> [dev|release]  # games/<game>/.out/bin/lib<game>.*
     python tools/dev.py game run <game> [-- args]       # windowed game (args after -- go to the game)
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] [--seed S] [--release] [--no-build]
@@ -37,17 +37,26 @@ Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds c
 Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The bindings import the
 static library by relative path, so plain `odin build games/survivor/simulation/headless
 -collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
-is built (add -out: or the binary lands in the current folder); this script adds the flags and timings. The binary built is the survivor test game's
-headless binary (the CLI modes of src/headless/SPEC.md (CLI) come from unified:headless).
---arch x86_64 (macOS only) builds for darwin_amd64 against the macos-x64 Box3D, for Rosetta checks.
+is built (add -out: or the binary lands in the current folder); this script adds the flags and timings.
+`build` builds every headless binary (the CLI modes of src/headless/SPEC.md come from unified:headless):
+each game's and the toy game's (tests/toy/headless).
+
+End-to-end (src/headless/SPEC.md, End-to-end suites): each game's suite and the toy's run in `test`. `check`
+keeps the real-UDP, real-clock test: a relay and 3 client processes of the toy's binary (one under `bad`),
+960 ticks (~15 s); then, until the benchmarks take it over, the survivor's `bench --enemies 1000 --window 8`
+(reported, not gated). Results go to out/check.json (CI's job summary) and process output to out/check/.
+`regen` runs a suite with -define:UNIFIED_REGEN=true: its reference test writes a new reference run (ref.log,
+ref.trace, the snapshot, ref.json saying where it was made), checks it, and the files show up in `git status`.
 """
 
 import argparse
 import concurrent.futures
+import datetime
 import filecmp
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -70,14 +79,13 @@ MODES = {
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
 VET_TARGETS = ["darwin_arm64", "darwin_amd64", "linux_amd64", "linux_arm64", "windows_amd64"]
 FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (REPO / "games").glob("*/simulation"))
-HEADLESS = "games/survivor/simulation/headless"  # the binary build/check use
-BINARY = "survivor"
-FS_HEADLESS = "games/friendslop/simulation/headless"
-FS_BINARY = "friendslop"
-# Packages vet type-checks (with everything they import): the headless binary, the tests, the binding test
-# extension and the game's extension.
-VET_PACKAGES = [HEADLESS, "tests", "tests/godot/ext", "games/survivor/simulation/extension",
-                "games/friendslop/simulation/headless", "games/friendslop/simulation/extension"]
+# The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
+HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",
+            "toy": "tests/toy/headless"}
+# Packages vet type-checks (with everything they import): the headless binaries, the tests, the binding test
+# extension and the games' extensions.
+VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "games/survivor/simulation/extension",
+                                          "games/friendslop/simulation/extension"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
     python tools/ci.py odinfmt ~/.local/share/unified-odinfmt
@@ -103,28 +111,17 @@ def run_odin(args, what):
     return secs
 
 
-def arch_target(arch):
-    if not arch:
-        return []
-    if not common.IS_MACOS or common.norm_arch(arch) != "x64":
-        raise SystemExit("dev: --arch is only for macOS x86_64 (Rosetta) builds")
-    return ["-target:darwin_amd64"]
-
-
-def cmd_build(mode="dev", arch=None):
-    import check
-    target = arch_target(arch)
-    box3d.ensure(arch)
-    out = check.out_dir(mode, arch)
+def cmd_build(mode="dev"):
+    """Builds every headless binary into out/<mode>/, side by side; returns that directory."""
+    box3d.ensure()
+    out = REPO / "out" / mode
     out.mkdir(parents=True, exist_ok=True)
-    exe = out / (BINARY + EXE)
-    # The survivor's and friendslop's headless binaries (check.py drives both), built side by side.
-    jobs = [(HEADLESS, exe), (FS_HEADLESS, out / (FS_BINARY + EXE))]
+    jobs = [(pkg, out / (name + EXE)) for name, pkg in HEADLESS.items()]
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as ex:
-        secs = max(ex.map(lambda j: run_odin(["build", j[0], COLLECTION, "-out:" + j[1].as_posix()] + MODES[mode] + VET
-                                             + target, "odin build " + j[0]), jobs))
+        secs = max(ex.map(lambda j: run_odin(["build", j[0], COLLECTION, "-out:" + j[1].as_posix()] + MODES[mode] + VET,
+                                             "odin build " + j[0]), jobs))
     log("dev: build %s -> %s in %.2fs" % (mode, ", ".join(j[1].relative_to(REPO).as_posix() for j in jobs), secs))
-    return exe
+    return out
 
 
 GDEXT = REPO / "src" / "gdext"
@@ -196,7 +193,7 @@ def rel(p):
         return str(p)
 
 
-def cmd_game_build(gdir, mode="dev", arch=None):
+def cmd_game_build(gdir, mode="dev"):
     """Builds the game's GDExtension into <game>/.out/bin/. macOS dev builds get a new versioned file each time
     and lib<game>.dylib becomes a symlink to it: dyld never unloads an image with thread-locals (Odin's runtime
     has some), so reloading the same path in the editor would keep the old code."""
@@ -204,9 +201,8 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     if not (gdir / "simulation" / "extension").is_dir():
         raise SystemExit("dev: %s has no simulation/extension to build" % rel(gdir))
     name = gdir.name
-    target = arch_target(arch)
-    box3d.ensure(arch)
-    imgui.ensure(arch)
+    box3d.ensure()
+    imgui.ensure()
     cmd_gen()
     out = gdir / ".out" / "bin" / common.lib_name(name)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -219,7 +215,7 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     tag = "-define:UNIFIED_BUILD_TAG=%s-%s" % (mode, time.strftime("%Y%m%d-%H%M%S"))
     eos_defines = stage_eos(out.parent)
     secs = run_odin(["build", (gdir / "simulation" / "extension").as_posix(), "-build-mode:dll",
-                     "-out:" + tmp.as_posix(), COLLECTION, tag] + eos_defines + MODES[mode] + VET + target,
+                     "-out:" + tmp.as_posix(), COLLECTION, tag] + eos_defines + MODES[mode] + VET,
                     "build the extension")
     if versioned:
         link = out.with_name(out.name + ".new")
@@ -422,7 +418,6 @@ def game_parser():
     p = sub.add_parser("build", help="the game's GDExtension into <game>/.out/bin/")
     p.add_argument("game")
     p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
-    p.add_argument("--arch", choices=["x86_64"], help="macOS: an x86_64 build, for Rosetta checks")
     for name, helptext in (("run", "the game in a window (arguments after -- go to the game)"),
                            ("editor", "the Godot editor on the game")):
         p = sub.add_parser(name, help=helptext)
@@ -455,7 +450,7 @@ def cmd_game(argv):
     a = game_parser().parse_args(argv)
     gdir = common.game_dir(a.game)
     if a.cmd == "build":
-        cmd_game_build(gdir, a.mode, a.arch)
+        cmd_game_build(gdir, a.mode)
     elif a.cmd in ("run", "editor"):
         if not (gdir / ".out" / "bin" / common.lib_name(gdir.name)).exists():
             cmd_game_build(gdir)
@@ -513,11 +508,13 @@ def cmd_vet():
     jobs = [(pkg, t, ()) for t in VET_TARGETS for pkg in VET_PACKAGES]
     # godot_host without the dev UI (-define:UNIFIED_DEVUI=false) must keep compiling
     jobs += [(pkg, VET_TARGETS[0], ("-define:UNIFIED_DEVUI=false",)) for pkg in VET_PACKAGES if "extension" in pkg]
+    # the suites as `regen` builds them (unified:headless/scenarios writes reference runs)
+    jobs += [("tests", VET_TARGETS[0], ("-define:UNIFIED_REGEN=true",))]
     t0 = time.time()
 
     def one(job):
         pkg, target, defines = job
-        extra = ([] if pkg == HEADLESS else ["-no-entry-point"]) + list(defines)
+        extra = ([] if pkg in HEADLESS.values() else ["-no-entry-point"]) + list(defines)
         r = subprocess.run([odin(), "check", pkg, "-target:" + target, COLLECTION] + extra + VET,
                            cwd=str(REPO), capture_output=True, text=True)
         return job, r.returncode, (r.stdout + r.stderr).strip()
@@ -572,25 +569,168 @@ def cmd_fmt(check=False):
                                                   "to change" if check else "changed", secs))
 
 
-def cmd_check(argv):
-    """Builds the binary check.py tests (its --mode, default release, and --arch), then runs it."""
-    import check
-    rosetta = "--no-rosetta" not in argv
-    argv = [x for x in argv if x != "--no-rosetta"]
-    a = check.parser().parse_args(argv)
-    # On an ARM64 Mac a full release check also runs the cross-architecture determinism check first: the x86_64
-    # build (out/release-x64/) under Rosetta must reproduce T1 and the committed T7/T8 references (~10 s). It goes
-    # first so the native run's results are what stays in out/check.
-    if rosetta and a.mode == "release" and not a.arch and not a.only and not a.regen and common.IS_MACOS \
-            and common.host_arch() == "arm64":
-        cmd_build(a.mode, "x86_64")
-        log("dev: check: Rosetta x86_64 run of T1, T7, T8, F1, F5")
-        if check.main(["--arch", "x86_64", "--only", "T1,T7,T8,F1,F5"]) != 0:
-            raise SystemExit("dev: the x86_64 build under Rosetta does not reproduce T1/T7/T8/F1/F5")
-    cmd_build(a.mode, a.arch)
-    rc = check.main(argv)
-    if rc != 0:
-        raise SystemExit(rc)
+# `check`: the real-UDP, real-clock, multi-process test (src/headless/SPEC.md, End-to-end suites, Running).
+UDP_TICKS = 960  # 15 s of the toy's 64 Hz clock
+UDP_CLIENTS = 3  # the last one under the `bad` profile
+TICK_HZ = 64
+
+
+def free_udp_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+class CheckFail(Exception):
+    pass
+
+
+def check_start(binary, work, name, args):
+    """Starts the binary with its command line, stdout and stderr in out/check/<name>.*."""
+    cmd = [str(binary)] + [str(a) for a in args]
+    (work / (name + ".cmd")).write_text(" ".join(cmd) + "\n")
+    out, err = open(work / (name + ".stdout"), "w"), open(work / (name + ".stderr"), "w")
+    kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if common.IS_WINDOWS else {}
+    p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=str(work), **kw)
+    p.files, p.name, p.t0 = (out, err), name, time.time()
+    return p
+
+
+def check_finish(work, p, timeout):
+    """Waits for p (killed after timeout seconds) and returns its final JSON line."""
+    try:
+        p.wait(timeout=max(1.0, timeout - (time.time() - p.t0)))
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait()
+        raise CheckFail("%s: timed out after %.0fs (killed)" % (p.name, timeout))
+    finally:
+        for f in p.files:
+            f.close()
+    if p.returncode != 0:
+        tail = (work / (p.name + ".stderr")).read_text(errors="replace").strip().splitlines()[-5:]
+        raise CheckFail("%s: exit code %d%s" % (p.name, p.returncode, (": " + " | ".join(tail)) if tail else ""))
+    for line in reversed((work / (p.name + ".stdout")).read_text(errors="replace").splitlines()):
+        if line.strip().startswith("{"):
+            return json.loads(line)
+    raise CheckFail("%s: no JSON line on stdout" % p.name)
+
+
+def check_udp(binary, work):
+    """A relay and UDP_CLIENTS client processes over localhost UDP on the real clock: every client verifies every
+    tick, their checksums (every 16th tick) agree, and nobody reports a desync."""
+    port = free_udp_port()
+    timeout = UDP_TICKS / TICK_HZ * 4 + 90
+    relay = check_start(binary, work, "relay", ["relay", "--port", port, "--players", UDP_CLIENTS,
+                                                "--ticks", UDP_TICKS, "--log", work / "relay.log"])
+    time.sleep(0.5)
+    procs = [check_start(binary, work, "client%d" % i,
+                         ["client", "--connect", "127.0.0.1:%d" % port, "--player", i, "--ticks", UDP_TICKS]
+                         + (["--profile", "bad"] if i == UDP_CLIENTS - 1 else []))
+             for i in range(UDP_CLIENTS)]
+    errors, clients = [], []
+    for p in procs:
+        try:
+            clients.append(check_finish(work, p, timeout))
+        except CheckFail as e:
+            errors.append(str(e))
+    try:
+        rj = check_finish(work, relay, timeout if not errors else 10)
+    except CheckFail as e:
+        errors.append(str(e))
+    if errors:
+        raise CheckFail("; ".join(errors))
+    if rj.get("desyncs", 0) or any(c.get("desyncs", 0) for c in clients):
+        raise CheckFail("desyncs: relay %d, clients %s" % (rj.get("desyncs", 0), [c.get("desyncs", 0) for c in clients]))
+    want = list(range(16, UDP_TICKS + 1, 16))
+    ref = None
+    for c in clients:
+        if c.get("final_tick") != UDP_TICKS:
+            raise CheckFail("client %s verified up to tick %s of %d" % (c.get("player"), c.get("final_tick"), UDP_TICKS))
+        cs = {t: h for t, h in c.get("checksums", [])}
+        if sorted(cs) != want:
+            raise CheckFail("client %s's checksums don't cover every 16th tick" % c.get("player"))
+        if ref is None:
+            ref = cs
+        elif cs != ref:
+            t = min(t for t in want if cs[t] != ref[t])
+            raise CheckFail("client %s's checksum differs first at tick %d: %s vs %s" % (c.get("player"), t, cs[t], ref[t]))
+    detail = "toy relay + %d client processes (one under `bad`) over UDP, %d ticks on the real clock: 0 desyncs, " \
+             "checksums agree" % (UDP_CLIENTS, UDP_TICKS)
+    return detail, {"port": port, "rollbacks": [c.get("rollbacks") for c in clients]}
+
+
+BENCH_TARGET_US = 6000.0
+
+
+def check_bench(binary, work):
+    """Until the benchmarks take it over: the survivor's forward step + 8-tick re-sim at 1000 enemies (reported,
+    not gated; target <= 6 ms)."""
+    j = check_finish(work, check_start(binary, work, "bench", ["bench", "--enemies", 1000, "--window", 8,
+                                                                "--ticks", 600]), 900)
+    step, resim = float(j["step_us"]["mean"]), float(j["resim_us"]["mean"])
+    data = {"step_mean_us": step, "step_p99_us": float(j["step_us"]["p99"]),
+            "save_mean_us": float(j["save_us"]["mean"]), "restore_mean_us": float(j["restore_us"]["mean"]),
+            "resim_mean_us": resim, "resim_p99_us": float(j["resim_us"]["p99"]), "step_plus_resim_us": step + resim,
+            "snapshot_bytes": int(j["snapshot_bytes"]), "within_target": step + resim <= BENCH_TARGET_US, "raw": j}
+    detail = "survivor: step %.0f us + 8-tick re-sim %.0f us = %.2f ms (target <= 6 ms: %s); snapshot %d bytes" % (
+        step, resim, (step + resim) / 1000, "yes" if data["within_target"] else "NO", data["snapshot_bytes"])
+    return detail, data
+
+
+def cmd_check():
+    """Release build, then the real-UDP multi-process test on the toy's binary and the survivor's bench. Writes
+    out/check.json (the CI job summary reads it) and each process's output to out/check/."""
+    out = cmd_build("release")
+    work = REPO / "out" / "check"
+    shutil.rmtree(str(work), ignore_errors=True)
+    work.mkdir(parents=True)
+    summary = {"platform": common.platform_tag(), "commit": git_commit(),
+               "started": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+               "ok": False, "tests": {}}
+    for name, run, binary in (("udp_processes", check_udp, "toy"), ("bench", check_bench, "survivor")):
+        t0 = time.time()
+        try:
+            detail, data = run(out / (binary + EXE), work)
+            status = "pass"
+        except CheckFail as e:
+            detail, data, status = str(e), {}, "fail"
+        secs = time.time() - t0
+        summary["tests"][name] = {"status": status, "seconds": round(secs, 2), "detail": detail, "data": data}
+        print("%-13s %-4s %6.1fs  %s" % (name, status.upper(), secs, detail), flush=True)
+    summary["ok"] = all(t["status"] == "pass" for t in summary["tests"].values())
+    (REPO / "out" / "check.json").write_text(json.dumps(summary, indent=2) + "\n")
+    if not summary["ok"]:
+        raise SystemExit("dev: check failed (out/check.json, out/check/)")
+
+
+def git_commit():
+    """HEAD, with "+dirty" when the tree has changes (None outside a git checkout)."""
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO), capture_output=True, text=True).stdout.strip()
+    if not head:
+        return None
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=str(REPO), capture_output=True, text=True).stdout
+    return head + ("+dirty" if dirty.strip() else "")
+
+
+def cmd_regen(name):
+    """Regenerates a reference run on this machine: builds the suite (the toy's, tests/scenarios, or a game's,
+    games/<game>/simulation/tests) with -define:UNIFIED_REGEN=true and runs it; its reference test writes and
+    checks the new files. Commit them with the change that made them necessary, and say why."""
+    pkg = REPO / "tests" / "scenarios" if name == "toy" else common.game_dir(name) / "simulation" / "tests"
+    if not (pkg / "suite_test.odin").exists():
+        raise SystemExit("dev: %s has no end-to-end suite (suite_test.odin)" % rel(pkg))
+    box3d.ensure()
+    exe = REPO / "out" / "regen" / ((name if name == "toy" else pkg.parent.parent.name) + "_suite" + EXE)
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    run_odin(["test", rel(pkg), COLLECTION, "-out:" + exe.as_posix(), "-define:UNIFIED_REGEN=true",
+              "-define:UNIFIED_REGEN_COMMIT=" + (git_commit() or "unknown")] + TEST_FLAGS + VET, "regen " + name)
+    data = rel(pkg / "testdata")
+    st = subprocess.run(["git", "status", "--short", "--", data], cwd=str(REPO), capture_output=True, text=True)
+    log("dev: regen %s -> %s%s" % (name, data, (":\n" + st.stdout.rstrip()) if st.stdout.strip() else
+                                   " (reproduced byte for byte: nothing changed)"))
 
 
 def parser():
@@ -598,13 +738,12 @@ def parser():
     sub = ap.add_subparsers(dest="cmd", parser_class=Strict)
     p = sub.add_parser("build")
     p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
-    p.add_argument("--arch", choices=["x86_64"], help="macOS: an x86_64 build in out/<mode>-x64/, for Rosetta")
-    for name in ("test", "vet", "godot-test", "godot-checks"):
+    for name in ("test", "vet", "check", "all", "godot-test", "godot-checks"):
         sub.add_parser(name)
     sub.add_parser("gen").add_argument("--force", action="store_true")
     sub.add_parser("fmt").add_argument("--check", action="store_true")
-    for name in ("check", "all"):  # options go to tools/check.py, which validates them
-        sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("opts", nargs="*")
+    sub.add_parser("regen", help="regenerate a reference run").add_argument(
+        "suite", help="a game under games/, or `toy` (the library's own, tests/scenarios)")
     for name in ("game", "board"):  # their own parsers validate the rest
         sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("argv", nargs="*")
     return ap
@@ -618,7 +757,7 @@ def main():
     a = parser().parse_args(argv)
     t0 = time.time()
     if a.cmd == "build":
-        cmd_build(a.mode, a.arch)
+        cmd_build(a.mode)
     elif a.cmd == "test":
         cmd_test()
     elif a.cmd == "gen":
@@ -637,7 +776,9 @@ def main():
         board.main(a.argv)
         return 0  # no timing line: board commands are interactive, not build steps
     elif a.cmd == "check":
-        cmd_check(a.opts)
+        cmd_check()
+    elif a.cmd == "regen":
+        cmd_regen(a.suite)
     elif a.cmd == "fmt":
         cmd_fmt(check=a.check)
     elif a.cmd == "vet":
@@ -646,7 +787,7 @@ def main():
         cmd_fmt(check=True)
         cmd_vet()
         cmd_test()
-        cmd_check(a.opts)
+        cmd_check()
         cmd_godot_checks()
     secs = time.time() - t0
     log("dev: %s done in %.1fs" % (" ".join(argv), secs))

@@ -40,7 +40,7 @@ def norm_arch(arch):
 def host_arch():
     machine = platform.machine()
     if IS_MACOS and machine == "x86_64":
-        # A Python running under Rosetta reports x86_64; the hardware may still be arm64.
+        # An x86_64 Python on an ARM64 Mac (translated) reports x86_64; build for the hardware.
         try:
             out = subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True)
             if out.stdout.strip() == "1":
@@ -52,9 +52,9 @@ def host_arch():
     return norm_arch(machine)
 
 
-def platform_tag(arch=None):
-    """e.g. macos-arm64, macos-x64, linux-x64, windows-x64."""
-    return "%s-%s" % (host_os(), norm_arch(arch) if arch else host_arch())
+def platform_tag():
+    """This machine's platform, e.g. macos-arm64, linux-x64, windows-x64."""
+    return "%s-%s" % (host_os(), host_arch())
 
 
 class Strict(argparse.ArgumentParser):

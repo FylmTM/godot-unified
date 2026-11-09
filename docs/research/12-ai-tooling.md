@@ -191,8 +191,8 @@ measure)*: a no-op check under 50 ms, a rebuild under 3 s. CI calls the same shi
 | Group | Commands | Replaces or adds |
 |---|---|---|
 | setup | `doctor`, `setup` (pinned Odin, Godot 4.7.x, Box3D fork) | `tools/box3d.py`, CI install steps |
-| build | `build [core\|ext\|runner\|all] [--mode dev\|release] [--arch x86_64]` | `impl/*/build.py` |
-| test | `test [filter] [--sync-test k] [--fuzz quick\|full] [--no-cache]` | `tools/check.py` |
+| build | `build [core\|ext\|runner\|all] [--mode dev\|release]` | `impl/*/build.py` |
+| test | `test [filter] [--sync-test k] [--fuzz quick\|full] [--no-cache]` | `dev.py test`, `dev.py check` |
 | check | `check` (fmt check, vet, determinism lint: banned imports/types, FMA flags), `fmt` | lint scripts |
 | bench | `bench [name] [--compare <ref>] [--ci]` | ad-hoc bench runners |
 | run | `run headless …`, `run game [--peers N] [--netsim …]`, `ls`, `stop <id>` | `play.sh` |
