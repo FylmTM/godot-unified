@@ -6,13 +6,13 @@ directly with the same arguments: `python tools/game.py validate survivor`):
     python tools/dev.py game shots <game>                 # the walk in a window, PNGs to games/<game>/.out/shots/
     python tools/dev.py game tour <game> [--shots]        # the real game (library built): single player through
                                                           # lobby/match; headless quick check, or windowed with
-                                                          # PNGs to games/<game>/.out/tour/ (~50 s, plays to game over)
+                                                          # PNGs to games/<game>/.out/tour/ (plays to game over)
     python tools/dev.py game tour <game> --frames [--cold]   # windowed tour reporting frame times, hitches with the
                                                           # events around them and each first use's worst frame;
-                                                          # --cold clears the shader caches (~70 s)
+                                                          # --cold clears the shader caches
     python tools/dev.py game coop <game> [--shots] [--rejoin] [--lan]   # real online co-op over EOS (or --lan:
                                                           # direct UDP on 127.0.0.1): a host and a headless
-                                                          # joiner (typed code) in two processes (~25 s; manual:
+                                                          # joiner (typed code) in two processes (manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import <game>                # refresh Godot's import cache (.godot/)
     python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (src/level/SPEC.md);

@@ -233,6 +233,7 @@ def ensure(cc=None, cxx=None, clean=False):
             shutil.rmtree(p)
     work.mkdir(parents=True)
     log("box3d: building %s with %s" % (tag, compiler))
+    common.COLD.append("Box3D build")
     run(["cmake", "-S", SRC, "-B", work] + cfg, quiet=True)
     run(["cmake", "--build", work, "--target", "box3d"], quiet=True)
     n = verify_flags(work)

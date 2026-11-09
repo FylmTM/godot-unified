@@ -19,7 +19,7 @@
     python tools/dev.py game headless <game> [--ticks N] [--seed S] [--release] [--no-build]
                                                         # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
-    python tools/dev.py game session-check <game>       # headless: leave then host/join at once (~3 s)
+    python tools/dev.py game session-check <game>       # headless: leave then host/join at once
     python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release] [--no-build]
                                                         # windowed bot play check
     python tools/dev.py game validate|walk|shots|tour|coop|import <game> ...   # Godot project checks (tools/game.py)
@@ -30,11 +30,11 @@
 command prints its options.
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
-  dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
-  release  -o:speed                                one LLVM module: the fastest binary, ~2.5 s
+  dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, the fastest to build
+  release  -o:speed                                one LLVM module: the fastest binary
   debug    -o:none -debug                          unoptimized, for stepping in a debugger
 
-Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The bindings import the
+Box3D comes from tools/box3d.py (built on first use, then a stamp check). The bindings import the
 static library by relative path, so plain `odin build games/survivor/simulation/headless
 -collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
 is built (add -out: or the binary lands in the current folder); this script adds the flags and timings.
@@ -444,6 +444,8 @@ def game_parser():
     p.add_argument("--coop", action="store_true")
     p.add_argument("--release", action="store_true", help="build the extension in release mode")
     p.add_argument("--no-build", action="store_true", help="use the library already built")
+    for name, sp in sub.choices.items():
+        sp.description = budget_text("game " + name)
     return ap
 
 
@@ -770,6 +772,57 @@ def cmd_regen(name):
                                    " (reproduced byte for byte: nothing changed)"))
 
 
+# Time budgets (AGENTS.md: a step slower than its budget is a bug): seconds for a warm run of each command (its
+# dependencies already built, Godot's import cache current) on a developer machine; CI allows CI_BUDGET_SCALE times
+# as much. A run over budget is reported, not failed: a line on stderr, out/timings.json and CI's job summary. A cold
+# run (it built or fetched something first: common.COLD) isn't held to it. None: no budget, with why.
+BUDGETS = {
+    "fmt": 1, "vet": 3, "test": 6, "build": 6, "gen": 3, "check": 30, "bench": 10, "regen": 8,
+    "godot-test": 5, "godot-checks": 50, "all": 100,
+    "game build": 8, "game import": 5, "game validate": 3, "game walk": 6, "game export-level": 2,
+    "game headless": 15, "game session-check": 5, "game editor-check": 5, "game tour": 10,
+    "game tour --shots|--frames": "windowed",
+    "game run": "interactive", "game editor": "interactive", "game play": "windowed", "game shots": "windowed",
+    "game coop": "networked", "board": "networked",
+}
+CI_BUDGET_SCALE = 3
+
+
+def budget_key(argv):
+    """The BUDGETS key of a command line: the command, or `game <sub>` (the windowed tour apart)."""
+    if argv[0] != "game" or len(argv) < 2:
+        return argv[0]
+    if argv[1] == "tour" and ("--shots" in argv or "--frames" in argv):
+        return "game tour --shots|--frames"
+    return " ".join(argv[:2])
+
+
+def in_ci():
+    return os.environ.get("CI") == "true"
+
+
+def budget_text(key):
+    """One command's budget, for its own -h."""
+    b = BUDGETS.get(key)
+    return "budget: %ds for a warm run (%dx in CI)" % (b, CI_BUDGET_SCALE) if isinstance(b, int) else \
+        "budget: none (%s)" % b if b else "budget: none set"
+
+
+def budgets_help():
+    """The budget table `-h` prints (generated from BUDGETS, so it can't drift)."""
+    lines = ["Budgets (seconds for a warm run; CI allows %dx; over budget is reported, not failed):" % CI_BUDGET_SCALE]
+    items = list(BUDGETS.items())
+    timed = ["%s %s" % (k, v) for k, v in items if isinstance(v, int)]
+    for i in range(0, len(timed), 6):
+        lines.append("  " + ", ".join(timed[i:i + 6]))
+    why = {}
+    for k, v in items:
+        if not isinstance(v, int):
+            why.setdefault(v, []).append(k)
+    lines.append("  none: " + "; ".join("%s (%s)" % (", ".join(ks), v) for v, ks in why.items()))
+    return "\n".join(lines)
+
+
 def parser():
     ap = Strict(prog="dev.py", add_help=False)
     sub = ap.add_subparsers(dest="cmd", parser_class=Strict)
@@ -785,6 +838,8 @@ def parser():
         "suite", help="a game under games/, or `toy` (the library's own, tests/scenarios)")
     for name in ("game", "board"):  # their own parsers validate the rest
         sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("argv", nargs="*")
+    for name, p in sub.choices.items():
+        p.description = budget_text(name)
     return ap
 
 
@@ -792,6 +847,7 @@ def main():
     argv = sys.argv[1:]
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
+        print(budgets_help())
         return 0 if argv else 2
     a = parser().parse_args(argv)
     t0 = time.time()
@@ -832,19 +888,40 @@ def main():
         cmd_bench()
         cmd_godot_checks()
     secs = time.time() - t0
-    log("dev: %s done in %.1fs" % (" ".join(argv), secs))
-    record_timing(" ".join(argv), secs)
+    report_timing(argv, secs)
     return 0
 
 
-def record_timing(what, secs):
-    """Wall times of the last run of each command, in out/timings.json (shown in the CI summary)."""
+def report_timing(argv, secs):
+    """Prints the run's time against its budget (an OVER BUDGET line when a warm run exceeds it) and keeps the last
+    run of each command line in out/timings.json (CI's job summary shows it)."""
+    what = " ".join(argv)
+    key = budget_key(argv)
+    if key not in BUDGETS:
+        log("dev: `%s` has no budget: add one to BUDGETS in tools/dev.py" % key)
+    budget = BUDGETS.get(key)
+    entry = {"seconds": round(secs, 2)}
+    note = ""
+    if isinstance(budget, int):
+        allowed = budget * (CI_BUDGET_SCALE if in_ci() else 1)
+        entry["budget"] = allowed
+        if common.COLD:
+            entry["cold"] = common.COLD
+            note = " (budget %ds; cold run, not held to it: %s)" % (allowed, ", ".join(common.COLD))
+        elif secs > allowed:
+            entry["over"] = True
+            note = " (budget %ds)" % allowed
+            log("dev: OVER BUDGET: %s took %.1fs, budget %ds%s: find out why (AGENTS.md)" % (
+                what, secs, allowed, " (CI: %dx %ds)" % (CI_BUDGET_SCALE, budget) if in_ci() else ""))
+        else:
+            note = " (budget %ds)" % allowed
+    log("dev: %s done in %.1fs%s" % (what, secs, note))
     path = REPO / "out" / "timings.json"
     try:
         t = json.loads(path.read_text()) if path.exists() else {}
     except ValueError:
         t = {}
-    t[what] = round(secs, 2)
+    t[what] = entry
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(t, indent=2) + "\n")
 

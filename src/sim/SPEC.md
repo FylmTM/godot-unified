@@ -49,10 +49,14 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
   verified events to the view, which confirms or cancels.
 - **Extra** (`save/restore(slot)`, `hash(state, out)`, `image(slot)`, `load(bytes)`): rollback state outside the
   block. The harness knows nothing about Box3D.
-- **Input log** `UNIL` v2: seed, slots, input size, ticks; per tick `Inputs` bytes. `log_encode/decode/read/write`.
-- **Portable snapshot** `UNIS` v2: seed, tick, block size, `layout_hash(S)` (rejects other builds), payload XXH3,
-  block bytes, each Extra's image. `snapshot_encode(s, tick)`, `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)`
-  (creates the world the same way, saves tick 0, then loads; the error says why not, the library never prints).
+- **Input log** `UNIL` v3: seed, content hash, slots, input size, ticks; per tick `Inputs` bytes.
+  `log_encode/decode/read/write`.
+- **Portable snapshot** `UNIS` v3: seed, content hash, tick, block size, `layout_hash(S)` (rejects other builds),
+  payload XXH3, block bytes, each Extra's image. `snapshot_encode(s, tick)`,
+  `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads; the
+  error says why not, the library never prints).
+- **Format versions:** readers accept only the current version of each; nothing is kept for older files yet. A format
+  change bumps the version and regenerates every reference run (`python tools/dev.py regen <game>|toy`).
 
 ## Physics plug-in (`unified:physics`)
 

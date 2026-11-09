@@ -53,7 +53,7 @@ a lookup. Both survive save/restore (they're in Box3D's shape structs).
 - Ring of 16: the block copy, the tick's events and every Extra's save (physics: `b3World_SaveState` into a
   per-slot reusable `b3WorldState`), saved after every step (including tick 0). Restore = copy back + the extras'
   restores.
-- Portable snapshot (`snapshot`/`resume`, late join): `UNIS` v2, seed, tick, block size, the block type's layout
+- Portable snapshot (`snapshot`/`resume`, late join): `UNIS` v3, seed, content hash, tick, block size, the block type's layout
   hash, an XXH3 of the payload, the block bytes and each Extra's image. Box3D's image nulls pointers and refers to
   hull geometry by index into the `b3WorldStateCache` registry. The receiver builds the same initial world and saves
   tick 0 once, which fills its registry in the same order, then loads the image.
