@@ -13,18 +13,19 @@ The first real game will be a 3D co-op game, migrated later from the developer's
   time can use the Editor, and testing co-op needs a build or multiplayer play mode.
 - The commercial deterministic netcode SDK used today is great (determinism, replays, snapshots, headless tests), but
   it has costs: the Unity world and the sim world are glued together by a bridge, schema codegen, map baking, an asset
-  DB export, physics separate from Unity's, and a commercial service dependency (we want Steam relay instead).
+  DB export, physics separate from Unity's, and a commercial service dependency.
 - The developer never really uses the Editor: levels are built from code, art comes from Blender scripts, everything
   is driven from the CLI. Dev tools should live inside the game.
 
 ## Decisions
 
-- **Language: Odin** (signed off 2026-11-09). C++, Rust, C# and Zig were prototyped and benchmarked; the research and
-  results are in `archive/`.
+- **Language: Odin** (signed off 2026-11-09). C++, Rust, C# and Zig were prototyped and benchmarked; what's kept is in
+  `archive/README.md`.
 - **Host: Godot 4.7.x via GDExtension** (LibGodot only if GDExtension blocks something concrete).
 - **Physics: Box3D**, our fork with world save/restore.
 - **Numbers:** f32 with deterministic discipline (decided; fixed point rejected).
-- **Netcode:** host input relay (decided; GGPO-style mesh rejected).
+- **Netcode:** a host-run input relay stamps the official inputs (decided; a peer-to-peer mesh where every peer
+  waits for every other peer's inputs was rejected).
 
 ## Requirements (the developer's answers, 2026-11-07)
 
@@ -34,14 +35,15 @@ The first real game will be a 3D co-op game, migrated later from the developer's
 - **Platforms**: Steam on Windows x64, macOS ARM, Linux / Steam Deck. Consoles ignored for now (a theoretical path is
   nice, not required).
 - **Crossplay Mac ARM ↔ Windows x64 is required**, so determinism must hold across architectures.
-- **Scale**: 2–4 players, 60 Hz, up to 1000+ entities (survivor / tower-defense style sections). Full rigid-body
-  physics is wanted (physics-sandbox games), inside rollback.
+- **Scale**: 2–4 players, 64 Hz (a per-game power of two), up to 1000+ entities (survivor / tower-defense style
+  sections). Full rigid-body physics is wanted (physics-sandbox games), inside rollback.
 - **Simulation threading**: single-threaded and deterministic first; parallel only where measurements demand it.
 - **Netcode**: relay-stamped rollback. The host runs an input relay that stamps the official inputs for each tick,
-  so a laggy player never stalls the others. Late join is built (phase 2); reconnect comes later. No
-  backend.
-- **Transports** (pluggable): in-process loopback, direct UDP / LAN, a self-hosted relay, Steam (Datagram Relay), later
-  maybe Epic Online Services.
+  so a laggy player never stalls the others. Late join from a snapshot works, and a player who drops or leaves can
+  rejoin the running match as a late joiner. No backend.
+- **Transports** (pluggable): in-process loopback, direct UDP / LAN, and online play through Epic Online Services
+  (lobbies by code + P2P with Epic's relays as fallback; shipped in `survivor-v0.1.1`, `spec/eos.md`). Steam
+  (Datagram Relay) later.
 - **Co-op testing**: N clients per process × a transport, with views on or off (headless). Headless loopback with a
   network simulator is the workhorse for tests, agents and CI.
 - **Tests**: headless sim tests; replays as exact regression tests within one build (scenario tests checking outcomes
@@ -73,6 +75,5 @@ checksums. That mode is what makes "works in single player ⇒ works online" a p
 simulation state (predicted frames for motion, verified frames for scores, events for effects) and never writes it;
 player input is the only way in.
 
-Current research is in `docs/research/` (physics, simulation structure, netcode, agent tooling, prior art, Godot
-integration, view binding, AI tooling). Research
-on the stacks and hosts we didn't choose is in `docs/archive/`.
+Settled designs live in `spec/`. Open research is in `docs/research/` (agent tooling, view binding, AI tooling).
+`docs/archive/` keeps the phase 2 results; research on the stacks and hosts we didn't choose is in git history.

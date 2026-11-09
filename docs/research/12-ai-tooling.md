@@ -7,10 +7,9 @@ them. Researched 2026-11-08. *(unverified)* marks claims not checked against a p
 ## TL;DR and recommendation
 
 1. **One `unified` CLI, written in Odin, built from the repo.** A two-line shim (`./unified`, `unified.cmd`)
-   rebuilds the binary when its sources change, then runs it. This is the `cargo xtask` pattern: the repo's tooling
-   in the repo's language ([matklad/cargo-xtask](https://github.com/matklad/cargo-xtask)). It replaces `tools/*.py`
-   and every future script. It is also the only client of 08's control socket. Every command has `--json`, stable
-   exit codes, and a time budget.
+   rebuilds the binary when its sources change, then runs it: the repo's tooling in the repo's language. It replaces
+   `tools/*.py` and every future script. It is also the only client of 08's control socket. Every command has
+   `--json`, stable exit codes, and a time budget.
 2. **Godot, text first.** Agents edit `.gd`, `.tscn`, `.tres` and `project.godot` as text. `unified godot …` wraps
    Godot's headless CLI (`--import`, `--check-only`, `--doctool`, exports). The runtime is driven through our own
    control server, which lives in the Odin GDExtension rather than in Godot. A small optional **editor bridge**
@@ -44,13 +43,10 @@ them. Researched 2026-11-08. *(unverified)* marks claims not checked against a p
   is the "random scripts in random languages" AGENTS.md now forbids.
 - **The bridge is C# strings.** `u eval "UnityEngine.Object.FindFirstObjectByType<…>().SetView(${2}f, …)"` inside
   bash. Quoting, `f` suffixes, no `using`, and timeouts in two units are lessons agents had to learn the hard way.
-- **The bridge dies with the Editor.** Compile errors put Unity in Safe Mode, where the Pipeline package doesn't
-  load, so `unity command` can't connect (Unity's own `unity-cli` skill warns about this). Modal dialogs block
-  everything and need an Accessibility-API presser.
-- **What Unity's CLI got right, and we copy:** `--json` on every command; the CLI as the single agent entry point
-  (`unity command`, `unity run --command`); an attribute (`[CliCommand]`) for adding project commands; and
-  `unity mcp configure`, which registers its MCP server in 16 clients. (Unity's skill `unity-cli/SKILL.md` v0.1.2-beta,
-  read locally.)
+- **The bridge dies with the Editor.** Compile errors put Unity in Safe Mode, where the bridge package doesn't
+  load, so the CLI can't connect. Modal dialogs block everything and need an Accessibility-API presser.
+- **Worth keeping from the CLI we used:** `--json` on every command; the CLI as the single agent entry point; an
+  attribute for adding project commands; and one command that registers the MCP server in every agent client.
 
 ## Prior art: Godot + AI
 
@@ -61,36 +57,21 @@ them. Researched 2026-11-08. *(unverified)* marks claims not checked against a p
 | CLI ([4.7 docs](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html)) | `--headless` (dummy display and audio), `-s <script>` (a `SceneTree`/`MainLoop` script), `--check-only` (parse a script and quit), `--import` (import, then quit: the CI way), `--export-release/debug/pack`, `--doctool` + `--gdscript-docs`/`--gdextension-docs` (API reference as XML), `--dump-extension-api-with-docs`, `--write-movie` + `--fixed-fps`, `--log-file`, `--quit-after`. Unknown arguments are silently ignored, so a wrapper must validate them |
 | Text formats ([TSCN](https://docs.godotengine.org/en/stable/engine_details/file_formats/tscn.html)) | `.tscn`/`.tres` are INI-like: `[gd_scene format=3 uid=…]`, `[ext_resource]`, `[sub_resource]`, `[node parent=…]`, `[connection]`. UIDs survive moves. The editor drops comments and default-valued properties on save. Hand-editing works but isn't a documented workflow |
 | External edits | Scripts can auto-reload. Scenes changed on disk while open raise a reload/resave dialog that, per forum reports, can't be suppressed ([forum](https://forum.godotengine.org/t/window-when-a-scene-has-changed-outside-godot/133091), *unverified*) |
-| GDScript LSP and DAP | `--lsp-port` and `--dap-port` (editor builds). The LSP runs inside the editor (default 6005). A headless editor as the LSP host is a community workaround ([OpenCode bridge](https://cdn.jsdelivr.net/npm/opencode-godot-lsp@1.0.1/README.md), *unverified*). |
+| GDScript LSP and DAP | `--lsp-port` and `--dap-port` (editor builds). The LSP runs inside the editor (default 6005). A headless editor as the LSP host is a community workaround (*unverified*). |
 | Debugger messages | `EngineDebugger.register_message_capture`/`send_message` in the game, and `EditorDebuggerPlugin` in the editor ([docs](https://docs.godotengine.org/en/stable/classes/class_enginedebugger.html)). `Expression` evaluates single expressions at runtime ([docs](https://docs.godotengine.org/en/stable/classes/class_expression.html)) |
 
 **Godot MCP servers (community).** There is no official Godot or Godot Foundation MCP or AI integration (search
-2026-11-08 found none). The landscape is fragmented:
+2026-11-08 found none). About ten community servers exist: Node or Python servers that call the Godot CLI with a
+bundled GDScript for scene edits, editor plugins on a WebSocket (some paid, $15–19, with 100+ tools), and runtime
+autoloads. Each re-implements the same three things: run and capture output, edit scenes, screenshot plus input.
 
-| Project | Approach | Notes |
-|---|---|---|
-| [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) | Node server. Godot CLI for simple ops, one bundled `godot_operations.gd` for scene edits | ~6.6k stars, MIT. Run, stop, debug output, create scenes and nodes, UIDs. No screenshots or input |
-| [godot-mcp-pro](https://github.com/youichi-uda/godot-mcp-pro) | Editor plugin, WebSocket 6505–6509 | $15, proprietary server. 162–187 tools (the README contradicts itself) |
-| GDAI MCP | Editor plugin, Godot 4.2+ | $19. Scene and script edits, debugger output, screenshots, input ([roundup](https://www.summerengine.com/blog/best-godot-mcp-server)) |
-| [godot-mcp-runtime](https://mcpservers.org/servers/erodenn/godot-mcp-runtime), [fernforestgames](https://github.com/fernforestgames/mcp-server-godot-editor), [letsagents](https://github.com/letsagents/godot-mcp), [OREBRON](https://github.com/OREBRON/godot-mcp), IvanMurzak (C#), hi-godot (Python) | Runtime autoloads or editor plugins | Each re-implements the same three things: run and capture output, edit scenes, screenshot plus input |
+Assessment: useful as idea lists. None knows about ticks, peers, rollback or replays. Most are months old and change
+weekly, and the comparisons are vendor-written. Adopting one would add a Node or Python dependency and a second
+bridge next to our control server. Commercial in-editor assistants are products, not building blocks.
 
-Assessment: these are useful as idea lists. None knows about ticks, peers, rollback or replays. Most are months old
-and change weekly, and the comparisons are vendor-written (Summer Engine, Ziva). Adopting one would add a Node or
-Python dependency and a second bridge next to our control server.
-
-**In-editor assistants.** Ziva (commercial: reads the scene tree and errors, runs the game, can act as an MCP
-server) and Summer Engine (its own Godot-compatible app) are products, not building blocks
-([Ziva](https://ziva.sh/blogs/godot-ai-skills), vendor post).
-
-**Godot skill packs** (Ziva's survey, 2026-09-27, vendor-authored):
-[GodotPrompter](https://github.com/jame581/GodotPrompter) (56 skills, MIT, 4.3+),
-[gd-agentic-skills](https://github.com/thedivergentai/gd-agentic-skills) (99, LGPL-3.0, 4.7+),
-[awesome-gamedev-agent-skills](https://github.com/gamedev-skills/awesome-gamedev-agent-skills) (16 Godot skills of
-74, Apache-2.0),
-[Claude-Code-Game-Studios](https://github.com/Donchitos/Claude-Code-Game-Studios) (~25k stars, broad, not deep).
-They teach GDScript gameplay: signals, state machines, UI, exports. Our gameplay is Odin and the Godot side is a thin
-view, so most of that content is irrelevant to us. What remains valuable is 4.7 API correctness, and Godot's own
-`--doctool` output gives us that exactly, for free.
+**Godot skill packs** (16–99 skills each, MIT to LGPL-3.0) teach GDScript gameplay: signals, state machines, UI,
+exports. Our gameplay is Odin and the Godot side is a thin view, so most of that content is irrelevant to us. What
+remains valuable is 4.7 API correctness, and Godot's own `--doctool` output gives us that exactly, for free.
 
 ## How skills and plugins work (Claude Code, November 2026)
 
@@ -156,11 +137,10 @@ read it, and the nearest file wins.
   `/etc/codex/skills`. Skills are invoked with `$name` or implicitly. An optional `agents/openai.yaml` adds UI
   metadata and policy ([docs](https://learn.chatgpt.com/docs/build-skills)).
 - **Claude Code does not read `.agents/`.**
-- **Unity's agent plugin** (installed here) is one repo carrying `.claude-plugin/`, `.codex-plugin/` and
-  `.agents/plugins/marketplace.json`: one skill tree, three agents (Claude Code, Codex, Grok).
-- **Vercel's [`skills` CLI](https://github.com/vercel-labs/skills)** installs skills from a repo by symlinking them
-  into each agent's folder (`.claude/skills`, `.agents/skills`, `.cursor/skills`, …)
-  ([write-up](https://codex.danielvaughan.com/2026/05/31/codex-cli-vercel-skills-cli-npx-skills-open-agent-skills-ecosystem/)).
+- **One repo can serve several agents**: `.claude-plugin/`, `.codex-plugin/` and `.agents/plugins/marketplace.json`
+  over one skill tree.
+- **Third-party installers** symlink a repo's skills into each agent's folder (`.claude/skills`, `.agents/skills`,
+  `.cursor/skills`, …).
 
 ## The `unified` CLI
 
@@ -287,7 +267,7 @@ class in our GDExtension (Odin only, harder to iterate). With the editor closed,
 | `module-spec` | Writing a spec for sign-off (format, length) | New or changed module |
 
 AGENTS.md keeps the always-true rules and the short command list; procedures move into skills. Third-party Godot
-packs: none by default, under the minimal-dependency rule. Reading GodotPrompter for ideas is cheap.
+packs: none by default, under the minimal-dependency rule.
 
 **Where.** `.claude/skills/` in this repo. Skills are versioned with the code, reach every worktree for free, reload
 live, and need no install. If the developer also uses Codex, the same folders can be symlinked as `.agents/skills`.
@@ -299,7 +279,7 @@ Keep frontmatter to the standard keys plus Claude extras only where needed.
 | Option | Pros | Cons |
 |---|---|---|
 | A. Plugin in the `unified` repo (`.claude-plugin/marketplace.json` + `agent/` plugin); game repos declare it in `.claude/settings.json` | Standard; namespaced `/unified:*`; `bin/` could expose a shim on PATH; works for teammates | Version follows the marketplace, not the library version the game pins; a project-enabled external plugin isn't auto-fetched; a third-party marketplace doesn't auto-update by default |
-| B. Skills-dir plugin: the game repo vendors `unified` (submodule) and commits `.claude/skills/unified → ../../unified/agent` | Version-locked to the vendored library; no marketplace; namespaced | Symlinks on Windows need `core.symlinks`; the trust dialog applies; the symlinked skills-dir form is *unverified* for project scope (Unity documents it for `~/.claude/skills`) |
+| B. Skills-dir plugin: the game repo vendors `unified` (submodule) and commits `.claude/skills/unified → ../../unified/agent` | Version-locked to the vendored library; no marketplace; namespaced | Symlinks on Windows need `core.symlinks`; the trust dialog applies; the symlinked skills-dir form is *unverified* for project scope (documented only for `~/.claude/skills`) |
 | C. `unified agents sync` copies the matching skills into `.claude/skills/unified-*` (and `.agents/skills`), with a stamp that `unified doctor` checks | Version-locked; agent-neutral; works offline | We maintain an installer; copies drift if edited; reinvents part of plugin management |
 
 Leaning: **B** if a spike shows it loads, otherwise **C**. Version lock with the library matters more than marketplace
@@ -332,6 +312,4 @@ Claude Code: [skills](https://code.claude.com/docs/en/skills), [plugins](https:/
 [CLI](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html),
 [TSCN](https://docs.godotengine.org/en/stable/engine_details/file_formats/tscn.html),
 [EngineDebugger](https://docs.godotengine.org/en/stable/classes/class_enginedebugger.html),
-[Expression](https://docs.godotengine.org/en/stable/classes/class_expression.html). Prior art: linked inline.
-Unity: `unity-agent-plugin` 0.1.2-beta (`unity-cli/SKILL.md`, `references/integration-advanced.md`), read from the
-local plugin cache.
+[Expression](https://docs.godotengine.org/en/stable/classes/class_expression.html).

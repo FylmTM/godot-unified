@@ -2,7 +2,9 @@
 
 The question: do x86-64 builds of the five Benchmark A implementations produce the same 3600-tick trace as ARM64?
 No Windows or x86 hardware was used. Everything ran on the M4 Pro under Rosetta 2 (macOS x86_64) or Rosetta for
-Linux (an OrbStack amd64 machine). Reproduce with `bench/x86/run.sh` (about 5 minutes with warm caches).
+Linux (an OrbStack amd64 machine). Benchmark A is one sim core (300 Box3D bodies, 1000 agents) written in five
+languages; its spec and ARM64 results are in git (`git show 6994822:docs/archive/bench/a/SPEC.md`). The scripts
+and code paths named below (`bench/a`, `bench/x86/run.sh`, `scripts/`) no longer exist.
 
 ## Result
 
