@@ -89,5 +89,7 @@ needs it, comes later as a unit-vector path.
   the expected height, rides a horizontal and a vertical platform for a full cycle without slipping off, is pushed
   by a thrown box, stands on another mover.
 - Paths: sampling at segment ends and waits is exact; a kinematic body follows a path with no drift over 10 cycles.
-- Cross-arch: a mover-and-joints trace from macOS ARM64 matches under Rosetta (x86_64) and in CI (Linux, Windows).
+- Cross-platform: a golden trace of a mover scene (riding a platform for a whole cycle, walking over a step and
+  jumping, pushed by a heavy box), hashed every 128 ticks through the block and the `Extra`'s hash; the values are
+  pinned in the test and must match on every platform. An intended change updates them in the same commit.
 - Bench: mover update cost per character; save/restore with 4 movers and 4 hold joints.
