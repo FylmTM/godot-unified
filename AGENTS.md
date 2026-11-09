@@ -32,7 +32,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
   snapshotted through our fork.
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
 - **Narrow, purpose-built tooling.** No random scripts in random languages. Tooling converges on one `unified` CLI
-  (design pending sign-off). Agents must know exactly how to operate everything: keep the commands below current.
+  (design pending sign-off). Agents must know exactly how to operate everything: keep `dev.py -h` current.
 - **Don't name products we take ideas from, or the developer's other games, in repo files** (the one line above
   aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally.
 - **Design for the library, not the demo.** Every change considers how `unified` will be used as a library by
@@ -75,62 +75,42 @@ list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need p
 - The `review` label marks a review sitting: the developer goes through one part of the project with an agent
   (explanation, a hands-on task, decisions); its decisions and follow-ups are written into the issue.
 
-## Layout and commands
+## Conventions
 
-- `src/` is the `unified` collection, one package per directory. Imports point one way (`a → b`: a imports b):
-  - deterministic: `sim` → `wire`; `physics` → `sim`, `box3d`, `dmath`, `level`; `level` → `wire`; `wire`, `box3d`
-    and `dmath` are leaves;
-  - real time: `netcode` (→ `sim`, `wire`); `eos` (EOS transport, → `netcode`); `headless` (the CLI modes a game's
-    headless binary wires up, → `netcode`, `sim`; online modes come in through a transport hook);
-  - host: `gdext` (Godot bindings, generated) and `imgui` are leaves; `devui` (→ `gdext`, `imgui`);
-    `godot_host` (→ `sim`, `netcode`, `view`, `gdext`, `devui`; the dev UI is compiled in unless
-    `-define:UNIFIED_DEVUI=false`); `view` is a host-agnostic leaf.
-- `games/<game>/` is a Godot project: `simulation/<game>/` the deterministic sim (→ `sim`, `physics`, `dmath`,
-  `box3d`; linted like the core), `simulation/headless/` its CLI binary (→ `headless`, plus `eos` for online
-  modes), `simulation/extension/` its GDExtension (→ `godot_host`, `eos`, ...), `simulation/tests/` its sim
-  tests (run with the library's by `dev.py test`), `game/` everything Godot. The
-  first game is `games/survivor/`; `games/friendslop/` (games/friendslop/SPEC.md) is the physics co-op sandbox, with a
-  Godot-authored level (src/level/SPEC.md).
-- `tests/`: `odin test` packages, one per module (`box3d`, `sim`, `netcode`, `headless`, `godot_host`, `gdext`, `eos`,
-  ...), importing `unified:<pkg>`; `tests/lint` is the determinism lint, `tests/godot` the binding tests under
-  headless Godot. `README.md` has the toolchain; `tools/README.md` the tools.
+- `src/` is the `unified` collection, one package per directory. Imports point one way and always go through the
+  collection (`unified:<pkg>`), the way games and tests import it. Deterministic packages never import real-time or
+  host ones. The graph lives in `tests/lint/lint_test.odin` (an import allowlist per package): a new package in
+  `src/` or in a game's `simulation/` needs a rule there (the lint test fails otherwise).
+- A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
+  core), its headless binary, its GDExtension and its sim tests.
+- Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
+  sim tests and reference runs live with the game, in `simulation/tests/`. `dev.py test` runs them all in one compile.
+- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
+- Generated output goes to `out/` (root) and `games/<game>/.out/`, both git-ignored and safe to delete.
+- Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
+  options: `python tools/dev.py -h`. Packages: their `SPEC.md`. No layout trees, test counts or measured times in
+  docs: the tools print them.
 
-Commands, all from the repo root, any OS (times: M-series Mac, warm). Every command rejects unknown arguments.
+## Commands
+
+Everything runs through `python tools/dev.py`, from the repo root, on any OS; `python tools/dev.py -h` lists every
+command and `-h` on a command its options. Every command rejects unknown arguments. Before handing work back:
 
 ```
-python tools/dev.py build [dev|release|debug]   # out/<mode>/survivor; dev ~1 s, release ~3.5 s, debug ~0.6 s
-python tools/dev.py test                        # odin test, every package (~3 s, 93 tests)
-python tools/dev.py check [--only T1,T7]        # release build + T1-T9 and friendslop's F1-F5 (~40 s; on an
-                                                # ARM64 Mac a full check first runs T1,T7,T8,F1,F5 of the x86_64
-                                                # build under Rosetta; --no-rosetta skips it)
-python tools/dev.py check --arch x86_64 --only T1,T7,T8   # just the Rosetta check (~10 s)
-python tools/dev.py fmt [--check]               # odinfmt (pinned, see README) (<1 s)
-python tools/dev.py vet                         # odin check, strict flags, all targets (<1 s)
-python tools/dev.py gen                         # Godot bindings from the committed API dump (cached; ~1 s)
-python tools/dev.py godot-test                  # binding tests under headless Godot (~2 s)
-python tools/dev.py godot-checks                # godot-test + every game's headless Godot checks (~25 s)
-python tools/dev.py all                         # fmt --check, vet, test, check, godot-checks: everything CI runs
-python tools/dev.py game build <game> [dev|release]   # the game's GDExtension (~1 s dev)
-python tools/dev.py game run|editor <game>      # windowed game / the Godot editor on it
-python tools/dev.py game validate|walk <game>   # GDScript: compile + load scenes (~1 s) / scripted UI walk (~4 s)
-python tools/dev.py game headless|session-check|editor-check <game>   # headless Godot session checks (~5 s each)
-python tools/dev.py game tour|coop|shots|play <game>   # real-game tours, EOS co-op, screenshots (windowed, manual)
-python tools/dev.py game coop <game> --lan      # co-op of two local Godot instances over direct UDP (no EOS; ~8 s)
-python tools/dev.py game export-level <game>    # game/levels/*.tscn -> .level files (commit both; validate checks)
-python tools/dev.py game tour <game> --frames [--cold]   # frame times and first-use hitches (--cold: no shader cache)
-python tools/release.py build games/<game> [--version V]   # playable zip + smoke test (~20 s warm; docs/RELEASE.md)
+python tools/dev.py fmt          # odinfmt (pinned, see README.md); --check only reports
+python tools/dev.py vet          # odin check, strict flags, every target
+python tools/dev.py test         # every test package in one compile, the determinism lint included
+python tools/dev.py check        # when the sim, netcode or headless CLI changed
+python tools/dev.py godot-checks # when Godot-side code or GDScript changed (or the matching `dev.py game` commands)
+python tools/dev.py all          # everything CI runs; before merging
 ```
-
-Run `fmt`, `vet` and `test` before handing work back; `check` when the sim, netcode or headless CLI changed;
-`godot-checks` (or the matching `game` commands) when Godot-side code or GDScript changed. A new package in `src/`
-needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
 
 ## Where things are
 
 - The board (above): current and upcoming work. `docs/WORK.md`: phases and decisions taken so far (they move into
   the specs during the foundations review, then the file goes).
-- `docs/CONTEXT.md`: why `unified` exists and the developer's requirements.
-- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
+- `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
+- `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
 - `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/research/` (open research).
 - `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
   history (`docs/archive/README.md`).

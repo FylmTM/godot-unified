@@ -88,7 +88,7 @@ in its globalStorage folder, danielgavin.ols/<id>/odinfmt-<arch>-<os>; it may ne
 def odin():
     exe = shutil.which("odin")
     if not exe:
-        raise SystemExit("dev: odin not found on PATH (see README.md, Toolchain)")
+        raise SystemExit("dev: odin not found on PATH (see README.md, Getting started)")
     return exe
 
 

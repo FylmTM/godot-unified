@@ -3,30 +3,14 @@
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
 input-relay netcode with a step API (`netcode`, `eos`), the generic headless modes (`headless`) that a game's
 headless binary wires up, and the Godot host (`gdext`, `view`, `devui`, `godot_host`). The test game lives in
-`games/survivor/`. Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic core
-works inside. Commands and toolchain: [`../AGENTS.md`](../AGENTS.md), [`../README.md`](../README.md).
+`games/survivor/`. Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
+core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `python tools/dev.py -h`.
 
 ## Packages
 
-| Package | Role |
-|---|---|
-| `box3d` | Hand-written bindings for the pinned commit + the fork's save/restore API |
-| `wire` | Little-endian Writer/Reader used by every binary format |
-| `sim` | `Game(S, I, W, P)`, `Sim`, tables + handles, RNG, plain-data check, ring, checksum, events, log, snapshot, schema |
-| `physics` | Box3D world as `sim.Extra`: Body_Ref, save/restore/hash/image, body discovery by RTTI |
-| `dmath` | Deterministic f32 helpers |
-| `netcode` | Links (loopback, UDP, netsim), multi-link channel, relay, client, host; `*_step(now) -> wake` + hooks |
-| `eos` | Epic Online Services: device-ID login, lobbies by code, P2P sockets as a netcode `Link` (`src/eos/SPEC.md`) |
-| `headless` | The `src/headless/SPEC.md` CLI modes for any game; online modes plug in through a transport hook |
-| `view` | Host-agnostic view logic: triple buffer, SPSC queue, pose tracks + smoothing, spawn keys, events (`src/view/SPEC.md`) |
-| `gdext` | Godot bindings: generator, committed API dump, runtime, class registration |
-| `imgui` | Vendored odin-imgui declarations (`src/imgui/SPEC.md`) |
-| `devui` | The in-game dev UI: ImGui → Godot backend, overlay, inspector (`src/devui/SPEC.md`) |
-| `godot_host` | The Godot classes, the session driver and view sync (`src/godot_host/SPEC.md`) |
-
-Imports are one-way (the graph is in `AGENTS.md`), always through the collection (`unified:<pkg>`). Package names
-avoid Odin's own (`net`, `log`, `bytes`...): package names must be unique program-wide, which is why the netcode
-package isn't called `net`.
+Imports are one-way (the graph is enforced by `tests/lint`), always through the collection (`unified:<pkg>`).
+Package names avoid Odin's own (`net`, `log`, `bytes`...): package names must be unique program-wide, which is why
+the netcode package isn't called `net`.
 
 ## State block and pointer-freedom
 
@@ -50,8 +34,9 @@ packages.
 
 ## Box3D binding
 
-Hand-written, ~300 code lines, 38 layout `#assert`s (sizes/offsets from a C probe against the pinned headers; the
-layouts are the same on x64 Linux/Windows); `src/box3d/SPEC.md` lists what we use and how to upgrade. `vendor:box3d` targets an older commit with a different ABI.
+Hand-written, with layout `#assert`s (sizes/offsets from a C probe against the pinned headers; the layouts are the
+same on x64 Linux/Windows); `src/box3d/SPEC.md` lists what we use and how to upgrade. `vendor:box3d` targets an
+older commit with a different ABI.
 
 The static library is imported by a relative path per target
 (`../../third_party/box3d/build/<platform>/lib/libbox3d.a`, `box3d.lib` on Windows), where `tools/box3d.py` puts it,
@@ -98,8 +83,8 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
   client on the real clock or steps everything on one thread on the virtual clock (T3, T6), the Godot host runs
   its own loop. Time-dependent code takes `now` as a parameter, so tests run whole sessions on a
   virtual clock in milliseconds.
-- **Relay / client:** see `src/netcode/SPEC.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, input delay
-  from RTT, ±2% clock slew, checksums every 16 verified ticks, late join with a queued snapshot or a full replay).
+- **Relay / client:** see `src/netcode/SPEC.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, input
+  delay from RTT, ±2% clock slew, checksums every 16 verified ticks, late join with a queued snapshot or a full replay).
 - **Threads:** Box3D world creation/destruction touch Box3D globals (world table, lazily initialised contact
   registers), so `physics.create/destroy` are serialised by a mutex.
 - **Windows:** `timeBeginPeriod(1)` at headless startup (otherwise sleeps round to ~15.6 ms). UDP `recvfrom` errors
@@ -110,8 +95,8 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
 - `core:hash/xxhash` streaming XXH3 is wrong for some lengths (above). Easy to miss: it is still deterministic.
 - `foreign import` takes no absolute path and no `#config` path (relative paths work, see Box3D binding).
 - **Windows CRT:** Odin links `/defaultlib:libcmt` (static CRT), so tools/box3d.py builds Box3D with `/MT` too.
-- `_test.odin` files are compiled into normal builds (and pull in `core:testing`): tests live in `tests/`, not next
-  to the code.
+- `_test.odin` files are compiled into normal builds (and pull in `core:testing`): tests live in their own packages
+  (`tests/<module>/`, a game's `simulation/tests/`), not next to the code.
 - `core:net` is package `net`, so ours can't be.
 - Windows timer resolution and UDP WSAECONNRESET (above).
 - Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
