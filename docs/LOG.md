@@ -202,3 +202,14 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   headless, where the baker does nothing; needs a CI trial first. Verified on main after all three merges: fmt,
   vet, test (93), godot-test, validate, walk, tour --frames (p99 9.1 ms), game headless, session-check,
   editor-check, check T1–T9 plus Rosetta.
+- e6159b3 **audit-tools merged:** the release tag is the only version source (v0.1.1 had shipped saying 0.1.0); LF
+  checksums; downloads pinned by SHA-256 and actions by SHA; read-only CI tokens except `eos-sdk.yml`; one copy of
+  each tool helper, strict positional `<game>`; `spec/CORE.md` became `spec/headless.md`; short specs for wire,
+  box3d and imgui (pending review); research and archive trimmed (kept in git at 6994822); docs describe the code
+  as it is. Won't fix: CI-runner source paths in release binaries (`docs/RELEASE.md`). `dev.py all` on main: 54 s.
+  The whole audit is now merged.
+- **WORK.md brought current:** v0.1.1, an "In flight" table, specs to sign off as the first review item, EOS
+  client-policy question, follow-ups from the hitch work, the research/09 backlog pointer. The state-models evidence
+  is summarised there instead of citing the unmerged branch, which stays (local only) as evidence.
+- **Branches cleaned:** 14 merged branches deleted on origin (origin now has only main) and 13 merged local ones.
+  Branches still checked out in session worktrees are left, including physics-coop's.

@@ -8,7 +8,8 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
 2. **Core prototype** (sim + netcode, headless): done (`archive/PHASE2.md`). Odin chosen, signed off 2026-11-09.
 3. **Architecture and Godot integration:** done for a first pass (spikes, module specs pending review, the library
    reshaped into the module map).
-4. **The library for real:** in progress. `games/survivor/` is the first playable game on it (`survivor-v0.1.0`).
+4. **The library for real:** in progress. `games/survivor/` is the first playable game on it (`survivor-v0.1.1`);
+   a second game, a co-op physics sandbox, is being built.
 5. **A larger 3D co-op game** migrated from Unity.
 
 ## Decided
@@ -24,8 +25,9 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   - Tools: `headless` (a game's headless binary modes plus test helpers: scenarios, virtual clock, fuzzing),
     `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot_host`
     (everything that touches Godot), `cli`.
-  - Dev builds only: `imgui` (vendored odin-imgui, pinned, with two local fixes) and `devui` (the ImGui Godot
-    backend, RTTI inspector, overlay). Shipping builds carry no ImGui.
+  - `imgui` (vendored odin-imgui, pinned, with two local fixes) and `devui` (the ImGui Godot backend, RTTI
+    inspector, overlay). **In every build for now** (developer, 2026-11-09); `-define:UNIFIED_DEVUI=false` drops
+    it (survivor library 2.95 → 1.53 MB) and `vet` checks that build.
   - **Physics is a plug-in:** `sim` knows nothing about Box3D; physics registers save/restore/hash/serialize procs
     as extra state. The game owns a `World` struct (everything outside the block) and its tick takes it.
   - The test game moves out of `src/` to `games/survivor/`, laid out like a real game repo.
@@ -44,7 +46,8 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   real games migrate only after that.
 - **State model: (c) hybrid.** Games own typed fixed tables; `unified` discovers them by Odin RTTI over the game's
   `State`, so the inspector, desync diff, set-by-path, serialization and dumps need no per-component code. No code
-  generation. Evidence: `experiments/state-models/REPORT.md` (branch `claude/state-models-proto-840d93`, not merged).
+  generation. Evidence (three prototypes of one mini-game, local branch `claude/state-models-proto-840d93`): (c)
+  matched bring-your-own-state at ~8 µs/tick and 46 KiB, an engine-owned ECS was ~2× slower and 1.8× larger.
   Open details go into the core module spec: how tables are detected, whether `using` means "component", optional
   components, cross-table helpers.
 - **Consumption:** each game pins `unified` as a git submodule. A committed launcher (`./unified`) builds the CLI
@@ -75,9 +78,10 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   - Views keyed by deterministic spawn keys; events routed to their entity's view.
 - **Bindings register Godot classes from the start**, so `SimView` and `SimBulkView` are visible in the editor and
   GDScript view scripts can talk to the sim. Budget: ~1–2 weeks of binding work (the spike left ~7–10 days).
-- **Godot bindings:** commit `extension_api.json` for the baseline Godot (**4.7**) plus `bindings.txt` (the subset
-  we bind); the Odin bindings are generated into a git-ignored cache; `compatibility_minimum` = the baseline. CI runs
-  the binding tests on every supported Godot version.
+- **Godot bindings:** commit `extension_api.json` for the baseline Godot (**4.7**, marked generated in
+  `.gitattributes`; `src/gdext/api/README.md` says how to refresh it) plus `bindings.txt` (the subset we bind; a test
+  fails on unused entries); the Odin bindings are generated into git-ignored `*.gen.odin`, cached by input hash;
+  `compatibility_minimum` = the baseline. CI runs the binding tests on every supported Godot version.
 - **Standard (non-.NET) Godot** for development and CI (locally `~/tools/godot/Godot_v4.7.2.app`).
 - **Godot integration rules from the GDExtension spike:**
   - `netcode` gets a step API: `client_step`/`relay_step` with host-owned loops, hooks (input, frame published, ticks
@@ -120,35 +124,56 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   proves renders in CI.
 - **F3 captures everything cheap:** screenshot, snapshot, input log, frame dump, view state (scene tree and
   view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
+- **Release:** the git tag is the only source of a build's version (`tools/release.py` stamps it into the export;
+  the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
+  (`survivor/3` at protocol 5); `sim.compat_of` refuses a peer with another build.
+- **Tooling:** `dev.py all` is exactly what CI runs; `dev.py game <sub> <game>` takes the game positionally
+  everywhere; x86_64 builds go to `out/<mode>-x64/`. CI: only `eos-sdk.yml` has a write token (it runs no repo code);
+  runners, actions (by SHA) and downloads (SHA-256) are pinned.
 - **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
   frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).
 
+## In flight
+
+| work | session | branch |
+|---|---|---|
+| Second game: co-op third-person physics sandbox (platforms, jump pads, carry, throw, two-player heavy carry, a short route); also wraps Box3D step and queries in `src/physics` | physics-coop | `claude/physics-coop-game-91cee0` |
+
 ## Done
 
-- Odin-only cleanup merged: `src/` collection, `tests/` packages, `tools/dev.py`, OLS and odinfmt config, Odin-only
-  CI (green on Linux and Windows, run 42519083182), Box3D with the static C runtime on Windows, null-handle and `core:math` fixes.
-- Docs reviewed; the other stacks archived in `docs/archive/`.
-- Upstream Odin XXH3 streaming fix: odin-lang/Odin#8257 is open, from `FylmTM/Odin:fix-xxh3-streaming-tail`. Its CI
-  waits for a maintainer to approve workflows.
+- Odin-only cleanup: `src/` collection, `tests/` packages, `tools/dev.py`, Odin-only CI on Linux and Windows.
+- `survivor-v0.1.1` released (GitHub prerelease, macOS arm64 + Windows x64); crossplay gate passed (`spec/eos.md`).
+- Project audit (64 findings) fixed and merged 2026-11-09, plus the survivor first-use hitch fix (`docs/LOG.md`).
+  Protocol 5 since: v0.1.1 players can't join a build from main.
+- Upstream Odin XXH3 streaming fix: odin-lang/Odin#8257, from `FylmTM/Odin:fix-xxh3-streaming-tail`; its CI waits
+  for a maintainer to approve workflows.
 
 ## Awaiting the developer's review
 
-- Everything decided and built autonomously on the night of 2026-11-09: `docs/LOG.md` (start there).
-- Module specs written that night and marked "pending developer review": the files in `spec/` other than CORE.md
-  and GAME.md (sim, netcode, eos, godot_host, view, devui, the survivor client, ...).
-- The first playable build: `survivor-v0.1.0` (GitHub prerelease; single player + online via EOS; macOS arm64 and
-  Windows x64).
-- Pre-playtest review fixes (outages, rejoin, long RTT, catch-up, exit crash, EOS session hygiene) on branch
-  `worktree-agent-a897e9e067002558a`, not merged; protocol 4 does not meet `survivor-v0.1.0` (`docs/LOG.md`).
+1. **Sign off the specs**, all marked "pending developer review": `spec/sim.md`, `netcode.md`, `view.md`,
+   `godot_host.md`, `devui.md`, `eos.md`, `survivor-client.md`, `headless.md` (the CLI modes and T1–T9, formerly
+   CORE.md), and the short ones written after the code: `wire.md`, `box3d.md`, `imgui.md`. `GAME.md` has M2 changes
+   pending too.
+2. Everything decided and built autonomously on 2026-11-09: `docs/LOG.md` (start there).
+3. The physics sandbox's spec and choices, once its session reports (made without waiting for sign-off).
+4. EOS: confirm the portal client policy allows only Connect, P2P and Lobbies (the client secret ships in every
+   build). Publishing the EOS SDK release instead of keeping it a draft would remove `eos-sdk.yml`'s write token,
+   but it creates a tag: your call.
 
 ## Next
 
-- Play `survivor-v0.1.0` with a friend; collect feedback (balance, feel, connection issues).
-- Review and sign off the specs; fold the review into the code.
+- Play the next survivor build with a friend; collect feedback (balance, feel, connection issues). A `v0.1.2` tag
+  needs the Mac ↔ Windows crossplay check on protocol 5 first.
+- Fold the spec review into the code.
+- First-launch shader cost: try Godot's shader baker in the CI export (needs a windowed export on runners and, for
+  macOS, the full Metal compiler); a `godot_host` warm-up helper for every game; keep the loop ticking while the
+  window is hidden (macOS stalls it up to 1 s).
 - How entity kinds and levels are authored (code/data-first recommended, `docs/research/11-view-binding.md`).
 - The `unified` CLI in Odin (replaces `tools/*.py`).
-- Box3D fork: public load-from-bytes API and clearing stale bytes, plus a full test suite for our use of Box3D.
+- Box3D fork: public load-from-bytes API and clearing stale bytes.
 - Golden screenshots in CI (Linux Xvfb/Mesa proved good enough by the headless-Godot spike).
+- Backlog without a spec yet (`git show 6994822:docs/research/09-prior-art.md`): desync recovery ladder, typed desync
+  reports, build hash in the input log, physics canary, timeline and reverse step in the dev tools, among others.
 
 ## Deferred
 
