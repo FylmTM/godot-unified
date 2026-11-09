@@ -19,7 +19,7 @@ eos.shutdown()                                       // at exit; EOS can't be in
 eos.forget_device()                                  // test tools: delete this machine's device ID
 ```
 
-`bucket` names the game and its protocol version (e.g. `survivor/2`): lobbies only match inside one bucket, so
+`bucket` names the game and its protocol version (e.g. `survivor/3`): lobbies only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;
 the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
@@ -86,7 +86,7 @@ the scripted session; both sides print their verified checksums. Mac side, the g
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
 ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
 (a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/2` works too where the binary owns
+`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/3` works too where the binary owns
 the keychain entry (not on a Mac where Godot.app made the device ID).
 
 Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every run 0 mismatches:

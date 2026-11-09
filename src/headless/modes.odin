@@ -44,12 +44,16 @@ run :: proc(h: ^Headless($S, $I, $W, $P)) {
 		ok = mode_relay(h, &a)
 	case "client":
 		ok = mode_client(h, &a)
-	case "eos-host":
-		ok = mode_eos_host(h, &a)
-	case "eos-client":
-		ok = mode_eos_client(h, &a)
 	case:
-		usage()
+		o := h.online
+		switch {
+		case o != nil && a.mode == fmt.tprintf("%s-host", o.name):
+			ok = mode_online_host(h, o, &a)
+		case o != nil && a.mode == fmt.tprintf("%s-client", o.name):
+			ok = mode_online_client(h, o, &a)
+		case:
+			usage()
+		}
 	}
 	os.exit(ok ? 0 : 1)
 }

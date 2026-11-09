@@ -87,7 +87,8 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 - `unified synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`.
 - `unified replay --log F --trace F`: replays an input log.
 - `unified session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
-  [--log F] [--seed S]`: an in-process relay plus N clients (threads) with scripted inputs. Writes the relay's official
+  [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
+  the real clock; one thread stepping everything through test time on the virtual clock, loopback only). Writes the relay's official
   input log. JSON includes, per client, the verified checksums for every 16th tick, `desyncs`, rollback count and
   average/max rollback depth, stall ticks, and final ticks.
 - `unified relay --port P --players N --ticks T --log F` and
@@ -122,10 +123,10 @@ Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% dup
 |---|---|---|
 | T1 | `synctest --ticks 3600 --window 8` with 4 players | 0 mismatches |
 | T2 | `sim --ticks 3600` twice | identical traces |
-| T3 | `session` with 2 and 4 clients × `ideal`, `wan`, `bad` (loopback + netsim), 3600 ticks | 0 desyncs; all clients' verified checksums equal; all reach 3600; rollbacks > 0 under `wan`/`bad` |
+| T3 | `session --clock virtual` with 2 and 4 clients × `ideal`, `wan`, `bad` (loopback + netsim), 3600 ticks | 0 desyncs; all clients' verified checksums equal; all reach 3600; rollbacks > 0 under `wan`/`bad` |
 | T4 | `replay` of the T3 `bad` session's log | trace equals that session's verified checksums |
-| T5 | UDP: `relay` + 3 `client` processes (one with `--profile bad`), 1800 ticks | 0 desyncs |
-| T6 | `session --late-join 3@1200` (4th player joins at tick 1200) under `wan` | 0 desyncs after joining; the joiner's checksums match from its first verified tick |
+| T5 | UDP: `relay` + 3 `client` processes (one with `--profile bad`), 960 ticks of real time | 0 desyncs |
+| T6 | `session --clock virtual --late-join 3@1200` (4th player joins at tick 1200) under `wan` | 0 desyncs after joining; the joiner's checksums match from its first verified tick |
 | T7 | **Cross-platform:** `replay` of `testdata/ref.log` | trace equals `testdata/ref.trace` (generated on macOS ARM64, committed) |
 | T8 | **Cross-platform snapshot:** `resume --in testdata/ref-1800.snap --ticks 1800` | trace equals ticks 1801–3600 of `ref.trace` |
 | T9 | `bench --enemies 1000 --window 8` | reported (not gated). Target: forward step + 8-tick re-sim ≤ 6 ms. |

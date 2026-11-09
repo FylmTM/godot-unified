@@ -13,6 +13,7 @@
 package sim
 
 import "base:intrinsics"
+import "base:runtime"
 import "core:hash/xxhash"
 
 RING :: 16
@@ -79,6 +80,10 @@ Extra :: struct {
 // A game, as the harness, netcode and tools see it.
 Game :: struct($S, $I, $W: typeid, $P: int) {
 	name:          string,
+	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
+	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
+	// play together instead of desyncing.
+	version:       string,
 	tick_hz:       int, // a power of two (32, 64, 128); dt = 1 / tick_hz exactly
 	// The World for a session with this seed: physics world, static geometry, scratch buffers.
 	world_create:  proc(seed: u64) -> ^W,
@@ -115,13 +120,38 @@ Sim :: struct($S, $I, $W: typeid, $P: int) {
 
 // XXH3-64 (seed 0), one-shot.
 hash_bytes :: proc(b: []u8) -> u64 {
+	if len(b) == 0 {
+		none: [1]u8 // core:hash/xxhash asserts on a nil pointer, even for zero bytes
+		return xxhash.XXH3_64_default(none[:0])
+	}
 	return xxhash.XXH3_64_default(b)
 }
 
-// Seconds -> ticks at `hz`, rounded to nearest (exact for the power-of-two rates and any
-// seconds value that is a multiple of 1/hz).
-ticks_of :: proc "contextless" (seconds: f32, hz: int) -> u32 {
-	return u32(seconds * f32(hz) + 0.5)
+// The game build's identity for netcode (Hello's compat): the state, input and inputs layouts, the
+// slot count, the tick rate, the game's name (each variant, e.g. a tuning, has its own) and version.
+// Two builds with the same value run the same simulation, as far as the build can tell.
+compat_of :: proc(game: ^Game($S, $I, $W, $P)) -> u64 {
+	Ids :: struct {
+		state, input, inputs, name, version: u64,
+		slots, tick_hz:                      u32,
+	}
+	ids := Ids {
+		state   = layout_hash(S),
+		input   = layout_hash(I),
+		inputs  = layout_hash(Inputs(I, P)),
+		name    = hash_bytes(transmute([]u8)game.name),
+		version = hash_bytes(transmute([]u8)game.version),
+		slots   = u32(P),
+		tick_hz = u32(game.tick_hz),
+	}
+	return max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
+}
+
+// Whether two ticks' inputs are the same for the simulation: the same players present and the same
+// input bytes (what the checksum sees: -0.0 and +0.0 differ, a NaN equals itself). `replaced` is
+// informational and not compared.
+inputs_same :: proc(a, b: ^Inputs($I, $P)) -> bool {
+	return a.present == b.present && runtime.memory_compare(&a.input, &b.input, size_of([P]I)) == 0
 }
 
 // Creates the World and the tick-0 state, and saves tick 0 into the ring. That first save also
@@ -179,26 +209,23 @@ save :: proc(s: ^Sim($S, $I, $W, $P)) {
 	slot.valid = true
 }
 
-// Restores the saved state of `tick` (it must still be in the ring).
+// Restores the saved state of `tick` (it must still be in the ring). The extras go first: if one
+// fails, the block and the tick are left as they were and false comes back (the extras before it
+// may have been restored; the caller treats the sim as broken).
 restore :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> bool {
 	idx := int(tick % RING)
 	slot := &s.ring[idx]
 	if !slot.valid || slot.tick != tick {
 		return false
 	}
-	s.state = slot.state
-	s.tick = tick
 	for &e in s.extras {
 		if !e.restore(e.data, idx) {
 			return false
 		}
 	}
+	s.state = slot.state
+	s.tick = tick
 	return true
-}
-
-has_tick :: proc(s: ^Sim($S, $I, $W, $P), tick: u32) -> bool {
-	slot := &s.ring[tick % RING]
-	return slot.valid && slot.tick == tick
 }
 
 // The saved state of `tick`, or nil when it is not in the ring.

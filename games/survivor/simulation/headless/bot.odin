@@ -23,9 +23,11 @@ Bot_Run :: struct {
 	kills:         u32,
 }
 
-bot_run :: proc(game: ^survivor.Game, seed: u64, players: int, limit_s: f32) -> (r: Bot_Run) {
+bot_run :: proc(game: ^survivor.Game, tune: survivor.Tuning, seed: u64, players: int, limit_s: f32) -> (r: Bot_Run) {
 	s := sim.create(game, seed)
 	defer sim.destroy(s)
+	s.state.tune = tune // --set overrides: the tuning is state, so it goes into the tick-0 state
+	sim.save(s)
 	r.seed = seed
 	r.first_level_s = -1
 	limit := u32(limit_s * survivor.TICK_HZ)
@@ -72,6 +74,8 @@ mode_bot :: proc(args: []string) -> bool {
 	players, seeds := 1, 8
 	minutes: f32 = 10
 	tuning := "play"
+	sets: [dynamic]string
+	defer delete(sets)
 	for i := 0; i + 1 < len(args); i += 2 {
 		v := args[i + 1]
 		switch args[i] {
@@ -84,46 +88,50 @@ mode_bot :: proc(args: []string) -> bool {
 		case "--tuning":
 			tuning = v
 		case "--set":
-			// --set field=value: override one field of the chosen tuning (exploration only)
-			kv := strings.split(v, "=", context.temp_allocator)
-			n := 0
-			ok := len(kv) == 2
-			if ok {
-				n, ok = strconv.parse_int(kv[1])
-			}
-			tn := &survivor.TUNINGS[tuning == "stress" ? .Stress : .Play]
-			switch kv[0] {
-			case "every":
-				tn.spawn_every_ticks = u32(n)
-			case "base":
-				tn.spawn_base = u32(n)
-			case "per_wave":
-				tn.spawn_per_wave = u32(n)
-			case "cap":
-				tn.spawn_cap = u32(n)
-			case "extra":
-				tn.extra_player_pct = u32(n)
-			case "wave":
-				tn.wave_ticks = u32(n)
-			case "hp":
-				tn.hp_pct_per_wave = i32(n)
-			case "xp_first":
-				tn.xp_first = i32(n)
-			case "xp_step":
-				tn.xp_step = i32(n)
-			case:
-				ok = false
-			}
-			if !ok {
-				fmt.eprintfln("bot: bad --set %s", v)
-				return false
-			}
+			append(&sets, v) // applied once --tuning is known
 		case:
 			fmt.eprintfln("bot: unknown option %s (--players N --seeds K --minutes M --tuning play|stress)", args[i])
 			return false
 		}
 	}
 	game := tuning == "stress" ? &survivor.GAME_STRESS : &survivor.GAME
+	tune := survivor.TUNINGS[tuning == "stress" ? .Stress : .Play]
+	for v in sets {
+		// --set field=value: override one field of the chosen tuning (exploration only)
+		kv := strings.split(v, "=", context.temp_allocator)
+		n := 0
+		ok := len(kv) == 2
+		if ok {
+			n, ok = strconv.parse_int(kv[1])
+		}
+		tn := &tune
+		switch kv[0] {
+		case "every":
+			tn.spawn_every_ticks = u32(n)
+		case "base":
+			tn.spawn_base = u32(n)
+		case "per_wave":
+			tn.spawn_per_wave = u32(n)
+		case "cap":
+			tn.spawn_cap = u32(n)
+		case "extra":
+			tn.extra_player_pct = u32(n)
+		case "wave":
+			tn.wave_ticks = u32(n)
+		case "hp":
+			tn.hp_pct_per_wave = i32(n)
+		case "xp_first":
+			tn.xp_first = i32(n)
+		case "xp_step":
+			tn.xp_step = i32(n)
+		case:
+			ok = false
+		}
+		if !ok {
+			fmt.eprintfln("bot: bad --set %s", v)
+			return false
+		}
+	}
 	players = clamp(players, 1, survivor.MAX_PLAYERS)
 	first := make([]f32, seeds)
 	surv := make([]f32, seeds)
@@ -131,7 +139,7 @@ mode_bot :: proc(args: []string) -> bool {
 	defer delete(surv)
 	never := 0
 	for k in 0 ..< seeds {
-		r := bot_run(game, u64(k + 1), players, minutes * 60)
+		r := bot_run(game, tune, u64(k + 1), players, minutes * 60)
 		fmt.printfln(
 			`{{"seed":%d,"first_level_s":%.1f,"survival_s":%.1f,"survived":%v,"wave":%d,"level":%d,"max_enemies":%d,"kills":%d}}`,
 			r.seed,

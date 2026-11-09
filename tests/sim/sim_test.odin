@@ -177,8 +177,8 @@ portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	run(a, 90, 3)
 	data := sim.snapshot_encode(a, 90)
 	defer delete(data)
-	b := sim.from_snapshot(&toy.GAME, data)
-	testing.expect(t, b != nil)
+	b, berr := sim.from_snapshot(&toy.GAME, data)
+	testing.expect_value(t, berr, sim.Snap_Error.None)
 	if b == nil {
 		return
 	}
@@ -190,32 +190,138 @@ portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	run(b, 60, 3)
 	testing.expect_value(t, sim.checksum(b), sim.checksum(a))
 	data[len(data) - 1] ~= 1 // the payload digest must catch corruption
-	testing.expect(t, sim.from_snapshot(&toy.GAME, data) == nil)
+	_, err := sim.from_snapshot(&toy.GAME, data)
+	testing.expect_value(t, err, sim.Snap_Error.Checksum_Mismatch)
 }
 
 @(test)
 schema_finds_tables :: proc(t: ^testing.T) {
 	sc := sim.schema_of(toy.State)
-	things, ok := sim.find_table(sc, "things")
-	testing.expect(t, ok)
-	if !ok {
+	things: ^sim.Table_Info
+	for &tb in sc.tables {
+		testing.expect(t, tb.name != "pos") // [4][2]f32: an array, but not of structs
+		if tb.name == "things" {
+			things = &tb
+		}
+	}
+	if !testing.expect(t, things != nil) {
 		return
 	}
 	testing.expect_value(t, things.cap, 32)
 	testing.expect(t, things.elem.id == toy.Thing)
-	_, pos_is_global := sim.find_table(sc, "pos") // [4][2]f32: an array, but not of structs
-	testing.expect(t, !pos_is_global)
 	s := sim.create(&toy.GAME, 3)
 	defer sim.destroy(s)
 	_, h, _ := sim.spawn(&s.state.things)
-	ptr, _, live := sim.entity_ptr(&s.state, things, int(h.index))
-	testing.expect(t, live)
-	testing.expect(t, ptr == rawptr(sim.get(&s.state.things, h)))
+	base := ([^]u8)(&s.state)
+	testing.expect(
+		t,
+		rawptr(&base[things.items_off + int(h.index) * things.elem.size]) == rawptr(sim.get(&s.state.things, h)),
+	)
+	slot := (^sim.Slot)(&base[things.slots_off + int(h.index) * size_of(sim.Slot)])
+	testing.expect(t, slot.alive)
+}
+
+// An extra state that can be told to fail its restore.
+Flaky :: struct {
+	fail: bool,
+}
+
+flaky_game :: proc(f: rawptr) -> toy.Game {
+	g := toy.GAME
+	g.world_create = proc(seed: u64) -> ^toy.World {return new(toy.World)}
+	g.extras = proc(w: ^toy.World) -> []sim.Extra {
+		@(static) extra: [1]sim.Extra
+		extra[0] = {
+			name = "flaky",
+			data = g_flaky,
+			save = proc(data: rawptr, slot: int) {},
+			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},
+			hash = proc(data: rawptr, state: rawptr, out: ^[dynamic]u8) {},
+			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
+			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
+		}
+		return extra[:]
+	}
+	g_flaky = (^Flaky)(f)
+	return g
+}
+
+g_flaky: ^Flaky
+
+@(test)
+failed_restore_leaves_the_block :: proc(t: ^testing.T) {
+	f: Flaky
+	game := flaky_game(rawptr(&f))
+	s := sim.create(&game, 7)
+	defer sim.destroy(s)
+	run(s, 10, 3)
+	before := s.state
+	f.fail = true
+	testing.expect(t, !sim.restore(s, 5))
+	testing.expect_value(t, s.tick, 10)
+	testing.expect(t, s.state == before)
+	f.fail = false
+	testing.expect(t, sim.restore(s, 5))
+	testing.expect_value(t, s.tick, 5)
 }
 
 @(test)
-ticks_of_seconds :: proc(t: ^testing.T) {
-	testing.expect_value(t, sim.ticks_of(1, 64), 64)
-	testing.expect_value(t, sim.ticks_of(0.25, 64), 16)
-	testing.expect_value(t, sim.ticks_of(3, 64), 192)
+snapshot_errors_are_values :: proc(t: ^testing.T) {
+	a := sim.create(&toy.GAME, 7)
+	defer sim.destroy(a)
+	run(a, 20, 3)
+	data := sim.snapshot_encode(a, 20)
+	defer delete(data)
+	_, err := sim.from_snapshot(&toy.GAME, data[:10])
+	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
+	data[sim.SNAP_HEADER - 9] ~= 1 // the layout hash
+	_, err = sim.from_snapshot(&toy.GAME, data)
+	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
+}
+
+@(test)
+compat_tells_builds_apart :: proc(t: ^testing.T) {
+	a := toy.GAME
+	c := sim.compat_of(&a)
+	testing.expect(t, c != 0)
+	testing.expect_value(t, sim.compat_of(&a), c) // stable
+	b := a
+	b.version = "2"
+	testing.expect(t, sim.compat_of(&b) != c)
+	b = a
+	b.name = "toy-variant"
+	testing.expect(t, sim.compat_of(&b) != c)
+	b = a
+	b.tick_hz = 128
+	testing.expect(t, sim.compat_of(&b) != c)
+	Other_Input :: struct {
+		dx, dy:  i8,
+		buttons: u16,
+	}
+	o := sim.Game(toy.State, Other_Input, toy.World, toy.SLOTS) {
+		name    = a.name,
+		version = a.version,
+		tick_hz = a.tick_hz,
+	}
+	testing.expect(t, sim.compat_of(&o) != c) // same size, another layout
+}
+
+@(test)
+inputs_compare_as_bytes :: proc(t: ^testing.T) {
+	F :: struct {
+		x: f32,
+	}
+	a, b: sim.Inputs(F, 2)
+	a.present = {0}
+	b.present = {0}
+	b.replaced = {0}
+	testing.expect(t, sim.inputs_same(&a, &b)) // `replaced` is informational
+	b.input[0].x = -0.0
+	testing.expect(t, !sim.inputs_same(&a, &b)) // -0.0 == +0.0 as floats, not as bytes
+	nan := transmute(f32)u32(0x7FC0_0000)
+	a.input[0].x = nan
+	b.input[0].x = nan
+	testing.expect(t, sim.inputs_same(&a, &b)) // NaN != NaN as floats
+	b.present = {0, 1}
+	testing.expect(t, !sim.inputs_same(&a, &b))
 }

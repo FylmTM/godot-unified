@@ -24,6 +24,8 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare: proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:   proc(s: ^S) -> int,
+	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
+	online:        ^Online,
 }
 
 Trace :: struct {
@@ -74,6 +76,7 @@ run_sim :: proc(
 	s := sim.create(h.game, seed)
 	defer sim.destroy(s)
 	tr: Trace
+	defer strings.builder_destroy(&tr.b)
 	lg := sim.Input_Log(I, P) {
 		seed = seed,
 	}
@@ -158,6 +161,7 @@ run_replay :: proc(h: ^Headless($S, $I, $W, $P), log_path, trace_path: string) -
 	s := sim.create(h.game, lg.seed)
 	defer sim.destroy(s)
 	tr: Trace
+	defer strings.builder_destroy(&tr.b)
 	for &in_, i in lg.ticks {
 		sim.step(s, &in_)
 		res.final_checksum = sim.checksum(s)
@@ -208,13 +212,14 @@ run_resume :: proc(
 		return
 	}
 	defer delete(data)
-	s := sim.from_snapshot(h.game, data)
-	if s == nil {
-		fmt.eprintfln("resume: %s is not a valid snapshot for this build", in_path)
+	s, serr := sim.from_snapshot(h.game, data)
+	if serr != .None {
+		fmt.eprintfln("resume: %s is not a valid snapshot for this build: %v", in_path, serr)
 		return
 	}
 	defer sim.destroy(s)
 	tr: Trace
+	defer strings.builder_destroy(&tr.b)
 	start := s.tick
 	for t in start + 1 ..= start + ticks {
 		in_ := scripted(h, s, t, players)

@@ -3,7 +3,8 @@
 // once every present player's input for T is in or the clock reaches T + tolerance (a missing
 // input becomes the player's last finalized one, flagged "replaced"), broadcasts finalized ticks
 // unreliably with every unacknowledged tick resent, keeps the official input log, routes late-join
-// snapshots and compares the clients' checksums. It serves any number of links at once (the host's
+// snapshots (asking another player, or falling back to a replay from tick 0, when the provider
+// leaves) and compares the clients' checksums. It serves any number of links at once (the host's
 // in-process client plus remote peers) and is driven by relay_step from the host's own loop.
 package netcode
 
@@ -18,7 +19,7 @@ Relay_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // session length; 0: endless
 	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
-	compat:        u64, // build/game id; a Hello with another non-zero value is rejected (0: any)
+	compat:        u64, // build/game id (sim.compat_of); a Hello with another value is rejected (0: any)
 	name:          string, // for log lines
 	poll_us:       i64, // 0: DEFAULT_POLL_US
 	quiet:         bool,
@@ -53,6 +54,10 @@ Relay :: struct($I: typeid, $P: int) {
 	done:        [P]bool,
 	base_known:  [P]bool, // finalized ticks can be streamed to this client
 	active_from: [P]u32, // first tick the player is present (0: not joined)
+	provider:    [P]int, // who sends this joiner its snapshot (-1: none pending)
+	snap_min:    [P]u32, // the oldest tick the joiner's snapshot may be of
+	snap_total:  [P]u32, // bytes of the snapshot being forwarded (from its Snap_Begin)
+	snap_sent:   [P]u32, // bytes forwarded so far
 	inputs:      [P][INPUT_RING]I,
 	input_tick:  [P][INPUT_RING]u32, // which tick inputs[p][k] holds
 	recv_upto:   [P]u32,
@@ -83,6 +88,7 @@ relay_create :: proc(cfg: Relay_Config, $I: typeid, $P: int) -> ^Relay(I, P) {
 	r.w = wire.writer_make(MAX_DATAGRAM)
 	for p in 0 ..< P {
 		r.peer_of[p] = -1
+		r.provider[p] = -1
 	}
 	for &p in r.player_of {
 		p = -1
@@ -172,7 +178,7 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 	if !rd.ok || r.player_of[peer] >= 0 || r.ending {
 		return
 	}
-	if proto != PROTOCOL_VERSION || (r.cfg.compat != 0 && compat != 0 && compat != r.cfg.compat) {
+	if proto != PROTOCOL_VERSION || (r.cfg.compat != 0 && compat != r.cfg.compat) {
 		reject(r, peer, .Incompatible, now)
 		return
 	}
@@ -232,19 +238,10 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 	r.recv_upto[p] = j - 1
 	r.base_known[p] = false
 	r.client_ack[p] = 0
-	provider := -1
-	for q in 0 ..< P {
-		if q != p && r.connected[q] && r.welcomed[q] && r.base_known[q] {
-			provider = q
-			break
-		}
-	}
-	if provider >= 0 {
+	r.snap_min[p] = j - 1
+	if provider := pick_provider(r, p); provider >= 0 {
 		send_welcome(r, p, false, now)
-		w := msg_begin(&r.w, .Snap_Request)
-		wire.w_u8(w, u8(p))
-		wire.w_u32(w, j - 1)
-		relay_send(r, provider, w, .Reliable, now)
+		request_snapshot(r, p, provider, now)
 		relay_log(r, "player %d joins at tick %d (clock %d), snapshot from player %d", p, j, r.clock, provider)
 	} else {
 		// Nobody can send a snapshot: the joiner starts from tick 0 and replays the whole log.
@@ -252,6 +249,49 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 		send_welcome(r, p, true, now)
 		relay_log(r, "player %d joins at tick %d (clock %d), replaying from tick 1", p, j, r.clock)
 	}
+}
+
+// The lowest connected player that can send `joiner` a snapshot (-1: none).
+@(private)
+pick_provider :: proc(r: ^Relay($I, $P), joiner: int) -> int {
+	for q in 0 ..< P {
+		if q != joiner && r.connected[q] && r.welcomed[q] && r.base_known[q] && r.provider[q] < 0 {
+			return q
+		}
+	}
+	return -1
+}
+
+@(private)
+request_snapshot :: proc(r: ^Relay($I, $P), joiner, provider: int, now: i64) {
+	r.provider[joiner] = provider
+	r.snap_total[joiner] = 0
+	r.snap_sent[joiner] = 0
+	w := msg_begin(&r.w, .Snap_Request)
+	wire.w_u8(w, u8(joiner))
+	wire.w_u32(w, r.snap_min[joiner])
+	relay_send(r, provider, w, .Reliable, now)
+}
+
+// The provider of `joiner`'s snapshot left before the snapshot got through: ask another player, or
+// tell the joiner to start from tick 0 and replay the log (an empty Snap_Begin).
+@(private)
+restart_snapshot :: proc(r: ^Relay($I, $P), joiner: int, now: i64) {
+	r.provider[joiner] = -1
+	r.base_known[joiner] = false
+	r.client_ack[joiner] = 0
+	if provider := pick_provider(r, joiner); provider >= 0 {
+		request_snapshot(r, joiner, provider, now)
+		relay_log(r, "player %d: snapshot provider left, asking player %d", joiner, provider)
+		return
+	}
+	w := msg_begin(&r.w, .Snap_Begin)
+	wire.w_u8(w, u8(joiner))
+	wire.w_u32(w, 0)
+	wire.w_u32(w, 0)
+	relay_send(r, joiner, w, .Reliable, now)
+	r.base_known[joiner] = true
+	relay_log(r, "player %d: snapshot provider left, replaying from tick 1", joiner)
 }
 
 @(private)
@@ -293,8 +333,8 @@ on_inputs :: proc(r: ^Relay($I, $P), p: int, rd: ^wire.Reader, now: i64) {
 }
 
 @(private)
-on_checksum :: proc(r: ^Relay($I, $P), rd: ^wire.Reader) {
-	p := int(wire.r_u8(rd))
+on_checksum :: proc(r: ^Relay($I, $P), p: int, rd: ^wire.Reader) {
+	_ = wire.r_u8(rd) // the sender's slot; the relay knows it
 	tick := wire.r_u32(rd)
 	value := wire.r_u64(rd)
 	if !rd.ok || tick % CHECKSUM_EVERY != 0 || tick == 0 {
@@ -322,10 +362,18 @@ active :: proc(r: ^Relay($I, $P), p: int, t: u32) -> bool {
 finalize :: proc(r: ^Relay($I, $P)) {
 	for r.cfg.ticks == 0 || r.finalized < r.cfg.ticks {
 		t := r.finalized + 1
+		anyone := false
 		for p in 0 ..< P {
-			if active(r, p, t) && !have_input(r, p, t) && r.clock < t + r.tm.tolerance {
+			if !active(r, p, t) {
+				continue
+			}
+			anyone = true
+			if !have_input(r, p, t) && r.clock < t + r.tm.tolerance {
 				return
 			}
+		}
+		if !anyone && t > r.clock {
+			return // nobody plays: empty ticks keep pace with the clock, never run ahead of it
 		}
 		lt: sim.Inputs(I, P)
 		for p in 0 ..< P {
@@ -405,8 +453,14 @@ player_gone :: proc(r: ^Relay($I, $P), p: int, why: string, now: i64) {
 	r.player_of[r.peer_of[p]] = -1
 	r.peer_of[p] = -1
 	r.names[p] = {}
+	r.provider[p] = -1
 	relay_log(r, "player %d %s", p, why)
 	send_roster(r, now)
+	for q in 0 ..< P {
+		if r.provider[q] == p && r.connected[q] {
+			restart_snapshot(r, q, now)
+		}
+	}
 }
 
 @(private)
@@ -427,27 +481,49 @@ handle_relay_msg :: proc(r: ^Relay($I, $P), peer: Peer, data: []u8, now: i64) {
 			on_inputs(r, p, &rd, now)
 		}
 	case .Checksum:
-		on_checksum(r, &rd)
+		on_checksum(r, p, &rd)
 	case .Snap_Begin, .Snap_Chunk:
-		joiner := int(wire.r_u8(&rd))
-		if !rd.ok || joiner >= P || r.peer_of[joiner] < 0 {
-			return
-		}
-		if kind == .Snap_Begin {
-			tick := wire.r_u32(&rd)
-			// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the
-			// joiner's prediction of the others).
-			r.client_ack[joiner] = max(tick, 1) - 1
-			r.base_known[joiner] = true
-			relay_log(r, "forwarding player %d's snapshot of tick %d to player %d", p, tick, joiner)
-		}
-		channel_send(r.ch, r.peer_of[joiner], data, .Reliable, now)
+		forward_snapshot(r, p, kind, &rd, data, now)
 	case .Done:
 		r.done[p] = true
 	case .Leave:
 		player_gone(r, p, "left", now)
 		channel_drop(r.ch, peer)
 	}
+}
+
+// Forwards a snapshot message from the provider the relay asked (anything else is dropped).
+@(private)
+forward_snapshot :: proc(r: ^Relay($I, $P), p: int, kind: Msg, rd: ^wire.Reader, data: []u8, now: i64) {
+	joiner := int(wire.r_u8(rd))
+	if !rd.ok || joiner >= P || r.peer_of[joiner] < 0 || r.provider[joiner] != p || len(data) > MAX_MESSAGE {
+		return
+	}
+	if kind == .Snap_Begin {
+		tick := wire.r_u32(rd)
+		total := wire.r_u32(rd)
+		if !rd.ok || tick < r.snap_min[joiner] || tick > r.finalized || total == 0 {
+			return
+		}
+		r.snap_total[joiner] = total
+		r.snap_sent[joiner] = 0
+		// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the joiner's
+		// prediction of the others).
+		r.client_ack[joiner] = tick - 1
+		r.base_known[joiner] = true
+		relay_log(r, "forwarding player %d's snapshot of tick %d to player %d", p, tick, joiner)
+	} else {
+		offset := wire.r_u32(rd)
+		n := u32(len(rd.data) - rd.pos)
+		if !rd.ok || r.snap_total[joiner] == 0 || offset != r.snap_sent[joiner] || n > r.snap_total[joiner] - offset {
+			return
+		}
+		r.snap_sent[joiner] += n
+		if r.snap_sent[joiner] == r.snap_total[joiner] {
+			r.provider[joiner] = -1 // complete: the joiner no longer depends on the provider
+		}
+	}
+	channel_send(r.ch, r.peer_of[joiner], data, .Reliable, now)
 }
 
 // One step of the relay: receive, advance the clock, finalize, broadcast, flush. Returns when it

@@ -95,7 +95,7 @@ Glue :: struct($S, $I, $W: typeid) {
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:   proc(e: sim.Event) -> view.Key,
-	compat:      u64, // build/game id the relay checks (0: none)
+	compat:      u64, // build/game id the relay checks (0: derived from the game, sim.compat_of)
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so

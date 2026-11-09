@@ -18,7 +18,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - Ground: a static box, half extents (32, 0.5, 32) at (0, −0.5, 0). Walls: four static boxes enclosing the 60×60 arena
   (inner faces at x = ±30, z = ±30, height 3, thickness 1).
 - 8 static pillars: boxes half (1, 1.5, 1) at angles k·45° on a ring of radius 14: `(14·c_k, 1.5, 14·s_k)`. Use this
-  table, not trig: `c = [1, 0.70710677, 0, −0.70710677, −1, −0.70710677, 0, 0.70710677]`, `s = [0, 0.70710677, 1,
+  table (`dmath.DIR8_C/S`), not trig: `c = [1, 0.70710677, 0, −0.70710677, −1, −0.70710677, 0, 0.70710677]`, `s = [0, 0.70710677, 1,
   0.70710677, 0, −0.70710677, −1, −0.70710677]`.
 - 32 crates (dynamic boxes, half 0.5, density 1) and 8 barrels (dynamic capsules r 0.4, center1 (0,−0.3,0),
   center2 (0,0.3,0), density 1), on a 5×8 grid. Item `i = 0..39`: `x = (i % 8)·4 − 14`, `z = (i / 8)·4 − 8`, y = 1,
@@ -61,7 +61,10 @@ Respawn 3 s; barrel respawn 10 s; dash 0.125 s, cooldown 1.5 s; contact cooldown
 (level-up −0.03125 s, min 0.09375 s); projectile life 1 s; climb check every
 0.125 s; over hold 5 s; start circle 3.5 m. Speeds are per second (`·DT` per tick).
 
-## Tuning (`state.tuning`, `TUNINGS`)
+## Tuning (`state.tune`, preset `state.tuning` from the read-only `TUNINGS`)
+
+`init` copies the preset into the state, so a match's tuning is state: shared by every peer, in the checksum and in
+snapshots. `survivor bot --set field=value` overrides it in the tick-0 state.
 
 The pace of a match: a spawn burst every `every`, of `n = min(base + per_wave·wave, cap) · (100 + extra·(present − 1))
 / 100` enemies; waves last `wave`; enemy HP is scaled by `(100 + hp·wave) / 100`; XP for the next level is
@@ -159,7 +162,7 @@ and entity = slot; item events entity = item index + 1; enemy and gem events the
 
 ## HUD
 
-`survivor.hud(state, tick) -> Hud`: phase and its name, tick, match time (s), wave (1-based in a match), enemies
+View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: phase and its name, tick, match time (s), wave (1-based in a match), enemies
 alive, circle radius, matches, and per slot: present, alive, hp, hp_max, xp, xp_next, level, pending level-ups,
 respawn seconds. The Godot host adds `local_slot` and player names (from the netcode roster).
 

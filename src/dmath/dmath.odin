@@ -12,14 +12,6 @@ sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return intrinsics.sqrt(x)
 }
 
-dot2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
-	return a.x * b.x + a.y * b.y
-}
-
-dot3 :: #force_inline proc "contextless" (a, b: Vec3) -> f32 {
-	return a.x * b.x + a.y * b.y + a.z * b.z
-}
-
 length2 :: #force_inline proc "contextless" (v: Vec2) -> f32 {
 	return sqrt(v.x * v.x + v.y * v.y)
 }
@@ -65,6 +57,21 @@ lerp :: #force_inline proc "contextless" (a, b, t: f32) -> f32 {
 	return a + (b - a) * t
 }
 
+// x truncated toward zero and clamped to [lo, hi]; NaN gives lo. Clamping happens on the f32, so
+// the conversion never sees a value outside the integer range (out-of-range and NaN conversions
+// differ between x86 and ARM).
+to_i32_clamped :: proc "contextless" (x: f32, lo, hi: i32) -> i32 {
+	if !(x > f32(lo)) {
+		return lo // also NaN
+	}
+	if x >= f32(hi) {
+		return hi
+	}
+	return i32(x)
+}
+
 // The 8 compass directions k·45°, as exact table values (no trig).
+@(rodata)
 DIR8_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
+@(rodata)
 DIR8_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}

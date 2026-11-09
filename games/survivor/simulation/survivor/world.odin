@@ -3,6 +3,7 @@
 package survivor
 
 import b3 "unified:box3d"
+import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
@@ -48,9 +49,14 @@ EVENT_NAMES := []string {
 	"player_left",
 }
 
+// The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
+// constant changes what a tick computes without changing the State or Input layout.
+SIM_VERSION :: "1"
+
 // The game as played (`play` tuning).
 GAME := Game {
 	name = "survivor",
+	version = SIM_VERSION,
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
@@ -63,19 +69,21 @@ GAME := Game {
 // The same game with the `stress` tuning: what the headless tests, T1-T9 and the bench run.
 GAME_STRESS := Game {
 	name = "survivor-stress",
+	version = SIM_VERSION,
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
 	extras = proc(w: ^World) -> []sim.Extra {return w.extras[:]},
 	init = proc(s: ^State, w: ^World, seed: u64) {
 		init(s, w, seed)
-		s.tuning = .Stress
+		set_tuning(s, .Stress)
 	},
 	tick = tick,
 	event_names = EVENT_NAMES,
 }
 
 // Start spots, inside the start circle.
+@(rodata)
 PLAYER_START := [MAX_PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
 item_position :: proc(i: int) -> [3]f32 {
@@ -160,7 +168,7 @@ world_create :: proc(seed: u64) -> ^World {
 	add_static_box(w, {0, 1.5, 30.5}, {31, 1.5, 0.5})
 	add_static_box(w, {0, 1.5, -30.5}, {31, 1.5, 0.5})
 	for k in 0 ..< 8 {
-		add_static_box(w, {14 * RING_C[k], 1.5, 14 * RING_S[k]}, {1, 1.5, 1})
+		add_static_box(w, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
 	}
 	return w
 }
@@ -177,6 +185,7 @@ init :: proc(s: ^State, w: ^World, seed: u64) {
 	s.enemy_cap = MAX_ENEMIES
 	s.phase = .Lobby
 	s.circle_radius = START_RADIUS
+	set_tuning(s, .Play)
 	for i in 0 ..< ITEM_COUNT {
 		item_reset(s, w, i)
 	}

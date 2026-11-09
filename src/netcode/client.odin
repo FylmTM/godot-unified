@@ -13,7 +13,7 @@ import "../wire"
 Client_Config :: struct {
 	slot:      int, // the slot to ask for; -1: any free slot
 	join_tick: u32, // the earliest tick to become present (0: as soon as possible)
-	compat:    u64, // build/game id the relay checks (0: none)
+	compat:    u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player:    string, // the player's display name (sent to the relay, shared with everyone)
 	name:      string, // for log lines
 	poll_us:   i64, // 0: DEFAULT_POLL_US
@@ -145,6 +145,9 @@ client_create :: proc(
 	c := new(Client(S, I, W, P))
 	c.game = game
 	c.cfg = cfg
+	if c.cfg.compat == 0 {
+		c.cfg.compat = usim.compat_of(game)
+	}
 	if c.cfg.poll_us <= 0 {
 		c.cfg.poll_us = DEFAULT_POLL_US
 	}
@@ -281,7 +284,9 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 	for k in 0 ..< count {
 		t := first + k
 		lt := r_raw(rd, usim.Inputs(I, P))
-		if !rd.ok || t == 0 || t > limit || (c.ticks != 0 && t > c.ticks) || fin_have(c, t) {
+		// Ticks at or below fin_upto are held or consumed already: a stale datagram must not
+		// overwrite the ring slot a newer tick shares with them.
+		if !rd.ok || t <= c.fin_upto || t > limit || (c.ticks != 0 && t > c.ticks) || fin_have(c, t) {
 			continue
 		}
 		c.fin[t % FIN_RING] = lt
@@ -320,8 +325,22 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 		}
 	case .Snap_Begin:
 		_ = wire.r_u8(&rd)
-		c.snap_tick = wire.r_u32(&rd)
-		c.snap_total = int(wire.r_u32(&rd))
+		tick := wire.r_u32(&rd)
+		total := int(wire.r_u32(&rd))
+		if !rd.ok || !c.welcomed || c.sim != nil {
+			return
+		}
+		if total == 0 {
+			// The provider left and nobody else can send one: start from tick 0 and replay the log.
+			c.fin_tick = {}
+			c.fin_upto = 0
+			c.snap_tick = 0
+			c.sim = usim.create(c.game, c.seed)
+			set_status(c, .Connected, "")
+			return
+		}
+		c.snap_tick = tick
+		c.snap_total = total
 		clear(&c.snap_buf)
 		// Finalized ticks are streamed from the snapshot tick on.
 		c.fin_upto = max(c.fin_upto, c.snap_tick - 1)
@@ -332,10 +351,11 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 		_ = wire.r_u8(&rd)
 		offset := int(wire.r_u32(&rd))
 		bytes := rd.data[rd.pos:]
-		if offset == len(c.snap_buf) {
-			append(&c.snap_buf, ..bytes)
+		if !rd.ok || c.sim != nil || offset != len(c.snap_buf) || len(bytes) > c.snap_total - offset {
+			return
 		}
-		if c.snap_total > 0 && len(c.snap_buf) == c.snap_total && c.sim == nil {
+		append(&c.snap_buf, ..bytes)
+		if c.snap_total > 0 && len(c.snap_buf) == c.snap_total {
 			load_snapshot(c)
 		}
 	case .Roster:
@@ -359,11 +379,12 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 
 @(private)
 load_snapshot :: proc(c: ^Client($S, $I, $W, $P)) {
-	c.sim = usim.from_snapshot(c.game, c.snap_buf[:])
-	if c.sim == nil {
-		set_status(c, .Failed, "received snapshot does not restore")
+	sim, err := usim.from_snapshot(c.game, c.snap_buf[:])
+	if err != .None {
+		set_status(c, .Failed, fmt.tprintf("received snapshot does not restore: %v", err))
 		return
 	}
+	c.sim = sim
 	c.verified = c.sim.tick
 	c.predicted = c.verified
 	c.own_last = max(c.own_last, c.verified)
@@ -424,10 +445,12 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 	old_v := c.verified
 	limit := min(new_v, c.predicted)
 	m: u32 = 0
+	for t in old_v + 1 ..= new_v {
+		assert(c.fin_tick[t % FIN_RING] == t, "finalized ring slot holds another tick")
+	}
 	for t in old_v + 1 ..= limit {
-		pred := &c.pred_inputs[t % PRED_RING]
-		fin := &c.fin[t % FIN_RING]
-		if pred.present != fin.present || pred.input != fin.input {
+		// Compared as bytes, like the checksum: -0.0 and +0.0 differ, a NaN equals itself.
+		if !usim.inputs_same(&c.pred_inputs[t % PRED_RING], &c.fin[t % FIN_RING]) {
 			m = t
 			break
 		}
@@ -436,8 +459,10 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 		on_tick_verified(c, t) // predicted right: the ring already holds the verified result
 	}
 	if m != 0 {
-		ok := usim.restore(c.sim, m - 1)
-		assert(ok, "rollback target not in the snapshot ring")
+		if !usim.restore(c.sim, m - 1) {
+			set_status(c, .Failed, "rollback failed: the target tick is not restorable")
+			return
+		}
 		depth := int(c.predicted - (m - 1))
 		c.rollbacks += 1
 		c.depth_sum += depth
