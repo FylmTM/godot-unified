@@ -159,3 +159,7 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   0/818). Stall ticks 0–11 per run (254–499 before the review fixes). Same-identity leave/rejoin passed locally.
 - **Tagged `survivor-v0.1.1` on 6da8839** (CI 42541862163 green). This is the playtest build; v0.1.0 should not be
   used (incompatible protocol and the online bugs above).
+- **survivor-v0.1.1 released** (run 42544045975: macOS + Windows builds and the prerelease passed):
+  `survivor-0.1.1-macos-arm64.zip` (38.5 MB), `survivor-0.1.1-windows-x64.zip` (47.8 MB), `SHA256SUMS.txt`. The
+  published macOS zip was re-downloaded and checked here: checksum OK, game and EOS libraries bundled, headless
+  smoke test clean. The v0.1.0 release notes now say it is superseded.
