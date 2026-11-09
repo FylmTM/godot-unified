@@ -106,8 +106,10 @@ Online :: struct {
 	last_tick_us:   i64,
 	sent, received: int,
 	send_errors:    int,
+	gen:            u32, // session generation: callbacks of an abandoned session are recognized by it
 	searches:       int, // lobby searches made for this join (a new lobby takes a moment to be found)
 	search_at_us:   i64, // when to search again (0: not scheduled)
+	relogin_at_us:  i64, // when to retry a failed token refresh (0: not scheduled)
 	reported_code:  bool,
 	reported_fail:  bool,
 	events:         [32]Link_Event,
@@ -380,11 +382,20 @@ close :: proc() {
 }
 
 // Leaves the session: destroys (host) or leaves (joiner) the lobby, closes P2P. The login stays.
+// Ticks EOS until the lobby request completed (at most LEAVE_FLUSH_MS): a game back in its menu,
+// or quitting, may not tick EOS again for a long time, and an unsent leave keeps the player a lobby
+// member (or the host's lobby open) until Epic notices, possibly after the player rejoined.
 leave :: proc() {
 	o := &g
 	sync.guard(&o.mu)
 	end_session(o)
+	for i := 0; i < LEAVE_FLUSH_MS / 5 && o.in_lobby && o.platform != nil; i += 1 {
+		tick(o)
+		time.sleep(5 * time.Millisecond)
+	}
 }
+
+LEAVE_FLUSH_MS :: 500
 
 // Deletes this machine's device ID (the next login makes a new anonymous user). For test tools,
 // so runs leave nothing behind; blocks up to ~5 s while EOS completes it.
@@ -445,6 +456,7 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	if o.stage != .Idle && o.stage != .Failed {
 		end_session(o)
 	}
+	o.gen += 1
 	o.role = role
 	o.code = code
 	o.reported_code = false
@@ -478,7 +490,13 @@ tick :: proc(o: ^Online) {
 		o.search_at_us = 0
 		start_lobby(o)
 	}
+	if o.relogin_at_us != 0 && o.last_tick_us >= o.relogin_at_us && !o.login_busy {
+		o.relogin_at_us = 0
+		start_login(o)
+	}
 }
+
+RELOGIN_RETRY_US :: 15_000_000
 
 @(private)
 fail :: proc(o: ^Online, format: string, args: ..any) {
@@ -561,6 +579,13 @@ on_login :: proc "c" (info: ^Connect_Login_Callback_Info) {
 	context = o.ctx
 	if info.result_code != .Success {
 		log_line("login: %s", o.api.EResult_ToString(info.result_code))
+	}
+	if info.result_code != .Success && o.local != nil {
+		// A token refresh (on_auth_expiring) failed, e.g. a network blip an hour into a session. The
+		// session still runs on the current token: keep it and try again, rather than fail it.
+		o.login_busy = false
+		o.relogin_at_us = netcode.now_us() + RELOGIN_RETRY_US
+		return
 	}
 	#partial switch info.result_code {
 	case .Success:
@@ -657,7 +682,7 @@ start_lobby :: proc(o: ^Online) {
 			bucket_id              = cstring(&o.bucket[0]),
 			disable_host_migration = true,
 		}
-		o.api.Lobby_CreateLobby(o.lobby, &co, o, on_lobby_created)
+		o.api.Lobby_CreateLobby(o.lobby, &co, call_new(o), on_lobby_created)
 		set_detail(o, "creating the lobby")
 		return
 	}
@@ -701,22 +726,65 @@ start_lobby :: proc(o: ^Online) {
 		api_version   = LOBBYSEARCH_FIND_API_LATEST,
 		local_user_id = o.local,
 	}
-	pending_search = search
 	o.searches += 1
-	o.api.LobbySearch_Find(search, &fo, o, on_search_done)
+	o.api.LobbySearch_Find(search, &fo, call_new(o, search), on_search_done)
 	set_detail(o, "looking for game %s", string(o.code[:]))
 }
 
 ATTR_CODE :: "code"
 
-// The search handle in flight (one at a time; guarded by the mutex like everything else).
+// What an async lobby request carries to its callback: the session generation it belongs to (a
+// session left or replaced while the request was in flight must not be touched by its result) and
+// the search handle to release.
 @(private)
-pending_search: H_Lobby_Search
+Call :: struct {
+	gen:    u32,
+	search: H_Lobby_Search,
+}
+
+@(private)
+call_new :: proc(o: ^Online, search: H_Lobby_Search = nil) -> rawptr {
+	c := new(Call, o.ctx.allocator)
+	c^ = {o.gen, search}
+	return c
+}
+
+// Takes the callback's Call: (search handle, true if it belongs to the current session).
+@(private)
+call_take :: proc(o: ^Online, data: rawptr) -> (search: H_Lobby_Search, current: bool) {
+	c := (^Call)(data)
+	search, current = c.search, c.gen == o.gen
+	free(c, o.ctx.allocator)
+	return
+}
+
+// Destroys (owner) or leaves a lobby that an abandoned session's request created or joined.
+@(private)
+drop_lobby :: proc(o: ^Online, id: Lobby_Id, owner: bool) {
+	lo := Lobby_User_Lobby_Options {
+		local_user_id = o.local,
+		lobby_id      = id,
+	}
+	if owner {
+		lo.api_version = LOBBY_DESTROYLOBBY_API_LATEST
+		o.api.Lobby_DestroyLobby(o.lobby, &lo, o, on_lobby_left)
+	} else {
+		lo.api_version = LOBBY_LEAVELOBBY_API_LATEST
+		o.api.Lobby_LeaveLobby(o.lobby, &lo, o, on_lobby_left)
+	}
+}
 
 @(private)
 on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := (^Online)(info.client_data)
+	o := &g
 	context = o.ctx
+	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Host {
+		// Left (or started another session) while the request was in flight.
+		if info.result_code == .Success {
+			drop_lobby(o, info.lobby_id, true)
+		}
+		return
+	}
 	if info.result_code != .Success {
 		fail(o, "creating the lobby: %s", o.api.EResult_ToString(info.result_code))
 		return
@@ -724,10 +792,6 @@ on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 	o.in_lobby = true
 	o.lobby_id = {}
 	copy(o.lobby_id[:len(o.lobby_id) - 1], string(info.lobby_id))
-	if o.stage != .Lobby || o.role != .Host {
-		end_session(o) // left while the request was in flight
-		return
-	}
 	mod: H_Lobby_Modification
 	mo := Lobby_User_Lobby_Options {
 		api_version   = LOBBY_UPDATELOBBYMODIFICATION_API_LATEST,
@@ -759,14 +823,14 @@ on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 		api_version               = LOBBY_UPDATELOBBY_API_LATEST,
 		lobby_modification_handle = mod,
 	}
-	o.api.Lobby_UpdateLobby(o.lobby, &uo, o, on_lobby_updated)
+	o.api.Lobby_UpdateLobby(o.lobby, &uo, call_new(o), on_lobby_updated)
 }
 
 @(private)
 on_lobby_updated :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := (^Online)(info.client_data)
+	o := &g
 	context = o.ctx
-	if o.stage != .Lobby {
+	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby {
 		return
 	}
 	if info.result_code != .Success {
@@ -780,12 +844,11 @@ on_lobby_updated :: proc "c" (info: ^Lobby_Callback_Info) {
 
 @(private)
 on_search_done :: proc "c" (info: ^Result_Callback_Info) {
-	o := (^Online)(info.client_data)
+	o := &g
 	context = o.ctx
-	search := pending_search
-	pending_search = nil
+	search, current := call_take(o, info.client_data)
 	defer o.api.LobbySearch_Release(search)
-	if o.stage != .Lobby || o.role != .Join {
+	if !current || o.stage != .Lobby || o.role != .Join {
 		return
 	}
 	count: u32
@@ -828,27 +891,29 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 		lobby_details_handle = details,
 		local_user_id        = o.local,
 	}
-	o.api.Lobby_JoinLobby(o.lobby, &jo, o, on_lobby_joined)
+	o.api.Lobby_JoinLobby(o.lobby, &jo, call_new(o), on_lobby_joined)
 	set_detail(o, "joining game %s", string(o.code[:]))
 }
 
 @(private)
 on_lobby_joined :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := (^Online)(info.client_data)
+	o := &g
 	context = o.ctx
-	if info.result_code != .Success {
-		if o.stage == .Lobby {
-			fail(o, "joining the game: %s", o.api.EResult_ToString(info.result_code))
+	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Join {
+		// Left (or started another session) while the request was in flight; keep the lobby if
+		// the current session is in it.
+		if info.result_code == .Success && !(o.in_lobby && string(info.lobby_id) == cstr(o.lobby_id[:])) {
+			drop_lobby(o, info.lobby_id, false)
 		}
+		return
+	}
+	if info.result_code != .Success {
+		fail(o, "joining the game: %s", o.api.EResult_ToString(info.result_code))
 		return
 	}
 	o.in_lobby = true
 	o.lobby_id = {}
 	copy(o.lobby_id[:len(o.lobby_id) - 1], string(info.lobby_id))
-	if o.stage != .Lobby || o.role != .Join {
-		end_session(o)
-		return
-	}
 	open_socket(o)
 	r := &o.remotes[0]
 	r^ = {
@@ -1005,6 +1070,7 @@ end_session :: proc(o: ^Online) {
 			o.api.Lobby_LeaveLobby(o.lobby, &lo, o, on_lobby_left)
 		}
 	}
+	o.gen += 1
 	o.remotes = {}
 	o.host = nil
 	o.role = .None

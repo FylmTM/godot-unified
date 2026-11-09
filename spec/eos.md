@@ -13,13 +13,13 @@ eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_
 eos.open_host(bucket) -> (netcode.Link, bool)        // login if needed, create the lobby; link usable at once
 eos.open_join(bucket, code) -> (netcode.Link, bool)  // login, search by code, join; a malformed code fails here
 eos.pump() -> Pump_Result{code, failed}              // tick EOS; the code (host) and a failure are reported once
-eos.close()                                          // destroy/leave the lobby, close P2P (login is kept)
+eos.close()                                          // destroy/leave the lobby (ticks EOS ≤ 0.5 s so it goes out), close P2P
 eos.status() -> Status{stage, role, code, detail, local, host, network, peers, lib}   // any thread
 eos.shutdown()                                       // at exit; EOS can't be initialized again in the process
 eos.forget_device()                                  // test tools: delete this machine's device ID
 ```
 
-`bucket` names the game and its protocol version (e.g. `survivor/1`): lobbies only match inside one bucket, so
+`bucket` names the game and its protocol version (e.g. `survivor/2`): lobbies only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;
 the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
@@ -41,7 +41,11 @@ the game's extension wires them (`init` first, with the game library's directory
 - **Lobby.** Host: public lobby, max 4 members, host migration off, attribute `code` = 6 characters from
   `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/L; crypto random, unbiased). Joiner: search by bucket + code (a
   new lobby takes ~1–2 s to become searchable: up to 5 searches 1.2 s apart), the lobby owner's Product User ID
-  is the host, join. Members leaving become link `Disconnected` events; the host leaving fails the joiner.
+  is the host, join. Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
+  lobby results carry the session generation: a result for a session already left (Leave, then Host/Join again
+  quickly) is dropped, and its lobby destroyed or left. A failed token refresh (~1 h in) retries every 15 s
+  instead of failing the running session. Known limit: after a player's program crashes, EOS keeps the old P2P
+  connection for ~30 s, and a rejoin with the same user ID may not connect until it times out (retry).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
   1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. EOS packets carry 1170 bytes,
@@ -82,7 +86,7 @@ the scripted session; both sides print their verified checksums. Mac side, the g
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
 ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
 (a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/1` works too where the binary owns
+`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/2` works too where the binary owns
 the keychain entry (not on a Mac where Godot.app made the device ID).
 
 Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every run 0 mismatches:

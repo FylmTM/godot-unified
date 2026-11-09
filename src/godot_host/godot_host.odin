@@ -62,6 +62,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	context = runtime.default_context()
 	// Hot reload or exit: the session thread runs code from this library, so it must be gone first.
 	session_shutdown_all()
+	if transport != nil && transport.shutdown != nil do transport.shutdown(transport.user)
 	unregister_classes()
 	gd.shutdown()
 }

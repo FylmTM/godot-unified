@@ -212,6 +212,7 @@ session_start :: proc(s: ^Session_Node, req: Start) -> bool {
 		emit_status(s, .Failed, "a session is already running")
 		return false
 	}
+	s.frame = nil // it points into the finished session, which wait frees
 	api.wait() // a finished session's thread
 	req := req
 	if req.mode == .Single do req.bench = s.args.bench

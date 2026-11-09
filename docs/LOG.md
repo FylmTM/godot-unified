@@ -117,3 +117,23 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   "survivor 0.1.0" has `survivor-0.1.0-macos-arm64.zip` (38.5 MB), `survivor-0.1.0-windows-x64.zip` (47.8 MB) and
   `SHA256SUMS.txt`. Re-checked the published macOS zip here: checksum OK, ad-hoc signed, ships `libsurvivor.dylib`
   and the EOS dylib in Frameworks, headless smoke test exit 0 with no errors.
+- **Pre-playtest review of the online path** (netcode, eos, godot_host, sim; branch
+  `worktree-agent-a897e9e067002558a`, not merged). Fixed, each with a test (`tests/netcode/resilience_test.odin`)
+  or a real EOS run:
+  - A one-way outage over 10 s left the client in a frozen "Connected" session forever (the relay had dropped it,
+    its keepalives kept the client from timing out), and a player rejoining on the same transport peer (EOS: same
+    user ID) before the relay's timeout hung in "Connecting" (its Hello read as a duplicate). Datagrams now carry
+    epochs (protocol 4, bucket `survivor/2`).
+  - At ~280 ms RTT the client stalled 92% of ticks: the 166 ms prediction cap was below one round trip plus the
+    input delay. Now 218 ms (14 ticks, the most the 16-tick ring allows): smooth to ~300 ms.
+  - After an 8 s outage at ~200 ms RTT a client took 5.2 s to catch up (one 32-tick window per round trip); the
+    relay now rotates through the backlog: 0.4 s.
+  - Godot exited with SIGSEGV in EOS's threads ~2 times in 3 after an online session (EOS never shut down); the
+    transport now has a `shutdown` the host calls at deinitialize. 6/6 clean exits after, 2/6 before.
+  - EOS: lobby leave/destroy now goes out at once (it waited for the next session's tick); async lobby results of
+    an abandoned session no longer touch the next one (search handle double-release, wrong lobby joined/kept); a
+    failed token refresh retries instead of failing a running session.
+  - `dev.py game coop --rejoin`: the joiner leaves mid-match and rejoins with the same code (passes over EOS).
+  - Found, not fixed: a crashed player's immediate rejoin may not connect for ~30 s (EOS holds the old P2P
+    connection); a level-up choice can apply twice (inputs repeated by catch-up or the relay's tolerance; needs an
+    edge-triggered choice in the sim and new testdata); see the review report.
