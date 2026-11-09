@@ -185,3 +185,20 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
 - **Second game started:** a co-op third-person physics sandbox (platforms, jump pads, carry, throw, two-player heavy
   carry, a short route), in its own session. The developer said not to wait for sign-off; its design decisions are
   recorded in its spec as pending review.
+- 8e0cd1c **audit-core merged:** netcode hardened against bad and stale datagrams (relay no longer finalizes forever
+  with nobody present, bounded reliable window, UDP slots reused, snapshots only from the asked provider, stale
+  Finalized ignored), `sim.compat_of` refuses mismatched builds, **PROTOCOL_VERSION 5** and lobby buckets
+  `survivor/3`, `unified-headless/3` (v0.1.1 players need a new build). Lint became import allowlists; tuning
+  lives in the state; new `tests/box3d` and `tests/headless`; sessions on a virtual clock; `check` 65 s → 32 s
+  including a Rosetta T1/T7/T8 step. Won't fix: linting raw `i32(` casts of floats (the lint can't see types).
+- c788ad7 **audit-godot merged:** temp guards instead of `free_all` in nested Godot callbacks; EOS callbacks on the
+  ticking thread (fake-SDK tests); survivor bits moved into `Glue`; `press_action`, `constants()` (GDScript reads
+  sim numbers from the sim); dev UI behind `UNIFIED_DEVUI`, **left on** (off build: 2.95 → 1.53 MB, vetted); no
+  mock in exports (fatal screen instead); `tests/godot_host`. Won't fix: `reloadable = true` (editor-only flag).
+  Merge conflicts in `tests/tests.odin` and the extension's HUD resolved by keeping both sides.
+- 4adb2e0 **hitches merged:** first-use hitches on a true first launch drop from 0.4–1 s to ≤13 ms (hit flash keeps
+  emission on; effects warmed under the floor while the arena loads; arena preloaded from the menu). The ~1 s frame
+  was macOS stalling a hidden window, not the game. Shader baking in the release export is not adopted: CI exports
+  headless, where the baker does nothing; needs a CI trial first. Verified on main after all three merges: fmt,
+  vet, test (93), godot-test, validate, walk, tour --frames (p99 9.1 ms), game headless, session-check,
+  editor-check, check T1–T9 plus Rosetta.
