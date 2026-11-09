@@ -11,6 +11,7 @@ out/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)
 !/games/*/simulation/tests/testdata/ref.log
+!/tests/scenarios/testdata/ref.log
 
 # Generated Godot bindings (python tools/dev.py gen)
 *.gen.odin
