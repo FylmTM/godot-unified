@@ -55,6 +55,7 @@ Snap_Req :: struct {
 }
 
 FIN_RING :: 512
+#assert(CATCHUP_TICKS <= FIN_RING - 64) // a relay never streams ticks the ring would refuse
 OWN_RING :: 512
 PRED_RING :: 64
 CHK_RING :: 64
