@@ -48,8 +48,9 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## The board
 
-All work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2) (`gh project … 2
---owner FylmTM`), one issue per reviewable piece of work. The board tracks issues only; PRs link to them. Its
+All work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
+reviewable piece of work. The board tracks issues only; PRs link to them. Operate it with `python tools/dev.py board
+list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Its
 `Status` columns:
 
 | Status | Meaning | Who moves it here |
@@ -65,7 +66,8 @@ All work is tracked on the GitHub Project [unified](https://github.com/users/Fyl
 - **Agents take work only from Todo** (or what the developer hands them directly), and never start Backlog or
   Design items on their own. Another column's item may get a comment with questions or findings.
 - **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues).
-  Fill in the PR template; "Decisions made without sign-off" lists every choice the developer hasn't seen.
+  Agents push their own branches and open PRs without asking; only merging into `main` is gated. Fill in the PR
+  template; "Decisions made without sign-off" lists every choice the developer hasn't seen.
 - **Merging:** an agent may merge its own PR, after `python tools/dev.py all` passes and CI is green, only when
   the change is trivial (typo, formatting, test-only, a doc that only fixes facts) or the issue carries the
   `agent-may-merge` label. It then moves the issue to "Merged, to review". Everything else waits in Review.
