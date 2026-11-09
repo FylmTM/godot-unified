@@ -23,6 +23,8 @@
     python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release] [--no-build]
                                                         # windowed bot play check
     python tools/dev.py game validate|walk|shots|tour|coop|import <game> ...   # Godot project checks (tools/game.py)
+    python tools/dev.py board list [--status S] [--area A]          # the work board (tools/board.py, AGENTS.md)
+    python tools/dev.py board set <issue> [--status S] [--area A]   # move or file an issue on the board
 
 <game> is a name under games/ or a project path. Every command rejects arguments it doesn't know; `-h` on any
 command prints its options.
@@ -603,7 +605,8 @@ def parser():
     sub.add_parser("fmt").add_argument("--check", action="store_true")
     for name in ("check", "all"):  # options go to tools/check.py, which validates them
         sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("opts", nargs="*")
-    sub.add_parser("game", add_help=False, prefix_chars="\0").add_argument("argv", nargs="*")
+    for name in ("game", "board"):  # their own parsers validate the rest
+        sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("argv", nargs="*")
     return ap
 
 
@@ -628,6 +631,11 @@ def main():
         rc = cmd_game(a.argv)
         if rc:
             return rc
+    elif a.cmd == "board":
+        import board
+
+        board.main(a.argv)
+        return 0  # no timing line: board commands are interactive, not build steps
     elif a.cmd == "check":
         cmd_check(a.opts)
     elif a.cmd == "fmt":

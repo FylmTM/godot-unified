@@ -43,9 +43,37 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 - Iterate locally first (macOS ARM64, plus x86_64 under Rosetta for determinism checks). CI (Linux x64, Windows x64)
   is the final check before merging. macOS doesn't run in CI.
 - CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
-- Keep `docs/WORK.md` current: what's being worked on now, what's next, which sessions own what.
-- Commit and push only when the developer asks. Commit messages end with the co-author line.
-- Docs stay lean: fold what we learn into the right doc, delete what stops being true. History lives in git.
+- Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
+  stops being true. History lives in git.
+
+## The board
+
+All work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
+reviewable piece of work. The board tracks issues only; PRs link to them. Operate it with `python tools/dev.py board
+list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Its
+`Status` columns:
+
+| Status | Meaning | Who moves it here |
+|---|---|---|
+| Backlog | Anything, unsorted | anyone |
+| Design | Needs a decision or spec first: ends in a spec PR or a decision written in the issue | developer |
+| Todo | Ready; the top of the column goes first | developer |
+| In progress | A session owns it; the issue names the session and branch in a comment | the agent taking it |
+| Review | A PR is open and waits for the developer | the agent |
+| Merged, to review | An agent merged it (rules below); the developer reviews after the fact | the agent |
+| Done | Merged and seen by the developer; the developer closes the issue | developer |
+
+- **Agents take work only from Todo** (or what the developer hands them directly), and never start Backlog or
+  Design items on their own. Another column's item may get a comment with questions or findings.
+- **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues).
+  Agents push their own branches and open PRs without asking; only merging into `main` is gated. Fill in the PR
+  template; "Decisions made without sign-off" lists every choice the developer hasn't seen.
+- **Merging:** an agent may merge its own PR, after `python tools/dev.py all` passes and CI is green, only when
+  the change is trivial (typo, formatting, test-only, a doc that only fixes facts) or the issue carries the
+  `agent-may-merge` label. It then moves the issue to "Merged, to review". Everything else waits in Review.
+- **New findings** (bugs, follow-ups, ideas) become new Backlog issues, not notes in docs or reports.
+- The `review` label marks a review sitting: the developer goes through one part of the project with an agent
+  (explanation, a hands-on task, decisions); its decisions and follow-ups are written into the issue.
 
 ## Layout and commands
 
@@ -98,7 +126,8 @@ needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
 
 ## Where things are
 
-- `docs/WORK.md`: phases, decisions, current and upcoming work.
+- The board (above): current and upcoming work. `docs/WORK.md`: phases and decisions taken so far (they move into
+  the specs during the foundations review, then the file goes).
 - `docs/CONTEXT.md`: why `unified` exists and the developer's requirements.
 - `spec/`: one short spec per module, plus the test game (`GAME.md`) and its client (`survivor-client.md`).
 - `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/research/` (open research).
