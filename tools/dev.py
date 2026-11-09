@@ -3,7 +3,8 @@
 
     python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/survivor[.exe]
     python tools/dev.py test                    # odin test: unit tests + determinism lint
-    python tools/dev.py check [check.py opts]   # release build, then T1-T9 (tools/check.py)
+    python tools/dev.py check [check.py opts] [--no-rosetta]   # release build, then T1-T9 (tools/check.py);
+                                                # on an ARM64 Mac first T1,T7,T8 of the x86_64 build (Rosetta)
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py all                     # fmt --check, vet, test, check (what CI runs)
@@ -557,9 +558,20 @@ def cmd_fmt(check=False):
 
 def cmd_check(argv):
     import check
+    rosetta = "--no-rosetta" not in argv
+    argv = [a for a in argv if a != "--no-rosetta"]
     mode = "release"
     if "--mode" in argv:
         mode = argv[argv.index("--mode") + 1]
+    # On an ARM64 Mac a full release check also runs the cross-architecture determinism check first: the
+    # x86_64 build under Rosetta must reproduce T1 and the committed T7/T8 references (~10 s). It goes first
+    # because both builds share out/release/survivor and out/check; the native run below is what stays there.
+    if rosetta and mode == "release" and common.IS_MACOS and common.host_arch() == "arm64" \
+            and "--only" not in argv and "--regen" not in argv:
+        cmd_build(mode, "x86_64")
+        log("dev: check: Rosetta x86_64 run of T1, T7, T8")
+        if check.main(["--only", "T1,T7,T8"]) != 0:
+            raise SystemExit("dev: the x86_64 build under Rosetta does not reproduce T1/T7/T8")
     cmd_build(mode)
     rc = check.main(argv)
     if rc != 0:
