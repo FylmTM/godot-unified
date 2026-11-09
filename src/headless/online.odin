@@ -151,8 +151,8 @@ mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> 
 		joined,
 		r.desyncs,
 		r.finalized,
-		netcode.channel_stats_json(r.ch),
-		netcode.client_json(host.client),
+		netcode.channel_stats_json(r.ch.stats),
+		netcode.client_json(netcode.client_result(host.client, context.temp_allocator)),
 		ok,
 	)
 	return ok && r.desyncs == 0
@@ -204,7 +204,7 @@ mode_online_client :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -
 		a.mode,
 		join_ms,
 		st.network,
-		netcode.client_json(c),
+		netcode.client_json(netcode.client_result(c, context.temp_allocator)),
 		ok,
 	)
 	return ok

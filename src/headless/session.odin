@@ -7,7 +7,6 @@ package headless
 
 import "core:fmt"
 import cnet "core:net"
-import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
@@ -26,29 +25,11 @@ Session_Config :: struct {
 	late_tick:   u32,
 }
 
-// One client's view of a session.
-Client_Result :: struct {
-	player:             int,
-	join_tick:          u32, // the first tick the player is present
-	final_tick:         u32, // the last verified tick (= the session's ticks on success)
-	checksums:          [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
-	rollbacks:          int,
-	rollback_depth_avg: f64,
-	rollback_depth_max: int,
-	stall_ticks:        int,
-	resim_ticks:        int,
-	delay:              u32,
-	delay_changes:      int,
-	rtt_ms:             f64,
-	ok:                 bool, // verified every tick and was not failed
-	net:                netcode.Channel_Stats,
-}
-
 Session_Result :: struct($I: typeid, $P: int) {
 	ok:        bool, // every client verified every tick and disconnected cleanly
 	desyncs:   int, // checksum mismatches the relay detected
 	replaced:  int, // inputs the relay replaced (late or missing)
-	clients:   []Client_Result, // one per slot, in slot order
+	clients:   []netcode.Client_Result, // one per slot, in slot order
 	log:       sim.Input_Log(I, P), // the relay's official input log
 	relay_net: netcode.Channel_Stats,
 }
@@ -60,70 +41,6 @@ session_result_destroy :: proc(res: ^Session_Result($I, $P)) {
 	delete(res.clients)
 	sim.log_destroy(&res.log)
 	res^ = {}
-}
-
-// A client's results (the checksums copied: the caller owns them).
-client_result :: proc(c: ^netcode.Client($S, $I, $W, $P)) -> Client_Result {
-	return {
-		player = c.slot,
-		join_tick = c.first_tick,
-		final_tick = c.verified,
-		checksums = make_clone(c.checksums[:]),
-		rollbacks = c.rollbacks,
-		rollback_depth_avg = c.rollbacks > 0 ? f64(c.depth_sum) / f64(c.rollbacks) : 0,
-		rollback_depth_max = c.depth_max,
-		stall_ticks = c.stall_ticks,
-		resim_ticks = c.resim_ticks,
-		delay = c.delay,
-		delay_changes = c.delay_changes,
-		rtt_ms = c.rtt_us / 1000,
-		ok = c.ticks != 0 && c.verified == c.ticks && c.status != .Failed,
-		net = c.ch.stats,
-	}
-}
-
-@(private)
-make_clone :: proc(s: [][2]u64) -> [][2]u64 {
-	out := make([][2]u64, len(s))
-	copy(out, s)
-	return out
-}
-
-// The JSON object of a client's results (src/headless/SPEC.md, CLI; temp-allocated).
-client_json :: proc(r: Client_Result) -> string {
-	b := strings.builder_make(0, 64 + len(r.checksums) * 32, context.temp_allocator)
-	for e, i in r.checksums {
-		fmt.sbprintf(&b, `%s[%d,"%016x"]`, i > 0 ? "," : "", e[0], e[1])
-	}
-	return fmt.tprintf(
-		`{{"player":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ok":%v,"net":%s}}`,
-		r.player,
-		r.final_tick,
-		strings.to_string(b),
-		r.rollbacks,
-		r.rollback_depth_avg,
-		r.rollback_depth_max,
-		r.stall_ticks,
-		r.resim_ticks,
-		r.join_tick,
-		r.delay,
-		r.delay_changes,
-		r.rtt_ms,
-		r.ok,
-		net_json(r.net),
-	)
-}
-
-// Datagram and byte counts of a channel, as JSON (temp-allocated).
-net_json :: proc(s: netcode.Channel_Stats) -> string {
-	return fmt.tprintf(
-		`{{"datagrams_sent":%d,"datagrams_recv":%d,"bytes_sent":%d,"bytes_recv":%d,"resends":%d}}`,
-		s.datagrams_sent,
-		s.datagrams_recv,
-		s.bytes_sent,
-		s.bytes_recv,
-		s.resends,
-	)
 }
 
 // Script hooks: every client samples the game's scripted input for its slot.
@@ -249,14 +166,14 @@ session_run :: proc(h: ^Headless($S, $I, $W, $P), cfg: Session_Config) -> (res: 
 	res.log = relay.log
 	relay.log = {}
 	res.relay_net = relay.ch.stats
-	res.clients = make([]Client_Result, cfg.clients)
+	res.clients = make([]netcode.Client_Result, cfg.clients)
 	for &t, p in ss.tasks {
 		if t.c == nil {
 			res.clients[p].player = p
 			res.ok = false
 			continue
 		}
-		res.clients[p] = client_result(t.c)
+		res.clients[p] = netcode.client_result(t.c)
 		res.ok &&= t.ok
 		delete(t.c.cfg.name)
 		netcode.client_destroy(t.c)

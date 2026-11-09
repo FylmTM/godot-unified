@@ -586,8 +586,8 @@ channel_flush :: proc(ch: ^Channel, now: i64) {
 	}
 }
 
-channel_stats_json :: proc(ch: ^Channel) -> string {
-	s := ch.stats
+// A channel's datagram and byte counts, as JSON (temp-allocated).
+channel_stats_json :: proc(s: Channel_Stats) -> string {
 	return fmt.tprintf(
 		`{{"datagrams_sent":%d,"datagrams_recv":%d,"bytes_sent":%d,"bytes_recv":%d,"resends":%d}}`,
 		s.datagrams_sent,

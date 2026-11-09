@@ -70,7 +70,7 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	}
 	clients := make([]string, len(res.clients), context.temp_allocator)
 	for c, i in res.clients {
-		clients[i] = client_json(c)
+		clients[i] = netcode.client_json(c)
 	}
 	fmt.printfln(
 		`{{"mode":"session","clients":[%s],"desyncs":%d,"replaced_inputs":%d,"profile":"%s","transport":"%s","clock":"%s","ticks":%d,"relay_net":%s,"ok":%v}}`,
@@ -81,7 +81,7 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		cfg.transport,
 		cfg.virtual ? "virtual" : "real",
 		cfg.ticks,
-		net_json(res.relay_net),
+		netcode.channel_stats_json(res.relay_net),
 		ok,
 	)
 	return ok
@@ -118,7 +118,7 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		r.desyncs,
 		r.replaced,
 		r.finalized,
-		net_json(r.ch.stats),
+		netcode.channel_stats_json(r.ch.stats),
 		ok,
 	)
 	return ok && r.desyncs == 0
@@ -157,8 +157,6 @@ mode_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", c.ticks, ticks)
 		ok = false
 	}
-	r := client_result(c)
-	defer delete(r.checksums)
-	fmt.println(client_json(r))
+	fmt.println(netcode.client_json(netcode.client_result(c, context.temp_allocator)))
 	return ok
 }

@@ -117,7 +117,7 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, res.clients[2].join_tick >= 320 && res.clients[2].checksums[0][0] >= 320)
 	// The JSON the CLI prints is built from these results.
-	j := headless.client_json(res.clients[0])
+	j := netcode.client_json(res.clients[0])
 	testing.expect(t, strings.has_prefix(j, `{"player":0,"final_tick":640,"checksums":[[16,"`))
 }
 
@@ -139,7 +139,7 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 	b := headless.session_run(&h, cfg)
 	defer headless.session_result_destroy(&b)
 	testing.expect(t, a.ok && b.ok)
-	testing.expect_value(t, headless.client_json(a.clients[0]), headless.client_json(b.clients[0]))
+	testing.expect_value(t, netcode.client_json(a.clients[0]), netcode.client_json(b.clients[0]))
 	testing.expect_value(t, a.relay_net, b.relay_net)
 }
 

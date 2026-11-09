@@ -130,5 +130,5 @@ and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resu
 was made: OS, architecture, Odin version, build flags, commit; when; the parameters). `reference_resumes` skips in
 that build (it would race the writes); the other scenarios run as usual. Regenerate only after a change that
 legitimately alters the simulation or the log or snapshot format, and commit the files with it, saying why. Nothing
-else in the tools, suites or docs names a platform: no Rosetta step, no `--arch` (`dev.py build`, `game build`,
-`box3d.py`). Known consequence: cross-architecture is proven only while the dev machine and CI differ in CPU.
+else in the tools, suites or docs names a platform, and every build is for the machine it runs on (no `--arch` in
+`dev.py build`, `game build` or `box3d.py`). CI runs both x64 and arm64, so it is the cross-architecture check.
