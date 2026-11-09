@@ -19,9 +19,35 @@ file, and loaded by the sim at runtime. First user: `games/friendslop/SPEC.md`.
 The library ships the exporter only, not scripts that scenes depend on. The tools install it into the game's
 `.out/tools/` and run it there.
 
+## 2D levels
+
+Decided with the developer 2026-11-10 (2D levels in unified:level); mapping pending review.
+
+A level whose root is a `Node2D` is a 2D level. The sim's plane is XY with Godot's 2D axes (x right, y down, z into
+the screen) at z = 0; a rotation is about +Z (positive turns +x toward +y, as `Node2D.rotation`). Pixels are divided
+by the root's metadata `unified_px_per_m` (default 64); shapes are extruded to ±`unified_depth_m` / 2 (default 1 m).
+
+| Godot | File |
+|---|---|
+| `StaticBody2D` | a body: position, rotation about Z; scale (and skew, mirroring) baked into its shapes |
+| `CollisionShape2D` rectangle | Box, half (w/2, h/2, depth/2) |
+| circle | Sphere (uniform scale only) |
+| capsule | Capsule along local Y, segment half = height/2 − radius (Godot's height includes the caps; uniform scale only) |
+| convex polygon | Hull: the points at z = ±depth/2 (3 to 32 points) |
+| `CollisionPolygon2D` (solids) | split into convex parts (`Geometry2D.decompose_polygon_in_convex`), a Hull each |
+| `TileMapLayer` with collision | one body; per used cell, sorted by (y, x), each physics layer 0 polygon of its tile (with the cell's flip/transpose flags), split into convex Hulls. Friction and bounce from the tile set's physics layer 0 material; category and material from the layer's metadata |
+| marker (`Node2D`) | position (z = 0), rotation about Z, scale (sx, sy, 1) as Godot's `Transform2D` decomposes it; a `Path2D` child's curve points in world metres; a Vector2 property as a Vec3 with z = 0, raw (not in metres: `prop_vec2`) |
+
+Export errors, naming the node: segment, world boundary, concave and separation ray shapes, a polygon in segments
+mode, one-way collision, scene tiles, a 3D body or marker in a 2D level (and the reverse).
+
+The file records `px_per_m` (`Level.px_per_m`, 0 for a 3D level) so the game's view maps metres back to pixels with
+the level's own number. `physics.create_static` needs nothing new: the bodies are ordinary static bodies at z = 0.
+
 ## File (`UNLV`, little-endian, through `unified:wire`)
 
-Header: magic, version u16, record counts. Then static bodies (transform, shapes with local transforms and
+Header: magic, version u16 (2; version 1, without px_per_m, still loads as a 3D level), px_per_m f32, record
+counts. Then static bodies (transform, shapes with local transforms and
 materials) in scene-tree order, a string table, and markers (kind, name, transform, properties, path points) in
 scene-tree order. Transforms are f32 position + quaternion, taken as Godot computed them at export: the export
 runs once on one machine and the bits are committed, so they are the same everywhere.
@@ -32,7 +58,8 @@ runs once on one machine and the bits are committed, so they are the same everyw
 level.load(bytes) -> (Level, ok)         // parses into one allocation; Level holds slices into it
 level.hash(bytes) -> u64                 // XXH3 of the file: the level's identity
 level.markers(&lvl, "platform") -> []Marker
-level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_string, prop_ref, path_points(&m)
+level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string, prop_ref, path_points(&m)
+lvl.px_per_m                             // a 2D level's pixels per metre; 0: 3D
 physics.create_static(w, &lvl)           // static bodies in file order
 ```
 
@@ -56,7 +83,9 @@ physics.create_static(w, &lvl)           // static bodies in file order
 ## Tests
 
 `tests/level`: round-trip of every record and property type; rejects bad magic, versions and truncated files;
-`create_static` builds the expected bodies. `tests/godot`: export a fixture scene and compare to a committed file.
+version 1 loads; `create_static` builds the expected bodies, also from the 2D fixture's exported file. `tests/godot`
+(`dev.py godot-test`): export the 2D fixture scene (`levels/level_2d.tscn`) and compare to its committed file; an
+unsupported shape fails the export with the node's name.
 A replay or resume with a different level fails with the level hash in the error.
 
 ## Open

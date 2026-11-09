@@ -2,7 +2,7 @@
 // plain slices. Deterministic and pointer-free in what it returns to the sim (the Level lives in the
 // World, outside the block). The bytes stay owned by the caller: strings are views into them.
 //
-// File (little-endian, unified:wire): "UNLV", version u16, then
+// File (little-endian, unified:wire): "UNLV", version u16, px_per_m f32 (0: a 3D level), then
 //   strings: count u32, each len u16 + UTF-8 bytes (index 0 is "")
 //   bodies:  count u32, each name u32, pos 3f32, rot 4f32 (x y z w), friction f32, restitution f32,
 //            category u64, material u64, shape count u16, each shape:
@@ -11,12 +11,13 @@
 //   markers: count u32, each kind u32, name u32, pos 3f32, rot 4f32, scale 3f32,
 //            prop count u16, each key u32, type u8, value (bool u8 | int i32 | float f32 | vec3 3f32 |
 //            string u32 | ref i32: marker index, -1 none), then path point count u16, points 3f32 (world)
+// Version 1 has no px_per_m and still loads (as a 3D level).
 package level
 
 import "unified:wire"
 
 MAGIC :: "UNLV"
-VERSION :: 1
+VERSION :: 2
 
 Shape_Kind :: enum u8 {
 	Box,
@@ -77,13 +78,15 @@ Marker :: struct {
 }
 
 Level :: struct {
-	bodies:  []Body,
-	markers: []Marker,
+	// A 2D level's pixels per metre (its view maps metres back to pixels with it); 0: a 3D level.
+	px_per_m: f32,
+	bodies:   []Body,
+	markers:  []Marker,
 	// Backing storage the slices above point into.
-	strings: []string,
-	shapes:  []Shape,
-	props:   []Prop,
-	points:  [][3]f32,
+	strings:  []string,
+	shapes:   []Shape,
+	props:    []Prop,
+	points:   [][3]f32,
 }
 
 // The level's identity (XXH3 of the file), as recorded in logs and snapshots: sim.content_hash.
@@ -158,7 +161,8 @@ load :: proc(data: []u8, allocator := context.allocator) -> (l: Level, ok: bool)
 	}
 	magic := wire.r_bytes(&d.r, 4)
 	version := wire.r_u16(&d.r)
-	if !d.r.ok || string(magic) != MAGIC || version != VERSION do return
+	if !d.r.ok || string(magic) != MAGIC || version < 1 || version > VERSION do return
+	px_per_m := version >= 2 ? f32_(&d) : 0
 	ns := int(wire.r_u32(&d.r))
 	if ns > len(data) do return
 	strs := make([]string, ns)
@@ -253,12 +257,13 @@ load :: proc(data: []u8, allocator := context.allocator) -> (l: Level, ok: bool)
 	}
 
 	l = {
-		bodies  = bodies,
-		markers = markers,
-		strings = strs,
-		shapes  = d.shapes[:],
-		props   = d.props[:],
-		points  = d.points[:],
+		px_per_m = px_per_m,
+		bodies   = bodies,
+		markers  = markers,
+		strings  = strs,
+		shapes   = d.shapes[:],
+		props    = d.props[:],
+		points   = d.points[:],
 	}
 	if !d.r.ok || !d.ok || d.r.pos != len(data) {
 		destroy(&l)
@@ -333,6 +338,13 @@ prop_vec3 :: proc(m: ^Marker, key: string, default := [3]f32{}) -> [3]f32 {
 	p := prop(m, key)
 	if p == nil || p.type != .Vec3 do return default
 	return p.v
+}
+
+// A Vector2 property: written as a Vec3 with z = 0, raw (not converted to metres).
+prop_vec2 :: proc(m: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
+	p := prop(m, key)
+	if p == nil || p.type != .Vec3 do return default
+	return p.v.xy
 }
 
 prop_string :: proc(m: ^Marker, key: string, default := "") -> string {
