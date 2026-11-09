@@ -2,9 +2,8 @@
 // the order the spec gives; no `matrix` types and no core:math (determinism traps, see README).
 package survivor
 
-import "base:intrinsics"
-
 import b3 "unified:box3d"
+import "unified:dmath"
 import "unified:sim"
 
 GRID_N :: 30 // 2 m cells over the 60×60 arena
@@ -19,11 +18,6 @@ Scratch :: struct {
 	new_vel:    [MAX_ENEMIES][2]f32,
 }
 
-@(private)
-sqrtf :: #force_inline proc(x: f32) -> f32 {
-	return intrinsics.sqrt(x)
-}
-
 Enemy_Stats :: struct {
 	hp:     i32,
 	speed:  f32,
@@ -32,6 +26,7 @@ Enemy_Stats :: struct {
 	xp:     i32,
 }
 
+@(rodata)
 ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
 	.Grunt  = {10, 2.0, 0.4, 5, 1},
 	.Runner = {6, 3.2, 0.35, 3, 1},
@@ -192,9 +187,9 @@ sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
 		case 1:
 			pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
 		case 2:
-			pl.damage_bonus += 3
+			pl.damage_bonus += DAMAGE_LEVELUP
 		case 3:
-			pl.speed = pl.speed + 0.5
+			pl.speed = pl.speed + SPEED_LEVELUP
 		}
 		pl.pending_levelups -= 1
 	}
@@ -219,8 +214,8 @@ sys_spawner :: proc(s: ^State, t: u32) {
 		}
 		k := sim.rng_below(&s.rng, 8)
 		jitter := f32(sim.rng_below(&s.rng, 1000)) / 1000 * 2 - 1
-		x := 27 * RING_C[k] + jitter
-		z := 27 * RING_S[k] + jitter
+		x := 27 * dmath.DIR8_C[k] + jitter
+		z := 27 * dmath.DIR8_S[k] + jitter
 		r := sim.rng_below(&s.rng, 10)
 		kind: Enemy_Kind = r <= 6 ? .Grunt : (r <= 8 ? .Runner : .Brute)
 		spawn_enemy(s, kind, {x, z}, t)
@@ -242,8 +237,8 @@ spawn_enemy :: proc(s: ^State, kind: Enemy_Kind, pos: [2]f32, t: u32) -> bool {
 
 @(private)
 cell_of :: #force_inline proc(pos: [2]f32) -> (cx, cz: i32) {
-	cx = clamp(i32((pos.x + 30) * 0.5), 0, GRID_N - 1)
-	cz = clamp(i32((pos.y + 30) * 0.5), 0, GRID_N - 1)
+	cx = dmath.to_i32_clamped((pos.x + 30) * 0.5, 0, GRID_N - 1)
+	cz = dmath.to_i32_clamped((pos.y + 30) * 0.5, 0, GRID_N - 1)
 	return
 }
 
@@ -319,7 +314,7 @@ sys_enemies :: proc(s: ^State, w: ^World, t: u32) {
 		if p, _ := nearest_player(s, e.pos); p >= 0 {
 			dx := s.players[p].pos.x - e.pos.x
 			dz := s.players[p].pos.z - e.pos.y
-			l := sqrtf(dx * dx + dz * dz)
+			l := dmath.sqrt(dx * dx + dz * dz)
 			if l > 0.0001 {
 				desired = {dx / l * speed, dz / l * speed}
 			}
@@ -360,7 +355,7 @@ sys_enemies :: proc(s: ^State, w: ^World, t: u32) {
 		vmax := speed * 1.5
 		s2 := vx * vx + vz * vz
 		if s2 > vmax * vmax {
-			k := vmax / sqrtf(s2)
+			k := vmax / dmath.sqrt(s2)
 			vx = vx * k
 			vz = vz * k
 		}
@@ -373,8 +368,8 @@ sys_enemies :: proc(s: ^State, w: ^World, t: u32) {
 		z := e.pos.y + e.vel.y * DT
 		r := e.radius
 		for k in 0 ..< 8 {
-			px := 14 * RING_C[k]
-			pz := 14 * RING_S[k]
+			px := 14 * dmath.DIR8_C[k]
+			pz := 14 * dmath.DIR8_S[k]
 			ext := 1 + r
 			dx := x - px
 			dz := z - pz
@@ -476,7 +471,7 @@ sys_attack :: proc(s: ^State) {
 		e := &s.enemies.items[best]
 		dx := e.pos.x - pl.pos.x
 		dz := e.pos.y - pl.pos.z
-		l := sqrtf(dx * dx + dz * dz)
+		l := dmath.sqrt(dx * dx + dz * dz)
 		if l <= 0.0001 {
 			continue
 		}
@@ -627,18 +622,18 @@ explosion_impulse :: proc(w: ^World, center: [3]f32, body: b3.BodyId) {
 	dx := q.x - center.x
 	dy := q.y - center.y
 	dz := q.z - center.z
-	d := sqrtf(dx * dx + dy * dy + dz * dz)
+	d := dmath.sqrt(dx * dx + dy * dy + dz * dz)
 	if d >= 5 {
 		return
 	}
 	hx, hz: f32
-	hl := sqrtf(dx * dx + dz * dz)
+	hl := dmath.sqrt(dx * dx + dz * dz)
 	if hl > 0.0001 {
 		hx = dx / hl
 		hz = dz / hl
 	}
 	uy: f32 = 0.5
-	ul := sqrtf(hx * hx + uy * uy + hz * hz)
+	ul := dmath.sqrt(hx * hx + uy * uy + hz * hz)
 	k := 12 * (1 - d / 5)
 	b3.Body_ApplyLinearImpulseToCenter(body, {hx / ul * k, uy / ul * k, hz / ul * k}, true)
 }
@@ -716,7 +711,7 @@ bench_prepare :: proc(s: ^State, w: ^World, n: int) {
 	s.enemy_cap = u32(n)
 	s.phase = .Match // the spawner refills to n from tick 1 on
 	s.endless = true
-	s.tuning = .Stress
+	set_tuning(s, .Stress)
 	s.circle_radius = 0
 	prespawn_enemies(s, n)
 }

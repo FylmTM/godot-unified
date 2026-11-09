@@ -16,18 +16,19 @@ PART_MAX :: P2P_MAX_PACKET - PART_HEADER
 MAX_PARTS :: 4 // datagrams up to 4 * PART_MAX = 4660 bytes
 REASM_SLOTS :: 4
 
-// Splits `bytes` into EOS packets; calls `emit` for each. `next_id` numbers fragmented datagrams.
-frame_split :: proc(bytes: []u8, next_id: ^u16, emit: proc(user: rawptr, pkt: []u8), user: rawptr) {
+// Splits `bytes` into EOS packets; calls `emit` for each. `next_id` numbers fragmented datagrams. A
+// datagram of more than MAX_PARTS parts (the receiver could never reassemble it) is not sent: false.
+frame_split :: proc(bytes: []u8, next_id: ^u16, emit: proc(user: rawptr, pkt: []u8), user: rawptr) -> bool {
 	buf: [P2P_MAX_PACKET]u8
 	if len(bytes) + 1 <= P2P_MAX_PACKET {
 		buf[0] = FRAME_WHOLE
 		copy(buf[1:], bytes)
 		emit(user, buf[:1 + len(bytes)])
-		return
+		return true
 	}
 	count := (len(bytes) + PART_MAX - 1) / PART_MAX
-	if count > 255 {
-		return
+	if count > MAX_PARTS {
+		return false
 	}
 	id := next_id^
 	next_id^ += 1
@@ -41,6 +42,7 @@ frame_split :: proc(bytes: []u8, next_id: ^u16, emit: proc(user: rawptr, pkt: []
 		copy(buf[PART_HEADER:], part)
 		emit(user, buf[:PART_HEADER + len(part)])
 	}
+	return true
 }
 
 Reasm_Slot :: struct {

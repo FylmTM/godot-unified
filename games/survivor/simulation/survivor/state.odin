@@ -1,8 +1,6 @@
 // Survivor (spec/GAME.md): constants, input, the pointer-free state block and its tables.
 package survivor
 
-import "core:fmt"
-
 import "unified:physics"
 import "unified:sim"
 
@@ -45,6 +43,9 @@ PLAYER_HP :: 100
 PLAYER_SPEED :: 6.0
 BARREL_HP :: 30
 START_RADIUS :: 3.5 // the lobby's start circle at the arena centre (m)
+ARENA_HALF :: 32 // the ground is 2 * ARENA_HALF square, centred (m)
+DAMAGE_LEVELUP :: 3 // per "damage" level-up
+SPEED_LEVELUP :: 0.5 // m/s per "move speed" level-up
 
 BUTTON_DASH :: u8(1 << 0)
 
@@ -79,10 +80,6 @@ choice_seq :: #force_inline proc "contextless" (c: u8) -> u8 {
 choice_next_seq :: proc "contextless" (seq: u8) -> u8 {
 	return seq % 63 + 1
 }
-
-// Angle table for k·45° (GAME.md: use the table, not trig).
-RING_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
-RING_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}
 
 Body_Ref :: physics.Body_Ref
 
@@ -173,6 +170,9 @@ Tuning :: struct {
 	xp_step:           i32, // + per level after that
 }
 
+// The presets. Read-only: a match's tuning lives in its state (State.tune), so whatever changes it
+// (the bot's --set) changes the state, which every peer shares and the checksum covers.
+@(rodata)
 TUNINGS := [Tuning_Kind]Tuning {
 	// Measured with `survivor bot` (the bot policy in bot.odin, 16 seeds): 1 player levels up first at
 	// a median 28 s (17-40 s) and survives a median 273 s (110-361 s); 2 players: 25 s and 240 s.
@@ -201,7 +201,12 @@ TUNINGS := [Tuning_Kind]Tuning {
 }
 
 tuning :: #force_inline proc(s: ^State) -> ^Tuning {
-	return &TUNINGS[s.tuning]
+	return &s.tune
+}
+
+set_tuning :: proc(s: ^State, kind: Tuning_Kind) {
+	s.tuning = kind
+	s.tune = TUNINGS[kind]
 }
 
 // lobby: present players gather in the start circle, no enemies; the match starts on the tick a
@@ -227,36 +232,12 @@ State :: struct {
 	circle_radius: f32, // the start circle while in the lobby, 0 otherwise
 	phase:         Phase,
 	endless:       bool, // never leave the match (bench: hold a fixed population)
-	tuning:        Tuning_Kind,
+	tuning:        Tuning_Kind, // the preset `tune` started from
 	_pad:          u8,
+	tune:          Tuning, // the match's tuning values
 	players:       [MAX_PLAYERS]Player,
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),
 	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),
 	gems:          sim.Table(Gem, MAX_GEMS),
-}
-
-// A JSON fragment describing the state (for the CLI output; temp-allocated).
-summary :: proc(s: ^State) -> string {
-	levels: [MAX_PLAYERS]i32
-	alive := 0
-	for p in 0 ..< MAX_PLAYERS {
-		levels[p] = s.players[p].level
-		if s.players[p].alive {
-			alive += 1
-		}
-	}
-	return fmt.tprintf(
-		`"phase":"%v","matches":%d,"wave":%d,"enemies":%d,"projectiles":%d,"gems":%d,"kills":%d,"explosions":%d,"players_alive":%d,"levels":%v`,
-		s.phase,
-		s.matches,
-		s.wave,
-		s.enemies.count,
-		s.projectiles.count,
-		s.gems.count,
-		s.kills,
-		s.explosions,
-		alive,
-		levels,
-	)
 }

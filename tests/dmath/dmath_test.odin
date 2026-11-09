@@ -17,3 +17,15 @@ helpers :: proc(t: ^testing.T) {
 		testing.expect(t, l > 0.99999 && l < 1.00001)
 	}
 }
+
+@(test)
+clamped_conversion :: proc(t: ^testing.T) {
+	testing.expect_value(t, dmath.to_i32_clamped(3.9, 0, 29), 3)
+	testing.expect_value(t, dmath.to_i32_clamped(-0.5, 0, 29), 0)
+	testing.expect_value(t, dmath.to_i32_clamped(1e30, 0, 29), 29)
+	testing.expect_value(t, dmath.to_i32_clamped(-1e30, -5, 29), -5)
+	testing.expect_value(t, dmath.to_i32_clamped(transmute(f32)u32(0x7FC0_0000), 0, 29), 0) // NaN
+	inf := transmute(f32)u32(0x7F80_0000)
+	testing.expect_value(t, dmath.to_i32_clamped(inf, 0, 29), 29)
+	testing.expect_value(t, dmath.to_i32_clamped(-2.5, -10, 10), -2) // truncation toward zero
+}

@@ -3,6 +3,11 @@ extends AudioStreamPlayer
 ## soft bass that pulses only during a match. Per-frame cost in `cost_us`. Child of the Sfx autoload.
 
 const RATE := 11025.0  # a soft pad needs no highs; halves the synthesis cost
+## Seconds synthesized ahead: frame stalls up to this long (scene loads) play on without a dropout. An intensity
+## change reaches the ear this much later, so the fade itself is quick (FADE_S) to keep the total under 2 s.
+## Godot rounds the buffer up to a power of two frames: 0.7 s -> 8192 frames = 0.74 s (0.75 s would give 1.49 s).
+const BUFFER_S := 0.7
+const FADE_S := 1.0
 const BAR := 4.0  # seconds per chord
 ## A minor-ish loop (Am - F - C - G), root frequencies of each chord voice.
 const CHORDS := [
@@ -25,7 +30,7 @@ var cost_us := 0
 func _ready() -> void:
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
-	gen.buffer_length = 0.25
+	gen.buffer_length = BUFFER_S
 	stream = gen
 	bus = &"Music"
 	volume_db = -10.0
@@ -33,12 +38,18 @@ func _ready() -> void:
 	_playback = get_stream_playback()
 
 
+## Stops for good (quitting): the AudioServer frees the playback a few mixes later.
+func shut_down() -> void:
+	stop()
+	_playback = null
+
+
 func set_intensity(v: float) -> void:
 	_target = clampf(v, 0.0, 1.0)
 
 
 func _process(delta: float) -> void:
-	intensity = move_toward(intensity, _target, delta * 0.5)
+	intensity = move_toward(intensity, _target, delta / FADE_S)
 	if _playback == null:
 		return
 	var t0 := Time.get_ticks_usec()

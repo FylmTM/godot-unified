@@ -37,8 +37,3 @@ rng_below :: proc(r: ^Rng, n: u32) -> u32 {
 rng_f32 :: proc(r: ^Rng) -> f32 {
 	return f32(rng_next(r) >> 8) * (1.0 / 16777216.0)
 }
-
-// Uniform in [lo, hi).
-rng_range :: proc(r: ^Rng, lo, hi: f32) -> f32 {
-	return lo + (hi - lo) * rng_f32(r)
-}

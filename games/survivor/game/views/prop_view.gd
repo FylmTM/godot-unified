@@ -25,12 +25,12 @@ func _process(delta: float) -> void:
 		set_process(false)
 
 
-func _sim_event(kind: StringName, _data: Dictionary) -> void:
-	if kind == &"despawned":
+func _sim_event(event: StringName, _data: Dictionary) -> void:
+	if event == &"despawned":
 		set_process(false)
 		_exit = create_tween()
 		_exit.tween_property(_body, "scale", Vector3.ONE * 0.01, 0.15)
-	elif kind == &"revived":  # a rollback brought it back within the linger time
+	elif event == &"revived":  # a rollback brought it back within the linger time
 		if _exit != null:
 			_exit.kill()
 		_body.scale = Vector3.ONE

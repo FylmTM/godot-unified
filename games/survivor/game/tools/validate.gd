@@ -1,15 +1,18 @@
 extends SceneTree
 ## Headless project check, no editor:
-##   godot --headless --path games/survivor -s res://game/tools/validate.gd -- --no-settings [--frames=N]
-## 1. compiles every .gd under res://game, 2. loads and instantiates every .tscn/.tres (missing deps, and the
-## unknown properties Godot silently drops), 3. runs the main scene for N frames (default 30) to catch runtime
-## errors. Prints a summary and one `VALIDATE_JSON {...}` line; exits 1 on any error.
+##   godot --headless -d --path games/survivor -s res://game/tools/validate.gd -- --no-settings [--frames=N]
+## 1. compiles every .gd under res://game (`-d` makes Godot print GDScript warnings; tools/game.py fails on them),
+## 2. loads and instantiates every .tscn/.tres (missing deps, and the unknown properties Godot silently drops),
+## 3. with the game library loaded, checks the mock session against the native one (constants() and the idle
+## hud() must be equal, so the mock's copy of the sim's numbers can't drift), 4. runs the main scene for N frames
+## (default 30) to catch runtime errors. Prints a summary and one `VALIDATE_JSON {...}` line; exits 1 on any error.
 
 var cap: Logger
 var frames := 30
 var report := {}
 var _t := 0
 var _left := 0
+var _quitting := false
 
 
 func _init() -> void:
@@ -48,7 +51,8 @@ func _check_files() -> void:
 					_check_props(f, (r as PackedScene).get_state(), inst)
 					inst.free()
 	var t2 := Time.get_ticks_usec()
-	report = {"scripts": n_gd, "resources": n_res, "ms": {"scripts": (t1 - t0) / 1000, "resources": (t2 - t1) / 1000}}
+	report = {"scripts": n_gd, "resources": n_res, "ms": {"scripts": _ms(t1 - t0), "resources": _ms(t2 - t1)}}
+	report["mock_contract"] = _check_mock()
 	_t = Time.get_ticks_usec()
 	_left = frames
 	if frames > 0:
@@ -56,13 +60,15 @@ func _check_files() -> void:
 
 
 func _process(_delta: float) -> bool:
+	if _quitting:
+		return false
 	if report.is_empty():
 		_check_files()
 		return false
 	if _left > 0:
 		_left -= 1
 		return false
-	report["ms"]["run"] = (Time.get_ticks_usec() - _t) / 1000
+	report["ms"]["run"] = _ms(Time.get_ticks_usec() - _t)
 	report["frames"] = frames
 	report["errors"] = cap.errors
 	report["warnings"] = cap.warnings.size()
@@ -74,8 +80,45 @@ func _process(_delta: float) -> bool:
 		print(cap.report())
 	print("VALIDATE_JSON " + JSON.stringify(report))
 	OS.remove_logger(cap)
-	quit(0 if ok else 1)
-	return true
+	_quitting = true
+	root.get_node(^"Game").quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit
+	return false
+
+
+## The mock must report what the native session reports: every constants() key, and hud() before any session.
+## Returns "ok", or "skipped" without the game library.
+func _check_mock() -> String:
+	var game: Node = root.get_node(^"Game")
+	if game.is_mock:
+		return "skipped (mock session)"
+	var mock: Node = load(game.MOCK_SESSION).new()
+	var native: Node = game.session
+	var n: int = cap.errors.size()
+	_compare("constants()", mock.constants(), native.constants())
+	_compare("hud() before a session", mock.hud(), native.hud())
+	mock.free()
+	return "ok" if cap.errors.size() == n else "differs"
+
+
+func _compare(what: String, mock: Dictionary, native: Dictionary) -> void:
+	const AT := "res://game/session/mock_session.gd"
+	for key: String in native:
+		if not mock.has(key):
+			cap.add("mock %s lacks key %s" % [what, key], AT)
+		elif var_to_str(mock[key]) != var_to_str(native[key]):
+			cap.add("mock %s[%s] differs from the native session: %s vs %s" % [what, key, _short(mock[key]), _short(native[key])], AT)
+	for key: String in mock:
+		if not native.has(key):
+			cap.add("mock %s has key %s the native session lacks" % [what, key], AT)
+
+
+static func _short(v: Variant) -> String:
+	var s := var_to_str(v).replace("\n", " ")
+	return s if s.length() <= 160 else s.left(160) + "..."
+
+
+static func _ms(usec: int) -> int:
+	return roundi(usec / 1000.0)
 
 
 ## Godot silently drops unknown properties in .tscn files; catch typos here.

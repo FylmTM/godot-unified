@@ -17,7 +17,7 @@ works inside. Commands and toolchain: [`../AGENTS.md`](../AGENTS.md), [`../READM
 | `dmath` | Deterministic f32 helpers |
 | `netcode` | Links (loopback, UDP, netsim), multi-link channel, relay, client, host; `*_step(now) -> wake` + hooks |
 | `eos` | Epic Online Services: device-ID login, lobbies by code, P2P sockets as a netcode `Link` (`spec/eos.md`) |
-| `headless` | The spec/headless.md modes (sim, synctest, replay, snapshot, resume, bench, session, relay, client) for any game |
+| `headless` | The `spec/headless.md` CLI modes for any game; online modes plug in through a transport hook |
 | `view` | Host-agnostic view logic: triple buffer, SPSC queue, pose tracks + smoothing, spawn keys, events (`spec/view.md`) |
 | `gdext` | Godot bindings: generator, committed API dump, runtime, class registration |
 | `imgui` | Vendored odin-imgui declarations (`spec/imgui.md`) |
@@ -44,8 +44,9 @@ inputs travel and are logged as their bytes. Odin has no compile-time "is POD" t
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` in the
 deterministic packages (`sim`, `physics`, `dmath`, `netcode`, a game's sim; the netcode's ceilings are done by hand).
-Render-side code (`view`, `godot_host`, `devui`) may use it: nothing there feeds the sim. Float→int casts only see clamped values. `tests/lint` enforces
-the import and type bans per package, including the games' simulation packages.
+Render-side code (`view`, `godot_host`, `devui`) may use it: nothing there feeds the sim. Float→int casts only see
+clamped values. `tests/lint` enforces the import and type bans per package, including the games' simulation
+packages.
 
 ## Box3D binding
 
@@ -93,8 +94,9 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
   delivered in order, keepalives every 250 ms, disconnect after 10 s of silence or a link's own disconnect event;
   epochs in every datagram end a half-open connection at once, see `channel.odin`).
 - **Step API:** `relay_step`, `client_step`, `host_step` take `now_us` and return the next wake time (the next tick
-  boundary, or the poll interval, 1 ms by default). No package-level threads; `headless` runs threads for T3-T6, the
-  Godot host runs its own loop. Time-dependent code takes `now` as a parameter, so tests run whole sessions on a
+  boundary, or the poll interval, 1 ms by default). No package-level threads; `headless session` runs a thread per
+  client on the real clock or steps everything on one thread on the virtual clock (T3, T6), the Godot host runs
+  its own loop. Time-dependent code takes `now` as a parameter, so tests run whole sessions on a
   virtual clock in milliseconds.
 - **Relay / client:** see `spec/netcode.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, input delay
   from RTT, ±2% clock slew, checksums every 16 verified ticks, late join with a queued snapshot or a full replay).

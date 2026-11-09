@@ -2,7 +2,7 @@
 # developer's Mac hosts, plays the scripted session and reports its verified checksums. Manual only:
 #
 #   godot --headless --path games/survivor -- --host-online --scripted --ticks 23040 --quit-at-end
-#   (or: survivor eos-host --ticks 2880 --wait-s 900 --bucket survivor/2 --code-file code.txt)
+#   (or: survivor eos-host --ticks 2880 --wait-s 900 --bucket survivor/3 --code-file code.txt)
 #   gh workflow run eos-crossplay.yml -f code=ABC234 -f client=source    (or client=export)
 #
 # client=source builds the survivor headless binary on the runner (EOS IDs from the repo secrets, read at
@@ -33,8 +33,8 @@ on:
         description: allow or force (client=source only; the export uses the game's default, allow)
         default: allow
       bucket:
-        description: client=source only, lobby bucket (survivor/2 = the game's; unified-headless/2 = eos-host's)
-        default: survivor/2
+        description: client=source only, lobby bucket (survivor/3 = the game's; unified-headless/3 = eos-host's)
+        default: survivor/3
 
 permissions:
   contents: read
@@ -78,7 +78,7 @@ jobs:
           # dispatches only workflows that are on the default branch). Every value is validated before it is
           # written to $GITHUB_ENV / $GITHUB_OUTPUT (a newline in an input could otherwise set any variable).
           CODE="$IN_CODE"; TICKS="${IN_TICKS:-15360}"; CLIENT="${IN_CLIENT:-source}"; RELEASE_RUN="$IN_RUN"
-          RELAYS="${IN_RELAYS:-allow}"; BUCKET="${IN_BUCKET:-survivor/2}"
+          RELAYS="${IN_RELAYS:-allow}"; BUCKET="${IN_BUCKET:-survivor/3}"
           bad() { echo "::error::invalid input $1"; exit 1; }
           [[ "$CODE" =~ ^[A-Z0-9]{6}$ ]] || bad "code (6 characters A-Z 0-9)"
           [[ "$TICKS" =~ ^[0-9]{1,7}$ ]] || bad "ticks (a number)"

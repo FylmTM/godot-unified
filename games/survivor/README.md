@@ -13,13 +13,15 @@ godot --path games/survivor                  # the game; uses the game library i
 godot --path games/survivor -- --mock        # force the GDScript mock session
 ```
 
-The game library is built into `.uni/bin/` (`libsurvivor.dylib`, `survivor.dll`); without it the game runs on
-`MockSession`, a fake sim with the same API, so every screen works.
+The game library is built into `.uni/bin/` (`libsurvivor.dylib`, `survivor.dll`); without it a dev run uses the
+mock session (`game/session/`), a fake sim with the same API, so every screen works. Exports never include the
+mock: without the library they show a "game library failed to load" screen.
 
 ## Checks (from the repo root)
 
 ```
-python tools/dev.py game validate   # compile scripts, load scenes, unknown .tscn properties, 30 menu frames (~0.5 s)
+python tools/dev.py game validate   # compile scripts (warnings fail), load scenes, unknown .tscn properties, mock vs
+                                    # native constants(), 30 menu frames (~0.6 s)
 python tools/dev.py game walk       # headless UI walk with the mock: menu, settings, single, lobby, match,
                                     # level-up, Esc menu, game over, host, join error (~2.5 s)
 python tools/dev.py game shots      # the walk in a window; PNGs in games/survivor/.uni/shots/ (steals focus)

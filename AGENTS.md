@@ -49,24 +49,30 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## Layout and commands
 
-- `src/` is the `unified` collection, one package per directory. Imports point one way:
-  - deterministic: `wire` (leaf) ← `sim` ← `physics` (+ `box3d`); `dmath` is a leaf;
-  - real time: `netcode` (→ `sim`, `wire`) ← `eos` (EOS transport) ← `headless` (a game's CLI binary, → `sim`);
+- `src/` is the `unified` collection, one package per directory. Imports point one way (`a → b`: a imports b):
+  - deterministic: `sim` → `wire`; `physics` → `sim`, `box3d`; `wire`, `box3d` and `dmath` are leaves;
+  - real time: `netcode` (→ `sim`, `wire`); `eos` (EOS transport, → `netcode`); `headless` (the CLI modes a game's
+    headless binary wires up, → `netcode`, `sim`; online modes come in through a transport hook);
   - host: `gdext` (Godot bindings, generated) and `imgui` are leaves; `devui` (→ `gdext`, `imgui`);
-    `godot_host` (→ `sim`, `netcode`, `view`, `gdext`, `devui`); `view` is a host-agnostic leaf.
+    `godot_host` (→ `sim`, `netcode`, `view`, `gdext`, `devui`; the dev UI is compiled in unless
+    `-define:UNIFIED_DEVUI=false`); `view` is a host-agnostic leaf.
 - `games/<game>/` is a Godot project: `simulation/<game>/` the deterministic sim (→ `sim`, `physics`, `dmath`,
-  `box3d`; linted like the core), `simulation/headless/` its CLI binary, `simulation/extension/` its GDExtension,
-  `game/` everything Godot. The first game is `games/survivor/`.
-- `tests/`: `odin test` packages, one per module, importing `unified:<pkg>`; `tests/lint` is the determinism lint,
-  `tests/godot` the binding tests under headless Godot. `README.md` has the toolchain; `tools/README.md` the tools.
+  `box3d`; linted like the core), `simulation/headless/` its CLI binary (→ `headless`, plus `eos` for online
+  modes), `simulation/extension/` its GDExtension (→ `godot_host`, `eos`, ...), `game/` everything Godot. The
+  first game is `games/survivor/`.
+- `tests/`: `odin test` packages, one per module (`box3d`, `sim`, `netcode`, `headless`, `godot_host`, `gdext`, `eos`,
+  ...), importing `unified:<pkg>`; `tests/lint` is the determinism lint, `tests/godot` the binding tests under
+  headless Godot. `README.md` has the toolchain; `tools/README.md` the tools.
 
 Commands, all from the repo root, any OS (times: M-series Mac, warm). Every command rejects unknown arguments.
 
 ```
 python tools/dev.py build [dev|release|debug]   # out/<mode>/survivor; dev ~1 s, release ~4 s, debug ~0.6 s
-python tools/dev.py test                        # odin test, every package (~3 s)
-python tools/dev.py check [--only T1,T7]        # release build + T1-T9 end-to-end (~70 s)
-python tools/dev.py check --arch x86_64 --only T1,T7,T8   # macOS: Rosetta x86_64 determinism check (~10 s)
+python tools/dev.py test                        # odin test, every package (~3 s, 93 tests)
+python tools/dev.py check [--only T1,T7]        # release build + T1-T9 end-to-end (~32 s; on an ARM64 Mac a full
+                                                # check first runs T1,T7,T8 of the x86_64 build under Rosetta;
+                                                # --no-rosetta skips it)
+python tools/dev.py check --arch x86_64 --only T1,T7,T8   # just the Rosetta check (~10 s)
 python tools/dev.py fmt [--check]               # odinfmt (pinned, see README) (<1 s)
 python tools/dev.py vet                         # odin check, strict flags, all targets (<1 s)
 python tools/dev.py gen                         # Godot bindings from the committed API dump (cached; ~1 s)
@@ -78,6 +84,7 @@ python tools/dev.py game run|editor <game>      # windowed game / the Godot edit
 python tools/dev.py game validate|walk <game>   # GDScript: compile + load scenes (~1 s) / scripted UI walk (~4 s)
 python tools/dev.py game headless|session-check|editor-check <game>   # headless Godot session checks (~5 s each)
 python tools/dev.py game tour|coop|shots|play <game>   # real-game tours, EOS co-op, screenshots (windowed, manual)
+python tools/dev.py game tour <game> --frames [--cold]   # frame times and first-use hitches (--cold: no shader cache)
 python tools/release.py build games/<game> [--version V]   # playable zip + smoke test (~20 s warm; docs/RELEASE.md)
 ```
 

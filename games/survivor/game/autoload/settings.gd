@@ -1,6 +1,7 @@
 extends Node
 ## Player settings: loaded from user://settings.cfg at boot, applied immediately, saved on change.
-## Read with `Settings.get_value(key)`, change with `Settings.set_value(key, v)` (applies + saves).
+## Read with `Settings.get_value(key)`, change with `Settings.set_value(key, v)` (applies + saves; pass
+## `persist = false` to apply only, e.g. while a slider is dragged, then call `save()`).
 
 signal changed(key: StringName, value: Variant)
 
@@ -46,12 +47,13 @@ func get_value(key: StringName) -> Variant:
 	return _values[key]
 
 
-func set_value(key: StringName, value: Variant) -> void:
+func set_value(key: StringName, value: Variant, persist := true) -> void:
 	if _values.get(key) == value:
 		return
 	_values[key] = value
 	_apply(key)
-	save()
+	if persist:
+		save()
 	changed.emit(key, value)
 
 

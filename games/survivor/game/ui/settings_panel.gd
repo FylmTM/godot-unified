@@ -1,5 +1,6 @@
 extends PanelContainer
-## Settings form, used by the main menu and the in-game menu. Every change applies and saves at once.
+## Settings form, used by the main menu and the in-game menu. Every change applies at once and is saved, except
+## while a slider is dragged: that saves once on release.
 
 signal closed
 
@@ -56,7 +57,7 @@ func _slider_row(text: String, key: StringName) -> void:
 	s.value = Settings.get_value(key)
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	s.value_changed.connect(func(v: float) -> void: Settings.set_value(key, v))
+	_live_slider(s, key)
 	s.drag_ended.connect(func(_c: bool) -> void: Sfx.play(&"gem"))
 	_grid.add_child(s)
 
@@ -96,9 +97,18 @@ func _scale_row() -> void:
 	var v := Label.new()
 	v.custom_minimum_size.x = 56
 	v.text = "%d%%" % roundi(s.value * 100)
-	s.value_changed.connect(func(x: float) -> void:
-		v.text = "%d%%" % roundi(x * 100)
-		Settings.set_value(&"render_scale", x))
+	s.value_changed.connect(func(x: float) -> void: v.text = "%d%%" % roundi(x * 100))
+	_live_slider(s, &"render_scale")
 	row.add_child(s)
 	row.add_child(v)
 	_grid.add_child(row)
+
+
+## Applies a slider's value live; saves on release when dragged (not on every step), at once for keys and pads.
+func _live_slider(s: HSlider, key: StringName) -> void:
+	var dragging := [false]  # captured by reference in the lambdas
+	s.drag_started.connect(func() -> void: dragging[0] = true)
+	s.drag_ended.connect(func(_c: bool) -> void:
+		dragging[0] = false
+		Settings.save())
+	s.value_changed.connect(func(x: float) -> void: Settings.set_value(key, x, not dragging[0]))

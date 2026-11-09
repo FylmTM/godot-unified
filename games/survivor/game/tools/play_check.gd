@@ -59,7 +59,7 @@ func _process(_delta: float) -> bool:
 		var ms := (now - _last_us) / 1000.0
 		var n: int = _game.hud.get("enemies_alive", 0)
 		_max_enemies = max(_max_enemies, n)
-		var band := mini(n / 250, 4) * 250
+		var band := mini(floori(n / 250.0), 4) * 250
 		var b: Array = _frames_by_band.get(band, [0, 0.0, 0.0, 0])
 		b[0] += 1
 		b[1] += ms
@@ -76,7 +76,7 @@ func _run() -> void:
 	if _game.is_mock:
 		_fail("the play check needs the native extension (python tools/dev.py game build survivor)")
 		return
-	_game.session.sim_event.connect(func(kind: StringName, _t, _e, _p, _v): _events[kind] = _events.get(kind, 0) + 1)
+	_game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void: _events[kind] = _events.get(kind, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await _wait_for(func() -> bool: return current_scene != null and current_scene.name == "MainMenu", 5.0, "main menu loads")
 	await _frames(5)
@@ -207,7 +207,7 @@ func _bulk_points(kinds: Array, near: Vector2, radius: float) -> PackedVector2Ar
 	return out
 
 
-func _steer(p: Vector3, held: Array[StringName]) -> Array[StringName]:
+func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 	var me := Vector2(p.x, p.z)
 	_plan_frame += 1
 	var nearest := 1e9
@@ -221,7 +221,7 @@ func _steer(p: Vector3, held: Array[StringName]) -> Array[StringName]:
 		for k in 16:
 			var dir := Vector2.from_angle(k * TAU / 16.0)
 			var cost := 0.0
-			for step in [1.2, 2.5, 4.0]:
+			for step: float in [1.2, 2.5, 4.0]:
 				var q: Vector2 = me + dir * step
 				if absf(q.x) > 27.5 or absf(q.y) > 27.5:
 					cost += 1000.0
@@ -258,7 +258,7 @@ func _me() -> Node3D:
 	var slot: int = _game.hud.get("local_slot", -1)
 	if current_scene == null or slot < 0:
 		return null
-	for n in _game.session.view_root.get_children() if _game.session.view_root != null else []:
+	for n: Node in _game.session.view_root.get_children() if _game.session.view_root != null else []:
 		if n.get("slot") == slot and n.get("kind") == &"player":
 			return n
 	return null
@@ -267,7 +267,7 @@ func _me() -> Node3D:
 ## Bench: an endless match holding `bench` enemies; the bot dodges for `minutes`, frames are measured.
 func _bench_run() -> void:
 	await _wait_for(func() -> bool: return _game.hud.get("phase", "") == "match" and _me() != null, 10.0, "bench match running")
-	await _wait_for(func() -> bool: return int(_game.hud.enemies_alive) >= bench * 9 / 10, 20.0, "the bench population spawns")
+	await _wait_for(func() -> bool: return int(_game.hud.enemies_alive) >= bench * 0.9, 20.0, "the bench population spawns")
 	_step("bench: %d enemies" % _game.hud.enemies_alive)
 	var end := Time.get_ticks_msec() + int(minutes * 60000.0)
 	var shot := false
@@ -336,7 +336,7 @@ func _finish() -> void:
 		OS.kill(_joiner_pid)
 	var ok: bool = _failed == "" and cap.errors.is_empty()
 	var bands := {}
-	for band in _frames_by_band:
+	for band: int in _frames_by_band:
 		var b: Array = _frames_by_band[band]
 		bands[str(band)] = {"frames": b[0], "mean_ms": snappedf(b[1] / maxf(b[0], 1), 0.01), "max_ms": snappedf(b[2], 0.01),
 			"over_33ms": b[3]}

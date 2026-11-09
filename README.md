@@ -23,7 +23,8 @@ src/                 the `unified` collection (-collection:unified=src); one pac
   view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
   gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
   imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
-  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note
+  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note (on unless
+                     -define:UNIFIED_DEVUI=false)
   godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync
 games/survivor/      the test game, laid out like a game repo (Godot project root)
   simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
@@ -32,6 +33,7 @@ tests/               `odin test` packages, one per module, black-box via the col
   lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
   toy/               a tiny game for the library's own tests
   godot/             the binding tests' Godot project and test extension (dev.py godot-test)
+  box3d/ ... view/   one package per module (box3d, headless, godot_host, gdext, eos, ...)
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
 third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
 tools/               dev.py (the entry point) and its parts: tools/README.md

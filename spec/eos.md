@@ -9,7 +9,8 @@ code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode'
 ## API
 
 ```odin
-eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_control, no_keychain_prompts}) -> bool
+eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_control, no_keychain_prompts,
+                      sdk /* tests: a fake ^Api instead of the library */}) -> bool
 eos.open_host(bucket) -> (netcode.Link, bool)        // login if needed, create the lobby; link usable at once
 eos.open_join(bucket, code) -> (netcode.Link, bool)  // login, search by code, join; a malformed code fails here
 eos.pump() -> Pump_Result{code, failed}              // tick EOS; the code (host) and a failure are reported once
@@ -19,8 +20,9 @@ eos.shutdown()                                       // at exit; EOS can't be in
 eos.forget_device()                                  // test tools: delete this machine's device ID
 ```
 
-`bucket` names the game and the game's own compatibility counter (e.g. `survivor/2`, bumped by hand when the game's
-builds stop being compatible; not the netcode `PROTOCOL_VERSION`): lobbies only match inside one bucket, so
+`bucket` names the game and its own compatibility counter (e.g. `survivor/3`): the game bumps it by hand when its
+builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
+only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;
 the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
@@ -54,7 +56,9 @@ the game's extension wires them (`init` first, with the game library's directory
   datagrams never are). Relays are allowed by default (`relay_control = .Force_Relays` to test them).
 - **Threading.** One process-wide session behind a mutex; every EOS call happens under it. The link's `recv`
   ticks EOS when it finds nothing (at most every 0.5 ms), so the session thread drives EOS; callbacks run inside
-  the tick. macOS: the SDK finishes HTTP requests on the main thread's run loop: Godot runs one; a ticking main
+  the tick, each with a fresh context on the ticking thread (the thread that ran `init` may be a finished
+  session's). A game passes its version (`godot_host.app_version`, the project's stamped version) as
+  `product_version`. macOS: the SDK finishes HTTP requests on the main thread's run loop: Godot runs one; a ticking main
   thread without one (the headless binary) pumps it.
 - **macOS keychain.** The device-ID token lives in the login keychain, owned by the binary that created it. A
   different build (a new ad-hoc signature) needs the user to allow access once; inside Godot.app (editor, dev
@@ -71,7 +75,9 @@ the game's extension wires them (`init` first, with the game library's directory
 ## Testing
 
 - `tests/eos` (no network): codes (alphabet, unbiased, parsing), framing (every size, loss, reordering,
-  garbage), credentials precedence, header layouts, library load.
+  garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
+  load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
+  lobby that arrives after leave is destroyed, a failed request reports its reason once, join, shutdown.
 - Two processes on one machine through EOS (the developer's ini + staged SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
   --ticks 1920` (`--relays force` to go through Epic's relays). The fresh device gives the second process its own
@@ -87,7 +93,7 @@ the scripted session; both sides print their verified checksums. Mac side, the g
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
 ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
 (a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/2` works too where the binary owns
+`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/3` works too where the binary owns
 the keychain entry (not on a Mac where Godot.app made the device ID).
 
 Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every run 0 mismatches:

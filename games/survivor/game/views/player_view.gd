@@ -64,12 +64,12 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-func _sim_event(kind: StringName, _data: Dictionary) -> void:
-	if kind == &"despawned":  # died or left: shrink away during the host's linger time
+func _sim_event(event: StringName, _data: Dictionary) -> void:
+	if event == &"despawned":  # died or left: shrink away during the host's linger time
 		_leaving = true
 		_exit = create_tween()
 		_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	elif kind == &"revived" and _leaving:  # a rollback brought it back within the linger time
+	elif event == &"revived" and _leaving:  # a rollback brought it back within the linger time
 		_leaving = false
 		if _exit != null:
 			_exit.kill()
@@ -86,9 +86,11 @@ func _update_hud_state(dt: float) -> void:
 			if _is_local():
 				Sfx.play(&"hit", -4.0)
 		_last_hp = hp
-	_flash = maxf(_flash - dt * 6.0, 0.0)
-	_mat.emission_enabled = _flash > 0.0
-	_mat.emission = Color(1, 0.3, 0.3) * _flash * 1.5
+	if _flash > 0.0:
+		# Emission stays enabled in the scene's material and only its colour changes: toggling
+		# `emission_enabled` switches the shader variant and compiled a new shader on the first hit.
+		_flash = maxf(_flash - dt * 6.0, 0.0)
+		_mat.emission = Color(1, 0.3, 0.3) * _flash * 1.5
 	_mesh.scale = Vector3.ONE * (1.0 + _flash * 0.15)
 
 

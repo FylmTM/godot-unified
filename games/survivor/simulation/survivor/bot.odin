@@ -23,8 +23,8 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 	pos := dmath.Vec2{pl.pos.x, pl.pos.z}
 	if s.phase == .Lobby {
 		k := p * 2 % 8 // walk out of the start circle, each slot its own way
-		in_.move_x = i8(RING_C[k] * 127)
-		in_.move_z = i8(RING_S[k] * 127)
+		in_.move_x = i8(dmath.DIR8_C[k] * 127)
+		in_.move_z = i8(dmath.DIR8_S[k] * 127)
 		return
 	}
 	// Flee: the sum of (pos - enemy) / d², for enemies in sight.
@@ -62,7 +62,7 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - r) * 0.15)
 	for k in 0 ..< 8 {
-		d := pos - dmath.Vec2{14 * RING_C[k], 14 * RING_S[k]}
+		d := pos - dmath.Vec2{14 * dmath.DIR8_C[k], 14 * dmath.DIR8_S[k]}
 		d2 := d.x * d.x + d.y * d.y
 		if d2 < 9 {
 			orbit += d * (1.5 / (d2 + 0.25))

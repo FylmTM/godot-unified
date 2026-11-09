@@ -10,6 +10,8 @@ roughness = 0.5
 rim_enabled = true
 rim = 0.45
 rim_tint = 0.3
+emission_enabled = true
+emission = Color(0, 0, 0, 1)
 
 [sub_resource type="CapsuleMesh" id="body_mesh"]
 radius = 0.45

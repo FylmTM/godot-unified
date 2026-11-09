@@ -34,6 +34,20 @@ func _ready() -> void:
 		_players.append(p)
 
 
+## Silences everything for good (`Game.quit_app`). The AudioServer's mix thread frees the stopped playbacks a mix
+## or two later; any it still holds when it shuts down are reported as leaked at exit. Returns weak refs to them,
+## to wait on.
+func shut_down() -> Array[WeakRef]:
+	var out: Array[WeakRef] = []
+	for p: AudioStreamPlayer in _players + [music]:
+		if p.has_stream_playback():
+			out.append(weakref(p.get_stream_playback()))
+	for p in _players:
+		p.stop()
+	music.shut_down()
+	return out
+
+
 func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> void:
 	var stream: AudioStream = _streams.get(sound)
 	if stream == null:

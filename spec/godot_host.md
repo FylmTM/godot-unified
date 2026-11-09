@@ -12,10 +12,13 @@ installs its sim and its glue.
   `src/gdext/api/{extension_api,gdextension_interface}.json` (dumped from 4.7.2) and `bindings.txt` into
   git-ignored `gdi/gdi.gen.odin` (the C interface) and `api.gen.odin` (layouts, enums, typed wrappers
   `Class_method`). No Godot is needed to build.
-- **Wrappers.** They use ptrcall. Strings in and out are Odin `string`s. Returns of RefCounted classes are
-  `Ref(T)`, which the caller owns (`unref`). Vararg methods take `..any`. Debug builds check the main thread.
-- **Extension classes.** `Class{name, parent, size, init, fini, notification, ready, process,
-  physics_process, input, unhandled_input, runtime_only}`, then:
+- **Wrappers.** They use ptrcall. Strings in and out are Odin `string`s; a method with StringName parameters is
+  a proc group that also takes interned `^StringName`s (`gd.sn("move_left")`, no per-call conversion; hot paths
+  use it). Returns of RefCounted classes are `Ref(T)`, which the caller owns (`unref`). Vararg methods take
+  `..any`. Debug builds check the main thread. `bindings.txt` lists only what Odin code uses (`tests/gdext`
+  fails on an unused entry).
+- **Extension classes.** `Class{name, parent, size, init, fini, notification, ready, process, input,
+  runtime_only}`, then:
   - `bind_method(cls, name, proc(self: ^T, a: A, b: B) -> R, {"a", "b"})`, with 0–3 arguments and one typed
     trampoline per signature;
   - `bind_property(cls, name, get, set, hint)`;
@@ -23,9 +26,12 @@ installs its sim and its glue.
   - `bind_script_virtual`, `emit_signal`, `call_script`;
   - `callable_create(proc, user, owner)`, `connect`;
   - `sn("name")` returns interned StringNames.
+- **Callbacks.** Every Godot -> Odin callback opens a temp-allocator guard: a nested callback (Odin calls Godot,
+  Godot calls back into Odin) never frees its caller's temp data.
 - **Value conversions.** `to_variant`, `from_variant`, `variant_from_any`, and the `dict_*` / `array_*` helpers.
-- **Tests.** `python tools/dev.py godot-test` (1.7 s) runs a test class under headless Godot covering every
-  feature above, plus a dev UI smoke test.
+- **Tests.** `python tools/dev.py godot-test` runs a test class under headless Godot (`--verbose`; an orphan
+  StringName or a leak at exit fails it) covering every feature above, again through typed calls (checked to take
+  ptrcall), a nested callback, plus a dev UI smoke test.
 
 ## godot_host API
 
@@ -33,9 +39,10 @@ installs its sim and its glue.
 godot_host.install(&GAME, glue)            // sim.Game(S, I, W, P) + Glue(S, I, W)
 godot_host.set_transport(&transport)       // optional: online play (EOS...), never imported by godot_host
 return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
-Glue { scene_kinds, bulk_kinds, actions: {move: [4]string, buttons: []string},
+Glue { scene_kinds, scene_dir, bulk_kinds, actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
-       hud(^Frame, names, ^Dictionary), compat }
+       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat }
+godot_host.app_version                     // application/config/version, read before the first session
 Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [4096]Bulk_Item, hud: [4096]u8 }
 ```
 
@@ -43,7 +50,8 @@ GDScript sees contract v0:
 
 - **`UnifiedSession`**
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
-    `choose_levelup(n)`, `hud()`;
+    `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
+    `Glue.constants`: scripts read the sim's constants instead of copying them);
   - signals: `status_changed`, `lobby_code`, `sim_event`;
   - added for the game client: `view_root`, `host_direct(port)`, `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`.
@@ -77,7 +85,10 @@ the extension that way, and the host uses `Object.set`/`call`.
   4. writes each bulk view's MultiMesh buffer in one `set_buffer` (interpolated, stride from the MultiMesh flags);
   5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
      go to the `sim_event` signal;
-  6. draws the dev UI.
+  6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see devui.md).
+- **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's Netsim panel is
+  off, through a `netcode.Net_Sim` (created on first enable) while on, drained after.
+- **Failures.** A transport's `fail(reason)` is the session's last status: no generic Failed follows it.
 - **Leave, then Host or Join.** `leave` asks the session to end; it says goodbye on its thread (a client's Leave
   is acked within ~0.5 s, a host waits up to 3 s for its peers' acks). A start during the goodbye is accepted:
   it waits and starts as soon as the old session is gone. The goodbye is cut to 1 s, and the old session's
@@ -86,13 +97,15 @@ the extension that way, and the host uses `Object.set`/`call`.
   `deinitialize` stops the session thread, then calls the transport's optional `shutdown` (the survivor
   releases EOS there: left initialized, the SDK crashed in its own threads at exit, ~2 exits in 3). macOS dev builds are versioned files behind a symlink, because dyld
   never unloads an Odin dylib (thread-locals), so a same-path reload would keep the old code.
+- **Tests.** `tests/godot_host` runs the driver with the toy game, no Godot: single player (frames, one press
+  delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
+  and the Dev_Link switch.
 - **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
   `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
   offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.
 
 ## Open
 
-- A netsim panel wired into the live client link.
 - F3 extras: snapshot, input log, net stats.
 - Typed `SimFrame` reads by reflection path for scripts.
 - Pooling scene views.

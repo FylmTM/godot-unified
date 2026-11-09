@@ -21,15 +21,18 @@ Link_Event_Kind :: enum u8 {
 }
 
 Link :: struct {
-	data:  rawptr,
+	data:   rawptr,
 	// Queues one datagram to `to`. Losing it is allowed.
-	send:  proc(data: rawptr, to: Peer, bytes: []u8),
+	send:   proc(data: rawptr, to: Peer, bytes: []u8),
 	// Returns the next received datagram (copied into buf), or ok = false when there is none.
 	// A datagram from a new remote endpoint gets a new Peer number.
-	recv:  proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool),
-	close: proc(data: rawptr),
+	recv:   proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool),
+	close:  proc(data: rawptr),
 	// Optional: transport-level connection events (nil: the channel's own timeouts only).
-	event: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
+	event:  proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
+	// Optional: the channel is done with `peer` (it timed out, left, or sent garbage); a link that
+	// numbers remote endpoints itself (UDP) frees the number for the next endpoint.
+	forget: proc(data: rawptr, peer: Peer),
 }
 
 link_send :: proc(l: ^Link, to: Peer, bytes: []u8) {
@@ -38,6 +41,12 @@ link_send :: proc(l: ^Link, to: Peer, bytes: []u8) {
 
 link_recv :: proc(l: ^Link, buf: []u8) -> (n: int, from: Peer, ok: bool) {
 	return l.recv(l.data, buf)
+}
+
+link_forget :: proc(l: ^Link, peer: Peer) {
+	if l.forget != nil {
+		l.forget(l.data, peer)
+	}
 }
 
 link_close :: proc(l: ^Link) {

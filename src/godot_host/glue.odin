@@ -13,7 +13,7 @@ NAME_BYTES :: 32
 MAX_BULK_ITEMS :: 4096
 HUD_BYTES :: 4096
 
-// A rich entity shown by a scene (`res://game/views/<kind>.tscn`), keyed by its deterministic spawn key.
+// A rich entity shown by a scene (`<Glue.scene_dir>/<kind>.tscn`), keyed by its deterministic spawn key.
 Scene_Item :: struct {
 	key:      view.Key, // spawn key: a new key = a new view; must be non-zero
 	kind:     u8, // index into Glue.scene_kinds
@@ -76,7 +76,8 @@ Actions :: struct {
 
 // What a game provides, typed by its State S, Input I and World W.
 Glue :: struct($S, $I, $W: typeid) {
-	scene_kinds: []string, // e.g. {"player", "crate", "barrel"}: res://game/views/<kind>.tscn
+	scene_kinds: []string, // e.g. {"player", "crate", "barrel"}: <scene_dir>/<kind>.tscn
+	scene_dir:   string, // where the scene views live, e.g. "res://game/views"
 	bulk_kinds:  []string, // e.g. {"grunt", "runner", "brute", "projectile", "gem"}
 	actions:     Action_Map,
 	// Session thread: fill `out.scene`, `out.bulk` (+ n_scene, n_bulk) and `out.hud` from the state at the
@@ -87,15 +88,19 @@ Glue :: struct($S, $I, $W: typeid) {
 	sample:      proc(a: Actions, slot: int, tick: u32, state: ^S) -> I,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
 	scripted:    proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
-	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot).
+	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot). `f` is nil
+	// before the first frame: fill every key with its empty value, so scripts never miss one.
 	hud:         proc(f: ^Frame, d: ^gd.Dictionary),
+	// Main thread, optional: the game's constants for its scripts (UnifiedSession.constants()), straight from
+	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
+	constants:   proc(d: ^gd.Dictionary),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// enemies). Single player only: it changes the initial state, which every peer would have to share.
 	bench:       proc(s: ^S, w: ^W, n: int),
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:   proc(e: sim.Event) -> view.Key,
-	compat:      u64, // build/game id the relay checks (0: none)
+	compat:      u64, // build/game id the relay checks (0: derived from the game, sim.compat_of)
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so
@@ -142,7 +147,6 @@ Start :: struct {
 	ticks:    u32, // 0: endless
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
 	bench:    int, // Single only: Glue.bench(n) after the game's init (dev benchmarks)
-	profile:  string, // netsim profile on the client link ("": none)
 }
 
 Status_Kind :: enum u8 {

@@ -199,8 +199,9 @@ def run_godot(args, timeout, cwd=None):
     cmd = [find_godot()] + [str(a) for a in args]
     log("+ " + " ".join(cmd))
     try:
+        # stdin closed: with -d, a script error must end the run, not wait at the debugger prompt
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=timeout, cwd=None if cwd is None else str(cwd))
+                              timeout=timeout, cwd=None if cwd is None else str(cwd), stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as e:
         out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
         sys.stdout.write(out[-8000:])

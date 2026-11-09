@@ -15,7 +15,8 @@ const CYAN := Color("5de0ff")
 const GOOD := Color("5dffb1")
 const BAD := Color("ff5d6c")
 const XP := Color("7ad7ff")
-const SLOT_COLORS: Array[Color] = [Color("ff8a3d"), Color("ffd23f"), Color("ff5d8f"), Color("b98cff")]
+const GOLD := Color("ffd23f")
+const SLOT_COLORS: Array[Color] = [ACCENT, GOLD, Color("ff5d8f"), Color("b98cff")]
 
 
 static func install() -> void:

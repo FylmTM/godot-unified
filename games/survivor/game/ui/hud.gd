@@ -3,15 +3,9 @@ extends CanvasLayer
 ## lobby/squad panel (code + players), the start hint, banners, the level-up choice and the match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
-const UPGRADES := [
-	["Fire rate", "Shoot more often"],
-	["Damage", "+3 damage per shot"],
-	["Move speed", "+0.5 m/s"],
-]
+## Upgrade names and details come from the sim (`Game.constants.upgrades`), as does the "over" hold time.
 const KEYS := ["1", "2", "3"]
 const PAD_KEYS := ["X", "Y", "B"]
-## The sim holds "over" this long before returning to the lobby (spec/GAME.md); only for the countdown text.
-const OVER_HOLD_S := 5.0
 
 @onready var _card_name: Label = $Root/PlayerCard/VBox/Top/Name
 @onready var _card_level: Label = $Root/PlayerCard/VBox/Top/Level
@@ -68,7 +62,8 @@ func _ready() -> void:
 	_label_keys()
 	for i in 4:
 		_rows.append(_make_row())
-	_copy.pressed.connect(_copy_code)
+	_copy.pressed.connect(func() -> void:
+		Game.copy_with_feedback(_copy, Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0)))
 	$Root/GameOver/Center/Panel/VBox/Leave.pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
@@ -99,7 +94,7 @@ func _refresh(delta: float) -> void:
 		_hp.value = me.hp
 		_hp_text.text = "%d / %d" % [ceili(me.hp), roundi(me.hp_max)]
 		var r: float = me.hp / maxf(me.hp_max, 1.0)
-		_hp_fill.bg_color = UiTheme.GOOD if r > 0.5 else (Color("ffd23f") if r > 0.25 else UiTheme.BAD)
+		_hp_fill.bg_color = UiTheme.GOOD if r > 0.5 else (UiTheme.GOLD if r > 0.25 else UiTheme.BAD)
 		_xp.max_value = maxi(me.xp_next, 1)
 		_xp.value = me.xp
 		_xp_text.text = "XP %d / %d" % [me.xp, me.xp_next]
@@ -163,7 +158,7 @@ func _refresh(delta: float) -> void:
 	_over.visible = phase == "over"
 	_banner.visible = phase != "over"
 	if phase == "over":
-		var left := ceilf(OVER_HOLD_S - (_t - _over_since))
+		var left := ceilf(float(Game.constants.over_hold_s) - (_t - _over_since))
 		var back: Label = $Root/GameOver/Center/Panel/VBox/Back
 		back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
 		back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
@@ -188,7 +183,7 @@ func _on_match_over(h: Dictionary, me: Dictionary) -> void:
 		Settings.set_value(&"best_time", time_s)
 	var best_label: Label = vbox.get_node(^"Best")
 	best_label.text = "New best!" if _new_best else "Best: %s" % _clock(best)
-	best_label.add_theme_color_override(&"font_color", Color("ffd23f") if _new_best else UiTheme.TEXT_DIM)
+	best_label.add_theme_color_override(&"font_color", UiTheme.GOLD if _new_best else UiTheme.TEXT_DIM)
 	var panel: Control = $Root/GameOver/Center/Panel
 	panel.pivot_offset = panel.size / 2.0
 	panel.scale = Vector2(0.85, 0.85)
@@ -200,8 +195,10 @@ func _on_match_over(h: Dictionary, me: Dictionary) -> void:
 
 func _label_keys() -> void:
 	var keys: Array = PAD_KEYS if Game.using_pad else KEYS
+	var upgrades: Array = Game.constants.upgrades
 	for i in _options.get_child_count():
-		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [UPGRADES[i][0], UPGRADES[i][1], keys[i]]
+		var u: Dictionary = upgrades[i]
+		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [u.name, u.detail, keys[i]]
 
 
 ## Visual feedback for a level-up pick (key, pad button or click): pop the card, hold the panel a moment.
@@ -244,9 +241,9 @@ func _update_side(lobby: bool) -> void:
 	var local_slot: int = Game.hud.get("local_slot", 0)
 	for i in _rows.size():
 		var row := _rows[i]
-		var show := i < present.size()
-		row.box.visible = show
-		if not show:
+		var shown := i < present.size()
+		row.box.visible = shown
+		if not shown:
 			continue
 		var p: Dictionary = present[i]
 		row.dot.color = UiTheme.slot_color(p.slot)
@@ -270,9 +267,9 @@ func _make_row() -> Dictionary:
 	var dot := ColorRect.new()
 	dot.custom_minimum_size = Vector2(12, 12)
 	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var name := Label.new()
-	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var label := Label.new()
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var status := Label.new()
 	status.theme_type_variation = &"Dim"
 	var bar := ProgressBar.new()
@@ -280,12 +277,12 @@ func _make_row() -> Dictionary:
 	bar.show_percentage = false
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	line.add_child(dot)
-	line.add_child(name)
+	line.add_child(label)
 	line.add_child(status)
 	box.add_child(line)
 	box.add_child(bar)
 	_list.add_child(box)
-	return {"box": box, "dot": dot, "name": name, "status": status, "bar": bar}
+	return {"box": box, "dot": dot, "name": label, "status": status, "bar": bar}
 
 
 func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, value: float) -> void:
@@ -296,7 +293,7 @@ func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, val
 			_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
 		&"level_up":
 			if entity == int(Game.hud.get("local_slot", 0)):
-				_show_banner("LEVEL %d" % int(value), Color("ffd23f"))
+				_show_banner("LEVEL %d" % int(value), UiTheme.GOLD)
 		&"player_joined":
 			if entity != int(Game.hud.get("local_slot", 0)):  # your own join is not news
 				_show_banner("%s JOINED" % _name_of(entity).to_upper(), UiTheme.GOOD, 32)
@@ -322,7 +319,7 @@ func _show_banner(text: String, color: Color, size := 60) -> void:
 
 func _choose(option: int) -> void:
 	_picked(option - 1)
-	Game.session.choose_levelup(option)
+	Game.session.press_action("levelup_%d" % option)
 
 
 func _name_of(slot: int) -> String:
@@ -332,15 +329,6 @@ func _name_of(slot: int) -> String:
 	return "P%d" % (slot + 1)
 
 
-func _copy_code() -> void:
-	Game.clipboard_set(Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0))
-	Sfx.play(&"gem")
-	_copy.text = "Copied!"
-	get_tree().create_timer(1.2).timeout.connect(func() -> void:
-		if is_instance_valid(_copy):
-			_copy.text = "Copy")
-
-
 static func _clock(seconds: float) -> String:
 	var s := int(seconds)
-	return "%02d:%02d" % [s / 60, s % 60]
+	return "%02d:%02d" % [floori(s / 60.0), s % 60]

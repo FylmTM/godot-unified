@@ -184,8 +184,3 @@ hash_body :: proc(w: ^World, r: Body_Ref, out: ^[dynamic]u8) {
 v3 :: #force_inline proc "contextless" (v: [3]f32) -> b3.Vec3 {
 	return {v.x, v.y, v.z}
 }
-
-position :: proc(w: ^World, r: Body_Ref) -> [3]f32 {
-	p := b3.Body_GetPosition(body_id(w, r))
-	return {p.x, p.y, p.z}
-}

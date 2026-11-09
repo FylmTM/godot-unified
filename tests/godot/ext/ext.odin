@@ -29,11 +29,13 @@ gdext_test_init :: proc "c" (
 	init.initialize = proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 		if level != .INITIALIZATION_SCENE do return
 		context = runtime.default_context()
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 		register()
 	}
 	init.deinitialize = proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 		if level != .INITIALIZATION_SCENE do return
 		context = runtime.default_context()
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 		devui.shutdown()
 		gd.unregister_class(&tester)
 		gd.shutdown()
@@ -122,6 +124,17 @@ register :: proc() {
 	gd.bind_method(c, "devui_items", proc(t: ^Tester) -> i64 {
 		items, _ := devui.frame_stats()
 		return i64(items)
+	})
+	// A nested callback (Odin -> Godot -> Odin) must not free or zero the caller's temp data.
+	gd.bind_method(c, "nested_temp", proc(t: ^Tester) -> bool {
+		mine := fmt.tprintf("outer %d", 12345)
+		r := gd.Object_call(t.obj, "greet", "inner")
+		defer gd.variant_destroy(&r)
+		got, _ := gd.from_variant(string, &r)
+		return mine == "outer 12345" && got == "hello inner"
+	})
+	gd.bind_method(c, "call_counts", proc(t: ^Tester) -> gd.Vector2i {
+		return {i32(gd.call_counts.variant), i32(gd.call_counts.ptrcall)}
 	})
 	gd.bind_method(c, "instances", proc(t: ^Tester) -> i64 {return i64(tester.instances)})
 }

@@ -4,7 +4,9 @@ Pending developer review (written after the code, 2026-11-09).
 
 Box3D, pinned and forked, as the sim's physics engine: `third_party/box3d.patch` (the fork), `tools/box3d.py`
 (fetch, patch, build), `src/box3d` (hand-written Odin bindings). `src/physics` wraps it as the sim's `Extra` state
-(`spec/sim.md`). Tests: `tests/physics`, plus T7/T8 (`spec/headless.md`, T1-T9) across platforms.
+(`spec/sim.md`). Tests: `tests/box3d` (the fork and bindings on their own: layouts against the pinned headers, each
+call the games make, exact save/restore, portable images, damaged images, a golden trace), `tests/physics`, and
+T7/T8 (`spec/headless.md`) across platforms.
 
 ## What we use
 
@@ -41,11 +43,10 @@ World_RestoreStateFromBytes(world, cache, []u8) -> ok  // ours (Odin): an image 
 
 1. Bump `BOX3D_COMMIT` in `tools/box3d.py`; rebase `third_party/box3d.patch` until it applies exactly.
 2. Re-run the C probe against the new headers and update the bindings and their `#assert`s.
-3. `python tools/dev.py test` and `check` (T1-T9), then the Rosetta T1/T7/T8 check. If T7/T8 change, the
-   simulation changed: regenerate the references deliberately (`check --regen`) and say why in the commit.
+3. `python tools/dev.py test` (`tests/box3d` first: its golden trace pins the fork's results) and `check` (T1-T9,
+   with the Rosetta T1/T7/T8 check). If the golden trace or T7/T8 change, the simulation changed: update `GOLDEN` in
+   `tests/box3d` and regenerate the T7/T8 references (`check --regen`) deliberately, and say why in the commit.
 
 ## Open
 
-- A tests/box3d suite: one test per binding call, exact save/restore across body types and contact states, and the
-  layout asserts against the headers (audit finding; owned with the Odin core tests).
 - A `b3WorldState_Load` in the fork, which removes the workaround.

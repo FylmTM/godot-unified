@@ -111,7 +111,7 @@ register_classes :: proc() {
 		fini = proc(i: rawptr) {gd.StringName_destroy(&(^Sim_Bulk_Node)(i).kind)},
 		notification = proc(i: rawptr, what: i32) {
 			if what == gd.Node_NOTIFICATION_ENTER_TREE {
-				gd.Node_add_to_group(gd.cast_to(gd.Node, (^Sim_Bulk_Node)(i).obj), BULK_GROUP, false)
+				gd.Node_add_to_group(gd.cast_to(gd.Node, (^Sim_Bulk_Node)(i).obj), gd.sn(BULK_GROUP), false)
 			}
 		},
 	}
@@ -141,7 +141,7 @@ scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 	if ps, ok := V.scenes[kind]; ok do return ps, true
 	if V.missing[kind] do return {}, false
 	name := int(kind) < len(api.scene_kinds) ? api.scene_kinds[kind] : fmt.tprintf("kind%d", kind)
-	path := fmt.tprintf("res://game/views/%s.tscn", name)
+	path := fmt.tprintf("%s/%s.tscn", api.scene_dir, name)
 	res := gd.ResourceLoader_load(gd.ResourceLoader_singleton(), path, "", .CACHE_MODE_REUSE)
 	if res.ptr == nil {
 		gd.print_error(fmt.tprintf("unified: cannot load %s", path))
@@ -170,9 +170,9 @@ spawn_view :: proc(root: gd.Node3D, it: ^Scene_Item) -> ^Scene_View {
 	v.id = gdi.object_get_instance_id(n3.ptr)
 	v.kind, v.slot, v.entity = it.kind, it.slot, it.entity
 	kind := int(it.kind) < len(api.scene_kinds) ? api.scene_kinds[it.kind] : ""
-	set_prop(n3, "kind", gd.variant_string_name(kind))
-	set_prop(n3, "entity", gd.to_variant(i64(it.entity)))
-	set_prop(n3, "slot", gd.to_variant(i64(it.slot)))
+	set_prop(n3, gd.sn("kind"), gd.variant_string_name(kind))
+	set_prop(n3, gd.sn("entity"), gd.to_variant(i64(it.entity)))
+	set_prop(n3, gd.sn("slot"), gd.to_variant(i64(it.slot)))
 	v.has_update = gd.has_script_method(n3, gd.sn("_sim_update"))
 	v.has_event = gd.has_script_method(n3, gd.sn("_sim_event"))
 	gd.Node3D_set_position(n3, {it.pos.x, it.pos.y, it.pos.z})
@@ -188,7 +188,7 @@ quat_or_identity :: proc(q: [4]f32) -> [4]f32 {
 }
 
 @(private)
-set_prop :: proc(o: gd.Object, name: string, v: gd.Variant) {
+set_prop :: proc(o: gd.Object, name: ^gd.StringName, v: gd.Variant) {
 	v := v
 	gd.Object_set(o, name, v)
 	gd.variant_destroy(&v)
@@ -320,7 +320,7 @@ bulk_drop :: proc(b: ^Bulk_View) {
 @(private)
 bulk_scan :: proc(root: gd.Node3D) {
 	tree := gd.Node_get_tree(root)
-	nodes := gd.SceneTree_get_nodes_in_group(tree, BULK_GROUP)
+	nodes := gd.SceneTree_get_nodes_in_group(tree, gd.sn(BULK_GROUP))
 	defer gd.Array_destroy(&nodes)
 	// drop dead ones
 	for i := len(V.bulks) - 1; i >= 0; i -= 1 {
@@ -335,7 +335,7 @@ bulk_scan :: proc(root: gd.Node3D) {
 		if mmi.ptr == nil do continue
 		id := gdi.object_get_instance_id(mmi.ptr)
 		for b in V.bulks do if b.id == id do continue outer
-		kv := gd.Object_get(mmi, "kind")
+		kv := gd.Object_get(mmi, gd.sn("kind"))
 		defer gd.variant_destroy(&kv)
 		kind_name, _ := gd.from_variant(string, &kv)
 		kind := -1

@@ -18,6 +18,7 @@ var _settings: Control
 
 
 func _ready() -> void:
+	_preload_arena()
 	_place_props()
 	$UI/Root/Left/VBox/Footer.text = "v%s  ·  %s" % [
 		ProjectSettings.get_setting("application/config/version"),
@@ -28,7 +29,7 @@ func _ready() -> void:
 	_buttons.get_node(^"Join").pressed.connect(_click.bind(_show.bind(_join_panel)))
 	_buttons.get_node(^"Address").pressed.connect(_click.bind(_show.bind(_addr_panel)))
 	_buttons.get_node(^"Settings").pressed.connect(_click.bind(_show_settings))
-	_buttons.get_node(^"Quit").pressed.connect(_click.bind(get_tree().quit))
+	_buttons.get_node(^"Quit").pressed.connect(_click.bind(Game.quit_app))
 	_code.text_changed.connect(_on_code_changed)
 	_code.text_submitted.connect(func(_t: String) -> void: _join_code())
 	_code_go.pressed.connect(_click.bind(_join_code))
@@ -48,17 +49,33 @@ func _ready() -> void:
 		_show(null)
 
 
-## Backdrop: crates and barrels on the sim's 5x8 item grid (visual only, nothing simulates them here).
+## Loads the arena in the background once the menu is on screen: loading its materials and meshes starts Godot's
+## shader compiles on worker threads, instead of in the menu -> arena frame (cold cache: ~140 -> ~50 ms here).
+func _preload_arena() -> void:
+	var tree := get_tree()
+	for i in 2:
+		await tree.process_frame
+	if not is_inside_tree():
+		return
+	ResourceLoader.load_threaded_request(Game.ARENA_SCENE)
+
+
+func _exit_tree() -> void:
+	# Collect the background load (the arena now holds what it needs), or the loader keeps it until exit.
+	if ResourceLoader.load_threaded_get_status(Game.ARENA_SCENE) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+		ResourceLoader.load_threaded_get(Game.ARENA_SCENE)
+
+
+## Backdrop: crates and barrels where the sim places them (`Game.constants.items`), resting on the floor (visual
+## only, nothing simulates them here).
 func _place_props() -> void:
-	var crate: PackedScene = load("res://game/views/crate.tscn")
-	var barrel: PackedScene = load("res://game/views/barrel.tscn")
-	for i in 40:
-		var is_barrel := i % 5 == 2
-		var p := Vector3((i % 8) * 4 - 14, 0.7 if is_barrel else 0.5, (i / 8) * 4 - 8)
-		if Vector2(p.x, p.z).length() < 7.5:
-			continue  # keep the start circle clear
-		var v: Node3D = (barrel if is_barrel else crate).instantiate()
-		v.position = p
+	const REST_Y := {"crate": 0.5, "barrel": 0.7}  # body centre at rest: 1 m box, 0.4 m capsule with 0.3 m half-height
+	var items: Array = Game.constants.get("items", [])
+	for i in items.size():
+		var it: Dictionary = items[i]
+		var pos: Vector3 = it.position
+		var v: Node3D = (load("res://game/views/%s.tscn" % it.kind) as PackedScene).instantiate()
+		v.position = Vector3(pos.x, REST_Y[it.kind], pos.z)
 		v.rotation.y = i * 0.7
 		v.set(&"pop_in", false)
 		$Props.add_child(v)

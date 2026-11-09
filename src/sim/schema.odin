@@ -82,24 +82,3 @@ table_fields :: proc(ti: ^runtime.Type_Info) -> (items, slots: Field, ok: bool) 
 	}
 	return items, slots, items.type != nil && slots.type != nil
 }
-
-find_table :: proc(sc: ^Schema, name: string) -> (^Table_Info, bool) {
-	for &t in sc.tables {
-		if t.name == name {
-			return &t, true
-		}
-	}
-	return nil, false
-}
-
-// The entity at `idx` of table `t` in the state at `base`, and whether it is live (fixed-array
-// elements always are).
-entity_ptr :: proc(base: rawptr, t: ^Table_Info, idx: int) -> (ptr: rawptr, slot: ^Slot, live: bool) {
-	b := ([^]u8)(base)
-	ptr = &b[t.items_off + idx * t.elem.size]
-	if t.slots_off < 0 {
-		return ptr, nil, true
-	}
-	slot = (^Slot)(&b[t.slots_off + idx * size_of(Slot)])
-	return ptr, slot, slot.alive
-}

@@ -10,6 +10,8 @@
 // Class wrappers use ptrcall: each argument is passed as a pointer to its encoded value (int -> i64,
 // float -> f64, bool -> u8, objects -> the Object*, builtins -> their in-memory layout).
 // String/StringName/NodePath parameters take Odin strings; returned strings live in context.temp_allocator.
+// Methods with StringName parameters are a proc group: Odin strings, or interned ^StringName (gd.sn) with no
+// per-call conversion.
 // Methods returning a RefCounted class return `Ref(T)`: the caller owns one reference (`unref` it).
 // Vararg methods (emit_signal, call, call_deferred...) go through a Variant call and take `..any`.
 // Debug builds check that every class wrapper runs on Godot's main thread.
@@ -449,7 +451,11 @@ emit_arg_in :: proc(b: ^strings.Builder, ti: Type_Info, name: string, i: int) {
 	case .String:
 		fmt.sbprintf(b, "\t_a%d := string_from(%s); defer String_destroy(&_a%d)\n", i, name, i)
 	case .StringName:
-		fmt.sbprintf(b, "\t_a%d := string_name_from(%s); defer StringName_destroy(&_a%d)\n", i, name, i)
+		if ti.param == "^StringName" {
+			fmt.sbprintf(b, "\t_a%d := %s^ // borrowed: the caller keeps it alive\n", i, name)
+		} else {
+			fmt.sbprintf(b, "\t_a%d := string_name_from(%s); defer StringName_destroy(&_a%d)\n", i, name, i)
+		}
 	case .NodePath:
 		fmt.sbprintf(b, "\t_a%d := node_path_from(%s); defer NodePath_destroy(&_a%d)\n", i, name, i)
 	case .Object:
@@ -573,7 +579,7 @@ write_args_array :: proc(b: ^strings.Builder, ps: []Param) -> string {
 }
 
 Stats :: struct {
-	classes, methods, vararg, skipped_vararg, skipped_virtual, builtin_methods: int,
+	classes, methods, vararg, skipped_vararg, skipped_virtual, builtin_methods, sn_overloads: int,
 }
 stats: Stats
 
@@ -586,17 +592,48 @@ gen_class_method :: proc(b: ^strings.Builder, cname: string, m: json.Object) {
 	vararg := jbool(m, "is_vararg")
 	mname := jstr(m, "name")
 	ps := collect_params(jarr(m["arguments"]))
+	if vararg {
+		stats.vararg += 1
+		for &p in ps do p.def = "" // defaults before a variadic tail are not allowed
+	}
+	has_sn := false
+	for p in ps do if p.ti.kind == .StringName do has_sn = true
+	if vararg || !has_sn {
+		gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s", cname, mname), m, ps, vararg)
+		return
+	}
+	// StringName parameters: a group of two, Odin strings (`_str`, converted per call) or interned
+	// `^StringName`s (`_sn`, e.g. gd.sn("move_left"), no conversion): hot paths pass cached names.
+	stats.sn_overloads += 1
+	gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s_str", cname, mname), m, ps, false)
+	sn_ps := slice.clone(ps)
+	for &p in sn_ps {
+		if p.ti.kind != .StringName do continue
+		p.ti = {.StringName, "^StringName", "StringName", false}
+		p.def = ""
+	}
+	seen_required := false
+	#reverse for &p in sn_ps {
+		if p.def == "" do seen_required = true
+		else if seen_required do p.def = ""
+	}
+	gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s_sn", cname, mname), m, sn_ps, false)
+	fmt.sbprintf(b, "%s_%s :: proc {{%s_%s_str, %s_%s_sn}}\n", cname, mname, cname, mname, cname, mname)
+}
+
+gen_class_method_proc :: proc(
+	b: ^strings.Builder,
+	cname, mname, pname: string,
+	m: json.Object,
+	ps: []Param,
+	vararg: bool,
+) {
 	rv := jobj(m["return_value"])
 	has_ret := rv != nil
 	rti: Type_Info
 	if has_ret do rti = ret_type(jstr(rv, "type"), jstr(rv, "meta"))
 	is_static := jbool(m, "is_static")
-	if vararg {
-		stats.vararg += 1
-		for &p in ps do p.def = "" // defaults before a variadic tail are not allowed
-	}
-
-	fmt.sbprintf(b, "%s_%s :: proc(", cname, mname)
+	fmt.sbprintf(b, "%s :: proc(", pname)
 	write_params(b, is_static ? "" : fmt.aprintf("self: %s", cname), ps)
 	if vararg do strings.write_string(b, len(ps) > 0 || !is_static ? ", rest: ..any" : "rest: ..any")
 	strings.write_string(b, ")")
@@ -911,10 +948,11 @@ main :: proc() {
 	write_file(fmt.aprintf("%s/gdi/gdi.gen.odin", out_dir), gen_interface(iface))
 	write_file(fmt.aprintf("%s/api.gen.odin", out_dir), gen_api(api, cls, bi))
 	fmt.printf(
-		"gen: %d classes (incl. ancestors), %d methods (%d vararg), %d builtin methods; skipped %d vararg, %d virtual\n",
+		"gen: %d classes (incl. ancestors), %d methods (%d vararg, %d with ^StringName overloads), %d builtin methods; skipped %d vararg, %d virtual\n",
 		stats.classes,
 		stats.methods,
 		stats.vararg,
+		stats.sn_overloads,
 		stats.builtin_methods,
 		stats.skipped_vararg,
 		stats.skipped_virtual,

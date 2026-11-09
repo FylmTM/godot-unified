@@ -102,7 +102,7 @@ framing_round_trips_every_size :: proc(t: ^testing.T) {
 		w := Wire {
 			pkts = make([dynamic][]u8, context.temp_allocator),
 		}
-		eos.frame_split(src[:size], &id, collect, &w)
+		testing.expect(t, eos.frame_split(src[:size], &id, collect, &w))
 		testing.expect_value(
 			t,
 			len(w.pkts),
@@ -138,7 +138,7 @@ framing_survives_reorder_and_loss :: proc(t: ^testing.T) {
 		for &b in src {
 			b = u8(k + 1)
 		}
-		eos.frame_split(src[:], &id, collect, &w)
+		testing.expect(t, eos.frame_split(src[:], &id, collect, &w))
 	}
 	testing.expect_value(t, len(w.pkts), 8)
 	order := []int{7, 0, 3, 5, 1, 6, 2} // part 4 (datagram 2, first half) lost
@@ -211,4 +211,18 @@ credentials_come_from_the_ini :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.deployment_id, "d3")
 	testing.expect_value(t, c.client_id, "from-env") // the environment wins over the ini
 	testing.expect_value(t, c.client_secret, "x5")
+}
+
+@(test)
+framing_refuses_what_the_receiver_cannot_reassemble :: proc(t: ^testing.T) {
+	id: u16
+	src: [eos.MAX_PARTS * eos.PART_MAX + 1]u8
+	w := Wire {
+		pkts = make([dynamic][]u8, context.temp_allocator),
+	}
+	testing.expect(t, eos.frame_split(src[:eos.MAX_PARTS * eos.PART_MAX], &id, collect, &w))
+	testing.expect_value(t, len(w.pkts), eos.MAX_PARTS)
+	clear(&w.pkts)
+	testing.expect(t, !eos.frame_split(src[:], &id, collect, &w), "one part too many must be refused")
+	testing.expect_value(t, len(w.pkts), 0)
 }

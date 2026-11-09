@@ -8,7 +8,8 @@
 //   leave     destroy/leave the lobby, close P2P connections -> Idle (login is kept)
 //
 // Every EOS call happens under one mutex, from whichever thread calls `poll`/`pump` or uses the
-// link; EOS callbacks run inside Platform_Tick, so they never lock. The thread running the netcode
+// link; EOS callbacks run inside Platform_Tick, so they never lock. Callbacks build a fresh context on
+// the thread that ticks (a session thread may be gone by the next session). The thread running the netcode
 // drives EOS (the link's recv ticks the platform, `pump` too). Status is read with `status`, from any
 // thread. open_host / open_join / pump / close are the transport shape a host program's session
 // loop uses (godot_host.Transport).
@@ -67,11 +68,12 @@ Init_Options :: struct {
 	// leave it off: the player allows access once per build (never for runs inside Godot.app,
 	// whose signature is stable).
 	no_keychain_prompts: bool,
+	// Tests: use these entry points instead of loading the SDK library (no credentials needed).
+	sdk:                 ^Api,
 }
 
 Online :: struct {
 	mu:             sync.Mutex,
-	ctx:            runtime.Context,
 	api:            Api,
 	platform:       H_Platform,
 	connect:        H_Connect,
@@ -157,7 +159,6 @@ init :: proc(opts: Init_Options) -> bool {
 	if o.platform != nil || o.detail_len > 0 {
 		return false // a previous init failed
 	}
-	o.ctx = runtime.default_context()
 	o.relay_control = opts.relay_control.? or_else .Allow_Relays
 	// $UNIFIED_EOS_RELAYS=force|none overrides the default (testing relays from a game build).
 	switch os.get_env("UNIFIED_EOS_RELAYS", context.temp_allocator) {
@@ -170,10 +171,16 @@ init :: proc(opts: Init_Options) -> bool {
 		disable_keychain_prompts()
 	}
 	dirs := opts.lib_dirs
-	if len(dirs) == 0 {
+	if len(dirs) == 0 && opts.sdk == nil {
 		dirs = default_lib_dirs()
 	}
 	loaded := false
+	if opts.sdk != nil {
+		o.api = opts.sdk^
+		copy(o.lib_path[:len(o.lib_path) - 1], "(test SDK)")
+		loaded = true
+		dirs = nil
+	}
 	for d in dirs {
 		path, _ := filepath.join({d, LIB_NAME}, context.temp_allocator)
 		if !os.exists(path) {
@@ -193,7 +200,7 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 
 	creds, source := credentials_load(context.temp_allocator)
-	if !credentials_complete(creds) {
+	if !credentials_complete(creds) && opts.sdk == nil {
 		set_detail(
 			o,
 			"EOS credentials missing (compiled in, EOS_* environment or %s)",
@@ -243,6 +250,7 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 	o.platform = o.api.Platform_Create(&po)
 	if o.platform == nil {
+		o.api.Shutdown() // EOS_Initialize succeeded: undo it
 		set_detail(o, "EOS_Platform_Create failed (check the IDs in the credentials)")
 		return false
 	}
@@ -541,7 +549,8 @@ start_login :: proc(o: ^Online) {
 @(private)
 on_device_deleted :: proc "c" (info: ^Result_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	log_line("device ID deleted: %s", o.api.EResult_ToString(info.result_code))
 	create_device_id(o)
 }
@@ -563,7 +572,8 @@ create_device_id :: proc(o: ^Online) {
 @(private)
 on_device_created :: proc "c" (info: ^Result_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	log_line("device ID: %s", o.api.EResult_ToString(info.result_code))
 	if info.result_code != .Success && info.result_code != .DuplicateNotAllowed {
 		o.login_busy = false
@@ -576,7 +586,8 @@ on_device_created :: proc "c" (info: ^Result_Callback_Info) {
 @(private)
 on_login :: proc "c" (info: ^Connect_Login_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if info.result_code != .Success {
 		log_line("login: %s", o.api.EResult_ToString(info.result_code))
 	}
@@ -627,7 +638,8 @@ on_login :: proc "c" (info: ^Connect_Login_Callback_Info) {
 @(private)
 on_user_created :: proc "c" (info: ^Connect_Create_User_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if info.result_code != .Success {
 		o.login_busy = false
 		fail(o, "creating the user: %s", o.api.EResult_ToString(info.result_code))
@@ -661,7 +673,8 @@ logged_in :: proc(o: ^Online, id: Product_User_Id) {
 @(private)
 on_auth_expiring :: proc "c" (info: ^Connect_Auth_Expiration_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	// The access token lasts about an hour; refreshing is just logging in again.
 	if !o.login_busy {
 		start_login(o)
@@ -744,7 +757,7 @@ Call :: struct {
 
 @(private)
 call_new :: proc(o: ^Online, search: H_Lobby_Search = nil) -> rawptr {
-	c := new(Call, o.ctx.allocator)
+	c := new(Call, runtime.heap_allocator()) // freed in a callback, which runs with a fresh context
 	c^ = {o.gen, search}
 	return c
 }
@@ -754,7 +767,7 @@ call_new :: proc(o: ^Online, search: H_Lobby_Search = nil) -> rawptr {
 call_take :: proc(o: ^Online, data: rawptr) -> (search: H_Lobby_Search, current: bool) {
 	c := (^Call)(data)
 	search, current = c.search, c.gen == o.gen
-	free(c, o.ctx.allocator)
+	free(c, runtime.heap_allocator())
 	return
 }
 
@@ -777,7 +790,8 @@ drop_lobby :: proc(o: ^Online, id: Lobby_Id, owner: bool) {
 @(private)
 on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 	o := &g
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Host {
 		// Left (or started another session) while the request was in flight.
 		if info.result_code == .Success {
@@ -829,7 +843,8 @@ on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 @(private)
 on_lobby_updated :: proc "c" (info: ^Lobby_Callback_Info) {
 	o := &g
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby {
 		return
 	}
@@ -845,7 +860,8 @@ on_lobby_updated :: proc "c" (info: ^Lobby_Callback_Info) {
 @(private)
 on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 	o := &g
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	search, current := call_take(o, info.client_data)
 	defer o.api.LobbySearch_Release(search)
 	if !current || o.stage != .Lobby || o.role != .Join {
@@ -898,7 +914,8 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 @(private)
 on_lobby_joined :: proc "c" (info: ^Lobby_Callback_Info) {
 	o := &g
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Join {
 		// Left (or started another session) while the request was in flight; keep the lobby if
 		// the current session is in it.
@@ -929,7 +946,8 @@ on_lobby_joined :: proc "c" (info: ^Lobby_Callback_Info) {
 @(private)
 on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if !o.in_lobby || string(info.lobby_id) != cstr(o.lobby_id[:]) {
 		return
 	}
@@ -992,7 +1010,8 @@ open_socket :: proc(o: ^Online) {
 @(private)
 on_connection_request :: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if o.stage != .Ready {
 		return
 	}
@@ -1015,7 +1034,8 @@ on_connection_request :: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Inf
 @(private)
 on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	i := remote_index(o, info.remote_user_id, o.role == .Host)
 	if i < 0 {
 		return
@@ -1030,7 +1050,8 @@ on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established
 @(private)
 on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	i := remote_index(o, info.remote_user_id, false)
 	if i < 0 {
 		return
@@ -1083,7 +1104,8 @@ end_session :: proc(o: ^Online) {
 @(private)
 on_lobby_left :: proc "c" (info: ^Lobby_Callback_Info) {
 	o := (^Online)(info.client_data)
-	context = o.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if string(info.lobby_id) == cstr(o.lobby_id[:]) {
 		o.in_lobby = false
 	}
@@ -1104,10 +1126,13 @@ link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
 		to: Product_User_Id,
 	}
 	c := Ctx{o, o.remotes[to].id}
-	frame_split(bytes, &o.next_frag, proc(user: rawptr, pkt: []u8) {
+	sent := frame_split(bytes, &o.next_frag, proc(user: rawptr, pkt: []u8) {
 			c := (^Ctx)(user)
 			send_packet(c.o, c.to, pkt)
 		}, &c)
+	if !sent {
+		o.send_errors += 1 // larger than the receiver reassembles: dropped, like a lost datagram
+	}
 }
 
 @(private)
@@ -1294,6 +1319,7 @@ log_level_from_env :: proc() -> Log_Level {
 
 @(private)
 on_log :: proc "c" (msg: ^Log_Message) {
-	context = g.ctx
+	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	fmt.eprintfln("[eos sdk %v] %s: %s", msg.level, msg.category, msg.message)
 }

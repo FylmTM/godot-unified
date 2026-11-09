@@ -7,7 +7,7 @@ Command list: [`../AGENTS.md`](../AGENTS.md#layout-and-commands).
 | Script | What |
 |---|---|
 | `dev.py` | build / test / check / fmt / vet / gen / godot-test / godot-checks / all / game. Prints each step's time and keeps the last ones in `out/timings.json`. |
-| `game.py` | Godot project checks behind `dev.py game validate\|walk\|shots\|tour\|coop\|import <game>`. |
+| `game.py` | Godot project checks behind `dev.py game validate\|walk\|shots\|tour\|coop\|import <game>` (`validate` and `walk` also fail on leaks at exit and GDScript warnings; `tour --frames [--cold]` reports frame times and first-use hitches). |
 | `check.py` | T1-T9 of `spec/headless.md`, T1-T9 against `out/<mode>/survivor` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`spec/box3d.md`). |
 | `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`spec/imgui.md`). |
@@ -44,7 +44,8 @@ python tools/box3d.py --clean         # refetch and rebuild (also after a compil
 ## `check.py`
 
 ```
-python tools/dev.py check                              # release build, then all of T1-T9
+python tools/dev.py check                              # release build, then all of T1-T9 (~32 s); on an ARM64 Mac
+                                                       # first T1,T7,T8 of the x86_64 build (--no-rosetta skips it)
 python tools/check.py --only T1,T7                     # subset, existing binary
 python tools/check.py --mode dev                       # test out/dev/survivor (timeouts x2)
 python tools/dev.py check --arch x86_64 --only T1,T7,T8   # macOS: the Rosetta build in out/release-x64/
@@ -57,7 +58,9 @@ python tools/dev.py check --regen                      # macOS ARM64 binary only
   `T9/bench.json`.
 - Every command runs under a timeout (sessions: `ticks/64·4 + 90` s; the rest 300–900 s), so a hung binary fails
   its test.
-- The real-time tests T3, T5, T6 run concurrently (`--serial` to disable; T3's sessions with `--jobs`, default 6):
-  they are paced by the 64 Hz clock, not the CPU. T4 reuses T3's 4-client `bad` log. T5 starts a UDP relay on a
-  free localhost port, waits 0.5 s, then starts 3 client processes (client 2 with `--profile bad`).
+- T3 and T6 run their sessions on the virtual clock (`session --clock virtual`: one thread steps the relay, the
+  clients and the network simulator through test time), so they take seconds and can't flake on timing; T3's six
+  sessions run in parallel (`--jobs`, default 6). T4 reuses T3's 4-client `bad` log. T5 is the one wall-clock
+  test: a UDP relay on a free localhost port plus 3 client processes (client 2 with `--profile bad`), 960 ticks,
+  started first so it overlaps the others (`--serial` to disable); T9 runs after it.
 - Seeds: tests use 42, the references 7. JSON field names and tick numbering: `spec/headless.md` (CLI, "Conventions").

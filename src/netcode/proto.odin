@@ -5,7 +5,7 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-PROTOCOL_VERSION :: 4 // 4: datagram epochs (channel.odin)
+PROTOCOL_VERSION :: 5 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
@@ -70,7 +70,7 @@ Msg :: enum u8 {
 	Finalized, // r->c U: relay time i64, echo i64, hold i64, input ack u32, first u32, count u8, ticks
 	Checksum, // c->r R: slot u8, tick u32, checksum u64
 	Snap_Request, // r->c R: joiner u8, min tick u32
-	Snap_Begin, // c->r->c R: joiner u8, tick u32, total bytes u32
+	Snap_Begin, // c->r->c R: joiner u8, tick u32, total bytes u32 (r->c tick 0, total 0: start from tick 0)
 	Snap_Chunk, // c->r->c R: joiner u8, offset u32, bytes
 	Done, // c->r R: slot u8, final tick u32 (fixed-length sessions)
 	End, // r->c R: the session is over (or the host left)
@@ -145,11 +145,15 @@ r_raw :: proc(r: ^wire.Reader, $T: typeid) -> (v: T) {
 	return
 }
 
+UNRELIABLE_CHUNK_OVERHEAD :: 3 // kind u8, len u16
+FINALIZED_HEAD :: 34 // type u8, relay time, echo, hold i64, input ack u32, first u32, count u8
+INPUTS_HEAD :: 19 // type u8, slot u8, client time i64, finalized ack u32, first u32, count u8
+
 // Finalized ticks per relay packet: as many as fit one datagram, at most WINDOW_MAX.
 @(private)
 finalized_window :: proc($I: typeid, $P: int) -> u32 {
 	per_tick := size_of(sim.Inputs(I, P))
-	room := MAX_DATAGRAM - HEADER_BYTES - 3 - 34
+	room := MAX_DATAGRAM - HEADER_BYTES - UNRELIABLE_CHUNK_OVERHEAD - FINALIZED_HEAD
 	n := room / per_tick
 	assert(n >= 1, "one tick of inputs does not fit a datagram")
 	return u32(min(n, WINDOW_MAX))
@@ -157,7 +161,7 @@ finalized_window :: proc($I: typeid, $P: int) -> u32 {
 
 @(private)
 inputs_window :: proc($I: typeid) -> u32 {
-	room := MAX_DATAGRAM - HEADER_BYTES - 3 - 19
+	room := MAX_DATAGRAM - HEADER_BYTES - UNRELIABLE_CHUNK_OVERHEAD - INPUTS_HEAD
 	return u32(min(room / size_of(I), INPUTS_MAX))
 }
 

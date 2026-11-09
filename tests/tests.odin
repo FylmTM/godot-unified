@@ -5,8 +5,12 @@
 // `odin test tests/sim -collection:unified=src`.
 package tests
 
+@(require) import "box3d"
 @(require) import "dmath"
 @(require) import "eos"
+@(require) import "gdext"
+@(require) import "godot_host"
+@(require) import "headless"
 @(require) import "lint"
 @(require) import "netcode"
 @(require) import "physics"

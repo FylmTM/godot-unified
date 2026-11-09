@@ -49,6 +49,7 @@ Inputs :: sim.Inputs(Input, SLOTS)
 
 GAME := Game {
 	name = "toy",
+	version = "1",
 	tick_hz = HZ,
 	world_create = proc(seed: u64) -> ^World {return new(World)},
 	world_destroy = proc(w: ^World) {free(w)},

@@ -14,7 +14,7 @@ var _t := 0.0
 func _ready() -> void:
 	Game.status_changed.connect(func(_s: String, _d: String) -> void: _refresh())
 	Game.lobby_code_changed.connect(func(_c: String) -> void: _refresh())
-	_copy.pressed.connect(_copy_code)
+	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, Game.lobby_code))
 	$Center/Panel/VBox/Bottom/Cancel.pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
@@ -40,12 +40,3 @@ func _refresh() -> void:
 	_code_box.visible = Game.lobby_code != ""
 	_code.text = Game.lobby_code
 	$Center/Panel/VBox/Bottom/KeyHint.text = Game.hint("Esc to cancel", "B to cancel")
-
-
-func _copy_code() -> void:
-	Game.clipboard_set(Game.lobby_code)
-	Sfx.play(&"gem")
-	_copy.text = "Copied!"
-	get_tree().create_timer(1.2).timeout.connect(func() -> void:
-		if is_instance_valid(_copy):
-			_copy.text = "Copy")

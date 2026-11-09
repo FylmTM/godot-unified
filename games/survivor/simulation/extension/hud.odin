@@ -1,7 +1,9 @@
-// What a UI shows, derived from the state: the data behind the GDScript `UnifiedSession.hud()`
-// contract (the host adds local_slot and converts to a Dictionary). Not simulation code: f32 for
-// display only.
-package survivor
+// What a UI shows, derived from the state on the session thread: the data behind the GDScript
+// `UnifiedSession.hud()` contract (the host adds local_slot and converts to a Dictionary, see
+// extension.odin). View code, not simulation code: f32 for display only.
+package survivor_extension
+
+import "../survivor"
 
 Hud_Player :: struct {
 	slot:             int,
@@ -17,7 +19,7 @@ Hud_Player :: struct {
 }
 
 Hud :: struct {
-	phase:         Phase,
+	phase:         survivor.Phase,
 	phase_name:    string, // "lobby" | "match" | "over"
 	tick:          u32,
 	time_s:        f32, // match time: 0 in the lobby, frozen when over
@@ -25,26 +27,27 @@ Hud :: struct {
 	enemies_alive: i32,
 	circle_radius: f32, // the start circle (lobby), 0 otherwise
 	matches:       u32,
-	players:       [MAX_PLAYERS]Hud_Player,
+	players:       [survivor.MAX_PLAYERS]Hud_Player,
 }
 
-PHASE_NAMES := [Phase]string {
+@(rodata)
+PHASE_NAMES := [survivor.Phase]string {
 	.Lobby = "lobby",
 	.Match = "match",
 	.Over  = "over",
 }
 
-hud :: proc(s: ^State, tick: u32) -> (h: Hud) {
+hud_of :: proc(s: ^survivor.State, tick: u32) -> (h: Hud) {
 	h.phase = s.phase
 	h.phase_name = PHASE_NAMES[s.phase]
 	h.tick = tick
 	switch s.phase {
 	case .Lobby:
 	case .Match:
-		h.time_s = f32(tick - s.match_tick) * DT
+		h.time_s = f32(tick - s.match_tick) * survivor.DT
 		h.wave = s.wave + 1
 	case .Over:
-		h.time_s = f32(s.over_tick - s.match_tick) * DT
+		h.time_s = f32(s.over_tick - s.match_tick) * survivor.DT
 		h.wave = s.wave + 1
 	}
 	h.enemies_alive = s.enemies.count
@@ -56,12 +59,12 @@ hud :: proc(s: ^State, tick: u32) -> (h: Hud) {
 			present          = pl.active,
 			alive            = pl.alive,
 			hp               = max(pl.hp, 0),
-			hp_max           = PLAYER_HP,
+			hp_max           = survivor.PLAYER_HP,
 			xp               = pl.xp,
-			xp_next          = xp_next(s, pl.level),
+			xp_next          = survivor.xp_next(s, pl.level),
 			level            = pl.level,
 			pending_levelups = pl.pending_levelups,
-			respawn_s        = pl.alive || !pl.active ? 0 : f32(pl.respawn) * DT,
+			respawn_s        = pl.alive || !pl.active ? 0 : f32(pl.respawn) * survivor.DT,
 		}
 	}
 	return
