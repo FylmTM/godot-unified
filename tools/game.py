@@ -7,6 +7,8 @@ directly with the same arguments: `python tools/game.py validate`):
     python tools/dev.py game tour [--shots]               # the real game (library built): single player through
                                                           # lobby/match; headless quick check, or windowed with
                                                           # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
+    python tools/dev.py game tour --frames [--cold]       # windowed tour reporting frame times and hitches with the
+                                                          # sim events around them; --cold clears the shader cache
     python tools/dev.py game coop [--shots] [--rejoin]            # real online co-op over EOS: a host and a headless
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
@@ -19,8 +21,10 @@ can hang on some errors) and is judged by the JSON line the tool script prints, 
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -158,12 +162,16 @@ def cmd_game(argv):
     elif sub == "tour":
         if not exts:
             raise SystemExit("game: the tour needs the game library: python tools/dev.py game build %s" % game)
-        if "--shots" in argv:
+        if "--shots" in argv or "--frames" in argv:
+            if "--cold" in argv:
+                _clear_shader_cache(proj)
+            extra = (["--shots=res://.uni/tour"] if "--shots" in argv else []) + (
+                ["--frames"] if "--frames" in argv else [])
             front = _front_app()
             try:
                 ok, data, secs = run_godot(
-                    proj, ["--resolution", "1280x720", "-s", "res://game/tools/tour.gd", "--", "--no-settings",
-                           "--shots=res://.uni/tour"], 240, "TOUR_JSON")
+                    proj, ["--resolution", "1280x720", "-s", "res://game/tools/tour.gd", "--", "--no-settings"] + extra,
+                    240, "TOUR_JSON")
             finally:
                 _restore_app(front)
         else:
@@ -178,6 +186,21 @@ def cmd_game(argv):
     log("game: %s %s in %.1fs" % (sub, "OK" if ok else "FAILED", secs))
     if not ok:
         raise SystemExit(1)
+
+
+def _clear_shader_cache(proj):
+    """Delete the project's compiled-shader cache in its Godot user dir, so the next run compiles like a first launch."""
+    name = re.search(r'^config/name="([^"]+)"', open(os.path.join(proj, "project.godot")).read(), re.M).group(1)
+    if sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support/Godot")
+    elif os.name == "nt":
+        base = os.path.join(os.environ["APPDATA"], "Godot")
+    else:
+        base = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "godot")
+    cache = os.path.join(base, "app_userdata", name, "shader_cache")
+    if os.path.isdir(cache):
+        shutil.rmtree(cache)
+        log("game: cleared %s" % cache)
 
 
 def cmd_coop(proj, shots, rejoin=False):

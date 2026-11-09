@@ -3,7 +3,9 @@ extends SceneTree
 ##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
 ## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the
 ## match is lost -> over -> back to the lobby -> leave. `--quick` stops after the match has enemies (a headless
-## smoke check of the real flow, a few seconds). Prints steps and `TOUR_JSON {...}`; exits 1 on failure or errors.
+## smoke check of the real flow, a few seconds). `--frames` records every frame's time with the sim events and steps
+## around it and reports the hitches (frames over HITCH_MS). Prints steps and `TOUR_JSON {...}`; exits 1 on failure
+## or errors.
 
 var cap: Logger
 var shots_dir := ""
@@ -14,6 +16,13 @@ var _failed := ""
 var _done := false
 var _steps: Array[Dictionary] = []
 
+const HITCH_MS := 25.0
+var frames := false
+var _frame_us: PackedInt32Array = []
+var _frame_tags := {}  # frame index -> Array of strings (events, steps) seen during it
+var _seen_kinds := {}
+var _last_us := 0
+
 
 func _init() -> void:
 	cap = load("res://game/tools/log_capture.gd").new()
@@ -23,9 +32,16 @@ func _init() -> void:
 			shots_dir = a.trim_prefix("--shots=")
 		elif a == "--quick":
 			quick = true
+		elif a == "--frames":
+			frames = true
 
 
 func _process(_delta: float) -> bool:
+	if frames:
+		var now := Time.get_ticks_usec()
+		if _last_us != 0:
+			_frame_us.append(now - _last_us)
+		_last_us = now
 	if not _started:
 		_started = true
 		_t0 = Time.get_ticks_msec()
@@ -38,6 +54,11 @@ func _run() -> void:
 	if game.is_mock:
 		_fail("the tour needs the game library (python tools/dev.py game build survivor)")
 		return
+	if frames:
+		game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void:
+			var first: bool = not _seen_kinds.has(kind)
+			_seen_kinds[kind] = true
+			_tag(("FIRST " if first else "") + String(kind)))
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 5.0, "main menu")
 	await _seconds(0.5)
@@ -143,6 +164,7 @@ func _step(name: String) -> void:
 		return
 	var ms := Time.get_ticks_msec() - _t0
 	_steps.append({"step": name, "ms": ms})
+	_tag("step: " + name)
 	print("  ok  %6d ms  %s" % [ms, name])
 
 
@@ -160,10 +182,11 @@ func _finish() -> void:
 	_done = true
 	var errors: Array = cap.errors.filter(func(e: Dictionary) -> bool: return not String(e.msg).contains("ObjectDB"))
 	var ok := _failed == "" and errors.is_empty()
+	var frame_report := _frame_report() if frames else {}
 	print("tour: %d steps, %s in %d ms" % [_steps.size(), "OK" if ok else "FAILED", Time.get_ticks_msec() - _t0])
 	if not cap.errors.is_empty() or not cap.warnings.is_empty():
 		print(cap.report())
-	print("TOUR_JSON " + JSON.stringify({"ok": ok, "steps": _steps, "failed": _failed, "errors": errors}))
+	print("TOUR_JSON " + JSON.stringify({"ok": ok, "steps": _steps, "failed": _failed, "errors": errors, "frames": frame_report}))
 	OS.remove_logger(cap)
 	var game: Node = root.get_node(^"Game")
 	if game.status != "idle":
@@ -209,3 +232,38 @@ func _shot(name: String) -> void:
 	var path := shots_dir.path_join(name + ".png")
 	root.get_texture().get_image().save_png(path)
 	print("  shot " + ProjectSettings.globalize_path(path))
+
+
+func _tag(t: String) -> void:
+	if not frames:
+		return
+	var i := _frame_us.size()
+	if not _frame_tags.has(i):
+		_frame_tags[i] = []
+	if not _frame_tags[i].has(t):
+		_frame_tags[i].append(t)
+
+
+## Frame-time summary plus every hitch with what happened in it and the three frames before ([-1] = one frame
+## earlier: work started there, e.g. a new material, is drawn and measured in the next frame).
+func _frame_report() -> Dictionary:
+	var sorted := _frame_us.duplicate()
+	sorted.sort()
+	var n := sorted.size()
+	if n == 0:
+		return {}
+	var pct := func(q: float) -> float: return sorted[mini(n - 1, int(q * n))] / 1000.0
+	var hitches: Array = []
+	for i in n:
+		var ms := _frame_us[i] / 1000.0
+		if ms < HITCH_MS:
+			continue
+		var tags: Array = []
+		for j in range(i - 3, i + 1):
+			for t: String in _frame_tags.get(j, []):
+				tags.append("%s%s" % ["" if j == i else "[%d] " % (j - i), t])
+		hitches.append({"frame": i, "ms": snappedf(ms, 0.1), "tags": tags})
+	print("frames: %d, p50 %.1f ms, p99 %.1f ms, max %.1f ms, %d over %.0f ms" % [n, pct.call(0.5), pct.call(0.99), sorted[n - 1] / 1000.0, hitches.size(), HITCH_MS])
+	for h: Dictionary in hitches:
+		print("  hitch  frame %5d  %6.1f ms  %s" % [h.frame, h.ms, ", ".join(h.tags)])
+	return {"count": n, "p50_ms": pct.call(0.5), "p99_ms": pct.call(0.99), "max_ms": sorted[n - 1] / 1000.0, "hitches": hitches}

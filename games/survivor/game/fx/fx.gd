@@ -29,6 +29,21 @@ func _ready() -> void:
 	_shrink = Curve.new()
 	_shrink.add_point(Vector2(0, 1))
 	_shrink.add_point(Vector2(1, 0))
+	_warm_up()
+
+
+## Draws each effect's material once, out of sight under the floor, while the arena loads. A material's shader is
+## compiled the first time it's drawn (30-80 ms on an empty shader cache, i.e. a player's first launch), which
+## otherwise hitches the frame of the first kill, hit or explosion. New effect materials need a line here.
+func _warm_up() -> void:
+	var at := Vector3(0, -4, 0)
+	_burst(at, Color.WHITE, 1, 0.0, 0.1, 0.1, 0.0)  # vertex-coloured cubes: kills, gems, level-ups, deaths
+	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
+	var light := OmniLight3D.new()  # barrel explosions
+	light.omni_range = 0.5
+	add_child(light)
+	light.position = at
+	get_tree().create_timer(0.2).timeout.connect(light.queue_free)
 
 
 func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool) -> void:

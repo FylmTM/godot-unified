@@ -86,9 +86,11 @@ func _update_hud_state(dt: float) -> void:
 			if _is_local():
 				Sfx.play(&"hit", -4.0)
 		_last_hp = hp
-	_flash = maxf(_flash - dt * 6.0, 0.0)
-	_mat.emission_enabled = _flash > 0.0
-	_mat.emission = Color(1, 0.3, 0.3) * _flash * 1.5
+	if _flash > 0.0:
+		# Emission stays enabled in the scene's material and only its colour changes: toggling
+		# `emission_enabled` switches the shader variant and compiled a new shader on the first hit.
+		_flash = maxf(_flash - dt * 6.0, 0.0)
+		_mat.emission = Color(1, 0.3, 0.3) * _flash * 1.5
 	_mesh.scale = Vector3.ONE * (1.0 + _flash * 0.15)
 
 
