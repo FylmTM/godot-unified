@@ -57,6 +57,7 @@ Relay :: struct($I: typeid, $P: int) {
 	input_tick:  [P][INPUT_RING]u32, // which tick inputs[p][k] holds
 	recv_upto:   [P]u32,
 	client_ack:  [P]u32,
+	rotate:      [P]u32, // which window of a long backlog the next broadcast carries
 	echo_time:   [P]i64,
 	echo_recv:   [P]i64,
 	sent_clock:  u32,
@@ -362,6 +363,14 @@ broadcast :: proc(r: ^Relay($I, $P), now: i64) {
 		first := r.client_ack[p] + 1
 		last := first - 1
 		if r.base_known[p] {
+			// A backlog longer than a window (catching up after a stall, a late join) goes out one
+			// window per broadcast in turn, so it streams at a window per tick instead of a window
+			// per round trip.
+			backlog := min(r.finalized + 1 - first, CATCHUP_TICKS)
+			if windows := (backlog + window - 1) / window; windows > 1 {
+				r.rotate[p] = (r.rotate[p] + 1) % windows
+				first += r.rotate[p] * window
+			}
 			last = min(r.finalized, first + window - 1)
 		}
 		wire.w_u32(w, first)

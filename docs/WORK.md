@@ -138,6 +138,8 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   and GAME.md (sim, netcode, eos, godot_host, view, devui, the survivor client, ...).
 - The first playable build: `survivor-v0.1.0` (GitHub prerelease; single player + online via EOS; macOS arm64 and
   Windows x64).
+- Pre-playtest review fixes (outages, rejoin, long RTT, catch-up, exit crash, EOS session hygiene) on branch
+  `worktree-agent-a897e9e067002558a`, not merged; protocol 4 does not meet `survivor-v0.1.0` (`docs/LOG.md`).
 
 ## Next
 

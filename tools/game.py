@@ -7,7 +7,7 @@ directly with the same arguments: `python tools/game.py validate`):
     python tools/dev.py game tour [--shots]               # the real game (library built): single player through
                                                           # lobby/match; headless quick check, or windowed with
                                                           # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
-    python tools/dev.py game coop [--shots]               # real online co-op over EOS: a host and a headless
+    python tools/dev.py game coop [--shots] [--rejoin]            # real online co-op over EOS: a host and a headless
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import                       # refresh Godot's import cache (.godot/)
@@ -172,7 +172,7 @@ def cmd_game(argv):
     elif sub == "coop":
         if not exts:
             raise SystemExit("game: coop needs the game library: python tools/dev.py game build %s" % game)
-        ok, data, secs = cmd_coop(proj, "--shots" in argv)
+        ok, data, secs = cmd_coop(proj, "--shots" in argv, "--rejoin" in argv)
     else:
         raise SystemExit("game: unknown subcommand %r (validate, walk, shots, tour, coop, import)" % sub)
     log("game: %s %s in %.1fs" % (sub, "OK" if ok else "FAILED", secs))
@@ -180,9 +180,11 @@ def cmd_game(argv):
         raise SystemExit(1)
 
 
-def cmd_coop(proj, shots):
+def cmd_coop(proj, shots, rejoin=False):
     """Host (windowed with --shots, else headless) and a headless joiner with a fresh EOS device id, as two Godot
-    processes; the host hands the lobby code over through a file."""
+    processes; the host hands the lobby code over through a file. --rejoin: the joiner leaves mid-match and joins
+    again with the same code."""
+    extra = ["--rejoin"] if rejoin else []
     code = proj / ".uni" / "coop_code.txt"
     code.parent.mkdir(parents=True, exist_ok=True)
     if code.exists():
@@ -192,9 +194,9 @@ def cmd_coop(proj, shots):
     with open(join_log, "w") as jl:
         joiner = subprocess.Popen(
             [find_godot(), "--path", str(proj), "--headless", "-s", "res://game/tools/coop.gd", "--", "--no-settings",
-             "--role=join", "--code-file=res://.uni/coop_code.txt"], stdout=jl, stderr=subprocess.STDOUT, env=env)
+             "--role=join", "--code-file=res://.uni/coop_code.txt"] + extra, stdout=jl, stderr=subprocess.STDOUT, env=env)
     host_args = ["-s", "res://game/tools/coop.gd", "--", "--no-settings", "--role=host",
-                 "--code-file=res://.uni/coop_code.txt"]
+                 "--code-file=res://.uni/coop_code.txt"] + extra
     front = _front_app() if shots else None
     try:
         if shots:

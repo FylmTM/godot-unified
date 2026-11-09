@@ -33,8 +33,10 @@ survivor_init :: proc "c" (
 
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
 
-// Game + net protocol version: lobby search only finds lobbies of the same bucket.
-SURVIVOR_BUCKET :: "survivor/1"
+// Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
+// protocol says "no game with that code" instead of failing to connect.
+SURVIVOR_BUCKET :: "survivor/2"
+#assert(netcode.PROTOCOL_VERSION == 4, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -65,6 +67,8 @@ EOS_TRANSPORT := gh.Transport {
 	close = proc(_: rawptr) {eos.close()},
 	// EOS's HTTP completes through the macOS main run loop, which headless Godot doesn't pump.
 	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
+	// EOS left initialized at exit crashed in its own threads during process teardown (macOS, ~1 in 2 exits).
+	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
 
 // View kinds: res://game/views/<kind>.tscn for scene views, `kind` of the bulk views (group sim_bulk).

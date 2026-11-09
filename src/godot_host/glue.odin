@@ -114,6 +114,9 @@ Transport :: struct {
 	close:      proc(user: rawptr),
 	// Optional, MAIN thread, every frame (e.g. pumping the macOS main run loop for the SDK's HTTP).
 	main_frame: proc(user: rawptr),
+	// Optional, MAIN thread, once when the extension unloads (game exit), after the session thread is gone:
+	// release the transport (an SDK left running at exit can crash in its own threads).
+	shutdown:   proc(user: rawptr),
 }
 
 Transport_Events :: struct {

@@ -4,12 +4,15 @@ extends SceneTree
 ##   godot --headless --path games/survivor -s res://game/tools/coop.gd -- --role=join --code-file=<f>
 ## The host clicks Host online and writes the lobby code to the file; the joiner types it into the Join panel.
 ## Both wait for two players in the lobby; the host walks out, they fight ~8 s, the host leaves; the joiner must
-## see the disconnect on its menu. Prints steps and `COOP_JSON {...}`; exits 1 on failure.
+## see the disconnect on its menu. With --rejoin (both roles), the joiner leaves mid-match and joins again with the
+## same code (a late join into the running match) before the host leaves. Prints steps and `COOP_JSON {...}`; exits
+## 1 on failure.
 
 var cap: Logger
 var role := ""
 var code_file := ""
 var shots_dir := ""
+var rejoin := false
 var _t0 := 0
 var _started := false
 var _failed := ""
@@ -27,6 +30,8 @@ func _init() -> void:
 			code_file = a.trim_prefix("--code-file=")
 		elif a.begins_with("--shots="):
 			shots_dir = a.trim_prefix("--shots=")
+		elif a == "--rejoin":
+			rejoin = true
 
 
 func _process(_delta: float) -> bool:
@@ -76,6 +81,13 @@ func _host(game: Node) -> void:
 		Input.action_release(dirs[(i / 8) % 4])
 	await _shot("c03_coop_match")
 	_step("co-op match: %d enemies" % game.hud.enemies_alive)
+	if rejoin:
+		await _wait_for(func() -> bool: return _present(game) == 1, 30.0, "the friend leaves")
+		_step("friend left: %s" % _names(game))
+		await _wait_for(func() -> bool: return _present(game) >= 2, 60.0, "the friend rejoins")
+		_step("friend rejoined: %s" % _names(game))
+		await _seconds(4.0)
+		_step("co-op again: phase %s, %d enemies" % [game.hud.get("phase"), game.hud.enemies_alive])
 	game.leave_to_menu()
 	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 5.0, "host leaves")
 	_step("host left")
@@ -85,6 +97,30 @@ func _host(game: Node) -> void:
 func _join(game: Node) -> void:
 	await _wait_for(func() -> bool: return FileAccess.file_exists(code_file) and FileAccess.get_file_as_string(code_file).length() == 6, 60.0, "the host's code")
 	var code := FileAccess.get_file_as_string(code_file)
+	await _enter_code(code)
+	await _wait_for(func() -> bool: return _scene_is("Arena"), 30.0, "joiner arena")
+	await _wait_for(func() -> bool: return _present(game) >= 2, 30.0, "both players in the lobby")
+	_step("joined as slot %d: %s" % [game.hud.local_slot, _names(game)])
+	await _wait_for(func() -> bool: return game.hud.get("phase") == "match", 40.0, "the host starts the match")
+	_step("match started (seen by the joiner)")
+	if rejoin:
+		await _seconds(10.0)
+		game.leave_to_menu()
+		await _wait_for(func() -> bool: return _scene_is("MainMenu"), 10.0, "the joiner leaves")
+		_step("left mid-match")
+		await _seconds(1.0)
+		await _enter_code(code)
+		await _wait_for(func() -> bool: return _scene_is("Arena"), 30.0, "joiner arena again")
+		await _wait_for(func() -> bool: return _present(game) >= 2 and game.hud.get("phase") == "match", 30.0, "back in the match")
+		_step("rejoined as slot %d: %s" % [game.hud.local_slot, _names(game)])
+	Input.action_press(&"move_back")
+	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 60.0, "back on the menu when the host leaves")
+	Input.action_release(&"move_back")
+	var err: Label = current_scene.get_node(^"UI/Root/Side/ErrorPanel/VBox/Message")
+	_step("host left -> menu: %s" % (err.text if err.is_visible_in_tree() else "(no error shown)"))
+
+
+func _enter_code(code: String) -> void:
 	await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Join"))
 	var edit: LineEdit = current_scene.get_node(^"UI/Root/Side/JoinPanel/VBox/Code")
 	edit.clear()
@@ -93,16 +129,6 @@ func _join(game: Node) -> void:
 	await _seconds(0.1)
 	await _click(current_scene.get_node(^"UI/Root/Side/JoinPanel/VBox/Row/Go"))
 	_step("joining %s" % code)
-	await _wait_for(func() -> bool: return _scene_is("Arena"), 30.0, "joiner arena")
-	await _wait_for(func() -> bool: return _present(game) >= 2, 30.0, "both players in the lobby")
-	_step("joined as slot %d: %s" % [game.hud.local_slot, _names(game)])
-	await _wait_for(func() -> bool: return game.hud.get("phase") == "match", 40.0, "the host starts the match")
-	_step("match started (seen by the joiner)")
-	Input.action_press(&"move_back")
-	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 60.0, "back on the menu when the host leaves")
-	Input.action_release(&"move_back")
-	var err: Label = current_scene.get_node(^"UI/Root/Side/ErrorPanel/VBox/Message")
-	_step("host left -> menu: %s" % (err.text if err.is_visible_in_tree() else "(no error shown)"))
 
 
 func _present(game: Node) -> int:

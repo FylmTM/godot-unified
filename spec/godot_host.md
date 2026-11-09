@@ -75,7 +75,8 @@ the extension that way, and the host uses `Object.set`/`call`.
      go to the `sim_event` signal;
   6. draws the dev UI.
 - **Editor.** Classes register at SCENE level and nothing runs in the editor. Hot reload is editor-only.
-  `deinitialize` stops the session thread. macOS dev builds are versioned files behind a symlink, because dyld
+  `deinitialize` stops the session thread, then calls the transport's optional `shutdown` (the survivor
+  releases EOS there: left initialized, the SDK crashed in its own threads at exit, ~2 exits in 3). macOS dev builds are versioned files behind a symlink, because dyld
   never unloads an Odin dylib (thread-locals), so a same-path reload would keep the old code.
 - **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check <game>`. `headless` runs a
   scripted single-player session under headless Godot and compares its checksums with the offline headless

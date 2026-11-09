@@ -15,8 +15,9 @@ import "../eos"
 import "../netcode"
 import "../sim"
 
-// Lobbies only match within a bucket; --bucket survivor/1 meets the game's own builds.
-EOS_BUCKET :: "unified-headless/1"
+// Lobbies only match within a bucket; --bucket survivor/2 meets the game's own builds.
+EOS_BUCKET :: "unified-headless/2"
+#assert(netcode.PROTOCOL_VERSION == 4, "netcode protocol changed: bump EOS_BUCKET (and the game buckets) with it")
 
 @(private)
 eos_start :: proc(a: ^Args, product: string) -> bool {

@@ -3,13 +3,22 @@
 // in-process client and remote peers at once) and numbers every (link, link peer) pair as one
 // channel Peer. It runs the same minimal reliability protocol over every link:
 //
-//   datagram = u8 magic, u8 version, u32 seq, u32 ack, u32 ack_bits, u16 chunk count, chunks
+//   datagram = u8 magic, u8 version, u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
+//              u16 chunk count, chunks
 //   chunk    = u8 kind (0 unreliable, 1 reliable), [u32 message id if reliable], u16 len, bytes
 //
 // Every datagram acks the peer's latest sequence number plus a 32-bit history. A reliable message
 // rides in datagrams until one of them is acked, and is resent after a timeout derived from the
 // measured RTT. Reliable messages are delivered once, in order. Unreliable ones are delivered as
 // they arrive (possibly duplicated or reordered by the network).
+//
+// Epochs keep both sides on the same incarnation of a connection. `epoch` is the sender's (a fresh
+// value each time a side opens the connection), `peer epoch` echoes the receiver's last one seen
+// (0: none yet). A datagram echoing an epoch other than ours was meant for an earlier connection:
+// it is dropped unread while a newer connection runs, and otherwise answered by a new connection,
+// whose epoch ends the sender's stale side at once, so no side sits half-open. A new epoch from an
+// active peer means it started over (a restarted program on the same address, e.g. a rejoining
+// player): the old connection ends with Disconnected and the datagram opens the new one.
 package netcode
 
 import "base:runtime"
@@ -41,8 +50,8 @@ FLUSH_BUDGET :: 96 * 1024 // reliable bytes per peer per flush
 DISCONNECT_US :: 10_000_000
 KEEPALIVE_US :: 250_000
 DGRAM_MAGIC :: 0xA7
-DGRAM_VERSION :: 1
-HEADER_BYTES :: 16
+DGRAM_VERSION :: 2
+HEADER_BYTES :: 24
 
 Channel :: struct {
 	links:  [dynamic]Link,
@@ -52,6 +61,7 @@ Channel :: struct {
 	stats:  Channel_Stats,
 	arena:  runtime.Arena, // event payloads, reset by each poll
 	tx:     wire.Writer,
+	epochs: u32, // seeds the epoch of each connection this channel opens
 }
 
 Channel_Stats :: struct {
@@ -78,6 +88,8 @@ Conn :: struct {
 	link:        int,
 	lpeer:       Peer,
 	active:      bool,
+	epoch:       u32, // ours, sent in every datagram
+	peer_epoch:  u32, // theirs (0: none seen yet)
 	last_recv:   i64,
 	last_sent:   i64,
 	// send side
@@ -99,6 +111,8 @@ Conn :: struct {
 channel_make :: proc() -> ^Channel {
 	ch := new(Channel)
 	ch.tx = wire.writer_make(MAX_DATAGRAM)
+	// Distinct per process run and channel, so a restarted program never reuses its old epochs.
+	ch.epochs = u32(now_us()) ~ u32(uintptr(ch) >> 4)
 	return ch
 }
 
@@ -186,9 +200,23 @@ conn_open :: proc(ch: ^Channel, peer: Peer, now: i64) -> ^Conn {
 		c.last_recv = now
 		c.next_seq = 1
 		c.srtt_us = 100_000
+		ch.epochs += 1
+		c.epoch = max(mix32(ch.epochs), 1)
 		append(&ch.events, Event{kind = .Connected, peer = peer})
 	}
 	return c
+}
+
+// A bijective 32-bit mix (murmur3's finalizer): consecutive counters give unrelated epochs.
+@(private)
+mix32 :: proc(x: u32) -> u32 {
+	h := x
+	h ~= h >> 16
+	h *= 0x85EBCA6B
+	h ~= h >> 13
+	h *= 0xC2B2AE35
+	h ~= h >> 16
+	return h
 }
 
 // Queues a message; it goes out on the next flush.
@@ -280,17 +308,39 @@ handle_datagram :: proc(ch: ^Channel, from: Peer, bytes: []u8, now: i64) {
 	if wire.r_u8(&r) != DGRAM_MAGIC || wire.r_u8(&r) != DGRAM_VERSION {
 		return
 	}
+	epoch := wire.r_u32(&r)
+	echo := wire.r_u32(&r)
 	seq := wire.r_u32(&r)
 	ack := wire.r_u32(&r)
 	ack_bits := wire.r_u32(&r)
 	n_chunks := int(wire.r_u16(&r))
-	if !r.ok {
+	if !r.ok || epoch == 0 {
+		return
+	}
+	old := &ch.conns[from]
+	if echo != 0 && old.active && echo != old.epoch {
+		return // for an earlier connection of ours
+	}
+	if echo != 0 && !old.active {
+		// The peer still talks to a connection we ended (timed out, or dropped after a goodbye).
+		// Open a new one without reading this datagram: our reply carries the new epoch, which
+		// ends the peer's side at once.
+		c := conn_open(ch, from, now)
+		c.peer_epoch = epoch
 		return
 	}
 	ch.stats.datagrams_recv += 1
 	ch.stats.bytes_recv += len(bytes)
+	if old.active && old.peer_epoch != 0 && old.peer_epoch != epoch {
+		// The peer started over: end the old connection; this datagram opens the new one.
+		link, lpeer := old.link, old.lpeer
+		conn_reset(old)
+		old.used, old.link, old.lpeer = true, link, lpeer
+		append(&ch.events, Event{kind = .Disconnected, peer = from})
+	}
 	c := conn_open(ch, from, now)
 	c.last_recv = now
+	c.peer_epoch = epoch
 
 	// Our sequence numbers that the peer has received.
 	if ack != 0 {
@@ -377,6 +427,8 @@ begin_packet :: proc(pb: ^Packet_Builder, c: ^Conn) {
 	pb.sp = {}
 	wire.w_u8(&pb.w, DGRAM_MAGIC)
 	wire.w_u8(&pb.w, DGRAM_VERSION)
+	wire.w_u32(&pb.w, c.epoch)
+	wire.w_u32(&pb.w, c.peer_epoch)
 	wire.w_u32(&pb.w, c.next_seq)
 	wire.w_u32(&pb.w, c.have_recv ? c.recv_max : 0)
 	wire.w_u32(&pb.w, c.recv_bits)
@@ -385,8 +437,8 @@ begin_packet :: proc(pb: ^Packet_Builder, c: ^Conn) {
 
 @(private)
 end_packet :: proc(ch: ^Channel, pb: ^Packet_Builder, c: ^Conn, peer: Peer, now: i64) {
-	pb.w.buf[14] = u8(pb.count)
-	pb.w.buf[15] = u8(pb.count >> 8)
+	pb.w.buf[HEADER_BYTES - 2] = u8(pb.count)
+	pb.w.buf[HEADER_BYTES - 1] = u8(pb.count >> 8)
 	sp := &c.sent[c.next_seq % SENT_RING]
 	sp^ = pb.sp
 	sp.seq = c.next_seq

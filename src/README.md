@@ -83,12 +83,13 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
   non-blocking; EOS in its own package) → optional `netsim` wrapper (seeded xorshift; latency, uniform jitter, loss,
   duplication, extra delay for reordering; real or virtual clock) → `Channel` (any number of links, one peer
   numbering; sequence numbers, ack + 32-bit ack field, reliable messages resent after an RTT-based timeout and
-  delivered in order, keepalives every 250 ms, disconnect after 10 s of silence or a link's own disconnect event).
+  delivered in order, keepalives every 250 ms, disconnect after 10 s of silence or a link's own disconnect event;
+  epochs in every datagram end a half-open connection at once, see `channel.odin`).
 - **Step API:** `relay_step`, `client_step`, `host_step` take `now_us` and return the next wake time (the next tick
   boundary, or the poll interval, 1 ms by default). No package-level threads; `headless` runs threads for T3-T6, the
   Godot host runs its own loop. Time-dependent code takes `now` as a parameter, so tests run whole sessions on a
   virtual clock in milliseconds.
-- **Relay / client:** see `spec/netcode.md` (finalization with a 100 ms tolerance, prediction cap 166 ms, input delay
+- **Relay / client:** see `spec/netcode.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, input delay
   from RTT, ±2% clock slew, checksums every 16 verified ticks, late join with a queued snapshot or a full replay).
 - **Threads:** Box3D world creation/destruction touch Box3D globals (world table, lazily initialised contact
   registers), so `physics.create/destroy` are serialised by a mutex.
