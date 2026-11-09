@@ -10,7 +10,7 @@ out/
 /.toolchains/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)
-!/testdata/**/ref.log
+!/games/*/simulation/tests/testdata/ref.log
 
 # Generated Godot bindings (python tools/dev.py gen)
 *.gen.odin

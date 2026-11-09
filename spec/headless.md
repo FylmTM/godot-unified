@@ -58,10 +58,10 @@ Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% dup
 | T4 | `replay` of the T3 `bad` session's log | trace equals that session's verified checksums |
 | T5 | UDP: `relay` + 3 `client` processes (one with `--profile bad`), 960 ticks of real time | 0 desyncs |
 | T6 | `session --clock virtual --late-join 3@1200` (4th player joins at tick 1200) under `wan` | 0 desyncs after joining; the joiner's checksums match from its first verified tick |
-| T7 | **Cross-platform:** `replay` of `testdata/ref.log` | trace equals `testdata/ref.trace` (generated on macOS ARM64, committed) |
-| T8 | **Cross-platform snapshot:** `resume --in testdata/ref-1800.snap --ticks 1800` | trace equals ticks 1801–3600 of `ref.trace` |
+| T7 | **Cross-platform:** `replay` of `games/survivor/simulation/tests/testdata/ref.log` | trace equals `ref.trace` there (generated on macOS ARM64, committed) |
+| T8 | **Cross-platform snapshot:** `resume --in ref-1800.snap --ticks 1800` (same folder) | trace equals ticks 1801–3600 of `ref.trace` |
 | T9 | `bench --enemies 1000 --window 8` | reported (not gated). Target: forward step + 8-tick re-sim ≤ 6 ms. |
 
 CI runs T1–T9 on Linux x64 and Windows x64 and puts the T9 bench in the job summary. macOS is checked locally with
-the same `tools/check.py`. The `testdata/` references are regenerated only deliberately (`tools/dev.py check
---regen`, see `testdata/README.md`), which updates the committed files.
+the same `tools/check.py`. The reference runs (each game's `simulation/tests/testdata/`) are regenerated only deliberately
+(`tools/dev.py check --regen`, see the README there), which updates the committed files.

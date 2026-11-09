@@ -38,7 +38,6 @@ tests/               `odin test` packages, one per module, black-box via the col
   toy/               a tiny game for the library's own tests
   godot/             the binding tests' Godot project and test extension (dev.py godot-test)
   box3d/ ... view/   one package per module (box3d, headless, godot_host, gdext, eos, ...)
-testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8; friendslop/ for F5
 third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
 tools/               dev.py (the entry point) and its parts: tools/README.md
 docs/                WORK.md (decisions), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/
@@ -82,7 +81,7 @@ Rosetta determinism check on Apple Silicon (an x86_64 build in `out/release-x64/
 `python tools/dev.py check --arch x86_64 --only T1,T7,T8`.
 
 Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/dev.py check --regen` (see
-[`testdata/README.md`](testdata/README.md)).
+[`games/survivor/simulation/tests/testdata/README.md`](games/survivor/simulation/tests/testdata/README.md)).
 
 ## CI
 

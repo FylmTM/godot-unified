@@ -51,7 +51,7 @@ python tools/dev.py check                              # release build (both gam
 python tools/check.py --only T1,T7                     # subset, existing binary
 python tools/check.py --mode dev                       # test out/dev/survivor (timeouts x2)
 python tools/dev.py check --arch x86_64 --only T1,T7,T8   # macOS: the Rosetta build in out/release-x64/
-python tools/dev.py check --regen                      # macOS ARM64 binary only: rewrite testdata/, then test
+python tools/dev.py check --regen                      # macOS ARM64 binary only: rewrite the reference runs, then test
 ```
 
 - One `PASS`/`FAIL` line per test with its time, then a JSON line. Exit 0 when everything passed, 1 on a failure,
@@ -60,7 +60,7 @@ python tools/dev.py check --regen                      # macOS ARM64 binary only
   `T9/bench.json`.
 - F1-F5 (friendslop, the physics co-op game): sync-test 3600 ticks; two identical runs; a 4-client `bad` session
   whose relay log replays to the clients' checksums; a late join (a snapshot with joints); the replay of
-  `testdata/friendslop/` (macOS ARM64 reference, so Rosetta and CI prove movers, joints and platforms bit-exact).
+  `games/friendslop/simulation/tests/testdata/` (macOS ARM64 reference, so Rosetta and CI prove movers, joints and platforms bit-exact).
 - Every command runs under a timeout (sessions: `ticks/64·4 + 90` s; the rest 300–900 s), so a hung binary fails
   its test.
 - T3 and T6 run their sessions on the virtual clock (`session --clock virtual`: one thread steps the relay, the
