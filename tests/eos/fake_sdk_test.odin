@@ -368,11 +368,15 @@ host_session :: proc(r: ^Host_Run) {
 
 @(test)
 host_leave_host_on_fresh_threads :: proc(t: ^testing.T) {
+	// the fake allocates in its callbacks' fresh contexts: the heap, not the test's tracking allocator
+	heap := runtime.heap_allocator()
 	defer {
+		for s in fake.created do delete(s, heap)
+		for s in fake.destroyed do delete(s, heap)
 		delete(fake.created)
 		delete(fake.destroyed)
-		delete(fake.product_version)
-		delete(fake.last_code)
+		delete(fake.product_version, heap)
+		delete(fake.last_code, heap)
 		fake = {}
 	}
 	// Two sessions, each on a thread that exits before the next starts.
@@ -381,13 +385,13 @@ host_leave_host_on_fresh_threads :: proc(t: ^testing.T) {
 		th := thread.create_and_start_with_poly_data(&r, host_session)
 		thread.join(th)
 		thread.destroy(th)
-		defer delete(r.code)
 		testing.expect_value(t, r.stage, eos.Stage.Ready)
 		testing.expect_value(t, r.stage_2, eos.Stage.Idle)
 		testing.expect_value(t, len(r.code), eos.CODE_LEN)
 		testing.expect_value(t, r.code, fake.last_code) // the published attribute is the reported code
 	}
 	testing.expect(t, runs[0].code != runs[1].code, "a new code per session")
+	for r in runs do delete(r.code, heap) // cloned on the session threads
 	testing.expect_value(t, fake.initialized, 1)
 	testing.expect_value(t, fake.product_version, "1.2.3")
 	testing.expect_value(t, len(fake.created), 2)

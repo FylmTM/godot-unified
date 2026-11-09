@@ -122,6 +122,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
 	bench:     sim.Game(S, I, W, P), // the game with Glue.bench after init (req.bench > 0)
+	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
 	nets:      [dynamic]^Dev_Link, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
 }
@@ -226,7 +227,7 @@ g_bench_n: int
 // Installs the game: call once, before godot_host.entry.
 install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	D :: Driver(S, I, W, P)
-	gl := new(Glue(S, I, W))
+	gl := new(Glue(S, I, W), runtime.heap_allocator()) // lives as long as the process
 	gl^ = glue
 	g_game = game
 	g_glue = gl
@@ -249,6 +250,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 			return false, "online play is not available in this build"
 		}
 		d := new(D)
+		d.alloc = context.allocator
 		d.game = game
 		d.glue = glue
 		d.req = req
@@ -445,6 +447,7 @@ HURRY_US :: 1_000_000
 
 @(private)
 driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
+	context.allocator = d.alloc // (the temp allocator stays this thread's own)
 	set_realtime_thread(d.game.tick_hz)
 	session_power_begin()
 	if !driver_open(d) {

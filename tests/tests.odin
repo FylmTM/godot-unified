@@ -8,6 +8,7 @@ package tests
 @(require) import "dmath"
 @(require) import "eos"
 @(require) import "gdext"
+@(require) import "godot_host"
 @(require) import "lint"
 @(require) import "netcode"
 @(require) import "physics"
