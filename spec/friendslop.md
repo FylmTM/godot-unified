@@ -1,0 +1,139 @@
+# friendslop: the co-op physics sandbox (the second game)
+
+Signed off by the developer 2026-11-09; their decisions are marked (D). Code: `games/friendslop/`, laid
+out like `games/survivor/`. Library work it needs: `spec/physics.md` (mover, joints, paths) and `spec/level.md`
+(Godot-authored levels).
+
+A third-person physics sandbox for 1–4 players (solo works): wobbly capsule characters who ride platforms, bounce
+on jump pads, push, carry, stack and throw things (and each other), knock each other over, and haul heavy things
+together. A hub yard to mess around in, plus a short route (~3–5 min with a friend) that strings every interaction
+into beats. "friendslop" is also our umbrella term for this kind of game (D).
+
+It proves `unified` for physics-heavy co-op: characters, joints, kinematic movers, carries and throws inside
+rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`), Box3D 4 substeps.
+
+## Loop
+
+1. **Hub** (spawn, lobby, late join): a fenced yard with loose crates, balls, a seesaw, one platform, one jump pad,
+   a cannon pad, bumpers and one heavy crate. No goals: the sandbox, and where players land after a run.
+2. **Run:** walking through the start gate starts the team's run timer. Beats in order; each beat's exit is a team
+   **checkpoint**.
+3. **Falling** (y < −10): respawn at the team's last checkpoint after 1.5 s. A beat's key item that falls or leaves
+   its beat's bounds resets to its spawn.
+4. **Finish:** the trophy on the pedestal → run time shown (best time kept by the view) → after 5 s everyone is back
+   in the hub and the route resets.
+
+No health, no fail state: getting hit or dropped costs time, not a life.
+
+## The route
+
+Solo finishes every beat; co-op is faster or opens a shortcut.
+
+| # | Beat | Exercises |
+|---|---|---|
+| 1 | **Steps and gaps:** low steps, a slope, a short gap | controller: steps, slopes, jump, air control |
+| 2 | **Jump pad** onto a high ledge | jump pad launch, landing |
+| 3 | **Ferry:** a platform shuttles sideways across a chasm | riding a horizontal platform, getting on and off |
+| 4 | **Lift:** a platform goes up and down a shaft | riding a vertical platform; standing on a friend while riding |
+| 5 | **Stack:** crates in a pit, a ledge too high to jump to | push, carry, place, stack, stand on dynamic bodies |
+| 6 | **Toss:** a switch on a high ledge drops a ramp | throw a friend up onto the ledge; solo: a longer crate-stack path |
+| 7 | **Plate and gate:** a weight cube on a pressure plate holds a gate open | carry and place; the plate reads mass |
+| 8 | **Bell:** throw a ball at a bell across a gap to lower a bridge | aimed throw at a target |
+| 9 | **Pass:** the key crosses a gap on a ferry too narrow for a carrier | throw to a friend, catch; solo: throw it over, then cross |
+| 10 | **Haul:** a heavy crate to the scale that opens the last door | two-person lift over a low wall; solo drags it the long, flat way (D) |
+| 11 | **Trophy ride:** the trophy across moving platforms to the pedestal | carrying while riding; throwing things at friends |
+
+## Player controller (D: dynamic mover)
+
+`physics.Mover` (`spec/physics.md`): a rotation-locked dynamic capsule (r 0.35, height 1.6), a mover joint (target
+velocity, force cap) and a pogo joint (ground spring, ray probes). Being a real body, it rides kinematic platforms
+(the mover joint attaches to them), is pushed by thrown items, bumpers and friends, stands on crates and other
+players, and feels the pull of what it holds, all without special cases.
+
+Tuning: walk 5.5 m/s, accelerate 20/s, ground friction 8/s, air steer 0.25, jump 7 m/s, gravity scale 1.5, coyote
+time 0.125 s, jump buffer 0.125 s. Facing (a unit vector, no angles) follows the move direction, or the aim while
+holding.
+
+## Interactions
+
+- **Grab** (toggle, D): the nearest grabbable within 1.6 m of the chest in a 60° cone around the aim (a ray along the
+  aim first, then nearest-in-cone; lowest index on ties). Grabbables: items and players (D).
+- **Hold** (D: capped spring): a motor joint pulls the target's grab point to the hold point (chest height, 1.1 m
+  along facing, raised with aim pitch) with a force cap `HOLD_FORCE`; an angular spring keeps it upright relative to
+  facing. Collisions push back, nothing teleports. Holding slows the holder: −15 %, −40 % for a heavy item.
+- **Heavy items** (5× a crate's mass, two handles): one holder's cap is ~60 % of the weight, so alone it only drags;
+  two holders on two handles sum to ~120 % and lift it. Emergent from the force caps, not scripted.
+- **Holding a friend** (D): the held player goes limp (mover force 0, pogo released) and drops what they held; they
+  hang like a medium item. They break free with 3 jump presses within 1 s (not before 0.5 s held); auto-release
+  after 4 s (D). No chains: a held player can't grab, and a player holding a player can't be grabbed.
+- **Drop:** grab again.
+- **Throw:** hold throw to charge (0–0.5 s), release: the joint goes, the target gets `mass · (6 + 10·charge) · aim`
+  plus the holder's velocity. Heavy items can't be thrown. A thrown thing is "thrown by P" for 1 s (hit attribution;
+  ignores its thrower for 0.2 s). A thrown friend is stunned until they land (max 1 s).
+- **Catch:** holding grab while a thrown thing passes within reach grabs it.
+- **Hit** (D: knockback + stun): a Box3D contact hit event between a thrown or fast (> 6 m/s) item and a player →
+  impulse along the item's velocity, stun 0.75 s: drops what they hold, mover force 0, pogo released; the view tips
+  the character over. Bumpers do the same.
+- **Jump pads:** a box volume checked by the sim each tick (not Box3D sensors): a player whose feet are inside, or an
+  item whose centre is inside, gets the pad's launch velocity (vertical, plus an optional push); the mover is told
+  it launched. 0.25 s per-body cooldown.
+- **Platforms:** kinematic bodies on `physics.Path`s (waypoints, segment times, smoothstep, ping-pong or loop, waits),
+  optionally gated by a plate, bell or switch. The pose is a pure function of the platform's state (`running`,
+  `phase_tick`); the sim drives the body to it each tick.
+- **Pressure plates:** a box volume; the summed mass of bodies whose centre is over it ≥ threshold → pressed.
+- **Bell, switch:** a hit event with approach speed ≥ 4 m/s, or a player touching it → triggered.
+
+## Sim and view
+
+**Deterministic sim** (`simulation/friendslop`, block + Box3D): bodies (players, items, platforms, gates), joints
+(mover, pogo, hold), controller state, holds, throws, stuns, pads, plates, triggers, checkpoints, the run timer,
+phases and events (grabbed, dropped, thrown, hit, launched, landed, broke free, checkpoint, run start and finish,
+fell, respawned, plate on/off, bell rung).
+
+**Godot only:** the camera (orbit, collision, smoothing; it produces the input's aim), character animation
+(procedural squash, lean, wobble, stun tumble, arms), the level scene's own meshes and lights, materials,
+particles, sounds, HUD (timer, beat, prompts), nameplates, menus, settings, dev UI.
+
+## Input (8 bytes per player per tick)
+
+`move_x, move_z: i8` (world-space; the client rotates the stick by the camera yaw), `aim_x, aim_y, aim_z: i8` (the
+camera's look direction; the sim normalizes with `sqrt`), `buttons: u8` (jump, grab, throw held; edges against the
+previous tick's buttons in the state), 2 spare bytes. No angles cross the wire, so the sim needs no trig.
+
+## Camera and controls (D)
+
+Orbit camera, mouse captured / right stick. WASD moves relative to the camera, Space jumps, LMB grabs/drops
+(toggle), RMB held charges a throw, released throws. Pad: A jump, RT grab, LT charge/throw, B drop.
+
+## Level (D: authored in Godot)
+
+One level per session: `game/levels/park.tscn` instances `hub.tscn` and `route.tscn`. Godot's
+StaticBody3D/CollisionShape3D for geometry and marker nodes for the rest
+(`spec/level.md`): `platform` (+ Path3D), `pad`, `plate`, `item` (kind: crate, ball, cube, key, heavy, trophy...),
+`spawn`, `checkpoint`, `bell`, `switch`, `gate`, `bumper`, `beat` (bounds). Exported to a level file the sim loads at
+runtime; the default levels are embedded too, so headless runs need no path.
+
+## Art
+
+Greybox with primitives and toon shading: bright pastel players (one colour per slot, googly eyes), items colour-
+coded by weight (light yellow, medium blue, heavy red with handles), striped platforms, glowing pads, flag
+checkpoints. Sounds synthesized at boot, as in the survivor.
+
+## Tests and checks
+
+- `tests/friendslop`: sync-test (window 8) on scripted chaos inputs that walk, jump, grab, throw, hit, hold friends
+  and ride (players start next to items and platforms); scenarios asserting outcomes (two lift the heavy crate, one
+  can't; a rider stays on for a full platform cycle; a throw stuns a friend; a held friend breaks free); a netcode
+  session under the `bad` profile.
+- A headless binary with the CORE.md §3 modes; sync-test and session runs for friendslop in `check`.
+- `dev.py game validate|walk|tour|coop friendslop` as for the survivor; `tour` drives a scripted bot through the
+  route.
+- Budget (to be measured, then set): forward step ≤ 0.5 ms with 4 players and ~60 dynamic bodies; an 8-tick re-sim
+  ≤ 4 ms.
+
+## Build order
+
+1. Library: `spec/physics.md` and `spec/level.md`, with tests (after sign-off).
+2. **Vertical slice:** the hub, two players online: one platform, one jump pad, one throwable, one heavy crate,
+   holding a friend. Single player, EOS online with lobby codes, menus, settings, dev UI (the survivor pattern).
+3. The route, beat by beat, each with a scenario test.
