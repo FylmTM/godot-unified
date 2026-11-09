@@ -6,7 +6,7 @@ import "core:testing"
 import "unified:netcode"
 
 // netcode.want_delay computes the ceiling by hand (netcode stays off core:math); it must equal the
-// formula of CORE.md §2 everywhere. The test itself may use core:math: it is not simulation code.
+// formula of spec/netcode.md everywhere. The test itself may use core:math: it is not simulation code.
 @(test)
 want_delay_matches_formula :: proc(t: ^testing.T) {
 	for hz in ([]int{32, 60, 64, 128}) {

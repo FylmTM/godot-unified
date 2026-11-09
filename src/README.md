@@ -17,7 +17,7 @@ works inside. Commands and toolchain: [`../AGENTS.md`](../AGENTS.md), [`../READM
 | `dmath` | Deterministic f32 helpers |
 | `netcode` | Links (loopback, UDP, netsim), multi-link channel, relay, client, host; `*_step(now) -> wake` + hooks |
 | `eos` | Epic Online Services: device-ID login, lobbies by code, P2P sockets as a netcode `Link` (`spec/eos.md`) |
-| `headless` | The CORE.md §3 modes (sim, synctest, replay, snapshot, resume, bench, session, relay, client) for any game |
+| `headless` | The spec/headless.md modes (sim, synctest, replay, snapshot, resume, bench, session, relay, client) for any game |
 | `view` | Host-agnostic view logic: triple buffer, SPSC queue, pose tracks + smoothing, spawn keys, events (`spec/view.md`) |
 | `gdext` | Godot bindings: generator, committed API dump, runtime, class registration |
 | `imgui` | Vendored odin-imgui declarations (`spec/imgui.md`) |

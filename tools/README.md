@@ -8,7 +8,7 @@ Command list: [`../AGENTS.md`](../AGENTS.md#layout-and-commands).
 |---|---|
 | `dev.py` | build / test / check / fmt / vet / gen / godot-test / godot-checks / all / game. Prints each step's time and keeps the last ones in `out/timings.json`. |
 | `game.py` | Godot project checks behind `dev.py game validate\|walk\|shots\|tour\|coop\|import <game>`. |
-| `check.py` | T1-T9 of `spec/CORE.md` §4 against `out/<mode>/survivor` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
+| `check.py` | T1-T9 of `spec/headless.md`, T1-T9 against `out/<mode>/survivor` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`spec/box3d.md`). |
 | `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`spec/imgui.md`). |
 | `eos.py` | Stages the pruned EOS SDK in `third_party/eos/` (local SDK or the draft release, hash-checked); `defines` shows the credential flags, redacted (`docs/EOS.md`). |
@@ -60,4 +60,4 @@ python tools/dev.py check --regen                      # macOS ARM64 binary only
 - The real-time tests T3, T5, T6 run concurrently (`--serial` to disable; T3's sessions with `--jobs`, default 6):
   they are paced by the 64 Hz clock, not the CPU. T4 reuses T3's 4-client `bad` log. T5 starts a UDP relay on a
   free localhost port, waits 0.5 s, then starts 3 client processes (client 2 with `--profile bad`).
-- Seeds: tests use 42, the references 7. JSON field names and tick numbering: `spec/CORE.md` §3, "Conventions".
+- Seeds: tests use 42, the references 7. JSON field names and tick numbering: `spec/headless.md` (CLI, "Conventions").

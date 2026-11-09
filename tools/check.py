@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The end-to-end tests T1-T9 of spec/CORE.md §4, run against the CLI binary.
+"""The end-to-end tests T1-T9 of spec/headless.md (T1-T9), run against the CLI binary.
 
     python tools/dev.py check [options]       # builds first (release), then runs this
     python tools/check.py [--mode release|dev|debug] [--arch x86_64] [--only T1,T3] [--regen [--force]]
                           [--jobs N] [--timeout-scale X]
 
 Drives out/<mode>/survivor[.exe] (the survivor's headless binary; out/<mode>-x64/ with --arch x86_64, the Rosetta
-build) through the CLI of spec/CORE.md §3 (it does not build it). The platform it reports is the binary's own
+build) through the CLI of spec/headless.md (CLI) (it does not build it). The platform it reports is the binary's own
 architecture, not the host's. Prints
 one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
 (each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
@@ -19,7 +19,7 @@ macOS ARM64 unless --force:
 then self-checked (replay of ref.log == ref.trace; resume of ref-1800.snap == ticks 1801-3600 of
 ref.trace) before the files replace the committed ones.
 
-Conventions (spec/CORE.md §3): ticks are numbered from 1 (the state after the k-th step is tick k;
+Conventions (spec/headless.md (CLI)): ticks are numbered from 1 (the state after the k-th step is tick k;
 `--ticks N` ends at tick N), every trace line is "%06d %016x" for ticks 1..N in order, and every
 mode prints one JSON object as its last stdout line.
 """
@@ -545,7 +545,7 @@ def binary_platform(path):
 
 
 def parser():
-    ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/CORE.md §4 tests (T1-T9).")
+    ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/headless.md (T1-T9) tests (T1-T9).")
     ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
                     help="which build to test: out/<mode>/survivor (default release)")
     ap.add_argument("--arch", choices=["x86_64"], help="macOS: test the Rosetta build in out/<mode>-x64/")

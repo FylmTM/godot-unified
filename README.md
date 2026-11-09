@@ -19,7 +19,7 @@ src/                 the `unified` collection (-collection:unified=src); one pac
   dmath/             deterministic f32 helpers (leaf)
   netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks
   eos/               Epic Online Services: login, lobbies by code, P2P as a netcode link
-  headless/          a game's headless binary: the CLI modes of spec/CORE.md §3, generic over the game
+  headless/          a game's headless binary: the CLI modes of spec/headless.md (CLI), generic over the game
   view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
   gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
   imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui

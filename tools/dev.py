@@ -34,7 +34,7 @@ Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The b
 static library by relative path, so plain `odin build games/survivor/simulation/headless
 -collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
 is built (add -out: or the binary lands in the current folder); this script adds the flags and timings. The binary built is the survivor test game's
-headless binary (the CLI modes of spec/CORE.md §3 come from unified:headless).
+headless binary (the CLI modes of spec/headless.md (CLI) come from unified:headless).
 --arch x86_64 (macOS only) builds for darwin_amd64 against the macos-x64 Box3D, for Rosetta checks.
 """
 

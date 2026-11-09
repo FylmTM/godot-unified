@@ -2,8 +2,8 @@
 // are little-endian with explicit sizes; inputs travel as the game's plain-data bytes.
 package netcode
 
-import "../sim"
-import "../wire"
+import "unified:sim"
+import "unified:wire"
 
 PROTOCOL_VERSION :: 4 // 4: datagram epochs (channel.odin)
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)

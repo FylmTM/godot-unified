@@ -152,7 +152,7 @@ def cmd_summary():
         print("\n".join(out))
         return
     j = json.loads(check_path.read_text())
-    out += ["### T1-T9 (spec/CORE.md §4): %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
+    out += ["### T1-T9 (spec/headless.md (T1-T9)): %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
             "| test | result | seconds | detail |", "|---|---|---:|---|"]
     for name, r in j.get("tests", {}).items():
         detail = r.get("detail", "").replace("|", "\\|").replace("\n", " ")[:300]

@@ -1,6 +1,6 @@
 # testdata
 
-Reference files for the cross-platform tests T7 and T8 (`spec/CORE.md` §4). They are generated on **macOS ARM64**
+Reference files for the cross-platform tests T7 and T8 (`spec/headless.md`, T1-T9). They are generated on **macOS ARM64**
 and committed; CI (Linux x64, Windows x64) and the Rosetta check must reproduce them bit for bit.
 
 | File | What it is |

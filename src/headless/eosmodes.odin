@@ -11,9 +11,9 @@ import "core:fmt"
 import "core:os"
 import "core:time"
 
-import "../eos"
-import "../netcode"
-import "../sim"
+import "unified:eos"
+import "unified:netcode"
+import "unified:sim"
 
 // Lobbies only match within a bucket; --bucket survivor/2 meets the game's own builds.
 EOS_BUCKET :: "unified-headless/2"

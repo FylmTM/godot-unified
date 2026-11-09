@@ -9,8 +9,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "../netcode"
-import "../sim"
+import "unified:netcode"
+import "unified:sim"
 
 Session_Config :: struct {
 	clients:     int,

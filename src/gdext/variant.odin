@@ -11,7 +11,7 @@ package gdext
 import "base:intrinsics"
 import "base:runtime"
 import "core:reflect"
-import "gdi"
+import "unified:gdext/gdi"
 
 // The Variant type of an Odin type (NIL for Variant itself: "any").
 variant_type_of :: proc($T: typeid) -> gdi.VariantType {

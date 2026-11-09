@@ -3,7 +3,7 @@
 // EOS P2P, ...). Single player is a host with no remote links: the same code path, no special case.
 package netcode
 
-import "../sim"
+import "unified:sim"
 
 Host_Config :: struct {
 	seed:    u64,
