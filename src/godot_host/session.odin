@@ -158,6 +158,9 @@ register_session_class :: proc() {
 	gd.bind_method(c, "set_input_vector", proc(s: ^Session_Node, index: i64, v: gd.Vector3) {
 		set_input_vector(int(index), {v.x, v.y, v.z})
 	}, {"index", "vector"})
+	gd.bind_method(c, "set_input_vector_2d", proc(s: ^Session_Node, index: i64, v: gd.Vector2) {
+		set_input_vector(int(index), {v.x, v.y, 0})
+	}, {"index", "vector"})
 	gd.bind_method(c, "set_player_name", proc(s: ^Session_Node, name: string) {
 		delete(s.name)
 		s.name = strings.clone(name)

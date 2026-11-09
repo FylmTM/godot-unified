@@ -65,7 +65,8 @@ GDScript sees contract v0:
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
   - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
-    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4);
+    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4); `set_input_vector_2d(i, v)` takes
+    a Vector2 (z = 0), e.g. a 2D aim direction;
   - `send_command(name: StringName, args: Dictionary) -> bool` (signed off 2026-11-10): sends one of the game's
     commands (`sim.Game.commands`, src/sim/SPEC.md), delivered to the sim exactly once. The host converts the
     Dictionary into the command's struct by RTTI, no per-game glue: ints (range-checked), floats, bools, enums (a

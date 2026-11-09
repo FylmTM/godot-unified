@@ -67,6 +67,7 @@ func _initialize() -> void:
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("send_command without a session: false", not session.send_command(&"bump", {"amount": 1}))
+	session.set_input_vector_2d(0, Vector2(0.5, -1))  # a 2D game's aim (the toy ignores it): the binding exists
 	check("start_single", session.start_single())
 
 	var typed: Node = null
