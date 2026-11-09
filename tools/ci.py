@@ -7,9 +7,16 @@
     python tools/ci.py ensure-ninja          # pip-install ninja if missing (only needed to build Box3D)
     python tools/ci.py compiler-id           # short id of the C compiler Box3D builds with (its CI cache key)
     python tools/ci.py summary               # markdown for $GITHUB_STEP_SUMMARY from out/
+    python tools/ci.py cloud-setup           # cloud sessions only: every toolchain + third-party build (below)
 
 `odinfmt` also works locally: it is the supported way to install the pinned formatter (put <dest> on
 PATH or set ODINFMT=<dest>/odinfmt). Every step is a no-op when its output already exists.
+
+`cloud-setup` provisions a Claude Code cloud session (Ubuntu x86_64; docs/CLOUD.md). It links .toolchains/ and
+third_party/{box3d,imgui,eos}/ to ~/.cache/unified-cloud/, so what the environment's setup script builds there
+survives into the cached VM snapshot and every fresh clone reuses it, then runs Odin, odinfmt, Godot, Box3D, Dear
+ImGui and the EOS SDK in parallel. Run from the SessionStart hook it puts Odin on PATH through $CLAUDE_ENV_FILE.
+It always exits 0 and prints one line saying what is ready and what failed (the hook's output reaches Claude).
 """
 
 import json
@@ -171,6 +178,73 @@ def cmd_summary():
     print("\n".join(out))
 
 
+CLOUD_CACHE = Path.home() / ".cache" / "unified-cloud"
+CLOUD_LINKS = (".toolchains", "third_party/box3d", "third_party/imgui", "third_party/eos")  # all git-ignored
+
+
+def pinned_odin_tag():
+    """The Odin release the hashes in ODIN_SHA256 are for (the workflows' ODIN_TAG)."""
+    pre, suf = "odin-linux-amd64-", ".tar.gz"
+    tags = {k[len(pre):-len(suf)] for k in ODIN_SHA256 if k.startswith(pre) and k.endswith(suf)}
+    if len(tags) != 1:
+        raise SystemExit("ci.py: expected one pinned Linux Odin release in ODIN_SHA256, found %s" % sorted(tags))
+    return tags.pop()
+
+
+def cmd_cloud_setup():
+    import concurrent.futures
+    import time
+    t0 = time.time()
+    for rel in CLOUD_LINKS:
+        p = REPO / rel
+        if not p.is_symlink() and not p.exists():
+            target = CLOUD_CACHE / rel.replace("/", "-")
+            target.mkdir(parents=True, exist_ok=True)
+            p.symlink_to(target, target_is_directory=True)
+    odin_dir = REPO / ".toolchains" / "odin"
+
+    def odin_and_fmt():
+        cmd_odin(pinned_odin_tag(), odin_dir)
+        os.environ["PATH"] = str(find_odin(odin_dir, "odin" + EXE)[0].parent) + os.pathsep + os.environ["PATH"]
+        cmd_odinfmt(REPO / ".toolchains" / "odinfmt")
+
+    def godot():
+        common.find_godot(fetch=True)
+
+    def box3d():
+        import box3d
+        box3d.ensure()
+
+    def imgui():
+        import imgui
+        imgui.ensure()
+
+    def eos():
+        import eos
+        eos.ensure()
+
+    steps = {"odin+odinfmt": odin_and_fmt, "godot": godot, "box3d": box3d, "imgui": imgui, "eos": eos}
+    failed = {}
+    with concurrent.futures.ThreadPoolExecutor(len(steps)) as pool:
+        futures = {name: pool.submit(fn) for name, fn in steps.items()}
+        for name, f in futures.items():
+            try:
+                f.result()
+            except (Exception, SystemExit) as e:
+                failed[name] = str(e).strip().splitlines()[-1][:200] if str(e).strip() else type(e).__name__
+    odin = find_odin(odin_dir, "odin" + EXE)
+    env_file = os.environ.get("CLAUDE_ENV_FILE")
+    if env_file and odin:
+        with open(env_file, "a", encoding="utf-8") as f:
+            f.write('export PATH="%s:$PATH"\n' % odin[0].parent)
+    ready = [n for n in steps if n not in failed]
+    msg = "unified cloud-setup (%.0f s): ready: %s" % (time.time() - t0, ", ".join(ready) or "nothing")
+    if failed:
+        msg += "; FAILED: " + "; ".join("%s (%s)" % kv for kv in failed.items())
+        msg += ". Rerun `python3 tools/ci.py cloud-setup` for the full log."
+    print(msg, flush=True)
+
+
 def main():
     a = sys.argv[1:]
     if len(a) == 3 and a[0] == "odin":
@@ -186,6 +260,8 @@ def main():
         cmd_compiler_id()
     elif a == ["summary"]:
         cmd_summary()
+    elif a == ["cloud-setup"]:
+        cmd_cloud_setup()
     else:
         print(__doc__, file=sys.stderr)
         return 2
