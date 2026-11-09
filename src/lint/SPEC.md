@@ -1,6 +1,6 @@
 # lint
 
-Decided autonomously 2026-11-09, pending developer review.
+Signed off by the developer 2026-11-09.
 
 The determinism lint (AGENTS.md "Deterministic simulation") as a library, so a game outside this repo lints its
 sim package the way unified lints its own. Test-side code: it imports `core:testing` and runs inside `odin test`.

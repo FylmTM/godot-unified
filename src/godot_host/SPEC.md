@@ -72,7 +72,7 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
 (a plain bulk node joins `sim_bulk` itself). Scripts run without the extension that way, and the host uses
 `Object.set`/`call`.
 
-**2D views** (pending developer review). A view scene's root class picks the mapping, so one game may mix both:
+**2D views** (signed off by the developer 2026-11-09). A view scene's root class picks the mapping, so one game may mix both:
 
 - Position: `Vector2(pos.x, pos.y)` in Godot's 2D coordinates (x right, y down), in `view_root`'s units (pixels
   unless it is scaled); `pos.z` is unused. `extract` writes view units (render side: f32 math is fine there), and
