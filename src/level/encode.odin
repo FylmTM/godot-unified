@@ -4,8 +4,9 @@ package level
 
 import "unified:wire"
 
-// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices).
-encode :: proc(bodies: []Body, markers: []Marker, allocator := context.allocator) -> []u8 {
+// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices), in the
+// current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D level.
+encode :: proc(bodies: []Body, markers: []Marker, px_per_m: f32 = 0, allocator := context.allocator) -> []u8 {
 	strs := make([dynamic]string, 0, 64, context.temp_allocator)
 	append(&strs, "")
 	intern :: proc(strs: ^[dynamic]string, s: string) -> u32 {
@@ -36,6 +37,7 @@ encode :: proc(bodies: []Body, markers: []Marker, allocator := context.allocator
 	}
 	wire.w_bytes(&w, transmute([]u8)string(MAGIC))
 	wire.w_u16(&w, VERSION)
+	f(&w, px_per_m)
 	wire.w_u32(&w, u32(len(strs)))
 	for s in strs {
 		wire.w_u16(&w, u16(len(s)))
