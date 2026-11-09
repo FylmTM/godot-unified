@@ -3,6 +3,7 @@
 // thread. `install` instantiates it for one game and fills the non-generic `api` the Godot classes call.
 package godot_host
 
+import "base:runtime"
 import "core:fmt"
 import cnet "core:net"
 import "core:strings"
@@ -453,6 +454,7 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 		return
 	}
 	for {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
 		if d.uses_tp && transport.pump != nil do transport.pump(transport.user, &d.tev)
 		if len(d.nets) > 0 && sync.atomic_load(&netsim_req.gen) != d.net_gen {
