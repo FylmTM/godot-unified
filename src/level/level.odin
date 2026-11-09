@@ -13,7 +13,7 @@
 //            string u32 | ref i32: marker index, -1 none), then path point count u16, points 3f32 (world)
 package level
 
-import "../wire"
+import "unified:wire"
 
 MAGIC :: "UNLV"
 VERSION :: 1

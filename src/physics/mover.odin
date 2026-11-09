@@ -7,8 +7,8 @@
 // coyote time, a jump buffer and a limp mode (held, stunned).
 package physics
 
-import b3 "../box3d"
-import "../dmath"
+import b3 "unified:box3d"
+import "unified:dmath"
 
 Mover_Flag :: enum u8 {
 	On_Ground, // the probes found ground and the mover is not jumping

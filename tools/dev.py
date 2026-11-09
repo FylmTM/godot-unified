@@ -9,7 +9,7 @@
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
-    python tools/dev.py godot-test              # binding tests: tests/godot under headless Godot
+    python tools/dev.py godot-test              # tests/godot (bindings), tests/godot_views (host views), headless
     python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
                                                 # validate, walk (CI's godot job runs exactly this)
     python tools/dev.py all                     # fmt --check, vet, test, check, bench, godot-checks (all CI runs)
@@ -26,8 +26,9 @@
     python tools/dev.py board list [--status S] [--area A]          # the work board (tools/board.py, AGENTS.md)
     python tools/dev.py board set <issue> [--status S] [--area A]   # move or file an issue on the board
 
-<game> is a name under games/ or a project path. Every command rejects arguments it doesn't know; `-h` on any
-command prints its options.
+<game> is a name under games/ or a project path (relative: to the current directory, else to the repo), so a
+game in its own repo runs `python3 unified/tools/dev.py game build .` (tools/README.md). Every command rejects
+arguments it doesn't know; `-h` on any command prints its options.
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, the fastest to build
@@ -86,9 +87,10 @@ FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (RE
 # The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
 HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",
             "toy": "tests/toy/headless"}
-# Packages vet type-checks (with everything they import): the headless binaries, the tests, the binding test
-# extension and the games' extensions.
-VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "games/survivor/simulation/extension",
+# Packages vet type-checks (with everything they import): the headless binaries, the tests, the Godot test
+# extensions (tests/godot, tests/godot_views) and the games' extensions.
+VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext",
+                                          "games/survivor/simulation/extension",
                                           "games/friendslop/simulation/extension"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
@@ -172,21 +174,29 @@ def godot_errors(text):
     return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
 
 
+# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix).
+GODOT_TESTS = [
+    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS"),  # the gdext bindings
+    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS"),  # godot_host views
+]
+
+
 def cmd_godot_test():
     t0 = time.time()
-    proj = REPO / "tests" / "godot"
     imgui.ensure()
-    build_extension("tests/godot/ext", proj / ".out" / "bin" / common.lib_name("gdext_test"))
-    common.write_extension_list(proj)
-    # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
-    r = common.run_godot(["--headless", "--verbose", "--path", proj, "-s", "res://test.gd"], timeout=30)
-    out = r.stdout + r.stderr
-    sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", "GDEXT"))))
-    errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
-    for e in errs:
-        log("godot: " + e)
-    if r.returncode != 0 or errs or "GDEXT TESTS: 0 failed" not in out:
-        raise SystemExit("dev: godot-test failed (exit %d, %d error line(s))" % (r.returncode, len(errs)))
+    for proj_rel, pkg, stem, script, summary in GODOT_TESTS:
+        proj = REPO / proj_rel
+        build_extension(pkg, proj / ".out" / "bin" / common.lib_name(stem))
+        common.write_extension_list(proj)
+        # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
+        r = common.run_godot(["--headless", "--verbose", "--path", proj, "-s", script], timeout=30)
+        out = r.stdout + r.stderr
+        sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", summary))))
+        errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
+        for e in errs:
+            log("godot: " + e)
+        if r.returncode != 0 or errs or summary + ": 0 failed" not in out:
+            raise SystemExit("dev: godot-test %s failed (exit %d, %d error line(s))" % (proj_rel, r.returncode, len(errs)))
     log("dev: godot-test passed in %.2fs" % (time.time() - t0))
 
 
@@ -205,8 +215,9 @@ def cmd_game_build(gdir, mode="dev"):
     if not (gdir / "simulation" / "extension").is_dir():
         raise SystemExit("dev: %s has no simulation/extension to build" % rel(gdir))
     name = gdir.name
-    box3d.ensure()
-    imgui.ensure()
+    if game_uses_box3d(gdir):
+        box3d.ensure()
+    imgui.ensure()  # the dev UI (godot_host); -define:UNIFIED_DEVUI=false compiles it out
     cmd_gen()
     out = gdir / ".out" / "bin" / common.lib_name(name)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -243,6 +254,19 @@ def cmd_game_build(gdir, mode="dev"):
     common.write_extension_list(gdir)
     log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, rel(out), time.time() - t0, secs))
     return out
+
+
+def game_sources(gdir):
+    """The game's Odin sources: every .odin file under <game>/simulation (not in .out/ or hidden folders)."""
+    root = gdir / "simulation"
+    return [p for p in root.rglob("*.odin") if not any(x.startswith(".") for x in p.relative_to(root).parts)]
+
+
+def game_uses_box3d(gdir):
+    """Box3D (CMake, Ninja, clang) is built only for a game whose Odin code imports physics: a game without it
+    links nothing of Box3D (godot_host, netcode and sim don't import it)."""
+    return any('"unified:physics"' in t or '"unified:box3d"' in t
+               for t in (p.read_text(errors="replace") for p in game_sources(gdir)))
 
 
 def extension_uses_eos(gdir):
@@ -326,6 +350,8 @@ def offline_checksums(gdir, ticks, seed):
     pkg = gdir / "simulation" / "headless"
     if not pkg.is_dir():
         return None
+    if game_uses_box3d(gdir):
+        box3d.ensure()
     exe = REPO / "out" / "games" / (gdir.name + "_headless" + EXE)
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["build", pkg.as_posix(), "-out:" + exe.as_posix(), COLLECTION] + MODES["release"] + VET,
@@ -761,7 +787,8 @@ def cmd_regen(name):
     pkg = REPO / "tests" / "scenarios" if name == "toy" else common.game_dir(name) / "simulation" / "tests"
     if not (pkg / "suite_test.odin").exists():
         raise SystemExit("dev: %s has no end-to-end suite (suite_test.odin)" % rel(pkg))
-    box3d.ensure()
+    if name == "toy" or game_uses_box3d(pkg.parent.parent):
+        box3d.ensure()
     exe = REPO / "out" / "regen" / ((name if name == "toy" else pkg.parent.parent.name) + "_suite" + EXE)
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["test", rel(pkg), COLLECTION, "-out:" + exe.as_posix(), "-define:UNIFIED_REGEN=true",

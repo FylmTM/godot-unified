@@ -1,8 +1,8 @@
 // Static geometry from a level file (src/level/SPEC.md): one static body per level body, in file order.
 package physics
 
-import b3 "../box3d"
-import "../level"
+import b3 "unified:box3d"
+import "unified:level"
 
 // Creates every static body of the level, in file order, and returns how many. Shapes without a
 // category in the file get `default_category`.

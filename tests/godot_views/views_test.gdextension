@@ -1,0 +1,13 @@
+; The godot_host view test extension (tests/godot_views/ext), built by `python tools/dev.py godot-test`.
+[configuration]
+
+entry_symbol = "views_test_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+macos.debug = "res://.out/bin/libviews_test.dylib"
+macos.release = "res://.out/bin/libviews_test.dylib"
+linux.x86_64 = "res://.out/bin/libviews_test.so"
+windows.x86_64 = "res://.out/bin/views_test.dll"

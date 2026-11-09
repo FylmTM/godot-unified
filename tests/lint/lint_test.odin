@@ -1,104 +1,31 @@
-// Determinism lint (AGENTS.md "Deterministic simulation"): a token scan of the library packages
-// that fails on constructs the simulation must not use. It is cheap (a few ms) and runs with every
-// `odin test`. It can't prove determinism (the end-to-end suites and reference runs do that); it stops the known traps
-// from creeping back in.
+// Determinism lint (AGENTS.md "Deterministic simulation") over unified's packages and its games, through
+// unified:lint (src/lint/SPEC.md), the way a game outside the repo lints its own sim package. Every package of
+// src/ and of each game's simulation/ has a rule here (the import graph), so a new one can't skip the lint.
 package test_lint
 
-import "base:runtime"
 import "core:fmt"
-import "core:odin/tokenizer"
 import "core:os"
 import "core:strings"
 import "core:testing"
+import "unified:lint"
 
 SRC_DIR :: #directory + "/../../src"
 GAMES_DIR :: #directory + "/../../games"
 
-Rule :: struct {
-	pkg:           string,
-	dir:           string, // "" : src/<pkg>; else relative to the repo root (subdirectories included)
-	only_imports:  []string, // when set: the only imports allowed (../x counts as unified:x; "a/" allows a/*)
-	ban_imports:   []string, // import path prefixes
-	allow_imports: []string, // exceptions to ban_imports
-	ban_idents:    []string, // identifiers, e.g. types or intrinsics
-	ban_matrix:    bool,
-	strict:        bool, // also bans `foreign`, `map` and `x := 1.5` (an untyped float literal is f64)
-	tick:          bool, // code inside a tick: package-level variables must be @(rodata) (see scan_globals)
-}
+Rule :: lint.Rule
+TICK_IMPORTS :: lint.TICK_IMPORTS
+SIM_IDENTS :: lint.SIM_IDENTS
+FLOAT_TRAPS :: lint.FLOAT_TRAPS
+MATH :: lint.MATH
+MATH_OK :: lint.MATH_OK
 
-// Package-level variables a tick package may write, each with why it is safe: none is read or
-// written by a tick, so none is state outside the block.
-Mutable_Global :: struct {
-	pkg, name, reason: string,
-}
-MUTABLE_GLOBALS :: []Mutable_Global {
-	{
-		"physics",
-		"world_mutex",
-		"serializes Box3D world creation across threads (b3CreateWorld); never touched by a tick",
-	},
-}
+// The games' simulation packages (the code inside their ticks): linted with lint.check_sim_package, exactly as a
+// game outside the repo does from its own tests.
+GAME_SIMS :: []string{"games/survivor/simulation/survivor", "games/friendslop/simulation/friendslop"}
 
-// core:math (and linalg, rand, noise...) pulls in transcendentals and FMA-friendly code; only the
-// integer helpers of core:math/bits are allowed. `matrix` types multiply with fused operations.
-MATH :: []string{"core:math"}
-MATH_OK :: []string{"core:math/bits"}
-FLOAT_TRAPS :: []string {
-	"fused_mul_add",
-	"quaternion64",
-	"quaternion128",
-	"quaternion256",
-	"complex32",
-	"complex64",
-	"complex128",
-}
-
-// Inside a tick: f32 only, no clocks, entropy or cycle counters.
-SIM_IDENTS :: []string {
-	"fused_mul_add",
-	"quaternion64",
-	"quaternion128",
-	"quaternion256",
-	"complex32",
-	"complex64",
-	"complex128",
-	"f64",
-	"f64le",
-	"f64be",
-	"f16",
-	"f16le",
-	"f16be",
-	"read_cycle_counter",
-	"read_cycle_counter_frequency",
-	"random_generator",
-	"default_random_generator",
-}
-
-// What code inside a tick may import: the deterministic packages and the integer bit helpers.
-TICK_IMPORTS :: []string {
-	"unified:sim",
-	"unified:physics",
-	"unified:level",
-	"unified:dmath",
-	"unified:box3d",
-	"unified:wire",
-	"base:intrinsics",
-	"core:math/bits",
-}
-
+// `dir` "": src/<pkg>; else relative to the repo root (subdirectories included).
 RULES := []Rule {
-	// Game simulation code: an import allowlist, f32 only, no foreign code, no maps, no clocks,
-	// files or threads, no randomness besides the state's RNG.
-	{
-		pkg = "survivor",
-		dir = "games/survivor/simulation/survivor",
-		only_imports = TICK_IMPORTS,
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
-	},
-	// Library code that runs inside a tick: the same rules as game code.
+	// Library code that runs inside a tick: the same rules as game code (lint.sim_rule).
 	{
 		pkg = "dmath",
 		only_imports = TICK_IMPORTS,
@@ -108,6 +35,7 @@ RULES := []Rule {
 		tick = true,
 	},
 	// physics walks RTTI (base:runtime) and guards Box3D world creation with a mutex (core:sync).
+	// world_mutex serializes Box3D world creation across threads (b3CreateWorld); never touched by a tick.
 	{
 		pkg = "physics",
 		only_imports = PHYSICS_IMPORTS,
@@ -115,6 +43,7 @@ RULES := []Rule {
 		ban_matrix = true,
 		strict = true,
 		tick = true,
+		allow_globals = {"world_mutex"},
 	},
 	// Levels: parsed when a World is created; plain data, through unified:wire.
 	{
@@ -145,6 +74,8 @@ RULES := []Rule {
 	{pkg = "imgui"},
 	{pkg = "devui"},
 	{pkg = "godot_host"},
+	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
+	{pkg = "lint", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
 	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
@@ -161,17 +92,7 @@ RULES := []Rule {
 	{pkg = "survivor_extension", dir = "games/survivor/simulation/extension"},
 	// The survivor's sim tests: test code like tests/<module>, never inside a tick.
 	{pkg = "test_survivor", dir = "games/survivor/simulation/tests"},
-	// friendslop (games/friendslop/SPEC.md): its sim follows the game rules; its headless binary and GDExtension
-	// are like the survivor's.
-	{
-		pkg = "friendslop",
-		dir = "games/friendslop/simulation/friendslop",
-		only_imports = TICK_IMPORTS,
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
-	},
+	// friendslop (games/friendslop/SPEC.md): its headless binary and GDExtension are like the survivor's.
 	{
 		pkg = "friendslop_headless",
 		dir = "games/friendslop/simulation/headless",
@@ -213,300 +134,19 @@ rule_dir :: proc(r: Rule) -> string {
 	return strings.concatenate({SRC_DIR, "/", r.pkg}, context.temp_allocator)
 }
 
-// Returns one line per violation in `src` (file `name`) under rule `r`.
-scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
-	out := make([dynamic]string, allocator)
-	report :: proc(
-		out: ^[dynamic]string,
-		tok: tokenizer.Token,
-		name, what: string,
-		r: Rule,
-		allocator: runtime.Allocator,
-	) {
-		where_ := fmt.tprintf("%s(%d:%d)", name, tok.pos.line, tok.pos.column)
-		append(out, fmt.aprintf("%s: %s is banned in package %s", where_, what, r.pkg, allocator = allocator))
-	}
-	tz: tokenizer.Tokenizer
-	tokenizer.init(&tz, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
-	tz.flags = {.Insert_Semicolon} // a newline ends a statement: `x := 1.5` is caught, `x := 1.5 * y` is not
-	after_import := false
-	prev: [3]tokenizer.Token_Kind // the last significant tokens, prev[0] the latest
-	pending: Maybe(tokenizer.Token) // an untyped float literal right after `:=`, if the statement ends there
-	for tok := tokenizer.scan(&tz);; tok = tokenizer.scan(&tz) {
-		if tok.kind == .Comment {
-			continue
-		}
-		if f, ok := pending.?; ok {
-			if tok.kind == .Semicolon || tok.kind == .EOF || tok.kind == .Close_Brace {
-				report(&out, f, name, fmt.tprintf("`:= %s` (an untyped float literal is f64)", f.text), r, allocator)
-			}
-			pending = nil
-		}
-		if tok.kind == .EOF {
-			break
-		}
-		#partial switch tok.kind {
-		case .Import:
-			after_import = true
-			prev = {tok.kind, prev[0], prev[1]}
-			continue
-		case .Matrix:
-			if r.ban_matrix {
-				report(&out, tok, name, "`matrix`", r, allocator)
-			}
-		case .Foreign:
-			if r.strict {
-				report(&out, tok, name, "`foreign`", r, allocator)
-			}
-		case .Map:
-			if r.strict {
-				report(&out, tok, name, "`map` (unordered)", r, allocator)
-			}
-		case .Float:
-			after_colon_eq := prev[0] == .Eq && prev[1] == .Colon
-			signed := (prev[0] == .Sub || prev[0] == .Add) && prev[1] == .Eq && prev[2] == .Colon
-			if r.strict && (after_colon_eq || signed) {
-				pending = tok
-			}
-		case .Ident:
-			if after_import {
-				prev = {tok.kind, prev[0], prev[1]}
-				continue // import alias
-			}
-			for b in r.ban_idents {
-				if tok.text == b {
-					report(&out, tok, name, fmt.tprintf("`%s`", b), r, allocator)
-				}
-			}
-		case .String:
-			if after_import {
-				path := strings.trim(tok.text, "\"`")
-				if banned_import(r, path) {
-					report(&out, tok, name, fmt.tprintf("import %q", path), r, allocator)
-				}
-			}
-		}
-		after_import = false
-		prev = {tok.kind, prev[0], prev[1]}
-	}
-	return out[:]
-}
-
-// Returns one line per package-level variable in `src` that is neither `@(rodata)` nor in
-// MUTABLE_GLOBALS. A write to one during a tick would be state outside the block: not rolled
-// back, not hashed, a desync nothing else catches. Token-level: a package-level statement
-// (outside every brace except a `when`/`else` block's, outside parentheses and brackets) of the
-// form `a, b: ...` or `a := ...` declares variables; `a :: ...` is a constant.
-scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
-	out := make([dynamic]string, allocator)
-	tz: tokenizer.Tokenizer
-	tokenizer.init(&tz, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
-	tz.flags = {.Insert_Semicolon}
-	braces: [64]bool // open braces, innermost last: true for a package-level `when`/`else` block
-	nbraces, opaque, parens := 0, 0, 0
-	at_start := true // the next token starts a package-level statement
-	block_next := false // the statement started with `when`/`else`: its `{` keeps package level
-	rodata := false // the statement's attributes include rodata
-	attr, attr_parens := false, 0 // inside an attribute: `@(...)` or `@name`
-	phase := 0 // 1: after a name, 2: after `,`, 3: after `name :`, 0: not (or no longer) a declaration
-	names := make([dynamic]tokenizer.Token, context.temp_allocator)
-	for tok := tokenizer.scan(&tz); tok.kind != .EOF; tok = tokenizer.scan(&tz) {
-		if tok.kind == .Comment || tok.kind == .File_Tag {
-			continue
-		}
-		if attr {
-			#partial switch tok.kind {
-			case .Open_Paren:
-				attr_parens += 1
-			case .Close_Paren:
-				attr_parens -= 1
-			case .Ident:
-				rodata ||= tok.text == "rodata"
-			}
-			attr = attr_parens > 0
-			continue
-		}
-		top := opaque == 0 && parens == 0
-		if top && at_start {
-			at_start = false
-			phase = 0
-			#partial switch tok.kind {
-			case .At:
-				attr, attr_parens, at_start = true, 0, true
-				continue
-			case .Semicolon:
-				at_start = true // the newline after an attribute
-				continue
-			case .Ident:
-				clear(&names)
-				append(&names, tok)
-				phase = 1
-				continue
-			case .When, .Else:
-				block_next = true
-			}
-		} else if top && phase != 0 {
-			next := 0
-			#partial switch tok.kind {
-			case .Comma:
-				next = phase == 1 ? 2 : 0
-			case .Ident:
-				if phase == 2 {
-					append(&names, tok)
-					next = 1
-				}
-			case .Colon:
-				next = phase == 1 ? 3 : 0
-			}
-			if phase == 3 || phase == 4 {
-				// `name :` then a type, if any: `:` makes it a constant, `=` or the statement's end a variable.
-				#partial switch tok.kind {
-				case .Colon:
-					next = 0
-				case .Eq, .Semicolon:
-					report_globals(&out, r, name, names[:], rodata, allocator)
-					next = 0
-				case:
-					next = 4
-				}
-			}
-			phase = next
-		}
-		#partial switch tok.kind {
-		case .Semicolon:
-			if top {
-				at_start, rodata, block_next = true, false, false
-			}
-		case .Open_Brace:
-			block := top && block_next
-			braces[min(nbraces, len(braces) - 1)] = block
-			nbraces += 1
-			if block {
-				at_start, block_next = true, false
-			} else {
-				opaque += 1
-			}
-		case .Close_Brace:
-			if nbraces > 0 {
-				nbraces -= 1
-				if braces[min(nbraces, len(braces) - 1)] {
-					at_start, rodata = true, false
-				} else {
-					opaque -= 1
-				}
-			}
-		case .Open_Paren, .Open_Bracket:
-			parens += 1
-		case .Close_Paren, .Close_Bracket:
-			parens -= 1
-		}
-	}
-	if phase == 3 || phase == 4 {
-		report_globals(&out, r, name, names[:], rodata, allocator)
-	}
-	return out[:]
-}
-
-report_globals :: proc(
-	out: ^[dynamic]string,
-	r: Rule,
-	file: string,
-	names: []tokenizer.Token,
-	rodata: bool,
-	allocator: runtime.Allocator,
-) {
-	for n in names {
-		if rodata || mutable_global_ok(r.pkg, n.text) {
-			continue
-		}
-		where_ := fmt.tprintf("%s(%d:%d)", file, n.pos.line, n.pos.column)
-		append(
-			out,
-			fmt.aprintf(
-				"%s: package-level variable `%s` in tick package %s: a write during a tick is state outside the block (not rolled back, not hashed); make it `@(rodata)` or a `::` constant, or list it in MUTABLE_GLOBALS (tests/lint/lint_test.odin) with a reason",
-				where_,
-				n.text,
-				r.pkg,
-				allocator = allocator,
-			),
-		)
-	}
-}
-
-mutable_global_ok :: proc(pkg, name: string) -> bool {
-	for g in MUTABLE_GLOBALS {
-		if g.pkg == pkg && g.name == name {
-			return true
-		}
-	}
-	return false
-}
-
-banned_import :: proc(r: Rule, path: string) -> bool {
-	if r.only_imports != nil {
-		p := path
-		if strings.has_prefix(p, "../") {
-			p = strings.concatenate({"unified:", p[3:]}, context.temp_allocator)
-		}
-		for ok in r.only_imports {
-			if p == ok || (strings.has_suffix(ok, "/") && strings.has_prefix(path, ok)) {
-				return false
-			}
-		}
-		return true
-	}
-	for ok in r.allow_imports {
-		if path == ok {
-			return false
-		}
-	}
-	for b in r.ban_imports {
-		if path == b || strings.has_prefix(path, strings.concatenate({b, "/"}, context.temp_allocator)) {
-			return true
-		}
-	}
-	return false
-}
-
-// Every .odin file under `dir`, subdirectories (sub-packages) included.
-odin_files :: proc(dir: string, out: ^[dynamic]string) -> bool {
-	infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
-	if err != nil {
-		return false
-	}
-	for fi in infos {
-		if fi.type == .Directory {
-			odin_files(fi.fullpath, out)
-		} else if strings.has_suffix(fi.name, ".odin") {
-			append(out, fi.fullpath)
-		}
-	}
-	return true
-}
-
 @(test)
 library_follows_determinism_rules :: proc(t: ^testing.T) {
 	for r in RULES {
-		dir := rule_dir(r)
-		files := make([dynamic]string, context.temp_allocator)
-		if !testing.expectf(t, odin_files(dir, &files), "cannot list %s", dir) {
-			continue
-		}
-		for path in files {
-			data, rerr := os.read_entire_file(path, context.temp_allocator)
-			if !testing.expectf(t, rerr == nil, "cannot read %s", path) {
-				continue
-			}
-			for v in scan(r, path, string(data)) {
-				testing.expect(t, false, v)
-			}
-			if r.tick {
-				for v in scan_globals(r, path, string(data)) {
-					testing.expect(t, false, v)
-				}
-			}
-		}
-		testing.expectf(t, len(files) > 0, "no .odin files in %s", dir)
+		r := r
+		r.dir = rule_dir(r)
+		lint.check(t, r)
+	}
+}
+
+@(test)
+game_sims_follow_determinism_rules :: proc(t: ^testing.T) {
+	for d in GAME_SIMS {
+		lint.check_sim_package(t, fmt.tprintf("%s/../%s", SRC_DIR, d))
 	}
 }
 
@@ -523,9 +163,14 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 			if fi.type != .Directory {
 				continue
 			}
+			path := strings.concatenate({prefix, "/", fi.name}, context.temp_allocator)
 			for r in RULES {
-				if (r.dir == "" && prefix == "src" && r.pkg == fi.name) ||
-				   r.dir == strings.concatenate({prefix, "/", fi.name}, context.temp_allocator) {
+				if (r.dir == "" && prefix == "src" && r.pkg == fi.name) || r.dir == path {
+					continue outer
+				}
+			}
+			for d in GAME_SIMS {
+				if d == path {
 					continue outer
 				}
 			}
@@ -560,9 +205,9 @@ k := 0.5 / d2 // typed by d2
 c: f32 = 1.5
 D :: 1.5
 `
-	game_rule := RULES[0]
-	testing.expect_value(t, len(scan(game_rule, "bad.odin", bad)), 6)
-	for v in scan(game_rule, "clean.odin", clean) {
+	game_rule := lint.sim_rule("survivor", "")
+	testing.expect_value(t, len(lint.scan(game_rule, "bad.odin", bad)), 6)
+	for v in lint.scan(game_rule, "clean.odin", clean) {
 		testing.expect(t, false, v)
 	}
 
@@ -603,7 +248,7 @@ when ODIN_DEBUG {
 	D :: 1
 }
 `
-	found := scan_globals(game_rule, "globals.odin", bad_globals)
+	found := lint.scan_globals(game_rule, "globals.odin", bad_globals)
 	testing.expect_value(t, len(found), 7)
 	for want in ([]string{"counter", "a", "b", "debug_hits", "hits", "P", "world_mutex"}) { 	// world_mutex: allowed in physics only
 		hit := false
@@ -612,7 +257,7 @@ when ODIN_DEBUG {
 		}
 		testing.expectf(t, hit, "package-level variable %s not caught", want)
 	}
-	for v in scan_globals(game_rule, "clean_globals.odin", clean_globals) {
+	for v in lint.scan_globals(game_rule, "clean_globals.odin", clean_globals) {
 		testing.expect(t, false, v)
 	}
 	physics_rule: Rule
@@ -621,7 +266,11 @@ when ODIN_DEBUG {
 			physics_rule = r
 		}
 	}
-	testing.expect_value(t, len(scan_globals(physics_rule, "globals.odin", "package physics\nworld_mutex: int\n")), 0)
+	testing.expect_value(
+		t,
+		len(lint.scan_globals(physics_rule, "globals.odin", "package physics\nworld_mutex: int\n")),
+		0,
+	)
 }
 
 // Escape hatches a reviewer found the old ban-list lint let through: each must be caught by the
@@ -646,6 +295,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"c := intrinsics.read_cycle_counter()\n", true},
 		{"import \"core:time\"\n", false},
 	}
+	game_rule := lint.sim_rule("survivor", "")
 	sim_rule: Rule
 	for r in RULES {
 		if r.pkg == "sim" {
@@ -656,7 +306,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		src := strings.concatenate({"package survivor\n", c.src}, context.temp_allocator)
 		testing.expectf(
 			t,
-			len(scan(RULES[0], "case.odin", src)) > 0,
+			len(lint.scan(game_rule, "case.odin", src)) > 0,
 			"case %d not caught by the game rule:\n%s",
 			i,
 			c.src,
@@ -664,11 +314,23 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		if c.no_imp || i == 11 {
 			testing.expectf(
 				t,
-				len(scan(sim_rule, "case.odin", src)) > 0,
+				len(lint.scan(sim_rule, "case.odin", src)) > 0,
 				"case %d not caught by the sim rule:\n%s",
 				i,
 				c.src,
 			)
 		}
 	}
+}
+
+// A game's own deterministic packages: banned by the sim rule until listed in extra_imports.
+@(test)
+lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
+	src := "package mygame\nimport \"../grid\"\nimport \"../ai/paths\"\nimport \"unified:sim\"\n"
+	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", ""), "a.odin", src)), 2)
+	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../grid", "../ai/"}), "a.odin", src)), 0)
+	// A relative import is the game's own package even when it shares a unified package's name.
+	own := "package mygame\nimport \"../sim\"\nimport \"../physics\"\n"
+	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", ""), "b.odin", own)), 2)
+	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../sim", "../physics"}), "b.odin", own)), 0)
 }

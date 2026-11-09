@@ -5,10 +5,11 @@
 //   UnifiedSession (Node)                 one per app (an autoload's child): runs a session (single player,
 //                                         host, join) on our own thread, samples input, syncs the views at
 //                                         process priority -1000, routes events, hosts the dev UI.
-//   SimView (Node3D)                      optional typed root for a view scene (`<Glue.scene_dir>/<kind>.tscn`);
-//                                         plain Node3D roots with script properties kind/entity/slot work too.
-//   SimBulkView (MultiMeshInstance3D)     optional typed bulk view; plain MultiMeshInstance3D nodes in group
-//                                         `sim_bulk` with a script property `kind` work too.
+//   SimView (Node3D), SimView2D (Node2D)  optional typed root for a view scene (`<Glue.scene_dir>/<kind>.tscn`);
+//                                         plain Node3D / Node2D roots with script properties kind/entity/slot
+//                                         work too.
+//   SimBulkView (MultiMeshInstance3D),    optional typed bulk views; plain MultiMeshInstance3D / 2D nodes in
+//   SimBulkView2D (MultiMeshInstance2D)   group `sim_bulk` with a script property `kind` work too.
 //
 // Threads: the session thread (macOS: the real-time thread class) is the only one that touches the sim; it
 // publishes Frames through a triple buffer and events/status through SPSC queues. Godot is called only from

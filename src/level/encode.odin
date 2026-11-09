@@ -2,7 +2,7 @@
 // exporter writes the same format from a scene.
 package level
 
-import "../wire"
+import "unified:wire"
 
 // Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices).
 encode :: proc(bodies: []Body, markers: []Marker, allocator := context.allocator) -> []u8 {

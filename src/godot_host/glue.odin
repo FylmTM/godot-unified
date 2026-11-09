@@ -14,6 +14,8 @@ MAX_BULK_ITEMS :: 4096
 HUD_BYTES :: 4096
 
 // A rich entity shown by a scene (`<Glue.scene_dir>/<kind>.tscn`), keyed by its deterministic spawn key.
+// The scene's root decides how it is shown: a Node3D gets `pos` and `rot`; a Node2D gets `pos.xy` as its
+// position (Godot 2D: x right, y down; pos.z unused) and the angle about Z (view.angle2d_of) as its rotation.
 Scene_Item :: struct {
 	key:      view.Key, // spawn key: a new key = a new view; must be non-zero
 	kind:     u8, // index into Glue.scene_kinds
@@ -21,12 +23,14 @@ Scene_Item :: struct {
 	entity:   u32, // the entity id the game's events carry (sim.Event.entity), 0 for none
 	has_prev: bool,
 	pos:      [3]f32, // at the frame's tick
-	rot:      [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw(yaw) for a heading; zero = identity
+	rot:      [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw(yaw) for a heading, view.quat_angle2d(a) in 2D; zero = identity
 	prev_pos: [3]f32, // at tick - 1 (has_prev)
 	prev_rot: [4]f32,
 }
 
-// One instance of a MultiMesh bulk view (enemies, projectiles, gems). Interpolated, not smoothed.
+// One instance of a MultiMesh bulk view (enemies, projectiles, gems). Interpolated, not smoothed. A 3D
+// MultiMesh gets pos and a yaw about +Y; a 2D one (transform_format TRANSFORM_2D) gets pos.xy and `yaw` as
+// the angle about Z (Node2D.rotation).
 Bulk_Item :: struct {
 	kind:     u8, // index into Glue.bulk_kinds
 	has_prev: bool,
@@ -34,6 +38,7 @@ Bulk_Item :: struct {
 	prev_pos: [3]f32,
 	yaw:      f32,
 	scale:    f32, // 0 = 1
+	color:    [4]f32, // MultiMesh instance color (use_colors), RGBA; zero = white
 	custom:   [4]f32, // MultiMesh custom data (the game's shader reads it)
 }
 
@@ -84,6 +89,9 @@ Glue :: struct($S, $I, $W: typeid) {
 	scene_kinds: []string, // e.g. {"player", "crate", "barrel"}: <scene_dir>/<kind>.tscn
 	scene_dir:   string, // where the scene views live, e.g. "res://game/views"
 	bulk_kinds:  []string, // e.g. {"grunt", "runner", "brute", "projectile", "gem"}
+	// Optional: the scene views' smoothing, in the units `extract` writes (zero: view.SMOOTHING_DEFAULT,
+	// metres). A 2D game in pixels sets it, e.g. {tau_s = 0.1, teleport_dist = 64}.
+	smoothing:   view.Smoothing,
 	actions:     Action_Map,
 	// Session thread: fill `out.scene`, `out.bulk` (+ n_scene, n_bulk) and `out.hud` from the state at the
 	// frame's tick (`cur`), the tick before (`prev`, nil when not in the ring) and the World (physics), which

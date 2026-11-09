@@ -18,6 +18,7 @@ Pose { pos: [3]f32, rot: [4]f32 }            Smoothing { tau_s = 0.1, teleport_d
 track_push(^Track, tick, pose, smoothing)    // re-pushing a tick = a rollback correction
 track_sample(^Track, tick, alpha, dt_s, smoothing) -> Pose
 quat_yaw, yaw_of, nlerp, qmul, lerp3 ...
+quat_angle2d(a) / angle2d_of(q)              // 2D: rotation about +Z (Godot's Node2D.rotation), signed off
 
 // views keyed by deterministic spawn keys
 View_Set($V)  set_begin / set_see(key) -> (^Entry, spawned) / set_end(now_s, linger_s)

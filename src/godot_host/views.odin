@@ -1,7 +1,8 @@
 // Views: scene views spawned per spawn key under the session's view_root, interpolated and smoothed with
-// unified:view, and MultiMesh bulk views whose buffers are written natively. The game's scenes may use the
-// typed SimView / SimBulkView roots or plain Node3D / MultiMeshInstance3D nodes with script properties
-// (kind, entity, slot): the host talks to both through Object.set/call.
+// unified:view, and MultiMesh bulk views whose buffers are written natively. 3D and 2D share it all: the game's
+// scenes may use the typed SimView / SimView2D / SimBulkView / SimBulkView2D roots or plain Node3D / Node2D /
+// MultiMeshInstance3D / MultiMeshInstance2D nodes with script properties (kind, entity, slot): the host talks
+// to both through Object.set/call. A scene root's class (Node3D or Node2D) picks the 3D or 2D mapping.
 package godot_host
 
 import "core:fmt"
@@ -17,7 +18,8 @@ BULK_GROUP :: "sim_bulk"
 
 @(private)
 Scene_View :: struct {
-	node:       gd.Node3D,
+	node:       gd.Node, // a Node3D, or a Node2D when is_2d
+	is_2d:      bool,
 	id:         u64,
 	kind:       u8,
 	slot:       i8,
@@ -29,13 +31,14 @@ Scene_View :: struct {
 
 @(private)
 Bulk_View :: struct {
-	node:   gd.MultiMeshInstance3D,
+	node:   gd.Node, // a MultiMeshInstance3D or MultiMeshInstance2D
 	id:     u64,
 	kind:   int, // index into api.bulk_kinds, -1: unknown
 	mm:     gd.Ref(gd.MultiMesh),
 	buf:    gd.PackedFloat32Array,
 	cap:    int,
 	stride: int,
+	is_2d:  bool, // transform_format TRANSFORM_2D: 8 floats per transform, else 12
 }
 
 @(private)
@@ -65,20 +68,27 @@ Sim_Bulk_Node :: struct {
 }
 
 @(private)
-sim_view_class: gd.Class
-@(private)
-sim_bulk_class: gd.Class
+sim_view_class, sim_view2d_class, sim_bulk_class, sim_bulk2d_class: gd.Class
 
 register_classes :: proc() {
 	register_session_class()
-	sim_view_class = {
-		name = "SimView",
-		parent = "Node3D",
+	register_view_class(&sim_view_class, "SimView", "Node3D", gd.Vector3, "yaw")
+	register_view_class(&sim_view2d_class, "SimView2D", "Node2D", gd.Vector2, "rotation")
+	register_bulk_class(&sim_bulk_class, "SimBulkView", "MultiMeshInstance3D")
+	register_bulk_class(&sim_bulk2d_class, "SimBulkView2D", "MultiMeshInstance2D")
+}
+
+// SimView / SimView2D: kind, entity, slot and the script virtuals _sim_update(position, yaw | rotation, alpha)
+// and _sim_event(kind, data).
+@(private)
+register_view_class :: proc(c: ^gd.Class, name, parent: string, pos: typeid, angle: string) {
+	c^ = {
+		name = name,
+		parent = parent,
 		size = size_of(Sim_View_Node),
 		init = proc(i: rawptr) {(^Sim_View_Node)(i).slot = -1},
 		fini = proc(i: rawptr) {gd.StringName_destroy(&(^Sim_View_Node)(i).kind)},
 	}
-	c := &sim_view_class
 	gd.register_class(c)
 	gd.bind_property(
 		c,
@@ -101,12 +111,16 @@ register_classes :: proc() {
 		proc(v: ^Sim_View_Node) -> i64 {return v.slot},
 		proc(v: ^Sim_View_Node, e: i64) {v.slot = e},
 	)
-	gd.bind_script_virtual(c, "_sim_update", {"position", gd.Vector3}, {"yaw", f64}, {"alpha", f64})
+	gd.bind_script_virtual(c, "_sim_update", {"position", pos}, {angle, f64}, {"alpha", f64})
 	gd.bind_script_virtual(c, "_sim_event", {"kind", gd.StringName}, {"data", gd.Dictionary})
+}
 
-	sim_bulk_class = {
-		name = "SimBulkView",
-		parent = "MultiMeshInstance3D",
+// SimBulkView / SimBulkView2D: `kind`, and the node joins the `sim_bulk` group when it enters the tree.
+@(private)
+register_bulk_class :: proc(c: ^gd.Class, name, parent: string) {
+	c^ = {
+		name = name,
+		parent = parent,
 		size = size_of(Sim_Bulk_Node),
 		fini = proc(i: rawptr) {gd.StringName_destroy(&(^Sim_Bulk_Node)(i).kind)},
 		notification = proc(i: rawptr, what: i32) {
@@ -115,7 +129,6 @@ register_classes :: proc() {
 			}
 		},
 	}
-	c = &sim_bulk_class
 	gd.register_class(c)
 	gd.bind_property(
 		c,
@@ -129,7 +142,9 @@ register_classes :: proc() {
 }
 
 unregister_classes :: proc() {
+	gd.unregister_class(&sim_bulk2d_class)
 	gd.unregister_class(&sim_bulk_class)
+	gd.unregister_class(&sim_view2d_class)
 	gd.unregister_class(&sim_view_class)
 	gd.unregister_class(&session_class)
 }
@@ -154,32 +169,48 @@ scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 }
 
 @(private)
-spawn_view :: proc(root: gd.Node3D, it: ^Scene_Item) -> ^Scene_View {
+spawn_view :: proc(root: gd.Node, it: ^Scene_Item) -> ^Scene_View {
 	ps, ok := scene_for(it.kind)
 	if !ok do return nil
 	node := gd.PackedScene_instantiate(ps, .GEN_EDIT_STATE_DISABLED)
 	if node.ptr == nil do return nil
-	n3 := gd.object_cast(gd.Node3D, node, "Node3D")
-	if n3.ptr == nil {
-		gd.print_error("unified: a view scene's root must be a Node3D")
+	v := new(Scene_View)
+	if n3 := gd.object_cast(gd.Node3D, node, "Node3D"); n3.ptr != nil {
+		v.node = n3
+	} else if n2 := gd.object_cast(gd.Node2D, node, "Node2D"); n2.ptr != nil {
+		v.node, v.is_2d = n2, true
+	} else {
+		gd.print_error("unified: a view scene's root must be a Node3D or a Node2D")
 		gdi.object_destroy(node.ptr)
+		free(v)
 		return nil
 	}
-	v := new(Scene_View)
-	v.node = n3
-	v.id = gdi.object_get_instance_id(n3.ptr)
+	n := v.node
+	v.id = gdi.object_get_instance_id(n.ptr)
 	v.kind, v.slot, v.entity = it.kind, it.slot, it.entity
 	kind := int(it.kind) < len(api.scene_kinds) ? api.scene_kinds[it.kind] : ""
-	set_prop(n3, gd.sn("kind"), gd.variant_string_name(kind))
-	set_prop(n3, gd.sn("entity"), gd.to_variant(i64(it.entity)))
-	set_prop(n3, gd.sn("slot"), gd.to_variant(i64(it.slot)))
-	v.has_update = gd.has_script_method(n3, gd.sn("_sim_update"))
-	v.has_event = gd.has_script_method(n3, gd.sn("_sim_event"))
-	gd.Node3D_set_position(n3, {it.pos.x, it.pos.y, it.pos.z})
-	q := quat_or_identity(it.rot)
-	gd.Node3D_set_quaternion(n3, {q.x, q.y, q.z, q.w})
-	gd.Node_add_child(root, n3, false, .INTERNAL_MODE_DISABLED)
+	set_prop(n, gd.sn("kind"), gd.variant_string_name(kind))
+	set_prop(n, gd.sn("entity"), gd.to_variant(i64(it.entity)))
+	set_prop(n, gd.sn("slot"), gd.to_variant(i64(it.slot)))
+	v.has_update = gd.has_script_method(n, gd.sn("_sim_update"))
+	v.has_event = gd.has_script_method(n, gd.sn("_sim_event"))
+	set_pose(v, {it.pos, quat_or_identity(it.rot)})
+	gd.Node_add_child(root, n, false, .INTERNAL_MODE_DISABLED)
 	return v
+}
+
+// 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z.
+@(private)
+set_pose :: proc(v: ^Scene_View, p: view.Pose) {
+	if v.is_2d {
+		n := gd.cast_to(gd.Node2D, v.node)
+		gd.Node2D_set_position(n, {p.pos.x, p.pos.y})
+		gd.Node2D_set_rotation(n, view.angle2d_of(p.rot))
+	} else {
+		n := gd.cast_to(gd.Node3D, v.node)
+		gd.Node3D_set_position(n, {p.pos.x, p.pos.y, p.pos.z})
+		gd.Node3D_set_quaternion(n, {p.rot.x, p.rot.y, p.rot.z, p.rot.w})
+	}
 }
 
 @(private)
@@ -223,7 +254,7 @@ views_root_changed :: proc() {
 	V.scan_frame = 0
 }
 
-views_sync :: proc(root: gd.Node3D, f: ^Frame, fresh: bool, alpha: f32, dt: f32) {
+views_sync :: proc(root: gd.Node, f: ^Frame, fresh: bool, alpha: f32, dt: f32) {
 	V.frame += 1
 	if root.ptr == nil {
 		if len(V.set.entries) > 0 || len(V.bulks) > 0 do views_root_changed()
@@ -248,8 +279,10 @@ views_sync :: proc(root: gd.Node3D, f: ^Frame, fresh: bool, alpha: f32, dt: f32)
 				gd.Dictionary_destroy(&d)
 			}
 			v.entity, v.slot = it.entity, it.slot
-			if it.has_prev do view.track_push(&v.track, f.tick - 1, {it.prev_pos, quat_or_identity(it.prev_rot)})
-			view.track_push(&v.track, f.tick, {it.pos, quat_or_identity(it.rot)})
+			if it.has_prev {
+				view.track_push(&v.track, f.tick - 1, {it.prev_pos, quat_or_identity(it.prev_rot)}, api.smoothing)
+			}
+			view.track_push(&v.track, f.tick, {it.pos, quat_or_identity(it.rot)}, api.smoothing)
 		}
 		view.set_end(&V.set, now_s, LINGER_S)
 		for key in V.set.despawned {
@@ -265,15 +298,18 @@ views_sync :: proc(root: gd.Node3D, f: ^Frame, fresh: bool, alpha: f32, dt: f32)
 	for _, &e in V.set.entries {
 		v := e.view
 		if v == nil || !alive(v.id) do continue
-		p := view.track_sample(&v.track, f.tick, alpha, dt)
-		yaw := view.yaw_of(p.rot)
-		pos := gd.Vector3{p.pos.x, p.pos.y, p.pos.z}
-		gd.Node3D_set_position(v.node, pos)
-		gd.Node3D_set_quaternion(v.node, {p.rot.x, p.rot.y, p.rot.z, p.rot.w})
-		if v.has_update {
-			r := gd.call_script(v.node, gd.sn("_sim_update"), pos, f64(yaw), f64(alpha))
-			gd.variant_destroy(&r)
+		p := view.track_sample(&v.track, f.tick, alpha, dt, api.smoothing)
+		set_pose(v, p)
+		if !v.has_update do continue
+		r: gd.Variant
+		if v.is_2d {
+			pos := gd.Vector2{p.pos.x, p.pos.y}
+			r = gd.call_script(v.node, gd.sn("_sim_update"), pos, f64(view.angle2d_of(p.rot)), f64(alpha))
+		} else {
+			pos := gd.Vector3{p.pos.x, p.pos.y, p.pos.z}
+			r = gd.call_script(v.node, gd.sn("_sim_update"), pos, f64(view.yaw_of(p.rot)), f64(alpha))
 		}
+		gd.variant_destroy(&r)
 	}
 	bulk_sync(root, f, alpha)
 }
@@ -298,7 +334,11 @@ views_event :: proc(e: sim.Event, name: string, tick: u32, cancelled, predicted:
 		gd.dict_set(&d, "tick", i64(tick))
 		gd.dict_set(&d, "entity", i64(e.entity))
 		gd.dict_set(&d, "slot", e.slot == 0xFF ? i64(-1) : i64(e.slot))
-		gd.dict_set(&d, "position", gd.Vector3{e.pos.x, e.pos.y, e.pos.z})
+		if v.is_2d {
+			gd.dict_set(&d, "position", gd.Vector2{e.pos.x, e.pos.y})
+		} else {
+			gd.dict_set(&d, "position", gd.Vector3{e.pos.x, e.pos.y, e.pos.z})
+		}
 		gd.dict_set(&d, "value", f64(e.value))
 		gd.dict_set(&d, "predicted", predicted)
 		gd.dict_set(&d, "cancelled", cancelled)
@@ -318,7 +358,7 @@ bulk_drop :: proc(b: ^Bulk_View) {
 }
 
 @(private)
-bulk_scan :: proc(root: gd.Node3D) {
+bulk_scan :: proc(root: gd.Node) {
 	tree := gd.Node_get_tree(root)
 	nodes := gd.SceneTree_get_nodes_in_group(tree, gd.sn(BULK_GROUP))
 	defer gd.Array_destroy(&nodes)
@@ -331,10 +371,23 @@ bulk_scan :: proc(root: gd.Node3D) {
 	}
 	outer: for i in 0 ..< gd.array_len(&nodes) {
 		obj, _ := gd.from_variant(gd.Object, gd.array_at(&nodes, i))
-		mmi := gd.object_cast(gd.MultiMeshInstance3D, obj, "MultiMeshInstance3D")
-		if mmi.ptr == nil do continue
+		mmi: gd.Node
+		is_2d := false
+		if n3 := gd.object_cast(gd.MultiMeshInstance3D, obj, "MultiMeshInstance3D"); n3.ptr != nil {
+			mmi = n3
+		} else if n2 := gd.object_cast(gd.MultiMeshInstance2D, obj, "MultiMeshInstance2D"); n2.ptr != nil {
+			mmi, is_2d = n2, true
+		} else {
+			continue
+		}
 		id := gdi.object_get_instance_id(mmi.ptr)
 		for b in V.bulks do if b.id == id do continue outer
+		mm: gd.Ref(gd.MultiMesh) // owned: kept by the Bulk_View, dropped by bulk_drop
+		if is_2d {
+			mm = gd.MultiMeshInstance2D_get_multimesh(gd.cast_to(gd.MultiMeshInstance2D, mmi))
+		} else {
+			mm = gd.MultiMeshInstance3D_get_multimesh(gd.cast_to(gd.MultiMeshInstance3D, mmi))
+		}
 		kv := gd.Object_get(mmi, gd.sn("kind"))
 		defer gd.variant_destroy(&kv)
 		kind_name, _ := gd.from_variant(string, &kv)
@@ -343,20 +396,31 @@ bulk_scan :: proc(root: gd.Node3D) {
 		if kind < 0 {
 			gd.print_warning(fmt.tprintf("unified: bulk view with unknown kind %q", kind_name))
 		}
-		mm := gd.MultiMeshInstance3D_get_multimesh(mmi)
 		if mm.ptr == nil {
 			gd.print_warning(fmt.tprintf("unified: bulk view %q has no MultiMesh", kind_name))
 			continue
 		}
-		stride := 12
+		// the buffer layout follows the MultiMesh's own format (a 2D node with a 3D MultiMesh renders wrongly)
+		mm_2d := gd.MultiMesh_get_transform_format(mm) == .TRANSFORM_2D
+		if mm_2d != is_2d {
+			gd.print_warning(
+				fmt.tprintf(
+					"unified: bulk view %q: a %s needs transform_format TRANSFORM_%s",
+					kind_name,
+					is_2d ? "MultiMeshInstance2D" : "MultiMeshInstance3D",
+					is_2d ? "2D" : "3D",
+				),
+			)
+		}
+		stride := mm_2d ? 8 : 12
 		if gd.MultiMesh_is_using_colors(mm) do stride += 4
 		if gd.MultiMesh_is_using_custom_data(mm) do stride += 4
-		append(&V.bulks, Bulk_View{node = mmi, id = id, kind = kind, mm = mm, stride = stride})
+		append(&V.bulks, Bulk_View{node = mmi, id = id, kind = kind, mm = mm, stride = stride, is_2d = mm_2d})
 	}
 }
 
 @(private)
-bulk_sync :: proc(root: gd.Node3D, f: ^Frame, alpha: f32) {
+bulk_sync :: proc(root: gd.Node, f: ^Frame, alpha: f32) {
 	if V.frame >= V.scan_frame {
 		bulk_scan(root)
 		V.scan_frame = V.frame + 30
@@ -384,12 +448,21 @@ bulk_sync :: proc(root: gd.Node3D, f: ^Frame, alpha: f32) {
 			sc := it.scale == 0 ? 1 : it.scale
 			cs, sn := math.cos(it.yaw) * sc, math.sin(it.yaw) * sc
 			o := buf[i * b.stride:]
-			o[0], o[1], o[2], o[3] = cs, 0, sn, p.x
-			o[4], o[5], o[6], o[7] = 0, sc, 0, p.y
-			o[8], o[9], o[10], o[11] = -sn, 0, cs, p.z
-			k := 12
+			k: int
+			if b.is_2d {
+				// Transform2D rows (x axis = (cs, sn), y axis = (-sn, cs)): rotation about Z, uniform scale
+				o[0], o[1], o[2], o[3] = cs, -sn, 0, p.x
+				o[4], o[5], o[6], o[7] = sn, cs, 0, p.y
+				k = 8
+			} else {
+				o[0], o[1], o[2], o[3] = cs, 0, sn, p.x
+				o[4], o[5], o[6], o[7] = 0, sc, 0, p.y
+				o[8], o[9], o[10], o[11] = -sn, 0, cs, p.z
+				k = 12
+			}
 			if has_col {
-				o[k], o[k + 1], o[k + 2], o[k + 3] = 1, 1, 1, 1
+				c := it.color == {} ? [4]f32{1, 1, 1, 1} : it.color
+				o[k], o[k + 1], o[k + 2], o[k + 3] = c[0], c[1], c[2], c[3]
 				k += 4
 			}
 			if has_custom do o[k], o[k + 1], o[k + 2], o[k + 3] = it.custom[0], it.custom[1], it.custom[2], it.custom[3]

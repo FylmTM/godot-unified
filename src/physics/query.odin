@@ -4,7 +4,7 @@ package physics
 
 import "base:runtime"
 
-import b3 "../box3d"
+import b3 "unified:box3d"
 
 // Which shapes a query sees: shapes whose category is in `mask` (and whose own mask has one of
 // `category`'s bits). Zero value: everything.
