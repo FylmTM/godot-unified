@@ -99,3 +99,23 @@ Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every 
 | headless, `workflow_dispatch` from main (477cf5a) | Relayed | 773 | 229 ms | 7 | 471 (11.0) | 254 |
 | release export of main (run 42535534651) | Relayed | 847 | 189 ms | 7 | 509 (11.0) | 282 |
 
+Release gate for survivor-v0.1.1 (main 6da8839: protocol 4, 218 ms prediction cap, faster catch-up), same setup,
+every run 0 mismatches. Stalls fell from hundreds of ticks to 0–11; rollback depth tops out at 14 ticks (the cap):
+
+| Windows client | Path (host / client) | Common verified checksums | RTT | Delay | Rollbacks (avg / max depth) | Stall ticks |
+|---|---|---:|---:|---:|---:|---:|
+| headless, built on the runner | forced relays (Relayed / Relayed) | 771 | 233 ms | 7 | 481 (13.1 / 14) | 3 |
+| headless, built on the runner | relays allowed (Direct / Relayed) | 806 | 152 ms | 6 | 498 (9.6 / 11) | 11 |
+| release export of main (run 42541894705) | relays allowed (Direct / Relayed) | 696 | 237 ms | 7 | 433 (13.0 / 14) | 3 |
+| headless, after another client dropped (6 min session) | Direct / Relayed | 818 | 235 ms | 7 | 523 (14.0 / 14) | 0 |
+
+- **Path labels.** Each side labels the path from its own P2P "connection established" notification, so host and
+  client can disagree (Direct on the host, Relayed on the client) when EOS switches routes after connecting. Treat
+  the label as a hint; RTT is the better signal.
+- **Drop and rejoin.** The first client's run was cancelled ~60 s into the session (the process is killed, no clean
+  leave). The host saw the lobby member Disconnected within ~20 s and closed P2P when the SDK's 30 s reconnect
+  window ran out. A second runner then joined with the same code at tick 9968 as a new peer and played to the end.
+  Each runner is a new machine, so this is a different Product User ID, not the same player coming back.
+  `dev.py game coop survivor --rejoin` covers a clean leave and rejoin by the same player on one Mac (passed on
+  6da8839).
+
