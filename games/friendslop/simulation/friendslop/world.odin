@@ -115,9 +115,10 @@ Plat_Mode :: enum u8 {
 }
 
 Trigger_Kind :: enum u8 {
-	Plate, // pressed while the mass on it reaches `mass`
+	Plate, // pressed while the mass on it reaches `mass` (players count unless items_only)
 	Bell, // rung by an item hitting it fast enough (latched)
 	Switch, // a player touches it (latched)
+	Lock, // a key item's centre inside it opens it (latched)
 }
 
 Volume :: struct {
@@ -143,11 +144,12 @@ Platform_Def :: struct {
 }
 
 Trigger_Def :: struct {
-	kind:   Trigger_Kind,
-	vol:    Volume,
-	mass:   f32, // plates
-	radius: f32, // bells
-	marker: int,
+	kind:       Trigger_Kind,
+	vol:        Volume,
+	mass:       f32, // plates
+	radius:     f32, // bells
+	items_only: bool, // plates: players don't count
+	marker:     int,
 }
 
 Pad_Def :: struct {
@@ -258,17 +260,20 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			kind = .Bell
 		case "switch":
 			kind = .Switch
+		case "lock":
+			kind = .Lock
 		case:
 			continue
 		}
 		assert(w.n_triggers < MAX_TRIGGERS, "friendslop: too many triggers")
 		trigger_of[m.index] = w.n_triggers
 		w.triggers[w.n_triggers] = {
-			kind   = kind,
-			vol    = {m.pos, level.prop_vec3(&m, "size", {0.75, 0.25, 0.75})},
-			mass   = level.prop_f32(&m, "mass", 15),
-			radius = level.prop_f32(&m, "radius", 0.5),
-			marker = m.index,
+			kind       = kind,
+			vol        = {m.pos, level.prop_vec3(&m, "size", {0.75, 0.25, 0.75})},
+			mass       = level.prop_f32(&m, "mass", 15),
+			radius     = level.prop_f32(&m, "radius", 0.5),
+			items_only = level.prop_bool(&m, "items_only"),
+			marker     = m.index,
 		}
 		w.n_triggers += 1
 	}

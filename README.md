@@ -14,9 +14,11 @@ src/                 the `unified` collection (-collection:unified=src); one pac
   wire/              little-endian Writer/Reader for every binary format (leaf)
   sim/               the deterministic harness, generic over a game: tables + handles, RNG, plain-data check,
                      snapshot ring, checksum, events, input log, portable snapshot
-  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image
+  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image; the dynamic character
+                     mover, joints, queries, hit events, kinematic paths (spec/physics.md)
   box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
   dmath/             deterministic f32 helpers (leaf)
+  level/             Godot-authored levels for the sim: the UNLV file, reader, writer, Godot exporter (spec/level.md)
   netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks
   eos/               Epic Online Services: login, lobbies by code, P2P as a netcode link
   headless/          a game's headless binary: the CLI modes of spec/headless.md (CLI), generic over the game
@@ -29,12 +31,14 @@ src/                 the `unified` collection (-collection:unified=src); one pac
 games/survivor/      the test game, laid out like a game repo (Godot project root)
   simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
                      extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
+games/friendslop/    the co-op physics sandbox (spec/friendslop.md), laid out the same; its level is a Godot scene
+                     (game/levels/) exported to a .level file the sim loads
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
   lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
   toy/               a tiny game for the library's own tests
   godot/             the binding tests' Godot project and test extension (dev.py godot-test)
   box3d/ ... view/   one package per module (box3d, headless, godot_host, gdext, eos, ...)
-testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
+testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8; friendslop/ for F5
 third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
 tools/               dev.py (the entry point) and its parts: tools/README.md
 docs/                WORK.md (plan), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/

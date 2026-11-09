@@ -14,12 +14,13 @@ rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`),
 
 ## Loop
 
-1. **Hub** (spawn, lobby, late join): a fenced yard with loose crates, balls, a seesaw, one platform, one jump pad,
-   a cannon pad, bumpers and one heavy crate. No goals: the sandbox, and where players land after a run.
+1. **Hub** (spawn, lobby, late join): a fenced yard with loose crates, balls, a weight cube, a heavy crate, a lift
+   up to a ledge, a ferry, a jump pad onto a high ledge and a bumper (open: a seesaw, a cannon pad). No goals: the
+   sandbox, and where players land after a run.
 2. **Run:** walking through the start gate starts the team's run timer. Beats in order; each beat's exit is a team
    **checkpoint**.
-3. **Falling** (y < −10): respawn at the team's last checkpoint after 1.5 s. A beat's key item that falls or leaves
-   its beat's bounds resets to its spawn.
+3. **Falling** (y < −10): respawn at the team's last checkpoint after 1.5 s. An item that falls resets to its
+   spawn (open: also resetting a key item that leaves its beat).
 4. **Finish:** the trophy on the pedestal → run time shown (best time kept by the view) → after 5 s everyone is back
    in the hub and the route resets.
 
@@ -36,11 +37,11 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 | 3 | **Ferry:** a platform shuttles sideways across a chasm | riding a horizontal platform, getting on and off |
 | 4 | **Lift:** a platform goes up and down a shaft | riding a vertical platform; standing on a friend while riding |
 | 5 | **Stack:** crates in a pit, a ledge too high to jump to | push, carry, place, stack, stand on dynamic bodies |
-| 6 | **Toss:** a switch on a high ledge drops a ramp | throw a friend up onto the ledge; solo: a longer crate-stack path |
+| 6 | **Toss:** a switch on a 3 m perch lowers the gate ahead | throw a friend up onto the perch; solo: stack the three crates there |
 | 7 | **Plate and gate:** a weight cube on a pressure plate holds a gate open | carry and place; the plate reads mass |
 | 8 | **Bell:** throw a ball at a bell across a gap to lower a bridge | aimed throw at a target |
-| 9 | **Pass:** the key crosses a gap on a ferry too narrow for a carrier | throw to a friend, catch; solo: throw it over, then cross |
-| 10 | **Haul:** a heavy crate to the scale that opens the last door | two-person lift over a low wall; solo drags it the long, flat way (D) |
+| 9 | **Pass:** the key crosses a narrow beam to a lock that opens a gate | throw to a friend, catch; solo: throw it over, then cross |
+| 10 | **Haul:** a heavy crate to the scale (items only) that opens the last door | two-person lift over a low wall; solo drags it round the wall's end (D) |
 | 11 | **Trophy ride:** the trophy across moving platforms to the pedestal | carrying while riding; throwing things at friends |
 
 ## Player controller (D: dynamic mover)
@@ -80,8 +81,10 @@ holding.
 - **Platforms:** kinematic bodies on `physics.Path`s (waypoints, segment times, smoothstep, ping-pong or loop, waits),
   optionally gated by a plate, bell or switch. The pose is a pure function of the platform's state (`running`,
   `phase_tick`); the sim drives the body to it each tick.
-- **Pressure plates:** a box volume; the summed mass of bodies whose centre is over it ≥ threshold → pressed.
-- **Bell, switch:** a hit event with approach speed ≥ 4 m/s, or a player touching it → triggered.
+- **Pressure plates:** a box volume; the summed mass of bodies whose centre is over it ≥ threshold → pressed. A
+  friend standing on it counts (a co-op answer), unless the plate is `items_only` (the haul's scale).
+- **Bell, switch, lock:** a hit event with approach speed ≥ 4 m/s, a player touching it, or a key item's centre
+  inside it → triggered (latched).
 
 ## Sim and view
 
@@ -109,8 +112,9 @@ Orbit camera, mouse captured / right stick. WASD moves relative to the camera, S
 
 One level per session: `game/levels/park.tscn` instances `hub.tscn` and `route.tscn`. Godot's
 StaticBody3D/CollisionShape3D for geometry and marker nodes for the rest
-(`spec/level.md`): `platform` (+ Path3D), `pad`, `plate`, `item` (kind: crate, ball, cube, key, heavy, trophy...),
-`spawn`, `checkpoint`, `bell`, `switch`, `gate`, `bumper`, `beat` (bounds). Exported to a level file the sim loads at
+(`spec/level.md`): `platform` (+ Path3D; gates and bridges are platforms that follow a trigger), `pad`, `plate`,
+`item` (kind: crate, ball, cube, key, heavy, trophy), `spawn`, `checkpoint`, `bell`, `switch`, `lock`, `bumper`,
+`start`, `finish`. At runtime each sim view adopts its marker's visuals. Exported to a level file the sim loads at
 runtime; the default levels are embedded too, so headless runs need no path.
 
 ## Art

@@ -3,7 +3,7 @@ extends Node3D
 ## Level marker for the sim's volumes and triggers: pads, plates, bells, switches, bumpers, checkpoints, the run's
 ## start and finish, player spawns. One script, the kind picked per node; static, so its visuals stay in place.
 
-@export_enum("pad", "plate", "bell", "switch", "bumper", "checkpoint", "start", "finish", "spawn") var unified_kind := "pad":
+@export_enum("pad", "plate", "bell", "switch", "lock", "bumper", "checkpoint", "start", "finish", "spawn") var unified_kind := "pad":
 	set(v):
 		unified_kind = v
 		set_meta("unified_kind", v)
@@ -16,6 +16,7 @@ extends Node3D
 			_build()
 @export var launch := Vector3(0, 12, 0)  ## pad: the velocity given
 @export var mass := 15.0  ## plate: the mass that presses it
+@export var items_only := false  ## plate: players standing on it don't count
 @export var radius := 0.5  ## bell
 @export var strength := 9.0  ## bumper: knockback speed
 @export var index := 0  ## checkpoint: order along the route
@@ -37,6 +38,12 @@ func _build() -> void:
 			Greybox.set_mesh(self, Greybox.sphere(radius), Greybox.BELL, Vector3.ZERO, 0.4)
 		"switch":
 			Greybox.set_mesh(self, Greybox.box(Vector3(0.4, 0.6, 0.4)), Greybox.SWITCH, Vector3.ZERO, 0.6)
+		"lock":
+			var torus := TorusMesh.new()
+			torus.inner_radius = size.x * 0.7
+			torus.outer_radius = size.x
+			var ring := Greybox.set_mesh(self, torus, Greybox.KEY, Vector3.ZERO, 0.8)
+			ring.rotation.x = PI / 2.0
 		"bumper":
 			Greybox.set_mesh(self, Greybox.cylinder(minf(size.x, size.z) * 0.8, size.y * 2.0), Greybox.BUMPER)
 		"checkpoint", "start", "finish":

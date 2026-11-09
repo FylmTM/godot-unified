@@ -549,7 +549,7 @@ plates_and_switches :: proc(s: ^State, w: ^World, events: Events) {
 			clear(&w.links)
 			lo := d.vol.pos - d.vol.half
 			hi := d.vol.pos + d.vol.half + {0, 2.5, 0}
-			physics.overlap_aabb(w.phys, lo, hi, &w.links, {mask = CAT_ITEM | CAT_PLAYER})
+			physics.overlap_aabb(w.phys, lo, hi, &w.links, {mask = d.items_only ? CAT_ITEM : CAT_ITEM | CAT_PLAYER})
 			mass: f32 = 0
 			for l in w.links {
 				id := physics.link_id(w.phys, l)
@@ -570,6 +570,16 @@ plates_and_switches :: proc(s: ^State, w: ^World, events: Events) {
 				if in_volume(d.vol, player_pos(s, w, p)) {
 					tr.active = true
 					sim.emit(events, Event_Kind.Switch_On, u32(d.marker + 1), d.vol.pos, slot = p)
+					break
+				}
+			}
+		case .Lock:
+			if tr.active do continue
+			for k in 0 ..< w.n_items {
+				if w.items[k].kind != .Key || !s.items[k].alive do continue
+				if in_volume(d.vol, physics.position(w.phys, s.items[k].body)) {
+					tr.active = true
+					sim.emit(events, Event_Kind.Switch_On, u32(d.marker + 1), d.vol.pos)
 					break
 				}
 			}

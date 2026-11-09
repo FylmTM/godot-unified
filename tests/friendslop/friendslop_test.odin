@@ -21,6 +21,9 @@ Run :: struct {
 	mismatches: int,
 	counts:     [fs.Event_Kind]int, // events of the forward ticks
 	present:    sim.Players,
+	floor:      u32, // the sync-test never restores before this tick (a setup changed it)
+	arg_i:      int, // a setup's arguments (tests run on several threads: no globals)
+	arg_v:      [3]f32,
 }
 
 start :: proc(players: int) -> Run {
@@ -30,6 +33,7 @@ start :: proc(players: int) -> Run {
 	append(&r.recorded, fs.Inputs{})
 	append(&r.forward, 0)
 	for p in 0 ..< players do r.present += {p}
+	step(&r, {}) // players join on the first tick: their bodies exist from here on
 	return r
 }
 
@@ -51,11 +55,13 @@ step :: proc(r: ^Run, ins: [fs.MAX_PLAYERS]fs.Input) {
 	append(&r.forward, sim.checksum(r.s))
 	for e in sim.events_at(r.s, t) do r.counts[fs.Event_Kind(e.kind)] += 1
 	if t < WINDOW do return
-	if !sim.restore(r.s, t - WINDOW) || !physics.check_refs(r.s.world.phys, &r.s.state) {
+	from := max(t - WINDOW, r.floor)
+	if from == t do return
+	if !sim.restore(r.s, from) || !physics.check_refs(r.s.world.phys, &r.s.state) {
 		r.mismatches += 1
 		return
 	}
-	for u in t - WINDOW + 1 ..= t {
+	for u in from + 1 ..= t {
 		sim.step(r.s, &r.recorded[u])
 		if sim.checksum(r.s) != r.forward[u] do r.mismatches += 1
 	}
@@ -209,12 +215,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 	r := start(2)
 	defer finish(&r)
 	w := r.s.world
-	lift, ferry := -1, -1
-	for i in 0 ..< w.n_platforms {
-		d := &w.platforms[i]
-		if d.path.points[1].y > d.path.points[0].y + 1 do lift = i
-		else do ferry = i
-	}
+	lift, ferry := platform_at_marker(&r, "Lift"), platform_at_marker(&r, "Ferry")
 	testing.expect(t, lift >= 0 && ferry >= 0)
 	if lift < 0 || ferry < 0 do return
 	lift_at := w.platforms[lift].origin

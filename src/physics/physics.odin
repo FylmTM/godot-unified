@@ -95,7 +95,9 @@ destroy :: proc(w: ^World) {
 	free(w)
 }
 
-body_id :: proc(w: ^World, r: Body_Ref) -> b3.BodyId {
+// A zero ref asserts: Box3D (built without its validation) would index body -1 and corrupt memory.
+body_id :: proc(w: ^World, r: Body_Ref, loc := #caller_location) -> b3.BodyId {
+	assert(r.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
 	return {index1 = r.index1, world0 = w.id.index1 - 1, generation = r.generation}
 }
 

@@ -1,0 +1,679 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/levels/markers/item.gd" id="1_item"]
+[ext_resource type="Script" path="res://game/levels/markers/platform.gd" id="2_platform"]
+[ext_resource type="Script" path="res://game/levels/markers/volumes.gd" id="3_volumes"]
+
+[sub_resource type="StandardMaterial3D" id="route_mat"]
+albedo_color = Color(0.93, 0.86, 0.72, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.95
+
+[sub_resource type="StandardMaterial3D" id="wall_mat"]
+albedo_color = Color(0.62, 0.66, 0.78, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.95
+
+[sub_resource type="BoxShape3D" id="shape_0"]
+size = Vector3(6, 1, 7)
+
+[sub_resource type="BoxMesh" id="mesh_0"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 7)
+
+[sub_resource type="BoxShape3D" id="shape_1"]
+size = Vector3(6, 1.3, 1.5)
+
+[sub_resource type="BoxMesh" id="mesh_1"]
+material = SubResource("route_mat")
+size = Vector3(6, 1.3, 1.5)
+
+[sub_resource type="BoxShape3D" id="shape_2"]
+size = Vector3(6, 1.6, 1.5)
+
+[sub_resource type="BoxMesh" id="mesh_2"]
+material = SubResource("route_mat")
+size = Vector3(6, 1.6, 1.5)
+
+[sub_resource type="BoxShape3D" id="shape_3"]
+size = Vector3(6, 1.9, 1.5)
+
+[sub_resource type="BoxMesh" id="mesh_3"]
+material = SubResource("route_mat")
+size = Vector3(6, 1.9, 1.5)
+
+[sub_resource type="BoxShape3D" id="shape_4"]
+size = Vector3(6, 2, 7.5)
+
+[sub_resource type="BoxMesh" id="mesh_4"]
+material = SubResource("route_mat")
+size = Vector3(6, 2, 7.5)
+
+[sub_resource type="BoxShape3D" id="shape_5"]
+size = Vector3(6, 7, 6)
+
+[sub_resource type="BoxMesh" id="mesh_5"]
+material = SubResource("route_mat")
+size = Vector3(6, 7, 6)
+
+[sub_resource type="BoxShape3D" id="shape_6"]
+size = Vector3(6, 2, 6)
+
+[sub_resource type="BoxMesh" id="mesh_6"]
+material = SubResource("route_mat")
+size = Vector3(6, 2, 6)
+
+[sub_resource type="BoxShape3D" id="shape_7"]
+size = Vector3(3, 0.5, 2)
+
+[sub_resource type="BoxMesh" id="mesh_7"]
+material = SubResource("route_mat")
+size = Vector3(3, 0.5, 2)
+
+[sub_resource type="BoxShape3D" id="shape_8"]
+size = Vector3(6, 7, 6)
+
+[sub_resource type="BoxMesh" id="mesh_8"]
+material = SubResource("route_mat")
+size = Vector3(6, 7, 6)
+
+[sub_resource type="BoxShape3D" id="shape_9"]
+size = Vector3(6, 3, 8)
+
+[sub_resource type="BoxMesh" id="mesh_9"]
+material = SubResource("route_mat")
+size = Vector3(6, 3, 8)
+
+[sub_resource type="BoxShape3D" id="shape_10"]
+size = Vector3(4, 1, 4.5)
+
+[sub_resource type="BoxMesh" id="mesh_10"]
+material = SubResource("route_mat")
+size = Vector3(4, 1, 4.5)
+
+[sub_resource type="BoxShape3D" id="shape_11"]
+size = Vector3(6, 1, 12)
+
+[sub_resource type="BoxMesh" id="mesh_11"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 12)
+
+[sub_resource type="BoxShape3D" id="shape_12"]
+size = Vector3(6, 1, 6)
+
+[sub_resource type="BoxMesh" id="mesh_12"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 6)
+
+[sub_resource type="BoxShape3D" id="shape_13"]
+size = Vector3(0.6, 0.5, 10)
+
+[sub_resource type="BoxMesh" id="mesh_13"]
+material = SubResource("route_mat")
+size = Vector3(0.6, 0.5, 10)
+
+[sub_resource type="BoxShape3D" id="shape_14"]
+size = Vector3(6, 1, 8)
+
+[sub_resource type="BoxMesh" id="mesh_14"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 8)
+
+[sub_resource type="BoxShape3D" id="shape_15"]
+size = Vector3(16, 1, 18)
+
+[sub_resource type="BoxMesh" id="mesh_15"]
+material = SubResource("route_mat")
+size = Vector3(16, 1, 18)
+
+[sub_resource type="BoxShape3D" id="shape_16"]
+size = Vector3(14, 1, 0.5)
+
+[sub_resource type="BoxMesh" id="mesh_16"]
+material = SubResource("wall_mat")
+size = Vector3(14, 1, 0.5)
+
+[sub_resource type="BoxShape3D" id="shape_17"]
+size = Vector3(6, 1, 5)
+
+[sub_resource type="BoxMesh" id="mesh_17"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 5)
+
+[sub_resource type="BoxShape3D" id="shape_18"]
+size = Vector3(6, 1, 7)
+
+[sub_resource type="BoxMesh" id="mesh_18"]
+material = SubResource("route_mat")
+size = Vector3(6, 1, 7)
+
+[sub_resource type="BoxShape3D" id="shape_19"]
+size = Vector3(1.2, 0.5, 1.2)
+
+[sub_resource type="BoxMesh" id="mesh_19"]
+material = SubResource("wall_mat")
+size = Vector3(1.2, 0.5, 1.2)
+
+[sub_resource type="Curve3D" id="curve_Ferry"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -6.8),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_Lift"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_TossGate"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4.3, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_PlateGate"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4.3, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_Bridge"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -8, 0, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_LockGate"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4.3, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_ScaleGate"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -4.3, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_RideA"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="curve_RideB"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -6, 0, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[node name="Route" type="Node3D"]
+
+[node name="A_Start" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, -18.5)
+
+[node name="Shape" type="CollisionShape3D" parent="A_Start"]
+shape = SubResource("shape_0")
+
+[node name="Mesh" type="MeshInstance3D" parent="A_Start"]
+mesh = SubResource("mesh_0")
+
+[node name="A_Step1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.35, -22.75)
+
+[node name="Shape" type="CollisionShape3D" parent="A_Step1"]
+shape = SubResource("shape_1")
+
+[node name="Mesh" type="MeshInstance3D" parent="A_Step1"]
+mesh = SubResource("mesh_1")
+
+[node name="A_Step2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2, -24.25)
+
+[node name="Shape" type="CollisionShape3D" parent="A_Step2"]
+shape = SubResource("shape_2")
+
+[node name="Mesh" type="MeshInstance3D" parent="A_Step2"]
+mesh = SubResource("mesh_2")
+
+[node name="A_Step3" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, -25.75)
+
+[node name="Shape" type="CollisionShape3D" parent="A_Step3"]
+shape = SubResource("shape_3")
+
+[node name="Mesh" type="MeshInstance3D" parent="A_Step3"]
+mesh = SubResource("mesh_3")
+
+[node name="B_Landing" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.1, -32.25)
+
+[node name="Shape" type="CollisionShape3D" parent="B_Landing"]
+shape = SubResource("shape_4")
+
+[node name="Mesh" type="MeshInstance3D" parent="B_Landing"]
+mesh = SubResource("mesh_4")
+
+[node name="C_Ledge" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, -39)
+
+[node name="Shape" type="CollisionShape3D" parent="C_Ledge"]
+shape = SubResource("shape_5")
+
+[node name="Mesh" type="MeshInstance3D" parent="C_Ledge"]
+mesh = SubResource("mesh_5")
+
+[node name="D_Landing" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, -55)
+
+[node name="Shape" type="CollisionShape3D" parent="D_Landing"]
+shape = SubResource("shape_6")
+
+[node name="Mesh" type="MeshInstance3D" parent="D_Landing"]
+mesh = SubResource("mesh_6")
+
+[node name="D_LiftPit" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.15, -59)
+
+[node name="Shape" type="CollisionShape3D" parent="D_LiftPit"]
+shape = SubResource("shape_7")
+
+[node name="Mesh" type="MeshInstance3D" parent="D_LiftPit"]
+mesh = SubResource("mesh_7")
+
+[node name="E_High" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8.5, -63)
+
+[node name="Shape" type="CollisionShape3D" parent="E_High"]
+shape = SubResource("shape_8")
+
+[node name="Mesh" type="MeshInstance3D" parent="E_High"]
+mesh = SubResource("mesh_8")
+
+[node name="F_Ledge" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 13, -70)
+
+[node name="Shape" type="CollisionShape3D" parent="F_Ledge"]
+shape = SubResource("shape_9")
+
+[node name="Mesh" type="MeshInstance3D" parent="F_Ledge"]
+mesh = SubResource("mesh_9")
+
+[node name="G_Perch" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 17, -71.75)
+
+[node name="Shape" type="CollisionShape3D" parent="G_Perch"]
+shape = SubResource("shape_10")
+
+[node name="Mesh" type="MeshInstance3D" parent="G_Perch"]
+mesh = SubResource("mesh_10")
+
+[node name="H_Plate" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -80)
+
+[node name="Shape" type="CollisionShape3D" parent="H_Plate"]
+shape = SubResource("shape_11")
+
+[node name="Mesh" type="MeshInstance3D" parent="H_Plate"]
+mesh = SubResource("mesh_11")
+
+[node name="J_Far" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -103)
+
+[node name="Shape" type="CollisionShape3D" parent="J_Far"]
+shape = SubResource("shape_12")
+
+[node name="Mesh" type="MeshInstance3D" parent="J_Far"]
+mesh = SubResource("mesh_12")
+
+[node name="K_Beam" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.25, -111)
+
+[node name="Shape" type="CollisionShape3D" parent="K_Beam"]
+shape = SubResource("shape_13")
+
+[node name="Mesh" type="MeshInstance3D" parent="K_Beam"]
+mesh = SubResource("mesh_13")
+
+[node name="L_Lock" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -120)
+
+[node name="Shape" type="CollisionShape3D" parent="L_Lock"]
+shape = SubResource("shape_14")
+
+[node name="Mesh" type="MeshInstance3D" parent="L_Lock"]
+mesh = SubResource("mesh_14")
+
+[node name="M_Yard" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -133)
+
+[node name="Shape" type="CollisionShape3D" parent="M_Yard"]
+shape = SubResource("shape_15")
+
+[node name="Mesh" type="MeshInstance3D" parent="M_Yard"]
+mesh = SubResource("mesh_15")
+
+[node name="M_LowWall" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 15, -133)
+
+[node name="Shape" type="CollisionShape3D" parent="M_LowWall"]
+shape = SubResource("shape_16")
+
+[node name="Mesh" type="MeshInstance3D" parent="M_LowWall"]
+mesh = SubResource("mesh_16")
+
+[node name="N_Trophy" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -144.5)
+
+[node name="Shape" type="CollisionShape3D" parent="N_Trophy"]
+shape = SubResource("shape_17")
+
+[node name="Mesh" type="MeshInstance3D" parent="N_Trophy"]
+mesh = SubResource("mesh_17")
+
+[node name="O_Goal" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14, -161.5)
+
+[node name="Shape" type="CollisionShape3D" parent="O_Goal"]
+shape = SubResource("shape_18")
+
+[node name="Mesh" type="MeshInstance3D" parent="O_Goal"]
+mesh = SubResource("mesh_18")
+
+[node name="O_Pedestal" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.75, -162)
+
+[node name="Shape" type="CollisionShape3D" parent="O_Pedestal"]
+shape = SubResource("shape_19")
+
+[node name="Mesh" type="MeshInstance3D" parent="O_Pedestal"]
+mesh = SubResource("mesh_19")
+
+[node name="Start" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -14.6)
+script = ExtResource("3_volumes")
+unified_kind = "start"
+size = Vector3(3, 1.5, 0.4)
+
+[node name="Check1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.9, -33.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 1
+
+[node name="JumpPad" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -34.6)
+script = ExtResource("3_volumes")
+unified_kind = "pad"
+size = Vector3(0.9, 0.3, 0.9)
+launch = Vector3(0, 15, -3)
+
+[node name="Check2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7, -40.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 2
+
+[node name="Ferry" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.75, -43.6)
+script = ExtResource("2_platform")
+size = Vector3(1.5, 0.25, 1.5)
+seconds = 3.0
+wait = 1.0
+mode = "ping_pong"
+
+[node name="Path" type="Path3D" parent="Ferry"]
+curve = SubResource("curve_Ferry")
+
+[node name="Check3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7, -54.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 3
+
+[node name="Lift" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.75, -59)
+script = ExtResource("2_platform")
+size = Vector3(1.5, 0.25, 1.0)
+seconds = 2.5
+wait = 1.5
+mode = "ping_pong"
+
+[node name="Path" type="Path3D" parent="Lift"]
+curve = SubResource("curve_Lift")
+
+[node name="Check4" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 13, -61.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 4
+
+[node name="StackCrate1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 12.35, -63.5)
+script = ExtResource("1_item")
+
+[node name="StackCrate2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 12.35, -64.5)
+script = ExtResource("1_item")
+
+[node name="StackCrate3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 12.35, -63)
+script = ExtResource("1_item")
+
+[node name="StackCrate4" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 12.35, -64.8)
+script = ExtResource("1_item")
+
+[node name="Check5" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -68)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 5
+
+[node name="TossSwitch" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.5, 18, -72)
+script = ExtResource("3_volumes")
+unified_kind = "switch"
+size = Vector3(0.6, 0.8, 0.6)
+
+[node name="TossCrate1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.2, 14.85, -70)
+script = ExtResource("1_item")
+
+[node name="TossCrate2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.2, 14.85, -71)
+script = ExtResource("1_item")
+
+[node name="TossCrate3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.2, 14.85, -72)
+script = ExtResource("1_item")
+
+[node name="TossGate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.6, -74.3)
+script = ExtResource("2_platform")
+size = Vector3(3, 2, 0.25)
+seconds = 1.0
+wait = 0.0
+mode = "follow"
+trigger = NodePath("../TossSwitch")
+
+[node name="Path" type="Path3D" parent="TossGate"]
+curve = SubResource("curve_TossGate")
+
+[node name="Plate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 14.6, -78)
+script = ExtResource("3_volumes")
+unified_kind = "plate"
+size = Vector3(0.9, 0.1, 0.9)
+mass = 18.0
+
+[node name="WeightCube" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 14.9, -77)
+script = ExtResource("1_item")
+kind = "cube"
+
+[node name="PlateGate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.6, -84.8)
+script = ExtResource("2_platform")
+size = Vector3(3, 2, 0.25)
+seconds = 0.75
+wait = 0.0
+mode = "follow"
+trigger = NodePath("../Plate")
+
+[node name="Path" type="Path3D" parent="PlateGate"]
+curve = SubResource("curve_PlateGate")
+
+[node name="Check6" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -85.6)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 0.4)
+index = 6
+
+[node name="Ball1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 14.8, -82)
+script = ExtResource("1_item")
+kind = "ball"
+
+[node name="Ball2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 14.8, -82.5)
+script = ExtResource("1_item")
+kind = "ball"
+
+[node name="Bell" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 17, -101.5)
+script = ExtResource("3_volumes")
+unified_kind = "bell"
+radius = 0.6
+
+[node name="Bridge" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 14.25, -93)
+script = ExtResource("2_platform")
+size = Vector3(1.5, 0.25, 7.0)
+seconds = 2.0
+wait = 0.0
+mode = "once"
+trigger = NodePath("../Bell")
+
+[node name="Path" type="Path3D" parent="Bridge"]
+curve = SubResource("curve_Bridge")
+
+[node name="Check7" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -104)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 7
+
+[node name="Key" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 14.75, -103)
+script = ExtResource("1_item")
+kind = "key"
+
+[node name="Lock" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.2, -118)
+script = ExtResource("3_volumes")
+unified_kind = "lock"
+size = Vector3(0.8, 0.8, 0.8)
+
+[node name="LockGate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.6, -120)
+script = ExtResource("2_platform")
+size = Vector3(3, 2, 0.25)
+seconds = 1.0
+wait = 0.0
+mode = "follow"
+trigger = NodePath("../Lock")
+
+[node name="Path" type="Path3D" parent="LockGate"]
+curve = SubResource("curve_LockGate")
+
+[node name="Check8" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -122.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 8
+
+[node name="HeavyCrate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.9, -127)
+script = ExtResource("1_item")
+kind = "heavy"
+
+[node name="Scale" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 14.6, -138)
+script = ExtResource("3_volumes")
+unified_kind = "plate"
+size = Vector3(1.2, 0.1, 1.2)
+mass = 40.0
+items_only = true
+
+[node name="ScaleGate" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.6, -141.8)
+script = ExtResource("2_platform")
+size = Vector3(8, 2, 0.25)
+seconds = 1.0
+wait = 0.0
+mode = "follow"
+trigger = NodePath("../Scale")
+
+[node name="Path" type="Path3D" parent="ScaleGate"]
+curve = SubResource("curve_ScaleGate")
+
+[node name="Check9" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -144.5)
+script = ExtResource("3_volumes")
+unified_kind = "checkpoint"
+size = Vector3(3, 1.5, 1)
+index = 9
+
+[node name="Trophy" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 14.9, -145)
+script = ExtResource("1_item")
+kind = "trophy"
+
+[node name="RideA" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 14.25, -149.5)
+script = ExtResource("2_platform")
+size = Vector3(1.5, 0.25, 2.4)
+seconds = 2.5
+wait = 0.75
+mode = "ping_pong"
+
+[node name="Path" type="Path3D" parent="RideA"]
+curve = SubResource("curve_RideA")
+
+[node name="RideB" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 14.25, -155)
+script = ExtResource("2_platform")
+size = Vector3(1.5, 0.25, 2.4)
+seconds = 2.5
+wait = 0.75
+mode = "ping_pong"
+
+[node name="Path" type="Path3D" parent="RideB"]
+curve = SubResource("curve_RideB")
+
+[node name="Finish" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15.5, -162)
+script = ExtResource("3_volumes")
+unified_kind = "finish"
+size = Vector3(0.8, 0.6, 0.8)
