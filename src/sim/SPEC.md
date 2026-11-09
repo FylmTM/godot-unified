@@ -71,10 +71,12 @@ game needs them.
 
 ## Determinism lint (`tests/lint`)
 
-Code inside a tick (game sim packages, `dmath`, `physics`, `sim`) has an import allowlist (the deterministic packages,
-`base:intrinsics`, `core:math/bits`; plus what the harness and physics need: RTTI, hashing, files, a mutex) and may
-not use `foreign`, `map`, `matrix`, `f64*`/`f16*`, fused multiply-add, quaternion/complex types, cycle counters,
-runtime entropy, or `x := 1.5` (an untyped float literal is f64). Sub-packages are scanned. It cannot see types: a
+Code inside a tick (game sim packages, `dmath`, `physics`, `level`, `sim`) has an import allowlist (the deterministic
+packages, `base:intrinsics`, `core:math/bits`; plus what the harness and physics need: RTTI, hashing, files, a mutex)
+and may not use `foreign`, `map`, `matrix`, `f64*`/`f16*`, fused multiply-add, quaternion/complex types, cycle
+counters, runtime entropy, or `x := 1.5` (an untyped float literal is f64). Its package-level variables must be
+`@(rodata)` (or `::` constants): a write to one during a tick would be state outside the block. The exceptions are
+named in `MUTABLE_GLOBALS` with a reason (physics' `world_mutex`). Sub-packages are scanned. It cannot see types: a
 float-to-int conversion needs `dmath.to_i32_clamped` by convention.
 
 ## Open

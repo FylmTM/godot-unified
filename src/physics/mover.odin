@@ -94,9 +94,9 @@ MOVER_DEFAULT :: Mover_Def {
 }
 
 // cos and sin of i·45°, the skirt probe directions.
-@(private)
+@(private, rodata)
 SKIRT_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
-@(private)
+@(private, rodata)
 SKIRT_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}
 
 // Creates the mover's body and drive joint at `pos` (the capsule's centre). Needs Settings.anchor.

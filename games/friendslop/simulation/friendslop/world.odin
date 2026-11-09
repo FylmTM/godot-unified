@@ -29,6 +29,7 @@ Item_Kind :: enum u8 {
 	Trophy,
 }
 
+@(rodata)
 ITEM_KIND_NAMES := [Item_Kind]string {
 	.Crate  = "crate",
 	.Ball   = "ball",
@@ -49,6 +50,7 @@ Item_Spec :: struct {
 	throwable:   bool,
 }
 
+@(rodata)
 ITEM_SPECS := [Item_Kind]Item_Spec {
 	.Crate = {
 		half = {0.35, 0.35, 0.35},
@@ -194,6 +196,7 @@ World :: struct {
 Game :: sim.Game(State, Input, World, MAX_PLAYERS)
 Sim :: sim.Sim(State, Input, World, MAX_PLAYERS)
 
+@(rodata)
 GAME := Game {
 	name = "friendslop",
 	version = "1",
@@ -206,6 +209,7 @@ GAME := Game {
 	event_names = EVENT_NAMES,
 }
 
+@(rodata)
 MOVER := physics.Mover_Def {
 	radius                 = PLAYER_RADIUS,
 	half_height            = PLAYER_HALF_HEIGHT,

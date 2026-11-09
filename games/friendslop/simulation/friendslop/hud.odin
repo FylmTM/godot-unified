@@ -23,6 +23,7 @@ Hud :: struct {
 	players:    [MAX_PLAYERS]Hud_Player,
 }
 
+@(rodata)
 PHASE_NAMES := [Phase]string {
 	.Hub      = "hub",
 	.Run      = "run",
