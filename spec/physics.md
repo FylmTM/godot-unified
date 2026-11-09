@@ -23,7 +23,12 @@ shape defs with `enableHitEvents`, `Body_SetTransform`, `Body_SetAngularVelocity
 
 ## Queries and events
 
+Games step and query only through here, never `b3World_Step` or `b3World_CastRay*` directly (body and shape
+creation still use Box3D's defs).
+
 ```odin
+step(w, dt, substeps)
+ray_first(w, origin, translation, q) -> (Ray_Hit, bool)                     // b3World_CastRayClosest, filtered only
 ray_closest(w, from, to, filter, ignore: Body_Link = {}) -> (Hit, bool)   // skips `ignore` and sensors
 overlap_aabb(w, lo, hi, filter, out: ^[dynamic]Body_Link)                  // sorted by body index
 hit_events(w, out: ^[dynamic]Hit_Event)   // after the step: {body_a, body_b, point, normal, approach_speed}, in Box3D's order

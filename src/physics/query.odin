@@ -29,6 +29,21 @@ Ray_Hit :: struct {
 	material: u64, // the shape's user material id
 }
 
+// Box3D's closest hit along `translation` from `origin` (b3World_CastRayClosest), filtered by `q` only. The cheapest
+// ray; ray_closest also skips a given body and sensors.
+ray_first :: proc(w: ^World, origin, translation: [3]f32, q := Query{}) -> (hit: Ray_Hit, ok: bool) {
+	r := b3.World_CastRayClosest(w.id, v3(origin), v3(translation), query_filter(q))
+	if !r.hit do return
+	return {
+			link_of(b3.Shape_GetBody(r.shapeId)),
+			{r.point.x, r.point.y, r.point.z},
+			{r.normal.x, r.normal.y, r.normal.z},
+			r.fraction,
+			r.userMaterialId,
+		},
+		true
+}
+
 @(private)
 Ray_Ctx :: struct {
 	w:      ^World,

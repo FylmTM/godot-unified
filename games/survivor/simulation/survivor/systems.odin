@@ -4,6 +4,7 @@ package survivor
 
 import b3 "unified:box3d"
 import "unified:dmath"
+import "unified:physics"
 import "unified:sim"
 
 GRID_N :: 30 // 2 m cells over the 60×60 arena
@@ -44,7 +45,7 @@ tick :: proc(s: ^State, w: ^World, t: u32, inputs: ^Inputs, ev: ^[dynamic]sim.Ev
 	sys_projectiles(s, w, t)
 	sys_barrels(s, w, t, ev)
 	sys_deaths(s, t, ev)
-	b3.World_Step(w.phys.id, DT, SUBSTEPS)
+	physics.step(w.phys, DT, SUBSTEPS)
 	read_back(s, w)
 	sys_phase(s, w, t, ev)
 }
@@ -300,14 +301,15 @@ nearest_player :: proc(s: ^State, pos: [2]f32) -> (best: int, best_d2: f32) {
 sys_enemies :: proc(s: ^State, w: ^World, t: u32) {
 	sc := &w.scratch
 	build_grid(s, sc)
-	ray_filter := b3.DefaultQueryFilter()
-	ray_filter.maskBits = CAT_CRATE | CAT_BARREL
+	ray_filter := physics.Query {
+		mask = CAT_CRATE | CAT_BARREL,
+	}
 	hw := s.enemies.high_water
 	for i in 0 ..< hw {
 		e := sim.at(&s.enemies, i) or_continue
 		if (u32(i) + t) % CLIMB_CHECK_TICKS == 0 {
-			r := b3.World_CastRayClosest(w.phys.id, {e.pos.x, 3, e.pos.y}, {0, -3, 0}, ray_filter)
-			e.climbing = r.hit && r.point.y > 0.8
+			r, hit := physics.ray_first(w.phys, {e.pos.x, 3, e.pos.y}, {0, -3, 0}, ray_filter)
+			e.climbing = hit && r.point.y > 0.8
 		}
 		speed := e.climbing ? e.speed * 0.5 : e.speed
 		desired: [2]f32
@@ -489,8 +491,9 @@ sys_attack :: proc(s: ^State) {
 sys_projectiles :: proc(s: ^State, w: ^World, t: u32) {
 	sc := &w.scratch
 	build_grid(s, sc)
-	ray_filter := b3.DefaultQueryFilter()
-	ray_filter.maskBits = CAT_STATIC | CAT_CRATE | CAT_BARREL
+	ray_filter := physics.Query {
+		mask = CAT_STATIC | CAT_CRATE | CAT_BARREL,
+	}
 	for pi in 0 ..< s.projectiles.high_water {
 		pr := sim.at(&s.projectiles, pi) or_continue
 		step := [3]f32{pr.vel.x * DT, pr.vel.y * DT, pr.vel.z * DT}
@@ -530,15 +533,9 @@ sys_projectiles :: proc(s: ^State, w: ^World, t: u32) {
 			sim.despawn(&s.projectiles, int(pi))
 			continue
 		}
-		r := b3.World_CastRayClosest(
-			w.phys.id,
-			b3.Vec3{pr.pos.x, pr.pos.y, pr.pos.z},
-			b3.Vec3{step.x, step.y, step.z},
-			ray_filter,
-		)
-		if r.hit {
-			if r.userMaterialId >= MAT_ITEM_BASE && r.userMaterialId < MAT_ITEM_BASE + ITEM_COUNT {
-				it := &s.items[r.userMaterialId - MAT_ITEM_BASE]
+		if r, hit := physics.ray_first(w.phys, pr.pos, step, ray_filter); hit {
+			if r.material >= MAT_ITEM_BASE && r.material < MAT_ITEM_BASE + ITEM_COUNT {
+				it := &s.items[r.material - MAT_ITEM_BASE]
 				if it.kind == .Barrel && it.alive {
 					it.hp -= pr.damage
 				}

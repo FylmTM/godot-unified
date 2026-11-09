@@ -80,7 +80,7 @@ new_world :: proc() -> ^physics.World {
 }
 
 step :: proc(w: ^physics.World) {
-	b3.World_Step(w.id, DT, 4)
+	physics.step(w, DT, 4)
 }
 
 // ---- the rig: two movers, boxes, a platform on a path, a hold joint that comes and goes
@@ -416,6 +416,13 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	testing.expect(t, ok && abs(h.point.y) < 1e-4 && h.normal.y > 0.99)
 	h, ok = physics.ray_closest(w, {0, 2, 0}, {0, -5, 0})
 	testing.expect(t, ok && h.body == physics.link_of(a))
+	// ray_first (b3World_CastRayClosest): the closest hit, filtered by category.
+	h, ok = physics.ray_first(w, {0, 5, 0}, {0, -8, 0})
+	testing.expect(t, ok && h.body == physics.link_of(a) && abs(h.point.y - 2.5) < 1e-4)
+	h, ok = physics.ray_first(w, {0, 5, 0}, {0, -8, 0}, {mask = CAT_STATIC})
+	testing.expect(t, ok && abs(h.point.y) < 1e-4)
+	_, ok = physics.ray_first(w, {0, 10, 0}, {0, 1, 0})
+	testing.expect(t, !ok)
 	// Overlaps come back sorted by body index, once each.
 	got: [dynamic]physics.Body_Link
 	defer delete(got)

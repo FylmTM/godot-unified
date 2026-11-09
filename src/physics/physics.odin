@@ -96,6 +96,11 @@ destroy :: proc(w: ^World) {
 }
 
 // A zero ref asserts: Box3D (built without its validation) would index body -1 and corrupt memory.
+// Advances the world one tick: `substeps` solver substeps (games go through this, not b3World_Step).
+step :: proc(w: ^World, dt: f32, substeps: int) {
+	b3.World_Step(w.id, dt, i32(substeps))
+}
+
 body_id :: proc(w: ^World, r: Body_Ref, loc := #caller_location) -> b3.BodyId {
 	assert(r.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
 	return {index1 = r.index1, world0 = w.id.index1 - 1, generation = r.generation}

@@ -23,7 +23,7 @@ tick :: proc(s: ^State, w: ^World, t: u32, inputs: ^Inputs, events: Events) {
 	platforms(s, w)
 	pads(s, w, events)
 	bumpers(s, w, events)
-	b3.World_Step(w.phys.id, DT, SUBSTEPS)
+	physics.step(w.phys, DT, SUBSTEPS)
 	hits(s, w, events)
 	plates_and_switches(s, w, events)
 	stuns(s, w)
