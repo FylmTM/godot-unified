@@ -150,8 +150,8 @@ jobs:
         with:
           name: ${{ matrix.platform }}
           path: |
-            ${{ needs.meta.outputs.game_dir }}/.uni/release/*.zip
-            ${{ needs.meta.outputs.game_dir }}/.uni/release/*.sha256
+            ${{ needs.meta.outputs.game_dir }}/.out/release/*.zip
+            ${{ needs.meta.outputs.game_dir }}/.out/release/*.sha256
           if-no-files-found: error
           retention-days: 14
 

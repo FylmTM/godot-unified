@@ -228,8 +228,8 @@ _LIB_KEYS = {
 
 
 def gdextensions(proj):
-    """The project's .gdextension files (not in .godot/ or .uni/)."""
-    skip = {".godot", ".uni"}
+    """The project's .gdextension files (not in .godot/ or .out/)."""
+    skip = {".godot", ".out"}
     return sorted(p for p in Path(proj).rglob("*.gdextension") if not skip & set(p.relative_to(proj).parts))
 
 
@@ -277,7 +277,7 @@ def _import_signature(proj):
     parts = []
     for p in sorted(proj.rglob("*")):
         rel = p.relative_to(proj)
-        if rel.parts[0] in (".godot", ".uni"):
+        if rel.parts[0] in (".godot", ".out"):
             continue
         if p.suffix == ".gd":
             names = [l.strip() for l in p.read_text(errors="replace").splitlines() if l.startswith("class_name ")]

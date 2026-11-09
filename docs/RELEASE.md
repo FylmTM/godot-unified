@@ -24,7 +24,7 @@ run publishes nothing; delete the tag, fix, tag again.
 ## Locally (macOS)
 
 ```
-python tools/release.py build games/survivor                   # -> games/survivor/.uni/release/survivor-dev-<sha>-macos-arm64.zip
+python tools/release.py build games/survivor                   # -> games/survivor/.out/release/survivor-dev-<sha>-macos-arm64.zip
 python tools/release.py build games/survivor --version 0.1.2   # what the tag build does (stamps 0.1.2)
 ```
 

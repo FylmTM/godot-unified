@@ -9,14 +9,14 @@ reloadable = true
 
 [libraries]
 
-macos.debug = "res://.uni/bin/libfriendslop.dylib"
-macos.release = "res://.uni/bin/libfriendslop.dylib"
-windows.x86_64 = "res://.uni/bin/friendslop.dll"
-linux.x86_64 = "res://.uni/bin/libfriendslop.so"
+macos.debug = "res://.out/bin/libfriendslop.dylib"
+macos.release = "res://.out/bin/libfriendslop.dylib"
+windows.x86_64 = "res://.out/bin/friendslop.dll"
+linux.x86_64 = "res://.out/bin/libfriendslop.so"
 
-; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .uni/bin).
+; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .out/bin).
 [dependencies]
 
-macos.debug = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
-macos.release = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
-windows.x86_64 = { "res://.uni/bin/EOSSDK-Win64-Shipping.dll": "" }
+macos.debug = { "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+macos.release = { "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "res://.out/bin/EOSSDK-Win64-Shipping.dll": "" }

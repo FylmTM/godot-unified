@@ -65,11 +65,11 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   unified/      submodule; ships its own .gdignore
   simulation/   game sim code (Odin); .gdignore created by `unified init`
   game/         everything Godot: scenes, scripts, assets
-  .uni/         all artifacts (CLI cache, Box3D builds, game library, F3 feedback, test output), hidden, git-ignored
+  .out/         all artifacts (CLI cache, Box3D builds, game library, F3 feedback, test output), hidden, git-ignored
   .godot/       Godot import cache
   ```
   `unified check` fails if Godot imported anything outside `game/`. To verify in the GDExtension spike: the library
-  loads and exports from hidden `res://.uni/bin/`.
+  loads and exports from hidden `res://.out/bin/`.
 
 - **Godot route: GDExtension.** LibGodot stays a later option (our init runs unchanged under a LibGodot host).
 - **View binding: (C) hybrid.**

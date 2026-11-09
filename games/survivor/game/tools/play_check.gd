@@ -2,7 +2,7 @@ extends SceneTree
 ## Real-play check with the native extension (not the mock), driven like a player: real clicks, InputMap
 ## actions held and released, the level-up panel answered with its keys.
 ##   godot --path games/survivor --resolution 1280x720 -s res://game/tools/play_check.gd -- [--minutes 3] [--coop]
-##         [--shots=res://.uni/shots]
+##         [--shots=res://.out/shots]
 ## --bench N (single player, the extension holds N enemies in an endless match): only the timed play, for frame
 ## time at a fixed population.
 ## --coop hosts on LAN instead and starts a headless second player (scripted input) that joins: the match then

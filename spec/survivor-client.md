@@ -8,9 +8,9 @@ The Godot side of `games/survivor/`: everything except `simulation/`. Hand-writt
 
 ```
 project.godot          Forward+, 1280x720, canvas_items stretch, InputMap, autoloads, audio buses
-export_presets.cfg     "macOS" (universal, thinned by tools/release.py) and "Windows Desktop"; library from .uni/bin/;
+export_presets.cfg     "macOS" (universal, thinned by tools/release.py) and "Windows Desktop"; library from .out/bin/;
                        game/tools/ and game/session/ are excluded
-game/survivor.gdextension   entry unified_init, res://.uni/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
+game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
 game/autoload/         Settings (user://settings.cfg), Sfx (procedural sounds), Game (flow + session)
 game/session/          the mock session: the contract in GDScript with a fake sim (dev only, not exported)
 game/ui/               theme (code-built), main menu, settings, connect overlay, HUD, Esc menu
@@ -65,9 +65,9 @@ and load without the library (Godot replaces unknown native node types with a pl
 the check, `untyped_declaration` included; load and instantiate every scene, flag unknown `.tscn` properties, compare
 the mock's `constants()` and idle `hud()` with the native session's; run the menu 30 frames; ~0.6 s) and
 `game walk` (headless scripted walk through every flow with the mock,
-real input events; ~2.5 s). `game shots` runs the walk in a window and writes PNGs to `games/survivor/.uni/shots/`. `game tour` plays the real
+real input events; ~2.5 s). `game shots` runs the walk in a window and writes PNGs to `games/survivor/.out/shots/`. `game tour` plays the real
 game (library built): headless, menu → single → lobby → walk out → match with enemies (~2.6 s); `--shots` plays a
-whole match in a window to game over and back to the lobby, PNGs in `games/survivor/.uni/tour/`. validate and walk
+whole match in a window to game over and back to the lobby, PNGs in `games/survivor/.out/tour/`. validate and walk
 also fail on ObjectDB/resource leaks reported at exit.
 
 ## Feel

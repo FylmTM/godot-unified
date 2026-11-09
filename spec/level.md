@@ -17,7 +17,7 @@ file, and loaded by the sim at runtime. First user: `spec/friendslop.md`.
   collision (view only).
 
 The library ships the exporter only, not scripts that scenes depend on. The tools install it into the game's
-`.uni/tools/` and run it there.
+`.out/tools/` and run it there.
 
 ## File (`UNLV`, little-endian, through `unified:wire`)
 

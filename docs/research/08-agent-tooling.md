@@ -10,7 +10,7 @@ pending sign-off). Claims I could not check against a primary source are marked 
   **control server** in the game binary serves the same API as **JSON-RPC 2.0**, fronted by a `uni` CLI (what agents
   use from bash) and a `uni mcp` stdio adapter. Reflection-based remote protocols in other engines prove the shape;
   we add determinism, peers and replays.
-- **Transport: a local socket per instance** at `<worktree>/.uni/run/<instance>/control.sock`, so there are **no
+- **Transport: a local socket per instance** at `<worktree>/.out/run/<instance>/control.sock`, so there are **no
   ports to allocate**. Large results (PNG, snapshots) go to an artifacts directory, and responses return paths.
 - **A type registry is the prerequisite.** The inspector, diff viewer, protocol schemas, tuning sliders and F3
   summaries are all generated from it.
@@ -147,7 +147,7 @@ an optional view), connected by a transport (loopback with netsim by default). C
 ← {"jsonrpc":"2.0","id":5,"result":{"met":true,"tick":437}}
 
 → {"jsonrpc":"2.0","id":6,"method":"view.shot","params":{"peer":1,"ui":false,"size":[1280,720]}}
-← {"jsonrpc":"2.0","id":6,"result":{"path":".uni/run/a1f3/artifacts/shot-0006.png","tick":437,"camera":{"pos":[1,4,-6],"yaw":12,"pitch":20}}}
+← {"jsonrpc":"2.0","id":6,"result":{"path":".out/run/a1f3/artifacts/shot-0006.png","tick":437,"camera":{"pos":[1,4,-6],"yaw":12,"pitch":20}}}
 
 ← {"jsonrpc":"2.0","method":"events","params":{"tick":438,"peer":0,"kind":"Landed","data":{"e":"E.206.1"}}}
 ```
@@ -221,7 +221,7 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 ## Parallel agent workflow
 
 - **Self-contained worktrees.** Each builds and runs its own binary; only caches are shared.
-- **No port allocation.** Control sockets live under `<worktree>/.uni/run/<id>/`. Network tests bind port 0 and
+- **No port allocation.** Control sockets live under `<worktree>/.out/run/<id>/`. Network tests bind port 0 and
   publish the port in `control.json`. No fixed ports.
 - **Build caches.** Use per-worktree build outputs (Odin builds are sub-second), and "build under lock, run from a
   private copy" for test runners.
@@ -229,7 +229,7 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
   Worktrees already share LFS objects through the common git dir.
 - **Machine-wide slots.** A lock-file semaphore caps heavy jobs (GPU windows, fuzzes, Blender), like the Blender
   slots in the current Unity game. Instances are headless by default.
-- **Artifacts.** `.uni/run/<id>/artifacts/`, gitignored, with paths printed in every result and old runs pruned.
+- **Artifacts.** `.out/run/<id>/artifacts/`, gitignored, with paths printed in every result and old runs pruned.
 
 ## Risks and unknowns
 

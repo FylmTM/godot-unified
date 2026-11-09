@@ -7,7 +7,7 @@ The deterministic sim, its headless binary and the GDExtension live in `simulati
 ## Run
 
 ```
-python tools/dev.py game build friendslop     # the game library -> .uni/bin/ (~1 s); the game needs it
+python tools/dev.py game build friendslop     # the game library -> .out/bin/ (~1 s); the game needs it
 python tools/dev.py game run friendslop       # windowed
 ```
 
@@ -29,7 +29,7 @@ python tools/dev.py game export-level friendslop   # game/levels/*.tscn -> *.lev
 ```
 python tools/dev.py game validate friendslop   # scripts, scenes, item sizes vs the sim, the level export (~1 s)
 python tools/dev.py game tour friendslop       # the real game headless: hub, grab, throw (~5 s); --shots: windowed
-                                               # with the jump pad, PNGs in .uni/tour/
+                                               # with the jump pad, PNGs in .out/tour/
 python tools/dev.py game headless friendslop   # a Godot session's checksums == the offline binary's
 python tools/dev.py game coop friendslop       # EOS: a host and a joiner; the host picks the friend up, they break free
 python tools/dev.py check --only F1,F2,F3,F4,F5   # sync-test, sessions under loss, late join, cross-platform replay

@@ -7,7 +7,7 @@ reloadable = false
 
 [libraries]
 
-macos.debug = "res://.uni/bin/libgdext_test.dylib"
-macos.release = "res://.uni/bin/libgdext_test.dylib"
-linux.x86_64 = "res://.uni/bin/libgdext_test.so"
-windows.x86_64 = "res://.uni/bin/gdext_test.dll"
+macos.debug = "res://.out/bin/libgdext_test.dylib"
+macos.release = "res://.out/bin/libgdext_test.dylib"
+linux.x86_64 = "res://.out/bin/libgdext_test.so"
+windows.x86_64 = "res://.out/bin/gdext_test.dll"

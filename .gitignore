@@ -16,7 +16,7 @@ out/
 *.gen.odin
 
 # Godot build outputs (game libraries, exports) and import caches
-.uni/
+.out/
 
 # Dear ImGui sources and builds are fetched by tools/imgui.py
 /third_party/imgui/

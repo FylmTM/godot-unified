@@ -13,7 +13,7 @@
     python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
                                                 # validate, walk (CI's godot job runs exactly this)
     python tools/dev.py all                     # fmt --check, vet, test, check, godot-checks (everything CI runs)
-    python tools/dev.py game build <game> [dev|release] [--arch x86_64]   # games/<game>/.uni/bin/lib<game>.*
+    python tools/dev.py game build <game> [dev|release] [--arch x86_64]   # games/<game>/.out/bin/lib<game>.*
     python tools/dev.py game run <game> [-- args]       # windowed game (args after -- go to the game)
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] [--seed S] [--release] [--no-build]
@@ -175,7 +175,7 @@ def cmd_godot_test():
     t0 = time.time()
     proj = REPO / "tests" / "godot"
     imgui.ensure()
-    build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
+    build_extension("tests/godot/ext", proj / ".out" / "bin" / common.lib_name("gdext_test"))
     common.write_extension_list(proj)
     # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
     r = common.run_godot(["--headless", "--verbose", "--path", proj, "-s", "res://test.gd"], timeout=30)
@@ -197,7 +197,7 @@ def rel(p):
 
 
 def cmd_game_build(gdir, mode="dev", arch=None):
-    """Builds the game's GDExtension into <game>/.uni/bin/. macOS dev builds get a new versioned file each time
+    """Builds the game's GDExtension into <game>/.out/bin/. macOS dev builds get a new versioned file each time
     and lib<game>.dylib becomes a symlink to it: dyld never unloads an image with thread-locals (Odin's runtime
     has some), so reloading the same path in the editor would keep the old code."""
     t0 = time.time()
@@ -208,7 +208,7 @@ def cmd_game_build(gdir, mode="dev", arch=None):
     box3d.ensure(arch)
     imgui.ensure(arch)
     cmd_gen()
-    out = gdir / ".uni" / "bin" / common.lib_name(name)
+    out = gdir / ".out" / "bin" / common.lib_name(name)
     out.parent.mkdir(parents=True, exist_ok=True)
     versioned = common.IS_MACOS and mode != "release"
     if versioned:
@@ -353,11 +353,11 @@ def offline_checksums(gdir, ticks, seed):
 
 def cmd_game_play(gdir, minutes=3.0, bench=None, coop=False, release=False, build=True):
     """The real-play check (game/tools/play_check.gd): a bot plays single player (or --bench N / --coop) in a window
-    with the real extension; screenshots go to <game>/.uni/shots/. Needs a display (not CI)."""
+    with the real extension; screenshots go to <game>/.out/shots/. Needs a display (not CI)."""
     if build:
         cmd_game_build(gdir, "release" if release else "dev")
     common.ensure_imported(gdir)
-    extra = ["--minutes", str(minutes), "--shots=res://.uni/shots"]
+    extra = ["--minutes", str(minutes), "--shots=res://.out/shots"]
     if bench is not None:
         extra += ["--bench", str(bench)]
     if coop:
@@ -378,7 +378,7 @@ def cmd_game_play(gdir, minutes=3.0, bench=None, coop=False, release=False, buil
 
 def cmd_game_session_check(gdir):
     """Session lifecycle under headless Godot (game/tools/session_check.gd): Leave, then Host or Join at once."""
-    if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
+    if not (gdir / ".out" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
     common.ensure_imported(gdir)
     t0 = time.time()
@@ -397,7 +397,7 @@ def cmd_game_session_check(gdir):
 
 
 def cmd_game_editor_check(gdir):
-    if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
+    if not (gdir / ".out" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
     common.write_extension_list(gdir)
     t0 = time.time()
@@ -419,7 +419,7 @@ def game_parser():
     ap = Strict(prog="dev.py game", description="Build, run and check a game (games/<game>)")
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="|".join(DEV_GAME_COMMANDS) + "|<tools/game.py>",
                             parser_class=Strict)
-    p = sub.add_parser("build", help="the game's GDExtension into <game>/.uni/bin/")
+    p = sub.add_parser("build", help="the game's GDExtension into <game>/.out/bin/")
     p.add_argument("game")
     p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
     p.add_argument("--arch", choices=["x86_64"], help="macOS: an x86_64 build, for Rosetta checks")
@@ -457,7 +457,7 @@ def cmd_game(argv):
     if a.cmd == "build":
         cmd_game_build(gdir, a.mode, a.arch)
     elif a.cmd in ("run", "editor"):
-        if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
+        if not (gdir / ".out" / "bin" / common.lib_name(gdir.name)).exists():
             cmd_game_build(gdir)
         common.write_extension_list(gdir)
         cmd = [common.find_godot(), "--path", str(gdir)] + (["--editor"] if a.cmd == "editor" else []) + \
