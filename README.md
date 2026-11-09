@@ -35,7 +35,8 @@ here: `games/survivor/` (a co-op survivor, the test game) and `games/friendslop/
 - **Co-op testing:** N clients per process over any transport, views on or off; headless loopback with a network
   simulator is the workhorse for tests, agents and CI.
 - **Tests:** headless sim tests; replays as exact regression tests within a build, scenario tests across builds;
-  reference runs made on macOS ARM64 that Linux x64, Windows x64 (CI) and Rosetta reproduce bit for bit.
+  reference runs made on macOS ARM64 that CI (Linux x64 and arm64, Windows x64, macOS ARM64) and Rosetta
+  reproduce bit for bit.
 - **Dev tools in the game:** entity picker and inspector, timeline scrub, network simulator panel with desync diffs,
   tuning sliders that write back to text files, F3 feedback, free camera, perf overlay; a level editor eventually.
 - **Agent API** in the running game: query and edit state, step ticks, inject input per player, snapshots, replays,

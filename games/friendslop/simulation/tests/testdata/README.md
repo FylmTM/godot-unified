@@ -1,7 +1,7 @@
 # testdata
 
-friendslop's reference run for the cross-platform test F5, generated on **macOS ARM64** and committed; CI (Linux
-x64, Windows x64) and the Rosetta check must reproduce it bit for bit.
+friendslop's reference run for the cross-platform test F5, generated on **macOS ARM64** and committed; every CI
+platform and the Rosetta check must reproduce it bit for bit.
 
 | File | What it is |
 |---|---|

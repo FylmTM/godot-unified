@@ -17,8 +17,13 @@ when ODIN_OS == .Windows {
 	@(export)
 	foreign import imguilib "../../third_party/imgui/build/windows-x64/imgui.lib"
 } else when ODIN_OS == .Linux {
-	@(export)
-	foreign import imguilib "../../third_party/imgui/build/linux-x64/libimgui.a"
+	when ODIN_ARCH == .arm64 {
+		@(export)
+		foreign import imguilib "../../third_party/imgui/build/linux-arm64/libimgui.a"
+	} else {
+		@(export)
+		foreign import imguilib "../../third_party/imgui/build/linux-x64/libimgui.a"
+	}
 } else when ODIN_OS == .Darwin {
 	when ODIN_ARCH == .amd64 {
 		@(export)

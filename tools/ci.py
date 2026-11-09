@@ -40,6 +40,7 @@ OLS_COMMIT = "85d88870aebe1fb61b07db838e9db5728e6586ec"
 # hashes here: `gh api repos/odin-lang/Odin/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`.
 ODIN_SHA256 = {
     "odin-linux-amd64-dev-2026-11.tar.gz": "65c9f6e97d6f8a30930e151f270ce5aeaa98fe8b2ba49fe067394e2af04f7618",
+    "odin-linux-arm64-dev-2026-11.tar.gz": "5bdba22447ea46a99765235e401c2ad83930f967f987aab1531ed76c3aa7ea3b",
     "odin-macos-arm64-dev-2026-11.tar.gz": "fa10eee280c8786758e3ff0b8fdd9355e1c9447b1f0b8c72764e25ee4ebc3e22",
     "odin-windows-amd64-dev-2026-11.zip": "259effedf2997293c8fa4a5e497496f8ebce9f826652d9dd353a9dd2113c31fd",
 }
@@ -130,10 +131,17 @@ def cmd_ensure_ninja():
     if common.which("ninja"):
         log("ninja: " + common.which("ninja"))
         return
-    log("ninja not on PATH: installing it from PyPI")
-    subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "ninja"], check=True)
-    scripts = Path(sys.executable).parent / ("Scripts" if common.IS_WINDOWS else "")
-    gh_append("GITHUB_PATH", str(scripts) + "\n")
+    # Into .toolchains/ninja with --target: a system Python (PEP 668, e.g. Ubuntu's) refuses installs into
+    # itself, not into a target directory. The wheel's ninja binary lands in <target>/bin (Scripts on Windows).
+    dest = REPO / ".toolchains" / "ninja"
+    log("ninja not on PATH: installing it from PyPI into " + str(dest))
+    subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade",
+                    "--target", str(dest), "ninja"], check=True)
+    for d in ("bin", "Scripts"):
+        if (dest / d / ("ninja" + EXE)).is_file():
+            gh_append("GITHUB_PATH", str(dest / d) + "\n")
+            return
+    raise SystemExit("ninja: no ninja%s in %s/bin or Scripts" % (EXE, dest))
 
 
 def cmd_compiler_id():
