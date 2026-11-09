@@ -7,22 +7,26 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
+import "unified:netcode"
 import "unified:sim"
 
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($S, $I, $W: typeid, $P: int) {
-	game:          ^sim.Game(S, I, W, P),
+	game:            ^sim.Game(S, I, W, P),
 	// Scripted input of `slot` for tick t; `state` is the caller's current state (nil if none).
-	script:        proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
+	script:          proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
+	// Optional: the scripted commands of `slot` for tick t (sim.send_command(out, cmd)); called right after
+	// `script` for the same tick, in offline runs and by every client of a session.
+	script_commands: proc(seed: u64, slot: int, t: u32, state: ^S, out: ^sim.Command_Out),
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
-	summary:       proc(s: ^S) -> string,
+	summary:         proc(s: ^S) -> string,
 	// `bench`: fill the state with n entities and hold that population (optional).
-	bench_prepare: proc(s: ^S, w: ^W, n: int),
+	bench_prepare:   proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
-	bench_count:   proc(s: ^S) -> int,
+	bench_count:     proc(s: ^S) -> int,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.
-	content:       []u8,
+	content:         []u8,
 }
 
 // A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.
@@ -93,18 +97,50 @@ Run_Result :: struct {
 	summary:        string,
 }
 
-// Scripted inputs of tick t: slots < players present.
+// The scripted commands of an offline run that wait for a tick: as in a session, at most
+// sim.COMMANDS_PER_PLAYER of a player go in one tick and the rest follow in order, and a script's send
+// fails once netcode.COMMAND_QUEUE of its commands wait.
+Script_Commands :: struct {
+	waiting: [sim.MAX_SLOTS][dynamic]sim.Command,
+	out:     sim.Command_Out,
+}
+
+script_commands_destroy :: proc(sc: ^Script_Commands) {
+	for &q in sc.waiting {
+		delete(q)
+	}
+	delete(sc.out.list)
+}
+
+// Scripted inputs and commands of tick t: slots < players present.
 scripted :: proc(
 	h: ^Headless($S, $I, $W, $P),
 	s: ^sim.Sim(S, I, W, P),
 	t: u32,
 	players: int,
+	sc: ^Script_Commands,
 ) -> (
 	in_: sim.Inputs(I, P),
 ) {
 	for p in 0 ..< players {
 		in_.present += {p}
 		in_.input[p] = h.script(s.seed, p, t, &s.state)
+		if h.script_commands == nil {
+			continue
+		}
+		q := &sc.waiting[p]
+		out := &sc.out
+		out.kinds = h.game.commands
+		out.slot = p
+		out.cap = netcode.COMMAND_QUEUE - len(q)
+		clear(&out.list)
+		h.script_commands(s.seed, p, t, &s.state, out)
+		append(q, ..out.list[:])
+		n := 0
+		for n < len(q) && sim.add_command(&in_, q[n]) {
+			n += 1
+		}
+		remove_range(q, 0, n)
 	}
 	return
 }
@@ -123,14 +159,16 @@ run_sim :: proc(
 ) {
 	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
+	sc: Script_Commands
+	defer script_commands_destroy(&sc)
 	if lg != nil {
 		lg.seed = seed
 		lg.content = s.content_hash
 	}
 	for t in 1 ..= ticks {
-		inputs := scripted(h, s, t, players)
+		inputs := scripted(h, s, t, players, &sc)
 		if lg != nil {
-			append(&lg.ticks, inputs)
+			sim.log_append(lg, &inputs)
 		}
 		sim.step(s, &inputs)
 		res.final_checksum = sim.checksum(s)
@@ -166,12 +204,14 @@ run_synctest :: proc(
 	assert(window >= 1 && window < sim.RING)
 	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
+	sc: Script_Commands
+	defer script_commands_destroy(&sc)
 	recorded := make([]sim.Inputs(I, P), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	defer delete(recorded)
 	defer delete(forward)
 	for t in 1 ..= ticks {
-		recorded[t] = scripted(h, s, t, players)
+		recorded[t] = scripted(h, s, t, players, &sc)
 		sim.step(s, &recorded[t])
 		forward[t] = sim.checksum(s)
 		if t < window {
@@ -220,11 +260,12 @@ run_replay :: proc(
 	}
 	s := sim.create(h.game, lg.seed, h.content)
 	defer sim.destroy(s)
-	for &in_, i in lg.ticks {
+	for k in 0 ..< len(lg.ticks) {
+		in_ := sim.log_inputs(lg, k)
 		sim.step(s, &in_)
 		res.final_checksum = sim.checksum(s)
 		if tr != nil {
-			trace_add(tr, u32(i + 1), res.final_checksum)
+			trace_add(tr, u32(k + 1), res.final_checksum)
 		}
 	}
 	res.final_tick = u32(len(lg.ticks))
@@ -243,8 +284,10 @@ run_snapshot :: proc(
 ) {
 	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
+	sc: Script_Commands
+	defer script_commands_destroy(&sc)
 	for t in 1 ..= ticks {
-		in_ := scripted(h, s, t, players)
+		in_ := scripted(h, s, t, players, &sc)
 		sim.step(s, &in_)
 	}
 	return sim.snapshot_encode(s, ticks), sim.checksum(s)
@@ -268,9 +311,11 @@ run_resume :: proc(
 		return
 	}
 	defer sim.destroy(s)
+	sc: Script_Commands // commands still waiting at the snapshot's tick are not in it (they are input)
+	defer script_commands_destroy(&sc)
 	start := s.tick
 	for t in start + 1 ..= start + ticks {
-		in_ := scripted(h, s, t, players)
+		in_ := scripted(h, s, t, players, &sc)
 		sim.step(s, &in_)
 		res.final_checksum = sim.checksum(s)
 		if tr != nil {

@@ -94,7 +94,7 @@ With_Pointer :: struct {
 @(test)
 plain_data_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.State)), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(toy.Inputs)), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(toy.Input)), "")
 	testing.expect(t, sim.plain_violation(type_info_of(Padded)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
@@ -174,11 +174,20 @@ input_log_round_trip :: proc(t: ^testing.T) {
 		in_.replaced = {1} if k % 7 == 0 else {}
 		in_.input[0] = toy.script(99, 0, u32(k + 1))
 		in_.input[1] = toy.script(99, 1, u32(k + 1))
-		append(&lg.ticks, in_)
+		if k % 5 == 0 {
+			bump, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{i32(k)})
+			bump.slot = 1
+			sim.add_command(&in_, bump)
+			mark, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
+			sim.add_command(&in_, mark) // slot 0: goes before slot 1's
+		}
+		sim.log_append(&lg, &in_)
 	}
 	data := sim.log_encode(&lg)
 	defer delete(data)
-	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * size_of(toy.Inputs))
+	// an empty tick costs one byte for its command count; a command, 3 bytes plus its struct
+	cmd_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
+	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * (9 + size_of([toy.SLOTS]toy.Input)) + cmd_bytes)
 	back, ok := sim.log_decode(data, toy.Input, toy.SLOTS)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
@@ -186,7 +195,11 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, back.content, 0xC0FFEE)
 	testing.expect_value(t, len(back.ticks), 50)
 	for k in 0 ..< 50 {
-		testing.expect(t, back.ticks[k] == lg.ticks[k])
+		a, b := sim.log_inputs(&back, k), sim.log_inputs(&lg, k)
+		testing.expect(t, sim.inputs_same(&a, &b) && a.replaced == b.replaced)
+		if k % 5 == 0 {
+			testing.expect(t, a.n_commands == 2 && a.commands[0].slot == 0 && a.commands[1].slot == 1)
+		}
 	}
 	_, bad := sim.log_decode(data[:len(data) - 1], toy.Input, toy.SLOTS)
 	testing.expect(t, !bad)
@@ -379,7 +392,7 @@ content_identity :: proc(t: ^testing.T) {
 		content = sim.content_hash(level_a),
 	}
 	defer sim.log_destroy(&lg)
-	append(&lg.ticks, ins)
+	sim.log_append(&lg, &ins)
 	data := sim.log_encode(&lg)
 	defer delete(data)
 	back, ok := sim.log_decode(data, toy.Input, toy.SLOTS)

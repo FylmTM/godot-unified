@@ -4,6 +4,7 @@
 package survivor
 
 import "unified:dmath"
+import "unified:sim"
 
 SCRIPT_PERIOD :: 24
 
@@ -16,9 +17,8 @@ script_r :: proc(seed: u64, p: int, t: u32) -> u32 {
 	return u32(x)
 }
 
-// Input of player p for tick t (t >= 1). `pending` is the player's pending level-up count in the
-// caller's current state.
-script_input :: proc(seed: u64, p: int, t: u32, pending: i32) -> Input {
+// Input of player p for tick t (t >= 1).
+script_input :: proc(seed: u64, p: int, t: u32) -> Input {
 	r := script_r(seed, p, t)
 	in_: Input
 	if r % 9 != 8 {
@@ -29,14 +29,18 @@ script_input :: proc(seed: u64, p: int, t: u32, pending: i32) -> Input {
 	if r % 13 == 0 {
 		in_.buttons |= BUTTON_DASH
 	}
-	if pending > 0 {
-		// One pick per 24-tick block: the block number is the press sequence.
-		in_.choice = choice_encode(int(r % 3) + 1, u8((t - 1) / SCRIPT_PERIOD % 63) + 1)
-	}
 	return in_
 }
 
 // The scripted input hook: what the headless modes and test sessions feed in.
 script :: proc(seed: u64, p: int, t: u32, s: ^State) -> Input {
-	return script_input(seed, p, t, s != nil ? s.players[p].pending_levelups : 0)
+	return script_input(seed, p, t)
+}
+
+// The scripted commands hook: a level-up pick at the start of every 24-tick block, whether or not one is
+// pending (the sim ignores it then), so the script depends on (seed, p, t) only, like the inputs.
+script_commands :: proc(seed: u64, p: int, t: u32, s: ^State, out: ^sim.Command_Out) {
+	if (t - 1) % SCRIPT_PERIOD == 0 {
+		sim.send_command(out, Cmd_Pick{Upgrade(script_r(seed, p, t) % 3)})
+	}
 }

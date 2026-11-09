@@ -36,6 +36,9 @@ Event_Kind :: enum u16 {
 	Player_Left,
 }
 
+// The commands players send (sim.Game.commands), indexed by kind.
+COMMANDS :: []sim.Command_Kind{{"pick", Cmd_Pick}}
+
 EVENT_NAMES :: []string {
 	"player_died",
 	"player_respawned",
@@ -65,6 +68,7 @@ GAME := Game {
 	init = init,
 	tick = tick,
 	event_names = EVENT_NAMES,
+	commands = COMMANDS,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -82,6 +86,7 @@ GAME_STRESS := Game {
 	},
 	tick = tick,
 	event_names = EVENT_NAMES,
+	commands = COMMANDS,
 }
 
 // Start spots, inside the start circle.

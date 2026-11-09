@@ -9,11 +9,15 @@ import "core:testing"
 import "../toy"
 import "unified:headless"
 import "unified:headless/scenarios"
+import "unified:sim"
 
 HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.SLOTS) {
 	game = &toy.GAME,
 	script = proc(seed: u64, slot: int, t: u32, state: ^toy.State) -> toy.Input {
 		return toy.script(seed, slot, t)
+	},
+	script_commands = proc(seed: u64, slot: int, t: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		toy.script_commands(seed, slot, t, out)
 	},
 }
 

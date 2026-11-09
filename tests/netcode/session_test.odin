@@ -26,6 +26,8 @@ hooks_for :: proc(w: ^Watch) -> Hooks {
 	w.in_order = true
 	return {user = w, sample = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
 			return toy.script(SEED, slot, tick)
+		}, commands = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+			toy.script_commands(SEED, slot, tick, out)
 		}, frame = proc(user: rawptr, s: ^toy.Sim, f: netcode.Frame_Info) {
 			w := (^Watch)(user)
 			w.frames += 1
@@ -162,7 +164,8 @@ host_and_two_remote_clients :: proc(t: ^testing.T) {
 	// The relay's log replays to the verified result.
 	s := sim.create(&toy.GAME, SEED)
 	defer sim.destroy(s)
-	for &in_ in n.host.relay.log.ticks {
+	for k in 0 ..< len(n.host.relay.log.ticks) {
+		in_ := sim.log_inputs(&n.host.relay.log, k)
 		sim.step(s, &in_)
 	}
 	testing.expect_value(t, s.tick, 640)
@@ -182,6 +185,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	testing.expect_value(t, late.slot, 2)
 	testing.expect(t, late.first_tick > 64 * 3)
 	testing.expect(t, late.verified > late.first_tick)
+	testing.expect(t, len(n.host.relay.log.commands) > 0) // the snapshot's history had commands
 	expect_agree(t, &n)
 	// The roster: every client knows every name.
 	for c in ([]^Client{n.host.client, n.clients[0], late}) {

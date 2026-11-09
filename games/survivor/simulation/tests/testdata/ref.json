@@ -1,9 +1,9 @@
 {
-  "made_on": {"os": "Darwin", "arch": "arm64", "odin": "dev-2026-11 (9a6991685)", "build": "-o:speed -use-separate-modules -debug", "commit": "a7fadb4c2a4cd98f3be76d439d84bfaccd2053af+dirty"},
-  "made_at": "2026-11-09T18:56:12Z",
+  "made_on": {"os": "Darwin", "arch": "arm64", "odin": "dev-2026-11 (9a6991685)", "build": "-o:speed -use-separate-modules -debug", "commit": "1e53c00d509c63c19659dc517ea8aa448310ca18+dirty"},
+  "made_at": "2026-11-09T21:48:01Z",
   "seed": 7,
   "players": 4,
   "ticks": 3600,
   "snapshot_tick": 1800,
-  "final_checksum": "faafe09101c92101"
+  "final_checksum": "cd6b89d6266244bd"
 }

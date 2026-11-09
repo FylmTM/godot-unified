@@ -42,6 +42,7 @@ return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
 Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default (a warning for 2D views) */,
        actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
+       scripted_commands(seed, slot, tick, ^S, ^sim.Command_Out) /* optional: --scripted sends these */,
        hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
        level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
@@ -64,7 +65,15 @@ GDScript sees contract v0:
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
   - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
-    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4).
+    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4);
+  - `send_command(name: StringName, args: Dictionary) -> bool` (signed off 2026-11-10): sends one of the game's
+    commands (`sim.Game.commands`, src/sim/SPEC.md), delivered to the sim exactly once. The host converts the
+    Dictionary into the command's struct by RTTI, no per-game glue: ints (range-checked), floats, bools, enums (a
+    member's name in any case, or its value), bit_sets (an Array of member names or values), `[2]f32` / `[3]f32`
+    from Vector2 / Vector3; every field must be given (fields named `_...` are padding: never). An unknown
+    command, a missing or unknown field, a wrong type or range, no running session or a full queue (64 waiting)
+    returns false with a `print_error` naming it. Main thread; queued to the session thread, which hands it to the
+    client's `commands` hook (the command's tick is the next one the client samples).
 - **`SimView`** (Node3D: `kind`, `entity`, `slot`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
   and `_sim_event(kind, data)`).
 - **`SimView2D`** (Node2D: the same, with `_sim_update(position: Vector2, rotation, alpha)`).
@@ -148,9 +157,11 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
   and the Dev_Link switch. `tests/godot_views` (`dev.py godot-test`) runs a single-player toy session under
   headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), and the MultiMesh buffers of a typed 2D bulk
+  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), the MultiMesh buffers of a typed 2D bulk
   view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one,
-typed scene data set as properties only when it changes, and `sim_event_2d`. Its extension doesn't link Box3D.
+  typed scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands
+  reach the sim once, in order, every field kind converted (read back through the HUD), and each refusal returns
+  false with its error line (dev.py expects those lines and no others). Its extension doesn't link Box3D.
 - **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
   `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
   offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.

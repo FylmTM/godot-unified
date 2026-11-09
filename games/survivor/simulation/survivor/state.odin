@@ -49,36 +49,27 @@ SPEED_LEVELUP :: 0.5 // m/s per "move speed" level-up
 
 BUTTON_DASH :: u8(1 << 0)
 
-// One player's input for one tick (4 bytes on the wire and in the log). Presence (joined or not)
+// One player's input for one tick (3 bytes on the wire and in the log). Presence (joined or not)
 // comes from the relay in sim.Inputs.present, not from the input.
 Input :: struct {
 	move_x:  i8,
 	move_z:  i8,
 	buttons: u8,
-	choice:  u8, // level-up pick: option 1..3 in bits 0-1, press sequence 1..63 in bits 2-7 (choice_encode)
 }
 
 Inputs :: sim.Inputs(Input, MAX_PLAYERS)
 
-// A level-up pick is edge-triggered by its sequence number: inputs are repeated (the netcode's client
-// fills skipped ticks with the last input, the relay substitutes a late input with the last one), so
-// the sim applies a pick only when its sequence differs from the last applied one. The input source
-// bumps the sequence (1..63, wrapping) on every press.
-choice_encode :: proc "contextless" (option: int, seq: u8) -> u8 {
-	return u8(option) & 0x3 | (seq % 64) << 2
+// The level-up options, in the order the HUD shows them.
+Upgrade :: enum u8 {
+	Fire_Rate,
+	Damage,
+	Move_Speed,
 }
 
-choice_option :: #force_inline proc "contextless" (c: u8) -> int {
-	return int(c & 0x3)
-}
-
-choice_seq :: #force_inline proc "contextless" (c: u8) -> u8 {
-	return c >> 2
-}
-
-// The next press sequence after `seq` (1..63, never 0).
-choice_next_seq :: proc "contextless" (seq: u8) -> u8 {
-	return seq % 63 + 1
+// The level-up pick, a command (sim.Game.commands, "pick"): one pending level-up goes to `upgrade`. A
+// pick with nothing pending is ignored. From GDScript: send_command(&"pick", {"upgrade": i}).
+Cmd_Pick :: struct {
+	upgrade: Upgrade,
 }
 
 Body_Ref :: physics.Body_Ref
@@ -100,7 +91,7 @@ Player :: struct {
 	active:           bool, // present (joined) in the game
 	alive:            bool,
 	prev_buttons:     u8,
-	choice_seq:       u8, // sequence of the last level-up pick applied (0: none)
+	_pad:             u8,
 }
 
 Item_Kind :: enum u8 {

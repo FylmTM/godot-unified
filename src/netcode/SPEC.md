@@ -27,16 +27,16 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
 - **Relay** (`relay_create(cfg, I, P)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
   `relay_clock`): owns the clock; finalizes tick T when every present player's input is in or the clock reaches
   T + tolerance (100 ms), and never past the clock while nobody is present; a missing input repeats the player's last
-  one (`replaced`). `present` = connected slots
-  from their join tick. Broadcasts unacked finalized ticks (as many as fit one datagram, ≤ 32; a longer backlog, up to 384 ticks, goes
+  one (`replaced`); commands go in as below. `present` = connected slots
+  from their join tick. Broadcasts unacked finalized ticks (as many as fit one datagram, ≤ 32, fewer when they carry commands; a longer backlog, up to 384 ticks, goes
   out one window per broadcast in turn, so a client catches up after a stall at a window per tick, not per RTT), keeps the official
   input log, routes snapshots, compares checksums (every 16 ticks). Hello carries protocol, slot (or any), join tick
-  and a `compat` id (default `sim.compat_of(game)`: layouts, slots, tick rate, game name and version; a relay with
+  and a `compat` id (default `sim.compat_of(game)`: layouts, command types, slots, tick rate, game name and version; a relay with
   compat 0 accepts any); rejects: full, slot taken, incompatible, not started. `ticks = 0` is an endless session.
-  `PROTOCOL_VERSION` 5.
+  `PROTOCOL_VERSION` 6 (6: commands; a game bumps its lobby bucket with it).
 - **Client** (`client_create(&GAME, cfg, link, hooks)`, `client_step`, `client_stop`, `client_state`,
-  `client_destroy`): verified and predicted frames, rollback from the first mispredicted tick (presence and input
-  bytes compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (218 ms = 14 ticks at 64 Hz, the most RING
+  `client_destroy`): verified and predicted frames, rollback from the first mispredicted tick (presence, input
+  bytes and commands compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (218 ms = 14 ticks at 64 Hz, the most RING
   allows; a client plays smoothly up to ~300 ms RTT, 166 ms stalled most ticks from ~250 ms), input delay `clamp(ceil((rtt/2 + 8 ms)/tick), 1, 100 ms)`
   re-evaluated each second by ±1, clock slewed ±2% towards relay tick + delay.
 - **Host** (`host_create(&GAME, cfg, hooks)`, `host_add_link`, `host_step`, `host_stop`, `host_finished`,
@@ -46,10 +46,38 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
 ## Hooks (called from `client_step`, on the caller's thread)
 
 - `sample(user, slot, tick, state) -> I`: the local player's input for `tick` (state = latest predicted, or nil).
+- `commands(user, slot, tick, state, out)` (optional): the local player's commands for `tick`, called right after
+  `sample` for every tick the client generates; `sim.send_command(out, cmd)` returns false once `COMMAND_QUEUE`
+  (64) of the client's commands wait to be verified.
 - `frame(user, sim, Frame_Info{tick, verified, resim_from})`: after a step that computed ticks; the view reads
   `sim.state_at(tick)` and `tick − 1` to interpolate, and `events_at` for `resim_from..tick` (predicted events).
 - `verified(user, sim, tick, events)`: each newly verified tick, in order, with its final events (confirm/cancel).
 - `status(user, Idle|Connecting|Connected|Failed|Disconnected, detail)`.
+
+## Commands
+
+Signed off by the developer 2026-11-10 (the types and how `tick` reads them: `src/sim/SPEC.md`). Each player's
+commands arrive exactly once, in order; never lost; never repeated by the input-repeat rules.
+
+- **Client:** a command gets the next seq n and a wanted tick W (the tick being generated when the hook sent it,
+  i.e. sampled with the input delay, like the input of W) and is **predicted locally at W**. The client sends its
+  unacked commands with every Inputs packet (first seq, count; per command W, kind, size, bytes; as many as fit next
+  to the inputs) until the relay acks them, and predicts each until a verified tick carries it: at W, or at the
+  first tick not finalized yet once W is (a late command moves on), at most 4 per tick, in order. Another player's
+  commands are unknown until finalized: predicted ticks carry none of theirs.
+- **Relay:** takes each seq once, in order (duplicates and resends skipped; a gap waits for the resend; at most
+  `COMMAND_QUEUE` waiting per player). Finalizing tick T, it puts in each present player's waiting commands with
+  W ≤ T, in seq order: T = W when W isn't finalized yet, else the next tick it finalizes. A late (replaced) input's
+  commands are not lost: they arrive after W and go in a later tick. At most 4 per player and 16 per tick, within
+  the bytes that keep a tick alone inside one datagram (round-robin over the players); the rest wait for T + 1.
+  A left player's waiting commands go with it.
+- **Wire:** a finalized tick is `sim.write_tick` (present, replaced, inputs, command count, then per command slot,
+  kind, size, bytes: an empty tick costs one byte), and Finalized carries a command ack (the highest seq received).
+  The relay's log is the official record with the commands (`UNIL` v4); a late joiner gets them from the log (its
+  snapshot is of a verified tick; the ticks after it come with their commands, or the whole log on a replay).
+- **Rollback:** a finalized tick is compared with the prediction by presence, input bytes and commands
+  (`sim.inputs_same`): when the relay placed a command at T ≠ W, the sender rolls back at W (and again until it
+  lands); every other client rolls back to T as for any input that differs from its prediction.
 
 ## Late join
 
@@ -63,9 +91,12 @@ once and can be reused.
 
 ## Tests
 
-`tests/netcode`: host + remote clients under `wan` on a virtual clock (checksums agree, relay log replays to the
-verified checksum, hooks in order), late join + leave + slot reuse, single player, slot rejection, the delay
-formula at 32/60/64/128 Hz, outages and rejoins, everyone leaving, a snapshot provider leaving, stale finalized
-ticks, reliable floods, UDP endpoint reuse, oversized messages, another build refused, and a seeded fuzz of the
-channel, relay and client decoders. The end-to-end suites run the same code on the virtual clock through
+`tests/netcode` (every client sends the toy's scripted commands unless a test says otherwise): host + remote clients
+under `wan` on a virtual clock (checksums agree, relay log replays to the verified checksum, hooks in order), late
+join + leave + slot reuse, single player, slot rejection, the delay formula at 32/60/64/128 Hz, outages and rejoins,
+everyone leaving, a snapshot provider leaving, stale finalized ticks, reliable floods, UDP endpoint reuse, oversized
+messages, another build refused, a seeded fuzz of the channel, relay and client decoders (commands included), and
+commands (`command_test.odin`): exactly once and in order under `bad` (loss, duplicates, reordering), a late input's
+command moved to a later tick with the sender rolling back and everyone verifying it there, the 5th command of a
+tick waiting for the next. The end-to-end suites run the same code on the virtual clock through
 `unified:headless` (`src/headless/SPEC.md`); `dev.py check` runs it in real time over UDP between processes.
