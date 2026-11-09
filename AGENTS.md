@@ -67,7 +67,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 Commands, all from the repo root, any OS (times: M-series Mac, warm). Every command rejects unknown arguments.
 
 ```
-python tools/dev.py build [dev|release|debug]   # out/<mode>/survivor; dev ~1 s, release ~4 s, debug ~0.6 s
+python tools/dev.py build [dev|release|debug]   # out/<mode>/survivor; dev ~1 s, release ~3.5 s, debug ~0.6 s
 python tools/dev.py test                        # odin test, every package (~3 s, 93 tests)
 python tools/dev.py check [--only T1,T7]        # release build + T1-T9 end-to-end (~32 s; on an ARM64 Mac a full
                                                 # check first runs T1,T7,T8 of the x86_64 build under Rosetta;
