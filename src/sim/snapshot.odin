@@ -5,13 +5,22 @@
 package sim
 
 import "base:intrinsics"
-import "core:fmt"
 
 import "../wire"
 
 SNAP_MAGIC :: "UNIS"
 SNAP_VERSION :: 2
 SNAP_HEADER :: 40
+
+// Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
+Snap_Error :: enum u8 {
+	None,
+	Bad_Header, // not a snapshot, another format version, or another block size
+	Layout_Differs, // the state layout differs from this build
+	Checksum_Mismatch, // the payload is damaged
+	Extra_Count, // the number of extra states differs from this build
+	Extra_Rejected, // an extra state (physics) rejected its image
+}
 
 Snap_Header :: struct {
 	extras: int,
@@ -68,7 +77,7 @@ snap_read :: proc(
 	h: Snap_Header,
 	block: []u8,
 	r: wire.Reader,
-	ok: bool,
+	err: Snap_Error,
 ) {
 	r = wire.reader_make(data)
 	magic := wire.r_bytes(&r, 4)
@@ -82,13 +91,11 @@ snap_read :: proc(
 	block = wire.r_bytes(&r, h.block)
 	switch {
 	case !r.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION || h.block != block_size:
-		fmt.eprintln("snapshot: bad header or block size")
+		err = .Bad_Header
 	case h.layout != layout:
-		fmt.eprintln("snapshot: state layout differs from this build")
+		err = .Layout_Differs
 	case hash_bytes(data[SNAP_HEADER:]) != digest:
-		fmt.eprintln("snapshot: payload checksum mismatch")
-	case:
-		ok = true
+		err = .Checksum_Mismatch
 	}
 	return
 }
@@ -98,36 +105,30 @@ snap_extra :: proc(r: ^wire.Reader) -> (img: []u8, ok: bool) {
 	return img, r.ok
 }
 
-snap_fail :: proc(msg: string) {
-	fmt.eprintln("snapshot:", msg)
-}
-
-// Builds a new Sim from a portable snapshot. Returns nil (and logs why) if the bytes are not a
-// valid snapshot for this game build.
-from_snapshot :: proc(game: ^Game($S, $I, $W, $P), data: []u8) -> ^Sim(S, I, W, P) {
-	h, block, r, ok := snap_read(data, size_of(S), layout_hash(S))
-	if !ok {
-		return nil
+// Builds a new Sim from a portable snapshot, or says why the bytes are not a valid snapshot for
+// this game build (the Sim is nil then).
+from_snapshot :: proc(game: ^Game($S, $I, $W, $P), data: []u8) -> (^Sim(S, I, W, P), Snap_Error) {
+	h, block, r, err := snap_read(data, size_of(S), layout_hash(S))
+	if err != .None {
+		return nil, err
 	}
 	s := create(game, h.seed)
 	if h.extras != len(s.extras) {
-		snap_fail("extra state count differs from this build")
 		destroy(s)
-		return nil
+		return nil, .Extra_Count
 	}
 	intrinsics.mem_copy_non_overlapping(&s.state, raw_data(block), size_of(S))
 	s.tick = h.tick
 	for &e in s.extras {
 		img, iok := snap_extra(&r)
 		if !iok || !e.load(e.data, img) {
-			snap_fail("an extra state rejected its image")
 			destroy(s)
-			return nil
+			return nil, .Extra_Rejected
 		}
 	}
 	for &slot in s.ring {
 		slot.valid = false
 	}
 	save(s)
-	return s
+	return s, .None
 }
