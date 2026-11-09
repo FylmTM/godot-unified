@@ -43,8 +43,11 @@ tag, CI checks the pipeline with **Actions → release → Run workflow** (Windo
   `project.godot` sets `application/config/version` and each preset its version keys (`application/short_version`
   and `application/version` on macOS, `application/file_version` and `application/product_version` on Windows):
   `release.py` fails if one is missing.
+- The presets export Godot resources only (`all_resources`): files the game reads raw (`FileAccess`, e.g. `.level`
+  files) must match the presets' `include_filter`, or the export silently leaves them out.
 - The extension prints `unified: extension initialized` when it loads; the smoke test requires that line, exit 0
-  and no `ERROR` lines. The game may use the `--smoke-test` user argument.
+  and no `ERROR` lines. With the `--smoke-test` user argument the game starts single player and fails (an `ERROR`
+  line, exit 1) if the session fails to start.
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `release.py`
   fails if one is missing from the export (and, on tag builds with EOS, if the EOS SDK library is).
 - Online: when the extension imports `unified:eos`, every CI build needs the five `EOS_*` secrets and fails unless
