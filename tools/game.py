@@ -10,7 +10,8 @@ directly with the same arguments: `python tools/game.py validate survivor`):
     python tools/dev.py game tour <game> --frames [--cold]   # windowed tour reporting frame times, hitches with the
                                                           # events around them and each first use's worst frame;
                                                           # --cold clears the shader caches (~70 s)
-    python tools/dev.py game coop <game> [--shots] [--rejoin]   # real online co-op over EOS: a host and a headless
+    python tools/dev.py game coop <game> [--shots] [--rejoin] [--lan]   # real online co-op over EOS (or --lan:
+                                                          # direct UDP on 127.0.0.1): a host and a headless
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import <game>                # refresh Godot's import cache (.godot/)
@@ -82,6 +83,8 @@ def parser():
             p.add_argument("--cold", action="store_true", help="with --frames: clear the shader caches first")
         if name == "coop":
             p.add_argument("--rejoin", action="store_true", help="the joiner leaves mid-match and joins again")
+            p.add_argument("--lan", action="store_true", help="direct UDP on 127.0.0.1 instead of EOS (if the game's "
+                           "coop tool supports it)")
         if name == "export-level":
             p.add_argument("--check", action="store_true", help="write nothing; fail when a .level file is stale")
     return ap
@@ -130,7 +133,7 @@ def main(argv):
                 proj, ["--headless", "-s", "res://game/tools/tour.gd", "--", "--no-settings", "--quick"], 60,
                 "TOUR_JSON")
     else:
-        ok, data, secs = cmd_coop(proj, a.shots, a.rejoin)
+        ok, data, secs = cmd_coop(proj, a.shots, a.rejoin, a.lan)
     log("game: %s %s in %.1fs" % (a.cmd, "OK" if ok else "FAILED", secs))
     return 0 if ok else 1
 
@@ -171,12 +174,12 @@ def _clear_shader_cache(proj):
         log("game: cleared %s" % cache)
 
 
-def cmd_coop(proj, shots, rejoin=False):
+def cmd_coop(proj, shots, rejoin=False, lan=False):
     """Host (windowed with --shots, else headless) and a headless joiner with a fresh EOS device id, as two Godot
     processes; the host hands the lobby code over through a file. --rejoin: the joiner leaves mid-match and joins
     again with the same code. The joiner is always reaped, also when the host fails or times out: an orphan would
     stay connected to EOS."""
-    extra = ["--rejoin"] if rejoin else []
+    extra = (["--rejoin"] if rejoin else []) + (["--lan"] if lan else [])
     code = proj / ".uni" / "coop_code.txt"
     code.parent.mkdir(parents=True, exist_ok=True)
     if code.exists():

@@ -5,14 +5,16 @@ extends SceneTree
 ## The host clicks Host online and writes the lobby code to the file; the joiner types it into the Join panel.
 ## Both wait for two players in the hub; the host walks over and picks the friend up, the friend mashes jump and
 ## breaks free, the host leaves; the joiner must see the disconnect on its menu. With --rejoin (both roles), the
-## joiner leaves and joins again with the same code (a late join) before the host leaves. Prints steps and `COOP_JSON {...}`; exits
-## 1 on failure.
+## joiner leaves and joins again with the same code (a late join) before the host leaves. With --lan (both roles),
+## no EOS: the host clicks Host on LAN (direct UDP, port 7777) and the joiner types 127.0.0.1:7777. Prints steps and
+## `COOP_JSON {...}`; exits 1 on failure.
 
 var cap: Logger
 var role := ""
 var code_file := ""
 var shots_dir := ""
 var rejoin := false
+var lan := false
 var _t0 := 0
 var _started := false
 var _failed := ""
@@ -32,6 +34,8 @@ func _init() -> void:
 			shots_dir = a.trim_prefix("--shots=")
 		elif a == "--rejoin":
 			rejoin = true
+		elif a == "--lan":
+			lan = true
 
 
 func _process(_delta: float) -> bool:
@@ -58,13 +62,21 @@ func _run() -> void:
 
 
 func _host(game: Node) -> void:
-	await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Host"))
-	await _wait_for(func() -> bool: return game.lobby_code.length() == 6, 30.0, "a lobby code")
+	var code := ""
+	if lan:
+		await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Address"))
+		await _click(current_scene.get_node(^"UI/Root/Side/AddressPanel/VBox/HostLan"))
+		code = "127.0.0.1:%d" % game.LAN_PORT
+		await _wait_for(func() -> bool: return _scene_is("Arena"), 20.0, "host arena")
+	else:
+		await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Host"))
+		await _wait_for(func() -> bool: return game.lobby_code.length() == 6, 30.0, "a lobby code")
+		code = game.lobby_code
 	var f := FileAccess.open(code_file, FileAccess.WRITE)
-	f.store_string(game.lobby_code)
+	f.store_string(code)
 	f.close()
 	await _shot("c01_host_code")
-	_step("hosting, code %s" % game.lobby_code)
+	_step("hosting, %s %s" % ["address" if lan else "code", code])
 	await _wait_for(func() -> bool: return _scene_is("Arena"), 20.0, "host arena")
 	await _wait_for(func() -> bool: return _present(game) >= 2, 60.0, "the friend joins")
 	await _seconds(1.5)
@@ -72,6 +84,8 @@ func _host(game: Node) -> void:
 	_step("friend joined: %s" % _names(game))
 	# Walk over to the friend and pick them up; they break free (the joiner mashes jump).
 	var friend := 1 - int(game.hud.get("local_slot", 0))
+	if _failed != "":
+		return
 	await _walk_to(func() -> Vector3: return current_scene.player_view(friend).global_position, 15.0, 1.4)
 	await _face(current_scene.player_view(friend).global_position)
 	for attempt in 5:
@@ -97,7 +111,7 @@ func _host(game: Node) -> void:
 
 
 func _join(game: Node) -> void:
-	await _wait_for(func() -> bool: return FileAccess.file_exists(code_file) and FileAccess.get_file_as_string(code_file).length() == 6, 60.0, "the host's code")
+	await _wait_for(func() -> bool: return FileAccess.file_exists(code_file) and FileAccess.get_file_as_string(code_file).length() >= 6, 60.0, "the host's code")
 	var code := FileAccess.get_file_as_string(code_file)
 	await _enter_code(code)
 	await _wait_for(func() -> bool: return _scene_is("Arena"), 30.0, "joiner arena")
@@ -170,6 +184,15 @@ func _press(action: StringName) -> void:
 
 
 func _enter_code(code: String) -> void:
+	if lan:
+		await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Address"))
+		var addr: LineEdit = current_scene.get_node(^"UI/Root/Side/AddressPanel/VBox/Address")
+		addr.clear()
+		addr.insert_text_at_caret(code)
+		await _seconds(0.1)
+		await _click(current_scene.get_node(^"UI/Root/Side/AddressPanel/VBox/Row/Go"))
+		_step("joining %s" % code)
+		return
 	await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Join"))
 	var edit: LineEdit = current_scene.get_node(^"UI/Root/Side/JoinPanel/VBox/Code")
 	edit.clear()
