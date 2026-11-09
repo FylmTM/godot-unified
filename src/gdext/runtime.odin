@@ -42,10 +42,6 @@ check_main_thread :: proc(loc := #caller_location) {
 	}
 }
 
-is_main_thread :: proc() -> bool {
-	return sync.current_thread_id() == main_thread_id
-}
-
 fail :: proc(msg: string, loc := #caller_location) -> ! {
 	print_error(msg, loc)
 	runtime.trap()

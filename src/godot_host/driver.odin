@@ -171,8 +171,11 @@ dev_link_draining :: proc(dl: ^Dev_Link) -> bool {
 @(private)
 dev_link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
 	dl := (^Dev_Link)(data)
-	if dl.on do dl.sim.send(dl.sim.data, to, bytes)
-	else do dl.inner.send(dl.inner.data, to, bytes)
+	if dl.on {
+		dl.sim.send(dl.sim.data, to, bytes)
+	} else {
+		dl.inner.send(dl.inner.data, to, bytes)
+	}
 }
 
 @(private)
@@ -191,9 +194,11 @@ dev_link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_
 @(private)
 dev_link_close :: proc(data: rawptr) {
 	dl := (^Dev_Link)(data)
-	if dl.sim.data != nil do netcode.link_close(&dl.sim)
-	else // closes inner too
-	do netcode.link_close(&dl.inner)
+	if dl.sim.data != nil {
+		netcode.link_close(&dl.sim) // closes inner too
+	} else {
+		netcode.link_close(&dl.inner)
+	}
 	free(dl)
 }
 

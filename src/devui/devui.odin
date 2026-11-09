@@ -9,7 +9,7 @@
 //   devui.frame(dt)                            builds the UI and submits it to the RenderingServer
 //   devui.shutdown()
 //
-// Games add their own windows with add_panel. The Netsim panel edits `devui.netsim`; the host polls
+// The Netsim panel edits `devui.netsim`; the host polls
 // `netsim_changed` and applies it to its links. F3 (also while hidden) captures the screen and opens the
 // feedback note; Send writes <feedback_dir>/<stamp>/{screenshot.png,note.txt} and calls on_feedback, where the
 // host adds what it has (snapshot, input log, net stats).
@@ -40,13 +40,6 @@ Netsim :: struct {
 	loss_pct:   f32,
 }
 
-Panel :: struct {
-	name: string,
-	draw: proc(user: rawptr),
-	user: rawptr,
-	open: bool,
-}
-
 visible: bool
 netsim: Netsim
 netsim_changed: bool // set by the Netsim panel; the host clears it after applying
@@ -63,7 +56,6 @@ State :: struct {
 	canvas:     gd.RID,
 	scale:      f32,
 	size:       [2]f32,
-	panels:     [dynamic]Panel,
 	inspected:  [dynamic]Inspected,
 	graphs:     [dynamic]Graph,
 	stats:      [dynamic]string,
@@ -148,7 +140,6 @@ shutdown :: proc() {
 	note_shutdown()
 	// At extension shutdown the tree may already be gone (Godot frees the layer with it).
 	if alive(s.layer_id) && gd.Node_is_inside_tree(s.layer) do gd.Node_queue_free(s.layer)
-	delete(s.panels)
 	delete(s.inspected)
 	delete(s.graphs)
 	delete(s.stats)
@@ -173,10 +164,6 @@ frame_stats :: proc() -> (items: int, ui_ms: f32) {
 // True when ImGui uses the mouse / keyboard this frame (input then stops at the UI).
 wants_mouse :: proc() -> bool {return s.inited && visible && want_mouse}
 wants_keyboard :: proc() -> bool {return s.inited && visible && want_keyboard}
-
-add_panel :: proc(name: string, draw: proc(user: rawptr), user: rawptr = nil, open := true) {
-	append(&s.panels, Panel{strings.clone(name), draw, user, open})
-}
 
 // Shows `data` (any value, read by RTTI) in the Inspector this frame. Editable values are written in place.
 inspect :: proc(name: string, data: any, editable := false) {

@@ -1,5 +1,4 @@
-// The built-in windows: menu bar, overlay (stats and graphs), RTTI inspector, netsim, event log, F3 note,
-// plus the panels games add.
+// The windows: menu bar, overlay (stats and graphs), RTTI inspector, netsim, event log, F3 note.
 package devui
 
 import "base:runtime"
@@ -18,7 +17,6 @@ draw_panels :: proc() {
 		imgui.MenuItemBoolPtr("Inspector", nil, &s.show.inspector)
 		imgui.MenuItemBoolPtr("Netsim", nil, &s.show.netsim)
 		imgui.MenuItemBoolPtr("Events", nil, &s.show.events)
-		for &p in s.panels do imgui.MenuItemBoolPtr(fmt.ctprint(p.name), nil, &p.open)
 		imgui.MenuItemBoolPtr("ImGui demo", nil, &s.show.demo)
 		imgui.EndMainMenuBar()
 	}
@@ -26,12 +24,6 @@ draw_panels :: proc() {
 	if s.show.inspector do inspector()
 	if s.show.netsim do netsim_panel()
 	if s.show.events do event_log()
-	for &p in s.panels {
-		if !p.open do continue
-		place({s.size.x - 340, 330, 330, 300})
-		if imgui.Begin(fmt.ctprint(p.name), &p.open) do p.draw(p.user)
-		imgui.End()
-	}
 	note_panel()
 	if s.show.demo do imgui.ShowDemoWindow(&s.show.demo)
 }
@@ -262,7 +254,9 @@ Note :: struct {
 note_open :: proc() {
 	n := &s.note
 	// Capture before the UI covers the frame (the viewport still shows last frame's UI, if any).
-	img := gd.Texture2D_get_image(gd.Viewport_get_texture(s.root))
+	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
+	defer gd.unref(tex)
+	img := gd.Texture2D_get_image(tex)
 	defer gd.unref(img)
 	if img.ptr == nil do return
 	delete(n.png)

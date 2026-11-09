@@ -184,10 +184,11 @@ def cmd_godot_test():
     imgui.ensure()
     build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
     ensure_extension_list(proj, "res://gdext_test.gdextension")
-    r = run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)
+    # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
+    r = run_godot(["--headless", "--verbose", "--path", proj, "-s", "res://test.gd"], timeout=30)
     out = r.stdout + r.stderr
-    sys.stdout.write(r.stdout)
-    errs = godot_errors(out)
+    sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", "GDEXT"))))
+    errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
     for e in errs:
         log("godot: " + e)
     if r.returncode != 0 or errs or "GDEXT TESTS: 0 failed" not in out:

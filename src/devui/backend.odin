@@ -48,10 +48,12 @@ backend_init :: proc() {
 	pio := imgui.GetPlatformIO()
 	pio.PlatformSetClipboardTextFn = proc "c" (_: ^imgui.Context, text: cstring) {
 		context = runtime.default_context()
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 		gd.DisplayServer_clipboard_set(gd.DisplayServer_singleton(), string(text))
 	}
 	pio.PlatformGetClipboardTextFn = proc "c" (_: ^imgui.Context) -> cstring {
 		context = runtime.default_context()
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 		delete(b.clip_text)
 		b.clip_text = strings.clone_to_cstring(gd.DisplayServer_clipboard_get(gd.DisplayServer_singleton()))
 		return b.clip_text
