@@ -3,6 +3,8 @@
 // sample ticks as their clock reaches them, tests jump around).
 package survivor
 
+import "unified:dmath"
+
 SCRIPT_PERIOD :: 24
 
 script_r :: proc(seed: u64, p: int, t: u32) -> u32 {
@@ -21,8 +23,8 @@ script_input :: proc(seed: u64, p: int, t: u32, pending: i32) -> Input {
 	in_: Input
 	if r % 9 != 8 {
 		k := r % 8
-		in_.move_x = i8(RING_C[k] * 127)
-		in_.move_z = i8(RING_S[k] * 127)
+		in_.move_x = i8(dmath.DIR8_C[k] * 127)
+		in_.move_z = i8(dmath.DIR8_S[k] * 127)
 	}
 	if r % 13 == 0 {
 		in_.buttons |= BUTTON_DASH

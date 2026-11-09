@@ -26,10 +26,10 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, s.state.phase, survivor.Phase.Lobby)
 	testing.expect_value(t, s.state.enemies.count, 0)
-	h := survivor.hud(&s.state, s.tick)
-	testing.expect_value(t, h.phase_name, "lobby")
-	testing.expect_value(t, h.circle_radius, survivor.START_RADIUS)
-	testing.expect(t, h.players[0].present && h.players[1].present && !h.players[2].present)
+	st := &s.state
+	testing.expect_value(t, st.phase, survivor.Phase.Lobby)
+	testing.expect_value(t, st.circle_radius, survivor.START_RADIUS)
+	testing.expect(t, st.players[0].active && st.players[1].active && !st.players[2].active)
 
 	// Player 0 walks out of the circle (+x): the match starts on the tick its centre crosses.
 	started: u32
@@ -58,10 +58,9 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 		step_with(s, {0, 1}, {})
 	}
 	testing.expect(t, s.state.enemies.count > 0)
-	h = survivor.hud(&s.state, s.tick)
-	testing.expect_value(t, h.wave, 1)
-	testing.expect_value(t, h.circle_radius, 0)
-	testing.expect(t, h.time_s > 0)
+	testing.expect_value(t, st.wave, 0) // the HUD shows wave + 1
+	testing.expect_value(t, st.circle_radius, 0)
+	testing.expect(t, s.tick > st.match_tick)
 
 	// Everyone present dies in the same tick: over; nobody respawns; after the hold, a fresh lobby.
 	ev: [dynamic]sim.Event
@@ -83,8 +82,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	testing.expect(t, s.state.players[0].alive && s.state.players[1].alive && !s.state.players[2].active)
 	testing.expect_value(t, s.state.players[0].level, 1)
 	testing.expect_value(t, s.state.matches, 1)
-	h = survivor.hud(&s.state, s.tick)
-	testing.expect_value(t, h.phase_name, "lobby")
+	testing.expect_value(t, st.phase, survivor.Phase.Lobby)
 }
 
 @(test)
@@ -114,12 +112,11 @@ levels_start_at_one :: proc(t: ^testing.T) {
 	defer sim.destroy(s)
 	step_with(s, {0}, {})
 	testing.expect_value(t, s.state.players[0].level, 1)
-	h := survivor.hud(&s.state, s.tick)
-	testing.expect_value(t, h.players[0].level, 1)
-	testing.expect_value(t, h.players[0].xp_next, survivor.TUNINGS[.Play].xp_first)
+	testing.expect_value(t, survivor.xp_next(&s.state, s.state.players[0].level), survivor.TUNINGS[.Play].xp_first)
 	stress := sim.create(&survivor.GAME_STRESS, 2)
 	defer sim.destroy(stress)
 	testing.expect_value(t, stress.state.tuning, survivor.Tuning_Kind.Stress)
+	testing.expect(t, stress.state.tune == survivor.TUNINGS[.Stress])
 }
 
 @(test)

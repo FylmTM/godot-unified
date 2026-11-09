@@ -35,8 +35,8 @@ survivor_init :: proc "c" (
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
-SURVIVOR_BUCKET :: "survivor/2"
-#assert(netcode.PROTOCOL_VERSION == 4, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
+SURVIVOR_BUCKET :: "survivor/3"
+#assert(netcode.PROTOCOL_VERSION == 5, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -222,10 +222,10 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 			custom = {0, age_s(out.tick, g.spawn_tick), 0, 0},
 		}
 	}
-	(^survivor.Hud)(&out.hud[0])^ = survivor.hud(cur, out.tick)
+	(^Hud)(&out.hud[0])^ = hud_of(cur, out.tick)
 }
 
-#assert(size_of(survivor.Hud) <= gh.HUD_BYTES)
+#assert(size_of(Hud) <= gh.HUD_BYTES)
 
 HIT_FLASH_S :: 0.15
 
@@ -239,10 +239,10 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
 }
 
-// ---- HUD (contract v0): survivor.hud on the session thread, a Dictionary on the main thread
+// ---- HUD (contract v0): hud_of (hud.odin) on the session thread, a Dictionary on the main thread
 
 hud :: proc(f: ^gh.Frame, d: ^gd.Dictionary) {
-	h := (^survivor.Hud)(&f.hud[0])
+	h := (^Hud)(&f.hud[0])
 	gd.dict_set(d, "phase", h.phase_name)
 	gd.dict_set(d, "tick", i64(h.tick))
 	gd.dict_set(d, "time_s", f64(h.time_s))
