@@ -2,6 +2,7 @@
 .DS_Store
 out/
 .godot/
+__pycache__/
 
 # Box3D sources and builds are fetched by tools/box3d.py
 /third_party/box3d/
