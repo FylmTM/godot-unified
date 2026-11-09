@@ -12,8 +12,8 @@ import "unified:headless/cli"
 import "unified:netcode"
 
 // Lobbies only match within a bucket; --bucket survivor/3 meets the game's own builds.
-EOS_BUCKET :: "unified-headless/3"
-#assert(netcode.PROTOCOL_VERSION == 5, "netcode protocol changed: bump EOS_BUCKET (and the game's bucket) with it")
+EOS_BUCKET :: "unified-headless/4"
+#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump EOS_BUCKET (and the game's bucket) with it")
 
 EOS_ONLINE := cli.Online {
 	name = "eos",

@@ -36,11 +36,9 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - Presence is not in the input: the tick's `present` set (from the relay) says who is in the game. A slot that becomes
   present joins (body at its start spot, fresh progress, `player_joined`); one that stops being present leaves (body
   destroyed, progress reset, `player_left`).
-- `choice`: the level-up pick, `option | seq << 2` (`choice_encode`): option 0 = none, 1..3 = the option; seq =
-  the press sequence 1..63, bumped by the input source on every press (wrapping, never 0). Inputs are repeated by
-  the netcode (a client fills skipped ticks with its last input, the relay substitutes a late input with the last
-  one), so a pick is edge-triggered by its sequence: it applies when a level-up is pending, the option is 1..3 and
-  seq differs from the player's last applied `choice_seq`.
+- The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}` (kind
+  `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered once. The HUD sends it
+  from GDScript on a key (`levelup_1..3`), pad button or click: `send_command(&"pick", {"upgrade": i})`.
 
 ## Phases
 
@@ -97,8 +95,9 @@ on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
    - Set the body's linear velocity.
    - Dead players have no body and count down `respawn` = 3 s (not while `over`), then respawn at their start spot
      with full HP (`player_respawned`). HP max 100.
-2. **Level-up:** if the player has `pending_levelups > 0` and a new pick (option 1..3, seq ≠ `choice_seq`; see Input), apply option
-   1 = fire rate (interval −0.03125 s, min 0.09375 s), 2 = damage +3, 3 = move speed +0.5, then `pending_levelups −= 1`.
+2. **Level-up:** each of the player's picks this tick, in order (see Input): if `pending_levelups > 0`, apply fire
+   rate (interval −0.03125 s, min 0.09375 s), damage +3 or move speed +0.5, then `pending_levelups −= 1`; else (or a
+   value that is no Upgrade) ignore it.
 3. **Spawner** (match only): every `every` after `match_tick`, spawn `n` enemies (Tuning) while alive enemies
    < 1200; their HP is scaled by the wave.
    - Spawn position: on the ring of radius 27, using the angle table above with
@@ -172,7 +171,8 @@ Deterministic per player and stateless: `r` = a 64-bit integer hash of (seed, pl
 be asked for in any order:
 - `move` = one of 8 directions from the angle table times 127 (as i8, truncated), or (0,0) when `r % 9 == 8`
 - dash when `r % 13 == 0`
-- `choice = choice_encode((r % 3) + 1, block % 63 + 1)` when a level-up is pending, else 0 (one pick per block)
+- commands (`script_commands`): a pick of upgrade `r % 3` on the first tick of every block, pending or not (the sim
+  ignores it then), so the script depends on (seed, player, tick) only
 
 Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
 inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
@@ -235,8 +235,9 @@ and load without the library (Godot replaces unknown native node types with a pl
   `start_radius`, `dash_cooldown_s`, `player_respawn_s`, `max_enemies`, `upgrades` ([{name, detail}] ×3, the
   level-up cards) and `items` ([{position, kind}] ×40, spawn body centres; the menu backdrop uses them). GDScript
   never copies a sim number; the mock's `constants()` must equal the native one (validate checks it).
-- `press_action(action)`: presses one of the game's button actions for one tick (`"levelup_%d" % n` when a card is
-  clicked); keys and pads reach the sim natively. `hud()` before any session has every key (`local_slot` -1, no
+- `press_action(action)`: presses one of the game's button actions (`dash`) for one tick; keys and pads reach the
+  sim natively. `send_command(&"pick", {"upgrade": i})`: the level-up pick (the HUD sends it for keys, pads and
+  clicks; the mock latches it for its next tick). `hud()` before any session has every key (`local_slot` -1, no
   players).
 - `set_player_name(name)` and `hud().players[i].name` (extension, optional): names fall back to "P<n>".
 - `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the session panel shows this
@@ -244,7 +245,8 @@ and load without the library (Godot replaces unknown native node types with a pl
 - Views may get `_sim_event("despawned", {})` (they linger ~0.25 s; exit animation) and `_sim_event("revived", {})`
   when a rollback brings one back; the host also sets the root's rotation (player views reset it).
 - Single player emits `status_changed("connected", …)` from `start_single()`; failures carry a readable detail.
-- Input is sampled natively from the InputMap; GDScript only handles `menu` (Esc) and, with the mock, `toggle_devui`.
+- Input is sampled natively from the InputMap; GDScript only handles `menu` (Esc), the level-up keys (as
+  commands) and, with the mock, `toggle_devui`.
 
 ### Checks
 

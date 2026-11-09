@@ -149,6 +149,10 @@ register_session_class :: proc() {
 		}
 		press_button(i)
 	}, {"action"})
+	gd.bind_method(c, "send_command", proc(s: ^Session_Node, name: gd.StringName, args: gd.Dictionary) -> bool {
+		name, args := name, args
+		return send_command(gd.string_name_to_odin(&name), &args)
+	}, {"name", "args"})
 	gd.bind_method(c, "set_input_vector", proc(s: ^Session_Node, index: i64, v: gd.Vector3) {
 		set_input_vector(int(index), {v.x, v.y, v.z})
 	}, {"index", "vector"})

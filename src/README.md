@@ -25,7 +25,7 @@ Enforcement is the RTTI walk in `sim.plain_violation`, run by `sim.create` and b
 floats, bools, enums, bit_sets, fixed/enumerated arrays and structs of those, **and no implicit padding anywhere**.
 That makes the block's memory its canonical little-endian serialization (`#assert(ODIN_ENDIAN == .Little)`): the
 checksum hashes the raw bytes, a snapshot is a struct copy, the portable snapshot writes the bytes as they are, and
-inputs travel and are logged as their bytes. Odin has no compile-time "is POD" trait, so this is a startup check.
+a player's input travels and is logged as its bytes (a command as its struct's bytes, src/sim/SPEC.md). Odin has no compile-time "is POD" trait, so this is a startup check.
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` in the
 deterministic packages (`sim`, `physics`, `dmath`, `netcode`, a game's sim; the netcode's ceilings are done by hand).

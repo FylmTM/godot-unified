@@ -59,8 +59,12 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 ### Where things are
 
-- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`), the in-memory runs (`run_sim`,
-  `run_synctest`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use only this.
+- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `script`, optional
+  `script_commands(seed, slot, t, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
+  (`run_sim`, `run_synctest`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
+  only this. Scripted commands go into offline runs as the relay places them (at most 4 of a player per tick, the
+  rest in the next ticks, in order) and every session client sends them through the netcode; a resume starts with
+  none waiting.
 - **`unified:headless/cli`** (`src/headless/cli/`): argument parsing, the modes, the file I/O, the bench and the
   online modes; only headless binaries import it.
 - **`unified:headless/scenarios`** (`src/headless/scenarios/`): the standard scenarios, one proc each. A test-only

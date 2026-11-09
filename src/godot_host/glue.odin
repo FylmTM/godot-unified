@@ -86,38 +86,40 @@ INPUT_VECTORS :: 4
 
 // What a game provides, typed by its State S, Input I and World W.
 Glue :: struct($S, $I, $W: typeid) {
-	scene_kinds: []string, // e.g. {"player", "crate", "barrel"}: <scene_dir>/<kind>.tscn
-	scene_dir:   string, // where the scene views live, e.g. "res://game/views"
-	bulk_kinds:  []string, // e.g. {"grunt", "runner", "brute", "projectile", "gem"}
+	scene_kinds:       []string, // e.g. {"player", "crate", "barrel"}: <scene_dir>/<kind>.tscn
+	scene_dir:         string, // where the scene views live, e.g. "res://game/views"
+	bulk_kinds:        []string, // e.g. {"grunt", "runner", "brute", "projectile", "gem"}
 	// Optional: the scene views' smoothing, in the units `extract` writes (zero: view.SMOOTHING_DEFAULT,
 	// metres). A 2D game in pixels sets it, e.g. {tau_s = 0.1, teleport_dist = 64}.
-	smoothing:   view.Smoothing,
-	actions:     Action_Map,
+	smoothing:         view.Smoothing,
+	actions:           Action_Map,
 	// Session thread: fill `out.scene`, `out.bulk` (+ n_scene, n_bulk) and `out.hud` from the state at the
 	// frame's tick (`cur`), the tick before (`prev`, nil when not in the ring) and the World (physics), which
 	// is at the frame's tick.
-	extract:     proc(cur: ^S, prev: ^S, world: ^W, out: ^Frame),
+	extract:           proc(cur: ^S, prev: ^S, world: ^W, out: ^Frame),
 	// Session thread: the local player's input from the sampled actions.
-	sample:      proc(a: Actions, slot: int, tick: u32, state: ^S) -> I,
+	sample:            proc(a: Actions, slot: int, tick: u32, state: ^S) -> I,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
-	scripted:    proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
+	scripted:          proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
+	// Session thread, optional: the scripted commands that go with `scripted` (the offline binary's).
+	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out),
 	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot). `f` is nil
 	// before the first frame: fill every key with its empty value, so scripts never miss one.
-	hud:         proc(f: ^Frame, d: ^gd.Dictionary),
+	hud:               proc(f: ^Frame, d: ^gd.Dictionary),
 	// Main thread, optional: the game's constants for its scripts (UnifiedSession.constants()), straight from
 	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
-	constants:   proc(d: ^gd.Dictionary),
+	constants:         proc(d: ^gd.Dictionary),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// enemies). Single player only: it changes the initial state, which every peer would have to share.
-	bench:       proc(s: ^S, w: ^W, n: int),
+	bench:             proc(s: ^S, w: ^W, n: int),
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
-	event_key:   proc(e: sim.Event) -> view.Key,
-	compat:      u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
+	event_key:         proc(e: sim.Event) -> view.Key,
+	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
-	level:       string,
+	level:             string,
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so

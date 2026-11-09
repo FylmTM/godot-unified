@@ -40,7 +40,7 @@ physics.create_static(w, &lvl)           // static bodies in file order
 
 - `sim.Game.world_create(seed, content: []u8)`: the harness passes the level bytes through (a sim API change; the
   survivor ignores them). `sim.create(&GAME, seed, content)`.
-- The level's hash goes everywhere identity matters: the input log (`UNIL` v3) and portable snapshot (`UNIS` v3)
+- The level's hash goes everywhere identity matters: the input log (`UNIL` v4) and portable snapshot (`UNIS` v3)
   headers, so `replay` and `resume` refuse a different level and say which; and the netcode's `compat` (`sim.compat_of(game, content)`), so joining a host with another level
   fails with "a different game build or level".
 - Godot: `Glue.level` names the file (`res://game/levels/<name>.level`); `UnifiedSession` reads it with

@@ -5,7 +5,7 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-PROTOCOL_VERSION :: 5 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window
+PROTOCOL_VERSION :: 6 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
@@ -18,6 +18,7 @@ DELAY_MARGIN_US :: 8_000 // input delay = ceil((rtt / 2 + margin) / tick)
 // client stalls every tick. 166 ms stalled most ticks from ~250 ms.
 PREDICTION_MS :: 218
 INPUTS_MAX :: 32 // own inputs resent per client packet
+COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more: the send fails)
 WINDOW_MAX :: 32 // finalized ticks resent per relay packet
 CHECKSUM_EVERY :: 16
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
@@ -66,8 +67,12 @@ Msg :: enum u8 {
 	Hello = 1, // c->r R: protocol u16, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, name len u8 + bytes
 	Welcome, // r->c R: slot u8, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32
 	Reject, // r->c R: reason u8
-	Inputs, // c->r U: slot u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs
-	Finalized, // r->c U: relay time i64, echo i64, hold i64, input ack u32, first u32, count u8, ticks
+	// c->r U: slot u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs; then the
+	// unacked commands: first seq u32, count u8, per command: wanted tick u32, kind u8, size u8, bytes
+	Inputs,
+	// r->c U: relay time i64, echo i64, hold i64, input ack u32, command ack u32, first u32, count u8, ticks
+	// (sim.write_tick: present, replaced, inputs, commands)
+	Finalized,
 	Checksum, // c->r R: slot u8, tick u32, checksum u64
 	Snap_Request, // r->c R: joiner u8, min tick u32
 	Snap_Begin, // c->r->c R: joiner u8, tick u32, total bytes u32 (r->c tick 0, total 0: start from tick 0)
@@ -145,23 +150,32 @@ r_raw :: proc(r: ^wire.Reader, $T: typeid) -> (v: T) {
 	return
 }
 
-UNRELIABLE_CHUNK_OVERHEAD :: 3 // kind u8, len u16
-FINALIZED_HEAD :: 34 // type u8, relay time, echo, hold i64, input ack u32, first u32, count u8
+FINALIZED_HEAD :: 38 // type u8, relay time, echo, hold i64, input ack u32, command ack u32, first u32, count u8
 INPUTS_HEAD :: 19 // type u8, slot u8, client time i64, finalized ack u32, first u32, count u8
+COMMANDS_HEAD :: 5 // first seq u32, count u8
+COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 
-// Finalized ticks per relay packet: as many as fit one datagram, at most WINDOW_MAX.
+// Finalized ticks per relay packet: as many empty ticks (no commands) as fit one message, at most
+// WINDOW_MAX. A packet carries fewer when the ticks hold commands.
 @(private)
 finalized_window :: proc($I: typeid, $P: int) -> u32 {
-	per_tick := size_of(sim.Inputs(I, P))
-	room := MAX_DATAGRAM - HEADER_BYTES - UNRELIABLE_CHUNK_OVERHEAD - FINALIZED_HEAD
-	n := room / per_tick
+	n := (MAX_MESSAGE - FINALIZED_HEAD) / sim.tick_bytes(I, P, nil)
 	assert(n >= 1, "one tick of inputs does not fit a datagram")
 	return u32(min(n, WINDOW_MAX))
 }
 
+// The bytes a finalized tick's commands may take, so that the tick alone always fits one message.
+@(private)
+tick_command_budget :: proc($I: typeid, $P: int) -> int {
+	b := MAX_MESSAGE - FINALIZED_HEAD - sim.tick_bytes(I, P, nil)
+	assert(b >= sim.COMMAND_HEAD + sim.COMMAND_MAX, "a tick with one command does not fit a datagram")
+	return b
+}
+
+// Own inputs per client packet: what fits one message next to at least one command of the largest size.
 @(private)
 inputs_window :: proc($I: typeid) -> u32 {
-	room := MAX_DATAGRAM - HEADER_BYTES - UNRELIABLE_CHUNK_OVERHEAD - INPUTS_HEAD
+	room := MAX_MESSAGE - INPUTS_HEAD - COMMANDS_HEAD - COMMAND_SEND_HEAD - sim.COMMAND_MAX
 	return u32(min(room / size_of(I), INPUTS_MAX))
 }
 

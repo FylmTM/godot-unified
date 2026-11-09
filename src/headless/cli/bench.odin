@@ -60,6 +60,8 @@ run_bench :: proc(
 	resim_us := make([]f64, n)
 	recorded := make([]sim.Inputs(I, P), ticks + 1)
 	forward := make([]u64, ticks + 1)
+	sc: headless.Script_Commands
+	defer headless.script_commands_destroy(&sc)
 	defer {
 		delete(step_us)
 		delete(save_us)
@@ -72,7 +74,7 @@ run_bench :: proc(
 	count_sum := 0.0
 	nr := 0
 	for t in 1 ..= ticks {
-		recorded[t] = headless.scripted(h, s, t, players)
+		recorded[t] = headless.scripted(h, s, t, players, &sc)
 		t0 := time.tick_now()
 		sim.advance(s, &recorded[t])
 		t1 := time.tick_now()

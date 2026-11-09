@@ -1,7 +1,8 @@
 # godot_host view tests: run headless by `python tools/dev.py godot-test`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that 2D and 3D scene views spawn, get their pose and
-# _sim_update, and that 2D and 3D bulk views get their MultiMesh buffers. Prints one line per check and
-# "VIEWS TESTS: <n> failed"; exits with the failure count.
+# _sim_update, that 2D and 3D bulk views get their MultiMesh buffers, and that send_command converts a
+# Dictionary into the toy's commands (and refuses what doesn't fit, with an error line dev.py expects). Prints
+# one line per check and "VIEWS TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
 
 const POS_2D := Vector2(120, 80)
@@ -62,6 +63,7 @@ func _initialize() -> void:
 	root.add_child(session)
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
+	check("send_command without a session: false", not session.send_command(&"bump", {"amount": 1}))
 	check("start_single", session.start_single())
 
 	var typed: Node = null
@@ -115,7 +117,50 @@ func _initialize() -> void:
 	check("3D bulk unchanged", m3.visible_instance_count == 1 and t3.origin.is_equal_approx(POS_3D) \
 		and near(t3.basis.get_euler().y, YAW_3D) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
 		[m3.visible_instance_count, t3])
+	await check_commands(session)
 	finish(session)
+
+const MARK := {"at": Vector2(1.5, -2), "normal": Vector3(0, 1, 0), "weight": 0.25, "count": -300,
+	"shape": "star", "shapes": ["Dot", 2], "loud": true}
+
+func mark_with(key: String, value) -> Dictionary:
+	var d := MARK.duplicate()
+	d[key] = value
+	return d
+
+func check_commands(session: Node) -> void:
+	check("send_command bump", session.send_command(&"bump", {"amount": 5}))
+	check("send_command bump, a StringName key", session.send_command(&"bump", {&"amount": -2}))
+	check("send_command mark", session.send_command(&"mark", MARK))
+	# refused: false, and an error line naming the problem
+	check("unknown command", not session.send_command(&"jump", {}))
+	check("missing field", not session.send_command(&"bump", {}))
+	check("unknown field", not session.send_command(&"bump", {"amount": 1, "amont": 2}))
+	check("padding is not a field", not session.send_command(&"mark", mark_with("_pad", 0)))
+	check("wrong type", not session.send_command(&"bump", {"amount": "five"}))
+	check("float for an int", not session.send_command(&"bump", {"amount": 1.5}))
+	check("out of range", not session.send_command(&"mark", mark_with("count", 40000)))
+	check("not an enum member", not session.send_command(&"mark", mark_with("shape", "hexagon")))
+	check("enum value out of range", not session.send_command(&"mark", mark_with("shape", 7)))
+	check("bit_set item not a member", not session.send_command(&"mark", mark_with("shapes", ["Dot", "Cube"])))
+	check("bit_set not an Array", not session.send_command(&"mark", mark_with("shapes", 3)))
+	check("Vector3 for a Vector2", not session.send_command(&"mark", mark_with("at", Vector3.ONE)))
+	check("int for a bool", not session.send_command(&"mark", mark_with("loud", 1)))
+	var h: Dictionary = {}
+	for i in 100:
+		await create_timer(0.02).timeout
+		h = session.hud()
+		if h.get("bumps", 0) >= 2 and h.get("marks", 0) >= 1:
+			break
+	check("the sim got each command once, in order", h.get("bumps") == 2 and h.get("bump_sum") == 3 \
+		and h.get("marks") == 1, h)
+	check("Vector2 and Vector3 fields", h.get("mark_at") == Vector2(1.5, -2) \
+		and h.get("mark_normal") == Vector3(0, 1, 0), [h.get("mark_at"), h.get("mark_normal")])
+	check("float, int and bool fields", near(h.get("mark_weight", 0.0), 0.25) and h.get("mark_count") == -300 \
+		and h.get("mark_loud") == true, [h.get("mark_weight"), h.get("mark_count"), h.get("mark_loud")])
+	# shape "star" (any case) = 2; shapes [Dot, 2 (Star)] = bits 0 and 2
+	check("enum by name, bit_set by names and values", h.get("mark_shape") == 2 and h.get("mark_shapes") == 5,
+		[h.get("mark_shape"), h.get("mark_shapes")])
 
 func finish(session: Node) -> void:
 	session.leave()

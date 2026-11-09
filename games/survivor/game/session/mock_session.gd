@@ -232,14 +232,26 @@ func leave() -> void:
 	_set_status("idle", "")
 
 
-## Presses one of the game's button actions (dash, levelup_1..3) for the next tick, like the native session.
+## Presses one of the game's button actions (dash) for the next tick, like the native session.
 func press_action(action: String) -> void:
 	if action == "dash":
 		_latched_dash = true
-	elif action.begins_with("levelup_") and int(action.trim_prefix("levelup_")) in [1, 2, 3]:
-		_latched_choice = int(action.trim_prefix("levelup_"))
 	else:
 		push_error("mock session: press_action: unknown action %s" % action)
+
+
+## Sends a command for the next tick, like the native session: the game's one is the level-up pick,
+## &"pick" with {"upgrade": 0..2} (the upgrades in constants() order).
+func send_command(command: StringName, args: Dictionary) -> bool:
+	if command != &"pick" or args.keys() != ["upgrade"] or not args.upgrade is int or args.upgrade < 0 \
+			or args.upgrade >= UPGRADES.size():
+		push_error("mock session: send_command(%s, %s): not a pick" % [command, args])
+		return false
+	if not _running:
+		push_error("mock session: send_command: no session is running")
+		return false
+	_latched_choice = args.upgrade + 1
+	return true
 
 
 func constants() -> Dictionary:
@@ -498,9 +510,6 @@ func _process_inner(delta: float) -> void:
 		return
 	if Input.is_action_just_pressed(&"dash"):
 		_latched_dash = true
-	for i in 3:
-		if Input.is_action_just_pressed(StringName("levelup_%d" % (i + 1))):
-			_latched_choice = i + 1
 	_acc += delta
 	var steps := 0
 	while _acc >= DT and steps < MAX_STEPS_PER_FRAME:

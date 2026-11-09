@@ -174,17 +174,19 @@ def godot_errors(text):
     return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
 
 
-# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix).
+# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix, the
+# error lines the test provokes on purpose: they must show up, and nothing else may).
 GODOT_TESTS = [
-    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS"),  # the gdext bindings
-    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS"),  # godot_host views
+    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS", None),  # the gdext bindings
+    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS",  # godot_host views
+     "unified: send_command("),  # and send_command's refusals
 ]
 
 
 def cmd_godot_test():
     t0 = time.time()
     imgui.ensure()
-    for proj_rel, pkg, stem, script, summary in GODOT_TESTS:
+    for proj_rel, pkg, stem, script, summary, expected in GODOT_TESTS:
         proj = REPO / proj_rel
         build_extension(pkg, proj / ".out" / "bin" / common.lib_name(stem))
         common.write_extension_list(proj)
@@ -193,6 +195,11 @@ def cmd_godot_test():
         out = r.stdout + r.stderr
         sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", summary))))
         errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
+        if expected:
+            provoked = [e for e in errs if expected in e]
+            errs = [e for e in errs if expected not in e]
+            if not provoked:
+                errs.append("no error line with %r: the test expects some" % expected)
         for e in errs:
             log("godot: " + e)
         if r.returncode != 0 or errs or summary + ": 0 failed" not in out:

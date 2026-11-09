@@ -1,7 +1,8 @@
 // The client (src/netcode/SPEC.md), generic over the game: a verified frame advanced only with finalized
-// inputs, a predicted frame up to the local tick (own inputs + the others' last finalized input
-// repeated), rollback on misprediction, a prediction cap, adaptive input delay and a 2% clock slew
-// towards relay tick + delay. Serves and receives late-join snapshots. Driven by client_step from
+// inputs, a predicted frame up to the local tick (own inputs and commands + the others' last finalized
+// input repeated), rollback on misprediction, a prediction cap, adaptive input delay and a 2% clock slew
+// towards relay tick + delay. Own commands are resent until the relay acks them and predicted until a
+// finalized tick carries them. Serves and receives late-join snapshots. Driven by client_step from
 // the host's loop; talks to the host application through Hooks (all called from client_step).
 package netcode
 
@@ -41,12 +42,23 @@ Hooks :: struct($S, $I, $W: typeid, $P: int) {
 	// The local player's input for `tick`, sampled when the client's clock reaches it. `state` is
 	// the latest predicted state (nil before the sim exists).
 	sample:   proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I,
+	// Optional: the local player's commands for `tick`, called right after `sample` for every tick the
+	// client generates. usim.send_command(out, cmd) returns false once COMMAND_QUEUE commands wait.
+	commands: proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^usim.Command_Out),
 	// After a step that computed new predicted ticks: the view reads sim.state_at(s, f.tick) and
 	// f.tick - 1 for interpolation, and usim.events_at for ticks f.resim_from..f.tick.
 	frame:    proc(user: rawptr, s: ^usim.Sim(S, I, W, P), f: Frame_Info),
 	// Each newly verified tick, in order, with the events it emitted under the final inputs.
 	verified: proc(user: rawptr, s: ^usim.Sim(S, I, W, P), tick: u32, events: []usim.Event),
 	status:   proc(user: rawptr, status: Status, detail: string),
+}
+
+// An own command the client holds until a verified tick carries it.
+@(private)
+Own_Command :: struct {
+	seq:  u32,
+	want: u32, // the tick it was sent for (W)
+	cmd:  usim.Command,
 }
 
 @(private)
@@ -82,6 +94,7 @@ Client :: struct($S, $I, $W: typeid, $P: int) {
 	// finalized inputs from the relay
 	fin:           [FIN_RING]usim.Inputs(I, P),
 	fin_tick:      [FIN_RING]u32,
+	fin_scratch:   usim.Inputs(I, P), // a finalized tick being decoded
 	fin_upto:      u32, // highest contiguous finalized tick held
 	// frames
 	verified:      u32, // V
@@ -97,6 +110,11 @@ Client :: struct($S, $I, $W: typeid, $P: int) {
 	own:           [OWN_RING]I,
 	own_last:      u32,
 	own_acked:     u32,
+	// own commands: sent (until acked) and predicted until a verified tick carries them
+	own_cmds:      [dynamic]Own_Command, // seq order
+	cmd_seq:       u32, // the last seq given
+	cmd_acked:     u32, // the relay has every seq up to this one
+	cmd_out:       usim.Command_Out, // for hooks.commands
 	// time sync
 	started:       bool,
 	offset_us:     f64, // relay time - local time
@@ -142,7 +160,7 @@ client_create :: proc(
 	link: Link,
 	hooks: Hooks(S, I, W, P),
 ) -> ^Client(S, I, W, P) {
-	usim.check_plain(usim.Inputs(I, P))
+	usim.check_plain(I)
 	c := new(Client(S, I, W, P))
 	c.game = game
 	c.cfg = cfg
@@ -172,6 +190,8 @@ client_destroy :: proc(c: ^Client($S, $I, $W, $P)) {
 	delete(c.snap_buf)
 	delete(c.snap_reqs)
 	delete(c.checksums)
+	delete(c.own_cmds)
+	delete(c.cmd_out.list)
 	free(c)
 }
 
@@ -263,11 +283,13 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 	echo := r_i64(rd)
 	hold := r_i64(rd)
 	input_ack := wire.r_u32(rd)
+	cmd_ack := wire.r_u32(rd)
 	first := wire.r_u32(rd)
 	count := u32(wire.r_u8(rd))
 	if !rd.ok || !c.welcomed {
 		return
 	}
+	c.cmd_acked = max(c.cmd_acked, min(cmd_ack, c.cmd_seq))
 	if echo > 0 {
 		sample := f64(now - echo - hold)
 		if sample > 0 {
@@ -282,15 +304,18 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 	}
 	c.own_acked = max(c.own_acked, input_ack)
 	limit := fin_base(c) + FIN_RING - 64
+	lt := &c.fin_scratch
 	for k in 0 ..< count {
 		t := first + k
-		lt := r_raw(rd, usim.Inputs(I, P))
+		if !usim.inputs_read(rd, lt) {
+			break // malformed: the ticks after it can't be found
+		}
 		// Ticks at or below fin_upto are held or consumed already: a stale datagram must not
 		// overwrite the ring slot a newer tick shares with them.
-		if !rd.ok || t <= c.fin_upto || t > limit || (c.ticks != 0 && t > c.ticks) || fin_have(c, t) {
+		if t <= c.fin_upto || t > limit || (c.ticks != 0 && t > c.ticks) || fin_have(c, t) {
 			continue
 		}
-		c.fin[t % FIN_RING] = lt
+		c.fin[t % FIN_RING] = lt^
 		c.fin_tick[t % FIN_RING] = t
 	}
 	for fin_have(c, c.fin_upto + 1) {
@@ -397,9 +422,11 @@ load_snapshot :: proc(c: ^Client($S, $I, $W, $P)) {
 	set_status(c, .Connected, "")
 }
 
-// Inputs for predicting tick t: own input, the others' latest finalized input repeated.
+// Inputs for predicting tick t: own input and commands, the others' latest finalized input repeated
+// (their commands are unknown until finalized: none).
 @(private)
-predicted_inputs :: proc(c: ^Client($S, $I, $W, $P), t: u32) -> (out: usim.Inputs(I, P)) {
+predicted_inputs :: proc(c: ^Client($S, $I, $W, $P), t: u32, out: ^usim.Inputs(I, P)) {
+	out^ = {}
 	if c.fin_upto >= 1 && fin_have(c, c.fin_upto) {
 		last := &c.fin[c.fin_upto % FIN_RING]
 		out.present = last.present
@@ -409,7 +436,33 @@ predicted_inputs :: proc(c: ^Client($S, $I, $W, $P), t: u32) -> (out: usim.Input
 		out.present += {c.slot}
 		out.input[c.slot] = c.own[min(t, c.own_last) % OWN_RING]
 	}
-	return
+	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
+	// for, or the first tick not finalized yet when that one is (a late command moves on), in order, at
+	// most COMMANDS_PER_PLAYER per tick. A wrong guess is an ordinary misprediction.
+	at, in_tick: u32 = 0, 0
+	for &oc in c.own_cmds {
+		tk := max(oc.want, c.fin_upto + 1, at)
+		if tk == at && in_tick == usim.COMMANDS_PER_PLAYER {
+			tk += 1
+		}
+		if tk != at {
+			at, in_tick = tk, 0
+		}
+		in_tick += 1
+		if tk > t {
+			break
+		}
+		if tk == t {
+			usim.add_command(out, oc.cmd)
+		}
+	}
+}
+
+// A verified tick carries the own commands the relay put in it: they are no longer predicted.
+@(private)
+drop_verified_commands :: proc(c: ^Client($S, $I, $W, $P), t: u32) {
+	n := len(usim.commands(&c.fin[t % FIN_RING], c.slot))
+	remove_range(&c.own_cmds, 0, min(n, len(c.own_cmds)))
 }
 
 @(private)
@@ -456,6 +509,9 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 			break
 		}
 	}
+	for t in old_v + 1 ..= new_v {
+		drop_verified_commands(c, t)
+	}
 	for t in old_v + 1 ..= (m != 0 ? m - 1 : limit) {
 		on_tick_verified(c, t) // predicted right: the ring already holds the verified result
 	}
@@ -474,9 +530,9 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 			c.resim_ticks += 1
 		}
 		for t in new_v + 1 ..= c.predicted {
-			in_ := predicted_inputs(c, t)
-			c.pred_inputs[t % PRED_RING] = in_
-			step_tick(c, &in_)
+			in_ := &c.pred_inputs[t % PRED_RING]
+			predicted_inputs(c, t, in_)
+			step_tick(c, in_)
 			c.resim_ticks += 1
 		}
 		c.predicted = max(c.predicted, new_v)
@@ -523,6 +579,18 @@ generate_inputs :: proc(c: ^Client($S, $I, $W, $P)) {
 			c.own[t % OWN_RING] = {}
 		}
 		c.own_last = t
+		if c.hooks.commands != nil {
+			out := &c.cmd_out
+			out.kinds = c.game.commands
+			out.slot = c.slot
+			out.cap = COMMAND_QUEUE - len(c.own_cmds)
+			clear(&out.list)
+			c.hooks.commands(c.hooks.user, c.slot, t, client_state(c), out)
+			for cmd in out.list[:min(len(out.list), max(out.cap, 0))] {
+				c.cmd_seq += 1
+				append(&c.own_cmds, Own_Command{seq = c.cmd_seq, want = t, cmd = cmd})
+			}
+		}
 	}
 }
 
@@ -540,6 +608,27 @@ send_inputs :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 	for t in first ..< first + count {
 		w_raw(w, &c.own[t % OWN_RING])
 	}
+	// Commands the relay hasn't acked, in seq order, as many as fit.
+	k := 0
+	for k < len(c.own_cmds) && c.own_cmds[k].seq <= c.cmd_acked {
+		k += 1
+	}
+	wire.w_u32(w, k < len(c.own_cmds) ? c.own_cmds[k].seq : c.cmd_seq + 1)
+	ncmd_at := len(w.buf)
+	wire.w_u8(w, 0)
+	n := 0
+	for ; k < len(c.own_cmds) && n < 255; k += 1 {
+		oc := &c.own_cmds[k]
+		if len(w.buf) + COMMAND_SEND_HEAD + int(oc.cmd.size) > MAX_MESSAGE {
+			break
+		}
+		wire.w_u32(w, oc.want)
+		wire.w_u8(w, oc.cmd.kind)
+		wire.w_u8(w, oc.cmd.size)
+		wire.w_bytes(w, oc.cmd.data[:oc.cmd.size])
+		n += 1
+	}
+	w.buf[ncmd_at] = u8(n)
 	csend(c, w, .Unreliable, now)
 	c.last_send_us = now
 }
@@ -616,9 +705,9 @@ predict :: proc(c: ^Client($S, $I, $W, $P)) {
 	}
 	for c.predicted < c.local && c.predicted < c.verified + c.tm.prediction_cap && !at_end(c, c.predicted) {
 		t := c.predicted + 1
-		in_ := predicted_inputs(c, t)
-		c.pred_inputs[t % PRED_RING] = in_
-		step_tick(c, &in_)
+		in_ := &c.pred_inputs[t % PRED_RING]
+		predicted_inputs(c, t, in_)
+		step_tick(c, in_)
 		c.predicted = t
 	}
 }

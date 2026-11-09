@@ -13,6 +13,7 @@ import "unified:headless/cli"
 HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
 	game = &survivor.GAME_STRESS,
 	script = survivor.script,
+	script_commands = survivor.script_commands,
 	summary = summary,
 	bench_prepare = survivor.bench_prepare,
 	bench_count = proc(s: ^survivor.State) -> int {return int(s.enemies.count)},

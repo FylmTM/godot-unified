@@ -12,8 +12,9 @@ import "unified:headless"
 import "unified:headless/scenarios"
 
 HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
-	game   = &survivor.GAME_STRESS,
-	script = survivor.script,
+	game            = &survivor.GAME_STRESS,
+	script          = survivor.script,
+	script_commands = survivor.script_commands,
 }
 
 SUITE := scenarios.Suite(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {

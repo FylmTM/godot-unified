@@ -10,8 +10,9 @@ import "unified:sim"
 @(test)
 state_is_plain_data :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(survivor.State)), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(survivor.Inputs)), "")
-	testing.expect_value(t, size_of(survivor.Input), 4)
+	testing.expect_value(t, sim.plain_violation(type_info_of(survivor.Input)), "")
+	testing.expect_value(t, size_of(survivor.Input), 3)
+	testing.expect_value(t, sim.commands_violation(survivor.GAME.commands), "")
 }
 
 step :: proc(s: ^survivor.Sim, present: sim.Players) {

@@ -118,7 +118,14 @@ long_round_trip_keeps_up :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.status, netcode.Status.Connected)
 	ticks := int(c.verified - c.first_tick)
 	testing.expectf(t, c.stall_ticks * 20 < ticks, "stalled %d of %d ticks", c.stall_ticks, ticks)
-	testing.expect_value(t, n.host.relay.replaced, 0)
+	// The join itself is tight at this round trip: the client starts a few ticks after its join tick and
+	// its first inputs reach the relay about a tick before the tolerance, so jitter can cost those. After
+	// that, nothing may be replaced.
+	replaced := 0
+	for tk, k in n.host.relay.log.ticks {
+		replaced += int(u32(k + 1) > c.first_tick + 8 && tk.replaced != {})
+	}
+	testing.expect_value(t, replaced, 0)
 	expect_agree(t, &n)
 }
 

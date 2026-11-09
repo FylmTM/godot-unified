@@ -36,8 +36,8 @@ survivor_init :: proc "c" (
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
-SURVIVOR_BUCKET :: "survivor/3"
-#assert(netcode.PROTOCOL_VERSION == 5, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
+SURVIVOR_BUCKET :: "survivor/4"
+#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -80,21 +80,21 @@ BULK_PROJECTILE :: 3 // after the three enemy kinds (Enemy_Kind order)
 BULK_GEM :: 4
 
 BUTTON_DASH :: 0
-BUTTON_LEVELUP_1 :: 1
 
 GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 	scene_kinds = {"player", "crate", "barrel"},
 	scene_dir = "res://game/views",
 	bulk_kinds = {"grunt", "runner", "brute", "projectile", "gem"},
 	actions = {
-		move = {"move_left", "move_right", "move_forward", "move_back"},
-		buttons = {"dash", "levelup_1", "levelup_2", "levelup_3"},
+		move    = {"move_left", "move_right", "move_forward", "move_back"},
+		buttons = {"dash"}, // level-up picks are a command: the HUD sends them (send_command(&"pick", ...))
 	},
 	extract = extract,
 	sample = sample,
 	scripted = proc(seed: u64, slot: int, tick: u32, state: ^S) -> survivor.Input {
 		return survivor.script(seed, slot, tick, state)
 	},
+	scripted_commands = survivor.script_commands,
 	hud = hud,
 	constants = constants,
 	event_key = event_key,
@@ -111,22 +111,11 @@ event_key :: proc(e: sim.Event) -> view.Key {
 
 // ---- input
 
-// Sequence of the local player's last level-up press (survivor.choice_encode): sample runs on the session
-// thread only, for the one local player.
-g_choice_seq: u8
-
 sample :: proc(a: gh.Actions, slot: int, tick: u32, state: ^S) -> survivor.Input {
 	in_: survivor.Input
 	in_.move_x = i8(clamp(a.move.x, -1, 1) * 127)
 	in_.move_z = i8(clamp(a.move.y, -1, 1) * 127) // Godot's get_vector: +y = move_back = +Z
 	if a.held & (1 << BUTTON_DASH) != 0 do in_.buttons |= survivor.BUTTON_DASH
-	for k in 0 ..< 3 {
-		if a.pressed & (1 << u32(BUTTON_LEVELUP_1 + k)) != 0 {
-			g_choice_seq = survivor.choice_next_seq(g_choice_seq)
-			in_.choice = survivor.choice_encode(k + 1, g_choice_seq)
-			break
-		}
-	}
 	return in_
 }
 
@@ -297,7 +286,7 @@ constants :: proc(d: ^gd.Dictionary) {
 	gd.dict_set(d, "dash_cooldown_s", f64(survivor.DASH_COOLDOWN_S))
 	gd.dict_set(d, "player_respawn_s", f64(survivor.PLAYER_RESPAWN_S))
 	gd.dict_set(d, "max_enemies", i64(survivor.MAX_ENEMIES))
-	// level-up options 1..3 (survivor.choice_encode), in the sim's order
+	// level-up options in survivor.Upgrade order: the HUD's card i sends send_command(&"pick", {"upgrade": i})
 	ups := gd.array_new()
 	details := [3]string {
 		"Shoot more often",
