@@ -1,7 +1,12 @@
-# Odin only. Parallel jobs: `lint` (format check + vet for every target, Linux), `test` on Linux x64 and
-# Windows x64 (odin test, then T1-T9 of spec/CORE.md §4 with the T9 bench in the job summary), and `godot`
-# (Linux x64: the GDExtension binding tests and the game's headless checks under headless Godot 4.7.2).
-# macOS is checked locally with the same commands (README.md). Toolchains and Box3D are cached.
+# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` on Linux x64 and Windows x64 (odin
+# test, then T1-T9 of spec/CORE.md §4 with the T9 bench in the job summary), and `godot` (Linux x64:
+# `dev.py godot-checks`, the binding tests and every game's headless Godot checks, GDScript included). Together
+# they run what `python tools/dev.py all` runs locally. macOS is checked locally with the same commands.
+#
+# Security: every job that runs repository code has `contents: read`. The EOS SDK (a draft-release asset, which
+# needs a write token to list) comes from eos-sdk.yml as a cache entry. Actions are pinned by commit, runner
+# images by version (an image update can change compilers, so it is a deliberate bump), downloads by SHA-256
+# (tools/ci.py, tools/common.py), and the Box3D cache key includes the compiler version.
 name: ci
 
 on:
@@ -24,12 +29,12 @@ env:
 jobs:
   lint:
     name: format + vet
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains
           key: toolchains-linux-x64-${{ env.ODIN_TAG }}-${{ hashFiles('tools/ci.py') }}
@@ -46,31 +51,33 @@ jobs:
       - name: vet (darwin_arm64, darwin_amd64, linux_amd64, windows_amd64)
         run: python3 tools/dev.py vet
 
+  eos-sdk:
+    uses: ./.github/workflows/eos-sdk.yml
+    permissions:
+      contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
+
   test:
     name: test / ${{ matrix.platform }}
+    needs: eos-sdk
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    # Read access to the EOS SDK's draft release (tools/eos.py): drafts are listed only to tokens that
-    # can write to the repo. The job writes nothing.
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             platform: linux-x64
             py: python3
-          - os: windows-latest
+          - os: windows-2025
             platform: windows-x64
             py: python
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
@@ -78,13 +85,15 @@ jobs:
       - name: Odin
         run: ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
 
-      # Box3D: rebuilt only when the pinned commit, the fork patch or the recipe change. Building it needs
-      # CMake + Ninja (and clang-cl with the MSVC environment on Windows, which box3d.py loads itself).
+      # Box3D: rebuilt only when the pinned commit, the fork patch, the recipe or the compiler change. Building it
+      # needs CMake + Ninja (and clang-cl with the MSVC environment on Windows, which box3d.py loads itself).
+      - id: cc
+        run: echo "id=$(${{ matrix.py }} tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
       - id: box3d-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/box3d/build/${{ matrix.platform }}
-          key: box3d-${{ matrix.platform }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+          key: box3d-${{ matrix.platform }}-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
       - if: steps.box3d-cache.outputs.cache-hit != 'true'
         run: ${{ matrix.py }} tools/ci.py ensure-ninja
       - name: Box3D
@@ -92,15 +101,14 @@ jobs:
           odin version
           ${{ matrix.py }} tools/box3d.py
 
-      # EOS SDK (headers + libraries) from the draft release tools/eos.py names: the bindings' layout
-      # check and the library load test in tests/eos run against it.
-      - uses: actions/cache@v4
+      # EOS SDK (headers + libraries): the bindings' layout check and the library load test in tests/eos.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/eos
-          key: eos-sdk-${{ hashFiles('tools/eos.py') }}
+          key: ${{ needs.eos-sdk.outputs.cache-key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
       - name: EOS SDK
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: ${{ matrix.py }} tools/eos.py
 
       - name: odin test
@@ -112,7 +120,7 @@ jobs:
         if: always()
         run: ${{ matrix.py }} tools/ci.py summary >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: check-${{ matrix.platform }}
           path: |
@@ -124,59 +132,44 @@ jobs:
 
   godot:
     name: godot headless / linux-x64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      GODOT_VERSION: 4.7.2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-linux-x64
       - name: Odin
         run: python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
 
+      - id: cc
+        run: echo "id=$(python3 tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
       - id: box3d-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/box3d/build/linux-x64
-          key: box3d-linux-x64-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+          key: box3d-linux-x64-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
       - if: steps.box3d-cache.outputs.cache-hit != 'true'
         run: python3 tools/ci.py ensure-ninja
       - name: Box3D
         run: python3 tools/box3d.py
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/imgui/build/linux-x64
-          key: imgui-linux-x64-${{ hashFiles('tools/imgui.py') }}
+          key: imgui-linux-x64-${{ steps.cc.outputs.id }}-${{ hashFiles('tools/imgui.py') }}
       - name: Dear ImGui
         run: python3 tools/imgui.py
 
-      - uses: actions/cache@v4
+      # The official editor, hash-checked (tools/common.py GODOT_EDITORS), in .toolchains/godot/<version>/.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains/godot
-          key: godot-${{ env.GODOT_VERSION }}-linux-x64
+          key: godot-${{ hashFiles('tools/common.py') }}-linux-x64
       - name: Godot (standard build)
-        run: |
-          mkdir -p .toolchains/godot
-          if [ ! -x .toolchains/godot/godot ]; then
-            curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
-            unzip -q /tmp/godot.zip -d /tmp/godot
-            mv "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" .toolchains/godot/godot
-          fi
-          .toolchains/godot/godot --version
+        run: python3 tools/ci.py godot
 
-      - name: binding tests (tests/godot)
-        run: python3 tools/dev.py godot-test
-      - name: game headless session, session check, editor check
-        run: |
-          for g in games/*/; do
-            g=$(basename "$g")
-            [ -f "games/$g/project.godot" ] || { echo "games/$g: no project.godot yet, skipped"; continue; }
-            python3 tools/dev.py game headless "$g" --ticks 256
-            if [ -f "games/$g/game/tools/session_check.gd" ]; then python3 tools/dev.py game session-check "$g"; fi
-            python3 tools/dev.py game editor-check "$g"
-          done
+      - name: godot-checks (binding tests; per game headless, session, editor, validate, walk)
+        run: python3 tools/dev.py godot-checks

@@ -8,6 +8,10 @@
 # client=source builds the survivor headless binary on the runner (EOS IDs from the repo secrets, read at
 # run time). client=export runs the Windows zip of a release workflow run (its own compiled-in IDs and the
 # SDK DLL its .gdextension shipped; no EOS secrets in its environment). Windows only, never macOS.
+#
+# Inputs are validated first (step p) and reach scripts only through env, never pasted into a script; the EOS
+# secrets are in the one step that runs the source client; the job token can only read (the EOS SDK comes from
+# eos-sdk.yml, the release run's artifact needs `actions: read`).
 name: eos-crossplay
 
 on:
@@ -40,12 +44,18 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  eos-sdk:
+    uses: ./.github/workflows/eos-sdk.yml
+    permissions:
+      contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
+
   join:
     name: join ${{ inputs.code }} (${{ inputs.client }})
-    runs-on: windows-latest
+    needs: eos-sdk
+    runs-on: windows-2025
     timeout-minutes: 30
     permissions:
-      contents: write # the EOS SDK's draft release (tools/eos.py) is listed only to write tokens
+      contents: read
       actions: read # download the release run's artifact
     defaults:
       run:
@@ -53,7 +63,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: p
         name: Parameters
         env:
@@ -65,19 +75,31 @@ jobs:
           IN_BUCKET: ${{ inputs.bucket }}
         run: |
           # Also the place to read a request file from, for a temporary push trigger on a branch (GitHub
-          # dispatches only workflows that are on the default branch).
-          CODE="$IN_CODE"; TICKS="$IN_TICKS"; CLIENT="$IN_CLIENT"; RELEASE_RUN="$IN_RUN"; RELAYS="$IN_RELAYS"; BUCKET="$IN_BUCKET"
-          echo "CODE=$CODE" >> "$GITHUB_ENV"
-          echo "TICKS=${TICKS:-15360}" >> "$GITHUB_ENV"
-          echo "client=${CLIENT:-source}" >> "$GITHUB_OUTPUT"
-          echo "release_run=$RELEASE_RUN" >> "$GITHUB_OUTPUT"
-          echo "relays=${RELAYS:-allow}" >> "$GITHUB_OUTPUT"
-          echo "BUCKET=${BUCKET:-survivor/2}" >> "$GITHUB_ENV"
-          echo "code $CODE, ticks ${TICKS:-15360}, client ${CLIENT:-source}, relays ${RELAYS:-allow}"
+          # dispatches only workflows that are on the default branch). Every value is validated before it is
+          # written to $GITHUB_ENV / $GITHUB_OUTPUT (a newline in an input could otherwise set any variable).
+          CODE="$IN_CODE"; TICKS="${IN_TICKS:-15360}"; CLIENT="${IN_CLIENT:-source}"; RELEASE_RUN="$IN_RUN"
+          RELAYS="${IN_RELAYS:-allow}"; BUCKET="${IN_BUCKET:-survivor/2}"
+          bad() { echo "::error::invalid input $1"; exit 1; }
+          [[ "$CODE" =~ ^[A-Z0-9]{6}$ ]] || bad "code (6 characters A-Z 0-9)"
+          [[ "$TICKS" =~ ^[0-9]{1,7}$ ]] || bad "ticks (a number)"
+          [[ "$CLIENT" =~ ^(source|export)$ ]] || bad "client (source or export)"
+          [[ "$RELEASE_RUN" =~ ^[0-9]{0,20}$ ]] || bad "release_run (a run id or empty)"
+          [[ "$RELAYS" =~ ^(allow|force)$ ]] || bad "relays (allow or force)"
+          [[ "$BUCKET" =~ ^[a-z0-9_-]{1,32}/[0-9]{1,6}$ ]] || bad "bucket (name/number)"
+          {
+            echo "CODE=$CODE"
+            echo "TICKS=$TICKS"
+            echo "CLIENT=$CLIENT"
+            echo "RELEASE_RUN=$RELEASE_RUN"
+            echo "RELAYS=$RELAYS"
+            echo "BUCKET=$BUCKET"
+          } >> "$GITHUB_ENV"
+          echo "client=$CLIENT" >> "$GITHUB_OUTPUT"
+          echo "code $CODE, ticks $TICKS, client $CLIENT, relays $RELAYS, bucket $BUCKET"
 
       # --- client=source: the headless binary, built here --------------------------------------------------
       - if: steps.p.outputs.client == 'source'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-windows-x64
@@ -85,11 +107,21 @@ jobs:
         name: Odin
         run: python tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
       - if: steps.p.outputs.client == 'source'
+        id: cc
+        run: echo "id=$(python tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
+      - if: steps.p.outputs.client == 'source'
         id: box3d-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/box3d/build/windows-x64
-          key: box3d-windows-x64-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+          key: box3d-windows-x64-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+      - if: steps.p.outputs.client == 'source'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/eos
+          key: ${{ needs.eos-sdk.outputs.cache-key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
       - if: steps.p.outputs.client == 'source' && steps.box3d-cache.outputs.cache-hit != 'true'
         run: python tools/ci.py ensure-ninja
       - if: steps.p.outputs.client == 'source'
@@ -109,7 +141,7 @@ jobs:
         run: |
           mkdir -p out/crossplay
           set +e
-          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "${{ steps.p.outputs.relays }}" --bucket "$BUCKET" \
+          out/release/survivor.exe eos-client --code "$CODE" --ticks "$TICKS" --relays "$RELAYS" --bucket "$BUCKET" \
             > out/crossplay/client.json 2> out/crossplay/client.log
           rc=$?
           set -e
@@ -121,7 +153,7 @@ jobs:
       - if: steps.p.outputs.client == 'export'
         name: Download the Windows export
         run: |
-          run="${{ steps.p.outputs.release_run }}"
+          run="$RELEASE_RUN"
           if [ -z "$run" ]; then
             run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
           fi
@@ -152,14 +184,14 @@ jobs:
         name: Summary
         run: |
           {
-            echo "### crossplay ${{ steps.p.outputs.client }}, code \`$CODE\`, $TICKS ticks"
+            echo "### crossplay $CLIENT, code \`$CODE\`, $TICKS ticks"
             echo '```'
             grep -o '"ok":[a-z]*\|"network":"[A-Za-z]*"\|"rtt_ms":[0-9.]*\|"rollbacks":[0-9]*\|"final_tick":[0-9]*\|"join_tick":[0-9]*\|"delay":[0-9]*' out/crossplay/client.json 2>/dev/null | tr '\n' ' '
             echo
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: crossplay-${{ steps.p.outputs.client }}-${{ env.CODE }}
           path: out/crossplay/
