@@ -25,13 +25,8 @@ when ODIN_OS == .Windows {
 		foreign import imguilib "../../third_party/imgui/build/linux-x64/libimgui.a"
 	}
 } else when ODIN_OS == .Darwin {
-	when ODIN_ARCH == .amd64 {
-		@(export)
-		foreign import imguilib "../../third_party/imgui/build/macos-x64/libimgui.a"
-	} else {
-		@(export)
-		foreign import imguilib "../../third_party/imgui/build/macos-arm64/libimgui.a"
-	}
+	@(export)
+	foreign import imguilib "../../third_party/imgui/build/macos-arm64/libimgui.a"
 }
 
 // Verify ABI compatibility between caller code and compiled version of Dear ImGui.

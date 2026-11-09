@@ -6,7 +6,7 @@
 
 Pinned: Dear ImGui v1.92.9b-docking (git tag), dear_bindings v0.21's generated C API for that tag (release
 files, so no Python generator step), matching the vendored odin-imgui declarations in src/imgui/. Six C++ files
-compile in parallel (~2.5 s on an M4 Pro); later runs are a ~1 ms stamp check. Same compilers as Box3D:
+compile in parallel; later runs are a stamp check. Same compilers as Box3D:
 clang++ on macOS and Linux, clang-cl + llvm-lib on Windows (static CRT, /MT, like Odin).
 
 Other tools import this module and call ensure().

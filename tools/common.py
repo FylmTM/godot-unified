@@ -39,14 +39,6 @@ def norm_arch(arch):
 
 def host_arch():
     machine = platform.machine()
-    if IS_MACOS and machine == "x86_64":
-        # An x86_64 Python on an ARM64 Mac (translated) reports x86_64; build for the hardware.
-        try:
-            out = subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True)
-            if out.stdout.strip() == "1":
-                return "arm64"
-        except OSError:
-            pass
     if IS_WINDOWS:
         machine = os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROCESSOR_ARCHITECTURE") or machine
     return norm_arch(machine)

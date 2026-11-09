@@ -14,8 +14,6 @@ import "core:c"
 
 when ODIN_OS == .Darwin && ODIN_ARCH == .arm64 {
 	foreign import lib "../../third_party/box3d/build/macos-arm64/lib/libbox3d.a"
-} else when ODIN_OS == .Darwin && ODIN_ARCH == .amd64 {
-	foreign import lib "../../third_party/box3d/build/macos-x64/lib/libbox3d.a"
 } else when ODIN_OS == .Linux && ODIN_ARCH == .amd64 {
 	foreign import lib {"../../third_party/box3d/build/linux-x64/lib/libbox3d.a", "system:m", "system:pthread"}
 } else when ODIN_OS == .Linux && ODIN_ARCH == .arm64 {
@@ -24,7 +22,7 @@ when ODIN_OS == .Darwin && ODIN_ARCH == .arm64 {
 	foreign import lib "../../third_party/box3d/build/windows-x64/lib/box3d.lib"
 } else {
 	#panic(
-		"unified: no Box3D build for this target (tools/box3d.py builds macos-arm64, macos-x64, linux-x64, linux-arm64, windows-x64)",
+		"unified: no Box3D build for this target (tools/box3d.py builds macos-arm64, linux-x64, linux-arm64, windows-x64)",
 	)
 }
 
@@ -474,8 +472,8 @@ World_RestoreStateFromBytes :: proc(worldId: WorldId, cache: ^WorldStateCache, i
 	return ok
 }
 
-// Sizes and offsets from a C probe (clang, arm64 macOS) against the pinned headers. The same
-// numbers hold on x64 Linux/Windows: every field is fixed-size or a pointer (8 bytes on all targets).
+// Sizes and offsets from a C probe against the pinned headers (tests/box3d re-runs it). They hold
+// on every 64-bit target: every field is fixed-size or a pointer (8 bytes on all targets).
 #assert(size_of(WorldId) == 4 && align_of(WorldId) == 2)
 #assert(size_of(BodyId) == 8 && size_of(ShapeId) == 8)
 #assert(size_of(WorldDef) == 152)

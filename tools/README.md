@@ -34,7 +34,7 @@ python tools/box3d.py --clean         # refetch and rebuild (also after a compil
   and on Windows the static CRT (`/MT`, what Odin links).
 - **`BOX3D_DISABLE_AVX2` is defined**, so x64 runs the same 4-wide solver path as ARM64/NEON instead of picking
   8-wide by CPUID at runtime.
-- Platforms: `macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`. When up to date it returns without starting
+- Platforms: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`. When up to date it returns without starting
   a compiler (the stamp covers the commit, the patch and the recipe, not the compiler: run `--clean` after
   a compiler upgrade; CI's cache key adds `ci.py compiler-id`). `dev.py` calls it in-process before every build.
 - Compilers: `clang` on macOS and Linux, `clang-cl` on Windows (PATH, `C:\Program Files\LLVM`, then Visual

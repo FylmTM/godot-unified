@@ -77,7 +77,7 @@ MODES = {
 }
 # Tests build like dev: optimized enough that the sim tests take milliseconds, fast to compile.
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
-VET_TARGETS = ["darwin_arm64", "darwin_amd64", "linux_amd64", "linux_arm64", "windows_amd64"]
+VET_TARGETS = ["darwin_arm64", "linux_amd64", "linux_arm64", "windows_amd64"]
 FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (REPO / "games").glob("*/simulation"))
 # The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
 HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",

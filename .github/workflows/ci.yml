@@ -85,7 +85,7 @@ jobs:
 
       - name: fmt --check
         run: python3 tools/dev.py fmt --check
-      - name: vet (darwin_arm64, darwin_amd64, linux_amd64, linux_arm64, windows_amd64)
+      - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
         run: python3 tools/dev.py vet
 
   eos-sdk:
