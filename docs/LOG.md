@@ -146,3 +146,6 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   edge-triggered choice with a sequence counter) and two small host issues (godot_host: Leave then Host/Join within
   ~3 s fails; Windows timer resolution and macOS App Nap for a backgrounded game), re-run Mac ↔ Windows crossplay,
   then tag **survivor-v0.1.1**. d4a49e9 removed two stray binaries committed at the repo root.
+- 466a0fb **Level-up fix merged:** each pick carries a press sequence; the sim applies a pick only when the sequence
+  changes, so inputs repeated by catch-up or by the relay's late-input substitution apply once. Regression test
+  added; testdata regenerated; CI green.
