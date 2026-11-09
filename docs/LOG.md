@@ -152,3 +152,10 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
 - 1c062b7 **godot_host fixes merged:** Host/Join right after Leave waits for the previous session's goodbye instead
   of failing; Windows raises the timer resolution during a session (a minimised game no longer sleeps 15.6 ms);
   macOS disables App Nap for the session. All local checks green. Crossplay re-run requested as the v0.1.1 gate.
+- **Crossplay gate passed on main 6da8839** (Mac host = the game in headless Godot; Windows client on a CI runner;
+  64 Hz; late join from a snapshot): source with forced relays (233 ms RTT, 0 mismatches over 771 checksums), source
+  with relays allowed (152 ms, 0/806), the **Windows release export** (237 ms, 0/696, only compiled-in IDs and the
+  shipped EOS DLL, no ERROR lines), and an abrupt drop + a different player joining with the same code (235 ms,
+  0/818). Stall ticks 0–11 per run (254–499 before the review fixes). Same-identity leave/rejoin passed locally.
+- **Tagged `survivor-v0.1.1` on 6da8839** (CI 42541862163 green). This is the playtest build; v0.1.0 should not be
+  used (incompatible protocol and the online bugs above).
