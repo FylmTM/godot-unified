@@ -32,8 +32,8 @@ python tools/dev.py game tour friendslop       # the real game headless: hub, gr
                                                # with the jump pad, PNGs in .out/tour/
 python tools/dev.py game headless friendslop   # a Godot session's checksums == the offline binary's
 python tools/dev.py game coop friendslop       # EOS: a host and a joiner; the host picks the friend up, they break free
-python tools/dev.py check --only F1,F2,F3,F4,F5   # sync-test, sessions under loss, late join, cross-platform replay
-odin test games/friendslop/simulation/tests -collection:unified=src   # scenarios, a sync-test on every tick
+odin test games/friendslop/simulation/tests -collection:unified=src   # its end-to-end suite (suite_test.odin: sessions
+                                               # under loss, late join, the reference run) and scenarios
 ```
 
 ## Controls

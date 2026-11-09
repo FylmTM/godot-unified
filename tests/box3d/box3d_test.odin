@@ -2,7 +2,7 @@
 // we use): the binding layouts against the pinned headers, each call the games make, exact
 // save/restore across body types, contacts, sleep and body creation/destruction, portable images in
 // a second world, damaged images, and a golden trace that pins the fork's results (an upgrade that
-// changes them fails here first, then T7/T8).
+// changes them fails here first, then the games' reference runs).
 package test_box3d
 
 import "core:fmt"
@@ -281,10 +281,10 @@ image_into_another_world :: proc(t: ^testing.T) {
 	testing.expect(t, !b3.World_RestoreStateFromBytes(b.world, cb, nil))
 }
 
-// The pinned fork's results: a fixed scene, 240 ticks, hashed every 60. The same on every platform
-// (ARM64, x86_64 under Rosetta, and every CI platform). A Box3D upgrade or a build-flag change
-// that alters any of these values fails here; if the change is intended, update the values (and
-// regenerate the games' reference runs for T7/T8 and F5) in the same commit.
+// The pinned fork's results: a fixed scene, 240 ticks, hashed every 60. The same on every platform.
+// A Box3D upgrade or a build-flag change that alters any of these values fails here; if the change
+// is intended, update the values (and regenerate the reference runs, `dev.py regen <game>|toy`) in
+// the same commit.
 GOLDEN := [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
 
 @(test)
@@ -372,11 +372,6 @@ bindings_match_the_headers :: proc(t: ^testing.T) {
 	internal :: BOX3D_DIR + "/src/src"
 	if !os.exists(fmt.tprintf("%s/box3d/box3d.h", include)) || !os.exists(internal + "/recording.h") {
 		log.info("Box3D headers not staged (python tools/box3d.py); layout check skipped")
-		return
-	}
-	when ODIN_OS == .Darwin && ODIN_ARCH == .amd64 {
-		// Under Rosetta the toolchain's xcrun can't load; the native arm64 run and CI's x64 runs check it.
-		log.info("x86_64 macOS (Rosetta): layout probe skipped")
 		return
 	}
 	cc := ""

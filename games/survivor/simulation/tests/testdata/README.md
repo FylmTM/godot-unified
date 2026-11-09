@@ -1,33 +1,14 @@
 # testdata
 
-Reference files for the cross-platform tests T7 and T8 (`src/headless/SPEC.md`, T1-T9). They are generated on **macOS ARM64**
-and committed; every CI platform and the Rosetta check must reproduce them bit for bit.
+The survivor's reference run (`src/headless/SPEC.md`, Reference runs): every platform must reproduce it bit for bit.
+`the_reference_run_replays` and `the_reference_run_resumes` in `../suite_test.odin` check it in `dev.py test`.
 
 | File | What it is |
 |---|---|
-| `ref.log` | Input log (`UNIL` v2 (still read: content 0), src/sim/SPEC.md: seed, slots, input size, ticks, then per tick present + replaced masks and 4 × 4 input bytes) of an offline run: 3600 ticks (64 Hz), 4 players, seed 7, scripted inputs, nothing replaced |
-| `ref.trace` | Per-tick checksums of that run, one `"%06d %016x"` line per tick, ticks 1..3600 |
-| `ref-1800.snap` | Portable snapshot (`UNIS` v2: state block plus Box3D state) after tick 1800 of the same run |
-| `ref.json` | Provenance: when, on what platform and commit, the exact commands, and the final checksum |
+| `ref.log` | Input log of an offline run with the `stress` tuning: 3600 ticks, 4 scripted players, seed 7 (`UNIL` v2: still read, content 0) |
+| `ref.trace` | Its per-tick checksums, one `"%06d %016x"` line per tick, ticks 1..3600 |
+| `ref-1800.snap` | Portable snapshot after tick 1800 of the same run (`UNIS` v2) |
+| `ref.json` | Where, when and how it was made, and the final checksum |
 
-friendslop's reference run (F5) is in `games/friendslop/simulation/tests/testdata/`.
-
-- **T7:** `survivor replay --log ref.log --trace out` must equal `ref.trace`.
-- **T8:** `survivor resume --in ref-1800.snap --ticks 1800 --trace out` must equal lines 1801–3600 of `ref.trace`.
-
-## Regenerating
-
-Only on purpose: after a change that legitimately alters the simulation, the checksum, or the log or snapshot
-format. `python tools/dev.py check --regen` (refuses anywhere but macOS ARM64 unless `--force`) builds the survivor's
-headless binary (release), then runs exactly:
-
-```
-survivor sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
-survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
-friendslop sim    --ticks 1800 --players 4 --seed 7 --trace ref.trace --log ref.log   # into friendslop's testdata/
-```
-
-It self-checks the new files before copying them here (replay of `ref.log` reproduces `ref.trace`, resume of the
-snapshot reproduces ticks 1801–3600, the log header matches the run), writes each game's `ref.json`, then runs the
-tests. Commit all the files together. `.gitattributes` marks `*.log`/`*.snap` binary and keeps `*.trace` LF, so
-Windows checkouts compare cleanly.
+Regenerate deliberately, on any machine: `python tools/dev.py regen survivor`, then commit the files with the change
+that made it necessary.

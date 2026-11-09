@@ -1,14 +1,9 @@
 {
-  "generated": "2026-11-09T11:15:10Z",
-  "platform": "macos-arm64",
-  "build_mode": "release",
-  "git_commit": "f3aee81bdf8efee40b9148802a2d2f4049d9a118",
-  "note": "written after the fact (#54): the run's own time and commit were not recorded; these are of the commit that added the files",
+  "made_on": {"os": "Darwin", "arch": "arm64", "odin": "dev-2026-11 (9a6991685)", "build": "-o:speed -use-separate-modules -debug", "commit": "03d888ca2e324a90e28abecc6691ad149ffc1293+dirty"},
+  "made_at": "2026-11-09T15:55:24Z",
   "seed": 7,
   "players": 4,
   "ticks": 1800,
-  "final_checksum": "ae4c4be2ce92d204",
-  "commands": [
-    "friendslop sim --ticks 1800 --players 4 --seed 7 --trace ref.trace --log ref.log"
-  ]
+  "snapshot_tick": 900,
+  "final_checksum": "ae4c4be2ce92d204"
 }

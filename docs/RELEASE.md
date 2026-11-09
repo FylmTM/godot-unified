@@ -1,7 +1,7 @@
 # Game releases
 
 Playable builds of a game under `games/<game>/` (a Godot project with `export_presets.cfg`) for **macOS arm64** and
-**Windows x64**. CI makes them only for tags; the same steps run locally on a Mac.
+**Windows x64**. CI makes them only for tags; the same steps run locally on either platform, each building its own.
 
 ## Cut a build
 
@@ -22,15 +22,15 @@ GitHub **prerelease** named after the tag: `<game>-v<version>-macos-arm64.zip`, 
 build, plus `games/<game>/RELEASE_NOTES.md`). Only the developer, or a session they authorise, pushes tags. A failed
 run publishes nothing; delete the tag, fix, tag again.
 
-## Locally (macOS)
+## Locally
 
 ```
-python tools/release.py build games/survivor                   # -> games/survivor/.out/release/survivor-dev-<sha>-macos-arm64.zip
+python tools/release.py build games/survivor                   # -> games/survivor/.out/release/survivor-dev-<sha>-<platform>.zip
 python tools/release.py build games/survivor --version 0.1.2   # what the tag build does (stamps 0.1.2)
 ```
 
 ~20 s warm (~50 s cold). Godot comes from `common.find_godot` (`$GODOT`, `godot` on PATH, `.toolchains/godot/`,
-`~/tools/godot/Godot_v4.7.2.app`), else the official editor is downloaded into `.toolchains/godot/`; export
+`~/tools/godot/`), else the official editor is downloaded into `.toolchains/godot/`; export
 templates go to Godot's standard folder (only this platform's files, pulled from the official `.tpz` by range
 requests). Every download is checked against a pinned SHA-256 (`tools/common.py`, `tools/release.py`). Without a
 tag, CI checks the pipeline with **Actions → release → Run workflow** (Windows only; any game folder, default

@@ -1,0 +1,9 @@
+{
+  "made_on": {"os": "Darwin", "arch": "arm64", "odin": "dev-2026-11 (9a6991685)", "build": "-o:speed -use-separate-modules -debug", "commit": "03d888ca2e324a90e28abecc6691ad149ffc1293+dirty"},
+  "made_at": "2026-11-09T15:55:05Z",
+  "seed": 7,
+  "players": 4,
+  "ticks": 1800,
+  "snapshot_tick": 900,
+  "final_checksum": "ed4baa43a9ab1f19"
+}

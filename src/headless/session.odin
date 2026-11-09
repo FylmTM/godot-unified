@@ -1,4 +1,4 @@
-// In-process sessions for tests (T3, T6): a relay plus clients over loopback or localhost UDP, each
+// In-process sessions (the `session` mode, the end-to-end scenarios): a relay plus clients over loopback or localhost UDP, each
 // client's link wrapped in the network simulator for the chosen profile. On the real clock, the relay
 // and every client run on threads of their own that sleep until each step's next deadline; on a
 // virtual clock (loopback only), one thread steps them all through test time as fast as it computes,
@@ -26,16 +26,24 @@ Session_Config :: struct {
 }
 
 Session_Result :: struct($I: typeid, $P: int) {
-	ok:        bool,
-	desyncs:   int,
-	replaced:  int,
-	clients:   [dynamic]string, // JSON objects (temp-allocated)
-	log:       sim.Input_Log(I, P),
-	relay_net: string,
+	ok:        bool, // every client verified every tick and disconnected cleanly
+	desyncs:   int, // checksum mismatches the relay detected
+	replaced:  int, // inputs the relay replaced (late or missing)
+	clients:   []netcode.Client_Result, // one per slot, in slot order
+	log:       sim.Input_Log(I, P), // the relay's official input log
+	relay_net: netcode.Channel_Stats,
+}
+
+session_result_destroy :: proc(res: ^Session_Result($I, $P)) {
+	for c in res.clients {
+		delete(c.checksums)
+	}
+	delete(res.clients)
+	sim.log_destroy(&res.log)
+	res^ = {}
 }
 
 // Script hooks: every client samples the game's scripted input for its slot.
-@(private)
 Script_User :: struct($S, $I, $W: typeid, $P: int) {
 	h:    ^Headless(S, I, W, P),
 	seed: u64,
@@ -48,7 +56,7 @@ script_hooks :: proc(u: ^Script_User($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, 
 		}}
 }
 
-@(private)
+// A client stepped by run_client until `deadline` (µs); `ok` once it verified every tick.
 Client_Task :: struct($S, $I, $W: typeid, $P: int) {
 	c:        ^netcode.Client(S, I, W, P),
 	deadline: i64,
@@ -156,13 +164,15 @@ session_run :: proc(h: ^Headless($S, $I, $W, $P), cfg: Session_Config) -> (res: 
 	res.replaced = relay.replaced
 	res.log = relay.log
 	relay.log = {}
-	res.relay_net = netcode.channel_stats_json(relay.ch)
-	for &t in ss.tasks {
+	res.relay_net = relay.ch.stats
+	res.clients = make([]netcode.Client_Result, cfg.clients)
+	for &t, p in ss.tasks {
 		if t.c == nil {
+			res.clients[p].player = p
 			res.ok = false
 			continue
 		}
-		append(&res.clients, netcode.client_json(t.c))
+		res.clients[p] = netcode.client_result(t.c)
 		res.ok &&= t.ok
 		delete(t.c.cfg.name)
 		netcode.client_destroy(t.c)

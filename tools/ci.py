@@ -162,27 +162,29 @@ def cmd_summary():
         out += ["| `dev.py %s` | %.1f |" % (k, v) for k, v in t.items()]
         out.append("")
     check_path = REPO / "out" / "check.json"
-    if not check_path.exists():
-        out.append("No out/check.json: T1-T9 did not run.")
-        print("\n".join(out))
-        return
-    j = json.loads(check_path.read_text())
-    out += ["### T1-T9 (src/headless/SPEC.md (T1-T9)): %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
-            "| test | result | seconds | detail |", "|---|---|---:|---|"]
-    for name, r in j.get("tests", {}).items():
-        detail = r.get("detail", "").replace("|", "\\|").replace("\n", " ")[:300]
-        out.append("| %s | %s | %.1f | %s |" % (name, r.get("status", "?").upper(), r.get("seconds", 0), detail))
-    d = (j.get("tests", {}).get("T9") or {}).get("data") or {}
-    if "step_mean_us" in d:
-        out += ["", "### T9 bench (`bench --enemies 1000 --window 8 --ticks 600`, release)", "",
-                "| | mean µs | p99 µs |", "|---|---:|---:|",
-                "| forward step | %.0f | %.0f |" % (d["step_mean_us"], d["step_p99_us"]),
-                "| save | %.0f | |" % d["save_mean_us"],
-                "| restore | %.0f | |" % d["restore_mean_us"],
-                "| 8-tick re-sim | %.0f | %.0f |" % (d["resim_mean_us"], d["resim_p99_us"]),
-                "| **step + re-sim** | **%.0f** (%s 6 ms budget) | |" % (
-                    d["step_plus_resim_us"], "within" if d["within_target"] else "**OVER**"),
-                "", "Snapshot: %d bytes." % d["snapshot_bytes"]]
+    if check_path.exists():
+        j = json.loads(check_path.read_text())
+        out += ["### `dev.py check`: %s" % ("PASS" if j.get("ok") else "**FAIL**"), "",
+                "| test | result | seconds | detail |", "|---|---|---:|---|"]
+        for name, r in j.get("tests", {}).items():
+            detail = r.get("detail", "").replace("|", "\\|").replace("\n", " ")[:300]
+            out.append("| %s | %s | %.1f | %s |" % (name, r.get("status", "?").upper(), r.get("seconds", 0), detail))
+    else:
+        out.append("No out/check.json: `dev.py check` did not run.")
+    bench_path = REPO / "out" / "bench.json"
+    if bench_path.exists():
+        b = json.loads(bench_path.read_text())
+        out += ["", "### Benchmarks (`dev.py bench`, release; target: step + re-sim <= %.0f ms)"
+                % (b.get("target_us", 0) / 1000), "",
+                "| benchmark | step µs (p99) | save µs | restore µs | re-sim µs (p99) | step + re-sim | snapshot bytes |",
+                "|---|---:|---:|---:|---:|---:|---:|"]
+        for name, d in b.get("benchmarks", {}).items():
+            out.append("| %s | %.0f (%.0f) | %.0f | %.0f | %.0f (%.0f) | **%.2f ms**%s | %d |" % (
+                name, d["step_mean_us"], d["step_p99_us"], d["save_mean_us"], d["restore_mean_us"],
+                d["resim_mean_us"], d["resim_p99_us"], d["step_plus_resim_us"] / 1000,
+                "" if d["within_target"] else " **OVER**", d["snapshot_bytes"]))
+    else:
+        out += ["", "No out/bench.json: `dev.py bench` did not run."]
     print("\n".join(out))
 
 

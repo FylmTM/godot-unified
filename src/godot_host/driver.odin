@@ -489,7 +489,7 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 		if d.uses_tp do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
-	d.result = strings.clone(netcode.client_json(d.client))
+	d.result = strings.clone(netcode.client_json(netcode.client_result(d.client, context.temp_allocator)))
 	post(d, Message{kind = .Result})
 	driver_close(d)
 	session_power_end()

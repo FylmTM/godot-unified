@@ -428,8 +428,8 @@ def lipo_archs(path):
 
 def thin_to_arm64(app):
     """Godot's macOS template is universal only (its presets can't pick arm64 alone), but our extension is
-    arm64: drop the x86_64 slice so an Intel Mac refuses the app up front instead of failing to load the
-    extension, and the download shrinks by ~half the engine. Universal libraries (the EOS SDK) get the same.
+    arm64: drop the x86_64 slice, so the app is arm64 only like everything in it and the download shrinks by ~half
+    the engine. Universal libraries (the EOS SDK) get the same.
     Their original signatures break; the ad-hoc codesign that follows re-signs everything."""
     frameworks = app / "Contents" / "Frameworks"
     files = list((app / "Contents" / "MacOS").iterdir())

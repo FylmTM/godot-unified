@@ -1,4 +1,4 @@
-package headless
+package cli
 
 import "core:fmt"
 import "core:os"

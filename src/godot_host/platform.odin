@@ -1,6 +1,6 @@
 // Thread classes and the process clock.
 //
-// macOS: a sleeping thread wakes late by its timer leeway (coalescing). Measured on an M4 Pro (GDExtension
+// macOS: a sleeping thread wakes late by its timer leeway (coalescing). Measured on Apple silicon (GDExtension
 // spike): a sleep-until wakes 2.5-4 ms late at the default QoS and about 1 ms late inside Godot, but 10-25 µs
 // late under THREAD_TIME_CONSTRAINT_POLICY (what audio threads use). So the session thread asks for a
 // time-constraint policy: period one tick, ~1 ms of computation, 2 ms constraint. Linux: plain sleeps, to be

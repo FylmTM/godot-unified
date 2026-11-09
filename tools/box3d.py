@@ -2,7 +2,6 @@
 """Fetch, patch and build Box3D (static library + headers) for the host platform.
 
     python tools/box3d.py                  # host build -> third_party/box3d/build/<platform>/
-    python tools/box3d.py --arch x86_64    # macOS only: x86_64 build (macos-x64) for Rosetta checks
     python tools/box3d.py --json           # same, then print the build description as one JSON line
     python tools/box3d.py --clean          # wipe the source checkout and this platform's build first
 
@@ -11,8 +10,7 @@ Steps (each skipped when already done, so a repeat run takes well under a second
   2. apply third_party/box3d.patch (our save/restore fork; must apply exactly, no fuzz),
   3. configure + build with CMake + Ninja: Release, -O2 -DNDEBUG, static, samples/tests/benchmarks
      off, validation off, AVX2 path compiled out (BOX3D_DISABLE_AVX2: x64 then runs the same 4-wide
-     path as ARM64/NEON and as phase 1's Rosetta check, instead of picking 8-wide at runtime by
-     CPUID), and install include/ + lib/ into third_party/box3d/build/<platform>/,
+     path as ARM64/NEON, instead of picking 8-wide at runtime by CPUID), and install include/ + lib/ into third_party/box3d/build/<platform>/,
   4. verify from compile_commands.json that every Box3D source got the FP-contraction-off flag
      (Box3D's CMakeLists adds -ffp-contract=off, or /clang:-ffp-contract=off for clang-cl), -O2,
      NDEBUG and BOX3D_DISABLE_AVX2, then write box3d.json next to include/ and lib/.
@@ -195,12 +193,10 @@ def fast_key(tag, patch_sha):
     return hashlib.sha256(("%s %s %s %s %s" % (RECIPE_VERSION, BOX3D_COMMIT, patch_sha, tag, me)).encode()).hexdigest()[:16]
 
 
-def ensure(arch=None, cc=None, cxx=None, clean=False):
-    """Builds Box3D for `arch` (default: host) if needed and returns its description (box3d.json)."""
-    arch = common.norm_arch(arch) if arch else common.host_arch()
-    if arch != common.host_arch() and not IS_MACOS:
-        raise SystemExit("box3d: cross builds are only supported on macOS (x86_64 for Rosetta)")
-    tag = common.platform_tag(arch)
+def ensure(cc=None, cxx=None, clean=False):
+    """Builds Box3D for this platform if needed and returns its description (box3d.json)."""
+    arch = common.host_arch()
+    tag = common.platform_tag()
     out = ROOT / "build" / tag
     work = ROOT / "work" / tag
     desc_path = out / "box3d.json"
@@ -264,13 +260,12 @@ def ensure(arch=None, cc=None, cxx=None, clean=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--arch", help="target architecture (macOS only: x86_64 or arm64; default host)")
     ap.add_argument("--cc", help="C compiler (default clang, or clang-cl on Windows)")
     ap.add_argument("--cxx", help="C++ compiler (default clang++, or clang-cl on Windows)")
     ap.add_argument("--clean", action="store_true", help="delete the checkout and this platform's build first")
     ap.add_argument("--json", action="store_true", help="print the build description as one JSON line on stdout")
     args = ap.parse_args()
-    desc = ensure(args.arch, args.cc, args.cxx, args.clean)
+    desc = ensure(args.cc, args.cxx, args.clean)
     log("box3d: %s up to date: %s" % (desc["platform"], desc["lib"]))
     print(json.dumps(desc) if args.json else desc["dir"])
 

@@ -13,8 +13,8 @@ builds the C++ library. No tests of its own; the dev UI's are in `tests/godot` a
 - **Local changes** in the vendored file, marked `unified:`: the library comes from `third_party/imgui/build/
   <platform>/` by relative path; `Key` gains the `ImGuiMod_*` chord bits; `TableFlag.SizingStretchProp` is
   removed (use `TableFlags_SizingStretchProp`).
-- **Build** (`tools/imgui.py`, called by `dev.py game build` and `godot-test`): six C++ files in parallel (~2.5 s on
-  an M4 Pro), then a ~1 ms stamp check. Same compilers as Box3D, static CRT on Windows.
+- **Build** (`tools/imgui.py`, called by `dev.py game build` and `godot-test`): six C++ files in parallel, then a stamp
+  check. Same compilers as Box3D, static CRT on Windows.
 - It is render-side code: nothing in it feeds the sim.
 
 ## Upgrading

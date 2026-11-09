@@ -735,32 +735,71 @@ client_step :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (wake_us: i64) {
 	return
 }
 
-// The client's JSON object (src/headless/SPEC.md CLI conventions; temp-allocated).
-client_json :: proc(c: ^Client($S, $I, $W, $P)) -> string {
-	b := make([dynamic]u8, 0, 64 + len(c.checksums) * 32, context.temp_allocator)
-	for e, i in c.checksums {
+// What a client reports about its session: the headless CLI's client object (src/headless/SPEC.md,
+// CLI conventions), the Godot host's result line, and the end-to-end scenarios' checks.
+Client_Result :: struct {
+	player:             int,
+	join_tick:          u32, // the first tick the player is present
+	final_tick:         u32, // the last verified tick (= the session's ticks on success)
+	checksums:          [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
+	rollbacks:          int,
+	rollback_depth_avg: f64,
+	rollback_depth_max: int,
+	stall_ticks:        int,
+	resim_ticks:        int,
+	delay:              u32,
+	delay_changes:      int,
+	rtt_ms:             f64,
+	ok:                 bool, // verified every tick of the session and did not fail
+	net:                Channel_Stats,
+}
+
+// A client's results; the checksums are copied into `allocator` (the caller deletes them).
+client_result :: proc(c: ^Client($S, $I, $W, $P), allocator := context.allocator) -> Client_Result {
+	checksums := make([][2]u64, len(c.checksums), allocator)
+	copy(checksums, c.checksums[:])
+	return {
+		player = c.slot,
+		join_tick = c.first_tick,
+		final_tick = c.verified,
+		checksums = checksums,
+		rollbacks = c.rollbacks,
+		rollback_depth_avg = c.rollbacks > 0 ? f64(c.depth_sum) / f64(c.rollbacks) : 0,
+		rollback_depth_max = c.depth_max,
+		stall_ticks = c.stall_ticks,
+		resim_ticks = c.resim_ticks,
+		delay = c.delay,
+		delay_changes = c.delay_changes,
+		rtt_ms = c.rtt_us / 1000,
+		ok = c.ticks != 0 && c.verified == c.ticks && c.status != .Failed,
+		net = c.ch.stats,
+	}
+}
+
+// The JSON object of a client's results (temp-allocated).
+client_json :: proc(r: Client_Result) -> string {
+	b := make([dynamic]u8, 0, 64 + len(r.checksums) * 32, context.temp_allocator)
+	for e, i in r.checksums {
 		if i > 0 {
 			append(&b, ',')
 		}
 		append(&b, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, e[0], e[1]))
 	}
-	avg := c.rollbacks > 0 ? f64(c.depth_sum) / f64(c.rollbacks) : 0
-	ok := c.ticks != 0 && c.verified == c.ticks && c.status != .Failed
 	return fmt.tprintf(
 		`{{"player":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ok":%v,"net":%s}}`,
-		c.slot,
-		c.verified,
+		r.player,
+		r.final_tick,
 		string(b[:]),
-		c.rollbacks,
-		avg,
-		c.depth_max,
-		c.stall_ticks,
-		c.resim_ticks,
-		c.first_tick,
-		c.delay,
-		c.delay_changes,
-		c.rtt_us / 1000,
-		ok,
-		channel_stats_json(c.ch),
+		r.rollbacks,
+		r.rollback_depth_avg,
+		r.rollback_depth_max,
+		r.stall_ticks,
+		r.resim_ticks,
+		r.join_tick,
+		r.delay,
+		r.delay_changes,
+		r.rtt_ms,
+		r.ok,
+		channel_stats_json(r.net),
 	)
 }

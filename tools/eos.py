@@ -59,7 +59,6 @@ ASSET_SHA256 = {
 SDK_FILES = [f for files in PARTS.values() for f in files]
 LIB_NAMES = {  # per platform tag; src/eos/api.odin LIB_NAME must agree
     "macos-arm64": "libEOSSDK-Mac-Shipping.dylib",
-    "macos-x64": "libEOSSDK-Mac-Shipping.dylib",
     "windows-x64": "EOSSDK-Win64-Shipping.dll",
     "linux-x64": "libEOSSDK-Linux-Shipping.so",
     "linux-arm64": "libEOSSDK-LinuxArm64-Shipping.so",

@@ -67,7 +67,7 @@ GAME := Game {
 	event_names = EVENT_NAMES,
 }
 
-// The same game with the `stress` tuning: what the headless tests, T1-T9 and the bench run.
+// The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
 @(rodata)
 GAME_STRESS := Game {
 	name = "survivor-stress",

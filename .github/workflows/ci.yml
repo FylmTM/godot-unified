@@ -1,6 +1,7 @@
-# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` (odin test, then T1-T9 of
-# src/headless/SPEC.md with the T9 bench in the job summary), and `godot` (Linux x64: `dev.py godot-checks`, the
-# binding tests and every game's headless Godot checks, GDScript included). Together they run what
+# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` (odin test: unit tests and every
+# end-to-end suite, reference runs included; then `dev.py check`, the real-UDP multi-process test, and
+# `dev.py bench`, the benchmarks, in the job summary), and `godot` (Linux x64: `dev.py godot-checks`, the binding tests and every game's
+# headless Godot checks, GDScript included). Together they run what
 # `python tools/dev.py all` runs locally.
 #
 # Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
@@ -84,7 +85,7 @@ jobs:
 
       - name: fmt --check
         run: python3 tools/dev.py fmt --check
-      - name: vet (darwin_arm64, darwin_amd64, linux_amd64, linux_arm64, windows_amd64)
+      - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
         run: python3 tools/dev.py vet
 
   eos-sdk:
@@ -114,8 +115,6 @@ jobs:
           '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
     env:
       PY: ${{ matrix.platform == 'windows-x64' && 'python' || 'python3' }}
-      # No x86_64 builds in CI: macOS skips dev.py check's local Rosetta pass.
-      CHECK_ARGS: ${{ matrix.platform == 'macos-arm64' && '--no-rosetta' || '' }}
     defaults:
       run:
         shell: bash
@@ -158,8 +157,10 @@ jobs:
 
       - name: odin test
         run: $PY tools/dev.py test
-      - name: T1-T9 (release build + check.py)
-        run: $PY tools/dev.py check $CHECK_ARGS
+      - name: check (release build; real-UDP multi-process test)
+        run: $PY tools/dev.py check
+      - name: bench (release build; reported in the summary, not gated)
+        run: $PY tools/dev.py bench
 
       - name: Summary
         if: always()
@@ -170,6 +171,7 @@ jobs:
           name: check-${{ matrix.platform }}
           path: |
             out/check.json
+            out/bench.json
             out/timings.json
             out/check/
           if-no-files-found: ignore

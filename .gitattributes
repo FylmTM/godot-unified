@@ -1,10 +1,13 @@
 # The Box3D fork patch must keep LF endings on Windows checkouts (tools/box3d.py also normalizes it).
 *.patch text eol=lf
 *.py text eol=lf
-# Reference data compared byte-for-byte or line-by-line by tools/check.py.
+# Reference runs (src/headless/SPEC.md), read byte for byte or line by line by the end-to-end suites.
 games/*/simulation/tests/testdata/*.log binary
 games/*/simulation/tests/testdata/*.snap binary
 games/*/simulation/tests/testdata/*.trace text eol=lf
+tests/scenarios/testdata/*.log binary
+tests/scenarios/testdata/*.snap binary
+tests/scenarios/testdata/*.trace text eol=lf
 *.odin text eol=lf
 *.json text eol=lf
 # Godot's API dump (src/gdext/api/README.md): generated, kept out of diffs and language stats.

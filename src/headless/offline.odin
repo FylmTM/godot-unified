@@ -1,21 +1,17 @@
-// Offline modes, generic over the game: scripted runs, sync-test, replay, snapshot/resume and the
-// rollback bench (src/headless/SPEC.md (CLI)).
+// Offline runs, generic over the game: scripted runs, sync-test, replay, snapshot/resume, all in
+// memory (the CLI, unified:headless/cli, does the file I/O).
 package headless
 
 import "core:fmt"
 import "core:os"
-import "core:slice"
+import "core:strconv"
 import "core:strings"
-import "core:time"
 
 import "unified:sim"
 
-// What a game's headless binary supplies besides its sim.Game.
+// A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($S, $I, $W: typeid, $P: int) {
-	game:          ^sim.Game(S, I, W, P), // the default
-	// Other variants of the game (e.g. other tunings), selected with `--game NAME` (sim.Game.name)
-	// on any mode.
-	variants:      []^sim.Game(S, I, W, P),
+	game:          ^sim.Game(S, I, W, P),
 	// Scripted input of `slot` for tick t; `state` is the caller's current state (nil if none).
 	script:        proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
@@ -24,23 +20,71 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare: proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:   proc(s: ^S) -> int,
-	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
-	online:        ^Online,
-	// The game's content (its level file, src/level/SPEC.md): the default (e.g. embedded with #load);
-	// `--level FILE` on any mode replaces it.
+	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
+	// `--level FILE` replaces it.
 	content:       []u8,
 }
 
+// A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.
+// On disk (`--trace`, a reference run's ref.trace): one "%06d %016x" line per tick, in order.
 Trace :: struct {
-	b: strings.Builder,
+	first: u32,
+	sums:  [dynamic]u64,
 }
 
 trace_add :: proc(tr: ^Trace, tick: u32, checksum: u64) {
-	fmt.sbprintf(&tr.b, "%06d %016x\n", tick, checksum)
+	if len(tr.sums) == 0 {
+		tr.first = tick
+	}
+	assert(tick == tr.first + u32(len(tr.sums)), "trace ticks must be consecutive")
+	append(&tr.sums, checksum)
+}
+
+trace_destroy :: proc(tr: ^Trace) {
+	delete(tr.sums)
+	tr^ = {}
+}
+
+// The checksum of tick t, if the trace has it.
+trace_at :: proc(tr: ^Trace, t: u32) -> (checksum: u64, ok: bool) {
+	if t < tr.first || t - tr.first >= u32(len(tr.sums)) {
+		return
+	}
+	return tr.sums[t - tr.first], true
 }
 
 trace_write :: proc(tr: ^Trace, path: string) -> bool {
-	return os.write_entire_file(path, tr.b.buf[:]) == nil
+	b := strings.builder_make(0, len(tr.sums) * 24)
+	defer strings.builder_destroy(&b)
+	for c, i in tr.sums {
+		fmt.sbprintf(&b, "%06d %016x\n", tr.first + u32(i), c)
+	}
+	return os.write_entire_file(path, b.buf[:]) == nil
+}
+
+// Reads a trace file; fails on a malformed line or ticks out of order.
+trace_read :: proc(path: string) -> (tr: Trace, ok: bool) {
+	data, err := os.read_entire_file(path, context.allocator)
+	if err != nil {
+		return
+	}
+	defer delete(data)
+	text := string(data)
+	for line in strings.split_lines_iterator(&text) {
+		l := strings.trim_right(line, "\r")
+		if l == "" {
+			continue
+		}
+		sp := strings.index_byte(l, ' ')
+		tick, tok := strconv.parse_u64_of_base(l[:max(sp, 0)], 10)
+		sum, sok := strconv.parse_u64_of_base(l[sp + 1:] if sp > 0 else "", 16)
+		if !tok || !sok || tick > u64(max(u32)) || (len(tr.sums) > 0 && u32(tick) != tr.first + u32(len(tr.sums))) {
+			trace_destroy(&tr)
+			return {}, false
+		}
+		trace_add(&tr, u32(tick), sum)
+	}
+	return tr, true
 }
 
 Run_Result :: struct {
@@ -65,47 +109,48 @@ scripted :: proc(
 	return
 }
 
-// `sim`: scripted run for `ticks` ticks; optional trace and input log.
+// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `tr` and its inputs
+// into `lg` (each optional).
 run_sim :: proc(
 	h: ^Headless($S, $I, $W, $P),
 	ticks: u32,
 	seed: u64,
 	players: int,
-	trace_path, log_path: string,
+	tr: ^Trace = nil,
+	lg: ^sim.Input_Log(I, P) = nil,
 ) -> (
 	res: Run_Result,
-	ok: bool,
 ) {
 	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
-	tr: Trace
-	defer strings.builder_destroy(&tr.b)
-	lg := sim.Input_Log(I, P) {
-		seed    = seed,
-		content = s.content_hash,
+	if lg != nil {
+		lg.seed = seed
+		lg.content = s.content_hash
 	}
-	defer sim.log_destroy(&lg)
 	for t in 1 ..= ticks {
 		inputs := scripted(h, s, t, players)
-		if log_path != "" {
+		if lg != nil {
 			append(&lg.ticks, inputs)
 		}
 		sim.step(s, &inputs)
 		res.final_checksum = sim.checksum(s)
-		trace_add(&tr, t, res.final_checksum)
+		if tr != nil {
+			trace_add(tr, t, res.final_checksum)
+		}
 	}
 	res.final_tick = ticks
 	if h.summary != nil {
 		res.summary = h.summary(&s.state)
 	}
-	ok = true
-	if trace_path != "" {
-		ok &&= trace_write(&tr, trace_path)
-	}
-	if log_path != "" {
-		ok &&= sim.log_write(log_path, &lg)
-	}
 	return
+}
+
+Synctest_Result :: struct {
+	mismatches:     int,
+	resimulated:    int, // ticks re-simulated
+	final_checksum: u64,
+	first_tick:     u32, // the first mismatching tick (0: none)
+	first_at:       u32, // the tick whose rollback re-simulated it differently
 }
 
 // `synctest`: every tick, once `window` ticks exist, restore `window` ticks back, re-simulate with
@@ -116,9 +161,7 @@ run_synctest :: proc(
 	seed: u64,
 	players: int,
 ) -> (
-	mismatches: int,
-	resimulated: int,
-	final: u64,
+	res: Synctest_Result,
 ) {
 	assert(window >= 1 && window < sim.RING)
 	s := sim.create(h.game, seed, h.content)
@@ -136,36 +179,40 @@ run_synctest :: proc(
 		}
 		base := t - window
 		if !sim.restore(s, base) {
-			fmt.eprintfln("synctest: restore of tick %d failed", base)
-			mismatches += 1
+			if res.mismatches == 0 {
+				res.first_tick, res.first_at = base, t
+			}
+			res.mismatches += 1
 			continue
 		}
 		for u in base + 1 ..= t {
 			sim.step(s, &recorded[u])
-			resimulated += 1
-			if c := sim.checksum(s); c != forward[u] {
-				if mismatches < 10 {
-					fmt.eprintfln("synctest: tick %d (re-sim at %d): %016x vs forward %016x", u, t, c, forward[u])
+			res.resimulated += 1
+			if sim.checksum(s) != forward[u] {
+				if res.mismatches == 0 {
+					res.first_tick, res.first_at = u, t
 				}
-				mismatches += 1
+				res.mismatches += 1
 			}
 		}
 	}
-	return mismatches, resimulated, forward[ticks] if ticks > 0 else 0
+	res.final_checksum = forward[ticks] if ticks > 0 else 0
+	return
 }
 
-// `replay`: re-simulates an input log, tracing every tick.
-run_replay :: proc(h: ^Headless($S, $I, $W, $P), log_path, trace_path: string) -> (res: Run_Result, ok: bool) {
-	lg, lok := sim.log_read(log_path, I, P)
-	if !lok {
-		fmt.eprintfln("replay: cannot read input log %s (or it is for another game build)", log_path)
-		return
-	}
-	defer sim.log_destroy(&lg)
+// `replay`: re-simulates an input log, recording every tick's checksum into `tr` (optional). Fails
+// when the log was recorded with other content (another level).
+run_replay :: proc(
+	h: ^Headless($S, $I, $W, $P),
+	lg: ^sim.Input_Log(I, P),
+	tr: ^Trace = nil,
+) -> (
+	res: Run_Result,
+	ok: bool,
+) {
 	if lg.content != sim.content_hash(h.content) {
 		fmt.eprintfln(
-			"replay: %s was recorded with another level (content %016x, this run has %016x; see --level)",
-			log_path,
+			"replay: the log was recorded with another level (content %016x, this run has %016x; see --level)",
 			lg.content,
 			sim.content_hash(h.content),
 		)
@@ -173,28 +220,26 @@ run_replay :: proc(h: ^Headless($S, $I, $W, $P), log_path, trace_path: string) -
 	}
 	s := sim.create(h.game, lg.seed, h.content)
 	defer sim.destroy(s)
-	tr: Trace
-	defer strings.builder_destroy(&tr.b)
 	for &in_, i in lg.ticks {
 		sim.step(s, &in_)
 		res.final_checksum = sim.checksum(s)
-		trace_add(&tr, u32(i + 1), res.final_checksum)
+		if tr != nil {
+			trace_add(tr, u32(i + 1), res.final_checksum)
+		}
 	}
 	res.final_tick = u32(len(lg.ticks))
-	return res, trace_path == "" || trace_write(&tr, trace_path)
+	return res, true
 }
 
-// `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick.
+// `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick (the caller owns `data`).
 run_snapshot :: proc(
 	h: ^Headless($S, $I, $W, $P),
 	ticks: u32,
 	seed: u64,
 	players: int,
-	out_path: string,
 ) -> (
-	bytes: int,
-	final: u64,
-	ok: bool,
+	data: []u8,
+	checksum: u64,
 ) {
 	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
@@ -202,149 +247,36 @@ run_snapshot :: proc(
 		in_ := scripted(h, s, t, players)
 		sim.step(s, &in_)
 	}
-	data := sim.snapshot_encode(s, ticks)
-	defer delete(data)
-	return len(data), sim.checksum(s), os.write_entire_file(out_path, data) == nil
+	return sim.snapshot_encode(s, ticks), sim.checksum(s)
 }
 
 // `resume`: restores a portable snapshot and continues the scripted run for `ticks` ticks with
-// `players` players present.
+// `players` players present, recording every tick's checksum into `tr` (optional).
 run_resume :: proc(
 	h: ^Headless($S, $I, $W, $P),
-	in_path: string,
+	data: []u8,
 	ticks: u32,
 	players: int,
-	trace_path: string,
+	tr: ^Trace = nil,
 ) -> (
 	res: Run_Result,
 	ok: bool,
 ) {
-	data, err := os.read_entire_file(in_path, context.allocator)
-	if err != nil {
-		fmt.eprintfln("resume: cannot read %s", in_path)
-		return
-	}
-	defer delete(data)
 	s, serr := sim.from_snapshot(h.game, data, h.content)
 	if serr != .None {
-		fmt.eprintfln("resume: %s is not a valid snapshot for this build: %v", in_path, serr)
+		fmt.eprintfln("resume: not a valid snapshot for this build: %v", serr)
 		return
 	}
 	defer sim.destroy(s)
-	tr: Trace
-	defer strings.builder_destroy(&tr.b)
 	start := s.tick
 	for t in start + 1 ..= start + ticks {
 		in_ := scripted(h, s, t, players)
 		sim.step(s, &in_)
 		res.final_checksum = sim.checksum(s)
-		trace_add(&tr, t, res.final_checksum)
+		if tr != nil {
+			trace_add(tr, t, res.final_checksum)
+		}
 	}
 	res.final_tick = start + ticks
-	return res, trace_path == "" || trace_write(&tr, trace_path)
-}
-
-Stat :: struct {
-	mean: f64,
-	p99:  f64,
-}
-
-stat_of :: proc(samples: []f64) -> Stat {
-	if len(samples) == 0 {
-		return {}
-	}
-	sum := 0.0
-	for v in samples {
-		sum += v
-	}
-	slice.sort(samples)
-	rank := (99 * len(samples) + 99) / 100 // nearest rank
-	return {sum / f64(len(samples)), samples[max(rank - 1, 0)]}
-}
-
-Bench_Result :: struct {
-	step, save, restore, resim: Stat,
-	snapshot_bytes:             int,
-	block_bytes:                int,
-	enemies_mean:               f64,
-	mismatches:                 int,
-}
-
-// `bench`: prepares `enemies` entities (the game holds that population), and every tick measures
-// the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
-// save per tick, which is what a client rollback costs). Re-sim checksums are compared too.
-run_bench :: proc(
-	h: ^Headless($S, $I, $W, $P),
-	enemies: int,
-	window, ticks: u32,
-	seed: u64,
-	players: int,
-) -> (
-	br: Bench_Result,
-) {
-	assert(window >= 1 && window < sim.RING)
-	s := sim.create(h.game, seed, h.content)
-	defer sim.destroy(s)
-	if h.bench_prepare != nil {
-		h.bench_prepare(&s.state, s.world, enemies)
-		sim.save(s)
-	}
-	n := int(ticks)
-	step_us := make([]f64, n)
-	save_us := make([]f64, n)
-	restore_us := make([]f64, n)
-	resim_us := make([]f64, n)
-	recorded := make([]sim.Inputs(I, P), ticks + 1)
-	forward := make([]u64, ticks + 1)
-	defer {
-		delete(step_us)
-		delete(save_us)
-		delete(restore_us)
-		delete(resim_us)
-		delete(recorded)
-		delete(forward)
-	}
-	us :: proc(a, b: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(a, b))}
-	count_sum := 0.0
-	nr := 0
-	for t in 1 ..= ticks {
-		recorded[t] = scripted(h, s, t, players)
-		t0 := time.tick_now()
-		sim.advance(s, &recorded[t])
-		t1 := time.tick_now()
-		sim.save(s)
-		t2 := time.tick_now()
-		forward[t] = sim.checksum(s)
-		step_us[t - 1] = us(t0, t1)
-		save_us[t - 1] = us(t1, t2)
-		if h.bench_count != nil {
-			count_sum += f64(h.bench_count(&s.state))
-		}
-		if t < window {
-			continue
-		}
-		base := t - window
-		t3 := time.tick_now()
-		ok := sim.restore(s, base)
-		t4 := time.tick_now()
-		assert(ok)
-		for u in base + 1 ..= t {
-			sim.step(s, &recorded[u])
-		}
-		t5 := time.tick_now()
-		if sim.checksum(s) != forward[t] {
-			br.mismatches += 1
-		}
-		restore_us[nr] = us(t3, t4)
-		resim_us[nr] = us(t4, t5)
-		nr += 1
-	}
-	br.step = stat_of(step_us)
-	br.save = stat_of(save_us)
-	br.restore = stat_of(restore_us[:nr])
-	br.resim = stat_of(resim_us[:nr])
-	br.block_bytes = size_of(S)
-	br.snapshot_bytes = sim.snapshot_size(s)
-	br.enemies_mean = count_sum / f64(max(n, 1))
-	return
+	return res, true
 }

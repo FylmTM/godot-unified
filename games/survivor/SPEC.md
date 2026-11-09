@@ -73,7 +73,7 @@ The pace of a match: a spawn burst every `every`, of `n = min(base + per_wave·w
 | | every | base | per_wave | cap | extra | wave | hp | xp_first | xp_step |
 |---|---|---|---|---|---|---|---|---|---|
 | `play` (the game, `GAME`) | 2 s | 2 | 1 | 20 | 50% | 30 s | 10% | 8 | 4 |
-| `stress` (`GAME_STRESS`: headless modes, T1-T9, bench) | 0.3125 s | 4 | 3 | 40 | 0% | 10 s | 0% | 10 | 5 |
+| `stress` (`GAME_STRESS`: headless modes, the end-to-end suite, bench) | 0.3125 s | 4 | 3 | 40 | 0% | 10 s | 0% | 10 | 5 |
 
 `play` was tuned with `survivor bot --players N --seeds 16` (the bot policy in `bot.odin`: orbit the arena, flee the
 nearest enemies, collect gems, dash out of contact, level-ups round-robin). Medians (min-max) over 16 seeds:
@@ -175,7 +175,8 @@ be asked for in any order:
 - `choice = choice_encode((r % 3) + 1, block % 63 + 1)` when a level-up is pending, else 0 (one pick per block)
 
 Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
-inputs this way and sends them through the netcode. T4 compares against the relay's log, not against `sim`.
+inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
+against `sim`.
 
 ## Expected scale
 

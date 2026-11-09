@@ -40,7 +40,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## Workflow
 
-- Iterate locally first (macOS ARM64, plus x86_64 under Rosetta for determinism checks). CI is the final check:
+- Iterate locally first. CI is the final check, and the cross-check of every reference run:
   Linux x64 and arm64 on every PR, Windows x64 after each push to `main`, macOS ARM64 nightly when `main` moved
   (the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all four on a branch.
 - CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
@@ -90,7 +90,7 @@ leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 - A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
-  sim tests and reference runs live with the game, in `simulation/tests/`. `dev.py test` runs them all in one compile.
+  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `dev.py test` runs them all in one compile.
 - Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
 - Generated output goes to `out/` (root) and `games/<game>/.out/`, both git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
@@ -105,8 +105,9 @@ command and `-h` on a command its options. Every command rejects unknown argumen
 ```
 python tools/dev.py fmt          # odinfmt (pinned, see README.md); --check only reports
 python tools/dev.py vet          # odin check, strict flags, every target
-python tools/dev.py test         # every test package in one compile, the determinism lint included
-python tools/dev.py check        # when the sim, netcode or headless CLI changed
+python tools/dev.py test         # every test package and end-to-end suite in one compile, the determinism lint included
+python tools/dev.py check        # when netcode or the headless CLI changed (real UDP, separate processes)
+python tools/dev.py bench        # when the sim, physics or rollback changed: step and re-sim times
 python tools/dev.py godot-checks # when Godot-side code or GDScript changed (or the matching `dev.py game` commands)
 python tools/dev.py all          # everything CI runs; before merging
 ```
