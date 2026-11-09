@@ -84,7 +84,7 @@ VEC_LOOK :: 0
 VEC_RIGHT :: 1
 
 GLUE := gh.Glue(fs.State, fs.Input, fs.World) {
-	scene_kinds = {"player", "marker"},
+	scenes = {{"player", Player_View}, {name = "marker"}},
 	scene_dir = "res://game/views",
 	actions = {move = {"move_left", "move_right", "move_forward", "move_back"}, buttons = {"jump", "grab", "throw"}},
 	extract = extract,
@@ -156,47 +156,64 @@ sqrt :: proc(x: f32) -> f32 {
 
 // ---- frame extraction (session thread)
 
+// The player view's data (Scene_Kind.data): set as its properties when it changes.
+Player_View :: struct {
+	limp:    bool, // stunned or held: the body tips over
+	holding: bool,
+	_pad:    [2]u8,
+	charge:  f32, // throw charge 0..1
+}
+
 extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 	for p in 0 ..< fs.MAX_PLAYERS {
 		pl := &cur.players[p]
-		if !pl.active || out.n_scene >= gh.MAX_SCENE_ITEMS do continue
-		it := &out.scene[out.n_scene]
-		out.n_scene += 1
-		it^ = {
-			key    = view.Key(PLAYER_KEY + p),
-			kind   = SCENE_PLAYER,
-			slot   = i8(p),
-			entity = u32(p + 1),
-			pos    = physics.position(w.phys, pl.mover.body),
-			rot    = fs.yaw_quat(pl.facing),
-		}
+		if !pl.active do continue
+		gh.push_scene(
+			out,
+			{
+				key = view.Key(PLAYER_KEY + p),
+				kind = SCENE_PLAYER,
+				slot = i8(p),
+				entity = u32(p + 1),
+				pos = physics.position(w.phys, pl.mover.body),
+				rot = fs.yaw_quat(pl.facing),
+			},
+			Player_View {
+				limp = pl.stun > 0 || pl.held_by != 0,
+				holding = pl.held_kind != .None,
+				charge = f32(pl.charge) / f32(fs.THROW_CHARGE_TICKS),
+			},
+		)
 	}
 	add_body :: proc(out: ^gh.Frame, w: ^fs.World, body: physics.Body_Ref, marker: int) {
-		if body.index1 == 0 || out.n_scene >= gh.MAX_SCENE_ITEMS do return
+		if body.index1 == 0 do return
 		id := physics.body_id(w.phys, body)
 		p := b3.Body_GetPosition(id)
 		q := b3.Body_GetRotation(id)
-		out.scene[out.n_scene] = {
-			key    = view.Key(MARKER_KEY + marker),
-			kind   = SCENE_MARKER,
-			slot   = -1,
-			entity = u32(marker + 1),
-			pos    = {p.x, p.y, p.z},
-			rot    = {q.v.x, q.v.y, q.v.z, q.s},
-		}
-		out.n_scene += 1
+		gh.push_scene(
+			out,
+			{
+				key = view.Key(MARKER_KEY + marker),
+				kind = SCENE_MARKER,
+				slot = -1,
+				entity = u32(marker + 1),
+				pos = {p.x, p.y, p.z},
+				rot = {q.v.x, q.v.y, q.v.z, q.s},
+			},
+		)
 	}
 	add_static :: proc(out: ^gh.Frame, pos: [3]f32, rot: [4]f32, marker: int) {
-		if out.n_scene >= gh.MAX_SCENE_ITEMS do return
-		out.scene[out.n_scene] = {
-			key    = view.Key(MARKER_KEY + marker),
-			kind   = SCENE_MARKER,
-			slot   = -1,
-			entity = u32(marker + 1),
-			pos    = pos,
-			rot    = rot,
-		}
-		out.n_scene += 1
+		gh.push_scene(
+			out,
+			{
+				key = view.Key(MARKER_KEY + marker),
+				kind = SCENE_MARKER,
+				slot = -1,
+				entity = u32(marker + 1),
+				pos = pos,
+				rot = rot,
+			},
+		)
 	}
 	for i in 0 ..< w.n_items {
 		if cur.items[i].alive do add_body(out, w, cur.items[i].body, w.items[i].marker)

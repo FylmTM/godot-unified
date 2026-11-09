@@ -1,6 +1,6 @@
 // Determinism lint (AGENTS.md "Deterministic simulation") over unified's packages and its games, through
-// unified:lint (src/lint/SPEC.md), the way a game outside the repo lints its own sim package. Every package of
-// src/ and of each game's simulation/ has a rule here (the import graph), so a new one can't skip the lint.
+// unified:lint (src/lint/SPEC.md), the way a game outside the repo lints its own. Every package of src/ has a
+// rule here (the import graph); each game's simulation/ is linted by its layout (lint.check_game).
 package test_lint
 
 import "core:fmt"
@@ -18,10 +18,6 @@ SIM_IDENTS :: lint.SIM_IDENTS
 FLOAT_TRAPS :: lint.FLOAT_TRAPS
 MATH :: lint.MATH
 MATH_OK :: lint.MATH_OK
-
-// The games' simulation packages (the code inside their ticks): linted with lint.check_sim_package, exactly as a
-// game outside the repo does from its own tests.
-GAME_SIMS :: []string{"games/survivor/simulation/survivor", "games/friendslop/simulation/friendslop"}
 
 // `dir` "": src/<pkg>; else relative to the repo root (subdirectories included).
 RULES := []Rule {
@@ -79,30 +75,6 @@ RULES := []Rule {
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
 	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
-	// The survivor's headless binary (package main): wires the game and EOS into unified:headless/cli.
-	{
-		pkg = "headless_main",
-		dir = "games/survivor/simulation/headless",
-		ban_imports = MATH,
-		allow_imports = MATH_OK,
-		ban_idents = FLOAT_TRAPS,
-		ban_matrix = true,
-	},
-	// The survivor's GDExtension: host side (views, HUD, input glue), never inside a tick.
-	{pkg = "survivor_extension", dir = "games/survivor/simulation/extension"},
-	// The survivor's sim tests: test code like tests/<module>, never inside a tick.
-	{pkg = "test_survivor", dir = "games/survivor/simulation/tests"},
-	// friendslop (games/friendslop/SPEC.md): its headless binary and GDExtension are like the survivor's.
-	{
-		pkg = "friendslop_headless",
-		dir = "games/friendslop/simulation/headless",
-		ban_imports = MATH,
-		allow_imports = MATH_OK,
-		ban_idents = FLOAT_TRAPS,
-		ban_matrix = true,
-	},
-	{pkg = "friendslop_extension", dir = "games/friendslop/simulation/extension"},
-	{pkg = "test_friendslop", dir = "games/friendslop/simulation/tests"},
 }
 
 PHYSICS_IMPORTS :: []string {
@@ -143,43 +115,47 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
+// Every game's simulation/ by its layout (lint.check_game): headless/, extension/, tests/ and its sim packages,
+// exactly as a game outside the repo lints itself. Its tests must be part of the one test compile.
 @(test)
-game_sims_follow_determinism_rules :: proc(t: ^testing.T) {
-	for d in GAME_SIMS {
-		lint.check_sim_package(t, fmt.tprintf("%s/../%s", SRC_DIR, d))
+games_follow_determinism_rules :: proc(t: ^testing.T) {
+	root, _ := os.read_entire_file(SRC_DIR + "/../tests/tests.odin", context.temp_allocator)
+	for g in game_dirs(t) {
+		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, g))
+		imp := fmt.tprintf("\"../games/%s/simulation/tests\"", g)
+		testing.expectf(t, strings.contains(string(root), imp), "tests/tests.odin does not import %s", imp)
 	}
 }
 
-// Every library package and every package of each game's simulation/ has a rule, so a new one
-// can't skip the lint.
+game_dirs :: proc(t: ^testing.T) -> []string {
+	infos, err := os.read_all_directory_by_path(GAMES_DIR, context.temp_allocator)
+	testing.expectf(t, err == nil, "cannot list %s: %v", GAMES_DIR, err)
+	out := make([dynamic]string, context.temp_allocator)
+	for fi in infos {
+		if fi.type == .Directory && os.exists(fmt.tprintf("%s/simulation", fi.fullpath)) do append(&out, fi.name)
+	}
+	testing.expect(t, len(out) > 0, "no games under games/")
+	return out[:]
+}
+
+// Every library package has a rule, so a new one can't skip the lint (games: by layout, above).
 @(test)
 every_package_has_a_rule :: proc(t: ^testing.T) {
-	check_dir :: proc(t: ^testing.T, dir, prefix: string) {
-		infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
-		if !testing.expectf(t, err == nil, "cannot list %s: %v", dir, err) {
-			return
-		}
-		outer: for fi in infos {
-			if fi.type != .Directory {
-				continue
-			}
-			path := strings.concatenate({prefix, "/", fi.name}, context.temp_allocator)
-			for r in RULES {
-				if (r.dir == "" && prefix == "src" && r.pkg == fi.name) || r.dir == path {
-					continue outer
-				}
-			}
-			for d in GAME_SIMS {
-				if d == path {
-					continue outer
-				}
-			}
-			testing.expectf(t, false, "%s/%s has no determinism rule in tests/lint/lint_test.odin", prefix, fi.name)
-		}
+	infos, err := os.read_all_directory_by_path(SRC_DIR, context.temp_allocator)
+	if !testing.expectf(t, err == nil, "cannot list %s: %v", SRC_DIR, err) {
+		return
 	}
-	check_dir(t, SRC_DIR, "src")
-	check_dir(t, GAMES_DIR + "/survivor/simulation", "games/survivor/simulation")
-	check_dir(t, GAMES_DIR + "/friendslop/simulation", "games/friendslop/simulation")
+	outer: for fi in infos {
+		if fi.type != .Directory {
+			continue
+		}
+		for r in RULES {
+			if r.dir == "" && r.pkg == fi.name {
+				continue outer
+			}
+		}
+		testing.expectf(t, false, "src/%s has no determinism rule in tests/lint/lint_test.odin", fi.name)
+	}
 }
 
 // The lint itself: each banned construct is caught, and comments, strings and allowed imports

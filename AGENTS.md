@@ -86,7 +86,8 @@ leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 - `src/` is the `unified` collection, one package per directory. Imports point one way and always go through the
   collection (`unified:<pkg>`), the way games and tests import it. Deterministic packages never import real-time or
   host ones. The graph lives in `tests/lint/lint_test.odin` (an import allowlist per package): a new package in
-  `src/` or in a game's `simulation/` needs a rule there (the lint test fails otherwise).
+  `src/` needs a rule there (the lint test fails otherwise). A game's `simulation/` is linted by its layout
+  (`lint.check_game`: `headless/`, `extension/`, `tests/`, every other directory a sim package).
 - A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's

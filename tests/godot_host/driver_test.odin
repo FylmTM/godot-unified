@@ -25,7 +25,7 @@ seen: struct {
 
 @(private = "file")
 GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
-	scene_kinds = {"dot"},
+	scenes = {{name = "dot"}},
 	scene_dir = "res://views",
 	actions = {buttons = {"spawn"}},
 	extract = proc(cur, prev: ^toy.State, w: ^toy.World, out: ^gh.Frame) {

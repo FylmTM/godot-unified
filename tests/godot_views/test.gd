@@ -1,6 +1,7 @@
 # godot_host view tests: run headless by `python tools/dev.py godot-test`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that 2D and 3D scene views spawn, get their pose and
-# _sim_update, and that 2D and 3D bulk views get their MultiMesh buffers. Prints one line per check and
+# _sim_update and their typed data as properties, that 2D and 3D bulk views get their MultiMesh buffers, and that
+# verified events also come as sim_event_2d. Prints one line per check and
 # "VIEWS TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
 
@@ -60,6 +61,8 @@ func _initialize() -> void:
 	world.add_child(views)
 	var session = ClassDB.instantiate("UnifiedSession")
 	root.add_child(session)
+	var events_2d := []
+	session.sim_event_2d.connect(func(kind, _tick, _entity, position, _value): events_2d.append([kind, position]))
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("start_single", session.start_single())
@@ -68,7 +71,8 @@ func _initialize() -> void:
 	for i in 100:  # up to ~2 s
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
-		if typed != null and typed.updates > 1 and typed_bulk.multimesh.visible_instance_count == 2:
+		if typed != null and typed.updates > 1 and typed.ticks_sets > 2 and typed_bulk.multimesh.visible_instance_count == 2 \
+				and events_2d.size() > 0:
 			break
 	check("typed 2D view spawned", typed != null and typed is SimView2D, typed)
 	if typed == null:
@@ -90,31 +94,38 @@ func _initialize() -> void:
 	var joined: Array = typed.events.filter(func(e): return e[0] == &"joined")
 	check("_sim_event on the 2D view, position a Vector2", joined.size() > 0 \
 		and joined[0][1].get("position") is Vector2, typed.events)
+	check("sim_event_2d with a Vector2 position", events_2d.size() > 0 and events_2d[0][1] is Vector2, events_2d)
+	check("scene data as properties", typed.shown and typed.mode == 1 and typed.hp == -3 and near(typed.charge, 0.5) \
+		and typed.dir.is_equal_approx(Vector2(0.6, -0.8)) and typed.tint.is_equal_approx(Color(1, 0.5, 0.25, 1)),
+		[typed.shown, typed.mode, typed.hp, typed.charge, typed.dir, typed.tint])
+	check("scene data set only when it changes", typed.hp_sets == 1 and typed.ticks_sets > 2 and typed.ticks > 0,
+		[typed.hp_sets, typed.ticks_sets, typed.ticks])
 
 	# 2D bulk, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	var mm: MultiMesh = typed_bulk.multimesh
 	check("2D bulk instances", mm.visible_instance_count == 2, mm.visible_instance_count)
 	var buf := mm.buffer
-	var c := cos(0.25) * 2
-	var s := sin(0.25) * 2
-	check("2D bulk buffer (rotation, scale, position, color, custom)",
-		near_all(buf.slice(0, 16), [c, -s, 0, 30, s, c, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3, 4]), buf.slice(0, 16))
+	var c := cos(0.25)
+	var s := sin(0.25)
+	check("2D bulk buffer (rotation on the shorter arc, scale per axis, position, color, custom)",
+		near_all(buf.slice(0, 16), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3, 4]),
+		buf.slice(0, 16))
 	check("2D bulk defaults (scale 1, white)",
 		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 6, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
 	# decoded with the buffer layout Godot documents (MultiMesh.buffer): rows of the transform, then the origin
 	var t := Transform2D(Vector2(buf[0], buf[4]), Vector2(buf[1], buf[5]), Vector2(buf[3], buf[7]))
 	check("2D bulk transform as Godot reads it", t.origin.is_equal_approx(Vector2(30, 40)) \
-		and near(t.get_rotation(), 0.25) and t.get_scale().is_equal_approx(Vector2(2, 2)), t)
+		and near(t.get_rotation(), 0.25) and t.get_scale().is_equal_approx(Vector2(2, 3)), t)
 	var pm: MultiMesh = plain_bulk.multimesh
 	check("plain MultiMeshInstance2D bulk (stride 8)", pm.visible_instance_count == 2 \
-		and near_all(pm.buffer.slice(0, 8), [c, -s, 0, 30, s, c, 0, 40]), pm.buffer.slice(0, 8))
+		and near_all(pm.buffer.slice(0, 8), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40]), pm.buffer.slice(0, 8))
 	var m3: MultiMesh = bulk3d.multimesh
 	var b3 := m3.buffer
 	var t3 := Transform3D(Vector3(b3[0], b3[4], b3[8]), Vector3(b3[1], b3[5], b3[9]), Vector3(b3[2], b3[6], b3[10]),
 		Vector3(b3[3], b3[7], b3[11]))
-	check("3D bulk unchanged", m3.visible_instance_count == 1 and t3.origin.is_equal_approx(POS_3D) \
-		and near(t3.basis.get_euler().y, YAW_3D) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
-		[m3.visible_instance_count, t3])
+	check("3D bulk (yaw, scale per axis)", m3.visible_instance_count == 1 and t3.origin.is_equal_approx(POS_3D) \
+		and near(t3.basis.get_euler().y, YAW_3D) and t3.basis.get_scale().is_equal_approx(Vector3(1, 2, 1)) \
+		and near_all(b3.slice(12, 16), [0, 1, 0, 1]), [m3.visible_instance_count, t3])
 	finish(session)
 
 func finish(session: Node) -> void:

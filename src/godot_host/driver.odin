@@ -19,7 +19,7 @@ Api :: struct {
 	installed:   bool,
 	game_name:   string,
 	tick_hz:     int,
-	scene_kinds: []string,
+	scenes:      []Scene_Kind,
 	scene_dir:   string,
 	bulk_kinds:  []string,
 	smoothing:   view.Smoothing,
@@ -238,7 +238,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		installed   = true,
 		game_name   = game.name,
 		tick_hz     = game.tick_hz,
-		scene_kinds = glue.scene_kinds,
+		scenes      = glue.scenes,
 		scene_dir   = glue.scene_dir,
 		bulk_kinds  = glue.bulk_kinds,
 		smoothing   = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
@@ -406,7 +406,7 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			if cur == nil do cur = &s.state
 			prev := f.tick > 0 ? sim.state_at(s, f.tick - 1) : nil
 			out := view.triple_back(&d.frames)
-			out.n_scene, out.n_bulk = 0, 0
+			out.n_scene, out.n_bulk, out.dropped = 0, 0, 0
 			c := d.client
 			d.published += 1
 			out.published = d.published

@@ -39,15 +39,17 @@ installs its sim and its glue.
 godot_host.install(&GAME, glue)            // sim.Game(S, I, W, P) + Glue(S, I, W)
 godot_host.set_transport(&transport)       // optional: online play (EOS...), never imported by godot_host
 return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
-Glue { scene_kinds, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default */,
+Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default (a warning for 2D views) */,
        actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
        hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
        level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
-Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [4096]Bulk_Item, hud: [4096]u8 }
-Scene_Item { key, kind, slot, entity, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot }
-Bulk_Item { kind, has_prev, pos, prev_pos, yaw, scale /* 0 = 1 */, color /* zero = white */, custom }
+Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
+Scene_Item { key, kind, slot, entity, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot, data: [64]u8 }
+Bulk_Item { kind, has_prev, pos, prev_pos, yaw, prev_yaw, scale: [3]f32 /* zero = 1 */, color /* zero = white */, custom }
+push_scene(out, item) / push_scene(out, item, data: T) -> bool    // extract: append; false (and `dropped`) when full
+push_bulk(out, item) -> bool
 ```
 
 GDScript sees contract v0:
@@ -56,7 +58,8 @@ GDScript sees contract v0:
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
     `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
     `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `sim_event`;
+  - signals: `status_changed`, `lobby_code`, `sim_event`, and `sim_event_2d` (the same, position a Vector2) when
+    `view_root` is a Node2D;
   - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice), `host_direct(port)`,
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
@@ -90,6 +93,20 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   white): tints and flashes need no shader, since the default materials multiply by it. Zero means white, so
   games that never set it are unchanged; an invisible instance is simply not emitted.
 
+**Scene view data** (signed off 2026-11-10). A kind may name a data type (`Scene_Kind.data`): a plain struct
+of bools, integers, enums (as int), f32, `[2]f32` (Vector2), `[3]f32` (Vector3) and `[4]f32` (Color), at most 64
+bytes; fields starting with `_` are padding. `extract` writes it with `push_scene(out, item, data)` (asserted to
+be the kind's type). The host sets each field as the view's property of the same name, after the view entered
+the tree (setters may use `@onready` nodes) and then only when that field's bytes change, before
+`_sim_update`. Values are the newest tick's (no interpolation). A view with no such property is warned about
+once. Per-entity values that used to go through the HUD (a player's hp, a gate's charge) go here; the HUD stays
+for the HUD.
+
+**Bulk** (2026-11-10): position and rotation interpolate (`prev_yaw`, along the shorter arc); `scale` is per
+local axis (2D: x, y), zero meaning 1; color and custom are the tick's. One pass over the frame's items fills
+every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames); a full Frame counts
+`dropped` and the host warns once.
+
 ## How it works
 
 - **Threads.** A session (single player = a host with no remote links; host; join) runs netcode's
@@ -111,8 +128,8 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   3. updates the scene views: spawn by key into `view_root`, push the poses of ticks P−1 and P into each view's
      `view.Track`, sample with alpha and `Glue.smoothing`, set position and quaternion (2D: position and
      rotation), call `_sim_update`;
-  4. writes each bulk view's MultiMesh buffer in one `set_buffer` (interpolated, stride from the MultiMesh's
-     transform format and flags);
+  4. writes each bulk view's MultiMesh buffer in one `set_buffer` (one pass over the items; interpolated, stride
+     from the MultiMesh's transform format and flags);
   5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
      go to the `sim_event` signal;
   6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see `src/devui/SPEC.md`).
@@ -132,7 +149,8 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   and the Dev_Link switch. `tests/godot_views` (`dev.py godot-test`) runs a single-player toy session under
   headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
   view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), and the MultiMesh buffers of a typed 2D bulk
-  view (colors and custom data), a plain one (stride 8) and a 3D one. Its extension doesn't link Box3D.
+  view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one,
+typed scene data set as properties only when it changes, and `sim_event_2d`. Its extension doesn't link Box3D.
 - **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
   `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
   offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.

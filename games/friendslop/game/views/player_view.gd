@@ -60,6 +60,12 @@ func _ready() -> void:
 	_last_pos = position
 
 
+## The sim's Player_View data (simulation/extension), set by the host when it changes.
+var limp := false  # stunned or held: the body tips over
+var holding := false
+var charge := 0.0  # throw charge 0..1
+
+
 func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	var dt := get_process_delta_time()
 	if dt <= 0.0:
@@ -68,7 +74,6 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 10.0))
 	_last_pos = pos
 	var me := _hud_player()
-	var limp: bool = me.get("stunned", false) or me.get("held", false)
 	_tip = move_toward(_tip, 1.0 if limp else 0.0, dt * (6.0 if limp else 3.0))
 	_squash = move_toward(_squash, 0.0, dt * 4.0)
 	# Lean into the horizontal motion (in the root's frame, which turns with the facing).
@@ -77,8 +82,7 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_body.rotation = Vector3(lean.x + _tip * 1.35, 0, lean.z + sin(_t * 9.0) * 0.05 * _tip)
 	var s := 1.0 + _squash * 0.25
 	_body.scale = Vector3(s, 1.0 / s, s)
-	_arms.visible = int(me.get("holding", 0)) != 0
-	var charge: float = me.get("charge", 0.0)
+	_arms.visible = holding
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
 	var n: String = Game.player_name(me) if not me.is_empty() else "P%d" % (slot + 1)

@@ -29,7 +29,8 @@ is in the game this tick: joining and leaving are presence changes, decided by t
 - `Handle(T) = {index: u16, generation: u16}`; generation 0 is never live, so `Handle{}` is null.
 - `spawn(&t) -> (^T, Handle(T), ok)`, `despawn(&t, idx | handle)`, `get(&t, h) -> ^T` (nil if stale/null/out of
   range), `at(&t, i) -> (^T, alive)` for `for i in 0 ..< t.high_water { e := sim.at(&t, i) or_continue }`,
-  `handle(&t, i)`, `handle_key(h) -> u32` (the deterministic key views use).
+  `handle(&t, i)`, `handle_key(h) -> u32` (the deterministic key views use), `prev_item(prev, cur, i) -> (^T, ok)`
+  (the same item in the previous tick's table: alive in both, same generation; views interpolate with it).
 - `schema_of(S)`: tables (by shape: `items` + `slots: [N]Slot`; fixed arrays of structs count as always-live tables)
   and globals, with byte offsets. Inspectors, diffs and dumps build on it.
 - `Rng` (xorshift32, 4 bytes): `rng_seed(u64)`, `rng_next`, `rng_below(n)` (Lemire, unbiased), `rng_f32`.

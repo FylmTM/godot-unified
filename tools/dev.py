@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build, test, format and vet unified: the one entry point (Python 3.9+, stdlib only, any OS).
 
-    python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{survivor,friendslop,toy}[.exe]
+    python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{<each game>,toy}[.exe]
     python tools/dev.py test                    # odin test: unit tests, every end-to-end suite, determinism lint
     python tools/dev.py check                   # release build, then the real-UDP multi-process test (toy)
     python tools/dev.py bench [name ...]        # release build, then the benchmarks (default: all of them)
@@ -84,14 +84,16 @@ MODES = {
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
 VET_TARGETS = ["darwin_arm64", "linux_amd64", "linux_arm64", "windows_amd64"]
 FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (REPO / "games").glob("*/simulation"))
+# The games: every games/<game>/ with a simulation/ (its headless binary in simulation/headless, its GDExtension
+# in simulation/extension, by convention), so adding a game edits no list here.
+GAME_DIRS = sorted(p.parent.name for p in (REPO / "games").glob("*/simulation"))
 # The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
-HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",
-            "toy": "tests/toy/headless"}
+HEADLESS = {g: "games/%s/simulation/headless" % g for g in GAME_DIRS if (REPO / "games" / g / "simulation/headless").is_dir()}
+HEADLESS["toy"] = "tests/toy/headless"
 # Packages vet type-checks (with everything they import): the headless binaries, the tests, the Godot test
 # extensions (tests/godot, tests/godot_views) and the games' extensions.
-VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext",
-                                          "games/survivor/simulation/extension",
-                                          "games/friendslop/simulation/extension"]
+VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext"] + [
+    "games/%s/simulation/extension" % g for g in GAME_DIRS if (REPO / "games" / g / "simulation/extension").is_dir()]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
     python tools/ci.py odinfmt ~/.local/share/unified-odinfmt

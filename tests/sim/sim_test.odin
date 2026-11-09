@@ -44,6 +44,26 @@ stale_handles_are_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
+prev_item_needs_the_same_generation :: proc(t: ^testing.T) {
+	prev: Small
+	_, ha, _ := sim.spawn(&prev)
+	sim.spawn(&prev)
+	cur := prev
+	p, ok := sim.prev_item(&prev, &cur, 0)
+	testing.expect(t, ok && p == &prev.items[0])
+	_, ok = sim.prev_item((^Small)(nil), &cur, 0)
+	testing.expect(t, !ok)
+	sim.despawn(&cur, ha)
+	_, ok = sim.prev_item(&prev, &cur, 0) // gone this tick
+	testing.expect(t, !ok)
+	sim.spawn(&cur) // slot 0 re-used: a different item
+	_, ok = sim.prev_item(&prev, &cur, 0)
+	testing.expect(t, !ok)
+	_, ok = sim.prev_item(&prev, &cur, 1)
+	testing.expect(t, ok)
+}
+
+@(test)
 rng_below_is_in_range_and_unbiased :: proc(t: ^testing.T) {
 	r := sim.rng_seed(7)
 	counts: [3]int

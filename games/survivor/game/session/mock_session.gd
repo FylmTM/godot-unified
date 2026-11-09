@@ -995,6 +995,8 @@ func _update_views(alpha: float) -> void:
 			var p := _players[entity]
 			pos = p.prev.lerp(p.pos, alpha) + Vector3(0, 0.9, 0)
 			yaw = p.yaw
+			if node.get(&"hp") != int(p.hp):  # the native host sets Player_View data only when it changes
+				node.set(&"hp", int(p.hp))
 		else:
 			var it := _items[entity - 100]
 			pos = it.prev.lerp(it.pos, alpha) + Vector3(0, 0.7 if it.kind == &"barrel" else 0.5, 0)

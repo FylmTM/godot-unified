@@ -18,10 +18,13 @@ sim_is_deterministic :: proc(t: ^testing.T) {
 	lint.check_sim_package(t, #directory + "/../mygame")   // one failure per violation
 	// the game's own deterministic packages, as its sim imports them: extra_imports = {"../grid", "../ai/"}
 }
+// or the whole simulation/ by its layout (headless/, extension/, tests/, and every other directory a sim package):
+lint.check_game(t, #directory + "/..")
 
 Rule { pkg, dir, only_imports, ban_imports, allow_imports, ban_idents, ban_matrix, strict, tick, allow_globals }
 sim_rule(pkg, dir, extra_imports) -> Rule      // what check_sim_package applies
 check(t, Rule)                                 // lint every .odin file under rule.dir
+check_game(t, simulation_dir, extra_imports) -> sim dirs   // a game's simulation/ by its layout (2026-11-10)
 scan(Rule, name, src) -> []string              // one line per violation (imports, identifiers, matrix, strict)
 scan_globals(Rule, name, src) -> []string      // tick packages: package-level variables not @(rodata)
 TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
@@ -35,5 +38,8 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
   no `matrix`; strict: no `foreign`, no `map`, no `x := 1.5` (an untyped float literal is f64); tick: every
   package-level variable is `@(rodata)` or listed in `allow_globals` (a write during a tick would be state outside
   the block: not rolled back, not hashed).
-- `tests/lint` holds unified's import graph: one rule per package of `src/` and of each game's `simulation/`
-  (a package without one fails), and lints the in-repo games' sim packages through `check_sim_package`.
+- **Game layout** (`check_game`): `headless/` gets the real-time rule (off `core:math`, no float traps),
+  `extension/` and `tests/` nothing (host and test code), every other directory the sim rule. A new sim package
+  is linted without editing a list.
+- `tests/lint` holds unified's import graph: one rule per package of `src/` (a package without one fails), and
+  lints every game under `games/` with `check_game` (and checks `tests/tests.odin` imports its tests).
