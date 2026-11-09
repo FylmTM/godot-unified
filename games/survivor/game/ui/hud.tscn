@@ -152,61 +152,6 @@ theme_type_variation = &"Dim"
 text = "0 enemies"
 horizontal_alignment = 1
 
-[node name="Side" type="PanelContainer" parent="Root"]
-custom_minimum_size = Vector2(300, 0)
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -320.0
-offset_top = 20.0
-offset_right = -20.0
-offset_bottom = 120.0
-grow_horizontal = 0
-
-[node name="VBox" type="VBoxContainer" parent="Root/Side"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="Heading" type="Label" parent="Root/Side/VBox"]
-layout_mode = 2
-theme_type_variation = &"Heading"
-theme_override_font_sizes/font_size = 22
-text = "Lobby"
-
-[node name="CodeRow" type="HBoxContainer" parent="Root/Side/VBox"]
-layout_mode = 2
-
-[node name="Label" type="Label" parent="Root/Side/VBox/CodeRow"]
-layout_mode = 2
-theme_type_variation = &"Dim"
-text = "Code"
-
-[node name="Code" type="Label" parent="Root/Side/VBox/CodeRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.365, 0.878, 1, 1)
-theme_override_font_sizes/font_size = 30
-text = "------"
-
-[node name="Copy" type="Button" parent="Root/Side/VBox/CodeRow"]
-layout_mode = 2
-size_flags_vertical = 4
-focus_mode = 0
-theme_override_font_sizes/font_size = 15
-text = "Copy"
-
-[node name="List" type="VBoxContainer" parent="Root/Side/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="Hint" type="Label" parent="Root/Side/VBox"]
-layout_mode = 2
-theme_type_variation = &"Dim"
-theme_override_font_sizes/font_size = 14
-text = "Waiting for a friend to join."
-autowrap_mode = 3
-
 [node name="Hint" type="VBoxContainer" parent="Root"]
 layout_mode = 1
 anchors_preset = 7
@@ -229,12 +174,6 @@ theme_type_variation = &"Heading"
 theme_override_colors/font_color = Color(0.365, 0.878, 1, 1)
 theme_override_font_sizes/font_size = 30
 text = "Walk out of the circle to start"
-horizontal_alignment = 1
-
-[node name="Keys" type="Label" parent="Root/Hint"]
-layout_mode = 2
-theme_type_variation = &"Dim"
-text = "WASD / stick to move  ·  Space / A to dash  ·  Esc for the menu"
 horizontal_alignment = 1
 
 [node name="Respawn" type="Label" parent="Root"]

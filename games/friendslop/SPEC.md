@@ -95,7 +95,8 @@ fell, respawned, plate on/off, bell rung).
 
 **Godot only:** the camera (orbit, collision, smoothing; it produces the input's aim), character animation
 (procedural squash, lean, wobble, stun tumble, arms), the level scene's own meshes and lights, materials,
-particles, sounds, HUD (timer, beat, prompts), nameplates, menus, settings, dev UI.
+particles, sounds, HUD (timer, beat, prompts; the shared session and controls panels, `games/survivor/SPEC.md`),
+nameplates, menus, settings, dev UI.
 
 ## Input (8 bytes per player per tick)
 

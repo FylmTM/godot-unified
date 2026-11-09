@@ -199,7 +199,7 @@ export_presets.cfg     "macOS" (universal, thinned by tools/release.py) and "Win
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
 game/autoload/         Settings (user://settings.cfg), Sfx (procedural sounds), Game (flow + session)
 game/session/          the mock session: the contract in GDScript with a fake sim (dev only, not exported)
-game/ui/               theme (code-built), main menu, settings, connect overlay, HUD, Esc menu
+game/ui/               theme (code-built), main menu, settings, connect overlay, HUD, Esc menu; the shared HUD panels
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, camera), follow camera
 game/views/            player/crate/barrel scenes (GameView), GameBulkView (MultiMesh)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
@@ -238,7 +238,7 @@ and load without the library (Godot replaces unknown native node types with a pl
   clicked); keys and pads reach the sim natively. `hud()` before any session has every key (`local_slot` -1, no
   players).
 - `set_player_name(name)` and `hud().players[i].name` (extension, optional): names fall back to "P<n>".
-- `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the lobby panel shows this
+- `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the session panel shows this
   machine's first private IPv4 `host:port` where the code would be.
 - Views may get `_sim_event("despawned", {})` (they linger ~0.25 s; exit animation) and `_sim_event("revived", {})`
   when a rollback brings one back; the host also sets the root's rotation (player views reset it).
@@ -266,6 +266,17 @@ time, wave, level, best time (`user://settings.cfg`), countdown to the lobby (`o
 and level-up key labels follow the last input device; pads get A/B on `ui_accept`/`ui_cancel` (none by default in
 Godot 4.7). The host's code is copied to the clipboard on arrival; the Join panel prefills a code found on it.
 `tools/game.py` lists in `.godot/extension_list.cfg` only the extensions whose library exists for this host.
+
+### HUD baseline (every game)
+
+Every game's HUD has two shared panels, `game/ui/session_panel.gd` and `game/ui/controls_panel.gd`, byte-identical in
+each game until a shared Godot UI kit exists (#74). The game passes the content; the panel owns the look.
+- **Session panel**, top-right. In the lobby (friendslop: the hub): "Lobby", the code (or LAN address) large with
+  Copy (offered only while the mouse is free), the players, and a hint (waiting for a friend, or how to start).
+  While playing: "Players", the code in one small line (friends can still join), the players with the game's status
+  and an optional bar (survivor: level and HP). Hidden when solo and offline.
+- **Controls list**, bottom-right, always shown: key → action for the current context (survivor adds the upgrade
+  keys while a level-up is up; friendslop swaps grab for drop and throw while holding) and the device in use.
 
 ### Art direction
 
