@@ -16,7 +16,8 @@ shows, and the presets' version keys) and fails if the export doesn't carry it.
 `.github/workflows/release.yml` then builds `games/survivor` on a Windows and a macOS runner with `tools/release.py`
 (dependencies, release extension with the `EOS_*` repo secrets in that one step's environment, Godot 4.7.2 headless
 import and export, ad-hoc codesign on macOS, zip, a ~5 s headless smoke test of the unpacked zip) and publishes a
-GitHub **prerelease** named after the tag: `<game>-<version>-macos-arm64.zip`, `<game>-<version>-windows-x64.zip`,
+GitHub **prerelease** named after the tag: `<game>-v<version>-macos-arm64.zip`, `<game>-v<version>-windows-x64.zip`
+(each unpacks to one folder of its own name with the game inside),
 `SHA256SUMS.txt` (LF line endings, so `shasum -a 256 -c` works on macOS), and tester notes (how to open an unsigned
 build, plus `games/<game>/RELEASE_NOTES.md`). Only the developer, or a session they authorise, pushes tags. A failed
 run publishes nothing; delete the tag, fix, tag again.

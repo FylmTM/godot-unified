@@ -6,7 +6,8 @@
     python tools/release.py godot                              # only fetch Godot + this host's export templates
 
 `build` makes the host platform's package (macOS arm64 on a Mac, Windows x64 on Windows) in
-<game_dir>/.out/release/: <game>-<version>-<platform>.zip and its .sha256. The same command runs locally and in
+<game_dir>/.out/release/: <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip),
+which unpacks to one folder of the same name holding the app, and its .sha256. The same command runs locally and in
 .github/workflows/release.yml (tag builds). Steps, each one fails loudly:
   1. dependencies: Box3D, Dear ImGui, the EOS SDK and the Godot bindings (box3d/imgui/eos.ensure, dev.cmd_gen),
   2. the game's GDExtension in release mode (dev.cmd_game_build), written where the game's .gdextension says;
@@ -22,7 +23,8 @@
      fails. The committed files hold a placeholder, so the tag is the only source of a release's version,
   5. headless import, then `--export-release` with the game's export_presets.cfg ("macOS" / "Windows Desktop");
      any ERROR line fails the step (Godot exits 0 on errors),
-  6. macOS: ad-hoc `codesign --force --deep -s -`, verify, `ditto -c -k --keepParent`; Windows: zip,
+  6. macOS: ad-hoc `codesign --force --deep -s -`, verify, `ditto -c -k --keepParent` of the folder;
+     Windows: zip, the same folder layout,
   7. smoke test: the exported game runs headless for ~5 s (`-- --smoke-test`); it must exit 0, print no error and
      print the extension's `unified: extension initialized` line.
 """
@@ -446,7 +448,11 @@ def sign_and_zip(target, zip_path):
         thin_to_arm64(target)
         run(["codesign", "--force", "--deep", "-s", "-", target])
         run(["codesign", "--verify", "--deep", "--strict", target])
-        run(["ditto", "-c", "-k", "--keepParent", target, zip_path])
+        # The .app inside one folder named like the zip.
+        folder = target.parent / zip_path.stem
+        folder.mkdir()
+        target = target.rename(folder / target.name)
+        run(["ditto", "-c", "-k", "--keepParent", folder, zip_path])
     else:
         # The exe, its .pck and the libraries, inside one folder named like the zip.
         top = zip_path.stem
@@ -467,7 +473,7 @@ def smoke(zip_path, name):
         tmp = Path(tmp)
         if IS_MACOS:
             run(["ditto", "-x", "-k", zip_path, tmp])
-            app = tmp / (name + ".app")
+            app = tmp / zip_path.stem / (name + ".app")
             exe = next((app / "Contents" / "MacOS").iterdir())
         else:
             with zipfile.ZipFile(zip_path) as z:
@@ -497,6 +503,11 @@ def smoke(zip_path, name):
             sys.stderr.write(out[-20000:])
             raise SystemExit("release: smoke test failed: " + ", ".join(problems))
     log("release: smoke test ok (%d frames, exit 0, no errors) in %.1fs" % (SMOKE_FRAMES, time.time() - t))
+
+
+def release_label(version):
+    """`v0.1.2` for a release version, a dev version (`dev-<sha>`) as is: the zip names use it."""
+    return "v" + version if version[:1].isdigit() else version
 
 
 def default_version():
@@ -545,7 +556,7 @@ def cmd_build(game, version, embed_env, smoke_test):
     if any(k.startswith("EOS_") for k in embed_env) and eos.lib_path().name not in {f.name for f in files}:
         files.append(eos.lib_path())
     check_payload(target, files)
-    zip_path = game / ".out" / "release" / ("%s-%s-%s.zip" % (name, version, h["platform"]))
+    zip_path = game / ".out" / "release" / ("%s-%s-%s.zip" % (name, release_label(version), h["platform"]))
     sign_and_zip(target, zip_path)
     if smoke_test:
         smoke(zip_path, name)
@@ -558,19 +569,21 @@ Test build of **{name} {version}** (commit `{commit}`). Unsigned prerelease for 
 
 ## Download
 
-- **macOS** (Apple Silicon): `{name}-{version}-macos-arm64.zip`
-- **Windows** (x64): `{name}-{version}-windows-x64.zip`
+- **macOS** (Apple Silicon): `{name}-{label}-macos-arm64.zip`
+- **Windows** (x64): `{name}-{label}-windows-x64.zip`
+
+Each zip unpacks to a folder of the same name with the game inside.
 
 `SHA256SUMS.txt` has the checksums (`shasum -a 256 -c SHA256SUMS.txt` / `certutil -hashfile <zip> SHA256`).
 
 ## Opening it
 
-- **macOS:** unzip and open `{name}.app`. The app is ad-hoc signed, not notarized, so macOS blocks the first
-  launch: click **Done**, open System Settings → Privacy & Security, scroll down to the message about `{name}`,
-  click **Open Anyway** and confirm. (On macOS 14 and older, right-click the app → **Open** → **Open** also works.)
-  Last resort, in Terminal: `xattr -dr com.apple.quarantine {name}.app`.
-- **Windows:** unzip the whole folder, run `{name}.exe`. If SmartScreen says "Windows protected your PC", click
-  **More info** → **Run anyway**.
+- **macOS:** unzip and open `{name}.app` in the `{name}-{label}-macos-arm64` folder. The app is ad-hoc signed,
+  not notarized, so macOS blocks the first launch: click **Done**, open System Settings → Privacy & Security,
+  scroll down to the message about `{name}`, click **Open Anyway** and confirm. (On macOS 14 and older, right-click the app → **Open** → **Open** also works.)
+  Last resort, in Terminal: `xattr -dr com.apple.quarantine {name}-{label}-macos-arm64`.
+- **Windows:** unzip, run `{name}.exe` in the `{name}-{label}-windows-x64` folder. If SmartScreen says
+  "Windows protected your PC", click **More info** → **Run anyway**.
 {game_notes}"""
 
 
@@ -582,7 +595,7 @@ def cmd_notes(game, tag):
                             cwd=str(REPO)).stdout.strip()
     extra = game / "RELEASE_NOTES.md"
     game_notes = ("\n" + extra.read_text(encoding="utf-8")) if extra.is_file() else ""
-    print(NOTES.format(name=name, version=version, commit=commit, game_notes=game_notes), end="")
+    print(NOTES.format(name=name, version=version, label=release_label(version), commit=commit, game_notes=game_notes), end="")
 
 
 def main():
