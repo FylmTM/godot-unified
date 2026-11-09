@@ -201,11 +201,17 @@ def run_godot(args, timeout, cwd=None):
 
 
 def game_dir(name):
-    """A Godot project by game name (games/<name>) or by path; it must have a project.godot."""
+    """A Godot project by path or by game name; it must have a project.godot. A relative path is tried against the
+    current directory first (a game outside this repo: `python3 unified/tools/dev.py game build .`), then against
+    the repo; a bare name is games/<name>."""
     p = Path(name)
     if not p.is_absolute():
-        p = REPO / name if ("/" in name or "\\" in name or (REPO / name / "project.godot").exists()) \
-            else REPO / "games" / name
+        if (Path.cwd() / name / "project.godot").is_file():
+            p = Path.cwd() / name
+        elif "/" in name or "\\" in name or (REPO / name / "project.godot").exists():
+            p = REPO / name
+        else:
+            p = REPO / "games" / name
     if not (p / "project.godot").is_file():
         raise SystemExit("no Godot project (project.godot) at %s" % p)
     return p.resolve()

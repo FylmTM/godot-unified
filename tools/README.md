@@ -56,3 +56,23 @@ output. Reported, not gated; a re-sim that disagrees with the forward run fails 
 
 `regen <game>|toy` builds and runs that suite with `-define:UNIFIED_REGEN=true` and the commit (`+dirty` when the tree
 has changes) as `-define:UNIFIED_REGEN_COMMIT`, then lists the reference files that changed (`git status`).
+
+## A game in its own repository
+
+A game outside this repo has unified as a git submodule (`<game>/unified`); the game repo's root is its Godot
+project, with its Odin code in `simulation/` (the sim package, `extension/`, optional `headless/` and `tests/`)
+like the games in `games/`. unified's root `.gdignore` keeps Godot from importing the submodule. From the game
+repo's root:
+
+```
+python3 unified/tools/dev.py game build .            # .out/bin/lib<game dir name>.*; also run|editor|headless|...
+python3 unified/tools/release.py build .             # local builds are labelled dev-<the game repo's sha>
+odin test simulation/tests -collection:unified=unified/src   # the game's tests
+```
+
+- A relative game path is resolved against the current directory first (`common.game_dir`).
+- Box3D (CMake, Ninja, clang) is built only when the game's Odin code imports `unified:physics` or
+  `unified:box3d`, the EOS SDK only when its extension imports `unified:eos`; Dear ImGui always (the dev UI).
+- The determinism lint: the game's tests call `lint.check_sim_package(t, dir)` on its sim package
+  (`src/lint/SPEC.md`). `dev.py fmt|vet|test` cover unified and its in-repo games only.
+

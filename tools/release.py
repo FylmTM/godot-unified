@@ -6,10 +6,12 @@
     python tools/release.py godot                              # only fetch Godot + this host's export templates
 
 `build` makes the host platform's package (macOS arm64 on a Mac, Windows x64 on Windows) in
-<game_dir>/.out/release/: <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip),
+<game_dir>/.out/release/: <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip, the sha
+of the game's own git repository),
 which unpacks to one folder of the same name holding the app, and its .sha256. The same command runs locally and in
 .github/workflows/release.yml (tag builds). Steps, each one fails loudly:
-  1. dependencies: Box3D, Dear ImGui, the EOS SDK and the Godot bindings (box3d/imgui/eos.ensure, dev.cmd_gen),
+  1. dependencies: Box3D (when the game imports physics), Dear ImGui, the EOS SDK (when its extension imports
+     unified:eos) and the Godot bindings (box3d/imgui/eos.ensure, dev.cmd_gen),
   2. the game's GDExtension in release mode (dev.cmd_game_build), written where the game's .gdextension says;
      with --embed-env, each named environment variable must be set and its value must appear in the library
      (tag builds: the EOS IDs, which testers' machines don't have),
@@ -48,7 +50,7 @@ import common
 import dev
 import eos
 import imgui
-from common import REPO, IS_WINDOWS, IS_MACOS, GODOT_VERSION, GODOT_RELEASES, GODOT_TAG, log
+from common import IS_WINDOWS, IS_MACOS, GODOT_VERSION, GODOT_RELEASES, GODOT_TAG, log
 
 TEMPLATES_TPZ = "Godot_v%s_export_templates.tpz" % GODOT_TAG
 # SHA-256 of each export template file release.py pulls out of the official .tpz (GODOT_VERSION).
@@ -246,11 +248,15 @@ def release_dependencies(game, h):
     return deps
 
 
-def build_dependencies():
+def build_dependencies(game):
+    """What the game's extension links: Box3D only when its code imports physics, EOS only when its extension
+    imports unified:eos (dev.game_uses_box3d, dev.extension_uses_eos)."""
     t = step("dependencies")
-    box3d.ensure()
+    if dev.game_uses_box3d(game):
+        box3d.ensure()
     imgui.ensure()
-    eos.ensure()
+    if dev.extension_uses_eos(game):
+        eos.ensure()
     dev.cmd_gen()
     log("release: dependencies in %.1fs" % (time.time() - t))
 
@@ -510,13 +516,17 @@ def release_label(version):
     return "v" + version if version[:1].isdigit() else version
 
 
-def default_version():
+def game_commit(game):
+    """The short commit of the game's own repository (unified's for its in-repo games), "" outside git."""
     try:
-        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
-                             cwd=str(REPO)).stdout.strip()
+        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                              cwd=str(game)).stdout.strip()
     except OSError:
-        sha = ""
-    return "dev-" + (sha or "local")
+        return ""
+
+
+def default_version(game):
+    return "dev-" + (game_commit(game) or "local")
 
 
 def check_embedded(libs, names):
@@ -539,7 +549,7 @@ def cmd_build(game, version, embed_env, smoke_test):
     missing = [k for k in embed_env if not os.environ.get(k)]
     if missing:
         raise SystemExit("release: missing environment (repo secrets?): " + ", ".join(missing))
-    build_dependencies()
+    build_dependencies(game)
     libs = build_extension(game, h)
     if embed_env:
         check_embedded(libs, embed_env)
@@ -591,8 +601,7 @@ def cmd_notes(game, tag):
     game = game.resolve()
     name = game.name
     version = tag.split("-v", 1)[1] if "-v" in tag else tag
-    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
-                            cwd=str(REPO)).stdout.strip()
+    commit = game_commit(game)
     extra = game / "RELEASE_NOTES.md"
     game_notes = ("\n" + extra.read_text(encoding="utf-8")) if extra.is_file() else ""
     print(NOTES.format(name=name, version=version, label=release_label(version), commit=commit, game_notes=game_notes), end="")
@@ -609,7 +618,7 @@ def main():
 
     if a[0] == "build" and len(a) >= 2:
         req = [k for k in (opt("--embed-env") or "").split(",") if k]
-        cmd_build(Path(a[1]), opt("--version") or default_version(), req, "--no-smoke" not in a)
+        cmd_build(Path(a[1]), opt("--version") or default_version(Path(a[1]).resolve()), req, "--no-smoke" not in a)
     elif a[0] == "notes" and len(a) >= 2 and "--tag" in a:
         cmd_notes(Path(a[1]), opt("--tag"))
     elif a == ["godot"]:

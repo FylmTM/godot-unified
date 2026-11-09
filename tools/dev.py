@@ -26,8 +26,9 @@
     python tools/dev.py board list [--status S] [--area A]          # the work board (tools/board.py, AGENTS.md)
     python tools/dev.py board set <issue> [--status S] [--area A]   # move or file an issue on the board
 
-<game> is a name under games/ or a project path. Every command rejects arguments it doesn't know; `-h` on any
-command prints its options.
+<game> is a name under games/ or a project path (relative: to the current directory, else to the repo), so a
+game in its own repo runs `python3 unified/tools/dev.py game build .` (tools/README.md). Every command rejects
+arguments it doesn't know; `-h` on any command prints its options.
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -214,8 +215,9 @@ def cmd_game_build(gdir, mode="dev"):
     if not (gdir / "simulation" / "extension").is_dir():
         raise SystemExit("dev: %s has no simulation/extension to build" % rel(gdir))
     name = gdir.name
-    box3d.ensure()
-    imgui.ensure()
+    if game_uses_box3d(gdir):
+        box3d.ensure()
+    imgui.ensure()  # the dev UI (godot_host); -define:UNIFIED_DEVUI=false compiles it out
     cmd_gen()
     out = gdir / ".out" / "bin" / common.lib_name(name)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -252,6 +254,19 @@ def cmd_game_build(gdir, mode="dev"):
     common.write_extension_list(gdir)
     log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, rel(out), time.time() - t0, secs))
     return out
+
+
+def game_sources(gdir):
+    """The game's Odin sources: every .odin file under <game>/simulation (not in .out/ or hidden folders)."""
+    root = gdir / "simulation"
+    return [p for p in root.rglob("*.odin") if not any(x.startswith(".") for x in p.relative_to(root).parts)]
+
+
+def game_uses_box3d(gdir):
+    """Box3D (CMake, Ninja, clang) is built only for a game whose Odin code imports physics: a game without it
+    links nothing of Box3D (godot_host, netcode and sim don't import it)."""
+    return any('"unified:physics"' in t or '"unified:box3d"' in t
+               for t in (p.read_text(errors="replace") for p in game_sources(gdir)))
 
 
 def extension_uses_eos(gdir):
@@ -335,6 +350,8 @@ def offline_checksums(gdir, ticks, seed):
     pkg = gdir / "simulation" / "headless"
     if not pkg.is_dir():
         return None
+    if game_uses_box3d(gdir):
+        box3d.ensure()
     exe = REPO / "out" / "games" / (gdir.name + "_headless" + EXE)
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["build", pkg.as_posix(), "-out:" + exe.as_posix(), COLLECTION] + MODES["release"] + VET,
@@ -768,7 +785,8 @@ def cmd_regen(name):
     pkg = REPO / "tests" / "scenarios" if name == "toy" else common.game_dir(name) / "simulation" / "tests"
     if not (pkg / "suite_test.odin").exists():
         raise SystemExit("dev: %s has no end-to-end suite (suite_test.odin)" % rel(pkg))
-    box3d.ensure()
+    if name == "toy" or game_uses_box3d(pkg.parent.parent):
+        box3d.ensure()
     exe = REPO / "out" / "regen" / ((name if name == "toy" else pkg.parent.parent.name) + "_suite" + EXE)
     exe.parent.mkdir(parents=True, exist_ok=True)
     run_odin(["test", rel(pkg), COLLECTION, "-out:" + exe.as_posix(), "-define:UNIFIED_REGEN=true",
