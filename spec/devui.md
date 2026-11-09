@@ -3,8 +3,10 @@
 Decided autonomously 2026-11-09, pending developer review.
 
 The in-game dev UI: Dear ImGui drawn into Godot from Odin (`src/devui`, with `src/imgui` and `tools/imgui.py`).
-Game-agnostic: the game passes its values; it knows nothing about any game. **Every build includes it for now**
-(WORK.md says dev builds only; that waits for a shipping build mode).
+Game-agnostic: the game passes its values; it knows nothing about any game. **Every build includes it for now**,
+release too (developer's call). `godot_host` reaches it only through `godot_host/dev.odin`: building with
+`-define:UNIFIED_DEVUI=false` turns those calls into no-ops and links no ImGui (survivor's library: 2.9 MB ->
+1.5 MB). `dev.py vet` checks that build; turning it off for players is that one flag.
 
 ## API
 
@@ -17,7 +19,6 @@ devui.plot(name, value, lo, hi)                     // overlay graph, 240 sample
 devui.stat(label, format, args..)                   // overlay line
 devui.log(tick, format, args..)                     // event log row (newest 1000 kept)
 devui.frame(dt)                                     // build + submit
-devui.add_panel(name, draw: proc(user), user)       // a game's own window
 devui.visible, devui.netsim, devui.netsim_changed   // F1 state; Netsim panel values (the host applies them)
 devui.wants_mouse() / wants_keyboard()
 ```
@@ -39,10 +40,14 @@ devui.wants_mouse() / wants_keyboard()
   marked handled. Sizes are in points (`screen_get_scale`).
 - **F3.** Saves a screenshot, then shows a note with a thumbnail. Send writes `<dir>/<stamp>/screenshot.png` and
   `note.txt` and calls `on_feedback`, where the host adds its snapshot, input log and net stats (not wired yet).
+- **Tests.** `dev.py godot-test` draws it under headless Godot (canvas items appear). Every entry point needs
+  Godot, so there is no Odin unit test.
 - **Cost.** About 0.2–0.5 ms of main-thread time per frame when shown (spike: 0.34–0.52 ms with every panel open).
 
 ## Open
 
-- Excluding it from shipping builds (a `-define`, with no-op stubs).
+- Switching it off in release builds (the flag above) once the developer decides.
+- Game-specific windows (an `add_panel` existed unused and was removed; add it back through `godot_host` when a
+  game needs one).
 - Edits through tick-stamped debug commands (WORK.md). Today the inspector is read-only over a state copy.
 - The F3 capture on a worker thread (~60 ms on the main thread today).
