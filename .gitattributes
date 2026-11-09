@@ -7,3 +7,5 @@ testdata/**/*.snap binary
 testdata/**/*.trace text eol=lf
 *.odin text eol=lf
 *.json text eol=lf
+# Godot's API dump (src/gdext/api/README.md): generated, kept out of diffs and language stats.
+src/gdext/api/*.json linguist-generated=true -diff

@@ -31,4 +31,7 @@ game and CI read the results.
    ```
 
 Client credentials ship inside game builds (that's how EOS game clients work), so they aren't true secrets, but they
-stay out of the repo. CI gets the SDK from an asset on a private GitHub release of this repo.
+stay out of the repo. CI gets the SDK from an asset on a draft GitHub release of this repo (`tools/eos.py`, fetched by
+`.github/workflows/eos-sdk.yml`, the only job with a write token), checked against a pinned SHA-256. The client
+policy should allow only what a game client needs (Connect, P2P, Lobbies), since the client ID and secret ship in
+every build.

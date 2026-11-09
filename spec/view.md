@@ -50,4 +50,4 @@ Event_Id { tick, kind, entity, extra }
 ## Open
 
 - Extrapolation past P (alpha > 1) when the sim stalls; today it holds at P.
-- Per-kind smoothing settings authored in data (WORK.md "Godot follow-ups").
+- Per-kind smoothing settings authored in data.

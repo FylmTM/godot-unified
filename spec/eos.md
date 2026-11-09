@@ -19,7 +19,8 @@ eos.shutdown()                                       // at exit; EOS can't be in
 eos.forget_device()                                  // test tools: delete this machine's device ID
 ```
 
-`bucket` names the game and its protocol version (e.g. `survivor/2`): lobbies only match inside one bucket, so
+`bucket` names the game and the game's own compatibility counter (e.g. `survivor/2`, bumped by hand when the game's
+builds stop being compatible; not the netcode `PROTOCOL_VERSION`): lobbies only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;
 the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
