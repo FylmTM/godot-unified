@@ -16,7 +16,7 @@ func _ready() -> void:
 	if &"view_root" in Game.session:
 		Game.session.view_root = _views
 	else:
-		push_warning("arena: the session has no view_root property; views won't spawn (see spec/survivor-client.md)")
+		push_warning("arena: the session has no view_root property; views won't spawn (see games/survivor/SPEC.md)")
 	Game.session.sim_event.connect(_on_sim_event)
 	$Fx.camera = _camera
 

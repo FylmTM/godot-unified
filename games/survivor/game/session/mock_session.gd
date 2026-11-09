@@ -12,7 +12,7 @@ signal status_changed(status: String, detail: String)
 signal lobby_code(code: String)
 signal sim_event(kind: StringName, tick: int, entity: int, position: Vector3, value: float)
 
-# The sim's numbers, reported by constants() exactly as the native session reports them (spec/GAME.md).
+# The sim's numbers, reported by constants() exactly as the native session reports them (games/survivor/SPEC.md).
 const TICK_HZ := 64
 const OVER_HOLD_S := 5.0
 const ARENA_HALF := 32.0  # the ground is 2 * ARENA_HALF square
@@ -460,8 +460,8 @@ func _wave() -> int:
 	return 0 if _phase == "lobby" else int((_tick - _match_start_tick) * DT / 20.0) + 1
 
 
-## The sim's item grid (spec/GAME.md) on the floor plane: 8 x 5 spots 4 m apart, every 5th from the 3rd a barrel;
-## the two spots inside the start circle move out to z = ±12.
+## The sim's item grid (games/survivor/SPEC.md) on the floor plane: 8 x 5 spots 4 m apart, every 5th from the 3rd a
+## barrel; the two spots inside the start circle move out to z = ±12.
 static func _item_spot(i: int) -> Vector3:
 	match i:
 		19:
@@ -476,7 +476,7 @@ static func _item_kind(i: int) -> String:
 
 
 func _xp_next(level: int) -> int:
-	return 8 + (level - 1) * 4  # the sim's `play` tuning (spec/GAME.md)
+	return 8 + (level - 1) * 4  # the sim's `play` tuning (games/survivor/SPEC.md)
 
 
 # --- Tick ---------------------------------------------------------------------------------------

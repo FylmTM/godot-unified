@@ -6,7 +6,7 @@
     python tools/release.py godot                              # only fetch Godot + this host's export templates
 
 `build` makes the host platform's package (macOS arm64 on a Mac, Windows x64 on Windows) in
-<game_dir>/.uni/release/: <game>-<version>-<platform>.zip and its .sha256. The same command runs locally and in
+<game_dir>/.out/release/: <game>-<version>-<platform>.zip and its .sha256. The same command runs locally and in
 .github/workflows/release.yml (tag builds). Steps, each one fails loudly:
   1. dependencies: Box3D, Dear ImGui, the EOS SDK and the Godot bindings (box3d/imgui/eos.ensure, dev.cmd_gen),
   2. the game's GDExtension in release mode (dev.cmd_game_build), written where the game's .gdextension says;
@@ -397,7 +397,7 @@ def preset_names(game):
 def export(godot, game, h, name):
     if h["preset"] not in preset_names(game):
         raise SystemExit("release: export_presets.cfg has no %r preset" % h["preset"])
-    out_dir = game / ".uni" / "export" / h["platform"]
+    out_dir = game / ".out" / "export" / h["platform"]
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir(parents=True)
     target = out_dir / (name + (".app" if IS_MACOS else ".exe"))
@@ -409,7 +409,7 @@ def export(godot, game, h, name):
 
 
 def check_payload(target, files):
-    """Every library the game needs made it into the export, as a real file (not a link into .uni/)."""
+    """Every library the game needs made it into the export, as a real file (not a link into .out/)."""
     for lib in files:
         found = list(target.rglob(lib.name) if target.is_dir() else target.parent.rglob(lib.name))
         if not found:
@@ -545,7 +545,7 @@ def cmd_build(game, version, embed_env, smoke_test):
     if any(k.startswith("EOS_") for k in embed_env) and eos.lib_path().name not in {f.name for f in files}:
         files.append(eos.lib_path())
     check_payload(target, files)
-    zip_path = game / ".uni" / "release" / ("%s-%s-%s.zip" % (name, version, h["platform"]))
+    zip_path = game / ".out" / "release" / ("%s-%s-%s.zip" % (name, version, h["platform"]))
     sign_and_zip(target, zip_path)
     if smoke_test:
         smoke(zip_path, name)

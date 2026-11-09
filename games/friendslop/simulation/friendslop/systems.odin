@@ -1,4 +1,4 @@
-// The tick (spec/friendslop.md), in this order: presence; per player input (break free, grab, drop,
+// The tick (games/friendslop/SPEC.md), in this order: presence; per player input (break free, grab, drop,
 // throw); holds; movers; platforms; pads and bumpers; the physics step; hits (players, bells);
 // plates and switches; stuns; falls; the run (start, checkpoints, finish, reset).
 package friendslop

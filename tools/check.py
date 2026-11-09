@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""The end-to-end tests T1-T9 of spec/headless.md (T1-T9), run against the CLI binary, plus F1-F5 on friendslop's
+"""The end-to-end tests T1-T9 of src/headless/SPEC.md (T1-T9), run against the CLI binary, plus F1-F5 on friendslop's
 headless binary (out/<mode>/friendslop: sync-test, two identical runs, a 4-client `bad` session and its replay, a
-late join, the replay of testdata/friendslop/).
+late join, the replay of friendslop's reference run).
 
     python tools/dev.py check [options]       # builds first (release), then runs this
     python tools/check.py [--mode release|dev|debug] [--arch x86_64] [--only T1,T3] [--regen [--force]]
                           [--jobs N] [--timeout-scale X]
 
 Drives out/<mode>/survivor[.exe] (the survivor's headless binary; out/<mode>-x64/ with --arch x86_64, the Rosetta
-build) through the CLI of spec/headless.md (CLI) (it does not build it). The platform it reports is the binary's own
+build) through the CLI of src/headless/SPEC.md (CLI) (it does not build it). The platform it reports is the binary's own
 architecture, not the host's. Prints
 one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
 (each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
 selected test passed. Exit codes: 0 all passed, 1 a test failed, 2 usage error or no binary.
 
-Reference data for T7/T8 (testdata/, see testdata/README.md) is regenerated with --regen, only on
-macOS ARM64 unless --force:
+Reference data for T7/T8 and F5 (each game's simulation/tests/testdata/, see the README there) is regenerated
+with --regen, only on macOS ARM64 unless --force:
     survivor sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
     survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
+    friendslop sim    --ticks 1800 --players 4 --seed 7 --trace ref.trace --log ref.log
 then self-checked (replay of ref.log == ref.trace; resume of ref-1800.snap == ticks 1801-3600 of
 ref.trace) before the files replace the committed ones.
 
-Conventions (spec/headless.md (CLI)): ticks are numbered from 1 (the state after the k-th step is tick k;
+Conventions (src/headless/SPEC.md (CLI)): ticks are numbered from 1 (the state after the k-th step is tick k;
 `--ticks N` ends at tick N), every trace line is "%06d %016x" for ticks 1..N in order, and every
 mode prints one JSON object as its last stdout line.
 """
@@ -50,7 +51,7 @@ REF_SNAP_TICK = 1800
 BENCH_TICKS = 600
 BENCH_TARGET_US = 6000.0
 ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "F1", "F2", "F3", "F4", "F5"]
-# friendslop (spec/friendslop.md), the physics co-op game: its headless binary next to the survivor's.
+# friendslop (games/friendslop/SPEC.md), the physics co-op game: its headless binary next to the survivor's.
 FS_BINARY = "friendslop"
 FS_REF_TICKS = 1800
 TRACE_RE = re.compile(r"^(\d{6,}) ([0-9a-f]{16})$")
@@ -70,7 +71,7 @@ class Ctx:
         self.mode, self.out, self.scale, self.jobs = mode, outdir, scale, jobs
         self.binary = binary_path(mode, arch)
         self.fs_binary = out_dir(mode, arch) / (FS_BINARY + EXE)
-        self.testdata = REPO / "testdata"
+        self.ref_dir, self.fs_ref_dir = REF_DIR, FS_REF_DIR
         self.cache = {}  # results shared between tests (T3 -> T4)
 
     def friendslop(self):
@@ -426,15 +427,20 @@ def t6(ctx):
         "joiner_first_checksum_tick": first, "clients": client_stats(cl)}
 
 
+# The cross-platform reference runs (macOS ARM64), committed next to each game's tests.
+REF_DIR = REPO / "games" / "survivor" / "simulation" / "tests" / "testdata"
+FS_REF_DIR = REPO / "games" / "friendslop" / "simulation" / "tests" / "testdata"
+
+
 def ref_paths(base):
     return base / "ref.log", base / "ref.trace", base / ("ref-%d.snap" % REF_SNAP_TICK)
 
 
 def t7(ctx):
-    logf, trf, _ = ref_paths(ctx.testdata)
+    logf, trf, _ = ref_paths(ctx.ref_dir)
     if not logf.exists() or not trf.exists():
         raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/dev.py check --regen`"
-                   % ctx.rel(ctx.testdata))
+                   % ctx.rel(ctx.ref_dir))
     hdr = read_log_header(logf)
     ref = read_trace(trf, REF_TICKS)
     tr = ctx.path("T7", "replay.trace")
@@ -442,14 +448,14 @@ def t7(ctx):
     got = read_trace(tr, hdr["ticks"])
     if got != ref:
         raise Fail("replay of ref.log differs from ref.trace at " + first_diff(got, ref))
-    return "replay of testdata/ref.log == ref.trace (%d ticks, final %s)" % (len(ref), ref[-1].split()[1]), {}
+    return "replay of ref.log == ref.trace (%d ticks, final %s)" % (len(ref), ref[-1].split()[1]), {}
 
 
 def t8(ctx):
-    _, trf, snap = ref_paths(ctx.testdata)
+    _, trf, snap = ref_paths(ctx.ref_dir)
     if not snap.exists() or not trf.exists():
         raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/dev.py check --regen`"
-                   % ctx.rel(ctx.testdata))
+                   % ctx.rel(ctx.ref_dir))
     ref = read_trace(trf, REF_TICKS)[REF_SNAP_TICK:]
     tr = ctx.path("T8", "resume.trace")
     run(ctx, "T8/resume", ["resume", "--in", snap, "--ticks", REF_TICKS - REF_SNAP_TICK, "--trace", tr], 300)
@@ -483,8 +489,7 @@ def t9(ctx):
 # --- friendslop: the physics co-op game (dynamic movers, joints, platforms, carries, throws under rollback) ------
 
 def fs_paths(base):
-    d = base / "friendslop"
-    return d / "ref.log", d / "ref.trace"
+    return base / "ref.log", base / "ref.trace"
 
 
 def f1(ctx):
@@ -545,17 +550,17 @@ def f4(ctx):
 
 def f5(ctx):
     g = ctx.friendslop()
-    logf, trf = fs_paths(ctx.testdata)
+    logf, trf = fs_paths(ctx.fs_ref_dir)
     if not logf.exists() or not trf.exists():
-        raise Fail("no reference in %s/friendslop: generate it on macOS ARM64 with `python tools/dev.py check "
-                   "--regen`" % ctx.rel(ctx.testdata))
+        raise Fail("no reference in %s: generate it on macOS ARM64 with `python tools/dev.py check --regen`"
+                   % ctx.rel(ctx.fs_ref_dir))
     ref = read_trace(trf, FS_REF_TICKS)
     tr = ctx.path("F5", "replay.trace")
     run(g, "F5/replay", ["replay", "--log", logf, "--trace", tr], 300)
     got = read_trace(tr, FS_REF_TICKS)
     if got != ref:
         raise Fail("replay of friendslop/ref.log differs from ref.trace at " + first_diff(got, ref))
-    return "replay of testdata/friendslop/ref.log == ref.trace (%d ticks, final %s)" % (
+    return "replay of friendslop's ref.log == ref.trace (%d ticks, final %s)" % (
         len(ref), ref[-1].split()[1]), {}
 
 
@@ -595,9 +600,9 @@ def regen(ctx, force):
     if read_trace(tr, REF_TICKS - REF_SNAP_TICK, first=REF_SNAP_TICK + 1) != ref[REF_SNAP_TICK:]:
         raise SystemExit("regen: resume of the new snapshot does not reproduce ticks %d-%d"
                          % (REF_SNAP_TICK + 1, REF_TICKS))
-    ctx.testdata.mkdir(parents=True, exist_ok=True)
+    ctx.ref_dir.mkdir(parents=True, exist_ok=True)
     for src in (logf, trf, snap):
-        dst = ctx.testdata / src.name
+        dst = ctx.ref_dir / src.name
         dst.write_bytes(src.read_bytes())
     meta = {
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -613,11 +618,11 @@ def regen(ctx, force):
             % (REF_SNAP_TICK, REF_PLAYERS, REF_SEED, REF_SNAP_TICK),
         ],
     }
-    (ctx.testdata / "ref.json").write_text(json.dumps(meta, indent=2) + "\n")
-    log("regen: wrote %s/{ref.log, ref.trace, ref-%d.snap, ref.json}" % (ctx.rel(ctx.testdata), REF_SNAP_TICK))
+    (ctx.ref_dir / "ref.json").write_text(json.dumps(meta, indent=2) + "\n")
+    log("regen: wrote %s/{ref.log, ref.trace, ref-%d.snap, ref.json}" % (ctx.rel(ctx.ref_dir), REF_SNAP_TICK))
     # friendslop: a 4-player chaos run (movers, joints, platforms) for the cross-platform replay F5.
     g = ctx.friendslop()
-    flog, ftr = fs_paths(work)
+    flog, ftr = fs_paths(work / "friendslop")
     flog.parent.mkdir(parents=True, exist_ok=True)
     run(g, "regen/friendslop", ["sim", "--ticks", FS_REF_TICKS, "--players", REF_PLAYERS, "--seed", REF_SEED,
                                 "--trace", ftr, "--log", flog], 300)
@@ -626,11 +631,24 @@ def regen(ctx, force):
     run(g, "regen/friendslop-replay", ["replay", "--log", flog, "--trace", tr], 300)
     if read_trace(tr, FS_REF_TICKS) != fref:
         raise SystemExit("regen: replay of the new friendslop ref.log does not reproduce its trace")
-    dst = ctx.testdata / "friendslop"
+    dst = ctx.fs_ref_dir
     dst.mkdir(parents=True, exist_ok=True)
     for src in (flog, ftr):
         (dst / src.name).write_bytes(src.read_bytes())
-    log("regen: wrote %s/friendslop/{ref.log, ref.trace} (final %s)" % (ctx.rel(ctx.testdata), fref[-1].split()[1]))
+    fmeta = {
+        "generated": meta["generated"],
+        "platform": tag,
+        "build_mode": ctx.mode,
+        "git_commit": meta["git_commit"],
+        "seed": REF_SEED, "players": REF_PLAYERS, "ticks": FS_REF_TICKS,
+        "final_checksum": fref[-1].split()[1],
+        "commands": [
+            "friendslop sim --ticks %d --players %d --seed %d --trace ref.trace --log ref.log"
+            % (FS_REF_TICKS, REF_PLAYERS, REF_SEED),
+        ],
+    }
+    (dst / "ref.json").write_text(json.dumps(fmeta, indent=2) + "\n")
+    log("regen: wrote %s/{ref.log, ref.trace, ref.json} (final %s)" % (ctx.rel(dst), fref[-1].split()[1]))
 
 
 # --- main -----------------------------------------------------------------------------------------
@@ -664,12 +682,12 @@ def binary_platform(path):
 
 
 def parser():
-    ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/headless.md (T1-T9) tests (T1-T9).")
+    ap = argparse.ArgumentParser(prog="check.py", description="Run the src/headless/SPEC.md (T1-T9) tests (T1-T9).")
     ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
                     help="which build to test: out/<mode>/survivor (default release)")
     ap.add_argument("--arch", choices=["x86_64"], help="macOS: test the Rosetta build in out/<mode>-x64/")
     ap.add_argument("--only", help="comma-separated subset, e.g. T1,T3")
-    ap.add_argument("--regen", action="store_true", help="regenerate testdata/ (macOS ARM64 only) first")
+    ap.add_argument("--regen", action="store_true", help="regenerate the games' reference runs (macOS ARM64 only) first")
     ap.add_argument("--force", action="store_true", help="allow --regen on a platform other than macOS ARM64")
     ap.add_argument("--jobs", type=int, default=6,
                     help="T3 sessions run in parallel (default 6: all at once)")

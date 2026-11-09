@@ -106,7 +106,7 @@ Glue :: struct($S, $I, $W: typeid) {
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:   proc(e: sim.Event) -> view.Key,
 	compat:      u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
-	// Optional: the level file (spec/level.md), e.g. "res://game/levels/park.level". Read with Godot's
+	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
 	level:       string,

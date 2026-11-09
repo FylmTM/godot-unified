@@ -1,10 +1,10 @@
-// spec/friendslop.md "The route": each beat's mechanism on the real level, sync-tested every tick. Setups place
+// games/friendslop/SPEC.md "The route": each beat's mechanism on the real level, sync-tested every tick. Setups place
 // players and items directly (then re-save that tick, so the sync-test never rewinds past a setup).
 package test_friendslop
 
 import "core:testing"
 
-import fs "../../games/friendslop/simulation/friendslop"
+import fs "../friendslop"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"

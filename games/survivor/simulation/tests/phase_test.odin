@@ -4,7 +4,7 @@ package test_survivor
 
 import "core:testing"
 
-import "../../games/survivor/simulation/survivor"
+import "../survivor"
 import "unified:sim"
 
 // Steps with fixed inputs for the present slots.
@@ -128,7 +128,7 @@ no_items_inside_the_start_circle :: proc(t: ^testing.T) {
 }
 
 // The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin), 2 seeds:
-// guards the tuning's targets (spec/GAME.md). `survivor bot` measures more seeds.
+// guards the tuning's targets (games/survivor/SPEC.md). `survivor bot` measures more seeds.
 @(test)
 play_tuning_with_the_bot :: proc(t: ^testing.T) {
 	for seed in 1 ..= u64(2) {

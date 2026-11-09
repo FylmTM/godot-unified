@@ -1,0 +1,14 @@
+{
+  "generated": "2026-11-09T11:15:10Z",
+  "platform": "macos-arm64",
+  "build_mode": "release",
+  "git_commit": "f3aee81bdf8efee40b9148802a2d2f4049d9a118",
+  "note": "written after the fact (#54): the run's own time and commit were not recorded; these are of the commit that added the files",
+  "seed": 7,
+  "players": 4,
+  "ticks": 1800,
+  "final_checksum": "ae4c4be2ce92d204",
+  "commands": [
+    "friendslop sim --ticks 1800 --players 4 --seed 7 --trace ref.trace --log ref.log"
+  ]
+}

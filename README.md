@@ -1,94 +1,103 @@
 # unified
 
-A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with Godot
-as the host. Fixed-tick deterministic sim, Box3D physics with a save/restore fork, snapshots, checksums, sync-test,
-replays, and an input relay with prediction, rollback and late join. Rules for working on it:
-[`AGENTS.md`](AGENTS.md). Work: the [board](https://github.com/users/FylmTM/projects/2). Decisions so far:
-[`docs/WORK.md`](docs/WORK.md). Why and what for: [`docs/CONTEXT.md`](docs/CONTEXT.md). What the core must do:
-[`spec/`](spec/).
+A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
+**Godot** (through GDExtension) as the host for rendering, audio, UI and the editor; rendering is never written from
+scratch. It gives a game a fixed-tick deterministic sim, **Box3D** physics through a fork that can save and restore
+the world, snapshots, checksums, sync-test and replays, and an input relay with prediction, rollback and late join,
+plus a headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Two games live
+here: `games/survivor/` (a co-op survivor, the test game) and `games/friendslop/` (a co-op physics sandbox). Larger
+3D co-op games follow, the first migrated later from the developer's current Unity game.
 
-## Layout
+## Why
 
-```
-src/                 the `unified` collection (-collection:unified=src); one package per directory, specs in spec/
-  wire/              little-endian Writer/Reader for every binary format (leaf)
-  sim/               the deterministic harness, generic over a game: tables + handles, RNG, plain-data check,
-                     snapshot ring, checksum, events, input log, portable snapshot
-  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image; the dynamic character
-                     mover, joints, queries, hit events, kinematic paths (spec/physics.md)
-  box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
-  dmath/             deterministic f32 helpers (leaf)
-  level/             Godot-authored levels for the sim: the UNLV file, reader, writer, Godot exporter (spec/level.md)
-  netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks
-  eos/               Epic Online Services: login, lobbies by code, P2P as a netcode link
-  headless/          a game's headless binary: the CLI modes of spec/headless.md (CLI), generic over the game
-  view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
-  gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
-  imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
-  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note (on unless
-                     -define:UNIFIED_DEVUI=false)
-  godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync
-games/survivor/      the test game, laid out like a game repo (Godot project root)
-  simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
-                     extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
-games/friendslop/    the co-op physics sandbox (spec/friendslop.md), laid out the same; its level is a Godot scene
-                     (game/levels/) exported to a .level file the sim loads
-tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
-  lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
-  toy/               a tiny game for the library's own tests
-  godot/             the binding tests' Godot project and test extension (dev.py godot-test)
-  box3d/ ... view/   one package per module (box3d, headless, godot_host, gdext, eos, ...)
-testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8; friendslop/ for F5
-third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
-tools/               dev.py (the entry point) and its parts: tools/README.md
-docs/                WORK.md (decisions), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/
-ols.json, odinfmt.json   editor (OLS) and formatter configuration
-```
+- **Unity is the bottleneck:** Editor refresh and domain reloads, crashes, dialogs that block tools, only one agent
+  at a time can use the Editor, and testing co-op needs a build or multiplayer play mode.
+- **Deterministic netcode without the glue:** the commercial SDK used today is great (determinism, replays,
+  snapshots, headless tests), but the Unity world and the sim world are glued by a bridge, schema codegen, map baking,
+  an asset DB export and physics separate from Unity's, plus a commercial service dependency.
+- **Code-first, not Editor-first:** the developer never really uses the Editor. Levels come from code, art from
+  Blender scripts, everything is driven from the CLI; dev tools live inside the game.
 
-The import graph is in [`AGENTS.md`](AGENTS.md#layout-and-commands). Every package imports another through the
-collection (`unified:<pkg>`), the same way games and tests do.
+## Requirements
 
-## Toolchain
+- **Scope:** hobby time but ambitious (agents do most of the work); features when needed, the core architecture
+  designed up front; for the developer now, maybe open source later.
+- **Platforms:** Steam on Windows x64, macOS ARM64 and Linux / Steam Deck. Consoles not now.
+- **Crossplay macOS ARM64 ↔ Windows x64**, so determinism holds bit for bit across architectures.
+- **Scale:** 2–4 players, 64 Hz (a per-game power of two), 1000+ entities, full rigid-body physics inside rollback.
+- **Simulation:** f32 with a deterministic discipline (fixed point was rejected); single-threaded, parallel only
+  where measurements demand it.
+- **Netcode:** the host runs an input relay that stamps each tick's official inputs, so a laggy player never stalls
+  the others (a peer-to-peer mesh that waits for every peer was rejected); late join from a snapshot, and a dropped
+  player rejoins as a late joiner. No backend.
+- **Transports** (pluggable): in-process loopback, direct UDP / LAN, and Epic Online Services (lobbies by code, P2P
+  with Epic's relays as fallback). Steam later.
+- **Co-op testing:** N clients per process over any transport, views on or off; headless loopback with a network
+  simulator is the workhorse for tests, agents and CI.
+- **Tests:** headless sim tests; replays as exact regression tests within a build, scenario tests across builds;
+  reference runs made on macOS ARM64 that Linux x64, Windows x64 (CI) and Rosetta reproduce bit for bit.
+- **Dev tools in the game:** entity picker and inspector, timeline scrub, network simulator panel with desync diffs,
+  tuning sliders that write back to text files, F3 feedback, free camera, perf overlay; a level editor eventually.
+- **Agent API** in the running game: query and edit state, step ticks, inject input per player, snapshots, replays,
+  screenshots, scripted scenarios.
+- **Gameplay code:** plain functions over typed queries, minimal magic; keep design options open.
+- **Hot reload:** configs, shaders and probably UI; code reload only if it costs nothing else (fast compiles matter
+  more, and agents work in parallel worktrees).
+- **Levels:** friendslop's level is a Godot scene exported to a `.level` file the sim loads; how entity kinds and
+  levels are authored in general is open
+  ([#38](https://github.com/FylmTM/unified/issues/38)).
+- **Content:** nothing ported from Unity's third-party packs; rebuilt in code or taken from what Godot provides.
+- **Characters, animation, audio:** rigs are view-only and procedural (physically grabbing things is worth trying);
+  prefer what the host offers and avoid licence costs.
+- **UI:** game UI in Godot (GDScript allowed in the view layer); dev tools in the game; immediate-mode or reactive.
+- **Version control:** git + LFS.
 
-- **Odin** `dev-2026-11` on PATH (macOS: `brew install odin`; CI downloads the release).
+## How it works
+
+All simulation state lives in one contiguous, pointer-free block (handles, not pointers). That makes a snapshot a
+memcpy, a checksum a hash of the block, late join a transfer of the block, and it enables rewind / scrub,
+state-keeping hot reload, and a **sync-test mode** that rolls back and re-simulates N frames every frame in single
+player, comparing checksums. That mode is what makes "works in single player ⇒ works online" a property we can
+check. Physics state lives in Box3D and is saved, restored and hashed alongside the block. The view reads simulation
+state (predicted frames for motion, verified frames for scores, events for effects) and never writes it; player
+input is the only way in.
+
+A game is a deterministic sim package (its state, input and tick) plus a Godot project; the library supplies the
+harness, physics, netcode, the headless CLI and the Godot host. [`src/README.md`](src/README.md) is how the core
+works inside.
+
+## Getting started
+
+Toolchain (macOS ARM64, Linux x64 or Windows x64):
+
+- **Odin**, the release CI pins (`ODIN_TAG` in `.github/workflows/`), on PATH (macOS: `brew install odin`).
 - **Python 3.9+** for `tools/` (stdlib only).
 - **Box3D build:** git, CMake, Ninja and clang (macOS/Linux) or clang-cl (Windows; found on PATH, in
-  `C:\Program Files\LLVM` or Visual Studio). Only needed the first time; `tools/box3d.py` caches the result.
-- **odinfmt** (the formatter, part of OLS), pinned to OLS `85d88870`. Install it with
-  `python tools/ci.py odinfmt ~/.local/share/unified-odinfmt` and put that directory on PATH (or set `ODINFMT`).
-- **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` collection, the strict checker
-  flags, format on save with `odinfmt.json`).
+  `C:\Program Files\LLVM` or Visual Studio). Built on first use and cached.
+- **Godot**, the standard (non-.NET) build `tools/common.py` pins, found via `$GODOT`, `godot` on PATH,
+  `.toolchains/godot/`, or `~/tools/godot` / `/Applications` on macOS (`python tools/ci.py godot` downloads it).
+- **odinfmt** (the formatter, part of OLS) at the commit `tools/ci.py` pins: `python tools/ci.py odinfmt
+  ~/.local/share/unified-odinfmt`, then put that directory on PATH (or set `ODINFMT`).
+- **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` collection, the strict checker flags,
+  format on save with `odinfmt.json`).
 
-## Commands
+Then, from the repo root:
 
-Everything goes through `tools/dev.py`; each command prints its time. The full list, with timings, is in
-[`AGENTS.md`](AGENTS.md#layout-and-commands); `python tools/dev.py -h` prints it too.
+```
+python tools/dev.py -h                  # every command and its options
+python tools/dev.py test                # build and run every test package
+python tools/dev.py game run survivor   # play it (builds its extension the first time)
+python tools/dev.py all                 # everything CI runs
+```
 
-Godot: the standard (non-.NET) 4.7.2 build, found via `$GODOT`, `godot` on PATH, `.toolchains/godot/`, or
-`~/tools/godot` / `/Applications` on macOS (`python tools/ci.py godot` downloads the official one there). Dear ImGui
-is fetched and built by `tools/imgui.py` on first use (clang++ / clang-cl, ~2.5 s).
+A step-by-step guide to setting up and making a tiny game is planned
+([#21](https://github.com/FylmTM/unified/issues/21)).
 
-| Mode | Flags | Use | Build (M4 Pro) |
-|---|---|---|---:|
-| `dev` | `-o:speed -use-separate-modules -debug` | everyday: optimized, debuggable | 1.0 s |
-| `release` | `-o:speed` (one LLVM module) | fastest binary; what `check` and CI test | 3.5 s |
-| `debug` | `-o:none -debug` | stepping in a debugger | 0.6 s |
+## Where next
 
-All modes add `-vet -strict-style -vet-tabs -warnings-as-errors`; bounds checks stay on. The plain Odin commands
-work too (the bindings import Box3D's static library by relative path): `odin build
-games/survivor/simulation/headless -collection:unified=src`, `odin test tests -all-packages -collection:unified=src`.
-
-Rosetta determinism check on Apple Silicon (an x86_64 build in `out/release-x64/` against the macos-x64 Box3D):
-`python tools/dev.py check --arch x86_64 --only T1,T7,T8`.
-
-Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/dev.py check --regen` (see
-[`testdata/README.md`](testdata/README.md)).
-
-## CI
-
-`.github/workflows/ci.yml`: `lint` (format check, vet), `test` on Linux x64 and Windows x64 (`odin test`, then
-T1-T9 with the T9 bench and step timings in the job summary) and `godot` on Linux x64 (`dev.py godot-checks`):
-together what `dev.py all` runs. `release.yml` makes playable game builds for `<game>-v*` tags only
-(`docs/RELEASE.md`); `eos-crossplay.yml` is the manual internet crossplay check (`spec/eos.md`); `eos-sdk.yml`
-fetches the EOS SDK for the others (the only job with a write token, running no repository code). Actions, runner
-images and downloads are pinned; Odin, odinfmt, Box3D, Dear ImGui, Godot and the EOS SDK are cached.
+- [`AGENTS.md`](AGENTS.md): roles, rules and workflow for working on unified.
+- The [board](https://github.com/users/FylmTM/projects/2): current and upcoming work.
+- `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
+- [`tools/README.md`](tools/README.md): the tools behind `dev.py`.
+- [`docs/`](docs/): decisions so far (`WORK.md`), game builds (`RELEASE.md`), online setup (`EOS.md`), open research
+  (`research/`) and phase 2 results (`archive/`).

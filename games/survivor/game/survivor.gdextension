@@ -9,14 +9,14 @@ reloadable = true
 
 [libraries]
 
-macos.debug = "res://.uni/bin/libsurvivor.dylib"
-macos.release = "res://.uni/bin/libsurvivor.dylib"
-windows.x86_64 = "res://.uni/bin/survivor.dll"
-linux.x86_64 = "res://.uni/bin/libsurvivor.so"
+macos.debug = "res://.out/bin/libsurvivor.dylib"
+macos.release = "res://.out/bin/libsurvivor.dylib"
+windows.x86_64 = "res://.out/bin/survivor.dll"
+linux.x86_64 = "res://.out/bin/libsurvivor.so"
 
-; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .uni/bin).
+; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .out/bin).
 [dependencies]
 
-macos.debug = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
-macos.release = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
-windows.x86_64 = { "res://.uni/bin/EOSSDK-Win64-Shipping.dll": "" }
+macos.debug = { "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+macos.release = { "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "res://.out/bin/EOSSDK-Win64-Shipping.dll": "" }

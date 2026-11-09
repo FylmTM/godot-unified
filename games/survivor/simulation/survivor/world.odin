@@ -1,5 +1,5 @@
 // The world outside the block: the physics world (static geometry, then items and players, in
-// GAME.md creation order) and per-tick scratch; plus body creation and the game descriptor.
+// games/survivor/SPEC.md creation order) and per-tick scratch; plus body creation and the game descriptor.
 package survivor
 
 import b3 "unified:box3d"
@@ -157,7 +157,7 @@ destroy_body :: proc(w: ^World, r: ^Body_Ref) {
 	physics.destroy_body(w.phys, r)
 }
 
-// The physics world with its static geometry (GAME.md creation order: ground, walls, pillars).
+// The physics world with its static geometry (games/survivor/SPEC.md creation order: ground, walls, pillars).
 world_create :: proc(seed: u64, _: []u8) -> ^World {
 	w := new(World)
 	w.phys = physics.create()

@@ -1,5 +1,5 @@
 // The World (outside the block): the physics world, the level file and what the sim reads from its
-// markers (spec/friendslop.md "Level"), body creation, and the game descriptor.
+// markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
 import b3 "unified:box3d"
@@ -233,12 +233,12 @@ MOVER := physics.Mover_Def {
 	jump_buffer_s          = 0.125,
 }
 
-// Builds the world from the level (spec/level.md): static geometry, then the markers the sim uses.
+// Builds the world from the level (src/level/SPEC.md): static geometry, then the markers the sim uses.
 // Bodies the block owns (items, platforms, bells) are created by init, in this order.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	w := new(World)
 	lvl, ok := level.load(content)
-	assert(ok, "friendslop: the level file is missing or not a level (spec/level.md)")
+	assert(ok, "friendslop: the level file is missing or not a level (src/level/SPEC.md)")
 	w.lvl = lvl
 	w.phys = physics.create({anchor = true, hit_threshold = 2})
 	w.extras[0] = physics.extra(w.phys, State)

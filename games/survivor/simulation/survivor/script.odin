@@ -1,4 +1,4 @@
-// Scripted test inputs (GAME.md "Scripted inputs"): per player, a value r re-drawn every 24 ticks
+// Scripted test inputs (games/survivor/SPEC.md "Scripted inputs"): per player, a value r re-drawn every 24 ticks
 // as a hash of (seed, player, block), so any tick can be asked for in any order (netcode clients
 // sample ticks as their clock reaches them, tests jump around).
 package survivor

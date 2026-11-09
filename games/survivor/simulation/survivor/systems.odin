@@ -1,5 +1,5 @@
-// The game systems in GAME.md order. Float math is scalar f32 `+ − × ÷` and sqrt only, written in
-// the order the spec gives; no `matrix` types and no core:math (determinism traps, see README).
+// The game systems in games/survivor/SPEC.md order. Float math is scalar f32 `+ − × ÷` and sqrt only, written in
+// the order the spec gives; no `matrix` types and no core:math (determinism traps, see AGENTS.md).
 package survivor
 
 import b3 "unified:box3d"

@@ -1,4 +1,4 @@
-// Godot-authored levels for the sim (spec/level.md): the `UNLV` file the exporter writes, read into
+// Godot-authored levels for the sim (src/level/SPEC.md): the `UNLV` file the exporter writes, read into
 // plain slices. Deterministic and pointer-free in what it returns to the sim (the Level lives in the
 // World, outside the block). The bytes stay owned by the caller: strings are views into them.
 //

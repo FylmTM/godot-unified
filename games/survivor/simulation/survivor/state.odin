@@ -1,4 +1,4 @@
-// Survivor (spec/GAME.md): constants, input, the pointer-free state block and its tables.
+// Survivor (games/survivor/SPEC.md): constants, input, the pointer-free state block and its tables.
 package survivor
 
 import "unified:physics"
@@ -108,7 +108,7 @@ Item_Kind :: enum u8 {
 	Barrel,
 }
 
-// Crates and barrels, one per grid spot (GAME.md "World").
+// Crates and barrels, one per grid spot (games/survivor/SPEC.md "World").
 Item :: struct {
 	body:         Body_Ref,
 	hp:           i32,

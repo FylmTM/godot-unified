@@ -3,10 +3,10 @@ directly with the same arguments: `python tools/game.py validate survivor`):
 
     python tools/dev.py game validate <game>              # compile scripts, load scenes, run the menu 30 frames
     python tools/dev.py game walk <game>                  # scripted UI walk with the mock session (headless)
-    python tools/dev.py game shots <game>                 # the walk in a window, PNGs to games/<game>/.uni/shots/
+    python tools/dev.py game shots <game>                 # the walk in a window, PNGs to games/<game>/.out/shots/
     python tools/dev.py game tour <game> [--shots]        # the real game (library built): single player through
                                                           # lobby/match; headless quick check, or windowed with
-                                                          # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
+                                                          # PNGs to games/<game>/.out/tour/ (~50 s, plays to game over)
     python tools/dev.py game tour <game> --frames [--cold]   # windowed tour reporting frame times, hitches with the
                                                           # events around them and each first use's worst frame;
                                                           # --cold clears the shader caches (~70 s)
@@ -15,7 +15,7 @@ directly with the same arguments: `python tools/game.py validate survivor`):
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import <game>                # refresh Godot's import cache (.godot/)
-    python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (spec/level.md);
+    python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (src/level/SPEC.md);
                                                           # --check fails when a committed file is stale
 
 Godot: common.find_godot(). Every run has a timeout (Godot can hang on some errors) and is judged by the JSON line
@@ -69,7 +69,7 @@ def parser():
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="|".join(COMMANDS), parser_class=common.Strict)
     for name, helptext in (("validate", "compile scripts, load scenes, run the menu 30 frames (headless)"),
                            ("walk", "scripted UI walk with the mock session (headless)"),
-                           ("shots", "the walk in a window, PNGs to <game>/.uni/shots/"),
+                           ("shots", "the walk in a window, PNGs to <game>/.out/shots/"),
                            ("tour", "the real game through lobby and match (needs the game library)"),
                            ("coop", "online co-op over EOS: host + headless joiner (needs the game library)"),
                            ("import", "refresh Godot's import cache"),
@@ -116,14 +116,14 @@ def main(argv):
         with _keep_front_app():
             ok, data, secs = run_tool(
                 proj, ["--resolution", "1280x720", "-s", "res://game/tools/ui_walk.gd", "--", "--mock",
-                       "--no-settings", "--shots=res://.uni/shots"], 180, "WALK_JSON")
+                       "--no-settings", "--shots=res://.out/shots"], 180, "WALK_JSON")
     elif a.cmd == "tour":
         if a.cold and not a.frames:
             raise SystemExit("game: --cold goes with --frames")
         if a.shots or a.frames:
             if a.cold:
                 _clear_shader_cache(proj)
-            extra = (["--shots=res://.uni/tour"] if a.shots else []) + (["--frames"] if a.frames else [])
+            extra = (["--shots=res://.out/tour"] if a.shots else []) + (["--frames"] if a.frames else [])
             with _keep_front_app():
                 ok, data, secs = run_tool(
                     proj, ["--resolution", "1280x720", "-s", "res://game/tools/tour.gd", "--", "--no-settings"] + extra,
@@ -139,11 +139,11 @@ def main(argv):
 
 
 def export_levels(proj, check):
-    """Runs unified's level exporter (installed into <game>/.uni/tools/) on the project's levels."""
-    tools = os.path.join(proj, ".uni", "tools")
+    """Runs unified's level exporter (installed into <game>/.out/tools/) on the project's levels."""
+    tools = os.path.join(proj, ".out", "tools")
     os.makedirs(tools, exist_ok=True)
     shutil.copyfile(LEVEL_EXPORTER, os.path.join(tools, "level_export.gd"))
-    ok, data, secs = run_tool(proj, ["--headless", "-s", "res://.uni/tools/level_export.gd", "--"] +
+    ok, data, secs = run_tool(proj, ["--headless", "-s", "res://.out/tools/level_export.gd", "--"] +
                               (["--check"] if check else []), 60, "LEVEL_JSON")
     for lv in (data or {}).get("levels", []):
         log("game: %s -> %s (%d bytes%s)" % (lv["scene"], lv["level"], lv["bytes"],
@@ -180,22 +180,22 @@ def cmd_coop(proj, shots, rejoin=False, lan=False):
     again with the same code. The joiner is always reaped, also when the host fails or times out: an orphan would
     stay connected to EOS."""
     extra = (["--rejoin"] if rejoin else []) + (["--lan"] if lan else [])
-    code = proj / ".uni" / "coop_code.txt"
+    code = proj / ".out" / "coop_code.txt"
     code.parent.mkdir(parents=True, exist_ok=True)
     if code.exists():
         code.unlink()
     env = dict(os.environ, USER="Friend", USERNAME="Friend", UNIFIED_EOS_FRESH_DEVICE="1")
-    join_log = proj / ".uni" / "coop_join.log"
+    join_log = proj / ".out" / "coop_join.log"
     host_args = ["-s", "res://game/tools/coop.gd", "--", "--no-settings", "--role=host",
-                 "--code-file=res://.uni/coop_code.txt"] + extra
+                 "--code-file=res://.out/coop_code.txt"] + extra
     if shots:
-        host_args = ["--resolution", "1280x720"] + host_args + ["--shots=res://.uni/coop"]
+        host_args = ["--resolution", "1280x720"] + host_args + ["--shots=res://.out/coop"]
     else:
         host_args = ["--headless"] + host_args
     with open(join_log, "w") as jl:
         joiner = subprocess.Popen(
             [common.find_godot(), "--path", str(proj), "--headless", "-s", "res://game/tools/coop.gd", "--",
-             "--no-settings", "--role=join", "--code-file=res://.uni/coop_code.txt"] + extra,
+             "--no-settings", "--role=join", "--code-file=res://.out/coop_code.txt"] + extra,
             stdout=jl, stderr=subprocess.STDOUT, env=env)
         try:
             if shots:

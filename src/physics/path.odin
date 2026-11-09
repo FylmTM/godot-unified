@@ -1,4 +1,4 @@
-// Kinematic paths (spec/physics.md): a platform's pose as a pure function of its phase tick, and the
+// Kinematic paths (src/physics/SPEC.md): a platform's pose as a pure function of its phase tick, and the
 // drive that makes a kinematic body follow it without drift.
 package physics
 

@@ -36,7 +36,7 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
 - **Tick rate: a per-game power of two (32, 64, 128 Hz), default 64 Hz.** `dt` is exact (`1/64`), so every `x * dt`
   rounds once less and tick ↔ second conversions are exact. Every time constant is written in seconds and converted
   with `dt`; no raw tick counts in specs or game code. Costs 6.7% more ticks than 60 Hz; the view interpolates to
-  any display rate. The survivor timers and `testdata/` get regenerated when the core moves.
+  any display rate. The survivor timers and the reference runs get regenerated when the core moves.
 - **Defaults for the specs:** an unbiased bounded RNG in `sim` (`rng_below(n)`, Lemire's method; no `% n` for
   ranges); the relay's hard tolerance and the input-delay formula derive from milliseconds and the tick length;
   `view` interpolates from a per-view transform history with exponential-decay smoothing, not whole-frame copies;
@@ -65,11 +65,11 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   unified/      submodule; ships its own .gdignore
   simulation/   game sim code (Odin); .gdignore created by `unified init`
   game/         everything Godot: scenes, scripts, assets
-  .uni/         all artifacts (CLI cache, Box3D builds, game library, F3 feedback, test output), hidden, git-ignored
+  .out/         all artifacts (CLI cache, Box3D builds, game library, F3 feedback, test output), hidden, git-ignored
   .godot/       Godot import cache
   ```
   `unified check` fails if Godot imported anything outside `game/`. To verify in the GDExtension spike: the library
-  loads and exports from hidden `res://.uni/bin/`.
+  loads and exports from hidden `res://.out/bin/`.
 
 - **Godot route: GDExtension.** LibGodot stays a later option (our init runs unchanged under a LibGodot host).
 - **View binding: (C) hybrid.**

@@ -1,4 +1,4 @@
-// spec/friendslop.md: scenarios on the real level (the committed export of game/levels/park.tscn), each
+// games/friendslop/SPEC.md: scenarios on the real level (the committed export of game/levels/park.tscn), each
 // driven by a director that reads the World and records its inputs, while every tick is sync-tested
 // (restore 8 ticks back, re-simulate with the recorded inputs, compare checksums). So platforms, carries,
 // two-person lifts, throws, hits, held friends and pads are all checked for determinism under rollback.
@@ -6,12 +6,12 @@ package test_friendslop
 
 import "core:testing"
 
-import fs "../../games/friendslop/simulation/friendslop"
+import fs "../friendslop"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-PARK :: #load("../../games/friendslop/game/levels/park.level")
+PARK :: #load("../../game/levels/park.level")
 WINDOW :: 8
 
 Run :: struct {

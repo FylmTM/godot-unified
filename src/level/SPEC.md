@@ -1,7 +1,7 @@
 # `unified:level`: Godot-authored levels for the sim
 
 Signed off by the developer 2026-11-09. A level is authored as a Godot scene, exported to a small binary
-file, and loaded by the sim at runtime. First user: `spec/friendslop.md`.
+file, and loaded by the sim at runtime. First user: `games/friendslop/SPEC.md`.
 
 ## Authoring
 
@@ -17,7 +17,7 @@ file, and loaded by the sim at runtime. First user: `spec/friendslop.md`.
   collision (view only).
 
 The library ships the exporter only, not scripts that scenes depend on. The tools install it into the game's
-`.uni/tools/` and run it there.
+`.out/tools/` and run it there.
 
 ## File (`UNLV`, little-endian, through `unified:wire`)
 

@@ -1,4 +1,4 @@
-// EOS (spec/eos.md) as the headless binary's online transport: `eos-host` / `eos-client` through
+// EOS (src/eos/SPEC.md) as the headless binary's online transport: `eos-host` / `eos-client` through
 // unified:headless's online modes. Two processes on one machine need two Product User IDs: run one
 // of them with UNIFIED_EOS_FRESH_DEVICE=1. Each run deletes its device ID at exit: on macOS the
 // keychain entry belongs to the binary that made it, and a rebuilt binary could not read or replace

@@ -1,4 +1,4 @@
-// UnifiedSession: the GDScript-facing session node (contract v0, spec/godot_host.md).
+// UnifiedSession: the GDScript-facing session node (contract v0, src/godot_host/SPEC.md).
 package godot_host
 
 import "core:fmt"
