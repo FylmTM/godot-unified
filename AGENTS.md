@@ -66,8 +66,12 @@ list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need p
 - **Agents take work only from Todo** (or what the developer hands them directly), and never start Backlog or
   Design items on their own. Another column's item may get a comment with questions or findings.
 - **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues).
-  Agents push their own branches and open PRs without asking; only merging into `main` is gated. Fill in the PR
-  template; "Decisions made without sign-off" lists every choice the developer hasn't seen.
+  A PR may cover several issues (`Part of #a, #b, ...`, one commit per issue). Agents push their own branches and
+  open PRs without asking; only merging into `main` is gated. Fill in the PR template; "Decisions made without
+  sign-off" lists every choice the developer hasn't seen.
+- **A review sitting's follow-ups ship as one PR per sitting** (or per large part of one): one side session on one
+  branch does them all while the next sitting continues. Issues stay one per decision. This keeps CI runs down and
+  parallel agents off each other's files.
 - **Merging:** an agent may merge its own PR, after `python tools/dev.py all` passes and CI is green, only when
   the change is trivial (typo, formatting, test-only, a doc that only fixes facts) or the issue carries the
   `agent-may-merge` label. It then moves the issue to "Merged, to review". Everything else waits in Review.
