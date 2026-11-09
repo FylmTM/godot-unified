@@ -79,13 +79,11 @@ decode_log :: proc(data: []u8) -> (h: Log_Header, body: []u8, ok: bool) {
 	magic := wire.r_bytes(&r, 4)
 	version := wire.r_u16(&r)
 	h.seed = wire.r_u64(&r)
-	if version >= 3 {
-		h.content = wire.r_u64(&r) // v2 logs have none: content 0
-	}
+	h.content = wire.r_u64(&r)
 	h.slots = int(wire.r_u8(&r))
 	h.input_size = int(wire.r_u16(&r))
 	h.ticks = int(wire.r_u32(&r))
-	if !r.ok || string(magic) != LOG_MAGIC || version < 2 || version > LOG_VERSION {
+	if !r.ok || string(magic) != LOG_MAGIC || version != LOG_VERSION {
 		return
 	}
 	return h, data[r.pos:], true

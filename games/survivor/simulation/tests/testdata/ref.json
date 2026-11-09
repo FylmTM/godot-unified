@@ -1,15 +1,9 @@
 {
-  "generated": "2026-11-09T07:20:40Z",
-  "platform": "macos-arm64",
-  "build_mode": "release",
-  "git_commit": "d8ea0ce4bc8dff072ce0a754a8309f7aeee64de6",
+  "made_on": {"os": "Darwin", "arch": "arm64", "odin": "dev-2026-11 (9a6991685)", "build": "-o:speed -use-separate-modules -debug", "commit": "a7fadb4c2a4cd98f3be76d439d84bfaccd2053af+dirty"},
+  "made_at": "2026-11-09T18:56:12Z",
   "seed": 7,
   "players": 4,
   "ticks": 3600,
   "snapshot_tick": 1800,
-  "final_checksum": "faafe09101c92101",
-  "commands": [
-    "survivor sim --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log",
-    "survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap"
-  ]
+  "final_checksum": "faafe09101c92101"
 }

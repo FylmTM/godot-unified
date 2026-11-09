@@ -328,8 +328,8 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	testing.expect(t, !sim.inputs_same(&a, &b))
 }
 
-// src/level/SPEC.md: the content (level) a sim was created with is part of its identity. A v2 log (no
-// content field) still decodes, as content 0.
+// src/level/SPEC.md: the content (level) a sim was created with is part of its identity. Logs and
+// snapshots of another format version are refused (only the current one is read).
 @(test)
 content_identity :: proc(t: ^testing.T) {
 	level_a := []u8{1, 2, 3}
@@ -353,21 +353,22 @@ content_identity :: proc(t: ^testing.T) {
 	testing.expect_value(t, err2, sim.Snap_Error.None)
 	if b != nil do sim.destroy(b)
 
-	// A v2 log: the v3 bytes without the content field.
+	// The current version round-trips; any other version is refused.
 	lg := sim.Input_Log(toy.Input, toy.SLOTS) {
-		seed = 5,
+		seed    = 5,
+		content = sim.content_hash(level_a),
 	}
 	defer sim.log_destroy(&lg)
 	append(&lg.ticks, ins)
-	v3 := sim.log_encode(&lg)
-	defer delete(v3)
-	v2 := make([dynamic]u8)
-	defer delete(v2)
-	append(&v2, ..v3[:4])
-	append(&v2, 2, 0)
-	append(&v2, ..v3[6:14]) // seed
-	append(&v2, ..v3[22:]) // slots, input size, ticks, body
-	back, ok := sim.log_decode(v2[:], toy.Input, toy.SLOTS)
-	defer sim.log_destroy(&back)
-	testing.expect(t, ok && back.seed == 5 && back.content == 0 && len(back.ticks) == 1)
+	data := sim.log_encode(&lg)
+	defer delete(data)
+	back, ok := sim.log_decode(data, toy.Input, toy.SLOTS)
+	testing.expect(t, ok && back.seed == 5 && back.content == lg.content && len(back.ticks) == 1)
+	sim.log_destroy(&back)
+	data[4] = u8(sim.LOG_VERSION - 1) // the version, little-endian, after the magic
+	_, ok = sim.log_decode(data, toy.Input, toy.SLOTS)
+	testing.expect(t, !ok)
+	snap[4] = u8(sim.SNAP_VERSION - 1)
+	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)
+	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
 }

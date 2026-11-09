@@ -87,9 +87,7 @@ snap_read :: proc(
 	version := wire.r_u16(&r)
 	h.extras = int(wire.r_u16(&r))
 	h.seed = wire.r_u64(&r)
-	if version >= 3 {
-		h.content = wire.r_u64(&r) // v2 snapshots have none: content 0
-	}
+	h.content = wire.r_u64(&r)
 	h.tick = wire.r_u32(&r)
 	h.block = int(wire.r_u32(&r))
 	h.layout = wire.r_u64(&r)
@@ -97,7 +95,7 @@ snap_read :: proc(
 	header := r.pos
 	block = wire.r_bytes(&r, h.block)
 	switch {
-	case !r.ok || string(magic) != SNAP_MAGIC || version < 2 || version > SNAP_VERSION || h.block != block_size:
+	case !r.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION || h.block != block_size:
 		err = .Bad_Header
 	case h.layout != layout:
 		err = .Layout_Differs
