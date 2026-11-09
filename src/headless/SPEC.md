@@ -31,7 +31,8 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 - `unified bench --enemies E --window W --ticks N`: JSON with mean/p99 µs for the forward step, save, restore, W-tick
   re-sim, and snapshot bytes.
 
-Conventions (`dev.py check` drives `relay`, `client` and `bench`; the suites call the same procs in-process):
+Conventions (`dev.py check` drives `relay` and `client`, `dev.py bench` drives `bench`; the suites call the same procs
+in-process):
 - Defaults: `--seed 1`, `--players 4`. `relay` and `client` have no `--seed` and use the default.
 - Ticks are numbered from 1: the state after the k-th step is tick k, and `--ticks N` ends at tick N. A trace has one
   line per tick, 1..N in order (`resume` from a tick-T snapshot traces T+1..T+N). Checksums in traces and JSON are
@@ -118,9 +119,10 @@ Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
   (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless`).
 - **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `dev.py test` (every
-  suite and every reference run: the cross-check), then `dev.py check`. Until the benchmarks take it over (#62),
-  `dev.py check` also runs the survivor's `bench --enemies 1000 --window 8` (reported, not gated; target: forward
-  step + 8-tick re-sim ≤ 6 ms) and CI's job summary shows it.
+  suite and every reference run: the cross-check), then `dev.py check`, then `dev.py bench`.
+- **Benchmarks are not part of the suites:** `python tools/dev.py bench` runs each game's `bench` mode alone on a
+  release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
+  them.
 
 ### Reference runs (#61)
 

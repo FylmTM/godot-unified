@@ -40,18 +40,19 @@ python tools/box3d.py --clean         # refetch and rebuild (also after a compil
 - Compilers: `clang` on macOS and Linux, `clang-cl` on Windows (PATH, `C:\Program Files\LLVM`, then Visual
   Studio's LLVM; the MSVC environment is loaded via vswhere/vcvarsall when the shell isn't a developer prompt).
 
-## `dev.py check` and `dev.py regen`
+## `dev.py check`, `dev.py bench` and `dev.py regen`
 
 The end-to-end suites run in `dev.py test` (`src/headless/SPEC.md`, End-to-end suites). `check` keeps what can't
-run in-process:
+run in-process: the real-UDP, real-clock test. The toy's headless binary (`out/release/toy`) runs as a relay on a
+free localhost port plus 3 client processes (the last with `--profile bad`), 960 ticks (~15 s). Every client must
+verify every tick, their checksums (every 16th tick) must agree, and nobody may report a desync. `out/check.json` is
+the summary CI's job summary reads; `out/check/` keeps each process's command line, stdout and stderr. Every process
+runs under a timeout, so a hung binary fails its test.
 
-- The real-UDP, real-clock test: the toy's headless binary (`out/release/toy`) as a relay on a free localhost port
-  plus 3 client processes (the last with `--profile bad`), 960 ticks (~15 s). Every client must verify every tick,
-  their checksums (every 16th tick) must agree, and nobody may report a desync.
-- Until the benchmarks take it over (#62): the survivor's `bench --enemies 1000 --window 8 --ticks 600`, reported
-  (target: forward step + 8-tick re-sim ≤ 6 ms), not gated.
-- One `PASS`/`FAIL` line per test. `out/check.json` is the summary CI's job summary reads; `out/check/` keeps each
-  process's command line, stdout and stderr. Every process runs under a timeout, so a hung binary fails its test.
+`bench [name ...]` runs the benchmarks (`BENCHES` in `dev.py`; default all) one at a time on a release build: each
+is a game's `bench` mode (forward step, save, restore and an 8-tick re-sim every tick). One line per benchmark
+against the target (step + re-sim ≤ 6 ms); `out/bench.json` for CI's job summary, `out/bench/` for the processes'
+output. Reported, not gated; a re-sim that disagrees with the forward run fails it.
 
 `regen <game>|toy` builds and runs that suite with `-define:UNIFIED_REGEN=true` and the commit (`+dirty` when the tree
 has changes) as `-define:UNIFIED_REGEN_COMMIT`, then lists the reference files that changed (`git status`).

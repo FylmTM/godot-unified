@@ -3,8 +3,8 @@
 
     python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{survivor,friendslop,toy}[.exe]
     python tools/dev.py test                    # odin test: unit tests, every end-to-end suite, determinism lint
-    python tools/dev.py check                   # release build, then the real-UDP multi-process test (toy) and
-                                                # the survivor's rollback bench
+    python tools/dev.py check                   # release build, then the real-UDP multi-process test (toy)
+    python tools/dev.py bench [name ...]        # release build, then the benchmarks (default: all of them)
     python tools/dev.py regen <game>|toy        # regenerate a reference run (simulation/tests/testdata/)
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
@@ -12,7 +12,7 @@
     python tools/dev.py godot-test              # binding tests: tests/godot under headless Godot
     python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
                                                 # validate, walk (CI's godot job runs exactly this)
-    python tools/dev.py all                     # fmt --check, vet, test, check, godot-checks (everything CI runs)
+    python tools/dev.py all                     # fmt --check, vet, test, check, bench, godot-checks (all CI runs)
     python tools/dev.py game build <game> [dev|release]  # games/<game>/.out/bin/lib<game>.*
     python tools/dev.py game run <game> [-- args]       # windowed game (args after -- go to the game)
     python tools/dev.py game editor <game>              # the Godot editor on the game
@@ -43,8 +43,12 @@ each game's and the toy game's (tests/toy/headless).
 
 End-to-end (src/headless/SPEC.md, End-to-end suites): each game's suite and the toy's run in `test`. `check`
 keeps the real-UDP, real-clock test: a relay and 3 client processes of the toy's binary (one under `bad`),
-960 ticks (~15 s); then, until the benchmarks take it over, the survivor's `bench --enemies 1000 --window 8`
-(reported, not gated). Results go to out/check.json (CI's job summary) and process output to out/check/.
+960 ticks (~15 s). Results go to out/check.json (CI's job summary) and process output to out/check/.
+
+Benchmarks: `bench` runs each one alone on a release build (nothing else in parallel, so timings are clean), prints
+one line per benchmark with its target, and writes out/bench.json (CI's job summary). Reported, not gated. Each is
+a headless binary's `bench` mode (src/headless/SPEC.md, CLI): a forward step, a save, a restore and a W-tick re-sim,
+every tick; the target is a forward step plus an 8-tick re-sim within 6 ms.
 `regen` runs a suite with -define:UNIFIED_REGEN=true: its reference test writes a new reference run (ref.log,
 ref.trace, the snapshot, ref.json saying where it was made), checks it, and the files show up in `git status`.
 """
@@ -662,27 +666,8 @@ def check_udp(binary, work):
     return detail, {"port": port, "rollbacks": [c.get("rollbacks") for c in clients]}
 
 
-BENCH_TARGET_US = 6000.0
-
-
-def check_bench(binary, work):
-    """Until the benchmarks take it over: the survivor's forward step + 8-tick re-sim at 1000 enemies (reported,
-    not gated; target <= 6 ms)."""
-    j = check_finish(work, check_start(binary, work, "bench", ["bench", "--enemies", 1000, "--window", 8,
-                                                                "--ticks", 600]), 900)
-    step, resim = float(j["step_us"]["mean"]), float(j["resim_us"]["mean"])
-    data = {"step_mean_us": step, "step_p99_us": float(j["step_us"]["p99"]),
-            "save_mean_us": float(j["save_us"]["mean"]), "restore_mean_us": float(j["restore_us"]["mean"]),
-            "resim_mean_us": resim, "resim_p99_us": float(j["resim_us"]["p99"]), "step_plus_resim_us": step + resim,
-            "snapshot_bytes": int(j["snapshot_bytes"]), "within_target": step + resim <= BENCH_TARGET_US, "raw": j}
-    detail = "survivor: step %.0f us + 8-tick re-sim %.0f us = %.2f ms (target <= 6 ms: %s); snapshot %d bytes" % (
-        step, resim, (step + resim) / 1000, "yes" if data["within_target"] else "NO", data["snapshot_bytes"])
-    return detail, data
-
-
 def cmd_check():
-    """Release build, then the real-UDP multi-process test on the toy's binary and the survivor's bench. Writes
-    out/check.json (the CI job summary reads it) and each process's output to out/check/."""
+    """Release build, then the real-UDP multi-process test on the toy's binary. Writes out/check.json (the CI job summary reads it) and each process's output to out/check/."""
     out = cmd_build("release")
     work = REPO / "out" / "check"
     shutil.rmtree(str(work), ignore_errors=True)
@@ -690,7 +675,7 @@ def cmd_check():
     summary = {"platform": common.platform_tag(), "commit": git_commit(),
                "started": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "ok": False, "tests": {}}
-    for name, run, binary in (("udp_processes", check_udp, "toy"), ("bench", check_bench, "survivor")):
+    for name, run, binary in (("udp_processes", check_udp, "toy"),):
         t0 = time.time()
         try:
             detail, data = run(out / (binary + EXE), work)
@@ -704,6 +689,58 @@ def cmd_check():
     (REPO / "out" / "check.json").write_text(json.dumps(summary, indent=2) + "\n")
     if not summary["ok"]:
         raise SystemExit("dev: check failed (out/check.json, out/check/)")
+
+
+# The benchmarks: name -> (headless binary, its `bench` arguments, what it measures). Each reports the forward
+# step, save, restore and W-tick re-sim (mean and p99 µs) and the snapshot size; target: step + re-sim <= 6 ms.
+BENCHES = {
+    "survivor-rollback": ("survivor", ["--enemies", 1000, "--window", 8, "--ticks", 600],
+                          "survivor (stress tuning) holding 1000 enemies, 8-tick rollback every tick"),
+    "friendslop-rollback": ("friendslop", ["--window", 8, "--ticks", 600],
+                            "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick"),
+}
+BENCH_TARGET_US = 6000.0
+
+
+def cmd_bench(names=None):
+    """Release build, then each benchmark alone. Writes out/bench.json (the CI job summary reads it) and each
+    process's output to out/bench/."""
+    names = names or list(BENCHES)
+    unknown = [n for n in names if n not in BENCHES]
+    if unknown:
+        raise SystemExit("dev: unknown benchmark(s) %s (have: %s)" % (", ".join(unknown), ", ".join(BENCHES)))
+    out = cmd_build("release")
+    work = REPO / "out" / "bench"
+    shutil.rmtree(str(work), ignore_errors=True)
+    work.mkdir(parents=True)
+    summary = {"platform": common.platform_tag(), "commit": git_commit(), "target_us": BENCH_TARGET_US,
+               "benchmarks": {}}
+    failed = []
+    for name in names:
+        binary, args, what = BENCHES[name]
+        try:
+            j = check_finish(work, check_start(out / (binary + EXE), work, name, ["bench"] + args), 900)
+        except CheckFail as e:
+            failed.append(name)
+            log("bench: %s failed: %s" % (name, e))
+            continue
+        step, resim = float(j["step_us"]["mean"]), float(j["resim_us"]["mean"])
+        d = {"what": what, "args": " ".join(str(a) for a in args),
+             "step_mean_us": step, "step_p99_us": float(j["step_us"]["p99"]),
+             "save_mean_us": float(j["save_us"]["mean"]), "restore_mean_us": float(j["restore_us"]["mean"]),
+             "resim_mean_us": resim, "resim_p99_us": float(j["resim_us"]["p99"]), "step_plus_resim_us": step + resim,
+             "snapshot_bytes": int(j["snapshot_bytes"]), "within_target": step + resim <= BENCH_TARGET_US,
+             "mismatches": int(j.get("mismatches", 0)), "raw": j}
+        summary["benchmarks"][name] = d
+        print("%-20s step %5.0f us + re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); save %.0f us, restore %.0f us, "
+              "snapshot %d bytes" % (name, step, resim, (step + resim) / 1000, BENCH_TARGET_US / 1000,
+                                     "yes" if d["within_target"] else "NO", d["save_mean_us"], d["restore_mean_us"],
+                                     d["snapshot_bytes"]), flush=True)
+        if d["mismatches"]:
+            failed.append(name)  # a re-sim that disagrees is a bug, whatever the timing
+    (REPO / "out" / "bench.json").write_text(json.dumps(summary, indent=2) + "\n")
+    if failed:
+        raise SystemExit("dev: bench failed: %s (out/bench/)" % ", ".join(failed))
 
 
 def git_commit():
@@ -740,6 +777,8 @@ def parser():
     p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
     for name in ("test", "vet", "check", "all", "godot-test", "godot-checks"):
         sub.add_parser(name)
+    sub.add_parser("bench", help="the benchmarks, on a release build").add_argument(
+        "names", nargs="*", metavar="name", help="default: all (%s)" % ", ".join(BENCHES))
     sub.add_parser("gen").add_argument("--force", action="store_true")
     sub.add_parser("fmt").add_argument("--check", action="store_true")
     sub.add_parser("regen", help="regenerate a reference run").add_argument(
@@ -777,6 +816,8 @@ def main():
         return 0  # no timing line: board commands are interactive, not build steps
     elif a.cmd == "check":
         cmd_check()
+    elif a.cmd == "bench":
+        cmd_bench(a.names)
     elif a.cmd == "regen":
         cmd_regen(a.suite)
     elif a.cmd == "fmt":
@@ -788,6 +829,7 @@ def main():
         cmd_vet()
         cmd_test()
         cmd_check()
+        cmd_bench()
         cmd_godot_checks()
     secs = time.time() - t0
     log("dev: %s done in %.1fs" % (" ".join(argv), secs))
