@@ -6,8 +6,9 @@ Command list: [`../AGENTS.md`](../AGENTS.md#layout-and-commands).
 
 | Script | What |
 |---|---|
-| `dev.py` | build / test / check / fmt / vet / gen / godot-test / godot-checks / all / game. Prints each step's time and keeps the last ones in `out/timings.json`. |
+| `dev.py` | build / test / check / fmt / vet / gen / godot-test / godot-checks / all / game / board. Prints each step's time and keeps the last ones in `out/timings.json`. |
 | `game.py` | Godot project checks behind `dev.py game validate\|walk\|shots\|tour\|coop\|import <game>` (`validate` and `walk` also fail on leaks at exit and GDScript warnings; `tour --frames [--cold]` reports frame times and first-use hitches). |
+| `board.py` | The work board (GitHub Project 2) behind `dev.py board list\|set <issue> [--status S] [--area A]`; needs the `gh` CLI with the `project` scope. |
 | `check.py` | T1-T9 of `spec/headless.md`, T1-T9 against `out/<mode>/survivor` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`spec/box3d.md`). |
 | `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`spec/imgui.md`). |
