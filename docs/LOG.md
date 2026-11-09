@@ -166,3 +166,5 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   `survivor-0.1.1-macos-arm64.zip` (38.5 MB), `survivor-0.1.1-windows-x64.zip` (47.8 MB), `SHA256SUMS.txt`. The
   published macOS zip was re-downloaded and checked here: checksum OK, game and EOS libraries bundled, headless
   smoke test clean. The v0.1.0 release notes now say it is superseded.
+- Merged `claude/eos-crossplay-v011` (b870bdc): the four survivor-v0.1.1 crossplay rows and the Direct/Relayed label
+  note in `spec/eos.md`. Docs only.
