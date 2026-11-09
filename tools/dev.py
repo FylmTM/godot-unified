@@ -70,6 +70,8 @@ VET_TARGETS = ["darwin_arm64", "darwin_amd64", "linux_amd64", "windows_amd64"]
 FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (REPO / "games").glob("*/simulation"))
 HEADLESS = "games/survivor/simulation/headless"  # the binary build/check use
 BINARY = "survivor"
+FS_HEADLESS = "games/friendslop/simulation/headless"
+FS_BINARY = "friendslop"
 # Packages vet type-checks (with everything they import): the headless binary, the tests, the binding test
 # extension and the game's extension.
 VET_PACKAGES = [HEADLESS, "tests", "tests/godot/ext", "games/survivor/simulation/extension",
@@ -114,9 +116,12 @@ def cmd_build(mode="dev", arch=None):
     out = check.out_dir(mode, arch)
     out.mkdir(parents=True, exist_ok=True)
     exe = out / (BINARY + EXE)
-    secs = run_odin(["build", HEADLESS, COLLECTION, "-out:" + exe.as_posix()] + MODES[mode] + VET + target,
-                    "odin build")
-    log("dev: build %s -> %s in %.2fs" % (mode, exe.relative_to(REPO).as_posix(), secs))
+    # The survivor's and friendslop's headless binaries (check.py drives both), built side by side.
+    jobs = [(HEADLESS, exe), (FS_HEADLESS, out / (FS_BINARY + EXE))]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        secs = max(ex.map(lambda j: run_odin(["build", j[0], COLLECTION, "-out:" + j[1].as_posix()] + MODES[mode] + VET
+                                             + target, "odin build " + j[0]), jobs))
+    log("dev: build %s -> %s in %.2fs" % (mode, ", ".join(j[1].relative_to(REPO).as_posix() for j in jobs), secs))
     return exe
 
 
@@ -577,9 +582,9 @@ def cmd_check(argv):
     if rosetta and a.mode == "release" and not a.arch and not a.only and not a.regen and common.IS_MACOS \
             and common.host_arch() == "arm64":
         cmd_build(a.mode, "x86_64")
-        log("dev: check: Rosetta x86_64 run of T1, T7, T8")
-        if check.main(["--arch", "x86_64", "--only", "T1,T7,T8"]) != 0:
-            raise SystemExit("dev: the x86_64 build under Rosetta does not reproduce T1/T7/T8")
+        log("dev: check: Rosetta x86_64 run of T1, T7, T8, F1, F5")
+        if check.main(["--arch", "x86_64", "--only", "T1,T7,T8,F1,F5"]) != 0:
+            raise SystemExit("dev: the x86_64 build under Rosetta does not reproduce T1/T7/T8/F1/F5")
     cmd_build(a.mode, a.arch)
     rc = check.main(argv)
     if rc != 0:

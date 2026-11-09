@@ -81,7 +81,8 @@ run_sim :: proc(
 	tr: Trace
 	defer strings.builder_destroy(&tr.b)
 	lg := sim.Input_Log(I, P) {
-		seed = seed,
+		seed    = seed,
+		content = s.content_hash,
 	}
 	defer sim.log_destroy(&lg)
 	for t in 1 ..= ticks {

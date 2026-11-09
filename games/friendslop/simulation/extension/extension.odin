@@ -186,7 +186,7 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 		}
 		out.n_scene += 1
 	}
-	add_static :: proc(out: ^gh.Frame, pos: [3]f32, marker: int) {
+	add_static :: proc(out: ^gh.Frame, pos: [3]f32, rot: [4]f32, marker: int) {
 		if out.n_scene >= gh.MAX_SCENE_ITEMS do return
 		out.scene[out.n_scene] = {
 			key    = view.Key(MARKER_KEY + marker),
@@ -194,7 +194,7 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 			slot   = -1,
 			entity = u32(marker + 1),
 			pos    = pos,
-			rot    = {0, 0, 0, 1},
+			rot    = rot,
 		}
 		out.n_scene += 1
 	}
@@ -202,7 +202,10 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 		if cur.items[i].alive do add_body(out, w, cur.items[i].body, w.items[i].marker)
 	}
 	for i in 0 ..< w.n_platforms do add_body(out, w, cur.platforms[i].body, w.platforms[i].marker)
-	for i in 0 ..< w.n_triggers do add_static(out, w.triggers[i].vol.pos, w.triggers[i].marker)
+	for i in 0 ..< w.n_triggers {
+		m := w.triggers[i].marker
+		add_static(out, w.triggers[i].vol.pos, w.lvl.markers[m].rot, m)
+	}
 	(^fs.Hud)(&out.hud[0])^ = fs.hud(cur, out.tick)
 }
 

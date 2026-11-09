@@ -1,0 +1,26 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/arena/arena.gd" id="1_arena"]
+[ext_resource type="PackedScene" path="res://game/levels/park.tscn" id="2_level"]
+[ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="3_camera"]
+[ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="4_hud"]
+[ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="5_pause"]
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1_arena")
+
+[node name="Level" parent="." instance=ExtResource("2_level")]
+
+[node name="Views" type="Node3D" parent="."]
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("3_camera")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+fov = 65.0
+current = true
+
+[node name="HUD" parent="." instance=ExtResource("4_hud")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("5_pause")]
+visible = false

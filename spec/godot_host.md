@@ -41,7 +41,8 @@ godot_host.set_transport(&transport)       // optional: online play (EOS...), ne
 return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
 Glue { scene_kinds, scene_dir, bulk_kinds, actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
-       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat }
+       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
+       level /* res:// path of the level file, read with FileAccess at session start: spec/level.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
 Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [4096]Bulk_Item, hud: [4096]u8 }
 ```
@@ -54,7 +55,9 @@ GDScript sees contract v0:
     `Glue.constants`: scripts read the sim's constants instead of copying them);
   - signals: `status_changed`, `lobby_code`, `sim_event`;
   - added for the game client: `view_root`, `host_direct(port)`, `set_player_name`, `get_status`,
-    `is_running`, `get_tick`, `toggle_devui`.
+    `is_running`, `get_tick`, `toggle_devui`;
+  - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
+    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4).
 - **`SimView`** (Node3D: `kind`, `entity`, `slot`, script virtuals `_sim_update(position, yaw, alpha)` and
   `_sim_event(kind, data)`).
 - **`SimBulkView`** (MultiMeshInstance3D: `kind`).

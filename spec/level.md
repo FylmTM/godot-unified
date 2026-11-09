@@ -41,10 +41,12 @@ physics.create_static(w, &lvl)           // static bodies in file order
 - `sim.Game.world_create(seed, content: []u8)`: the harness passes the level bytes through (a sim API change; the
   survivor ignores them). `sim.create(&GAME, seed, content)`.
 - The level's hash goes everywhere identity matters: the input log (`UNIL` v3) and portable snapshot (`UNIS` v3)
-  headers, so `replay` and `resume` refuse a different level and say which; and the netcode's `compat`
-  (`build ⊕ level hash`), so joining a host with another level fails with "different level".
-- Godot: the extension reads `res://game/levels/<name>.level` and starts the session with it; joiners load the same
-  file. Sending the level to joiners (user levels) is later.
+  headers, so `replay` and `resume` refuse a different level and say which (v2 files still load, as "no
+  content"); and the netcode's `compat` (`sim.compat_of(game, content)`), so joining a host with another level
+  fails with "a different game build or level".
+- Godot: `Glue.level` names the file (`res://game/levels/<name>.level`); `UnifiedSession` reads it with
+  `FileAccess` when a session starts and hands the bytes to the sim. Joiners load the same file. Sending the
+  level to joiners (user levels) is later.
 - Headless: `--level FILE`. Embedding is an option per game: `DEFAULT_LEVEL :: #load(...)` as the fallback when no
   file is given, so tests and headless runs need no path while the runtime file still wins. Recommended for the
   headless binary and tests; the Godot build always loads the file.

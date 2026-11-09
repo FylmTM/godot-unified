@@ -19,6 +19,8 @@ const DEFAULTS := {
 	&"render_scale": ["video", 1.0],
 	&"show_fps": ["video", false],
 	&"player_name": ["player", ""],
+	&"mouse_sensitivity": ["input", 1.0],
+	&"invert_y": ["input", false],
 	&"best_time": ["stats", 0.0],
 }
 
