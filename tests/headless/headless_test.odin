@@ -1,11 +1,14 @@
 // unified:headless on the toy game, without a process per mode: the offline runs (sim, synctest,
-// replay, snapshot/resume) agree with each other through real files, and in-process sessions on the
-// virtual clock (the T3/T6 path) finish with every checksum agreeing, a late joiner included.
+// replay, snapshot/resume) agree with each other, traces and logs round-trip through files, and
+// in-process sessions on the virtual clock finish with every checksum agreeing, a late joiner
+// included. The standard end-to-end scenarios on the toy are in tests/scenarios.
 package test_headless
 
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
+import "core:strings"
 import "core:testing"
 
 import "../toy"
@@ -35,32 +38,50 @@ temp_path :: proc(name: string) -> string {
 offline_modes_agree :: proc(t: ^testing.T) {
 	h := HEADLESS
 	log_path, trace_path := temp_path("run.log"), temp_path("run.trace")
-	replay_trace, snap := temp_path("replay.trace"), temp_path("run.snap")
-	resume_trace := temp_path("resume.trace")
-	defer for p in ([]string{log_path, trace_path, replay_trace, snap, resume_trace}) {
+	defer for p in ([]string{log_path, trace_path}) {
 		os.remove(p)
 	}
-	a, aok := headless.run_sim(&h, 300, 7, 3, trace_path, log_path)
-	b, _ := headless.run_sim(&h, 300, 7, 3, "", "")
-	testing.expect(t, aok)
+	tr, b_tr: headless.Trace
+	defer headless.trace_destroy(&tr)
+	defer headless.trace_destroy(&b_tr)
+	lg: sim.Input_Log(toy.Input, toy.SLOTS)
+	defer sim.log_destroy(&lg)
+	a := headless.run_sim(&h, 300, 7, 3, &tr, &lg)
+	b := headless.run_sim(&h, 300, 7, 3, &b_tr)
 	testing.expect_value(t, a.final_checksum, b.final_checksum) // deterministic
-	mm, resim, final := headless.run_synctest(&h, 300, 8, 7, 3)
-	testing.expect_value(t, mm, 0)
-	testing.expect(t, resim > 300)
-	testing.expect_value(t, final, a.final_checksum)
-	r, rok := headless.run_replay(&h, log_path, replay_trace)
+	testing.expect(t, tr.first == 1 && len(tr.sums) == 300 && tr.sums[299] == a.final_checksum)
+	sync := headless.run_synctest(&h, 300, 8, 7, 3)
+	testing.expect_value(t, sync.mismatches, 0)
+	testing.expect(t, sync.resimulated > 300)
+	testing.expect_value(t, sync.final_checksum, a.final_checksum)
+	// Through files: the log and the trace read back as written, and the log replays to the trace.
+	testing.expect(t, sim.log_write(log_path, &lg) && headless.trace_write(&tr, trace_path))
+	lg2, lok := sim.log_read(log_path, toy.Input, toy.SLOTS)
+	defer sim.log_destroy(&lg2)
+	testing.expect(t, lok)
+	tr2, tok := headless.trace_read(trace_path)
+	defer headless.trace_destroy(&tr2)
+	testing.expect(t, tok && tr2.first == 1 && slice.equal(tr2.sums[:], tr.sums[:]))
+	rt: headless.Trace
+	defer headless.trace_destroy(&rt)
+	r, rok := headless.run_replay(&h, &lg2, &rt)
 	testing.expect(t, rok)
 	testing.expect_value(t, r.final_checksum, a.final_checksum)
-	tr1, _ := os.read_entire_file(trace_path, context.temp_allocator)
-	tr2, _ := os.read_entire_file(replay_trace, context.temp_allocator)
-	testing.expect(t, len(tr1) > 0 && string(tr1) == string(tr2))
-	// Snapshot at 200, resume 100 ticks: the same tick 300 as the straight run.
-	_, _, sok := headless.run_snapshot(&h, 200, 7, 3, snap)
-	testing.expect(t, sok)
-	res, resok := headless.run_resume(&h, snap, 100, 3, resume_trace)
+	testing.expect(t, slice.equal(rt.sums[:], tr.sums[:]))
+	// Snapshot at 200, resume 100 ticks: the same ticks 201..300 as the straight run.
+	snap, _ := headless.run_snapshot(&h, 200, 7, 3)
+	defer delete(snap)
+	st: headless.Trace
+	defer headless.trace_destroy(&st)
+	res, resok := headless.run_resume(&h, snap, 100, 3, &st)
 	testing.expect(t, resok)
 	testing.expect_value(t, res.final_tick, 300)
 	testing.expect_value(t, res.final_checksum, a.final_checksum)
+	testing.expect(t, st.first == 201 && slice.equal(st.sums[:], tr.sums[200:]))
+	got, has := headless.trace_at(&st, 250)
+	testing.expect(t, has && got == tr.sums[249])
+	_, has = headless.trace_at(&st, 200)
+	testing.expect(t, !has)
 }
 
 @(test)
@@ -77,8 +98,7 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 		late_tick   = 320,
 	}
 	res := headless.session_run(&h, cfg)
-	defer sim.log_destroy(&res.log)
-	defer delete(res.clients)
+	defer headless.session_result_destroy(&res)
 	testing.expect(t, res.ok)
 	testing.expect_value(t, res.desyncs, 0)
 	testing.expect_value(t, len(res.clients), 3)
@@ -89,10 +109,16 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 	for &in_ in res.log.ticks {
 		sim.step(s, &in_)
 	}
-	want := fmt.tprintf(`[640,"%016x"]`, sim.checksum(s))
-	for c in res.clients {
-		testing.expectf(t, contains(c, want), "a client did not verify %s: %s", want, c)
+	for c, i in res.clients {
+		testing.expect_value(t, c.player, i)
+		testing.expect_value(t, c.final_tick, 640)
+		last := c.checksums[len(c.checksums) - 1] if len(c.checksums) > 0 else {}
+		testing.expectf(t, last == {640, sim.checksum(s)}, "client %d's last verified checksum: %v", i, last)
 	}
+	testing.expect(t, res.clients[2].join_tick >= 320 && res.clients[2].checksums[0][0] >= 320)
+	// The JSON the CLI prints is built from these results.
+	j := headless.client_json(res.clients[0])
+	testing.expect(t, strings.has_prefix(j, `{"player":0,"final_tick":640,"checksums":[[16,"`))
 }
 
 // The same session twice on the virtual clock: identical, to the byte.
@@ -109,23 +135,12 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 		late_player = -1,
 	}
 	a := headless.session_run(&h, cfg)
-	defer sim.log_destroy(&a.log)
-	defer delete(a.clients)
+	defer headless.session_result_destroy(&a)
 	b := headless.session_run(&h, cfg)
-	defer sim.log_destroy(&b.log)
-	defer delete(b.clients)
+	defer headless.session_result_destroy(&b)
 	testing.expect(t, a.ok && b.ok)
-	testing.expect_value(t, a.clients[0], b.clients[0])
+	testing.expect_value(t, headless.client_json(a.clients[0]), headless.client_json(b.clients[0]))
 	testing.expect_value(t, a.relay_net, b.relay_net)
-}
-
-contains :: proc(s, sub: string) -> bool {
-	for i in 0 ..= len(s) - len(sub) {
-		if s[i:i + len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 // Never called: instantiates every mode for the toy game, so the whole generic package type-checks

@@ -8,6 +8,14 @@ import "core:strings"
 import "unified:netcode"
 import "unified:sim"
 
+// Used only inside parametric procs: -vet would flag them in a package that imports unified:headless
+// without instantiating those (a suite that never calls headless.run).
+_ :: fmt
+_ :: cnet
+_ :: strconv
+_ :: strings
+_ :: sim
+
 profile_opt :: proc(a: ^Args) -> netcode.Profile {
 	name := opt_str(a, "profile", "ideal")
 	p, ok := netcode.profile_by_name(name)
@@ -55,22 +63,25 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		cfg.late_tick = u32(t)
 	}
 	res := session_run(h, cfg)
-	defer sim.log_destroy(&res.log)
-	defer delete(res.clients)
+	defer session_result_destroy(&res)
 	ok := res.ok && res.desyncs == 0
 	if path := opt_str(a, "log"); path != "" {
 		ok &&= sim.log_write(path, &res.log)
 	}
+	clients := make([]string, len(res.clients), context.temp_allocator)
+	for c, i in res.clients {
+		clients[i] = client_json(c)
+	}
 	fmt.printfln(
 		`{{"mode":"session","clients":[%s],"desyncs":%d,"replaced_inputs":%d,"profile":"%s","transport":"%s","clock":"%s","ticks":%d,"relay_net":%s,"ok":%v}}`,
-		strings.join(res.clients[:], ",", context.temp_allocator),
+		strings.join(clients, ",", context.temp_allocator),
 		res.desyncs,
 		res.replaced,
 		cfg.profile.name,
 		cfg.transport,
 		cfg.virtual ? "virtual" : "real",
 		cfg.ticks,
-		res.relay_net,
+		net_json(res.relay_net),
 		ok,
 	)
 	return ok
@@ -107,7 +118,7 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		r.desyncs,
 		r.replaced,
 		r.finalized,
-		netcode.channel_stats_json(r.ch),
+		net_json(r.ch.stats),
 		ok,
 	)
 	return ok && r.desyncs == 0
@@ -146,6 +157,8 @@ mode_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", c.ticks, ticks)
 		ok = false
 	}
-	fmt.println(netcode.client_json(c))
+	r := client_result(c)
+	defer delete(r.checksums)
+	fmt.println(client_json(r))
 	return ok
 }

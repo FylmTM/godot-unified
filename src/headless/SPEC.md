@@ -1,13 +1,14 @@
 # headless
 
 The headless binary every game builds from `unified:headless` (`src/headless`, wired by
-`games/<game>/simulation/headless`), and the end-to-end tests T1-T9 that `tools/check.py` runs against it. The CLI
-and the tests are the phase 2 contract (signed off with it); the rest of the old phase 2 spec moved into
-`src/sim/SPEC.md` and `src/netcode/SPEC.md`, which describe the code as it is now. The test game is `games/survivor/SPEC.md`.
+`games/<game>/simulation/headless`; the toy game's by `tests/toy/headless`), and the end-to-end suites: each game's
+Odin tests built on the standard scenarios of `unified:headless/scenarios`. The CLI is the phase 2 contract (signed
+off with it); the rest of the old phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which describe
+the code as it is now.
 
-## CLI (`tools/check.py` relies on it)
+## CLI
 
-The modes come from `unified:headless`; the binary is the game's headless binary (`out/<mode>/survivor`). Below,
+The modes come from `unified:headless`; the binary is the game's headless binary (`out/<mode>/<game>`). Below,
 `unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
 Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
 
@@ -30,7 +31,7 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 - `unified bench --enemies E --window W --ticks N`: JSON with mean/p99 µs for the forward step, save, restore, W-tick
   re-sim, and snapshot bytes.
 
-Conventions `tools/check.py` relies on:
+Conventions (`dev.py check` drives `relay`, `client` and `bench`; the suites call the same procs in-process):
 - Defaults: `--seed 1`, `--players 4`. `relay` and `client` have no `--seed` and use the default.
 - Ticks are numbered from 1: the state after the k-th step is tick k, and `--ticks N` ends at tick N. A trace has one
   line per tick, 1..N in order (`resume` from a tick-T snapshot traces T+1..T+N). Checksums in traces and JSON are
@@ -48,30 +49,11 @@ Conventions `tools/check.py` relies on:
 Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% duplicates, 1% reordering); `bad`
 (120 ms ± 40 ms, 8% loss, 3% duplicates, 5% reordering).
 
-## Tests T1-T9 (`tools/check.py`; locally and in CI)
+## End-to-end suites
 
-| # | Test | Pass |
-|---|---|---|
-| T1 | `synctest --ticks 3600 --window 8` with 4 players | 0 mismatches |
-| T2 | `sim --ticks 3600` twice | identical traces |
-| T3 | `session --clock virtual` with 2 and 4 clients × `ideal`, `wan`, `bad` (loopback + netsim), 3600 ticks | 0 desyncs; all clients' verified checksums equal; all reach 3600; rollbacks > 0 under `wan`/`bad` |
-| T4 | `replay` of the T3 `bad` session's log | trace equals that session's verified checksums |
-| T5 | UDP: `relay` + 3 `client` processes (one with `--profile bad`), 960 ticks of real time | 0 desyncs |
-| T6 | `session --clock virtual --late-join 3@1200` (4th player joins at tick 1200) under `wan` | 0 desyncs after joining; the joiner's checksums match from its first verified tick |
-| T7 | **Cross-platform:** `replay` of `games/survivor/simulation/tests/testdata/ref.log` | trace equals `ref.trace` there (generated on macOS ARM64, committed) |
-| T8 | **Cross-platform snapshot:** `resume --in ref-1800.snap --ticks 1800` (same folder) | trace equals ticks 1801–3600 of `ref.trace` |
-| T9 | `bench --enemies 1000 --window 8` | reported (not gated). Target: forward step + 8-tick re-sim ≤ 6 ms. |
-
-CI runs T1–T9 on every platform it tests (Linux x64 and arm64, Windows x64, macOS ARM64; when each runs: the top of
-`.github/workflows/ci.yml`) and puts the T9 bench in the job summary. The reference runs (each game's `simulation/tests/testdata/`) are regenerated only deliberately
-(`tools/dev.py check --regen`, see the README there), which updates the committed files.
-
-## End-to-end suites (pending sign-off: #60, #61, #67)
-
-**Pending the developer's sign-off; nothing below is built yet.** When it is, it replaces the T1-T9 section above
-and `tools/check.py`. Decided in the testing sitting (#4): each game has its own end-to-end suite of Odin tests calling
-`unified:headless` in-process; the library provides the standard scenarios as procs and every in-repo game calls each
-one explicitly; tests are named for what they check; no platform assumptions.
+Decided in the testing sitting (#4), signed off 2026-11-09: each game has its own end-to-end suite of Odin tests
+calling `unified:headless` in-process; the library provides the standard scenarios as procs and every in-repo game
+calls each one explicitly; tests are named for what they check; no platform assumptions.
 
 ### Where things are
 
@@ -110,7 +92,9 @@ Reference :: struct {
 | `reference_replays(t, s)` | replay of `ref.log` equals `ref.trace` |
 | `reference_resumes(t, s)` | resume of the snapshot equals the rest of `ref.trace` |
 
-Failures name the scenario's parameters and the first tick that differs. `session_run` returns structured
+`profile` is `scenarios.Profile` (`.Ideal`, `.Wan`, `.Bad`: the network profiles above). Sessions run on the virtual
+clock over loopback with the suite's seed and ticks; `late_join_agrees` runs `players` clients, `player` joining at
+`tick`. Failures name the scenario's parameters and the first tick that differs. `session_run` returns structured
 per-client results (final tick, verified checksums, rollbacks and depth, stall ticks) instead of JSON strings; the
 CLI builds its JSON from them. A suite reads as a list of sentences:
 
@@ -121,8 +105,7 @@ rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SU
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
 ```
 
-Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc once
-(friendslop gains the sessions, the resume and a reference snapshot it lacks today).
+Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc once.
 
 ### Running
 
@@ -134,14 +117,18 @@ Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `
 - **`python tools/dev.py check`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
   (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless`).
-- **CI**, on Linux x64 and Windows x64: `dev.py test` (every suite and every reference run: the cross-check), then
-  `dev.py check`. The bench leaves with #62; this lands with it or after it, so CI's summary keeps the bench.
+- **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `dev.py test` (every
+  suite and every reference run: the cross-check), then `dev.py check`. Until the benchmarks take it over (#62),
+  `dev.py check` also runs the survivor's `bench --enemies 1000 --window 8` (reported, not gated; target: forward
+  step + 8-tick re-sim ≤ 6 ms) and CI's job summary shows it.
 
 ### Reference runs (#61)
 
 A reference run is a committed run every platform must reproduce. `python tools/dev.py regen <game>|toy`, on any
-machine, runs that suite's reference tests with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes
-`ref.log`, `ref.trace` and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes
-`ref.json` (where it was made: OS, architecture, Odin version, build flags, commit; when; the parameters). Nothing
+machine, runs that suite with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes `ref.log`, `ref.trace`
+and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes `ref.json` (where it
+was made: OS, architecture, Odin version, build flags, commit; when; the parameters). `reference_resumes` skips in
+that build (it would race the writes); the other scenarios run as usual. Regenerate only after a change that
+legitimately alters the simulation or the log or snapshot format, and commit the files with it, saying why. Nothing
 else in the tools, suites or docs names a platform: no Rosetta step, no `--arch` (`dev.py build`, `game build`,
 `box3d.py`). Known consequence: cross-architecture is proven only while the dev machine and CI differ in CPU.

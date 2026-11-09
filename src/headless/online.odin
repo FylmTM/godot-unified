@@ -13,6 +13,13 @@ import "core:time"
 import "unified:netcode"
 import "unified:sim"
 
+// Used only inside parametric procs: -vet would flag them in a package that imports unified:headless
+// without instantiating those (a suite that never calls headless.run).
+_ :: fmt
+_ :: os
+_ :: strings
+_ :: sim
+
 // An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
 Online :: struct {
 	name:      string, // the modes are <name>-host and <name>-client
