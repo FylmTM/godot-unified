@@ -421,6 +421,9 @@ foreign lib {
 	MakeBoxHull :: proc(hx, hy, hz: f32) -> BoxHull ---
 	MakeCubeHull :: proc(halfWidth: f32) -> BoxHull ---
 	CreateHullShape :: proc(bodyId: BodyId, def: ^ShapeDef, hull: ^HullData) -> ShapeId ---
+	CreateHull :: proc(points: [^]Vec3, pointCount: c.int, maxVertexCount: c.int) -> ^HullData ---
+	CloneAndTransformHull :: proc(original: ^HullData, transform: Transform, scale: Vec3) -> ^HullData ---
+	DestroyHull :: proc(hull: ^HullData) ---
 	CreateSphereShape :: proc(bodyId: BodyId, def: ^ShapeDef, sphere: ^Sphere) -> ShapeId ---
 	CreateCapsuleShape :: proc(bodyId: BodyId, def: ^ShapeDef, capsule: ^Capsule) -> ShapeId ---
 

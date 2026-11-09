@@ -8,7 +8,8 @@ import "unified:sim"
 Host_Config :: struct {
 	seed:    u64,
 	ticks:   u32, // 0: endless
-	compat:  u64, // build/game id the relay checks (0: sim.compat_of(game))
+	compat:  u64, // build/game id the relay checks (0: sim.compat_of(game, content))
+	content: []u8, // the game's content (the level, spec/level.md); borrowed for the host's lifetime
 	name:    string, // for log lines
 	player:  string, // the host player's display name
 	poll_us: i64,
@@ -26,13 +27,14 @@ Host :: struct($S, $I, $W: typeid, $P: int) {
 host_create :: proc(game: ^sim.Game($S, $I, $W, $P), cfg: Host_Config, hooks: Hooks(S, I, W, P)) -> ^Host(S, I, W, P) {
 	h := new(Host(S, I, W, P))
 	h.hub = hub_create(2)
-	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game)
+	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game, cfg.content)
 	rcfg := Relay_Config {
 		tick_hz       = game.tick_hz,
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = 1,
 		compat        = compat,
+		content       = sim.content_hash(cfg.content),
 		name          = cfg.name,
 		poll_us       = cfg.poll_us,
 		quiet         = cfg.quiet,
@@ -42,6 +44,7 @@ host_create :: proc(game: ^sim.Game($S, $I, $W, $P), cfg: Host_Config, hooks: Ho
 	ccfg := Client_Config {
 		slot    = 0,
 		compat  = compat,
+		content = cfg.content,
 		name    = cfg.name,
 		player  = cfg.player,
 		poll_us = cfg.poll_us,

@@ -85,8 +85,10 @@ Game :: struct($S, $I, $W: typeid, $P: int) {
 	// play together instead of desyncing.
 	version:       string,
 	tick_hz:       int, // a power of two (32, 64, 128); dt = 1 / tick_hz exactly
-	// The World for a session with this seed: physics world, static geometry, scratch buffers.
-	world_create:  proc(seed: u64) -> ^W,
+	// The World for a session with this seed and content (the level file's bytes, spec/level.md;
+	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes
+	// outlive the World (the caller of create owns them).
+	world_create:  proc(seed: u64, content: []u8) -> ^W,
 	world_destroy: proc(w: ^W),
 	// The World's rollback state (nil: none).
 	extras:        proc(w: ^W) -> []Extra,
@@ -106,16 +108,18 @@ Ring_Slot :: struct($S: typeid) {
 }
 
 Sim :: struct($S, $I, $W: typeid, $P: int) {
-	game:     ^Game(S, I, W, P),
-	seed:     u64,
-	tick:     u32,
-	state:    S,
-	world:    ^W,
-	extras:   []Extra,
-	ring:     [RING]Ring_Slot(S),
+	game:         ^Game(S, I, W, P),
+	seed:         u64,
+	content:      []u8, // borrowed: the caller of create keeps it alive
+	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
+	tick:         u32,
+	state:        S,
+	world:        ^W,
+	extras:       []Extra,
+	ring:         [RING]Ring_Slot(S),
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
-	hash_buf: [dynamic]u8,
+	hash_buf:     [dynamic]u8,
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -130,10 +134,11 @@ hash_bytes :: proc(b: []u8) -> u64 {
 // The game build's identity for netcode (Hello's compat): the state, input and inputs layouts, the
 // slot count, the tick rate, the game's name (each variant, e.g. a tuning, has its own) and version.
 // Two builds with the same value run the same simulation, as far as the build can tell.
-compat_of :: proc(game: ^Game($S, $I, $W, $P)) -> u64 {
+// The content's hash goes in too, so peers with different levels refuse to play together.
+compat_of :: proc(game: ^Game($S, $I, $W, $P), content: []u8 = nil) -> u64 {
 	Ids :: struct {
-		state, input, inputs, name, version: u64,
-		slots, tick_hz:                      u32,
+		state, input, inputs, name, version, content: u64,
+		slots, tick_hz:                               u32,
 	}
 	ids := Ids {
 		state   = layout_hash(S),
@@ -141,6 +146,7 @@ compat_of :: proc(game: ^Game($S, $I, $W, $P)) -> u64 {
 		inputs  = layout_hash(Inputs(I, P)),
 		name    = hash_bytes(transmute([]u8)game.name),
 		version = hash_bytes(transmute([]u8)game.version),
+		content = content_hash(content),
 		slots   = u32(P),
 		tick_hz = u32(game.tick_hz),
 	}
@@ -157,14 +163,21 @@ inputs_same :: proc(a, b: ^Inputs($I, $P)) -> bool {
 // Creates the World and the tick-0 state, and saves tick 0 into the ring. That first save also
 // lets physics fill its geometry registry in a fixed order, which is what makes a portable
 // snapshot from another process restore here.
-create :: proc(game: ^Game($S, $I, $W, $P), seed: u64) -> ^Sim(S, I, W, P) {
+// The identity of a game's content (spec/level.md): XXH3 of the bytes, 0 for none.
+content_hash :: proc(content: []u8) -> u64 {
+	return hash_bytes(content) if len(content) > 0 else 0
+}
+
+create :: proc(game: ^Game($S, $I, $W, $P), seed: u64, content: []u8 = nil) -> ^Sim(S, I, W, P) {
 	check_plain(S)
 	check_plain(Inputs(I, P))
 	assert(game.tick_hz > 0 && game.tick_hz & (game.tick_hz - 1) == 0, "tick_hz must be a power of two")
 	s := new(Sim(S, I, W, P))
 	s.game = game
 	s.seed = seed
-	s.world = game.world_create(seed)
+	s.content = content
+	s.content_hash = content_hash(content)
+	s.world = game.world_create(seed, content)
 	if game.extras != nil {
 		s.extras = game.extras(s.world)
 	}

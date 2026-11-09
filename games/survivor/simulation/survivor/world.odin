@@ -158,7 +158,7 @@ destroy_body :: proc(w: ^World, r: ^Body_Ref) {
 }
 
 // The physics world with its static geometry (GAME.md creation order: ground, walls, pillars).
-world_create :: proc(seed: u64) -> ^World {
+world_create :: proc(seed: u64, _: []u8) -> ^World {
 	w := new(World)
 	w.phys = physics.create()
 	w.extras[0] = physics.extra(w.phys, State)

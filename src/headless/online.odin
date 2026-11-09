@@ -110,7 +110,7 @@ mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> 
 	user := Script_User(S, I, W, P){h, 1}
 	host := netcode.host_create(
 		h.game,
-		netcode.Host_Config{seed = 1, ticks = ticks, name = "host"},
+		netcode.Host_Config{seed = 1, ticks = ticks, name = "host", content = h.content},
 		script_hooks(&user),
 	)
 	defer netcode.host_destroy(host)
@@ -173,7 +173,12 @@ mode_online_client :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -
 	join_ms := time.duration_milliseconds(time.tick_since(t0))
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", a.mode, st.code, st.local, st.host, join_ms)
 	user := Script_User(S, I, W, P){h, 1}
-	c := netcode.client_create(h.game, netcode.Client_Config{slot = -1, name = "client"}, link, script_hooks(&user))
+	c := netcode.client_create(
+		h.game,
+		netcode.Client_Config{slot = -1, name = "client", content = h.content},
+		link,
+		script_hooks(&user),
+	)
 	defer netcode.client_destroy(c)
 	task := Client_Task(S, I, W, P) {
 		c,

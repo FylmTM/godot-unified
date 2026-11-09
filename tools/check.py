@@ -49,7 +49,8 @@ BENCH_TICKS = 600
 BENCH_TARGET_US = 6000.0
 ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]
 TRACE_RE = re.compile(r"^(\d{6,}) ([0-9a-f]{16})$")
-LOG_HEADER = struct.Struct("<4sHQBHI")  # magic, version, seed, slots, input size, ticks
+LOG_HEADER = struct.Struct("<4sHQBHI")  # v2: magic, version, seed, slots, input size, ticks
+LOG_HEADER_V3 = struct.Struct("<4sHQQBHI")  # v3 adds the content (level) hash after the seed
 LOG_SLOTS = 4
 
 
@@ -167,19 +168,26 @@ def read_log_header(path):
     data = Path(path).read_bytes()
     if len(data) < LOG_HEADER.size:
         raise Fail("%s: shorter than the input-log header" % path)
-    magic, version, seed, slots, isize, ticks = LOG_HEADER.unpack_from(data)
+    magic, version = struct.unpack_from("<4sH", data)
     if magic != b"UNIL":
         raise Fail("%s: bad magic %r (want b'UNIL')" % (path, magic))
-    info = {"version": version, "seed": seed, "slots": slots, "ticks": ticks, "bytes": len(data)}
+    content = 0
+    hdr = LOG_HEADER
+    if version >= 3:
+        hdr = LOG_HEADER_V3
+        _, _, seed, content, slots, isize, ticks = hdr.unpack_from(data)
+    else:
+        _, _, seed, slots, isize, ticks = hdr.unpack_from(data)
+    info = {"version": version, "seed": seed, "content": content, "slots": slots, "ticks": ticks, "bytes": len(data)}
     # per tick: present u32, replaced u32, slots x input
     tick_bytes = 8 + slots * isize
-    want = LOG_HEADER.size + ticks * tick_bytes
+    want = hdr.size + ticks * tick_bytes
     info["size_ok"] = len(data) == want
     if not info["size_ok"]:
         log("  note: %s is %d bytes; header + %d x %d bytes = %d" % (path, len(data), ticks, tick_bytes, want))
     if ticks > 0 and info["size_ok"]:
         # players = slots present at tick 1
-        present = struct.unpack_from("<I", data, LOG_HEADER.size)[0]
+        present = struct.unpack_from("<I", data, hdr.size)[0]
         info["players"] = bin(present).count("1")
     return info
 

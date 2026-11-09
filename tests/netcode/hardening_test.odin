@@ -484,7 +484,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	testing.expect(t, joiner.verified > joiner.first_tick)
 }
 
-// A build whose simulation differs (here: another sim version) is refused with "incompatible build"
+// A build whose simulation differs (here: another sim version) is refused with "a different game build or level"
 // instead of joining and desyncing; compat comes from the game by default.
 @(test)
 other_build_is_refused :: proc(t: ^testing.T) {
@@ -500,5 +500,5 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	append(&n.clients, c)
 	rnet_run(&n, 1)
 	testing.expect_value(t, c.status, netcode.Status.Failed)
-	testing.expect_value(t, c.detail, "incompatible build")
+	testing.expect_value(t, c.detail, "a different game build or level")
 }

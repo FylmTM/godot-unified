@@ -64,6 +64,7 @@ SIM_IDENTS :: []string {
 TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
+	"unified:level",
 	"unified:dmath",
 	"unified:box3d",
 	"unified:wire",
@@ -86,6 +87,8 @@ RULES := []Rule {
 	{pkg = "dmath", only_imports = TICK_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
 	// physics walks RTTI (base:runtime) and guards Box3D world creation with a mutex (core:sync).
 	{pkg = "physics", only_imports = PHYSICS_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
+	// Levels: parsed when a World is created; plain data, through unified:wire.
+	{pkg = "level", only_imports = {"unified:wire"}, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
 	// The harness: also walks RTTI, hashes, formats errors and reads and writes log files.
 	{pkg = "sim", only_imports = SIM_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
 	// The Box3D binding: foreign code by nature, through core:c only.
@@ -124,6 +127,7 @@ RULES := []Rule {
 
 PHYSICS_IMPORTS :: []string {
 	"unified:sim",
+	"unified:level",
 	"unified:dmath",
 	"unified:box3d",
 	"base:intrinsics",

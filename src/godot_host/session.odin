@@ -255,6 +255,16 @@ session_launch :: proc(s: ^Session_Node, req: Start) -> bool {
 	req.seed = u64(s.seed)
 	req.ticks = u32(max(s.ticks, 0))
 	req.name = s.name
+	level: []u8
+	defer delete(level)
+	if api.level != "" {
+		level = read_res_file(api.level)
+		if len(level) == 0 {
+			emit_status(s, .Failed, fmt.tprintf("cannot read the level %s", api.level))
+			return false
+		}
+		req.content = level
+	}
 	ok, err := api.start(req)
 	if !ok {
 		emit_status(s, .Failed, err)
@@ -450,4 +460,16 @@ parse_args :: proc() -> (a: Args) {
 		}
 	}
 	return
+}
+
+// A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.
+@(private)
+read_res_file :: proc(path: string, allocator := context.allocator) -> []u8 {
+	pba := gd.FileAccess_get_file_as_bytes(path)
+	defer gd.PackedByteArray_destroy(&pba)
+	n := gd.PackedByteArray_size(&pba)
+	if n <= 0 do return nil
+	out := make([]u8, n, allocator)
+	copy(out, gdi.packed_byte_array_operator_index(&pba, 0)[:n])
+	return out
 }

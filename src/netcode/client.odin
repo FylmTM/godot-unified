@@ -13,7 +13,8 @@ import "unified:wire"
 Client_Config :: struct {
 	slot:      int, // the slot to ask for; -1: any free slot
 	join_tick: u32, // the earliest tick to become present (0: as soon as possible)
-	compat:    u64, // build/game id the relay checks (0: sim.compat_of(game))
+	compat:    u64, // build/game id the relay checks (0: sim.compat_of(game, content))
+	content:   []u8, // the game's content (the level, spec/level.md); borrowed for the client's lifetime
 	player:    string, // the player's display name (sent to the relay, shared with everyone)
 	name:      string, // for log lines
 	poll_us:   i64, // 0: DEFAULT_POLL_US
@@ -146,7 +147,7 @@ client_create :: proc(
 	c.game = game
 	c.cfg = cfg
 	if c.cfg.compat == 0 {
-		c.cfg.compat = usim.compat_of(game)
+		c.cfg.compat = usim.compat_of(game, c.cfg.content)
 	}
 	if c.cfg.poll_us <= 0 {
 		c.cfg.poll_us = DEFAULT_POLL_US
@@ -240,7 +241,7 @@ on_welcome :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader) {
 	c.own_last = first - 1
 	c.own_acked = first - 1
 	if first <= 1 || from_start {
-		c.sim = usim.create(c.game, seed)
+		c.sim = usim.create(c.game, seed, c.cfg.content)
 		set_status(c, .Connected, "")
 	}
 }
@@ -311,7 +312,7 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 		case .Slot_Taken:
 			detail = "that player slot is taken"
 		case .Incompatible:
-			detail = "incompatible build"
+			detail = "a different game build or level"
 		case .Not_Started:
 			detail = "the session has not started"
 		}
@@ -335,7 +336,7 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 			c.fin_tick = {}
 			c.fin_upto = 0
 			c.snap_tick = 0
-			c.sim = usim.create(c.game, c.seed)
+			c.sim = usim.create(c.game, c.seed, c.cfg.content)
 			set_status(c, .Connected, "")
 			return
 		}
@@ -379,7 +380,7 @@ handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
 
 @(private)
 load_snapshot :: proc(c: ^Client($S, $I, $W, $P)) {
-	sim, err := usim.from_snapshot(c.game, c.snap_buf[:])
+	sim, err := usim.from_snapshot(c.game, c.snap_buf[:], c.cfg.content)
 	if err != .None {
 		set_status(c, .Failed, fmt.tprintf("received snapshot does not restore: %v", err))
 		return

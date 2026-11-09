@@ -11,6 +11,7 @@ package tests
 @(require) import "gdext"
 @(require) import "godot_host"
 @(require) import "headless"
+@(require) import "level"
 @(require) import "lint"
 @(require) import "netcode"
 @(require) import "physics"

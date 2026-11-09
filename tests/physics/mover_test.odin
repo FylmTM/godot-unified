@@ -125,7 +125,7 @@ RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64) -> ^Rig_World {
+	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {
 		rw := new(Rig_World)
 		rw.phys = physics.create({anchor = true, hit_threshold = 1})
 		ground(rw.phys)

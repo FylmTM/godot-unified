@@ -100,7 +100,11 @@ Glue :: struct($S, $I, $W: typeid) {
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:   proc(e: sim.Event) -> view.Key,
-	compat:      u64, // build/game id the relay checks (0: derived from the game, sim.compat_of)
+	compat:      u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
+	// Optional: the level file (spec/level.md), e.g. "res://game/levels/park.level". Read with Godot's
+	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
+	// its content; every peer must have the same file.
+	level:       string,
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so
@@ -147,6 +151,7 @@ Start :: struct {
 	ticks:    u32, // 0: endless
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
 	bench:    int, // Single only: Glue.bench(n) after the game's init (dev benchmarks)
+	content:  []u8, // the level's bytes (Glue.level), copied by start
 }
 
 Status_Kind :: enum u8 {

@@ -24,6 +24,14 @@ run :: proc(h: ^Headless($S, $I, $W, $P)) {
 			die("unknown --game %q", name)
 		}
 	}
+	if path, has := a.opts["level"]; has {
+		delete_key(&a.opts, "level")
+		data, err := os.read_entire_file(path, context.allocator)
+		if err != nil {
+			die("cannot read --level %s", path)
+		}
+		h.content = data
+	}
 	ok := true
 	switch a.mode {
 	case "sim":
