@@ -14,6 +14,7 @@
     python tools/dev.py game editor <game>              # the Godot editor on the game
     python tools/dev.py game headless <game> [--ticks N] # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
+    python tools/dev.py game session-check <game>       # headless: leave then host/join at once (~3 s)
     python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release]   # windowed bot play check
     python tools/dev.py game validate|walk|shots|tour|coop|import [--game survivor]   # Godot project checks (tools/game.py)
 
@@ -410,6 +411,26 @@ def cmd_game_play(gdir, argv):
         raise SystemExit("dev: game play failed")
 
 
+def cmd_game_session_check(gdir):
+    """Session lifecycle under headless Godot (game/tools/session_check.gd): Leave, then Host or Join at once."""
+    if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
+        cmd_game_build(gdir)
+    ensure_imported(gdir)
+    t0 = time.time()
+    r = run_godot(["--headless", "--path", gdir, "-s", "res://game/tools/session_check.gd"], timeout=60)
+    for line in r.stdout.splitlines():
+        if line.startswith("  FAIL"):
+            log(line)
+    res = last_json_after(r.stdout, "SESSION_JSON ")
+    if res is None:
+        sys.stdout.write((r.stdout + r.stderr)[-4000:])
+        raise SystemExit("dev: the session check printed no result")
+    res["wall_s"] = round(time.time() - t0, 2)
+    print(json.dumps(res))
+    if r.returncode != 0 or not res.get("ok"):
+        raise SystemExit("dev: game session-check failed")
+
+
 def cmd_game_editor_check(gdir):
     if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
@@ -433,7 +454,7 @@ def cmd_game(argv):
         import game
         return game.cmd_game(argv) or 0
     if len(argv) < 2:
-        raise SystemExit("usage: dev.py game build|run|editor|headless|editor-check <game> ...")
+        raise SystemExit("usage: dev.py game build|run|editor|headless|editor-check|session-check|play <game> ...")
     sub, gdir, rest = argv[0], game_dir(argv[1]), argv[2:]
     if sub == "build":
         mode = rest[0] if rest and not rest[0].startswith("-") else "dev"
@@ -453,6 +474,8 @@ def cmd_game(argv):
         cmd_game_play(gdir, rest)
     elif sub == "editor-check":
         cmd_game_editor_check(gdir)
+    elif sub == "session-check":
+        cmd_game_session_check(gdir)
     else:
         raise SystemExit("dev: unknown game command %s" % sub)
     return 0

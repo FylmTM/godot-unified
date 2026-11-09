@@ -26,6 +26,8 @@ Session_Node :: struct {
 	last_tick:   u32,
 	quit_at_end: bool,
 	sync_us:     f32,
+	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
+	has_pending: bool,
 }
 
 Args :: struct {
@@ -65,6 +67,7 @@ register_session_class :: proc() {
 				session_end(s)
 				active = nil
 			}
+			clear_pending(s)
 			delete(s.name)
 			delete(s.detail)
 		},
@@ -127,7 +130,17 @@ register_session_class :: proc() {
 	gd.bind_method(c, "join_direct", proc(s: ^Session_Node, address: string) -> bool {
 		return session_start(s, {mode = .Join_Direct, arg = address})
 	}, {"address"})
-	gd.bind_method(c, "leave", proc(s: ^Session_Node) {if api.installed do api.stop()})
+	gd.bind_method(
+		c,
+		"leave",
+		proc(s: ^Session_Node) {
+			if s.has_pending { 	// the waiting session never started
+				clear_pending(s)
+				emit_status(s, .Disconnected, "left")
+			}
+			if api.installed do api.stop()
+		},
+	)
 	gd.bind_method(c, "choose_levelup", proc(s: ^Session_Node, option: i64) {
 		press_button(button_index(fmt.tprintf("levelup_%d", option)))
 	}, {"option"})
@@ -209,9 +222,24 @@ session_start :: proc(s: ^Session_Node, req: Start) -> bool {
 		return false
 	}
 	if api.running() {
-		emit_status(s, .Failed, "a session is already running")
-		return false
+		// Leave, then Host or Join at once: the left session is still saying goodbye (<= 1 s once hurried). The
+		// new one starts when it is gone (session_process); its own messages are dropped meanwhile.
+		if !api.stopping() || s.has_pending {
+			emit_status(s, .Failed, "a session is already running")
+			return false
+		}
+		s.pending = req
+		s.pending.arg = strings.clone(req.arg)
+		s.has_pending = true
+		api.hurry()
+		emit_status(s, .Connecting, "")
+		return true
 	}
+	return session_launch(s, req)
+}
+
+@(private)
+session_launch :: proc(s: ^Session_Node, req: Start) -> bool {
 	s.frame = nil // it points into the finished session, which wait frees
 	api.wait() // a finished session's thread
 	req := req
@@ -229,7 +257,25 @@ session_start :: proc(s: ^Session_Node, req: Start) -> bool {
 }
 
 @(private)
+clear_pending :: proc(s: ^Session_Node) {
+	if s.has_pending do delete(s.pending.arg)
+	s.pending, s.has_pending = {}, false
+}
+
+// Starts the waiting session once the previous one has finished.
+@(private)
+start_pending :: proc(s: ^Session_Node) {
+	if !s.has_pending || api.running() do return
+	req := s.pending
+	s.has_pending = false
+	s.pending = {}
+	defer delete(req.arg)
+	session_launch(s, req)
+}
+
+@(private)
 session_end :: proc(s: ^Session_Node) {
+	clear_pending(s)
 	if api.installed {
 		api.stop()
 		api.wait()
@@ -275,6 +321,7 @@ session_process :: proc(s: ^Session_Node, dt: f64) {
 		views_sync(root, f, fresh, a, f32(dt))
 	}
 	drain_messages(s)
+	start_pending(s)
 	s.sync_us = f32(time.duration_microseconds(time.tick_since(t0)))
 	dev_frame(s, dt)
 }
@@ -286,6 +333,7 @@ drain_messages :: proc(s: ^Session_Node) {
 		m, ok := api.pop()
 		if !ok do break
 		text := string(m.text[:m.len])
+		if s.has_pending && m.kind != .Result do continue // the left session's last words; the new one is connecting
 		switch m.kind {
 		case .Status:
 			emit_status(s, m.status, text)
