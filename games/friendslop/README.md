@@ -1,8 +1,8 @@
 # friendslop
 
-The co-op physics sandbox on `unified` (spec: `spec/friendslop.md`): a Godot 4.7 project (this folder is `res://`).
+The co-op physics sandbox on `unified` (spec: [`SPEC.md`](SPEC.md)): a Godot 4.7 project (this folder is `res://`).
 The deterministic sim, its headless binary and the GDExtension live in `simulation/` (Odin); everything Godot is in
-`game/`. Levels are Godot scenes (`game/levels/`), exported to `.level` files the sim loads (`spec/level.md`).
+`game/`. Levels are Godot scenes (`game/levels/`), exported to `.level` files the sim loads (`src/level/SPEC.md`).
 
 ## Run
 

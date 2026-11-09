@@ -1,7 +1,7 @@
 # friendslop: the co-op physics sandbox (the second game)
 
 Signed off by the developer 2026-11-09; their decisions are marked (D). Code: `games/friendslop/`, laid
-out like `games/survivor/`. Library work it needs: `spec/physics.md` (mover, joints, paths) and `spec/level.md`
+out like `games/survivor/`. Library work it needs: `src/physics/SPEC.md` (mover, joints, paths) and `src/level/SPEC.md`
 (Godot-authored levels).
 
 A third-person physics sandbox for 1–4 players (solo works): wobbly capsule characters who ride platforms, bounce
@@ -46,7 +46,7 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 
 ## Player controller (D: dynamic mover)
 
-`physics.Mover` (`spec/physics.md`): a rotation-locked dynamic capsule (r 0.35, height 1.6), a mover joint (target
+`physics.Mover` (`src/physics/SPEC.md`): a rotation-locked dynamic capsule (r 0.35, height 1.6), a mover joint (target
 velocity, force cap) and a pogo joint (ground spring, ray probes). Being a real body, it rides kinematic platforms
 (the mover joint attaches to them), is pushed by thrown items, bumpers and friends, stands on crates and other
 players, and feels the pull of what it holds, all without special cases.
@@ -112,7 +112,7 @@ Orbit camera, mouse captured / right stick. WASD moves relative to the camera, S
 
 One level per session: `game/levels/park.tscn` instances `hub.tscn` and `route.tscn`. Godot's
 StaticBody3D/CollisionShape3D for geometry and marker nodes for the rest
-(`spec/level.md`): `platform` (+ Path3D; gates and bridges are platforms that follow a trigger), `pad`, `plate`,
+(`src/level/SPEC.md`): `platform` (+ Path3D; gates and bridges are platforms that follow a trigger), `pad`, `plate`,
 `item` (kind: crate, ball, cube, key, heavy, trophy), `spawn`, `checkpoint`, `bell`, `switch`, `lock`, `bumper`,
 `start`, `finish`. At runtime each sim view adopts its marker's visuals. Exported to a level file the sim loads at
 runtime; the default levels are embedded too, so headless runs need no path.
@@ -129,7 +129,7 @@ checkpoints. Sounds synthesized at boot, as in the survivor.
   and ride (players start next to items and platforms); scenarios asserting outcomes (two lift the heavy crate, one
   can't; a rider stays on for a full platform cycle; a throw stuns a friend; a held friend breaks free); a netcode
   session under the `bad` profile.
-- A headless binary with the CORE.md §3 modes; sync-test and session runs for friendslop in `check`.
+- A headless binary with the `src/headless/SPEC.md` CLI modes; sync-test and session runs for friendslop in `check`.
 - `dev.py game validate|walk|tour|coop friendslop` as for the survivor; `tour` drives a scripted bot through the
   route.
 - Budget (to be measured, then set): forward step ≤ 0.5 ms with 4 players and ~60 dynamic bodies; an 8-tick re-sim
@@ -137,7 +137,7 @@ checkpoints. Sounds synthesized at boot, as in the survivor.
 
 ## Build order
 
-1. Library: `spec/physics.md` and `spec/level.md`, with tests (after sign-off).
+1. Library: `src/physics/SPEC.md` and `src/level/SPEC.md`, with tests (after sign-off).
 2. **Vertical slice:** the hub, two players online: one platform, one jump pad, one throwable, one heavy crate,
    holding a friend. Single player, EOS online with lobby codes, menus, settings, dev UI (the survivor pattern).
 3. The route, beat by beat, each with a scenario test.

@@ -1,4 +1,4 @@
-// A game's headless binary: the CLI of spec/headless.md (CLI), generic over the game. The game's
+// A game's headless binary: the CLI of src/headless/SPEC.md (CLI), generic over the game. The game's
 // `main` builds a Headless descriptor and calls headless.run. Every mode prints one JSON object as
 // its last stdout line; a non-zero exit code means failure.
 package headless

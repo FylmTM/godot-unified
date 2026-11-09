@@ -1,4 +1,4 @@
-// The input relay (spec/netcode.md), generic over the game's input type I and slot count P. No game
+// The input relay (src/netcode/SPEC.md), generic over the game's input type I and slot count P. No game
 // logic: it owns the tick clock, collects inputs stamped with their target tick, finalizes tick T
 // once every present player's input for T is in or the clock reaches T + tolerance (a missing
 // input becomes the player's last finalized one, flagged "replaced"), broadcasts finalized ticks

@@ -1,5 +1,5 @@
 # Parallel jobs: `lint` (format check + vet for every target, Linux), `test` on Linux x64 and Windows x64 (odin
-# test, then T1-T9 of spec/headless.md (T1-T9) with the T9 bench in the job summary), and `godot` (Linux x64:
+# test, then T1-T9 of src/headless/SPEC.md (T1-T9) with the T9 bench in the job summary), and `godot` (Linux x64:
 # `dev.py godot-checks`, the binding tests and every game's headless Godot checks, GDScript included). Together
 # they run what `python tools/dev.py all` runs locally. macOS is checked locally with the same commands.
 #

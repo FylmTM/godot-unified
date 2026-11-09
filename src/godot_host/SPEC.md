@@ -42,7 +42,7 @@ return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
 Glue { scene_kinds, scene_dir, bulk_kinds, actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
        hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
-       level /* res:// path of the level file, read with FileAccess at session start: spec/level.md */ }
+       level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
 Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [4096]Bulk_Item, hud: [4096]u8 }
 ```
@@ -88,7 +88,7 @@ the extension that way, and the host uses `Object.set`/`call`.
   4. writes each bulk view's MultiMesh buffer in one `set_buffer` (interpolated, stride from the MultiMesh flags);
   5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
      go to the `sim_event` signal;
-  6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see devui.md).
+  6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see `src/devui/SPEC.md`).
 - **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's Netsim panel is
   off, through a `netcode.Net_Sim` (created on first enable) while on, drained after.
 - **Failures.** A transport's `fail(reason)` is the session's last status: no generic Failed follows it.

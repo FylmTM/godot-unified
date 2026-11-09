@@ -1,4 +1,4 @@
-// What the HUD shows (spec/friendslop.md), from the state alone: the run, and per slot what the player
+// What the HUD shows (games/friendslop/SPEC.md), from the state alone: the run, and per slot what the player
 // is doing. The extension turns it into the HUD Dictionary.
 package friendslop
 

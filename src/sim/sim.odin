@@ -85,7 +85,7 @@ Game :: struct($S, $I, $W: typeid, $P: int) {
 	// play together instead of desyncing.
 	version:       string,
 	tick_hz:       int, // a power of two (32, 64, 128); dt = 1 / tick_hz exactly
-	// The World for a session with this seed and content (the level file's bytes, spec/level.md;
+	// The World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes
 	// outlive the World (the caller of create owns them).
 	world_create:  proc(seed: u64, content: []u8) -> ^W,
@@ -163,7 +163,7 @@ inputs_same :: proc(a, b: ^Inputs($I, $P)) -> bool {
 // Creates the World and the tick-0 state, and saves tick 0 into the ring. That first save also
 // lets physics fill its geometry registry in a fixed order, which is what makes a portable
 // snapshot from another process restore here.
-// The identity of a game's content (spec/level.md): XXH3 of the bytes, 0 for none.
+// The identity of a game's content (src/level/SPEC.md): XXH3 of the bytes, 0 for none.
 content_hash :: proc(content: []u8) -> u64 {
 	return hash_bytes(content) if len(content) > 0 else 0
 }

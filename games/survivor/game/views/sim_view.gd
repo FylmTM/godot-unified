@@ -4,7 +4,7 @@ extends Node3D
 ## instantiates the scene under its `view_root`, sets `kind`, `entity` and `slot` before adding it, then every
 ## frame sets `position` (and the root's rotation) and calls `_sim_update`; events for this entity arrive through
 ## `_sim_event`, including `despawned` (the view then lingers ~0.25 s for an exit animation before it is freed).
-## Plain Node3D on purpose: the scenes load without the game library (see spec/survivor-client.md).
+## Plain Node3D on purpose: the scenes load without the game library (see games/survivor/SPEC.md).
 
 @export var kind: StringName
 @export var entity := -1

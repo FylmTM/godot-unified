@@ -1,11 +1,11 @@
 # testdata
 
-Reference files for the cross-platform tests T7 and T8 (`spec/headless.md`, T1-T9). They are generated on **macOS ARM64**
+Reference files for the cross-platform tests T7 and T8 (`src/headless/SPEC.md`, T1-T9). They are generated on **macOS ARM64**
 and committed; CI (Linux x64, Windows x64) and the Rosetta check must reproduce them bit for bit.
 
 | File | What it is |
 |---|---|
-| `ref.log` | Input log (`UNIL` v2 (still read: content 0), spec/sim.md: seed, slots, input size, ticks, then per tick present + replaced masks and 4 × 4 input bytes) of an offline run: 3600 ticks (64 Hz), 4 players, seed 7, scripted inputs, nothing replaced |
+| `ref.log` | Input log (`UNIL` v2 (still read: content 0), src/sim/SPEC.md: seed, slots, input size, ticks, then per tick present + replaced masks and 4 × 4 input bytes) of an offline run: 3600 ticks (64 Hz), 4 players, seed 7, scripted inputs, nothing replaced |
 | `ref.trace` | Per-tick checksums of that run, one `"%06d %016x"` line per tick, ticks 1..3600 |
 | `ref-1800.snap` | Portable snapshot (`UNIS` v2: state block plus Box3D state) after tick 1800 of the same run |
 | `ref.json` | Provenance: when, on what platform and commit, the exact commands, and the final checksum |

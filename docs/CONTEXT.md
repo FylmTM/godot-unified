@@ -42,7 +42,7 @@ The first real game will be a 3D co-op game, migrated later from the developer's
   so a laggy player never stalls the others. Late join from a snapshot works, and a player who drops or leaves can
   rejoin the running match as a late joiner. No backend.
 - **Transports** (pluggable): in-process loopback, direct UDP / LAN, and online play through Epic Online Services
-  (lobbies by code + P2P with Epic's relays as fallback; shipped in `survivor-v0.1.1`, `spec/eos.md`). Steam
+  (lobbies by code + P2P with Epic's relays as fallback; shipped in `survivor-v0.1.1`, `src/eos/SPEC.md`). Steam
   (Datagram Relay) later.
 - **Co-op testing**: N clients per process × a transport, with views on or off (headless). Headless loopback with a
   network simulator is the workhorse for tests, agents and CI.
@@ -75,5 +75,5 @@ checksums. That mode is what makes "works in single player ⇒ works online" a p
 simulation state (predicted frames for motion, verified frames for scores, events for effects) and never writes it;
 player input is the only way in.
 
-Settled designs live in `spec/`. Open research is in `docs/research/` (agent tooling, view binding, AI tooling).
+Settled designs live next to their code, as `SPEC.md`. Open research is in `docs/research/` (agent tooling, view binding, AI tooling).
 `docs/archive/` keeps the phase 2 results; research on the stacks and hosts we didn't choose is in git history.

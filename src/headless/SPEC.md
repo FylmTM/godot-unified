@@ -3,17 +3,17 @@
 The headless binary every game builds from `unified:headless` (`src/headless`, wired by
 `games/<game>/simulation/headless`), and the end-to-end tests T1-T9 that `tools/check.py` runs against it. The CLI
 and the tests are the phase 2 contract (signed off with it); the rest of the old phase 2 spec moved into
-`spec/sim.md` and `spec/netcode.md`, which describe the code as it is now. The test game is `spec/GAME.md`.
+`src/sim/SPEC.md` and `src/netcode/SPEC.md`, which describe the code as it is now. The test game is `games/survivor/SPEC.md`.
 
 ## CLI (`tools/check.py` relies on it)
 
 The modes come from `unified:headless`; the binary is the game's headless binary (`out/<mode>/survivor`). Below,
-`unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `spec/eos.md`).
-Formats and the sim/netcode behaviour behind the modes: `spec/sim.md`, `spec/netcode.md`.
+`unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
+Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
 
 All modes print a final JSON line on stdout. Non-zero exit = failure.
 
-- `unified sim --ticks N [--seed S] [--players P] [--trace F] [--log F]`: offline run with scripted inputs (`GAME.md`
+- `unified sim --ticks N [--seed S] [--players P] [--trace F] [--log F]`: offline run with scripted inputs (`games/survivor/SPEC.md`
   §input script); per-tick `"%06d %016x"` trace; `--log` writes the run's inputs as an input log (nothing replaced).
 - `unified synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`.
 - `unified replay --log F --trace F`: replays an input log.

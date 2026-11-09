@@ -113,7 +113,7 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   - Crossplay from main through `workflow_dispatch`: 0 mismatches, also with the Windows side running the exported
     release zip (the build a friend runs).
   - The keychain dialog came from an EOS CLI test run at 02:10 whose process is gone; it's harmless, and **Deny**
-    dismisses it. `spec/eos.md` and the tester notes explain keychain prompts in dev runs.
+    dismisses it. `src/eos/SPEC.md` and the tester notes explain keychain prompts in dev runs.
   - Verified on main: all local checks green; local macOS release build + smoke test OK (19 s).
 - **Tagged `survivor-v0.1.0` on 31e257a** after CI on main passed (run 42536768520: format + vet, Linux, Windows,
   headless Godot). Release run 42536959936 passed (Windows build, macOS build, prerelease). The prerelease
@@ -167,7 +167,7 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   published macOS zip was re-downloaded and checked here: checksum OK, game and EOS libraries bundled, headless
   smoke test clean. The v0.1.0 release notes now say it is superseded.
 - Merged `claude/eos-crossplay-v011` (b870bdc): the four survivor-v0.1.1 crossplay rows and the Direct/Relayed label
-  note in `spec/eos.md`. Docs only.
+  note in `src/eos/SPEC.md`. Docs only.
 
 ## 2026-11-09 morning
 
@@ -204,8 +204,8 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   editor-check, check T1–T9 plus Rosetta.
 - e6159b3 **audit-tools merged:** the release tag is the only version source (v0.1.1 had shipped saying 0.1.0); LF
   checksums; downloads pinned by SHA-256 and actions by SHA; read-only CI tokens except `eos-sdk.yml`; one copy of
-  each tool helper, strict positional `<game>`; `spec/CORE.md` became `spec/headless.md`; short specs for wire,
-  box3d and imgui (pending review); research and archive trimmed (kept in git at 6994822); docs describe the code
+  each tool helper, strict positional `<game>`; the core spec became the headless spec (now
+  `src/headless/SPEC.md`); short specs for wire, box3d and imgui (pending review); research and archive trimmed (kept in git at 6994822); docs describe the code
   as it is. Won't fix: CI-runner source paths in release binaries (`docs/RELEASE.md`). `dev.py all` on main: 54 s.
   The whole audit is now merged.
 - **WORK.md brought current:** v0.1.1, an "In flight" table, specs to sign off as the first review item, EOS

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The end-to-end tests T1-T9 of spec/headless.md (T1-T9), run against the CLI binary, plus F1-F5 on friendslop's
+"""The end-to-end tests T1-T9 of src/headless/SPEC.md (T1-T9), run against the CLI binary, plus F1-F5 on friendslop's
 headless binary (out/<mode>/friendslop: sync-test, two identical runs, a 4-client `bad` session and its replay, a
 late join, the replay of friendslop's reference run).
 
@@ -8,7 +8,7 @@ late join, the replay of friendslop's reference run).
                           [--jobs N] [--timeout-scale X]
 
 Drives out/<mode>/survivor[.exe] (the survivor's headless binary; out/<mode>-x64/ with --arch x86_64, the Rosetta
-build) through the CLI of spec/headless.md (CLI) (it does not build it). The platform it reports is the binary's own
+build) through the CLI of src/headless/SPEC.md (CLI) (it does not build it). The platform it reports is the binary's own
 architecture, not the host's. Prints
 one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
 (each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
@@ -22,7 +22,7 @@ with --regen, only on macOS ARM64 unless --force:
 then self-checked (replay of ref.log == ref.trace; resume of ref-1800.snap == ticks 1801-3600 of
 ref.trace) before the files replace the committed ones.
 
-Conventions (spec/headless.md (CLI)): ticks are numbered from 1 (the state after the k-th step is tick k;
+Conventions (src/headless/SPEC.md (CLI)): ticks are numbered from 1 (the state after the k-th step is tick k;
 `--ticks N` ends at tick N), every trace line is "%06d %016x" for ticks 1..N in order, and every
 mode prints one JSON object as its last stdout line.
 """
@@ -51,7 +51,7 @@ REF_SNAP_TICK = 1800
 BENCH_TICKS = 600
 BENCH_TARGET_US = 6000.0
 ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "F1", "F2", "F3", "F4", "F5"]
-# friendslop (spec/friendslop.md), the physics co-op game: its headless binary next to the survivor's.
+# friendslop (games/friendslop/SPEC.md), the physics co-op game: its headless binary next to the survivor's.
 FS_BINARY = "friendslop"
 FS_REF_TICKS = 1800
 TRACE_RE = re.compile(r"^(\d{6,}) ([0-9a-f]{16})$")
@@ -682,7 +682,7 @@ def binary_platform(path):
 
 
 def parser():
-    ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/headless.md (T1-T9) tests (T1-T9).")
+    ap = argparse.ArgumentParser(prog="check.py", description="Run the src/headless/SPEC.md (T1-T9) tests (T1-T9).")
     ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
                     help="which build to test: out/<mode>/survivor (default release)")
     ap.add_argument("--arch", choices=["x86_64"], help="macOS: test the Rosetta build in out/<mode>-x64/")

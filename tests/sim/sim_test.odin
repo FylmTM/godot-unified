@@ -328,7 +328,7 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	testing.expect(t, !sim.inputs_same(&a, &b))
 }
 
-// spec/level.md: the content (level) a sim was created with is part of its identity. A v2 log (no
+// src/level/SPEC.md: the content (level) a sim was created with is part of its identity. A v2 log (no
 // content field) still decodes, as content 0.
 @(test)
 content_identity :: proc(t: ^testing.T) {

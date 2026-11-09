@@ -1,4 +1,4 @@
-# Internet crossplay check through EOS (spec/eos.md, "Crossplay"): a Windows runner joins a lobby that a
+# Internet crossplay check through EOS (src/eos/SPEC.md, "Crossplay"): a Windows runner joins a lobby that a
 # developer's Mac hosts, plays the scripted session and reports its verified checksums. Manual only:
 #
 #   godot --headless --path games/survivor -- --host-online --scripted --ticks 23040 --quit-at-end

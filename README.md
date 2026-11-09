@@ -5,23 +5,23 @@ as the host. Fixed-tick deterministic sim, Box3D physics with a save/restore for
 replays, and an input relay with prediction, rollback and late join. Rules for working on it:
 [`AGENTS.md`](AGENTS.md). Work: the [board](https://github.com/users/FylmTM/projects/2). Decisions so far:
 [`docs/WORK.md`](docs/WORK.md). Why and what for: [`docs/CONTEXT.md`](docs/CONTEXT.md). What the core must do:
-[`spec/`](spec/).
+each module's `SPEC.md`.
 
 ## Layout
 
 ```
-src/                 the `unified` collection (-collection:unified=src); one package per directory, specs in spec/
+src/                 the `unified` collection (-collection:unified=src); one package per directory, each with its SPEC.md
   wire/              little-endian Writer/Reader for every binary format (leaf)
   sim/               the deterministic harness, generic over a game: tables + handles, RNG, plain-data check,
                      snapshot ring, checksum, events, input log, portable snapshot
   physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image; the dynamic character
-                     mover, joints, queries, hit events, kinematic paths (spec/physics.md)
+                     mover, joints, queries, hit events, kinematic paths (src/physics/SPEC.md)
   box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
   dmath/             deterministic f32 helpers (leaf)
-  level/             Godot-authored levels for the sim: the UNLV file, reader, writer, Godot exporter (spec/level.md)
+  level/             Godot-authored levels for the sim: the UNLV file, reader, writer, Godot exporter (src/level/SPEC.md)
   netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks
   eos/               Epic Online Services: login, lobbies by code, P2P as a netcode link
-  headless/          a game's headless binary: the CLI modes of spec/headless.md (CLI), generic over the game
+  headless/          a game's headless binary: the CLI modes of src/headless/SPEC.md (CLI), generic over the game
   view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
   gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
   imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
@@ -31,7 +31,7 @@ src/                 the `unified` collection (-collection:unified=src); one pac
 games/survivor/      the test game, laid out like a game repo (Godot project root)
   simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
                      extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
-games/friendslop/    the co-op physics sandbox (spec/friendslop.md), laid out the same; its level is a Godot scene
+games/friendslop/    the co-op physics sandbox (games/friendslop/SPEC.md), laid out the same; its level is a Godot scene
                      (game/levels/) exported to a .level file the sim loads
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
   lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
@@ -88,6 +88,6 @@ Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/d
 `.github/workflows/ci.yml`: `lint` (format check, vet), `test` on Linux x64 and Windows x64 (`odin test`, then
 T1-T9 with the T9 bench and step timings in the job summary) and `godot` on Linux x64 (`dev.py godot-checks`):
 together what `dev.py all` runs. `release.yml` makes playable game builds for `<game>-v*` tags only
-(`docs/RELEASE.md`); `eos-crossplay.yml` is the manual internet crossplay check (`spec/eos.md`); `eos-sdk.yml`
+(`docs/RELEASE.md`); `eos-crossplay.yml` is the manual internet crossplay check (`src/eos/SPEC.md`); `eos-sdk.yml`
 fetches the EOS SDK for the others (the only job with a write token, running no repository code). Actions, runner
 images and downloads are pinned; Odin, odinfmt, Box3D, Dear ImGui, Godot and the EOS SDK are cached.

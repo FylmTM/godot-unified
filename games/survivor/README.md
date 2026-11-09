@@ -1,8 +1,8 @@
 # Survivor
 
 The co-op survivor prototype on `unified`: a Godot 4.7 project (this folder is `res://`). The deterministic sim and
-the GDExtension live in `simulation/` (Odin); everything Godot is in `game/` (spec: `spec/survivor-client.md`,
-sim: `spec/GAME.md`).
+the GDExtension live in `simulation/` (Odin); everything Godot is in `game/`. Spec (the sim, then the
+client): [`SPEC.md`](SPEC.md).
 
 ## Run
 

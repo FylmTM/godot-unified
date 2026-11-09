@@ -9,7 +9,7 @@ Host_Config :: struct {
 	seed:    u64,
 	ticks:   u32, // 0: endless
 	compat:  u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content: []u8, // the game's content (the level, spec/level.md); borrowed for the host's lifetime
+	content: []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
 	name:    string, // for log lines
 	player:  string, // the host player's display name
 	poll_us: i64,

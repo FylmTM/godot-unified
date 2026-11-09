@@ -1,5 +1,5 @@
 // Offline modes, generic over the game: scripted runs, sync-test, replay, snapshot/resume and the
-// rollback bench (spec/headless.md (CLI)).
+// rollback bench (src/headless/SPEC.md (CLI)).
 package headless
 
 import "core:fmt"
@@ -26,7 +26,7 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_count:   proc(s: ^S) -> int,
 	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
 	online:        ^Online,
-	// The game's content (its level file, spec/level.md): the default (e.g. embedded with #load);
+	// The game's content (its level file, src/level/SPEC.md): the default (e.g. embedded with #load);
 	// `--level FILE` on any mode replaces it.
 	content:       []u8,
 }

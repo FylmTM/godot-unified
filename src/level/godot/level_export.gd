@@ -1,5 +1,5 @@
 extends SceneTree
-## unified's level exporter (spec/level.md, the UNLV format in src/level/level.odin). The tools copy it into a
+## unified's level exporter (src/level/SPEC.md, the UNLV format in src/level/level.odin). The tools copy it into a
 ## game's .out/tools/ and run it headless:
 ##   godot --headless --path games/<game> -s res://.out/tools/level_export.gd -- [--check] [--scene=res://...]
 ## Exports every res://game/levels/*.tscn (not subfolders: those hold the parts a level instances) to the

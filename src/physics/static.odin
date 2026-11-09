@@ -1,4 +1,4 @@
-// Static geometry from a level file (spec/level.md): one static body per level body, in file order.
+// Static geometry from a level file (src/level/SPEC.md): one static body per level body, in file order.
 package physics
 
 import b3 "../box3d"

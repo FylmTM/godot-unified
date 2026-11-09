@@ -1,4 +1,4 @@
-// friendslop (spec/friendslop.md): constants, input, and the pointer-free state block.
+// friendslop (games/friendslop/SPEC.md): constants, input, and the pointer-free state block.
 package friendslop
 
 import "unified:physics"

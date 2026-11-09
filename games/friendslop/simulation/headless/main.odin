@@ -1,4 +1,4 @@
-// friendslop's headless binary: every mode of spec/headless.md (sim, synctest, replay, session, relay,
+// friendslop's headless binary: every mode of src/headless/SPEC.md (sim, synctest, replay, session, relay,
 // client, snapshot, resume, bench) on the game, through unified:headless. The level is embedded (the
 // committed export of game/levels/park.tscn); `--level FILE` loads another.
 package main

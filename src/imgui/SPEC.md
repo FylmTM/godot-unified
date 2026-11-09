@@ -2,7 +2,7 @@
 
 Pending developer review (written after the code, 2026-11-09).
 
-Dear ImGui for the dev UI (`spec/devui.md`): `src/imgui` is vendored odin-imgui declarations, `tools/imgui.py`
+Dear ImGui for the dev UI (`src/devui/SPEC.md`): `src/imgui` is vendored odin-imgui declarations, `tools/imgui.py`
 builds the C++ library. No tests of its own; the dev UI's are in `tests/godot` and the game's checks.
 
 ## What it is

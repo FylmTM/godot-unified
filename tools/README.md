@@ -9,9 +9,9 @@ Command list: [`../AGENTS.md`](../AGENTS.md#layout-and-commands).
 | `dev.py` | build / test / check / fmt / vet / gen / godot-test / godot-checks / all / game / board. Prints each step's time and keeps the last ones in `out/timings.json`. |
 | `game.py` | Godot project checks behind `dev.py game validate\|walk\|shots\|tour\|coop\|import <game>` (`validate` and `walk` also fail on leaks at exit and GDScript warnings; `tour --frames [--cold]` reports frame times and first-use hitches). |
 | `board.py` | The work board (GitHub Project 2) behind `dev.py board list\|set <issue> [--status S] [--area A]`; needs the `gh` CLI with the `project` scope. |
-| `check.py` | T1-T9 of `spec/headless.md` against `out/<mode>/survivor`, and F1-F5 against `out/<mode>/friendslop` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
-| `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`spec/box3d.md`). |
-| `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`spec/imgui.md`). |
+| `check.py` | T1-T9 of `src/headless/SPEC.md` against `out/<mode>/survivor`, and F1-F5 against `out/<mode>/friendslop` (`out/<mode>-x64/` with `--arch x86_64`; it does not build). |
+| `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`src/box3d/SPEC.md`). |
+| `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`src/imgui/SPEC.md`). |
 | `eos.py` | Stages the pruned EOS SDK in `third_party/eos/` (local SDK or the draft release, hash-checked); `defines` shows the credential flags, redacted (`docs/EOS.md`). |
 | `release.py` | Playable game builds: extension, version stamp, Godot export, codesign, zip, smoke test (`docs/RELEASE.md`). |
 | `ci.py` | CI helpers: Odin download, pinned odinfmt build, the Godot editor, ninja, the Box3D compiler id, the job summary. |
@@ -68,4 +68,4 @@ python tools/dev.py check --regen                      # macOS ARM64 binary only
   sessions run in parallel (`--jobs`, default 6). T4 reuses T3's 4-client `bad` log. T5 is the one wall-clock
   test: a UDP relay on a free localhost port plus 3 client processes (client 2 with `--profile bad`), 960 ticks,
   started first so it overlaps the others (`--serial` to disable); T9 runs after it.
-- Seeds: tests use 42, the references 7. JSON field names and tick numbering: `spec/headless.md` (CLI, "Conventions").
+- Seeds: tests use 42, the references 7. JSON field names and tick numbering: `src/headless/SPEC.md` (CLI, "Conventions").

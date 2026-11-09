@@ -125,7 +125,7 @@ RULES := []Rule {
 	{pkg = "survivor_extension", dir = "games/survivor/simulation/extension"},
 	// The survivor's sim tests: test code like tests/<module>, never inside a tick.
 	{pkg = "test_survivor", dir = "games/survivor/simulation/tests"},
-	// friendslop (spec/friendslop.md): its sim follows the game rules; its headless binary and GDExtension
+	// friendslop (games/friendslop/SPEC.md): its sim follows the game rules; its headless binary and GDExtension
 	// are like the survivor's.
 	{
 		pkg = "friendslop",

@@ -4,9 +4,9 @@ Pending developer review (written after the code, 2026-11-09).
 
 Box3D, pinned and forked, as the sim's physics engine: `third_party/box3d.patch` (the fork), `tools/box3d.py`
 (fetch, patch, build), `src/box3d` (hand-written Odin bindings). `src/physics` wraps it as the sim's `Extra` state
-(`spec/sim.md`). Tests: `tests/box3d` (the fork and bindings on their own: layouts against the pinned headers, each
+(`src/sim/SPEC.md`). Tests: `tests/box3d` (the fork and bindings on their own: layouts against the pinned headers, each
 call the games make, exact save/restore, portable images, damaged images, a golden trace), `tests/physics`, and
-T7/T8 (`spec/headless.md`) across platforms.
+T7/T8 (`src/headless/SPEC.md`) across platforms.
 
 ## What we use
 

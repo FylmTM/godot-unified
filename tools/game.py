@@ -15,7 +15,7 @@ directly with the same arguments: `python tools/game.py validate survivor`):
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import <game>                # refresh Godot's import cache (.godot/)
-    python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (spec/level.md);
+    python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (src/level/SPEC.md);
                                                           # --check fails when a committed file is stale
 
 Godot: common.find_godot(). Every run has a timeout (Godot can hang on some errors) and is judged by the JSON line

@@ -89,8 +89,8 @@ list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need p
   `box3d`; linted like the core), `simulation/headless/` its CLI binary (→ `headless`, plus `eos` for online
   modes), `simulation/extension/` its GDExtension (→ `godot_host`, `eos`, ...), `simulation/tests/` its sim
   tests (run with the library's by `dev.py test`), `game/` everything Godot. The
-  first game is `games/survivor/`; `games/friendslop/` (spec/friendslop.md) is the physics co-op sandbox, with a
-  Godot-authored level (spec/level.md).
+  first game is `games/survivor/`; `games/friendslop/` (games/friendslop/SPEC.md) is the physics co-op sandbox, with a
+  Godot-authored level (src/level/SPEC.md).
 - `tests/`: `odin test` packages, one per module (`box3d`, `sim`, `netcode`, `headless`, `godot_host`, `gdext`, `eos`,
   ...), importing `unified:<pkg>`; `tests/lint` is the determinism lint, `tests/godot` the binding tests under
   headless Godot. `README.md` has the toolchain; `tools/README.md` the tools.
@@ -130,7 +130,7 @@ needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
 - The board (above): current and upcoming work. `docs/WORK.md`: phases and decisions taken so far (they move into
   the specs during the foundations review, then the file goes).
 - `docs/CONTEXT.md`: why `unified` exists and the developer's requirements.
-- `spec/`: one short spec per module, plus the test game (`GAME.md`) and its client (`survivor-client.md`).
+- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
 - `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/research/` (open research).
 - `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
   history (`docs/archive/README.md`).

@@ -1,4 +1,4 @@
-// spec/level.md: the UNLV file round-trips every record and property type, bad files are refused,
+// src/level/SPEC.md: the UNLV file round-trips every record and property type, bad files are refused,
 // and physics.create_static builds the bodies.
 package test_level
 

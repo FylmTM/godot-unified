@@ -1,7 +1,7 @@
 # `unified:physics`: characters, joints, kinematic paths
 
-Signed off by the developer 2026-11-09. Extends the physics plug-in in `spec/sim.md` with what every co-op
-physics game needs. First user: `spec/friendslop.md`. Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed
+Signed off by the developer 2026-11-09. Extends the physics plug-in in `src/sim/SPEC.md` with what every co-op
+physics game needs. First user: `games/friendslop/SPEC.md`. Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed
 tables instead of trig, Box3D with one worker, state in the block or in the Box3D world (both snapshotted).
 
 ## References in the block

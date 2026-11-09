@@ -1,4 +1,4 @@
-// spec/physics.md: the dynamic mover, joints under rollback, queries, hit events and kinematic paths.
+// src/physics/SPEC.md: the dynamic mover, joints under rollback, queries, hit events and kinematic paths.
 // The rig is a small game run through the real harness (sim.create/step/restore/checksum), so joint
 // churn, platforms and hit events are checked the way a game uses them.
 package test_physics

@@ -1,4 +1,4 @@
-// The dynamic character mover (spec/physics.md), ported from Box3D's reference sample
+// The dynamic character mover (src/physics/SPEC.md), ported from Box3D's reference sample
 // (samples/dynamic_mover.cpp, which asks to be vendored). A rotation-locked dynamic capsule: a mover
 // joint drives it to a target horizontal velocity under a force cap, a pogo joint (a spring along
 // the ground normal) holds it above the ground found by ray probes. Standing on a kinematic body
