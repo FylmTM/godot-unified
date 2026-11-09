@@ -44,7 +44,6 @@ session_result_destroy :: proc(res: ^Session_Result($I, $P)) {
 }
 
 // Script hooks: every client samples the game's scripted input for its slot.
-@(private)
 Script_User :: struct($S, $I, $W: typeid, $P: int) {
 	h:    ^Headless(S, I, W, P),
 	seed: u64,
@@ -57,7 +56,7 @@ script_hooks :: proc(u: ^Script_User($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, 
 		}}
 }
 
-@(private)
+// A client stepped by run_client until `deadline` (µs); `ok` once it verified every tick.
 Client_Task :: struct($S, $I, $W: typeid, $P: int) {
 	c:        ^netcode.Client(S, I, W, P),
 	deadline: i64,

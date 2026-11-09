@@ -38,7 +38,7 @@ Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The b
 static library by relative path, so plain `odin build games/survivor/simulation/headless
 -collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
 is built (add -out: or the binary lands in the current folder); this script adds the flags and timings.
-`build` builds every headless binary (the CLI modes of src/headless/SPEC.md come from unified:headless):
+`build` builds every headless binary (the CLI modes of src/headless/SPEC.md come from unified:headless/cli):
 each game's and the toy game's (tests/toy/headless).
 
 End-to-end (src/headless/SPEC.md, End-to-end suites): each game's suite and the toy's run in `test`. `check`

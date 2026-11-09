@@ -1,7 +1,7 @@
 # src: how the code works
 
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
-input-relay netcode with a step API (`netcode`, `eos`), the generic headless modes (`headless`) that a game's
+input-relay netcode with a step API (`netcode`, `eos`), the generic headless runs and CLI (`headless`) that a game's
 headless binary wires up, and the Godot host (`gdext`, `view`, `devui`, `godot_host`). The test game lives in
 `games/survivor/`. Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
 core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `python tools/dev.py -h`.
@@ -101,8 +101,8 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
 - Windows timer resolution and UDP WSAECONNRESET (above).
 - Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
   package that doesn't call them: keep such imports behind small non-generic helpers (`sim.write_file`,
-  `sim.hash_bytes`, ...), or, where a file's generic procs use many (`unified:headless`, which game suites import
-  without calling `headless.run`), name each once at file scope (`_ :: fmt`).
+  `sim.hash_bytes`, ...), or keep them in a package of their own (`unified:headless/cli`: the game suites import
+  `unified:headless` and never instantiate the CLI modes).
 - A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's
   client.odin imports `sim` as `usim`.
 - Not Odin-specific: with the spec's constants and the scripted inputs barrels are rarely shot (they sit off the

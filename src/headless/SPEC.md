@@ -1,14 +1,15 @@
 # headless
 
-The headless binary every game builds from `unified:headless` (`src/headless`, wired by
-`games/<game>/simulation/headless`; the toy game's by `tests/toy/headless`), and the end-to-end suites: each game's
-Odin tests built on the standard scenarios of `unified:headless/scenarios`. The CLI is the phase 2 contract (signed
-off with it); the rest of the old phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which describe
-the code as it is now.
+The headless binary every game builds from `unified:headless/cli` (`src/headless/cli`, wired by
+`games/<game>/simulation/headless`; the toy game's by `tests/toy/headless`) on top of the in-memory runs of
+`unified:headless` (`src/headless`), and the end-to-end suites: each game's Odin tests built on the standard
+scenarios of `unified:headless/scenarios`. The CLI is the phase 2 contract (signed off with it); the rest of the old
+phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which describe the code as it is now.
 
 ## CLI
 
-The modes come from `unified:headless`; the binary is the game's headless binary (`out/<mode>/<game>`). Below,
+The modes come from `unified:headless/cli` (`cli.run(&HEADLESS, variants, online)`: `--game NAME` picks one of the
+variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`out/<mode>/<game>`). Below,
 `unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
 Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
 
@@ -58,8 +59,12 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 ### Where things are
 
+- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`), the in-memory runs (`run_sim`,
+  `run_synctest`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use only this.
+- **`unified:headless/cli`** (`src/headless/cli/`): argument parsing, the modes, the file I/O, the bench and the
+  online modes; only headless binaries import it.
 - **`unified:headless/scenarios`** (`src/headless/scenarios/`): the standard scenarios, one proc each. A test-only
-  sub-package (it imports `core:testing`); game binaries never import it. The `headless` lint rule covers it.
+  sub-package (it imports `core:testing`); game binaries never import it. The `headless` lint rule covers all three.
 - **Each game's suite:** `games/<game>/simulation/tests/suite_test.odin`: one `@(test)` per standard scenario call,
   then the game's own scenarios. Its reference run stays in `simulation/tests/testdata/`.
 - **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests, with the toy's reference run in
@@ -117,7 +122,7 @@ Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `
   `odin test games/<game>/simulation/tests -collection:unified=src`.
 - **`python tools/dev.py check`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
-  (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless`).
+  (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless/cli`).
 - **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `dev.py test` (every
   suite and every reference run: the cross-check), then `dev.py check`, then `dev.py bench`.
 - **Benchmarks are not part of the suites:** `python tools/dev.py bench` runs each game's `bench` mode alone on a

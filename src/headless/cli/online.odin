@@ -1,24 +1,19 @@
 // Online modes, the game topology end to end without Godot, over a transport the game's binary
-// plugs in (Headless.online; e.g. EOS lobbies + P2P), so this package never imports a platform SDK.
+// plugs in (cli.run's `online`; e.g. EOS lobbies + P2P), so this package never imports a platform SDK.
 // `<name>-host` runs a host (relay + the host's own player in slot 0) whose relay also serves the
 // transport's link, opens a lobby and prints its code; `<name>-client` joins by code and plays a
 // remote slot (a late join: the host's clock is already running). Inputs are the game's script.
-package headless
+package cli
 
 import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:time"
 
+import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-// Used only inside parametric procs: -vet would flag them in a package that imports unified:headless
-// without instantiating those (a suite that never calls headless.run).
-_ :: fmt
-_ :: os
-_ :: strings
-_ :: sim
 
 // An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
 Online :: struct {
@@ -70,7 +65,7 @@ online_known :: proc(a: ^Args, o: ^Online, own: ..string) {
 	check_known(a, ..known[:])
 }
 
-mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
+mode_online_host :: proc(h: ^headless.Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
 	online_known(a, o, "ticks", "code-file", "log", "players", "wait-s", "bucket")
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
 	// --wait-s N: keep the lobby open up to N s until a remote player connects, then start the clock
@@ -114,15 +109,15 @@ mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> 
 			time.duration_seconds(time.tick_since(sw)),
 		)
 	}
-	user := Script_User(S, I, W, P){h, 1}
+	user := headless.Script_User(S, I, W, P){h, 1}
 	host := netcode.host_create(
 		h.game,
 		netcode.Host_Config{seed = 1, ticks = ticks, name = "host", content = h.content},
-		script_hooks(&user),
+		headless.script_hooks(&user),
 	)
 	defer netcode.host_destroy(host)
 	netcode.host_add_link(host, link)
-	deadline := netcode.now_us() + i64((session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6)
+	deadline := netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6)
 	for !netcode.host_finished(host) {
 		now := netcode.now_us()
 		wake := netcode.host_step(host, now)
@@ -158,7 +153,7 @@ mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> 
 	return ok && r.desyncs == 0
 }
 
-mode_online_client :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
+mode_online_client :: proc(h: ^headless.Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
 	online_known(a, o, "code", "ticks", "bucket")
 	code := opt_str(a, "code", required = true)
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
@@ -179,20 +174,20 @@ mode_online_client :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -
 	}
 	join_ms := time.duration_milliseconds(time.tick_since(t0))
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", a.mode, st.code, st.local, st.host, join_ms)
-	user := Script_User(S, I, W, P){h, 1}
+	user := headless.Script_User(S, I, W, P){h, 1}
 	c := netcode.client_create(
 		h.game,
 		netcode.Client_Config{slot = -1, name = "client", content = h.content},
 		link,
-		script_hooks(&user),
+		headless.script_hooks(&user),
 	)
 	defer netcode.client_destroy(c)
-	task := Client_Task(S, I, W, P) {
+	task := headless.Client_Task(S, I, W, P) {
 		c,
-		netcode.now_us() + i64((session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6),
+		netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6),
 		false,
 	}
-	run_client(&task)
+	headless.run_client(&task)
 	ok = task.ok
 	if c.ticks != 0 && c.ticks != ticks {
 		fmt.eprintfln("%s: the host runs %d ticks, --ticks says %d", a.mode, c.ticks, ticks)

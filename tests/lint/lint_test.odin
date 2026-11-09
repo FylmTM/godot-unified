@@ -148,7 +148,7 @@ RULES := []Rule {
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
 	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
-	// The survivor's headless binary (package main): wires the game and EOS into unified:headless.
+	// The survivor's headless binary (package main): wires the game and EOS into unified:headless/cli.
 	{
 		pkg = "headless_main",
 		dir = "games/survivor/simulation/headless",

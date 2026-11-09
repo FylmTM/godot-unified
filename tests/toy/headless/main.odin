@@ -1,10 +1,11 @@
 // The toy game's headless binary: every mode of src/headless/SPEC.md (CLI) on the toy, through
-// unified:headless. `python tools/dev.py check` drives it for the real-UDP, multi-process test (a
+// unified:headless/cli. `python tools/dev.py check` drives it for the real-UDP, multi-process test (a
 // relay and three client processes): a netcode transport test at library level.
 package main
 
 import "../../toy"
 import "unified:headless"
+import "unified:headless/cli"
 
 HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.SLOTS) {
 	game = &toy.GAME,
@@ -14,5 +15,5 @@ HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.SLOTS) {
 }
 
 main :: proc() {
-	headless.run(&HEADLESS)
+	cli.run(&HEADLESS)
 }

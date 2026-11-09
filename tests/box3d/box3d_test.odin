@@ -2,7 +2,7 @@
 // we use): the binding layouts against the pinned headers, each call the games make, exact
 // save/restore across body types, contacts, sleep and body creation/destruction, portable images in
 // a second world, damaged images, and a golden trace that pins the fork's results (an upgrade that
-// changes them fails here first, then T7/T8).
+// changes them fails here first, then the games' reference runs).
 package test_box3d
 
 import "core:fmt"

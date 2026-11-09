@@ -22,9 +22,6 @@ UNIFIED_REGEN :: #config(UNIFIED_REGEN, false)
 // tree has changes); recorded in ref.json.
 UNIFIED_REGEN_COMMIT :: #config(UNIFIED_REGEN_COMMIT, "unknown")
 
-_ :: log // used only when UNIFIED_REGEN is set
-_ :: time
-
 // A game's suite: its headless descriptor and the parameters of its runs.
 Suite :: struct($S, $I, $W: typeid, $P: int) {
 	h:       ^headless.Headless(S, I, W, P),
@@ -182,7 +179,7 @@ reference_replays :: proc(t: ^testing.T, s: ^Suite($S, $I, $W, $P)) {
 // Resuming the committed snapshot reproduces the rest of ref.trace.
 reference_resumes :: proc(t: ^testing.T, s: ^Suite($S, $I, $W, $P)) {
 	when UNIFIED_REGEN {
-		log.info("reference_resumes: skipped while regenerating (reference_replays checks the new snapshot)")
+		regen_note("reference_resumes: skipped while regenerating (reference_replays checks the new snapshot)")
 	} else {
 		check_resume(t, s)
 	}
@@ -465,6 +462,22 @@ regenerate :: proc(t: ^testing.T, s: ^Suite($S, $I, $W, $P)) -> bool {
 	ok := headless.trace_write(&tr, ref_path(r, "ref.trace"))
 	ok &&= sim.log_write(ref_path(r, "ref.log"), &lg)
 	ok &&= os.write_entire_file(ref_path(r, fmt.tprintf("ref-%d.snap", r.snapshot_tick)), snap) == nil
+	meta := ref_json(r, res.final_checksum)
+	ok &&= os.write_entire_file(ref_path(r, "ref.json"), transmute([]u8)meta) == nil
+	regen_note(fmt.tprintf("regen: wrote a reference run into %s (final checksum %016x)", r.dir, res.final_checksum))
+	return testing.expectf(t, ok, "regen: cannot write the reference run into %s", r.dir)
+}
+
+// Not generic, so always type-checked: the imports they use count as used in a build without
+// UNIFIED_REGEN too.
+@(private)
+regen_note :: proc(msg: string) {
+	log.info(msg)
+}
+
+// ref.json: where, when and how a reference run was made, and its parameters (temp-allocated).
+@(private)
+ref_json :: proc(r: Reference, final_checksum: u64) -> string {
 	made, _ := time.time_to_rfc3339(time.now(), include_nanos = false, allocator = context.temp_allocator)
 	build := strings.to_lower(fmt.tprintf("-o:%v", ODIN_OPTIMIZATION_MODE), context.temp_allocator)
 	when ODIN_USE_SEPARATE_MODULES {build = strings.concatenate(
@@ -473,7 +486,7 @@ regenerate :: proc(t: ^testing.T, s: ^Suite($S, $I, $W, $P)) -> bool {
 		)}
 	when ODIN_DEBUG {build = strings.concatenate({build, " -debug"}, context.temp_allocator)}
 	when ODIN_NO_BOUNDS_CHECK {build = strings.concatenate({build, " -no-bounds-check"}, context.temp_allocator)}
-	meta := fmt.tprintf(
+	return fmt.tprintf(
 		`{{
   "made_on": {{"os": "%v", "arch": "%v", "odin": "%s (%s)", "build": "%s", "commit": "%s"}},
   "made_at": "%s",
@@ -495,9 +508,6 @@ regenerate :: proc(t: ^testing.T, s: ^Suite($S, $I, $W, $P)) -> bool {
 		r.players,
 		r.ticks,
 		r.snapshot_tick,
-		res.final_checksum,
+		final_checksum,
 	)
-	ok &&= os.write_entire_file(ref_path(r, "ref.json"), transmute([]u8)meta) == nil
-	log.infof("regen: wrote a reference run into %s (final checksum %016x)", r.dir, res.final_checksum)
-	return testing.expectf(t, ok, "regen: cannot write the reference run into %s", r.dir)
 }

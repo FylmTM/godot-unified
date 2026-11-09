@@ -1,20 +1,14 @@
-package headless
+package cli
 
 import "core:fmt"
 import cnet "core:net"
 import "core:strconv"
 import "core:strings"
 
+import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-// Used only inside parametric procs: -vet would flag them in a package that imports unified:headless
-// without instantiating those (a suite that never calls headless.run).
-_ :: fmt
-_ :: cnet
-_ :: strconv
-_ :: strings
-_ :: sim
 
 profile_opt :: proc(a: ^Args) -> netcode.Profile {
 	name := opt_str(a, "profile", "ideal")
@@ -25,9 +19,9 @@ profile_opt :: proc(a: ^Args) -> netcode.Profile {
 	return p
 }
 
-mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
+mode_session :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	check_known(a, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
-	cfg := Session_Config {
+	cfg := headless.Session_Config {
 		clients     = opt_int(a, "clients", required = true, lo = 1, hi = P),
 		transport   = opt_str(a, "transport", "loopback"),
 		profile     = profile_opt(a),
@@ -62,8 +56,8 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		cfg.late_player = p
 		cfg.late_tick = u32(t)
 	}
-	res := session_run(h, cfg)
-	defer session_result_destroy(&res)
+	res := headless.session_run(h, cfg)
+	defer headless.session_result_destroy(&res)
 	ok := res.ok && res.desyncs == 0
 	if path := opt_str(a, "log"); path != "" {
 		ok &&= sim.log_write(path, &res.log)
@@ -87,7 +81,7 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	return ok
 }
 
-mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
+mode_relay :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	check_known(a, "port", "players", "ticks", "log")
 	port := opt_int(a, "port", required = true, lo = 1, hi = 65535)
 	players := opt_int(a, "players", required = true, lo = 1, hi = P)
@@ -108,8 +102,8 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	r := netcode.relay_create(cfg, I, P)
 	defer netcode.relay_destroy(r)
 	netcode.relay_add_link(r, link)
-	deadline := netcode.now_us() + i64((session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6)
-	ok := run_relay(r, deadline)
+	deadline := netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6)
+	ok := headless.run_relay(r, deadline)
 	if path := opt_str(a, "log"); path != "" {
 		ok &&= sim.log_write(path, &r.log)
 	}
@@ -124,7 +118,7 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	return ok && r.desyncs == 0
 }
 
-mode_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
+mode_client :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	check_known(a, "connect", "player", "ticks", "profile")
 	addr := opt_str(a, "connect", required = true)
 	ep, eok := cnet.parse_endpoint(addr)
@@ -143,15 +137,15 @@ mode_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		content = h.content,
 		name    = fmt.tprintf("client%d", player),
 	}
-	user := Script_User(S, I, W, P){h, 1}
-	c := netcode.client_create(h.game, cfg, link, script_hooks(&user))
+	user := headless.Script_User(S, I, W, P){h, 1}
+	c := netcode.client_create(h.game, cfg, link, headless.script_hooks(&user))
 	defer netcode.client_destroy(c)
-	task := Client_Task(S, I, W, P) {
+	task := headless.Client_Task(S, I, W, P) {
 		c,
-		netcode.now_us() + i64((session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6),
+		netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6),
 		false,
 	}
-	run_client(&task)
+	headless.run_client(&task)
 	ok := task.ok
 	if c.ticks != 0 && c.ticks != ticks {
 		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", c.ticks, ticks)

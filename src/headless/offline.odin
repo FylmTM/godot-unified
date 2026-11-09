@@ -1,26 +1,17 @@
-// Offline modes, generic over the game: scripted runs, sync-test, replay, snapshot/resume and the
-// rollback bench (src/headless/SPEC.md (CLI)).
+// Offline runs, generic over the game: scripted runs, sync-test, replay, snapshot/resume, all in
+// memory (the CLI, unified:headless/cli, does the file I/O).
 package headless
 
 import "core:fmt"
 import "core:os"
-import "core:slice"
 import "core:strconv"
 import "core:strings"
-import "core:time"
 
 import "unified:sim"
 
-// Used only inside parametric procs: -vet would flag them in a package that imports unified:headless
-// without instantiating those (a suite that never calls headless.run).
-_ :: time
-
-// What a game's headless binary supplies besides its sim.Game.
+// A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($S, $I, $W: typeid, $P: int) {
-	game:          ^sim.Game(S, I, W, P), // the default
-	// Other variants of the game (e.g. other tunings), selected with `--game NAME` (sim.Game.name)
-	// on any mode.
-	variants:      []^sim.Game(S, I, W, P),
+	game:          ^sim.Game(S, I, W, P),
 	// Scripted input of `slot` for tick t; `state` is the caller's current state (nil if none).
 	script:        proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
@@ -29,10 +20,8 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare: proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:   proc(s: ^S) -> int,
-	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
-	online:        ^Online,
-	// The game's content (its level file, src/level/SPEC.md): the default (e.g. embedded with #load);
-	// `--level FILE` on any mode replaces it.
+	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
+	// `--level FILE` replaces it.
 	content:       []u8,
 }
 
@@ -62,24 +51,6 @@ trace_at :: proc(tr: ^Trace, t: u32) -> (checksum: u64, ok: bool) {
 		return
 	}
 	return tr.sums[t - tr.first], true
-}
-
-// The first tick where two traces differ (a tick only one of them has counts); differ = false when equal.
-trace_first_difference :: proc(a, b: ^Trace) -> (tick: u32, differ: bool) {
-	if len(a.sums) > 0 && len(b.sums) > 0 && a.first != b.first {
-		return min(a.first, b.first), true
-	}
-	n := min(len(a.sums), len(b.sums))
-	for i in 0 ..< n {
-		if a.sums[i] != b.sums[i] {
-			return a.first + u32(i), true
-		}
-	}
-	if len(a.sums) != len(b.sums) {
-		first := a.first if len(a.sums) > 0 else b.first
-		return first + u32(n), true
-	}
-	return 0, false
 }
 
 trace_write :: proc(tr: ^Trace, path: string) -> bool {
@@ -308,109 +279,4 @@ run_resume :: proc(
 	}
 	res.final_tick = start + ticks
 	return res, true
-}
-
-Stat :: struct {
-	mean: f64,
-	p99:  f64,
-}
-
-stat_of :: proc(samples: []f64) -> Stat {
-	if len(samples) == 0 {
-		return {}
-	}
-	sum := 0.0
-	for v in samples {
-		sum += v
-	}
-	slice.sort(samples)
-	rank := (99 * len(samples) + 99) / 100 // nearest rank
-	return {sum / f64(len(samples)), samples[max(rank - 1, 0)]}
-}
-
-Bench_Result :: struct {
-	step, save, restore, resim: Stat,
-	snapshot_bytes:             int,
-	block_bytes:                int,
-	enemies_mean:               f64,
-	mismatches:                 int,
-}
-
-// `bench`: prepares `enemies` entities (the game holds that population), and every tick measures
-// the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
-// save per tick, which is what a client rollback costs). Re-sim checksums are compared too.
-run_bench :: proc(
-	h: ^Headless($S, $I, $W, $P),
-	enemies: int,
-	window, ticks: u32,
-	seed: u64,
-	players: int,
-) -> (
-	br: Bench_Result,
-) {
-	assert(window >= 1 && window < sim.RING)
-	s := sim.create(h.game, seed, h.content)
-	defer sim.destroy(s)
-	if h.bench_prepare != nil {
-		h.bench_prepare(&s.state, s.world, enemies)
-		sim.save(s)
-	}
-	n := int(ticks)
-	step_us := make([]f64, n)
-	save_us := make([]f64, n)
-	restore_us := make([]f64, n)
-	resim_us := make([]f64, n)
-	recorded := make([]sim.Inputs(I, P), ticks + 1)
-	forward := make([]u64, ticks + 1)
-	defer {
-		delete(step_us)
-		delete(save_us)
-		delete(restore_us)
-		delete(resim_us)
-		delete(recorded)
-		delete(forward)
-	}
-	us :: proc(a, b: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(a, b))}
-	count_sum := 0.0
-	nr := 0
-	for t in 1 ..= ticks {
-		recorded[t] = scripted(h, s, t, players)
-		t0 := time.tick_now()
-		sim.advance(s, &recorded[t])
-		t1 := time.tick_now()
-		sim.save(s)
-		t2 := time.tick_now()
-		forward[t] = sim.checksum(s)
-		step_us[t - 1] = us(t0, t1)
-		save_us[t - 1] = us(t1, t2)
-		if h.bench_count != nil {
-			count_sum += f64(h.bench_count(&s.state))
-		}
-		if t < window {
-			continue
-		}
-		base := t - window
-		t3 := time.tick_now()
-		ok := sim.restore(s, base)
-		t4 := time.tick_now()
-		assert(ok)
-		for u in base + 1 ..= t {
-			sim.step(s, &recorded[u])
-		}
-		t5 := time.tick_now()
-		if sim.checksum(s) != forward[t] {
-			br.mismatches += 1
-		}
-		restore_us[nr] = us(t3, t4)
-		resim_us[nr] = us(t4, t5)
-		nr += 1
-	}
-	br.step = stat_of(step_us)
-	br.save = stat_of(save_us)
-	br.restore = stat_of(restore_us[:nr])
-	br.resim = stat_of(resim_us[:nr])
-	br.block_bytes = size_of(S)
-	br.snapshot_bytes = sim.snapshot_size(s)
-	br.enemies_mean = count_sum / f64(max(n, 1))
-	return
 }

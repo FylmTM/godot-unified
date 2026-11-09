@@ -175,7 +175,8 @@ be asked for in any order:
 - `choice = choice_encode((r % 3) + 1, block % 63 + 1)` when a level-up is pending, else 0 (one pick per block)
 
 Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
-inputs this way and sends them through the netcode. T4 compares against the relay's log, not against `sim`.
+inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
+against `sim`.
 
 ## Expected scale
 

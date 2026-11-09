@@ -67,5 +67,5 @@ once and can be reused.
 verified checksum, hooks in order), late join + leave + slot reuse, single player, slot rejection, the delay
 formula at 32/60/64/128 Hz, outages and rejoins, everyone leaving, a snapshot provider leaving, stale finalized
 ticks, reliable floods, UDP endpoint reuse, oversized messages, another build refused, and a seeded fuzz of the
-channel, relay and client decoders. T3/T4/T6 run the same code on the virtual clock through `unified:headless`
-(`session --clock virtual`); T5 runs it in real time over UDP between processes.
+channel, relay and client decoders. The end-to-end suites run the same code on the virtual clock through
+`unified:headless` (`src/headless/SPEC.md`); `dev.py check` runs it in real time over UDP between processes.

@@ -142,11 +142,3 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 	testing.expect_value(t, netcode.client_json(a.clients[0]), netcode.client_json(b.clients[0]))
 	testing.expect_value(t, a.relay_net, b.relay_net)
 }
-
-// Never called: instantiates every mode for the toy game, so the whole generic package type-checks
-// here (and its imports count as used) just as it does in a game's binary.
-@(private)
-instantiate_all_modes :: proc() {
-	h := HEADLESS
-	headless.run(&h)
-}

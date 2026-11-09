@@ -1,5 +1,5 @@
 // EOS (src/eos/SPEC.md) as the headless binary's online transport: `eos-host` / `eos-client` through
-// unified:headless's online modes. Two processes on one machine need two Product User IDs: run one
+// unified:headless/cli's online modes. Two processes on one machine need two Product User IDs: run one
 // of them with UNIFIED_EOS_FRESH_DEVICE=1. Each run deletes its device ID at exit: on macOS the
 // keychain entry belongs to the binary that made it, and a rebuilt binary could not read or replace
 // it without a dialog.
@@ -8,14 +8,14 @@ package main
 import "core:fmt"
 
 import "unified:eos"
-import "unified:headless"
+import "unified:headless/cli"
 import "unified:netcode"
 
 // Lobbies only match within a bucket; --bucket survivor/3 meets the game's own builds.
 EOS_BUCKET :: "unified-headless/3"
 #assert(netcode.PROTOCOL_VERSION == 5, "netcode protocol changed: bump EOS_BUCKET (and the game's bucket) with it")
 
-EOS_ONLINE := headless.Online {
+EOS_ONLINE := cli.Online {
 	name = "eos",
 	bucket = EOS_BUCKET,
 	options = {"relays"},
@@ -26,7 +26,7 @@ EOS_ONLINE := headless.Online {
 	},
 	open_host = eos.open_host,
 	open_join = eos.open_join,
-	poll = proc() -> (st: headless.Online_Status) {
+	poll = proc() -> (st: cli.Online_Status) {
 		eos.poll()
 		s := eos.status()
 		return {
@@ -43,16 +43,16 @@ EOS_ONLINE := headless.Online {
 }
 
 @(private)
-eos_start :: proc(a: ^headless.Args) -> bool {
+eos_start :: proc(a: ^cli.Args) -> bool {
 	rc := eos.Relay_Control.Allow_Relays
-	switch headless.opt_str(a, "relays", "allow") {
+	switch cli.opt_str(a, "relays", "allow") {
 	case "allow":
 	case "force":
 		rc = .Force_Relays
 	case "none":
 		rc = .No_Relays
 	case:
-		headless.die("%s: --relays must be allow, force or none", a.mode)
+		cli.die("%s: --relays must be allow, force or none", a.mode)
 	}
 	if !eos.init(
 		{product_name = "unified-headless", product_version = "1", relay_control = rc, no_keychain_prompts = true},
