@@ -3,6 +3,9 @@
 Decisions and work done while the developer was away, newest last. Each decision says what was picked and why; the
 developer reviews them here. Settled ones also land in `WORK.md`.
 
+**Morning summary:** the playtest build is `survivor-v0.1.1` (GitHub prerelease); a one-page overview is at
+https://claude.ai/artifact/EviE5DKQLxSYRDpSaEAAij (private).
+
 ## 2026-11-09 night: goal
 
 A playable survivor prototype: main menu, settings, the game. Players spawn inside a circle; the match starts when
