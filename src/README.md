@@ -2,7 +2,8 @@
 
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
 input-relay netcode with a step API (`netcode`, `eos`), the generic headless runs and CLI (`headless`) that a game's
-headless binary wires up, and the Godot host (`gdext`, `view`, `devui`, `godot_host`). The test game lives in
+headless binary wires up, the Godot host (`gdext`, `view`, `devui`, `godot_host`), and the determinism lint a
+game's tests run (`lint`). The test game lives in
 `games/survivor/`. Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
 core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `python tools/dev.py -h`.
 
