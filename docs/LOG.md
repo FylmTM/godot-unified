@@ -140,3 +140,9 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
   - Found, not fixed: a crashed player's immediate rejoin may not connect for ~30 s (EOS holds the old P2P
     connection); a level-up choice can apply twice (inputs repeated by catch-up or the relay's tolerance; needs an
     edge-triggered choice in the sim and new testdata); see the review report.
+- 978d3ab **Merged the review fixes into main.** Decided: **v0.1.0 is not the playtest build.** Its online path can
+  freeze a friend after a 10 s outage, hang a rejoin, stall above ~250 ms RTT, and crash on exit; the fixes change
+  the wire protocol (v4), so both players need the new build. Next: fix the level-up double apply (core-lib:
+  edge-triggered choice with a sequence counter) and two small host issues (godot_host: Leave then Host/Join within
+  ~3 s fails; Windows timer resolution and macOS App Nap for a backgrounded game), re-run Mac ↔ Windows crossplay,
+  then tag **survivor-v0.1.1**. d4a49e9 removed two stray binaries committed at the repo root.
