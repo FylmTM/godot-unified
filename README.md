@@ -3,8 +3,8 @@
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 Godot as the host. Fixed-tick deterministic sim, Box3D physics with a save/restore fork, snapshots, checksums,
 sync-test, replays, and an input relay with prediction, rollback and late join. Rules for
-working on it: [`AGENTS.md`](AGENTS.md). Plan, decisions and current work:
-[`docs/WORK.md`](docs/WORK.md). Why and what for: [`docs/CONTEXT.md`](docs/CONTEXT.md). What the core must do:
+working on it: [`AGENTS.md`](AGENTS.md). Work: the [board](https://github.com/users/FylmTM/projects/2).
+Decisions so far: [`docs/WORK.md`](docs/WORK.md). Why and what for: [`docs/CONTEXT.md`](docs/CONTEXT.md). What the core must do:
 [`spec/`](spec/).
 
 ## Layout
@@ -37,7 +37,7 @@ tests/               `odin test` packages, one per module, black-box via the col
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
 third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
 tools/               dev.py (the entry point) and its parts: tools/README.md
-docs/                WORK.md (plan), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/
+docs/                WORK.md (decisions), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/
 ols.json, odinfmt.json   editor (OLS) and formatter configuration
 ```
 
