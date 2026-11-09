@@ -1,5 +1,6 @@
 package test_dmath
 
+import "base:intrinsics"
 import "core:testing"
 
 import "unified:dmath"
@@ -28,4 +29,42 @@ clamped_conversion :: proc(t: ^testing.T) {
 	inf := transmute(f32)u32(0x7F80_0000)
 	testing.expect_value(t, dmath.to_i32_clamped(inf, 0, 29), 29)
 	testing.expect_value(t, dmath.to_i32_clamped(-2.5, -10, 10), -2) // truncation toward zero
+}
+
+// The no-FMA rule's canary: if the compiler starts fusing `a*b + c` into one fused multiply-add
+// (one rounding instead of two), results change in the last bit and the cross-platform reference
+// runs would only show an unexplained "trace differs at tick N". Here a*b = 1 + 2^-11 + 2^-24
+// exactly: rounded to f32 it loses the 2^-24, so unfused a*b + c is 0 and fused it is 2^-24. The
+// inputs go through volatile loads, so the optimizer can't fold them; the expression is compiled
+// with the test build's flags (dev.py TEST_FLAGS).
+@(test)
+no_fma_contraction :: proc(t: ^testing.T) {
+	A :: 1 + 1.0 / 4096
+	C :: -(1 + 1.0 / 2048)
+	FUSED :: 1.0 / 16777216
+	a, b, c: f32 = A, A, C
+	got := mul_add(intrinsics.volatile_load(&a), intrinsics.volatile_load(&b), intrinsics.volatile_load(&c))
+	testing.expectf(
+		t,
+		got == 0,
+		"a*b + c = %v, want 0 (unfused)%s: the compiler fused a multiply and an add (FMA contraction), which breaks the determinism rule; find the Odin/LLVM change or flag that enables contraction",
+		got,
+		got == FUSED ? " but got the fused result 2^-24" : "",
+	)
+	va, vb, vc: dmath.Vec3 = {A, A, A}, {A, A, A}, {C, C, C}
+	vgot := mul_add3(intrinsics.volatile_load(&va), intrinsics.volatile_load(&vb), intrinsics.volatile_load(&vc))
+	testing.expectf(
+		t,
+		vgot == {},
+		"Vec3 a*b + c = %v, want 0 (unfused): the compiler fused a multiply and an add (FMA contraction) in array arithmetic, which breaks the determinism rule",
+		vgot,
+	)
+}
+
+mul_add :: proc "contextless" (a, b, c: f32) -> f32 {
+	return a * b + c
+}
+
+mul_add3 :: proc "contextless" (a, b, c: dmath.Vec3) -> dmath.Vec3 {
+	return a * b + c
 }
