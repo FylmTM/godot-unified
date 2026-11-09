@@ -247,6 +247,10 @@ func _on_status_changed(new_status: String, detail: String) -> void:
 				_set_flow(Flow.PLAYING)
 				get_tree().change_scene_to_file(ARENA_SCENE)
 		"failed":
+			if "--smoke-test" in OS.get_cmdline_user_args():
+				push_error("friendslop: smoke test: the session failed: %s" % detail)  # tools/release.py fails on it
+				quit_app.call_deferred(1)
+				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")
 		"disconnected":
 			if flow != Flow.MENU:
