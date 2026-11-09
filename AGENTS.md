@@ -50,8 +50,9 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 All work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
 reviewable piece of work. The board tracks issues only; PRs link to them. Operate it with `python tools/dev.py board
-list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Its
-`Status` columns:
+list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Cloud
+sessions can't (no GraphQL): they open the PR with their own GitHub tools, comment on the issue with `gh api`, and
+leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 
 | Status | Meaning | Who moves it here |
 |---|---|---|
@@ -115,6 +116,7 @@ python tools/dev.py all          # everything CI runs; before merging
   the specs during the foundations review, then the file goes).
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
 - `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
-- `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/research/` (open research).
+- `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/CLOUD.md` (Claude Code cloud sessions: setup,
+  and what they can't do, the board among it), `docs/research/` (open research).
 - `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
   history (`docs/archive/README.md`).
