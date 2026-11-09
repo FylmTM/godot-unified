@@ -36,7 +36,11 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - Presence is not in the input: the tick's `present` set (from the relay) says who is in the game. A slot that becomes
   present joins (body at its start spot, fresh progress, `player_joined`); one that stops being present leaves (body
   destroyed, progress reset, `player_left`).
-- `choice`: 0 = none, 1..3 = the level-up option picked (consumed when a level-up is pending).
+- `choice`: the level-up pick, `option | seq << 2` (`choice_encode`): option 0 = none, 1..3 = the option; seq =
+  the press sequence 1..63, bumped by the input source on every press (wrapping, never 0). Inputs are repeated by
+  the netcode (a client fills skipped ticks with its last input, the relay substitutes a late input with the last
+  one), so a pick is edge-triggered by its sequence: it applies when a level-up is pending, the option is 1..3 and
+  seq differs from the player's last applied `choice_seq`.
 
 ## Phases
 
@@ -90,7 +94,7 @@ on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
    - Set the body's linear velocity.
    - Dead players have no body and count down `respawn` = 3 s (not while `over`), then respawn at their start spot
      with full HP (`player_respawned`). HP max 100.
-2. **Level-up:** if the player has `pending_levelups > 0` and `choice ∈ 1..3`, apply option
+2. **Level-up:** if the player has `pending_levelups > 0` and a new pick (option 1..3, seq ≠ `choice_seq`; see Input), apply option
    1 = fire rate (interval −0.03125 s, min 0.09375 s), 2 = damage +3, 3 = move speed +0.5, then `pending_levelups −= 1`.
 3. **Spawner** (match only): every `every` after `match_tick`, spawn `n` enemies (Tuning) while alive enemies
    < 1200; their HP is scaled by the wave.
@@ -165,7 +169,7 @@ Deterministic per player and stateless: `r` = a 64-bit integer hash of (seed, pl
 be asked for in any order:
 - `move` = one of 8 directions from the angle table times 127 (as i8, truncated), or (0,0) when `r % 9 == 8`
 - dash when `r % 13 == 0`
-- `choice = (r % 3) + 1` when a level-up is pending, else 0
+- `choice = choice_encode((r % 3) + 1, block % 63 + 1)` when a level-up is pending, else 0 (one pick per block)
 
 Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
 inputs this way and sends them through the netcode. T4 compares against the relay's log, not against `sim`.
