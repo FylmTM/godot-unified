@@ -47,12 +47,14 @@ def project_dir(game):
     return d
 
 
-def run_godot(proj, args, timeout, marker=None, quiet=False):
-    """Run Godot; return (ok, parsed JSON after `marker`). Prints the output minus the banner."""
+def run_godot(proj, args, timeout, marker=None, quiet=False, strict=False):
+    """Run Godot; return (ok, parsed JSON after `marker`). Prints the output minus the banner. `strict`: also fail
+    on ObjectDB/resource leaks at exit and on GDScript warnings (printed when Godot runs with `-d`)."""
     cmd = [find_godot(), "--path", str(proj)] + args
     t0 = time.time()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        # stdin closed: with -d, a script error must end the run, not wait at the debugger prompt
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
         out, rc = r.stdout + r.stderr, r.returncode
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -66,6 +68,14 @@ def run_godot(proj, args, timeout, marker=None, quiet=False):
             print(line)
     secs = time.time() - t0
     ok = rc == 0 and (marker is None or (data is not None and data.get("ok", not data.get("errors"))))
+    if strict:
+        lines = out.splitlines()
+        leaks = [l for l in lines if "leaked at exit" in l or "still in use at exit" in l]
+        warns = [a for a, b in zip(lines, lines[1:]) if a.startswith("WARNING:") and "GDScript::reload" in b]
+        for what, found in (("leak at exit", leaks), ("GDScript warning", warns)):
+            if found:
+                log("game: %d %s line(s): failing" % (len(found), what))
+                ok = False
     return ok, data, secs
 
 
@@ -141,10 +151,12 @@ def cmd_game(argv):
     exts = ensure_imported(proj)
     if sub == "validate":
         ok, data, secs = run_godot(
-            proj, ["--headless", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60, "VALIDATE_JSON")
+            proj, ["--headless", "-d", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60, "VALIDATE_JSON",
+            strict=True)
     elif sub == "walk":
         ok, data, secs = run_godot(
-            proj, ["--headless", "-s", "res://game/tools/ui_walk.gd", "--", "--mock", "--no-settings"], 90, "WALK_JSON")
+            proj, ["--headless", "-s", "res://game/tools/ui_walk.gd", "--", "--mock", "--no-settings"], 90, "WALK_JSON",
+            strict=True)
     elif sub == "shots":
         front = _front_app()
         try:

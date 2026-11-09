@@ -76,9 +76,9 @@ func _host(game: Node) -> void:
 	_step("match started")
 	var dirs := [&"move_left", &"move_back", &"move_right", &"move_forward"]
 	for i in 32:
-		Input.action_press(dirs[(i / 8) % 4])
+		Input.action_press(dirs[floori(i / 8.0) % 4])
 		await _seconds(0.25)
-		Input.action_release(dirs[(i / 8) % 4])
+		Input.action_release(dirs[floori(i / 8.0) % 4])
 	await _shot("c03_coop_match")
 	_step("co-op match: %d enemies" % game.hud.enemies_alive)
 	if rejoin:

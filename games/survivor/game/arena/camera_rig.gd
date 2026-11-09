@@ -30,14 +30,14 @@ func _process(delta: float) -> void:
 	if v == null:
 		v = arena.any_player_view()
 	var goal := Vector3(v.position.x, 0, v.position.z) if v != null else _target
-	var vel: Vector3 = v.get(&"velocity") if v != null and v.get(&"velocity") != null else Vector3.ZERO
-	var lobby_now: bool = Game.hud.get("phase", "lobby") == "lobby"
-	var want_lead := Vector3(vel.x, 0, vel.z) * lead if not lobby_now else Vector3.ZERO
+	var v_vel: Variant = v.get(&"velocity") if v != null else null
+	var vel: Vector3 = v_vel if v_vel != null else Vector3.ZERO
+	var lobby: bool = Game.hud.get("phase", "lobby") == "lobby"
+	var want_lead := Vector3(vel.x, 0, vel.z) * lead if not lobby else Vector3.ZERO
 	_lead = _lead.lerp(want_lead.limit_length(max_lead), 1.0 - exp(-delta * 1.5))
 	goal += _lead
 	var k := 1.0 - exp(-delta * follow_rate)
 	_target = _target.lerp(goal, k)
-	var lobby: bool = Game.hud.get("phase", "lobby") == "lobby"
 	_distance = lerpf(_distance, distance_lobby if lobby else distance_match, 1.0 - exp(-delta * 2.0))
 	var pitch := deg_to_rad(pitch_deg)
 	var offset := Vector3(0, sin(pitch), cos(pitch)) * _distance

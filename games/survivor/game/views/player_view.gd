@@ -64,12 +64,12 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-func _sim_event(kind: StringName, _data: Dictionary) -> void:
-	if kind == &"despawned":  # died or left: shrink away during the host's linger time
+func _sim_event(event: StringName, _data: Dictionary) -> void:
+	if event == &"despawned":  # died or left: shrink away during the host's linger time
 		_leaving = true
 		_exit = create_tween()
 		_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	elif kind == &"revived" and _leaving:  # a rollback brought it back within the linger time
+	elif event == &"revived" and _leaving:  # a rollback brought it back within the linger time
 		_leaving = false
 		if _exit != null:
 			_exit.kill()

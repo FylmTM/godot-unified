@@ -43,6 +43,9 @@ PLAYER_HP :: 100
 PLAYER_SPEED :: 6.0
 BARREL_HP :: 30
 START_RADIUS :: 3.5 // the lobby's start circle at the arena centre (m)
+ARENA_HALF :: 32 // the ground is 2 * ARENA_HALF square, centred (m)
+DAMAGE_LEVELUP :: 3 // per "damage" level-up
+SPEED_LEVELUP :: 0.5 // m/s per "move speed" level-up
 
 BUTTON_DASH :: u8(1 << 0)
 

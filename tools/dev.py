@@ -185,10 +185,11 @@ def cmd_godot_test():
     imgui.ensure()
     build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
     ensure_extension_list(proj, "res://gdext_test.gdextension")
-    r = run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)
+    # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
+    r = run_godot(["--headless", "--verbose", "--path", proj, "-s", "res://test.gd"], timeout=30)
     out = r.stdout + r.stderr
-    sys.stdout.write(r.stdout)
-    errs = godot_errors(out)
+    sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", "GDEXT"))))
+    errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
     for e in errs:
         log("godot: " + e)
     if r.returncode != 0 or errs or "GDEXT TESTS: 0 failed" not in out:
@@ -496,22 +497,24 @@ def cmd_test():
 def cmd_vet():
     """odin check of the headless binary, the tests and the extensions for every supported target, in parallel."""
     cmd_gen()
-    jobs = [(pkg, t) for t in VET_TARGETS for pkg in VET_PACKAGES]
+    jobs = [(pkg, t, ()) for t in VET_TARGETS for pkg in VET_PACKAGES]
+    # godot_host without the dev UI (-define:UNIFIED_DEVUI=false) must keep compiling
+    jobs += [(pkg, VET_TARGETS[0], ("-define:UNIFIED_DEVUI=false",)) for pkg in VET_PACKAGES if "extension" in pkg]
     t0 = time.time()
 
     def one(job):
-        pkg, target = job
-        extra = [] if pkg == HEADLESS else ["-no-entry-point"]
+        pkg, target, defines = job
+        extra = ([] if pkg == HEADLESS else ["-no-entry-point"]) + list(defines)
         r = subprocess.run([odin(), "check", pkg, "-target:" + target, COLLECTION] + extra + VET,
                            cwd=str(REPO), capture_output=True, text=True)
         return job, r.returncode, (r.stdout + r.stderr).strip()
 
     failed = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as ex:
-        for (pkg, target), rc, text in ex.map(one, jobs):
+        for (pkg, target, defines), rc, text in ex.map(one, jobs):
             if rc != 0:
-                failed.append("%s %s" % (pkg, target))
-                log("vet: %s -target:%s FAILED\n%s" % (pkg, target, text))
+                failed.append(" ".join((pkg, target) + defines))
+                log("vet: %s -target:%s %s FAILED\n%s" % (pkg, target, " ".join(defines), text))
     if failed:
         raise SystemExit("dev: vet failed: " + ", ".join(failed))
     log("dev: vet ok (%s x %s) in %.2fs" % (", ".join(VET_PACKAGES), ", ".join(VET_TARGETS), time.time() - t0))

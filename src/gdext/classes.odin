@@ -8,7 +8,7 @@
 //   gdext.bind_property(&my_class, "speed", get_speed, set_speed)
 //   gdext.bind_signal(&my_class, "landed", {"height", f32})
 //
-// Methods are bound from typed Odin procs (0-4 arguments, optional result): a trampoline per signature
+// Methods are bound from typed Odin procs (0-3 arguments, optional result): a trampoline per signature
 // converts Variants (GDScript calls) and ptrcall slots (typed calls) with variant.odin. Engine virtuals
 // are typed fields of Class. Hot reload (editor): Godot keeps the engine objects, calls recreate, then
 // restores registered properties and sends NOTIFICATION_EXTENSION_RELOADED; Odin globals start fresh.
@@ -26,20 +26,14 @@ Instance_Header :: struct {
 Virtual :: enum u8 {
 	Ready,
 	Process,
-	Physics_Process,
 	Input,
-	Unhandled_Input,
-	Unhandled_Key_Input,
 }
 
 @(private)
 VIRTUAL_NAMES := [Virtual]string {
-	.Ready               = "_ready",
-	.Process             = "_process",
-	.Physics_Process     = "_physics_process",
-	.Input               = "_input",
-	.Unhandled_Input     = "_unhandled_input",
-	.Unhandled_Key_Input = "_unhandled_key_input",
+	.Ready   = "_ready",
+	.Process = "_process",
+	.Input   = "_input",
 }
 
 @(private)
@@ -49,23 +43,20 @@ Virtual_Call :: struct {
 }
 
 Class :: struct {
-	name, parent:        string,
-	size:                int, // instance size; the instance struct starts with an Instance_Header
-	runtime_only:        bool, // ClassDB "runtime" class: a placeholder in the editor, never runs there
-	init:                proc(inst: rawptr), // after the header is set (also after a hot reload)
-	fini:                proc(inst: rawptr),
-	notification:        proc(inst: rawptr, what: i32),
+	name, parent:       string,
+	size:               int, // instance size; the instance struct starts with an Instance_Header
+	runtime_only:       bool, // ClassDB "runtime" class: a placeholder in the editor, never runs there
+	init:               proc(inst: rawptr), // after the header is set (also after a hot reload)
+	fini:               proc(inst: rawptr),
+	notification:       proc(inst: rawptr, what: i32),
 	// Engine virtuals; nil = not overridden.
-	ready:               proc(inst: rawptr),
-	process:             proc(inst: rawptr, delta: f64),
-	physics_process:     proc(inst: rawptr, delta: f64),
-	input:               proc(inst: rawptr, event: InputEvent),
-	unhandled_input:     proc(inst: rawptr, event: InputEvent),
-	unhandled_key_input: proc(inst: rawptr, event: InputEvent),
+	ready:              proc(inst: rawptr),
+	process:            proc(inst: rawptr, delta: f64),
+	input:              proc(inst: rawptr, event: InputEvent),
 	// filled by register_class
-	name_sn, parent_sn:  StringName,
-	instances:           int,
-	vcalls:              [Virtual]Virtual_Call,
+	name_sn, parent_sn: StringName,
+	instances:          int,
+	vcalls:             [Virtual]Virtual_Call,
 }
 
 @(private)
@@ -93,6 +84,7 @@ new_instance :: proc(cls: ^Class, obj: rawptr) -> rawptr {
 @(private)
 cls_create :: proc "c" (userdata: rawptr, notify: gdi.Bool) -> gdi.ObjectPtr {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // LIFO: a nested callback never frees its caller's temp data
 	cls := (^Class)(userdata)
 	obj := gdi.classdb_construct_object2(&cls.parent_sn)
 	new_instance(cls, obj)
@@ -103,12 +95,14 @@ cls_create :: proc "c" (userdata: rawptr, notify: gdi.Bool) -> gdi.ObjectPtr {
 @(private)
 cls_recreate :: proc "c" (userdata: rawptr, obj: gdi.ObjectPtr) -> gdi.ClassInstancePtr {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	return new_instance((^Class)(userdata), obj)
 }
 
 @(private)
 cls_free :: proc "c" (userdata: rawptr, inst: gdi.ClassInstancePtr) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	cls := (^Class)(userdata)
 	if cls.fini != nil do cls.fini(inst)
 	cls.instances -= 1
@@ -118,15 +112,16 @@ cls_free :: proc "c" (userdata: rawptr, inst: gdi.ClassInstancePtr) {
 @(private)
 cls_notification :: proc "c" (inst: gdi.ClassInstancePtr, what: i32, reversed: gdi.Bool) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if inst == nil do return
 	h := (^Instance_Header)(inst)
 	if h.class.notification != nil do h.class.notification(inst, what)
-	free_all(context.temp_allocator)
 }
 
 @(private)
 cls_virtual_data :: proc "c" (userdata: rawptr, name: gdi.ConstStringNamePtr, hash: u32) -> rawptr {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	cls := (^Class)(userdata)
 	n := string_name_to_odin(cast(^StringName)name)
 	for vn, which in VIRTUAL_NAMES {
@@ -137,14 +132,8 @@ cls_virtual_data :: proc "c" (userdata: rawptr, name: gdi.ConstStringNamePtr, ha
 			set = cls.ready != nil
 		case .Process:
 			set = cls.process != nil
-		case .Physics_Process:
-			set = cls.physics_process != nil
 		case .Input:
 			set = cls.input != nil
-		case .Unhandled_Input:
-			set = cls.unhandled_input != nil
-		case .Unhandled_Key_Input:
-			set = cls.unhandled_key_input != nil
 		}
 		return set ? &cls.vcalls[which] : nil
 	}
@@ -160,6 +149,7 @@ cls_virtual_call :: proc "c" (
 	ret: gdi.TypePtr,
 ) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	vc := (^Virtual_Call)(userdata)
 	c := vc.class
 	switch vc.which {
@@ -167,16 +157,9 @@ cls_virtual_call :: proc "c" (
 		c.ready(inst)
 	case .Process:
 		c.process(inst, (^f64)(args[0])^)
-	case .Physics_Process:
-		c.physics_process(inst, (^f64)(args[0])^)
 	case .Input:
 		c.input(inst, transmute(InputEvent)(^rawptr)(args[0])^)
-	case .Unhandled_Input:
-		c.unhandled_input(inst, transmute(InputEvent)(^rawptr)(args[0])^)
-	case .Unhandled_Key_Input:
-		c.unhandled_key_input(inst, transmute(InputEvent)(^rawptr)(args[0])^)
 	}
-	free_all(context.temp_allocator)
 }
 
 // Registers `cls` (which must outlive the extension) with ClassDB. Call at the SCENE init level.
@@ -204,14 +187,6 @@ unregister_class :: proc(cls: ^Class) {
 	StringName_destroy(&cls.parent_sn)
 }
 
-// The Odin instance behind an object of one of our classes (nil for other objects).
-instance_of :: proc(obj: Object, cls: ^Class) -> rawptr {
-	if obj.ptr == nil do return nil
-	tag := gdi.classdb_get_class_tag(&cls.name_sn)
-	if gdi.object_cast_to(obj.ptr, tag) == nil do return nil
-	return gdi.object_get_instance_binding(obj.ptr, library, &binding_callbacks)
-}
-
 // ---- typed methods
 
 Method :: struct {
@@ -219,6 +194,11 @@ Method :: struct {
 	nargs:   int,
 	call:    proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError),
 	ptrcall: proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr),
+}
+
+// Debug builds count bound-method calls by path (tests check that typed GDScript calls take ptrcall).
+call_counts: struct {
+	variant, ptrcall: int,
 }
 
 @(private)
@@ -231,7 +211,9 @@ method_call :: proc "c" (
 	err: ^gdi.CallError,
 ) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	m := (^Method)(userdata)
+	when ODIN_DEBUG do call_counts.variant += 1
 	err.error = .OK
 	if int(argc) != m.nargs {
 		err.error = int(argc) < m.nargs ? .ERROR_TOO_FEW_ARGUMENTS : .ERROR_TOO_MANY_ARGUMENTS
@@ -239,7 +221,6 @@ method_call :: proc "c" (
 		return
 	}
 	m.call(m, inst, args, ret, err)
-	free_all(context.temp_allocator)
 }
 
 @(private)
@@ -250,9 +231,10 @@ method_ptrcall :: proc "c" (
 	ret: gdi.TypePtr,
 ) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	m := (^Method)(userdata)
+	when ODIN_DEBUG do call_counts.ptrcall += 1
 	m.ptrcall(m, inst, args, ret)
-	free_all(context.temp_allocator)
 }
 
 @(private)
@@ -658,17 +640,18 @@ callable_call :: proc "c" (
 	err: ^gdi.CallError,
 ) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	err.error = .OK // Godot doesn't initialise it
 	d := (^Callable_Data)(userdata)
 	args := ([^]^Variant)(argv)[:argc]
 	r := d.fn(d.user, args)
 	(^Variant)(ret)^ = r
-	free_all(context.temp_allocator)
 }
 
 @(private)
 callable_free :: proc "c" (userdata: rawptr) {
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	free((^Callable_Data)(userdata))
 }
 

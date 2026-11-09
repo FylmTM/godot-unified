@@ -13,21 +13,36 @@ input_state: struct {
 	pressed: u32, // edges since the last take
 }
 
+// The actions as interned StringNames (main thread, built on the first sample): no per-frame conversions.
+@(private)
+action_sn: struct {
+	ready:   bool,
+	move:    [4]^gd.StringName,
+	buttons: [32]^gd.StringName,
+	n:       int,
+}
+
 // Main thread: sample the actions (no-op before install).
 sample_input :: proc(block: bool) {
 	if !api.installed do return
 	inp := gd.Input_singleton()
 	a := &api.actions
+	sn := &action_sn
+	if !sn.ready {
+		sn.ready = true
+		if a.move[0] != "" do for m, i in a.move do sn.move[i] = gd.sn(m)
+		sn.n = min(len(a.buttons), 32)
+		for i in 0 ..< sn.n do sn.buttons[i] = gd.sn(a.buttons[i])
+	}
 	move: [2]f32
 	held: u32
 	if !block {
-		if a.move[0] != "" {
-			v := gd.Input_get_vector(inp, a.move[0], a.move[1], a.move[2], a.move[3], -1)
+		if sn.move[0] != nil {
+			v := gd.Input_get_vector(inp, sn.move[0], sn.move[1], sn.move[2], sn.move[3], -1)
 			move = {v.x, v.y}
 		}
-		for name, i in a.buttons {
-			if i >= 32 do break
-			if gd.Input_is_action_pressed(inp, name, false) do held |= 1 << u32(i)
+		for i in 0 ..< sn.n {
+			if gd.Input_is_action_pressed(inp, sn.buttons[i], false) do held |= 1 << u32(i)
 		}
 	}
 	sync.atomic_store(&input_state.move, transmute(u64)move)

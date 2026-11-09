@@ -23,6 +23,11 @@ Settings="*res://game/autoload/settings.gd"
 Sfx="*res://game/autoload/sfx.gd"
 Game="*res://game/autoload/game.gd"
 
+[debug]
+
+; validate (`dev.py game validate`) runs with the debugger on and fails on any GDScript warning.
+gdscript/warnings/untyped_declaration=1
+
 [display]
 
 window/size/viewport_width=1280

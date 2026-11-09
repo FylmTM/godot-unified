@@ -187,9 +187,9 @@ sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
 		case 1:
 			pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
 		case 2:
-			pl.damage_bonus += 3
+			pl.damage_bonus += DAMAGE_LEVELUP
 		case 3:
-			pl.speed = pl.speed + 0.5
+			pl.speed = pl.speed + SPEED_LEVELUP
 		}
 		pl.pending_levelups -= 1
 	}

@@ -34,6 +34,22 @@ func _initialize() -> void:
 	check("vararg wrapper (Object.call)", t.call_add_via_vararg() == 7, t.call_add_via_vararg())
 	check("Ref ownership (Image round trip)", t.image_size() == 12, t.image_size())
 	check("interned StringName", t.sn_same())
+	check("nested callback keeps the caller's temp data", t.nested_temp())
+	# The same bindings through typed calls: GDScript ptrcalls a method whose types it knows at compile time.
+	var tt: Tester = t
+	var before: Vector2i = tt.call_counts()
+	check("typed add", tt.add(40, 2) == 42, tt.add(40, 2))
+	check("typed greet", tt.greet("Godot") == "hello Godot", tt.greet("Godot"))
+	check("typed scale", tt.scale(Vector3(1, 2, 3), 2.0) == Vector3(2, 4, 6), tt.scale(Vector3(1, 2, 3), 2.0))
+	var td: Dictionary = tt.make_dict()
+	check("typed make_dict", td.get("name") == "odin" and td.get("list") == [1, 2.5, "x"], td)
+	check("typed sum_array", is_equal_approx(tt.sum_array([1, 2.5, 3]), 6.5), tt.sum_array([1, 2.5, 3]))
+	check("typed node_name", tt.node_name(root) == "root", tt.node_name(root))
+	tt.value = 23
+	check("typed property", tt.value == 23, tt.value)
+	check("typed nested_temp", tt.nested_temp())
+	var after: Vector2i = tt.call_counts()
+	check("typed calls took ptrcall", after.y - before.y >= 10, [before, after])
 	await process_frame
 	await process_frame
 	check("_ready virtual", t.is_readied())

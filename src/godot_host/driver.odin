@@ -3,6 +3,7 @@
 // thread. `install` instantiates it for one game and fills the non-generic `api` the Godot classes call.
 package godot_host
 
+import "base:runtime"
 import "core:fmt"
 import cnet "core:net"
 import "core:strings"
@@ -18,6 +19,7 @@ Api :: struct {
 	game_name:   string,
 	tick_hz:     int,
 	scene_kinds: []string,
+	scene_dir:   string,
 	bulk_kinds:  []string,
 	actions:     Action_Map,
 	event_names: []string,
@@ -29,7 +31,8 @@ Api :: struct {
 	running:     proc() -> bool,
 	front:       proc() -> (f: ^Frame, fresh: bool),
 	pop:         proc() -> (m: Message, ok: bool),
-	hud:         proc(f: ^Frame, d: rawptr),
+	hud:         proc(f: ^Frame, d: rawptr), // f nil: before the first frame
+	constants:   proc(d: rawptr), // nil: the game exposes none
 	state:       proc() -> any, // the newest predicted state, for the inspector (while want_state)
 	event_key:   proc(e: sim.Event) -> view.Key, // the game's event -> scene view mapping (nil: default routing)
 	result:      proc() -> string, // the finished session's result JSON (after a Result message)
@@ -38,7 +41,7 @@ Api :: struct {
 api: Api
 transport: ^Transport // set by the game's extension (online play); nil: Host_Online/Join_Online fail
 
-// The main thread asks for state copies only while the dev UI shows them.
+// The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
 
 set_transport :: proc(t: ^Transport) {
@@ -106,6 +109,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	uses_tp:   bool,
 	thread:    ^thread.Thread,
 	stop_req:  bool, // atomic
+	failed:    bool, // the transport's fail hook posted the reason (session thread)
 	hurry:     bool, // atomic
 	finished:  bool, // atomic
 	stopping:  bool,
@@ -118,20 +122,96 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
 	bench:     sim.Game(S, I, W, P), // the game with Glue.bench after init (req.bench > 0)
-	nets:      [dynamic]^netcode.Net_Sim, // wrapped remote links (owned by the channel)
+	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
+	nets:      [dynamic]^Dev_Link, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
 }
 
-// Wraps a remote link in a netsim (always, so the dev UI can impair it live; with zero settings it only queues).
+// A remote link the dev UI's Netsim panel can impair live. While the netsim is off, datagrams go straight to
+// the inner link (no copies, no queue); the netcode.Net_Sim is created on the first enable, and after a
+// disable it keeps delivering until its queues are empty.
+Dev_Link :: struct {
+	inner: netcode.Link,
+	sim:   netcode.Link, // the netsim wrapping inner (data == nil: not created yet); owns inner once created
+	on:    bool,
+	seed:  u32,
+}
+
+dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Link) {
+	dl := new(Dev_Link)
+	dl^ = {
+		inner = inner,
+		seed  = seed | 1,
+	}
+	return dl, {
+		data = dl,
+		send = dev_link_send,
+		recv = dev_link_recv,
+		close = dev_link_close,
+		event = inner.event == nil ? nil : dev_link_event,
+	}
+}
+
+// Applies the panel's settings (the link's thread).
+dev_link_set :: proc(dl: ^Dev_Link, n: Netsim_Settings) {
+	p := netsim_profile(n)
+	dl.on = p.latency != 0 || p.jitter != 0 || p.loss != 0
+	if dl.on && dl.sim.data == nil {
+		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
+		dl.sim = netcode.netsim_wrap(dl.inner, {name = "devui", latency = 1}, dl.seed)
+	}
+	if dl.sim.data != nil do (^netcode.Net_Sim)(dl.sim.data).profile = p
+}
+
+@(private)
+dev_link_draining :: proc(dl: ^Dev_Link) -> bool {
+	if dl.sim.data == nil do return false
+	ns := (^netcode.Net_Sim)(dl.sim.data)
+	return dl.on || len(ns.outgoing) > 0 || len(ns.incoming) > 0
+}
+
+@(private)
+dev_link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
+	dl := (^Dev_Link)(data)
+	if dl.on {
+		dl.sim.send(dl.sim.data, to, bytes)
+	} else {
+		dl.inner.send(dl.inner.data, to, bytes)
+	}
+}
+
+@(private)
+dev_link_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: netcode.Peer, ok: bool) {
+	dl := (^Dev_Link)(data)
+	if dev_link_draining(dl) do return dl.sim.recv(dl.sim.data, buf)
+	return dl.inner.recv(dl.inner.data, buf)
+}
+
+@(private)
+dev_link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
+	dl := (^Dev_Link)(data)
+	return dl.inner.event(dl.inner.data)
+}
+
+@(private)
+dev_link_close :: proc(data: rawptr) {
+	dl := (^Dev_Link)(data)
+	if dl.sim.data != nil {
+		netcode.link_close(&dl.sim) // closes inner too
+	} else {
+		netcode.link_close(&dl.inner)
+	}
+	free(dl)
+}
+
 @(private)
 wrap_link :: proc(d: ^Driver($S, $I, $W, $P), link: netcode.Link) -> netcode.Link {
-	w := netcode.netsim_wrap(link, {name = "devui", latency = 1}, u32(d.req.seed) | 1)
-	ns := (^netcode.Net_Sim)(w.data)
+	dl, w := dev_link_wrap(link, u32(d.req.seed))
 	sync.mutex_lock(&netsim_req.mu)
-	ns.profile = netsim_profile(netsim_req.set)
+	dev_link_set(dl, netsim_req.set)
 	d.net_gen = netsim_req.gen
 	sync.mutex_unlock(&netsim_req.mu)
-	append(&d.nets, ns)
+	append(&d.nets, dl)
 	return w
 }
 
@@ -147,7 +227,7 @@ g_bench_n: int
 // Installs the game: call once, before godot_host.entry.
 install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	D :: Driver(S, I, W, P)
-	gl := new(Glue(S, I, W))
+	gl := new(Glue(S, I, W), runtime.heap_allocator()) // lives as long as the process
 	gl^ = glue
 	g_game = game
 	g_glue = gl
@@ -156,6 +236,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		game_name   = game.name,
 		tick_hz     = game.tick_hz,
 		scene_kinds = glue.scene_kinds,
+		scene_dir   = glue.scene_dir,
 		bulk_kinds  = glue.bulk_kinds,
 		actions     = glue.actions,
 		event_names = game.event_names,
@@ -169,12 +250,12 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 			return false, "online play is not available in this build"
 		}
 		d := new(D)
+		d.alloc = context.allocator
 		d.game = game
 		d.glue = glue
 		d.req = req
 		d.req.arg = strings.clone(req.arg)
 		d.req.name = strings.clone(req.name)
-		d.req.profile = strings.clone(req.profile)
 		view.triple_init(&d.frames)
 		view.triple_init(&d.states)
 		view.tracker_init(&d.tracker, tick_event_id)
@@ -184,6 +265,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 			fail = proc(ctx: rawptr, reason: string) {
 				d := (^D)(ctx)
 				post_status(d, .Failed, reason)
+				d.failed = true
 				sync.atomic_store(&d.stop_req, true)
 			},
 		}
@@ -212,7 +294,6 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		delete(d.scratch)
 		delete(d.req.arg)
 		delete(d.req.name)
-		delete(d.req.profile)
 		delete(d.result)
 		delete(d.nets)
 		free(d)
@@ -234,6 +315,9 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	api.hud = proc(f: ^Frame, d: rawptr) {
 		glue := (^Glue(S, I, W))(g_glue)
 		if glue.hud != nil do glue.hud(f, auto_cast d)
+	}
+	if glue.constants != nil {
+		api.constants = proc(d: rawptr) {(^Glue(S, I, W))(g_glue).constants(auto_cast d)}
 	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
@@ -300,11 +384,14 @@ track_tick :: proc(d: ^Driver($S, $I, $W, $P), tick: u32, events: []sim.Event) {
 @(private)
 driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 	D :: Driver(S, I, W, P)
-	return {user = d, sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
+	return {
+		user = d,
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
 			d := (^D)(user)
 			if d.req.scripted && d.glue.scripted != nil do return d.glue.scripted(d.req.seed, slot, tick, state)
 			return d.glue.sample(take_actions(), slot, tick, state)
-		}, frame = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), f: netcode.Frame_Info) {
+		},
+		frame = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), f: netcode.Frame_Info) {
 			d := (^D)(user)
 			for t in f.resim_from ..= f.tick do track_tick(d, t, sim.events_at(s, t))
 			flush_events(d)
@@ -338,15 +425,19 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 				view.triple_back(&d.states)^ = cur^
 				view.triple_publish(&d.states)
 			}
-		}, verified = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), tick: u32, events: []sim.Event) {
+		},
+		verified = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), tick: u32, events: []sim.Event) {
 			d := (^D)(user)
 			track_tick(d, tick, events)
 			view.tracker_verified(&d.tracker, tick)
 			flush_events(d)
-		}, status = proc(user: rawptr, st: netcode.Status, detail: string) {
+		},
+		status = proc(user: rawptr, st: netcode.Status, detail: string) {
 			d := (^D)(user)
+			if d.failed do return // the transport's failure is the session's last word
 			post_status(d, Status_Kind(st), detail)
-		}}
+		},
+	}
 }
 
 // How long a stopping session may say goodbye (peers that don't answer: the relay's 3 s End timeout), and the
@@ -356,7 +447,8 @@ HURRY_US :: 1_000_000
 
 @(private)
 driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
-	set_thread_class(.Realtime, d.game.tick_hz)
+	context.allocator = d.alloc // (the temp allocator stays this thread's own)
+	set_realtime_thread(d.game.tick_hz)
 	session_power_begin()
 	if !driver_open(d) {
 		driver_close(d)
@@ -365,11 +457,12 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 		return
 	}
 	for {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
 		if d.uses_tp && transport.pump != nil do transport.pump(transport.user, &d.tev)
 		if len(d.nets) > 0 && sync.atomic_load(&netsim_req.gen) != d.net_gen {
 			sync.mutex_lock(&netsim_req.mu)
-			for ns in d.nets do ns.profile = netsim_profile(netsim_req.set)
+			for dl in d.nets do dev_link_set(dl, netsim_req.set)
 			d.net_gen = netsim_req.gen
 			sync.mutex_unlock(&netsim_req.mu)
 		}
@@ -391,7 +484,7 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 		if d.uses_tp do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
-	d.result = clone_json(netcode.client_json(d.client))
+	d.result = strings.clone(netcode.client_json(d.client))
 	post(d, Message{kind = .Result})
 	driver_close(d)
 	session_power_end()
@@ -447,7 +540,8 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 		d.uses_tp = true
 		link, ok := transport.open_host(transport.user, &d.tev)
 		if !ok {
-			post_status(d, .Failed, fmt.tprintf("%s: cannot host", transport.name))
+			// the transport's fail hook may have posted the real reason already
+			if !d.failed do post_status(d, .Failed, fmt.tprintf("%s: cannot host", transport.name))
 			return false
 		}
 		d.host = netcode.host_create(g, host_cfg, hooks)
@@ -475,7 +569,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 		d.uses_tp = true
 		link, ok := transport.open_join(transport.user, r.arg, &d.tev)
 		if !ok {
-			post_status(d, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, r.arg))
+			if !d.failed do post_status(d, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, r.arg))
 			return false
 		}
 		d.client = netcode.client_create(g, client_cfg, wrap_link(d, link), hooks)
@@ -493,11 +587,6 @@ driver_close :: proc(d: ^Driver($S, $I, $W, $P)) {
 	}
 	d.host, d.client = nil, nil
 	if d.uses_tp && transport.close != nil do transport.close(transport.user)
-}
-
-@(private)
-clone_json :: proc(s: string) -> string {
-	return strings.clone(s)
 }
 
 @(private)

@@ -1,36 +1,50 @@
-class_name MockSession
 extends Node
 ## A GDScript stand-in for the native `UnifiedSession`, with the same API, signals and view driving, backed by a
 ## tiny fake sim. It lets every flow (menu, connecting, lobby, match, level-up, game over) run without the game
 ## library: headless UI tests, screenshots, fresh checkouts. It is NOT the game: no determinism, no netcode, rough
-## numbers. "Online" is faked: hosting gets a code and a bot friend joins after a few seconds.
+## numbers. "Online" is faked: hosting gets a code and a bot friend joins after a few seconds. Dev only: exports
+## exclude game/session/, and `Game` loads this by path (no class_name).
 ##
+## `constants()` returns the sim's numbers (validate checks it equals the native one); the fake sim uses them too.
 ## Test hooks for the mock only: join code "ZZZZZZ" fails ("lobby not found"), `debug_*` methods jump phases.
 
 signal status_changed(status: String, detail: String)
 signal lobby_code(code: String)
 signal sim_event(kind: StringName, tick: int, entity: int, position: Vector3, value: float)
 
+# The sim's numbers, reported by constants() exactly as the native session reports them (spec/GAME.md).
 const TICK_HZ := 64
+const OVER_HOLD_S := 5.0
+const ARENA_HALF := 32.0  # the ground is 2 * ARENA_HALF square
+const START_RADIUS := 3.5
+const DASH_COOLDOWN := 1.5
+const RESPAWN_TIME := 3.0
+const MAX_ENEMIES := 1200
+const UPGRADES := [
+	{"name": "Fire rate", "detail": "Shoot more often"},
+	{"name": "Damage", "detail": "+3 damage per shot"},
+	{"name": "Move speed", "detail": "+0.5 m/s"},
+]
+const ITEM_COUNT := 40
+
 const DT := 1.0 / TICK_HZ
 const MAX_STEPS_PER_FRAME := 8
-const ARENA_HALF := 30.0
-const CIRCLE_RADIUS := 6.0
+const WALL_INNER := 30.0  # the walls' inner faces (the sim's static boxes), where things stop
 const PLAYER_RADIUS := 0.45
 const PLAYER_SPEED := 6.0
 const HP_MAX := 100.0
 const DASH_TIME := 0.125
-const DASH_COOLDOWN := 1.4
-const RESPAWN_TIME := 3.0
 const FIRE_RANGE := 14.0
 const PROJECTILE_SPEED := 16.0
 const PROJECTILE_LIFE := 1.0
 
-const MAX_ENEMIES := 400
+## Deliberately below the sim's MAX_ENEMIES: the fake sim's O(n) GDScript loops stay cheap (headless walk), and
+## every bulk kind stays under its MultiMesh capacity.
+const MOCK_MAX_ENEMIES := 400
 const LINGER := 0.25  # seconds a despawned scene view stays (the native host's LINGER_S)
 const ENEMY_CAPACITY := 512  # per bulk kind; matches the MultiMesh instance_count in arena.tscn
 const PILLAR_RING := 14.0
-const START := [Vector3(2, 0, 2), Vector3(-2, 0, 2), Vector3(2, 0, -2), Vector3(-2, 0, -2)]
+const START := [Vector3(1.5, 0, 1.5), Vector3(-1.5, 0, 1.5), Vector3(1.5, 0, -1.5), Vector3(-1.5, 0, -1.5)]
 const BOT_NAMES := ["Host (bot)", "Friend (bot)", "Bot 3", "Bot 4"]
 ## kind: [hp, speed, radius, damage, xp]
 const ENEMY_KINDS := {
@@ -41,7 +55,7 @@ const ENEMY_KINDS := {
 const BULK_KINDS: Array[StringName] = [&"grunt", &"runner", &"brute", &"projectile", &"gem"]
 
 ## Seconds the "over" phase lasts before the fake sim returns to the lobby (the UI walk shortens it).
-var over_seconds := 6.0
+var over_seconds := OVER_HOLD_S
 ## Seconds after hosting until the bot friend joins.
 var bot_join_seconds := 3.0
 ## Parent for spawned views; set by the arena on load, null when leaving (contract extension, see the spec).
@@ -121,6 +135,7 @@ var _tick := 0
 var _acc := 0.0
 var _phase := "lobby"
 var _match_start_tick := 0
+var _matches := 0
 var _over_t := 0.0
 var _over_time_s := 0.0
 var _spawn_t := 0.0
@@ -217,8 +232,31 @@ func leave() -> void:
 	_set_status("idle", "")
 
 
-func choose_levelup(option: int) -> void:
-	_apply_levelup(_players[_local_slot], option)
+## Presses one of the game's button actions (dash, levelup_1..3) for the next tick, like the native session.
+func press_action(action: String) -> void:
+	if action == "dash":
+		_latched_dash = true
+	elif action.begins_with("levelup_") and int(action.trim_prefix("levelup_")) in [1, 2, 3]:
+		_latched_choice = int(action.trim_prefix("levelup_"))
+	else:
+		push_error("mock session: press_action: unknown action %s" % action)
+
+
+func constants() -> Dictionary:
+	var items := []
+	for i in ITEM_COUNT:
+		items.append({"position": _item_spot(i) + Vector3(0, 1, 0), "kind": _item_kind(i)})
+	return {
+		"tick_hz": TICK_HZ,
+		"over_hold_s": OVER_HOLD_S,
+		"arena_half": ARENA_HALF,
+		"start_radius": START_RADIUS,
+		"dash_cooldown_s": DASH_COOLDOWN,
+		"player_respawn_s": RESPAWN_TIME,
+		"max_enemies": MAX_ENEMIES,
+		"upgrades": UPGRADES.duplicate(true),
+		"items": items,
+	}
 
 
 func set_player_name(player_name: String) -> void:
@@ -227,6 +265,11 @@ func set_player_name(player_name: String) -> void:
 
 func hud() -> Dictionary:
 	var players := []
+	if _status == "idle":  # no session: the contract's empty shape
+		return {
+			"phase": "lobby", "tick": 0, "time_s": 0.0, "wave": 0, "enemies_alive": 0, "circle_radius": 0.0,
+			"matches": 0, "local_slot": -1, "players": players,
+		}
 	for p in _players:
 		players.append(
 			{
@@ -252,7 +295,8 @@ func hud() -> Dictionary:
 		"time_s": time_s,
 		"wave": _wave(),
 		"enemies_alive": _enemies.size(),
-		"circle_radius": CIRCLE_RADIUS,
+		"circle_radius": START_RADIUS if _phase == "lobby" else 0.0,
+		"matches": _matches,
 		"local_slot": _local_slot,
 		"players": players,
 	}
@@ -356,14 +400,11 @@ func _reset_world(local_slot: int) -> void:
 		p.bot = false
 		p.name = _local_name if p.present else ""
 	_items.clear()
-	for i in 40:
+	for i in ITEM_COUNT:
 		var it := Item.new()
 		it.entity = 100 + i
-		it.kind = &"barrel" if i % 5 == 2 else &"crate"
-		it.home = Vector3((i % 8) * 4 - 14, 0, (i / 8) * 4 - 8)
-		# Keep the start circle clear: push the middle items outwards.
-		if it.home.length() < CIRCLE_RADIUS + 1.5:
-			it.home += it.home.normalized() * 3.0 if it.home.length() > 0.1 else Vector3(6, 0, 0)
+		it.kind = StringName(_item_kind(i))
+		it.home = _item_spot(i)
 		it.pos = it.home
 		it.prev = it.home
 		_items.append(it)
@@ -390,6 +431,7 @@ func _reset_player(p: Player) -> void:
 func _start_match() -> void:
 	_phase = "match"
 	_match_start_tick = _tick
+	_matches += 1
 	_spawn_t = 0.0
 	_emit(&"match_started", -1, Vector3.ZERO, 0.0)
 
@@ -418,6 +460,21 @@ func _wave() -> int:
 	return 0 if _phase == "lobby" else int((_tick - _match_start_tick) * DT / 20.0) + 1
 
 
+## The sim's item grid (spec/GAME.md) on the floor plane: 8 x 5 spots 4 m apart, every 5th from the 3rd a barrel;
+## the two spots inside the start circle move out to z = ±12.
+static func _item_spot(i: int) -> Vector3:
+	match i:
+		19:
+			return Vector3(-2, 0, 12)
+		20:
+			return Vector3(2, 0, -12)
+	return Vector3((i % 8) * 4 - 14, 0, floori(i / 8.0) * 4 - 8)
+
+
+static func _item_kind(i: int) -> String:
+	return "barrel" if i % 5 == 2 else "crate"
+
+
 func _xp_next(level: int) -> int:
 	return 8 + (level - 1) * 4  # the sim's `play` tuning (spec/GAME.md)
 
@@ -432,7 +489,7 @@ func _process(delta: float) -> void:
 
 
 func _process_inner(delta: float) -> void:
-	for t in _timers.duplicate():
+	for t: Array in _timers.duplicate():
 		t[0] -= delta
 		if t[0] <= 0.0:
 			_timers.erase(t)
@@ -470,7 +527,7 @@ func _step() -> void:
 	match _phase:
 		"lobby":
 			for p in _players:
-				if p.present and p.alive and Vector2(p.pos.x, p.pos.z).length() > CIRCLE_RADIUS:
+				if p.present and p.alive and Vector2(p.pos.x, p.pos.z).length() > START_RADIUS:
 					_start_match()
 					break
 		"match":
@@ -557,7 +614,7 @@ func _bot_dir(p: Player) -> Vector3:
 	p.wander_t -= DT
 	if p.wander_t <= 0.0:
 		p.wander_t = _rng.randf_range(0.6, 1.8)
-		var r := CIRCLE_RADIUS - 1.0 if _phase == "lobby" else 18.0
+		var r := START_RADIUS - 1.0 if _phase == "lobby" else 18.0
 		p.wander = Vector3(_rng.randf_range(-r, r), 0, _rng.randf_range(-r, r))
 	var to := p.wander - p.pos
 	to.y = 0
@@ -592,7 +649,7 @@ func _step_spawner() -> void:
 	_spawn_t = 1.0
 	var n := mini(3 + _wave() * 2, 24)
 	for i in n:
-		if _enemies.size() >= MAX_ENEMIES:
+		if _enemies.size() >= MOCK_MAX_ENEMIES:
 			break
 		_spawn_enemy()
 
@@ -682,7 +739,7 @@ func _step_shots() -> void:
 		var s := _shots[i]
 		s.pos += s.vel * DT
 		s.life -= DT
-		var dead := s.life <= 0.0 or absf(s.pos.x) > ARENA_HALF or absf(s.pos.z) > ARENA_HALF
+		var dead := s.life <= 0.0 or absf(s.pos.x) > WALL_INNER or absf(s.pos.z) > WALL_INNER
 		if not dead:
 			for e in _enemies:
 				var r := e.radius + 0.15
@@ -804,7 +861,7 @@ func _push_out_static(pos: Vector3, r: float) -> Vector3:
 				pos.x += px * signf(dx)
 			else:
 				pos.z += pz * signf(dz)
-	var lim := ARENA_HALF - r
+	var lim := WALL_INNER - r
 	pos.x = clampf(pos.x, -lim, lim)
 	pos.z = clampf(pos.z, -lim, lim)
 	return pos
@@ -915,7 +972,7 @@ func _despawn_view(entity: int, linger := true) -> void:
 
 
 func _clear_views() -> void:
-	for entity in _views.keys():
+	for entity: int in _views.keys():
 		_despawn_view(entity, false)
 
 

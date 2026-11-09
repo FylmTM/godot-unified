@@ -5,7 +5,7 @@
 //   UnifiedSession (Node)                 one per app (an autoload's child): runs a session (single player,
 //                                         host, join) on our own thread, samples input, syncs the views at
 //                                         process priority -1000, routes events, hosts the dev UI.
-//   SimView (Node3D)                      optional typed root for a view scene (`res://game/views/<kind>.tscn`);
+//   SimView (Node3D)                      optional typed root for a view scene (`<Glue.scene_dir>/<kind>.tscn`);
 //                                         plain Node3D roots with script properties kind/entity/slot work too.
 //   SimBulkView (MultiMeshInstance3D)     optional typed bulk view; plain MultiMeshInstance3D nodes in group
 //                                         `sim_bulk` with a script property `kind` work too.
@@ -20,6 +20,7 @@ package godot_host
 
 import "base:runtime"
 import "core:fmt"
+import "core:strings"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 
@@ -45,6 +46,7 @@ entry :: proc(gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: 
 on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	if level != .INITIALIZATION_SCENE do return
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	register_classes()
 	editor := gd.Engine_is_editor_hint(gd.Engine_singleton())
 	// release CI's smoke test looks for this line
@@ -60,8 +62,11 @@ on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	if level != .INITIALIZATION_SCENE do return
 	context = runtime.default_context()
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	// Hot reload or exit: the session thread runs code from this library, so it must be gone first.
 	session_shutdown_all()
+	delete(app_version)
+	app_version = ""
 	if transport != nil && transport.shutdown != nil do transport.shutdown(transport.user)
 	unregister_classes()
 	gd.shutdown()
@@ -69,4 +74,19 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 
 is_editor :: proc() -> bool {
 	return gd.Engine_is_editor_hint(gd.Engine_singleton())
+}
+
+// The game's version: the project setting application/config/version, which a release build stamps from its
+// tag. Read on the main thread when the session node is ready, before any session starts, so transports can
+// report it (EOS product_version) from the session thread.
+app_version: string
+
+@(private)
+read_app_version :: proc() {
+	if app_version != "" do return
+	nil_v := gd.variant_nil()
+	v := gd.ProjectSettings_get_setting(gd.ProjectSettings_singleton(), "application/config/version", nil_v)
+	defer gd.variant_destroy(&v)
+	s, _ := gd.from_variant(string, &v)
+	app_version = strings.clone(s != "" ? s : "0")
 }
