@@ -9,7 +9,7 @@
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
-    python tools/dev.py godot-test              # binding tests: tests/godot under headless Godot
+    python tools/dev.py godot-test              # tests/godot (bindings), tests/godot_views (host views), headless
     python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
                                                 # validate, walk (CI's godot job runs exactly this)
     python tools/dev.py all                     # fmt --check, vet, test, check, bench, godot-checks (all CI runs)
@@ -86,9 +86,10 @@ FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (RE
 # The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
 HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",
             "toy": "tests/toy/headless"}
-# Packages vet type-checks (with everything they import): the headless binaries, the tests, the binding test
-# extension and the games' extensions.
-VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "games/survivor/simulation/extension",
+# Packages vet type-checks (with everything they import): the headless binaries, the tests, the Godot test
+# extensions (tests/godot, tests/godot_views) and the games' extensions.
+VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext",
+                                          "games/survivor/simulation/extension",
                                           "games/friendslop/simulation/extension"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
@@ -172,21 +173,29 @@ def godot_errors(text):
     return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
 
 
+# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix).
+GODOT_TESTS = [
+    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS"),  # the gdext bindings
+    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS"),  # godot_host views
+]
+
+
 def cmd_godot_test():
     t0 = time.time()
-    proj = REPO / "tests" / "godot"
     imgui.ensure()
-    build_extension("tests/godot/ext", proj / ".out" / "bin" / common.lib_name("gdext_test"))
-    common.write_extension_list(proj)
-    # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
-    r = common.run_godot(["--headless", "--verbose", "--path", proj, "-s", "res://test.gd"], timeout=30)
-    out = r.stdout + r.stderr
-    sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", "GDEXT"))))
-    errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
-    for e in errs:
-        log("godot: " + e)
-    if r.returncode != 0 or errs or "GDEXT TESTS: 0 failed" not in out:
-        raise SystemExit("dev: godot-test failed (exit %d, %d error line(s))" % (r.returncode, len(errs)))
+    for proj_rel, pkg, stem, script, summary in GODOT_TESTS:
+        proj = REPO / proj_rel
+        build_extension(pkg, proj / ".out" / "bin" / common.lib_name(stem))
+        common.write_extension_list(proj)
+        # --verbose: Godot reports orphan StringNames and leaked objects at exit only then
+        r = common.run_godot(["--headless", "--verbose", "--path", proj, "-s", script], timeout=30)
+        out = r.stdout + r.stderr
+        sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", summary))))
+        errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
+        for e in errs:
+            log("godot: " + e)
+        if r.returncode != 0 or errs or summary + ": 0 failed" not in out:
+            raise SystemExit("dev: godot-test %s failed (exit %d, %d error line(s))" % (proj_rel, r.returncode, len(errs)))
     log("dev: godot-test passed in %.2fs" % (time.time() - t0))
 
 

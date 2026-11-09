@@ -13,7 +13,7 @@ import "unified:view"
 
 Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
-	view_root:   gd.Node3D,
+	view_root:   gd.Node, // a Node3D or Node2D (any Node): views are spawned as its children
 	root_id:     u64,
 	seed:        i64,
 	ticks:       i64,
@@ -111,10 +111,10 @@ register_session_class :: proc() {
 		proc(s: ^Session_Node) -> i64 {return s.ticks},
 		proc(s: ^Session_Node, v: i64) {s.ticks = v},
 	)
-	gd.bind_property(c, "view_root", proc(s: ^Session_Node) -> gd.Node3D {
+	gd.bind_property(c, "view_root", proc(s: ^Session_Node) -> gd.Node {
 			if !alive(s.root_id) do return {}
 			return s.view_root
-		}, proc(s: ^Session_Node, v: gd.Node3D) {
+		}, proc(s: ^Session_Node, v: gd.Node) {
 			s.view_root = v
 			s.root_id = v.ptr != nil ? gdi.object_get_instance_id(v.ptr) : 0
 			views_root_changed()

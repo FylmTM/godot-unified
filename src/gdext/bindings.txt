@@ -16,7 +16,9 @@ Window
 Viewport
 ViewportTexture
 CanvasLayer
+Node2D
 Node3D
+MultiMeshInstance2D
 MultiMeshInstance3D
 MultiMesh
 ResourceLoader
