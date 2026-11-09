@@ -40,8 +40,9 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## Workflow
 
-- Iterate locally first (macOS ARM64, plus x86_64 under Rosetta for determinism checks). CI (Linux x64, Windows x64)
-  is the final check before merging. macOS doesn't run in CI.
+- Iterate locally first (macOS ARM64, plus x86_64 under Rosetta for determinism checks). CI is the final check:
+  Linux x64 and arm64 on every PR, Windows x64 after each push to `main`, macOS ARM64 nightly when `main` moved
+  (the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all four on a branch.
 - CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.

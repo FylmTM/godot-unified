@@ -62,8 +62,8 @@ Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% dup
 | T8 | **Cross-platform snapshot:** `resume --in ref-1800.snap --ticks 1800` (same folder) | trace equals ticks 1801–3600 of `ref.trace` |
 | T9 | `bench --enemies 1000 --window 8` | reported (not gated). Target: forward step + 8-tick re-sim ≤ 6 ms. |
 
-CI runs T1–T9 on Linux x64 and Windows x64 and puts the T9 bench in the job summary. macOS is checked locally with
-the same `tools/check.py`. The reference runs (each game's `simulation/tests/testdata/`) are regenerated only deliberately
+CI runs T1–T9 on every platform it tests (Linux x64 and arm64, Windows x64, macOS ARM64; when each runs: the top of
+`.github/workflows/ci.yml`) and puts the T9 bench in the job summary. The reference runs (each game's `simulation/tests/testdata/`) are regenerated only deliberately
 (`tools/dev.py check --regen`, see the README there), which updates the committed files.
 
 ## End-to-end suites (pending sign-off: #60, #61, #67)

@@ -1,7 +1,13 @@
-# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` on Linux x64 and Windows x64 (odin
-# test, then T1-T9 of src/headless/SPEC.md (T1-T9) with the T9 bench in the job summary), and `godot` (Linux x64:
-# `dev.py godot-checks`, the binding tests and every game's headless Godot checks, GDScript included). Together
-# they run what `python tools/dev.py all` runs locally. macOS is checked locally with the same commands.
+# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` (odin test, then T1-T9 of
+# src/headless/SPEC.md with the T9 bench in the job summary), and `godot` (Linux x64: `dev.py godot-checks`, the
+# binding tests and every game's headless Godot checks, GDScript included). Together they run what
+# `python tools/dev.py all` runs locally.
+#
+# Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
+#   pull request         linux-x64, linux-arm64
+#   push to main         linux-x64, linux-arm64, windows-x64
+#   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
+#   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
 #
 # Security: every job that runs repository code has `contents: read`. The EOS SDK (a draft-release asset, which
 # needs a write token to list) comes from eos-sdk.yml as a cache entry. Actions are pinned by commit, runner
@@ -13,10 +19,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC
   workflow_dispatch:
 
+# The nightly has its own group: a push to main must not cancel it.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -27,8 +36,35 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  # Nightly only: run macOS if main's head differs from the last completed nightly's (whatever its result:
+  # a red nightly is not retried every night, only after main moves or by a manual dispatch).
+  nightly:
+    name: nightly / main moved?
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" -w ci.yml -e schedule -s completed -L 1 --json headSha --jq '.[0].headSha // ""')
+          if [ "$last" = "$SHA" ]; then
+            echo "main is still at $SHA (last nightly): nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "main moved: ${last:-none} -> $SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     name: format + vet
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -48,29 +84,38 @@ jobs:
 
       - name: fmt --check
         run: python3 tools/dev.py fmt --check
-      - name: vet (darwin_arm64, darwin_amd64, linux_amd64, windows_amd64)
+      - name: vet (darwin_arm64, darwin_amd64, linux_amd64, linux_arm64, windows_amd64)
         run: python3 tools/dev.py vet
 
   eos-sdk:
+    needs: nightly
+    if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
     uses: ./.github/workflows/eos-sdk.yml
     permissions:
       contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
 
   test:
     name: test / ${{ matrix.platform }}
-    needs: eos-sdk
-    runs-on: ${{ matrix.os }}
+    needs: [nightly, eos-sdk]
+    if: ${{ !cancelled() && needs.eos-sdk.result == 'success' }}
+    runs-on: >-
+      ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
+      "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux-x64
-            py: python3
-          - os: windows-2025
-            platform: windows-x64
-            py: python
+        # Per event, see the top of this file.
+        platform: >-
+          ${{ fromJSON(
+          github.event_name == 'pull_request' && '["linux-x64", "linux-arm64"]' ||
+          github.event_name == 'push' && '["linux-x64", "linux-arm64", "windows-x64"]' ||
+          github.event_name == 'schedule' && '["macos-arm64"]' ||
+          '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
+    env:
+      PY: ${{ matrix.platform == 'windows-x64' && 'python' || 'python3' }}
+      # No x86_64 builds in CI: macOS skips dev.py check's local Rosetta pass.
+      CHECK_ARGS: ${{ matrix.platform == 'macos-arm64' && '--no-rosetta' || '' }}
     defaults:
       run:
         shell: bash
@@ -83,23 +128,23 @@ jobs:
           key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
       # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
       - name: Odin
-        run: ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
+        run: $PY tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
 
       # Box3D: rebuilt only when the pinned commit, the fork patch, the recipe or the compiler change. Building it
       # needs CMake + Ninja (and clang-cl with the MSVC environment on Windows, which box3d.py loads itself).
       - id: cc
-        run: echo "id=$(${{ matrix.py }} tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
+        run: echo "id=$($PY tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
       - id: box3d-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/box3d/build/${{ matrix.platform }}
           key: box3d-${{ matrix.platform }}-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
       - if: steps.box3d-cache.outputs.cache-hit != 'true'
-        run: ${{ matrix.py }} tools/ci.py ensure-ninja
+        run: $PY tools/ci.py ensure-ninja
       - name: Box3D
         run: |
           odin version
-          ${{ matrix.py }} tools/box3d.py
+          $PY tools/box3d.py
 
       # EOS SDK (headers + libraries): the bindings' layout check and the library load test in tests/eos.
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -109,16 +154,16 @@ jobs:
           enableCrossOsArchive: true
           fail-on-cache-miss: true
       - name: EOS SDK
-        run: ${{ matrix.py }} tools/eos.py
+        run: $PY tools/eos.py
 
       - name: odin test
-        run: ${{ matrix.py }} tools/dev.py test
+        run: $PY tools/dev.py test
       - name: T1-T9 (release build + check.py)
-        run: ${{ matrix.py }} tools/dev.py check
+        run: $PY tools/dev.py check $CHECK_ARGS
 
       - name: Summary
         if: always()
-        run: ${{ matrix.py }} tools/ci.py summary >> "$GITHUB_STEP_SUMMARY"
+        run: $PY tools/ci.py summary >> "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -132,6 +177,7 @@ jobs:
 
   godot:
     name: godot headless / linux-x64
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

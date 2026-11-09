@@ -10,7 +10,7 @@
     python tools/eos.py --json          # ensure, then print {"root", "version", "lib"} as one JSON line
 
 Only the pruned SDK is kept: SDK/Include/*, the shipping libraries for macOS (universal dylib),
-Windows x64 (dll + import lib) and Linux x64 (so), and a VERSION file. Sources, in order:
+Windows x64 (dll + import lib), Linux x64 and Linux arm64 (so), and a VERSION file. Sources, in order:
   1. third_party/eos/ already populated with the pinned version: done (~1 ms),
   2. a local SDK unzipped by hand: $UNIFIED_EOS_SDK or $EOS_SDK (the unzipped root or its SDK/ dir),
      ~/tools/eos-sdk, or ~/tools/EOS-SDK-*-v<version>,
@@ -39,25 +39,29 @@ VERSION = "1.19.2.1"
 REPO_SLUG = "FylmTM/unified"
 RELEASE = "eos-sdk-" + VERSION
 ASSET = RELEASE + ".zip"
-ASSET_SHA256 = "ad5a7799d07aaf13611c7dc0cebe79871d6f6473507411ee8dce112b236a1c37"
+ASSET_SHA256 = "7a4f9400628a8b9aa39cfc2d5367e047d4ec4ad7995a10907fdaeaa966c8e681"
 ROOT = REPO / "third_party" / "eos"
 SDK_FILES = [
     "SDK/Bin/libEOSSDK-Mac-Shipping.dylib",
     "SDK/Bin/EOSSDK-Win64-Shipping.dll",
     "SDK/Bin/libEOSSDK-Linux-Shipping.so",
+    "SDK/Bin/libEOSSDK-LinuxArm64-Shipping.so",
     "SDK/Lib/EOSSDK-Win64-Shipping.lib",
 ]
-LIB_NAMES = {
-    "macos": "libEOSSDK-Mac-Shipping.dylib",
-    "windows": "EOSSDK-Win64-Shipping.dll",
-    "linux": "libEOSSDK-Linux-Shipping.so",
+LIB_NAMES = {  # per platform tag; src/eos/api.odin LIB_NAME must agree
+    "macos-arm64": "libEOSSDK-Mac-Shipping.dylib",
+    "macos-x64": "libEOSSDK-Mac-Shipping.dylib",
+    "windows-x64": "EOSSDK-Win64-Shipping.dll",
+    "linux-x64": "libEOSSDK-Linux-Shipping.so",
+    "linux-arm64": "libEOSSDK-LinuxArm64-Shipping.so",
 }
 ENV_DEFINES = ["EOS_PRODUCT_ID", "EOS_SANDBOX_ID", "EOS_DEPLOYMENT_ID", "EOS_CLIENT_ID", "EOS_CLIENT_SECRET"]
 
 
 def ready():
     v = ROOT / "VERSION"
-    return v.is_file() and v.read_text().strip() == VERSION and (ROOT / "SDK" / "Include" / "eos_sdk.h").is_file()
+    return (v.is_file() and v.read_text().strip() == VERSION and (ROOT / "SDK" / "Include" / "eos_sdk.h").is_file()
+            and all((ROOT / rel).is_file() for rel in SDK_FILES))
 
 
 def local_sdk():
@@ -197,8 +201,9 @@ def ensure():
     return ROOT
 
 
-def lib_path(os_name=None):
-    return ROOT / "SDK" / "Bin" / LIB_NAMES[os_name or common.host_os()]
+def lib_path(tag=None):
+    """The SDK's runtime library for a platform tag (default: the host's)."""
+    return ROOT / "SDK" / "Bin" / LIB_NAMES[tag or common.platform_tag()]
 
 
 def pack():
@@ -223,7 +228,7 @@ def upload():
         # a game release; `gh release download` still finds it with repo access.
         cmd = ["gh", "release", "create", RELEASE, "-R", REPO_SLUG, "--draft", "--title",
                "EOS SDK %s (CI dependency)" % VERSION, "--notes",
-               "Pruned EOS C SDK for CI (headers + macOS/Windows/Linux shipping libraries). "
+               "Pruned EOS C SDK for CI (headers + macOS/Windows/Linux x64+arm64 shipping libraries). "
                "Fetched by tools/eos.py. Not a game release; never publish."]
         log("+ " + " ".join(cmd))
         if subprocess.run(cmd).returncode != 0:

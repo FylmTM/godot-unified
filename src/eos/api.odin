@@ -12,6 +12,8 @@ when ODIN_OS == .Darwin {
 	LIB_NAME :: "libEOSSDK-Mac-Shipping.dylib"
 } else when ODIN_OS == .Windows {
 	LIB_NAME :: "EOSSDK-Win64-Shipping.dll"
+} else when ODIN_ARCH == .arm64 {
+	LIB_NAME :: "libEOSSDK-LinuxArm64-Shipping.so"
 } else {
 	LIB_NAME :: "libEOSSDK-Linux-Shipping.so"
 }

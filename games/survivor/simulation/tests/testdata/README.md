@@ -1,7 +1,7 @@
 # testdata
 
 Reference files for the cross-platform tests T7 and T8 (`src/headless/SPEC.md`, T1-T9). They are generated on **macOS ARM64**
-and committed; CI (Linux x64, Windows x64) and the Rosetta check must reproduce them bit for bit.
+and committed; every CI platform and the Rosetta check must reproduce them bit for bit.
 
 | File | What it is |
 |---|---|
