@@ -735,6 +735,8 @@ BENCHES = {
                           "survivor (stress tuning) holding 1000 enemies, 8-tick rollback every tick"),
     "friendslop-rollback": ("friendslop", ["--window", 8, "--ticks", 600],
                             "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick"),
+    "drift-rollback": ("drift", ["--window", 8, "--ticks", 1800],
+                       "drift on the arena (2D physics locked to a plane: ships, splitting rocks), 8-tick rollback every tick"),
 }
 BENCH_TARGET_US = 6000.0
 
