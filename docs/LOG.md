@@ -149,3 +149,6 @@ set up, steps in `docs/EOS.md`); macOS builds ad-hoc signed; the friend plays on
 - 466a0fb **Level-up fix merged:** each pick carries a press sequence; the sim applies a pick only when the sequence
   changes, so inputs repeated by catch-up or by the relay's late-input substitution apply once. Regression test
   added; testdata regenerated; CI green.
+- 1c062b7 **godot_host fixes merged:** Host/Join right after Leave waits for the previous session's goodbye instead
+  of failing; Windows raises the timer resolution during a session (a minimised game no longer sleeps 15.6 ms);
+  macOS disables App Nap for the session. All local checks green. Crossplay re-run requested as the v0.1.1 gate.
