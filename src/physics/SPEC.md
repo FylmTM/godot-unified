@@ -80,6 +80,51 @@ drive_kinematic(w, Body_Ref, target: [3]f32, dt)       // velocity = (target −
 The game keeps each platform's runtime state (`running`, `phase_tick`) in its block. Yaw-only rotation, if a game
 needs it, comes later as a unit-vector path.
 
+## 2D
+
+Decided with the developer 2026-11-10 (Box3D locked to a plane); API pending review. A 2D game uses the same
+world, refs, rollback and queries; its bodies are Box3D bodies locked to a plane, so there is no second engine.
+
+Convention: the sim's 2D plane is XY with Godot's 2D axes (x right, y down, z into the screen), in metres; bodies
+live at z = 0. A 2D rotation is about +Z, positive turns +x toward +y (Godot's `Node2D.rotation`,
+`view.quat_angle2d`), held as a unit vector `(cos a, sin a)` so the sim needs no trig. Gravity is the world's
+(`Settings.gravity`: zero for top-down, `{0, g, 0}` for a side view, y down).
+
+```odin
+body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> b3.BodyDef   // z = 0, locks linear Z, angular X and Y
+quat_2d(rot: [2]f32) -> [4]f32        // any non-zero direction (normalised; zero: identity) -> about +Z, w ≥ 0
+rot_2d(q: [4]f32) -> [2]f32           // (w² − z², 2wz)
+pose_2d(w, Body_Ref) -> (pos: [2]f32, rot: [2]f32)
+velocity_2d(w, Body_Ref) -> (linear: [2]f32, angular: f32)
+set_velocity_2d(w, Body_Ref, linear: [2]f32, angular: f32)
+apply_impulse_2d(w, Body_Ref, j: [2]f32)   // at the centre of mass; a force F over a tick is F · dt
+circle_2d(body, ^ShapeDef, radius, center: [2]f32 = {}) -> ShapeId          // a sphere at z = 0
+box_2d(body, ^ShapeDef, half: [2]f32, depth) -> ShapeId                    // centred on the plane
+polygon_2d(body, ^ShapeDef, points: [][2]f32, depth) -> (ShapeId, bool)    // convex hull of 3..32 points, extruded
+```
+
+Rays are `ray_closest`/`ray_first` with z = 0. The half angle comes from `√((1 + c)/2)` when c ≥ 0, else from
+`√((1 − c)/2)`, so neither branch divides by a small number near ±180°.
+
+How it holds: Box3D zeroes locked velocity components right before each substep's position update (and in the
+continuous-collision time-of-impact pose), so with z, quaternion x and y starting at zero they stay exactly zero
+(±0): tested bit-exact. The reported velocities are not clean: box and hull contacts (points at z = ±depth/2, solved
+with full 3D inertia) leave off-plane components after the relax iterations (seen: |v.z| up to 0.16 m/s, |ω.xy| up
+to 0.4 rad/s), which the next substep drops before moving. `velocity_2d` reads only the plane's components.
+
+Portable images and hulls: Box3D's image names hull geometry by its index in the world's registry, which a fresh
+world fills from its tick-0 save. A late joiner can load an image only if every hull in it already existed somewhere
+in the world at tick 0 (rocks that split into shapes from a fixed set, all present at tick 0); an image with a
+hull made later is refused (`Extra_Rejected`) and the world is left as it was. Open: how games with generated
+geometry (arbitrary split shapes) late-join.
+
+Tests: the plane stays exact for 10 s of 42 mixed bodies (circles, boxes, hulls) hitting each other and static
+walls under impulses and angular velocity, two of them near 60 m/s (continuous collision keeps them in); circles
+don't sink into each other or more than 0.15 m into walls; rotation round trips, near ±180° included; shape masses,
+ray hits and poses; a top-down game (ships turning and thrusting, ray-cast shots splitting rocks, respawns) sync-
+tests in 8-tick windows with 0 mismatches, resumes bit-exact from a portable image, and has a pinned golden trace;
+an image with a hull made after tick 0 is refused.
+
 ## Tests (`tests/physics`)
 
 - Every new binding; `check_refs` after restore.

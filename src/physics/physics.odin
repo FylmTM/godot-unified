@@ -168,13 +168,18 @@ extra :: proc(w: ^World, $S: typeid) -> sim.Extra {
 	collect_refs(type_info_of(S), 0, &jrefs, Joint_Ref)
 	delete(w.joint_refs)
 	w.joint_refs = jrefs[:]
-	return {name = "physics", data = w, save = proc(data: rawptr, slot: int) {
+	return {
+		name = "physics",
+		data = w,
+		save = proc(data: rawptr, slot: int) {
 			w := (^World)(data)
 			b3.World_SaveState(w.id, w.cache, w.ring[slot])
-		}, restore = proc(data: rawptr, slot: int) -> bool {
+		},
+		restore = proc(data: rawptr, slot: int) -> bool {
 			w := (^World)(data)
 			return b3.World_RestoreState(w.id, w.cache, w.ring[slot])
-		}, hash = proc(data: rawptr, state: rawptr, out: ^[dynamic]u8) {
+		},
+		hash = proc(data: rawptr, state: rawptr, out: ^[dynamic]u8) {
 			w := (^World)(data)
 			base := ([^]u8)(state)
 			for off in w.refs {
@@ -183,13 +188,24 @@ extra :: proc(w: ^World, $S: typeid) -> sim.Extra {
 					hash_body(w, r, out)
 				}
 			}
-		}, image = proc(data: rawptr, slot: int) -> []u8 {
+		},
+		image = proc(data: rawptr, slot: int) -> []u8 {
 			w := (^World)(data)
 			return b3.WorldState_GetData(w.ring[slot])[:b3.WorldState_GetSize(w.ring[slot])]
-		}, load = proc(data: rawptr, bytes: []u8) -> bool {
+		},
+		load = proc(data: rawptr, bytes: []u8) -> bool {
+			// A rejected image (one naming a hull this world's registry lacks) is found halfway
+			// through the restore and leaves the world half-written, which crashes its destroy. So
+			// the world is saved first and put back on failure. Loads are rare (late join).
 			w := (^World)(data)
-			return b3.World_RestoreStateFromBytes(w.id, w.cache, bytes)
-		}}
+			backup := b3.CreateWorldState()
+			defer b3.DestroyWorldState(backup)
+			b3.World_SaveState(w.id, w.cache, backup)
+			if b3.World_RestoreStateFromBytes(w.id, w.cache, bytes) do return true
+			b3.World_RestoreState(w.id, w.cache, backup)
+			return false
+		},
+	}
 }
 
 // Every Body_Ref and Joint_Ref in the block names a live body or joint (or is zero). Tests run it
