@@ -18,6 +18,7 @@ var _settings: Control
 
 
 func _ready() -> void:
+	_preload_arena()
 	_place_props()
 	$UI/Root/Left/VBox/Footer.text = "v%s  ·  %s" % [
 		ProjectSettings.get_setting("application/config/version"),
@@ -46,6 +47,23 @@ func _ready() -> void:
 		_show(_error_panel)
 	else:
 		_show(null)
+
+
+## Loads the arena in the background once the menu is on screen: loading its materials and meshes starts Godot's
+## shader compiles on worker threads, instead of in the menu -> arena frame (cold cache: ~140 -> ~50 ms here).
+func _preload_arena() -> void:
+	var tree := get_tree()
+	for i in 2:
+		await tree.process_frame
+	if not is_inside_tree():
+		return
+	ResourceLoader.load_threaded_request(Game.ARENA_SCENE)
+
+
+func _exit_tree() -> void:
+	# Collect the background load (the arena now holds what it needs), or the loader keeps it until exit.
+	if ResourceLoader.load_threaded_get_status(Game.ARENA_SCENE) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+		ResourceLoader.load_threaded_get(Game.ARENA_SCENE)
 
 
 ## Backdrop: crates and barrels on the sim's 5x8 item grid (visual only, nothing simulates them here).

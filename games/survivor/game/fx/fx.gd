@@ -32,18 +32,14 @@ func _ready() -> void:
 	_warm_up()
 
 
-## Draws each effect's material once, out of sight under the floor, while the arena loads. A material's shader is
-## compiled the first time it's drawn (30-80 ms on an empty shader cache, i.e. a player's first launch), which
-## otherwise hitches the frame of the first kill, hit or explosion. New effect materials need a line here.
+## Draws each effect material once, under the floor, while the arena loads. A new material's shader compiles the
+## first time it's drawn, which otherwise hitches the frame of the first kill or ring (on an exported game's first
+## launch 0.4-0.7 s; 30 ms in dev runs). Lights need no warm-up (they don't change a material's shader). A new effect
+## material needs a line here; `game tour --frames --cold` measures every first use.
 func _warm_up() -> void:
 	var at := Vector3(0, -4, 0)
 	_burst(at, Color.WHITE, 1, 0.0, 0.1, 0.1, 0.0)  # vertex-coloured cubes: kills, gems, level-ups, deaths
 	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
-	var light := OmniLight3D.new()  # barrel explosions
-	light.omni_range = 0.5
-	add_child(light)
-	light.position = at
-	get_tree().create_timer(0.2).timeout.connect(light.queue_free)
 
 
 func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool) -> void:
@@ -144,8 +140,8 @@ func _burst(pos: Vector3, color: Color, amount: int, speed: float, life: float, 
 	p.angular_velocity_max = 360.0
 	p.color = color
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.position = pos  # before entering the tree: a CPUParticles3D starts emitting where it enters
 	add_child(p)
-	p.position = pos
 	p.emitting = true
 	p.finished.connect(p.queue_free)
 

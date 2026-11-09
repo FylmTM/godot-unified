@@ -7,8 +7,9 @@ directly with the same arguments: `python tools/game.py validate`):
     python tools/dev.py game tour [--shots]               # the real game (library built): single player through
                                                           # lobby/match; headless quick check, or windowed with
                                                           # PNGs to games/<game>/.uni/tour/ (~50 s, plays to game over)
-    python tools/dev.py game tour --frames [--cold]       # windowed tour reporting frame times and hitches with the
-                                                          # sim events around them; --cold clears the shader cache
+    python tools/dev.py game tour --frames [--cold]       # windowed tour reporting frame times, hitches with the
+                                                          # events around them and each first use's worst frame;
+                                                          # --cold clears the shader caches (~70 s)
     python tools/dev.py game coop [--shots] [--rejoin]            # real online co-op over EOS: a host and a headless
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
@@ -189,7 +190,13 @@ def cmd_game(argv):
 
 
 def _clear_shader_cache(proj):
-    """Delete the project's compiled-shader cache in its Godot user dir, so the next run compiles like a first launch."""
+    """Delete the project's compiled-shader caches, so the next run compiles like a player's first launch: the one in
+    its Godot user dir and the editor's in .godot/ (runs read both). Absolute numbers still differ from an exported
+    game's first launch (macOS: a ~2.5 s first frame there vs ~0.2 s here), so measure the export for those."""
+    editor_cache = os.path.join(proj, ".godot", "shader_cache")
+    if os.path.isdir(editor_cache):
+        shutil.rmtree(editor_cache)
+        log("game: cleared %s" % editor_cache)
     name = re.search(r'^config/name="([^"]+)"', open(os.path.join(proj, "project.godot")).read(), re.M).group(1)
     if sys.platform == "darwin":
         base = os.path.expanduser("~/Library/Application Support/Godot")
