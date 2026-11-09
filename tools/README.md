@@ -6,7 +6,7 @@ tools/dev.py -h` lists every command, and `-h` on any command or script its opti
 
 | Script | What |
 |---|---|
-| `dev.py` | The entry point for every command. Prints each step's time and keeps the last ones in `out/timings.json`. |
+| `dev.py` | The entry point for every command. Prints each run's time against its budget and keeps the last ones in `out/timings.json`. |
 | `game.py` | Godot project checks behind `dev.py game` (`validate` and `walk` also fail on leaks at exit and GDScript warnings; `tour --frames [--cold]` reports frame times and first-use hitches). |
 | `board.py` | The work board (GitHub Project 2) behind `dev.py board`; needs the `gh` CLI with the `project` scope. |
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`src/box3d/SPEC.md`). |
@@ -19,6 +19,15 @@ tools/dev.py -h` lists every command, and `-h` on any command or script its opti
 Every download that ends up in a toolchain or a shipped build is pinned: Odin (`ci.py`), the Godot editor
 (`common.py`) and export templates (`release.py`) and the EOS SDK (`eos.py`) by SHA-256; Box3D, OLS and Dear
 ImGui by commit, dear_bindings by SHA-256.
+
+## Budgets
+
+Every `dev.py` command has a time budget (`BUDGETS` in `dev.py`; `dev.py -h` lists them, `-h` on a command shows
+its own): seconds for a warm run, dependencies already built. CI allows 3x. A run over budget prints an
+`OVER BUDGET` line and is marked in `out/timings.json` and CI's job summary; it doesn't fail, since machines vary,
+but it is a bug to find (AGENTS.md). A cold run (it built Box3D or Dear ImGui, imported a Godot project, or downloaded
+Godot or the EOS SDK first) isn't held to the budget, and says so. Interactive, windowed and networked commands have
+none. A new command without a budget gets a reminder each run.
 
 ## `box3d.py`
 

@@ -193,6 +193,7 @@ def fetch_release(parts):
         _, size = asset_url(token, name)
         log("eos: downloading %s (%.1f MB) from draft release %s" % (name, size / 1e6, RELEASE))
         download(lambda: asset_url(token, name)[0], size, tmp / name)
+        common.COLD.append("EOS SDK download")
         common.check_sha256(tmp / name, ASSET_SHA256[part])
         with zipfile.ZipFile(tmp / name) as z:
             for m in z.namelist():

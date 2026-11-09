@@ -128,6 +128,7 @@ def ensure():
     else:
         run([ar, "rcs", out] + objs)
     stamp.write_text(recipe_key(tag) + "\n")
+    common.COLD.append("Dear ImGui build")
     log("imgui: built %s in %.1fs" % (out.relative_to(REPO).as_posix(), time.time() - t0))
     return out
 

@@ -20,8 +20,8 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 ## Non-negotiables
 
 - **Fast.** Everything we build, run and ship must be fast: builds, tests, checks, tooling, runtime. We left Unity
-  for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its documented budget is a
-  bug: find out why and fix it.
+  for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its budget (`dev.py -h`;
+  an over-budget run says so) is a bug: find out why and fix it.
 - **Correct, proven by tests at every layer.** Each module, including every third-party dependency we rely on (the
   Box3D fork and its bindings first), has independent tests covering everything we use: determinism, save/restore,
   rollback, replays. Upgrading a dependency must be safe because the tests say so.

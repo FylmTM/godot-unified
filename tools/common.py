@@ -14,6 +14,10 @@ IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"
 EXE = ".exe" if IS_WINDOWS else ""
 
+# What this run built or fetched for the first time (a dependency build, a download, a Godot import): a run that
+# did any of it is cold, so dev.py doesn't hold it to its command's warm-run budget.
+COLD = []
+
 _ARCH_ALIASES = {
     "x86_64": "x64", "amd64": "x64", "x64": "x64",
     "arm64": "arm64", "aarch64": "arm64",
@@ -168,6 +172,7 @@ def find_godot(fetch=False):
         log("godot: skipping %s (version %r, want %s)" % (c, v, want))
     asset, exe_rel, sha = GODOT_EDITORS[host_os()]
     zpath = download(GODOT_RELEASES + asset, GODOT_DIR / asset, sha)
+    COLD.append("Godot download")
     if IS_MACOS:
         # ditto keeps the app's symlinks and permissions (zipfile would not).
         subprocess.run(["ditto", "-x", "-k", str(zpath), str(GODOT_DIR)], check=True)
@@ -294,6 +299,7 @@ def ensure_imported(proj):
             sys.stdout.write((r.stdout + r.stderr)[-4000:])
             raise SystemExit("godot: import of %s failed (exit %d)" % (proj, r.returncode))
         stamp.write_text(_import_signature(proj))  # the import may have added .uid files
+        COLD.append("Godot import of " + proj.name)
         log("godot: imported %s in %.1fs" % (proj.name, time.time() - t0))
     return exts
 

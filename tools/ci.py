@@ -158,8 +158,13 @@ def cmd_summary():
     timings_path = REPO / "out" / "timings.json"
     if timings_path.exists():
         t = json.loads(timings_path.read_text())
-        out += ["| step | seconds |", "|---|---:|"]
-        out += ["| `dev.py %s` | %.1f |" % (k, v) for k, v in t.items()]
+        out += ["| step | seconds | budget |", "|---|---:|---|"]
+        for k, v in t.items():
+            v = v if isinstance(v, dict) else {"seconds": v}
+            b = v.get("budget")
+            flag = "" if b is None else "**OVER** %ds" % b if v.get("over") else \
+                "%ds (cold: %s)" % (b, ", ".join(v["cold"])) if v.get("cold") else "%ds" % b
+            out.append("| `dev.py %s` | %.1f | %s |" % (k, v["seconds"], flag))
         out.append("")
     check_path = REPO / "out" / "check.json"
     if check_path.exists():
