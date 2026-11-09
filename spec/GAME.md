@@ -94,7 +94,7 @@ on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
    - Set the body's linear velocity.
    - Dead players have no body and count down `respawn` = 3 s (not while `over`), then respawn at their start spot
      with full HP (`player_respawned`). HP max 100.
-2. **Level-up:** if the player has `pending_levelups > 0` and `choice ∈ 1..3`, apply option
+2. **Level-up:** if the player has `pending_levelups > 0` and a new pick (option 1..3, seq ≠ `choice_seq`; see Input), apply option
    1 = fire rate (interval −0.03125 s, min 0.09375 s), 2 = damage +3, 3 = move speed +0.5, then `pending_levelups −= 1`.
 3. **Spawner** (match only): every `every` after `match_tick`, spawn `n` enemies (Tuning) while alive enemies
    < 1200; their HP is scaled by the wave.
