@@ -6,7 +6,8 @@ config_version=5
 
 config/name="Survivor"
 config/description="Co-op survivor prototype on unified."
-config/version="0.1.0"
+; "dev" in the repo: tools/release.py stamps the tag's version into each release export.
+config/version="dev"
 run/main_scene="res://game/ui/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://game/icon.svg"

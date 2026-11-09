@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """Toolchain setup and the job summary for .github/workflows/ci.yml (Python 3.9+, stdlib only).
 
-    python tools/ci.py odin <tag> <dest>     # download + unpack an Odin release; add it to $GITHUB_PATH
+    python tools/ci.py odin <tag> <dest>     # download (hash-pinned) + unpack an Odin release; add it to $GITHUB_PATH
     python tools/ci.py odinfmt <dest>        # build odinfmt from OLS at OLS_COMMIT with the odin on PATH
+    python tools/ci.py godot                 # the official Godot editor (hash-pinned) in .toolchains/godot/<version>/
     python tools/ci.py ensure-ninja          # pip-install ninja if missing (only needed to build Box3D)
+    python tools/ci.py compiler-id           # short id of the C compiler Box3D builds with (its CI cache key)
     python tools/ci.py summary               # markdown for $GITHUB_STEP_SUMMARY from out/
 
 `odinfmt` also works locally: it is the supported way to install the pinned formatter (put <dest> on
 PATH or set ODINFMT=<dest>/odinfmt). Every step is a no-op when its output already exists.
 """
 
-import io
 import json
 import os
 import subprocess
 import sys
 import tarfile
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -28,6 +28,14 @@ from common import REPO, EXE, log
 # then run `python tools/dev.py fmt` and commit the result.
 OLS_URL = "https://github.com/DanielGavin/ols.git"
 OLS_COMMIT = "85d88870aebe1fb61b07db838e9db5728e6586ec"
+
+# SHA-256 of the Odin release assets CI uses (GitHub's asset digests). A new ODIN_TAG in the workflows needs its
+# hashes here: `gh api repos/odin-lang/Odin/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`.
+ODIN_SHA256 = {
+    "odin-linux-amd64-dev-2026-11.tar.gz": "65c9f6e97d6f8a30930e151f270ce5aeaa98fe8b2ba49fe067394e2af04f7618",
+    "odin-macos-arm64-dev-2026-11.tar.gz": "fa10eee280c8786758e3ff0b8fdd9355e1c9447b1f0b8c72764e25ee4ebc3e22",
+    "odin-windows-amd64-dev-2026-11.zip": "259effedf2997293c8fa4a5e497496f8ebce9f826652d9dd353a9dd2113c31fd",
+}
 
 
 def gh_append(var, text):
@@ -53,19 +61,21 @@ def cmd_odin(tag, dest):
         arch = {"x64": "amd64", "arm64": "arm64"}[common.host_arch()]
         ext = "zip" if common.IS_WINDOWS else "tar.gz"
         asset = "odin-%s-%s-%s.%s" % (osname, arch, tag, ext)
+        if asset not in ODIN_SHA256:
+            raise SystemExit("odin: no pinned SHA-256 for %s: add it to ODIN_SHA256 in tools/ci.py" % asset)
         url = "https://github.com/odin-lang/Odin/releases/download/%s/%s" % (tag, asset)
-        log("odin: downloading " + url)
-        data = urllib.request.urlopen(url, timeout=600).read()
+        archive = common.download(url, dest.parent / asset, ODIN_SHA256[asset])
         dest.mkdir(parents=True, exist_ok=True)
         if ext == "zip":
-            with zipfile.ZipFile(io.BytesIO(data)) as z:
+            with zipfile.ZipFile(archive) as z:
                 z.extractall(dest)
         else:
-            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as t:
+            with tarfile.open(archive, mode="r:gz") as t:
                 if hasattr(tarfile, "data_filter"):
                     t.extractall(dest, filter="data")
                 else:
                     t.extractall(dest)
+        archive.unlink()
         found = find_odin(dest, exe)
         if not found:
             raise SystemExit("odin: %s not found in %s" % (exe, asset))
@@ -119,6 +129,15 @@ def cmd_ensure_ninja():
     gh_append("GITHUB_PATH", str(scripts) + "\n")
 
 
+def cmd_compiler_id():
+    """The Box3D build's compiler version, hashed: box3d.py's own stamp doesn't cover the compiler, so CI's
+    Box3D cache key does (a runner image with a new clang rebuilds it)."""
+    import hashlib
+    import box3d
+    cc, _ = box3d.pick_compilers()
+    print(hashlib.sha256(box3d.compiler_version(cc).encode()).hexdigest()[:12])
+
+
 def cmd_summary():
     out = ["## unified: %s" % common.platform_tag(), ""]
     timings_path = REPO / "out" / "timings.json"
@@ -160,6 +179,11 @@ def main():
         cmd_odinfmt(a[1])
     elif a == ["ensure-ninja"]:
         cmd_ensure_ninja()
+    elif a == ["godot"]:
+        exe = common.find_godot(fetch=True)
+        log("godot: %s (%s)" % (exe, common.godot_version(exe)))
+    elif a == ["compiler-id"]:
+        cmd_compiler_id()
     elif a == ["summary"]:
         cmd_summary()
     else:
