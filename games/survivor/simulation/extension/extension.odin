@@ -108,6 +108,10 @@ event_key :: proc(e: sim.Event) -> view.Key {
 
 // ---- input
 
+// Sequence of the local player's last level-up press (survivor.choice_encode): sample runs on the session
+// thread only, for the one local player.
+g_choice_seq: u8
+
 sample :: proc(a: gh.Actions, slot: int, tick: u32, state: ^S) -> survivor.Input {
 	in_: survivor.Input
 	in_.move_x = i8(clamp(a.move.x, -1, 1) * 127)
@@ -115,7 +119,8 @@ sample :: proc(a: gh.Actions, slot: int, tick: u32, state: ^S) -> survivor.Input
 	if a.held & (1 << BUTTON_DASH) != 0 do in_.buttons |= survivor.BUTTON_DASH
 	for k in 0 ..< 3 {
 		if a.pressed & (1 << u32(BUTTON_LEVELUP_1 + k)) != 0 {
-			in_.choice = u8(k + 1)
+			g_choice_seq = survivor.choice_next_seq(g_choice_seq)
+			in_.choice = survivor.choice_encode(k + 1, g_choice_seq)
 			break
 		}
 	}

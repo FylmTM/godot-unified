@@ -28,7 +28,8 @@ script_input :: proc(seed: u64, p: int, t: u32, pending: i32) -> Input {
 		in_.buttons |= BUTTON_DASH
 	}
 	if pending > 0 {
-		in_.choice = u8(r % 3) + 1
+		// One pick per 24-tick block: the block number is the press sequence.
+		in_.choice = choice_encode(int(r % 3) + 1, u8((t - 1) / SCRIPT_PERIOD % 63) + 1)
 	}
 	return in_
 }

@@ -16,7 +16,9 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 		return
 	}
 	if pl.pending_levelups > 0 {
-		in_.choice = u8((pl.level + i32(p)) % 3) + 1 // round-robin: fire rate, damage, speed
+		// Round-robin over fire rate, damage, speed by level; a new press for every pending level-up.
+		press := u8((pl.level * 4 + pl.pending_levelups) % 63) + 1
+		in_.choice = choice_encode(int((pl.level + i32(p)) % 3) + 1, press)
 	}
 	pos := dmath.Vec2{pl.pos.x, pl.pos.z}
 	if s.phase == .Lobby {

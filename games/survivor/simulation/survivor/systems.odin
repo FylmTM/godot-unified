@@ -183,10 +183,12 @@ sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
 	for p in 0 ..< MAX_PLAYERS {
 		pl := &s.players[p]
 		c := inputs.input[p].choice
-		if !pl.active || pl.pending_levelups <= 0 || c < 1 || c > 3 {
-			continue
+		option, seq := choice_option(c), choice_seq(c)
+		if !pl.active || pl.pending_levelups <= 0 || option == 0 || seq == 0 || seq == pl.choice_seq {
+			continue // no pick, nothing to pick, or a repeat of the pick already applied
 		}
-		switch c {
+		pl.choice_seq = seq
+		switch option {
 		case 1:
 			pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
 		case 2:
