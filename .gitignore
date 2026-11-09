@@ -30,3 +30,8 @@ zig-out/
 
 # EOS SDK (headers + shipping libraries), staged by tools/eos.py
 /third_party/eos/
+
+# Binaries odin test/build drop at the repo root
+/netcode
+/survivor
+/*.bin
