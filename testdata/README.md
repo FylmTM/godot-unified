@@ -5,13 +5,15 @@ and committed; CI (Linux x64, Windows x64) and the Rosetta check must reproduce 
 
 | File | What it is |
 |---|---|
-| `ref.log` | Input log (`UNIL` v2, spec/sim.md: seed, slots, input size, ticks, then per tick present + replaced masks and 4 × 4 input bytes) of an offline run: 3600 ticks (64 Hz), 4 players, seed 7, scripted inputs, nothing replaced |
+| `ref.log` | Input log (`UNIL` v2 (still read: content 0), spec/sim.md: seed, slots, input size, ticks, then per tick present + replaced masks and 4 × 4 input bytes) of an offline run: 3600 ticks (64 Hz), 4 players, seed 7, scripted inputs, nothing replaced |
 | `ref.trace` | Per-tick checksums of that run, one `"%06d %016x"` line per tick, ticks 1..3600 |
 | `ref-1800.snap` | Portable snapshot (`UNIS` v2: state block plus Box3D state) after tick 1800 of the same run |
 | `ref.json` | Provenance: when, on what platform and commit, the exact commands, and the final checksum |
+| `friendslop/ref.log`, `friendslop/ref.trace` | The same for friendslop (F5): 1800 ticks of 4 chaos players, seed 7, on the embedded park level (`UNIL` v3 carries the level's hash). Dynamic movers, joints, platforms, carries and throws |
 
 - **T7:** `survivor replay --log ref.log --trace out` must equal `ref.trace`.
 - **T8:** `survivor resume --in ref-1800.snap --ticks 1800 --trace out` must equal lines 1801–3600 of `ref.trace`.
+- **F5:** `friendslop replay --log friendslop/ref.log --trace out` must equal `friendslop/ref.trace`.
 
 ## Regenerating
 
@@ -22,6 +24,7 @@ headless binary (release), then runs exactly:
 ```
 survivor sim      --ticks 3600 --players 4 --seed 7 --trace ref.trace --log ref.log
 survivor snapshot --ticks 1800 --players 4 --seed 7 --out ref-1800.snap
+friendslop sim    --ticks 1800 --players 4 --seed 7 --trace friendslop/ref.trace --log friendslop/ref.log
 ```
 
 It self-checks the new files before copying them here (replay of `ref.log` reproduces `ref.trace`, resume of the

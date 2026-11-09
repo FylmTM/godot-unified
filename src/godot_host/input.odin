@@ -11,6 +11,8 @@ input_state: struct {
 	move:    u64, // two f32 bit patterns
 	held:    u32,
 	pressed: u32, // edges since the last take
+	mu:      sync.Mutex, // guards vectors
+	vectors: [INPUT_VECTORS][3]f32,
 }
 
 // The actions as interned StringNames (main thread, built on the first sample): no per-frame conversions.
@@ -56,13 +58,23 @@ press_button :: proc(i: int) {
 	sync.atomic_or(&input_state.pressed, 1 << u32(i))
 }
 
+// Main thread: a view-dependent input vector (Actions.vectors[i]).
+set_input_vector :: proc(i: int, v: [3]f32) {
+	if i < 0 || i >= INPUT_VECTORS do return
+	sync.guard(&input_state.mu)
+	input_state.vectors[i] = v
+}
+
 // Session thread: the current actions, consuming the accumulated presses.
 take_actions :: proc() -> Actions {
-	return {
-		move = transmute([2]f32)sync.atomic_load(&input_state.move),
-		held = sync.atomic_load(&input_state.held),
+	a := Actions {
+		move    = transmute([2]f32)sync.atomic_load(&input_state.move),
+		held    = sync.atomic_load(&input_state.held),
 		pressed = sync.atomic_exchange(&input_state.pressed, 0),
 	}
+	sync.guard(&input_state.mu)
+	a.vectors = input_state.vectors
+	return a
 }
 
 button_index :: proc(name: string) -> int {

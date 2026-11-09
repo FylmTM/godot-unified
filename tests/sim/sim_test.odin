@@ -144,7 +144,8 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 @(test)
 input_log_round_trip :: proc(t: ^testing.T) {
 	lg := sim.Input_Log(toy.Input, toy.SLOTS) {
-		seed = 99,
+		seed    = 99,
+		content = 0xC0FFEE,
 	}
 	defer sim.log_destroy(&lg)
 	for k in 0 ..< 50 {
@@ -162,6 +163,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
 	testing.expect_value(t, back.seed, 99)
+	testing.expect_value(t, back.content, 0xC0FFEE)
 	testing.expect_value(t, len(back.ticks), 50)
 	for k in 0 ..< 50 {
 		testing.expect(t, back.ticks[k] == lg.ticks[k])
@@ -228,7 +230,7 @@ Flaky :: struct {
 
 flaky_game :: proc(f: rawptr) -> toy.Game {
 	g := toy.GAME
-	g.world_create = proc(seed: u64) -> ^toy.World {return new(toy.World)}
+	g.world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)}
 	g.extras = proc(w: ^toy.World) -> []sim.Extra {
 		@(static) extra: [1]sim.Extra
 		extra[0] = {
@@ -324,4 +326,48 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	testing.expect(t, sim.inputs_same(&a, &b)) // NaN != NaN as floats
 	b.present = {0, 1}
 	testing.expect(t, !sim.inputs_same(&a, &b))
+}
+
+// spec/level.md: the content (level) a sim was created with is part of its identity. A v2 log (no
+// content field) still decodes, as content 0.
+@(test)
+content_identity :: proc(t: ^testing.T) {
+	level_a := []u8{1, 2, 3}
+	level_b := []u8{1, 2, 4}
+	testing.expect_value(t, sim.content_hash(nil), 0)
+	testing.expect(t, sim.compat_of(&toy.GAME, level_a) != sim.compat_of(&toy.GAME, level_b))
+	testing.expect(t, sim.compat_of(&toy.GAME, level_a) != sim.compat_of(&toy.GAME))
+	a := sim.create(&toy.GAME, 7, level_a)
+	defer sim.destroy(a)
+	testing.expect_value(t, a.content_hash, sim.content_hash(level_a))
+	ins: toy.Inputs
+	ins.present = {0}
+	sim.step(a, &ins)
+	snap := sim.snapshot_encode(a, 1)
+	defer delete(snap)
+	_, err := sim.from_snapshot(&toy.GAME, snap, level_b)
+	testing.expect_value(t, err, sim.Snap_Error.Content_Differs)
+	_, err = sim.from_snapshot(&toy.GAME, snap)
+	testing.expect_value(t, err, sim.Snap_Error.Content_Differs)
+	b, err2 := sim.from_snapshot(&toy.GAME, snap, level_a)
+	testing.expect_value(t, err2, sim.Snap_Error.None)
+	if b != nil do sim.destroy(b)
+
+	// A v2 log: the v3 bytes without the content field.
+	lg := sim.Input_Log(toy.Input, toy.SLOTS) {
+		seed = 5,
+	}
+	defer sim.log_destroy(&lg)
+	append(&lg.ticks, ins)
+	v3 := sim.log_encode(&lg)
+	defer delete(v3)
+	v2 := make([dynamic]u8)
+	defer delete(v2)
+	append(&v2, ..v3[:4])
+	append(&v2, 2, 0)
+	append(&v2, ..v3[6:14]) // seed
+	append(&v2, ..v3[22:]) // slots, input size, ticks, body
+	back, ok := sim.log_decode(v2[:], toy.Input, toy.SLOTS)
+	defer sim.log_destroy(&back)
+	testing.expect(t, ok && back.seed == 5 && back.content == 0 && len(back.ticks) == 1)
 }

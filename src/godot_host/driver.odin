@@ -6,6 +6,7 @@ package godot_host
 import "base:runtime"
 import "core:fmt"
 import cnet "core:net"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -35,6 +36,7 @@ Api :: struct {
 	constants:   proc(d: rawptr), // nil: the game exposes none
 	state:       proc() -> any, // the newest predicted state, for the inspector (while want_state)
 	event_key:   proc(e: sim.Event) -> view.Key, // the game's event -> scene view mapping (nil: default routing)
+	level:       string, // Glue.level
 	result:      proc() -> string, // the finished session's result JSON (after a Result message)
 }
 
@@ -241,6 +243,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		actions     = glue.actions,
 		event_names = game.event_names,
 		event_key   = glue.event_key,
+		level       = glue.level,
 	}
 	api.start = proc(req: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
@@ -256,6 +259,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		d.req = req
 		d.req.arg = strings.clone(req.arg)
 		d.req.name = strings.clone(req.name)
+		d.req.content = slice.clone(req.content)
 		view.triple_init(&d.frames)
 		view.triple_init(&d.states)
 		view.tracker_init(&d.tracker, tick_event_id)
@@ -294,6 +298,7 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		delete(d.scratch)
 		delete(d.req.arg)
 		delete(d.req.name)
+		delete(d.req.content)
 		delete(d.result)
 		delete(d.nets)
 		free(d)
@@ -497,19 +502,21 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 	g := d.game
 	hooks := driver_hooks(d)
 	host_cfg := netcode.Host_Config {
-		player = r.name,
-		seed   = r.seed,
-		ticks  = r.ticks,
-		compat = d.glue.compat,
-		name   = "host",
-		quiet  = true,
+		player  = r.name,
+		seed    = r.seed,
+		ticks   = r.ticks,
+		compat  = d.glue.compat,
+		content = r.content,
+		name    = "host",
+		quiet   = true,
 	}
 	client_cfg := netcode.Client_Config {
-		player = r.name,
-		slot   = -1,
-		compat = d.glue.compat,
-		name   = "client",
-		quiet  = true,
+		player  = r.name,
+		slot    = -1,
+		compat  = d.glue.compat,
+		content = r.content,
+		name    = "client",
+		quiet   = true,
 	}
 	switch r.mode {
 	case .Single:

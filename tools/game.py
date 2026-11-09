@@ -10,10 +10,13 @@ directly with the same arguments: `python tools/game.py validate survivor`):
     python tools/dev.py game tour <game> --frames [--cold]   # windowed tour reporting frame times, hitches with the
                                                           # events around them and each first use's worst frame;
                                                           # --cold clears the shader caches (~70 s)
-    python tools/dev.py game coop <game> [--shots] [--rejoin]   # real online co-op over EOS: a host and a headless
+    python tools/dev.py game coop <game> [--shots] [--rejoin] [--lan]   # real online co-op over EOS (or --lan:
+                                                          # direct UDP on 127.0.0.1): a host and a headless
                                                           # joiner (typed code) in two processes (~25 s; manual:
                                                           # EOS may show macOS keychain prompts)
     python tools/dev.py game import <game>                # refresh Godot's import cache (.godot/)
+    python tools/dev.py game export-level <game> [--check]   # game/levels/*.tscn -> .level files (spec/level.md);
+                                                          # --check fails when a committed file is stale
 
 Godot: common.find_godot(). Every run has a timeout (Godot can hang on some errors) and is judged by the JSON line
 the tool script prints, not by Godot's exit code alone (it stays 0 on script errors). The import cache is refreshed
@@ -31,7 +34,9 @@ import time
 import common
 from common import log
 
-COMMANDS = ("validate", "walk", "shots", "tour", "coop", "import")
+COMMANDS = ("validate", "walk", "shots", "tour", "coop", "import", "export-level")
+LEVEL_EXPORTER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "level", "godot",
+                              "level_export.gd")
 
 
 def run_tool(proj, args, timeout, marker, quiet=False, strict=False):
@@ -67,7 +72,8 @@ def parser():
                            ("shots", "the walk in a window, PNGs to <game>/.uni/shots/"),
                            ("tour", "the real game through lobby and match (needs the game library)"),
                            ("coop", "online co-op over EOS: host + headless joiner (needs the game library)"),
-                           ("import", "refresh Godot's import cache")):
+                           ("import", "refresh Godot's import cache"),
+                           ("export-level", "export game/levels/*.tscn to .level files (headless)")):
         p = sub.add_parser(name, help=helptext)
         p.add_argument("game", help="game name (games/<game>) or project path")
         if name in ("tour", "coop"):
@@ -77,6 +83,10 @@ def parser():
             p.add_argument("--cold", action="store_true", help="with --frames: clear the shader caches first")
         if name == "coop":
             p.add_argument("--rejoin", action="store_true", help="the joiner leaves mid-match and joins again")
+            p.add_argument("--lan", action="store_true", help="direct UDP on 127.0.0.1 instead of EOS (if the game's "
+                           "coop tool supports it)")
+        if name == "export-level":
+            p.add_argument("--check", action="store_true", help="write nothing; fail when a .level file is stale")
     return ap
 
 
@@ -89,10 +99,15 @@ def main(argv):
         return 0
     if a.cmd in ("tour", "coop") and not exts:
         raise SystemExit("game: %s needs the game library: python tools/dev.py game build %s" % (a.cmd, a.game))
-    if a.cmd == "validate":
+    if a.cmd == "export-level":
+        ok, data, secs = export_levels(proj, a.check)
+    elif a.cmd == "validate":
         ok, data, secs = run_tool(
             proj, ["--headless", "-d", "-s", "res://game/tools/validate.gd", "--", "--no-settings"], 60,
             "VALIDATE_JSON", strict=True)
+        if ok and os.path.isdir(os.path.join(proj, "game", "levels")):
+            ok, _, lsecs = export_levels(proj, True)
+            secs += lsecs
     elif a.cmd == "walk":
         ok, data, secs = run_tool(
             proj, ["--headless", "-s", "res://game/tools/ui_walk.gd", "--", "--mock", "--no-settings"], 90, "WALK_JSON",
@@ -118,9 +133,24 @@ def main(argv):
                 proj, ["--headless", "-s", "res://game/tools/tour.gd", "--", "--no-settings", "--quick"], 60,
                 "TOUR_JSON")
     else:
-        ok, data, secs = cmd_coop(proj, a.shots, a.rejoin)
+        ok, data, secs = cmd_coop(proj, a.shots, a.rejoin, a.lan)
     log("game: %s %s in %.1fs" % (a.cmd, "OK" if ok else "FAILED", secs))
     return 0 if ok else 1
+
+
+def export_levels(proj, check):
+    """Runs unified's level exporter (installed into <game>/.uni/tools/) on the project's levels."""
+    tools = os.path.join(proj, ".uni", "tools")
+    os.makedirs(tools, exist_ok=True)
+    shutil.copyfile(LEVEL_EXPORTER, os.path.join(tools, "level_export.gd"))
+    ok, data, secs = run_tool(proj, ["--headless", "-s", "res://.uni/tools/level_export.gd", "--"] +
+                              (["--check"] if check else []), 60, "LEVEL_JSON")
+    for lv in (data or {}).get("levels", []):
+        log("game: %s -> %s (%d bytes%s)" % (lv["scene"], lv["level"], lv["bytes"],
+                                              ", changed" if lv["changed"] else ""))
+    for e in (data or {}).get("errors", []):
+        log("game: level: " + e)
+    return ok, data, secs
 
 
 def _clear_shader_cache(proj):
@@ -144,12 +174,12 @@ def _clear_shader_cache(proj):
         log("game: cleared %s" % cache)
 
 
-def cmd_coop(proj, shots, rejoin=False):
+def cmd_coop(proj, shots, rejoin=False, lan=False):
     """Host (windowed with --shots, else headless) and a headless joiner with a fresh EOS device id, as two Godot
     processes; the host hands the lobby code over through a file. --rejoin: the joiner leaves mid-match and joins
     again with the same code. The joiner is always reaped, also when the host fails or times out: an orphan would
     stay connected to EOS."""
-    extra = ["--rejoin"] if rejoin else []
+    extra = (["--rejoin"] if rejoin else []) + (["--lan"] if lan else [])
     code = proj / ".uni" / "coop_code.txt"
     code.parent.mkdir(parents=True, exist_ok=True)
     if code.exists():

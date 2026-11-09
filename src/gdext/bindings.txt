@@ -9,6 +9,7 @@
 OS
 Engine
 ProjectSettings
+FileAccess
 # scene tree
 SceneTree
 Window

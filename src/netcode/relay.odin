@@ -20,6 +20,7 @@ Relay_Config :: struct {
 	ticks:         u32, // session length; 0: endless
 	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
 	compat:        u64, // build/game id (sim.compat_of); a Hello with another value is rejected (0: any)
+	content:       u64, // the content's hash (sim.content_hash), recorded in the input log
 	name:          string, // for log lines
 	poll_us:       i64, // 0: DEFAULT_POLL_US
 	quiet:         bool,
@@ -94,6 +95,7 @@ relay_create :: proc(cfg: Relay_Config, $I: typeid, $P: int) -> ^Relay(I, P) {
 		p = -1
 	}
 	r.log.seed = cfg.seed
+	r.log.content = cfg.content
 	return r
 }
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""The end-to-end tests T1-T9 of spec/headless.md (T1-T9), run against the CLI binary.
+"""The end-to-end tests T1-T9 of spec/headless.md (T1-T9), run against the CLI binary, plus F1-F5 on friendslop's
+headless binary (out/<mode>/friendslop: sync-test, two identical runs, a 4-client `bad` session and its replay, a
+late join, the replay of testdata/friendslop/).
 
     python tools/dev.py check [options]       # builds first (release), then runs this
     python tools/check.py [--mode release|dev|debug] [--arch x86_64] [--only T1,T3] [--regen [--force]]
@@ -47,9 +49,13 @@ REF_TICKS = 3600
 REF_SNAP_TICK = 1800
 BENCH_TICKS = 600
 BENCH_TARGET_US = 6000.0
-ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"]
+ALL_TESTS = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "F1", "F2", "F3", "F4", "F5"]
+# friendslop (spec/friendslop.md), the physics co-op game: its headless binary next to the survivor's.
+FS_BINARY = "friendslop"
+FS_REF_TICKS = 1800
 TRACE_RE = re.compile(r"^(\d{6,}) ([0-9a-f]{16})$")
-LOG_HEADER = struct.Struct("<4sHQBHI")  # magic, version, seed, slots, input size, ticks
+LOG_HEADER = struct.Struct("<4sHQBHI")  # v2: magic, version, seed, slots, input size, ticks
+LOG_HEADER_V3 = struct.Struct("<4sHQQBHI")  # v3 adds the content (level) hash after the seed
 LOG_SLOTS = 4
 
 
@@ -63,8 +69,16 @@ class Ctx:
     def __init__(self, mode, arch, outdir, scale, jobs):
         self.mode, self.out, self.scale, self.jobs = mode, outdir, scale, jobs
         self.binary = binary_path(mode, arch)
+        self.fs_binary = out_dir(mode, arch) / (FS_BINARY + EXE)
         self.testdata = REPO / "testdata"
         self.cache = {}  # results shared between tests (T3 -> T4)
+
+    def friendslop(self):
+        """The same context, driving the friendslop binary (the F tests)."""
+        import copy
+        c = copy.copy(self)
+        c.binary = self.fs_binary
+        return c
 
     def path(self, *parts):
         p = self.out.joinpath(*parts)
@@ -167,19 +181,26 @@ def read_log_header(path):
     data = Path(path).read_bytes()
     if len(data) < LOG_HEADER.size:
         raise Fail("%s: shorter than the input-log header" % path)
-    magic, version, seed, slots, isize, ticks = LOG_HEADER.unpack_from(data)
+    magic, version = struct.unpack_from("<4sH", data)
     if magic != b"UNIL":
         raise Fail("%s: bad magic %r (want b'UNIL')" % (path, magic))
-    info = {"version": version, "seed": seed, "slots": slots, "ticks": ticks, "bytes": len(data)}
+    content = 0
+    hdr = LOG_HEADER
+    if version >= 3:
+        hdr = LOG_HEADER_V3
+        _, _, seed, content, slots, isize, ticks = hdr.unpack_from(data)
+    else:
+        _, _, seed, slots, isize, ticks = hdr.unpack_from(data)
+    info = {"version": version, "seed": seed, "content": content, "slots": slots, "ticks": ticks, "bytes": len(data)}
     # per tick: present u32, replaced u32, slots x input
     tick_bytes = 8 + slots * isize
-    want = LOG_HEADER.size + ticks * tick_bytes
+    want = hdr.size + ticks * tick_bytes
     info["size_ok"] = len(data) == want
     if not info["size_ok"]:
         log("  note: %s is %d bytes; header + %d x %d bytes = %d" % (path, len(data), ticks, tick_bytes, want))
     if ticks > 0 and info["size_ok"]:
         # players = slots present at tick 1
-        present = struct.unpack_from("<I", data, LOG_HEADER.size)[0]
+        present = struct.unpack_from("<I", data, hdr.size)[0]
         info["players"] = bin(present).count("1")
     return info
 
@@ -459,7 +480,87 @@ def t9(ctx):
     return msg, data
 
 
-TESTS = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7, "T8": t8, "T9": t9}
+# --- friendslop: the physics co-op game (dynamic movers, joints, platforms, carries, throws under rollback) ------
+
+def fs_paths(base):
+    d = base / "friendslop"
+    return d / "ref.log", d / "ref.trace"
+
+
+def f1(ctx):
+    g = ctx.friendslop()
+    j = run(g, "F1/synctest", ["synctest", "--ticks", 3600, "--window", 8, "--players", 4, "--seed", TEST_SEED], 900)
+    mm = int(need(j, "mismatches", "synctest"))
+    if mm != 0:
+        raise Fail("%d mismatches" % mm)
+    return "friendslop synctest 3600 ticks, window 8, 4 players: 0 mismatches", {"mismatches": mm}
+
+
+def f2(ctx):
+    g = ctx.friendslop()
+    traces = []
+    for i in (1, 2):
+        tr = ctx.path("F2", "sim%d.trace" % i)
+        run(g, "F2/sim%d" % i, ["sim", "--ticks", 3600, "--players", 4, "--seed", TEST_SEED, "--trace", tr], 300)
+        traces.append(read_trace(tr, 3600))
+    if traces[0] != traces[1]:
+        raise Fail("traces differ at " + first_diff(traces[0], traces[1]))
+    return "two friendslop sim runs, 3600 ticks: identical traces (final %s)" % traces[0][-1].split()[1], {}
+
+
+def f3(ctx):
+    g = ctx.friendslop()
+    name = "F3/session-4c-bad"
+    j, logf = session(g, name, 4, "bad", 3600)
+    cl = need(j, "clients", name)
+    check_clients(cl, 3600, name, [0, 1, 2, 3], need_rollbacks=True)
+    d = total_desyncs(j, cl)
+    if d:
+        raise Fail("%d desyncs" % d)
+    # The relay's log replays to the clients' verified checksums.
+    tr = ctx.path("F3", "replay.trace")
+    run(g, "F3/replay", ["replay", "--log", logf, "--trace", tr], 300)
+    got = trace_map(read_trace(tr))
+    want = checksums_of(cl[0], name)
+    bad = [t for t in want if got.get(t) != want[t]]
+    if bad:
+        raise Fail("replay of the session log differs at tick %d" % bad[0])
+    rb = sum(int(s["rollbacks"] or 0) for s in client_stats(cl).values())
+    return "friendslop session 4 clients x bad, 3600 ticks: 0 desyncs, %d rollbacks; its log replays" % rb, {
+        "clients": client_stats(cl)}
+
+
+def f4(ctx):
+    g = ctx.friendslop()
+    name = "F4/session-latejoin"
+    j, _ = session(g, name, 4, "wan", 2400, ["--late-join", "3@900"])
+    cl = need(j, "clients", name)
+    by, _ = check_clients(cl, 2400, name, [0, 1, 2, 3], joiner=3, join_tick=900)
+    d = total_desyncs(j, cl)
+    if d:
+        raise Fail("%d desyncs" % d)
+    first = min(checksums_of(by[3], name))
+    return "friendslop late join 3@900 under wan (a snapshot with joints): 0 desyncs from tick %d" % first, {}
+
+
+def f5(ctx):
+    g = ctx.friendslop()
+    logf, trf = fs_paths(ctx.testdata)
+    if not logf.exists() or not trf.exists():
+        raise Fail("no reference in %s/friendslop: generate it on macOS ARM64 with `python tools/dev.py check "
+                   "--regen`" % ctx.rel(ctx.testdata))
+    ref = read_trace(trf, FS_REF_TICKS)
+    tr = ctx.path("F5", "replay.trace")
+    run(g, "F5/replay", ["replay", "--log", logf, "--trace", tr], 300)
+    got = read_trace(tr, FS_REF_TICKS)
+    if got != ref:
+        raise Fail("replay of friendslop/ref.log differs from ref.trace at " + first_diff(got, ref))
+    return "replay of testdata/friendslop/ref.log == ref.trace (%d ticks, final %s)" % (
+        len(ref), ref[-1].split()[1]), {}
+
+
+TESTS = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7, "T8": t8, "T9": t9,
+         "F1": f1, "F2": f2, "F3": f3, "F4": f4, "F5": f5}
 # Paced by the 64 Hz relay clock (~15 s of wall time, little CPU): started up front so it overlaps the others.
 # T9 (timing-sensitive) runs after it has finished.
 REALTIME = ["T5"]
@@ -514,6 +615,22 @@ def regen(ctx, force):
     }
     (ctx.testdata / "ref.json").write_text(json.dumps(meta, indent=2) + "\n")
     log("regen: wrote %s/{ref.log, ref.trace, ref-%d.snap, ref.json}" % (ctx.rel(ctx.testdata), REF_SNAP_TICK))
+    # friendslop: a 4-player chaos run (movers, joints, platforms) for the cross-platform replay F5.
+    g = ctx.friendslop()
+    flog, ftr = fs_paths(work)
+    flog.parent.mkdir(parents=True, exist_ok=True)
+    run(g, "regen/friendslop", ["sim", "--ticks", FS_REF_TICKS, "--players", REF_PLAYERS, "--seed", REF_SEED,
+                                "--trace", ftr, "--log", flog], 300)
+    fref = read_trace(ftr, FS_REF_TICKS)
+    tr = ctx.path("regen", "check-friendslop.trace")
+    run(g, "regen/friendslop-replay", ["replay", "--log", flog, "--trace", tr], 300)
+    if read_trace(tr, FS_REF_TICKS) != fref:
+        raise SystemExit("regen: replay of the new friendslop ref.log does not reproduce its trace")
+    dst = ctx.testdata / "friendslop"
+    dst.mkdir(parents=True, exist_ok=True)
+    for src in (flog, ftr):
+        (dst / src.name).write_bytes(src.read_bytes())
+    log("regen: wrote %s/friendslop/{ref.log, ref.trace} (final %s)" % (ctx.rel(ctx.testdata), fref[-1].split()[1]))
 
 
 # --- main -----------------------------------------------------------------------------------------

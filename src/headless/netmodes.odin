@@ -90,7 +90,8 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		seed          = 1,
 		ticks         = ticks,
 		start_players = players,
-		compat        = sim.compat_of(h.game),
+		compat        = sim.compat_of(h.game, h.content),
+		content       = sim.content_hash(h.content),
 		name          = "relay",
 	}
 	r := netcode.relay_create(cfg, I, P)
@@ -127,8 +128,9 @@ mode_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	}
 	link = netcode.netsim_wrap(link, profile_opt(a), u32(player) * 104729 + 17)
 	cfg := netcode.Client_Config {
-		slot = player,
-		name = fmt.tprintf("client%d", player),
+		slot    = player,
+		content = h.content,
+		name    = fmt.tprintf("client%d", player),
 	}
 	user := Script_User(S, I, W, P){h, 1}
 	c := netcode.client_create(h.game, cfg, link, script_hooks(&user))

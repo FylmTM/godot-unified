@@ -255,6 +255,114 @@ BoxHull :: struct {
 	edgeCosines: [12]f32,
 }
 
+JointId :: struct {
+	index1:     i32,
+	world0:     u16,
+	generation: u16,
+}
+
+ContactId :: struct {
+	index1:     i32,
+	world0:     u16,
+	padding:    i16,
+	generation: u32,
+}
+
+Transform :: struct {
+	p: Vec3,
+	q: Quat,
+}
+
+TreeStats :: struct {
+	nodeVisits, leafVisits: c.int,
+}
+
+JointDef :: struct {
+	userData:               rawptr,
+	bodyIdA:                BodyId,
+	bodyIdB:                BodyId,
+	localFrameA:            Transform,
+	localFrameB:            Transform,
+	forceThreshold:         f32,
+	torqueThreshold:        f32,
+	constraintHertz:        f32,
+	constraintDampingRatio: f32,
+	drawScale:              f32,
+	collideConnected:       bool,
+	internalValue:          c.int,
+}
+
+MotorJointDef :: struct {
+	base:                JointDef,
+	linearVelocity:      Vec3,
+	maxVelocityForce:    f32,
+	angularVelocity:     Vec3,
+	maxVelocityTorque:   f32,
+	linearHertz:         f32,
+	linearDampingRatio:  f32,
+	maxSpringForce:      f32,
+	angularHertz:        f32,
+	angularDampingRatio: f32,
+	maxSpringTorque:     f32,
+}
+
+MoverJointDef :: struct {
+	base:           JointDef,
+	linearVelocity: Vec3,
+	maxForce:       f32,
+}
+
+PogoJointDef :: struct {
+	base:                JointDef,
+	normal:              Vec3,
+	hertz:               f32,
+	dampingRatio:        f32,
+	restLength:          f32,
+	maxTensionForce:     f32,
+	maxCompressionForce: f32,
+	impulse:             f32,
+	velocity:            f32,
+}
+
+ContactBeginTouchEvent :: struct {
+	shapeIdA, shapeIdB: ShapeId,
+	contactId:          ContactId,
+}
+
+ContactEndTouchEvent :: ContactBeginTouchEvent
+
+ContactHitEvent :: struct {
+	shapeIdA, shapeIdB: ShapeId,
+	contactId:          ContactId,
+	point:              Pos,
+	normal:             Vec3,
+	approachSpeed:      f32,
+	userMaterialIdA:    u64,
+	userMaterialIdB:    u64,
+}
+
+ContactEvents :: struct {
+	beginEvents: [^]ContactBeginTouchEvent,
+	endEvents:   [^]ContactEndTouchEvent,
+	hitEvents:   [^]ContactHitEvent,
+	beginCount:  c.int,
+	endCount:    c.int,
+	hitCount:    c.int,
+}
+
+// Query callbacks (box3d/types.h). Return -1 to ignore a shape, 0 to stop, the fraction to clip.
+CastResultFcn :: #type proc "c" (
+	shapeId: ShapeId,
+	point: Pos,
+	normal: Vec3,
+	fraction: f32,
+	userMaterialId: u64,
+	triangleIndex: c.int,
+	childIndex: c.int,
+	ctx: rawptr,
+) -> f32
+OverlapResultFcn :: #type proc "c" (shapeId: ShapeId, ctx: rawptr) -> bool
+
 @(default_calling_convention = "c", link_prefix = "b3")
 foreign lib {
 	DefaultWorldDef :: proc() -> WorldDef ---
@@ -266,6 +374,10 @@ foreign lib {
 	DestroyWorld :: proc(worldId: WorldId) ---
 	World_Step :: proc(worldId: WorldId, timeStep: f32, subStepCount: c.int) ---
 	World_CastRayClosest :: proc(worldId: WorldId, origin: Pos, translation: Vec3, filter: QueryFilter) -> RayResult ---
+	World_CastRay :: proc(worldId: WorldId, origin: Pos, translation: Vec3, filter: QueryFilter, fcn: CastResultFcn, ctx: rawptr) -> TreeStats ---
+	World_OverlapAABB :: proc(worldId: WorldId, aabb: AABB, filter: QueryFilter, fcn: OverlapResultFcn, ctx: rawptr) -> TreeStats ---
+	World_GetContactEvents :: proc(worldId: WorldId) -> ContactEvents ---
+	World_GetGravity :: proc(worldId: WorldId) -> Vec3 ---
 
 	CreateBody :: proc(worldId: WorldId, def: ^BodyDef) -> BodyId ---
 	DestroyBody :: proc(bodyId: BodyId) ---
@@ -275,10 +387,43 @@ foreign lib {
 	Body_GetLinearVelocity :: proc(bodyId: BodyId) -> Vec3 ---
 	Body_GetAngularVelocity :: proc(bodyId: BodyId) -> Vec3 ---
 	Body_SetLinearVelocity :: proc(bodyId: BodyId, linearVelocity: Vec3) ---
+	Body_SetAngularVelocity :: proc(bodyId: BodyId, angularVelocity: Vec3) ---
+	Body_IsValid :: proc(bodyId: BodyId) -> bool ---
+	Body_GetType :: proc(bodyId: BodyId) -> BodyType ---
+	Body_SetTransform :: proc(bodyId: BodyId, position: Pos, rotation: Quat) ---
+	Body_GetLocalPoint :: proc(bodyId: BodyId, worldPoint: Pos) -> Vec3 ---
+	Body_GetMass :: proc(bodyId: BodyId) -> f32 ---
+	Shape_GetBody :: proc(shapeId: ShapeId) -> BodyId ---
+	Shape_IsSensor :: proc(shapeId: ShapeId) -> bool ---
+
+	DefaultMotorJointDef :: proc() -> MotorJointDef ---
+	DefaultMoverJointDef :: proc() -> MoverJointDef ---
+	DefaultPogoJointDef :: proc() -> PogoJointDef ---
+	CreateMotorJoint :: proc(worldId: WorldId, def: ^MotorJointDef) -> JointId ---
+	CreateMoverJoint :: proc(worldId: WorldId, def: ^MoverJointDef) -> JointId ---
+	CreatePogoJoint :: proc(worldId: WorldId, def: ^PogoJointDef) -> JointId ---
+	DestroyJoint :: proc(jointId: JointId, wakeAttached: bool) ---
+	Joint_IsValid :: proc(jointId: JointId) -> bool ---
+	Joint_GetBodyA :: proc(jointId: JointId) -> BodyId ---
+	Joint_SetLocalFrameA :: proc(jointId: JointId, localFrame: Transform) ---
+	Joint_SetLocalFrameB :: proc(jointId: JointId, localFrame: Transform) ---
+	MotorJoint_SetMaxSpringForce :: proc(jointId: JointId, maxForce: f32) ---
+	MoverJoint_SetLinearVelocity :: proc(jointId: JointId, velocity: Vec3) ---
+	MoverJoint_SetMaxVelocityForce :: proc(jointId: JointId, maxForce: f32) ---
+	PogoJoint_SetSpringHertz :: proc(jointId: JointId, hertz: f32) ---
+	PogoJoint_SetSpringDampingRatio :: proc(jointId: JointId, dampingRatio: f32) ---
+	PogoJoint_SetMaxTensionForce :: proc(jointId: JointId, force: f32) ---
+	PogoJoint_SetMaxCompressionForce :: proc(jointId: JointId, force: f32) ---
+	PogoJoint_SetNormal :: proc(jointId: JointId, normal: Vec3) ---
+	PogoJoint_GetCurrentSpeed :: proc(jointId: JointId) -> f32 ---
+	PogoJoint_GetImpulse :: proc(jointId: JointId) -> f32 ---
 
 	MakeBoxHull :: proc(hx, hy, hz: f32) -> BoxHull ---
 	MakeCubeHull :: proc(halfWidth: f32) -> BoxHull ---
 	CreateHullShape :: proc(bodyId: BodyId, def: ^ShapeDef, hull: ^HullData) -> ShapeId ---
+	CreateHull :: proc(points: [^]Vec3, pointCount: c.int, maxVertexCount: c.int) -> ^HullData ---
+	CloneAndTransformHull :: proc(original: ^HullData, transform: Transform, scale: Vec3) -> ^HullData ---
+	DestroyHull :: proc(hull: ^HullData) ---
 	CreateSphereShape :: proc(bodyId: BodyId, def: ^ShapeDef, sphere: ^Sphere) -> ShapeId ---
 	CreateCapsuleShape :: proc(bodyId: BodyId, def: ^ShapeDef, capsule: ^Capsule) -> ShapeId ---
 
@@ -365,3 +510,34 @@ World_RestoreStateFromBytes :: proc(worldId: WorldId, cache: ^WorldStateCache, i
 #assert(offset_of(BoxHull, vx) == 456)
 #assert(offset_of(BoxHull, edgeCosines) == 648)
 #assert(size_of(Sphere) == 16 && size_of(Capsule) == 28 && size_of(MotionLocks) == 6)
+#assert(size_of(JointId) == 8 && size_of(ContactId) == 12 && size_of(Transform) == 28 && size_of(TreeStats) == 8)
+#assert(size_of(JointDef) == 112)
+#assert(offset_of(JointDef, bodyIdA) == 8)
+#assert(offset_of(JointDef, localFrameA) == 24)
+#assert(offset_of(JointDef, localFrameB) == 52)
+#assert(offset_of(JointDef, forceThreshold) == 80)
+#assert(offset_of(JointDef, collideConnected) == 100)
+#assert(offset_of(JointDef, internalValue) == 104)
+#assert(size_of(MotorJointDef) == 168)
+#assert(offset_of(MotorJointDef, linearVelocity) == 112)
+#assert(offset_of(MotorJointDef, maxVelocityForce) == 124)
+#assert(offset_of(MotorJointDef, angularVelocity) == 128)
+#assert(offset_of(MotorJointDef, linearHertz) == 144)
+#assert(offset_of(MotorJointDef, maxSpringTorque) == 164)
+#assert(size_of(MoverJointDef) == 128 && offset_of(MoverJointDef, maxForce) == 124)
+#assert(size_of(PogoJointDef) == 152)
+#assert(offset_of(PogoJointDef, normal) == 112)
+#assert(offset_of(PogoJointDef, hertz) == 124)
+#assert(offset_of(PogoJointDef, maxCompressionForce) == 140)
+#assert(offset_of(PogoJointDef, velocity) == 148)
+#assert(size_of(ContactBeginTouchEvent) == 28)
+#assert(size_of(ContactHitEvent) == 72)
+#assert(offset_of(ContactHitEvent, contactId) == 16)
+#assert(offset_of(ContactHitEvent, point) == 28)
+#assert(offset_of(ContactHitEvent, approachSpeed) == 52)
+#assert(offset_of(ContactHitEvent, userMaterialIdA) == 56)
+#assert(offset_of(ContactHitEvent, userMaterialIdB) == 64)
+#assert(size_of(ContactEvents) == 40)
+#assert(offset_of(ContactEvents, hitEvents) == 16)
+#assert(offset_of(ContactEvents, beginCount) == 24)
+#assert(offset_of(ContactEvents, hitCount) == 32)

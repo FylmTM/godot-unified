@@ -26,6 +26,9 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_count:   proc(s: ^S) -> int,
 	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
 	online:        ^Online,
+	// The game's content (its level file, spec/level.md): the default (e.g. embedded with #load);
+	// `--level FILE` on any mode replaces it.
+	content:       []u8,
 }
 
 Trace :: struct {
@@ -73,12 +76,13 @@ run_sim :: proc(
 	res: Run_Result,
 	ok: bool,
 ) {
-	s := sim.create(h.game, seed)
+	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
 	tr: Trace
 	defer strings.builder_destroy(&tr.b)
 	lg := sim.Input_Log(I, P) {
-		seed = seed,
+		seed    = seed,
+		content = s.content_hash,
 	}
 	defer sim.log_destroy(&lg)
 	for t in 1 ..= ticks {
@@ -117,7 +121,7 @@ run_synctest :: proc(
 	final: u64,
 ) {
 	assert(window >= 1 && window < sim.RING)
-	s := sim.create(h.game, seed)
+	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
 	recorded := make([]sim.Inputs(I, P), ticks + 1)
 	forward := make([]u64, ticks + 1)
@@ -158,7 +162,16 @@ run_replay :: proc(h: ^Headless($S, $I, $W, $P), log_path, trace_path: string) -
 		return
 	}
 	defer sim.log_destroy(&lg)
-	s := sim.create(h.game, lg.seed)
+	if lg.content != sim.content_hash(h.content) {
+		fmt.eprintfln(
+			"replay: %s was recorded with another level (content %016x, this run has %016x; see --level)",
+			log_path,
+			lg.content,
+			sim.content_hash(h.content),
+		)
+		return
+	}
+	s := sim.create(h.game, lg.seed, h.content)
 	defer sim.destroy(s)
 	tr: Trace
 	defer strings.builder_destroy(&tr.b)
@@ -183,7 +196,7 @@ run_snapshot :: proc(
 	final: u64,
 	ok: bool,
 ) {
-	s := sim.create(h.game, seed)
+	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
 	for t in 1 ..= ticks {
 		in_ := scripted(h, s, t, players)
@@ -212,7 +225,7 @@ run_resume :: proc(
 		return
 	}
 	defer delete(data)
-	s, serr := sim.from_snapshot(h.game, data)
+	s, serr := sim.from_snapshot(h.game, data, h.content)
 	if serr != .None {
 		fmt.eprintfln("resume: %s is not a valid snapshot for this build: %v", in_path, serr)
 		return
@@ -270,7 +283,7 @@ run_bench :: proc(
 	br: Bench_Result,
 ) {
 	assert(window >= 1 && window < sim.RING)
-	s := sim.create(h.game, seed)
+	s := sim.create(h.game, seed, h.content)
 	defer sim.destroy(s)
 	if h.bench_prepare != nil {
 		h.bench_prepare(&s.state, s.world, enemies)

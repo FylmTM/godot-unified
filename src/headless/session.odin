@@ -128,7 +128,8 @@ session_run :: proc(h: ^Headless($S, $I, $W, $P), cfg: Session_Config) -> (res: 
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = cfg.clients - (cfg.late_player >= 0 ? 1 : 0),
-		compat        = sim.compat_of(h.game),
+		compat        = sim.compat_of(h.game, h.content),
+		content       = sim.content_hash(h.content),
 		name          = "relay",
 		quiet         = cfg.virtual, // test time: wall-clock log lines would only be noise
 	}
@@ -194,6 +195,7 @@ session_client :: proc(ss: ^Session($S, $I, $W, $P), p: int, join: u32) -> ^netc
 	ccfg := netcode.Client_Config {
 		slot      = p,
 		join_tick = join,
+		content   = ss.h.content,
 		name      = fmt.aprintf("client%d", p),
 		quiet     = ss.clock != nil,
 	}
