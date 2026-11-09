@@ -158,6 +158,21 @@ track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(view.yaw_of(p.rot) - 0.5) < 1e-3, "converged: %v", view.yaw_of(p.rot))
 }
 
+// 2D angles (about +Z): round trip across the circle, interpolation through a track, and independence from yaw.
+@(test)
+angle2d_round_trips_and_interpolates :: proc(t: ^testing.T) {
+	for a in ([]f32{0, 0.5, -1, 2, 3, -3}) {
+		testing.expectf(t, abs(view.angle2d_of(view.quat_angle2d(a)) - a) < 1e-5, "angle %v", a)
+		testing.expectf(t, abs(view.yaw_of(view.quat_angle2d(a))) < 1e-5, "angle %v has no yaw", a)
+	}
+	testing.expect(t, abs(view.angle2d_of(view.IDENTITY)) < 1e-6)
+	tr: view.Track
+	view.track_push(&tr, 1, {{}, view.quat_angle2d(0)})
+	view.track_push(&tr, 2, {{}, view.quat_angle2d(1)})
+	p := view.track_sample(&tr, 2, 0.5, 0)
+	testing.expectf(t, abs(view.angle2d_of(p.rot) - 0.5) < 1e-3, "angle %v", view.angle2d_of(p.rot))
+}
+
 @(test)
 track_rollback_drops_newer_predictions :: proc(t: ^testing.T) {
 	tr: view.Track

@@ -163,3 +163,13 @@ quat_yaw :: proc(yaw: f32) -> [4]f32 {
 yaw_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
+
+// Rotation about +Z by `a` radians: a 2D angle (Godot's Node2D.rotation: 0 = +x, positive turns +x toward +y).
+quat_angle2d :: proc(a: f32) -> [4]f32 {
+	return {0, 0, math.sin(a * 0.5), math.cos(a * 0.5)}
+}
+
+// The 2D angle (radians about +Z) of a rotation.
+angle2d_of :: proc(q: [4]f32) -> f32 {
+	return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+}
