@@ -72,7 +72,8 @@ HEADLESS = "games/survivor/simulation/headless"  # the binary build/check use
 BINARY = "survivor"
 # Packages vet type-checks (with everything they import): the headless binary, the tests, the binding test
 # extension and the game's extension.
-VET_PACKAGES = [HEADLESS, "tests", "tests/godot/ext", "games/survivor/simulation/extension"]
+VET_PACKAGES = [HEADLESS, "tests", "tests/godot/ext", "games/survivor/simulation/extension",
+                "games/friendslop/simulation/headless", "games/friendslop/simulation/extension"]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
     python tools/ci.py odinfmt ~/.local/share/unified-odinfmt

@@ -1,0 +1,243 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/levels/markers/item.gd" id="1_item"]
+[ext_resource type="Script" path="res://game/levels/markers/platform.gd" id="2_platform"]
+[ext_resource type="Script" path="res://game/levels/markers/volumes.gd" id="3_volumes"]
+
+[sub_resource type="StandardMaterial3D" id="floor_mat"]
+albedo_color = Color(0.46, 0.62, 0.5, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="wall_mat"]
+albedo_color = Color(0.85, 0.82, 0.74, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="ledge_mat"]
+albedo_color = Color(0.62, 0.66, 0.78, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="floor_shape"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="BoxMesh" id="floor_mesh"]
+material = SubResource("floor_mat")
+size = Vector3(30, 1, 30)
+
+[sub_resource type="BoxShape3D" id="fence_x_shape"]
+size = Vector3(30.8, 1, 0.4)
+
+[sub_resource type="BoxMesh" id="fence_x_mesh"]
+material = SubResource("wall_mat")
+size = Vector3(30.8, 1, 0.4)
+
+[sub_resource type="BoxShape3D" id="fence_z_shape"]
+size = Vector3(0.4, 1, 30)
+
+[sub_resource type="BoxMesh" id="fence_z_mesh"]
+material = SubResource("wall_mat")
+size = Vector3(0.4, 1, 30)
+
+[sub_resource type="BoxShape3D" id="lift_ledge_shape"]
+size = Vector3(4, 3, 4)
+
+[sub_resource type="BoxMesh" id="lift_ledge_mesh"]
+material = SubResource("ledge_mat")
+size = Vector3(4, 3, 4)
+
+[sub_resource type="BoxShape3D" id="pad_ledge_shape"]
+size = Vector3(4, 5, 4)
+
+[sub_resource type="BoxMesh" id="pad_ledge_mesh"]
+material = SubResource("ledge_mat")
+size = Vector3(4, 5, 4)
+
+[sub_resource type="BoxShape3D" id="ramp_shape"]
+size = Vector3(3, 0.3, 5)
+
+[sub_resource type="BoxMesh" id="ramp_mesh"]
+material = SubResource("ledge_mat")
+size = Vector3(3, 0.3, 5)
+
+[sub_resource type="Curve3D" id="lift_path"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3.2, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[sub_resource type="Curve3D" id="ferry_path"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0),
+"tilts": PackedFloat32Array(0, 0)
+}
+point_count = 2
+
+[node name="Hub" type="Node3D"]
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Shape" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("floor_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("floor_mesh")
+
+[node name="FenceN" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -15.2)
+
+[node name="Shape" type="CollisionShape3D" parent="FenceN"]
+shape = SubResource("fence_x_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="FenceN"]
+mesh = SubResource("fence_x_mesh")
+
+[node name="FenceS" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 15.2)
+
+[node name="Shape" type="CollisionShape3D" parent="FenceS"]
+shape = SubResource("fence_x_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="FenceS"]
+mesh = SubResource("fence_x_mesh")
+
+[node name="FenceE" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15.2, 0.5, 0)
+
+[node name="Shape" type="CollisionShape3D" parent="FenceE"]
+shape = SubResource("fence_z_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="FenceE"]
+mesh = SubResource("fence_z_mesh")
+
+[node name="FenceW" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15.2, 0.5, 0)
+
+[node name="Shape" type="CollisionShape3D" parent="FenceW"]
+shape = SubResource("fence_z_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="FenceW"]
+mesh = SubResource("fence_z_mesh")
+
+[node name="LiftLedge" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.5, -10)
+
+[node name="Shape" type="CollisionShape3D" parent="LiftLedge"]
+shape = SubResource("lift_ledge_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="LiftLedge"]
+mesh = SubResource("lift_ledge_mesh")
+
+[node name="PadLedge" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 2.5, -10)
+
+[node name="Shape" type="CollisionShape3D" parent="PadLedge"]
+shape = SubResource("pad_ledge_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="PadLedge"]
+mesh = SubResource("pad_ledge_mesh")
+
+[node name="Ramp" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9659258, 0.25881904, 0, -0.25881904, 0.9659258, -10, 0.5, 6)
+
+[node name="Shape" type="CollisionShape3D" parent="Ramp"]
+shape = SubResource("ramp_shape")
+
+[node name="Mesh" type="MeshInstance3D" parent="Ramp"]
+mesh = SubResource("ramp_mesh")
+
+[node name="Spawn0" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.25, 1.2, 0)
+script = ExtResource("3_volumes")
+unified_kind = "spawn"
+slot = 0
+
+[node name="Spawn1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.75, 1.2, 0)
+script = ExtResource("3_volumes")
+unified_kind = "spawn"
+slot = 1
+
+[node name="Spawn2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.75, 1.2, 0)
+script = ExtResource("3_volumes")
+unified_kind = "spawn"
+slot = 2
+
+[node name="Spawn3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.25, 1.2, 0)
+script = ExtResource("3_volumes")
+unified_kind = "spawn"
+slot = 3
+
+[node name="Crate1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.35, 3)
+script = ExtResource("1_item")
+
+[node name="Crate2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.8, 0.35, 3)
+script = ExtResource("1_item")
+
+[node name="Crate3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.4, 1.05, 3)
+script = ExtResource("1_item")
+
+[node name="Crate4" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 3.35, -10.5)
+script = ExtResource("1_item")
+
+[node name="Ball1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0.3, 3)
+script = ExtResource("1_item")
+kind = "ball"
+
+[node name="Ball2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.3, 4)
+script = ExtResource("1_item")
+kind = "ball"
+
+[node name="Cube" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 5)
+script = ExtResource("1_item")
+kind = "cube"
+
+[node name="Heavy" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, -4)
+script = ExtResource("1_item")
+kind = "heavy"
+
+[node name="Lift" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.6, -0.2, -10)
+script = ExtResource("2_platform")
+size = Vector3(1.25, 0.25, 1.25)
+seconds = 2.5
+wait = 1.0
+
+[node name="Path" type="Path3D" parent="Lift"]
+curve = SubResource("lift_path")
+
+[node name="Ferry" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, -0.2, 10)
+script = ExtResource("2_platform")
+seconds = 3.0
+wait = 0.75
+
+[node name="Path" type="Path3D" parent="Ferry"]
+curve = SubResource("ferry_path")
+
+[node name="Pad" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.5, 0.3, -10)
+script = ExtResource("3_volumes")
+launch = Vector3(-2.6, 14, 0)
+
+[node name="Bumper" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.8, 6)
+script = ExtResource("3_volumes")
+unified_kind = "bumper"
+size = Vector3(0.6, 0.8, 0.6)

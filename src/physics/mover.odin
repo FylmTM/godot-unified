@@ -162,12 +162,13 @@ drop_pogo :: proc(w: ^World, m: ^Mover) {
 }
 
 // An outside impulse lifts the mover (pads, hits, its own jump): the pogo stops pulling it down
-// until it lands again.
-mover_launch :: proc(m: ^Mover) {
+// until it lands again, from this step on (its joint may already be set up for this tick).
+mover_launch :: proc(w: ^World, m: ^Mover) {
 	m.flags -= {.On_Ground, .Walkable}
 	m.flags += {.Jumping}
 	m.jump_ticks = 0
 	m.coyote = 0
+	if joint_valid(w, m.pogo) do b3.PogoJoint_SetMaxTensionForce(joint_id(w, m.pogo), 0)
 }
 
 // Limp: no drive force and no pogo (held, stunned); the body just tumbles along. Leaving limp
@@ -188,7 +189,7 @@ mover_set_limp :: proc(w: ^World, m: ^Mover, limp: bool) {
 		}
 	} else {
 		m.flags -= {.Limp}
-		mover_launch(m)
+		mover_launch(w, m)
 	}
 }
 
@@ -235,7 +236,7 @@ mover_update :: proc(
 		vy := b3.Body_GetLinearVelocity(body).y
 		dv := max(0, def.jump_speed - vy) + surface_vy
 		b3.Body_ApplyLinearImpulseToCenter(body, {0, b3.Body_GetMass(body) * dv, 0}, true)
-		mover_launch(m)
+		mover_launch(w, m)
 		m.jump_buffer = 0
 		jumped = true
 	} else if m.jump_buffer > 0 {

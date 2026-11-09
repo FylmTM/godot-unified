@@ -1,0 +1,22 @@
+; The game's GDExtension: the friendslop sim + unified (godot_host, view, netcode, devui), built from
+; simulation/extension into the hidden artifacts folder (git-ignored). Without it a dev run uses the GDScript mock
+; session; an export without it shows a fatal "game library failed to load" screen.
+[configuration]
+
+entry_symbol = "friendslop_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.uni/bin/libfriendslop.dylib"
+macos.release = "res://.uni/bin/libfriendslop.dylib"
+windows.x86_64 = "res://.uni/bin/friendslop.dll"
+linux.x86_64 = "res://.uni/bin/libfriendslop.so"
+
+; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .uni/bin).
+[dependencies]
+
+macos.debug = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+macos.release = { "res://.uni/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "res://.uni/bin/EOSSDK-Win64-Shipping.dll": "" }

@@ -54,7 +54,7 @@ Mover_Def :: struct {capsule, density, filter, max_speed, accelerate, friction, 
                      coyote_s, jump_buffer_s, platform_material} // constants in game code, not in the block
 mover_create(w, ^Mover, ^Mover_Def, pos)      mover_destroy(w, ^Mover)
 mover_update(w, ^Mover, ^Mover_Def, move: [2]f32, jump_pressed: bool, speed_scale: f32)   // before the step
-mover_launch(^Mover)                // an outside impulse lifts it (pads, hits): no pogo pull-down until it lands
+mover_launch(w, ^Mover)             // an outside impulse lifts it (pads, hits): no pogo pull-down until it lands
 mover_set_limp(w, ^Mover, bool)     // no drive, no pogo (held, stunned)
 mover_teleport(w, ^Mover, pos)      // respawn
 ```

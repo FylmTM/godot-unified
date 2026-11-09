@@ -123,6 +123,25 @@ RULES := []Rule {
 	},
 	// The survivor's GDExtension: host side (views, HUD, input glue), never inside a tick.
 	{pkg = "survivor_extension", dir = "games/survivor/simulation/extension"},
+	// friendslop (spec/friendslop.md): its sim follows the game rules; its headless binary and GDExtension
+	// are like the survivor's.
+	{
+		pkg = "friendslop",
+		dir = "games/friendslop/simulation/friendslop",
+		only_imports = TICK_IMPORTS,
+		ban_idents = SIM_IDENTS,
+		ban_matrix = true,
+		strict = true,
+	},
+	{
+		pkg = "friendslop_headless",
+		dir = "games/friendslop/simulation/headless",
+		ban_imports = MATH,
+		allow_imports = MATH_OK,
+		ban_idents = FLOAT_TRAPS,
+		ban_matrix = true,
+	},
+	{pkg = "friendslop_extension", dir = "games/friendslop/simulation/extension"},
 }
 
 PHYSICS_IMPORTS :: []string {

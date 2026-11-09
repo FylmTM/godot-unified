@@ -8,6 +8,7 @@ package tests
 @(require) import "box3d"
 @(require) import "dmath"
 @(require) import "eos"
+@(require) import "friendslop"
 @(require) import "gdext"
 @(require) import "godot_host"
 @(require) import "headless"

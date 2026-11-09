@@ -72,7 +72,12 @@ Actions :: struct {
 	move:    [2]f32, // x right, y back (Godot: forward is -Z)
 	held:    u32, // buttons held at the sample
 	pressed: u32, // buttons pressed since the previous sample taken by the sim (edges never get lost)
+	// Vectors the game's scripts set with UnifiedSession.set_input_vector(i, v), latest value: what input
+	// depends on the view, e.g. a third-person camera's look direction (move and aim are relative to it).
+	vectors: [INPUT_VECTORS][3]f32,
 }
+
+INPUT_VECTORS :: 4
 
 // What a game provides, typed by its State S, Input I and World W.
 Glue :: struct($S, $I, $W: typeid) {

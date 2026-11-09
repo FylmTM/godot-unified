@@ -4,9 +4,11 @@ extends SceneTree
 ##   godot --headless --path games/<game> -s res://.uni/tools/level_export.gd -- [--check] [--scene=res://...]
 ## Exports every res://game/levels/*.tscn (not subfolders: those hold the parts a level instances) to the
 ## .level file next to it. --check writes nothing and fails when a committed file differs from a fresh export.
+## Level files are scenes, not running: no node is added to the tree and no _ready runs.
 ## Geometry: StaticBody3D + CollisionShape3D children (box, sphere, capsule, convex polygon); the body's
 ## physics_material_override gives friction and bounce, metadata unified_category / unified_material the filter
-## category and user material. Markers: nodes whose script has `const UNIFIED_KIND` (or metadata unified_kind):
+## category and user material. Markers: nodes whose script has `const UNIFIED_KIND` (or a `unified_kind`
+## property, or metadata):
 ## kind, name, global transform, every exported script property, the points of a Path3D child.
 ## Prints one `LEVEL_JSON {...}` line.
 
@@ -68,8 +70,9 @@ func export_scene(path: String) -> PackedByteArray:
 	if ps == null:
 		errors.append("cannot load " + path)
 		return PackedByteArray()
+	# Not added to the tree (it isn't running yet): transforms are composed by _xf, and no _ready runs.
 	var root := ps.instantiate()
-	get_root().add_child(root)
+	_root = root
 	var bodies := []
 	var markers := []
 	_collect(root, bodies, markers)
@@ -78,8 +81,22 @@ func export_scene(path: String) -> PackedByteArray:
 		marker_index[markers[i]] = i
 	var strings := [""]
 	var bytes := _encode(bodies, markers, marker_index, strings)
-	root.queue_free()
+	root.free()
 	return bytes
+
+
+var _root: Node
+
+
+## A node's transform relative to the level's root, composed up the parents (the level root is the origin).
+func _xf(n: Node) -> Transform3D:
+	var t := Transform3D.IDENTITY
+	var c := n
+	while c != null and c != _root:
+		if c is Node3D:
+			t = (c as Node3D).transform * t
+		c = c.get_parent()
+	return t
 
 
 func _collect(n: Node, bodies: Array, markers: Array) -> void:
@@ -97,6 +114,8 @@ func _kind(n: Node) -> String:
 		var consts := s.get_script_constant_map()
 		if consts.has("UNIFIED_KIND"):
 			return str(consts["UNIFIED_KIND"])
+	if "unified_kind" in n:
+		return str(n.get("unified_kind"))
 	if n.has_meta("unified_kind"):
 		return str(n.get_meta("unified_kind"))
 	return ""
@@ -149,7 +168,7 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 		w.put_data(u)
 	w.put_u32(bodies.size())
 	for b: StaticBody3D in bodies:
-		var bt := b.global_transform
+		var bt := _xf(b)
 		var brot := bt.basis.orthonormalized()
 		var frame := Transform3D(brot, bt.origin)  # the body as Box3D sees it: no scale
 		w.put_u32(_intern(strings, b.name))
@@ -166,11 +185,11 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 				shapes.append(c)
 		w.put_u16(shapes.size())
 		for c: CollisionShape3D in shapes:
-			_shape(w, frame.affine_inverse() * c.global_transform, c.shape, b.name + "/" + c.name)
+			_shape(w, frame.affine_inverse() * _xf(c), c.shape, b.name + "/" + c.name)
 	w.put_u32(markers.size())
 	for i in markers.size():
 		var m: Node3D = markers[i]
-		var gt := m.global_transform
+		var gt := _xf(m)
 		w.put_u32(_intern(strings, _kind(m)))
 		w.put_u32(_intern(strings, m.name))
 		_v3(w, gt.origin)
@@ -209,7 +228,7 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 		for c in m.get_children():
 			if c is Path3D and c.curve != null:
 				for k in c.curve.point_count:
-					pts.append(c.global_transform * c.curve.get_point_position(k))
+					pts.append(_xf(c) * c.curve.get_point_position(k))
 				break
 		w.put_u16(pts.size())
 		for p in pts:
