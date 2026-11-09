@@ -2,10 +2,12 @@
 """The end-to-end tests T1-T9 of spec/CORE.md §4, run against the CLI binary.
 
     python tools/dev.py check [options]       # builds first (release), then runs this
-    python tools/check.py [--mode release|dev|debug] [--only T1,T3] [--regen [--force]]
+    python tools/check.py [--mode release|dev|debug] [--arch x86_64] [--only T1,T3] [--regen [--force]]
                           [--jobs N] [--timeout-scale X]
 
-Drives out/<mode>/survivor[.exe] (the survivor's headless binary) through the CLI of spec/CORE.md §3 (it does not build it). Prints
+Drives out/<mode>/survivor[.exe] (the survivor's headless binary; out/<mode>-x64/ with --arch x86_64, the Rosetta
+build) through the CLI of spec/CORE.md §3 (it does not build it). The platform it reports is the binary's own
+architecture, not the host's. Prints
 one PASS/FAIL line per test with its wall time, writes out/check.json (summary) and out/check/
 (each command's line, stdout/stderr, traces, logs, T9/bench.json), and exits 0 only if every
 selected test passed. Exit codes: 0 all passed, 1 a test failed, 2 usage error or no binary.
@@ -58,9 +60,9 @@ class Fail(Exception):
 # --- process helpers ------------------------------------------------------------------------------
 
 class Ctx:
-    def __init__(self, mode, outdir, scale, jobs):
+    def __init__(self, mode, arch, outdir, scale, jobs):
         self.mode, self.out, self.scale, self.jobs = mode, outdir, scale, jobs
-        self.binary = binary_path(mode)
+        self.binary = binary_path(mode, arch)
         self.testdata = REPO / "testdata"
         self.cache = {}  # results shared between tests (T3 -> T4)
 
@@ -464,10 +466,10 @@ REALTIME = ["T3", "T5", "T6"]
 # --- regen ----------------------------------------------------------------------------------------
 
 def regen(ctx, force):
-    tag = common.platform_tag()
+    tag = binary_platform(ctx.binary)
     if tag != "macos-arm64" and not force:
-        raise SystemExit("check: --regen only runs on macOS ARM64 (this is %s); the references are defined "
-                         "as macOS ARM64 output. Pass --force to override." % tag)
+        raise SystemExit("check: --regen only runs a macOS ARM64 binary (this one is %s); the references are "
+                         "defined as macOS ARM64 output. Pass --force to override." % tag)
     work = ctx.path("regen", "x").parent
     logf, trf, snap = ref_paths(work)
     log("regen: sim %d ticks, %d players, seed %d -> ref.trace + ref.log" % (REF_TICKS, REF_PLAYERS, REF_SEED))
@@ -522,14 +524,31 @@ def git_commit():
 BINARY = "survivor"  # the survivor's headless binary (games/survivor/simulation/headless)
 
 
-def binary_path(mode):
-    return REPO / "out" / mode / (BINARY + EXE)
+def out_dir(mode, arch=None):
+    """out/<mode>/ for the host build; out/<mode>-x64/ for a macOS --arch x86_64 (Rosetta) build, so it never
+    overwrites the native binary. Shared with dev.py build."""
+    return REPO / "out" / (mode + ("-" + common.norm_arch(arch) if arch else ""))
 
 
-def main(argv=None):
+def binary_path(mode, arch=None):
+    return out_dir(mode, arch) / (BINARY + EXE)
+
+
+def binary_platform(path):
+    """The binary's platform tag from the file itself (macOS: lipo), not from the host: a Rosetta x86_64 build
+    run on an ARM64 Mac is macos-x64."""
+    if common.IS_MACOS:
+        archs = subprocess.run(["lipo", "-archs", str(path)], capture_output=True, text=True).stdout.split()
+        if len(archs) == 1:
+            return common.platform_tag(archs[0])
+    return common.platform_tag()
+
+
+def parser():
     ap = argparse.ArgumentParser(prog="check.py", description="Run the spec/CORE.md §4 tests (T1-T9).")
     ap.add_argument("--mode", default="release", choices=["release", "dev", "debug"],
                     help="which build to test: out/<mode>/survivor (default release)")
+    ap.add_argument("--arch", choices=["x86_64"], help="macOS: test the Rosetta build in out/<mode>-x64/")
     ap.add_argument("--only", help="comma-separated subset, e.g. T1,T3")
     ap.add_argument("--regen", action="store_true", help="regenerate testdata/ (macOS ARM64 only) first")
     ap.add_argument("--force", action="store_true", help="allow --regen on a platform other than macOS ARM64")
@@ -540,6 +559,11 @@ def main(argv=None):
                     help="run the real-time tests T3, T5, T6 one after another instead of overlapped")
     ap.add_argument("--timeout-scale", type=float, default=None,
                     help="multiply every timeout (default 1, 2 for dev, 8 for debug builds)")
+    return ap
+
+
+def main(argv=None):
+    ap = parser()
     args = ap.parse_args(argv)
 
     only = ALL_TESTS
@@ -556,13 +580,13 @@ def main(argv=None):
         import shutil
         shutil.rmtree(outdir)
     outdir.mkdir(parents=True)
-    ctx = Ctx(args.mode, outdir, scale, max(1, args.jobs))
+    ctx = Ctx(args.mode, args.arch, outdir, scale, max(1, args.jobs))
     if not ctx.binary.exists():
-        log("check: %s not found: build it first (`python tools/dev.py build %s`), or run `python tools/dev.py "
-            "check`, which builds" % (ctx.rel(ctx.binary), args.mode))
+        log("check: %s not found: build it first (`python tools/dev.py build %s%s`), or run `python tools/dev.py "
+            "check`, which builds" % (ctx.rel(ctx.binary), args.mode, " --arch x86_64" if args.arch else ""))
         return 2
     summary = {
-        "platform": common.platform_tag(), "mode": args.mode,
+        "platform": binary_platform(ctx.binary), "mode": args.mode,
         "git_commit": git_commit(), "python": sys.version.split()[0],
         "started": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "ok": False, "tests": {},

@@ -4,8 +4,9 @@
     python tools/eos.py                 # ensure third_party/eos/ exists (local SDK or the release)
     python tools/eos.py pack            # zip the pruned SDK -> out/eos-sdk-<version>.zip (for the release)
     python tools/eos.py upload          # pack, then upload it to the draft GitHub release eos-sdk-<version>
-    python tools/eos.py defines         # print the -define flags for the EOS_* environment variables
-                                        # (build scripts: eos.defines(), and eos.redacted(cmd) to log)
+    python tools/eos.py defines [--raw] # the -define flags for the EOS_* environment variables, values
+                                        # redacted (--raw: the real values, e.g. to paste into a build line;
+                                        # build scripts call eos.defines() and log with common.redact())
     python tools/eos.py --json          # ensure, then print {"root", "version", "lib"} as one JSON line
 
 Only the pruned SDK is kept: SDK/Include/*, the shipping libraries for macOS (universal dylib),
@@ -15,7 +16,8 @@ Windows x64 (dll + import lib) and Linux x64 (so), and a VERSION file. Sources, 
      ~/tools/eos-sdk, or ~/tools/EOS-SDK-*-v<version>,
   3. the asset eos-sdk-<version>.zip of the draft release eos-sdk-<version> of FylmTM/unified, through
      the GitHub API with resumable download (token: $GH_TOKEN / $GITHUB_TOKEN, else `gh auth token`;
-     a draft is visible to tokens with push access, so CI jobs need `contents: write`).
+     a draft is visible only to tokens with push access: CI fetches it in one small job, see ci.yml),
+     checked against ASSET_SHA256 (after `upload`, pin the hash `pack` prints).
 """
 
 import argparse
@@ -37,6 +39,7 @@ VERSION = "1.19.2.1"
 REPO_SLUG = "FylmTM/unified"
 RELEASE = "eos-sdk-" + VERSION
 ASSET = RELEASE + ".zip"
+ASSET_SHA256 = "ad5a7799d07aaf13611c7dc0cebe79871d6f6473507411ee8dce112b236a1c37"
 ROOT = REPO / "third_party" / "eos"
 SDK_FILES = [
     "SDK/Bin/libEOSSDK-Mac-Shipping.dylib",
@@ -164,6 +167,7 @@ def fetch_release():
     _, size = asset_url(token)
     log("eos: downloading %s (%.1f MB) from draft release %s" % (ASSET, size / 1e6, RELEASE))
     download(lambda: asset_url(token)[0], size, tmp / ASSET)
+    common.check_sha256(tmp / ASSET, ASSET_SHA256)
     if ROOT.exists():
         shutil.rmtree(ROOT)
     with zipfile.ZipFile(tmp / ASSET) as z:
@@ -206,7 +210,8 @@ def pack():
         for p in sorted((ROOT / "SDK").rglob("*")):
             if p.is_file():
                 z.write(p, p.relative_to(ROOT).as_posix())
-    log("eos: packed %s (%.1f MB)" % (out, out.stat().st_size / 1e6))
+    log("eos: packed %s (%.1f MB, sha256 %s: pin it as ASSET_SHA256 when you upload it)"
+        % (out, out.stat().st_size / 1e6, common.sha256_file(out)))
     return out
 
 
@@ -239,30 +244,19 @@ def defines():
     return flags
 
 
-def redacted(cmd):
-    """`cmd` for logging: the values of EOS -define flags replaced (the client secret ships in builds
-    but never goes into logs)."""
-    out = []
-    for a in cmd:
-        a = str(a)
-        for k in ENV_DEFINES:
-            if a.startswith("-define:%s=" % k):
-                a = "-define:%s=***" % k
-        out.append(a)
-    return out
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", nargs="?", default="ensure", choices=["ensure", "pack", "upload", "defines"])
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--raw", action="store_true", help="defines: print the real values (the client secret too)")
     a = ap.parse_args()
     if a.cmd == "pack":
         pack()
     elif a.cmd == "upload":
         upload()
     elif a.cmd == "defines":
-        print(" ".join(defines()))
+        flags = defines()
+        print(" ".join(flags if a.raw else common.redact(flags)))
     else:
         root = ensure()
         if a.json:

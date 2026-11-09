@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 """Build, test, format and vet unified: the one entry point (Python 3.9+, stdlib only, any OS).
 
-    python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/survivor[.exe]
+    python tools/dev.py build [dev|release|debug] [--arch x86_64]   # -> out/<mode>/survivor[.exe] (x86_64: out/<mode>-x64/)
     python tools/dev.py test                    # odin test: unit tests + determinism lint
-    python tools/dev.py check [check.py opts]   # release build, then T1-T9 (tools/check.py)
+    python tools/dev.py check [--arch x86_64] [check.py opts]   # release build, then T1-T9 (tools/check.py)
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
     python tools/dev.py vet                     # odin check with the strict flags, every target
-    python tools/dev.py all                     # fmt --check, vet, test, check (what CI runs)
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
     python tools/dev.py godot-test              # binding tests: tests/godot under headless Godot
+    python tools/dev.py godot-checks            # godot-test, then per game: headless, session-check, editor-check,
+                                                # validate, walk (CI's godot job runs exactly this)
+    python tools/dev.py all                     # fmt --check, vet, test, check, godot-checks (everything CI runs)
     python tools/dev.py game build <game> [dev|release] [--arch x86_64]   # games/<game>/.uni/bin/lib<game>.*
     python tools/dev.py game run <game> [-- args]       # windowed game (args after -- go to the game)
     python tools/dev.py game editor <game>              # the Godot editor on the game
-    python tools/dev.py game headless <game> [--ticks N] # headless session, sim hash vs the offline binary
+    python tools/dev.py game headless <game> [--ticks N] [--seed S] [--release] [--no-build]
+                                                        # headless session, sim hash vs the offline binary
     python tools/dev.py game editor-check <game>        # headless editor: extension loads, no ERROR lines
     python tools/dev.py game session-check <game>       # headless: leave then host/join at once (~3 s)
-    python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release]   # windowed bot play check
-    python tools/dev.py game validate|walk|shots|tour|coop|import [--game survivor]   # Godot project checks (tools/game.py)
+    python tools/dev.py game play <game> [--minutes M] [--bench N] [--coop] [--release] [--no-build]
+                                                        # windowed bot play check
+    python tools/dev.py game validate|walk|shots|tour|coop|import <game> ...   # Godot project checks (tools/game.py)
+
+<game> is a name under games/ or a project path. Every command rejects arguments it doesn't know; `-h` on any
+command prints its options.
 
 Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds checks on):
   dev      -o:speed -use-separate-modules -debug   the everyday build: optimized, ~1 s to build
@@ -26,11 +33,12 @@ Build modes (all with -vet -strict-style -vet-tabs -warnings-as-errors, bounds c
 Box3D comes from tools/box3d.py (built on first use, then a ~10 ms check). The bindings import the
 static library by relative path, so plain `odin build games/survivor/simulation/headless
 -collection:unified=src` / `odin test tests -all-packages -collection:unified=src` work too once it
-is built; this script only adds the flags and timings. The binary built is the survivor test game's
+is built (add -out: or the binary lands in the current folder); this script adds the flags and timings. The binary built is the survivor test game's
 headless binary (the CLI modes of spec/CORE.md §3 come from unified:headless).
 --arch x86_64 (macOS only) builds for darwin_amd64 against the macos-x64 Box3D, for Rosetta checks.
 """
 
+import argparse
 import concurrent.futures
 import filecmp
 import json
@@ -45,7 +53,7 @@ from pathlib import Path
 import box3d
 import common
 import imgui
-from common import REPO, EXE, log
+from common import REPO, EXE, log, redact
 
 VET = ["-vet", "-strict-style", "-vet-tabs", "-warnings-as-errors"]
 COLLECTION = "-collection:unified=" + (REPO / "src").as_posix()
@@ -77,11 +85,6 @@ def odin():
     return exe
 
 
-def redact(args):
-    """Command-line args for logging: values of -define:EOS_* (credentials) replaced."""
-    return [a.split("=", 1)[0] + "=***" if str(a).startswith("-define:EOS_") else str(a) for a in args]
-
-
 def run_odin(args, what):
     cmd = [odin()] + args
     log("+ " + " ".join(redact(cmd)))
@@ -93,16 +96,19 @@ def run_odin(args, what):
     return secs
 
 
+def arch_target(arch):
+    if not arch:
+        return []
+    if not common.IS_MACOS or common.norm_arch(arch) != "x64":
+        raise SystemExit("dev: --arch is only for macOS x86_64 (Rosetta) builds")
+    return ["-target:darwin_amd64"]
+
+
 def cmd_build(mode="dev", arch=None):
-    if mode not in MODES:
-        raise SystemExit("dev: build mode must be dev, release or debug")
-    target = []
-    if arch:
-        if not common.IS_MACOS or common.norm_arch(arch) != "x64":
-            raise SystemExit("dev: --arch is only for macOS x86_64 (Rosetta) builds")
-        target = ["-target:darwin_amd64"]
+    import check
+    target = arch_target(arch)
     box3d.ensure(arch)
-    out = REPO / "out" / mode
+    out = check.out_dir(mode, arch)
     out.mkdir(parents=True, exist_ok=True)
     exe = out / (BINARY + EXE)
     secs = run_odin(["build", HEADLESS, COLLECTION, "-out:" + exe.as_posix()] + MODES[mode] + VET + target,
@@ -151,29 +157,6 @@ def build_extension(pkg, out, mode="dev", extra=()):
                     + list(extra), "build " + pkg)
 
 
-def ensure_extension_list(project, gdextension):
-    """Godot loads the extensions listed in .godot/extension_list.cfg, which the editor writes on its first scan.
-    Writing it here lets a fresh checkout run (and run headless) without opening the editor once."""
-    p = project / ".godot" / "extension_list.cfg"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    want = gdextension + "\n"
-    if not p.exists() or p.read_text() != want:
-        p.write_text(want)
-
-
-def run_godot(args, timeout, cwd=None):
-    """Runs Godot with a timeout (a headless Godot whose extension fails to load never exits)."""
-    cmd = [common.find_godot()] + [str(a) for a in args]
-    log("+ " + " ".join(cmd))
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-        sys.stdout.write(out)
-        raise SystemExit("dev: Godot timed out after %ds (did the extension load?)" % timeout)
-    return r
-
-
 def godot_errors(text):
     return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
 
@@ -183,8 +166,8 @@ def cmd_godot_test():
     proj = REPO / "tests" / "godot"
     imgui.ensure()
     build_extension("tests/godot/ext", proj / ".uni" / "bin" / common.lib_name("gdext_test"))
-    ensure_extension_list(proj, "res://gdext_test.gdextension")
-    r = run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)
+    common.write_extension_list(proj)
+    r = common.run_godot(["--headless", "--path", proj, "-s", "res://test.gd"], timeout=30)
     out = r.stdout + r.stderr
     sys.stdout.write(r.stdout)
     errs = godot_errors(out)
@@ -202,34 +185,20 @@ def rel(p):
         return str(p)
 
 
-def game_dir(name):
-    """A game by name (games/<name>) or by path."""
-    p = Path(name)
-    if not p.is_absolute():
-        p = (REPO / name) if (REPO / name / "project.godot").exists() or "/" in name else (REPO / "games" / name)
-    if not (p / "simulation" / "extension").is_dir():
-        raise SystemExit("dev: %s has no simulation/extension" % p)
-    return p.resolve()
-
-
 def cmd_game_build(gdir, mode="dev", arch=None):
     """Builds the game's GDExtension into <game>/.uni/bin/. macOS dev builds get a new versioned file each time
     and lib<game>.dylib becomes a symlink to it: dyld never unloads an image with thread-locals (Odin's runtime
     has some), so reloading the same path in the editor would keep the old code."""
     t0 = time.time()
-    if mode not in MODES:
-        raise SystemExit("dev: build mode must be dev, release or debug")
+    if not (gdir / "simulation" / "extension").is_dir():
+        raise SystemExit("dev: %s has no simulation/extension to build" % rel(gdir))
     name = gdir.name
+    target = arch_target(arch)
     box3d.ensure(arch)
     imgui.ensure(arch)
     cmd_gen()
     out = gdir / ".uni" / "bin" / common.lib_name(name)
     out.parent.mkdir(parents=True, exist_ok=True)
-    target = []
-    if arch:
-        if not common.IS_MACOS or common.norm_arch(arch) != "x64":
-            raise SystemExit("dev: --arch is only for macOS x86_64 (Rosetta) builds")
-        target = ["-target:darwin_amd64"]
     versioned = common.IS_MACOS and mode != "release"
     if versioned:
         stamp = time.strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000)
@@ -260,7 +229,7 @@ def cmd_game_build(gdir, mode="dev", arch=None):
                 t = Path(str(tmp)[:-4] + ext)
                 if t.exists():
                     os.replace(str(t), str(out.with_suffix(ext)))
-    ensure_extension_list(gdir, "res://game/%s.gdextension" % name)
+    common.write_extension_list(gdir)
     log("dev: game build %s %s -> %s in %.2fs (odin %.2fs)" % (name, mode, rel(out), time.time() - t0, secs))
     return out
 
@@ -268,18 +237,6 @@ def cmd_game_build(gdir, mode="dev", arch=None):
 def extension_uses_eos(gdir):
     return any('"unified:eos"' in p.read_text(errors="replace")
                for p in (gdir / "simulation" / "extension").glob("*.odin"))
-
-
-def ensure_imported(gdir):
-    """A fresh checkout has no Godot import cache: import once (warm: skipped), so the timed run doesn't."""
-    if (gdir / ".godot" / "imported").is_dir():
-        return
-    t0 = time.time()
-    r = run_godot(["--headless", "--path", gdir, "--import"], timeout=300)
-    if r.returncode != 0:
-        sys.stdout.write((r.stdout + r.stderr)[-3000:])
-        raise SystemExit("dev: Godot import failed")
-    log("dev: imported %s in %.1fs" % (rel(gdir), time.time() - t0))
 
 
 def stage_eos(bin_dir):
@@ -315,18 +272,16 @@ def last_json_after(text, prefix):
     return None
 
 
-def cmd_game_headless(gdir, argv):
+def cmd_game_headless(gdir, ticks=256, seed=1, release=False, build=True):
     """A headless Godot session (single player, scripted input) for N ticks; the result must be clean and its
     checksums must equal the offline headless binary's for the same seed and inputs."""
-    ticks = int(argv[argv.index("--ticks") + 1]) if "--ticks" in argv else 256
-    seed = argv[argv.index("--seed") + 1] if "--seed" in argv else "1"
     if ticks % 16:
         raise SystemExit("dev: --ticks must be a multiple of 16 (clients checksum every 16th verified tick)")
-    if "--no-build" not in argv:
-        cmd_game_build(gdir, "release" if "--release" in argv else "dev")
-    ensure_imported(gdir)
+    if build:
+        cmd_game_build(gdir, "release" if release else "dev")
+    common.ensure_imported(gdir)
     t0 = time.time()
-    r = run_godot(["--headless", "--path", gdir, "--", "--autostart", "--scripted", "--quit-at-end",
+    r = common.run_godot(["--headless", "--path", gdir, "--", "--autostart", "--scripted", "--quit-at-end",
                    "--ticks", ticks, "--seed", seed], timeout=ticks / 64 + 30)
     wall = time.time() - t0
     out = r.stdout + r.stderr
@@ -385,19 +340,18 @@ def offline_checksums(gdir, ticks, seed):
     return None
 
 
-def cmd_game_play(gdir, argv):
+def cmd_game_play(gdir, minutes=3.0, bench=None, coop=False, release=False, build=True):
     """The real-play check (game/tools/play_check.gd): a bot plays single player (or --bench N / --coop) in a window
     with the real extension; screenshots go to <game>/.uni/shots/. Needs a display (not CI)."""
-    minutes = float(argv[argv.index("--minutes") + 1]) if "--minutes" in argv else 3.0
-    if "--no-build" not in argv:
-        cmd_game_build(gdir, "release" if "--release" in argv else "dev")
-    ensure_imported(gdir)
+    if build:
+        cmd_game_build(gdir, "release" if release else "dev")
+    common.ensure_imported(gdir)
     extra = ["--minutes", str(minutes), "--shots=res://.uni/shots"]
-    if "--bench" in argv:
-        extra += ["--bench", argv[argv.index("--bench") + 1]]
-    if "--coop" in argv:
+    if bench is not None:
+        extra += ["--bench", str(bench)]
+    if coop:
         extra.append("--coop")
-    r = run_godot(["--path", gdir, "--resolution", "1280x720", "-s", "res://game/tools/play_check.gd", "--"] + extra,
+    r = common.run_godot(["--path", gdir, "--resolution", "1280x720", "-s", "res://game/tools/play_check.gd", "--"] + extra,
                   timeout=minutes * 60 + 360)
     for line in r.stdout.splitlines():
         if line.startswith("  ok") or line.startswith("  FAIL"):
@@ -415,9 +369,9 @@ def cmd_game_session_check(gdir):
     """Session lifecycle under headless Godot (game/tools/session_check.gd): Leave, then Host or Join at once."""
     if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
-    ensure_imported(gdir)
+    common.ensure_imported(gdir)
     t0 = time.time()
-    r = run_godot(["--headless", "--path", gdir, "-s", "res://game/tools/session_check.gd"], timeout=60)
+    r = common.run_godot(["--headless", "--path", gdir, "-s", "res://game/tools/session_check.gd"], timeout=60)
     for line in r.stdout.splitlines():
         if line.startswith("  FAIL"):
             log(line)
@@ -434,9 +388,9 @@ def cmd_game_session_check(gdir):
 def cmd_game_editor_check(gdir):
     if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
         cmd_game_build(gdir)
-    ensure_extension_list(gdir, "res://game/%s.gdextension" % gdir.name)
+    common.write_extension_list(gdir)
     t0 = time.time()
-    r = run_godot(["--headless", "--editor", "--path", gdir, "--quit-after", "60"], timeout=120)
+    r = common.run_godot(["--headless", "--editor", "--path", gdir, "--quit-after", "60"], timeout=120)
     out = r.stdout + r.stderr
     errs = godot_errors(out)
     loaded = "unified: extension initialized (editor)" in out
@@ -446,39 +400,89 @@ def cmd_game_editor_check(gdir):
         raise SystemExit("dev: editor-check failed")
 
 
-GAME_PY_COMMANDS = ("validate", "walk", "shots", "tour", "coop", "import")  # tools/game.py (the game client's project checks)
+Strict = common.Strict
+DEV_GAME_COMMANDS = ("build", "run", "editor", "headless", "editor-check", "session-check", "play")
+
+
+def game_parser():
+    ap = Strict(prog="dev.py game", description="Build, run and check a game (games/<game>)")
+    sub = ap.add_subparsers(dest="cmd", required=True, metavar="|".join(DEV_GAME_COMMANDS) + "|<tools/game.py>",
+                            parser_class=Strict)
+    p = sub.add_parser("build", help="the game's GDExtension into <game>/.uni/bin/")
+    p.add_argument("game")
+    p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
+    p.add_argument("--arch", choices=["x86_64"], help="macOS: an x86_64 build, for Rosetta checks")
+    for name, helptext in (("run", "the game in a window (arguments after -- go to the game)"),
+                           ("editor", "the Godot editor on the game")):
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument("game")
+        if name == "run":
+            p.add_argument("args", nargs="*", help="after --: the game's own arguments")
+    p = sub.add_parser("headless", help="headless session; its checksums must match the offline binary's")
+    p.add_argument("game")
+    p.add_argument("--ticks", type=int, default=256)
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--release", action="store_true", help="build the extension in release mode")
+    p.add_argument("--no-build", action="store_true", help="use the library already built")
+    for name, helptext in (("editor-check", "headless editor: the extension loads, no ERROR lines"),
+                           ("session-check", "headless: leave, then host/join at once")):
+        sub.add_parser(name, help=helptext).add_argument("game")
+    p = sub.add_parser("play", help="windowed bot play check with screenshots (needs a display)")
+    p.add_argument("game")
+    p.add_argument("--minutes", type=float, default=3.0)
+    p.add_argument("--bench", type=int, help="N bot players, for a frame-time bench")
+    p.add_argument("--coop", action="store_true")
+    p.add_argument("--release", action="store_true", help="build the extension in release mode")
+    p.add_argument("--no-build", action="store_true", help="use the library already built")
+    return ap
 
 
 def cmd_game(argv):
-    if argv and argv[0] in GAME_PY_COMMANDS and (REPO / "tools" / "game.py").exists():
-        import game
-        return game.cmd_game(argv) or 0
-    if len(argv) < 2:
-        raise SystemExit("usage: dev.py game build|run|editor|headless|editor-check|session-check|play <game> ...")
-    sub, gdir, rest = argv[0], game_dir(argv[1]), argv[2:]
-    if sub == "build":
-        mode = rest[0] if rest and not rest[0].startswith("-") else "dev"
-        arch = rest[rest.index("--arch") + 1] if "--arch" in rest else None
-        cmd_game_build(gdir, mode, arch)
-    elif sub in ("run", "editor"):
+    import game
+    if argv and argv[0] in game.COMMANDS:
+        return game.main(argv)
+    a = game_parser().parse_args(argv)
+    gdir = common.game_dir(a.game)
+    if a.cmd == "build":
+        cmd_game_build(gdir, a.mode, a.arch)
+    elif a.cmd in ("run", "editor"):
         if not (gdir / ".uni" / "bin" / common.lib_name(gdir.name)).exists():
             cmd_game_build(gdir)
-        ensure_extension_list(gdir, "res://game/%s.gdextension" % gdir.name)
-        extra = rest[rest.index("--") + 1:] if "--" in rest else rest
-        cmd = [common.find_godot(), "--path", str(gdir)] + (["--editor"] if sub == "editor" else []) + \
-              (["--"] + extra if extra and sub == "run" else [])
+        common.write_extension_list(gdir)
+        cmd = [common.find_godot(), "--path", str(gdir)] + (["--editor"] if a.cmd == "editor" else []) + \
+              (["--"] + a.args if a.cmd == "run" and a.args else [])
         return subprocess.call(cmd)
-    elif sub == "headless":
-        cmd_game_headless(gdir, rest)
-    elif sub == "play":
-        cmd_game_play(gdir, rest)
-    elif sub == "editor-check":
+    elif a.cmd == "headless":
+        cmd_game_headless(gdir, a.ticks, a.seed, a.release, not a.no_build)
+    elif a.cmd == "play":
+        cmd_game_play(gdir, a.minutes, a.bench, a.coop, a.release, not a.no_build)
+    elif a.cmd == "editor-check":
         cmd_game_editor_check(gdir)
-    elif sub == "session-check":
+    elif a.cmd == "session-check":
         cmd_game_session_check(gdir)
-    else:
-        raise SystemExit("dev: unknown game command %s" % sub)
     return 0
+
+
+def games():
+    """Every game: games/*/ with a project.godot."""
+    return sorted(p.parent for p in (REPO / "games").glob("*/project.godot"))
+
+
+def cmd_godot_checks():
+    """Everything CI's godot job runs (headless Godot): the binding tests, then for every game with an extension
+    a headless session against the offline binary, the session and editor checks, and the GDScript checks
+    (validate, walk) when the game has those tool scripts."""
+    import game
+    cmd_godot_test()
+    for gdir in games():
+        if (gdir / "simulation" / "extension").is_dir():
+            cmd_game_headless(gdir)
+            if (gdir / "game" / "tools" / "session_check.gd").exists():
+                cmd_game_session_check(gdir)
+            cmd_game_editor_check(gdir)
+        for name, script in (("validate", "validate.gd"), ("walk", "ui_walk.gd")):
+            if (gdir / "game" / "tools" / script).exists() and game.main([name, str(gdir)]) != 0:
+                raise SystemExit("dev: game %s %s failed" % (name, gdir.name))
 
 
 def cmd_test():
@@ -556,14 +560,29 @@ def cmd_fmt(check=False):
 
 
 def cmd_check(argv):
+    """Builds the binary check.py tests (its --mode, default release, and --arch), then runs it."""
     import check
-    mode = "release"
-    if "--mode" in argv:
-        mode = argv[argv.index("--mode") + 1]
-    cmd_build(mode)
+    a = check.parser().parse_args(argv)
+    cmd_build(a.mode, a.arch)
     rc = check.main(argv)
     if rc != 0:
         raise SystemExit(rc)
+
+
+def parser():
+    ap = Strict(prog="dev.py", add_help=False)
+    sub = ap.add_subparsers(dest="cmd", parser_class=Strict)
+    p = sub.add_parser("build")
+    p.add_argument("mode", nargs="?", default="dev", choices=list(MODES))
+    p.add_argument("--arch", choices=["x86_64"], help="macOS: an x86_64 build in out/<mode>-x64/, for Rosetta")
+    for name in ("test", "vet", "godot-test", "godot-checks"):
+        sub.add_parser(name)
+    sub.add_parser("gen").add_argument("--force", action="store_true")
+    sub.add_parser("fmt").add_argument("--check", action="store_true")
+    for name in ("check", "all"):  # options go to tools/check.py, which validates them
+        sub.add_parser(name, add_help=False, prefix_chars="\0").add_argument("opts", nargs="*")
+    sub.add_parser("game", add_help=False, prefix_chars="\0").add_argument("argv", nargs="*")
+    return ap
 
 
 def main():
@@ -571,36 +590,34 @@ def main():
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
         return 0 if argv else 2
-    cmd, rest = argv[0], argv[1:]
+    a = parser().parse_args(argv)
     t0 = time.time()
-    if cmd == "build":
-        mode = rest[0] if rest and not rest[0].startswith("-") else "dev"
-        arch = rest[rest.index("--arch") + 1] if "--arch" in rest else None
-        cmd_build(mode, arch)
-    elif cmd == "test":
+    if a.cmd == "build":
+        cmd_build(a.mode, a.arch)
+    elif a.cmd == "test":
         cmd_test()
-    elif cmd == "gen":
-        cmd_gen(force="--force" in rest)
-    elif cmd == "godot-test":
+    elif a.cmd == "gen":
+        cmd_gen(force=a.force)
+    elif a.cmd == "godot-test":
         cmd_godot_test()
-    elif cmd == "game":
-        rc = cmd_game(rest)
+    elif a.cmd == "godot-checks":
+        cmd_godot_checks()
+    elif a.cmd == "game":
+        rc = cmd_game(a.argv)
         if rc:
             return rc
-    elif cmd == "check":
-        cmd_check(rest)
-    elif cmd == "fmt":
-        cmd_fmt(check="--check" in rest)
-    elif cmd == "vet":
+    elif a.cmd == "check":
+        cmd_check(a.opts)
+    elif a.cmd == "fmt":
+        cmd_fmt(check=a.check)
+    elif a.cmd == "vet":
         cmd_vet()
-    elif cmd == "all":
+    elif a.cmd == "all":
         cmd_fmt(check=True)
         cmd_vet()
         cmd_test()
-        cmd_check(rest)
-    else:
-        print(__doc__)
-        return 2
+        cmd_check(a.opts)
+        cmd_godot_checks()
     secs = time.time() - t0
     log("dev: %s done in %.1fs" % (" ".join(argv), secs))
     record_timing(" ".join(argv), secs)
