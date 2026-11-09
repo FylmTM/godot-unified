@@ -87,7 +87,7 @@ Action_Map :: struct {
 
 // Sampled input, as the session thread sees it.
 Actions :: struct {
-	move:    [2]f32, // x right, y back (Godot: forward is -Z)
+	move:    [2]f32, // Input.get_vector: x right, y back (3D: forward is -Z; 2D: y down, the plane's +y)
 	held:    u32, // buttons held at the sample
 	pressed: u32, // buttons pressed since the previous sample taken by the sim (edges never get lost)
 	// Vectors the game's scripts set with UnifiedSession.set_input_vector(i, v), latest value: what input
