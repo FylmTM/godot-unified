@@ -1,9 +1,10 @@
 # src: how the code works
 
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
-input-relay netcode with a step API (`netcode`), and the generic headless modes (`headless`) that a game's
-headless binary wires up. The test game lives in `games/survivor/simulation/`. API specs: `spec/sim.md`,
-`spec/netcode.md`. Commands and toolchain: [`../README.md`](../README.md).
+input-relay netcode with a step API (`netcode`, `eos`), the generic headless modes (`headless`) that a game's
+headless binary wires up, and the Godot host (`gdext`, `view`, `devui`, `godot_host`). The test game lives in
+`games/survivor/`. Each package's API is in its spec (`spec/<package>.md`); this file is how the deterministic core
+works inside. Commands and toolchain: [`../AGENTS.md`](../AGENTS.md), [`../README.md`](../README.md).
 
 ## Packages
 
@@ -15,11 +16,17 @@ headless binary wires up. The test game lives in `games/survivor/simulation/`. A
 | `physics` | Box3D world as `sim.Extra`: Body_Ref, save/restore/hash/image, body discovery by RTTI |
 | `dmath` | Deterministic f32 helpers |
 | `netcode` | Links (loopback, UDP, netsim), multi-link channel, relay, client, host; `*_step(now) -> wake` + hooks |
+| `eos` | Epic Online Services: device-ID login, lobbies by code, P2P sockets as a netcode `Link` (`spec/eos.md`) |
 | `headless` | The CORE.md §3 modes (sim, synctest, replay, snapshot, resume, bench, session, relay, client) for any game |
+| `view` | Host-agnostic view logic: triple buffer, SPSC queue, pose tracks + smoothing, spawn keys, events (`spec/view.md`) |
+| `gdext` | Godot bindings: generator, committed API dump, runtime, class registration |
+| `imgui` | Vendored odin-imgui declarations (`spec/imgui.md`) |
+| `devui` | The in-game dev UI: ImGui → Godot backend, overlay, inspector (`spec/devui.md`) |
+| `godot_host` | The Godot classes, the session driver and view sync (`spec/godot_host.md`) |
 
-Imports are one-way: `headless -> netcode -> sim`, `physics -> sim, box3d`, `wire` is a leaf. Packages import each
-other by relative path; games and tests import `unified:<pkg>`. Package names avoid Odin's own (`net`, `log`,
-`bytes`...): package names must be unique program-wide, which is why the netcode package isn't called `net`.
+Imports are one-way (the graph is in `AGENTS.md`), always through the collection (`unified:<pkg>`). Package names
+avoid Odin's own (`net`, `log`, `bytes`...): package names must be unique program-wide, which is why the netcode
+package isn't called `net`.
 
 ## State block and pointer-freedom
 
@@ -35,15 +42,15 @@ That makes the block's memory its canonical little-endian serialization (`#asser
 checksum hashes the raw bytes, a snapshot is a struct copy, the portable snapshot writes the bytes as they are, and
 inputs travel and are logged as their bytes. Odin has no compile-time "is POD" trait, so this is a startup check.
 
-Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` anywhere in the
-library (the netcode's ceilings are done by hand). Float→int casts only see clamped values. `tests/lint` enforces
+Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` in the
+deterministic packages (`sim`, `physics`, `dmath`, `netcode`, a game's sim; the netcode's ceilings are done by hand).
+Render-side code (`view`, `godot_host`, `devui`) may use it: nothing there feeds the sim. Float→int casts only see clamped values. `tests/lint` enforces
 the import and type bans per package, including the games' simulation packages.
 
 ## Box3D binding
 
 Hand-written, ~300 code lines, 38 layout `#assert`s (sizes/offsets from a C probe against the pinned headers; the
-layouts are the same on x64 Linux/Windows). Based on benchmark A's bindings (archived) for the same commit, plus `DestroyBody`,
-`ApplyLinearImpulseToCenter` and the fork API. `vendor:box3d` targets an older commit with a different ABI.
+layouts are the same on x64 Linux/Windows); `spec/box3d.md` lists what we use and how to upgrade. `vendor:box3d` targets an older commit with a different ABI.
 
 The static library is imported by a relative path per target
 (`../../third_party/box3d/build/<platform>/lib/libbox3d.a`, `box3d.lib` on Windows), where `tools/box3d.py` puts it,

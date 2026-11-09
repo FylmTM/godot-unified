@@ -49,28 +49,47 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## Layout and commands
 
-Odin packages live in `src/` (the `unified` collection, one package per directory: `box3d`, `pod`, `wire`, `game`,
-`sim`, `netcode`, `cli`); imports point one way, `cli → netcode → sim → game → box3d`, with `pod` and `wire` as
-leaves. Tests are `odin test` packages in `tests/` (one per module, importing `unified:<pkg>`; `tests/lint` is the
-determinism lint). `README.md` has the full layout and toolchain. Commands, all from the repo root, any OS:
+- `src/` is the `unified` collection, one package per directory. Imports point one way:
+  - deterministic: `wire` (leaf) ← `sim` ← `physics` (+ `box3d`); `dmath` is a leaf;
+  - real time: `netcode` (→ `sim`, `wire`) ← `eos` (EOS transport) ← `headless` (a game's CLI binary, → `sim`);
+  - host: `gdext` (Godot bindings, generated) and `imgui` are leaves; `devui` (→ `gdext`, `imgui`);
+    `godot_host` (→ `sim`, `netcode`, `view`, `gdext`, `devui`); `view` is a host-agnostic leaf.
+- `games/<game>/` is a Godot project: `simulation/<game>/` the deterministic sim (→ `sim`, `physics`, `dmath`,
+  `box3d`; linted like the core), `simulation/headless/` its CLI binary, `simulation/extension/` its GDExtension,
+  `game/` everything Godot. The first game is `games/survivor/`.
+- `tests/`: `odin test` packages, one per module, importing `unified:<pkg>`; `tests/lint` is the determinism lint,
+  `tests/godot` the binding tests under headless Godot. `README.md` has the toolchain; `tools/README.md` the tools.
+
+Commands, all from the repo root, any OS (times: M-series Mac, warm). Every command rejects unknown arguments.
 
 ```
-python tools/dev.py build [dev|release|debug]   # out/<mode>/unified; dev ~1 s, release ~2.5 s
-python tools/dev.py test                        # odin test, every package (~2 s)
+python tools/dev.py build [dev|release|debug]   # out/<mode>/survivor; dev ~1 s, release ~4 s, debug ~0.6 s
+python tools/dev.py test                        # odin test, every package (~3 s)
 python tools/dev.py check [--only T1,T7]        # release build + T1-T9 end-to-end (~70 s)
-python tools/dev.py fmt [--check]               # odinfmt (pinned, see README)
+python tools/dev.py check --arch x86_64 --only T1,T7,T8   # macOS: Rosetta x86_64 determinism check (~10 s)
+python tools/dev.py fmt [--check]               # odinfmt (pinned, see README) (<1 s)
 python tools/dev.py vet                         # odin check, strict flags, all targets (<1 s)
-python tools/dev.py all                         # everything CI runs
-python tools/dev.py build release --arch x86_64 && python tools/check.py --only T1,T7,T8   # Rosetta check
+python tools/dev.py gen                         # Godot bindings from the committed API dump (cached; ~1 s)
+python tools/dev.py godot-test                  # binding tests under headless Godot (~2 s)
+python tools/dev.py godot-checks                # godot-test + every game's headless Godot checks (~25 s)
+python tools/dev.py all                         # fmt --check, vet, test, check, godot-checks: everything CI runs
+python tools/dev.py game build <game> [dev|release]   # the game's GDExtension (~1 s dev)
+python tools/dev.py game run|editor <game>      # windowed game / the Godot editor on it
+python tools/dev.py game validate|walk <game>   # GDScript: compile + load scenes (~1 s) / scripted UI walk (~4 s)
+python tools/dev.py game headless|session-check|editor-check <game>   # headless Godot session checks (~5 s each)
+python tools/dev.py game tour|coop|shots|play <game>   # real-game tours, EOS co-op, screenshots (windowed, manual)
+python tools/release.py build games/<game> [--version V]   # playable zip + smoke test (~20 s warm; docs/RELEASE.md)
 ```
 
-Run `fmt`, `vet` and `test` before handing work back; run `check` when the sim, netcode or CLI changed. A new
-package in `src/` needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
+Run `fmt`, `vet` and `test` before handing work back; `check` when the sim, netcode or headless CLI changed;
+`godot-checks` (or the matching `game` commands) when Godot-side code or GDScript changed. A new package in `src/`
+needs a rule in `tests/lint/lint_test.odin` (the lint test fails otherwise).
 
 ## Where things are
 
 - `docs/WORK.md`: phases, decisions, current and upcoming work.
 - `docs/CONTEXT.md`: why `unified` exists and the developer's requirements.
-- `spec/`: specs (core and test game today; module specs to come).
-- `docs/archive/`: research and benchmarks for the stacks we didn't choose (C++, Rust, C#, Zig, Bevy...), kept for
-  reference.
+- `spec/`: one short spec per module, plus the test game (`GAME.md`) and its client (`survivor-client.md`).
+- `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/research/` (open research).
+- `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
+  history (`docs/archive/README.md`).
