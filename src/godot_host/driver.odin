@@ -23,6 +23,8 @@ Api :: struct {
 	event_names: []string,
 	start:       proc(req: Start) -> (ok: bool, err: string),
 	stop:        proc(), // ask the session to end (it keeps running until it has said goodbye)
+	hurry:       proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
+	stopping:    proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
 	wait:        proc(), // join the session thread (after stop)
 	running:     proc() -> bool,
 	front:       proc() -> (f: ^Frame, fresh: bool),
@@ -104,6 +106,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	uses_tp:   bool,
 	thread:    ^thread.Thread,
 	stop_req:  bool, // atomic
+	hurry:     bool, // atomic
 	finished:  bool, // atomic
 	stopping:  bool,
 	stop_at:   i64,
@@ -191,6 +194,13 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	api.stop = proc() {
 		if g_driver == nil do return
 		sync.atomic_store(&(^D)(g_driver).stop_req, true)
+	}
+	api.hurry = proc() {
+		if g_driver == nil do return
+		sync.atomic_store(&(^D)(g_driver).hurry, true)
+	}
+	api.stopping = proc() -> bool {
+		return g_driver != nil && sync.atomic_load(&(^D)(g_driver).stop_req)
 	}
 	api.wait = proc() {
 		if g_driver == nil do return
@@ -339,11 +349,18 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 		}}
 }
 
+// How long a stopping session may say goodbye (peers that don't answer: the relay's 3 s End timeout), and the
+// cap when a new session waits for it (a reachable peer acks in one round trip; the rest time out).
+GOODBYE_US :: 3_000_000
+HURRY_US :: 1_000_000
+
 @(private)
 driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 	set_thread_class(.Realtime, d.game.tick_hz)
+	session_power_begin()
 	if !driver_open(d) {
 		driver_close(d)
+		session_power_end() // before finished: the next session's thread may begin its own right after
 		sync.atomic_store(&d.finished, true)
 		return
 	}
@@ -370,13 +387,14 @@ driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
 			wake = netcode.client_step(d.client, now)
 			if d.client.status == .Failed || d.client.status == .Disconnected do break
 		}
-		if d.stopping && now - d.stop_at > 3_000_000 do break
+		if d.stopping && now - d.stop_at > (sync.atomic_load(&d.hurry) ? HURRY_US : GOODBYE_US) do break
 		if d.uses_tp do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
 	d.result = clone_json(netcode.client_json(d.client))
 	post(d, Message{kind = .Result})
 	driver_close(d)
+	session_power_end()
 	sync.atomic_store(&d.finished, true)
 }
 

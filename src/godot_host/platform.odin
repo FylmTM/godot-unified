@@ -3,10 +3,20 @@
 // macOS: a sleeping thread wakes late by its timer leeway (coalescing). Measured on an M4 Pro (GDExtension
 // spike): a sleep-until wakes 2.5-4 ms late at the default QoS and about 1 ms late inside Godot, but 10-25 µs
 // late under THREAD_TIME_CONSTRAINT_POLICY (what audio threads use). So the session thread asks for a
-// time-constraint policy: period one tick, ~1 ms of computation, 2 ms constraint. Elsewhere: no-op for now
-// (Windows: netcode raises the timer resolution; Linux: plain sleeps, to be measured in CI).
+// time-constraint policy: period one tick, ~1 ms of computation, 2 ms constraint. Linux: plain sleeps, to be
+// measured in CI.
+//
+// For a session's lifetime (`session_power_begin/end`, on the session thread) the process also asks not to be
+// throttled while it is in the background, where a hosting player's game often is:
+// - macOS: App Nap (a hidden or occluded app's timers are coalesced and its priority lowered) is held off by a
+//   user-initiated, latency-critical NSProcessInfo activity. Godot holds no activity; its keep_screen_on
+//   display assertion and running audio may keep App Nap away, but a project can turn both off.
+// - Windows: Sleep rounds up to the timer resolution (15.6 ms by default), so the session asks for 1 ms
+//   (timeBeginPeriod), and opts out of power throttling: Windows 11 ignores a minimised or occluded process's
+//   timer resolution request, and EcoQoS slows a background process's threads.
 package godot_host
 
+import "base:intrinsics"
 import "core:c"
 import "core:fmt"
 
@@ -46,8 +56,73 @@ when ODIN_OS == .Darwin {
 			}
 		}
 	}
+
+	foreign import objc {"system:objc", "system:Foundation.framework"}
+
+	@(default_calling_convention = "c")
+	foreign objc {
+		objc_autoreleasePoolPush :: proc() -> rawptr ---
+		objc_autoreleasePoolPop :: proc(pool: rawptr) ---
+	}
+
+	@(private, objc_class = "NSObject")
+	Ns_Object :: struct {
+		using _: intrinsics.objc_object,
+	}
+	@(private, objc_class = "NSProcessInfo")
+	Ns_Process_Info :: struct {
+		using _: intrinsics.objc_object,
+	}
+	@(private, objc_class = "NSString")
+	Ns_String :: struct {
+		using _: intrinsics.objc_object,
+	}
+	@(private)
+	power_activity: ^Ns_Object // the NSProcessInfo activity token (retained)
+
+	session_power_begin :: proc() {
+		if power_activity != nil do return
+		pool := objc_autoreleasePoolPush() // the session thread has none
+		defer objc_autoreleasePoolPop(pool)
+		info := intrinsics.objc_send(^Ns_Process_Info, Ns_Process_Info, "processInfo")
+		reason := intrinsics.objc_send(
+			^Ns_String,
+			Ns_String,
+			"stringWithUTF8String:",
+			cstring("unified: a game session is running"),
+		)
+		USER_INITIATED :: 0x00FF_FFFF // NSActivityUserInitiated: no App Nap, no idle system sleep
+		LATENCY_CRITICAL :: 0xFF_0000_0000 // NSActivityLatencyCritical: timers are not coalesced
+		token := intrinsics.objc_send(
+			^Ns_Object,
+			info,
+			"beginActivityWithOptions:reason:",
+			u64(USER_INITIATED | LATENCY_CRITICAL),
+			reason,
+		)
+		if token == nil {
+			fmt.eprintln("unified: beginActivityWithOptions failed")
+			return
+		}
+		power_activity = intrinsics.objc_send(^Ns_Object, token, "retain")
+	}
+
+	session_power_end :: proc() {
+		if power_activity == nil do return
+		pool := objc_autoreleasePoolPush()
+		defer objc_autoreleasePoolPop(pool)
+		info := intrinsics.objc_send(^Ns_Process_Info, Ns_Process_Info, "processInfo")
+		intrinsics.objc_send(nil, info, "endActivity:", power_activity)
+		intrinsics.objc_send(nil, power_activity, "release")
+		power_activity = nil
+	}
 } else {
 	_ :: c
 	_ :: fmt
-	set_thread_class :: proc(k: Thread_Class, tick_hz: int) {}
+	_ :: intrinsics
+	when ODIN_OS != .Windows { 	// Windows: platform_windows.odin
+		set_thread_class :: proc(k: Thread_Class, tick_hz: int) {}
+		session_power_begin :: proc() {}
+		session_power_end :: proc() {}
+	}
 }

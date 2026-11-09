@@ -58,7 +58,11 @@ the extension that way, and the host uses `Object.set`/`call`.
 
 - **Threads.** A session (single player = a host with no remote links; host; join) runs netcode's
   `host_step`/`client_step` on its own thread. On macOS that thread uses the real-time (time-constraint) class
-  and sleeps until the next deadline. The netcode hooks run there:
+  and sleeps until the next deadline. While a session runs, the process opts out of background throttling
+  (often a hosting player's game is in the background): on macOS, a user-initiated, latency-critical
+  NSProcessInfo activity (no App Nap, no idle system sleep); on Windows, `timeBeginPeriod(1)` (Sleep rounds
+  up to 15.6 ms without it) plus opting out of power throttling, since Windows 11 ignores a minimised
+  process's timer request. The netcode hooks run there:
   - `sample` reads the input atomics, or scripted input in headless checks;
   - `frame` feeds the predicted ticks' events to the tracker and publishes a Frame (`extract`);
   - `verified` confirms or cancels events;
@@ -74,13 +78,17 @@ the extension that way, and the host uses `Object.set`/`call`.
   5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
      go to the `sim_event` signal;
   6. draws the dev UI.
+- **Leave, then Host or Join.** `leave` asks the session to end; it says goodbye on its thread (a client's Leave
+  is acked within ~0.5 s, a host waits up to 3 s for its peers' acks). A start during the goodbye is accepted:
+  it waits and starts as soon as the old session is gone. The goodbye is cut to 1 s, and the old session's
+  last statuses and events are dropped. A `leave` before that cancels the waiting start.
 - **Editor.** Classes register at SCENE level and nothing runs in the editor. Hot reload is editor-only.
   `deinitialize` stops the session thread, then calls the transport's optional `shutdown` (the survivor
   releases EOS there: left initialized, the SDK crashed in its own threads at exit, ~2 exits in 3). macOS dev builds are versioned files behind a symlink, because dyld
   never unloads an Odin dylib (thread-locals), so a same-path reload would keep the old code.
-- **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check <game>`. `headless` runs a
-  scripted single-player session under headless Godot and compares its checksums with the offline headless
-  binary's.
+- **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
+  `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
+  offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.
 
 ## Open
 
