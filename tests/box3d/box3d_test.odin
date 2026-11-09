@@ -374,6 +374,11 @@ bindings_match_the_headers :: proc(t: ^testing.T) {
 		log.info("Box3D headers not staged (python tools/box3d.py); layout check skipped")
 		return
 	}
+	when ODIN_OS == .Darwin && ODIN_ARCH == .amd64 {
+		// Under Rosetta the toolchain's xcrun can't load; the native arm64 run and CI's x64 runs check it.
+		log.info("x86_64 macOS (Rosetta): layout probe skipped")
+		return
+	}
 	cc := ""
 	for name in ([]string{"clang", "cc"}) {
 		if p, ok := find_on_path(name); ok {
