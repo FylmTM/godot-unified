@@ -181,7 +181,7 @@ Event_Kind :: enum u16 {
 	Switch_On,
 }
 
-EVENT_NAMES := []string {
+EVENT_NAMES :: []string {
 	"player_joined",
 	"player_left",
 	"jumped",

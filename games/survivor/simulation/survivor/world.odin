@@ -36,7 +36,7 @@ Event_Kind :: enum u16 {
 	Player_Left,
 }
 
-EVENT_NAMES := []string {
+EVENT_NAMES :: []string {
 	"player_died",
 	"player_respawned",
 	"enemy_died",
@@ -54,6 +54,7 @@ EVENT_NAMES := []string {
 SIM_VERSION :: "1"
 
 // The game as played (`play` tuning).
+@(rodata)
 GAME := Game {
 	name = "survivor",
 	version = SIM_VERSION,
@@ -67,6 +68,7 @@ GAME := Game {
 }
 
 // The same game with the `stress` tuning: what the headless tests, T1-T9 and the bench run.
+@(rodata)
 GAME_STRESS := Game {
 	name = "survivor-stress",
 	version = SIM_VERSION,

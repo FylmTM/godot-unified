@@ -23,6 +23,20 @@ Rule :: struct {
 	ban_idents:    []string, // identifiers, e.g. types or intrinsics
 	ban_matrix:    bool,
 	strict:        bool, // also bans `foreign`, `map` and `x := 1.5` (an untyped float literal is f64)
+	tick:          bool, // code inside a tick: package-level variables must be @(rodata) (see scan_globals)
+}
+
+// Package-level variables a tick package may write, each with why it is safe: none is read or
+// written by a tick, so none is state outside the block.
+Mutable_Global :: struct {
+	pkg, name, reason: string,
+}
+MUTABLE_GLOBALS :: []Mutable_Global {
+	{
+		"physics",
+		"world_mutex",
+		"serializes Box3D world creation across threads (b3CreateWorld); never touched by a tick",
+	},
 }
 
 // core:math (and linalg, rand, noise...) pulls in transcendentals and FMA-friendly code; only the
@@ -82,15 +96,37 @@ RULES := []Rule {
 		ban_idents = SIM_IDENTS,
 		ban_matrix = true,
 		strict = true,
+		tick = true,
 	},
 	// Library code that runs inside a tick: the same rules as game code.
-	{pkg = "dmath", only_imports = TICK_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
+	{
+		pkg = "dmath",
+		only_imports = TICK_IMPORTS,
+		ban_idents = SIM_IDENTS,
+		ban_matrix = true,
+		strict = true,
+		tick = true,
+	},
 	// physics walks RTTI (base:runtime) and guards Box3D world creation with a mutex (core:sync).
-	{pkg = "physics", only_imports = PHYSICS_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
+	{
+		pkg = "physics",
+		only_imports = PHYSICS_IMPORTS,
+		ban_idents = SIM_IDENTS,
+		ban_matrix = true,
+		strict = true,
+		tick = true,
+	},
 	// Levels: parsed when a World is created; plain data, through unified:wire.
-	{pkg = "level", only_imports = {"unified:wire"}, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
+	{
+		pkg = "level",
+		only_imports = {"unified:wire"},
+		ban_idents = SIM_IDENTS,
+		ban_matrix = true,
+		strict = true,
+		tick = true,
+	},
 	// The harness: also walks RTTI, hashes, formats errors and reads and writes log files.
-	{pkg = "sim", only_imports = SIM_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true},
+	{pkg = "sim", only_imports = SIM_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true, tick = true},
 	// The Box3D binding: foreign code by nature, through core:c only.
 	{
 		pkg = "box3d",
@@ -134,6 +170,7 @@ RULES := []Rule {
 		ban_idents = SIM_IDENTS,
 		ban_matrix = true,
 		strict = true,
+		tick = true,
 	},
 	{
 		pkg = "friendslop_headless",
@@ -255,6 +292,156 @@ scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) ->
 	return out[:]
 }
 
+// Returns one line per package-level variable in `src` that is neither `@(rodata)` nor in
+// MUTABLE_GLOBALS. A write to one during a tick would be state outside the block: not rolled
+// back, not hashed, a desync nothing else catches. Token-level: a package-level statement
+// (outside every brace except a `when`/`else` block's, outside parentheses and brackets) of the
+// form `a, b: ...` or `a := ...` declares variables; `a :: ...` is a constant.
+scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
+	out := make([dynamic]string, allocator)
+	tz: tokenizer.Tokenizer
+	tokenizer.init(&tz, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
+	tz.flags = {.Insert_Semicolon}
+	braces: [64]bool // open braces, innermost last: true for a package-level `when`/`else` block
+	nbraces, opaque, parens := 0, 0, 0
+	at_start := true // the next token starts a package-level statement
+	block_next := false // the statement started with `when`/`else`: its `{` keeps package level
+	rodata := false // the statement's attributes include rodata
+	attr, attr_parens := false, 0 // inside an attribute: `@(...)` or `@name`
+	phase := 0 // 1: after a name, 2: after `,`, 3: after `name :`, 0: not (or no longer) a declaration
+	names := make([dynamic]tokenizer.Token, context.temp_allocator)
+	for tok := tokenizer.scan(&tz); tok.kind != .EOF; tok = tokenizer.scan(&tz) {
+		if tok.kind == .Comment || tok.kind == .File_Tag {
+			continue
+		}
+		if attr {
+			#partial switch tok.kind {
+			case .Open_Paren:
+				attr_parens += 1
+			case .Close_Paren:
+				attr_parens -= 1
+			case .Ident:
+				rodata ||= tok.text == "rodata"
+			}
+			attr = attr_parens > 0
+			continue
+		}
+		top := opaque == 0 && parens == 0
+		if top && at_start {
+			at_start = false
+			phase = 0
+			#partial switch tok.kind {
+			case .At:
+				attr, attr_parens, at_start = true, 0, true
+				continue
+			case .Semicolon:
+				at_start = true // the newline after an attribute
+				continue
+			case .Ident:
+				clear(&names)
+				append(&names, tok)
+				phase = 1
+				continue
+			case .When, .Else:
+				block_next = true
+			}
+		} else if top && phase != 0 {
+			next := 0
+			#partial switch tok.kind {
+			case .Comma:
+				next = phase == 1 ? 2 : 0
+			case .Ident:
+				if phase == 2 {
+					append(&names, tok)
+					next = 1
+				}
+			case .Colon:
+				next = phase == 1 ? 3 : 0
+			}
+			if phase == 3 || phase == 4 {
+				// `name :` then a type, if any: `:` makes it a constant, `=` or the statement's end a variable.
+				#partial switch tok.kind {
+				case .Colon:
+					next = 0
+				case .Eq, .Semicolon:
+					report_globals(&out, r, name, names[:], rodata, allocator)
+					next = 0
+				case:
+					next = 4
+				}
+			}
+			phase = next
+		}
+		#partial switch tok.kind {
+		case .Semicolon:
+			if top {
+				at_start, rodata, block_next = true, false, false
+			}
+		case .Open_Brace:
+			block := top && block_next
+			braces[min(nbraces, len(braces) - 1)] = block
+			nbraces += 1
+			if block {
+				at_start, block_next = true, false
+			} else {
+				opaque += 1
+			}
+		case .Close_Brace:
+			if nbraces > 0 {
+				nbraces -= 1
+				if braces[min(nbraces, len(braces) - 1)] {
+					at_start, rodata = true, false
+				} else {
+					opaque -= 1
+				}
+			}
+		case .Open_Paren, .Open_Bracket:
+			parens += 1
+		case .Close_Paren, .Close_Bracket:
+			parens -= 1
+		}
+	}
+	if phase == 3 || phase == 4 {
+		report_globals(&out, r, name, names[:], rodata, allocator)
+	}
+	return out[:]
+}
+
+report_globals :: proc(
+	out: ^[dynamic]string,
+	r: Rule,
+	file: string,
+	names: []tokenizer.Token,
+	rodata: bool,
+	allocator: runtime.Allocator,
+) {
+	for n in names {
+		if rodata || mutable_global_ok(r.pkg, n.text) {
+			continue
+		}
+		where_ := fmt.tprintf("%s(%d:%d)", file, n.pos.line, n.pos.column)
+		append(
+			out,
+			fmt.aprintf(
+				"%s: package-level variable `%s` in tick package %s: a write during a tick is state outside the block (not rolled back, not hashed); make it `@(rodata)` or a `::` constant, or list it in MUTABLE_GLOBALS (tests/lint/lint_test.odin) with a reason",
+				where_,
+				n.text,
+				r.pkg,
+				allocator = allocator,
+			),
+		)
+	}
+}
+
+mutable_global_ok :: proc(pkg, name: string) -> bool {
+	for g in MUTABLE_GLOBALS {
+		if g.pkg == pkg && g.name == name {
+			return true
+		}
+	}
+	return false
+}
+
 banned_import :: proc(r: Rule, path: string) -> bool {
 	if r.only_imports != nil {
 		p := path
@@ -312,6 +499,11 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 			}
 			for v in scan(r, path, string(data)) {
 				testing.expect(t, false, v)
+			}
+			if r.tick {
+				for v in scan_globals(r, path, string(data)) {
+					testing.expect(t, false, v)
+				}
 			}
 		}
 		testing.expectf(t, len(files) > 0, "no .odin files in %s", dir)
@@ -373,6 +565,63 @@ D :: 1.5
 	for v in scan(game_rule, "clean.odin", clean) {
 		testing.expect(t, false, v)
 	}
+
+	// Package-level variables in tick code: each mutable one is caught, by name.
+	bad_globals := `package survivor
+counter := 0
+a, b: f32
+when ODIN_DEBUG {
+	debug_hits: int
+} else {
+	hits: [4]i32 = {1, 2, 3, 4}
+}
+@(private)
+P := [2]f32{0, 1}
+world_mutex: int
+`
+	clean_globals := `package survivor
+#+private
+@(rodata)
+TABLE := [2]f32{0, 1}
+@(private, rodata)
+NAMES := [2]string{"a", "b"}
+@rodata
+SPEC := Spec {
+	speed = 2,
+}
+K :: 3
+DT: f32 : 1.0 / 64
+F :: proc(x: int) -> int {
+	y := x
+	v: f32 = 2
+	return y
+}
+S :: struct {
+	field: int,
+}
+when ODIN_DEBUG {
+	D :: 1
+}
+`
+	found := scan_globals(game_rule, "globals.odin", bad_globals)
+	testing.expect_value(t, len(found), 7)
+	for want in ([]string{"counter", "a", "b", "debug_hits", "hits", "P", "world_mutex"}) { 	// world_mutex: allowed in physics only
+		hit := false
+		for v in found {
+			hit ||= strings.contains(v, fmt.tprintf("`%s`", want))
+		}
+		testing.expectf(t, hit, "package-level variable %s not caught", want)
+	}
+	for v in scan_globals(game_rule, "clean_globals.odin", clean_globals) {
+		testing.expect(t, false, v)
+	}
+	physics_rule: Rule
+	for r in RULES {
+		if r.pkg == "physics" {
+			physics_rule = r
+		}
+	}
+	testing.expect_value(t, len(scan_globals(physics_rule, "globals.odin", "package physics\nworld_mutex: int\n")), 0)
 }
 
 // Escape hatches a reviewer found the old ban-list lint let through: each must be caught by the
