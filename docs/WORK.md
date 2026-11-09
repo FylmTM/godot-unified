@@ -1,6 +1,8 @@
-# Work
+# Decisions so far
 
-Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
+Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**. Current and upcoming work is on the
+[board](https://github.com/users/FylmTM/projects/2). These decisions move into the specs during the foundations
+review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes.
 
 ## Phases
 
@@ -132,50 +134,3 @@ Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**.
   runners, actions (by SHA) and downloads (SHA-256) are pinned.
 - **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
   frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).
-
-## In flight
-
-| work | session | branch |
-|---|---|---|
-| Second game: co-op third-person physics sandbox (platforms, jump pads, carry, throw, two-player heavy carry, a short route); also wraps Box3D step and queries in `src/physics` | physics-coop | `claude/physics-coop-game-91cee0` |
-
-## Done
-
-- Odin-only cleanup: `src/` collection, `tests/` packages, `tools/dev.py`, Odin-only CI on Linux and Windows.
-- `survivor-v0.1.1` released (GitHub prerelease, macOS arm64 + Windows x64); crossplay gate passed (`spec/eos.md`).
-- Project audit (64 findings) fixed and merged 2026-11-09, plus the survivor first-use hitch fix (`docs/LOG.md`).
-  Protocol 5 since: v0.1.1 players can't join a build from main.
-- Upstream Odin XXH3 streaming fix: odin-lang/Odin#8257, from `FylmTM/Odin:fix-xxh3-streaming-tail`; its CI waits
-  for a maintainer to approve workflows.
-
-## Awaiting the developer's review
-
-1. **Sign off the specs**, all marked "pending developer review": `spec/sim.md`, `netcode.md`, `view.md`,
-   `godot_host.md`, `devui.md`, `eos.md`, `survivor-client.md`, `headless.md` (the CLI modes and T1–T9, formerly
-   CORE.md), and the short ones written after the code: `wire.md`, `box3d.md`, `imgui.md`. `GAME.md` has M2 changes
-   pending too.
-2. Everything decided and built autonomously on 2026-11-09: `docs/LOG.md` (start there).
-3. The physics sandbox's spec and choices, once its session reports (made without waiting for sign-off).
-4. EOS: confirm the portal client policy allows only Connect, P2P and Lobbies (the client secret ships in every
-   build). Publishing the EOS SDK release instead of keeping it a draft would remove `eos-sdk.yml`'s write token,
-   but it creates a tag: your call.
-
-## Next
-
-- Play the next survivor build with a friend; collect feedback (balance, feel, connection issues). A `v0.1.2` tag
-  needs the Mac ↔ Windows crossplay check on protocol 5 first.
-- Fold the spec review into the code.
-- First-launch shader cost: try Godot's shader baker in the CI export (needs a windowed export on runners and, for
-  macOS, the full Metal compiler); a `godot_host` warm-up helper for every game; keep the loop ticking while the
-  window is hidden (macOS stalls it up to 1 s).
-- How entity kinds and levels are authored (code/data-first recommended, `docs/research/11-view-binding.md`).
-- The `unified` CLI in Odin (replaces `tools/*.py`).
-- Box3D fork: public load-from-bytes API and clearing stale bytes.
-- Golden screenshots in CI (Linux Xvfb/Mesa proved good enough by the headless-Godot spike).
-- Backlog without a spec yet (`git show 6994822:docs/research/09-prior-art.md`): desync recovery ladder, typed desync
-  reports, build hash in the input log, physics canary, timeline and reverse step in the dev tools, among others.
-
-## Deferred
-
-- Windows ARM64, Linux ARM64; real Windows hardware beyond CI.
-- Box3D's AVX2 path (compiled out today) as a separate CI job.
