@@ -1,4 +1,4 @@
-// The transport interface (CORE.md §2): send(peer, bytes, unreliable|reliable), poll() -> events,
+// The transport interface (spec/netcode.md): send(peer, bytes, unreliable|reliable), poll() -> events,
 // connect/disconnect events. A channel multiplexes any number of links (the relay serves its host's
 // in-process client and remote peers at once) and numbers every (link, link peer) pair as one
 // channel Peer. It runs the same minimal reliability protocol over every link:
@@ -27,7 +27,7 @@ package netcode
 import "base:runtime"
 import "core:fmt"
 
-import "../wire"
+import "unified:wire"
 
 Delivery :: enum u8 {
 	Unreliable,

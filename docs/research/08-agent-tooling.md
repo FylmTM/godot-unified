@@ -1,14 +1,15 @@
 # 08 · Agent tooling and in-game dev tools
 
 How agents and the developer drive, test, inspect and look at a running unified game without an editor. Researched
-2026-11-07, adapted 2026-11-08 for Odin and Godot (the `uni` CLI name is a placeholder: the `unified` CLI design is pending sign-off). Claims I could not check against a primary source are marked *(unverified)*.
+2026-11-07, adapted 2026-11-08 for Odin and Godot (the `uni` CLI name is a placeholder: the `unified` CLI design is
+pending sign-off). Claims I could not check against a primary source are marked *(unverified)*.
 
 ## TL;DR and recommendation
 
 - **The game is the tool: one API, three front ends.** Tests call the core's `Session` API in-process. A dev-only
   **control server** in the game binary serves the same API as **JSON-RPC 2.0**, fronted by a `uni` CLI (what agents
-  use from bash) and a `uni mcp` stdio adapter. Bevy's BRP + `bevy_brp_mcp` prove the shape; we add determinism,
-  peers and replays.
+  use from bash) and a `uni mcp` stdio adapter. Reflection-based remote protocols in other engines prove the shape;
+  we add determinism, peers and replays.
 - **Transport: a local socket per instance** at `<worktree>/.uni/run/<instance>/control.sock`, so there are **no
   ports to allocate**. Large results (PNG, snapshots) go to an artifacts directory, and responses return paths.
 - **A type registry is the prerequisite.** The inspector, diff viewer, protocol schemas, tuning sliders and F3
@@ -58,25 +59,40 @@ How agents and the developer drive, test, inspect and look at a running unified 
 
 ## Prior art
 
-| System | What it gives | Take-away |
-|---|---|---|
-| **Bevy Remote Protocol** ([methods](https://docs.rs/bevy/0.18.1/bevy/remote/builtin_methods/)) | JSON-RPC 2.0 (HTTP plugin, default port 15702 *(unverified for 0.20)*). Methods: `world.query`, `world.get_components`, `world.{insert,mutate,remove}_components`, `world.spawn_entity`, `world.despawn_entity`, resources, `world.trigger_event`, `registry.schema`, `rpc.discover`. Streaming comes as `+watch` variants (`world.get_components+watch`, `world.list_components+watch`) | Reflection plus schema export plus discovery is the right core. There is no notion of ticks, pause, input, snapshots or peers: BRP is "inspect a live ECS", not "drive a deterministic sim" |
-| **bevy_brp_mcp** ([docs.rs](https://docs.rs/bevy_brp_mcp)) | A stdio MCP server: `brp_launch`, `world_query`, `world_find_entities_by_name`, `world_mutate_components`, `brp_type_guide`, a `+watch` tool, `read_log`, plus (with `bevy_brp_extras`) screenshots (window, camera or entity crop), keys, mouse, gamepads, diagnostics, and app-defined "agent tools" via `brp_execute`. Calls target apps by `port`. v0.23 targets Bevy 0.20 | A type guide is essential. One listing notes agents fall back to trial and error without type info ([LobeHub](https://lobehub.com/pl/mcp/natepiano-bevy_brp_mcp)). App-defined curated tools beat raw reflection for common tasks |
-| **Godot** | The remote debugger routes `prefix:`-tagged messages to registered "captures". The scene tree and inspector are built on it (`request_scene_tree`, `inspect_object`, `set_object_property`) ([remote_debugger.h](https://cocalc.com/github/godotengine/godot/blob/master/core/debugger/remote_debugger.h), [PR 39440](https://github.com/godotengine/godot/pull/39440)). Community MCP servers inject an autoload bridge on UDP 9900 ([godot-mcp-runtime](https://chat.mcp.so/server/godot-mcp-runtime/Erodenn)) or WebSocket 6505 ([godot-mcp-pro](https://github.com/youichi-uda/godot-mcp-pro)). Screenshots come via the movie writer ([godot-mcp](https://glama.ai/mcp/servers/MhrnMhrn/godot-mcp/tree)) | Extensible namespaced message routing. Bolt-on bridges show demand, but also fragility |
-| **Unity MCP** ([docs](https://docs.unity3d.com/Packages/com.unity.ai.assistant@2.19/manual/integration/unity-mcp-overview.html)) | Official, Editor-bound (`Unity.ManageScene`…). Clients need approval, plus Unity Cloud and the AI beta ([blog](https://unity.com/en/blog/unity-ai-mcp-how-to-get-started)) | Still one Editor |
-| **Unreal Remote Control** ([WS ref](https://dev.epicgames.com/documentation/en-us/unreal-engine/remote-control-api-websocket-reference-for-unreal-engine)) | JSON over WebSocket at `ws://127.0.0.1:30020` plus HTTP. "Presets" expose curated properties and functions | Curated exposure ("presets") next to raw reflection |
-| **AltTester** ([overview](https://alttester.com/docs/sdk/latest/pages/overview.html)) / **GameDriver** ([HPath](https://kb.gamedriver.io/working-with-hierarchypath-in-unreal)) | Selenium-style: an in-game SDK opens a WebSocket, and drivers in C#, Python, Java or Robot Framework query objects and simulate input. GameDriver adds XPath-like HierarchyPath queries, a REPL and a recorder | A query language over the world is valuable. Ours is component filters, not a scene path |
-| **Commercial deterministic SDKs** | A checksum every N ticks (off in release) and a costly cross-platform checksum mode for debugging. On a desync, every client's frame is collected and a differ compares them, with a GUI that works in builds. Profilers for frame/sim time, prediction, ping and entities | Desync dump plus differ in builds, not only in the editor, is exactly what we want built in |
-| **GGRS** ([SyncTestSession](https://docs.rs/ggrs/latest/ggrs/struct.SyncTestSession.html), [bevy_ggrs desyncs](https://docs.rs/crate/bevy_ggrs/latest/source/docs/debugging-desyncs.md)) | Sync-test: advance one frame, roll back `check_distance` (≥2), re-simulate, compare checksums. It only catches drift in state that is checksummed | Our whole-block hash removes the "forgot to checksum it" hole |
-| **Factorio** ([forum](https://forums.factorio.com/viewtopic.php?p=461520), [FFF #55](https://factorio.com/blog/post/fff-55)) | A cheap heuristic CRC every tick. Desync reports carry both states, a few ticks late. A slow full-CRC-every-tick debug mode, and a branch with human-readable tags in the save to localize where divergence starts. Replays break across versions and mods | We need per-system checksums in debug mode, and the expectation that replays are per-build |
-| **Netcode for Entities PlayMode Tools** ([docs](https://docs.unity3d.com/Packages/com.unity.netcode@1.9/manual/playmode-tool.html)) | Thin clients with fake input. RTT delay, jitter, loss, presets (4G, Broadband), packet fuzz, command-line init, dev builds only | Blueprint for the net sim panel and bots |
-| **Tracy** ([tracy-capture](https://dyn.manpages.debian.org/unstable/tracy-capture/tracy-capture.1), [rust client](https://docs.rs/crate/tracy-client/=0.18.2)) | Headless `tracy-capture -o f -s secs`, `tracy-csvexport`, `ondemand` mode. LAN broadcast (turn it off). Versions must be pinned together | `perf.capture` wraps tracy-capture and returns CSV |
-| **RenderDoc** ([in-app API](https://renderdoc.org/docs/in_application_api.html), [Python](https://renderdoc.org/docs/python_api/index.html)) | In-app capture triggers. The Python replay module must be built from source | `gpu.capture` when loaded. Analysis stays manual |
+What existing engine control protocols, test drivers and netcode tools teach, in our terms:
+
+- **Reflection + schema export + discovery is the right core** (query, get, insert, mutate, remove, spawn, despawn,
+  resources, trigger an event, `registry.schema`, `rpc.discover`, `+watch` streaming variants). What such protocols
+  lack is ticks, pause, input, snapshots and peers: they inspect a live world rather than drive a deterministic sim.
+- **A type guide is essential.** Agents fall back to trial and error without type info. App-defined curated tools
+  ("presets": curated properties and functions) beat raw reflection for common tasks; offer both.
+- **Godot's remote debugger** routes `prefix:`-tagged messages to registered "captures"; its scene tree and inspector
+  are built on it (`request_scene_tree`, `inspect_object`, `set_object_property`)
+  ([remote_debugger.h](https://cocalc.com/github/godotengine/godot/blob/master/core/debugger/remote_debugger.h)).
+  Extensible namespaced routing is the idea to keep. Community bolt-on bridges (an autoload on a UDP or WebSocket
+  port) show demand, and fragility.
+- **Official editor-bound MCP integrations still mean one Editor at a time**, with client approval and cloud
+  sign-up on top.
+- **Browser-test-style game drivers** (an in-game SDK on a WebSocket, drivers in several languages, XPath-like hierarchy
+  queries, a REPL and a recorder): a query language over the world is valuable. Ours is component filters, not a
+  scene path.
+- **Deterministic netcode tooling:** a checksum every N ticks (off in release) and a costly cross-platform checksum
+  mode for debugging; on a desync, every client's frame is collected and a differ compares them, with a GUI that
+  works in builds, not only in the editor. That's exactly what we want built in. Sync-test (advance one frame, roll
+  back ≥ 2, re-simulate, compare) only catches drift in state that is checksummed; our whole-block hash removes the
+  "forgot to checksum it" hole. A cheap CRC every tick, desync reports carrying both states, and a debug mode with
+  human-readable tags to localize where divergence starts mean we need per-system checksums in debug mode. Replays
+  are per-build.
+- **Net sim tooling:** thin clients with fake input; RTT delay, jitter, loss, presets (4G, broadband), packet fuzz,
+  command-line init, dev builds only. That's the blueprint for the net sim panel and bots.
+- **Profilers:** Tracy (headless `tracy-capture -o f -s secs`, `tracy-csvexport`, `ondemand` mode; turn off LAN
+  broadcast; pin versions together): `perf.capture` wraps it and returns CSV. RenderDoc (in-app capture triggers; the
+  Python replay module must be built from source): `gpu.capture` when loaded, analysis stays manual.
 
 MCP itself ([2025-11-25 transports](https://modelcontextprotocol.info/specification/2025-11-25/basic/transports/))
 has two standard transports. **stdio** means the client spawns the server. **Streamable HTTP** must validate `Origin`
 against DNS rebinding. A 2026-07-28 revision reportedly drops the session header
-([Zuplo](https://zuplo.com/learn/mcp/glossary/transport), *unverified*). That churn is a reason to keep MCP in a thin
+([glossary](https://zuplo.com/learn/mcp/glossary/transport), *unverified*). That churn is a reason to keep MCP in a thin
 adapter, not in the game.
 
 ## Control protocol design
@@ -96,7 +112,7 @@ known; untested here)*. `--control tcp` binds `127.0.0.1:0` and writes the port 
 an optional view), connected by a transport (loopback with netsim by default). Calls take `peer` (default `0`) and
 `frame`: `"verified"`, `"predicted"` or a tick number within the snapshot ring.
 
-**Core methods** (with `rpc.discover` and `registry.schema` à la BRP):
+**Core methods** (with `rpc.discover` and `registry.schema` for discovery):
 
 | Area | Methods |
 |---|---|
@@ -155,9 +171,8 @@ window needed. A separate-process client (real UDP or Steam) has its own socket,
   the current Unity game. With no globals, tests run on threads in one process.
 - **Sync-test by default.** Each test tick also rolls back `k` frames (k ≈ rollback window, e.g. 8) and re-simulates,
   comparing whole-block hashes. CI runs it on everything; a local `--fast` turns it off. A mismatch dumps both
-  blocks, gives a registry-aware diff, and reruns with per-system hashing to name the first system that diverged
-  (Factorio's "tags" idea). Also a serialize→deserialize→hash round-trip, which catches state living outside the
-  block. **Requirement:** padding bytes in the block are zeroed, or hashes are noise.
+  blocks, gives a registry-aware diff, and reruns with per-system hashing to name the first system that diverged.
+  Also a serialize→deserialize→hash round-trip, which catches state living outside the block. **Requirement:** padding bytes in the block are zeroed, or hashes are noise.
 - **Replays as regression tests.** Header: format version, git sha plus dirty flag, sim schema hash, content hash of
   sim-relevant assets, seed, peers, configs. Body: per-tick inputs, a checksum every tick (cheap: one hash), and
   keyframe snapshots every N seconds. **Same hashes → exact:** every checksum must match. **Different build →
@@ -173,10 +188,10 @@ window needed. A separate-process client (real UDP or Steam) has its own socket,
   per-component hash dump at the first bad tick and posts the diff. No GPU is needed.
 - **Golden screenshots.** Hosted macOS runners have an "Apple Paravirtual" GPU, with MPS officially unsupported
   ([runner docs](https://docs.github.com/ru/actions/reference/github-hosted-runners-reference)). Reported problems
-  include wrong WebGPU results ([workerd #1569](https://github.com/cloudflare/workerd/pull/1569)) and GPU hangs on
-  macos-14, with macos-15 reportedly fine ([java-llama.cpp #14](https://github.com/bernardladenthin/java-llama.cpp/pull/14)).
-  Software rasterizers do work in CI: WARP (D3D12) and llvmpipe/lavapipe (GL/Vulkan) in wgpu's CI
-  ([README](https://github.com/gfx-rs/wgpu), *seen via forks; check upstream*). Plan: goldens on Linux lavapipe or
+  include wrong WebGPU results ([report](https://github.com/cloudflare/workerd/pull/1569)) and GPU hangs on
+  macos-14, with macos-15 reportedly fine ([report](https://github.com/bernardladenthin/java-llama.cpp/pull/14)).
+  Software rasterizers do work in other projects' CI: WARP (D3D12) and llvmpipe/lavapipe (GL/Vulkan)
+  ([example](https://github.com/gfx-rs/wgpu), *seen via forks; check upstream*). Plan: goldens on Linux lavapipe or
   Windows WARP, rendered from a snapshot with fixed time and temporal effects off, compared with a threshold diff
   plus a bless page. Mac visuals are checked locally or on a self-hosted nightly. They cover UI layout, "not black",
   and material regressions. Art judgement stays with agents looking at `view.shot`.
@@ -197,7 +212,7 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 | Timeline scrub and branching | A snapshot ring (every tick for ~2 s of rollback, plus keyframes every 1 s for the session) and an input log. Seek = load the keyframe and re-simulate (needs headless sim ≥10× realtime). Branch = load, truncate the input log, continue live under a new replay branch id. **Physics engine state must live in, or round-trip through, the block** |
 | Desync diff viewer | Two blocks → per-entity, per-field diff via the registry. Per-system hashes in debug mode. Peers' dumps collected over the transport |
 | Net sim panel | Per-peer latency, jitter, loss, duplication, reorder and bandwidth in the transport layer. Graphs of input delay, rollback count and depth, and resim cost |
-| Tuning sliders | Config assets in text (RON/TOML) with range metadata. Slider → `config.set` stamped on a tick (replays stay valid). `config.save` writes back format-preserving (toml_edit-style). A file watcher applies disk edits through the same path |
+| Tuning sliders | Config assets in text with range metadata. Slider → `config.set` stamped on a tick (replays stay valid). `config.save` writes back format-preserving. A file watcher applies disk edits through the same path |
 | F3 feedback | Screenshots with and without UI, snapshot, replay (from start, or the last keyframe plus inputs), **view state** (camera, selected peer, UI screen), log ring, perf stats, build/content hashes, note, registry-generated `feedback.md`. `uni feedback list/show/entity/grep/check/promote/done` |
 | Free cam | View-only camera detached from the sim. Its pose is exposed so `view.shot {camera}` reproduces a frame |
 | Perf overlay | Per-system timing in the scheduler (plus Tracy zones), rollback/resim counters, entities, memory, net stats; same data via `perf.stats` |
@@ -221,7 +236,8 @@ exports JSON Schema for `registry.schema` and for MCP tool input schemas.
 1. **Reflection in Odin.** The type registry can come from Odin's runtime type info or generated layout
    descriptors; settle in the module spec.
 2. **Physics state inside snapshots.** Scrub, sync-test and replays assume the physics engine's internal state is
-   in the block, or round-trips deterministically. This is the riskiest dependency, shared with the physics research.
+   in the block, or round-trips deterministically. This was the riskiest dependency; the Box3D fork's world
+   save/restore has since proved bit-exact under rollback and across ARM64/x64 (phase 1).
 3. **Snapshot memory.** The block size of a 1000-entity physics world is unknown. The keyframe interval trades
    memory against seek time.
 4. **Goldens on CI.** Hosted macOS GPU behaviour is anecdotal. Software rasterizers may diverge from real GPUs

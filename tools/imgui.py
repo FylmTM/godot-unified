@@ -20,7 +20,6 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 import common
@@ -28,9 +27,13 @@ from common import REPO, IS_WINDOWS, IS_MACOS, log
 
 IMGUI_URL = "https://github.com/ocornut/imgui.git"
 IMGUI_TAG = "v1.92.9b-docking"
+IMGUI_COMMIT = "b48d1afbe8ee8b238e2961dc363a949dd7304e23"  # what IMGUI_TAG points at; checked after the clone
 DB_TAG = "DearBindings_v0.21_ImGui_v1.92.9b-docking"
 DB_URL = "https://github.com/dearimgui/dear_bindings/releases/download/%s/%s"
-DB_FILES = ["dcimgui_nodefaultargfunctions.cpp", "dcimgui_nodefaultargfunctions.h"]
+DB_FILES = {  # dear_bindings release files -> SHA-256 (they compile into shipped builds, so they are pinned)
+    "dcimgui_nodefaultargfunctions.cpp": "c28edce9d2a73dfb59af802f5ebe5281a17168b54ed34d4e2f3827208ae9059a",
+    "dcimgui_nodefaultargfunctions.h": "e1d5b97decc24ca21cae911eb1c956797877b81bd9049d0c218964adc1871b50",
+}
 RECIPE_VERSION = 1
 MACOS_DEPLOYMENT_TARGET = "11.0"
 
@@ -60,11 +63,12 @@ def ensure_source():
     log("imgui: fetching Dear ImGui %s" % IMGUI_TAG)
     run(["git", "-c", "core.autocrlf=false", "-c", "advice.detachedHead=false", "clone", "-q", "--depth", "1",
          "--branch", IMGUI_TAG, IMGUI_URL, SRC])
+    head = run(["git", "-C", SRC, "rev-parse", "HEAD"]).stdout.strip()
+    if head != IMGUI_COMMIT:
+        raise SystemExit("imgui: %s is commit %s, pinned %s" % (IMGUI_TAG, head, IMGUI_COMMIT))
     (SRC / "dcimgui").mkdir()
-    for f in DB_FILES:
-        log("imgui: fetching dear_bindings %s" % f)
-        with urllib.request.urlopen(DB_URL % (DB_TAG, f)) as r, open(SRC / "dcimgui" / f, "wb") as out:
-            shutil.copyfileobj(r, out)
+    for f, sha in DB_FILES.items():
+        common.download(DB_URL % (DB_TAG, f), SRC / "dcimgui" / f, sha)
     stamp.write_text(want + "\n")
 
 

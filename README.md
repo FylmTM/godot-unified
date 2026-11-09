@@ -10,35 +10,39 @@ working on it: [`AGENTS.md`](AGENTS.md). Plan, decisions and current work:
 ## Layout
 
 ```
-src/                 the `unified` collection (-collection:unified=src); one package per directory
-  box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
+src/                 the `unified` collection (-collection:unified=src); one package per directory, specs in spec/
   wire/              little-endian Writer/Reader for every binary format (leaf)
   sim/               the deterministic harness, generic over a game: tables + handles, RNG, plain-data check,
-                     snapshot ring, checksum, events, input log, portable snapshot (spec/sim.md)
-  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image (spec/sim.md)
-  dmath/             deterministic f32 helpers
-  netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks (spec/netcode.md)
-  gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
+                     snapshot ring, checksum, events, input log, portable snapshot
+  physics/           Box3D as the sim's Extra state: Body_Ref, save/restore/hash/image
+  box3d/             Box3D bindings: pinned commit + our save/restore fork API (leaf)
+  dmath/             deterministic f32 helpers (leaf)
+  netcode/           links (loopback, UDP, netsim), channel, relay, client, host; step API + hooks
+  eos/               Epic Online Services: login, lobbies by code, P2P as a netcode link
+  headless/          a game's headless binary: the CLI modes of spec/headless.md (CLI), generic over the game
   view/              host-agnostic view logic: triple buffer, pose tracks + smoothing, spawn-key sets, events
+  gdext/             Godot bindings: generator (gen/), committed API dump (api/), bindings.txt, runtime, classes
   imgui/             vendored odin-imgui (pinned, local fixes); tools/imgui.py builds Dear ImGui
-  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note
-  godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync (spec/godot_host.md)
-  headless/          a game's headless binary: the CORE.md §3 modes, generic over the game
+  devui/             the dev UI: ImGui -> Godot backend, overlay, RTTI inspector, F3 note (on unless
+                     -define:UNIFIED_DEVUI=false)
+  godot_host/        UnifiedSession / SimView / SimBulkView, the session driver, view sync
 games/survivor/      the test game, laid out like a game repo (Godot project root)
   simulation/        Odin (.gdignore): survivor/ = the game's sim package, headless/ = its headless binary,
                      extension/ = its GDExtension (godot_host + glue); game/ = everything Godot
 tests/               `odin test` packages, one per module, black-box via the collection; tests.odin runs all
   lint/              determinism lint: bans core:math, matrix, f64 in game code, ... per package
   toy/               a tiny game for the library's own tests
+  godot/             the binding tests' Godot project and test extension (dev.py godot-test)
+  box3d/ ... view/   one package per module (box3d, headless, godot_host, gdext, eos, ...)
 testdata/            macOS ARM64 reference input log, trace and snapshot for T7/T8
-third_party/         box3d.patch (the fork); tools/box3d.py fetches + builds Box3D under third_party/box3d/
-tools/               dev.py (the entry point), check.py (T1-T9), box3d.py, ci.py, release.py (game builds)
+third_party/         box3d.patch (the fork); Box3D, Dear ImGui and the EOS SDK are fetched under it (git-ignored)
+tools/               dev.py (the entry point) and its parts: tools/README.md
+docs/                WORK.md (plan), CONTEXT.md (why), RELEASE.md, EOS.md, research/, archive/
 ols.json, odinfmt.json   editor (OLS) and formatter configuration
 ```
 
-Imports point one way: `headless → netcode → sim`, `physics → sim, box3d`, a game's sim package → `sim`, `physics`,
-`dmath`; `wire` is a leaf. Inside `src/` packages import each other by relative path; games and tests import
-`unified:<pkg>`.
+The import graph is in [`AGENTS.md`](AGENTS.md#layout-and-commands). Every package imports another through the
+collection (`unified:<pkg>`), the same way games and tests do.
 
 ## Toolchain
 
@@ -53,47 +57,34 @@ Imports point one way: `headless → netcode → sim`, `physics → sim, box3d`,
 
 ## Commands
 
-Everything goes through `tools/dev.py`; each command prints its time.
-
-```
-python tools/dev.py build [dev|release|debug]   # -> out/<mode>/survivor[.exe]; builds Box3D on first use
-python tools/dev.py test                        # odin test: unit tests + determinism lint (all packages)
-python tools/dev.py check [--only T1,T7]        # release build, then T1-T9 (tools/check.py), ~70 s
-python tools/dev.py fmt [--check]               # odinfmt over src/, tests/ and games/*/simulation/
-python tools/dev.py vet                         # odin check, strict flags, darwin/linux/windows targets
-python tools/dev.py all                         # fmt --check, vet, test, check: what CI runs
-python tools/dev.py gen                         # Godot bindings (src/gdext/*.gen.odin, git-ignored), ~1 s, cached
-python tools/dev.py godot-test                  # gdext binding tests under headless Godot (~2 s)
-python tools/dev.py game build survivor [dev|release]   # games/survivor/.uni/bin/libsurvivor.* (~1 s dev)
-python tools/dev.py game run survivor [-- --devui]      # windowed; also: editor, headless --ticks N, editor-check
-```
+Everything goes through `tools/dev.py`; each command prints its time. The full list, with timings, is in
+[`AGENTS.md`](AGENTS.md#layout-and-commands); `python tools/dev.py -h` prints it too.
 
 Godot: the standard (non-.NET) 4.7.2 build, found via `$GODOT`, `godot` on PATH, `.toolchains/godot/`, or
-`/Applications` / `~/tools/godot` on macOS. Dear ImGui is fetched and built by `tools/imgui.py` on first use
-(clang++ / clang-cl, ~2.5 s).
+`~/tools/godot` / `/Applications` on macOS (`python tools/ci.py godot` downloads the official one there). Dear ImGui
+is fetched and built by `tools/imgui.py` on first use (clang++ / clang-cl, ~2.5 s).
 
 | Mode | Flags | Use | Build (M4 Pro) |
 |---|---|---|---:|
-| `dev` | `-o:speed -use-separate-modules -debug` | everyday: optimized, debuggable | 0.9 s |
-| `release` | `-o:speed` (one LLVM module) | fastest binary; what `check` and CI test | 2.5 s |
-| `debug` | `-o:none -debug` | stepping in a debugger | 0.4 s |
+| `dev` | `-o:speed -use-separate-modules -debug` | everyday: optimized, debuggable | 1.0 s |
+| `release` | `-o:speed` (one LLVM module) | fastest binary; what `check` and CI test | 3.5 s |
+| `debug` | `-o:none -debug` | stepping in a debugger | 0.6 s |
 
 All modes add `-vet -strict-style -vet-tabs -warnings-as-errors`; bounds checks stay on. The plain Odin commands
 work too (the bindings import Box3D's static library by relative path): `odin build
 games/survivor/simulation/headless -collection:unified=src`, `odin test tests -all-packages -collection:unified=src`.
 
-Rosetta determinism check on Apple Silicon (x86_64 build against the macos-x64 Box3D):
-
-```
-python tools/dev.py build release --arch x86_64
-python tools/check.py --only T1,T7,T8
-```
+Rosetta determinism check on Apple Silicon (an x86_64 build in `out/release-x64/` against the macos-x64 Box3D):
+`python tools/dev.py check --arch x86_64 --only T1,T7,T8`.
 
 Regenerate the T7/T8 references only on purpose, on macOS ARM64: `python tools/dev.py check --regen` (see
 [`testdata/README.md`](testdata/README.md)).
 
 ## CI
 
-`.github/workflows/ci.yml`: a `lint` job (format check, vet) and `test` jobs on Linux x64 and Windows x64 (`odin
-test`, then T1-T9 with the T9 bench and step timings in the job summary). Odin, odinfmt and Box3D are cached.
-`.github/workflows/release.yml` makes playable game builds for `<game>-v*` tags only (`docs/RELEASE.md`).
+`.github/workflows/ci.yml`: `lint` (format check, vet), `test` on Linux x64 and Windows x64 (`odin test`, then
+T1-T9 with the T9 bench and step timings in the job summary) and `godot` on Linux x64 (`dev.py godot-checks`):
+together what `dev.py all` runs. `release.yml` makes playable game builds for `<game>-v*` tags only
+(`docs/RELEASE.md`); `eos-crossplay.yml` is the manual internet crossplay check (`spec/eos.md`); `eos-sdk.yml`
+fetches the EOS SDK for the others (the only job with a write token, running no repository code). Actions, runner
+images and downloads are pinned; Odin, odinfmt, Box3D, Dear ImGui, Godot and the EOS SDK are cached.

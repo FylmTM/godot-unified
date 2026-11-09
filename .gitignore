@@ -1,13 +1,6 @@
-# Build outputs and local scratch, anywhere
+# Build outputs, anywhere
 .DS_Store
-.tmp/
-target/
 out/
-build/
-obj/
-bin/
-.zig-cache/
-zig-out/
 .godot/
 
 # Box3D sources and builds are fetched by tools/box3d.py
@@ -30,8 +23,3 @@ zig-out/
 
 # EOS SDK (headers + shipping libraries), staged by tools/eos.py
 /third_party/eos/
-
-# Binaries odin test/build drop at the repo root
-/netcode
-/survivor
-/*.bin

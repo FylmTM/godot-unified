@@ -2,8 +2,9 @@
 
 Research for `unified` (2026-11-08). How sim entities get their Godot-side views (scenes, materials, animation, VFX,
 audio, UI), and how entity templates and levels are authored. Sources: the view layer of the developer's current Unity
-game, `bench/b/godot-*`, `spec/CORE.md`, and the Godot prior art linked at the end. Claims I couldn't check against a
-primary source are marked *(unverified)*.
+game, an early Godot host benchmark (1000 agents + 300 props driven from Odin; the code is gone, results in git:
+`git show 6994822:docs/archive/bench/b/RESULTS.md`), `spec/netcode.md`, and the Godot docs linked at the end. Claims I
+couldn't check against a primary source are marked *(unverified)*.
 
 The plan already decided the direction: "`.tscn` scenes per entity kind… GDScript allowed in the view layer…
 the extension runs the sim and maps sim entities to scenes". This doc works out how.
@@ -45,7 +46,7 @@ the extension runs the sim and maps sim entities to scenes". This doc works out 
   later **confirmed or cancelled**; synced events fire only from verified frames. Poll for continuous visuals, use
   events for one-offs; late joiners never get past events.
 - **Prototypes and maps.** A prototype is a serialized entity (component set plus initial values), materialized at
-  spawn. Today it is authored on a Unity prefab through generated components and indexed into an asset DB;
+  spawn. Today it is authored on an editor prefab through generated components and indexed into an asset DB;
   level scenes are baked into a map asset (static colliders, navmesh, scene prototypes) on save, play and build. The
   bake isn't deterministic (float → fixed point), so its output must be shared, not recomputed.
 - **Culling.** View culling filters which entities get views; prediction culling skips far entities in predicted
@@ -90,10 +91,11 @@ frame :: proc "c" () {
 }
 ```
 
-- **Pros**: fastest (bench B: 1000 agents + 300 props in ~10 engine calls, 0.3–1.0 ms CPU/frame); works with today's
-  bindings (no class registration); one language; everything agent-editable text.
+- **Pros**: fastest (the host benchmark: 1000 agents + 300 props in ~10 engine calls, 0.3–1.0 ms CPU/frame); works
+  with today's bindings (no class registration); one language; everything agent-editable text.
 - **Cons**: nothing visible or tweakable in the editor; animation, VFX, audio and UI all become Odin code against
-  Godot APIs, with manual refcounting (bench B leaked 822 objects before `defer unref`); against PLAN's decision.
+  Godot APIs, with manual refcounting (the host benchmark leaked 822 objects before `defer unref`); against the
+  decided direction (scenes per kind).
 
 ### (B) Godot owns views: a `.tscn` per kind
 
@@ -118,13 +120,13 @@ func _sim_despawned() -> void:           # reset for the pool
 ```
 
 - **Pros**: assets, materials, AnimationTree, GPUParticles, AudioStreamPlayer3D all authored and previewed in the
-  editor; GDScript hot-reloads; matches PLAN; the scene is the obvious place for per-kind settings (bind mode,
-  smoothing, linger, pool size as `@export`s on the root).
+  editor; GDScript hot-reloads; matches the decided direction; the scene is the obvious place for per-kind settings
+  (bind mode, smoothing, linger, pool size as `@export`s on the root).
 - **Cons**: per-node cost at 1000+ (Godot's own docs: nodes have "extra overhead" and servers are for "tens of
   thousands of instances"); GDScript needs a typed way to read sim state, which needs **extension class
-  registration** (missing in our Odin bindings: ~1–1.5k lines, 1–2 weeks per bench B's estimate); bench B's `frame`
-  callback runs *after* `_process`, so the sync must move earlier (a registered `UnifiedSession` node with a very low
-  `process_priority`) or GDScript sees last frame's data.
+  registration** (missing in our Odin bindings: ~1–1.5k lines, 1–2 weeks per the host benchmark's estimate); the
+  benchmark's `frame` callback runs *after* `_process`, so the sync must move earlier (a registered `UnifiedSession`
+  node with a very low `process_priority`) or GDScript sees last frame's data.
 
 ### (C) Hybrid: bulk kinds as MultiMesh, rich kinds as scenes
 
@@ -145,8 +147,8 @@ gd.RenderingServer_multimesh_set_buffer(rs, mm[kind], buf)
 ```
 
 - **Pros**: scenes where richness matters (players, bosses, crabs), native speed where count matters (1000 enemies,
-  projectiles, shards); both editor-authored; the bench already proves the bulk path. A bulk kind can be promoted to
-  a scene (a boss) without touching the sim, since the sim only knows `kind`.
+  projectiles, shards); both editor-authored; the host benchmark already proves the bulk path. A bulk kind can be
+  promoted to a scene (a boss) without touching the sim, since the sim only knows `kind`.
 - **Cons**: two render paths to maintain; bulk kinds get no per-instance scripts, animation or audio (events for
   them go to global listeners: an audio router, a VFX router); per-instance animation for bulk needs vertex animation
   textures *(unverified need)*.
@@ -172,10 +174,10 @@ The shared Odin `view` package handles all of these the same way for every optio
 |---|---|---|---|---|
 | **Spawn/despawn churn** | Bind per kind on `.Predicted` or `.Verified`. Views keyed by **`View.key`**, not handle: if a rollback re-creates the same logical entity under another handle, the view is *rebound*, not recreated (no hijacking). A view whose entity disappears **lingers hidden** for `linger_ticks` (default: until that tick is verified) and is revived if the key reappears; only then does it go back to the pool. Per-kind pools, prewarmed. | free-list of instances | `SimView` pool per kind; `_sim_despawned` must reset | as B; bulk = swap-remove in the buffer |
 | **Predicted events and cancellation** | Event buffer per tick stored with the snapshot ring; key = (type, tick, entity key, hashed fields); confirmed or cancelled when the tick is verified; `synced` only from verified. Dispatch after spawns (new views exist), before despawns (dying views still get them). Entity events go to that view, every event also to global listeners (signals on `UnifiedSession`). | Odin callbacks | `_sim_event`, `_sim_event_cancelled` | bulk kinds: global routers only |
-| **Interpolation, teleports** | Odin computes every pose: lerp/nlerp of predicted−1 → predicted (both from the snapshot ring, which holds re-simulated states after a rollback), plus error correction (keep the last rendered pose, decay the offset, snap below a minimum, teleport above a distance), snap when `View.teleport` changes. Our own clock, not Godot's physics interpolation: the tick rate is nudged ±2% for time sync (`CORE.md`) and rollbacks rewrite history. | written to RS | written to `Node3D.transform` before `_sim_update` | both |
+| **Interpolation, teleports** | Odin computes every pose: lerp/nlerp of predicted−1 → predicted (both from the snapshot ring, which holds re-simulated states after a rollback), plus error correction (keep the last rendered pose, decay the offset, snap below a minimum, teleport above a distance), snap when `View.teleport` changes. Our own clock, not Godot's physics interpolation: the tick rate is nudged ±2% for time sync (`spec/netcode.md`) and rollbacks rewrite history. | written to RS | written to `Node3D.transform` before `_sim_update` | both |
 | **Determinism boundary** | The view API is read-only (`SimFrame` has no setters); the only way in is input and commands. In dev builds, checksum the state block before and after the view phase (one XXH3 over the block) to catch native writes. | needs that check most | GDScript cannot write at all | same |
 | **Editor preview** | | none, unless the extension draws in the editor | open `views/<kind>.tscn`; a `@tool` script can fake state | bulk resources preview as a mesh |
-| **1000+ entities** | | proven: ~1 ms CPU for 1300 instances (bench B) | unmeasured; GDScript `_sim_update` on 1000 nodes is probably several ms *(unverified)* | bulk path proven; scenes only for tens to low hundreds |
+| **1000+ entities** | | proven: ~1 ms CPU for 1300 instances (host benchmark) | unmeasured; GDScript `_sim_update` on 1000 nodes is probably several ms *(unverified)* | bulk path proven; scenes only for tens to low hundreds |
 
 Also worth adding later: a snapshot-interpolation mode (verified-only, delayed) for remote entities, view culling,
 and prediction culling. None are needed for 4 players in one level.
@@ -215,8 +217,8 @@ teleport :: proc(f: ^Frame, e: Handle, pos: Vec3, rot: Quat)    // sim side: set
   not a silent invisible entity).
 
 UI (HUD, goals) reads `session.verified()` for anything that must not flicker and `predicted()` for the local
-player's immediate state. Audio and VFX follow `07-animation-audio-vfx.md`: one-offs from predicted events with
-cancel fades, celebrations from verified state or synced events, loops from state.
+player's immediate state. Audio and VFX: one-offs from predicted events with cancel fades, celebrations from
+verified state or synced events, loops from state.
 
 ## Questions for the developer
 
@@ -232,32 +234,22 @@ cancel fades, celebrations from verified state or synced events, loops from stat
 5. **Default bind and smoothing**: the current game binds on predicted frames with exponential decay everywhere. Keep
    that as the default, with Verified for player characters?
 6. **How much view logic in GDScript vs Odin?** The character rig (over 1,000 lines today) is the test: GDScript for
-   speed of iteration, or Odin for speed and the "one language" rule? (Research 07 suggested writing the rig ourselves,
-   host-agnostic.)
+   speed of iteration, or Odin for speed and the "one language" rule? (Earlier host research suggested writing the
+   rig ourselves, host-agnostic.)
 7. **Benchmark before deciding**: 1000 `SimView` scenes with a trivial `_sim_update` vs 1000 bulk instances, to set
    the scene-count budget per frame.
 
 ## Sources
 
-Godot prior art:
-- netfox: [RollbackSynchronizer](https://foxssake.github.io/netfox/latest/netfox/nodes/rollback-synchronizer/)
-  (rolls back node properties; `is_fresh` so sounds play once),
-  [spawning and despawning in rollback](https://foxssake.github.io/netfox/latest/netfox/tutorials/spawning-and-despawning-in-rollback/)
-  (liveness intervals, `_rollback_spawn/_despawn/_destroy`: nodes are deactivated, not freed, while a rollback could
-  still need them; one contiguous interval per node),
-  [TickInterpolator](https://foxssake.github.io/netfox/latest/netfox/nodes/tick-interpolator/) (`teleport()`).
-  Version not shown on the pages *(unverified)*.
-- snopek godot-rollback-netcode ([README](https://gitlab.com/snopek-games/godot-rollback-netcode/-/blob/main/README.md),
-  v1.0.0-alpha8): `SyncManager.spawn()` records spawns so rollback can despawn/respawn them, setup in
-  `_network_spawn`, optional reuse of despawned nodes; `play_sound()` deduped per tick by identifier;
-  `NetworkAnimationPlayer` steps per tick; `NetworkTimer` counts ticks.
-- Godot 4.7: [MultiMesh](https://docs.godotengine.org/en/stable/classes/class_multimesh.html)
-  (`set_buffer_interpolated`, `reset_instance_physics_interpolation`, custom data),
-  [MultiplayerSpawner](https://docs.godotengine.org/en/stable/classes/class_multiplayerspawner.html) (a list of
-  spawnable scenes plus `spawn_function(data)`: the same "kind → scene" registry idea, without rollback),
-  [using servers](https://docs.godotengine.org/en/stable/tutorials/performance/using_servers.html),
-  [physics interpolation](https://docs.godotengine.org/en/stable/tutorials/physics/interpolation/physics_interpolation_introduction.html).
-- ECS bridges: [godot-bevy](https://lib.rs/crates/godot-bevy) (0.11, Bevy entities hold a `GodotNodeHandle`; the
-  node is freed when the handle is removed; nodes are the view); [GECS](https://github.com/csprance/gecs) (entities
-  *are* nodes, components are Resources: the opposite of our pointer-free state block, useful only as a T1 authoring
-  reference).
+Ideas from existing Godot rollback add-ons, in our terms: roll back node properties and play a sound once per tick
+(dedupe by tick and identifier); nodes spawned inside the rollback window are deactivated, not freed, while a rollback
+could still need them (one contiguous liveness interval per node); a `teleport()` on the interpolator; ticks counted
+by timers and animation players stepped per tick. ECS bridges that make nodes the entities (or components Resources)
+are the opposite of our pointer-free state block, useful only as a T1 authoring reference.
+
+Godot 4.7: [MultiMesh](https://docs.godotengine.org/en/stable/classes/class_multimesh.html)
+(`set_buffer_interpolated`, `reset_instance_physics_interpolation`, custom data),
+[MultiplayerSpawner](https://docs.godotengine.org/en/stable/classes/class_multiplayerspawner.html) (a list of
+spawnable scenes plus `spawn_function(data)`: the same "kind → scene" registry idea, without rollback),
+[using servers](https://docs.godotengine.org/en/stable/tutorials/performance/using_servers.html),
+[physics interpolation](https://docs.godotengine.org/en/stable/tutorials/physics/interpolation/physics_interpolation_introduction.html).

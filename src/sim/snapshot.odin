@@ -6,7 +6,7 @@ package sim
 
 import "base:intrinsics"
 
-import "../wire"
+import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
 SNAP_VERSION :: 2

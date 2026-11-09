@@ -1,4 +1,4 @@
-// The survivor's headless binary: every mode of spec/CORE.md §3 (sim, synctest, replay, session,
+// The survivor's headless binary: every mode of spec/headless.md (CLI) (sim, synctest, replay, session,
 // relay, client, snapshot, resume, bench) on the survivor game with the `stress` tuning, through
 // unified:headless, with EOS as its online transport (online.odin: eos-host, eos-client); plus
 // `bot` (bot.odin), which measures the `play` tuning.

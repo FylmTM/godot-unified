@@ -17,7 +17,7 @@ game/ui/               theme (code-built), main menu, settings, connect overlay,
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, camera), follow camera
 game/views/            player/crate/barrel scenes (GameView), GameBulkView (MultiMesh)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
-game/tools/            validate.gd, ui_walk.gd, tour.gd, log_capture.gd, ... (not exported)
+game/tools/            the check and tour scripts `dev.py game` runs (validate, ui_walk, tour, coop, ...; not exported)
 ```
 
 ## Flow

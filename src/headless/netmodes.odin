@@ -5,8 +5,8 @@ import cnet "core:net"
 import "core:strconv"
 import "core:strings"
 
-import "../netcode"
-import "../sim"
+import "unified:netcode"
+import "unified:sim"
 
 profile_opt :: proc(a: ^Args) -> netcode.Profile {
 	name := opt_str(a, "profile", "ideal")

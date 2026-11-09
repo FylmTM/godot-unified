@@ -1,4 +1,4 @@
-// A game's headless binary: the CLI of spec/CORE.md §3, generic over the game. The game's
+// A game's headless binary: the CLI of spec/headless.md (CLI), generic over the game. The game's
 // `main` builds a Headless descriptor and calls headless.run. Every mode prints one JSON object as
 // its last stdout line; a non-zero exit code means failure.
 package headless
@@ -6,7 +6,7 @@ package headless
 import "core:fmt"
 import "core:os"
 
-import "../sim"
+import "unified:sim"
 
 run :: proc(h: ^Headless($S, $I, $W, $P)) {
 	platform_init()

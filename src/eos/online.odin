@@ -23,7 +23,7 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "../netcode"
+import "unified:netcode"
 
 Role :: enum u8 {
 	None,

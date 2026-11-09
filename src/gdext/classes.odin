@@ -16,7 +16,7 @@ package gdext
 
 import "base:runtime"
 import "core:fmt"
-import "gdi"
+import "unified:gdext/gdi"
 
 Instance_Header :: struct {
 	obj:   Object, // the engine object this instance extends

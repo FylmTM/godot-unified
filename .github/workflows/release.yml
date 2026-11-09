@@ -1,7 +1,10 @@
 # Playable game builds (docs/RELEASE.md). A tag `<game>-v<version>` (e.g. survivor-v0.1.0) builds games/<game> for
 # windows-x64 and macos-arm64 with tools/release.py, smoke-tests each export on its runner, and publishes a GitHub
 # prerelease with both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline: Windows
-# only (macOS runners are for tag builds), any game folder, no release.
+# only (macOS runners are for tag builds), any game folder, no release. The tag is the only source of the
+# version: release.py stamps it into the export and fails if the export doesn't carry it.
+# The build jobs have `contents: read` (the EOS SDK comes from eos-sdk.yml as a cache entry) and the EOS secrets
+# only in the one step that compiles them in; actions, runner images and downloads are pinned (see ci.yml).
 name: release
 
 on:
@@ -28,20 +31,20 @@ env:
 jobs:
   meta:
     name: what to build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       game_dir: ${{ steps.m.outputs.game_dir }}
       version: ${{ steps.m.outputs.version }}
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: m
         env:
           INPUT_GAME_DIR: ${{ inputs.game_dir }}
         run: |
-          win='{"os":"windows-latest","platform":"windows-x64","py":"python","templates":"~/AppData/Roaming/Godot/export_templates"}'
-          mac='{"os":"macos-latest","platform":"macos-arm64","py":"python3","templates":"~/Library/Application Support/Godot/export_templates"}'
+          win='{"os":"windows-2025","platform":"windows-x64","py":"python","templates":"~/AppData/Roaming/Godot/export_templates"}'
+          mac='{"os":"macos-15","platform":"macos-arm64","py":"python3","templates":"~/Library/Application Support/Godot/export_templates"}'
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             tag="$GITHUB_REF_NAME"
             game_dir="games/${tag%-v*}"
@@ -52,6 +55,10 @@ jobs:
             version="dev-${GITHUB_SHA::7}"
             matrix="{\"include\":[$win]}"
           fi
+          if ! [[ "$game_dir" =~ ^games/[a-z0-9_-]+$ && "$version" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+            echo "::error::bad game folder or version: $game_dir $version"
+            exit 1
+          fi
           if [ ! -f "$game_dir/project.godot" ] || [ ! -f "$game_dir/export_presets.cfg" ]; then
             echo "::error::$game_dir is not a game folder (needs project.godot and export_presets.cfg)"
             exit 1
@@ -61,14 +68,16 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Building \`$game_dir\` version \`$version\`" >> "$GITHUB_STEP_SUMMARY"
 
+  eos-sdk:
+    uses: ./.github/workflows/eos-sdk.yml
+    permissions:
+      contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
+
   build:
     name: build / ${{ matrix.platform }}
-    needs: meta
+    needs: [meta, eos-sdk]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # tools/eos.py downloads the EOS SDK from a draft release, which GitHub lists only to write tokens.
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.meta.outputs.matrix) }}
@@ -78,20 +87,14 @@ jobs:
     env:
       GAME_DIR: ${{ needs.meta.outputs.game_dir }}
       VERSION: ${{ needs.meta.outputs.version }}
-      GH_TOKEN: ${{ github.token }}
-      EOS_PRODUCT_ID: ${{ secrets.EOS_PRODUCT_ID }}
-      EOS_SANDBOX_ID: ${{ secrets.EOS_SANDBOX_ID }}
-      EOS_DEPLOYMENT_ID: ${{ secrets.EOS_DEPLOYMENT_ID }}
-      EOS_CLIENT_ID: ${{ secrets.EOS_CLIENT_ID }}
-      EOS_CLIENT_SECRET: ${{ secrets.EOS_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # A pip that can install ninja on every runner (macOS's system Python refuses, PEP 668).
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .toolchains/odin
           key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
@@ -99,24 +102,41 @@ jobs:
       - name: Odin
         run: ${{ matrix.py }} tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
 
+      - id: cc
+        run: echo "id=$(${{ matrix.py }} tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
       - id: box3d-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: third_party/box3d/build/${{ matrix.platform }}
-          key: box3d-${{ matrix.platform }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
+          key: box3d-${{ matrix.platform }}-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
       - if: steps.box3d-cache.outputs.cache-hit != 'true'
         run: ${{ matrix.py }} tools/ci.py ensure-ninja
 
-      # The Godot editor (.toolchains/godot) and this platform's export templates (Godot's standard folder).
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: third_party/eos
+          key: ${{ needs.eos-sdk.outputs.cache-key }}
+          enableCrossOsArchive: true
+          fail-on-cache-miss: true
+
+      # The Godot editor (.toolchains/godot) and this platform's export templates (Godot's standard folder); both
+      # are checked against the SHA-256s pinned in tools/common.py and tools/release.py when downloaded.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             .toolchains/godot
             ${{ matrix.templates }}/${{ env.GODOT_VERSION }}.stable
-          key: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-v1
+          key: godot-${{ env.GODOT_VERSION }}-${{ matrix.platform }}-${{ hashFiles('tools/common.py', 'tools/release.py') }}
 
-      # Dependencies, extension, import, export, sign, zip, smoke test: tools/release.py.
+      # Dependencies, extension, version stamp, import, export, sign, zip, smoke test: tools/release.py. The only
+      # step with the EOS secrets (compiled into the extension; release.py never prints them).
       - name: release.py build
+        env:
+          EOS_PRODUCT_ID: ${{ secrets.EOS_PRODUCT_ID }}
+          EOS_SANDBOX_ID: ${{ secrets.EOS_SANDBOX_ID }}
+          EOS_DEPLOYMENT_ID: ${{ secrets.EOS_DEPLOYMENT_ID }}
+          EOS_CLIENT_ID: ${{ secrets.EOS_CLIENT_ID }}
+          EOS_CLIENT_SECRET: ${{ secrets.EOS_CLIENT_SECRET }}
         run: |
           odin version
           require=""
@@ -126,7 +146,7 @@ jobs:
           fi
           ${{ matrix.py }} tools/release.py build "$GAME_DIR" --version "$VERSION" $require
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.platform }}
           path: |
@@ -139,7 +159,7 @@ jobs:
     name: prerelease
     if: github.ref_type == 'tag'
     needs: [meta, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -148,15 +168,15 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
       - name: gh release create
         run: |
           cd dist
-          cat *.sha256 > SHA256SUMS.txt
+          cat *.sha256 | tr -d '\r' > SHA256SUMS.txt   # LF only: macOS `shasum -c` rejects CRLF lines
           sha256sum -c SHA256SUMS.txt
           cd ..
           python3 tools/release.py notes "$GAME_DIR" --tag "$GITHUB_REF_NAME" > notes.md

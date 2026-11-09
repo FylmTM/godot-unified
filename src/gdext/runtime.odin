@@ -14,7 +14,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
-import "gdi"
+import "unified:gdext/gdi"
 
 library: gdi.ClassLibraryPtr
 main_thread_id: int

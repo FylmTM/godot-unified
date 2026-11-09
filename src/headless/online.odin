@@ -10,8 +10,8 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
-import "../netcode"
-import "../sim"
+import "unified:netcode"
+import "unified:sim"
 
 // An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
 Online :: struct {

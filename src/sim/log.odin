@@ -5,7 +5,7 @@ package sim
 
 import "core:os"
 
-import "../wire"
+import "unified:wire"
 
 LOG_MAGIC :: "UNIL"
 LOG_VERSION :: 2

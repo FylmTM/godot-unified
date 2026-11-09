@@ -1,4 +1,4 @@
-// The client (CORE.md §2), generic over the game: a verified frame advanced only with finalized
+// The client (spec/netcode.md), generic over the game: a verified frame advanced only with finalized
 // inputs, a predicted frame up to the local tick (own inputs + the others' last finalized input
 // repeated), rollback on misprediction, a prediction cap, adaptive input delay and a 2% clock slew
 // towards relay tick + delay. Serves and receives late-join snapshots. Driven by client_step from
@@ -7,8 +7,8 @@ package netcode
 
 import "core:fmt"
 
-import usim "../sim" // the field Client.sim shadows the package name
-import "../wire"
+import usim "unified:sim" // the field Client.sim shadows the package name
+import "unified:wire"
 
 Client_Config :: struct {
 	slot:      int, // the slot to ask for; -1: any free slot
@@ -734,7 +734,7 @@ client_step :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (wake_us: i64) {
 	return
 }
 
-// The client's JSON object (CORE.md §3 conventions; temp-allocated).
+// The client's JSON object (spec/headless.md CLI conventions; temp-allocated).
 client_json :: proc(c: ^Client($S, $I, $W, $P)) -> string {
 	b := make([dynamic]u8, 0, 64 + len(c.checksums) * 32, context.temp_allocator)
 	for e, i in c.checksums {

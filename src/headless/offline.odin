@@ -1,5 +1,5 @@
 // Offline modes, generic over the game: scripted runs, sync-test, replay, snapshot/resume and the
-// rollback bench (spec/CORE.md §3).
+// rollback bench (spec/headless.md (CLI)).
 package headless
 
 import "core:fmt"
@@ -8,7 +8,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-import "../sim"
+import "unified:sim"
 
 // What a game's headless binary supplies besides its sim.Game.
 Headless :: struct($S, $I, $W: typeid, $P: int) {
