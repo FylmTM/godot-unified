@@ -6,7 +6,7 @@ package test_survivor
 
 import "core:testing"
 
-import "../../games/survivor/simulation/survivor"
+import "../survivor"
 import "unified:netcode"
 import "unified:sim"
 

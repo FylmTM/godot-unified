@@ -123,6 +123,8 @@ RULES := []Rule {
 	},
 	// The survivor's GDExtension: host side (views, HUD, input glue), never inside a tick.
 	{pkg = "survivor_extension", dir = "games/survivor/simulation/extension"},
+	// The survivor's sim tests: test code like tests/<module>, never inside a tick.
+	{pkg = "test_survivor", dir = "games/survivor/simulation/tests"},
 	// friendslop (spec/friendslop.md): its sim follows the game rules; its headless binary and GDExtension
 	// are like the survivor's.
 	{
@@ -142,6 +144,7 @@ RULES := []Rule {
 		ban_matrix = true,
 	},
 	{pkg = "friendslop_extension", dir = "games/friendslop/simulation/extension"},
+	{pkg = "test_friendslop", dir = "games/friendslop/simulation/tests"},
 }
 
 PHYSICS_IMPORTS :: []string {
@@ -315,7 +318,7 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
-// Every library package and every package of the survivor's simulation/ has a rule, so a new one
+// Every library package and every package of each game's simulation/ has a rule, so a new one
 // can't skip the lint.
 @(test)
 every_package_has_a_rule :: proc(t: ^testing.T) {
@@ -339,6 +342,7 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 	}
 	check_dir(t, SRC_DIR, "src")
 	check_dir(t, GAMES_DIR + "/survivor/simulation", "games/survivor/simulation")
+	check_dir(t, GAMES_DIR + "/friendslop/simulation", "games/friendslop/simulation")
 }
 
 // The lint itself: each banned construct is caught, and comments, strings and allowed imports

@@ -4,7 +4,7 @@ package test_friendslop
 
 import "core:testing"
 
-import fs "../../games/friendslop/simulation/friendslop"
+import fs "../friendslop"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"

@@ -86,7 +86,7 @@ nearest enemies, collect gems, dash out of contact, level-ups round-robin). Medi
 | 4 | 26 s (12-41) | 354 s (207-600+) |
 
 The same bot under `stress` dies at 16-30 s, half the time before its first level-up. The windowed bot of
-`dev.py game play` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `tests/survivor` guards the targets
+`dev.py game play` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `simulation/tests` guards the targets
 on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
 
 ## Systems (run in this order every tick)
@@ -181,5 +181,5 @@ inputs this way and sends them through the netcode. T4 compares against the rela
 
 The headless modes run `stress`: scripted players leave the circle within a second; within 3600 ticks there are matches with a few hundred enemies,
 game overs and resets. `bench --enemies 1000` pre-spawns to 1000 and holds there (the match never ends in bench) to
-measure the rollback cost. `tests/survivor` adds a scenario that forces barrel explosions, deaths, respawns and
+measure the rollback cost. `simulation/tests` adds a scenario that forces barrel explosions, deaths, respawns and
 resets every few ticks, checked by sync-test and by a networked session under the `bad` profile.

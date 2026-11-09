@@ -87,7 +87,8 @@ list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need p
     `-define:UNIFIED_DEVUI=false`); `view` is a host-agnostic leaf.
 - `games/<game>/` is a Godot project: `simulation/<game>/` the deterministic sim (→ `sim`, `physics`, `dmath`,
   `box3d`; linted like the core), `simulation/headless/` its CLI binary (→ `headless`, plus `eos` for online
-  modes), `simulation/extension/` its GDExtension (→ `godot_host`, `eos`, ...), `game/` everything Godot. The
+  modes), `simulation/extension/` its GDExtension (→ `godot_host`, `eos`, ...), `simulation/tests/` its sim
+  tests (run with the library's by `dev.py test`), `game/` everything Godot. The
   first game is `games/survivor/`; `games/friendslop/` (spec/friendslop.md) is the physics co-op sandbox, with a
   Godot-authored level (spec/level.md).
 - `tests/`: `odin test` packages, one per module (`box3d`, `sim`, `netcode`, `headless`, `godot_host`, `gdext`, `eos`,

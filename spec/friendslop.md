@@ -125,7 +125,7 @@ checkpoints. Sounds synthesized at boot, as in the survivor.
 
 ## Tests and checks
 
-- `tests/friendslop`: sync-test (window 8) on scripted chaos inputs that walk, jump, grab, throw, hit, hold friends
+- `simulation/tests`: sync-test (window 8) on scripted chaos inputs that walk, jump, grab, throw, hit, hold friends
   and ride (players start next to items and platforms); scenarios asserting outcomes (two lift the heavy crate, one
   can't; a rider stays on for a full platform cycle; a throw stuns a friend; a held friend breaks free); a netcode
   session under the `bad` profile.

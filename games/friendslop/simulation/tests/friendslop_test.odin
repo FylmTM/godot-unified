@@ -6,12 +6,12 @@ package test_friendslop
 
 import "core:testing"
 
-import fs "../../games/friendslop/simulation/friendslop"
+import fs "../friendslop"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-PARK :: #load("../../games/friendslop/game/levels/park.level")
+PARK :: #load("../../game/levels/park.level")
 WINDOW :: 8
 
 Run :: struct {
