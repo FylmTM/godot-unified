@@ -1,6 +1,7 @@
 extends CanvasLayer
 ## In-game HUD, driven by `Game.hud` every frame: local player card (HP, XP, level), wave/time/enemies, the
-## lobby/squad panel (code + players), the start hint, banners, the level-up choice and the match-over panel.
+## session panel (code + players) and the controls list (both shared with the other games), the start hint, banners,
+## the level-up choice and the match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
 ## Upgrade names and details come from the sim (`Game.constants.upgrades`), as does the "over" hold time.
@@ -17,14 +18,6 @@ const PAD_KEYS := ["X", "Y", "B"]
 @onready var _wave: Label = $Root/Top/Wave
 @onready var _time: Label = $Root/Top/Time
 @onready var _enemies: Label = $Root/Top/Enemies
-@onready var _side: PanelContainer = $Root/Side
-@onready var _side_heading: Label = $Root/Side/VBox/Heading
-@onready var _code_row: Control = $Root/Side/VBox/CodeRow
-@onready var _code_label: Label = $Root/Side/VBox/CodeRow/Label
-@onready var _code: Label = $Root/Side/VBox/CodeRow/Code
-@onready var _copy: Button = $Root/Side/VBox/CodeRow/Copy
-@onready var _list: VBoxContainer = $Root/Side/VBox/List
-@onready var _side_hint: Label = $Root/Side/VBox/Hint
 @onready var _hint: Control = $Root/Hint
 @onready var _respawn: Label = $Root/Respawn
 @onready var _banner: Label = $Root/Banner
@@ -35,10 +28,8 @@ const PAD_KEYS := ["X", "Y", "B"]
 @onready var _vignette: ShaderMaterial = $Root/Vignette.material
 @onready var _flash: ColorRect = $Root/Flash
 @onready var _hint_main: Label = $Root/Hint/Main
-@onready var _hint_keys: Label = $Root/Hint/Keys
 @onready var _options: HBoxContainer = $Root/LevelUp/VBox/Options
 
-var _rows: Array[Dictionary] = []
 var _last_wave := 0
 var _last_phase := ""
 var _t := 0.0
@@ -48,6 +39,8 @@ var _hurt := 0.0  # 0..1, decays: the red edge flash after taking damage
 var _levelup_hold := 0.0  # keeps the panel up briefly after a choice so the picked card can be seen
 var _over_since := 0.0
 var _new_best := false
+var _session: SessionPanel
+var _controls: ControlsPanel
 
 
 func _ready() -> void:
@@ -60,10 +53,10 @@ func _ready() -> void:
 		_options.add_child(b)
 	Game.input_device_changed.connect(func(_pad: bool) -> void: _label_keys())
 	_label_keys()
-	for i in 4:
-		_rows.append(_make_row())
-	_copy.pressed.connect(func() -> void:
-		Game.copy_with_feedback(_copy, Game.lobby_code if Game.lobby_code != "" else Game.lan_address.get_slice(",", 0)))
+	_session = SessionPanel.new()
+	$Root.add_child(_session)
+	_controls = ControlsPanel.new()
+	$Root.add_child(_controls)
 	$Root/GameOver/Center/Panel/VBox/Leave.pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
@@ -126,11 +119,8 @@ func _refresh(delta: float) -> void:
 		_hint_main.text = "Step out to start the match!" if urgency > 0.5 else "Walk out of the circle to start"
 		_hint_main.add_theme_color_override(&"font_color", UiTheme.CYAN.lerp(UiTheme.ACCENT, urgency))
 		_hint.modulate.a = lerpf(0.65 + 0.35 * sin(_t * 3.0), 1.0, urgency)
-		_hint_keys.text = Game.hint(
-			"WASD / arrows to move  ·  Space to dash  ·  Esc for the menu",
-			"Left stick to move  ·  A to dash  ·  Start for the menu")
 
-	_update_side(lobby)
+	_session.refresh(_session_rows(lobby), lobby, "Anyone walking out of the circle starts the match.")
 
 	# Respawn countdown.
 	var dead_in_match: bool = phase == "match" and not me.is_empty() and not me.alive
@@ -150,6 +140,7 @@ func _refresh(delta: float) -> void:
 		_levelup.pivot_offset = _levelup.size / 2.0
 		_levelup.create_tween().tween_property(_levelup, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK)
 	_levelup.visible = show_levelup or _levelup_hold > 0.0
+	_update_controls(show_levelup)
 	_pending.text = "Choose an upgrade" + ("  ·  %d pending" % pending if pending > 1 else "")
 
 	# Match over.
@@ -213,76 +204,29 @@ func _picked(i: int) -> void:
 	Sfx.play(&"click")
 
 
-func _update_side(lobby: bool) -> void:
-	var present := []
+func _update_controls(choosing: bool) -> void:
+	var keys := [["WASD / arrows", "Move"], ["Space", "Dash"]]
+	var pad := [["Left stick", "Move"], ["A", "Dash"]]
+	if choosing:
+		keys.append(["1  2  3", "Pick an upgrade"])
+		pad.append(["X  Y  B", "Pick an upgrade"])
+	keys.append(["Esc", "Menu"])
+	pad.append(["Start", "Menu"])
+	_controls.refresh(keys, pad)
+
+
+## The session panel's rows: everyone present, with their level and HP in a match.
+func _session_rows(lobby: bool) -> Array:
+	var rows := []
 	for p: Dictionary in Game.hud.get("players", []):
-		if p.get("present", false):
-			present.append(p)
-	# Solo: nothing to list in the match, and no code in the lobby.
-	_side.visible = Game.is_online() or (lobby and present.size() > 1)
-	if not _side.visible:
-		return
-	_side_heading.text = "Lobby" if lobby else "Squad"
-	_code_row.visible = lobby and (Game.lobby_code != "" or Game.lan_address != "")
-	_code_label.text = "Code" if Game.lobby_code != "" else "LAN"
-	_code.text = Game.lobby_code if Game.lobby_code != "" else Game.lan_address
-	_code.add_theme_font_size_override(&"font_size", 30 if Game.lobby_code != "" else 18)
-	_side_hint.visible = lobby
-	if present.size() < 2:
-		match Game.mode:
-			Game.Mode.HOST:
-				_side_hint.text = "Waiting for a friend. Share the code; they join from the main menu."
-			Game.Mode.HOST_LAN:
-				_side_hint.text = "Waiting for a friend. They pick Join by address and type the address above."
-			_:
-				_side_hint.text = "Waiting for players."
-	else:
-		_side_hint.text = "Anyone walking out of the circle starts the match."
-	var local_slot: int = Game.hud.get("local_slot", 0)
-	for i in _rows.size():
-		var row := _rows[i]
-		var shown := i < present.size()
-		row.box.visible = shown
-		if not shown:
+		if not p.get("present", false):
 			continue
-		var p: Dictionary = present[i]
-		row.dot.color = UiTheme.slot_color(p.slot)
-		row.name.text = Game.player_name(p) + (" (you)" if p.slot == local_slot else "")
-		row.bar.visible = not lobby
-		if lobby:
-			row.status.text = "ready"
-		elif not p.alive:
-			row.status.text = "down %.0fs" % ceilf(p.respawn_s)
-		else:
-			row.status.text = "LV %d" % p.level
-		row.bar.max_value = p.hp_max
-		row.bar.value = p.hp
-
-
-func _make_row() -> Dictionary:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override(&"separation", 2)
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override(&"separation", 8)
-	var dot := ColorRect.new()
-	dot.custom_minimum_size = Vector2(12, 12)
-	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var label := Label.new()
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	var status := Label.new()
-	status.theme_type_variation = &"Dim"
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(0, 6)
-	bar.show_percentage = false
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	line.add_child(dot)
-	line.add_child(label)
-	line.add_child(status)
-	box.add_child(line)
-	box.add_child(bar)
-	_list.add_child(box)
-	return {"box": box, "dot": dot, "name": label, "status": status, "bar": bar}
+		var status := "ready"
+		if not lobby:
+			status = "down %.0fs" % ceilf(p.respawn_s) if not p.alive else "LV %d" % p.level
+		var bar: float = -1.0 if lobby else p.hp / maxf(p.hp_max, 1.0)
+		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": status, "bar": bar})
+	return rows
 
 
 func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, value: float) -> void:

@@ -1,17 +1,18 @@
 extends CanvasLayer
 ## In-game HUD, built in code: the run timer and best time, the checkpoint, a crosshair, the local player's state
-## (holding, charge, held, stunned, fallen), the players list, control hints and banners for run events.
+## (holding, charge, held, stunned, fallen), the session panel (code + players) and the controls list (both shared
+## with the other games), and banners for run events.
 
 var _timer: Label
 var _best: Label
 var _phase: Label
 var _state: Label
-var _players: Label
-var _hint: Label
 var _banner: Label
 var _charge: ProgressBar
 var _cross: Label
 var _banner_t := 0.0
+var _session: SessionPanel
+var _controls: ControlsPanel
 
 
 func _ready() -> void:
@@ -28,8 +29,6 @@ func _ready() -> void:
 	_phase = _label(top, "Dim", HORIZONTAL_ALIGNMENT_CENTER)
 	_timer = _label(top, "Heading", HORIZONTAL_ALIGNMENT_CENTER)
 	_best = _label(top, "Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	_players = _label(root, "Dim", HORIZONTAL_ALIGNMENT_LEFT)
-	_players.position = Vector2(16, 14)
 	_cross = _label(root, "", HORIZONTAL_ALIGNMENT_CENTER)
 	_cross.text = "·"
 	_cross.set_anchors_preset(Control.PRESET_CENTER)
@@ -44,16 +43,16 @@ func _ready() -> void:
 	_charge.show_percentage = false
 	_charge.max_value = 1.0
 	root.add_child(_charge)
-	_hint = _label(root, "Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hint.position = Vector2(-450, -40)
-	_hint.custom_minimum_size = Vector2(900, 0)
 	_banner = _label(root, "Heading", HORIZONTAL_ALIGNMENT_CENTER)
 	_banner.set_anchors_preset(Control.PRESET_CENTER)
 	_banner.position = Vector2(-300, -140)
 	_banner.custom_minimum_size = Vector2(600, 0)
 	_banner.add_theme_font_size_override(&"font_size", 48)
 	_banner.visible = false
+	_session = SessionPanel.new()
+	root.add_child(_session)
+	_controls = ControlsPanel.new()
+	root.add_child(_controls)
 	Game.session.sim_event.connect(_on_sim_event)
 
 
@@ -86,7 +85,7 @@ func _process(delta: float) -> void:
 			_phase.text = "HUB"
 			_timer.text = ""
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
-	var lines: Array[String] = []
+	var rows := []
 	for p: Dictionary in h.get("players", []):
 		if not p.get("present", false):
 			continue
@@ -97,8 +96,8 @@ func _process(delta: float) -> void:
 			tags.append("dazed")
 		if p.get("fallen", false):
 			tags.append("fell")
-		lines.append("%s%s" % [Game.player_name(p), ("  (" + ", ".join(tags) + ")") if not tags.is_empty() else ""])
-	_players.text = "\n".join(lines)
+		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": ", ".join(tags)})
+	_session.refresh(rows, phase == "hub", "Walk through the start gate to start the run.")
 	var me := Game.local_player()
 	var holding: int = me.get("holding", 0)
 	_charge.value = me.get("charge", 0.0)
@@ -111,12 +110,18 @@ func _process(delta: float) -> void:
 		_state.text = "Dazed"
 	else:
 		_state.text = ""
-	if holding != 0:
-		_hint.text = Game.hint("LMB / E drop  ·  hold RMB / Q to charge, release to throw  ·  Space jump",
-			"RT drop  ·  hold LT to charge, release to throw  ·  A jump")
+	if me.get("held", false):
+		_controls.refresh([["Space (mash)", "Break free"], ["Esc", "Menu"]], [["A (mash)", "Break free"], ["Start", "Menu"]])
+	elif holding != 0:
+		_controls.refresh(
+			[["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Drop"],
+				["Hold RMB / Q", "Charge, release to throw"], ["Esc", "Menu"]],
+			[["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Drop"],
+				["Hold LT", "Charge, release to throw"], ["Start", "Menu"]])
 	else:
-		_hint.text = Game.hint("WASD move  ·  mouse look  ·  Space jump  ·  LMB / E grab  ·  Esc menu",
-			"Left stick move  ·  right stick look  ·  A jump  ·  RT grab  ·  Start menu")
+		_controls.refresh(
+			[["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Grab"], ["Esc", "Menu"]],
+			[["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Grab"], ["Start", "Menu"]])
 	_banner_t = maxf(_banner_t - delta, 0.0)
 	_banner.visible = _banner_t > 0.0
 	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
