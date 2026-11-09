@@ -16,7 +16,7 @@ import "core:testing"
 Rule :: struct {
 	pkg:           string, // the package's name, for messages (and the tests' rule table)
 	dir:           string, // the package's directory (subdirectories included); see `check`
-	only_imports:  []string, // when set: the only imports allowed (../x counts as unified:x; "a/" allows a/*)
+	only_imports:  []string, // when set: the only imports allowed, as written ("a/" allows a/*)
 	ban_imports:   []string, // import path prefixes
 	allow_imports: []string, // exceptions to ban_imports
 	ban_idents:    []string, // identifiers, e.g. types or intrinsics
@@ -206,7 +206,7 @@ scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) ->
 }
 
 // Returns one line per package-level variable in `src` that is neither `@(rodata)` nor in
-// MUTABLE_GLOBALS. A write to one during a tick would be state outside the block: not rolled
+// `r.allow_globals`. A write to one during a tick would be state outside the block: not rolled
 // back, not hashed, a desync nothing else catches. Token-level: a package-level statement
 // (outside every brace except a `when`/`else` block's, outside parentheses and brackets) of the
 // form `a, b: ...` or `a := ...` declares variables; `a :: ...` is a constant.
@@ -349,12 +349,10 @@ report_globals :: proc(
 
 banned_import :: proc(r: Rule, path: string) -> bool {
 	if r.only_imports != nil {
-		p := path
-		if strings.has_prefix(p, "../") {
-			p = strings.concatenate({"unified:", p[3:]}, context.temp_allocator)
-		}
+		// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified
+		// package, so a game's `../sim` is not unified:sim and must be listed itself (extra_imports).
 		for ok in r.only_imports {
-			if p == ok || path == ok || (strings.has_suffix(ok, "/") && strings.has_prefix(path, ok)) {
+			if path == ok || (strings.has_suffix(ok, "/") && strings.has_prefix(path, ok)) {
 				return false
 			}
 		}
