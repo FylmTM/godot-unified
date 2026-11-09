@@ -19,11 +19,12 @@ usage :: proc() -> ! {
   synctest --ticks N --window W [--seed S] [--players P]
   replay   --log F --trace F
   session  --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N
-           [--late-join P@T] [--log F] [--seed S]
+           [--late-join P@T] [--log F] [--seed S] [--clock real|virtual]
   relay    --port P --players N --ticks T --log F
   client   --connect HOST:PORT --player I --ticks T [--profile ideal|wan|bad]
-  eos-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--relays allow|force|none] [--code-file F] [--log F]
-  eos-client --code CODE --ticks T [--bucket B] [--relays allow|force|none]
+  <online>-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--code-file F] [--log F] [transport options]
+  <online>-client --code CODE --ticks T [--bucket B] [transport options]
+                  (when the game plugs in an online transport, e.g. eos-host / eos-client)
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --enemies E --window W --ticks N [--seed S] [--players P]

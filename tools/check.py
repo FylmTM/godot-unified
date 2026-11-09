@@ -297,8 +297,10 @@ def t2(ctx):
 
 def session(ctx, name, clients, profile, ticks, extra=()):
     logf = ctx.path(name + ".log")
+    # On the virtual clock: the same relay, clients and network simulator, stepped through test time on one
+    # thread, so a 56 s session takes about a second and has no timing flakes. T5 keeps real time and sockets.
     j = run(ctx, name, ["session", "--clients", clients, "--transport", "loopback", "--profile", profile,
-                        "--ticks", ticks, "--seed", TEST_SEED, "--log", logf] + list(extra),
+                        "--ticks", ticks, "--seed", TEST_SEED, "--log", logf, "--clock", "virtual"] + list(extra),
             session_timeout(ticks))
     return j, logf
 
@@ -354,7 +356,7 @@ def t4(ctx):
 
 
 def t5(ctx):
-    ticks, n = 1800, 3
+    ticks, n = 960, 3  # 15 s of real time: the one wall-clock test (UDP, separate processes)
     port = free_udp_port()
     logf = ctx.path("T5", "relay.log")
     tmo = session_timeout(ticks) * ctx.scale
@@ -456,9 +458,9 @@ def t9(ctx):
 
 
 TESTS = {"T1": t1, "T2": t2, "T3": t3, "T4": t4, "T5": t5, "T6": t6, "T7": t7, "T8": t8, "T9": t9}
-# Paced by the 64 Hz relay clock (~60 s, ~30 s, ~60 s of wall time, little CPU): started together up front so they
-# overlap each other and T1/T2. T9 (timing-sensitive) runs after all of them have finished.
-REALTIME = ["T3", "T5", "T6"]
+# Paced by the 64 Hz relay clock (~15 s of wall time, little CPU): started up front so it overlaps the others.
+# T9 (timing-sensitive) runs after it has finished.
+REALTIME = ["T5"]
 
 
 # --- regen ----------------------------------------------------------------------------------------
@@ -534,10 +536,9 @@ def main(argv=None):
     ap.add_argument("--regen", action="store_true", help="regenerate testdata/ (macOS ARM64 only) first")
     ap.add_argument("--force", action="store_true", help="allow --regen on a platform other than macOS ARM64")
     ap.add_argument("--jobs", type=int, default=6,
-                    help="T3 sessions run in parallel (default 6: all at once; they are paced by the 64 Hz "
-                         "clock, not by the CPU)")
+                    help="T3 sessions run in parallel (default 6: all at once)")
     ap.add_argument("--serial", action="store_true",
-                    help="run the real-time tests T3, T5, T6 one after another instead of overlapped")
+                    help="run the real-time test T5 in order instead of overlapped")
     ap.add_argument("--timeout-scale", type=float, default=None,
                     help="multiply every timeout (default 1, 2 for dev, 8 for debug builds)")
     args = ap.parse_args(argv)

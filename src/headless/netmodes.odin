@@ -18,7 +18,7 @@ profile_opt :: proc(a: ^Args) -> netcode.Profile {
 }
 
 mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "clients", "transport", "profile", "ticks", "late-join", "log", "seed")
+	check_known(a, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
 	cfg := Session_Config {
 		clients     = opt_int(a, "clients", required = true, lo = 1, hi = P),
 		transport   = opt_str(a, "transport", "loopback"),
@@ -29,6 +29,16 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	}
 	if cfg.transport != "loopback" && cfg.transport != "udp" {
 		die("session: --transport must be loopback or udp")
+	}
+	switch opt_str(a, "clock", "real") {
+	case "real":
+	case "virtual":
+		cfg.virtual = true
+		if cfg.transport != "loopback" {
+			die("session: --clock virtual needs --transport loopback")
+		}
+	case:
+		die("session: --clock must be real or virtual")
 	}
 	if lj := opt_str(a, "late-join"); lj != "" {
 		parts := strings.split(lj, "@", context.temp_allocator)
@@ -52,12 +62,13 @@ mode_session :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		ok &&= sim.log_write(path, &res.log)
 	}
 	fmt.printfln(
-		`{{"mode":"session","clients":[%s],"desyncs":%d,"replaced_inputs":%d,"profile":"%s","transport":"%s","ticks":%d,"relay_net":%s,"ok":%v}}`,
+		`{{"mode":"session","clients":[%s],"desyncs":%d,"replaced_inputs":%d,"profile":"%s","transport":"%s","clock":"%s","ticks":%d,"relay_net":%s,"ok":%v}}`,
 		strings.join(res.clients[:], ",", context.temp_allocator),
 		res.desyncs,
 		res.replaced,
 		cfg.profile.name,
 		cfg.transport,
+		cfg.virtual ? "virtual" : "real",
 		cfg.ticks,
 		res.relay_net,
 		ok,
@@ -79,6 +90,7 @@ mode_relay :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		seed          = 1,
 		ticks         = ticks,
 		start_players = players,
+		compat        = sim.compat_of(h.game),
 		name          = "relay",
 	}
 	r := netcode.relay_create(cfg, I, P)

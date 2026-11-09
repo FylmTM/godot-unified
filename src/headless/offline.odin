@@ -24,6 +24,8 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare: proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:   proc(s: ^S) -> int,
+	// Online play over a lobby transport: the <name>-host and <name>-client modes (optional).
+	online:        ^Online,
 }
 
 Trace :: struct {
@@ -208,9 +210,9 @@ run_resume :: proc(
 		return
 	}
 	defer delete(data)
-	s := sim.from_snapshot(h.game, data)
-	if s == nil {
-		fmt.eprintfln("resume: %s is not a valid snapshot for this build", in_path)
+	s, serr := sim.from_snapshot(h.game, data)
+	if serr != .None {
+		fmt.eprintfln("resume: %s is not a valid snapshot for this build: %v", in_path, serr)
 		return
 	}
 	defer sim.destroy(s)

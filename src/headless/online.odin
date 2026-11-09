@@ -1,100 +1,109 @@
-// Online modes over EOS (spec/eos.md), the game topology end to end without Godot: `eos-host`
-// runs a host (relay + the host's own player in slot 0) whose relay also serves an EOS P2P link,
-// publishes a lobby and prints its code; `eos-client` joins by code and plays a remote slot (a late
-// join: the host's clock is already running). Inputs are the game's script. Two processes on one
-// machine need two Product User IDs: run one of them with UNIFIED_EOS_FRESH_DEVICE=1. Each run
-// deletes its device ID at exit: on macOS the keychain entry belongs to the binary that made it,
-// and a rebuilt binary could not read or replace it without a dialog.
+// Online modes, the game topology end to end without Godot, over a transport the game's binary
+// plugs in (Headless.online; e.g. EOS lobbies + P2P), so this package never imports a platform SDK.
+// `<name>-host` runs a host (relay + the host's own player in slot 0) whose relay also serves the
+// transport's link, opens a lobby and prints its code; `<name>-client` joins by code and plays a
+// remote slot (a late join: the host's clock is already running). Inputs are the game's script.
 package headless
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:time"
 
-import "../eos"
 import "../netcode"
 import "../sim"
 
-// Lobbies only match within a bucket; --bucket survivor/2 meets the game's own builds.
-EOS_BUCKET :: "unified-headless/2"
-#assert(netcode.PROTOCOL_VERSION == 4, "netcode protocol changed: bump EOS_BUCKET (and the game buckets) with it")
-
-@(private)
-eos_start :: proc(a: ^Args, product: string) -> bool {
-	rc := eos.Relay_Control.Allow_Relays
-	switch opt_str(a, "relays", "allow") {
-	case "allow":
-	case "force":
-		rc = .Force_Relays
-	case "none":
-		rc = .No_Relays
-	case:
-		die("%s: --relays must be allow, force or none", a.mode)
-	}
-	if !eos.init({product_name = product, product_version = "1", relay_control = rc, no_keychain_prompts = true}) {
-		fmt.eprintfln("%s: EOS unavailable: %s", a.mode, eos.status().detail)
-		return false
-	}
-	return true
+// An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
+Online :: struct {
+	name:      string, // the modes are <name>-host and <name>-client
+	bucket:    string, // the default lobby bucket (lobbies match only within one; --bucket overrides)
+	options:   []string, // extra --options `start` reads (with opt_str / opt_int)
+	// Starts the transport; false (after printing why) when it is unavailable.
+	start:     proc(a: ^Args) -> bool,
+	// Ends it (the links are closed already).
+	stop:      proc(),
+	open_host: proc(bucket: string) -> (netcode.Link, bool),
+	open_join: proc(bucket, code: string) -> (netcode.Link, bool),
+	// Pumps the transport and reports where it stands (strings temp-allocated).
+	poll:      proc() -> Online_Status,
 }
 
-// Pumps EOS until the session is Ready (or failed, or `timeout_s` passed).
+Online_Status :: struct {
+	ready:   bool, // the lobby is up (host) or joined and connected (client)
+	failed:  bool,
+	detail:  string, // why it failed, or what it is doing
+	code:    string, // the lobby code, once known
+	local:   string, // our id on the transport
+	host:    string, // client: the host's id
+	network: string, // client: how the connection to the host goes
+	peers:   int, // connected remote peers
+}
+
+// Pumps the transport until it is ready (or failed, or `timeout_s` passed).
 @(private)
-eos_wait_ready :: proc(timeout_s: f64) -> (st: eos.Status, ok: bool) {
+online_wait_ready :: proc(o: ^Online, timeout_s: f64) -> (st: Online_Status, ok: bool) {
 	sw := time.tick_now()
 	for {
-		eos.poll()
-		st = eos.status(context.allocator)
-		if st.stage == .Ready {
+		st = o.poll()
+		if st.ready {
 			return st, true
 		}
-		if st.stage == .Failed || time.duration_seconds(time.tick_since(sw)) > timeout_s {
+		if st.failed || time.duration_seconds(time.tick_since(sw)) > timeout_s {
 			return st, false
 		}
 		time.sleep(5 * time.Millisecond)
 	}
 }
 
-mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "ticks", "relays", "code-file", "log", "players", "wait-s", "bucket")
+@(private)
+online_known :: proc(a: ^Args, o: ^Online, own: ..string) {
+	known := make([dynamic]string, context.temp_allocator)
+	append(&known, ..own)
+	append(&known, ..o.options)
+	check_known(a, ..known[:])
+}
+
+mode_online_host :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
+	online_known(a, o, "ticks", "code-file", "log", "players", "wait-s", "bucket")
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
 	// --wait-s N: keep the lobby open up to N s until a remote player connects, then start the clock
 	// (a joiner far away, e.g. a CI runner that still has to build, plays the whole session).
 	wait_s := opt_int(a, "wait-s", 0, lo = 0, hi = 3600)
 	want := opt_int(a, "players", 2, lo = 1, hi = P) // the session counts as played once this many joined
-	if !eos_start(a, "unified-headless") {
+	if !o.start(a) {
 		return false
 	}
-	defer eos.shutdown()
-	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
+	defer o.stop()
 	t0 := time.tick_now()
-	link, lok := eos.open_host(opt_str(a, "bucket", EOS_BUCKET))
+	link, lok := o.open_host(opt_str(a, "bucket", o.bucket))
 	if !lok {
-		fmt.eprintfln("eos-host: %s", eos.status().detail)
+		fmt.eprintfln("%s: %s", a.mode, o.poll().detail)
 		return false
 	}
-	st, ok := eos_wait_ready(30)
+	st, ok := online_wait_ready(o, 30)
 	if !ok {
-		fmt.eprintfln("eos-host: %s", st.detail)
+		fmt.eprintfln("%s: %s", a.mode, st.detail)
 		return false
 	}
+	code := strings.clone(st.code)
+	defer delete(code)
 	ready_ms := time.duration_milliseconds(time.tick_since(t0))
-	fmt.eprintfln("eos-host: game code %s (as %s, lobby ready in %.0f ms)", st.code, st.local, ready_ms)
+	fmt.eprintfln("%s: game code %s (as %s, lobby ready in %.0f ms)", a.mode, code, st.local, ready_ms)
 	if path := opt_str(a, "code-file"); path != "" {
-		_ = os.write_entire_file(path, st.code)
+		_ = os.write_entire_file(path, code)
 	}
 	if wait_s > 0 {
 		sw := time.tick_now()
-		for eos.status().peers == 0 {
+		for o.poll().peers == 0 {
 			if time.duration_seconds(time.tick_since(sw)) > f64(wait_s) {
-				fmt.eprintfln("eos-host: nobody joined in %d s", wait_s)
+				fmt.eprintfln("%s: nobody joined in %d s", a.mode, wait_s)
 				return false
 			}
-			eos.poll()
 			time.sleep(5 * time.Millisecond)
 		}
 		fmt.eprintfln(
-			"eos-host: a player connected after %.1f s, starting",
+			"%s: a player connected after %.1f s, starting",
+			a.mode,
 			time.duration_seconds(time.tick_since(sw)),
 		)
 	}
@@ -111,7 +120,7 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		now := netcode.now_us()
 		wake := netcode.host_step(host, now)
 		if now > deadline {
-			fmt.eprintln("eos-host: timeout")
+			fmt.eprintfln("%s: timeout", a.mode)
 			return false
 		}
 		netcode.sleep_until(wake)
@@ -128,8 +137,9 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		ok &&= sim.log_write(path, &r.log)
 	}
 	fmt.printfln(
-		`{{"mode":"eos-host","code":"%s","lobby_ready_ms":%.0f,"players":%d,"desyncs":%d,"finalized":%d,"net":%s,"client":%s,"ok":%v}}`,
-		st.code,
+		`{{"mode":"%s","code":"%s","lobby_ready_ms":%.0f,"players":%d,"desyncs":%d,"finalized":%d,"net":%s,"client":%s,"ok":%v}}`,
+		a.mode,
+		code,
 		ready_ms,
 		joined,
 		r.desyncs,
@@ -141,28 +151,27 @@ mode_eos_host :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	return ok && r.desyncs == 0
 }
 
-mode_eos_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "code", "ticks", "relays", "bucket")
+mode_online_client :: proc(h: ^Headless($S, $I, $W, $P), o: ^Online, a: ^Args) -> bool {
+	online_known(a, o, "code", "ticks", "bucket")
 	code := opt_str(a, "code", required = true)
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
-	if !eos_start(a, "unified-headless") {
+	if !o.start(a) {
 		return false
 	}
-	defer eos.shutdown()
-	defer eos.forget_device() // test runs leave no keychain entry for the next build to trip on
+	defer o.stop()
 	t0 := time.tick_now()
-	link, lok := eos.open_join(opt_str(a, "bucket", EOS_BUCKET), code)
+	link, lok := o.open_join(opt_str(a, "bucket", o.bucket), code)
 	if !lok {
-		fmt.eprintfln("eos-client: %s", eos.status().detail)
+		fmt.eprintfln("%s: %s", a.mode, o.poll().detail)
 		return false
 	}
-	st, ok := eos_wait_ready(30)
+	st, ok := online_wait_ready(o, 30)
 	if !ok {
-		fmt.eprintfln("eos-client: %s", st.detail)
+		fmt.eprintfln("%s: %s", a.mode, st.detail)
 		return false
 	}
 	join_ms := time.duration_milliseconds(time.tick_since(t0))
-	fmt.eprintfln("eos-client: joined %s as %s, host %s (%.0f ms)", st.code, st.local, st.host, join_ms)
+	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", a.mode, st.code, st.local, st.host, join_ms)
 	user := Script_User(S, I, W, P){h, 1}
 	c := netcode.client_create(h.game, netcode.Client_Config{slot = -1, name = "client"}, link, script_hooks(&user))
 	defer netcode.client_destroy(c)
@@ -174,12 +183,13 @@ mode_eos_client :: proc(h: ^Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	run_client(&task)
 	ok = task.ok
 	if c.ticks != 0 && c.ticks != ticks {
-		fmt.eprintfln("eos-client: the host runs %d ticks, --ticks says %d", c.ticks, ticks)
+		fmt.eprintfln("%s: the host runs %d ticks, --ticks says %d", a.mode, c.ticks, ticks)
 		ok = false
 	}
-	st = eos.status(context.allocator)
+	st = o.poll()
 	fmt.printfln(
-		`{{"mode":"eos-client","join_ms":%.0f,"network":"%v","client":%s,"ok":%v}}`,
+		`{{"mode":"%s","join_ms":%.0f,"network":"%s","client":%s,"ok":%v}}`,
+		a.mode,
 		join_ms,
 		st.network,
 		netcode.client_json(c),
