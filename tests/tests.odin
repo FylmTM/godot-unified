@@ -23,5 +23,6 @@ package tests
 @(require) import "view"
 @(require) import "wire"
 
+@(require) import drift_tests "../games/drift/simulation/tests"
 @(require) import friendslop_tests "../games/friendslop/simulation/tests"
 @(require) import survivor_tests "../games/survivor/simulation/tests"

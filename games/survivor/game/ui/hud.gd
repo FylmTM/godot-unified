@@ -68,7 +68,7 @@ func _process(delta: float) -> void:
 	_t += delta
 	for i in 3:
 		if Input.is_action_just_pressed(StringName("levelup_%d" % (i + 1))) and _levelup.visible:
-			_picked(i)  # the sim reads the key itself; this is only the visual feedback
+			_choose(i + 1)
 	_refresh(delta)
 
 
@@ -261,9 +261,10 @@ func _show_banner(text: String, color: Color, size := 60) -> void:
 	tw.chain().tween_property(_banner, "modulate:a", 0.0, 0.4)
 
 
+## A level-up pick (key, pad button or click): the `pick` command, upgrade i in constants().upgrades order.
 func _choose(option: int) -> void:
 	_picked(option - 1)
-	Game.session.press_action("levelup_%d" % option)
+	Game.session.send_command(&"pick", {"upgrade": option - 1})
 
 
 func _name_of(slot: int) -> String:

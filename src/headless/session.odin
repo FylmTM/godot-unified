@@ -50,10 +50,20 @@ Script_User :: struct($S, $I, $W: typeid, $P: int) {
 }
 
 script_hooks :: proc(u: ^Script_User($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
-	return {user = u, sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
+	hooks := netcode.Hooks(S, I, W, P) {
+		user = u,
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
 			u := (^Script_User(S, I, W, P))(user)
 			return u.h.script(u.seed, slot, tick, state)
-		}}
+		},
+	}
+	if u.h.script_commands != nil {
+		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out) {
+			u := (^Script_User(S, I, W, P))(user)
+			u.h.script_commands(u.seed, slot, tick, state, out)
+		}
+	}
+	return hooks
 }
 
 // A client stepped by run_client until `deadline` (µs); `ok` once it verified every tick.

@@ -94,6 +94,16 @@ alive :: #force_inline proc(t: ^Table($T, $N), idx: i32) -> bool {
 	return t.slots[idx].alive
 }
 
+// The same item one tick earlier, for views that interpolate: `prev` is the table in the previous tick's state
+// (nil when that state is not available); found when the item at `idx` is alive in both with the same
+// generation (not a re-used slot). `if p, ok := sim.prev_item(prev != nil ? &prev.shots : nil, &cur.shots, i); ok`.
+prev_item :: proc(prev, cur: ^Table($T, $N), idx: i32) -> (^T, bool) {
+	if prev == nil do return nil, false
+	ps, cs := prev.slots[idx], cur.slots[idx]
+	if !ps.alive || !cs.alive || ps.generation != cs.generation do return nil, false
+	return &prev.items[idx], true
+}
+
 // Handle of the (alive) item at `idx`.
 handle :: proc(t: ^Table($T, $N), idx: i32) -> Handle(T) {
 	return {u16(idx), t.slots[idx].generation}

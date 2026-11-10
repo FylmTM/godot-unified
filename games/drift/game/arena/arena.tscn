@@ -1,0 +1,59 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/arena/arena.gd" id="1_arena"]
+[ext_resource type="PackedScene" path="res://game/levels/arena.tscn" id="2_level"]
+[ext_resource type="Script" path="res://game/bulk/rock_view.gd" id="3_rock"]
+[ext_resource type="Script" path="res://game/bulk/bullet_view.gd" id="4_bullet"]
+[ext_resource type="Script" path="res://game/bulk/gem_view.gd" id="5_gem"]
+[ext_resource type="Script" path="res://game/arena/effects.gd" id="6_effects"]
+[ext_resource type="Script" path="res://game/arena/follow_camera.gd" id="7_camera"]
+[ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="8_hud"]
+[ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="9_pause"]
+
+[node name="Arena" type="Node2D"]
+script = ExtResource("1_arena")
+
+[node name="Level" parent="." instance=ExtResource("2_level")]
+
+[node name="Bulk" type="Node2D" parent="."]
+
+[node name="Gems" type="SimBulkView2D" parent="Bulk"]
+kind = "gem"
+script = ExtResource("5_gem")
+
+[node name="Rock0" type="SimBulkView2D" parent="Bulk"]
+kind = "rock_0"
+script = ExtResource("3_rock")
+
+[node name="Rock1" type="SimBulkView2D" parent="Bulk"]
+kind = "rock_1"
+script = ExtResource("3_rock")
+
+[node name="Rock2" type="SimBulkView2D" parent="Bulk"]
+kind = "rock_2"
+script = ExtResource("3_rock")
+
+[node name="Rock3" type="SimBulkView2D" parent="Bulk"]
+kind = "rock_3"
+script = ExtResource("3_rock")
+
+[node name="Bullets" type="MultiMeshInstance2D" parent="Bulk"]
+z_index = 1
+script = ExtResource("4_bullet")
+
+[node name="Views" type="Node2D" parent="."]
+
+[node name="Effects" type="Node2D" parent="."]
+script = ExtResource("6_effects")
+
+[node name="Camera" type="Camera2D" parent="."]
+zoom = Vector2(1.25, 1.25)
+limit_smoothed = true
+position_smoothing_enabled = true
+position_smoothing_speed = 6.0
+script = ExtResource("7_camera")
+
+[node name="HUD" parent="." instance=ExtResource("8_hud")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("9_pause")]
+visible = false

@@ -1,7 +1,9 @@
 // The input relay (src/netcode/SPEC.md), generic over the game's input type I and slot count P. No game
 // logic: it owns the tick clock, collects inputs stamped with their target tick, finalizes tick T
 // once every present player's input for T is in or the clock reaches T + tolerance (a missing
-// input becomes the player's last finalized one, flagged "replaced"), broadcasts finalized ticks
+// input becomes the player's last finalized one, flagged "replaced"), places each player's commands
+// in order in the first tick it finalizes at or after the tick they were sent for (never repeated,
+// never lost), broadcasts finalized ticks
 // unreliably with every unacknowledged tick resent, keeps the official input log, routes late-join
 // snapshots (asking another player, or falling back to a replay from tick 0, when the provider
 // leaves) and compares the clients' checksums. It serves any number of links at once (the host's
@@ -29,6 +31,13 @@ Relay_Config :: struct {
 INPUT_RING :: 256
 CHECK_RING :: 64
 JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock at its Hello
+
+// A received command waiting for the tick it goes in.
+@(private)
+Wait_Command :: struct {
+	want: u32, // the tick the sender predicted it at
+	cmd:  sim.Command,
+}
 
 @(private)
 Check :: struct {
@@ -63,6 +72,8 @@ Relay :: struct($I: typeid, $P: int) {
 	input_tick:  [P][INPUT_RING]u32, // which tick inputs[p][k] holds
 	recv_upto:   [P]u32,
 	client_ack:  [P]u32,
+	cmd_recv:    [P]u32, // the command ack: every seq up to this one is received
+	cmd_wait:    [P][dynamic]Wait_Command, // received, not finalized yet, in seq order
 	rotate:      [P]u32, // which window of a long backlog the next broadcast carries
 	echo_time:   [P]i64,
 	echo_recv:   [P]i64,
@@ -77,7 +88,8 @@ Relay :: struct($I: typeid, $P: int) {
 }
 
 relay_create :: proc(cfg: Relay_Config, $I: typeid, $P: int) -> ^Relay(I, P) {
-	sim.check_plain(sim.Inputs(I, P))
+	sim.check_plain(I)
+	_ = tick_command_budget(I, P) // asserts a tick with a command fits a datagram
 	assert(cfg.start_players >= 1 && cfg.start_players <= P)
 	r := new(Relay(I, P))
 	r.cfg = cfg
@@ -103,6 +115,9 @@ relay_destroy :: proc(r: ^Relay($I, $P)) {
 	channel_destroy(r.ch)
 	delete(r.w.buf)
 	sim.log_destroy(&r.log)
+	for &q in r.cmd_wait {
+		delete(q)
+	}
 	free(r)
 }
 
@@ -217,6 +232,8 @@ on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
 	r.connected[p] = true
 	r.done[p] = false
 	r.names[p] = name
+	r.cmd_recv[p] = 0 // a new client numbers its commands from 1
+	clear(&r.cmd_wait[p])
 	send_roster(r, now)
 	if !r.started {
 		r.active_from[p] = 1
@@ -332,6 +349,34 @@ on_inputs :: proc(r: ^Relay($I, $P), p: int, rd: ^wire.Reader, now: i64) {
 	for have_input(r, p, r.recv_upto[p] + 1) {
 		r.recv_upto[p] += 1
 	}
+	// Commands: the sender's unacked ones, from `first_seq` on. Each seq is taken once, in order; one the
+	// relay already has (a resend, a duplicate) is skipped.
+	first_seq := wire.r_u32(rd)
+	ncmd := u32(wire.r_u8(rd))
+	for k in 0 ..< ncmd {
+		want := wire.r_u32(rd)
+		kind := wire.r_u8(rd)
+		size := int(wire.r_u8(rd))
+		bytes := wire.r_bytes(rd, size)
+		if !rd.ok || size > sim.COMMAND_MAX || size == 0 {
+			return
+		}
+		seq := first_seq + k
+		if seq <= r.cmd_recv[p] {
+			continue
+		}
+		if seq != r.cmd_recv[p] + 1 || len(r.cmd_wait[p]) >= COMMAND_QUEUE {
+			return // a gap (never from an honest client) or a flood: the rest comes again
+		}
+		wc := Wait_Command {
+			// a wanted tick far ahead would hold back the sender's later commands: clamp it
+			want = min(want, r.finalized + INPUT_RING),
+			cmd = {kind = kind, slot = u8(p), size = u8(size)},
+		}
+		copy(wc.cmd.data[:], bytes)
+		append(&r.cmd_wait[p], wc)
+		r.cmd_recv[p] = seq
+	}
 }
 
 @(private)
@@ -393,8 +438,45 @@ finalize :: proc(r: ^Relay($I, $P)) {
 				r.replaced += 1
 			}
 		}
-		append(&r.log.ticks, lt)
+		take_commands(r, t, &lt)
+		sim.log_append(&r.log, &lt)
 		r.finalized = t
+	}
+}
+
+// Puts the waiting commands that are due into tick t: each present player's in seq order, those sent for
+// t or earlier, at most COMMANDS_PER_PLAYER each and TICK_COMMANDS in all, within the bytes a tick may
+// carry (round-robin over the players, so one can't crowd the others out). The rest wait for t + 1.
+@(private)
+take_commands :: proc(r: ^Relay($I, $P), t: u32, lt: ^sim.Inputs(I, P)) {
+	taken: [P]int
+	total, bytes := 0, 0
+	budget := tick_command_budget(I, P)
+	for k in 0 ..< sim.COMMANDS_PER_PLAYER {
+		for p in 0 ..< P {
+			q := &r.cmd_wait[p]
+			if taken[p] != k || k >= len(q) || !active(r, p, t) || q[k].want > t {
+				continue
+			}
+			size := sim.COMMAND_HEAD + int(q[k].cmd.size)
+			if total == sim.TICK_COMMANDS || bytes + size > budget {
+				continue
+			}
+			taken[p] += 1
+			total += 1
+			bytes += size
+		}
+	}
+	if total == 0 {
+		return
+	}
+	for p in 0 ..< P {
+		q := &r.cmd_wait[p]
+		for k in 0 ..< taken[p] {
+			lt.commands[lt.n_commands] = q[k].cmd
+			lt.n_commands += 1
+		}
+		remove_range(q, 0, taken[p])
 	}
 }
 
@@ -410,6 +492,7 @@ broadcast :: proc(r: ^Relay($I, $P), now: i64) {
 		w_i64(w, r.echo_time[p])
 		w_i64(w, r.echo_time[p] != 0 ? now - r.echo_recv[p] : 0)
 		wire.w_u32(w, max(r.recv_upto[p], r.finalized))
+		wire.w_u32(w, r.cmd_recv[p])
 		first := r.client_ack[p] + 1
 		last := first - 1
 		if r.base_known[p] {
@@ -424,10 +507,19 @@ broadcast :: proc(r: ^Relay($I, $P), now: i64) {
 			last = min(r.finalized, first + window - 1)
 		}
 		wire.w_u32(w, first)
-		wire.w_u8(w, u8(last + 1 - first))
+		count_at := len(w.buf)
+		wire.w_u8(w, 0)
+		n := 0
 		for t := first; t <= last; t += 1 {
-			w_raw(w, &r.log.ticks[t - 1])
+			// Ticks with commands are larger: stop at the message limit (every tick alone fits, see
+			// tick_command_budget), the rest goes in a later packet.
+			if len(w.buf) + sim.tick_bytes(I, P, sim.log_commands(&r.log, int(t - 1))) > MAX_MESSAGE {
+				break
+			}
+			sim.log_write_tick(w, &r.log, int(t - 1))
+			n += 1
 		}
+		w.buf[count_at] = u8(n)
 		relay_send(r, p, w, .Unreliable, now)
 	}
 }
@@ -456,6 +548,7 @@ player_gone :: proc(r: ^Relay($I, $P), p: int, why: string, now: i64) {
 	r.peer_of[p] = -1
 	r.names[p] = {}
 	r.provider[p] = -1
+	clear(&r.cmd_wait[p]) // a left player's commands that never reached a tick go with it
 	relay_log(r, "player %d %s", p, why)
 	send_roster(r, now)
 	for q in 0 ..< P {

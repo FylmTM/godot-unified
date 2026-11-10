@@ -173,26 +173,28 @@ sys_players :: proc(s: ^State, w: ^World, inputs: ^Inputs, ev: ^[dynamic]sim.Eve
 	}
 }
 
-// 2. Level-up choice.
+// 2. Level-up picks (Cmd_Pick commands, each delivered once): each takes one pending level-up.
 @(private)
 sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
 	for p in 0 ..< MAX_PLAYERS {
 		pl := &s.players[p]
-		c := inputs.input[p].choice
-		option, seq := choice_option(c), choice_seq(c)
-		if !pl.active || pl.pending_levelups <= 0 || option == 0 || seq == 0 || seq == pl.choice_seq {
-			continue // no pick, nothing to pick, or a repeat of the pick already applied
+		for &c in sim.commands(inputs, p) {
+			pick := sim.command_as(&c, Cmd_Pick) or_continue
+			if !pl.active || pl.pending_levelups <= 0 {
+				continue // nothing to pick
+			}
+			switch pick.upgrade {
+			case .Fire_Rate:
+				pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
+			case .Damage:
+				pl.damage_bonus += DAMAGE_LEVELUP
+			case .Move_Speed:
+				pl.speed = pl.speed + SPEED_LEVELUP
+			case:
+				continue // not an option
+			}
+			pl.pending_levelups -= 1
 		}
-		pl.choice_seq = seq
-		switch option {
-		case 1:
-			pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
-		case 2:
-			pl.damage_bonus += DAMAGE_LEVELUP
-		case 3:
-			pl.speed = pl.speed + SPEED_LEVELUP
-		}
-		pl.pending_levelups -= 1
 	}
 }
 

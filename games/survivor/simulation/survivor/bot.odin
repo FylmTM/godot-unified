@@ -1,6 +1,6 @@
 // A deterministic bot player for tuning and tests: orbits the arena, flees the nearest enemies,
-// collects nearby gems, dashes out of contact, picks level-up options round-robin. It reads only
-// the state it is given (the predicted state in a session), so it is a valid input source anywhere.
+// collects nearby gems, dashes out of contact, picks level-up options round-robin (a command). It reads
+// only the state it is given (the predicted state in a session), so it is a valid input source anywhere.
 package survivor
 
 import "unified:dmath"
@@ -14,11 +14,6 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 	pl := &s.players[p]
 	if !pl.active || !pl.alive {
 		return
-	}
-	if pl.pending_levelups > 0 {
-		// Round-robin over fire rate, damage, speed by level; a new press for every pending level-up.
-		press := u8((pl.level * 4 + pl.pending_levelups) % 63) + 1
-		in_.choice = choice_encode(int((pl.level + i32(p)) % 3) + 1, press)
 	}
 	pos := dmath.Vec2{pl.pos.x, pl.pos.z}
 	if s.phase == .Lobby {
@@ -87,6 +82,34 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
 	if nearest2 < 1.6 * 1.6 && pl.dash_cooldown == 0 && t % 2 == 0 {
 		in_.buttons |= BUTTON_DASH
+	}
+	return
+}
+
+// The bot's commands: a level-up pick while one is pending, round-robin over the upgrades by level. In a
+// session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
+// sim ignores a pick with nothing pending.
+bot_commands :: proc(s: ^State, p: int, t: u32, out: ^sim.Command_Out) {
+	pl := &s.players[p]
+	if pl.active && pl.alive && pl.pending_levelups > 0 {
+		sim.send_command(out, Cmd_Pick{Upgrade((pl.level + i32(p)) % 3)})
+	}
+}
+
+// One tick of bots in slots 0..<players: their inputs and commands, as the tick's record. `out` is scratch
+// (the caller deletes its list).
+bot_tick :: proc(s: ^State, players: int, t: u32, out: ^sim.Command_Out) -> (in_: Inputs) {
+	for p in 0 ..< players {
+		in_.present += {p}
+		in_.input[p] = bot_input(s, p, t)
+		out.kinds = GAME.commands
+		out.slot = p
+		out.cap = sim.COMMANDS_PER_PLAYER
+		clear(&out.list)
+		bot_commands(s, p, t, out)
+		for c in out.list {
+			sim.add_command(&in_, c)
+		}
 	}
 	return
 }

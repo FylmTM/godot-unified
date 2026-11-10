@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[sub_resource type="SegmentShape2D" id="SegmentShape2D_qjriq"]
+b = Vector2(64, 0)
+
+[node name="Bad2D" type="Node2D" unique_id=1474969099]
+
+[node name="Rail" type="StaticBody2D" parent="." unique_id=808437368]
+
+[node name="Edge" type="CollisionShape2D" parent="Rail" unique_id=246772667]
+shape = SubResource("SegmentShape2D_qjriq")

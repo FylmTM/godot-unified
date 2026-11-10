@@ -15,12 +15,42 @@ Four compile-time types and a descriptor (`sim.Game(S, I, W, P)`):
 - `P` player slots, 1..32.
 - `Game`: `name`, `version` (bump when a tick computes differently without a layout change), `tick_hz` (a power of
   two; `dt = 1/tick_hz` exactly), `world_create(seed)`, `world_destroy`, `extras(w)`, `init(s, w, seed)` (tick-0
-  state; the block is zeroed before), `tick(s, w, t, ^Inputs(I, P), ^[dynamic]Event)`, `event_names`.
-- `compat_of(&GAME) -> u64`: the build's identity for netcode (layouts of S, I, Inputs; P; tick_hz; name; version).
+  state; the block is zeroed before), `tick(s, w, t, ^Inputs(I, P), ^[dynamic]Event)`, `event_names`, `commands`
+  (below).
+- `compat_of(&GAME) -> u64`: the build's identity for netcode (layouts of S, I, Inputs; the command types; P;
+  tick_hz; name; version).
 
-`Inputs(I, P) = {present: Players, replaced: Players, input: [P]I}`. `present` (a `bit_set[0..<32; u32]`) is who
-is in the game this tick: joining and leaving are presence changes, decided by the relay, never flags in `I`.
-`replaced` marks inputs the relay substituted (informational). `inputs_same(a, b)`: same presence and input bytes.
+`Inputs(I, P) = {present: Players, replaced: Players, input: [P]I, n_commands, commands: [16]Command}`. `present`
+(a `bit_set[0..<32; u32]`) is who is in the game this tick: joining and leaving are presence changes, decided by the
+relay, never flags in `I`. `replaced` marks inputs the relay substituted (informational). `inputs_same(a, b)`: same
+presence, input bytes and commands.
+
+## Commands
+
+Signed off by the developer 2026-11-10. A one-shot action (pick an upgrade, set the map, ready up) can't be a flag
+in `I`: the netcode repeats inputs (a client fills skipped ticks with its last input, the relay substitutes a late
+input with the last one). A command is delivered exactly once, in order, per player; never lost, never repeated.
+
+```odin
+Cmd_Set_Map :: struct { map_index: u8, rule: Break_Rule, colors: bool }   // any plain struct, <= 64 bytes
+GAME := sim.Game(...) { ..., commands = {{"set_map", Cmd_Set_Map}, {"ready", Cmd_Ready}} }   // index = kind
+for &c in sim.commands(inputs, slot) {                // inside tick: in order, exactly once each
+    if m, ok := sim.command_as(&c, Cmd_Set_Map); ok { ... }
+}
+```
+
+- A command is **input, not state**: part of the tick's input record (`Inputs.commands`), so it is logged, replayed
+  and sent to late joiners with the log; never in the block. `tick` reads it.
+- Types are checked at `create` (`commands_violation`): plain data with no padding (`plain_violation`), 1..64 bytes
+  (`COMMAND_MAX`), each type and name once, at most 255 kinds. Fields named `_...` are explicit padding.
+- A tick holds at most `COMMANDS_PER_PLAYER` (4) of a player and `TICK_COMMANDS` (16) in all, ordered by slot, each
+  player's in the order sent; more wait for the next tick, in order. `add_command(&inputs, c) -> bool`.
+- `Command {id: typeid, kind, slot, size, data: [64]u8}`: `advance` fills `id` from `Game.commands` before `tick`
+  (`bind_commands`); an unknown kind or a wrong size gets nil, which `command_as` never matches (bytes from the
+  network are dropped the same way on every peer). `id` is not compared or sent.
+- Sources (a UI, a script, a bot) send into a `Command_Out` (`kinds`, `slot`, `cap`): `send_command(out, value) ->
+  bool` (false: not a declared type, or `cap` reached), `push_command(out, c)` for one built with `command_make` /
+  `command_from_bytes`. Delivery (the client predicts it, the relay places it): `src/netcode/SPEC.md`.
 
 ## State model (c): tables and handles
 
@@ -29,7 +59,8 @@ is in the game this tick: joining and leaving are presence changes, decided by t
 - `Handle(T) = {index: u16, generation: u16}`; generation 0 is never live, so `Handle{}` is null.
 - `spawn(&t) -> (^T, Handle(T), ok)`, `despawn(&t, idx | handle)`, `get(&t, h) -> ^T` (nil if stale/null/out of
   range), `at(&t, i) -> (^T, alive)` for `for i in 0 ..< t.high_water { e := sim.at(&t, i) or_continue }`,
-  `handle(&t, i)`, `handle_key(h) -> u32` (the deterministic key views use).
+  `handle(&t, i)`, `handle_key(h) -> u32` (the deterministic key views use), `prev_item(prev, cur, i) -> (^T, ok)`
+  (the same item in the previous tick's table: alive in both, same generation; views interpolate with it).
 - `schema_of(S)`: tables (by shape: `items` + `slots: [N]Slot`; fixed arrays of structs count as always-live tables)
   and globals, with byte offsets. Inspectors, diffs and dumps build on it.
 - `Rng` (xorshift32, 4 bytes): `rng_seed(u64)`, `rng_next`, `rng_below(n)` (Lemire, unbiased), `rng_f32`.
@@ -49,8 +80,11 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
   verified events to the view, which confirms or cancels.
 - **Extra** (`save/restore(slot)`, `hash(state, out)`, `image(slot)`, `load(bytes)`): rollback state outside the
   block. The harness knows nothing about Box3D.
-- **Input log** `UNIL` v3: seed, content hash, slots, input size, ticks; per tick `Inputs` bytes.
-  `log_encode/decode/read/write`.
+- **Input log** `UNIL` v4: seed, content hash, slots, input size, ticks; per tick (`write_tick`, also the netcode's
+  finalized tick) present, replaced, the slots' input bytes, a command count (an empty tick costs one byte) and per
+  command slot, kind, size and the struct's bytes. In memory `Input_Log` is compact (`ticks: [dynamic]Log_Tick`,
+  `commands`): `log_append(&lg, &inputs)`, `log_inputs(&lg, k) -> Inputs` (tick k + 1), `log_commands`.
+  `log_encode/decode/read/write`; decoding refuses a malformed tick (`read_tick`).
 - **Portable snapshot** `UNIS` v3: seed, content hash, tick, block size, `layout_hash(S)` (rejects other builds),
   payload XXH3, block bytes, each Extra's image. `snapshot_encode(s, tick)`,
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads; the

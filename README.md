@@ -4,8 +4,9 @@ A purpose-built core for **cooperative games with deterministic rollback netcode
 **Godot** (through GDExtension) as the host for rendering, audio, UI and the editor; rendering is never written from
 scratch. It gives a game a fixed-tick deterministic sim, **Box3D** physics through a fork that can save and restore
 the world, snapshots, checksums, sync-test and replays, and an input relay with prediction, rollback and late join,
-plus a headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Two games live
-here: `games/survivor/` (a co-op survivor, the test game) and `games/friendslop/` (a co-op physics sandbox). Larger
+plus a headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Three games live
+here: `games/survivor/` (a co-op survivor, the test game), `games/friendslop/` (a co-op physics sandbox) and
+`games/drift/` (a co-op 2D ship arena, the 2D test game: 2D views, physics locked to a plane, a 2D level). Larger
 3D co-op games follow, the first migrated later from the developer's current Unity game.
 
 ## Why

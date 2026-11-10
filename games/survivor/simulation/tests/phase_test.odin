@@ -135,10 +135,10 @@ play_tuning_with_the_bot :: proc(t: ^testing.T) {
 		s := sim.create(&survivor.GAME, seed)
 		defer sim.destroy(s)
 		first_level: f32 = -1
+		out: sim.Command_Out
+		defer delete(out.list)
 		for s.tick < 200 * survivor.TICK_HZ && s.state.phase != .Over {
-			in_: survivor.Inputs
-			in_.present = {0}
-			in_.input[0] = survivor.bot_input(&s.state, 0, s.tick + 1)
+			in_ := survivor.bot_tick(&s.state, 1, s.tick + 1, &out)
 			sim.step(s, &in_)
 			if first_level < 0 && s.state.players[0].level > 1 {
 				first_level = f32(s.tick - s.state.match_tick) * survivor.DT

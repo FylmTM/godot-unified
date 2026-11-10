@@ -128,7 +128,7 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
 - **Release:** the git tag is the only source of a build's version (`tools/release.py` stamps it into the export;
   the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
-  (`survivor/3` at protocol 5); `sim.compat_of` refuses a peer with another build.
+  (`survivor/4` at protocol 6); `sim.compat_of` refuses a peer with another build.
 - **Tooling:** `dev.py all` is exactly what CI runs; `dev.py game <sub> <game>` takes the game positionally
   everywhere. CI: only `eos-sdk.yml` has a write token (it runs no repo code);
   runners, actions (by SHA) and downloads (SHA-256) are pinned.

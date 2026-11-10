@@ -82,6 +82,19 @@ relay_samples :: proc(w: ^wire.Writer, k: int, slot: u8) -> []u8 {
 		wire.w_u32(w, 11)
 		wire.w_u8(w, 2)
 		wire.w_bytes(w, {1, 2, 3, 0, 4, 5, 6, 0})
+		// commands: seq 1, 2 (a bump for tick 11, a mark for tick 12)
+		wire.w_u32(w, 1)
+		wire.w_u8(w, 2)
+		wire.w_u32(w, 11)
+		wire.w_u8(w, 0)
+		wire.w_u8(w, size_of(toy.Cmd_Bump))
+		wire.w_bytes(w, {9, 0, 0, 0})
+		wire.w_u32(w, 12)
+		wire.w_u8(w, 1)
+		wire.w_u8(w, size_of(toy.Cmd_Mark))
+		for b in 0 ..< size_of(toy.Cmd_Mark) {
+			wire.w_u8(w, u8(b))
+		}
 	case .Checksum:
 		wire.w_u8(w, slot)
 		wire.w_u32(w, 32)
@@ -119,12 +132,18 @@ client_samples :: proc(w: ^wire.Writer, k: int) -> []u8 {
 		for _ in 0 ..< 3 {
 			wire.w_u64(w, 5000)
 		}
-		wire.w_u32(w, 3)
+		wire.w_u32(w, 3) // input ack
+		wire.w_u32(w, 1) // command ack
 		wire.w_u32(w, 5)
 		wire.w_u8(w, 2)
 		in_ := finalized_of(5, 1)
-		wire.w_bytes(w, ([^]u8)(&in_)[:size_of(toy.Inputs)])
-		wire.w_bytes(w, ([^]u8)(&in_)[:size_of(toy.Inputs)])
+		sim.inputs_write(w, &in_)
+		bump, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{3})
+		sim.add_command(&in_, bump)
+		mark, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Mark{count = 2})
+		mark.slot = 1
+		sim.add_command(&in_, mark)
+		sim.inputs_write(w, &in_)
 	case .Snap_Request:
 		wire.w_u8(w, 1)
 		wire.w_u32(w, 3)

@@ -102,6 +102,53 @@ check_sim_package :: proc(t: ^testing.T, dir: string, extra_imports: []string = 
 	check(t, sim_rule(filepath.base(dir), dir, extra_imports), loc)
 }
 
+// Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
+// core:math, no float traps), `extension/` (the GDExtension: host side, nothing banned) and `tests/` (test code,
+// nothing banned) are known; every other directory is one of the game's sim packages, linted under `sim_rule`
+// with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories.
+check_game :: proc(
+	t: ^testing.T,
+	simulation_dir: string,
+	extra_imports: []string = nil,
+	loc := #caller_location,
+) -> (
+	sims: []string,
+) {
+	infos, err := os.read_all_directory_by_path(simulation_dir, context.temp_allocator)
+	if !testing.expectf(t, err == nil, "lint: cannot list %s", simulation_dir, loc = loc) {
+		return
+	}
+	out := make([dynamic]string, context.temp_allocator)
+	for fi in infos {
+		if fi.type != .Directory do continue
+		switch fi.name {
+		case "headless":
+			check(
+				t,
+				{
+					pkg = "headless",
+					dir = fi.fullpath,
+					ban_imports = MATH,
+					allow_imports = MATH_OK,
+					ban_idents = float_traps,
+					ban_matrix = true,
+				},
+				loc,
+			)
+		case "extension", "tests":
+		// host side and test code: nothing inside a tick
+		case:
+			check(t, sim_rule(fi.name, fi.fullpath, extra_imports), loc)
+			append(&out, fi.fullpath)
+		}
+	}
+	testing.expectf(t, len(out) > 0, "lint: no sim package in %s", simulation_dir, loc = loc)
+	return out[:]
+}
+
+@(private)
+float_traps := FLOAT_TRAPS
+
 // Lints every .odin file under `r.dir` (an absolute path, or relative to the current directory) with `scan`,
 // and with `scan_globals` when `r.tick`: one test failure per violation, and one when there are no files.
 check :: proc(t: ^testing.T, r: Rule, loc := #caller_location) {

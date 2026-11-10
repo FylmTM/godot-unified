@@ -1,14 +1,13 @@
-# The Box3D fork patch must keep LF endings on Windows checkouts (tools/box3d.py also normalizes it).
+# LF in every checkout, whatever core.autocrlf says: Godot, odinfmt and our tools all write LF, so a CRLF checkout
+# shows every file Godot rewrites as modified.
+* text=auto eol=lf
+# The Box3D fork patch is text even if it looks binary (tools/box3d.py also normalizes it).
 *.patch text eol=lf
-*.py text eol=lf
-# Reference runs (src/headless/SPEC.md), read byte for byte or line by line by the end-to-end suites.
+# Read byte for byte: exported levels (src/level/SPEC.md) and reference runs (src/headless/SPEC.md).
+*.level binary
 games/*/simulation/tests/testdata/*.log binary
 games/*/simulation/tests/testdata/*.snap binary
-games/*/simulation/tests/testdata/*.trace text eol=lf
 tests/scenarios/testdata/*.log binary
 tests/scenarios/testdata/*.snap binary
-tests/scenarios/testdata/*.trace text eol=lf
-*.odin text eol=lf
-*.json text eol=lf
 # Godot's API dump (src/gdext/api/README.md): generated, kept out of diffs and language stats.
 src/gdext/api/*.json linguist-generated=true -diff

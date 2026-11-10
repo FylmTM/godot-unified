@@ -3,8 +3,8 @@
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
 input-relay netcode with a step API (`netcode`, `eos`), the generic headless runs and CLI (`headless`) that a game's
 headless binary wires up, the Godot host (`gdext`, `view`, `devui`, `godot_host`), and the determinism lint a
-game's tests run (`lint`). The test game lives in
-`games/survivor/`. Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
+game's tests run (`lint`). The test games live in
+`games/survivor/` (3D) and `games/drift/` (2D). Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
 core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `python tools/dev.py -h`.
 
 ## Packages
@@ -25,7 +25,7 @@ Enforcement is the RTTI walk in `sim.plain_violation`, run by `sim.create` and b
 floats, bools, enums, bit_sets, fixed/enumerated arrays and structs of those, **and no implicit padding anywhere**.
 That makes the block's memory its canonical little-endian serialization (`#assert(ODIN_ENDIAN == .Little)`): the
 checksum hashes the raw bytes, a snapshot is a struct copy, the portable snapshot writes the bytes as they are, and
-inputs travel and are logged as their bytes. Odin has no compile-time "is POD" trait, so this is a startup check.
+a player's input travels and is logged as its bytes (a command as its struct's bytes, src/sim/SPEC.md). Odin has no compile-time "is POD" trait, so this is a startup check.
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` in the
 deterministic packages (`sim`, `physics`, `dmath`, `netcode`, a game's sim; the netcode's ceilings are done by hand).

@@ -36,8 +36,8 @@ survivor_init :: proc "c" (
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
-SURVIVOR_BUCKET :: "survivor/3"
-#assert(netcode.PROTOCOL_VERSION == 5, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
+SURVIVOR_BUCKET :: "survivor/4"
+#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -80,21 +80,21 @@ BULK_PROJECTILE :: 3 // after the three enemy kinds (Enemy_Kind order)
 BULK_GEM :: 4
 
 BUTTON_DASH :: 0
-BUTTON_LEVELUP_1 :: 1
 
 GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
-	scene_kinds = {"player", "crate", "barrel"},
+	scenes = {{"player", Player_View}, {name = "crate"}, {name = "barrel"}},
 	scene_dir = "res://game/views",
 	bulk_kinds = {"grunt", "runner", "brute", "projectile", "gem"},
 	actions = {
-		move = {"move_left", "move_right", "move_forward", "move_back"},
-		buttons = {"dash", "levelup_1", "levelup_2", "levelup_3"},
+		move    = {"move_left", "move_right", "move_forward", "move_back"},
+		buttons = {"dash"}, // level-up picks are a command: the HUD sends them (send_command(&"pick", ...))
 	},
 	extract = extract,
 	sample = sample,
 	scripted = proc(seed: u64, slot: int, tick: u32, state: ^S) -> survivor.Input {
 		return survivor.script(seed, slot, tick, state)
 	},
+	scripted_commands = survivor.script_commands,
 	hud = hud,
 	constants = constants,
 	event_key = event_key,
@@ -111,22 +111,11 @@ event_key :: proc(e: sim.Event) -> view.Key {
 
 // ---- input
 
-// Sequence of the local player's last level-up press (survivor.choice_encode): sample runs on the session
-// thread only, for the one local player.
-g_choice_seq: u8
-
 sample :: proc(a: gh.Actions, slot: int, tick: u32, state: ^S) -> survivor.Input {
 	in_: survivor.Input
 	in_.move_x = i8(clamp(a.move.x, -1, 1) * 127)
 	in_.move_z = i8(clamp(a.move.y, -1, 1) * 127) // Godot's get_vector: +y = move_back = +Z
 	if a.held & (1 << BUTTON_DASH) != 0 do in_.buttons |= survivor.BUTTON_DASH
-	for k in 0 ..< 3 {
-		if a.pressed & (1 << u32(BUTTON_LEVELUP_1 + k)) != 0 {
-			g_choice_seq = survivor.choice_next_seq(g_choice_seq)
-			in_.choice = survivor.choice_encode(k + 1, g_choice_seq)
-			break
-		}
-	}
 	return in_
 }
 
@@ -137,13 +126,16 @@ sample :: proc(a: gh.Actions, slot: int, tick: u32, state: ^S) -> survivor.Input
 PLAYER_KEY :: 1
 ITEM_KEY :: 0x100
 
+// The player view's data (Scene_Kind.data): set as its properties when it changes.
+Player_View :: struct {
+	hp: i32,
+}
+
 extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 	for p in 0 ..< survivor.MAX_PLAYERS {
 		pl := &cur.players[p]
-		if !pl.active || out.n_scene >= gh.MAX_SCENE_ITEMS do continue
-		it := &out.scene[out.n_scene]
-		out.n_scene += 1
-		it^ = {
+		if !pl.active do continue
+		it := gh.Scene_Item {
 			key  = view.Key(PLAYER_KEY + p),
 			kind = SCENE_PLAYER,
 			slot = i8(p),
@@ -153,77 +145,66 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 			it.has_prev = true
 			it.prev_pos = prev.players[p].pos
 		}
+		gh.push_scene(out, it, Player_View{hp = max(pl.hp, 0)})
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &cur.items[i]
-		if !item.alive || out.n_scene >= gh.MAX_SCENE_ITEMS do continue
-		it := &out.scene[out.n_scene]
-		out.n_scene += 1
+		if !item.alive do continue
 		id := physics.body_id(w.phys, item.body)
 		p := b3.Body_GetPosition(id)
 		q := b3.Body_GetRotation(id)
-		it^ = {
-			key    = view.Key(ITEM_KEY + i),
-			kind   = item.kind == .Barrel ? SCENE_BARREL : SCENE_CRATE,
-			slot   = -1,
-			entity = u32(i + 1), // barrel_exploded's entity: item index + 1
-			pos    = {p.x, p.y, p.z},
-			rot    = {q.v.x, q.v.y, q.v.z, q.s},
-		}
+		gh.push_scene(
+			out,
+			{
+				key    = view.Key(ITEM_KEY + i),
+				kind   = item.kind == .Barrel ? SCENE_BARREL : SCENE_CRATE,
+				slot   = -1,
+				entity = u32(i + 1), // barrel_exploded's entity: item index + 1
+				pos    = {p.x, p.y, p.z},
+				rot    = {q.v.x, q.v.y, q.v.z, q.s},
+			},
+		)
 	}
 	// enemies (one bulk kind per Enemy_Kind)
+	pv := prev
 	en := &cur.enemies
-	for idx in 0 ..< int(en.high_water) {
-		if !en.slots[idx].alive || out.n_bulk >= gh.MAX_BULK_ITEMS do continue
-		e := &en.items[idx]
-		b := &out.bulk[out.n_bulk]
-		out.n_bulk += 1
-		b^ = {
+	for idx in 0 ..< en.high_water {
+		e := sim.at(en, idx) or_continue
+		b := gh.Bulk_Item {
 			kind   = u8(e.kind),
 			pos    = {e.pos.x, 0, e.pos.y},
-			yaw    = (e.vel.x != 0 || e.vel.y != 0) ? math.atan2(e.vel.x, e.vel.y) : 0,
+			yaw    = enemy_yaw(e.vel),
 			custom = {hit_flash(out.tick, e.hit_tick), age_s(out.tick, e.spawn_tick), 0, 0},
 		}
-		if prev != nil {
-			ps := &prev.enemies.slots[idx]
-			if ps.alive && ps.generation == en.slots[idx].generation {
-				pe := &prev.enemies.items[idx]
-				b.has_prev = true
-				b.prev_pos = {pe.pos.x, 0, pe.pos.y}
-			}
+		if pe, ok := sim.prev_item(pv != nil ? &pv.enemies : nil, en, idx); ok {
+			b.has_prev = true
+			b.prev_pos = {pe.pos.x, 0, pe.pos.y}
+			b.prev_yaw = enemy_yaw(pe.vel)
 		}
+		if !gh.push_bulk(out, b) do break
 	}
 	pr := &cur.projectiles
-	for idx in 0 ..< int(pr.high_water) {
-		if !pr.slots[idx].alive || out.n_bulk >= gh.MAX_BULK_ITEMS do continue
-		pj := &pr.items[idx]
-		b := &out.bulk[out.n_bulk]
-		out.n_bulk += 1
-		b^ = {
+	for idx in 0 ..< pr.high_water {
+		pj := sim.at(pr, idx) or_continue
+		b := gh.Bulk_Item {
 			kind = BULK_PROJECTILE,
 			pos  = {pj.pos.x, 0, pj.pos.z}, // bulk meshes are lifted in the game's shader
 			yaw  = math.atan2(pj.vel.x, pj.vel.z),
 		}
-		if prev != nil {
-			ps := &prev.projectiles.slots[idx]
-			if ps.alive && ps.generation == pr.slots[idx].generation {
-				b.has_prev = true
-				pp := prev.projectiles.items[idx].pos
-				b.prev_pos = {pp.x, 0, pp.z}
-			}
+		if pp, ok := sim.prev_item(pv != nil ? &pv.projectiles : nil, pr, idx); ok {
+			b.has_prev = true
+			b.prev_pos = {pp.pos.x, 0, pp.pos.z}
+			b.prev_yaw = math.atan2(pp.vel.x, pp.vel.z)
 		}
+		if !gh.push_bulk(out, b) do break
 	}
 	gm := &cur.gems
-	for idx in 0 ..< int(gm.high_water) {
-		if !gm.slots[idx].alive || out.n_bulk >= gh.MAX_BULK_ITEMS do continue
-		g := &gm.items[idx]
-		b := &out.bulk[out.n_bulk]
-		out.n_bulk += 1
-		b^ = {
-			kind   = BULK_GEM,
-			pos    = {g.pos.x, 0, g.pos.y},
-			custom = {0, age_s(out.tick, g.spawn_tick), 0, 0},
-		}
+	for idx in 0 ..< gm.high_water {
+		g := sim.at(gm, idx) or_continue
+		gh.push_bulk(
+			out,
+			{kind = BULK_GEM, pos = {g.pos.x, 0, g.pos.y}, custom = {0, age_s(out.tick, g.spawn_tick), 0, 0}},
+		) or_break
 	}
 	(^Hud)(&out.hud[0])^ = hud_of(cur, out.tick)
 }
@@ -231,6 +212,10 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 #assert(size_of(Hud) <= gh.HUD_BYTES)
 
 HIT_FLASH_S :: 0.15
+
+enemy_yaw :: proc(vel: [2]f32) -> f32 {
+	return (vel.x != 0 || vel.y != 0) ? math.atan2(vel.x, vel.y) : 0
+}
 
 // Bulk custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
 hit_flash :: proc(tick, hit_tick: u32) -> f32 {
@@ -297,7 +282,7 @@ constants :: proc(d: ^gd.Dictionary) {
 	gd.dict_set(d, "dash_cooldown_s", f64(survivor.DASH_COOLDOWN_S))
 	gd.dict_set(d, "player_respawn_s", f64(survivor.PLAYER_RESPAWN_S))
 	gd.dict_set(d, "max_enemies", i64(survivor.MAX_ENEMIES))
-	// level-up options 1..3 (survivor.choice_encode), in the sim's order
+	// level-up options in survivor.Upgrade order: the HUD's card i sends send_command(&"pick", {"upgrade": i})
 	ups := gd.array_new()
 	details := [3]string {
 		"Shoot more often",

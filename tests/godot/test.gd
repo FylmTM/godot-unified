@@ -1,5 +1,8 @@
-# Binding tests for unified:gdext: run headless by `python tools/dev.py godot-test`. Prints one line per
-# check and "GDEXT TESTS: <n> failed"; exits with the failure count.
+# Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/SPEC.md): run headless by
+# `python tools/dev.py godot-test`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
+# count. After changing the exporter or levels/level_2d.tscn on purpose, rewrite levels/level_2d.level (from
+# tests/godot, once this has run): godot --headless --path . -s res://.out/tools/level_export.gd -- \
+#   --scene=res://levels/level_2d.tscn
 extends SceneTree
 
 var failed := 0
@@ -58,5 +61,34 @@ func _initialize() -> void:
 	check("dev UI draws (ImGui -> canvas items)", t.devui_items() > 0, t.devui_items())
 	check("one live instance", t.instances() == 1, t.instances())
 	t.queue_free()
+	check_level_export()
 	print("GDEXT TESTS: %d failed" % failed)
 	quit(failed)
+
+
+## The level exporter, installed as the tools install it into a game and run in its own Godot process: the 2D
+## fixture exports to the committed file (tests/level reads it), and an unsupported shape fails naming the node.
+func check_level_export() -> void:
+	var repo := ProjectSettings.globalize_path("res://").path_join("../..").simplify_path()
+	var src := FileAccess.get_file_as_bytes(repo.path_join("src/level/godot/level_export.gd"))
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://.out/tools"))
+	var f := FileAccess.open("res://.out/tools/level_export.gd", FileAccess.WRITE)
+	f.store_buffer(src)
+	f.close()
+	var out := []
+	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
+			"-s", "res://.out/tools/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
+			"--scene=res://levels/bad_2d.tscn"], out, true)
+	var data = null
+	for line in "".join(out).split("\n"):
+		if line.begins_with("LEVEL_JSON "):
+			data = JSON.parse_string(line.trim_prefix("LEVEL_JSON "))
+	check("level export ran", data is Dictionary and code == 1, code)
+	if not data is Dictionary:
+		return
+	var levels: Array = data["levels"]
+	check("2D level exports to the committed file", levels.size() == 1 and levels[0]["scene"] ==
+			"res://levels/level_2d.tscn" and not levels[0]["changed"], levels)
+	var errs: Array = data["errors"]
+	check("unsupported 2D shape fails with the node's name", errs.size() == 1 and errs[0].begins_with("Rail/Edge: ")
+			and "SegmentShape2D" in errs[0], errs)

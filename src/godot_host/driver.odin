@@ -19,12 +19,13 @@ Api :: struct {
 	installed:   bool,
 	game_name:   string,
 	tick_hz:     int,
-	scene_kinds: []string,
+	scenes:      []Scene_Kind,
 	scene_dir:   string,
 	bulk_kinds:  []string,
 	smoothing:   view.Smoothing,
 	actions:     Action_Map,
 	event_names: []string,
+	commands:    []sim.Command_Kind, // the game's (send_command)
 	start:       proc(req: Start) -> (ok: bool, err: string),
 	stop:        proc(), // ask the session to end (it keeps running until it has said goodbye)
 	hurry:       proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
@@ -39,6 +40,7 @@ Api :: struct {
 	event_key:   proc(e: sim.Event) -> view.Key, // the game's event -> scene view mapping (nil: default routing)
 	level:       string, // Glue.level
 	result:      proc() -> string, // the finished session's result JSON (after a Result message)
+	send:        proc(c: sim.Command) -> bool, // queue a command for the running session (false: full)
 }
 
 api: Api
@@ -120,6 +122,7 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	frames:    view.Triple(Frame),
 	states:    view.Triple(S),
 	queue:     view.Queue(Message, 4096),
+	commands:  view.Queue(sim.Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
 	tracker:   view.Event_Tracker(Tick_Event),
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
@@ -238,12 +241,13 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 		installed   = true,
 		game_name   = game.name,
 		tick_hz     = game.tick_hz,
-		scene_kinds = glue.scene_kinds,
+		scenes      = glue.scenes,
 		scene_dir   = glue.scene_dir,
 		bulk_kinds  = glue.bulk_kinds,
 		smoothing   = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
 		actions     = glue.actions,
 		event_names = game.event_names,
+		commands    = game.commands,
 		event_key   = glue.event_key,
 		level       = glue.level,
 	}
@@ -326,6 +330,10 @@ install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
 	if glue.constants != nil {
 		api.constants = proc(d: rawptr) {(^Glue(S, I, W))(g_glue).constants(auto_cast d)}
 	}
+	api.send = proc(c: sim.Command) -> bool {
+		if g_driver == nil do return false
+		return view.queue_push(&(^D)(g_driver).commands, c)
+	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
 		return (^D)(g_driver).result
@@ -364,9 +372,11 @@ post_status :: proc(d: ^Driver($S, $I, $W, $P), st: Status_Kind, detail: string)
 }
 
 @(private)
-flush_events :: proc(d: ^Driver($S, $I, $W, $P)) {
+flush_events :: proc(d: ^Driver($S, $I, $W, $P), world: ^W) {
 	for a in d.tracker.out {
-		post(d, Message{kind = .Event, action = a.action, tick = a.event.tick, event = a.event.event})
+		e := a.event.event
+		if d.glue.event_pos != nil do e.pos = d.glue.event_pos(e.pos, world)
+		post(d, Message{kind = .Event, action = a.action, tick = a.event.tick, event = e})
 	}
 	clear(&d.tracker.out)
 }
@@ -398,15 +408,27 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			if d.req.scripted && d.glue.scripted != nil do return d.glue.scripted(d.req.seed, slot, tick, state)
 			return d.glue.sample(take_actions(), slot, tick, state)
 		},
+		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
+		commands = proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out) {
+			d := (^D)(user)
+			if d.req.scripted {
+				if d.glue.scripted_commands != nil do d.glue.scripted_commands(d.req.seed, slot, tick, state, out)
+				return
+			}
+			for len(out.list) < out.cap {
+				c := view.queue_pop(&d.commands) or_break
+				sim.push_command(out, c)
+			}
+		},
 		frame = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), f: netcode.Frame_Info) {
 			d := (^D)(user)
 			for t in f.resim_from ..= f.tick do track_tick(d, t, sim.events_at(s, t))
-			flush_events(d)
+			flush_events(d, s.world)
 			cur := sim.state_at(s, f.tick)
 			if cur == nil do cur = &s.state
 			prev := f.tick > 0 ? sim.state_at(s, f.tick - 1) : nil
 			out := view.triple_back(&d.frames)
-			out.n_scene, out.n_bulk = 0, 0
+			out.n_scene, out.n_bulk, out.dropped = 0, 0, 0
 			c := d.client
 			d.published += 1
 			out.published = d.published
@@ -437,7 +459,7 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			d := (^D)(user)
 			track_tick(d, tick, events)
 			view.tracker_verified(&d.tracker, tick)
-			flush_events(d)
+			flush_events(d, s.world)
 		},
 		status = proc(user: rawptr, st: netcode.Status, detail: string) {
 			d := (^D)(user)

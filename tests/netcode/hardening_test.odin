@@ -167,6 +167,7 @@ snapshot_provider_leaves_joiner_replays :: proc(t: ^testing.T) {
 	rnet_run(&n, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect(t, joiner.verified > joiner.first_tick)
+	testing.expect(t, len(n.relay.log.commands) > 0) // the replay reproduces commands too
 	// The joiner's verified checksums are the log's, replayed from tick 0.
 	if !testing.expect(t, len(joiner.checksums) > 0) {
 		return
@@ -174,7 +175,8 @@ snapshot_provider_leaves_joiner_replays :: proc(t: ^testing.T) {
 	last := joiner.checksums[len(joiner.checksums) - 1]
 	s := sim.create(&toy.GAME, SEED)
 	defer sim.destroy(s)
-	for &in_ in n.relay.log.ticks[:last[0]] {
+	for k in 0 ..< int(last[0]) {
+		in_ := sim.log_inputs(&n.relay.log, k)
 		sim.step(s, &in_)
 	}
 	testing.expect_value(t, sim.checksum(s), last[1])
@@ -252,11 +254,12 @@ fake_finalized :: proc(f: ^Fake_Relay, first: u32, ticks: []toy.Inputs) {
 	wire.w_u64(w, u64(f.now))
 	wire.w_u64(w, 0)
 	wire.w_u64(w, 0)
-	wire.w_u32(w, 0)
+	wire.w_u32(w, 0) // input ack
+	wire.w_u32(w, 0) // command ack
 	wire.w_u32(w, first)
 	wire.w_u8(w, u8(len(ticks)))
 	for &tk in ticks {
-		wire.w_bytes(w, ([^]u8)(&tk)[:size_of(toy.Inputs)])
+		sim.inputs_write(w, &tk)
 	}
 	fake_send(f, .Unreliable)
 }

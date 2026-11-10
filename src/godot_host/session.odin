@@ -15,6 +15,7 @@ Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
 	view_root:   gd.Node, // a Node3D or Node2D (any Node): views are spawned as its children
 	root_id:     u64,
+	root_2d:     bool, // view_root is a Node2D: verified events also go out as sim_event_2d
 	seed:        i64,
 	ticks:       i64,
 	name:        string,
@@ -117,6 +118,7 @@ register_session_class :: proc() {
 		}, proc(s: ^Session_Node, v: gd.Node) {
 			s.view_root = v
 			s.root_id = v.ptr != nil ? gdi.object_get_instance_id(v.ptr) : 0
+			s.root_2d = v.ptr != nil && gd.object_cast(gd.Node2D, v, "Node2D").ptr != nil
 			views_root_changed()
 		})
 	gd.bind_method(c, "start_single", proc(s: ^Session_Node) -> bool {return session_start(s, {mode = .Single})})
@@ -149,8 +151,15 @@ register_session_class :: proc() {
 		}
 		press_button(i)
 	}, {"action"})
+	gd.bind_method(c, "send_command", proc(s: ^Session_Node, name: gd.StringName, args: gd.Dictionary) -> bool {
+		name, args := name, args
+		return send_command(gd.string_name_to_odin(&name), &args)
+	}, {"name", "args"})
 	gd.bind_method(c, "set_input_vector", proc(s: ^Session_Node, index: i64, v: gd.Vector3) {
 		set_input_vector(int(index), {v.x, v.y, v.z})
+	}, {"index", "vector"})
+	gd.bind_method(c, "set_input_vector_2d", proc(s: ^Session_Node, index: i64, v: gd.Vector2) {
+		set_input_vector(int(index), {v.x, v.y, 0})
 	}, {"index", "vector"})
 	gd.bind_method(c, "set_player_name", proc(s: ^Session_Node, name: string) {
 		delete(s.name)
@@ -172,6 +181,15 @@ register_session_class :: proc() {
 		{"tick", i64},
 		{"entity", i64},
 		{"position", gd.Vector3},
+		{"value", f64},
+	)
+	gd.bind_signal(
+		c,
+		"sim_event_2d",
+		{"kind", gd.StringName},
+		{"tick", i64},
+		{"entity", i64},
+		{"position", gd.Vector2},
 		{"value", f64},
 	)
 }
@@ -386,6 +404,10 @@ route_event :: proc(s: ^Session_Node, m: Message) {
 		// player events carry the slot as their entity (UI: slot colours, "is it me")
 		entity := e.slot != sim.NO_SLOT ? i64(e.slot) : i64(e.entity)
 		gd.emit_signal(s.obj, gd.sn("sim_event"), gd.sn(name)^, i64(m.tick), entity, pos, f64(e.value))
+		if s.root_2d && alive(s.root_id) {
+			pos2 := gd.Vector2{e.pos.x, e.pos.y}
+			gd.emit_signal(s.obj, gd.sn("sim_event_2d"), gd.sn(name)^, i64(m.tick), entity, pos2, f64(e.value))
+		}
 		dev_log(
 			m.tick,
 			"%s entity %d slot %d value %.2f",

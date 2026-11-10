@@ -16,9 +16,16 @@ var _vel := Vector3.ZERO
 var velocity: Vector3:
 	get:
 		return _vel
+## The sim's Player_View data (simulation/extension), set by the host when it changes: a drop flashes.
+var hp := -1:
+	set(v):
+		if hp >= 0 and v < hp:
+			_flash = 1.0
+			if _is_local():
+				Sfx.play(&"hit", -4.0)
+		hp = v
 var _yaw := 0.0
 var _flash := 0.0
-var _last_hp := -1.0
 var _ghost_t := 0.0
 var _bob := 0.0
 var _has_pos := false
@@ -80,12 +87,6 @@ func _update_hud_state(dt: float) -> void:
 	var p := _hud_player()
 	if not p.is_empty():
 		_label.text = Game.player_name(p)
-		var hp: float = p.get("hp", 0.0)
-		if _last_hp >= 0.0 and hp < _last_hp - 0.01:
-			_flash = 1.0
-			if _is_local():
-				Sfx.play(&"hit", -4.0)
-		_last_hp = hp
 	if _flash > 0.0:
 		# Emission stays enabled in the scene's material and only its colour changes: toggling
 		# `emission_enabled` switches the shader variant and compiled a new shader on the first hit.

@@ -20,7 +20,7 @@ eos.shutdown()                                       // at exit; EOS can't be in
 eos.forget_device()                                  // test tools: delete this machine's device ID
 ```
 
-`bucket` names the game and its own compatibility counter (e.g. `survivor/3`): the game bumps it by hand when its
+`bucket` names the game and its own compatibility counter (e.g. `survivor/4`): the game bumps it by hand when its
 builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
 only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;

@@ -31,12 +31,10 @@ bot_run :: proc(game: ^survivor.Game, tune: survivor.Tuning, seed: u64, players:
 	r.seed = seed
 	r.first_level_s = -1
 	limit := u32(limit_s * survivor.TICK_HZ)
+	out: sim.Command_Out
+	defer delete(out.list)
 	for {
-		in_: survivor.Inputs
-		for p in 0 ..< players {
-			in_.present += {p}
-			in_.input[p] = survivor.bot_input(&s.state, p, s.tick + 1)
-		}
+		in_ := survivor.bot_tick(&s.state, players, s.tick + 1, &out)
 		sim.step(s, &in_)
 		st := &s.state
 		if st.phase == .Lobby {

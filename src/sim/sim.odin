@@ -14,6 +14,7 @@ package sim
 
 import "base:intrinsics"
 import "base:runtime"
+import "core:fmt"
 import "core:hash/xxhash"
 
 RING :: 16
@@ -23,13 +24,16 @@ MAX_SLOTS :: 32
 
 Players :: bit_set[0 ..< MAX_SLOTS;u32]
 
-// What a tick consumes: every slot's input plus who is in the game. A slot not in `present` has a
-// zero input. `replaced` marks inputs the relay substituted (the player's last one) because the
-// real one came too late; it is informational, games should not branch on it.
+// What a tick consumes: every slot's input, who is in the game, and the commands sent for this tick
+// (command.odin). A slot not in `present` has a zero input. `replaced` marks inputs the relay
+// substituted (the player's last one) because the real one came too late; it is informational, games
+// should not branch on it. Commands are never repeated or substituted: each arrives in one tick only.
 Inputs :: struct($I: typeid, $P: int) where P >= 1 && P <= MAX_SLOTS {
-	present:  Players,
-	replaced: Players,
-	input:    [P]I,
+	present:    Players,
+	replaced:   Players,
+	input:      [P]I,
+	n_commands: int,
+	commands:   [TICK_COMMANDS]Command, // ordered by slot, each slot's in the order sent (sim.commands)
 }
 
 // An event a tick emits for the view (sounds, effects, UI). Events are deterministic, kept per tick
@@ -98,6 +102,8 @@ Game :: struct($S, $I, $W: typeid, $P: int) {
 	tick:          proc(s: ^S, w: ^W, t: u32, inputs: ^Inputs(I, P), events: ^[dynamic]Event),
 	// Names of the event kinds, indexed by kind (for views and tools).
 	event_names:   []string,
+	// The command types players send (command.odin), indexed by kind: {{"set_map", Cmd_Set_Map}, ...}.
+	commands:      []Command_Kind,
 }
 
 Ring_Slot :: struct($S: typeid) {
@@ -132,32 +138,48 @@ hash_bytes :: proc(b: []u8) -> u64 {
 }
 
 // The game build's identity for netcode (Hello's compat): the state, input and inputs layouts, the
-// slot count, the tick rate, the game's name (each variant, e.g. a tuning, has its own) and version.
+// command types, the slot count, the tick rate, the game's name (each variant, e.g. a tuning, has its own)
+// and version.
 // Two builds with the same value run the same simulation, as far as the build can tell.
 // The content's hash goes in too, so peers with different levels refuse to play together.
 compat_of :: proc(game: ^Game($S, $I, $W, $P), content: []u8 = nil) -> u64 {
 	Ids :: struct {
-		state, input, inputs, name, version, content: u64,
-		slots, tick_hz:                               u32,
+		state, input, inputs, name, version, content, commands: u64,
+		slots, tick_hz:                                         u32,
 	}
 	ids := Ids {
-		state   = layout_hash(S),
-		input   = layout_hash(I),
-		inputs  = layout_hash(Inputs(I, P)),
-		name    = hash_bytes(transmute([]u8)game.name),
-		version = hash_bytes(transmute([]u8)game.version),
-		content = content_hash(content),
-		slots   = u32(P),
-		tick_hz = u32(game.tick_hz),
+		state    = layout_hash(S),
+		input    = layout_hash(I),
+		inputs   = layout_hash(Inputs(I, P)),
+		name     = hash_bytes(transmute([]u8)game.name),
+		version  = hash_bytes(transmute([]u8)game.version),
+		content  = content_hash(content),
+		commands = commands_hash(game.commands),
+		slots    = u32(P),
+		tick_hz  = u32(game.tick_hz),
 	}
 	return max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }
 
-// Whether two ticks' inputs are the same for the simulation: the same players present and the same
-// input bytes (what the checksum sees: -0.0 and +0.0 differ, a NaN equals itself). `replaced` is
-// informational and not compared.
+// Whether two ticks' inputs are the same for the simulation: the same players present, the same
+// input bytes (what the checksum sees: -0.0 and +0.0 differ, a NaN equals itself) and the same
+// commands. `replaced` is informational and not compared.
 inputs_same :: proc(a, b: ^Inputs($I, $P)) -> bool {
-	return a.present == b.present && runtime.memory_compare(&a.input, &b.input, size_of([P]I)) == 0
+	if a.present != b.present ||
+	   a.n_commands != b.n_commands ||
+	   runtime.memory_compare(&a.input, &b.input, size_of([P]I)) != 0 {
+		return false
+	}
+	for i in 0 ..< a.n_commands {
+		x, y := &a.commands[i], &b.commands[i]
+		if x.kind != y.kind ||
+		   x.slot != y.slot ||
+		   x.size != y.size ||
+		   runtime.memory_compare(&x.data[0], &y.data[0], int(x.size)) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // Creates the World and the tick-0 state, and saves tick 0 into the ring. That first save also
@@ -170,7 +192,10 @@ content_hash :: proc(content: []u8) -> u64 {
 
 create :: proc(game: ^Game($S, $I, $W, $P), seed: u64, content: []u8 = nil) -> ^Sim(S, I, W, P) {
 	check_plain(S)
-	check_plain(Inputs(I, P))
+	check_plain(I)
+	if r := commands_violation(game.commands); r != "" {
+		fmt.panicf("%s: %s", game.name, r)
+	}
 	assert(game.tick_hz > 0 && game.tick_hz & (game.tick_hz - 1) == 0, "tick_hz must be a power of two")
 	s := new(Sim(S, I, W, P))
 	s.game = game
@@ -200,6 +225,7 @@ advance :: proc(s: ^Sim($S, $I, $W, $P), inputs: ^Inputs(I, P)) {
 	t := s.tick + 1
 	slot := &s.ring[t % RING]
 	clear(&slot.events)
+	bind_commands(inputs, s.game.commands)
 	s.game.tick(&s.state, s.world, t, inputs, &slot.events)
 	s.tick = t
 }

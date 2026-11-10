@@ -10,6 +10,7 @@ import "core:time"
 
 import gh "unified:godot_host"
 import "unified:netcode"
+import "unified:sim"
 import "unified:view"
 
 import "../toy"
@@ -18,6 +19,8 @@ import "../toy"
 seen: struct {
 	pressed:   u32, // button edges the sample hook received (atomic)
 	extracted: int, // frames extracted (atomic)
+	bumps:     u32, // the local player's bump commands applied, in the last frame (atomic)
+	bump_fold: u32,
 	pumps:     int,
 	closes:    int,
 	hub:       ^netcode.Hub,
@@ -25,7 +28,7 @@ seen: struct {
 
 @(private = "file")
 GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
-	scene_kinds = {"dot"},
+	scenes = {{name = "dot"}},
 	scene_dir = "res://views",
 	actions = {buttons = {"spawn"}},
 	extract = proc(cur, prev: ^toy.State, w: ^toy.World, out: ^gh.Frame) {
@@ -38,8 +41,12 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 			}
 			out.n_scene += 1
 		}
+		sync.atomic_store(&seen.bumps, cur.bumps[0])
+		sync.atomic_store(&seen.bump_fold, cur.bump_fold[0])
 		sync.atomic_add(&seen.extracted, 1)
 	},
+	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
+	event_pos = proc(pos: [3]f32, w: ^toy.World) -> [3]f32 {return pos * 10 + {0, 0, 1}},
 	sample = proc(a: gh.Actions, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
 		sync.atomic_or(&seen.pressed, a.pressed)
 		return {dx = 1, buttons = u8(a.pressed & 1)}
@@ -100,18 +107,30 @@ driver_sessions :: proc(t: ^testing.T) {
 	testing.expect_value(t, gh.api.tick_hz, toy.HZ)
 
 	// Single player, 40 ticks: connected, frames published, a pressed button reaches sample once,
-	// verified events confirmed, a result at the end.
+	// commands sent from the main thread reach the sim once each, in order, verified events confirmed, a
+	// result at the end.
 	{
+		testing.expect(t, !gh.api.send({}), "no session: nothing to send to")
 		ok, err := gh.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
 		testing.expect(t, ok, err)
 		gh.press_button(0)
+		for amount in ([]i32{3, -1, 8}) {
+			c, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{amount})
+			testing.expect(t, gh.api.send(c))
+		}
 		msgs := make([dynamic]gh.Message, context.temp_allocator)
 		testing.expect(t, drain(&msgs, 5000, is_result), "the session ends with a result")
-		connected, joined := false, false
+		connected, joined, spawned := false, false, false
 		for m in msgs {
 			if m.kind == .Status && m.status == .Connected do connected = true
 			if m.kind == .Event && m.action == .Confirm && toy.Event_Kind(m.event.kind) == .Joined do joined = true
+			if m.kind == .Event && toy.Event_Kind(m.event.kind) == .Spawned {
+				// the sim emits {x, 0, y} with y = 0 and x > 0: event_pos made it {10x, 0, 1}
+				spawned = true
+				testing.expectf(t, m.event.pos.z == 1 && m.event.pos.x > 0, "event_pos applied: %v", m.event.pos)
+			}
 		}
+		testing.expect(t, spawned, "the press spawned a thing, its event posted")
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		f, _ := gh.api.front()
@@ -119,6 +138,12 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, f != nil && f.tick >= 39, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
 		testing.expect_value(t, sync.atomic_load(&seen.pressed), 1) // exactly the one press, once
+		testing.expect_value(t, sync.atomic_load(&seen.bumps), 3)
+		testing.expect_value(
+			t,
+			sync.atomic_load(&seen.bump_fold),
+			toy.bump_fold(toy.bump_fold(toy.bump_fold(0, 3), -1), 8),
+		)
 		testing.expect(t, strings.contains(gh.api.result(), "\"checksum"), gh.api.result())
 		for gh.api.running() do time.sleep(time.Millisecond)
 		gh.api.wait()

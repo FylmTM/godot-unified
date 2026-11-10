@@ -23,6 +23,34 @@ HEADLESS := H {
 	script = proc(seed: u64, slot: int, t: u32, state: ^toy.State) -> toy.Input {
 		return toy.script(seed, slot, t)
 	},
+	script_commands = proc(seed: u64, slot: int, t: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		toy.script_commands(seed, slot, t, out)
+	},
+}
+
+// An offline run gives a tick at most four commands of a player and the rest to the next ticks, in order,
+// as the relay does (toy.script_commands sends six bumps, 100 * slot + 0..5, at tick 250).
+@(test)
+offline_runs_hold_commands_over_the_limit_for_the_next_tick :: proc(t: ^testing.T) {
+	h := HEADLESS
+	lg: sim.Input_Log(toy.Input, toy.SLOTS)
+	defer sim.log_destroy(&lg)
+	headless.run_sim(&h, 260, 3, 2, nil, &lg)
+	for slot in 0 ..< 2 {
+		at: [6]u32
+		for k in 249 ..< 255 {
+			in_ := sim.log_inputs(&lg, k)
+			sim.bind_commands(&in_, toy.GAME.commands)
+			testing.expect(t, len(sim.commands(&in_, slot)) <= sim.COMMANDS_PER_PLAYER)
+			for &c in sim.commands(&in_, slot) {
+				b := sim.command_as(&c, toy.Cmd_Bump) or_continue
+				if i := int(b.amount) - 100 * slot; i >= 0 && i < 6 && at[i] == 0 {
+					at[i] = u32(k + 1)
+				}
+			}
+		}
+		testing.expectf(t, at[0] == 250 && slice.is_sorted(at[:]) && at[4] == 251, "slot %d: ticks %v", slot, at)
+	}
 }
 
 temp_path :: proc(name: string) -> string {
@@ -106,7 +134,8 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 	// The relay's log replays to every client's last verified checksum (tick 640).
 	s := sim.create(&toy.GAME, 11)
 	defer sim.destroy(s)
-	for &in_ in res.log.ticks {
+	for k in 0 ..< len(res.log.ticks) {
+		in_ := sim.log_inputs(&res.log, k)
 		sim.step(s, &in_)
 	}
 	for c, i in res.clients {

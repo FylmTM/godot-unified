@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build, test, format and vet unified: the one entry point (Python 3.9+, stdlib only, any OS).
 
-    python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{survivor,friendslop,toy}[.exe]
+    python tools/dev.py build [dev|release|debug]   # headless binaries -> out/<mode>/{<each game>,toy}[.exe]
     python tools/dev.py test                    # odin test: unit tests, every end-to-end suite, determinism lint
     python tools/dev.py check                   # release build, then the real-UDP multi-process test (toy)
     python tools/dev.py bench [name ...]        # release build, then the benchmarks (default: all of them)
@@ -84,14 +84,16 @@ MODES = {
 TEST_FLAGS = ["-o:speed", "-use-separate-modules", "-debug"]
 VET_TARGETS = ["darwin_arm64", "linux_amd64", "linux_arm64", "windows_amd64"]
 FMT_DIRS = ["src", "tests"] + sorted(p.relative_to(REPO).as_posix() for p in (REPO / "games").glob("*/simulation"))
+# The games: every games/<game>/ with a simulation/ (its headless binary in simulation/headless, its GDExtension
+# in simulation/extension, by convention), so adding a game edits no list here.
+GAME_DIRS = sorted(p.parent.name for p in (REPO / "games").glob("*/simulation"))
 # The headless binaries `build` makes (out/<mode>/<name>): each game's and the toy game's.
-HEADLESS = {"survivor": "games/survivor/simulation/headless", "friendslop": "games/friendslop/simulation/headless",
-            "toy": "tests/toy/headless"}
+HEADLESS = {g: "games/%s/simulation/headless" % g for g in GAME_DIRS if (REPO / "games" / g / "simulation/headless").is_dir()}
+HEADLESS["toy"] = "tests/toy/headless"
 # Packages vet type-checks (with everything they import): the headless binaries, the tests, the Godot test
 # extensions (tests/godot, tests/godot_views) and the games' extensions.
-VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext",
-                                          "games/survivor/simulation/extension",
-                                          "games/friendslop/simulation/extension"]
+VET_PACKAGES = list(HEADLESS.values()) + ["tests", "tests/godot/ext", "tests/godot_views/ext"] + [
+    "games/%s/simulation/extension" % g for g in GAME_DIRS if (REPO / "games" / g / "simulation/extension").is_dir()]
 ODINFMT_HELP = """odinfmt not found. It ships with OLS; install the pinned build (the commit CI uses, see
 OLS_COMMIT in tools/ci.py) with:
     python tools/ci.py odinfmt ~/.local/share/unified-odinfmt
@@ -174,17 +176,19 @@ def godot_errors(text):
     return [l for l in text.splitlines() if "ERROR" in l or "SCRIPT ERROR" in l or "Parse Error" in l]
 
 
-# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix).
+# The Godot-side library tests: (project, extension package, library stem, script, summary line prefix, the
+# error lines the test provokes on purpose: they must show up, and nothing else may).
 GODOT_TESTS = [
-    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS"),  # the gdext bindings
-    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS"),  # godot_host views
+    ("tests/godot", "tests/godot/ext", "gdext_test", "res://test.gd", "GDEXT TESTS", None),  # the gdext bindings
+    ("tests/godot_views", "tests/godot_views/ext", "views_test", "res://test.gd", "VIEWS TESTS",  # godot_host views
+     "unified: send_command("),  # and send_command's refusals
 ]
 
 
 def cmd_godot_test():
     t0 = time.time()
     imgui.ensure()
-    for proj_rel, pkg, stem, script, summary in GODOT_TESTS:
+    for proj_rel, pkg, stem, script, summary, expected in GODOT_TESTS:
         proj = REPO / proj_rel
         build_extension(pkg, proj / ".out" / "bin" / common.lib_name(stem))
         common.write_extension_list(proj)
@@ -193,6 +197,11 @@ def cmd_godot_test():
         out = r.stdout + r.stderr
         sys.stdout.write("".join(l + "\n" for l in r.stdout.splitlines() if l.startswith(("PASS", "FAIL", summary))))
         errs = godot_errors(out) + [l for l in out.splitlines() if "Orphan StringName" in l or "leaked at exit" in l]
+        if expected:
+            provoked = [e for e in errs if expected in e]
+            errs = [e for e in errs if expected not in e]
+            if not provoked:
+                errs.append("no error line with %r: the test expects some" % expected)
         for e in errs:
             log("godot: " + e)
         if r.returncode != 0 or errs or summary + ": 0 failed" not in out:
@@ -739,6 +748,8 @@ BENCHES = {
                           "survivor (stress tuning) holding 1000 enemies, 8-tick rollback every tick"),
     "friendslop-rollback": ("friendslop", ["--window", 8, "--ticks", 600],
                             "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick"),
+    "drift-rollback": ("drift", ["--window", 8, "--ticks", 1800],
+                       "drift on the arena (2D physics locked to a plane: ships, splitting rocks), 8-tick rollback every tick"),
 }
 BENCH_TARGET_US = 6000.0
 

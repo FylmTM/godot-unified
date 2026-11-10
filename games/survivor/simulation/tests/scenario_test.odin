@@ -71,10 +71,22 @@ count :: proc(c: ^Counts, events: []sim.Event) {
 	}
 }
 
+// Scripted inputs and level-up picks of tick t.
 scripted :: proc(s: ^survivor.Sim, t: u32) -> (in_: survivor.Inputs) {
 	in_.present = {0, 1, 2, 3}
+	out := sim.Command_Out {
+		kinds = survivor.GAME.commands,
+		cap   = sim.COMMANDS_PER_PLAYER,
+	}
+	defer delete(out.list)
 	for p in 0 ..< survivor.MAX_PLAYERS {
 		in_.input[p] = survivor.script(s.seed, p, t, &s.state)
+		out.slot = p
+		clear(&out.list)
+		survivor.script_commands(s.seed, p, t, &s.state, &out)
+		for c in out.list {
+			sim.add_command(&in_, c)
+		}
 	}
 	return
 }
@@ -125,6 +137,9 @@ scenario_networked :: proc(t: ^testing.T) {
 	hooks := netcode.Hooks(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State) -> survivor.Input {
 			return survivor.script(13, slot, tick, state)
+		},
+		commands = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State, out: ^sim.Command_Out) {
+			survivor.script_commands(13, slot, tick, state, out)
 		},
 	}
 	clock := netcode.Virtual_Clock {

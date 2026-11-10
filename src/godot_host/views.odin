@@ -5,8 +5,10 @@
 // to both through Object.set/call. A scene root's class (Node3D or Node2D) picks the 3D or 2D mapping.
 package godot_host
 
+import "base:runtime"
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -27,18 +29,39 @@ Scene_View :: struct {
 	track:      view.Track,
 	has_update: bool,
 	has_event:  bool,
+	data:       [SCENE_DATA_BYTES]u8, // the data last set as properties (Scene_Kind.data)
+}
+
+// One field of a kind's data type, set as the view's property of the same name.
+@(private)
+Data_Field :: struct {
+	name:   ^gd.StringName,
+	offset: int,
+	conv:   enum u8 {
+		Bool,
+		Int,
+		Uint,
+		F32,
+		Vec2,
+		Vec3,
+		Color,
+	},
+	size:   int, // Int/Uint: bytes
 }
 
 @(private)
 Bulk_View :: struct {
-	node:   gd.Node, // a MultiMeshInstance3D or MultiMeshInstance2D
-	id:     u64,
-	kind:   int, // index into api.bulk_kinds, -1: unknown
-	mm:     gd.Ref(gd.MultiMesh),
-	buf:    gd.PackedFloat32Array,
-	cap:    int,
-	stride: int,
-	is_2d:  bool, // transform_format TRANSFORM_2D: 8 floats per transform, else 12
+	node:                gd.Node, // a MultiMeshInstance3D or MultiMeshInstance2D
+	id:                  u64,
+	kind:                int, // index into api.bulk_kinds, -1: unknown
+	mm:                  gd.Ref(gd.MultiMesh),
+	buf:                 gd.PackedFloat32Array,
+	cap:                 int,
+	stride:              int,
+	is_2d:               bool, // transform_format TRANSFORM_2D: 8 floats per transform, else 12
+	// per frame (bulk_sync)
+	has_col, has_custom: bool,
+	ptr:                 [^]f32,
 }
 
 @(private)
@@ -51,6 +74,8 @@ V: struct {
 	frame:      int,
 	clock:      time.Tick,
 	root_id:    u64,
+	fields:     map[u8][]Data_Field, // per scene kind with data, built on first use
+	warned:     map[string]bool, // warnings given once per process
 }
 
 // ---- typed view classes
@@ -155,7 +180,7 @@ unregister_classes :: proc() {
 scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 	if ps, ok := V.scenes[kind]; ok do return ps, true
 	if V.missing[kind] do return {}, false
-	name := int(kind) < len(api.scene_kinds) ? api.scene_kinds[kind] : fmt.tprintf("kind%d", kind)
+	name := int(kind) < len(api.scenes) ? api.scenes[kind].name : fmt.tprintf("kind%d", kind)
 	path := fmt.tprintf("%s/%s.tscn", api.scene_dir, name)
 	res := gd.ResourceLoader_load(gd.ResourceLoader_singleton(), path, "", .CACHE_MODE_REUSE)
 	if res.ptr == nil {
@@ -188,7 +213,7 @@ spawn_view :: proc(root: gd.Node, it: ^Scene_Item) -> ^Scene_View {
 	n := v.node
 	v.id = gdi.object_get_instance_id(n.ptr)
 	v.kind, v.slot, v.entity = it.kind, it.slot, it.entity
-	kind := int(it.kind) < len(api.scene_kinds) ? api.scene_kinds[it.kind] : ""
+	kind := int(it.kind) < len(api.scenes) ? api.scenes[it.kind].name : ""
 	set_prop(n, gd.sn("kind"), gd.variant_string_name(kind))
 	set_prop(n, gd.sn("entity"), gd.to_variant(i64(it.entity)))
 	set_prop(n, gd.sn("slot"), gd.to_variant(i64(it.slot)))
@@ -196,6 +221,29 @@ spawn_view :: proc(root: gd.Node, it: ^Scene_Item) -> ^Scene_View {
 	v.has_event = gd.has_script_method(n, gd.sn("_sim_event"))
 	set_pose(v, {it.pos, quat_or_identity(it.rot)})
 	gd.Node_add_child(root, n, false, .INTERNAL_MODE_DISABLED)
+	// data after _ready: a script's property setters may use its @onready nodes
+	if v.is_2d && api.smoothing == view.SMOOTHING_DEFAULT {
+		warn_once(
+			"smoothing",
+			"unified: 2D scene views with the default smoothing (metres): set Glue.smoothing in the units extract writes, e.g. {tau_s = 0.1, teleport_dist = 64} for pixels",
+		)
+	}
+	fields := data_fields(it.kind)
+	for &fd in fields {
+		r := gd.Object_get(n, fd.name)
+		if gd.variant_type(&r) == .NIL {
+			warn_once(
+				fmt.tprintf("prop:%s:%s", kind, gd.string_name_to_odin(fd.name)),
+				fmt.tprintf(
+					"unified: scene view %q has no property %q for its data",
+					kind,
+					gd.string_name_to_odin(fd.name),
+				),
+			)
+		}
+		gd.variant_destroy(&r)
+	}
+	set_data(v, fields, &it.data)
 	return v
 }
 
@@ -211,6 +259,141 @@ set_pose :: proc(v: ^Scene_View, p: view.Pose) {
 		gd.Node3D_set_position(n, {p.pos.x, p.pos.y, p.pos.z})
 		gd.Node3D_set_quaternion(n, {p.rot.x, p.rot.y, p.rot.z, p.rot.w})
 	}
+}
+
+@(private)
+warn_once :: proc(key, msg: string) {
+	if V.warned[key] do return
+	V.warned[strings.clone(key)] = true
+	gd.print_warning(msg)
+}
+
+// The fields of a scene kind's data type (Scene_Kind.data), built once; an unsupported field type is an error
+// reported once, and the field is left out.
+@(private)
+data_fields :: proc(kind: u8) -> []Data_Field {
+	if int(kind) >= len(api.scenes) || api.scenes[kind].data == nil do return nil
+	if f, ok := V.fields[kind]; ok do return f
+	tid := api.scenes[kind].data
+	out := make([dynamic]Data_Field)
+	ti := runtime.type_info_base(type_info_of(tid))
+	st, is_struct := ti.variant.(runtime.Type_Info_Struct)
+	if !is_struct || ti.size > SCENE_DATA_BYTES {
+		gd.print_error(
+			fmt.tprintf(
+				"unified: scene kind %q: data %v must be a struct of at most %d bytes",
+				api.scenes[kind].name,
+				tid,
+				SCENE_DATA_BYTES,
+			),
+		)
+	} else {
+		for i in 0 ..< int(st.field_count) {
+			name := st.names[i]
+			ft := runtime.type_info_base(st.types[i])
+			fd := Data_Field {
+				name   = gd.sn(name),
+				offset = int(st.offsets[i]),
+				size   = ft.size,
+			}
+			ok := true
+			#partial switch fv in ft.variant {
+			case runtime.Type_Info_Boolean:
+				fd.conv = .Bool
+			case runtime.Type_Info_Integer:
+				fd.conv = fv.signed ? .Int : .Uint
+			case runtime.Type_Info_Enum:
+				eb := runtime.type_info_base(fv.base)
+				fd.conv = eb.variant.(runtime.Type_Info_Integer).signed ? .Int : .Uint
+			case runtime.Type_Info_Float:
+				ok = ft.size == 4
+				fd.conv = .F32
+			case runtime.Type_Info_Array:
+				ok = fv.elem.id == f32 && fv.count >= 2 && fv.count <= 4
+				fd.conv = fv.count == 2 ? .Vec2 : fv.count == 3 ? .Vec3 : .Color
+			case:
+				ok = false
+			}
+			if name == "_" || strings.has_prefix(name, "_") do continue // padding
+			if !ok {
+				gd.print_error(
+					fmt.tprintf(
+						"unified: scene kind %q: data field %q has an unsupported type %v",
+						api.scenes[kind].name,
+						name,
+						st.types[i].id,
+					),
+				)
+				continue
+			}
+			append(&out, fd)
+		}
+	}
+	V.fields[kind] = out[:]
+	return out[:]
+}
+
+// Sets every data field whose bytes changed (all of them on a fresh view) as a property.
+@(private)
+set_data :: proc(v: ^Scene_View, fields: []Data_Field, data: ^[SCENE_DATA_BYTES]u8, fresh := true) {
+	for &fd in fields {
+		a := data[fd.offset:][:fd.size if fd.conv < .F32 else field_bytes(fd.conv)]
+		if !fresh && string(a) == string(v.data[fd.offset:][:len(a)]) do continue
+		p := raw_data(a)
+		val: gd.Variant
+		switch fd.conv {
+		case .Bool:
+			val = gd.to_variant(p[0] != 0)
+		case .Int:
+			switch fd.size {
+			case 1:
+				val = gd.to_variant(i64((^i8)(p)^))
+			case 2:
+				val = gd.to_variant(i64((^i16le)(p)^))
+			case 4:
+				val = gd.to_variant(i64((^i32le)(p)^))
+			case:
+				val = gd.to_variant(i64((^i64le)(p)^))
+			}
+		case .Uint:
+			switch fd.size {
+			case 1:
+				val = gd.to_variant(i64(p[0]))
+			case 2:
+				val = gd.to_variant(i64((^u16le)(p)^))
+			case 4:
+				val = gd.to_variant(i64((^u32le)(p)^))
+			case:
+				val = gd.to_variant(i64((^u64le)(p)^))
+			}
+		case .F32:
+			val = gd.to_variant((^f32)(p)^)
+		case .Vec2:
+			f := (^[2]f32)(p)^
+			val = gd.to_variant(gd.Vector2{f.x, f.y})
+		case .Vec3:
+			f := (^[3]f32)(p)^
+			val = gd.to_variant(gd.Vector3{f.x, f.y, f.z})
+		case .Color:
+			f := (^[4]f32)(p)^
+			val = gd.to_variant(gd.Color{f[0], f[1], f[2], f[3]})
+		}
+		set_prop(v.node, fd.name, val)
+	}
+	v.data = data^
+}
+
+@(private)
+field_bytes :: proc(c: type_of(Data_Field{}.conv)) -> int {
+	#partial switch c {
+	case .F32:
+		return 4
+	case .Vec2:
+		return 8
+	case .Vec3:
+		return 12
+	}
+	return 16
 }
 
 @(private)
@@ -243,6 +426,9 @@ views_clear :: proc() {
 	delete(V.scenes)
 	delete(V.missing)
 	V.scenes, V.missing = nil, nil
+	for _, f in V.fields do delete(f)
+	delete(V.fields)
+	V.fields = nil
 }
 
 // The game set or cleared view_root: drop every view (they lived under the old root).
@@ -263,6 +449,17 @@ views_sync :: proc(root: gd.Node, f: ^Frame, fresh: bool, alpha: f32, dt: f32) {
 	if V.clock == {} do V.clock = time.tick_now()
 	now_s := time.duration_seconds(time.tick_since(V.clock))
 	if fresh {
+		if f.dropped > 0 {
+			warn_once(
+				"dropped",
+				fmt.tprintf(
+					"unified: a frame had more items than it holds (%d dropped; MAX_SCENE_ITEMS %d, MAX_BULK_ITEMS %d)",
+					f.dropped,
+					MAX_SCENE_ITEMS,
+					MAX_BULK_ITEMS,
+				),
+			)
+		}
 		view.set_begin(&V.set)
 		for &it in f.scene[:f.n_scene] {
 			old := view.set_get(&V.set, it.key)
@@ -279,6 +476,7 @@ views_sync :: proc(root: gd.Node, f: ^Frame, fresh: bool, alpha: f32, dt: f32) {
 				gd.Dictionary_destroy(&d)
 			}
 			v.entity, v.slot = it.entity, it.slot
+			if !spawned && alive(v.id) do set_data(v, data_fields(it.kind), &it.data, false)
 			if it.has_prev {
 				view.track_push(&v.track, f.tick - 1, {it.prev_pos, quat_or_identity(it.prev_rot)}, api.smoothing)
 			}
@@ -419,16 +617,25 @@ bulk_scan :: proc(root: gd.Node) {
 	}
 }
 
+// One pass over the frame's bulk items: counted per kind, then each item written into the buffer of every bulk
+// view of its kind (usually one).
 @(private)
 bulk_sync :: proc(root: gd.Node, f: ^Frame, alpha: f32) {
 	if V.frame >= V.scan_frame {
 		bulk_scan(root)
 		V.scan_frame = V.frame + 30
 	}
-	for &b in V.bulks {
+	counts: [256]int
+	for &it in f.bulk[:f.n_bulk] do counts[it.kind] += 1
+	// views by kind: first[kind] -> next[...] (indices into V.bulks, -1 ends)
+	first: [256]i32 = -1
+	next := make([]i32, len(V.bulks), context.temp_allocator)
+	cursor := make([]int, len(V.bulks), context.temp_allocator)
+	for i := len(V.bulks) - 1; i >= 0; i -= 1 {
+		b := &V.bulks[i]
+		next[i] = -1
 		if b.kind < 0 || !alive(b.id) do continue
-		n := 0
-		for &it in f.bulk[:f.n_bulk] do if int(it.kind) == b.kind do n += 1
+		n := counts[b.kind]
 		if n > b.cap {
 			newcap := max(n, 64, b.cap * 2)
 			if b.cap == 0 do b.buf = gd.PackedFloat32Array_new0()
@@ -437,38 +644,53 @@ bulk_sync :: proc(root: gd.Node, f: ^Frame, alpha: f32) {
 			b.cap = newcap
 		}
 		if b.cap == 0 do continue
-		buf := ([^]f32)(gdi.packed_float32_array_operator_index(&b.buf, 0))
-		has_col := gd.MultiMesh_is_using_colors(b.mm)
-		has_custom := gd.MultiMesh_is_using_custom_data(b.mm)
-		i := 0
-		for &it in f.bulk[:f.n_bulk] {
-			if int(it.kind) != b.kind do continue
-			p := it.pos
-			if it.has_prev do p = view.lerp3(it.prev_pos, it.pos, alpha)
-			sc := it.scale == 0 ? 1 : it.scale
-			cs, sn := math.cos(it.yaw) * sc, math.sin(it.yaw) * sc
-			o := buf[i * b.stride:]
+		b.has_col = gd.MultiMesh_is_using_colors(b.mm)
+		b.has_custom = gd.MultiMesh_is_using_custom_data(b.mm)
+		b.ptr = ([^]f32)(gdi.packed_float32_array_operator_index(&b.buf, 0))
+		next[i] = first[b.kind]
+		first[b.kind] = i32(i)
+	}
+	for &it in f.bulk[:f.n_bulk] {
+		vi := first[it.kind]
+		if vi < 0 do continue
+		p := it.pos
+		yaw := it.yaw
+		if it.has_prev {
+			p = view.lerp3(it.prev_pos, it.pos, alpha)
+			d := it.yaw - it.prev_yaw
+			d -= math.TAU * math.round(d / math.TAU) // the shorter arc
+			yaw = it.prev_yaw + d * alpha
+		}
+		sc := it.scale == {} ? [3]f32{1, 1, 1} : it.scale
+		cs, sn := math.cos(yaw), math.sin(yaw)
+		for ; vi >= 0; vi = next[vi] {
+			b := &V.bulks[vi]
+			o := b.ptr[cursor[vi] * b.stride:]
+			cursor[vi] += 1
 			k: int
 			if b.is_2d {
-				// Transform2D rows (x axis = (cs, sn), y axis = (-sn, cs)): rotation about Z, uniform scale
-				o[0], o[1], o[2], o[3] = cs, -sn, 0, p.x
-				o[4], o[5], o[6], o[7] = sn, cs, 0, p.y
+				// Transform2D rows (x axis = (cs, sn)·sx, y axis = (-sn, cs)·sy): rotation about Z, scale per axis
+				o[0], o[1], o[2], o[3] = cs * sc.x, -sn * sc.y, 0, p.x
+				o[4], o[5], o[6], o[7] = sn * sc.x, cs * sc.y, 0, p.y
 				k = 8
 			} else {
-				o[0], o[1], o[2], o[3] = cs, 0, sn, p.x
-				o[4], o[5], o[6], o[7] = 0, sc, 0, p.y
-				o[8], o[9], o[10], o[11] = -sn, 0, cs, p.z
+				// Transform3D rows (yaw about +Y; local axes scaled by sc)
+				o[0], o[1], o[2], o[3] = cs * sc.x, 0, sn * sc.z, p.x
+				o[4], o[5], o[6], o[7] = 0, sc.y, 0, p.y
+				o[8], o[9], o[10], o[11] = -sn * sc.x, 0, cs * sc.z, p.z
 				k = 12
 			}
-			if has_col {
+			if b.has_col {
 				c := it.color == {} ? [4]f32{1, 1, 1, 1} : it.color
 				o[k], o[k + 1], o[k + 2], o[k + 3] = c[0], c[1], c[2], c[3]
 				k += 4
 			}
-			if has_custom do o[k], o[k + 1], o[k + 2], o[k + 3] = it.custom[0], it.custom[1], it.custom[2], it.custom[3]
-			i += 1
+			if b.has_custom do o[k], o[k + 1], o[k + 2], o[k + 3] = it.custom[0], it.custom[1], it.custom[2], it.custom[3]
 		}
+	}
+	for &b, i in V.bulks {
+		if b.kind < 0 || !alive(b.id) || b.cap == 0 do continue
 		gd.MultiMesh_set_buffer(b.mm, b.buf)
-		gd.MultiMesh_set_visible_instance_count(b.mm, n)
+		gd.MultiMesh_set_visible_instance_count(b.mm, cursor[i])
 	}
 }

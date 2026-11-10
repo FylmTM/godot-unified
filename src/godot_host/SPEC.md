@@ -39,15 +39,19 @@ installs its sim and its glue.
 godot_host.install(&GAME, glue)            // sim.Game(S, I, W, P) + Glue(S, I, W)
 godot_host.set_transport(&transport)       // optional: online play (EOS...), never imported by godot_host
 return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
-Glue { scene_kinds, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default */,
+Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default (a warning for 2D views) */,
        actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
-       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
+       scripted_commands(seed, slot, tick, ^S, ^sim.Command_Out) /* optional: --scripted sends these */,
+       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key,
+       event_pos(pos, ^W) -> pos /* optional: events in extract's units, e.g. metres or cells to pixels */, compat,
        level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
-Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [4096]Bulk_Item, hud: [4096]u8 }
-Scene_Item { key, kind, slot, entity, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot }
-Bulk_Item { kind, has_prev, pos, prev_pos, yaw, scale /* 0 = 1 */, color /* zero = white */, custom }
+Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
+Scene_Item { key, kind, slot, entity, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot, data: [64]u8 }
+Bulk_Item { kind, has_prev, pos, prev_pos, yaw, prev_yaw, scale: [3]f32 /* zero = 1 */, color /* zero = white */, custom }
+push_scene(out, item) / push_scene(out, item, data: T) -> bool    // extract: append; false (and `dropped`) when full
+push_bulk(out, item) -> bool
 ```
 
 GDScript sees contract v0:
@@ -56,12 +60,22 @@ GDScript sees contract v0:
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
     `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
     `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `sim_event`;
+  - signals: `status_changed`, `lobby_code`, `sim_event`, and `sim_event_2d` (the same, position a Vector2) when
+    `view_root` is a Node2D;
   - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice), `host_direct(port)`,
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
   - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
-    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4).
+    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4); `set_input_vector_2d(i, v)` takes
+    a Vector2 (z = 0), e.g. a 2D aim direction;
+  - `send_command(name: StringName, args: Dictionary) -> bool` (signed off 2026-11-10): sends one of the game's
+    commands (`sim.Game.commands`, src/sim/SPEC.md), delivered to the sim exactly once. The host converts the
+    Dictionary into the command's struct by RTTI, no per-game glue: ints (range-checked), floats, bools, enums (a
+    member's name in any case, or its value), bit_sets (an Array of member names or values), `[2]f32` / `[3]f32`
+    from Vector2 / Vector3; every field must be given (fields named `_...` are padding: never). An unknown
+    command, a missing or unknown field, a wrong type or range, no running session or a full queue (64 waiting)
+    returns false with a `print_error` naming it. Main thread; queued to the session thread, which hands it to the
+    client's `commands` hook (the command's tick is the next one the client samples).
 - **`SimView`** (Node3D: `kind`, `entity`, `slot`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
   and `_sim_event(kind, data)`).
 - **`SimView2D`** (Node2D: the same, with `_sim_update(position: Vector2, rotation, alpha)`).
@@ -81,7 +95,9 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
 - Rotation: the angle about Z (`Node2D.rotation`: 0 = +x, positive turns +x toward +y, clockwise on screen):
   `Scene_Item.rot = view.quat_angle2d(a)`, `Bulk_Item.yaw = a`. The host sets the root's `position` and
   `rotation`, then calls `_sim_update(Vector2, rotation, alpha)`; `_sim_event` data carries `position` as a
-  Vector2. The `sim_event` signal keeps its Vector3.
+  Vector2. The `sim_event` signal keeps its Vector3; `sim_event_2d` carries a Vector2. Event positions are the
+  sim's units unless the game sets `Glue.event_pos` (session thread, with the World) to convert them into the
+  units its `extract` writes, so views and effects never scale them by hand (signed off 2026-11-10).
 - Bulk: the MultiMesh's `transform_format` decides the layout: `TRANSFORM_2D` writes 8 floats per instance
   (`cs, -sn, 0, x,  sn, cs, 0, y`, uniform scale in cs/sn), `TRANSFORM_3D` 12; then the color (`use_colors`)
   and the custom data (`use_custom_data`), 4 floats each. A node whose MultiMesh has the other format is
@@ -89,6 +105,20 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
 - `Bulk_Item.color` (new, 16 bytes per item): the instance color when the MultiMesh uses colors (it was always
   white): tints and flashes need no shader, since the default materials multiply by it. Zero means white, so
   games that never set it are unchanged; an invisible instance is simply not emitted.
+
+**Scene view data** (signed off 2026-11-10). A kind may name a data type (`Scene_Kind.data`): a plain struct
+of bools, integers, enums (as int), f32, `[2]f32` (Vector2), `[3]f32` (Vector3) and `[4]f32` (Color), at most 64
+bytes; fields starting with `_` are padding. `extract` writes it with `push_scene(out, item, data)` (asserted to
+be the kind's type). The host sets each field as the view's property of the same name, after the view entered
+the tree (setters may use `@onready` nodes) and then only when that field's bytes change, before
+`_sim_update`. Values are the newest tick's (no interpolation). A view with no such property is warned about
+once. Per-entity values that used to go through the HUD (a player's hp, a gate's charge) go here; the HUD stays
+for the HUD.
+
+**Bulk** (2026-11-10): position and rotation interpolate (`prev_yaw`, along the shorter arc); `scale` is per
+local axis (2D: x, y), zero meaning 1; color and custom are the tick's. One pass over the frame's items fills
+every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames); a full Frame counts
+`dropped` and the host warns once.
 
 ## How it works
 
@@ -111,8 +141,8 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   3. updates the scene views: spawn by key into `view_root`, push the poses of ticks P−1 and P into each view's
      `view.Track`, sample with alpha and `Glue.smoothing`, set position and quaternion (2D: position and
      rotation), call `_sim_update`;
-  4. writes each bulk view's MultiMesh buffer in one `set_buffer` (interpolated, stride from the MultiMesh's
-     transform format and flags);
+  4. writes each bulk view's MultiMesh buffer in one `set_buffer` (one pass over the items; interpolated, stride
+     from the MultiMesh's transform format and flags);
   5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
      go to the `sim_event` signal;
   6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see `src/devui/SPEC.md`).
@@ -131,8 +161,11 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
   and the Dev_Link switch. `tests/godot_views` (`dev.py godot-test`) runs a single-player toy session under
   headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), and the MultiMesh buffers of a typed 2D bulk
-  view (colors and custom data), a plain one (stride 8) and a 3D one. Its extension doesn't link Box3D.
+  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), the MultiMesh buffers of a typed 2D bulk
+  view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one,
+  typed scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands
+  reach the sim once, in order, every field kind converted (read back through the HUD), and each refusal returns
+  false with its error line (dev.py expects those lines and no others). Its extension doesn't link Box3D.
 - **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
   `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
   offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.
