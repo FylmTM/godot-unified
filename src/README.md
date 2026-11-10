@@ -93,19 +93,5 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
 
 ## Papercuts
 
-- `core:hash/xxhash` streaming XXH3 is wrong for some lengths (above). Easy to miss: it is still deterministic.
-- `foreign import` takes no absolute path and no `#config` path (relative paths work, see Box3D binding).
-- **Windows CRT:** Odin links `/defaultlib:libcmt` (static CRT), so tools/box3d.py builds Box3D with `/MT` too.
-- `_test.odin` files are compiled into normal builds (and pull in `core:testing`): tests live in their own packages
-  (`tests/<module>/`, a game's `simulation/tests/`), not next to the code.
-- `core:net` is package `net`, so ours can't be.
-- Windows timer resolution and UDP WSAECONNRESET (above).
-- Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
-  package that doesn't call them: keep such imports behind small non-generic helpers (`sim.write_file`,
-  `sim.hash_bytes`, ...), or keep them in a package of their own (`unified:headless/cli`: the game suites import
-  `unified:headless` and never instantiate the CLI modes).
-- A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's
-  client.odin imports `sim` as `usim`.
-- Not Odin-specific: with the spec's constants and the scripted inputs barrels are rarely shot (they sit off the
-  firing lines), so barrel explosions are rare in the 3600-tick tests. Physics churn inside rollback windows still
-  happens through player deaths/respawns (bodies destroyed and created).
+The Odin pitfalls (tests in their own packages, `-vet` and generic imports, package names, streaming XXH3, the
+Windows CRT, timers and UDP) are in `.claude/rules/odin.md`, which Claude loads when it touches an `.odin` file.

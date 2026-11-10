@@ -1,13 +1,13 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PostToolUse": [
       {
-        "matcher": "startup|resume",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "if [ \"$CLAUDE_CODE_REMOTE\" = true ]; then python3 \"$CLAUDE_PROJECT_DIR/tools/ci.py\" cloud-setup; fi",
-            "timeout": 900
+            "command": "py=$(command -v python3 || command -v python); \"$py\" \"$CLAUDE_PROJECT_DIR/tools/dev.py\" fmt --hook",
+            "timeout": 10
           }
         ]
       }

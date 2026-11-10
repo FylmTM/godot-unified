@@ -1,7 +1,8 @@
 """The work board (GitHub Project 2, AGENTS.md "The board"), behind `dev.py board` (stdlib + the gh CLI).
 
     python tools/dev.py board list [--status S] [--area A]   # issue, status, area, title
-    python tools/dev.py board set <issue> [--status S] [--area A]   # adds the issue to the board if needed
+    python tools/dev.py board set <issue> [--status S] [--area A]   # adds the issue to the board if needed;
+                                                                    # --status done also closes the issue
 
 Status and area are given by name, case-insensitive ("in progress", "merged, to review"); the field and option IDs
 are looked up from the project each run, so renaming a column needs no change here.
@@ -13,6 +14,7 @@ import subprocess
 from common import Strict, log
 
 OWNER, NUMBER, REPO = "FylmTM", "2", "FylmTM/unified"
+DONE = "Done"  # the Status column whose issues are closed: `set --status done` closes the issue too
 
 
 def gh(*args):
@@ -63,7 +65,12 @@ def cmd_set(issue, status=None, area=None):
         if change:
             gh("project", "item-edit", "--id", item, "--project-id", pid, "--field-id", change[0],
                "--single-select-option-id", change[1])
-    log("board: #%d%s%s" % (n, " -> " + status if status else "", " (area " + area + ")" if area else ""))
+    closed = ""
+    if changes[0] and fs["Status"][1][status.lower()][1] == DONE:  # Done means closed (AGENTS.md, The board)
+        if json.loads(gh("issue", "view", str(n), "--repo", REPO, "--json", "state"))["state"] != "CLOSED":
+            gh("issue", "close", str(n), "--repo", REPO, "--reason", "completed")
+            closed = ", closed"
+    log("board: #%d%s%s%s" % (n, " -> " + status if status else "", " (area " + area + ")" if area else "", closed))
 
 
 def cmd_list(status=None, area=None):

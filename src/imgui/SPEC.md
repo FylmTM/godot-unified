@@ -17,11 +17,7 @@ builds the C++ library. No tests of its own; the dev UI's are in `tests/godot` a
   check. Same compilers as Box3D, static CRT on Windows.
 - It is render-side code: nothing in it feeds the sim.
 
-## Upgrading
-
-Bump `IMGUI_TAG`, `IMGUI_COMMIT`, `DB_TAG` and the `DB_FILES` hashes together, re-vendor `imgui.odin` from
-odin-imgui for the same dear_bindings version, re-apply the `unified:` changes, then `dev.py vet` and
-`godot-checks`.
+Upgrading: the `upgrade-dependency` skill (`.claude/skills/`).
 
 ## Open
 

@@ -176,7 +176,8 @@ be asked for in any order:
 
 Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
 inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
-against `sim`.
+against `sim`. Barrels sit off the scripted firing lines, so they rarely explode in scripted runs; physics churn
+inside rollback windows comes from deaths and respawns instead (and from the forced-explosion scenario below).
 
 ## Expected scale
 
@@ -250,14 +251,11 @@ and load without the library (Godot replaces unknown native node types with a pl
 
 ### Checks
 
-`python tools/dev.py game validate` (compile every script with the debugger on, so GDScript warnings print and fail
-the check, `untyped_declaration` included; load and instantiate every scene, flag unknown `.tscn` properties, compare
-the mock's `constants()` and idle `hud()` with the native session's; run the menu 30 frames; ~0.6 s) and
-`game walk` (headless scripted walk through every flow with the mock,
-real input events; ~2.5 s). `game shots` runs the walk in a window and writes PNGs to `games/survivor/.out/shots/`. `game tour` plays the real
-game (library built): headless, menu → single → lobby → walk out → match with enemies (~2.6 s); `--shots` plays a
-whole match in a window to game over and back to the lobby, PNGs in `games/survivor/.out/tour/`. validate and walk
-also fail on ObjectDB/resource leaks reported at exit.
+Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `game validate` compares the mock
+session's `constants()` and idle `hud()` with the native session's, `game walk` goes through every flow (menu,
+settings, single, lobby, match, level-up, Esc menu, game over, host, join error) on the mock with real input events,
+and `game tour` plays the real game headless: menu → single → lobby → walk out → match with enemies (`--shots`: a
+whole match to game over and back to the lobby, in a window).
 
 ### Feel
 

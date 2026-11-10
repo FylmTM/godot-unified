@@ -1,5 +1,6 @@
-# Playable game builds (docs/RELEASE.md). A tag `<game>-v<version>` (e.g. survivor-v0.1.0) builds games/<game> for
-# windows-x64 and macos-arm64 with tools/release.py, smoke-tests each export on its runner, and publishes a GitHub
+# Playable game builds (the `release` skill, .claude/skills/release/). A tag `<game>-v<version>` (e.g.
+# survivor-v0.1.0) builds games/<game> for windows-x64 and macos-arm64 with tools/release.py, smoke-tests each
+# export on its runner, and publishes a GitHub
 # prerelease with both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline: Windows
 # only (macOS runners are for tag builds), any game folder, no release. The tag is the only source of the
 # version: release.py stamps it into the export and fails if the export doesn't carry it.

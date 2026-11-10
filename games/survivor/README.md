@@ -17,18 +17,10 @@ The game library is built into `.out/bin/` (`libsurvivor.dylib`, `survivor.dll`)
 mock session (`game/session/`), a fake sim with the same API, so every screen works. Exports never include the
 mock: without the library they show a "game library failed to load" screen.
 
-## Checks (from the repo root)
+## Checks
 
-```
-python tools/dev.py game validate   # compile scripts (warnings fail), load scenes, unknown .tscn properties, mock vs
-                                    # native constants(), 30 menu frames (~0.6 s)
-python tools/dev.py game walk       # headless UI walk with the mock: menu, settings, single, lobby, match,
-                                    # level-up, Esc menu, game over, host, join error (~2.5 s)
-python tools/dev.py game shots      # the walk in a window; PNGs in games/survivor/.out/shots/ (steals focus)
-python tools/dev.py game build survivor   # the game library -> .out/bin/
-python tools/dev.py game tour       # the real game, headless: menu -> lobby -> match (~2.6 s); --shots: a whole
-                                    # match in a window, PNGs in games/survivor/.out/tour/
-```
+`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
+suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

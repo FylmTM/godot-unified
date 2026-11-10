@@ -49,41 +49,27 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## The board
 
-Planned work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
-reviewable piece of work. The board tracks issues only; PRs link to them. Operate it with `python tools/dev.py board
-list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Cloud
-sessions can't (no GraphQL): they open the PR with their own GitHub tools, comment on the issue with `gh api`, and
-leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
+Planned work is on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per reviewable
+piece of work. Issues are the developer's memory of what to do; how a piece of work is handled (merge it or not) is
+said in chat, not with labels. The `board-work` skill has the statuses and the procedure. The rules:
 
-| Status | Meaning | Who moves it here |
-|---|---|---|
-| Backlog | Anything, unsorted | anyone |
-| Design | Needs a decision or spec first: ends in a spec PR or a decision written in the issue | developer |
-| Todo | Ready; the top of the column goes first | developer |
-| In progress | A session owns it; the issue names the session and branch in a comment | the agent taking it |
-| Review | A PR is open and waits for the developer | the agent |
-| Merged, to review | An agent merged it (rules below); the developer reviews after the fact | the agent |
-| Done | Merged and seen by the developer; the developer closes the issue | developer |
+- **Agents take work only from Todo** (or what the developer hands them directly), never Backlog or Design items.
+- **Work the developer asks for in chat is done in that session**, not filed first.
+- **Every change is a PR** from its own branch. It says `Closes #N` for each issue it finishes (merging closes them)
+  and `Part of #N` for one it only advances. Agents push and open PRs without asking; only merging is gated.
+- **Done means closed.** An issue moved to Done is closed too (`dev.py board set N --status Done` does both).
+- **New findings** outside the current request become Backlog issues, not notes in docs or reports.
 
-- **Agents take work only from Todo** (or what the developer hands them directly), and never start Backlog or
-  Design items on their own. Another column's item may get a comment with questions or findings.
-- **Work the developer asks for in chat is done in that session**, not filed first: issues are for work that isn't
-  being done now.
-- **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues),
-  or `Part of: no issue (requested in chat)` when a direct request has none.
-  A PR may cover several issues (`Part of #a, #b, ...`, one commit per issue). Agents push their own branches and
-  open PRs without asking; only merging into `main` is gated. Fill in the PR template; "Decisions made without
-  sign-off" lists every choice the developer hasn't seen.
-- **A review sitting's follow-ups ship as one PR per sitting** (or per large part of one): one side session on one
-  branch does them all while the next sitting continues. Issues stay one per decision. This keeps CI runs down and
-  parallel agents off each other's files.
-- **Merging:** an agent may merge its own PR, after `python tools/dev.py all` passes and CI is green, only when
-  the change is trivial (typo, formatting, test-only, a doc that only fixes facts) or the issue carries the
-  `agent-may-merge` label. It then moves the issue to "Merged, to review". Everything else waits in Review.
-- **New findings** (bugs, follow-ups, ideas) outside the current request become new Backlog issues, not notes in
-  docs or reports. A finding that is part of the current request gets fixed, not filed.
-- The `review` label marks a review sitting: the developer goes through one part of the project with an agent
-  (explanation, a hands-on task, decisions); its decisions and follow-ups are written into the issue.
+## Current phase: the foundations review
+
+- **No new features or big changes** until the review sittings are done (the `review` label, foundations up: #5
+  tooling, #6 sim, #7 physics, #8 netcode, #9 Godot host, then the games). Bugs, review follow-ups and small fixes
+  are fine; file ideas as Backlog issues.
+- A review sitting: the developer goes through one part of the project with an agent (explanation, a hands-on task,
+  decisions); its decisions and follow-ups are written into the issue. Check the issue's comments for notes added
+  since it was filed.
+- **A sitting's follow-ups ship as one PR per sitting** (or per large part of one): one side session on one branch
+  does them all while the next sitting continues. Issues stay one per decision.
 
 ## Conventions
 
@@ -99,8 +85,9 @@ leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 - Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
 - Generated output goes to `out/` (root) and `games/<game>/.out/`, both git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
-  options: `python tools/dev.py -h`. Packages: their `SPEC.md`. No layout trees, test counts or measured times in
-  docs: the tools print them.
+  options: `python tools/dev.py -h`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
+  `.claude/skills/<name>/SKILL.md`. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a
+  matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 
@@ -108,7 +95,7 @@ Everything runs through `python tools/dev.py`, from the repo root, on any OS; `p
 command and `-h` on a command its options. Every command rejects unknown arguments. Before handing work back:
 
 ```
-python tools/dev.py fmt          # odinfmt (pinned, see README.md); --check only reports
+python tools/dev.py fmt          # odinfmt (pinned, see README.md; a hook formats each .odin file Claude edits)
 python tools/dev.py vet          # odin check, strict flags, every target
 python tools/dev.py test         # every test package and end-to-end suite in one compile, the determinism lint included
 python tools/dev.py check        # when netcode or the headless CLI changed (real UDP, separate processes)
@@ -123,7 +110,6 @@ python tools/dev.py all          # everything CI runs; before merging
   the specs during the foundations review, then the file goes).
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
 - `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
-- `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/CLOUD.md` (Claude Code cloud sessions: setup,
-  and what they can't do, the board among it), `docs/research/` (open research).
+- `docs/EOS.md` (online setup), `docs/research/` (open research).
 - `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
   history (`docs/archive/README.md`).
