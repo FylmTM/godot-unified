@@ -81,9 +81,7 @@ the game's extension wires them (`init` first, with the game library's directory
 - Two processes on one machine through EOS (the developer's ini + staged SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
   --ticks 1920` (`--relays force` to go through Epic's relays). The fresh device gives the second process its own
-  Product User ID. Measured 2026-11-09 on one Mac: lobby ready 3.2–3.6 s, join 4.0–4.7 s; direct RTT 1.8–2.1 ms;
-  relayed RTT 149–152 ms (input delay 6, ~54 rollbacks of depth ~9 in 30 s); late join with a 161 KB snapshot over
-  P2P; 0 desyncs.
+  Product User ID. A pass: both processes play to the end with 0 desyncs, direct and relayed.
 
 ## Crossplay (macOS ↔ Windows over the internet)
 
@@ -93,36 +91,18 @@ the scripted session; both sides print their verified checksums. Mac side, the g
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
 ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
 (a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket survivor/3` works too where the binary owns
-the keychain entry (not on a Mac where Godot.app made the device ID).
+`client.json`. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
+`games/survivor/simulation/extension/extension.odin`) works too where the binary owns the keychain entry (not on a
+Mac where Godot.app made the device ID).
 
-Measured 2026-11-09, Mac (home network) ↔ GitHub windows-latest, 64 Hz, every run 0 mismatches:
-
-| Windows client | Path | Common verified checksums | RTT | Delay | Rollbacks (avg depth) | Stall ticks |
-|---|---|---:|---:|---:|---:|---:|
-| headless, built on the runner | Direct (NAT traversal) | 1137 | 204 ms | 7 | 689 (11.0) | 378 |
-| headless, built on the runner | forced relays | 802 | 170 ms | 6 | 491 (10.0) | 97 |
-| release export (compiled-in IDs, shipped DLL) | Relayed (EOS's choice) | 770 | 200 ms | 7 | 467 (10.9) | 499 |
-| headless, `workflow_dispatch` from main (477cf5a) | Relayed | 773 | 229 ms | 7 | 471 (11.0) | 254 |
-| release export of main (run 42535534651) | Relayed | 847 | 189 ms | 7 | 509 (11.0) | 282 |
-
-Release gate for survivor-v0.1.1 (main 6da8839: protocol 4, 218 ms prediction cap, faster catch-up), same setup,
-every run 0 mismatches. Stalls fell from hundreds of ticks to 0–11; rollback depth tops out at 14 ticks (the cap):
-
-| Windows client | Path (host / client) | Common verified checksums | RTT | Delay | Rollbacks (avg / max depth) | Stall ticks |
-|---|---|---:|---:|---:|---:|---:|
-| headless, built on the runner | forced relays (Relayed / Relayed) | 771 | 233 ms | 7 | 481 (13.1 / 14) | 3 |
-| headless, built on the runner | relays allowed (Direct / Relayed) | 806 | 152 ms | 6 | 498 (9.6 / 11) | 11 |
-| release export of main (run 42541894705) | relays allowed (Direct / Relayed) | 696 | 237 ms | 7 | 433 (13.0 / 14) | 3 |
-| headless, after another client dropped (6 min session) | Direct / Relayed | 818 | 235 ms | 7 | 523 (14.0 / 14) | 0 |
+A run passes when every common verified checksum matches (0 mismatches). The measured runs so far (RTT, input
+delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS review issue, #11.
 
 - **Path labels.** Each side labels the path from its own P2P "connection established" notification, so host and
   client can disagree (Direct on the host, Relayed on the client) when EOS switches routes after connecting. Treat
   the label as a hint; RTT is the better signal.
-- **Drop and rejoin.** The first client's run was cancelled ~60 s into the session (the process is killed, no clean
-  leave). The host saw the lobby member Disconnected within ~20 s and closed P2P when the SDK's 30 s reconnect
-  window ran out. A second runner then joined with the same code at tick 9968 as a new peer and played to the end.
-  Each runner is a new machine, so this is a different Product User ID, not the same player coming back.
-  `dev.py game coop survivor --rejoin` covers a clean leave and rejoin by the same player on one Mac (passed on
-  6da8839).
+- **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
+  within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
+  the same code as a new peer. `dev.py game coop survivor --rejoin` covers a clean leave and rejoin by the same
+  player on one Mac.
 
