@@ -3,15 +3,15 @@
 Playable builds of a game under `games/<game>/` (a Godot project with `export_presets.cfg`) for **macOS arm64** and
 **Windows x64**. CI makes them only for tags; the same steps run locally on either platform, each building its own.
 
-## Cut a build
+Cutting a build (the checks before a tag, tagging, a failed run, local builds): the `release` skill
+(`.claude/skills/release/`).
 
-```
-git tag survivor-v0.1.2 && git push origin survivor-v0.1.2      # <game>-v<version>, on a commit of main
-```
+## The pipeline
 
-The tag is the only source of the version: the repo's `project.godot` says `dev` and the presets `0.0.0`, and
-`tools/release.py` stamps the tag's version into the export (`application/config/version`, which the main menu
-shows, and the presets' version keys) and fails if the export doesn't carry it.
+A tag `<game>-v<version>` on a commit of `main` starts it. The tag is the only source of the version: the repo's
+`project.godot` says `dev` and the presets `0.0.0`, and `tools/release.py` stamps the tag's version into the export
+(`application/config/version`, which the main menu shows, and the presets' version keys) and fails if the export
+doesn't carry it.
 
 `.github/workflows/release.yml` then builds `games/survivor` on a Windows and a macOS runner with `tools/release.py`
 (dependencies, release extension with the `EOS_*` repo secrets in that one step's environment, Godot 4.7.2 headless
@@ -20,21 +20,14 @@ GitHub **prerelease** named after the tag: `<game>-v<version>-macos-arm64.zip`, 
 (each unpacks to one folder of its own name with the game inside),
 `SHA256SUMS.txt` (LF line endings, so `shasum -a 256 -c` works on macOS), and tester notes (how to open an unsigned
 build, plus `games/<game>/RELEASE_NOTES.md`). Only the developer, or a session they authorise, pushes tags. A failed
-run publishes nothing; delete the tag, fix, tag again.
+run publishes nothing.
 
-## Locally
-
-```
-python tools/release.py build games/survivor                   # -> games/survivor/.out/release/survivor-dev-<sha>-<platform>.zip
-python tools/release.py build games/survivor --version 0.1.2   # what the tag build does (stamps 0.1.2)
-```
-
-~20 s warm (~50 s cold). Godot comes from `common.find_godot` (`$GODOT`, `godot` on PATH, `.toolchains/godot/`,
-`~/tools/godot/`), else the official editor is downloaded into `.toolchains/godot/`; export
-templates go to Godot's standard folder (only this platform's files, pulled from the official `.tpz` by range
-requests). Every download is checked against a pinned SHA-256 (`tools/common.py`, `tools/release.py`). Without a
-tag, CI checks the pipeline with **Actions → release → Run workflow** (Windows only; any game folder, default
-`games/survivor`).
+`tools/release.py build` runs the same steps locally, each platform building its own. Godot comes from
+`common.find_godot` (`$GODOT`, `godot` on PATH, `.toolchains/godot/`, `~/tools/godot/`), else the official editor is
+downloaded into `.toolchains/godot/`; export templates go to Godot's standard folder (only this platform's files,
+pulled from the official `.tpz` by range requests). Every download is checked against a pinned SHA-256
+(`tools/common.py`, `tools/release.py`). Without a tag, CI checks the pipeline with **Actions → release → Run
+workflow** (Windows only; any game folder, default `games/survivor`).
 
 ## Rules for a game
 

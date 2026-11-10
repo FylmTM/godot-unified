@@ -7,7 +7,7 @@ The deterministic sim, its headless binary and the GDExtension live in `simulati
 ## Run
 
 ```
-python tools/dev.py game build friendslop     # the game library -> .out/bin/ (~1 s); the game needs it
+python tools/dev.py game build friendslop     # the game library -> .out/bin/; the game needs it
 python tools/dev.py game run friendslop       # windowed
 ```
 
@@ -24,17 +24,10 @@ each sim view adopts its marker's visuals, so a level is authored once. After ed
 python tools/dev.py game export-level friendslop   # game/levels/*.tscn -> *.level (commit both); validate checks it
 ```
 
-## Checks (from the repo root)
+## Checks
 
-```
-python tools/dev.py game validate friendslop   # scripts, scenes, item sizes vs the sim, the level export (~1 s)
-python tools/dev.py game tour friendslop       # the real game headless: hub, grab, throw (~5 s); --shots: windowed
-                                               # with the jump pad, PNGs in .out/tour/
-python tools/dev.py game headless friendslop   # a Godot session's checksums == the offline binary's
-python tools/dev.py game coop friendslop       # EOS: a host and a joiner; the host picks the friend up, they break free
-odin test games/friendslop/simulation/tests -collection:unified=src   # its end-to-end suite (suite_test.odin: sessions
-                                               # under loss, late join, the reference run) and scenarios
-```
+`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
+suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

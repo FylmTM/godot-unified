@@ -39,14 +39,7 @@ World_RestoreStateFromBytes(world, cache, []u8) -> ok  // ours (Odin): an image 
   `b3WorldState`'s private `b3RecBuffer` at the bytes for the call. It depends on that layout (24 bytes,
   asserted).
 
-## Upgrading Box3D
-
-1. Bump `BOX3D_COMMIT` in `tools/box3d.py`; rebase `third_party/box3d.patch` until it applies exactly.
-2. Re-run the C probe against the new headers and update the bindings and their `#assert`s.
-3. `python tools/dev.py test`: `tests/box3d`'s golden trace pins the fork's results, and every game's end-to-end
-   suite replays its reference run. If the golden trace or a reference run changes, the simulation changed: update
-   `GOLDEN` in `tests/box3d` and regenerate the reference runs (`dev.py regen <game>|toy`) deliberately, and say why in
-   the commit.
+Upgrading: the `upgrade-dependency` skill (`.claude/skills/`).
 
 ## Open
 

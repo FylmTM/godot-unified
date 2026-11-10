@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py=$(command -v python3 || command -v python); \"$py\" \"$CLAUDE_PROJECT_DIR/tools/dev.py\" fmt --hook",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

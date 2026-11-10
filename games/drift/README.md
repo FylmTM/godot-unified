@@ -8,7 +8,7 @@ Godot 2D scene (`game/levels/arena.tscn`), exported to a `.level` file the sim l
 ## Run
 
 ```
-python tools/dev.py game build drift     # the game library -> .out/bin/ (~1 s); the game needs it
+python tools/dev.py game build drift     # the game library -> .out/bin/; the game needs it
 python tools/dev.py game run drift       # windowed
 ```
 
@@ -41,16 +41,10 @@ The view contract is `simulation/extension/extension.odin`; the Godot side follo
 python tools/dev.py game export-level drift   # game/levels/*.tscn -> *.level (commit both); validate checks it
 ```
 
-## Checks (from the repo root)
+## Checks
 
-```
-python tools/dev.py game validate drift        # scripts, scenes, the view contract, the level export (~1 s)
-python tools/dev.py game tour drift            # the real game headless: lobby, Start, aim, thrust, fire (~10 s);
-                                               # --shots: windowed, also hunts rocks, PNGs in .out/tour/
-python tools/dev.py game headless drift        # a Godot session's checksums == the offline binary's
-python tools/dev.py game session-check drift   # leave, then host or join at once
-odin test games/drift/simulation/tests -collection:unified=src   # its end-to-end suite and reference run
-```
+`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
+suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

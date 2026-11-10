@@ -38,7 +38,6 @@ weekly.
 ## What sessions can't do
 
 - **The board.** The cloud GitHub proxy blocks GraphQL, so `gh issue`, `gh pr`, `gh project` and `dev.py board`
-  fail. Sessions push their branch, open the PR with the session's own GitHub tools, and comment on the issue over
-  REST (`gh api repos/FylmTM/unified/issues/<n>/comments -f body=...`); the developer moves the card.
+  fail. What sessions do instead is in the `board-work` skill; the developer moves the card.
 - **macOS and windows.** Nothing windowed (`game run|tour|coop|shots|play`), no EOS online play.
   `fmt`, `vet`, `test`, `check` and `godot-checks` run as on Linux CI.

@@ -7,6 +7,7 @@
     python tools/dev.py bench [name ...]        # release build, then the benchmarks (default: all of them)
     python tools/dev.py regen <game>|toy        # regenerate a reference run (simulation/tests/testdata/)
     python tools/dev.py fmt [--check]           # odinfmt over src/, tests/ and the games' Odin code
+    python tools/dev.py fmt --hook              # one edited file, named in a Claude Code hook's JSON on stdin
     python tools/dev.py vet                     # odin check with the strict flags, every target
     python tools/dev.py gen [--force]           # Godot bindings: src/gdext/*.gen.odin (cached by input hash)
     python tools/dev.py godot-test              # tests/godot (bindings), tests/godot_views (host views), headless
@@ -623,6 +624,32 @@ def cmd_fmt(check=False):
                                                   "to change" if check else "changed", secs))
 
 
+def cmd_fmt_hook():
+    """Claude Code's PostToolUse hook (.claude/settings.json): formats the one .odin file an Edit or Write just
+    touched, read from the hook's JSON on stdin. Rewrites it only when odinfmt changes it. Never blocks the agent:
+    anything unexpected (not Odin, outside FMT_DIRS, no odinfmt, a file that doesn't parse yet) is skipped quietly;
+    `fmt --check` in CI is the gate."""
+    try:
+        path = Path(json.load(sys.stdin)["tool_input"]["file_path"]).resolve()
+        rel = path.relative_to(REPO).as_posix()
+    except (ValueError, KeyError, TypeError):
+        return
+    if (path.suffix != ".odin" or path.name.endswith(".gen.odin") or not path.is_file()
+            or not any(rel.startswith(d + "/") for d in FMT_DIRS)):
+        return
+    try:
+        exe = find_odinfmt()
+    except SystemExit:
+        return
+    with tempfile.TemporaryDirectory(prefix="unified-fmt-") as tmp:
+        scratch = Path(tmp) / path.name
+        shutil.copyfile(str(path), str(scratch))
+        r = subprocess.run([exe, "-config:" + str(REPO / "odinfmt.json"), "-w", str(scratch)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode == 0 and not filecmp.cmp(str(path), str(scratch), shallow=False):
+            shutil.copyfile(str(scratch), str(path))
+
+
 # `check`: the real-UDP, real-clock, multi-process test (src/headless/SPEC.md, End-to-end suites, Running).
 UDP_TICKS = 960  # 15 s of the toy's 64 Hz clock
 UDP_CLIENTS = 3  # the last one under the `bad` profile
@@ -884,7 +911,9 @@ def parser():
     sub.add_parser("bench", help="the benchmarks, on a release build").add_argument(
         "names", nargs="*", metavar="name", help="default: all (%s)" % ", ".join(BENCHES))
     sub.add_parser("gen").add_argument("--force", action="store_true")
-    sub.add_parser("fmt").add_argument("--check", action="store_true")
+    p = sub.add_parser("fmt")
+    p.add_argument("--check", action="store_true")
+    p.add_argument("--hook", action="store_true", help="format the file a Claude Code edit names on stdin (hook)")
     sub.add_parser("regen", help="regenerate a reference run").add_argument(
         "suite", help="a game under games/, or `toy` (the library's own, tests/scenarios)")
     for name in ("game", "board"):  # their own parsers validate the rest
@@ -927,6 +956,9 @@ def main():
         cmd_bench(a.names)
     elif a.cmd == "regen":
         cmd_regen(a.suite)
+    elif a.cmd == "fmt" and a.hook:
+        cmd_fmt_hook()
+        return 0  # no timing line: it runs after every edit, not as a build step
     elif a.cmd == "fmt":
         cmd_fmt(check=a.check)
     elif a.cmd == "vet":

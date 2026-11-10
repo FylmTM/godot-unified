@@ -99,11 +99,14 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
 
 - **CLI in Odin**, replacing every `tools/*.py` script (migrated into subcommands, then deleted). `--json` output
   and a time budget on every command.
-- **Skills ship as a Claude Code plugin inside the `unified` repo** (`.claude-plugin/marketplace.json`,
-  `skills/<name>/SKILL.md`). `unified init` commits `.claude/settings.json` in the game repo
-  (`extraKnownMarketplaces` with a `directory` source at `./unified`, plus `enabledPlugins`). Skills load in place,
-  so they always match the library. The `unified` repo uses the same mechanism with path `./`. To verify: the relative
-  path works.
+- **Skills for working on this repo** live in `.claude/skills/`, and rules for one kind of file in `.claude/rules/`
+  (2026-11-10). AGENTS.md keeps only what holds in every session.
+- **Skills for the games built on `unified`** (writing a sim, the `unified` CLI), used by this repo and by external
+  games alike, will ship as a Claude Code plugin inside the `unified` repo (`.claude-plugin/marketplace.json`,
+  `skills/<name>/SKILL.md`), once `unified` is stable. `unified init` commits `.claude/settings.json` in the game
+  repo (`extraKnownMarketplaces` with a `directory` source at `./unified`, plus `enabledPlugins`). Skills load in
+  place, so they always match the library. The `unified` repo uses the same mechanism with path `./`. To verify: the
+  relative path works.
 - **Live-game tooling split:**
   - Anything that affects the sim goes through typed control-socket commands, recorded as tick-stamped debug commands
     (replayable; generic set-by-path via reflection).
