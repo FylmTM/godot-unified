@@ -52,7 +52,7 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   matched bring-your-own-state at ~8 µs/tick and 46 KiB, an engine-owned ECS was ~2× slower and 1.8× larger.
   Open details go into the core module spec: how tables are detected, whether `using` means "component", optional
   components, cross-table helpers.
-- **Consumption, game repo layout, the CLI:** `src/tooling/SPEC.md` (#20). Each game pins `unified` as a git
+- **Consumption, game repo layout, the CLI:** `src/cli/SPEC.md` (#20). Each game pins `unified` as a git
   submodule at `unified/`; no project config file yet, conventions only.
 
 - **Godot route: GDExtension.** LibGodot stays a later option (our init runs unchanged under a LibGodot host).

@@ -1,6 +1,6 @@
 // The survivor's headless binary: every mode of src/headless/SPEC.md (CLI) (sim, synctest, replay, session,
 // relay, client, snapshot, resume, bench) on the survivor game with the `stress` tuning, through
-// unified:headless/cli, with EOS as its online transport (online.odin: eos-host, eos-client); plus
+// unified:headless/modes, with EOS as its online transport (online.odin: eos-host, eos-client); plus
 // `bot` (bot.odin), which measures the `play` tuning.
 package main
 
@@ -8,7 +8,7 @@ import "core:fmt"
 
 import "../survivor"
 import "unified:headless"
-import "unified:headless/cli"
+import "unified:headless/modes"
 
 HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
 	game = &survivor.GAME_STRESS,
@@ -22,7 +22,7 @@ HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, su
 main :: proc() {
 	bot_main()
 	// --game survivor: the `play` tuning, as the game runs it
-	cli.run(&HEADLESS, variants = {&survivor.GAME}, online = &EOS_ONLINE)
+	modes.run(&HEADLESS, variants = {&survivor.GAME}, online = &EOS_ONLINE)
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).

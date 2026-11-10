@@ -1,5 +1,5 @@
 // drift's headless binary: every mode of src/headless/SPEC.md (sim, synctest, replay, session, relay, client,
-// snapshot, resume, bench) on the game, through unified:headless/cli. The level is embedded (the committed
+// snapshot, resume, bench) on the game, through unified:headless/modes. The level is embedded (the committed
 // export of game/levels/arena.tscn); `--level FILE` loads another.
 package main
 
@@ -7,7 +7,7 @@ import "core:fmt"
 
 import "../drift"
 import "unified:headless"
-import "unified:headless/cli"
+import "unified:headless/modes"
 
 ARENA_LEVEL :: #load("../../game/levels/arena.level")
 
@@ -20,7 +20,7 @@ HEADLESS := headless.Headless(drift.State, drift.Input, drift.World, drift.MAX_P
 
 main :: proc() {
 	HEADLESS.content = ARENA_LEVEL
-	cli.run(&HEADLESS)
+	modes.run(&HEADLESS)
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
