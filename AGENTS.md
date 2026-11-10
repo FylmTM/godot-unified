@@ -49,7 +49,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## The board
 
-All work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
+Planned work is tracked on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per
 reviewable piece of work. The board tracks issues only; PRs link to them. Operate it with `python tools/dev.py board
 list|set` (statuses and areas by name) and `gh issue` / `gh pr`; sessions need permission to run those. Cloud
 sessions can't (no GraphQL): they open the PR with their own GitHub tools, comment on the issue with `gh api`, and
@@ -67,7 +67,10 @@ leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 
 - **Agents take work only from Todo** (or what the developer hands them directly), and never start Backlog or
   Design items on their own. Another column's item may get a comment with questions or findings.
-- **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues).
+- **Work the developer asks for in chat is done in that session**, not filed first: issues are for work that isn't
+  being done now.
+- **Every change is a PR** from its own branch, linked with `Part of #N` (never `Closes`: the developer closes issues),
+  or `Part of: no issue (requested in chat)` when a direct request has none.
   A PR may cover several issues (`Part of #a, #b, ...`, one commit per issue). Agents push their own branches and
   open PRs without asking; only merging into `main` is gated. Fill in the PR template; "Decisions made without
   sign-off" lists every choice the developer hasn't seen.
@@ -77,7 +80,8 @@ leave the card to the developer (`docs/CLOUD.md`). Its `Status` columns:
 - **Merging:** an agent may merge its own PR, after `python tools/dev.py all` passes and CI is green, only when
   the change is trivial (typo, formatting, test-only, a doc that only fixes facts) or the issue carries the
   `agent-may-merge` label. It then moves the issue to "Merged, to review". Everything else waits in Review.
-- **New findings** (bugs, follow-ups, ideas) become new Backlog issues, not notes in docs or reports.
+- **New findings** (bugs, follow-ups, ideas) outside the current request become new Backlog issues, not notes in
+  docs or reports. A finding that is part of the current request gets fixed, not filed.
 - The `review` label marks a review sitting: the developer goes through one part of the project with an agent
   (explanation, a hands-on task, decisions); its decisions and follow-ups are written into the issue.
 
