@@ -75,6 +75,8 @@ RULES := []Rule {
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
 	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	// The CLI library (src/tooling/SPEC.md, #20): spec only so far; it will import only core:.
+	{pkg = "tooling"},
 }
 
 PHYSICS_IMPORTS :: []string {
