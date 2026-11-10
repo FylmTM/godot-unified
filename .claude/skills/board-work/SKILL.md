@@ -41,7 +41,9 @@ your own; an item in another column may get a comment with questions or findings
 - **Say what the merge does to each issue.** `Closes #N` for every issue the PR finishes: GitHub closes it when the
   PR merges, so approving the merge is all the developer does. `Part of #N` for an issue the PR only advances; it
   stays open. A direct request with no issue: `Part of: no issue (requested in chat)`. One PR may cover several
-  issues (`Closes #a, #b`, one commit per issue). When the scope changes while the PR is open, update the line.
+  issues, one commit per issue: repeat the keyword before every number (`Closes #a, closes #b`), or GitHub closes
+  only the first. Check with `gh pr view <n> --json closingIssuesReferences`. When the scope changes while the PR is
+  open, update the line.
 - Fill in `.github/pull_request_template.md`. "Decisions made without sign-off" lists every choice the developer
   hasn't seen, with the alternative considered.
 - Commit messages end with the co-author line.
