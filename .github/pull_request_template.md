@@ -1,4 +1,4 @@
-Part of #<!-- issue number; never "Closes": the developer closes issues -->
+Part of #<!-- issue number; never "Closes": the developer closes issues. A direct request without an issue: "Part of: no issue (requested in chat)" -->
 
 ## What changed
 
