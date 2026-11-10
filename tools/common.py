@@ -271,23 +271,28 @@ def write_extension_list(proj):
     return listed
 
 
-_IMPORTED = {".svg", ".png", ".jpg", ".webp", ".wav", ".ogg", ".mp3", ".glb", ".gltf", ".fbx", ".ttf", ".otf"}
+# .csv: Godot imports CSV files as translations by default.
+_IMPORTED = {".svg", ".png", ".jpg", ".webp", ".wav", ".ogg", ".mp3", ".glb", ".gltf", ".fbx", ".ttf", ".otf", ".csv"}
 
 
 def _import_signature(proj):
     """What an import depends on: global class names (class_name lines), new scripts (.uid files), imported assets
-    (path + mtime). Editing a script body or a scene needs no import, so the edit loop skips it (~1.5 s)."""
+    (path + mtime). Editing a script body or a scene needs no import, so the edit loop skips it (~1.5 s). Walks what
+    Godot scans: no hidden entries (.godot, .out, .git), no directory holding a .gdignore (a unified submodule)."""
     parts = []
-    for p in sorted(proj.rglob("*")):
-        rel = p.relative_to(proj)
-        if rel.parts[0] in (".godot", ".out"):
-            continue
-        if p.suffix == ".gd":
-            names = [l.strip() for l in p.read_text(errors="replace").splitlines() if l.startswith("class_name ")]
-            parts.append("%s %s %s" % (rel.as_posix(), names, (p.parent / (p.name + ".uid")).exists()))
-        elif p.suffix.lower() in _IMPORTED:
-            parts.append("%s %d" % (rel.as_posix(), p.stat().st_mtime_ns))
-    return "\n".join(parts)
+    for root, dirs, files in os.walk(proj):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and not os.path.exists(os.path.join(root, d, ".gdignore"))]
+        for name in files:
+            p = Path(root, name)
+            if name.startswith("."):
+                continue
+            rel = p.relative_to(proj).as_posix()
+            if p.suffix == ".gd":
+                names = [l.strip() for l in p.read_text(errors="replace").splitlines() if l.startswith("class_name ")]
+                parts.append("%s %s %s" % (rel, names, (p.parent / (p.name + ".uid")).exists()))
+            elif p.suffix.lower() in _IMPORTED:
+                parts.append("%s %d" % (rel, p.stat().st_mtime_ns))
+    return "\n".join(sorted(parts))
 
 
 def ensure_imported(proj):

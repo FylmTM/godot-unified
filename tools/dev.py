@@ -579,28 +579,41 @@ def find_odinfmt():
     raise SystemExit(ODINFMT_HELP)
 
 
+FMT_FILES_PER_RUN = 8  # odinfmt takes one path and works through it on one thread: split the files over runs
+
+
 def cmd_fmt(check=False):
-    """Formats a scratch copy in one odinfmt run, then compares; only changed files are written back."""
+    """Formats a scratch copy, then compares; only changed files are written back. The copy is split into
+    size-balanced chunk folders, one odinfmt run each, all at once."""
     exe = find_odinfmt()
     t0 = time.time()
+    srcs = [s for d in FMT_DIRS for s in sorted((REPO / d).rglob("*.odin"))
+            if not s.name.endswith(".gen.odin")]  # generated (python tools/dev.py gen)
+    runs = max(1, min(os.cpu_count() or 1, len(srcs) // FMT_FILES_PER_RUN))
     with tempfile.TemporaryDirectory(prefix="unified-fmt-") as tmp:
-        for d in FMT_DIRS:
-            shutil.copytree(str(REPO / d), str(Path(tmp) / d), ignore=shutil.ignore_patterns("*.gen.odin"))
-        r = subprocess.run([exe, "-config:" + str(REPO / "odinfmt.json"), "-w", tmp],
-                           capture_output=True, text=True)
-        if r.returncode != 0:
-            raise SystemExit("dev: odinfmt failed:\n" + (r.stdout + r.stderr).strip())
+        load = [0] * runs
+        scratch = {}
+        for src in sorted(srcs, key=lambda s: s.stat().st_size, reverse=True):
+            k = load.index(min(load))
+            load[k] += src.stat().st_size
+            scratch[src] = Path(tmp) / str(k) / src.relative_to(REPO)
+            scratch[src].parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(src), str(scratch[src]))
+        procs = {k: subprocess.Popen([exe, "-config:" + str(REPO / "odinfmt.json"), "-w", str(Path(tmp) / str(k))],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                 for k in range(runs) if load[k]}
+        outs = {k: p.communicate()[0] for k, p in procs.items()}
+        failed = [outs[k].replace(str(Path(tmp) / str(k)) + os.sep, "").strip()  # repo-relative paths
+                  for k, p in procs.items() if p.returncode != 0]
+        if failed:
+            raise SystemExit("dev: odinfmt failed:\n" + "\n".join(failed))
         changed = []
-        for d in FMT_DIRS:
-            for src in sorted((REPO / d).rglob("*.odin")):
-                if src.name.endswith(".gen.odin"):
-                    continue  # generated (python tools/dev.py gen)
-                rel = src.relative_to(REPO)
-                fmt = Path(tmp) / rel
-                if not filecmp.cmp(str(src), str(fmt), shallow=False):
-                    changed.append(rel.as_posix())
-                    if not check:
-                        shutil.copyfile(str(fmt), str(src))
+        for src in srcs:
+            rel = src.relative_to(REPO)
+            if not filecmp.cmp(str(src), str(scratch[src]), shallow=False):
+                changed.append(rel.as_posix())
+                if not check:
+                    shutil.copyfile(str(scratch[src]), str(src))
     secs = time.time() - t0
     if check and changed:
         for c in changed:
