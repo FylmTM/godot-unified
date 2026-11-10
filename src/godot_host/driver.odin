@@ -372,9 +372,11 @@ post_status :: proc(d: ^Driver($S, $I, $W, $P), st: Status_Kind, detail: string)
 }
 
 @(private)
-flush_events :: proc(d: ^Driver($S, $I, $W, $P)) {
+flush_events :: proc(d: ^Driver($S, $I, $W, $P), world: ^W) {
 	for a in d.tracker.out {
-		post(d, Message{kind = .Event, action = a.action, tick = a.event.tick, event = a.event.event})
+		e := a.event.event
+		if d.glue.event_pos != nil do e.pos = d.glue.event_pos(e.pos, world)
+		post(d, Message{kind = .Event, action = a.action, tick = a.event.tick, event = e})
 	}
 	clear(&d.tracker.out)
 }
@@ -421,7 +423,7 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 		frame = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), f: netcode.Frame_Info) {
 			d := (^D)(user)
 			for t in f.resim_from ..= f.tick do track_tick(d, t, sim.events_at(s, t))
-			flush_events(d)
+			flush_events(d, s.world)
 			cur := sim.state_at(s, f.tick)
 			if cur == nil do cur = &s.state
 			prev := f.tick > 0 ? sim.state_at(s, f.tick - 1) : nil
@@ -457,7 +459,7 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			d := (^D)(user)
 			track_tick(d, tick, events)
 			view.tracker_verified(&d.tracker, tick)
-			flush_events(d)
+			flush_events(d, s.world)
 		},
 		status = proc(user: rawptr, st: netcode.Status, detail: string) {
 			d := (^D)(user)

@@ -76,6 +76,7 @@ Events: `joined`, `left`, `fired`, `boosted`, `warped`, `rock_hit`, `rock_split`
   - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with rotation and a hit flash in custom data.
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the owner's color.
   - `gem`: a pulse that squashes and stretches.
+- Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick.
 - HUD: phase, wave, station HP, score, time, the next wave in, and the players.

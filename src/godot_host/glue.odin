@@ -126,6 +126,10 @@ Glue :: struct($S, $I, $W: typeid) {
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// enemies). Single player only: it changes the initial state, which every peer would have to share.
 	bench:             proc(s: ^S, w: ^W, n: int),
+	// Session thread, optional: an event's position in the units `extract` writes (views, `_sim_event`,
+	// `sim_event`, `sim_event_2d` all get it), e.g. metres or cells to pixels. `world` is the session's World as of
+	// the newest frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
+	event_pos:         proc(pos: [3]f32, world: ^W) -> [3]f32,
 	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
 	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
 	event_key:         proc(e: sim.Event) -> view.Key,

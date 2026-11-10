@@ -45,6 +45,8 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 		sync.atomic_store(&seen.bump_fold, cur.bump_fold[0])
 		sync.atomic_add(&seen.extracted, 1)
 	},
+	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
+	event_pos = proc(pos: [3]f32, w: ^toy.World) -> [3]f32 {return pos * 10 + {0, 0, 1}},
 	sample = proc(a: gh.Actions, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
 		sync.atomic_or(&seen.pressed, a.pressed)
 		return {dx = 1, buttons = u8(a.pressed & 1)}
@@ -118,11 +120,17 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		msgs := make([dynamic]gh.Message, context.temp_allocator)
 		testing.expect(t, drain(&msgs, 5000, is_result), "the session ends with a result")
-		connected, joined := false, false
+		connected, joined, spawned := false, false, false
 		for m in msgs {
 			if m.kind == .Status && m.status == .Connected do connected = true
 			if m.kind == .Event && m.action == .Confirm && toy.Event_Kind(m.event.kind) == .Joined do joined = true
+			if m.kind == .Event && toy.Event_Kind(m.event.kind) == .Spawned {
+				// the sim emits {x, 0, y} with y = 0 and x > 0: event_pos made it {10x, 0, 1}
+				spawned = true
+				testing.expectf(t, m.event.pos.z == 1 && m.event.pos.x > 0, "event_pos applied: %v", m.event.pos)
+			}
 		}
+		testing.expect(t, spawned, "the press spawned a thing, its event posted")
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		f, _ := gh.api.front()

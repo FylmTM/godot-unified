@@ -43,7 +43,8 @@ Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothin
        actions: {move: [4]string, buttons: []string},
        extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
        scripted_commands(seed, slot, tick, ^S, ^sim.Command_Out) /* optional: --scripted sends these */,
-       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key, compat,
+       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key,
+       event_pos(pos, ^W) -> pos /* optional: events in extract's units, e.g. metres or cells to pixels */, compat,
        level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
 Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
@@ -94,7 +95,9 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
 - Rotation: the angle about Z (`Node2D.rotation`: 0 = +x, positive turns +x toward +y, clockwise on screen):
   `Scene_Item.rot = view.quat_angle2d(a)`, `Bulk_Item.yaw = a`. The host sets the root's `position` and
   `rotation`, then calls `_sim_update(Vector2, rotation, alpha)`; `_sim_event` data carries `position` as a
-  Vector2. The `sim_event` signal keeps its Vector3.
+  Vector2. The `sim_event` signal keeps its Vector3; `sim_event_2d` carries a Vector2. Event positions are the
+  sim's units unless the game sets `Glue.event_pos` (session thread, with the World) to convert them into the
+  units its `extract` writes, so views and effects never scale them by hand (signed off 2026-11-10).
 - Bulk: the MultiMesh's `transform_format` decides the layout: `TRANSFORM_2D` writes 8 floats per instance
   (`cs, -sn, 0, x,  sn, cs, 0, y`, uniform scale in cs/sn), `TRANSFORM_3D` 12; then the color (`use_colors`)
   and the custom data (`use_custom_data`), 4 floats each. A node whose MultiMesh has the other format is

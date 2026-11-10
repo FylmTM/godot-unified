@@ -12,6 +12,8 @@ extends Node2D
 var bounds := Rect2()
 ## The mouse aims (relative to the local ship) once it moves, until the right stick is used.
 var _mouse_aim := false
+## Off: only the right stick aims (game/tools/tour.gd, so a real mouse over the window can't steer the ship).
+var mouse_aim_enabled := true
 
 
 func _ready() -> void:
@@ -31,7 +33,7 @@ func _exit_tree() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
+	if event is InputEventMouseMotion and mouse_aim_enabled:
 		_mouse_aim = true
 
 
@@ -92,8 +94,8 @@ static func level_bounds(level: Node) -> Rect2:
 	return r
 
 
-func _on_sim_event(kind: StringName, _tick: int, _entity: int, position_m: Vector2, value: float) -> void:
-	var at := position_m * Game.px_per_m  # sim events carry metres; views are in pixels
+func _on_sim_event(kind: StringName, _tick: int, _entity: int, at: Vector2, value: float) -> void:
+	# `at` is in pixels, like the views (the extension's Glue.event_pos)
 	var near := at.distance_to(camera.get_screen_center_position()) < 900.0
 	match kind:
 		&"rock_hit":

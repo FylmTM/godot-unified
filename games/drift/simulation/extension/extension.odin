@@ -121,6 +121,8 @@ GLUE := gh.Glue(dr.State, dr.Input, dr.World) {
 	hud = hud,
 	constants = constants,
 	event_key = event_key,
+	// events in pixels too, like the views: the level's scale (World.px_per_m)
+	event_pos = proc(pos: [3]f32, w: ^dr.World) -> [3]f32 {return {pos.x * w.px_per_m, pos.y * w.px_per_m, 0}},
 	level = "res://game/levels/arena.level",
 }
 

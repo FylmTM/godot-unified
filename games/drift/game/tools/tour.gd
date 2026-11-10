@@ -54,6 +54,8 @@ func _run() -> void:
 
 	await _click(current_scene.get_node(^"UI/Root/Left/VBox/Buttons/Single"))
 	await _wait_for(func() -> bool: return _scene_is("Arena"), 5.0, "arena")
+	if _failed == "":
+		current_scene.mouse_aim_enabled = false  # the stick aims; a real mouse over a window must not
 	await _wait_for(func() -> bool: return _me() != null, 8.0, "the local ship's view")
 	await _wait_for(func() -> bool: return _views("station") == 1 and _views("gate") == 2, 3.0,
 		"the station and 2 gate views")
@@ -308,6 +310,7 @@ func _wait_for(cond: Callable, timeout_s: float, what: String) -> void:
 
 func _click(c: Control) -> void:
 	var pos := c.get_viewport().get_final_transform() * (c.get_global_transform_with_canvas() * (c.size / 2.0))
+	Input.warp_mouse(pos)  # windowed: the real cursor sits on the control, so its motion can't pull the click off
 	for pressed: bool in [true, false]:
 		var e := InputEventMouseButton.new()
 		e.button_index = MOUSE_BUTTON_LEFT
