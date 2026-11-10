@@ -25,7 +25,7 @@
                                                         # windowed bot play check
     python tools/dev.py game validate|walk|shots|tour|coop|import <game> ...   # Godot project checks (tools/game.py)
     python tools/dev.py board list [--status S] [--area A]          # the work board (tools/board.py, AGENTS.md)
-    python tools/dev.py board set <issue> [--status S] [--area A]   # move or file an issue on the board
+    python tools/dev.py board set <issue> [--status S] [--area A]   # move or file an issue (Done also closes it)
 
 <game> is a name under games/ or a project path (relative: to the current directory, else to the repo), so a
 game in its own repo runs `python3 unified/tools/dev.py game build .` (tools/README.md). Every command rejects

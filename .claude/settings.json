@@ -1,17 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if [ \"$CLAUDE_CODE_REMOTE\" = true ]; then python3 \"$CLAUDE_PROJECT_DIR/tools/ci.py\" cloud-setup; fi",
-            "timeout": 900
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

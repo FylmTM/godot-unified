@@ -101,5 +101,5 @@ A step-by-step guide to setting up and making a tiny game is planned
 - The [board](https://github.com/users/FylmTM/projects/2): current and upcoming work.
 - `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
 - [`tools/README.md`](tools/README.md): the tools behind `dev.py`.
-- [`docs/`](docs/): decisions so far (`WORK.md`), game builds (`RELEASE.md`), online setup (`EOS.md`), open research
+- [`docs/`](docs/): decisions so far (`WORK.md`), online setup (`EOS.md`), open research
   (`research/`) and phase 2 results (`archive/`).

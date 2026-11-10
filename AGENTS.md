@@ -50,13 +50,14 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 ## The board
 
 Planned work is on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per reviewable
-piece of work. The `board-work` skill has the statuses and the procedure (taking an issue, PRs, merging, cloud
-sessions). The rules:
+piece of work. Issues are the developer's memory of what to do; how a piece of work is handled (merge it or not) is
+said in chat, not with labels. The `board-work` skill has the statuses and the procedure. The rules:
 
 - **Agents take work only from Todo** (or what the developer hands them directly), never Backlog or Design items.
 - **Work the developer asks for in chat is done in that session**, not filed first.
-- **Every change is a PR** from its own branch, linked with `Part of #N`, never `Closes` (the developer closes
-  issues). Agents push and open PRs without asking; only merging into `main` is gated.
+- **Every change is a PR** from its own branch. It says `Closes #N` for each issue it finishes (merging closes them)
+  and `Part of #N` for one it only advances. Agents push and open PRs without asking; only merging is gated.
+- **Done means closed.** An issue moved to Done is closed too (`dev.py board set N --status Done` does both).
 - **New findings** outside the current request become Backlog issues, not notes in docs or reports.
 
 ## Current phase: the foundations review
@@ -109,7 +110,6 @@ python tools/dev.py all          # everything CI runs; before merging
   the specs during the foundations review, then the file goes).
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
 - `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
-- `docs/RELEASE.md` (game builds), `docs/EOS.md` (online setup), `docs/CLOUD.md` (Claude Code cloud sessions: setup,
-  and what they can't do), `docs/research/` (open research).
+- `docs/EOS.md` (online setup), `docs/research/` (open research).
 - `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
   history (`docs/archive/README.md`).

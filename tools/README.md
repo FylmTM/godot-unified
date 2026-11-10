@@ -12,8 +12,8 @@ tools/dev.py -h` lists every command, and `-h` on any command or script its opti
 | `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`src/box3d/SPEC.md`). |
 | `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`src/imgui/SPEC.md`). |
 | `eos.py` | Stages the pruned EOS SDK in `third_party/eos/` (local SDK or the draft release, hash-checked); `defines` shows the credential flags, redacted (`docs/EOS.md`). |
-| `release.py` | Playable game builds: extension, version stamp, Godot export, codesign, zip, smoke test (`docs/RELEASE.md`). |
-| `ci.py` | CI helpers: Odin download, pinned odinfmt build, the Godot editor, ninja, the Box3D compiler id, the job summary; `cloud-setup` provisions a Claude Code cloud session (`docs/CLOUD.md`). |
+| `release.py` | Playable game builds: extension, version stamp, Godot export, codesign, zip, smoke test (the `release` skill). |
+| `ci.py` | CI helpers: Odin download, pinned odinfmt build, the Godot editor, ninja, the Box3D compiler id, the job summary. |
 | `common.py` | Shared helpers: platform tags, Godot lookup/run/import/extension list, hash-checked downloads, MSVC env, clang-cl. |
 
 Every download that ends up in a toolchain or a shipped build is pinned: Odin (`ci.py`), the Godot editor

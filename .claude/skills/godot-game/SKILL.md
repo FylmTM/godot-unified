@@ -45,7 +45,7 @@ Commit the `.tscn` and the `.level` together; `game validate` fails when they di
 
 ## Looking at it
 
-These need a display and steal focus; they don't run in cloud sessions or CI:
+These need a display and steal focus; they don't run in CI:
 
 - `game run <game>` (windowed; arguments after `--` go to the game), `game editor <game>`.
 - `game shots <game>`: the walk in a window, PNGs in `games/<game>/.out/shots/`.
