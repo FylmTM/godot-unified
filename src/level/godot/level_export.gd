@@ -221,7 +221,7 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 			var g := _xf2(m)
 			var sc := g.get_scale()
 			_v3(w, _m3(g.origin))
-			_quat(w, _qz(g.get_rotation()))
+			_quat(w, _qdir(g.x))
 			_v3(w, Vector3(sc.x, sc.y, 1.0))
 		else:
 			var gt := _xf(m)
@@ -298,8 +298,8 @@ func _body3d(w: StreamPeerBuffer, b: StaticBody3D, strings: Array) -> void:
 ## mirroring) is baked into the shapes.
 func _body2d(w: StreamPeerBuffer, b: Node2D, strings: Array) -> void:
 	var g := _xf2(b)
-	var angle := g.get_rotation()
-	var inv := Transform2D(angle, g.origin).affine_inverse()
+	var u := _unit(g.x)
+	var inv := Transform2D(u, Vector2(-u.y, u.x), g.origin).affine_inverse()
 	var recs := []
 	var mat: PhysicsMaterial
 	if b is TileMapLayer:
@@ -321,7 +321,7 @@ func _body2d(w: StreamPeerBuffer, b: Node2D, strings: Array) -> void:
 				_polygon(recs, inv * _xf2(c), c.polygon, _where(c))
 	w.put_u32(_intern(strings, b.name))
 	_v3(w, _m3(g.origin))
-	_quat(w, _qz(angle))
+	_quat(w, _qdir(u))
 	w.put_float(mat.friction if mat else 0.6)
 	w.put_float(mat.bounce if mat else 0.0)
 	w.put_u64(int(b.get_meta("unified_category", 0)))
@@ -406,7 +406,7 @@ func _shape2d(recs: Array, local: Transform2D, s: Shape2D, where: String) -> voi
 	var pos := _m3(local.origin)
 	if s is RectangleShape2D:
 		var half := (s as RectangleShape2D).size * 0.5 / _ppm
-		recs.append({"kind": Shape.BOX, "pos": pos, "rot": _qz(local.get_rotation()),
+		recs.append({"kind": Shape.BOX, "pos": pos, "rot": _qdir(local.x),
 				"half": Vector3(half.x * sx, half.y * sy, _depth * 0.5)})
 	elif s is CircleShape2D:
 		if not is_equal_approx(sx, sy):
@@ -416,9 +416,9 @@ func _shape2d(recs: Array, local: Transform2D, s: Shape2D, where: String) -> voi
 		if not is_equal_approx(sx, sy):
 			errors.append("%s: a capsule needs a uniform scale" % where)
 		var cap := s as CapsuleShape2D
-		var axis := local.y.normalized()  # the capsule's length, mirrored or not
+		var axis := local.y  # the capsule's length, mirrored or not: the rotation that turns +y onto it
 		var r := cap.radius * sx / _ppm
-		recs.append({"kind": Shape.CAPSULE, "pos": pos, "rot": _qz(atan2(-axis.x, axis.y)), "radius": r,
+		recs.append({"kind": Shape.CAPSULE, "pos": pos, "rot": _qdir(Vector2(axis.y, -axis.x)), "radius": r,
 				"half_height": maxf(cap.height * 0.5 * sy / _ppm - r, 0.0)})
 	elif s is ConvexPolygonShape2D:
 		_hull2d(recs, local, (s as ConvexPolygonShape2D).points, where)
@@ -487,9 +487,28 @@ func _m3(p: Vector2) -> Vector3:
 	return Vector3(p.x / _ppm, p.y / _ppm, 0.0)
 
 
-## A 2D rotation (radians, +x toward +y) as a quaternion about +Z.
-func _qz(angle: float) -> Quaternion:
-	return Quaternion(0.0, 0.0, sin(angle * 0.5), cos(angle * 0.5))
+## `v` (not zero) at unit length, in doubles.
+func _unit(v: Vector2) -> Vector2:
+	var x := float(v.x)
+	var y := float(v.y)
+	var l := sqrt(x * x + y * y)
+	return Vector2(x / l, y / l)
+
+
+## The rotation about +Z that turns +x onto the direction `d`, as a quaternion with w >= 0. Only + − × ÷ sqrt, in
+## doubles: atan2, sin and cos come from the platform's math library, and a level must export to the same bytes on
+## every platform (a 180° turn gives exactly (0, 0, 1, 0)).
+func _qdir(d: Vector2) -> Quaternion:
+	var u := _unit(d)
+	var c := float(u.x)
+	var s := float(u.y)
+	if c >= 0.0:
+		var w := sqrt((1.0 + c) * 0.5)
+		return Quaternion(0.0, 0.0, s / (2.0 * w), w)
+	var z := sqrt((1.0 - c) * 0.5)
+	if s < 0.0:
+		z = -z
+	return Quaternion(0.0, 0.0, z, s / (2.0 * z) + 0.0)  # + 0.0: no -0
 
 
 func _v3(w: StreamPeerBuffer, v: Vector3) -> void:

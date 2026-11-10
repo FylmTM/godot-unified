@@ -49,8 +49,11 @@ the level's own number. `physics.create_static` needs nothing new: the bodies ar
 Header: magic, version u16 (2; version 1, without px_per_m, still loads as a 3D level), px_per_m f32, record
 counts. Then static bodies (transform, shapes with local transforms and
 materials) in scene-tree order, a string table, and markers (kind, name, transform, properties, path points) in
-scene-tree order. Transforms are f32 position + quaternion, taken as Godot computed them at export: the export
-runs once on one machine and the bits are committed, so they are the same everywhere.
+scene-tree order. Transforms are f32 position + quaternion, taken as Godot computed them at export: the bits are
+committed, so the sim sees the same ones everywhere. The staleness check re-exports on every platform, so the exporter
+uses no trig of its own: a 2D rotation's quaternion is built from the transform's x axis with + − × ÷ sqrt in
+doubles (`atan2`, `sin`, `cos` differ by an ulp between platforms' math libraries). A nonzero `Node2D.rotation`
+still goes through Godot's own `sin`/`cos` when the scene loads; no rotation, or a mirror, is exact.
 
 ## API
 
