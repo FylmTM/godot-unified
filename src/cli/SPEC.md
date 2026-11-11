@@ -1,7 +1,7 @@
 # cli
 
-Draft for sign-off (#20, PR #98). Decisions from the tooling sitting (#5) and the spec review; the reasoning behind
-them is in #98's description.
+Signed off 2026-11-11 (#20, PR #98). Decisions from the tooling sitting (#5) and the spec review; the reasoning
+behind them is in #98's description. Not built yet: `tools/*.py` and `dev.py` stay until the switch (#20).
 
 The `unified` CLI: one Odin binary per project that builds, tests, checks and runs games, in this repo and in a game
 repo that pins `unified` as a submodule. It replaces every `tools/*.py` script; Python is no longer a requirement.
