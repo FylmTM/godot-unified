@@ -73,6 +73,7 @@ RULES := []Rule {
 	{pkg = "view"},
 	{pkg = "imgui"},
 	{pkg = "devui"},
+	{pkg = "devui_controls"}, // spike: the dev UI on Godot controls
 	{pkg = "godot_host"},
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
 	{pkg = "lint", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
