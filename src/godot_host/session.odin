@@ -40,7 +40,6 @@ Args :: struct {
 	seed:      i64,
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
-	devui_gd:  bool, // SPIKE: the dev UI on Godot controls (unified:devui_controls) instead of ImGui
 	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
 	bench:     int, // single player sessions hold this many enemies (Glue.bench)
 	online:    bool, // host_online at once
@@ -75,15 +74,6 @@ register_session_class :: proc() {
 		},
 		ready = proc(i: rawptr) {session_ready((^Session_Node)(i))},
 		process = proc(i: rawptr, dt: f64) {session_process((^Session_Node)(i), dt)},
-		// While the dev UI wants the mouse or keyboard, the game's GUI and _unhandled_input don't get them.
-		// (The Godot-controls dev UI needs no gate: Godot routes its events, and this one would run before its GUI.)
-		input = proc(i: rawptr, ev: gd.InputEvent) {
-			if !dev_gates_events() || (!dev_wants_mouse() && !dev_wants_keyboard()) do return
-			is_key := gd.object_cast(gd.InputEventKey, ev, "InputEventKey").ptr != nil
-			if (is_key && dev_wants_keyboard()) || (!is_key && dev_wants_mouse()) {
-				gd.Viewport_set_input_as_handled(gd.Node_get_viewport(node_of((^Session_Node)(i))))
-			}
-		},
 		notification = proc(i: rawptr, what: i32) {
 			s := (^Session_Node)(i)
 			switch what {
@@ -174,17 +164,6 @@ register_session_class :: proc() {
 	gd.bind_method(c, "get_tick", proc(s: ^Session_Node) -> i64 {return i64(s.last_tick)})
 	gd.bind_method(c, "toggle_devui", proc(s: ^Session_Node) {dev_toggle()})
 	gd.bind_method(c, "is_devui_visible", proc(s: ^Session_Node) -> bool {return dev_visible()})
-	// SPIKE: the dev UI's state for the measuring and focus checks (game/tools/devui_spike.gd).
-	gd.bind_method(c, "devui_debug_expand", proc(s: ^Session_Node, path: string) {dev_debug_expand(path)}, {"path"})
-	gd.bind_method(c, "devui_probe", proc(s: ^Session_Node) -> gd.Dictionary {
-		items, ui_ms := dev_frame_stats()
-		d := gd.dict_new()
-		gd.dict_set(&d, "items", i64(items))
-		gd.dict_set(&d, "ui_ms", f64(ui_ms))
-		gd.dict_set(&d, "wants_mouse", dev_wants_mouse())
-		gd.dict_set(&d, "wants_keyboard", dev_wants_keyboard())
-		return d
-	})
 	gd.bind_signal(c, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(c, "lobby_code", {"code", string})
 	gd.bind_signal(
@@ -241,7 +220,7 @@ session_ready :: proc(s: ^Session_Node) {
 	}
 	lag: Netsim_Settings
 	if s.args.lag_ms > 0 do lag = {true, f32(s.args.lag_ms), f32(s.args.lag_ms) / 4, 1}
-	dev_init(s.args.devui, lag, s.args.devui_gd)
+	dev_init(s.args.devui, lag)
 	switch {
 	case s.args.autostart:
 		session_start(s, {mode = .Single, scripted = s.args.scripted})
@@ -478,8 +457,6 @@ parse_args :: proc() -> (a: Args) {
 			a.quit = true
 		case "--devui":
 			a.devui = true
-		case "--devui-controls":
-			a.devui_gd = true
 		case "--ticks":
 			a.ticks, _ = strconv.parse_int(next(strs, &i))
 		case "--seed":

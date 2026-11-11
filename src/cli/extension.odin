@@ -81,7 +81,6 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 			}
 		}
 	}
-	ensure_imgui() // the dev UI (godot_host); -define:UNIFIED_DEVUI=false compiles it out
 	ensure_bindings()
 	stage_eos(g)
 	b := extension_build(g, m)

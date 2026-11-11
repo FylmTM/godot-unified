@@ -74,13 +74,13 @@ works inside.
 Toolchain (macOS ARM64, Linux x64 or Windows x64):
 
 - **Odin** at the release and commit `pins.cfg` pins, on PATH (macOS: `brew install odin`). The CLI refuses another.
-- What Odin needs anyway: **clang** on macOS and Linux; on Windows, Visual Studio Build Tools with the C++ Clang
-  tools (Dear ImGui builds with clang-cl).
+- What Odin needs anyway: **clang** on macOS and Linux; on Windows, Visual Studio Build Tools (its linker and the
+  Windows SDK). Nothing in the repo is C or C++.
 - **git** and **curl** (macOS, Windows 10+ and Linux ship curl).
 - **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` and `box3d` collections, the strict
   checker flags, format on save with `odinfmt.json`).
 
-Everything else (Godot, odinfmt, Box3D, Dear ImGui, the EOS SDK) the CLI fetches or builds from `pins.cfg`. A local
+Everything else (Godot, odinfmt, Box3D, the EOS SDK) the CLI fetches or builds from `pins.cfg`. A local
 Godot, EOS SDK or unified-box3d checkout can stand in through `UNIFIED_GODOT`, `UNIFIED_EOS_SDK` and `UNIFIED_BOX3D`
 in a git-ignored `.env` ([`src/cli/SPEC.md`](src/cli/SPEC.md)). Then, from the repo root (`uni.cmd` on Windows):
 

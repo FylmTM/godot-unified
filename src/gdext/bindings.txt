@@ -34,8 +34,7 @@ InputEvent
 InputEventKey
 InputEventMouseButton
 InputEventMouseMotion
-InputEventPanGesture
-# dev UI (Godot controls)
+# dev UI
 Control
 Label
 Button
@@ -44,15 +43,14 @@ HSlider
 HBoxContainer
 VBoxContainer
 PanelContainer
-MarginContainer
 Tree
 TreeItem
 TextEdit
 TextureRect
-ThemeDB
 Theme
 StyleBoxFlat
 StyleBoxEmpty
+SystemFont
 
 # Builtins that get method wrappers (all builtins get layouts; opaque ones also constructors/destructors).
 [builtins]

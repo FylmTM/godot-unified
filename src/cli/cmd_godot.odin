@@ -102,7 +102,6 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 	godot()
 	ensure_bindings()
-	ensure_imgui()
 	for g in games {
 		if game_uses_box3d(g) {
 			ensure_box3d()

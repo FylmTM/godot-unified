@@ -3,7 +3,7 @@
 // chunks of CHUNK. Values update at 10 Hz, and only rows under expanded items are read and formatted; a row's
 // text is set only when it changed. Nodes address values by offset from the inspected value, so the host may
 // pass a different pointer every frame.
-package devui_controls
+package devui
 
 import "base:runtime"
 import "core:fmt"
@@ -60,14 +60,16 @@ Inspector :: struct {
 @(private)
 build_inspector :: proc() {
 	n := &s.insp
-	n.tree = add(make_window(.Inspector, "Inspector", {8, 250, 380, 380}), gd.Tree_new())
+	n.tree = gd.Tree_new()
+	gd.Control_set_focus_mode(n.tree, .FOCUS_NONE)
 	gd.Tree_set_columns(n.tree, 2)
 	gd.Tree_set_hide_root(n.tree, true)
 	gd.Tree_set_column_expand(n.tree, 1, false)
-	gd.Tree_set_column_custom_minimum_width(n.tree, 1, 150)
+	gd.Tree_set_column_custom_minimum_width(n.tree, 1, 110)
+	gd.Tree_set_column_clip_content(n.tree, 0, true)
 	n.top = gd.Tree_create_item(n.tree)
 	n.empty = gd.Tree_create_item(n.tree, n.top)
-	gd.TreeItem_set_text(n.empty, 0, "nothing to inspect (devui.inspect)")
+	gd.TreeItem_set_text(n.empty, 0, "nothing to inspect")
 	on(n.tree, "item_collapsed", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		obj, _ := gd.from_variant(gd.Object, args[0])
 		if i, ok := s.insp.by_item[obj.ptr]; ok && !gd.TreeItem_is_collapsed(s.insp.nodes[i].item) {
@@ -75,6 +77,7 @@ build_inspector :: proc() {
 		}
 		return {}
 	})
+	panel_make(.Inspector, "Inspector", {8, 8, 330, 420}, n.tree)
 }
 
 @(private)
