@@ -220,6 +220,7 @@ frame :: proc(dt: f64) {
 	slow := time.duration_milliseconds(time.tick_since(s.last_slow)) >= SLOW_MS
 	if slow do s.last_slow = time.tick_now()
 	overlay_update(slow)
+	if len(s.insp.pending) > 0 do inspector_build_pending()
 	if s.open[.Inspector] && (slow || s.insp.dirty) do inspector_refresh()
 	if s.open[.Events] do events_update()
 	update_focus()

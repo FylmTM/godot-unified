@@ -148,6 +148,14 @@ func _run() -> void:
 	await _hold_key(KEY_D, 0.6)
 	focus["player_moved_after_click_in_game"] = absf(_me_x() - x0) > 0.05
 
+	# A real click on an expand arrow (the inspector's "rng" row) builds its rows on the next frame.
+	if controls:
+		var rows_before: int = _probe().items
+		await _click_at(Vector2(40, 302))
+		await _frames(5)
+		focus["click_expand_added_rows"] = int(_probe().items) - rows_before
+		await _shot("devui_controls_click_expand")
+
 	# F3: the note opens with the keyboard, typing goes into it, Enter sends.
 	var fb := OS.get_user_data_dir().path_join("feedback")
 	var before := DirAccess.get_directories_at(fb).size() if DirAccess.dir_exists_absolute(fb) else 0

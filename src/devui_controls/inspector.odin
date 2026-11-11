@@ -54,6 +54,7 @@ Inspector :: struct {
 	nodes:   [dynamic]Insp_Node,
 	by_item: map[rawptr]int,
 	dirty:   bool, // refresh next frame (rows were just built)
+	pending: [dynamic]int, // expanded by a click: built next frame (a Tree refuses new rows inside its own mouse handling)
 }
 
 @(private)
@@ -70,7 +71,7 @@ build_inspector :: proc() {
 	on(n.tree, "item_collapsed", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		obj, _ := gd.from_variant(gd.Object, args[0])
 		if i, ok := s.insp.by_item[obj.ptr]; ok && !gd.TreeItem_is_collapsed(s.insp.nodes[i].item) {
-			build_children(i)
+			append(&s.insp.pending, i)
 		}
 		return {}
 	})
@@ -83,6 +84,7 @@ inspector_shutdown :: proc() {
 	delete(n.roots)
 	delete(n.nodes)
 	delete(n.by_item)
+	delete(n.pending)
 }
 
 @(private)
@@ -274,4 +276,12 @@ expand_path :: proc(i: int, path: []string) {
 	for c in first ..< first + count {
 		if path[0] == "*" || gd.TreeItem_get_text(s.insp.nodes[c].item, 0) == path[0] do expand_path(c, path[1:])
 	}
+}
+
+// Builds the rows of the items expanded since the last frame.
+@(private)
+inspector_build_pending :: proc() {
+	n := &s.insp
+	for i in n.pending do if !gd.TreeItem_is_collapsed(n.nodes[i].item) do build_children(i)
+	clear(&n.pending)
 }
