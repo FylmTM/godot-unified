@@ -1,5 +1,5 @@
 // The physics plug-in: a thin layer over the Box3D fork. A World is one Box3D world set up for
-// determinism (one worker, fixed creation order is the game's job) plus RING saved images; it
+// determinism (one worker by default, fixed creation order is the game's job) plus RING saved images; it
 // plugs into the sim harness as Extra state (save/restore/hash/image/load). Bodies are referenced
 // from the state block by Body_Ref, which leaves out Box3D's world index so the block is identical
 // across the worlds of one process and across machines.
@@ -35,8 +35,10 @@ Joint_Ref :: struct {
 	_pad:       u16,
 }
 
-// Determinism is fixed (one worker, no threads); the rest are world options.
+// World options. Results are bit-identical for any worker count (tests/box3d/workers_test.odin).
 Settings :: struct {
+	// Threads for Box3D's built-in scheduler; 0 or 1: none, the step runs on the caller's thread.
+	workers:       i32,
 	gravity:       Maybe([3]f32), // nil: Box3D's default
 	hit_threshold: f32, // approach speed (m/s) above which contacts report hit events; 0: Box3D's default
 	// Create the static anchor body movers attach their joints to (it is created first, so it
@@ -63,7 +65,7 @@ create :: proc(settings := Settings{}) -> ^World {
 	w := new(World)
 	sync.guard(&world_mutex)
 	wd := b3.DefaultWorldDef()
-	wd.workerCount = 1
+	wd.workerCount = u32(max(1, settings.workers))
 	if g, ok := settings.gravity.?; ok {
 		wd.gravity = {g.x, g.y, g.z}
 	}

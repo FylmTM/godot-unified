@@ -1638,7 +1638,7 @@ CreateMesh :: proc(def: ^MeshDef, degenerateTriangleIndices: [^]i32, degenerateC
 	flagsOffset := i32(byteCount)
 	byteCount += AlignUp8(int(triangleCount) * size_of(u8))
 
-	mesh := cast(^MeshData)Alloc(byteCount)
+	mesh := cast(^MeshData)AllocHost(byteCount) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 
 	// zero initialize for determinism
 	mem.zero(mesh, byteCount)

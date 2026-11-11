@@ -27,6 +27,9 @@ SchedulerWorkerContext :: struct {
 }
 
 Scheduler :: struct {
+	// unified: the world arena its threads allocate from while they run the world's tasks (world_arena.odin)
+	arena:          ^WorldArena,
+	// unified end
 	threads:        [MAX_WORKERS]^Thread,
 	workerContexts: [MAX_WORKERS]SchedulerWorkerContext,
 
@@ -84,15 +87,19 @@ SchedulerWorkerMain :: proc(context_: rawptr) {
 		}
 
 		// Claim and execute all available work
+		// unified: in the world's arena (world_arena.odin)
+		PushArena(scheduler.arena)
 		for SchedulerExecuteOne(scheduler) {
 		}
+		PopArena()
+		// unified end
 	}
 }
 
 CreateScheduler :: proc(workerCount: i32) -> ^Scheduler {
 	assert(0 < workerCount && workerCount <= MAX_WORKERS)
 
-	scheduler := cast(^Scheduler)Alloc(size_of(Scheduler))
+	scheduler := cast(^Scheduler)AllocHost(size_of(Scheduler))
 	mem.zero(scheduler, size_of(Scheduler))
 
 	scheduler.workerCount = workerCount

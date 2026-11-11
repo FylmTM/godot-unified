@@ -108,9 +108,9 @@ Rays are `ray_closest`/`ray_first` with z = 0. The half angle comes from `√((1
 
 How it holds: Box3D zeroes locked velocity components right before each substep's position update (and in the
 continuous-collision time-of-impact pose), so with z, quaternion x and y starting at zero they stay exactly zero
-(±0): tested bit-exact. The reported velocities are not clean: box and hull contacts (points at z = ±depth/2, solved
-with full 3D inertia) leave off-plane components after the relax iterations (seen: |v.z| up to 0.16 m/s, |ω.xy| up
-to 0.4 rad/s), which the next substep drops before moving. `velocity_2d` reads only the plane's components.
+(±0): tested bit-exact. Box and hull contacts (points at z = ±depth/2, solved with full 3D inertia) leave off-plane
+velocity after the relax iterations; the fork zeroes the locked components again when the step ends (#87), so the
+reported v.z, ω.x and ω.y are exactly zero too (tested).
 
 Portable images and hulls: Box3D's image names hull geometry by its index in the world's registry, which a fresh
 world fills from its tick-0 save. A late joiner can load an image only if every hull in it already existed somewhere
@@ -118,9 +118,9 @@ in the world at tick 0 (rocks that split into shapes from a fixed set, all prese
 hull made later is refused (`Extra_Rejected`) and the world is left as it was. Open: how games with generated
 geometry (arbitrary split shapes) late-join.
 
-Tests: the plane stays exact for 10 s of 42 mixed bodies (circles, boxes, hulls) hitting each other and static
-walls under impulses and angular velocity, two of them near 60 m/s (continuous collision keeps them in); circles
-don't sink into each other or more than 0.15 m into walls; rotation round trips, near ±180° included; shape masses,
+Tests: the plane (positions and reported velocities) stays exact for 10 s of 42 mixed bodies (circles, boxes,
+hulls) hitting each other and static walls under impulses and angular velocity, two of them near 60 m/s
+(continuous collision keeps them in); circles don't sink into each other or more than 0.15 m into walls; rotation round trips, near ±180° included; shape masses,
 ray hits and poses; a top-down game (ships turning and thrusting, ray-cast shots splitting rocks, respawns) sync-
 tests in 8-tick windows with 0 mismatches, resumes bit-exact from a portable image, and has a pinned golden trace;
 an image with a hull made after tick 0 is refused.

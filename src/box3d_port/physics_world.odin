@@ -80,6 +80,9 @@ TaskContext :: struct {
 // The world struct manages all physics entities, dynamic simulation,  and asynchronous queries.
 // The world also contains efficient memory management facilities.
 World :: struct {
+	// unified: everything the world keeps between steps is allocated from here (world_arena.odin)
+	arena:                        WorldArena,
+	// unified end
 	stack:                        Stack,
 	broadPhase:                   BroadPhase,
 	constraintGraph:              ConstraintGraph,
@@ -290,6 +293,9 @@ AddHullToDatabase :: proc(world: ^World, src: ^HullData) -> ^HullData {
 		return itr.data.key
 	}
 
+	// unified: the database is host memory (world_arena.odin): a rollback doesn't take hulls back
+	HostScope()
+	// unified end
 	clone := CloneHull(src)
 	assert(clone != nil)
 
@@ -308,6 +314,16 @@ AddOwnedHullToDatabase :: proc(world: ^World, owned: ^HullData) -> ^HullData {
 		return itr.data.key
 	}
 
+	// unified: the database is host memory (world_arena.odin); a hull made in the world's arena moves out
+	owned := owned
+	if ArenaOf(owned) != nil {
+		HostScope()
+		hostCopy := CloneHull(owned)
+		DestroyHull(owned)
+		owned = hostCopy
+	}
+	// unified end
+
 	// Take ownership of input hull.
 	HullMap_insert(database, owned, 1)
 	return owned
@@ -319,18 +335,19 @@ RemoveHullFromDatabase :: proc(world: ^World, data: ^HullData) {
 	itr := HullMap_get(database, data)
 	assert(HullMap_is_end(itr) == false)
 
-	itr.data.val -= 1
-	if itr.data.val == 0 {
-		// Erase through the iterator we already have so the lookup runs once.
-		owned := itr.data.key
-		HullMap_erase_itr(database, itr)
-		DestroyHull(owned)
+	// unified: append-only while the world lives (a rollback may bring back a shape that uses this hull); the hulls
+	// are destroyed with the world
+	if itr.data.val > 0 {
+		itr.data.val -= 1
 	}
+	// unified end
 }
 
+@(deferred_out = LeaveWorld) // unified: the world's arena for the rest of the caller's scope (world_arena.odin)
 GetUnlockedWorldFromId :: proc(id: WorldId) -> ^World {
 	assert(1 <= id.index1 && id.index1 <= MAX_WORLDS)
 	world := &worlds[id.index1 - 1]
+	EnterWorld(world) // unified: world_arena.odin
 	assert(id.index1 == world.worldId + 1)
 	assert(id.generation == world.generation)
 
@@ -342,24 +359,30 @@ GetUnlockedWorldFromId :: proc(id: WorldId) -> ^World {
 	return world
 }
 
+@(deferred_out = LeaveWorld) // unified: the world's arena for the rest of the caller's scope (world_arena.odin)
 GetWorldFromId :: proc(id: WorldId) -> ^World {
 	assert(1 <= id.index1 && id.index1 <= MAX_WORLDS)
 	world := &worlds[id.index1 - 1]
+	EnterWorld(world) // unified: world_arena.odin
 	assert(id.index1 == world.worldId + 1)
 	assert(id.generation == world.generation)
 	return world
 }
 
+@(deferred_out = LeaveWorld) // unified: the world's arena for the rest of the caller's scope (world_arena.odin)
 GetWorld :: proc(index: i32) -> ^World {
 	assert(0 <= index && index < MAX_WORLDS)
 	world := &worlds[index]
+	EnterWorld(world) // unified: world_arena.odin
 	assert(i32(world.worldId) == index)
 	return world
 }
 
+@(deferred_out = LeaveWorld) // unified: the world's arena for the rest of the caller's scope (world_arena.odin)
 GetUnlockedWorld :: proc(index: i32) -> ^World {
 	assert(0 <= index && index < MAX_WORLDS)
 	world := &worlds[index]
+	EnterWorld(world) // unified: world_arena.odin
 	assert(i32(world.worldId) == index)
 	if world.locked {
 		assert(false)
@@ -476,9 +499,16 @@ CreateWorld :: proc(def: ^WorldDef) -> WorldId {
 	world.inUse = true
 
 	world.stack = CreateStack(2048)
+	world.manifoldAllocatorMutex = CreateMutex()
+
+	// unified: from here on, the world's memory comes from its arena (world_arena.odin); the scratch stack and the
+	// mutex above are host memory
+	CreateWorldArena(&world.arena)
+	PushArena(&world.arena)
+	defer PopArena()
+	// unified end
 
 	Array_Reserve(&world.manifoldAllocators, 16)
-	world.manifoldAllocatorMutex = CreateMutex()
 
 	CreateBroadPhase(&world.broadPhase, &def.capacity)
 	CreateGraph(&world.constraintGraph, 16)
@@ -519,7 +549,7 @@ CreateWorld :: proc(def: ^WorldDef) -> WorldId {
 	Array_Reserve(&world.shapes, shapeCapacity)
 	Array_Reserve(&world.fatAABBs, shapeCapacity)
 
-	world.hullDatabase = Alloc(size_of(HullMap))
+	world.hullDatabase = AllocHost(size_of(HullMap)) // unified: host memory (world_arena.odin)
 	HullMap_init((^HullMap)(world.hullDatabase))
 
 	world.names = CreateNameCache()
@@ -593,6 +623,7 @@ CreateWorld :: proc(def: ^WorldDef) -> WorldId {
 		// Built-in scheduler
 		world.workerCount = MinInt(i32(def.workerCount), MAX_WORKERS)
 		world.scheduler = CreateScheduler(world.workerCount)
+		world.scheduler.arena = &world.arena // unified: its threads allocate from the world's arena (world_arena.odin)
 		world.enqueueTaskFcn = SchedulerEnqueueTask
 		world.finishTaskFcn = SchedulerFinishTask
 		world.userTaskContext = world.scheduler
@@ -605,7 +636,12 @@ CreateWorld :: proc(def: ^WorldDef) -> WorldId {
 		world.scheduler = nil
 	}
 
-	CreateWorkerContexts(world)
+	// unified: per-worker scratch is host memory, kept as is by a restore (world_arena.odin)
+	{
+		HostScope()
+		CreateWorkerContexts(world)
+	}
+	// unified end
 
 	world.debugBodySet = CreateBitSet(256)
 	world.debugJointSet = CreateBitSet(256)
@@ -684,13 +720,21 @@ DestroyWorld :: proc(worldId: WorldId) {
 		}
 	}
 
-	// Destroying every shape above released all hull references, so the database is empty.
-	assert(HullMap_size((^HullMap)(world.hullDatabase)) == 0)
+	// unified: the database is append-only while the world lives (world_arena.odin), so it still holds every hull
+	// the world ever used: destroy them with it
+	{
+		database := (^HullMap)(world.hullDatabase)
+		for itr := HullMap_first(database); !HullMap_is_end(itr); itr = HullMap_next(itr) {
+			DestroyHull(itr.data.key)
+		}
+	}
+	// unified end
 	HullMap_cleanup((^HullMap)(world.hullDatabase))
 	Free(world.hullDatabase, size_of(HullMap))
 	world.hullDatabase = nil
 
 	DestroyNameCache(&world.names)
+	DestroyWorldImageData(world) // unified: the image geometry store and hash buffer (world_image.odin)
 
 	Array_Destroy(&world.shapes)
 	Array_Destroy(&world.fatAABBs)
@@ -732,6 +776,10 @@ DestroyWorld :: proc(worldId: WorldId) {
 	DestroyMutex(world.manifoldAllocatorMutex)
 
 	DestroyStack(&world.stack)
+
+	// unified: release the arena (world_arena.odin); everything in it was freed above
+	DestroyWorldArena(&world.arena)
+	// unified end
 
 	// Wipe world but preserve generation
 	generation := world.generation

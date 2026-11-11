@@ -3,8 +3,12 @@
 // SPDX-License-Identifier: MIT
 package test_box3d_upstream
 
+import "core:fmt"
 import "core:sync"
 import "core:testing"
+
+// -define:TRACE_SUBTESTS=true prints each subtest's name before it runs (to find a crash).
+TRACE_SUBTESTS :: #config(TRACE_SUBTESTS, false)
 
 // unified: upstream's tests run one after another in one process; Odin's runner is multi-threaded, and Box3D has
 // globals (the world registry, the allocator's byte count). Every top-level test holds this lock.
@@ -29,6 +33,9 @@ RUN_SUBTEST :: proc(
 	name := #caller_expression(T),
 	loc := #caller_location,
 ) -> bool {
+	when TRACE_SUBTESTS {
+		fmt.eprintln("subtest:", name)
+	}
 	result := T(t)
 	if !result {
 		testing.expectf(t, false, "  subtest failed: %s", name, loc = loc)

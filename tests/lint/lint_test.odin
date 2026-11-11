@@ -68,6 +68,7 @@ RULES := []Rule {
 			"base:runtime",
 			"core:fmt",
 			"core:mem",
+			"core:mem/virtual",
 			"core:os",
 			"core:simd",
 			"core:strconv",

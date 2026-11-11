@@ -1,11 +1,10 @@
-// The Box3D scaling benchmark (src/box3d_port/SPEC.md, phase 2): stacks of boxes on a ground, settled, then the
-// step, save and restore times, the image size, and an 8-tick rollback (restore + 8 × (step + save)) per body count
-// and worker count. Run on a release build:
-// `odin run tests/box3d/scale -collection:unified=src -o:speed`.
+// The Box3D scaling benchmark (src/box3d_port/SPEC.md, phase 2): stacks of boxes on a ground, settled, then per
+// body count and worker count: the step time; in-process snapshots (the world arena, a memcpy: save, restore, and an
+// 8-tick rollback = restore + 8 × (step + save)); and the portable image (the serializer: time and bytes). Run on a
+// release build: `odin run tests/box3d/scale -collection:unified=src -o:speed`.
 package box3d_scale
 
 import "core:fmt"
-import "core:mem"
 import "core:slice"
 import "core:time"
 import b3 "unified:box3d_port"
@@ -17,8 +16,8 @@ REPS :: 64
 ROLLBACK :: 8
 
 Result :: struct {
-	step, save, restore, rollback, memcpy: f64, // µs, median
-	image:                                 int,
+	step, save, restore, rollback, imageTime: f64, // µs, median
+	snapshot, image:                          int, // bytes
 }
 
 median :: proc(xs: []f64) -> f64 {
@@ -60,30 +59,40 @@ run :: proc(n, workers: int) -> (r: Result) {
 		b3.World_Step(w, DT, SUBSTEPS)
 	}
 
+	// The portable image (the serializer): for late join and the checksum.
 	cache := b3.CreateWorldStateCache()
 	st := b3.CreateWorldState()
 	defer {
 		b3.DestroyWorldState(st)
 		b3.DestroyWorldStateCache(cache)
 	}
-	b3.World_SaveState(w, cache, st)
-	r.image = int(b3.WorldState_GetSize(st))
-
 	samples: [REPS]f64
 	for &s in samples {
 		t := time.tick_now()
 		b3.World_SaveState(w, cache, st)
 		s = us(t)
 	}
-	r.save = median(samples[:])
+	r.imageTime = median(samples[:])
+	r.image = int(b3.WorldState_GetSize(st))
+
+	// In-process snapshots (the world arena, a memcpy): what rollback uses.
+	snap: b3.WorldSnapshot
+	defer b3.DestroyWorldSnapshot(&snap)
 	for &s in samples {
 		t := time.tick_now()
-		_ = b3.World_RestoreState(w, cache, st)
+		b3.World_SaveSnapshot(w, &snap)
+		s = us(t)
+	}
+	r.save = median(samples[:])
+	r.snapshot = snap.size
+	for &s in samples {
+		t := time.tick_now()
+		_ = b3.World_RestoreSnapshot(w, &snap)
 		s = us(t)
 	}
 	r.restore = median(samples[:])
 	for &s in samples {
-		_ = b3.World_RestoreState(w, cache, st)
+		_ = b3.World_RestoreSnapshot(w, &snap)
 		t := time.tick_now()
 		b3.World_Step(w, DT, SUBSTEPS)
 		s = us(t)
@@ -91,52 +100,42 @@ run :: proc(n, workers: int) -> (r: Result) {
 	r.step = median(samples[:])
 
 	// The rollback a client does on a late input: back to the saved tick, then re-simulate and re-save 8 ticks.
-	ring: [ROLLBACK]^b3.WorldState
-	for &slot in ring {
-		slot = b3.CreateWorldState()
-	}
-	defer for slot in ring {
-		b3.DestroyWorldState(slot)
+	ring: [ROLLBACK]b3.WorldSnapshot
+	defer for &slot in ring {
+		b3.DestroyWorldSnapshot(&slot)
 	}
 	rb: [16]f64
 	for &s in rb {
 		t := time.tick_now()
-		_ = b3.World_RestoreState(w, cache, st)
-		for slot in ring {
+		_ = b3.World_RestoreSnapshot(w, &snap)
+		for &slot in ring {
 			b3.World_Step(w, DT, SUBSTEPS)
-			b3.World_SaveState(w, cache, slot)
+			b3.World_SaveSnapshot(w, &slot)
 		}
 		s = us(t)
 	}
 	r.rollback = median(rb[:])
-
-	dst := make([]u8, r.image)
-	defer delete(dst)
-	src := b3.WorldState_GetData(st)
-	for &s in samples {
-		t := time.tick_now()
-		mem.copy(raw_data(dst), src, r.image)
-		s = us(t)
-	}
-	r.memcpy = median(samples[:])
 	return
 }
 
 main :: proc() {
-	fmt.println("bodies workers    step µs    save µs restore µs  rollback(8) µs   image bytes  memcpy µs")
+	fmt.println(
+		"bodies workers    step µs    save µs restore µs  rollback(8) µs  snapshot bytes  image µs  image bytes",
+	)
 	for n in ([]int{100, 1000, 2000}) {
 		for workers in ([]int{1, 2, 4}) {
 			r := run(n, workers)
 			fmt.printf(
-				"%6d %7d %10.1f %10.1f %10.1f %15.1f %13d %10.1f\n",
+				"%6d %7d %10.1f %10.1f %10.1f %15.1f %15d %9.1f %12d\n",
 				n,
 				workers,
 				r.step,
 				r.save,
 				r.restore,
 				r.rollback,
+				r.snapshot,
+				r.imageTime,
 				r.image,
-				r.memcpy,
 			)
 		}
 	}

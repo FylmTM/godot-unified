@@ -47,7 +47,7 @@ Mutex :: struct {
 }
 
 CreateMutex :: proc() -> ^Mutex {
-	m := cast(^Mutex)Alloc(size_of(Mutex))
+	m := cast(^Mutex)AllocHost(size_of(Mutex))
 	m^ = Mutex{}
 	return m
 }
@@ -70,7 +70,7 @@ Semaphore :: struct {
 }
 
 CreateSemaphore :: proc(initCount: i32) -> ^Semaphore {
-	s := cast(^Semaphore)Alloc(size_of(Semaphore))
+	s := cast(^Semaphore)AllocHost(size_of(Semaphore))
 	s^ = Semaphore{}
 	if initCount > 0 {
 		sync.sema_post(&s.semaphore, int(initCount))
@@ -105,7 +105,7 @@ ThreadStart :: proc(th: ^thread.Thread) {
 }
 
 CreateThread :: proc(function: ThreadFunction, context_: rawptr, name: cstring) -> ^Thread {
-	t := cast(^Thread)Alloc(size_of(Thread))
+	t := cast(^Thread)AllocHost(size_of(Thread))
 	t^ = Thread{}
 	t.function = function
 	t.context_ = context_

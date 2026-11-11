@@ -210,9 +210,9 @@ RecBufAppend :: proc(buf: ^RecBuffer, data: rawptr, size: i32) {
 			newCap = buf.size + size + 64
 		}
 		if buf.data == nil {
-			buf.data = cast([^]u8)Alloc(int(newCap))
+			buf.data = cast([^]u8)AllocHost(int(newCap))
 		} else {
-			buf.data = cast([^]u8)GrowAlloc(buf.data, buf.capacity, newCap)
+			buf.data = cast([^]u8)GrowAllocHost(buf.data, buf.capacity, newCap)
 		}
 		buf.capacity = newCap
 	}
@@ -892,8 +892,9 @@ RegistryPush :: proc(
 	bytes: [^]u8,
 	byteCount: i32,
 ) -> u32 {
+	HostScope() // unified: recordings are host memory (world_arena.odin)
 	assert(byteCount > 0)
-	copy := cast([^]u8)Alloc(int(byteCount))
+	copy := cast([^]u8)AllocHost(int(byteCount))
 	mem.copy(copy, bytes, int(byteCount))
 
 	id := u32(reg.entries.count)
@@ -914,7 +915,7 @@ RegistryPush :: proc(
 @(private = "file")
 RegistryMap :: proc(reg: ^GeometryRegistry) -> ^GeometryHashMap {
 	if reg.dedupMap == nil {
-		fresh := cast(^GeometryHashMap)Alloc(size_of(GeometryHashMap))
+		fresh := cast(^GeometryHashMap)AllocHost(size_of(GeometryHashMap))
 		// unified: b3GeometryHashMap_init
 		fresh^ = make(GeometryHashMap, runtime.heap_allocator())
 		// unified end
@@ -930,6 +931,7 @@ InternGeometry :: proc(
 	bytes: [^]u8,
 	byteCount: i32,
 ) -> u32 {
+	HostScope() // unified: recordings are host memory (world_arena.odin)
 	m := RegistryMap(reg)
 
 	head, hashPresent := m[contentHash]
@@ -953,6 +955,7 @@ AppendGeometry :: proc(
 	bytes: [^]u8,
 	byteCount: i32,
 ) -> u32 {
+	HostScope() // unified: recordings are host memory (world_arena.odin)
 	m := RegistryMap(reg)
 	head, hashPresent := m[contentHash]
 	return RegistryPush(reg, m, head, hashPresent, kind, contentHash, bytes, byteCount)
@@ -992,7 +995,7 @@ HashQueryTag :: proc(id: u64, name: cstring) -> u64 {
 @(private = "file")
 RecTags :: proc(rec: ^Recording) -> ^RecTagMap {
 	if rec.tagMap == nil {
-		fresh := cast(^RecTagMap)Alloc(size_of(RecTagMap))
+		fresh := cast(^RecTagMap)AllocHost(size_of(RecTagMap))
 		// unified: b3RecTagMap_init
 		fresh^ = make(RecTagMap, runtime.heap_allocator())
 		// unified end
@@ -1009,7 +1012,7 @@ RecInternTag :: proc(rec: ^Recording, key: u64, id: u64, name: cstring) {
 
 	if rec.tagCount == rec.tagCapacity {
 		newCap := rec.tagCapacity == 0 ? 8 : 2 * rec.tagCapacity
-		rec.tags = cast([^]RecTag)GrowAlloc(
+		rec.tags = cast([^]RecTag)GrowAllocHost(
 			rec.tags,
 			rec.tagCapacity * i32(size_of(RecTag)),
 			newCap * i32(size_of(RecTag)),
@@ -1055,11 +1058,11 @@ RecWriteRegistry :: proc(rec: ^Recording) {
 // Lifecycle
 
 CreateRecording :: proc(byteCapacity: i32) -> ^Recording {
-	rec := cast(^Recording)Alloc(size_of(Recording))
+	rec := cast(^Recording)AllocHost(size_of(Recording))
 	rec^ = Recording{}
 
 	initCap := byteCapacity > 0 ? byteCapacity : 65536
-	rec.buffer.data = cast([^]u8)Alloc(int(initCap))
+	rec.buffer.data = cast([^]u8)AllocHost(int(initCap))
 	rec.buffer.capacity = initCap
 	rec.buffer.size = 0
 	rec.lock = CreateMutex()

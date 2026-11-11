@@ -59,10 +59,11 @@ Hash32 :: proc "contextless" (data: rawptr, length: int) -> u32 {
 }
 
 CreateNameCache :: proc() -> NameCache {
+	HostScope() // unified: the name cache is host-side and append-only (world_arena.odin)
 	cache := NameCache{}
 	Array_Create(&cache.entries)
 
-	m := cast(^NameMap)Alloc(size_of(NameMap))
+	m := cast(^NameMap)AllocHost(size_of(NameMap))
 	// unified: b3NameMap_init
 	m^ = make(NameMap, runtime.heap_allocator())
 	// unified end
@@ -85,6 +86,7 @@ DestroyNameCache :: proc(cache: ^NameCache) {
 }
 
 AddName :: proc(cache: ^NameCache, name: cstring) -> u32 {
+	HostScope() // unified: the name cache is host-side and append-only (world_arena.odin)
 	if name == nil || ([^]u8)(name)[0] == 0 {
 		return NULL_NAME
 	}
@@ -103,7 +105,7 @@ AddName :: proc(cache: ^NameCache, name: cstring) -> u32 {
 		return id
 	}
 
-	clone := cast([^]u8)Alloc(length + 1)
+	clone := cast([^]u8)AllocHost(length + 1)
 	mem.copy_non_overlapping(clone, rawptr(name), length + 1)
 	index := cache.entries.count
 	entry := NameEntry {
@@ -130,6 +132,7 @@ FindName :: proc(cache: ^NameCache, id: u32) -> cstring {
 
 // Load a name from a recording. Name ownership is transferred.
 LoadName :: proc(cache: ^NameCache, id: u32, name: cstring, length: i32) {
+	HostScope() // unified: the name cache is host-side and append-only (world_arena.odin)
 	if name == nil {
 		return
 	}

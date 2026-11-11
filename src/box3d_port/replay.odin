@@ -374,7 +374,7 @@ RecReserveScratch :: proc(rdr: ^RecReader, data: ^rawptr, cap: ^i32, need: i32, 
 		return true
 	}
 	newCap := need <= max(i32) / elemSize - 8 ? need + 8 : need
-	grown := Alloc(int(newCap) * int(elemSize))
+	grown := AllocHost(int(newCap) * int(elemSize))
 	if data^ != nil {
 		mem.copy(grown, data^, int(cap^) * int(elemSize))
 		Free(data^, int(cap^) * int(elemSize))
@@ -3677,7 +3677,7 @@ RecGrow :: proc(data: ^rawptr, capacity: ^i32, need: i32, keep: i32, elemSize: i
 	if newCap < need {
 		newCap = need
 	}
-	grown := Alloc(int(newCap) * int(elemSize))
+	grown := AllocHost(int(newCap) * int(elemSize))
 	if data^ != nil {
 		if keep > 0 {
 			mem.copy(grown, data^, int(keep) * int(elemSize))
@@ -3786,7 +3786,7 @@ RecSeedFrame0BodyIds :: proc(player: ^RecPlayer) {
 	}
 	player.frame0BodyIdCount = player.bodyIdCount
 	if player.bodyIdCount > 0 {
-		player.frame0BodyIds = cast([^]BodyId)Alloc(int(player.bodyIdCount) * size_of(BodyId))
+		player.frame0BodyIds = cast([^]BodyId)AllocHost(int(player.bodyIdCount) * size_of(BodyId))
 		mem.copy(player.frame0BodyIds, player.bodyIds, int(player.bodyIdCount) * size_of(BodyId))
 	}
 }
@@ -3821,10 +3821,10 @@ RecLoadTags :: proc(rdr: ^RecReader, rp: [^]u8, dataEnd: [^]u8) {
 		return
 	}
 
-	tags := cast([^]RecTag)Alloc(int(count) * size_of(RecTag))
+	tags := cast([^]RecTag)AllocHost(int(count) * size_of(RecTag))
 	mem.zero(tags, int(count) * size_of(RecTag))
 
-	m := cast(^RecTagLookup)Alloc(size_of(RecTagLookup))
+	m := cast(^RecTagLookup)AllocHost(size_of(RecTagLookup))
 	// unified: b3RecTagLookup_init
 	m^ = make(RecTagLookup, runtime.heap_allocator())
 	// unified end
@@ -3916,7 +3916,7 @@ RecLoadSlots :: proc(rdr: ^RecReader, data: rawptr, size: i32, registryOffset: u
 		return false
 	}
 
-	slots := cast([^]RegistrySlot)Alloc(int(count) * size_of(RegistrySlot))
+	slots := cast([^]RegistrySlot)AllocHost(int(count) * size_of(RegistrySlot))
 	mem.zero(slots, int(count) * size_of(RegistrySlot))
 
 	for i: u32 = 0; i < count; i += 1 {
@@ -3934,7 +3934,7 @@ RecLoadSlots :: proc(rdr: ^RecReader, data: rawptr, size: i32, registryOffset: u
 		} else if int(byteCount) > int(uintptr(dataEnd) - uintptr(rp)) {
 			error = "bytes out of bounds"
 		} else {
-			bytes := cast([^]u8)Alloc(int(byteCount))
+			bytes := cast([^]u8)AllocHost(int(byteCount))
 			mem.copy(bytes, rp, int(byteCount))
 			slots[i].kind = GeometryKind(kind)
 			slots[i].byteCount = i32(byteCount)
@@ -4074,7 +4074,7 @@ RecCaptureKeyframe :: proc(player: ^RecPlayer) {
 	// Grow the keyframe ring if needed.
 	if player.keyframeCount >= player.keyframeCapacity {
 		newCap := player.keyframeCapacity < 8 ? 8 : player.keyframeCapacity * 2
-		player.keyframes = cast([^]RecKeyframe)GrowAlloc(
+		player.keyframes = cast([^]RecKeyframe)GrowAllocHost(
 			player.keyframes,
 			player.keyframeCapacity * i32(size_of(RecKeyframe)),
 			newCap * i32(size_of(RecKeyframe)),
@@ -4093,7 +4093,7 @@ RecCaptureKeyframe :: proc(player: ^RecPlayer) {
 	kf.bodyIdCount = player.bodyIdCount
 	kf.bodyIds = nil
 	if bodyBytes > 0 {
-		kf.bodyIds = cast([^]BodyId)Alloc(bodyBytes)
+		kf.bodyIds = cast([^]BodyId)AllocHost(bodyBytes)
 		mem.copy(kf.bodyIds, player.bodyIds, bodyBytes)
 	}
 
@@ -4194,10 +4194,10 @@ CreatePlayer :: proc(data: rawptr, size: i32, workerCount: i32) -> ^RecPlayer {
 	registryEnd := i32(registryEnd64)
 
 	// Own a private copy so the caller can free their buffer right away.
-	copy := cast([^]u8)Alloc(int(size))
+	copy := cast([^]u8)AllocHost(int(size))
 	mem.copy(copy, data, int(size))
 
-	player := cast(^RecPlayer)Alloc(size_of(RecPlayer))
+	player := cast(^RecPlayer)AllocHost(size_of(RecPlayer))
 	mem.zero(player, size_of(RecPlayer))
 
 	player.data = copy

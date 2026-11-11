@@ -899,6 +899,21 @@ FinalizeBodiesTask :: proc(startIndex: i32, endIndex: i32, workerIndex: i32, con
 
 		v := state.linearVelocity
 		w := state.angularVelocity
+
+		// unified: motion locks hold for the velocities a step leaves too (#87). The relax iterations and
+		// restitution run after the last IntegratePositions, and contacts solved with full 3D inertia (the
+		// corners of a plane-locked box) leave locked components that would be reported and carried into the
+		// next step's solve.
+		v.x = (state.flags & lockLinearX) != 0 ? 0.0 : v.x
+		v.y = (state.flags & lockLinearY) != 0 ? 0.0 : v.y
+		v.z = (state.flags & lockLinearZ) != 0 ? 0.0 : v.z
+		w.x = (state.flags & lockAngularX) != 0 ? 0.0 : w.x
+		w.y = (state.flags & lockAngularY) != 0 ? 0.0 : w.y
+		w.z = (state.flags & lockAngularZ) != 0 ? 0.0 : w.z
+		state.linearVelocity = v
+		state.angularVelocity = w
+		// unified end
+
 		localOmega := InvRotateVector(sim.transform.q, w)
 		localDeltaRotation := InvRotateVector(sim.transform.q, state.deltaRotation.v)
 

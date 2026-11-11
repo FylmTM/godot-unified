@@ -76,7 +76,7 @@ CreateStack :: proc(capacity: i32) -> Stack {
 	assert(capacity >= 0)
 	stack := Stack{}
 	stack.capacity = capacity
-	stack.memory = cast([^]u8)Alloc(int(capacity))
+	stack.memory = cast([^]u8)AllocHost(int(capacity))
 	return stack
 }
 
@@ -97,7 +97,7 @@ StackAlloc :: proc(stack: ^Stack, size: i32, name: cstring) -> rawptr {
 	entry.name = name
 	if stack.index + alignedSize > stack.capacity {
 		// fall back to the heap (undesirable)
-		entry.data = cast([^]u8)Alloc(int(alignedSize))
+		entry.data = cast([^]u8)AllocHost(int(alignedSize))
 		entry.usedMalloc = true
 
 		assert((uintptr(entry.data) & (ALIGNMENT - 1)) == 0)
@@ -141,7 +141,7 @@ GrowStack :: proc(stack: ^Stack) {
 	if stack.maxAllocation > stack.capacity {
 		Free(stack.memory, int(stack.capacity))
 		stack.capacity = stack.maxAllocation + stack.maxAllocation / 2
-		stack.memory = cast([^]u8)Alloc(int(stack.capacity))
+		stack.memory = cast([^]u8)AllocHost(int(stack.capacity))
 	}
 }
 
@@ -159,10 +159,10 @@ GetMaxStackAllocation :: proc(stack: ^Stack) -> i32 {
 
 CreateArena :: proc(capacity: i32) -> Arena {
 	c := capacity > 8 ? capacity : 8
-	shared := cast(^ArenaSharedState)Alloc(size_of(ArenaSharedState))
+	shared := cast(^ArenaSharedState)AllocHost(size_of(ArenaSharedState))
 	shared^ = ArenaSharedState{}
 
-	return Arena{memory = cast([^]u8)Alloc(int(c)), capacity = c, index = 0, shared = shared}
+	return Arena{memory = cast([^]u8)AllocHost(int(c)), capacity = c, index = 0, shared = shared}
 }
 
 DestroyArena :: proc(arena: ^Arena) {
@@ -180,8 +180,9 @@ DestroyArena :: proc(arena: ^Arena) {
 
 // Heap-allocate an overflow block, register it in the shared state, return it.
 ArenaOverflowAlloc :: proc(arena: ^Arena, size: i32) -> rawptr {
+	HostScope() // unified: scratch is host memory (world_arena.odin)
 	shared := arena.shared
-	data := cast([^]u8)Alloc(int(size))
+	data := cast([^]u8)AllocHost(int(size))
 	block := OverflowBlock{data, size}
 	Array_Push(&shared.overflows, block)
 	shared.overflowBytes += size
@@ -205,7 +206,7 @@ ArenaSync :: proc(arena: ^Arena) {
 	if demand > arena.capacity {
 		Free(arena.memory, int(arena.capacity))
 		newCapacity := demand + demand / 2
-		arena.memory = cast([^]u8)Alloc(int(newCapacity))
+		arena.memory = cast([^]u8)AllocHost(int(newCapacity))
 		arena.capacity = newCapacity
 	}
 

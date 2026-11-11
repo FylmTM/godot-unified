@@ -65,6 +65,7 @@ DestroyBitSet :: proc(bitSet: ^BitSet) {
 SetBitCountAndClear :: proc(bitSet: ^BitSet, bitCount: u32) {
 	blockCount := (bitCount + size_of(u64) * 8 - 1) / (size_of(u64) * 8)
 	if bitSet.blockCapacity < blockCount {
+		PushArenaNear(bitSet.bits) // unified: grows where it lives (world_arena.odin)
 		DestroyBitSet(bitSet)
 		newBitCapacity := bitCount + (bitCount >> 1)
 		bitSet^ = CreateBitSet(newBitCapacity)
@@ -79,7 +80,7 @@ GrowBitSet :: proc(bitSet: ^BitSet, blockCount: u32) {
 	if blockCount > bitSet.blockCapacity {
 		oldCapacity := bitSet.blockCapacity
 		bitSet.blockCapacity = blockCount + blockCount / 2
-		newBits := cast([^]u64)Alloc(int(bitSet.blockCapacity) * size_of(u64))
+		newBits := cast([^]u64)AllocNear(bitSet.bits, int(bitSet.blockCapacity) * size_of(u64)) // unified: world_arena.odin
 		mem.zero(newBits, int(bitSet.blockCapacity) * size_of(u64))
 		assert(bitSet.bits != nil)
 		mem.copy_non_overlapping(newBits, bitSet.bits, int(oldCapacity) * size_of(u64))

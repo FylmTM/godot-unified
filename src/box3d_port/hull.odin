@@ -2108,7 +2108,7 @@ CreateHull :: proc(points: [^]Vec3, pointCount: i32, maxVertexCount: i32) -> ^Hu
 	edgeCosineOffset := i32(byteCount)
 	byteCount += AlignUp8(int((edgeCount / 2) * i32(size_of(f32))))
 
-	hull := cast(^HullData)Alloc(byteCount)
+	hull := cast(^HullData)AllocHost(byteCount) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 	mem.zero(hull, byteCount)
 
 	hull.version = HULL_VERSION
@@ -2221,7 +2221,7 @@ CloneHull :: proc(hull: ^HullData) -> ^HullData {
 		return nil
 	}
 
-	clone := cast(^HullData)Alloc(int(hull.byteCount))
+	clone := cast(^HullData)AllocHost(int(hull.byteCount)) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 	mem.copy(clone, hull, int(hull.byteCount))
 
 	return clone
@@ -2328,7 +2328,7 @@ HullMap_insert :: proc(table: ^HullMap, key: ^HullData, val: i32) -> HullMap_itr
 		return itr
 	}
 
-	bucket := cast(^HullMap_bucket)Alloc(size_of(HullMap_bucket))
+	bucket := cast(^HullMap_bucket)AllocHost(size_of(HullMap_bucket))
 	bucket^ = {}
 	bucket.key = key
 	bucket.val = val
@@ -2428,7 +2428,7 @@ CloneAndTransformHull :: proc(original: ^HullData, transform: Transform, scale: 
 		return nil
 	}
 
-	hull := cast(^HullData)Alloc(int(original.byteCount))
+	hull := cast(^HullData)AllocHost(int(original.byteCount)) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 	mem.copy(hull, original, int(original.byteCount))
 
 	safeScale := SafeScale(scale)

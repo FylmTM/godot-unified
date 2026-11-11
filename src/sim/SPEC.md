@@ -94,7 +94,7 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
 
 ## Physics plug-in (`unified:physics`)
 
-`create(settings) -> ^World` (one Box3D world, one worker; creation is mutex-guarded), `destroy`,
+`create(settings) -> ^World` (one Box3D world, one worker unless `Settings.workers`; creation is mutex-guarded), `destroy`,
 `Body_Ref {index1, generation}` (no world index, so blocks match across worlds and machines), `body_id`, `ref_of`,
 `destroy_body`, `extra(w, S) -> sim.Extra`: finds every `Body_Ref` in `S` by RTTI once (fields, arrays,
 table items); the hash covers each referenced body (position, rotation, velocities; −0 → +0) in block order; images

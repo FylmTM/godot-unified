@@ -83,6 +83,14 @@ on_plane :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
 	return p.z == 0 && q.v.x == 0 && q.v.y == 0
 }
 
+// Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step (#87).
+in_plane_velocity :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
+	id := physics.body_id(w, r)
+	v := b3.Body_GetLinearVelocity(id)
+	a := b3.Body_GetAngularVelocity(id)
+	return v.z == 0 && a.x == 0 && a.y == 0
+}
+
 @(test)
 plane_2d_stays_exact :: proc(t: ^testing.T) {
 	w := zero_g()
@@ -141,7 +149,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		append(&items, Item{f, .Circle, 0.25})
 	}
 
-	off_plane, escaped := 0, 0
+	off_plane, off_velocity, escaped := 0, 0, 0
 	sink: f32
 	bounced := false
 	for tk in 1 ..= 640 { 	// 10 s
@@ -157,6 +165,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		step(w)
 		for it in items {
 			if !on_plane(w, it.body) do off_plane += 1
+			if !in_plane_velocity(w, it.body) do off_velocity += 1
 			p, _ := physics.pose_2d(w, it.body)
 			if abs(p.x) >= ARENA.x || abs(p.y) >= ARENA.y do escaped += 1
 			if it.radius > 0 do sink = max(sink, abs(p.x) + it.radius - ARENA.x, abs(p.y) + it.radius - ARENA.y)
@@ -165,6 +174,13 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		bounced ||= v.x < -1
 	}
 	testing.expectf(t, off_plane == 0, "%d body-ticks left the plane (z or quaternion x/y not zero)", off_plane)
+	// Boxes and hulls too: their contact points sit at z = ±depth/2 and are solved in 3D (#87).
+	testing.expectf(
+		t,
+		off_velocity == 0,
+		"%d body-ticks reported off-plane velocity (v.z, ω.x or ω.y)",
+		off_velocity,
+	)
 	testing.expectf(t, escaped == 0, "%d body-ticks outside the walls", escaped)
 	// Contacts are soft: a hard hit sinks a circle into a wall for a tick or two, never through it.
 	testing.expectf(t, sink < 0.15, "a circle sank %v m into a wall", sink)
@@ -526,7 +542,7 @@ portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0xa06b2d3fdb8126c3, 0x6c26b2ac503f6e46, 0xee280c2cc5f5ec61, 0x1a1969424f1dd13a}
+GOLDEN_FIELD := [4]u64{0x76cb3c7ab95a4fcc, 0x2b7bd135fef9b39e, 0x5b6d91baf3ccd8a4, 0xa1da23e05dfd66bb}
 
 @(test)
 field_golden_trace :: proc(t: ^testing.T) {

@@ -160,6 +160,21 @@ Alloc :: proc(size: int) -> rawptr {
 		return nil
 	}
 
+	// unified: inside a world's scope, memory comes from its arena (world_arena.odin)
+	if arena := CurrentArena(); arena != nil {
+		AtomicFetchAddI64(&byteCount, i64(size))
+		return ArenaAlloc(arena, size)
+	}
+	return AllocHost(size)
+}
+
+// unified: host-side memory, never from a world arena (world_arena.odin): what host-side fields point to.
+AllocHost :: proc(size: int) -> rawptr {
+	if size == 0 {
+		return nil
+	}
+	// unified end
+
 	AtomicFetchAddI64(&byteCount, i64(size))
 
 	// Allocation must be a multiple of ALIGNMENT (required by spec).
@@ -187,6 +202,21 @@ Free :: proc(mem_: rawptr, size: int) {
 		return
 	}
 
+	// unified: arena memory goes back to its arena (world_arena.odin); Free routes by address
+	if arena := ArenaOf(mem_); arena != nil {
+		ArenaFree(arena, mem_)
+		AtomicFetchAddI64(&byteCount, -i64(size))
+		return
+	}
+	FreeHost(mem_, size)
+}
+
+FreeHost :: proc(mem_: rawptr, size: int) {
+	if mem_ == nil {
+		return
+	}
+	// unified end
+
 	if freeFcn != nil {
 		alignedSize := size > 0 ? ((size - 1) | (ALIGNMENT - 1)) + 1 : 0
 		freeFcn(mem_, alignedSize)
@@ -201,13 +231,61 @@ Free :: proc(mem_: rawptr, size: int) {
 
 GrowAlloc :: proc(oldMem: rawptr, oldSize, newSize: i32) -> rawptr {
 	assert(newSize > oldSize)
-	newMem := Alloc(int(newSize))
+	// unified: grows in place (the old block's arena or the host), world_arena.odin
+	newMem := AllocNear(oldSize > 0 ? oldMem : nil, int(newSize))
+	// unified end
 	if oldSize > 0 {
 		mem.copy_non_overlapping(newMem, oldMem, int(oldSize))
 		Free(oldMem, int(oldSize))
 	}
 	return newMem
 }
+
+// unified: memory in the same place as `old` (its world's arena, or the host); `old == nil` follows the scope.
+// Growing a block keeps it where it was, so host-side scratch stays on the host when it grows inside a world's scope
+// (world_arena.odin).
+AllocNear :: proc(old: rawptr, size: int) -> rawptr {
+	if old == nil {
+		return Alloc(size)
+	}
+	if arena := ArenaOf(old); arena != nil {
+		AtomicFetchAddI64(&byteCount, i64(size))
+		return ArenaAlloc(arena, size)
+	}
+	return AllocHost(size)
+}
+
+// The arena that holds `p`, or nil for host memory.
+ArenaOf :: proc(p: rawptr) -> ^WorldArena {
+	if arena := CurrentArena(); arena != nil && ArenaContains(arena, p) {
+		return arena
+	}
+	for i in 0 ..< MAX_WORLDS {
+		if worlds[i].inUse && worlds[i].arena.base != nil && ArenaContains(&worlds[i].arena, p) {
+			return &worlds[i].arena
+		}
+	}
+	return nil
+}
+
+// Until the end of the caller's scope, Alloc uses the place `old` lives in (`old == nil`: unchanged).
+@(deferred_none = PopArena)
+PushArenaNear :: proc(old: rawptr) {
+	PushArena(old != nil ? ArenaOf(old) : CurrentArena())
+}
+// unified end
+
+// unified: GrowAlloc on host memory (world_arena.odin)
+GrowAllocHost :: proc(oldMem: rawptr, oldSize, newSize: i32) -> rawptr {
+	assert(newSize > oldSize)
+	newMem := AllocHost(int(newSize))
+	if oldSize > 0 {
+		mem.copy_non_overlapping(newMem, oldMem, int(oldSize))
+		FreeHost(oldMem, int(oldSize))
+	}
+	return newMem
+}
+// unified end
 
 GrowAllocZeroed :: proc(oldMem: rawptr, oldSize, newSize: i32) -> rawptr {
 	newMem := GrowAlloc(oldMem, oldSize, newSize)

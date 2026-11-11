@@ -580,7 +580,7 @@ CreateCompound :: proc(def: ^CompoundDef) -> ^CompoundData {
 	sphereOffset := i32(byteCount)
 	byteCount += AlignUp8(int(def.sphereCount) * size_of(CompoundSphere))
 
-	compound := cast(^CompoundData)Alloc(byteCount)
+	compound := cast(^CompoundData)AllocHost(byteCount) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 	mem.zero(compound, byteCount)
 
 	compound.version = COMPOUND_VERSION

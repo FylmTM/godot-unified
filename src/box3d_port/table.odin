@@ -126,7 +126,7 @@ GrowTable :: proc(set: ^HashSet) {
 	set.count = 0
 	// Capacity must be a power of 2
 	set.capacity = 2 * oldCapacity
-	set.items = cast([^]SetItem)Alloc(int(set.capacity) * size_of(SetItem))
+	set.items = cast([^]SetItem)AllocNear(oldItems, int(set.capacity) * size_of(SetItem)) // unified: world_arena.odin
 	mem.zero(set.items, int(set.capacity) * size_of(SetItem))
 
 	// Transfer items into new array

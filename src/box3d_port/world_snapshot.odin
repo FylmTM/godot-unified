@@ -171,7 +171,9 @@ SnapCheckCount :: proc(r: ^SnapReader, count: i32, memSize: i32, minStreamBytes:
 SerPodArray :: proc(buf: ^RecBuffer, arr: ^Array($T)) {
 	SnapW_I32(buf, arr.count)
 	if arr.count > 0 {
-		SnapW_Bytes(buf, arr.data, arr.count * i32(size_of(T)))
+		// unified: canonical bytes: padding and host values zeroed in the copy (world_image.odin)
+		SnapW_Canonical(buf, arr.data, T, arr.count)
+		// unified end
 	}
 }
 
@@ -239,7 +241,9 @@ SerHashSet :: proc(buf: ^RecBuffer, hs: ^HashSet) {
 	SnapW_U32(buf, hs.capacity)
 	SnapW_U32(buf, hs.count)
 	if hs.capacity > 0 {
-		SnapW_Bytes(buf, hs.items, i32(hs.capacity * size_of(SetItem)))
+		// unified: canonical bytes (world_image.odin)
+		SnapW_Canonical(buf, hs.items, SetItem, i32(hs.capacity))
+		// unified end
 	}
 }
 
@@ -283,11 +287,15 @@ SerTree :: proc(buf: ^RecBuffer, tree: ^DynamicTree) {
 	SnapW_I32(buf, tree.proxyFreeList)
 	SnapW_I32(buf, tree.dfsOrdered ? 1 : 0)
 	if tree.nodeEnd > 0 {
-		SnapW_Bytes(buf, tree.nodes, tree.nodeEnd * i32(size_of(TreeNode)))
+		// unified: canonical bytes (world_image.odin)
+		SnapW_Canonical(buf, tree.nodes, TreeNode, tree.nodeEnd)
+		// unified end
 		SnapW_Bytes(buf, tree.parents, tree.nodeEnd * i32(size_of(i32)))
 	}
 	if tree.proxyCapacity > 0 {
-		SnapW_Bytes(buf, tree.proxies, tree.proxyCapacity * i32(size_of(TreeProxy)))
+		// unified: canonical bytes (world_image.odin)
+		SnapW_Canonical(buf, tree.proxies, TreeProxy, tree.proxyCapacity)
+		// unified end
 	}
 }
 
@@ -504,8 +512,10 @@ DesWorldConfig :: proc(r: ^SnapReader, world: ^World) {
 // Serialize the POD scalars with pointers nulled, then the owned materials array, then geometry.
 // A single material lives inline in the struct image.
 // Hull/mesh/heightField/compound are interned into the recording registry; sphere/capsule inline.
+// unified: img != nil: geometry is named by the image's own table (world_image.odin), not the recording registry
 @(private = "file")
-SerShapes :: proc(buf: ^RecBuffer, world: ^World, rec: ^Recording) {
+SerShapes :: proc(buf: ^RecBuffer, world: ^World, rec: ^Recording, img: ^WorldImageData) {
+	// unified end
 	count := world.shapes.count
 	SnapW_I32(buf, count)
 
@@ -521,7 +531,9 @@ SerShapes :: proc(buf: ^RecBuffer, world: ^World, rec: ^Recording) {
 		if !isLive {
 			mem.zero(&shape.capsule, size_of(shape.capsule))
 		}
-		SnapW_Bytes(buf, &shape, size_of(Shape))
+		// unified: canonical bytes: padding and the whole geometry union zeroed (world_image.odin)
+		SnapW_Canonical(buf, &shape, Shape, 1)
+		// unified end
 
 		if !isLive {
 			// Free slot: no materials or geometry
@@ -535,12 +547,15 @@ SerShapes :: proc(buf: ^RecBuffer, world: ^World, rec: ^Recording) {
 		src := &world.shapes.data[i]
 		if src.materials != nil {
 			SnapW_I32(buf, src.materialCount)
-			SnapW_Bytes(buf, src.materials, src.materialCount * i32(size_of(SurfaceMaterial)))
+			// unified: canonical bytes (world_image.odin)
+			SnapW_Canonical(buf, src.materials, SurfaceMaterial, src.materialCount)
+			// unified end
 		} else {
 			SnapW_I32(buf, 0)
 		}
 
 		// Geometry
+		// unified: the geometry id is the image table's index (world_image.odin) when img != nil
 		#partial switch src.type {
 		case .sphereShape:
 			SnapW_I32(buf, i32(ShapeType.sphereShape))
@@ -550,21 +565,22 @@ SerShapes :: proc(buf: ^RecBuffer, world: ^World, rec: ^Recording) {
 			SnapW_Bytes(buf, &src.capsule, size_of(Capsule))
 		case .hullShape:
 			SnapW_I32(buf, i32(ShapeType.hullShape))
-			gid := RecInternHull(rec, src.hull)
+			gid := img != nil ? u32(img.shapeGeometry[i]) : RecInternHull(rec, src.hull)
 			SnapW_U32(buf, gid)
 		case .meshShape:
 			SnapW_I32(buf, i32(ShapeType.meshShape))
-			gid := RecInternMesh(rec, src.mesh.data)
+			gid := img != nil ? u32(img.shapeGeometry[i]) : RecInternMesh(rec, src.mesh.data)
 			SnapW_U32(buf, gid)
 			SnapW_Bytes(buf, &src.mesh.scale, size_of(Vec3))
 		case .heightShape:
 			SnapW_I32(buf, i32(ShapeType.heightShape))
-			gid := RecInternHeightField(rec, src.heightField)
+			gid := img != nil ? u32(img.shapeGeometry[i]) : RecInternHeightField(rec, src.heightField)
 			SnapW_U32(buf, gid)
 		case .compoundShape:
 			SnapW_I32(buf, i32(ShapeType.compoundShape))
-			gid := RecInternCompound(rec, src.compound)
+			gid := img != nil ? u32(img.shapeGeometry[i]) : RecInternCompound(rec, src.compound)
 			SnapW_U32(buf, gid)
+		// unified end
 		case:
 			// A live shape must have a known geometry type. Fail loudly rather than emit a shape
 			// with no geometry that would silently lose its collision on restore.
@@ -756,7 +772,9 @@ SerContacts :: proc(buf: ^RecBuffer, world: ^World) {
 			copy.meshContact.triangleCache.count = 0
 			copy.meshContact.triangleCache.capacity = 0
 		}
-		SnapW_Bytes(buf, &copy, size_of(Contact))
+		// unified: canonical bytes: padding and the inactive union bytes zeroed (world_image.odin)
+		SnapW_Canonical(buf, &copy, Contact, 1)
+		// unified end
 
 		if !isLive {
 			// Free slot: no heap data
@@ -768,18 +786,23 @@ SerContacts :: proc(buf: ^RecBuffer, world: ^World) {
 		// Manifolds
 		SnapW_I32(buf, c.manifoldCount)
 		if c.manifoldCount > 0 && c.manifolds != nil {
-			SnapW_Bytes(buf, c.manifolds, c.manifoldCount * i32(size_of(Manifold)))
+			// unified: canonical bytes (world_image.odin)
+			SnapW_Canonical(buf, c.manifolds, Manifold, c.manifoldCount)
+			// unified end
 		}
 
 		// Mesh triangleCache
 		if c.flags & simMeshContact != 0 {
 			SnapW_I32(buf, c.meshContact.triangleCache.count)
 			if c.meshContact.triangleCache.count > 0 {
-				SnapW_Bytes(
+				// unified: canonical bytes (world_image.odin)
+				SnapW_Canonical(
 					buf,
 					c.meshContact.triangleCache.data,
-					c.meshContact.triangleCache.count * i32(size_of(TriangleCache)),
+					TriangleCache,
+					c.meshContact.triangleCache.count,
 				)
+				// unified end
 			}
 		}
 	}
@@ -847,6 +870,45 @@ DesContacts :: proc(r: ^SnapReader, world: ^World) {
 	}
 }
 
+// unified: an image's geometry table (world_image.odin), resolved against the world's geometry store (blobs the
+// image carries are checked and added to it) into reader slots, so DesShapes finds geometry as it does in a recording.
+@(private = "file")
+DesGeometryTable :: proc(r: ^SnapReader, img: ^WorldImageData, withBytes: bool) -> bool {
+	count := SnapR_I32(r)
+	headerSize := i32(size_of(ImageGeometryHeader))
+	if !r.ok || SnapCheckCount(r, count, i32(size_of(RegistrySlot)), headerSize) == false {
+		return false
+	}
+	resize(&img.slots, int(count))
+	for i: i32 = 0; i < count; i += 1 {
+		h: ImageGeometryHeader
+		SnapR_Bytes(r, &h, headerSize)
+		if !r.ok || h.kind < 0 || h.kind > i32(max(GeometryKind)) || h.byteCount <= 0 {
+			return false
+		}
+		kind := GeometryKind(h.kind)
+		bytes: [^]u8
+		if withBytes {
+			SnapRCheck(r, h.byteCount)
+			if !r.ok {
+				return false
+			}
+			bytes = ImageStoreLoad(img, kind, h.contentHash, &r.data[r.cursor], h.byteCount)
+			r.cursor += h.byteCount
+		} else {
+			bytes = ImageStoreFind(img, kind, h.contentHash, h.byteCount)
+		}
+		if bytes == nil {
+			return false
+		}
+		img.slots[i] = RegistrySlot{kind, h.byteCount, bytes}
+	}
+	img.reader.slots = raw_data(img.slots)
+	img.reader.slotCount = count
+	return true
+}
+// unified end
+
 // Free per-object heap that b3DeserializeIntoShell will overwrite,
 // so restoring over a populated world doesn't leak.
 @(private = "file")
@@ -904,7 +966,10 @@ FreeLiveSimElements :: proc(world: ^World) {
 	}
 }
 
-SerializeWorld :: proc(world: ^World, buf: ^RecBuffer, rec: ^Recording) -> i32 {
+// unified: img != nil writes a canonical image with its own geometry table (world_image.odin) instead of interning
+// geometry into rec's registry
+SerializeWorld :: proc(world: ^World, buf: ^RecBuffer, rec: ^Recording, img: ^WorldImageData = nil) -> i32 {
+	// unified end
 	startSize := buf.size
 
 	// Snapshot header
@@ -914,7 +979,16 @@ SerializeWorld :: proc(world: ^World, buf: ^RecBuffer, rec: ^Recording) -> i32 {
 	hdr.layoutHash = ComputeLayoutHash()
 	hdr.flags = ENABLE_VALIDATION ? SNAP_FLAG_VALIDATION : 0
 	// unified: single precision only: the BOX3D_DOUBLE_PRECISION flag is never set.
+	// unified: the geometry table follows the header (world_image.odin)
+	if img != nil {
+		ImageBuildTable(img, world)
+		hdr.flags |= SNAP_FLAG_GEOMETRY_TABLE | (img.embed ? SNAP_FLAG_GEOMETRY_BYTES : 0)
+	}
 	SnapW_Bytes(buf, &hdr, i32(size_of(hdr)))
+	if img != nil {
+		ImageWriteTable(img, buf)
+	}
+	// unified end
 
 	// World scalars
 	SerWorldConfig(buf, world)
@@ -941,12 +1015,14 @@ SerializeWorld :: proc(world: ^World, buf: ^RecBuffer, rec: ^Recording) -> i32 {
 		for i: i32 = 0; i < bodyCount; i += 1 {
 			elem := world.bodies.data[i]
 			elem.userData = nil
-			SnapW_Bytes(buf, &elem, size_of(Body))
+			// unified: canonical bytes (world_image.odin)
+			SnapW_Canonical(buf, &elem, Body, 1)
+			// unified end
 		}
 	}
 
 	// Shape sparse array with geometry interning
-	SerShapes(buf, world, rec)
+	SerShapes(buf, world, rec, img) // unified: img
 
 	SerPodArray(buf, &world.fatAABBs)
 
@@ -960,7 +1036,9 @@ SerializeWorld :: proc(world: ^World, buf: ^RecBuffer, rec: ^Recording) -> i32 {
 		for i: i32 = 0; i < jointCount; i += 1 {
 			elem := world.joints.data[i]
 			elem.userData = nil
-			SnapW_Bytes(buf, &elem, size_of(Joint))
+			// unified: canonical bytes (world_image.odin)
+			SnapW_Canonical(buf, &elem, Joint, 1)
+			// unified end
 		}
 	}
 
@@ -1041,6 +1119,18 @@ DeserializeIntoShell :: proc(data: [^]u8, size: i32, world: ^World, rdr: ^RecRea
 	r.cursor = i32(size_of(SnapHeader))
 	r.size = size
 	r.ok = true
+
+	// unified: an image with its own geometry table is resolved against the world's geometry store first, so one
+	// naming geometry this world lacks is refused before the world is touched (world_image.odin)
+	rdr := rdr
+	if hdr.flags & SNAP_FLAG_GEOMETRY_TABLE != 0 {
+		img := GetWorldImageData(world)
+		if !DesGeometryTable(r, img, (hdr.flags & SNAP_FLAG_GEOMETRY_BYTES) != 0) {
+			return false
+		}
+		rdr = &img.reader
+	}
+	// unified end
 
 	// Free existing per-object heap before overwriting
 	FreeLiveSimElements(world)

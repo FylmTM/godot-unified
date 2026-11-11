@@ -114,7 +114,7 @@ CreateHeightField :: proc(data: ^HeightFieldDef) -> ^HeightFieldData {
 
 	// Zero the whole blob so alignment padding is defined. The construction-time hash
 	// sweeps raw bytes and would otherwise pick up uninitialized padding.
-	hf := cast(^HeightFieldData)Alloc(byteCount)
+	hf := cast(^HeightFieldData)AllocHost(byteCount) // unified: geometry is the user's, never in a world arena (world_arena.odin)
 	mem.zero(hf, byteCount)
 
 	hf.version = HEIGHT_FIELD_VERSION
