@@ -103,6 +103,7 @@ PHYSICS_IMPORTS :: []string {
 	"unified:level",
 	"unified:dmath",
 	"unified:box3d",
+	"unified:box3d_port",
 	"base:intrinsics",
 	"base:runtime",
 	"core:math/bits",

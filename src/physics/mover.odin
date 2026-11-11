@@ -7,7 +7,7 @@
 // coyote time, a jump buffer and a limp mode (held, stunned).
 package physics
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 
 Mover_Flag :: enum u8 {

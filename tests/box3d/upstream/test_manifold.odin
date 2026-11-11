@@ -873,7 +873,11 @@ TriangleHullEdgeSweepTest :: proc(t: ^testing.T) -> bool {
 
 				// Tip the plane off the hull edge so the Minkowski test holds, then yaw the edge
 				triNormal := b3.Vec3{math.sin(beta), math.cos(beta), 0.0}
-				triEdge := b3.Vec3{math.sin(gamma) * math.cos(beta), -math.sin(gamma) * math.sin(beta), math.cos(gamma)}
+				triEdge := b3.Vec3 {
+					math.sin(gamma) * math.cos(beta),
+					-math.sin(gamma) * math.sin(beta),
+					math.cos(gamma),
+				}
 
 				// Perpendicular to both edges and pointing out of the hull
 				axis := b3.Normalize(b3.Cross(kAxisX, triEdge))
@@ -959,7 +963,9 @@ CapsuleTriangleEdgeDeepTest :: proc(t: ^testing.T) -> bool {
 					b3.CollideTriangleAndCapsule(&manifold, 8, &triangle[0], &capsule, &cache)
 
 					// Only the edge contacts exercise the new axis. Face contacts are handled elsewhere.
-					if manifold.pointCount != 1 || manifold.feature < .featureEdge1 || manifold.feature > .featureEdge3 {
+					if manifold.pointCount != 1 ||
+					   manifold.feature < .featureEdge1 ||
+					   manifold.feature > .featureEdge3 {
 						continue
 					}
 
@@ -972,7 +978,19 @@ CapsuleTriangleEdgeDeepTest :: proc(t: ^testing.T) -> bool {
 					capsuleCenter := b3.Lerp(c1, c2, 0.5)
 					orientRef := b3.Sub(capsuleCenter, triangleCenter)
 
-					CheckEdgeContact(t, &manifold, p1, e1, c1, capsuleEdge, orientRef, radii[r], 1e-4, 1e-4, 2e-4) or_return
+					CheckEdgeContact(
+						t,
+						&manifold,
+						p1,
+						e1,
+						c1,
+						capsuleEdge,
+						orientRef,
+						radii[r],
+						1e-4,
+						1e-4,
+						2e-4,
+					) or_return
 
 					edgeContacts += 1
 				}
@@ -1284,7 +1302,14 @@ SpeculativeMarginTest :: proc(t: ^testing.T) -> bool {
 		{
 			manifold.pointCount = 0
 			cache := b3.SimplexCache{}
-			b3.CollideHullAndCapsule(&manifold, b3.MAX_MANIFOLD_POINTS, &box.base, &capsuleX, SlideY(0.75 + gap), &cache)
+			b3.CollideHullAndCapsule(
+				&manifold,
+				b3.MAX_MANIFOLD_POINTS,
+				&box.base,
+				&capsuleX,
+				SlideY(0.75 + gap),
+				&cache,
+			)
 			ENSURE(t, CheckSpeculativePoints(t, &manifold, gap)) or_return
 		}
 

@@ -2,7 +2,7 @@
 // drive that makes a kinematic body follow it without drift.
 package physics
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 
 MAX_PATH_POINTS :: 16
 

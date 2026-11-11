@@ -68,6 +68,7 @@ TICK_IMPORTS :: []string {
 	"unified:level",
 	"unified:dmath",
 	"unified:box3d",
+	"unified:box3d_port",
 	"unified:wire",
 	"base:intrinsics",
 	"core:math/bits",

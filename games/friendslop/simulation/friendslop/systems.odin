@@ -3,7 +3,7 @@
 // plates and switches; stuns; falls; the run (start, checkpoints, finish, reset).
 package friendslop
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"

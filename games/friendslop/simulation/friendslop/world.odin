@@ -2,7 +2,7 @@
 // markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"

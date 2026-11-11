@@ -8,7 +8,7 @@ package physics
 import "base:runtime"
 import "core:sync"
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:sim"
 
 // A body as stored in the block: Box3D's body index + 1 and generation. Zero: no body.

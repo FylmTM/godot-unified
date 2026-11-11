@@ -4,7 +4,7 @@ package test_physics
 
 import "core:testing"
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:physics"
 import "unified:sim"
 

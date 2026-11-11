@@ -7,7 +7,7 @@ package test_drift
 import "core:testing"
 
 import dr "../drift"
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:physics"
 import "unified:sim"
 

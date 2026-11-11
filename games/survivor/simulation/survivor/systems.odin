@@ -2,7 +2,7 @@
 // the order the spec gives; no `matrix` types and no core:math (determinism traps, see AGENTS.md).
 package survivor
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"

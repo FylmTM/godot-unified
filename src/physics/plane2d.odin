@@ -3,7 +3,7 @@
 // about +Z, so nothing here needs trig.
 package physics
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 
 // The most points polygon_2d takes (its prism stays well inside Box3D's hull limits).

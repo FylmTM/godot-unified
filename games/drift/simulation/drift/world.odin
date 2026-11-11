@@ -2,7 +2,7 @@
 // its markers, body creation, and the game descriptor.
 package drift
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 import "unified:level"
 import "unified:physics"

@@ -2,9 +2,8 @@
 // of the world state, so the same world answers the same way after a restore or on another machine.
 package physics
 
-import "base:runtime"
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 
 // Which shapes a query sees: shapes whose category is in `mask` (and whose own mask has one of
 // `category`'s bits). Zero value: everything.
@@ -72,7 +71,7 @@ ray_closest :: proc(
 }
 
 @(private)
-ray_callback :: proc "c" (
+ray_callback :: proc(
 	shape: b3.ShapeId,
 	point: b3.Pos,
 	normal: b3.Vec3,
@@ -96,14 +95,13 @@ ray_callback :: proc "c" (
 @(private)
 Overlap_Ctx :: struct {
 	out: ^[dynamic]Body_Link,
-	ctx: runtime.Context, // the caller's (append may allocate)
 }
 
 // Appends every body with a shape overlapping the box [lo, hi] (fat AABBs, so "near" rather than
 // exact), sorted by body index, without duplicates.
 overlap_aabb :: proc(w: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, q := Query{}) {
 	start := len(out)
-	ctx := Overlap_Ctx{out, context}
+	ctx := Overlap_Ctx{out}
 	b3.World_OverlapAABB(w.id, {v3(lo), v3(hi)}, query_filter(q), overlap_callback, &ctx)
 	got := out[start:]
 	// Insertion sort: a handful of bodies, and no core:slice in tick code.
@@ -126,9 +124,8 @@ overlap_aabb :: proc(w: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, q := Q
 }
 
 @(private)
-overlap_callback :: proc "c" (shape: b3.ShapeId, ctx: rawptr) -> bool {
+overlap_callback :: proc(shape: b3.ShapeId, ctx: rawptr) -> bool {
 	c := (^Overlap_Ctx)(ctx)
-	context = c.ctx
 	append(c.out, link_of(b3.Shape_GetBody(shape)))
 	return true
 }

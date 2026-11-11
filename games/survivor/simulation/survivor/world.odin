@@ -2,7 +2,7 @@
 // games/survivor/SPEC.md creation order) and per-tick scratch; plus body creation and the game descriptor.
 package survivor
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"

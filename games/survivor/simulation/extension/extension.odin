@@ -6,7 +6,7 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"

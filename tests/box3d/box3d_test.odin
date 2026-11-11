@@ -14,7 +14,7 @@ import "core:strconv"
 import "core:strings"
 import "core:testing"
 
-import b3 "unified:box3d"
+import b3 "unified:box3d_port"
 import "unified:physics"
 import "unified:sim"
 
