@@ -36,6 +36,7 @@ Proc :: struct {
 	out_path: string,
 	err_path: string,
 	files:    [2]^os.File,
+	reaped:   Maybe(os.Process_State), // `done` saw it exit (a process is waited for once)
 }
 
 @(private)
@@ -90,7 +91,13 @@ wait :: proc(p: ^Proc) -> Ran {
 	if p.run.timeout > 0 && timeout < time.Millisecond {
 		timeout = time.Millisecond
 	}
-	st, err := os.process_wait(p.process, timeout)
+	st: os.Process_State
+	err: os.Error
+	if r, ok := p.reaped.?; ok {
+		st = r
+	} else {
+		st, err = os.process_wait(p.process, timeout)
+	}
 	ran: Ran
 	if err != nil || !st.exited {
 		_ = os.process_kill(p.process)
@@ -105,8 +112,15 @@ wait :: proc(p: ^Proc) -> Ran {
 
 // Whether a started process has ended (without blocking).
 done :: proc(p: ^Proc) -> bool {
+	if _, ok := p.reaped.?; ok {
+		return true
+	}
 	st, err := os.process_wait(p.process, 0)
-	return err == nil && st.exited
+	if err == nil && st.exited {
+		p.reaped = st
+		return true
+	}
+	return false
 }
 
 @(private)

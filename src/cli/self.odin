@@ -15,7 +15,6 @@ import "core:time"
 // Else it hashes the sources: the same content, it refreshes the times and runs; different, it rebuilds itself to
 // unified-<new hash>, points .out/cli/current at it and runs that with the same arguments.
 
-@(private)
 Manifest_Entry :: struct {
 	kind:  string, // "file", "dir" or "odin"
 	path:  string,
@@ -40,7 +39,7 @@ self_check :: proc(args: []string) {
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
-		write_manifest(target, hash, files, odin)
+		write_manifest(tprint("%s.manifest", target), hash, files, odin)
 		write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
 		os.remove(deps)
 		return
@@ -63,7 +62,7 @@ self_check :: proc(args: []string) {
 					odin = e.path
 				}
 			}
-			write_manifest(exe, hash, files[:], odin)
+			write_manifest(tprint("%s.manifest", exe), hash, files[:], odin)
 			return
 		}
 	}
@@ -111,7 +110,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("unified: cannot install %s", target)
 		os.exit(1)
 	}
-	write_manifest(target, hash, files, odin_path)
+	write_manifest(tprint("%s.manifest", target), hash, files, odin_path)
 	write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
 	prune_binaries(cli_dir)
 	cmd := make([dynamic]string)
@@ -123,7 +122,6 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 
 // The source files of a build from Odin's dependency export, minus the Odin install's own (the odin executable
 // stands for those), and the odin executable.
-@(private)
 read_deps :: proc(path: string) -> (files: []string, odin: string) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
@@ -184,8 +182,7 @@ content_hash :: proc(files: []string) -> string {
 	return sha256_hex(transmute([]byte)strings.to_string(b))
 }
 
-@(private)
-write_manifest :: proc(exe, hash: string, files: []string, odin: string) {
+write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
 	b := strings.builder_make()
 	fmt.sbprintf(&b, "hash\t%s\n", hash)
 	stat_line :: proc(b: ^strings.Builder, kind, path: string) {
@@ -209,10 +206,9 @@ write_manifest :: proc(exe, hash: string, files: []string, odin: string) {
 	for d in dirs {
 		stat_line(&b, "dir", d)
 	}
-	write_text(tprint("%s.manifest", exe), strings.to_string(b))
+	write_text(manifest, strings.to_string(b))
 }
 
-@(private)
 read_manifest :: proc(path: string) -> (entries: []Manifest_Entry, hash: string, ok: bool) {
 	text := read_text(path) or_return
 	out: [dynamic]Manifest_Entry
@@ -238,7 +234,6 @@ entry_current :: proc(e: Manifest_Entry) -> bool {
 	return (e.kind == "dir" || fi.size == e.size) && time.to_unix_nanoseconds(fi.modification_time) == e.mtime
 }
 
-@(private)
 entries_current :: proc(entries: []Manifest_Entry) -> bool {
 	for e in entries {
 		if !entry_current(e) {

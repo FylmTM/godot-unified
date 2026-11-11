@@ -25,6 +25,15 @@ Command :: struct {
 	run:       proc(args: []string) -> Result,
 }
 
+// A test suite of `test` (SPEC.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
+// with `add_suites` before `run`.
+Suite :: struct {
+	name:    string,
+	summary: string,
+	budget:  f64,
+	run:     proc(games: []Game, only: []string) -> bool,
+}
+
 // What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
 // returns, so it must not point at the command's stack).
 Result :: struct {
@@ -46,6 +55,13 @@ State :: struct {
 	start:    time.Tick,
 	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
 	env_keys: []string, // the variables .env set
+	suites:   [dynamic]Suite,
+	budget:   f64, // set by a command whose budget depends on its arguments (test: its suites)
+}
+
+// Adds a project's own test suites (call before `run`).
+add_suites :: proc(suites: ..Suite) {
+	append(&state.suites, ..suites)
 }
 
 state: State
@@ -63,6 +79,7 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	state.pins = pins
 	check_odin_version()
 	state.env_keys = env_load(state.project.root)
+	inject_at(&state.suites, 0, ..public_suites())
 	for set in command_sets {
 		for c in set {
 			if find_command(c.name) != nil {
@@ -231,8 +248,9 @@ report_timing :: proc(secs: f64, ok: bool) {
 		cold    = state.cold[:],
 		ok      = ok,
 	}
-	if c.budget > 0 {
-		allowed := c.budget * (in_ci() ? CI_BUDGET_SCALE : 1)
+	budget := state.budget > 0 ? state.budget : c.budget
+	if budget > 0 {
+		allowed := budget * (in_ci() ? CI_BUDGET_SCALE : 1)
 		entry.budget = allowed
 		if len(state.cold) > 0 {
 			note = tprint(
@@ -275,6 +293,17 @@ round2 :: proc(x: f64) -> f64 {
 log :: proc(format: string, args: ..any) {
 	fmt.eprintf(format, ..args)
 	fmt.eprintln()
+}
+
+// A heap copy of a value, for Result.data (marshalled after the command returns).
+box :: proc(v: $T) -> any {
+	p := new_clone(v)
+	return p^
+}
+
+// A heap slice of strings.
+strs :: proc(s: ..string) -> []string {
+	return slice.clone(s)
 }
 
 tprint :: proc(format: string, args: ..any) -> string {
