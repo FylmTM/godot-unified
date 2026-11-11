@@ -47,8 +47,10 @@ the game's extension wires them (`init` first, with the game library's directory
   is the host, join. Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
   lobby results carry the session generation: a result for a session already left (Leave, then Host/Join again
   quickly) is dropped, and its lobby destroyed or left. A failed token refresh (~1 h in) retries every 15 s
-  instead of failing the running session. Known limit: after a player's program crashes, EOS keeps the old P2P
-  connection for ~30 s, and a rejoin with the same user ID may not connect until it times out (retry).
+  instead of failing the running session. A crashed player rejoins with the same user ID: on one machine it is back
+  in ~6 s (`uni coop --crash`: the OS reports the dead socket, the host sees the P2P connection close, the lobby
+  keeps the member and the netcode takes the new incarnation on the same peer). Across the internet nothing reports
+  the death, so the host may wait out the SDK's 30 s reconnect window first; not measured yet (#32).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
   1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. EOS packets carry 1170 bytes,
@@ -104,5 +106,6 @@ delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS revie
 - **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
   within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
   the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
-  player on one Mac.
+  player on one machine, `uni coop survivor --crash` a crash (the joiner kills its own process) and rejoin by the
+  same player, timed on both sides.
 

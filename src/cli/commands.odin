@@ -73,7 +73,7 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "coop",
-				usage = "[game] [--window [--mute] [--screen s]] [--rejoin] [--lan]",
+				usage = "[game] [--window [--mute] [--screen s]] [--rejoin | --crash] [--lan]",
 				summary = "host and joiner processes in a real lobby (EOS, or --lan)",
 				no_budget = "networked",
 				run = cmd_coop,
