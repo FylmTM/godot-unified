@@ -7,7 +7,6 @@
 .env
 
 # Dependencies the CLI fetches and builds from their pins (pins.cfg)
-/third_party/imgui/
 /third_party/eos/
 
 # CI's Odin download (.github/actions/odin)

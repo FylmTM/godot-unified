@@ -102,7 +102,6 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 	godot()
 	ensure_bindings()
-	ensure_imgui()
 	for g in games {
 		if game_uses_box3d(g) {
 			ensure_box3d()
@@ -338,31 +337,37 @@ last_json_after :: proc(text, prefix: string) -> json.Value {
 cmd_run :: proc(args: []string) -> Result {
 	Opts :: struct {
 		game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
+		mute:     bool `usage:"no sound (Godot's dummy audio driver)"`,
+		screen:   string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
 		overflow: [dynamic]string `usage:"after --: the game's own arguments"`,
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), false, opts.overflow[:])
+	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen})
 }
 
 @(private)
 cmd_editor :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game: string `args:"pos=0" usage:"the game (default: the only one)"`,
+		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
+		mute:   bool `usage:"no sound (Godot's dummy audio driver)"`,
+		screen: string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), true, nil)
+	return play(game(opts.game), true, nil, {opts.mute, opts.screen})
 }
 
 @(private)
-play :: proc(g: Game, editor: bool, extra: []string) -> Result {
+play :: proc(g: Game, editor: bool, extra: []string, place: Window_Opts) -> Result {
 	if has_extension(g) {
 		ensure_extension(g, .dev)
 	}
 	write_extension_list(g)
 	cmd: [dynamic]string
-	append(&cmd, godot(), "--path", g.dir)
+	append(&cmd, godot())
+	append(&cmd, ..window_args(place))
+	append(&cmd, "--path", g.dir)
 	if editor {
 		append(&cmd, "--editor")
 	}
@@ -380,6 +385,8 @@ play :: proc(g: Game, editor: bool, extra: []string) -> Result {
 cmd_tool :: proc(args: []string) -> Result {
 	Opts :: struct {
 		window:   bool `usage:"in a window (default: headless)"`,
+		mute:     bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
+		screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
 		cold:     bool `usage:"clear the shader caches first, like a player's first launch"`,
 		overflow: [dynamic]string `usage:"[game] <script>, then after --: the script's arguments"`,
@@ -412,6 +419,9 @@ cmd_tool :: proc(args: []string) -> Result {
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
 	}
+	if (opts.mute || opts.screen != "") && !opts.window {
+		usage("--mute and --screen need --window")
+	}
 	if has_extension(g) {
 		ensure_extension(g, .dev)
 	}
@@ -426,6 +436,7 @@ cmd_tool :: proc(args: []string) -> Result {
 			args = split < len(args) ? args[split + 1:] : nil,
 			window = opts.window,
 			shots = opts.shots ? name : "",
+			place = {opts.mute, opts.screen},
 			timeout = 1800,
 		},
 	)
@@ -472,11 +483,16 @@ cmd_coop :: proc(args: []string) -> Result {
 	Opts :: struct {
 		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
 		window: bool `usage:"the host in a window, with screenshots"`,
+		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
+		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
 		lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 	}
 	opts: Opts
 	parse(&opts, args)
+	if (opts.mute || opts.screen != "") && !opts.window {
+		usage("--mute and --screen need --window")
+	}
 	g := game(opts.game)
 	if tool_script(g, "coop") == "" {
 		usage("%s has no game/tools/coop.gd", g.name)
@@ -524,6 +540,7 @@ cmd_coop :: proc(args: []string) -> Result {
 			args = host_args[:],
 			window = opts.window,
 			shots = opts.window ? "coop" : "",
+			place = {opts.mute, opts.screen},
 			timeout = 180,
 		},
 	)

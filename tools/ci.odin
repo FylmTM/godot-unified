@@ -20,7 +20,7 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 		return {ok = true, summary = ci_summary()}
 	case "cache-key":
 		Opts :: struct {
-			dep: string `args:"pos=0,required" usage:"odin, odinfmt, godot, box3d, imgui or eos_sdk"`,
+			dep: string `args:"pos=0,required" usage:"odin, odinfmt, godot, box3d or eos_sdk"`,
 		}
 		opts: Opts
 		cli.parse(&opts, args[1:])
@@ -33,13 +33,12 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 	cli.usage("ci summary | ci cache-key <dep>")
 }
 
-// A dependency's cache key: its pins, our recipe and, for what we compile, the compiler's version (a runner image
-// with a new clang rebuilds it).
+// A dependency's cache key: its pins, our recipe and, for odinfmt (built with Odin), the Odin it was built with.
 @(private)
 cache_key :: proc(dep: string) -> string {
 	section := dep
-	if dep != "odin" && dep != "odinfmt" && dep != "godot" && dep != "box3d" && dep != "imgui" && dep != "eos_sdk" {
-		cli.usage("no dependency %q (odin, odinfmt, godot, box3d, imgui, eos_sdk)", dep)
+	if dep != "odin" && dep != "odinfmt" && dep != "godot" && dep != "box3d" && dep != "eos_sdk" {
+		cli.usage("no dependency %q (odin, odinfmt, godot, box3d, eos_sdk)", dep)
 	}
 	pins, ok := cli.state.pins.sections[section]
 	if !ok {
@@ -55,12 +54,7 @@ cache_key :: proc(dep: string) -> string {
 	for k in keys {
 		fmt.sbprintf(&b, "%s=%s\n", k, pins[k])
 	}
-	switch dep {
-	case "imgui":
-		t := cli.c_toolchain()
-		r := cli.run_proc({cmd = cli.strs(t.cc, "--version"), capture = true, quiet = true, env = t.env})
-		fmt.sbprintf(&b, "compiler %s\n", strings.split_lines(strings.trim_space(r.stdout))[0])
-	case "odinfmt":
+	if dep == "odinfmt" {
 		fmt.sbprintf(&b, "odin %s\n", ODIN_VERSION_HASH)
 	}
 	return cli.tprint("%s-%s-%s", dep, cli.PLATFORM, cli.sha256_hex(transmute([]byte)strings.to_string(b))[:16])

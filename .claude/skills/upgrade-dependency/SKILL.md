@@ -1,6 +1,6 @@
 ---
 name: upgrade-dependency
-description: Upgrading a pinned dependency of unified - Box3D (the unified-box3d release), Dear ImGui and dear_bindings, Godot (the editor, export templates and the GDExtension API dump), Odin, odinfmt (OLS) or the EOS SDK. Where each pin lives (pins.cfg), what to bump together, and what proves the upgrade safe. Use when bumping any of them, or when a pin's hash or commit has to change.
+description: Upgrading a pinned dependency of unified - Box3D (the unified-box3d release), Godot (the editor, export templates and the GDExtension API dump), Odin, odinfmt (OLS) or the EOS SDK. Where each pin lives (pins.cfg), what to bump together, and what proves the upgrade safe. Use when bumping any of them, or when a pin's hash or commit has to change.
 ---
 
 # Upgrading a dependency
@@ -32,13 +32,6 @@ For every upgrade:
 - Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
   there (`src/cli/SPEC.md`, Dependencies). Pin the release before merging.
 - What we use: `src/b3/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
-
-## Dear ImGui and dear_bindings
-
-- Pins in `[imgui]`: `tag`, `commit`, `bindings_tag` and the two dear_bindings file hashes, together.
-- Re-vendor `src/imgui/imgui.odin` from odin-imgui for the same dear_bindings version, then re-apply the local
-  changes marked `unified:` (`src/imgui/SPEC.md` lists them).
-- Check with `./uni vet` and `./uni test --suite godot,godot-bindings`.
 
 ## Godot
 

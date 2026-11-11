@@ -71,7 +71,6 @@ RULES := []Rule {
 	// listed so every package is accounted for.
 	{pkg = "gdext"},
 	{pkg = "view"},
-	{pkg = "imgui"},
 	{pkg = "devui"},
 	{pkg = "godot_host"},
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.

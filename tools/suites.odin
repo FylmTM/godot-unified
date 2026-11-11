@@ -215,7 +215,6 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 		{views, cli.join(views, "ext"), "views_test", "test.gd", "VIEWS TESTS", "unified: send_command("},
 		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", ""},
 	}
-	cli.ensure_imgui()
 	cli.ensure_bindings()
 	ok := true
 	for p in projects {

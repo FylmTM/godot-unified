@@ -24,7 +24,7 @@ needs it.
 Every command has a time budget: seconds for a warm run, dependencies already built (`-h` shows it; `test`'s is its
 suites' sum). CI allows 3x. A run over budget prints an `OVER BUDGET` line and is marked in `.out/timings.json` and
 CI's job summary; it doesn't fail, since machines vary, but it is a bug to find (AGENTS.md). A cold run (it built
-Dear ImGui or odinfmt, imported a Godot project, or downloaded Godot, unified-box3d or the EOS SDK first) isn't held
+odinfmt, imported a Godot project, or downloaded Godot, unified-box3d or the EOS SDK first) isn't held
 to the budget, and says so. Interactive, windowed and networked commands have none.
 
 ## A game in its own repository

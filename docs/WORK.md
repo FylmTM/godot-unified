@@ -27,9 +27,8 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   - Tools: `headless` (a game's headless binary modes plus test helpers: scenarios, virtual clock, fuzzing),
     `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot_host`
     (everything that touches Godot), `cli`.
-  - `imgui` (vendored odin-imgui, pinned, with two local fixes) and `devui` (the ImGui Godot backend, RTTI
-    inspector, overlay). **In every build for now** (developer, 2026-11-09); `-define:UNIFIED_DEVUI=false` drops
-    it (survivor library 2.95 → 1.53 MB) and `vet` checks that build.
+  - `devui` (the dev UI on Godot controls: RTTI inspector, overlay, panels). **In every build for now** (developer,
+    2026-11-09); `-define:UNIFIED_DEVUI=false` drops it and `vet` checks that build.
   - **Physics is a plug-in:** `sim` knows nothing about Box3D; physics registers save/restore/hash/serialize procs
     as extra state. The game owns a `World` struct (everything outside the block) and its tick takes it.
   - The test game moves out of `src/` to `games/survivor/`, laid out like a real game repo.
@@ -118,5 +117,6 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
 - **Tooling:** `uni verify` is exactly what CI runs; every `uni` command takes the game positionally. CI: only
   `eos-sdk.yml` has a write token (it runs no repo code); runners, actions (by SHA) and downloads (SHA-256) are
   pinned.
-- **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
-  frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).
+- **Dev UI: Godot's own controls**, driven from Odin (developer, 2026-11-11). It replaced Dear ImGui: a spike measured
+  the same frame cost (+0.1 ms shown), with no C++ dependency, real text editing, Godot's input routing and native
+  OS windows; `src/devui/SPEC.md`.

@@ -152,16 +152,10 @@ jobs:
       - id: keys
         run: |
           echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
-          echo "imgui=$(./uni ci cache-key imgui)" >> "$GITHUB_OUTPUT"
       # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .out/godot
           key: ${{ steps.keys.outputs.godot }}
-      # The Dear ImGui build (its stamp is the check); unified-box3d comes on the way, as in the test job.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: third_party/imgui/build
-          key: ${{ steps.keys.outputs.imgui }}
       - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
         run: ./uni test --suite godot,godot-bindings

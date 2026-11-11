@@ -81,7 +81,6 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 			}
 		}
 	}
-	ensure_imgui() // the dev UI (godot_host); -define:UNIFIED_DEVUI=false compiles it out
 	ensure_bindings()
 	stage_eos(g)
 	b := extension_build(g, m)
@@ -123,13 +122,22 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 		link := tprint("%s.new", lib)
 		os.remove(link)
 		if os.symlink(os.base(tmp), link) != nil || os.rename(link, lib) != nil {
+			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
 			fatal("cannot point %s at %s", lib, os.base(tmp))
 		}
 		prune_versions(g)
 	} else {
 		os.remove(lib)
+		when ODIN_OS == .Windows {
+			// A running game (or editor) holds the library: it can't be removed, but it can be renamed. The game keeps
+			// running on the old file; the next start gets the new one. Old ones go once nothing holds them.
+			infos, _ := os.read_all_directory_by_path(os.dir(lib), context.temp_allocator)
+			for fi in infos do if strings.contains(fi.name, ".old-") do os.remove(fi.fullpath)
+			if os.exists(lib) do os.rename(lib, tprint("%s.old-%s", lib, stamp))
+		}
 		if os.rename(tmp, lib) != nil {
-			fatal("cannot move %s into place", lib)
+			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
+			fatal("cannot move %s into place (a running game holds it?)", lib)
 		}
 		when ODIN_OS == .Windows {
 			for ext in ([]string{".pdb", ".lib", ".exp"}) {
@@ -137,6 +145,7 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 				if os.exists(from) {
 					to := tprint("%s%s", lib[:len(lib) - 4], ext)
 					os.remove(to)
+					if os.exists(to) do os.rename(to, tprint("%s.old-%s", to, stamp))
 					os.rename(from, to)
 				}
 			}

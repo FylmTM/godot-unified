@@ -74,14 +74,6 @@ register_session_class :: proc() {
 		},
 		ready = proc(i: rawptr) {session_ready((^Session_Node)(i))},
 		process = proc(i: rawptr, dt: f64) {session_process((^Session_Node)(i), dt)},
-		// While the dev UI wants the mouse or keyboard, the game's GUI and _unhandled_input don't get them.
-		input = proc(i: rawptr, ev: gd.InputEvent) {
-			if !dev_wants_mouse() && !dev_wants_keyboard() do return
-			is_key := gd.object_cast(gd.InputEventKey, ev, "InputEventKey").ptr != nil
-			if (is_key && dev_wants_keyboard()) || (!is_key && dev_wants_mouse()) {
-				gd.Viewport_set_input_as_handled(gd.Node_get_viewport(node_of((^Session_Node)(i))))
-			}
-		},
 		notification = proc(i: rawptr, what: i32) {
 			s := (^Session_Node)(i)
 			switch what {
@@ -222,12 +214,15 @@ session_ready :: proc(s: ^Session_Node) {
 		s.quit_at_end = s.args.quit
 		if s.args.lag_ms > 0 {
 			l := f32(s.args.lag_ms)
-			set_netsim({true, l, l / 4, 1})
+			set_netsim({true, {l, l / 4, 1}, {l, l / 4, 1}})
 		}
 		read_app_version()
 	}
 	lag: Netsim_Settings
-	if s.args.lag_ms > 0 do lag = {true, f32(s.args.lag_ms), f32(s.args.lag_ms) / 4, 1}
+	if s.args.lag_ms > 0 {
+		l := f32(s.args.lag_ms)
+		lag = {true, {l, l / 4, 1}, {l, l / 4, 1}}
+	}
 	dev_init(s.args.devui, lag)
 	switch {
 	case s.args.autostart:
@@ -342,6 +337,7 @@ emit_status :: proc(s: ^Session_Node, st: Status_Kind, detail: string) {
 @(private)
 session_process :: proc(s: ^Session_Node, dt: f64) {
 	if is_editor() || active != s do return
+	dev_begin()
 	sample_input(dev_wants_keyboard())
 	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
 	t0 := time.tick_now()

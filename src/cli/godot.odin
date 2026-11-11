@@ -3,6 +3,7 @@ package cli
 import "core:encoding/json"
 import "core:os"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 
@@ -187,6 +188,7 @@ Tool_Run :: struct {
 	script:  string, // res:// path
 	args:    []string, // after --
 	window:  bool,
+	place:   Window_Opts, // with window: sound and screen
 	shots:   string, // a name: --shots=res://.out/shots/<name>
 	timeout: f64,
 	env:     []string,
@@ -208,6 +210,7 @@ tool_cmd :: proc(t: Tool_Run) -> []string {
 	append(&cmd, godot())
 	if t.window {
 		append(&cmd, "--resolution", "1280x720")
+		append(&cmd, ..window_args(t.place))
 	} else {
 		append(&cmd, "--headless", "-d")
 	}
@@ -334,4 +337,59 @@ env_with :: proc(overrides: ..string) -> []string {
 	}
 	append(&out, ..overrides)
 	return out[:]
+}
+
+// --- windows ----------------------------------------------------------------------------------------------------
+
+// Where and how a game window opens (run, editor, tool --window, coop --window): `mute` starts Godot with the dummy
+// audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: Windows only for now).
+// An agent starting a window for the developer passes both, so it doesn't get in the way.
+Window_Opts :: struct {
+	mute:   bool,
+	screen: string,
+}
+
+@(private)
+Screen :: struct {
+	left, right: i32,
+	primary:     bool,
+}
+
+// Godot's arguments for `w` (before --).
+window_args :: proc(w: Window_Opts) -> []string {
+	args: [dynamic]string
+	if w.mute {
+		append(&args, "--audio-driver", "Dummy")
+	}
+	if w.screen != "" {
+		append(&args, "--screen", tprint("%d", screen_index(w.screen)))
+	}
+	return args[:]
+}
+
+@(private)
+screen_index :: proc(name: string) -> int {
+	if n, ok := strconv.parse_int(name); ok && n >= 0 {
+		return n
+	}
+	if name != "left" && name != "right" && name != "primary" {
+		usage("--screen takes Godot's screen index, left, right or primary (got %q)", name)
+	}
+	screens := os_screens()
+	if len(screens) == 0 {
+		usage("--screen %s: this OS's screens can't be read yet; pass Godot's screen index", name)
+	}
+	best := 0
+	for sc, i in screens {
+		b := screens[best]
+		switch name {
+		case "left":
+			if sc.left < b.left do best = i
+		case "right":
+			if sc.right > b.right do best = i
+		case "primary":
+			if sc.primary do best = i
+		}
+	}
+	return best
 }

@@ -228,23 +228,17 @@ cmd_setup :: proc(args: []string) -> Result {
 		ready:   bool,
 	}
 	deps: [dynamic]Dep
-	uses_box3d, uses_ext, uses_eos := is_unified_repo(), is_unified_repo(), is_unified_repo()
+	uses_box3d, uses_eos := is_unified_repo(), is_unified_repo()
 	for g in state.project.games {
 		uses_box3d = uses_box3d || game_uses_box3d(g)
-		uses_ext = uses_ext || has_extension(g)
 		uses_eos = uses_eos || extension_uses_eos(g)
 	}
-	t := c_toolchain()
 	append(&deps, Dep{"odin", tprint("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
-	append(&deps, Dep{"clang", "", t.cc, true})
 	if !opts.check {
 		ensure_odinfmt()
 		ensure_bindings()
 		if uses_box3d {
 			ensure_box3d(build = true)
-		}
-		if uses_ext {
-			ensure_imgui()
 		}
 		godot()
 	}
@@ -260,17 +254,6 @@ cmd_setup :: proc(args: []string) -> Result {
 			src = tprint("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
 		}
 		append(&deps, Dep{"box3d", version, src, box3d_ready()})
-	}
-	if uses_ext {
-		lib := join(
-			state.project.unified,
-			"third_party",
-			"imgui",
-			"build",
-			PLATFORM,
-			ODIN_OS == .Windows ? "imgui.lib" : "libimgui.a",
-		)
-		append(&deps, Dep{"imgui", pin("imgui", "tag"), "built from the pin", os.is_file(lib)})
 	}
 	gsrc := "pinned download (.out/godot)"
 	if os.get_env("UNIFIED_GODOT", context.temp_allocator) != "" {
@@ -327,7 +310,7 @@ cmd_clean :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	p := state.project
-	deps := []string{join(p.unified, "third_party", "imgui"), join(p.unified, "third_party", "eos")}
+	deps := []string{join(p.unified, "third_party", "eos")}
 	gdext := join(p.unified, "src", "gdext")
 	targets: [dynamic]string
 	for d in deps {

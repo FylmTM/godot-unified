@@ -34,7 +34,25 @@ InputEvent
 InputEventKey
 InputEventMouseButton
 InputEventMouseMotion
-InputEventPanGesture
+# dev UI
+Control
+Label
+Button
+CheckBox
+HSlider
+HBoxContainer
+VBoxContainer
+PanelContainer
+GridContainer
+Tree
+TreeItem
+TextEdit
+TextureRect
+Theme
+StyleBoxFlat
+StyleBoxEmpty
+Performance
+SystemFont
 
 # Builtins that get method wrappers (all builtins get layouts; opaque ones also constructors/destructors).
 [builtins]

@@ -1,259 +1,257 @@
-// The windows: menu bar, overlay (stats and graphs), RTTI inspector, netsim, event log, F3 note.
+// The Conditions, Events and F3 note panels.
 package devui
 
-import "base:runtime"
 import "core:fmt"
 import "core:os"
-import "core:reflect"
 import "core:time"
 import gd "unified:gdext"
-import imgui "unified:imgui"
+import "unified:gdext/gdi"
+
+// ---- conditions: a frame-rate cap and the network simulation, per direction
 
 @(private)
-draw_panels :: proc() {
-	if imgui.BeginMainMenuBar() {
-		imgui.TextUnformatted("unified dev  (F1 hide, F3 note)")
-		imgui.Separator()
-		imgui.MenuItemBoolPtr("Inspector", nil, &s.show.inspector)
-		imgui.MenuItemBoolPtr("Netsim", nil, &s.show.netsim)
-		imgui.MenuItemBoolPtr("Events", nil, &s.show.events)
-		imgui.MenuItemBoolPtr("ImGui demo", nil, &s.show.demo)
-		imgui.EndMainMenuBar()
+Conditions_Panel :: struct {
+	fps:     [len(FPS_CAPS)]gd.Button,
+	cap:     int, // the current cap (0: none)
+	enabled: gd.CheckBox,
+	both:    gd.CheckBox, // the sliders move both directions together
+	sliders: [2][3]gd.HSlider, // [up, down][latency, jitter, loss]
+	values:  [2][3]gd.Label,
+}
+
+@(private)
+FPS_CAPS := [?]int{0, 144, 60, 30, 15} // Engine.max_fps (0: none)
+
+@(private)
+NET_FIELDS := [3]struct {
+	name:   string,
+	max:    f64,
+	step:   f64,
+	format: string,
+}{{"latency", 300, 1, "%.0f ms"}, {"jitter", 50, 1, "%.0f ms"}, {"loss", 20, 0.1, "%.1f %%"}}
+
+@(private)
+build_conditions :: proc() {
+	n := &s.cond
+	box := gd.VBoxContainer_new()
+	row := add(box, gd.HBoxContainer_new())
+	l := label(row, "fps cap")
+	gd.Control_set_custom_minimum_size(l, {52, 0})
+	for cap, i in FPS_CAPS {
+		b := button(row, cap == 0 ? "none" : fmt.tprint(cap), proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+				s.cond.cap = FPS_CAPS[int(uintptr(user))]
+				gd.Engine_set_max_fps(gd.Engine_singleton(), s.cond.cap)
+				conditions_sync()
+				return {}
+			}, rawptr(uintptr(i)))
+		gd.BaseButton_set_toggle_mode(b, true)
+		n.fps[i] = b
 	}
-	overlay()
-	if s.show.inspector do inspector()
-	if s.show.netsim do netsim_panel()
-	if s.show.events do event_log()
-	note_panel()
-	if s.show.demo do imgui.ShowDemoWindow(&s.show.demo)
-}
-
-@(private)
-place :: proc(r: [4]f32) {
-	imgui.SetNextWindowPos({r.x, r.y}, .FirstUseEver)
-	imgui.SetNextWindowSize({r.z, r.w}, .FirstUseEver)
-}
-
-@(private)
-overlay :: proc() {
-	place({8, 30, 300, 0})
-	flags: imgui.WindowFlags = {.NoTitleBar, .NoResize, .NoScrollbar, .NoSavedSettings, .AlwaysAutoResize}
-	defer imgui.End()
-	if !imgui.Begin("Overlay", nil, flags) do return
-	imgui.TextUnformatted(fmt.ctprintf("frame %.1f ms  ui %.2f ms", s.frame_ms, s.ui_ms))
-	for line in s.stats do imgui.TextUnformatted(fmt.ctprint(line))
-	w := max(imgui.GetContentRegionAvail().x, 200)
-	for &g in s.graphs {
-		vals: [GRAPH_LEN]f32
-		for i in 0 ..< GRAPH_LEN do vals[i] = g.values[(g.head + i) % GRAPH_LEN]
-		lo, hi := g.min, g.max
-		if lo == hi do lo, hi = max(f32), max(f32) // auto scale
-		label := fmt.ctprintf("%s %.1f", g.name, g.last)
-		imgui.PlotLines(fmt.ctprintf("##%s", g.name), &vals[0], GRAPH_LEN, 0, label, lo, hi, {w, 36})
-	}
-}
-
-// ---- inspector: a generic editor driven by Odin RTTI
-
-@(private)
-inspector :: proc() {
-	place({8, 200, 360, 460})
-	defer imgui.End()
-	if !imgui.Begin("Inspector", &s.show.inspector) do return
-	if len(s.inspected) == 0 do imgui.TextUnformatted("nothing to inspect (devui.inspect)")
-	for &it in s.inspected {
-		imgui.SetNextItemOpen(true, .Once)
-		if imgui.TreeNode(fmt.ctprint(it.name)) {
-			imgui.BeginDisabled(!it.editable)
-			edit_value(it.data, "")
-			imgui.EndDisabled()
-			imgui.TreePop()
-		}
-	}
-}
-
-// Arrays longer than this show their elements through a list clipper, one tree node each.
-@(private)
-BIG_ARRAY :: 16
-
-@(private)
-edit_value :: proc(v: any, name: string) {
-	imgui.PushIDPtr(v.data)
-	defer imgui.PopID()
-	label := fmt.ctprint(name)
-	ti := runtime.type_info_base(type_info_of(v.id))
-	#partial switch info in ti.variant {
-	case runtime.Type_Info_Struct:
-		if name != "" {
-			if !imgui.TreeNode(label) do return
-			defer imgui.TreePop()
-		}
-		for f in reflect.struct_fields_zipped(v.id) {
-			edit_value(any{rawptr(uintptr(v.data) + f.offset), f.type.id}, f.name)
-		}
-	case runtime.Type_Info_Array:
-		edit_array(v.data, info.elem, info.elem_size, info.count, name)
-	case runtime.Type_Info_Enumerated_Array:
-		edit_array(v.data, info.elem, info.elem_size, info.count, name)
-	case runtime.Type_Info_Float:
-		imgui.SetNextItemWidth(-120)
-		if ti.size == 4 do imgui.DragFloat(label, (^f32)(v.data), 0.05)
-		else do imgui.TextUnformatted(fmt.ctprintf("%s  %v", name, v))
-	case runtime.Type_Info_Integer:
-		imgui.SetNextItemWidth(-120)
-		x := i32(reflect.as_i64(v) or_else 0)
-		if imgui.DragInt(label, &x) do set_int(v, i64(x))
-	case runtime.Type_Info_Boolean:
-		imgui.Checkbox(label, (^bool)(v.data))
-	case runtime.Type_Info_Enum:
-		imgui.SetNextItemWidth(-120)
-		cur := reflect.as_i64(v) or_else 0
-		if imgui.BeginCombo(label, fmt.ctprint(enum_name(v))) {
-			for e, j in info.values {
-				if imgui.Selectable(fmt.ctprint(info.names[j]), i64(e) == cur) {
-					set_int(any{v.data, info.base.id}, i64(e))
+	row = add(box, gd.HBoxContainer_new())
+	n.enabled = check(row, "netsim")
+	on(n.enabled, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+		netsim.enabled, _ = gd.from_variant(bool, args[0])
+		netsim_changed = true
+		return {}
+	})
+	PRESETS := [4]string{"LAN", "WAN", "bad Wi-Fi", "off"}
+	for name, i in PRESETS {
+		button(row, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+				d: Netsim_Dir
+				switch int(uintptr(user)) {
+				case 0:
+					d = {2, 1, 0}
+				case 1:
+					d = {60, 10, 1}
+				case 2:
+					d = {140, 40, 6}
+				case:
+					netsim.enabled = false
+					netsim_changed = true
+					conditions_sync()
+					return {}
 				}
-			}
-			imgui.EndCombo()
-		}
-	case:
-		imgui.TextUnformatted(fmt.ctprintf("%s  %v", name, v))
+				netsim = {true, d, d}
+				netsim_changed = true
+				conditions_sync()
+				return {}
+			}, rawptr(uintptr(i)))
 	}
+	n.both = check(row, "both ways")
+	gd.BaseButton_set_pressed_no_signal(n.both, true)
+	head := add(box, gd.HBoxContainer_new())
+	gd.Control_set_custom_minimum_size(label(head, ""), {52, 0})
+	for name in ([]string{"up (to the relay)", "down"}) {
+		h := label(head, name)
+		gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
+		gd.Control_set_theme_type_variation(h, "DevTitleLabel")
+	}
+	for f, k in NET_FIELDS {
+		line := add(box, gd.HBoxContainer_new())
+		name := label(line, f.name)
+		gd.Control_set_custom_minimum_size(name, {52, 0})
+		for d in 0 ..< 2 {
+			h := add(line, gd.HSlider_new())
+			gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
+			gd.Control_set_v_size_flags(h, .SIZE_SHRINK_CENTER)
+			gd.Control_set_focus_mode(h, .FOCUS_NONE)
+			gd.Range_set_max(h, f.max)
+			gd.Range_set_step(h, f.step)
+			on(h, "value_changed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
+					v, _ := gd.from_variant(f64, args[0])
+					d, k := int(uintptr(user)) / 3, int(uintptr(user)) % 3
+					net_field(d, k)^ = f32(v)
+					if gd.BaseButton_is_pressed(s.cond.both) do net_field(1 - d, k)^ = f32(v)
+					netsim_changed = true
+					conditions_sync()
+					return {}
+				}, rawptr(uintptr(d * 3 + k)))
+			n.sliders[d][k] = h
+			n.values[d][k] = label(line, "")
+			gd.Control_set_custom_minimum_size(n.values[d][k], {46, 0})
+		}
+	}
+	panel_make(.Conditions, "Conditions", {350, 40, 470, 140}, box)
 }
 
+// Direction d (0 up, 1 down), field k (latency, jitter, loss) of `netsim`.
 @(private)
-edit_array :: proc(data: rawptr, elem: ^runtime.Type_Info, elem_size, count: int, name: string) {
-	base := runtime.type_info_base(elem)
-	// small vectors of scalars: one line
-	if count <= 4 {
-		if _, is_f := base.variant.(runtime.Type_Info_Float); is_f && base.size == 4 {
-			imgui.SetNextItemWidth(-120)
-			label := fmt.ctprint(name)
-			switch count {
-			case 2:
-				imgui.DragFloat2(label, (^[2]f32)(data), 0.05)
-			case 3:
-				imgui.DragFloat3(label, (^[3]f32)(data), 0.05)
-			case 4:
-				imgui.DragFloat4(label, (^[4]f32)(data), 0.05)
-			case:
-				imgui.DragFloat(label, (^f32)(data), 0.05)
-			}
-			return
-		}
-	}
-	if !imgui.TreeNode(fmt.ctprintf("%s [%d]", name, count)) do return
-	defer imgui.TreePop()
-	clip: imgui.ListClipper
-	imgui.ListClipper_Begin(&clip, i32(count))
-	defer imgui.ListClipper_End(&clip)
-	for imgui.ListClipper_Step(&clip) {
-		for i in clip.DisplayStart ..< clip.DisplayEnd {
-			p := rawptr(uintptr(data) + uintptr(int(i) * elem_size))
-			edit_value(any{p, elem.id}, fmt.tprintf("[%d]", i))
-		}
-	}
-}
-
-@(private)
-enum_name :: proc(v: any) -> string {
-	if n, ok := reflect.enum_name_from_value_any(v); ok do return n
-	return fmt.tprint(reflect.as_i64(v) or_else 0)
-}
-
-@(private)
-set_int :: proc(v: any, x: i64) {
-	switch type_info_of(v.id).size {
+net_field :: proc(d, k: int) -> ^f32 {
+	dir := d == 0 ? &netsim.up : &netsim.down
+	switch k {
+	case 0:
+		return &dir.latency_ms
 	case 1:
-		(^i8)(v.data)^ = i8(x)
-	case 2:
-		(^i16)(v.data)^ = i16(x)
-	case 4:
-		(^i32)(v.data)^ = i32(x)
-	case 8:
-		(^i64)(v.data)^ = x
+		return &dir.jitter_ms
 	}
+	return &dir.loss_pct
 }
 
-// ---- netsim
-
+// The widgets from the current values (the host, a preset or a slider changed them).
 @(private)
-netsim_panel :: proc() {
-	place({380, 30, 300, 200})
-	defer imgui.End()
-	if !imgui.Begin("Netsim", &s.show.netsim) do return
-	n := &netsim
-	before := n^
-	imgui.PushItemWidth(-100)
-	imgui.Checkbox("enabled", &n.enabled)
-	imgui.SliderFloat("latency", &n.latency_ms, 0, 300, "%.0f ms")
-	imgui.SliderFloat("jitter", &n.jitter_ms, 0, 50, "%.0f ms")
-	imgui.SliderFloat("loss", &n.loss_pct, 0, 20, "%.1f %%")
-	imgui.PopItemWidth()
-	if imgui.Button("LAN") do n^ = {true, 2, 1, 0}
-	imgui.SameLine()
-	if imgui.Button("WAN") do n^ = {true, 60, 10, 1}
-	imgui.SameLine()
-	if imgui.Button("Bad Wi-Fi") do n^ = {true, 140, 40, 6}
-	imgui.SameLine()
-	if imgui.Button("Off") do n.enabled = false
-	if n^ != before do netsim_changed = true
-}
-
-// ---- event log
-
-@(private)
-event_log :: proc() {
-	place({8, 670, 520, 220})
-	defer imgui.End()
-	if !imgui.Begin("Events", &s.show.events) do return
-	imgui.Checkbox("follow", &s.log_follow)
-	imgui.SameLine()
-	imgui.TextUnformatted(fmt.ctprintf("%d events", s.log_n))
-	flags: imgui.TableFlags = {.ScrollY, .RowBg, .BordersOuterH, .BordersOuterV, .BordersInnerV, .Resizable}
-	if !imgui.BeginTable("log", 2, flags) do return
-	defer imgui.EndTable()
-	imgui.TableSetupScrollFreeze(0, 1)
-	imgui.TableSetupColumn("tick", {.WidthFixed}, 60)
-	imgui.TableSetupColumn("event")
-	imgui.TableHeadersRow()
-	n := min(s.log_n, LOG_ROWS)
-	first := s.log_n - n
-	clip: imgui.ListClipper
-	imgui.ListClipper_Begin(&clip, i32(n))
-	for imgui.ListClipper_Step(&clip) {
-		for i in clip.DisplayStart ..< clip.DisplayEnd {
-			r := &s.logs[(first + int(i)) % LOG_ROWS]
-			imgui.TableNextRow()
-			imgui.TableNextColumn()
-			imgui.TextUnformatted(fmt.ctprint(r.tick))
-			imgui.TableNextColumn()
-			imgui.TextUnformatted(fmt.ctprint(string(r.msg[:r.len])))
+conditions_sync :: proc() {
+	n := &s.cond
+	for cap, i in FPS_CAPS do gd.BaseButton_set_pressed_no_signal(n.fps[i], cap == n.cap)
+	gd.BaseButton_set_pressed_no_signal(n.enabled, netsim.enabled)
+	for d in 0 ..< 2 {
+		for f, k in NET_FIELDS {
+			gd.Range_set_value_no_signal(n.sliders[d][k], f64(net_field(d, k)^))
+			gd.Label_set_text(n.values[d][k], fmt.tprintf(f.format, net_field(d, k)^))
 		}
 	}
-	imgui.ListClipper_End(&clip)
-	if s.log_follow && imgui.GetScrollY() < imgui.GetScrollMaxY() do imgui.SetScrollHereY(1)
+}
+
+// ---- event log: a two-column Tree, rows appended as they come (the newest LOG_ROWS kept)
+
+@(private)
+Events_Panel :: struct {
+	follow: gd.CheckBox,
+	count:  gd.Label,
+	tree:   gd.Tree,
+	root:   gd.TreeItem,
+	rows:   int, // rows in the tree
+	shown:  int, // log_n when last synced
+}
+
+@(private)
+build_events :: proc() {
+	e := &s.events
+	e.tree = gd.Tree_new()
+	gd.Tree_set_columns(e.tree, 2)
+	gd.Tree_set_column_expand(e.tree, 0, false)
+	gd.Tree_set_column_custom_minimum_width(e.tree, 0, 48)
+	gd.Tree_set_hide_root(e.tree, true)
+	gd.Control_set_focus_mode(e.tree, .FOCUS_NONE)
+	e.root = gd.Tree_create_item(e.tree)
+	panel_make(.Events, "Events", {8, 520, 480, 170}, e.tree)
+	// in the title bar: the count and "follow"
+	bar := s.panels[.Events].extras
+	e.count = label(bar, "")
+	e.follow = check(bar, "follow")
+	gd.BaseButton_set_pressed_no_signal(e.follow, true)
+}
+
+@(private)
+events_update :: proc() {
+	e := &s.events
+	if e.shown == s.log_n do return
+	first := max(e.shown, s.log_n - LOG_ROWS)
+	if s.log_n - e.shown > LOG_ROWS {
+		gd.Tree_clear(e.tree)
+		e.root = gd.Tree_create_item(e.tree)
+		e.rows = 0
+	}
+	last: gd.TreeItem
+	for i in first ..< s.log_n {
+		r := &s.logs[i % LOG_ROWS]
+		last = gd.Tree_create_item(e.tree, e.root)
+		if last.ptr == nil do return // the tree refuses rows inside its own mouse handling: next frame
+		gd.TreeItem_set_text(last, 0, fmt.tprint(r.tick))
+		gd.TreeItem_set_text(last, 1, string(r.msg[:r.len]))
+		e.rows += 1
+		e.shown = i + 1
+	}
+	for e.rows > LOG_ROWS {
+		gdi.object_destroy(gd.TreeItem_get_first_child(e.root).ptr)
+		e.rows -= 1
+	}
+	gd.Label_set_text(e.count, fmt.tprint(s.log_n))
+	if gd.BaseButton_is_pressed(e.follow) && last.ptr != nil do gd.Tree_scroll_to_item(e.tree, last)
 }
 
 // ---- F3 feedback note
 
 @(private)
 Note :: struct {
-	open:    bool,
-	focus:   bool,
-	text:    [1024]u8,
-	tag_bug: bool,
+	thumb:   gd.TextureRect,
+	text:    gd.TextEdit,
+	tag_bug: gd.CheckBox,
+	sent_l:  gd.Label,
 	sent:    int,
 	png:     string, // screenshot of this note, in the temp dir until sent
 	tex:     gd.Ref(gd.ImageTexture),
-	rid:     gd.RID,
-	w, h:    int,
+}
+
+@(private)
+NOTE_THUMB_W :: 640 // the screenshot kept for the note (it scales with the panel, aspect kept)
+
+@(private)
+build_note :: proc() {
+	n := &s.note
+	box := gd.VBoxContainer_new()
+	n.thumb = add(box, gd.TextureRect_new())
+	gd.TextureRect_set_expand_mode(n.thumb, .EXPAND_IGNORE_SIZE)
+	gd.TextureRect_set_stretch_mode(n.thumb, .STRETCH_KEEP_ASPECT_CENTERED)
+	gd.Control_set_custom_minimum_size(n.thumb, {160, 90})
+	gd.Control_set_v_size_flags(n.thumb, .SIZE_EXPAND_FILL)
+	gd.Control_set_stretch_ratio(n.thumb, 3)
+	n.text = add(box, gd.TextEdit_new())
+	gd.TextEdit_set_placeholder(n.text, "what happened?")
+	gd.Control_set_custom_minimum_size(n.text, {160, 54})
+	gd.Control_set_v_size_flags(n.text, .SIZE_EXPAND_FILL)
+	// Enter sends, Ctrl+Enter is TextEdit's own new line. The signal comes before TextEdit handles the key.
+	on(n.text, "gui_input", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+		k := event_arg(gd.InputEventKey, args, "InputEventKey")
+		if k.ptr == nil || !gd.InputEvent_is_pressed(k) do return {}
+		key := gd.InputEventKey_get_keycode(k)
+		if (key == .KEY_ENTER || key == .KEY_KP_ENTER) && !gd.InputEventWithModifiers_is_command_or_control_pressed(k) {
+			gd.Control_accept_event(s.note.text)
+			note_send()
+		}
+		return {}
+	})
+	row := add(box, gd.HBoxContainer_new())
+	n.tag_bug = check(row, "bug")
+	n.sent_l = label(row, "")
+	gd.Control_set_h_size_flags(n.sent_l, .SIZE_EXPAND_FILL)
+	button(row, "send", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {note_send(); return {}})
+	panel_make(.Note, "Feedback", {300, 40, 560, 440}, box)
 }
 
 @(private)
 note_open :: proc() {
 	n := &s.note
-	// Capture before the UI covers the frame (the viewport still shows last frame's UI, if any).
+	// Capture before the note covers the frame.
 	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
 	defer gd.unref(tex)
 	img := gd.Texture2D_get_image(tex)
@@ -264,18 +262,16 @@ note_open :: proc() {
 	gd.Image_save_png(img, n.png)
 	w := gd.Image_get_width(img)
 	h := gd.Image_get_height(img)
-	n.w = 320
-	n.h = 320 * h / max(w, 1)
-	gd.Image_resize(img, n.w, n.h)
+	gd.Image_resize(img, NOTE_THUMB_W, NOTE_THUMB_W * h / max(w, 1))
 	if n.tex.ptr == nil {
 		n.tex = gd.ImageTexture_create_from_image(img)
 	} else {
 		gd.ImageTexture_set_image(n.tex, img)
 	}
-	n.rid = gd.Resource_get_rid(n.tex)
-	n.open = true
-	n.focus = true
-	visible = true
+	gd.TextureRect_set_texture(n.thumb, n.tex)
+	update_metrics() // the note may open with the rest of the dev UI hidden
+	panel_open(.Note, true)
+	gd.Object_call_deferred(n.text, "grab_focus")
 }
 
 @(private)
@@ -285,41 +281,10 @@ note_shutdown :: proc() {
 }
 
 @(private)
-note_panel :: proc() {
-	n := &s.note
-	if !n.open do return
-	place({s.size.x / 2 - 180, 80, 360, 0})
-	defer imgui.End()
-	if !imgui.Begin("Feedback (F3)", &n.open, {.AlwaysAutoResize}) do return
-	if n.tex.ptr != nil do imgui.Image({_TexID = transmute(imgui.TextureID)n.rid}, {f32(n.w), f32(n.h)})
-	imgui.TextUnformatted("What happened? (Enter sends, Ctrl+Enter = new line)")
-	if n.focus {
-		imgui.SetKeyboardFocusHere()
-		n.focus = false
-	}
-	if imgui.InputTextMultiline(
-		"##note",
-		cstring(&n.text[0]),
-		len(n.text),
-		{320, 80},
-		{.EnterReturnsTrue, .CtrlEnterForNewLine},
-	) {
-		note_send()
-	}
-	imgui.Checkbox("tag as bug", &n.tag_bug)
-	if imgui.Button("Send", {100, 0}) do note_send()
-	imgui.SameLine()
-	if imgui.Button("Cancel", {100, 0}) do n.open = false
-	if n.sent > 0 {
-		imgui.SameLine()
-		imgui.TextUnformatted(fmt.ctprintf("sent: %d", n.sent))
-	}
-}
-
-@(private)
 note_send :: proc() {
 	n := &s.note
-	text := string(cstring(&n.text[0]))
+	text := gd.TextEdit_get_text(n.text)
+	tag_bug := gd.BaseButton_is_pressed(n.tag_bug)
 	stamp := time.now()
 	y, mo, d := time.date(stamp)
 	hh, mm, ss := time.clock(stamp)
@@ -329,13 +294,14 @@ note_send :: proc() {
 		return
 	}
 	if n.png != "" do os.rename(n.png, fmt.tprintf("%s/screenshot.png", dir))
-	body := fmt.tprintf("%s\n%s", n.tag_bug ? "[bug]" : "[note]", text)
+	body := fmt.tprintf("%s\n%s", tag_bug ? "[bug]" : "[note]", text)
 	_ = os.write_entire_file(fmt.tprintf("%s/note.txt", dir), transmute([]u8)body)
-	if s.cfg.on_feedback != nil do s.cfg.on_feedback(dir, text, n.tag_bug, s.cfg.user)
+	if s.cfg.on_feedback != nil do s.cfg.on_feedback(dir, text, tag_bug, s.cfg.user)
 	gd.print(fmt.tprintf("devui: feedback saved to %s", dir))
 	n.sent += 1
-	n.text = {}
-	n.open = false
+	gd.Label_set_text(n.sent_l, fmt.tprintf("sent %d", n.sent))
+	gd.TextEdit_set_text(n.text, "")
+	panel_open(.Note, false)
 	delete(n.png)
 	n.png = ""
 }
