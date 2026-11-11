@@ -301,6 +301,15 @@ box :: proc(v: $T) -> any {
 	return p^
 }
 
+// Heap slices of commands and suites, for a project's tools/ to return.
+box_commands :: proc(c: ..Command) -> []Command {
+	return slice.clone(c)
+}
+
+box_suites :: proc(s: ..Suite) -> []Suite {
+	return slice.clone(s)
+}
+
 // A heap slice of strings.
 strs :: proc(s: ..string) -> []string {
 	return slice.clone(s)

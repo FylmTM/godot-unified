@@ -216,7 +216,6 @@ offline_checksums :: proc(g: Game, ticks, seed: int) -> map[int]string {
 }
 
 // [[tick, checksum], ...] -> {tick: checksum}
-@(private)
 checksums :: proc(v: json.Value) -> map[int]string {
 	out := make(map[int]string)
 	if arr, ok := v.(json.Array); ok {
