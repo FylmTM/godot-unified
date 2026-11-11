@@ -78,6 +78,11 @@ cmd_init :: proc(args: []string) -> Result {
 		n += 1
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
+	// The game's name changes line lengths: format what the template wrote, so the new repo passes fmt --check.
+	generated: [dynamic]string
+	append(&generated, ..find_files(join(dir, "simulation"), ".odin"))
+	append(&generated, ..find_files(join(dir, "tools"), ".odin"))
+	fmt_files(ensure_odinfmt(), generated[:], false)
 	for shim in ([]string{"uni", "uni.cmd"}) {
 		copy_file(join(dir, shim), join(state.project.unified, shim))
 	}

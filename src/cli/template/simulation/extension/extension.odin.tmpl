@@ -46,7 +46,11 @@ extract :: proc(cur, prev: ^g.State, w: ^g.World, out: ^gh.Frame) {
 }
 
 @(export, link_name = "__GAME___init")
-__GAME___init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+__GAME___init :: proc "c" (
+	gpa: gdi.InterfaceGetProcAddress,
+	lib: gdi.ClassLibraryPtr,
+	init: ^gdi.Initialization,
+) -> gdi.Bool {
 	context = runtime.default_context()
 	gh.install(&g.GAME, GLUE)
 	return gh.entry(gpa, lib, init)
