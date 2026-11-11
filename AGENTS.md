@@ -20,7 +20,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 ## Non-negotiables
 
 - **Fast.** Everything we build, run and ship must be fast: builds, tests, checks, tooling, runtime. We left Unity
-  for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its budget (`dev.py -h`;
+  for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its budget (`uni <command> -h`;
   an over-budget run says so) is a bug: find out why and fix it.
 - **Correct, proven by tests at every layer.** Each module, including every third-party dependency we rely on (the
   Box3D fork and its bindings first), has independent tests covering everything we use: determinism, save/restore,
@@ -31,8 +31,9 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
   padding-free, so a snapshot is a memcpy and the bytes are the checksum. Physics state lives in Box3D and is
   snapshotted through our fork.
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
-- **Narrow, purpose-built tooling.** No random scripts in random languages. Tooling converges on one `unified` CLI
-  (design pending sign-off). Agents must know exactly how to operate everything: keep `dev.py -h` current.
+- **Narrow, purpose-built tooling.** No random scripts in random languages: one CLI, `uni`, in Odin
+  (`src/cli/SPEC.md`). Agents must know exactly how to operate everything: keep `uni help` and each command's `-h`
+  current.
 - **Don't name products we take ideas from, or the developer's other games, in repo files** (the one line above
   aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally.
 - **Design for the library, not the demo.** Every change considers how `unified` will be used as a library by
@@ -57,7 +58,7 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
 - **Work the developer asks for in chat is done in that session**, not filed first.
 - **Every change is a PR** from its own branch. It says `Closes #N` for each issue it finishes (merging closes them)
   and `Part of #N` for one it only advances. Agents push and open PRs without asking; only merging is gated.
-- **Done means closed.** An issue moved to Done is closed too (`dev.py board set N --status Done` does both).
+- **Done means closed.** An issue moved to Done is closed too (`./uni board set N --status Done` does both).
 - **New findings** outside the current request become Backlog issues, not notes in docs or reports.
 
 ## Current phase: the foundations review
@@ -81,27 +82,28 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
 - A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
-  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `dev.py test` runs them all in one compile.
+  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all in one compile.
 - Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
-- Generated output goes to `out/` (root) and `games/<game>/.out/`, both git-ignored and safe to delete.
+- Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
-  options: `python tools/dev.py -h`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
+  options: `./uni help`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
   `.claude/skills/<name>/SKILL.md`. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a
   matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 
-Everything runs through `python tools/dev.py`, from the repo root, on any OS; `python tools/dev.py -h` lists every
-command and `-h` on a command its options. Every command rejects unknown arguments. Before handing work back:
+Everything runs through `./uni` (`uni.cmd` on Windows), from the repo root, on any OS; `./uni help` lists every
+command and `-h` on a command its options and budget. Every command rejects unknown arguments. Before handing work
+back:
 
 ```
-python tools/dev.py fmt          # odinfmt (pinned, see README.md; a hook formats each .odin file Claude edits)
-python tools/dev.py vet          # odin check, strict flags, every target
-python tools/dev.py test         # every test package and end-to-end suite in one compile, the determinism lint included
-python tools/dev.py check        # when netcode or the headless CLI changed (real UDP, separate processes)
-python tools/dev.py bench        # when the sim, physics or rollback changed: step and re-sim times
-python tools/dev.py godot-checks # when Godot-side code or GDScript changed (or the matching `dev.py game` commands)
-python tools/dev.py all          # everything CI runs; before merging
+./uni fmt                      # odinfmt (pinned; a hook formats each .odin file Claude edits)
+./uni vet                      # odin check, strict flags, every target
+./uni test                     # the odin suite: every test package and end-to-end suite in one compile, the lint included
+./uni test --suite net         # when netcode or the headless modes changed (real UDP, separate processes)
+./uni bench                    # when the sim, physics or rollback changed: step and re-sim times
+./uni test --suite godot       # when Godot-side code or GDScript changed (`--only <step>`, `uni tool` for one script)
+./uni verify                   # everything CI runs; before merging
 ```
 
 ## Where things are

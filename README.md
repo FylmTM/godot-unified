@@ -72,24 +72,23 @@ works inside.
 
 Toolchain (macOS ARM64, Linux x64 or Windows x64):
 
-- **Odin**, the release CI pins (`ODIN_TAG` in `.github/workflows/`), on PATH (macOS: `brew install odin`).
-- **Python 3.9+** for `tools/` (stdlib only).
-- **Box3D build:** git, CMake, Ninja and clang (macOS/Linux) or clang-cl (Windows; found on PATH, in
-  `C:\Program Files\LLVM` or Visual Studio). Built on first use and cached.
-- **Godot**, the standard (non-.NET) build `tools/common.py` pins, found via `$GODOT`, `godot` on PATH,
-  `.toolchains/godot/`, or `~/tools/godot` / `/Applications` on macOS (`python tools/ci.py godot` downloads it).
-- **odinfmt** (the formatter, part of OLS) at the commit `tools/ci.py` pins: `python tools/ci.py odinfmt
-  ~/.local/share/unified-odinfmt`, then put that directory on PATH (or set `ODINFMT`).
+- **Odin** at the release and commit `pins.cfg` pins, on PATH (macOS: `brew install odin`). The CLI refuses another.
+- What Odin needs anyway: **clang** on macOS and Linux; on Windows, Visual Studio Build Tools with the C++ Clang
+  tools (Box3D and Dear ImGui build with clang-cl).
+- **git** and **curl** (macOS, Windows 10+ and Linux ship curl).
 - **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` collection, the strict checker flags,
   format on save with `odinfmt.json`).
 
-Then, from the repo root:
+Everything else (Godot, odinfmt, Box3D, Dear ImGui, the EOS SDK) the CLI fetches or builds from `pins.cfg`. A local
+Godot or EOS SDK can stand in through `UNIFIED_GODOT` and `UNIFIED_EOS_SDK` in a git-ignored `.env`
+([`src/cli/SPEC.md`](src/cli/SPEC.md)). Then, from the repo root (`uni.cmd` on Windows):
 
 ```
-python tools/dev.py -h                  # every command and its options
-python tools/dev.py test                # build and run every test package
-python tools/dev.py game run survivor   # play it (builds its extension the first time)
-python tools/dev.py all                 # everything CI runs
+./uni help                # every command (the first run builds the CLI, in about a second)
+./uni test                # build and run every test package
+./uni run survivor        # play it (builds its extension the first time)
+./uni verify              # everything CI runs
+./uni init ../mygame      # a new game repo, with unified as its submodule
 ```
 
 A step-by-step guide to setting up and making a tiny game is planned
@@ -100,6 +99,6 @@ A step-by-step guide to setting up and making a tiny game is planned
 - [`AGENTS.md`](AGENTS.md): roles, rules and workflow for working on unified.
 - The [board](https://github.com/users/FylmTM/projects/2): current and upcoming work.
 - `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
-- [`tools/README.md`](tools/README.md): the tools behind `dev.py`.
+- [`tools/README.md`](tools/README.md): this repo's CLI, `uni`, and its private commands.
 - [`docs/`](docs/): decisions so far (`WORK.md`), online setup (`EOS.md`), open research
   (`research/`) and phase 2 results (`archive/`).

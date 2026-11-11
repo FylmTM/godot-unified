@@ -1,87 +1,35 @@
 # tools
 
-Python 3.9+, stdlib only; the same commands work on macOS, Linux and Windows. `dev.py` is the entry point; the
-others are its parts and also run on their own. Every command rejects arguments it doesn't know; `python
-tools/dev.py -h` lists every command, and `-h` on any command or script its options.
+This repo's CLI, `uni` (`src/cli/SPEC.md`): `main.odin` runs unified:cli's public commands plus this repo's private
+ones, which no game needs yet. The shims at the root (`./uni`, `uni.cmd`) run it and the binary rebuilds itself when
+a source changes, so there is no build step. `./uni help` lists every command, `-h` on a command its options and
+budget; every command rejects arguments it doesn't know and takes `--json`.
 
-| Script | What |
+| File | What |
 |---|---|
-| `dev.py` | The entry point for every command. Prints each run's time against its budget and keeps the last ones in `out/timings.json`. |
-| `game.py` | Godot project checks behind `dev.py game` (`validate` and `walk` also fail on leaks at exit and GDScript warnings; `tour --frames [--cold]` reports frame times and first-use hitches). |
-| `board.py` | The work board (GitHub Project 2) behind `dev.py board`; needs the `gh` CLI with the `project` scope. |
-| `box3d.py` | Fetches Box3D at the pinned commit, applies `third_party/box3d.patch`, builds the static library (`src/box3d/SPEC.md`). |
-| `imgui.py` | Fetches (pinned) and builds Dear ImGui + its C API for `src/imgui` (`src/imgui/SPEC.md`). |
-| `eos.py` | Stages the pruned EOS SDK in `third_party/eos/` (local SDK or the draft release, hash-checked); `defines` shows the credential flags, redacted (`docs/EOS.md`). |
-| `release.py` | Playable game builds: extension, version stamp, Godot export, codesign, zip, smoke test (the `release` skill). |
-| `ci.py` | CI helpers: Odin download, pinned odinfmt build, the Godot editor, ninja, the Box3D compiler id, the job summary. |
-| `common.py` | Shared helpers: platform tags, Godot lookup/run/import/extension list, hash-checked downloads, MSVC env, clang-cl. |
+| `main.odin` | The entry point: the public commands, the private ones below, this repo's test suites. |
+| `suites.odin` | The `net` suite (the toy's relay and 3 clients over real UDP), the `godot-bindings` suite (`tests/godot`, `tests/godot_views`), `godot-gen`. |
+| `release.odin` | `release`: playable builds (the `release` skill), and `release notes`. |
+| `eos.odin` | `eos upload`: packs the pruned EOS SDK, one reproducible zip per platform, onto the draft release (`docs/EOS.md`). |
+| `board.odin` | `board list\|set`: the work board (GitHub Project 2) through `gh` (needs the `project` scope). |
+| `ci.odin` | `ci summary` (the job summary from `.out/`) and `ci cache-key <dep>`. |
+| `selftest.odin` | `selftest`: a fresh clone, bootstrapped with only Odin, `init` a game outside it, its build, tests and `verify`. |
 
-Every download that ends up in a toolchain or a shipped build is pinned: Odin (`ci.py`), the Godot editor
-(`common.py`) and export templates (`release.py`) and the EOS SDK (`eos.py`) by SHA-256; Box3D, OLS and Dear
-ImGui by commit, dear_bindings by SHA-256.
+A command is a `cli.Command` (name, usage, summary, budget, `run`), a suite a `cli.Suite`; `tools/` imports only
+`core:` and `unified:cli`, so library edits never rebuild the CLI. A command moves into `src/cli/` when a game
+needs it.
 
 ## Budgets
 
-Every `dev.py` command has a time budget (`BUDGETS` in `dev.py`; `dev.py -h` lists them, `-h` on a command shows
-its own): seconds for a warm run, dependencies already built. CI allows 3x. A run over budget prints an
-`OVER BUDGET` line and is marked in `out/timings.json` and CI's job summary; it doesn't fail, since machines vary,
-but it is a bug to find (AGENTS.md). A cold run (it built Box3D or Dear ImGui, imported a Godot project, or downloaded
-Godot or the EOS SDK first) isn't held to the budget, and says so. Interactive, windowed and networked commands have
-none. A new command without a budget gets a reminder each run.
-
-## `box3d.py`
-
-```
-python tools/box3d.py                 # host platform -> third_party/box3d/build/<platform>/{include,lib}
-python tools/box3d.py --clean         # refetch and rebuild (also after a compiler upgrade)
-```
-
-- Fetches `erincatto/box3d` at the pinned commit into `third_party/box3d/src` (gitignored) and applies the fork patch,
-  which must apply exactly.
-- CMake + Ninja, Release `-O2 -DNDEBUG`, static, samples/tests/benchmarks/validation off. It checks
-  `compile_commands.json` to confirm every source got `-ffp-contract=off` (clang-cl: `/clang:-ffp-contract=off`),
-  and on Windows the static CRT (`/MT`, what Odin links).
-- **`BOX3D_DISABLE_AVX2` is defined**, so x64 runs the same 4-wide solver path as ARM64/NEON instead of picking
-  8-wide by CPUID at runtime.
-- Platforms: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`. When up to date it returns without starting
-  a compiler (the stamp covers the commit, the patch and the recipe, not the compiler: run `--clean` after
-  a compiler upgrade; CI's cache key adds `ci.py compiler-id`). `dev.py` calls it in-process before every build.
-- Compilers: `clang` on macOS and Linux, `clang-cl` on Windows (PATH, `C:\Program Files\LLVM`, then Visual
-  Studio's LLVM; the MSVC environment is loaded via vswhere/vcvarsall when the shell isn't a developer prompt).
-
-## `dev.py check`, `dev.py bench` and `dev.py regen`
-
-The end-to-end suites run in `dev.py test` (`src/headless/SPEC.md`, End-to-end suites). `check` keeps what can't
-run in-process: the real-UDP, real-clock test. The toy's headless binary (`out/release/toy`) runs as a relay on a
-free localhost port plus 3 client processes (the last with `--profile bad`), 960 ticks (~15 s). Every client must
-verify every tick, their checksums (every 16th tick) must agree, and nobody may report a desync. `out/check.json` is
-the summary CI's job summary reads; `out/check/` keeps each process's command line, stdout and stderr. Every process
-runs under a timeout, so a hung binary fails its test.
-
-`bench [name ...]` runs the benchmarks (`BENCHES` in `dev.py`; default all) one at a time on a release build: each
-is a game's `bench` mode (forward step, save, restore and an 8-tick re-sim every tick). One line per benchmark
-against the target (step + re-sim ≤ 6 ms); `out/bench.json` for CI's job summary, `out/bench/` for the processes'
-output. Reported, not gated; a re-sim that disagrees with the forward run fails it.
-
-`regen <game>|toy` builds and runs that suite with `-define:UNIFIED_REGEN=true` and the commit (`+dirty` when the tree
-has changes) as `-define:UNIFIED_REGEN_COMMIT`, then lists the reference files that changed (`git status`).
+Every command has a time budget: seconds for a warm run, dependencies already built (`-h` shows it; `test`'s is its
+suites' sum). CI allows 3x. A run over budget prints an `OVER BUDGET` line and is marked in `.out/timings.json` and
+CI's job summary; it doesn't fail, since machines vary, but it is a bug to find (AGENTS.md). A cold run (it built
+Box3D, Dear ImGui or odinfmt, imported a Godot project, or downloaded Godot or the EOS SDK first) isn't held to the
+budget, and says so. Interactive, windowed and networked commands have none.
 
 ## A game in its own repository
 
-A game outside this repo has unified as a git submodule (`<game>/unified`); the game repo's root is its Godot
-project, with its Odin code in `simulation/` (the sim package, `extension/`, optional `headless/` and `tests/`)
-like the games in `games/`. unified's root `.gdignore` keeps Godot from importing the submodule. From the game
-repo's root:
-
-```
-python3 unified/tools/dev.py game build .            # .out/bin/lib<game dir name>.*; also run|editor|headless|...
-python3 unified/tools/release.py build .             # local builds are labelled dev-<the game repo's sha>
-odin test simulation/tests -collection:unified=unified/src   # the game's tests
-```
-
-- A relative game path is resolved against the current directory first (`common.game_dir`).
-- Box3D (CMake, Ninja, clang) is built only when the game's Odin code imports `unified:physics` or
-  `unified:box3d`, the EOS SDK only when its extension imports `unified:eos`; Dear ImGui always (the dev UI).
-- The determinism lint: the game's tests call `lint.check_sim_package(t, dir)` on its sim package
-  (`src/lint/SPEC.md`). `dev.py fmt|vet|test` cover unified and its in-repo games only.
-
+`./uni init <dir>` makes one: the template game (a dot per player), the shims, `tools/main.odin` (the public
+commands; the game adds its own there), `.gitignore`, and unified as a git submodule at `unified/` (its root
+`.gdignore` keeps Godot from importing it). In the game repo, the same `./uni` builds, tests and runs that game;
+`test`, `vet`, `fmt` and `verify` cover the game, not the submodule.
