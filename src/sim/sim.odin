@@ -13,7 +13,9 @@
 package sim
 
 import "base:intrinsics"
-import "base:runtime"
+// Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
+// instantiates those (a game's tests that run the sim offline only).
+@(require) import "base:runtime"
 import "core:fmt"
 import "core:hash/xxhash"
 
