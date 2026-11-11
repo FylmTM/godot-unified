@@ -35,8 +35,9 @@ git tag <game>-v<version> <commit> && git push origin <game>-v<version>
 ./uni release --tag <game>-v<x.y.z>         # what the tag build does (the game and the version from the tag)
 ```
 
-A game that imports `unified:eos` needs the five `EOS_*` IDs (the environment or `.env`). Without a tag, CI checks
-the pipeline from **Actions → release → Run workflow** (Windows only; any game, default `survivor`).
+A game that imports `unified:eos` needs the five `EOS_*` IDs in the environment (`.env` holds `UNIFIED_*` only).
+Without a tag, CI checks the pipeline from **Actions → release → Run workflow** (Windows only; any game, default
+`survivor`).
 
 ## How the pipeline works
 

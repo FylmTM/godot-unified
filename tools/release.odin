@@ -12,7 +12,7 @@ import "unified:cli"
 // unpacking to one folder of the same name with the app, and its .sha256. The same command runs locally and in
 // .github/workflows/release.yml (tag builds). Steps, each failing loudly:
 //   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK must be staged and the EOS
-//      IDs (EOS_* in the environment or .env) set, and their values must end up in the library,
+//      IDs (EOS_* in the environment: .env holds UNIFIED_* only) set, and their values must end up in the library,
 //   2. the pinned Godot and this host's export templates (pulled out of the official archive with HTTP range reads,
 //      each file checked against its pin) in Godot's own folder,
 //   3. the version stamped into project.godot and the export preset's version keys for the export (the files are
@@ -166,7 +166,7 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool) -> cli.Res
 		}
 		if len(missing) > 0 {
 			cli.fatal(
-				"%s's extension imports unified:eos: set %s (the environment or .env)",
+				"%s's extension imports unified:eos: set %s in the environment (.env holds UNIFIED_* only)",
 				g.name,
 				strings.join(missing[:], ", "),
 			)
