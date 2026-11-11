@@ -254,7 +254,7 @@ cmd_setup :: proc(args: []string) -> Result {
 		Dep{"odinfmt", tprint("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
 	)
 	if uses_box3d {
-		version, src := pin("box3d", "tag"), "pinned release (third_party/unified-box3d)"
+		version, src := pin("box3d", "tag"), "pinned release (.out/unified-box3d)"
 		if local := box3d_local(); local != "" {
 			version = "local"
 			src = tprint("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
@@ -327,11 +327,7 @@ cmd_clean :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	p := state.project
-	deps := []string {
-		join(p.unified, "third_party", "unified-box3d"),
-		join(p.unified, "third_party", "imgui"),
-		join(p.unified, "third_party", "eos"),
-	}
+	deps := []string{join(p.unified, "third_party", "imgui"), join(p.unified, "third_party", "eos")}
 	gdext := join(p.unified, "src", "gdext")
 	targets: [dynamic]string
 	for d in deps {

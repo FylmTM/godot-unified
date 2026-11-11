@@ -36,7 +36,7 @@ packages.
 ## Box3D
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin; upstream's C API plus our snapshots and canonical
-images), pinned in `pins.cfg` and unpacked by `uni` into `third_party/unified-box3d/`, whose Odin bindings are the
+images), pinned in `pins.cfg` and unpacked by `uni` into `.out/unified-box3d/`, whose Odin bindings are the
 `box3d:` collection. Unified's code goes through `unified:b3` (`src/b3/SPEC.md`): Odin names, `[3]f32`/`[4]f32`,
 mirrored defs, Odin callbacks; conversions only.
 

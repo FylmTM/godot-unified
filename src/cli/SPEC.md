@@ -30,12 +30,14 @@ ImGui, the EOS SDK) the CLI fetches or builds, pinned and hash-checked.
     godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest
+    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection)
     timings.json      each command line's last time against its budget
 ```
 
-Box3D (`third_party/unified-box3d/`), Dear ImGui and the EOS SDK live under `third_party/` in the `unified` checkout
-(the submodule in a game repo): their bindings name them by relative path (`foreign import`). Every Odin build gets
-two collections: `unified` (`src/`) and `box3d` (unified-box3d, imported as `box3d:bindings`). A game is a directory
+Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); Dear ImGui and the EOS SDK live
+under `third_party/` in the `unified` checkout (the submodule in a game repo). Their bindings name them by relative
+path (`foreign import`). Every Odin build gets two collections: `unified` (`src/`) and `box3d` (unified-box3d,
+imported as `box3d:bindings`). A game is a directory
 with `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
 when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the game only: never the submodule, which
 `unified`'s own CI proves.
@@ -170,7 +172,7 @@ Odin files are formatted after the name is put in (it changes line lengths).
   their pinned hashes.
 - **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library (static Odin-in-Odin linking clashes) with
   upstream's C API, headers and Odin bindings. By default this platform's zip of the pinned release (`[box3d]`: repo,
-  tag, a SHA-256 per platform), checked and unpacked with its top folder flattened into `third_party/unified-box3d/`
+  tag, a SHA-256 per platform), checked and unpacked with its top folder flattened into `.out/unified-box3d/`
   (a stamp of the pin makes the warm check free). `UNIFIED_BOX3D` may name a local unified-box3d checkout instead:
   the `box3d` collection points there, and `setup` runs its `b3 build` and `b3 build --debug` (other commands only
   build a missing library). Programs link `lib/<platform>/` (`--mode debug`: `-define:BOX3D_LIB_DEBUG=true` and

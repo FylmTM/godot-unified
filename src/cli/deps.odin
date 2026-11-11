@@ -281,7 +281,7 @@ git_checkout :: proc(dir, url, commit: string) {
 
 // Box3D is unified-box3d (Box3D ported to Odin): a shared library with upstream's C API, its headers and Odin
 // bindings, in box3d_dir() (the `box3d:` collection). By default the pinned release for this platform, downloaded,
-// checked against its SHA-256 and unpacked with the zip's top folder flattened into third_party/unified-box3d/; with
+// checked against its SHA-256 and unpacked with the zip's top folder flattened into .out/unified-box3d/; with
 // UNIFIED_BOX3D, a local unified-box3d checkout, built there by its own `b3 build` (release and --debug). A program
 // links lib/<platform>[-debug]/ and loads the library from its own directory (stage_box3d): Odin's default rpath
 // ($ORIGIN, @loader_path) and Windows' DLL search look there, and so does Godot for an extension's dependencies.
@@ -290,7 +290,7 @@ box3d_dir :: proc() -> string {
 	if local := box3d_local(); local != "" {
 		return local
 	}
-	return join(state.project.unified, "third_party", "unified-box3d")
+	return join(state.project.out, "unified-box3d")
 }
 
 // The unified-box3d checkout UNIFIED_BOX3D names, or "".
