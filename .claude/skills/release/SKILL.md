@@ -32,10 +32,12 @@ git tag <game>-v<version> <commit> && git push origin <game>-v<version>
 
 ```
 ./uni release <game>                        # -> games/<game>/.out/release/<game>-dev-<sha>-<platform>.zip
-./uni release --tag <game>-v<x.y.z>         # what the tag build does (the game and the version from the tag)
+./uni release --tag <game>-v<x.y.z>         # the tag build's package, but with online play
+./uni release --no-eos <game>               # what CI builds: no EOS, single player and LAN
 ```
 
-A game that imports `unified:eos` needs the five `EOS_*` IDs in the environment (`.env` holds `UNIFIED_*` only).
+A game that imports `unified:eos` needs `UNIFIED_EOS_SDK` and the five `UNIFIED_EOS_*` IDs (`.env`, `docs/EOS.md`),
+or `--no-eos`.
 Without a tag, CI checks the pipeline from **Actions → release → Run workflow** (Windows only; any game, default
 `survivor`).
 
@@ -44,9 +46,10 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
 - **The version.** The tag is its only source: the repo's `project.godot` says `dev` and the presets `0.0.0`, and
   `uni release` stamps the tag's version into the export (`application/config/version`, which the main menu
   shows, and the presets' version keys) and fails if the export doesn't carry it.
-- **The build** (`uni release`, `tools/release.odin`, the same on a CI runner and locally): dependencies, the release extension (on
-  CI with the `EOS_*` repo secrets in that one step's environment), Godot's headless import and export, ad-hoc
-  codesign on macOS, zip, and a headless smoke test of the unpacked zip.
+- **The build** (`uni release`, `tools/release.odin`, the same on a CI runner and locally): dependencies, the
+  release extension (online play needs the `UNIFIED_EOS_*` IDs and SDK, so only a developer's machine builds it; CI
+  passes `--no-eos`: single player and LAN), Godot's headless import and export, ad-hoc codesign on macOS, zip, and a
+  headless smoke test of the unpacked zip.
 - **The prerelease**, named after the tag: `<game>-v<version>-macos-arm64.zip` and `<game>-v<version>-windows-x64.zip`
   (each unpacks to one folder of its own name with the game inside), `SHA256SUMS.txt` (LF line endings, so
   `shasum -a 256 -c` works on macOS), and tester notes (how to open an unsigned build, plus
@@ -70,11 +73,11 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `uni release`
   fails if one is missing from the export. Box3D (unified-box3d's shared library, `libbox3d.dylib` / `box3d.dll`)
   is linked: an extension that uses physics doesn't load without it, so its `.gdextension` lists it.
-- Online: when the extension imports `unified:eos`, every build needs the five `EOS_*` IDs and fails unless the game
-  build compiled each value into the extension (as `-define`s; logs show them redacted) and the export ships the EOS
-  SDK library; testers' machines have no EOS config.
-  The EOS SDK reaches the build job as a cache entry from `.github/workflows/eos-sdk.yml`, so the build job's token
-  is read-only.
+- Online: when the extension imports `unified:eos`, a build needs the five `UNIFIED_EOS_*` IDs and `UNIFIED_EOS_SDK`
+  (`docs/EOS.md`) and fails unless the game build compiled each value into the extension (as `-define`s; logs show
+  them redacted) and the export ships the EOS SDK library; testers' machines have no EOS config. With `--no-eos`
+  (CI: no SDK, no secrets, Epic's licence) none of that: the package has no online play, and the prerelease notes
+  (`release notes --no-eos`) say so. Online-capable packages are made locally.
 - Release binaries contain the CI runner's source paths (`/Users/runner/work/...`, from bounds-check and assert
   locations). Accepted: they reveal only the repo's file layout and the runner's work folder (no secrets, no user
   data), and keeping bounds checks on in release is worth more than the tidiness.

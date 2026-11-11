@@ -6,9 +6,6 @@
 # This checkout's UNIFIED_* settings (src/cli/SPEC.md, Local settings): never committed.
 .env
 
-# Dependencies the CLI fetches and builds from their pins (pins.cfg)
-/third_party/eos/
-
 # CI's Odin download (.github/actions/odin)
 /.toolchains/
 
@@ -18,3 +15,6 @@
 
 # Generated Godot bindings (uni godot-gen)
 *.gen.odin
+
+# Older checkouts staged the EOS SDK here; Epic's licence keeps it out of the repo (docs/EOS.md)
+/third_party/

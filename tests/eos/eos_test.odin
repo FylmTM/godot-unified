@@ -4,7 +4,6 @@ package test_eos
 
 import "core:math/rand"
 import "core:os"
-import "core:path/filepath"
 import "core:testing"
 
 import "unified:eos"
@@ -174,42 +173,25 @@ framing_survives_reorder_and_loss :: proc(t: ^testing.T) {
 }
 
 @(test)
-credentials_come_from_the_ini :: proc(t: ^testing.T) {
-	dir := os.temp_directory(context.temp_allocator) or_else "."
-	path, _ := filepath.join({dir, "unified-eos-test.ini"}, context.temp_allocator)
-	ini := "[eos]\nproduct_id=p1\nsandbox_id = s2\ndeployment_id=d3\nclient_id=c4\nclient_secret=x5\n"
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)ini) == nil)
-	defer os.remove(path)
-	envs := []string{"EOS_PRODUCT_ID", "EOS_SANDBOX_ID", "EOS_DEPLOYMENT_ID", "EOS_CLIENT_ID", "EOS_CLIENT_SECRET"}
-	saved := make([]string, len(envs), context.temp_allocator)
-	for e, i in envs {
-		saved[i] = os.get_env(e, context.temp_allocator)
-		os.unset_env(e)
+credentials_come_from_the_environment :: proc(t: ^testing.T) {
+	names := eos.CREDENTIAL_NAMES
+	values := [5]string{"p1", "s2", "d3", "c4", "x5"}
+	saved: [5]string
+	for n, i in names {
+		saved[i] = os.get_env(n, context.temp_allocator)
+		os.set_env(n, values[i])
 	}
-	old_ini := os.get_env("UNIFIED_EOS_INI", context.temp_allocator)
-	os.set_env("UNIFIED_EOS_INI", path)
-	os.set_env("EOS_CLIENT_ID", "from-env")
-	defer {
-		for e, i in envs {
-			if saved[i] != "" {
-				os.set_env(e, saved[i])
-			} else {
-				os.unset_env(e)
-			}
-		}
-		if old_ini != "" {
-			os.set_env("UNIFIED_EOS_INI", old_ini)
-		} else {
-			os.unset_env("UNIFIED_EOS_INI")
-		}
+	defer for n, i in names {
+		if saved[i] != "" do os.set_env(n, saved[i])
+		else do os.unset_env(n)
 	}
 	c, source := eos.credentials_load(context.temp_allocator)
 	testing.expect(t, eos.credentials_complete(c))
-	testing.expect_value(t, source, "ini")
+	testing.expect_value(t, source, "environment")
 	testing.expect_value(t, c.product_id, "p1")
 	testing.expect_value(t, c.sandbox_id, "s2")
 	testing.expect_value(t, c.deployment_id, "d3")
-	testing.expect_value(t, c.client_id, "from-env") // the environment wins over the ini
+	testing.expect_value(t, c.client_id, "c4")
 	testing.expect_value(t, c.client_secret, "x5")
 }
 

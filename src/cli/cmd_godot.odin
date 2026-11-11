@@ -108,12 +108,6 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 			break
 		}
 	}
-	for g in games {
-		if extension_uses_eos(g) {
-			ensure_eos() // a problem is reported by each game's stage_eos
-			break
-		}
-	}
 	exe, _ := os.get_executable_path(context.allocator)
 	env := env_with(tprint("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))
@@ -486,10 +480,14 @@ cmd_coop :: proc(args: []string) -> Result {
 		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
 		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
+		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again: timed"`,
 		lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 	}
 	opts: Opts
 	parse(&opts, args)
+	if opts.crash && opts.rejoin {
+		usage("--crash and --rejoin are two different tests")
+	}
 	if (opts.mute || opts.screen != "") && !opts.window {
 		usage("--mute and --screen need --window")
 	}
@@ -505,6 +503,9 @@ cmd_coop :: proc(args: []string) -> Result {
 	extra: [dynamic]string
 	if opts.rejoin {
 		append(&extra, "--rejoin")
+	}
+	if opts.crash {
+		append(&extra, "--crash")
 	}
 	if opts.lan {
 		append(&extra, "--lan")
@@ -533,6 +534,9 @@ cmd_coop :: proc(args: []string) -> Result {
 	host_args: [dynamic]string
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
+	if opts.crash {
+		return coop_crash(g, &joiner, host_args[:], opts.window, {opts.mute, opts.screen})
+	}
 	host := run_tool(
 		{
 			dir = g.dir,
@@ -614,4 +618,61 @@ bake :: proc(g: Game, check: bool) -> Tool_Result {
 		}
 	}
 	return r
+}
+
+// `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
+// same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
+@(private)
+coop_crash :: proc(g: Game, joiner: ^Proc, host_args: []string, window: bool, place: Window_Opts) -> Result {
+	host_run := Tool_Run {
+		dir    = g.dir,
+		script = "res://game/tools/coop.gd",
+		args   = host_args,
+		window = window,
+		shots  = window ? "coop" : "",
+		place  = place,
+	}
+	host := start(
+		{
+			cmd = tool_cmd(host_run),
+			capture = true,
+			timeout = 300 * time.Second,
+			log_to = join(g.dir, ".out", "coop_host"),
+		},
+	)
+	first := wait(joiner)
+	log("uni: the first joiner (it kills itself mid-match):")
+	out := strings.concatenate({first.stdout, first.stderr})
+	for line in strings.split_lines(out) do if strings.contains(line, " ok ") || strings.contains(line, "FAIL") do log("%s", line)
+	crashed := strings.contains(out, "crashing (the process kills itself")
+	second_run := Tool_Run {
+		dir    = g.dir,
+		script = "res://game/tools/coop.gd",
+		args   = {"--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash"},
+		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
+	}
+	second := start(
+		{
+			cmd = tool_cmd(second_run),
+			capture = true,
+			timeout = 240 * time.Second,
+			env = second_run.env,
+			log_to = join(g.dir, ".out", "coop_rejoin"),
+		},
+	)
+	log("uni: the host:")
+	h := judge_tool(wait(&host), true)
+	log("uni: the same player again:")
+	j := judge_tool(wait(&second), true)
+	ok := crashed && h.ok && j.ok
+	return {
+		ok = ok,
+		summary = tprint(
+			"coop %s --crash: host %s, first joiner %s, the same player again %s",
+			g.name,
+			h.ok ? "ok" : "FAILED",
+			crashed ? "crashed as planned" : "DID NOT CRASH",
+			j.ok ? "ok" : "FAILED",
+		),
+	}
 }

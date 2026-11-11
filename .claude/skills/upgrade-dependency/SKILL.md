@@ -70,10 +70,11 @@ For every upgrade:
 
 ## EOS SDK
 
-- Pins in `[eos_sdk]`: `version` and the hash of each part's zip. The library names in `src/cli/eos.odin`
-  (`EOS_PARTS`, `eos_lib`) must agree with `LIB_NAME` in `src/eos/api.odin` and the games' `.gdextension`
+- Pin in `[eos_sdk]`: `version` only (the SDK is never fetched: Epic's licence). The library names in
+  `src/cli/eos.odin` (`EOS_LIB`) must agree with `LIB_NAME` in `src/eos/api.odin` and the games' `.gdextension`
   `[dependencies]`.
-- Unzip the new C SDK locally (`docs/EOS.md`, step 3), point `UNIFIED_EOS_SDK` at it (`.env`), then
-  `./uni eos upload` packs the pruned SDK into a new draft release `eos-sdk-<version>` and prints the hashes to pin.
-- Check the header layouts with `tests/eos`, then two processes through EOS and a crossplay run (`src/eos/SPEC.md`,
+- Download the new C SDK from Epic's portal on each developer machine (`docs/EOS.md`, step 3), point
+  `UNIFIED_EOS_SDK` at it (`.env`); `uni setup` checks its `eos_version.h` against the pin.
+- CI has no SDK, so the checks are local: the header layouts and library load in `tests/eos` (on each OS you can),
+  then two processes through EOS and a crossplay run (`src/eos/SPEC.md`,
   Testing and Crossplay).

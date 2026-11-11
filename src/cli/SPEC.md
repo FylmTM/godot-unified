@@ -12,8 +12,10 @@ Installed by the developer, nothing else: **Odin** at the exact pinned version (
 (clang on macOS and Linux; Visual Studio Build Tools on Windows: its linker and the Windows SDK), **git** and **curl**
 (shipped with macOS, Windows 10+ and Linux). An Odin other than the pinned tag and commit is refused with the pin;
 nothing downloads Odin locally (a downloading shim is #95). CI installs the pinned Odin with
-`.github/actions/odin`, which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D, the EOS
-SDK) the CLI fetches or builds, pinned and hash-checked. Nothing it builds is C or C++.
+`.github/actions/odin`, which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D) the CLI
+fetches or builds, pinned and hash-checked. Nothing it builds is C or C++. The EOS SDK is the exception: Epic's
+licence keeps it out of the repo and CI, so a machine that plays online downloads it from Epic and names it with
+`UNIFIED_EOS_SDK` (`docs/EOS.md`).
 
 ## Layout
 
@@ -34,11 +36,10 @@ SDK) the CLI fetches or builds, pinned and hash-checked. Nothing it builds is C 
     timings.json      each command line's last time against its budget
 ```
 
-Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); the EOS SDK lives
-under `third_party/` in the `unified` checkout (the submodule in a game repo); its bindings name it by relative path
-(`foreign import`). Every Odin build gets two collections: `unified` (`src/`) and `box3d` (unified-box3d,
-imported as `box3d:bindings`). A game is a directory
-with `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
+Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); the EOS SDK stays where
+`UNIFIED_EOS_SDK` points (its library is loaded at run time, never linked). Every Odin build gets two collections:
+`unified` (`src/`) and `box3d` (unified-box3d, imported as `box3d:bindings`). A game is a directory with
+`project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
 when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the game only: never the submodule, which
 `unified`'s own CI proves.
 
@@ -67,7 +68,7 @@ when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the g
 ## Pins
 
 `pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so a workflow that
-runs no repository code (`eos-sdk.yml`, `.github/actions/odin`) reads it with `sed`. Odin is pinned by tag and
+runs no repository code (`.github/actions/odin`) reads it with `sed`. Odin is pinned by tag and
 commit. CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
 compile, the compiler's version), never from tool sources.
 
@@ -85,14 +86,14 @@ Public (`unified:cli`, every project):
 | Command | What |
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
-| `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the `third_party/` dependencies, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
+| `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window` |
 | `test [game] [--suite s,...] [--only name,...] [--long]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
-| `coop [game] [--window [--mute] [--screen s]] [--rejoin] [--lan]` | host and joiner processes, a real lobby |
+| `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |
@@ -106,7 +107,6 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 |---|---|
 | `godot-gen [--force]` | the Godot bindings, `src/gdext/*.gen.odin` (every command that needs them generates them when stale) |
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
-| `eos upload` | pack the pruned EOS SDK per platform (reproducible zips) and upload it to the draft release |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
 | `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule, then that game's `build`, `test --suite all` and `verify` |
@@ -143,7 +143,7 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
     `validate`, `walk` (`ui_walk.gd`), `tour` (quick). A step the game can't run prints `skipped: <why>`. Several
     games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
-    parent first makes current what they share (Godot, the bindings, Box3D, the EOS SDK).
+    parent first makes current what they share (Godot, the bindings, Box3D).
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
     desyncs (`.out/net.json`, `.out/net/`).
@@ -181,9 +181,10 @@ Odin files are formatted after the name is put in (it changes line lengths).
   (`$ORIGIN`, `@loader_path`; the library's install name is `@rpath/libbox3d.dylib`, its soname `libbox3d.so`) and
   the Windows DLL search find it. A game's `.gdextension` lists it under `[dependencies]`: Godot loads it from the
   extension's folder and an export ships it.
-- **EOS SDK:** from the local SDK `UNIFIED_EOS_SDK` names, else this host's part of the draft release (needs `gh`),
-  staged in `third_party/eos/`; the library is copied next to the game library. Missing: a warning for `build`, an
-  error for `release`.
+- **EOS SDK:** never fetched: the SDK `UNIFIED_EOS_SDK` names (downloaded from Epic's portal), its
+  `SDK/Include/eos_version.h` checked against `[eos_sdk] version`; a game's build copies this host's library next
+  to the game library. Missing: online play is off (a note for `build`; `setup` lists it as optional); `release`
+  fails unless `--no-eos` (CI's LAN-only packages).
 - **odinfmt:** built from the pinned OLS commit into `.out/odinfmt/`; no other odinfmt is used.
 
 ## Testing

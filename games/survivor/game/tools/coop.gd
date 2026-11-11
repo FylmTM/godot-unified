@@ -7,12 +7,17 @@ extends SceneTree
 ## see the disconnect on its menu. With --rejoin (both roles), the joiner leaves mid-match and joins again with the
 ## same code (a late join into the running match) before the host leaves. Prints steps and `UNIFIED_RESULT {...}`; exits
 ## 1 on failure.
+## With --crash, the joiner kills its own process mid-match (no goodbye, like a crash) and `uni coop --crash` starts
+## another with --after-crash and the same EOS identity: the host times how long it takes to have the friend back,
+## the second joiner how long from entering the code to playing again.
 
 var cap: Logger
 var role := ""
 var code_file := ""
 var shots_dir := ""
 var rejoin := false
+var crash := false
+var after_crash := false
 var _t0 := 0
 var _started := false
 var _failed := ""
@@ -32,6 +37,10 @@ func _init() -> void:
 			shots_dir = a.trim_prefix("--shots=")
 		elif a == "--rejoin":
 			rejoin = true
+		elif a == "--crash":
+			crash = true
+		elif a == "--after-crash":
+			after_crash = true
 
 
 func _process(_delta: float) -> bool:
@@ -81,7 +90,16 @@ func _host(game: Node) -> void:
 		Input.action_release(dirs[floori(i / 8.0) % 4])
 	await _shot("c03_coop_match")
 	_step("co-op match: %d enemies" % game.hud.enemies_alive)
-	if rejoin:
+	if crash:
+		var t := Time.get_ticks_msec()
+		await _wait_for(func() -> bool: return _present(game) == 1, 60.0, "the crashed friend drops out")
+		_step("friend dropped out after %.1f s: %s" % [(Time.get_ticks_msec() - t) / 1000.0, _names(game)])
+		t = Time.get_ticks_msec()
+		await _wait_for(func() -> bool: return _present(game) >= 2, 120.0, "the friend is back")
+		_step("friend back %.1f s after dropping out: %s" % [(Time.get_ticks_msec() - t) / 1000.0, _names(game)])
+		await _seconds(4.0)
+		_step("co-op again: phase %s, %d enemies" % [game.hud.get("phase"), game.hud.enemies_alive])
+	elif rejoin:
 		await _wait_for(func() -> bool: return _present(game) == 1, 30.0, "the friend leaves")
 		_step("friend left: %s" % _names(game))
 		await _wait_for(func() -> bool: return _present(game) >= 2, 60.0, "the friend rejoins")
@@ -97,12 +115,26 @@ func _host(game: Node) -> void:
 func _join(game: Node) -> void:
 	await _wait_for(func() -> bool: return FileAccess.file_exists(code_file) and FileAccess.get_file_as_string(code_file).length() == 6, 60.0, "the host's code")
 	var code := FileAccess.get_file_as_string(code_file)
+	if after_crash:
+		# The same player, back after its game crashed: the match is running already.
+		var t := Time.get_ticks_msec()
+		await _enter_code(code)
+		await _wait_for(func() -> bool: return _scene_is("Arena") and _present(game) >= 2 and game.hud.get("phase") == "match", 120.0, "back in the match after the crash")
+		_step("back in the match %.1f s after entering the code, slot %d: %s" % [(Time.get_ticks_msec() - t) / 1000.0, game.hud.local_slot, _names(game)])
+		await _wait_for(func() -> bool: return _scene_is("MainMenu"), 60.0, "back on the menu when the host leaves")
+		return
 	await _enter_code(code)
 	await _wait_for(func() -> bool: return _scene_is("Arena"), 30.0, "joiner arena")
 	await _wait_for(func() -> bool: return _present(game) >= 2, 30.0, "both players in the lobby")
 	_step("joined as slot %d: %s" % [game.hud.local_slot, _names(game)])
 	await _wait_for(func() -> bool: return game.hud.get("phase") == "match", 40.0, "the host starts the match")
 	_step("match started (seen by the joiner)")
+	if crash:
+		await _seconds(6.0)
+		_step("crashing (the process kills itself: no leave, no goodbye)")
+		print("UNIFIED_RESULT " + JSON.stringify({"ok": true, "role": role, "steps": _steps, "crashed": true}))
+		OS.kill(OS.get_process_id())
+		return
 	if rejoin:
 		await _seconds(10.0)
 		game.leave_to_menu()

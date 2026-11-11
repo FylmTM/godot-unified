@@ -10,10 +10,10 @@
 #   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
 #   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
 #
-# Security: every job that runs repository code has `contents: read`. The EOS SDK (a draft-release asset, which
-# needs a write token to list) comes from eos-sdk.yml as a cache entry. Actions are pinned by commit, runner
-# images by version (an image update can change compilers, so it is a deliberate bump), and every download by its
-# SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
+# Security: jobs read only (`contents: read`; the nightly check also `actions: read`) and CI holds no secrets:
+# no EOS SDK and no EOS credentials (Epic's licence keeps the SDK out; its tests run where a developer has it).
+# Actions are pinned by commit, runner images by version (an image update can change compilers, so it is a
+# deliberate bump), and every download by its SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
 name: ci
 
 on:
@@ -78,17 +78,10 @@ jobs:
       - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
         run: ./uni vet
 
-  eos-sdk:
-    needs: nightly
-    if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
-    uses: ./.github/workflows/eos-sdk.yml
-    permissions:
-      contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
-
   test:
     name: test / ${{ matrix.platform }}
-    needs: [nightly, eos-sdk]
-    if: ${{ !cancelled() && needs.eos-sdk.result == 'success' }}
+    needs: nightly
+    if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
     runs-on: >-
       ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
       "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
@@ -112,13 +105,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/odin
-      # EOS SDK (headers + libraries): the bindings' layout check and the library load test in tests/eos.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: third_party/eos
-          key: ${{ needs.eos-sdk.outputs.cache-key }}
-          enableCrossOsArchive: true
-          fail-on-cache-miss: true
       # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
         run: $UNI test

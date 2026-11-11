@@ -11,8 +11,9 @@ import "unified:cli"
 // Windows) in <game>/.out/release/: <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip)
 // unpacking to one folder of the same name with the app, and its .sha256. The same command runs locally and in
 // .github/workflows/release.yml (tag builds). Steps, each failing loudly:
-//   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK must be staged and the EOS
-//      IDs (EOS_* in the environment: .env holds UNIFIED_* only) set, and their values must end up in the library,
+//   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK (UNIFIED_EOS_SDK) and the EOS
+//      IDs (UNIFIED_EOS_*, the environment or .env) must be there, and their values must end up in the library;
+//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library,
 //   2. the pinned Godot and this host's export templates (pulled out of the official archive with HTTP range reads,
 //      each file checked against its pin) in Godot's own folder,
 //   3. the version stamped into project.godot and the export preset's version keys for the export (the files are
@@ -60,6 +61,7 @@ cmd_release :: proc(args: []string) -> cli.Result {
 		game:     string `args:"pos=0" usage:"the game (default: the tag's, or the only one)"`,
 		version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
 		tag:      string `usage:"a release tag, <game>-v<version>: the game and version come from it"`,
+		no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
 		no_smoke: bool `usage:"skip the smoke test"`,
 	}
 	opts: Opts
@@ -88,7 +90,7 @@ cmd_release :: proc(args: []string) -> cli.Result {
 	if !valid_version(version) {
 		cli.usage("bad version %q (letters, digits, . + - only)", version)
 	}
-	return release_build(g, version, !opts.no_smoke)
+	return release_build(g, version, !opts.no_smoke, opts.no_eos)
 }
 
 // <game>-v<version> -> game, version
@@ -151,13 +153,17 @@ step :: proc(name: string) -> time.Tick {
 	return time.tick_now()
 }
 
-release_build :: proc(g: cli.Game, version: string, smoke_test: bool) -> cli.Result {
+release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bool) -> cli.Result {
 	start := time.tick_now()
 	if !os.is_file(cli.join(g.dir, "export_presets.cfg")) {
 		cli.fatal("%s has no export_presets.cfg", g.name)
 	}
 	uses_eos := cli.extension_uses_eos(g)
-	if uses_eos {
+	if uses_eos && no_eos {
+		// nothing of EOS goes in: no IDs compiled in (whatever this shell holds), no SDK library shipped
+		for k in cli.EOS_ENV_DEFINES do os.unset_env(k)
+		cli.log("release: --no-eos: single player and LAN only, no online play")
+	} else if uses_eos {
 		missing: [dynamic]string
 		for k in cli.EOS_ENV_DEFINES {
 			if os.get_env(k, context.temp_allocator) == "" {
@@ -166,13 +172,13 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool) -> cli.Res
 		}
 		if len(missing) > 0 {
 			cli.fatal(
-				"%s's extension imports unified:eos: set %s in the environment (.env holds UNIFIED_* only)",
+				"%s's extension imports unified:eos: set %s (the environment or .env), or build with --no-eos",
 				g.name,
 				strings.join(missing[:], ", "),
 			)
 		}
-		if problem := cli.ensure_eos(); problem != "" {
-			cli.fatal("the EOS SDK: %s", problem)
+		if problem := cli.eos_problem(); problem != "" {
+			cli.fatal("the EOS SDK: %s (or build with --no-eos)", problem)
 		}
 	}
 	t := step("game extension (release)")
@@ -183,7 +189,7 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool) -> cli.Res
 			cli.fatal("the .gdextension names %s, which the build did not produce", l)
 		}
 	}
-	if uses_eos {
+	if uses_eos && !no_eos {
 		check_embedded(libs)
 	}
 	cli.log("release: extension in %.1fs", cli.seconds_since(t))
@@ -196,13 +202,15 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool) -> cli.Res
 	{
 		restore := stamp_version(g, version)
 		defer restore_files(restore)
+		unship := no_eos ? drop_eos_dependency(g) : nil // restored with the version, after the export
+		defer restore_files(unship)
 		godot_step(godot, g, {"--import"}, "import", 600)
 		target = export(godot, g)
 	}
 	check_version(target, version)
 	files: [dynamic]string
 	append(&files, ..libs)
-	append(&files, ..release_dependencies(g))
+	for d in release_dependencies(g) do if !(no_eos && is_eos_lib(d)) do append(&files, d)
 	check_payload(target, files[:])
 	zip := cli.join(
 		g.dir,
@@ -687,7 +695,7 @@ smoke :: proc(zip, name: string) {
 NOTES ::
 	`Test build of **%[0]s %[1]s** (commit ` +
 	"`%[2]s`" +
-	`). Unsigned prerelease for playtesting only.
+	`). Unsigned prerelease for playtesting only.%[5]s
 
 ## Download
 
@@ -731,8 +739,9 @@ Each zip unpacks to a folder of the same name with the game inside.
 // The prerelease notes (markdown) for a tag.
 release_notes :: proc(args: []string) -> cli.Result {
 	Opts :: struct {
-		game: string `args:"pos=0" usage:"the game (default: the tag's)"`,
-		tag:  string `args:"required" usage:"the release tag, <game>-v<version>"`,
+		game:   string `args:"pos=0" usage:"the game (default: the tag's)"`,
+		tag:    string `args:"required" usage:"the release tag, <game>-v<version>"`,
+		no_eos: bool `usage:"the packages were built with --no-eos: say they have no online play"`,
 	}
 	opts: Opts
 	cli.parse(&opts, args)
@@ -745,6 +754,42 @@ release_notes :: proc(args: []string) -> cli.Result {
 	if text, ok := cli.read_text(cli.join(g.dir, "RELEASE_NOTES.md")); ok {
 		extra = cli.tprint("\n%s", text)
 	}
-	notes := cli.tprint(NOTES, g.name, version, short_commit(g.dir), release_label(version), extra)
+	lan := opts.no_eos ? "\n\n**Single player and LAN only:** this build has no online play (no EOS)." : ""
+	notes := cli.tprint(NOTES, g.name, version, short_commit(g.dir), release_label(version), extra, lan)
 	return {ok = true, summary = strings.trim_right(notes, "\n")}
+}
+
+is_eos_lib :: proc(path: string) -> bool {
+	return strings.contains(path, "EOSSDK")
+}
+
+// --no-eos: each .gdextension's [dependencies] without the EOS SDK library, for the export (it would fail on the
+// missing file). A line is `key = { "res://a": "dir", "res://b": "dir" }`. Returns the original bytes for
+// `restore_files`.
+drop_eos_dependency :: proc(g: cli.Game) -> []Saved_File {
+	saved: [dynamic]Saved_File
+	for ext in cli.gdextensions(g.dir) {
+		text := cli.must_read(ext)
+		lines := strings.split(text, "\n")
+		section := ""
+		for &line in lines {
+			l := strings.trim_space(line)
+			if strings.has_prefix(l, "[") do section = l
+			open, close := strings.index_byte(line, '{'), strings.last_index_byte(line, '}')
+			if section != "[dependencies]" || !strings.contains(line, "EOSSDK") || open < 0 || close < open do continue
+			kept: [dynamic]string
+			for raw in strings.split(line[open + 1:close], `, "`) {
+				e := strings.trim_space(raw)
+				if strings.contains(e, "EOSSDK") do continue
+				append(&kept, strings.has_prefix(e, `"`) ? e : cli.tprint(`"%s`, e))
+			}
+			body := strings.join(kept[:], ", ")
+			pad := len(kept) > 0 ? " " : ""
+			// (not fmt: a brace in a format string starts an argument index)
+			line = strings.concatenate({line[:open], "{", pad, body, pad, "}"}, context.temp_allocator)
+		}
+		append(&saved, Saved_File{ext, text})
+		cli.write_text(ext, strings.join(lines, "\n"))
+	}
+	return saved[:]
 }

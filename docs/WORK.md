@@ -114,9 +114,9 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
 - **Release:** the git tag is the only source of a build's version (`uni release` stamps it into the export;
   the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
   (`survivor/4` at protocol 6); `sim.compat_of` refuses a peer with another build.
-- **Tooling:** `uni verify` is exactly what CI runs; every `uni` command takes the game positionally. CI: only
-  `eos-sdk.yml` has a write token (it runs no repo code); runners, actions (by SHA) and downloads (SHA-256) are
-  pinned.
+- **Tooling:** `uni verify` is exactly what CI runs; every `uni` command takes the game positionally. CI: no write
+  token outside the release publish job, and no secrets: the EOS SDK and IDs stay off CI (Epic's licence; CI's release
+  packages are LAN-only, developer, 2026-11-12); runners, actions (by SHA) and downloads (SHA-256) are pinned.
 - **Dev UI: Godot's own controls**, driven from Odin (developer, 2026-11-11). It replaced Dear ImGui: a spike measured
   the same frame cost (+0.1 ms shown), with no C++ dependency, real text editing, Godot's input routing and native
   OS windows; `src/devui/SPEC.md`.

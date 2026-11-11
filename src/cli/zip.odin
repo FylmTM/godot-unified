@@ -7,7 +7,7 @@ import "core:os"
 import "core:strings"
 
 // Zip archives (SPEC.md, Dependencies): reading the Godot editor, export templates (straight from the 1.3 GB
-// archive over HTTP byte ranges) and the EOS SDK parts, writing the EOS SDK parts and Windows release zips. Stored
+// archive over HTTP byte ranges), writing Windows release zips. Stored
 // and deflated members, Zip64 sizes, Unix modes and symlinks.
 
 Zip_Entry :: struct {

@@ -1,7 +1,7 @@
 // The hand-written SDK bindings against the real headers: a generated C program prints sizeof and
 // offsetof for every bound struct and the value of every constant we copied, and the test compares
-// them with the Odin side. Needs the SDK in third_party/eos (uni setup) and a C
-// compiler (clang or cc); skipped with a log line otherwise. Re-run after any SDK upgrade.
+// them with the Odin side. Needs the SDK UNIFIED_EOS_SDK names (the environment or .env; CI has none) and
+// a C compiler (clang or cc); skipped with a log line otherwise. Re-run after any SDK upgrade.
 package test_eos
 
 import "core:fmt"
@@ -16,8 +16,16 @@ import "core:testing"
 
 import "unified:eos"
 
-INCLUDE_DIR :: #directory + "/../../third_party/eos/SDK/Include"
-LIB_DIR :: #directory + "/../../third_party/eos/SDK/Bin"
+OUT_DIR :: #directory + "/../../.out"
+
+// The SDK's SDK/ folder from UNIFIED_EOS_SDK (its root or SDK/ itself), or "" when it isn't set.
+sdk_dir :: proc() -> string {
+	p := os.get_env("UNIFIED_EOS_SDK", context.temp_allocator)
+	if p == "" do return ""
+	if filepath.base(p) == "SDK" do return p
+	d, _ := filepath.join({p, "SDK"}, context.temp_allocator)
+	return d
+}
 
 Layout :: struct {
 	odin:   typeid,
@@ -223,8 +231,9 @@ CONSTANTS := []Constant {
 
 @(test)
 bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
-	if !os.exists(INCLUDE_DIR + "/eos_sdk.h") {
-		log.info("EOS SDK headers not staged (uni setup); layout check skipped")
+	include := fmt.tprintf("%s/Include", sdk_dir())
+	if sdk_dir() == "" || !os.exists(fmt.tprintf("%s/eos_sdk.h", include)) {
+		log.info("no EOS SDK (UNIFIED_EOS_SDK); layout check skipped")
 		return
 	}
 	cc := ""
@@ -255,13 +264,13 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	}
 	fmt.sbprintln(&b, "return 0; }")
 
-	// The probe's output only depends on its source and the headers (pinned by VERSION): a stamp
-	// next to the staged SDK skips the compile when both are unchanged.
+	// The probe's output only depends on its source and the headers (their version): a stamp in the
+	// repo's .out/ skips the compile when both are unchanged.
 	probe := strings.to_string(b)
-	version, _ := os.read_entire_file(INCLUDE_DIR + "/../../VERSION", context.temp_allocator)
+	version, _ := os.read_entire_file(fmt.tprintf("%s/eos_version.h", include), context.temp_allocator)
 	stamp := fmt.tprintf(
-		"%s/../../layout-%16x.ok",
-		INCLUDE_DIR,
+		"%s/eos-layout-%16x.ok",
+		OUT_DIR,
 		hash.fnv64a(transmute([]u8)strings.concatenate({probe, string(version)}, context.temp_allocator)),
 	)
 	if os.exists(stamp) {
@@ -276,7 +285,7 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	testing.expect(t, os.write_entire_file(src, transmute([]u8)probe) == nil)
 	defer os.remove(src)
 	defer os.remove(exe)
-	st, _, cerr, err := os.process_exec({command = {cc, "-I", INCLUDE_DIR, "-o", exe, src}}, context.temp_allocator)
+	st, _, cerr, err := os.process_exec({command = {cc, "-I", include, "-o", exe, src}}, context.temp_allocator)
 	if !testing.expectf(
 		t,
 		err == nil && st.exit_code == 0,
@@ -357,13 +366,13 @@ find_on_path :: proc(name: string) -> (string, bool) {
 	return "", false
 }
 
-// The staged SDK library for this OS loads, every bound function resolves, and EOS initializes
-// (no credentials or network needed). This is what proves the Windows DLL in CI.
+// The SDK's library for this OS loads, every bound function resolves, and EOS initializes (no
+// credentials or network needed). Local only: CI has no SDK.
 @(test)
 sdk_library_loads :: proc(t: ^testing.T) {
-	path := LIB_DIR + "/" + eos.LIB_NAME
-	if !os.exists(path) {
-		log.info("EOS SDK library not staged (uni setup); load check skipped")
+	path := fmt.tprintf("%s/Bin/%s", sdk_dir(), eos.LIB_NAME)
+	if sdk_dir() == "" || !os.exists(path) {
+		log.info("no EOS SDK library (UNIFIED_EOS_SDK); load check skipped")
 		return
 	}
 	api: eos.Api

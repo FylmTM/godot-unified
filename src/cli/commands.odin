@@ -19,7 +19,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "clean",
 				usage = "[--check]",
-				summary = "remove what the CLI built or fetched (.out/, .godot/, third_party/ dependencies, generated bindings)",
+				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings)",
 				budget = 5,
 				run = cmd_clean,
 			},
@@ -73,7 +73,7 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "coop",
-				usage = "[game] [--window [--mute] [--screen s]] [--rejoin] [--lan]",
+				usage = "[game] [--window [--mute] [--screen s]] [--rejoin | --crash] [--lan]",
 				summary = "host and joiner processes in a real lobby (EOS, or --lan)",
 				no_budget = "networked",
 				run = cmd_coop,
