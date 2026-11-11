@@ -205,8 +205,9 @@ when ODIN_OS == .Windows {
 			return nil
 		}
 		vcvars := join(vs, "VC", "Auxiliary", "Build", "vcvarsall.bat")
+		// Separate arguments: Odin quotes each one that needs it (a hand-quoted cmd line gets quoted again).
 		r := run_proc(
-			{cmd = {"cmd", "/s", "/c", tprint(`""%s" x64 >nul && set"`, vcvars)}, capture = true, quiet = true},
+			{cmd = strs("cmd", "/c", "call", vcvars, "x64", ">nul", "&&", "set"), capture = true, quiet = true},
 		)
 		if !r.ok {
 			log("uni: warning: vcvarsall.bat failed: %s", strings.trim_space(r.stderr))
