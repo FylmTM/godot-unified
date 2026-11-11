@@ -165,7 +165,7 @@ ensure_imported :: proc(dir: string) -> []string {
 	}
 	write_text(stamp, import_signature(dir)) // the import may have added .uid files
 	cold(tprint("Godot import of %s", os.base(dir)))
-	log("unified: imported %s in %.1fs", rel(dir), seconds_since(start))
+	log("uni: imported %s in %.1fs", rel(dir), seconds_since(start))
 	return exts
 }
 
@@ -278,7 +278,7 @@ judge_tool :: proc(r: Ran, echo: bool) -> Tool_Result {
 		log("%s", tail(out, 6000))
 	}
 	for p in problems {
-		log("unified: %s", p)
+		log("uni: %s", p)
 	}
 	return res
 }

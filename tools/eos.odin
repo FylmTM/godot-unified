@@ -80,7 +80,7 @@ cmd_eos :: proc(args: []string) -> cli.Result {
 					"--title",
 					cli.tprint("EOS SDK %s (CI dependency)", version),
 					"--notes",
-					"Pruned EOS C SDK for CI (headers + macOS/Windows/Linux x64+arm64 shipping libraries). Fetched by `unified setup`. Not a game release; never publish.",
+					"Pruned EOS C SDK for CI (headers + macOS/Windows/Linux x64+arm64 shipping libraries). Fetched by `uni setup`. Not a game release; never publish.",
 				),
 			},
 			"creating the release",

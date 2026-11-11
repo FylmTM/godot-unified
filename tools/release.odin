@@ -49,7 +49,7 @@ when ODIN_OS == .Darwin {
 	}
 }
 
-SMOKE_MARKER :: "unified: extension initialized"
+SMOKE_MARKER :: "uni: extension initialized"
 SMOKE_FRAMES :: 300 // at --max-fps 60: ~5 s
 
 cmd_release :: proc(args: []string) -> cli.Result {

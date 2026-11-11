@@ -78,14 +78,14 @@ cmd_init :: proc(args: []string) -> Result {
 		n += 1
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
-	for shim in ([]string{"unified", "unified.cmd"}) {
+	for shim in ([]string{"uni", "uni.cmd"}) {
 		copy_file(join(dir, shim), join(state.project.unified, shim))
 	}
-	os.change_mode(join(dir, "unified"), os.perm_number(0o755))
+	os.change_mode(join(dir, "uni"), os.perm_number(0o755))
 	return {
 		ok = true,
 		summary = tprint(
-			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && ./unified run",
+			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && ./uni run",
 			name,
 			n,
 			opts.dir,

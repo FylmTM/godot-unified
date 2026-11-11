@@ -24,10 +24,10 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 	ok := true
 	for g in games {
 		skip :: proc(g: Game, step, why: string) {
-			log("unified: %s %s: skipped: %s", g.name, step, why)
+			log("uni: %s %s: skipped: %s", g.name, step, why)
 		}
 		pass :: proc(g: Game, step: string, passed: bool, secs: f64) -> bool {
-			log("unified: %s %s: %s (%.1fs)", g.name, step, passed ? "ok" : "FAILED", secs)
+			log("uni: %s %s: %s (%.1fs)", g.name, step, passed ? "ok" : "FAILED", secs)
 			return passed
 		}
 		if has_extension(g) {
@@ -96,10 +96,10 @@ editor_check :: proc(g: Game) -> bool {
 	errs := godot_errors(out)
 	loaded := strings.contains(out, "unified: extension initialized (editor)")
 	for e in errs {
-		log("unified: %s editor: %s", g.name, e)
+		log("uni: %s editor: %s", g.name, e)
 	}
 	if !loaded {
-		log("unified: %s editor: the extension did not load", g.name)
+		log("uni: %s editor: the extension did not load", g.name)
 	}
 	return r.ok && len(errs) == 0 && loaded
 }
@@ -130,12 +130,12 @@ session_vs_offline :: proc(g: Game, ticks, seed: int) -> bool {
 	obj, has := res.(json.Object)
 	if !has {
 		log("%s", tail(strings.concatenate({r.stdout, r.stderr}), 4000))
-		log("unified: %s session: no result line", g.name)
+		log("uni: %s session: no result line", g.name)
 		return false
 	}
 	ok := r.ok && len(errs) == 0 && json_int(obj["final_tick"]) == ticks
 	for e in errs {
-		log("unified: %s session: %s", g.name, e)
+		log("uni: %s session: %s", g.name, e)
 	}
 	mine := checksums(obj["checksums"])
 	ref := offline_checksums(g, ticks, seed)
@@ -144,13 +144,13 @@ session_vs_offline :: proc(g: Game, ticks, seed: int) -> bool {
 		if m, found := mine[t]; found {
 			compared += 1
 			if m != c {
-				log("unified: %s session: checksum at tick %d is %s, the offline binary's %s", g.name, t, m, c)
+				log("uni: %s session: checksum at tick %d is %s, the offline binary's %s", g.name, t, m, c)
 				ok = false
 			}
 		}
 	}
 	if compared == 0 {
-		log("unified: %s session: no checksum to compare with the offline binary", g.name)
+		log("uni: %s session: no checksum to compare with the offline binary", g.name)
 		ok = false
 	}
 	return ok
@@ -211,7 +211,7 @@ offline_checksums :: proc(g: Game, ticks, seed: int) -> map[int]string {
 			}
 		}
 	}
-	log("unified: the offline binary printed no checksums:\n%s", tail(strings.concatenate({r.stdout, r.stderr}), 2000))
+	log("uni: the offline binary printed no checksums:\n%s", tail(strings.concatenate({r.stdout, r.stderr}), 2000))
 	return nil
 }
 
@@ -333,7 +333,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	case 2:
 		g, name = game(pos[0]), pos[1]
 	case:
-		usage("name the script: unified tool [game] <script>")
+		usage("name the script: uni tool [game] <script>")
 	}
 	script := tool_script(g, name)
 	if script == "" {
@@ -376,7 +376,7 @@ clear_shader_cache :: proc(g: Game) {
 	if ok {
 		dir := join(godot_user_dir(), "app_userdata", name, "shader_cache")
 		remove_tree(dir)
-		log("unified: cleared the shader caches of %s", g.name)
+		log("uni: cleared the shader caches of %s", g.name)
 	}
 }
 
@@ -458,7 +458,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		},
 	)
 	jr := wait(&joiner)
-	log("unified: the joiner:")
+	log("uni: the joiner:")
 	join := judge_tool(jr, true)
 	ok := host.ok && join.ok
 	return {
@@ -516,7 +516,7 @@ bake :: proc(g: Game, check: bool) -> Tool_Result {
 				if l, iso := lv.(json.Object); iso {
 					changed, _ := l["changed"].(json.Boolean)
 					log(
-						"unified: %s -> %s (%d bytes%s)",
+						"uni: %s -> %s (%d bytes%s)",
 						json_string(l["scene"]),
 						json_string(l["level"]),
 						json_int(l["bytes"]),

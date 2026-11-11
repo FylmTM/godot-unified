@@ -103,7 +103,7 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	}
 	cmd := find_command(argv[0])
 	if cmd == nil {
-		log("unified: unknown command %q (unified help lists them)", argv[0])
+		log("uni: unknown command %q (uni help lists them)", argv[0])
 		os.exit(2)
 	}
 	state.command = cmd
@@ -122,8 +122,8 @@ find_command :: proc(name: string) -> ^Command {
 }
 
 print_help :: proc() {
-	fmt.println("unified: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
-	fmt.println("usage: unified <command> [options] [--json]   (unified <command> -h: its options and budget)\n")
+	fmt.println("uni: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
+	fmt.println("usage: uni <command> [options] [--json]   (uni <command> -h: its options and budget)\n")
 	width := 0
 	for c in state.commands {
 		width = max(width, len(c.name) + 1 + len(c.usage))
@@ -150,8 +150,8 @@ budget_text :: proc(c: ^Command) -> string {
 parse :: proc(opts: ^$T, args: []string) {
 	if slice.contains(args, "-h") || slice.contains(args, "--help") {
 		c := state.command
-		fmt.printf("usage: unified %s %s\n%s\n%s\n\n", c.name, c.usage, c.summary, budget_text(c))
-		flags.write_usage(os.to_stream(os.stdout), T, tprint("unified %s", c.name), .Unix)
+		fmt.printf("usage: uni %s %s\n%s\n%s\n\n", c.name, c.usage, c.summary, budget_text(c))
+		flags.write_usage(os.to_stream(os.stdout), T, tprint("uni %s", c.name), .Unix)
 		os.exit(0)
 	}
 	if err := flags.parse(opts, args, .Unix); err != nil {
@@ -172,13 +172,13 @@ usage_error :: proc(err: flags.Error) -> ! {
 	case flags.Help_Request:
 		msg = "-h prints the usage"
 	}
-	log("unified %s: %s (unified %s -h)", state.command.name, msg, state.command.name)
+	log("uni %s: %s (uni %s -h)", state.command.name, msg, state.command.name)
 	os.exit(2)
 }
 
 // Stops with a usage error (exit 2).
 usage :: proc(format: string, args: ..any) -> ! {
-	log("unified %s: %s (unified %s -h)", state.command.name, tprint(format, ..args), state.command.name)
+	log("uni %s: %s (uni %s -h)", state.command.name, tprint(format, ..args), state.command.name)
 	os.exit(2)
 }
 
@@ -201,7 +201,7 @@ finish :: proc(r: Result) -> ! {
 			data, err = json.marshal(r.data)
 		}
 		if err != nil {
-			log("unified: cannot encode the result as JSON: %v", err)
+			log("uni: cannot encode the result as JSON: %v", err)
 			os.exit(1)
 		}
 		// {"command":...,"cold":[...],"data":<the command's data>}
@@ -216,10 +216,10 @@ finish :: proc(r: Result) -> ! {
 fatal :: proc(format: string, args: ..any) -> ! {
 	msg := tprint(format, ..args)
 	if state.command == nil {
-		log("unified: %s", msg)
+		log("uni: %s", msg)
 		os.exit(1)
 	}
-	log("unified %s: %s", state.command.name, msg)
+	log("uni %s: %s", state.command.name, msg)
 	finish({ok = false, summary = msg})
 }
 
@@ -262,7 +262,7 @@ report_timing :: proc(secs: f64, ok: bool) {
 			entry.over = true
 			note = tprint(" (budget %.0fs)", allowed)
 			log(
-				"unified: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
+				"uni: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
 				strings.join(state.argv, " ", context.temp_allocator),
 				secs,
 				allowed,
@@ -272,7 +272,7 @@ report_timing :: proc(secs: f64, ok: bool) {
 		}
 	}
 	what := strings.join(state.argv, " ", context.temp_allocator)
-	log("unified: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
+	log("uni: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
 	// .out/timings.json keeps each command line's last run (CI's job summary shows it).
 	path := join(state.project.out, "timings.json")
 	timings: map[string]Entry

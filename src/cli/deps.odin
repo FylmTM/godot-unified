@@ -17,7 +17,7 @@ MACOS_MIN :: "11.0"
 download :: proc(url, dest, sha256, what: string) {
 	make_dirs(os.dir(dest))
 	part := tprint("%s.part", dest)
-	log("unified: downloading %s", url)
+	log("uni: downloading %s", url)
 	must_run(
 		{
 			cmd = {curl(), "-fL", "--retry", "5", "--retry-all-errors", "--silent", "--show-error", "-o", part, url},
@@ -143,7 +143,7 @@ build_static_lib :: proc(t: C_Toolchain, compiler: string, flags, sources: []str
 			quiet   = true,
 		}
 	}
-	log("unified: compiling %d sources with %s", len(sources), os.base(compiler))
+	log("uni: compiling %d sources with %s", len(sources), os.base(compiler))
 	for r, i in run_all(runs, os.get_processor_core_count()) {
 		if !r.ok {
 			log("%s%s", r.stdout, r.stderr)
@@ -201,9 +201,7 @@ when ODIN_OS == .Windows {
 		}
 		vs := vs_install_path()
 		if vs == "" {
-			log(
-				"unified: warning: Visual Studio with the C++ tools not found (vswhere); building without its environment",
-			)
+			log("uni: warning: Visual Studio with the C++ tools not found (vswhere); building without its environment")
 			return nil
 		}
 		vcvars := join(vs, "VC", "Auxiliary", "Build", "vcvarsall.bat")
@@ -211,7 +209,7 @@ when ODIN_OS == .Windows {
 			{cmd = {"cmd", "/s", "/c", tprint(`""%s" x64 >nul && set"`, vcvars)}, capture = true, quiet = true},
 		)
 		if !r.ok {
-			log("unified: warning: vcvarsall.bat failed: %s", strings.trim_space(r.stderr))
+			log("uni: warning: vcvarsall.bat failed: %s", strings.trim_space(r.stderr))
 			return nil
 		}
 		env: [dynamic]string
@@ -266,7 +264,7 @@ git_checkout :: proc(dir, url, commit: string) {
 		}
 	}
 	if !gitc(g, dir, "cat-file", "-e", tprint("%s^{commit}", commit)).ok {
-		log("unified: fetching %s @ %s", url, commit[:10])
+		log("uni: fetching %s @ %s", url, commit[:10])
 		if r := gitc(g, dir, "fetch", "-q", "--depth", "1", "origin", commit); !r.ok {
 			fatal("fetching %s failed: %s", url, r.stderr)
 		}
@@ -339,7 +337,7 @@ ensure_box3d :: proc() {
 		copy_file(join(out, "include", "box3d", os.base(h)), h)
 	}
 	write_text(stamp, tprint("%s\n", key))
-	log("unified: Box3D built in %.1fs (%d sources)", time.duration_seconds(time.tick_since(start)), len(sources))
+	log("uni: Box3D built in %.1fs (%d sources)", time.duration_seconds(time.tick_since(start)), len(sources))
 }
 
 @(private)
@@ -442,7 +440,7 @@ ensure_imgui :: proc() {
 	}
 	build_static_lib(t, t.cxx, flags, sources, join(root, "obj", PLATFORM), lib)
 	write_text(stamp, tprint("%s\n", key))
-	log("unified: Dear ImGui built in %.1fs", time.duration_seconds(time.tick_since(start)))
+	log("uni: Dear ImGui built in %.1fs", time.duration_seconds(time.tick_since(start)))
 }
 
 @(private)

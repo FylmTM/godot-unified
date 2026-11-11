@@ -87,7 +87,7 @@ ensure_eos :: proc() -> (problem: string) {
 	start := time.tick_now()
 	root := eos_root()
 	if src := eos_local_sdk(); src != "" {
-		log("unified: copying the EOS SDK from %s", src)
+		log("uni: copying the EOS SDK from %s", src)
 		remove_tree(root)
 		for h in find_files(join(src, "SDK", "Include"), "") {
 			copy_file(join(root, h[len(src) + 1:]), h)
@@ -108,7 +108,7 @@ ensure_eos :: proc() -> (problem: string) {
 		tmp := join(state.project.out, "eos-download")
 		remove_tree(tmp)
 		make_dirs(tmp)
-		log("unified: downloading %s from the draft release", name)
+		log("uni: downloading %s from the draft release", name)
 		r := run_proc(
 			{
 				cmd = {
@@ -142,7 +142,7 @@ ensure_eos :: proc() -> (problem: string) {
 	if !eos_ready() {
 		return tprint("%s is incomplete after setup", root)
 	}
-	log("unified: EOS SDK %s ready in %.1fs", pin("eos_sdk", "version"), seconds_since(start))
+	log("uni: EOS SDK %s ready in %.1fs", pin("eos_sdk", "version"), seconds_since(start))
 	return ""
 }
 
@@ -166,7 +166,7 @@ stage_eos :: proc(g: Game) {
 		return
 	}
 	if problem := ensure_eos(); problem != "" {
-		log("unified: warning: EOS SDK not staged (%s); online play will be unavailable", problem)
+		log("uni: warning: EOS SDK not staged (%s); online play will be unavailable", problem)
 		return
 	}
 	src := eos_lib()

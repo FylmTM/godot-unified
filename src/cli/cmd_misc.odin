@@ -72,7 +72,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		)
 		obj, ok := last_json_object(r.stdout)
 		if !r.ok || !ok {
-			log("unified: bench %s failed (exit %d):\n%s", g.name, r.exit_code, tail(r.stderr, 2000))
+			log("uni: bench %s failed (exit %d):\n%s", g.name, r.exit_code, tail(r.stderr, 2000))
 			append(&failed, g.name)
 			continue
 		}

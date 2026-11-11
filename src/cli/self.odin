@@ -30,12 +30,12 @@ self_check :: proc(args: []string) {
 	exe, _ := os.get_executable_path(context.allocator)
 	name := os.base(exe)
 	cli_dir := os.dir(exe)
-	if strings.has_prefix(name, "unified-bootstrap") {
+	if strings.has_prefix(name, "uni-bootstrap") {
 		// Built by a shim: install this binary under its hash, then go on running it.
-		deps := join(cli_dir, "unified-bootstrap.deps.json")
+		deps := join(cli_dir, "uni-bootstrap.deps.json")
 		files, odin := read_deps(deps)
 		hash := content_hash(files)
-		target := join(cli_dir, tprint("unified-%s%s", hash[:12], EXE))
+		target := join(cli_dir, tprint("uni-%s%s", hash[:12], EXE))
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
@@ -74,13 +74,13 @@ self_check :: proc(args: []string) {
 rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	odin := which("odin")
 	if odin == "" {
-		log("unified: odin is not on PATH: install the Odin release pinned in pins.cfg (README.md, Requirements)")
+		log("uni: odin is not on PATH: install the Odin release pinned in pins.cfg (README.md, Requirements)")
 		os.exit(1)
 	}
 	p := state.project
-	tmp := join(cli_dir, tprint("unified-build-%d%s", os.get_pid(), EXE))
+	tmp := join(cli_dir, tprint("uni-build-%d%s", os.get_pid(), EXE))
 	deps := tprint("%s.deps.json", tmp)
-	log("unified: the CLI's sources changed: rebuilding it")
+	log("uni: the CLI's sources changed: rebuilding it")
 	ran := run_proc(
 		{
 			cmd = {
@@ -97,17 +97,17 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		},
 	)
 	if !ran.ok {
-		log("unified: the CLI does not build (above)")
+		log("uni: the CLI does not build (above)")
 		os.exit(1)
 	}
 	files, odin_path := read_deps(deps)
 	os.remove(deps)
 	hash := content_hash(files)
-	target := join(cli_dir, tprint("unified-%s%s", hash[:12], EXE))
+	target := join(cli_dir, tprint("uni-%s%s", hash[:12], EXE))
 	if os.exists(target) {
 		os.remove(tmp)
 	} else if os.rename(tmp, target) != nil {
-		log("unified: cannot install %s", target)
+		log("uni: cannot install %s", target)
 		os.exit(1)
 	}
 	write_manifest(tprint("%s.manifest", target), hash, files, odin_path)
@@ -125,7 +125,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 read_deps :: proc(path: string) -> (files: []string, odin: string) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
-		log("unified: cannot read %s", path)
+		log("uni: cannot read %s", path)
 		os.exit(1)
 	}
 	Deps :: struct {
@@ -134,7 +134,7 @@ read_deps :: proc(path: string) -> (files: []string, odin: string) {
 	}
 	d: Deps
 	if json.unmarshal(data, &d) != nil {
-		log("unified: cannot parse %s", path)
+		log("uni: cannot parse %s", path)
 		os.exit(1)
 	}
 	odin = which("odin")
@@ -272,11 +272,11 @@ prune_binaries :: proc(cli_dir: string) {
 	}
 	bins: [dynamic]os.File_Info
 	for fi in infos {
-		if strings.has_prefix(fi.name, "unified-") &&
+		if strings.has_prefix(fi.name, "uni-") &&
 		   !strings.has_suffix(fi.name, ".manifest") &&
 		   !strings.has_suffix(fi.name, ".json") &&
-		   !strings.has_prefix(fi.name, "unified-bootstrap") &&
-		   !strings.has_prefix(fi.name, "unified-build-") {
+		   !strings.has_prefix(fi.name, "uni-bootstrap") &&
+		   !strings.has_prefix(fi.name, "uni-build-") {
 			append(&bins, fi)
 		}
 	}
@@ -298,12 +298,12 @@ check_odin_version :: proc() {
 	commit := pin("odin", "commit")
 	built := ODIN_VERSION_HASH
 	if built == "" {
-		log("unified: warning: this Odin build has no commit hash; the pin is %s (%s)", tag, commit[:9])
+		log("uni: warning: this Odin build has no commit hash; the pin is %s (%s)", tag, commit[:9])
 		return
 	}
 	if !strings.has_prefix(commit, built) {
 		log(
-			"unified: Odin %s (commit %s) is not the pinned %s (commit %s): install that release (README.md, Requirements)",
+			"uni: Odin %s (commit %s) is not the pinned %s (commit %s): install that release (README.md, Requirements)",
 			ODIN_VERSION,
 			built,
 			tag,

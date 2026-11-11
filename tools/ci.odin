@@ -80,7 +80,7 @@ cache_key :: proc(dep: string) -> string {
 @(private)
 ci_summary :: proc() -> string {
 	out := strings.builder_make()
-	fmt.sbprintf(&out, "## unified: %s\n\n", cli.PLATFORM)
+	fmt.sbprintf(&out, "## uni: %s\n\n", cli.PLATFORM)
 	read :: proc(name: string) -> (json.Value, bool) {
 		text, ok := cli.read_text(cli.join(cli.state.project.out, name))
 		if !ok {
@@ -107,7 +107,7 @@ ci_summary :: proc() -> string {
 				flag =
 					over ? cli.tprint("**OVER** %.0fs", budget) : len(cold) > 0 ? cli.tprint("%.0fs (cold)", budget) : cli.tprint("%.0fs", budget)
 			}
-			fmt.sbprintf(&out, "| `unified %s` | %.1f | %s |\n", k, cli.json_f64(e["seconds"]), flag)
+			fmt.sbprintf(&out, "| `uni %s` | %.1f | %s |\n", k, cli.json_f64(e["seconds"]), flag)
 		}
 		strings.write_byte(&out, '\n')
 	}

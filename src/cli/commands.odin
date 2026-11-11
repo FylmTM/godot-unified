@@ -174,7 +174,7 @@ cmd_test :: proc(args: []string) -> Result {
 	ok := true
 	for s in suites {
 		start := time.tick_now()
-		log("unified: test --suite %s", s.name)
+		log("uni: test --suite %s", s.name)
 		passed := s.run(games, only)
 		append(&results, Suite_Result{s.name, passed, round2(seconds_since(start))})
 		ok = ok && passed
@@ -220,7 +220,7 @@ cmd_verify :: proc(args: []string) -> Result {
 		r := c.run(st.args)
 		state.command = self
 		log(
-			"unified: verify: %s %s: %s (%.1fs)",
+			"uni: verify: %s %s: %s (%.1fs)",
 			st.name,
 			strings.join(st.args, " "),
 			r.ok ? "ok" : "FAILED",

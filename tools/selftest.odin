@@ -28,9 +28,9 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	shim :: proc(dir: string, args: ..string) -> []string {
 		cmd: [dynamic]string
 		when ODIN_OS == .Windows {
-			append(&cmd, "cmd", "/c", cli.join(dir, "unified.cmd"))
+			append(&cmd, "cmd", "/c", cli.join(dir, "uni.cmd"))
 		} else {
-			append(&cmd, cli.join(dir, "unified"))
+			append(&cmd, cli.join(dir, "uni"))
 		}
 		append(&cmd, ..args)
 		return cmd[:]

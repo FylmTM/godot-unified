@@ -208,7 +208,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			cli.join(root, "tests", "godot_views", "ext"),
 			"views_test",
 			"VIEWS TESTS",
-			"unified: send_command(",
+			"uni: send_command(",
 		},
 	}
 	cli.ensure_imgui()
@@ -259,7 +259,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			cli.log("godot: %s", e)
 		}
 		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
-		cli.log("unified: %s: %s", cli.rel(p.dir), passed ? "ok" : "FAILED")
+		cli.log("uni: %s: %s", cli.rel(p.dir), passed ? "ok" : "FAILED")
 		ok = ok && passed
 	}
 	return ok

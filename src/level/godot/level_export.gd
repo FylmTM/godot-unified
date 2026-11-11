@@ -61,7 +61,7 @@ func _initialize() -> void:
 			f.store_buffer(bytes)
 			f.close()
 		if check and not same:
-			errors.append("%s is stale: run `unified bake`" % target)
+			errors.append("%s is stale: run `uni bake`" % target)
 			ok = false
 		out.append({"scene": path, "level": target, "bytes": bytes.size(), "changed": not same})
 	ok = ok and errors.is_empty()

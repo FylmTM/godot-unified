@@ -37,7 +37,7 @@ ensure_bindings :: proc(force := false) {
 	must_run({cmd = cmd[:]}, "building the binding generator")
 	must_run({cmd = {gen, join(gdext, "api"), join(gdext, "bindings.txt"), gdext}}, "the binding generator")
 	write_text(stamp, tprint("%s\n", key))
-	log("unified: godot-gen -> src/gdext/*.gen.odin in %.2fs", seconds_since(start))
+	log("uni: godot-gen -> src/gdext/*.gen.odin in %.2fs", seconds_since(start))
 }
 
 // --- a game's GDExtension -----------------------------------------------------------------------------------------
@@ -130,7 +130,7 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 		}
 	}
 	write_extension_list(g)
-	log("unified: %s extension (%v) -> %s in %.2fs (odin %.2fs)", g.name, m, rel(lib), seconds_since(start), secs)
+	log("uni: %s extension (%v) -> %s in %.2fs (odin %.2fs)", g.name, m, rel(lib), seconds_since(start), secs)
 	return lib
 }
 

@@ -151,7 +151,7 @@ cmd_fmt :: proc(args: []string) -> Result {
 		}
 		return {
 			ok = false,
-			summary = tprint("%d file(s) need formatting: run unified fmt", len(changed)),
+			summary = tprint("%d file(s) need formatting: run uni fmt", len(changed)),
 			data = box(changed),
 		}
 	}
