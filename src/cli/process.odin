@@ -66,8 +66,10 @@ start :: proc(r: Run) -> Proc {
 		make_dirs(os.dir(base))
 		p.out_path = tprint("%s.stdout", base)
 		p.err_path = tprint("%s.stderr", base)
-		out, e1 := os.create(p.out_path)
-		err, e2 := os.create(p.err_path)
+		// Inheritable: on Windows a child gets only the handles opened so
+		flags := os.File_Flags{.Write, .Create, .Trunc, .Inheritable}
+		out, e1 := os.open(p.out_path, flags)
+		err, e2 := os.open(p.err_path, flags)
 		if e1 != nil || e2 != nil {
 			fatal("cannot create %s", p.out_path)
 		}
