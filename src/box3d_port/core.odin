@@ -256,16 +256,12 @@ AllocNear :: proc(old: rawptr, size: int) -> rawptr {
 }
 
 // The arena that holds `p`, or nil for host memory.
-ArenaOf :: proc(p: rawptr) -> ^WorldArena {
-	if arena := CurrentArena(); arena != nil && ArenaContains(arena, p) {
-		return arena
+ArenaOf :: proc "contextless" (p: rawptr) -> ^WorldArena {
+	index := ArenaIndexOf(p)
+	if index < 0 || worlds[index].arena.base == nil {
+		return nil
 	}
-	for i in 0 ..< MAX_WORLDS {
-		if worlds[i].inUse && worlds[i].arena.base != nil && ArenaContains(&worlds[i].arena, p) {
-			return &worlds[i].arena
-		}
-	}
-	return nil
+	return &worlds[index].arena
 }
 
 // Until the end of the caller's scope, Alloc uses the place `old` lives in (`old == nil`: unchanged).

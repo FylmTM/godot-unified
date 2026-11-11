@@ -503,7 +503,7 @@ CreateWorld :: proc(def: ^WorldDef) -> WorldId {
 
 	// unified: from here on, the world's memory comes from its arena (world_arena.odin); the scratch stack and the
 	// mutex above are host memory
-	CreateWorldArena(&world.arena)
+	CreateWorldArena(&world.arena, worldId)
 	PushArena(&world.arena)
 	defer PopArena()
 	// unified end

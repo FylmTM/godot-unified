@@ -34,8 +34,8 @@ drift_init :: proc "c" (
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "drift/1"
-#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump BUCKET with it")
+BUCKET :: "drift/2"
+#assert(netcode.PROTOCOL_VERSION == 7, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {

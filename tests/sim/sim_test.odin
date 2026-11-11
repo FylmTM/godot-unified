@@ -271,7 +271,7 @@ flaky_game :: proc(f: rawptr) -> toy.Game {
 			data = g_flaky,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},
-			hash = proc(data: rawptr, state: rawptr, out: ^[dynamic]u8) {},
+			hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {},
 			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
 		}

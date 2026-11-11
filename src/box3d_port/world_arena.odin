@@ -18,7 +18,7 @@ import "core:mem/virtual"
 import "core:sync"
 
 // Address space reserved per world; pages are committed as the arena grows.
-ARENA_RESERVE :: #config(BOX3D_ARENA_RESERVE, 1 << 33)
+ARENA_RESERVE :: #config(BOX3D_ARENA_RESERVE, 1 << 32)
 @(private = "file")
 ARENA_COMMIT_STEP :: 1 << 20
 @(private = "file")
@@ -66,11 +66,34 @@ header :: #force_inline proc "contextless" (arena: ^WorldArena) -> ^ArenaHeader 
 	return (^ArenaHeader)(arena.base)
 }
 
-CreateWorldArena :: proc(arena: ^WorldArena) {
-	data, err := virtual.reserve(uint(ARENA_RESERVE))
-	assert(err == nil, "Box3D: reserving the world arena failed")
-	arena.base = raw_data(data)
-	arena.reserved = len(data)
+// Every world's arena sits in one address range reserved once (MAX_WORLDS × ARENA_RESERVE, address space only),
+// world i's at slot i, so the arena that holds a pointer is a range check and a division (Free, AllocNear).
+@(private = "file")
+arenaRegion: uintptr
+@(private = "file")
+arenaRegionOnce: sync.Once
+
+@(private = "file")
+ReserveArenaRegion :: proc() {
+	data, err := virtual.reserve(uint(MAX_WORLDS) * uint(ARENA_RESERVE))
+	assert(err == nil, "Box3D: reserving the world arenas' address space failed (lower BOX3D_ARENA_RESERVE)")
+	sync.atomic_store(&arenaRegion, uintptr(raw_data(data)))
+}
+
+// The world index whose arena slot holds `p`, or -1.
+ArenaIndexOf :: #force_inline proc "contextless" (p: rawptr) -> int {
+	region := sync.atomic_load_explicit(&arenaRegion, .Relaxed)
+	if region == 0 || uintptr(p) < region {
+		return -1
+	}
+	index := int((uintptr(p) - region) / ARENA_RESERVE)
+	return index < MAX_WORLDS ? index : -1
+}
+
+CreateWorldArena :: proc(arena: ^WorldArena, worldIndex: i32) {
+	sync.once_do(&arenaRegionOnce, ReserveArenaRegion)
+	arena.base = ([^]u8)(arenaRegion + uintptr(worldIndex) * ARENA_RESERVE)
+	arena.reserved = ARENA_RESERVE
 	arena.committed = 0
 	arena.debugFill = arenaDebugFill
 	ArenaCommit(arena, size_of(ArenaHeader))
@@ -79,9 +102,10 @@ CreateWorldArena :: proc(arena: ^WorldArena) {
 	h.top = u64(mem.align_forward_int(size_of(ArenaHeader), ARENA_BLOCK_HEADER))
 }
 
+// Gives the world's pages back; its slot of the address range stays reserved for the next world there.
 DestroyWorldArena :: proc(arena: ^WorldArena) {
-	if arena.base != nil {
-		virtual.release(arena.base, uint(arena.reserved))
+	if arena.base != nil && arena.committed > 0 {
+		virtual.decommit(arena.base, uint(arena.committed))
 	}
 	arena^ = {}
 }
@@ -332,8 +356,45 @@ World_SaveSnapshot :: proc(worldId: WorldId, snapshot: ^WorldSnapshot) {
 		snapshot.data = cast([^]u8)AllocHost(snapshot.capacity)
 	}
 	mem.copy_non_overlapping(snapshot.data, world, size_of(World))
-	mem.copy_non_overlapping(&snapshot.data[size_of(World)], world.arena.base, used)
-	snapshot.size = need
+	snapshot.size = size_of(World) + ArenaPack(&world.arena, &snapshot.data[size_of(World)])
+}
+
+// Copies the arena's state into `dst` (room for ArenaUsedBytes): its header, then every block's header and, for a
+// live block, the bytes it asked for (freed payloads and the rounding past a request are left out). Returns the
+// bytes written.
+@(private = "file")
+ArenaPack :: proc(arena: ^WorldArena, dst: [^]u8) -> int {
+	h := header(arena)
+	start := mem.align_forward_int(size_of(ArenaHeader), ARENA_BLOCK_HEADER)
+	mem.copy_non_overlapping(dst, arena.base, start)
+	n := start
+	offset := u64(start)
+	for offset < h.top {
+		block := (^BlockHeader)(&arena.base[offset])
+		k := ARENA_BLOCK_HEADER + int(block.size)
+		mem.copy_non_overlapping(&dst[n], block, k)
+		n += k
+		offset += block.blockSize
+	}
+	return n
+}
+
+// The inverse of ArenaPack: puts the packed state back at the same offsets.
+@(private = "file")
+ArenaUnpack :: proc(arena: ^WorldArena, src: [^]u8, size: int) {
+	start := mem.align_forward_int(size_of(ArenaHeader), ARENA_BLOCK_HEADER)
+	mem.copy_non_overlapping(arena.base, src, start)
+	h := header(arena)
+	n := start
+	offset := u64(start)
+	for offset < h.top {
+		block := (^BlockHeader)(&src[n])
+		k := ARENA_BLOCK_HEADER + int(block.size)
+		mem.copy_non_overlapping(&arena.base[offset], block, k)
+		n += k
+		offset += block.blockSize
+	}
+	assert(n == size)
 }
 
 // Puts the world back to the snapshot's state. The snapshot must come from this world (any earlier tick).
@@ -377,7 +438,6 @@ World_RestoreSnapshot :: proc(worldId: WorldId, snapshot: ^WorldSnapshot) -> boo
 	world.userData = host.userData
 	world.recording = host.recording
 
-	used := snapshot.size - size_of(World)
-	mem.copy_non_overlapping(world.arena.base, &snapshot.data[size_of(World)], used)
+	ArenaUnpack(&world.arena, &snapshot.data[size_of(World)], snapshot.size - size_of(World))
 	return true
 }

@@ -11,10 +11,13 @@ Upstream's public API minus the `b3` prefix, the names the C bindings in `src/bo
 change. Callbacks are Odin procs (the bindings' were `proc "c"`). Internals are package-public (Odin has no
 headers); only the public API is supported outside the port and its tests.
 
-Ours, on top of upstream: `CreateWorldStateCache`, `World_SaveState`, `World_RestoreState`, and
-`World_RestoreStateFromBytes(world, cache, []u8)` (no pointer trick, unlike the C binding; it also loads canonical
-images, without the cache). Canonical images: `World_SaveImage(world, state, withGeometry)` (self-contained with
-geometry: late join), `World_LoadImage(world, []u8)`, and `World_HashState(world) -> u64` (the checksum).
+Ours, on top of upstream:
+- In-process snapshots (a memcpy of the world arena; rollback): `World_SaveSnapshot(world, ^WorldSnapshot)`,
+  `World_RestoreSnapshot(world, ^WorldSnapshot) -> bool`, `DestroyWorldSnapshot`.
+- Canonical images (portable, the same bytes on every platform): `World_SaveImage(world, state, withGeometry)`
+  (self-contained with geometry: late join), `World_LoadImage(world, []u8)`, `World_HashState(world) -> u64`.
+- The C fork's API, still there: `CreateWorldStateCache`, `World_SaveState`, `World_RestoreState`,
+  `World_RestoreStateFromBytes(world, cache, []u8)` (also loads canonical images).
 
 ## Proof
 
@@ -43,6 +46,13 @@ Phase 1 has only those forced by the language or by determinism:
 
 Phase 2 adds:
 
+- The world arena (`world_arena.odin`; `Alloc` in `core.odin`): inside a world's scope (the world lookups push
+  it until the end of the caller's scope, `@(deferred_out)`; the built-in scheduler's threads while they run its
+  tasks) `Alloc` takes memory from the world's arena; `Free` routes by address; a growing block stays where it
+  lives (`AllocNear`, `PushArenaNear`). Host-side memory (`AllocHost`): the scratch stack and per-worker contexts,
+  the scheduler, recordings, the replay player, the name cache, image buffers, and user-owned geometry (hulls,
+  meshes, height fields, compounds), whatever scope creates it. The hull database is append-only while the world
+  lives (a rollback may bring back a shape that uses a hull).
 - Motion locks also zero the locked velocity components when the step ends (`FinalizeBodiesTask`), after the relax
   iterations and restitution, so locked bodies report clean velocities and start the next step with them (#87).
 - Canonical images (`world_image.odin`): every struct the serializer writes goes through a byte mask built once
@@ -55,10 +65,26 @@ Phase 2 adds:
   such a table against the world's geometry store (host memory, append-only, verifying carried blobs) before it
   touches the world. Recording keyframes keep the registry.
 
-## Phase 2: rollback-native (pending sign-off)
+## Phase 2: rollback-native (signed off 2026-11-11; built, results pending review)
 
 Decided with the developer 2026-11-11: all five features below, storage option B, and the bar "match C, roll back
 1000 bodies in under 3 ms". Each change is a marked customization, and the upstream tests keep passing.
+
+Where it stands (Windows x64, this machine; `odin run tests/box3d/scale -collection:unified=src -o:speed` prints
+the table):
+- 1000 boxes: step on one worker as C's (~315 vs ~335 µs); snapshot save ~55 µs, restore ~60 µs (the C fork's
+  serializer: 102 and 178); an 8-tick rollback 3.1–3.7 ms on one worker, 2.0–2.6 ms on four (C fork: 4.0 and
+  3.4; this machine is noisy).
+- Snapshots copy every live block (freed payloads are left out): 1.70 MB at 1000 boxes against a 1.34 MB image,
+  the difference being array capacity slack. Manifold blocks are 32 elements (upstream 256), so a small world's
+  snapshot doesn't carry empty ones.
+- `uni bench` (step + 8-tick re-sim): drift 0.06 ms (C 0.07), friendslop 0.14 (C 0.14), survivor 1.08 (C 0.98;
+  its save is 19 µs against the serializer's 11).
+- The checksum covers the whole world on `sim.DEEP_CHECKSUM_EVERY` ticks (World_HashState: ~100 µs at 1000
+  boxes), the referenced bodies otherwise.
+- 1, 2, 4 and 8 workers step bit-identically (`tests/box3d/workers_test.odin`); images are byte-identical whatever
+  fresh memory held, and a late joiner with geometry made after tick 0 runs on identically
+  (`tests/box3d/image_test.odin`).
 
 1. **The world arena.** Everything a world keeps between steps (the arrays of bodies, shapes, contacts, joints,
    islands, solver sets and what they hold, the constraint graph, the broad-phase trees and sets, id pools,
@@ -91,6 +117,11 @@ Decided with the developer 2026-11-11: all five features below, storage option B
   re-recorded only where a feature changes results (#87).
 
 ## Open
+- Smaller snapshots: merge adjacent free blocks, and copy only live blocks' bytes (skips freed payloads, ~20% at
+  1000 boxes); array capacity slack stays unless arrays shrink.
+- `uni test` is over budget (~10 s against 6 s; ~5 s before the port), and `uni` doesn't run the upstream tests
+  yet (they need their own binary).
+- A task system other than the built-in scheduler would need its tasks run inside the world's arena (not done).
 - Build time: each `-o:speed` whole-program build compiles the port (~5 s); `-use-separate-modules` builds split
   it into several modules and lose inlining across them (tests run ~35% slower than whole-program; `-lto:thin`
   recovers it at ~10 s compile).

@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: MIT
 package box3d_port
 
-BLOCK_EXPONENT :: 8
+// unified: blocks of 32 elements (upstream: 256), so a small world's snapshot doesn't carry empty manifold blocks
+// (world_arena.odin: snapshots copy every live block)
+BLOCK_EXPONENT :: 5
+// unified end
 BLOCK_SIZE :: (1 << BLOCK_EXPONENT)
 BLOCK_ALIGNMENT :: 16
 

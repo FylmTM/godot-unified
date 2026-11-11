@@ -78,14 +78,14 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
 - **Events**: `emit(&events, kind_enum, entity, pos, value, slot)` appends a fixed 24-byte `Event`. Events live per
   tick in the ring, are re-emitted when a tick is re-simulated, and are not hashed. The netcode hands predicted and
   verified events to the view, which confirms or cancels.
-- **Extra** (`save/restore(slot)`, `hash(state, out)`, `image(slot)`, `load(bytes)`): rollback state outside the
+- **Extra** (`save/restore(slot)`, `hash(state, tick, out)` (on multiples of `DEEP_CHECKSUM_EVERY` = 16, the ticks the netcode compares, its whole internal state), `image(slot)`, `load(bytes)`): rollback state outside the
   block. The harness knows nothing about Box3D.
 - **Input log** `UNIL` v4: seed, content hash, slots, input size, ticks; per tick (`write_tick`, also the netcode's
   finalized tick) present, replaced, the slots' input bytes, a command count (an empty tick costs one byte) and per
   command slot, kind, size and the struct's bytes. In memory `Input_Log` is compact (`ticks: [dynamic]Log_Tick`,
   `commands`): `log_append(&lg, &inputs)`, `log_inputs(&lg, k) -> Inputs` (tick k + 1), `log_commands`.
   `log_encode/decode/read/write`; decoding refuses a malformed tick (`read_tick`).
-- **Portable snapshot** `UNIS` v3: seed, content hash, tick, block size, `layout_hash(S)` (rejects other builds),
+- **Portable snapshot** `UNIS` v4: seed, content hash, tick, block size, `layout_hash(S)` (rejects other builds),
   payload XXH3, block bytes, each Extra's image. `snapshot_encode(s, tick)`,
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads; the
   error says why not, the library never prints).
@@ -97,8 +97,9 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
 `create(settings) -> ^World` (one Box3D world, one worker unless `Settings.workers`; creation is mutex-guarded), `destroy`,
 `Body_Ref {index1, generation}` (no world index, so blocks match across worlds and machines), `body_id`, `ref_of`,
 `destroy_body`, `extra(w, S) -> sim.Extra`: finds every `Body_Ref` in `S` by RTTI once (fields, arrays,
-table items); the hash covers each referenced body (position, rotation, velocities; −0 → +0) in block order; images
-are the fork's `b3World_SaveState` bytes.
+table items); ring slots are Box3D snapshots (a memcpy of the world's arena); the hash is Box3D's whole-world hash
+on `DEEP_CHECKSUM_EVERY` ticks, otherwise each referenced body (position, rotation, velocities; −0 → +0) in block
+order; images are Box3D's canonical images with their geometry (`src/box3d_port/SPEC.md`).
 
 ## `unified:dmath`
 

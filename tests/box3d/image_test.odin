@@ -270,10 +270,10 @@ image_late_join :: proc(t: ^testing.T) {
 	testing.expect(t, !b3.World_LoadImage(empty.id, img_bytes(refs)))
 	testing.expect_value(t, b3.World_HashState(empty.id), h)
 
-	// With geometry: through the cache-taking API (the cache plays no part), into a world that never saw it.
+	// With geometry, into a world that never saw it.
 	late := world_make()
 	defer physics.destroy(late)
-	testing.expect(t, b3.World_RestoreStateFromBytes(late.id, late.cache, img_bytes(full)))
+	testing.expect(t, b3.World_LoadImage(late.id, img_bytes(full)))
 	testing.expect_value(t, b3.World_HashState(late.id), b3.World_HashState(s.world))
 	// A reload of the same image, now with the geometry known: the same world.
 	testing.expect(t, b3.World_LoadImage(late.id, img_bytes(refs)))

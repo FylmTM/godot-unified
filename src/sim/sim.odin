@@ -75,8 +75,10 @@ Extra :: struct {
 	save:    proc(data: rawptr, slot: int),
 	restore: proc(data: rawptr, slot: int) -> bool,
 	// Appends the canonical bytes of the current state to `out` (checksum input). `state` points
-	// at the block, for extras whose order follows references stored in it.
-	hash:    proc(data: rawptr, state: rawptr, out: ^[dynamic]u8),
+	// at the block, for extras whose order follows references stored in it. On ticks that are a
+	// multiple of DEEP_CHECKSUM_EVERY (the ones the netcode compares) an extra covers all of its
+	// internal state; on others it may cover less (a cheaper summary).
+	hash:    proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8),
 	// Portable bytes of a ring slot (valid until that slot is saved again).
 	image:   proc(data: rawptr, slot: int) -> []u8,
 	// Loads portable bytes (from `image`, possibly another machine) into the live state.
@@ -289,10 +291,14 @@ checksum :: proc(s: ^Sim($S, $I, $W, $P)) -> u64 {
 	append(&s.hash_buf, ..t[:])
 	append(&s.hash_buf, ..([^]u8)(&s.state)[:size_of(S)])
 	for &e in s.extras {
-		e.hash(e.data, &s.state, &s.hash_buf)
+		e.hash(e.data, &s.state, s.tick, &s.hash_buf)
 	}
 	return hash_bytes(s.hash_buf[:])
 }
+
+// The ticks whose checksums cover every extra's whole internal state (Extra.hash), and the ones the
+// netcode compares between peers.
+DEEP_CHECKSUM_EVERY :: 16
 
 // Size in bytes of a full snapshot of the current tick (block + extras' images).
 snapshot_size :: proc(s: ^Sim($S, $I, $W, $P)) -> int {

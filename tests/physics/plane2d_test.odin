@@ -36,7 +36,7 @@ arena_walls :: proc(w: ^physics.World, half: [2]f32) {
 
 // An irregular heptagon of radius about 1; rock sizes 1..3 scale it.
 ROCK_POINTS := [7][2]f32{{1, 0}, {0.62, 0.78}, {-0.2, 0.95}, {-0.9, 0.45}, {-0.85, -0.5}, {-0.15, -1}, {0.7, -0.68}}
-ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_rejects_new_hulls)
+ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_carries_new_hulls)
 
 rock_body :: proc(w: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) -> physics.Body_Ref {
 	bd := physics.body_def_2d(.dynamicBody, pos, rot)
@@ -511,11 +511,10 @@ field_synctest_and_resume :: proc(t: ^testing.T) {
 	}
 }
 
-// Box3D's image names hull geometry by its index in the world's registry, which a fresh world
-// fills from its tick-0 save. A hull first made after tick 0 is unknown there: the load refuses
-// it (it never maps it to the wrong hull).
+// The image carries the geometry its shapes use (#86): a hull first made after tick 0 reaches a
+// late joiner, which then runs on identically, deep checksums included.
 @(test)
-portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
+portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 	s := sim.create(&FIELD, 3)
 	defer sim.destroy(s)
 	for tk in u32(1) ..= 20 {
@@ -526,14 +525,22 @@ portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
 	snap := sim.snapshot_encode(s, 20)
 	defer delete(snap)
 	s2, err := sim.from_snapshot(&FIELD, snap)
-	testing.expect_value(t, err, sim.Snap_Error.Extra_Rejected)
-	if s2 != nil do sim.destroy(s2)
-	// A refused load leaves the world as it was (it would otherwise be half-written).
+	testing.expect_value(t, err, sim.Snap_Error.None)
+	if s2 == nil do return
+	defer sim.destroy(s2)
+	for tk in u32(21) ..= 100 {
+		ins := field_inputs(tk)
+		sim.step(s, &ins)
+		sim.step(s2, &ins)
+		testing.expect_value(t, sim.checksum(s2), sim.checksum(s))
+	}
+
+	// A damaged image is refused and leaves the world as it was (it would otherwise be half-written).
 	s3 := sim.create(&FIELD, 3)
 	defer sim.destroy(s3)
 	before := sim.checksum(s3)
-	img := s.extras[0].image(s.extras[0].data, 20 % sim.RING)
-	testing.expect(t, !s3.extras[0].load(s3.extras[0].data, img))
+	img := s.extras[0].image(s.extras[0].data, 100 % sim.RING)
+	testing.expect(t, !s3.extras[0].load(s3.extras[0].data, img[:len(img) / 2]))
 	testing.expect_value(t, sim.checksum(s3), before)
 	ins := field_inputs(1)
 	sim.step(s3, &ins)
@@ -542,7 +549,7 @@ portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0x76cb3c7ab95a4fcc, 0x2b7bd135fef9b39e, 0x5b6d91baf3ccd8a4, 0xa1da23e05dfd66bb}
+GOLDEN_FIELD := [4]u64{0xa3eb235bb23d2e5d, 0xf9ed32943b7f89cf, 0x3d4a2fb24df33278, 0xd15988de679f7278}
 
 @(test)
 field_golden_trace :: proc(t: ^testing.T) {

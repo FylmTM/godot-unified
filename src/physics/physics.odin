@@ -48,8 +48,10 @@ Settings :: struct {
 
 World :: struct {
 	id:         b3.WorldId,
-	cache:      ^b3.WorldStateCache,
-	ring:       [sim.RING]^b3.WorldState,
+	// In-process snapshots (Box3D's world arena: a memcpy), one per ring slot.
+	ring:       [sim.RING]b3.WorldSnapshot,
+	scratch:    b3.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
+	image:      ^b3.WorldState, // the last portable image `image` built
 	// Offsets of every Body_Ref / Joint_Ref in the state block, in memory order (the hash order).
 	refs:       []int,
 	joint_refs: []int,
@@ -78,19 +80,17 @@ create :: proc(settings := Settings{}) -> ^World {
 		bd.name = "anchor"
 		w.anchor = b3.CreateBody(w.id, &bd)
 	}
-	w.cache = b3.CreateWorldStateCache()
-	for &r in w.ring {
-		r = b3.CreateWorldState()
-	}
+	w.image = b3.CreateWorldState()
 	return w
 }
 
 destroy :: proc(w: ^World) {
 	sync.guard(&world_mutex)
-	for r in w.ring {
-		b3.DestroyWorldState(r)
+	for &r in w.ring {
+		b3.DestroyWorldSnapshot(&r)
 	}
-	b3.DestroyWorldStateCache(w.cache)
+	b3.DestroyWorldSnapshot(&w.scratch)
+	b3.DestroyWorldState(w.image)
 	b3.DestroyWorld(w.id)
 	delete(w.refs)
 	delete(w.joint_refs)
@@ -175,14 +175,22 @@ extra :: proc(w: ^World, $S: typeid) -> sim.Extra {
 		data = w,
 		save = proc(data: rawptr, slot: int) {
 			w := (^World)(data)
-			b3.World_SaveState(w.id, w.cache, w.ring[slot])
+			b3.World_SaveSnapshot(w.id, &w.ring[slot])
 		},
 		restore = proc(data: rawptr, slot: int) -> bool {
 			w := (^World)(data)
-			return b3.World_RestoreState(w.id, w.cache, w.ring[slot])
+			return b3.World_RestoreSnapshot(w.id, &w.ring[slot])
 		},
-		hash = proc(data: rawptr, state: rawptr, out: ^[dynamic]u8) {
+		// On the netcode's checksum ticks (sim.DEEP_CHECKSUM_EVERY): the whole world, every body, contact, warm
+		// start, island and tree (the canonical image's hash). On other ticks: the referenced bodies' poses and
+		// velocities, in the block's order (cheap; tests and traces checksum every tick).
+		hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {
 			w := (^World)(data)
+			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
+				h := transmute([8]u8)u64le(b3.World_HashState(w.id))
+				append(out, ..h[:])
+				return
+			}
 			base := ([^]u8)(state)
 			for off in w.refs {
 				r := (^Body_Ref)(&base[off])^
@@ -191,20 +199,23 @@ extra :: proc(w: ^World, $S: typeid) -> sim.Extra {
 				}
 			}
 		},
+		// A portable image of the slot's tick, with its geometry (late join): the slot is put in the world for
+		// the time it takes, then the live state is put back.
 		image = proc(data: rawptr, slot: int) -> []u8 {
 			w := (^World)(data)
-			return b3.WorldState_GetData(w.ring[slot])[:b3.WorldState_GetSize(w.ring[slot])]
+			b3.World_SaveSnapshot(w.id, &w.scratch)
+			b3.World_RestoreSnapshot(w.id, &w.ring[slot])
+			n := b3.World_SaveImage(w.id, w.image, true)
+			b3.World_RestoreSnapshot(w.id, &w.scratch)
+			return b3.WorldState_GetData(w.image)[:n]
 		},
+		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
+		// saved first and put back on failure. Loads are rare (late join).
 		load = proc(data: rawptr, bytes: []u8) -> bool {
-			// A rejected image (one naming a hull this world's registry lacks) is found halfway
-			// through the restore and leaves the world half-written, which crashes its destroy. So
-			// the world is saved first and put back on failure. Loads are rare (late join).
 			w := (^World)(data)
-			backup := b3.CreateWorldState()
-			defer b3.DestroyWorldState(backup)
-			b3.World_SaveState(w.id, w.cache, backup)
-			if b3.World_RestoreStateFromBytes(w.id, w.cache, bytes) do return true
-			b3.World_RestoreState(w.id, w.cache, backup)
+			b3.World_SaveSnapshot(w.id, &w.scratch)
+			if b3.World_LoadImage(w.id, bytes) do return true
+			b3.World_RestoreSnapshot(w.id, &w.scratch)
 			return false
 		},
 	}

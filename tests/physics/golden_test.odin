@@ -24,10 +24,10 @@ GOLDEN_EVERY :: 128
 // change is intended, update the values in the same commit (with tests/box3d's GOLDEN and the
 // games' reference runs when they change too).
 GOLDEN_MOVERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
-	0x42d9087859f0326b,
-	0xf7c67d78c333b95d,
-	0x178bb326e36457f6,
-	0x3a08f5129b5aa2df,
+	0xc6fbc220c82ebad2,
+	0xaf656bbf14eeec50,
+	0xb18bbeed772fcf7a,
+	0x492e32dfe79899ff,
 }
 
 @(test)
@@ -71,7 +71,7 @@ mover_golden_trace :: proc(t: ^testing.T) {
 		if tk % GOLDEN_EVERY == 0 {
 			clear(&buf)
 			append(&buf, ..([^]u8)(&s)[:size_of(s)])
-			e.hash(e.data, &s, &buf)
+			e.hash(e.data, &s, u32(tk), &buf)
 			got[tk / GOLDEN_EVERY - 1] = sim.hash_bytes(buf[:])
 		}
 	}
