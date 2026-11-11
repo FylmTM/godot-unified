@@ -14,7 +14,12 @@ cmd_init :: proc(args: []string) -> Result {
 	}
 	opts: Opts
 	parse(&opts, args)
-	dir, _ := os.get_absolute_path(opts.dir, context.allocator)
+	dir := opts.dir
+	if !os.is_absolute_path(dir) {
+		cwd, _ := os.get_working_directory(context.allocator)
+		dir = join(cwd, dir)
+	}
+	dir = strings.trim_right(dir, "/\\")
 	name := os.base(dir)
 	if !valid_game_name(name) {
 		usage("%q is not a game name: lowercase letters, digits and _, starting with a letter", name)
