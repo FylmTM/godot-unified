@@ -44,7 +44,8 @@ runs:
           mkdir -p "$dir"
           file="$RUNNER_TEMP/$ASSET"
           curl -fsSL --retry 5 -o "$file" "https://github.com/odin-lang/Odin/releases/download/$TAG/$ASSET"
-          if command -v sha256sum > /dev/null; then got=$(sha256sum "$file" | cut -d' ' -f1); else got=$(shasum -a 256 "$file" | cut -d' ' -f1); fi
+          # From stdin: sha256sum escapes its output (a leading \) when a path has backslashes (Windows)
+          if command -v sha256sum > /dev/null; then got=$(sha256sum < "$file" | cut -d' ' -f1); else got=$(shasum -a 256 < "$file" | cut -d' ' -f1); fi
           if [ "$got" != "$SHA" ]; then
             echo "::error::$ASSET: SHA-256 $got, pinned $SHA"
             exit 1
