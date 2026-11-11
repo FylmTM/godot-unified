@@ -1,5 +1,5 @@
 // Network simulator: wraps a link and impairs both directions (latency, jitter, loss,
-// duplication, reordering) with a seeded RNG. Applied on the client side, so one wrapper shapes
+// duplication, reordering; one profile, or one per direction) with a seeded RNG. Applied on the client side, so one wrapper shapes
 // the whole client <-> relay path. With a Virtual_Clock it runs on test time instead of real time.
 package netcode
 
@@ -28,14 +28,16 @@ profile_by_name :: proc(name: string) -> (Profile, bool) {
 }
 
 Net_Sim :: struct {
-	inner:    Link,
-	profile:  Profile,
-	rng:      u32,
-	outgoing: [dynamic]Sim_Packet,
-	incoming: [dynamic]Sim_Packet,
-	scratch:  [MAX_DATAGRAM]u8,
-	stats:    Net_Sim_Stats,
-	clock:    ^Virtual_Clock,
+	inner:      Link,
+	profile:    Profile, // both directions, or only outgoing when `split`
+	profile_in: Profile, // incoming, when `split`
+	split:      bool,
+	rng:        u32,
+	outgoing:   [dynamic]Sim_Packet,
+	incoming:   [dynamic]Sim_Packet,
+	scratch:    [MAX_DATAGRAM]u8,
+	stats:      Net_Sim_Stats,
+	clock:      ^Virtual_Clock,
 }
 
 // Test time (µs) shared by netsims and the code that steps sessions on a virtual clock.
@@ -94,24 +96,25 @@ roll :: proc(ns: ^Net_Sim, per_mille: u32) -> bool {
 
 // Queues zero, one or two copies of the datagram with their delivery times.
 @(private)
-impair :: proc(ns: ^Net_Sim, q: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8) {
+impair :: proc(ns: ^Net_Sim, q: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8, incoming: bool) {
+	prof := incoming && ns.split ? &ns.profile_in : &ns.profile
 	ns.stats.sent += 1
-	if roll(ns, ns.profile.loss) {
+	if roll(ns, prof.loss) {
 		ns.stats.dropped += 1
 		return
 	}
 	copies := 1
-	if roll(ns, ns.profile.duplicate) {
+	if roll(ns, prof.duplicate) {
 		copies = 2
 		ns.stats.duplicated += 1
 	}
 	now := clock_now(ns.clock)
 	for _ in 0 ..< copies {
-		delay := ns.profile.latency
-		if ns.profile.jitter > 0 {
-			delay += i64(xorshift32(&ns.rng) % u32(2 * ns.profile.jitter + 1)) - ns.profile.jitter
+		delay := prof.latency
+		if prof.jitter > 0 {
+			delay += i64(xorshift32(&ns.rng) % u32(2 * prof.jitter + 1)) - prof.jitter
 		}
-		if roll(ns, ns.profile.reorder) {
+		if roll(ns, prof.reorder) {
 			delay += 16_000 * i64(1 + xorshift32(&ns.rng) % 3)
 			ns.stats.reordered += 1
 		}
@@ -152,14 +155,14 @@ pump :: proc(ns: ^Net_Sim) {
 		if !ok {
 			break
 		}
-		impair(ns, &ns.incoming, from, ns.scratch[:n])
+		impair(ns, &ns.incoming, from, ns.scratch[:n], true)
 	}
 }
 
 @(private)
 netsim_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
 	ns := (^Net_Sim)(data)
-	impair(ns, &ns.outgoing, to, bytes)
+	impair(ns, &ns.outgoing, to, bytes, false)
 	pump(ns)
 }
 

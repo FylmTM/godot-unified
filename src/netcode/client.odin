@@ -7,6 +7,7 @@
 package netcode
 
 import "core:fmt"
+import "core:time"
 
 import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
@@ -72,6 +73,14 @@ FIN_RING :: 512
 OWN_RING :: 512
 PRED_RING :: 64
 CHK_RING :: 64
+
+// What a stepped tick was: verified for the first time, re-simulated after a rollback (with final or predicted
+// inputs), or newly predicted.
+Step_Kind :: enum u8 {
+	Verified,
+	Resim,
+	Predicted,
+}
 
 Client :: struct($S, $I, $W: typeid, $P: int) {
 	game:          ^usim.Game(S, I, W, P),
@@ -142,6 +151,11 @@ Client :: struct($S, $I, $W: typeid, $P: int) {
 	stall_ticks:   int,
 	resim_ticks:   int,
 	delay_changes: int,
+	// for the dev UI's graphs (cumulative; the host takes differences)
+	own_replaced:  int, // finalized ticks where the relay replaced our input (it arrived too late)
+	steps:         [Step_Kind]int, // ticks stepped, by kind
+	step_us:       [Step_Kind]i64, // time spent stepping them, µs
+	last_msg_us:   i64, // when the relay's last message arrived (now_us; 0: none yet)
 	// roster from the relay
 	connected:     [P]bool,
 	names:         [P]Player_Name,
@@ -325,6 +339,7 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 
 @(private)
 handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
+	c.last_msg_us = now
 	rd := wire.reader_make(data)
 	#partial switch Msg(wire.r_u8(&rd)) {
 	case .Welcome:
@@ -474,8 +489,11 @@ record_checksum :: proc(c: ^Client($S, $I, $W, $P)) {
 }
 
 @(private)
-step_tick :: proc(c: ^Client($S, $I, $W, $P), inputs: ^usim.Inputs(I, P)) {
+step_tick :: proc(c: ^Client($S, $I, $W, $P), inputs: ^usim.Inputs(I, P), kind: Step_Kind) {
+	t0 := time.tick_now()
 	usim.step(c.sim, inputs)
+	c.steps[kind] += 1
+	c.step_us[kind] += i64(time.duration_microseconds(time.tick_since(t0)))
 	record_checksum(c)
 	if c.resim_from == 0 || c.sim.tick < c.resim_from {
 		c.resim_from = c.sim.tick
@@ -511,6 +529,7 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 	}
 	for t in old_v + 1 ..= new_v {
 		drop_verified_commands(c, t)
+		if c.slot >= 0 && c.slot in c.fin[t % FIN_RING].replaced do c.own_replaced += 1
 	}
 	for t in old_v + 1 ..= (m != 0 ? m - 1 : limit) {
 		on_tick_verified(c, t) // predicted right: the ring already holds the verified result
@@ -525,20 +544,20 @@ advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
 		c.depth_sum += depth
 		c.depth_max = max(c.depth_max, depth)
 		for t in m ..= new_v {
-			step_tick(c, &c.fin[t % FIN_RING])
+			step_tick(c, &c.fin[t % FIN_RING], .Resim)
 			on_tick_verified(c, t)
 			c.resim_ticks += 1
 		}
 		for t in new_v + 1 ..= c.predicted {
 			in_ := &c.pred_inputs[t % PRED_RING]
 			predicted_inputs(c, t, in_)
-			step_tick(c, in_)
+			step_tick(c, in_, .Resim)
 			c.resim_ticks += 1
 		}
 		c.predicted = max(c.predicted, new_v)
 	} else if new_v > c.predicted {
 		for t in c.predicted + 1 ..= new_v {
-			step_tick(c, &c.fin[t % FIN_RING])
+			step_tick(c, &c.fin[t % FIN_RING], .Verified)
 			on_tick_verified(c, t)
 		}
 		c.predicted = new_v
@@ -707,7 +726,7 @@ predict :: proc(c: ^Client($S, $I, $W, $P)) {
 		t := c.predicted + 1
 		in_ := &c.pred_inputs[t % PRED_RING]
 		predicted_inputs(c, t, in_)
-		step_tick(c, in_)
+		step_tick(c, in_, .Predicted)
 		c.predicted = t
 	}
 }

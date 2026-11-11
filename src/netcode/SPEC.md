@@ -13,7 +13,8 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   number; UDP reuses it). Datagrams ≤ `MAX_DATAGRAM` (1152, fits EOS P2P), may be lost. A link numbers its remote
   endpoints as `Peer`s (a client-side link: peer 0). Implementations: in-process
   loopback (`hub_create`, `loopback_link`), UDP (`udp_listen`, `udp_connect`), `netsim_wrap(link, profile, seed,
-  clock)` (latency, jitter, loss, duplicates, reordering; real or virtual clock). EOS implements a Link in its own
+  clock)` (latency, jitter, loss, duplicates, reordering; real or virtual clock; `split` with `profile_in` impairs
+  incoming apart). EOS implements a Link in its own
   package.
 - **Channel**: reliability over any number of links (`channel_add_link`): every (link, peer) pair is one channel
   peer. Seq/ack/32-bit ack field, reliable resend by RTT, in-order delivery, keepalive 250 ms, timeout 10 s. At most
@@ -39,6 +40,9 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   bytes and commands compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (218 ms = 14 ticks at 64 Hz, the most RING
   allows; a client plays smoothly up to ~300 ms RTT, 166 ms stalled most ticks from ~250 ms), input delay `clamp(ceil((rtt/2 + 8 ms)/tick), 1, 100 ms)`
   re-evaluated each second by ±1, clock slewed ±2% towards relay tick + delay.
+  Cumulative counters for tools (the dev UI's graphs take differences): rollbacks, stall and re-simulated ticks, ticks
+  stepped and the time stepping them by `Step_Kind` (verified, re-simulated after a rollback, newly predicted), our
+  inputs the relay replaced (they came too late), when the relay's last message arrived.
 - **Host** (`host_create(&GAME, cfg, hooks)`, `host_add_link`, `host_step`, `host_stop`, `host_finished`,
   `host_destroy`): relay + the host's own client (slot 0) joined by loopback. Single player is a host with no remote
   links. Remote players reach the relay through any added link; the relay serves all links at once.
