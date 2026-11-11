@@ -38,7 +38,7 @@ SDK) the CLI fetches or builds, pinned and hash-checked.
 Box3D, Dear ImGui and the EOS SDK stay under `third_party/<dep>/` in the `unified` checkout (the submodule in a game
 repo): their bindings name them by relative path (`foreign import`). A game is a directory with `project.godot` and
 `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional when there is one. In a
-game repo, `test`, `vet`, `fmt` and `all` cover the game only: never the submodule, which `unified`'s own CI proves.
+game repo, `test`, `vet`, `fmt` and `verify` cover the game only: never the submodule, which `unified`'s own CI proves.
 
 ## Bootstrap and self-rebuild
 
@@ -82,31 +82,28 @@ Public (`unified:cli`, every project):
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment) (`--check`: report only) | `ci.py odinfmt/godot/ensure-ninja`, `box3d.py`, `imgui.py`, `eos.py ensure` |
 | `build [game] [--mode dev\|release\|debug]` | each game's extension and headless binary, in parallel | `build`, `game build` |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it | `game run`, `game editor` |
-| `test [name...]` | every test package in one compile (unit, end-to-end suites, lint); optional test-name filter | `test` |
+| `test [game] [--suite s,...] [--only name,...]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`) | `test`, `check`, `godot-test`, `godot-checks`, `game headless/editor-check/session-check/validate/walk/tour/import` |
 | `vet` | `odin check`, strict flags, every target and define variant | `vet` |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file in a Claude Code hook's JSON | `fmt` |
-| `check [game] [--only step,...]` | the game's headless Godot checks (below) | `godot-checks`, `game headless/editor-check/session-check/validate/walk/tour/import` |
 | `tool [game] <script> [--window] [--shots] [-- args]` | run `game/tools/<script>.gd` (headless unless `--window`) | `game play/shots/tour --shots\|--frames` |
 | `coop [game] [--window] [--rejoin] [--lan]` | host and joiner processes, a real lobby | `game coop` |
-| `levels [game] [--check]` | export `.level` files from their scenes | `game export-level` |
+| `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) | `game export-level` |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build | `bench` |
-| `regen <game>` | regenerate a game's reference run | `regen` |
+| `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) | `regen` |
 | `init <dir>` | a new game repo: layout, shims, `tools/main.odin`, `.gitignore`, the submodule | new |
-| `all` | the project's gate (this repo: everything CI runs; never `selftest`) | `all` |
+| `verify` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`) | `all` |
 | `version` | the CLI's source hash, Odin, and the pins | new |
 
 Private (this repo's `tools/`; promoted to public only when a game needs one):
 
 | Command | What | Replaces |
 |---|---|---|
-| `gen [--force]` | the Godot bindings, `src/gdext/*.gen.odin` | `gen` |
-| `bindings-test` | `tests/godot` and `tests/godot_views` under headless Godot | `godot-test` |
-| `udp-test` | the toy's relay and 3 clients over real UDP on the real clock | `check` |
+| `godot-gen [--force]` | the Godot bindings, `src/gdext/*.gen.odin` | `gen` |
 | `release [game] (--version V \| --tag T) [--no-smoke]`, `release notes [game] --tag T` | a playable build: export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` | `release.py` |
 | `eos upload` | pack the pruned EOS SDK per platform and upload it to the draft release | `eos.py pack/upload` |
 | `board list\|set` | the work board through `gh` | `board` |
 | `ci summary`, `ci cache-key <dep>` | the job summary; a dependency's cache key | `ci.py summary`, `ci.py compiler-id` |
-| `selftest` | run only when asked for, never by `all`: fresh clone in a temp folder, bootstrap with only Odin, `init` a game outside the repo with the clone as its submodule, then build, test, check and run it headless | new |
+| `selftest` | run only when asked for, never by `verify`: fresh clone in a temp folder, bootstrap with only Odin, `init` a game outside the repo with the clone as its submodule, then build it, `test --suite all` and run it headless | new |
 
 Dropped: `game import` (every command imports when stale), `eos defines` and the unused `--json` of `eos.py`,
 `release.py godot`, `ci.py godot`, `box3d.py --cc/--cxx` (stamps cover the compiler instead), ninja and CMake, and
@@ -121,18 +118,25 @@ the shell's environment, and the CLI passes the merged environment to every proc
 binaries, `coop`). A game opened in Godot directly, not through `unified editor`, doesn't see it. `init` git-ignores
 it.
 
-## Checks and tool scripts
+## Test suites and tool scripts
 
 - **Tool scripts** are a game's `game/tools/<name>.gd`, run with Godot's `-s`. Each prints one
   `UNIFIED_RESULT {json}` line through a helper in `godot_host` (`ok`, `errors`, its own data); the CLI passes
   `--no-settings`, `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`.
-- **Strict:** in `check` steps, `tool`, `coop` and `levels`, a failing exit, a missing or `ok: false` result, an
+- **Strict:** in `godot` suite steps, `tool`, `coop` and `bake`, a failing exit, a missing or `ok: false` result, an
   `ERROR` line, a leak at exit or a GDScript warning fails. `run` and `editor` only report. Windowed runs restore the
   frontmost app on macOS.
-- **`check` steps**, each run when the game has what it needs: `import` (stale imports only), `editor` (the extension
-  loads, no errors), `session` (a headless session; its checksums equal the offline headless binary's), `levels`
-  (`--check`), then each tool script the game has of `validate`, `session_check`, `walk`, `tour` (quick). `--only`
-  picks steps. A step the game can't run prints `skipped: <why>` and is listed in the `--json` result.
+- **Test suites**, each with its own budget; a project's extension adds its own (this repo: `net`,
+  `godot-bindings`):
+  - `odin`: every test package in one compile: unit tests, the library's black-box tests, end-to-end suites, the
+    reference-run replays, the Box3D golden trace, the determinism and import lint. The inner loop.
+  - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
+    only), `editor` (the extension loads, no errors), `session` (a headless session; its checksums equal the offline
+    headless binary's), `bake` (`--check`), then each tool script the game has of `validate`, `session_check`, `walk`,
+    `tour` (quick). A step the game can't run prints `skipped: <why>` and is listed in the `--json` result.
+  - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
+    960 ticks at 64 Hz (at least 15 s, so never in the inner loop); checksums agree every 16th tick, 0 desyncs.
+  - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot.
 - **Benchmarks:** a headless binary's `bench` mode with no arguments runs the game's standard benchmark (its
   arguments live in the game); the target, a forward step plus an 8-tick re-sim within 6 ms, is unified's.
 
@@ -168,5 +172,5 @@ developer does.
 One PR: `src/cli/`, `tools/` (Odin), `pins.cfg`, the shims; `tools/*.py` deleted; workflows, `.claude/` (the
 format hook calls `./unified fmt --hook`), skills, AGENTS.md, README.md, `tools/README.md`, specs, game READMEs and
 the in-game messages that name `dev.py` move to `unified`; root `out/` becomes `.out/`; the games' tool scripts move
-to `UNIFIED_RESULT`; each game's headless descriptor gets its benchmark arguments. Done when `unified all` passes, CI
+to `UNIFIED_RESULT`; each game's headless descriptor gets its benchmark arguments. Done when `unified verify` passes, CI
 is green on all four platforms, and `unified selftest` passes on Windows and macOS.
