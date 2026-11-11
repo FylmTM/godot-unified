@@ -302,7 +302,10 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 	out := join(state.project.out, "test", tprint("unified_tests%s", EXE))
 	make_dirs(os.dir(out))
 	cmd: [dynamic]string
-	append(&cmd, odin(), "test", test_root(), "-all-packages", collection(), tprint("-out:%s", out))
+	append(&cmd, odin(), "test", test_root(), collection(), tprint("-out:%s", out))
+	if is_unified_repo() {
+		append(&cmd, "-all-packages") // tests/ is a root that pulls in every test package; a game's tests are one
+	}
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
 	if len(only) > 0 {
