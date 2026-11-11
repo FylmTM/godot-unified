@@ -41,7 +41,6 @@ Stage :: enum u8 {
 }
 
 MAX_REMOTES :: 16
-STAGED_SDK_BIN :: #directory + "/../../third_party/eos/SDK/Bin"
 TICK_EVERY_US :: 500 // the link ticks EOS at most this often when it finds no packet
 SOCKET_PREFIX :: "unified-"
 MAX_MEMBERS :: 4
@@ -130,8 +129,8 @@ g: Online
 // --- public API ---------------------------------------------------------------------------------
 
 // The directories searched for the SDK library when none are given: $UNIFIED_EOS_LIB_DIR, the
-// executable's directory (and ../Frameworks on macOS, where an exported .app keeps it), then (dev
-// builds on the machine that built them) the SDK staged in this repo by `uni setup`.
+// executable's directory (and ../Frameworks on macOS, where an exported .app keeps it), then the SDK
+// $UNIFIED_EOS_SDK names (its SDK/Bin: tests and headless tools on a developer's machine).
 default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	dirs := make([dynamic]string, allocator)
 	if d := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); d != "" {
@@ -144,7 +143,11 @@ default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 			append(&dirs, fw)
 		}
 	}
-	append(&dirs, STAGED_SDK_BIN)
+	if sdk := os.get_env("UNIFIED_EOS_SDK", allocator); sdk != "" {
+		if filepath.base(sdk) != "SDK" do sdk, _ = filepath.join({sdk, "SDK"}, allocator)
+		bin, _ := filepath.join({sdk, "Bin"}, allocator)
+		append(&dirs, bin)
+	}
 	return dirs[:]
 }
 
@@ -201,11 +204,7 @@ init :: proc(opts: Init_Options) -> bool {
 
 	creds, source := credentials_load(context.temp_allocator)
 	if !credentials_complete(creds) && opts.sdk == nil {
-		set_detail(
-			o,
-			"EOS credentials missing (compiled in, EOS_* environment or %s)",
-			ini_path(context.temp_allocator),
-		)
+		set_detail(o, "EOS credentials missing (compiled in, or UNIFIED_EOS_* in the environment or .env)")
 		return false
 	}
 	_ = source

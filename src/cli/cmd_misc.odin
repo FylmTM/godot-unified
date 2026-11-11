@@ -265,13 +265,12 @@ cmd_setup :: proc(args: []string) -> Result {
 	}
 	append(&deps, Dep{"godot", pin("godot", "version"), gsrc, os.is_file(gexe)})
 	if uses_eos {
-		problem := opts.check ? "" : ensure_eos()
-		src :=
-			os.get_env("UNIFIED_EOS_SDK", context.temp_allocator) != "" ? tprint("UNIFIED_EOS_SDK (%s)", env_source("UNIFIED_EOS_SDK")) : "draft release (gh)"
-		if problem != "" {
-			src = tprint("%s: %s", src, problem)
+		// never fetched (Epic's licence): online play only, so a missing SDK is reported, not a failure
+		src := tprint("UNIFIED_EOS_SDK (%s)", env_source("UNIFIED_EOS_SDK"))
+		if problem := eos_problem(); problem != "" {
+			src = tprint("optional, for online play: %s", problem)
 		}
-		append(&deps, Dep{"eos_sdk", pin("eos_sdk", "version"), src, eos_ready()})
+		append(&deps, Dep{"eos_sdk", pin("eos_sdk", "version"), src, true})
 	}
 	all_ready := true
 	for d in deps {
@@ -299,7 +298,7 @@ env_source :: proc(key: string) -> string {
 // --- clean ------------------------------------------------------------------------------------------------------
 
 // Removes what the CLI built or fetched: every .out/ and .godot/ in the project (outside hidden directories, so not
-// another checkout's under .claude/), the dependencies in third_party/ and the generated Godot bindings. The running
+// another checkout's under .claude/), and the generated Godot bindings. The running
 // CLI stays, with its manifest and `current` (Windows can't delete a running .exe; the next command needs no
 // bootstrap). Godot's export templates stay: they live in Godot's user directory, shared by every project.
 @(private)
@@ -310,12 +309,8 @@ cmd_clean :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	p := state.project
-	deps := []string{join(p.unified, "third_party", "eos")}
 	gdext := join(p.unified, "src", "gdext")
 	targets: [dynamic]string
-	for d in deps {
-		append(&targets, d)
-	}
 	append(&targets, join(gdext, "api.gen.odin"), join(gdext, "gdi"))
 	// The root's .out/ but the running CLI.
 	exe, _ := os.get_executable_path(context.allocator)
@@ -349,12 +344,6 @@ cmd_clean :: proc(args: []string) -> Result {
 			os.walker_skip_dir(&w)
 		} else if strings.has_prefix(fi.name, ".") {
 			os.walker_skip_dir(&w) // .git, .claude (other checkouts), .toolchains
-		} else {
-			for d in deps {
-				if same_path(fi.fullpath, d) {
-					os.walker_skip_dir(&w) // removed whole above
-				}
-			}
 		}
 	}
 	removed: [dynamic]string

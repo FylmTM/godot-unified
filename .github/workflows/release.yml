@@ -1,11 +1,13 @@
 # Playable game builds (the `release` skill, .claude/skills/release/). A tag `<game>-v<version>` (e.g.
 # survivor-v0.1.0) builds that game for windows-x64 and macos-arm64 with `uni release --tag`, which takes the game
 # and the version from the tag, stamps the version into the export (and fails if the export doesn't carry it),
-# compiles the EOS IDs in when the game imports unified:eos, and smoke-tests the export on its runner; then a
+# builds it without EOS (`--no-eos`: CI has no EOS SDK and no EOS credentials, so these packages play single
+# player and LAN only; online-capable builds are made with `uni release` on a developer's machine), and smoke-tests
+# the export on its runner; then a
 # GitHub prerelease gets both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline:
 # Windows only (macOS runners are for tag builds), any game, no release.
-# The build jobs have `contents: read` (the EOS SDK comes from eos-sdk.yml as a cache entry) and the EOS secrets
-# only in the one step that compiles them in; actions, runner images and downloads are pinned (see ci.yml).
+# The build jobs have `contents: read` and no secrets; only the publish job writes (the prerelease). Actions, runner
+# images and downloads are pinned (see ci.yml).
 name: release
 
 on:
@@ -42,14 +44,9 @@ jobs:
             echo "matrix={\"include\":[$win]}" >> "$GITHUB_OUTPUT"
           fi
 
-  eos-sdk:
-    uses: ./.github/workflows/eos-sdk.yml
-    permissions:
-      contents: write # only the fetch job in eos-sdk.yml, which runs no repository code
-
   build:
     name: build / ${{ matrix.platform }}
-    needs: [meta, eos-sdk]
+    needs: meta
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
@@ -61,12 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/odin
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: third_party/eos
-          key: ${{ needs.eos-sdk.outputs.cache-key }}
-          enableCrossOsArchive: true
-          fail-on-cache-miss: true
       # The Godot editor (.out/godot); the export templates are fetched into Godot's own folder per run, checked
       # against pins.cfg (range reads: ~120 MB).
       - id: keys
@@ -75,22 +66,16 @@ jobs:
         with:
           path: .out/godot
           key: ${{ steps.keys.outputs.godot }}
-      # Extension, version stamp, import, export, sign, zip, smoke test. The only step with the EOS secrets
-      # (compiled into the extension; uni never prints them).
+      # Extension, version stamp, import, export, sign, zip, smoke test; no EOS (single player and LAN).
       - name: uni release
         env:
-          EOS_PRODUCT_ID: ${{ secrets.EOS_PRODUCT_ID }}
-          EOS_SANDBOX_ID: ${{ secrets.EOS_SANDBOX_ID }}
-          EOS_DEPLOYMENT_ID: ${{ secrets.EOS_DEPLOYMENT_ID }}
-          EOS_CLIENT_ID: ${{ secrets.EOS_CLIENT_ID }}
-          EOS_CLIENT_SECRET: ${{ secrets.EOS_CLIENT_SECRET }}
           GAME: ${{ inputs.game }}
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            ${{ matrix.uni }} release --tag "$GITHUB_REF_NAME"
+            ${{ matrix.uni }} release --no-eos --tag "$GITHUB_REF_NAME"
           else
             [[ "$GAME" =~ ^[a-z0-9_]+$ ]] || { echo "::error::bad game name: $GAME"; exit 1; }
-            ${{ matrix.uni }} release "$GAME"
+            ${{ matrix.uni }} release --no-eos "$GAME"
           fi
       # One artifact per platform; the publish job downloads them all.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -126,7 +111,7 @@ jobs:
           cat *.sha256 | tr -d '\r' > SHA256SUMS.txt   # LF only: macOS `shasum -c` rejects CRLF lines
           sha256sum -c SHA256SUMS.txt
           cd ..
-          ./uni release notes --tag "$GITHUB_REF_NAME" > notes.md
+          ./uni release notes --no-eos --tag "$GITHUB_REF_NAME" > notes.md
           tag="$GITHUB_REF_NAME"
           gh release create "$tag" --verify-tag --prerelease --title "${tag%-v*} ${tag##*-v}" --notes-file notes.md \
             dist/*.zip dist/SHA256SUMS.txt

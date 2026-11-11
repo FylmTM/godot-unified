@@ -20,17 +20,10 @@ private_commands :: proc() -> []cli.Command {
 		},
 		{
 			name = "release",
-			usage = "[game] [--tag <game>-v<version> | --version V] [--no-smoke] | release notes [game] --tag T",
+			usage = "[game] [--tag <game>-v<version> | --version V] [--no-eos] [--no-smoke] | release notes [game] --tag T [--no-eos]",
 			summary = "a playable build: export, version stamp, sign, zip, smoke test (macOS and Windows)",
 			no_budget = "exports and downloads",
 			run = cmd_release,
-		},
-		{
-			name = "eos",
-			usage = "upload",
-			summary = "pack the pruned EOS SDK per platform and upload it to the draft release",
-			no_budget = "networked",
-			run = cmd_eos,
 		},
 		{
 			name = "board",

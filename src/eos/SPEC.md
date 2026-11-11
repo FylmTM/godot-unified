@@ -31,14 +31,14 @@ the game's extension wires them (`init` first, with the game library's directory
 
 - **SDK loading.** The library (`libEOSSDK-Mac-Shipping.dylib`, `EOSSDK-Win64-Shipping.dll`,
   `libEOSSDK-Linux-Shipping.so`) is loaded at run time from `lib_dirs`, else `$UNIFIED_EOS_LIB_DIR`, the
-  executable's directory (macOS: also `../Frameworks`), else the repo's staged SDK. Missing library or credentials
+  executable's directory (macOS: also `../Frameworks`), else `$UNIFIED_EOS_SDK`'s `SDK/Bin`. Missing library or credentials
   → `init` fails with a reason and online play is off; single player and direct UDP still work. Bindings are
   hand-written for the subset we use (`api.odin`); `tests/eos` checks every struct's size and offsets and every
-  copied constant against the headers with a C compiler, and that the library loads and initializes.
-- **Credentials.** Compiled in with `-define:EOS_PRODUCT_ID=...` (and `EOS_SANDBOX_ID`, `EOS_DEPLOYMENT_ID`,
-  `EOS_CLIENT_ID`, `EOS_CLIENT_SECRET`; `uni build` and `uni release` pass them from the environment, CI has
-  them as secrets), else the same names from the environment, else `~/.config/unified/eos.ini` (`[eos]`,
-  `$UNIFIED_EOS_INI` overrides the path). Never logged.
+  copied constant against the headers with a C compiler, and that the library loads and initializes (both need
+  `UNIFIED_EOS_SDK`: they run on developer machines, not in CI).
+- **Credentials.** `UNIFIED_EOS_PRODUCT_ID`, `_SANDBOX_ID`, `_DEPLOYMENT_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`: compiled
+  in with `-define:UNIFIED_EOS_PRODUCT_ID=...` (`uni build` and `uni release` pass them from the environment or
+  `.env`), else the same names from the environment (`uni` fills it from `.env`). CI has none. Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
   login again; first login of that device → `CreateUser`. Auth expiry (~1 h) logs in again.
 - **Lobby.** Host: public lobby, max 4 members, host migration off, attribute `code` = 6 characters from
@@ -78,7 +78,7 @@ the game's extension wires them (`init` first, with the game library's directory
   garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
   load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
   lobby that arrives after leave is destroyed, a failed request reports its reason once, join, shutdown.
-- Two processes on one machine through EOS (the developer's ini + staged SDK), the game's headless binary:
+- Two processes on one machine through EOS (the `.env`'s `UNIFIED_EOS_*` IDs and SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
   --ticks 1920` (`--relays force` to go through Epic's relays). The fresh device gives the second process its own
   Product User ID. A pass: both processes play to the end with 0 desyncs, direct and relayed.

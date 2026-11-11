@@ -80,9 +80,11 @@ Toolchain (macOS ARM64, Linux x64 or Windows x64):
 - **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` and `box3d` collections, the strict
   checker flags, format on save with `odinfmt.json`).
 
-Everything else (Godot, odinfmt, Box3D, the EOS SDK) the CLI fetches or builds from `pins.cfg`. A local
-Godot, EOS SDK or unified-box3d checkout can stand in through `UNIFIED_GODOT`, `UNIFIED_EOS_SDK` and `UNIFIED_BOX3D`
-in a git-ignored `.env` ([`src/cli/SPEC.md`](src/cli/SPEC.md)). Then, from the repo root (`uni.cmd` on Windows):
+Everything else (Godot, odinfmt, Box3D) the CLI fetches or builds from `pins.cfg`; a local Godot or unified-box3d
+checkout can stand in through `UNIFIED_GODOT` and `UNIFIED_BOX3D` in a git-ignored `.env`. Online play also needs the
+EOS SDK, which Epic's licence keeps out of the repo: download it and set `UNIFIED_EOS_SDK` and the `UNIFIED_EOS_*` IDs
+([`docs/EOS.md`](docs/EOS.md)); without it everything else works. Settings: [`src/cli/SPEC.md`](src/cli/SPEC.md).
+Then, from the repo root (`uni.cmd` on Windows):
 
 ```
 ./uni help                # every command (the first run builds the CLI, in about a second)

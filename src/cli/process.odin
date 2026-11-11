@@ -222,12 +222,12 @@ tail :: proc(text: string, n: int) -> string {
 	return len(text) > n ? text[len(text) - n:] : text
 }
 
-// A command line for logs, with the values of -define:EOS_* (credentials) replaced.
+// A command line for logs, with the values of -define:UNIFIED_EOS_* (credentials) replaced.
 redact :: proc(cmd: []string) -> []string {
 	out := make([]string, len(cmd), context.temp_allocator)
 	for a, i in cmd {
 		out[i] = a
-		if strings.has_prefix(a, "-define:EOS_") {
+		if strings.has_prefix(a, "-define:UNIFIED_EOS_") {
 			if eq := strings.index_byte(a, '='); eq >= 0 {
 				out[i] = tprint("%s=***", a[:eq])
 			}

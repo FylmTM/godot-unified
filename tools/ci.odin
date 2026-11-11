@@ -20,7 +20,7 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 		return {ok = true, summary = ci_summary()}
 	case "cache-key":
 		Opts :: struct {
-			dep: string `args:"pos=0,required" usage:"odin, odinfmt, godot, box3d or eos_sdk"`,
+			dep: string `args:"pos=0,required" usage:"odin, odinfmt, godot or box3d"`,
 		}
 		opts: Opts
 		cli.parse(&opts, args[1:])
@@ -37,8 +37,8 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 @(private)
 cache_key :: proc(dep: string) -> string {
 	section := dep
-	if dep != "odin" && dep != "odinfmt" && dep != "godot" && dep != "box3d" && dep != "eos_sdk" {
-		cli.usage("no dependency %q (odin, odinfmt, godot, box3d, eos_sdk)", dep)
+	if dep != "odin" && dep != "odinfmt" && dep != "godot" && dep != "box3d" {
+		cli.usage("no dependency %q (odin, odinfmt, godot, box3d)", dep)
 	}
 	pins, ok := cli.state.pins.sections[section]
 	if !ok {

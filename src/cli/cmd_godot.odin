@@ -108,12 +108,6 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 			break
 		}
 	}
-	for g in games {
-		if extension_uses_eos(g) {
-			ensure_eos() // a problem is reported by each game's stage_eos
-			break
-		}
-	}
 	exe, _ := os.get_executable_path(context.allocator)
 	env := env_with(tprint("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))

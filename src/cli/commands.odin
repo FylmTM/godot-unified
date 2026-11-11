@@ -19,7 +19,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "clean",
 				usage = "[--check]",
-				summary = "remove what the CLI built or fetched (.out/, .godot/, third_party/ dependencies, generated bindings)",
+				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings)",
 				budget = 5,
 				run = cmd_clean,
 			},

@@ -2,70 +2,36 @@ package cli
 
 import "core:os"
 import "core:strings"
-import "core:time"
 
-// The EOS C SDK files unified needs, in third_party/eos/ (git-ignored): the headers, VERSION, and each platform's
-// shipping library. From the local SDK UNIFIED_EOS_SDK names (the unzipped root or its SDK/ directory), else this
-// host's part of the draft release eos-sdk-<version> (needs gh with access to the repo), checked against its pin.
+// The EOS C SDK is not ours to redistribute (Epic's EOS Developer Agreement), so nothing fetches it: each machine
+// downloads it from Epic's developer portal and names it with UNIFIED_EOS_SDK (the unzipped root, or its SDK/
+// directory; the environment or .env). It is read where it lies: its version (SDK/Include/eos_version.h) must match
+// pins.cfg [eos_sdk], and a game's build copies this host's library next to the game's library. Without it a game
+// builds and plays single player and LAN; online play needs it. CI has no SDK and no EOS credentials.
 
-// Each release part: its libraries (each zip also holds SDK/Include/* and VERSION).
-EOS_PARTS :: [][2]string {
-	{"macos", "SDK/Bin/libEOSSDK-Mac-Shipping.dylib"},
-	{"windows-x64", "SDK/Bin/EOSSDK-Win64-Shipping.dll"},
-	{"windows-x64", "SDK/Lib/EOSSDK-Win64-Shipping.lib"},
-	{"linux-x64", "SDK/Bin/libEOSSDK-Linux-Shipping.so"},
-	{"linux-arm64", "SDK/Bin/libEOSSDK-LinuxArm64-Shipping.so"},
-}
-// The credentials a release build compiles in (from the environment, or .env); empty values are left out.
+// The credentials a release build compiles in, from the environment or .env (empty values are left out). The same
+// names are the dev builds' run-time source (src/eos/config.odin).
 EOS_ENV_DEFINES :: []string {
-	"EOS_PRODUCT_ID",
-	"EOS_SANDBOX_ID",
-	"EOS_DEPLOYMENT_ID",
-	"EOS_CLIENT_ID",
-	"EOS_CLIENT_SECRET",
+	"UNIFIED_EOS_PRODUCT_ID",
+	"UNIFIED_EOS_SANDBOX_ID",
+	"UNIFIED_EOS_DEPLOYMENT_ID",
+	"UNIFIED_EOS_CLIENT_ID",
+	"UNIFIED_EOS_CLIENT_SECRET",
 }
 
-eos_part :: proc() -> string {
-	return ODIN_OS == .Darwin ? "macos" : PLATFORM
+// This host's SDK runtime library (src/eos/api.odin's LIB_NAME and each .gdextension's [dependencies] name it too).
+when ODIN_OS == .Darwin {
+	EOS_LIB :: "libEOSSDK-Mac-Shipping.dylib"
+} else when ODIN_OS == .Windows {
+	EOS_LIB :: "EOSSDK-Win64-Shipping.dll"
+} else when ODIN_ARCH == .arm64 {
+	EOS_LIB :: "libEOSSDK-LinuxArm64-Shipping.so"
+} else {
+	EOS_LIB :: "libEOSSDK-Linux-Shipping.so"
 }
 
-eos_root :: proc() -> string {
-	return join(state.project.unified, "third_party", "eos")
-}
-
-// The SDK's runtime library for this host (src/eos/api.odin's LIB_NAME and each .gdextension's [dependencies] name
-// it too).
-eos_lib :: proc() -> string {
-	when ODIN_OS == .Darwin {
-		name :: "libEOSSDK-Mac-Shipping.dylib"
-	} else when ODIN_OS == .Windows {
-		name :: "EOSSDK-Win64-Shipping.dll"
-	} else when ODIN_ARCH == .arm64 {
-		name :: "libEOSSDK-LinuxArm64-Shipping.so"
-	} else {
-		name :: "libEOSSDK-Linux-Shipping.so"
-	}
-	return join(eos_root(), "SDK", "Bin", name)
-}
-
-eos_ready :: proc() -> bool {
-	root := eos_root()
-	v, ok := read_text(join(root, "VERSION"))
-	if !ok ||
-	   strings.trim_space(v) != pin("eos_sdk", "version") ||
-	   !os.is_file(join(root, "SDK", "Include", "eos_sdk.h")) {
-		return false
-	}
-	for p in EOS_PARTS {
-		if p[0] == eos_part() && !os.is_file(join(root, p[1])) {
-			return false
-		}
-	}
-	return true
-}
-
-// The local SDK UNIFIED_EOS_SDK names, or "".
-eos_local_sdk :: proc() -> string {
+// The SDK UNIFIED_EOS_SDK names (its root, the folder holding SDK/), or "" when it isn't set.
+eos_sdk :: proc() -> string {
 	p := os.get_env("UNIFIED_EOS_SDK", context.allocator)
 	if p == "" {
 		return ""
@@ -73,85 +39,59 @@ eos_local_sdk :: proc() -> string {
 	if os.base(p) == "SDK" {
 		p = os.dir(p)
 	}
-	if !os.is_file(join(p, "SDK", "Include", "eos_sdk.h")) {
-		fatal("UNIFIED_EOS_SDK=%s holds no SDK/Include/eos_sdk.h", p)
-	}
 	return p
 }
 
-// Makes third_party/eos/ hold the pinned SDK. Returns a message when it can't (the caller decides how bad that is).
-ensure_eos :: proc() -> (problem: string) {
-	if eos_ready() {
+// The SDK's version from its eos_version.h ("1.19.2.1"), or "" when it can't be read.
+eos_sdk_version :: proc(sdk: string) -> string {
+	text, ok := read_text(join(sdk, "SDK", "Include", "eos_version.h"))
+	if !ok {
 		return ""
 	}
-	start := time.tick_now()
-	root := eos_root()
-	if src := eos_local_sdk(); src != "" {
-		log("uni: copying the EOS SDK from %s", src)
-		remove_tree(root)
-		for h in find_files(join(src, "SDK", "Include"), "") {
-			copy_file(join(root, h[len(src) + 1:]), h)
+	parts: [4]string
+	names := [4]string{"EOS_MAJOR_VERSION", "EOS_MINOR_VERSION", "EOS_PATCH_VERSION", "EOS_HOTFIX_VERSION"}
+	for line in strings.split_lines(text, context.temp_allocator) {
+		f := strings.fields(line, context.temp_allocator)
+		if len(f) == 3 && f[0] == "#define" {
+			for n, i in names do if f[1] == n do parts[i] = f[2]
 		}
-		for p in EOS_PARTS {
-			if !os.is_file(join(src, p[1])) {
-				return tprint("%s is missing in %s", p[1], src)
-			}
-			copy_file(join(root, p[1]), join(src, p[1]))
-		}
-		write_text(join(root, "VERSION"), tprint("%s\n", pin("eos_sdk", "version")))
-	} else {
-		if which("gh") == "" {
-			return "no UNIFIED_EOS_SDK and no gh to fetch the SDK from the draft release"
-		}
-		part := eos_part()
-		name := tprint("eos-sdk-%s-%s.zip", pin("eos_sdk", "version"), part)
-		tmp := join(state.project.out, tprint("eos-download-%d", os.get_pid())) // the godot suite's games may try at once
-		remove_tree(tmp)
-		make_dirs(tmp)
-		log("uni: downloading %s from the draft release", name)
-		r := run_proc(
-			{
-				cmd = {
-					"gh",
-					"release",
-					"download",
-					tprint("eos-sdk-%s", pin("eos_sdk", "version")),
-					"-R",
-					pin("eos_sdk", "repo"),
-					"-p",
-					name,
-					"-D",
-					tmp,
-				},
-				capture = true,
-				quiet = true,
-			},
-		)
-		if !r.ok {
-			remove_tree(tmp)
-			return tprint("gh release download failed: %s", strings.trim_space(r.stderr))
-		}
-		zip := join(tmp, name)
-		check_sha256(zip, pin("eos_sdk", part), name)
-		remove_tree(root)
-		z := zip_open_file(zip)
-		zip_extract_all(&z, root)
-		remove_tree(tmp)
-		cold("EOS SDK download")
 	}
-	unquarantine(root)
-	if !eos_ready() {
-		return tprint("%s is incomplete after setup", root)
+	for p in parts do if p == "" do return ""
+	return tprint("%s.%s.%s.%s", parts[0], parts[1], parts[2], parts[3])
+}
+
+// Why the SDK can't be used, or "" when it can: set, the pinned version, this host's library present.
+eos_problem :: proc() -> string {
+	sdk := eos_sdk()
+	if sdk == "" {
+		return "UNIFIED_EOS_SDK is not set (download the SDK from Epic's developer portal: docs/EOS.md)"
 	}
-	log("uni: EOS SDK %s ready in %.1fs", pin("eos_sdk", "version"), seconds_since(start))
+	v := eos_sdk_version(sdk)
+	if v == "" {
+		return tprint("UNIFIED_EOS_SDK=%s holds no SDK/Include/eos_version.h", sdk)
+	}
+	if v != pin("eos_sdk", "version") {
+		return tprint("UNIFIED_EOS_SDK=%s is version %s; pins.cfg wants %s", sdk, v, pin("eos_sdk", "version"))
+	}
+	if !os.is_file(eos_lib()) {
+		return tprint("UNIFIED_EOS_SDK=%s has no SDK/Bin/%s", sdk, EOS_LIB)
+	}
 	return ""
 }
 
+eos_ready :: proc() -> bool {
+	return eos_problem() == ""
+}
+
+eos_lib :: proc() -> string {
+	return join(eos_sdk(), "SDK", "Bin", EOS_LIB)
+}
+
 // macOS: a browser-downloaded SDK carries com.apple.quarantine, and dlopen of the dylib then blocks in a Gatekeeper
-// check that may wait for a prompt. The staged copy is ours, so drop the flag from it.
-unquarantine :: proc(dir: string) {
+// check that may wait for a prompt. Our copy of the library is ours to change, so drop the flag from it.
+unquarantine :: proc(path: string) {
 	when ODIN_OS == .Darwin {
-		run_proc({cmd = {"xattr", "-dr", "com.apple.quarantine", dir}, capture = true, quiet = true})
+		run_proc({cmd = {"xattr", "-d", "com.apple.quarantine", path}, capture = true, quiet = true})
 	}
 }
 
@@ -161,21 +101,22 @@ extension_uses_eos :: proc(g: Game) -> bool {
 }
 
 // Copies the SDK's library next to the game's library (its .gdextension's [dependencies] ship it from there). The
-// library is loaded at run time, so a missing SDK only disables online play: a warning here, an error for release.
+// library is loaded at run time, so a missing SDK only disables online play: said once, not an error.
 stage_eos :: proc(g: Game) {
 	if !extension_uses_eos(g) {
 		return
 	}
-	if problem := ensure_eos(); problem != "" {
-		log("uni: warning: EOS SDK not staged (%s); online play will be unavailable", problem)
+	if problem := eos_problem(); problem != "" {
+		log("uni: no online play for %s: %s", g.name, problem)
 		return
 	}
 	src := eos_lib()
-	dst := join(g.dir, ".out", "bin", os.base(src))
+	dst := join(g.dir, ".out", "bin", EOS_LIB)
 	sfi, e1 := os.stat(src, context.temp_allocator)
 	dfi, e2 := os.stat(dst, context.temp_allocator)
 	if e1 == nil && (e2 != nil || sfi.size != dfi.size) {
 		copy_file(dst, src)
+		unquarantine(dst)
 	}
 }
 
