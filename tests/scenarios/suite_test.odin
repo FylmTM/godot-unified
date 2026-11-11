@@ -1,5 +1,5 @@
 // The toy game's end-to-end suite: every standard scenario of unified:headless/scenarios, and the
-// library's own reference run (testdata/, made by `python tools/dev.py regen toy`). It is the
+// library's own reference run (testdata/, made by `uni record-reference toy`). It is the
 // template a game's suite copies (games/<game>/simulation/tests/suite_test.odin): the standard part
 // is identical in shape; a game adds its own scenarios after it.
 package test_scenarios

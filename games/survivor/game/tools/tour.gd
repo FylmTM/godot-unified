@@ -55,7 +55,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	var game: Node = root.get_node(^"Game")
 	if game.is_mock:
-		_fail("the tour needs the game library (python tools/dev.py game build survivor)")
+		_fail("the tour needs the game library (uni build survivor)")
 		return
 	if frames:
 		game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void: _tag_first(kind))

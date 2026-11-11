@@ -36,7 +36,7 @@ the game's extension wires them (`init` first, with the game library's directory
   hand-written for the subset we use (`api.odin`); `tests/eos` checks every struct's size and offsets and every
   copied constant against the headers with a C compiler, and that the library loads and initializes.
 - **Credentials.** Compiled in with `-define:EOS_PRODUCT_ID=...` (and `EOS_SANDBOX_ID`, `EOS_DEPLOYMENT_ID`,
-  `EOS_CLIENT_ID`, `EOS_CLIENT_SECRET`; `python tools/eos.py defines` prints them from the environment, CI has
+  `EOS_CLIENT_ID`, `EOS_CLIENT_SECRET`; `uni build` and `uni release` pass them from the environment, CI has
   them as secrets), else the same names from the environment, else `~/.config/unified/eos.ini` (`[eos]`,
   `$UNIFIED_EOS_INI` overrides the path). Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
@@ -66,7 +66,7 @@ the game's extension wires them (`init` first, with the game library's directory
   dialog) and `forget_device` at exit, so the next build starts clean.
 - **Keychain dialogs in dev runs.** A "wants to use your confidential information stored in
   com.epicgames.sdk.connect.access_token" dialog means a binary that doesn't own the entry asked for it. To avoid it:
-  play online from Godot (editor, `dev.py game run`, `godot --headless --path games/survivor`), which owns the
+  play online from Godot (editor, `uni run`, `godot --headless --path games/survivor`), which owns the
   entry; the headless `survivor` binary never shows the dialog (it fails with "the device ID in the keychain
   belongs to another build" instead), so don't mix it with Godot runs on one Mac; an exported build asks once per
   build (Always Allow is fine: it is the game's own anonymous ID). A dialog whose process has exited (killed or
@@ -103,6 +103,6 @@ delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS revie
   the label as a hint; RTT is the better signal.
 - **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
   within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
-  the same code as a new peer. `dev.py game coop survivor --rejoin` covers a clean leave and rejoin by the same
+  the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
   player on one Mac.
 

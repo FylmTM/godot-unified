@@ -1,7 +1,7 @@
 extends SceneTree
 ## Headless project check, no editor:
 ##   godot --headless -d --path games/friendslop -s res://game/tools/validate.gd -- --no-settings [--frames=N]
-## 1. compiles every .gd under res://game (`-d` makes Godot print GDScript warnings; tools/game.py fails on them),
+## 1. compiles every .gd under res://game (`-d` makes Godot print GDScript warnings; uni fails on them),
 ## 2. loads and instantiates every .tscn/.tres (missing deps, and the unknown properties Godot silently drops),
 ## 3. with the game library loaded, checks the level's item markers against the sim's item sizes, 4. runs the main
 ## scene for N frames

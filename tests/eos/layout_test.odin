@@ -1,6 +1,6 @@
 // The hand-written SDK bindings against the real headers: a generated C program prints sizeof and
 // offsetof for every bound struct and the value of every constant we copied, and the test compares
-// them with the Odin side. Needs the SDK in third_party/eos (python tools/eos.py) and a C
+// them with the Odin side. Needs the SDK in third_party/eos (uni setup) and a C
 // compiler (clang or cc); skipped with a log line otherwise. Re-run after any SDK upgrade.
 package test_eos
 
@@ -224,7 +224,7 @@ CONSTANTS := []Constant {
 @(test)
 bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	if !os.exists(INCLUDE_DIR + "/eos_sdk.h") {
-		log.info("EOS SDK headers not staged (python tools/eos.py); layout check skipped")
+		log.info("EOS SDK headers not staged (uni setup); layout check skipped")
 		return
 	}
 	cc := ""
@@ -363,7 +363,7 @@ find_on_path :: proc(name: string) -> (string, bool) {
 sdk_library_loads :: proc(t: ^testing.T) {
 	path := LIB_DIR + "/" + eos.LIB_NAME
 	if !os.exists(path) {
-		log.info("EOS SDK library not staged (python tools/eos.py); load check skipped")
+		log.info("EOS SDK library not staged (uni setup); load check skipped")
 		return
 	}
 	api: eos.Api

@@ -27,10 +27,11 @@ World_RestoreStateFromBytes(world, cache, []u8) -> ok  // ours (Odin): an image 
 
 ## How it works
 
-- **Build** (`tools/box3d.py`): the pinned commit plus the patch (must apply exactly), CMake + Ninja, static, `-O2`,
-  `-ffp-contract=off` on every source (checked in `compile_commands.json`), `BOX3D_DISABLE_AVX2` so x64 runs the
-  same 4-wide solver as ARM64, static CRT on Windows. clang on macOS/Linux, clang-cl on Windows. A stamp over the
-  commit, patch and recipe makes the up-to-date check ~10 ms; CI's cache key adds the compiler version.
+- **Build** (`uni setup`, and any command that needs it): the pinned commit (`pins.cfg`) plus the patch (must apply
+  exactly), every `src/*.c` compiled by clang directly, static, `-O2 -DNDEBUG -std=gnu17 -fvisibility=hidden`,
+  `-ffp-contract=off`, `BOX3D_DISABLE_AVX2` so x64 runs the same 4-wide solver as ARM64; clang-cl on Windows
+  (`/std:c17 /clang:-ffp-contract=off`, static CRT `/MT`). A stamp over the pins, patch, recipe, flags, platform and
+  compiler makes the up-to-date check cheap.
 - **Bindings:** transcribed from the pinned headers; 38 `#assert`s on sizes and offsets from a C probe. The static
   library is imported by relative path per platform, so plain `odin build`/`odin test` link it.
 - **Determinism:** one worker thread, f32, no FMA; world creation/destruction are serialised by a mutex in

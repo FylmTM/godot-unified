@@ -68,7 +68,8 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   `.gitattributes`; `src/gdext/api/README.md` says how to refresh it) plus `bindings.txt` (the subset we bind; a test
   fails on unused entries); the Odin bindings are generated into git-ignored `*.gen.odin`, cached by input hash;
   `compatibility_minimum` = the baseline. CI runs the binding tests on every supported Godot version.
-- **Standard (non-.NET) Godot** for development and CI (locally `~/tools/godot/Godot_v4.7.2.app`).
+- **Standard (non-.NET) Godot** for development and CI (the pinned editor `uni setup` fetches, or
+  `UNIFIED_GODOT`).
 - **Godot integration rules from the GDExtension spike:**
   - `netcode` gets a step API: `client_step`/`relay_step` with host-owned loops, hooks (input, frame published, ticks
     verified), stop calls, and sleeping until the next deadline instead of a 1 ms poll.
@@ -111,11 +112,11 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   proves renders in CI.
 - **F3 captures everything cheap:** screenshot, snapshot, input log, frame dump, view state (scene tree and
   view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
-- **Release:** the git tag is the only source of a build's version (`tools/release.py` stamps it into the export;
+- **Release:** the git tag is the only source of a build's version (`uni release` stamps it into the export;
   the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
   (`survivor/4` at protocol 6); `sim.compat_of` refuses a peer with another build.
-- **Tooling:** `dev.py all` is exactly what CI runs; `dev.py game <sub> <game>` takes the game positionally
-  everywhere. CI: only `eos-sdk.yml` has a write token (it runs no repo code);
-  runners, actions (by SHA) and downloads (SHA-256) are pinned.
+- **Tooling:** `uni verify` is exactly what CI runs; every `uni` command takes the game positionally. CI: only
+  `eos-sdk.yml` has a write token (it runs no repo code); runners, actions (by SHA) and downloads (SHA-256) are
+  pinned.
 - **Dev UI: Dear ImGui** through vendored odin-imgui and our own ~300-line Godot backend (the spike: same effort and
   frame cost as microui, which lacks tables, plots, combos, multiline text, images and docking).

@@ -8,8 +8,8 @@ Godot 2D scene (`game/levels/arena.tscn`), exported to a `.level` file the sim l
 ## Run
 
 ```
-python tools/dev.py game build drift     # the game library -> .out/bin/; the game needs it
-python tools/dev.py game run drift       # windowed
+uni build drift     # the game library -> .out/bin/; the game needs it
+uni run drift       # windowed
 ```
 
 There is no GDScript mock session: without the library the game says how to build it.
@@ -38,13 +38,13 @@ The view contract is `simulation/extension/extension.odin`; the Godot side follo
 (`game/levels/markers/`: `spawn`, `station`, `gate` with its `pair`, `rock_spawn` with its `dir`). After editing it:
 
 ```
-python tools/dev.py game export-level drift   # game/levels/*.tscn -> *.level (commit both); validate checks it
+uni bake drift   # game/levels/*.tscn -> *.level (commit both); the godot suite checks it
 ```
 
 ## Checks
 
-`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
-suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
+`uni test --suite godot` runs every Godot check for every game, and `uni test` runs this game's end-to-end suite.
+Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

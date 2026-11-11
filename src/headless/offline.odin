@@ -24,7 +24,7 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare:   proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:     proc(s: ^S) -> int,
-	// The game's standard benchmark: what `bench` runs without arguments (`unified bench`).
+	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
 	bench:           Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.

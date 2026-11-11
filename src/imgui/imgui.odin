@@ -8,11 +8,11 @@ when ODIN_OS == .Linux {
 
 // Vendored from https://github.com/Capati/odin-imgui at 5402a803e04966bbaf1c3a4632ed44e1a59f9af8 (Dear ImGui
 // 1.92.9b-docking, dear_bindings v0.21), MIT (LICENSE). Local changes, marked "unified:":
-//   1. the static library comes from tools/imgui.py (third_party/imgui/build/<platform>/), by relative path;
+//   1. the static library comes from `uni setup` (third_party/imgui/build/<platform>/), by relative path;
 //   2. Key gains the ImGuiMod_* chord bits (missing from the generated enum);
 //   3. TableFlag.SizingStretchProp removed (a two-bit value can't be one bit_set element): use
 //      TableFlags_SizingStretchProp.
-// unified: library path (tools/imgui.py builds it; see the Box3D binding for why the path is relative)
+// unified: library path (`uni setup` builds it; see the Box3D binding for why the path is relative)
 when ODIN_OS == .Windows {
 	@(export)
 	foreign import imguilib "../../third_party/imgui/build/windows-x64/imgui.lib"

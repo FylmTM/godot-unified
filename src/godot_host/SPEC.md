@@ -8,7 +8,7 @@ installs its sim and its glue.
 
 ## gdext
 
-- **Generated code.** `python tools/dev.py gen` (~1 s fresh, cached by input hash) turns the committed
+- **Generated code.** `uni godot-gen` (~1 s fresh, cached by input hash) turns the committed
   `src/gdext/api/{extension_api,gdextension_interface}.json` (dumped from 4.7.2) and `bindings.txt` into
   git-ignored `gdi/gdi.gen.odin` (the C interface) and `api.gen.odin` (layouts, enums, typed wrappers
   `Class_method`). No Godot is needed to build.
@@ -29,9 +29,9 @@ installs its sim and its glue.
 - **Callbacks.** Every Godot -> Odin callback opens a temp-allocator guard: a nested callback (Odin calls Godot,
   Godot calls back into Odin) never frees its caller's temp data.
 - **Value conversions.** `to_variant`, `from_variant`, `variant_from_any`, and the `dict_*` / `array_*` helpers.
-- **Tests.** `python tools/dev.py godot-test` runs a test class (`tests/godot`) under headless Godot (`--verbose`; an orphan
-  StringName or a leak at exit fails it) covering every feature above, again through typed calls (checked to take
-  ptrcall), a nested callback, plus a dev UI smoke test.
+- **Tests.** `uni test --suite godot-bindings` runs a test class (`tests/godot`) under headless Godot (`--verbose`; an
+  orphan StringName or a leak at exit fails it) covering every feature above, again through typed calls (checked to
+  take ptrcall), a nested callback, plus a dev UI smoke test.
 
 ## godot_host API
 
@@ -159,16 +159,17 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   never unloads an Odin dylib (thread-locals), so a same-path reload would keep the old code.
 - **Tests.** `tests/godot_host` runs the driver with the toy game, no Godot: single player (frames, one press
   delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
-  and the Dev_Link switch. `tests/godot_views` (`dev.py godot-test`) runs a single-player toy session under
-  headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), the MultiMesh buffers of a typed 2D bulk
-  view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one,
-  typed scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands
-  reach the sim once, in order, every field kind converted (read back through the HUD), and each refusal returns
-  false with its error line (dev.py expects those lines and no others). Its extension doesn't link Box3D.
-- **Commands.** `python tools/dev.py game build|run|editor|headless|editor-check|session-check <game>`.
-  `headless` runs a scripted single-player session under headless Godot and compares its checksums with the
-  offline headless binary's. `session-check` (`game/tools/session_check.gd`) checks starting during a goodbye.
+  and the Dev_Link switch. `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session
+  under headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
+  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), the MultiMesh buffers of a typed 2D bulk view
+  (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one, typed
+  scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands reach the
+  sim once, in order, every field kind converted (read back through the HUD), and each refusal returns false with its
+  error line (the suite expects those lines and no others). Its extension doesn't link Box3D.
+- **Commands.** `uni build|run|editor <game>`; `uni test <game> --suite godot` steps `editor`, `session` and
+  `session_check`. `session` runs a scripted single-player session under headless Godot and compares its checksums
+  with the offline headless binary's. `session_check` (`game/tools/session_check.gd`) checks starting during a
+  goodbye.
 
 ## Open
 

@@ -86,7 +86,7 @@ func _ready() -> void:
 	fps_layer.add_child(_fps_label)
 	Settings.changed.connect(_on_setting_changed)
 	_fit_window.call_deferred()
-	# Release smoke test (tools/release.py runs the export headless with `-- --smoke-test`): exercise the sim too.
+	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
 	if "--smoke-test" in OS.get_cmdline_user_args():
 		print("survivor: smoke test, %s session, starting single player" % ("mock" if is_mock else "native"))
 		play_single.call_deferred()
@@ -267,7 +267,7 @@ func _on_status_changed(new_status: String, detail: String) -> void:
 				get_tree().change_scene_to_file(ARENA_SCENE)
 		"failed":
 			if "--smoke-test" in OS.get_cmdline_user_args():
-				push_error("survivor: smoke test: the session failed: %s" % detail)  # tools/release.py fails on it
+				push_error("survivor: smoke test: the session failed: %s" % detail)  # uni release fails on it
 				quit_app.call_deferred(1)
 				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")

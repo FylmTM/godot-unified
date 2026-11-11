@@ -131,7 +131,7 @@ g: Online
 
 // The directories searched for the SDK library when none are given: $UNIFIED_EOS_LIB_DIR, the
 // executable's directory (and ../Frameworks on macOS, where an exported .app keeps it), then (dev
-// builds on the machine that built them) the SDK staged in this repo by tools/eos.py.
+// builds on the machine that built them) the SDK staged in this repo by `uni setup`.
 default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	dirs := make([dynamic]string, allocator)
 	if d := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); d != "" {

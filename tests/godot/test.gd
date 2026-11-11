@@ -1,5 +1,5 @@
 # Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/SPEC.md): run headless by
-# `python tools/dev.py godot-test`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
+# `uni test --suite godot-bindings`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
 # count. After changing the exporter or levels/level_2d.tscn on purpose, rewrite levels/level_2d.level (from
 # tests/godot, once this has run): godot --headless --path . -s res://.out/tools/level_export.gd -- \
 #   --scene=res://levels/level_2d.tscn

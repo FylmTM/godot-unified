@@ -5,7 +5,7 @@ input-relay netcode with a step API (`netcode`, `eos`), the generic headless run
 headless binary wires up, the Godot host (`gdext`, `view`, `devui`, `godot_host`), and the determinism lint a
 game's tests run (`lint`). The test games live in
 `games/survivor/` (3D) and `games/drift/` (2D). Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
-core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `python tools/dev.py -h`.
+core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `uni -h`.
 
 ## Packages
 

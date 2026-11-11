@@ -1,6 +1,6 @@
 // The survivor's GDExtension (game/survivor.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
 // unified:godot_host, plus the game-specific glue: which views exist, how the State maps to them and to the
-// HUD, and how InputMap actions become an Input. Built by `python tools/dev.py game build survivor`.
+// HUD, and how InputMap actions become an Input. Built by `uni build survivor`.
 package survivor_extension
 
 import "base:runtime"

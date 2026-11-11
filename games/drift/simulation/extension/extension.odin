@@ -1,7 +1,7 @@
 // drift's GDExtension (game/drift.gdextension -> .out/bin/libdrift.*): the drift sim run by unified:godot_host,
 // plus the game's glue (the view contract, games/drift/SPEC.md "View"): 2D scene and bulk views in pixels, typed
 // scene data, the HUD, constants, and how the InputMap and the aim become an Input. Built by
-// `python tools/dev.py game build drift`.
+// `uni build drift`.
 package drift_extension
 
 import "base:runtime"

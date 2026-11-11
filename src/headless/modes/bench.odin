@@ -1,5 +1,5 @@
 // `bench` (src/headless/SPEC.md, CLI): the cost of a forward step, a save, a restore and a re-sim,
-// every tick, for `dev.py bench`.
+// every tick, for `uni bench`.
 package modes
 
 import "core:slice"

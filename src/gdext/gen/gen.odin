@@ -1,4 +1,4 @@
-// Odin binding generator for Godot's GDExtension API (run by `python tools/dev.py gen`).
+// Odin binding generator for Godot's GDExtension API (run by `uni godot-gen`).
 //
 //   gen <api dir> <bindings.txt> <out dir>
 //

@@ -1,6 +1,6 @@
 // godot_host without Godot: the session driver (its thread, frames, events, statuses, transports) installed
 // with the toy game, and the dev UI's switchable netsim link. The Godot-facing classes run under headless
-// Godot (`dev.py game headless`, `session-check`, tests/godot).
+// Godot (the godot suite's `session` and `session_check` steps, tests/godot).
 package test_godot_host
 
 import "core:strings"

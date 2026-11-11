@@ -14,7 +14,7 @@ macos.release = "res://.out/bin/libfriendslop.dylib"
 windows.x86_64 = "res://.out/bin/friendslop.dll"
 linux.x86_64 = "res://.out/bin/libfriendslop.so"
 
-; Runtime libraries the export ships next to ours (EOS SDK; `dev.py game build` copies this OS's into .out/bin).
+; Runtime libraries the export ships next to ours (EOS SDK; `uni build` copies this OS's into .out/bin).
 [dependencies]
 
 macos.debug = { "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }

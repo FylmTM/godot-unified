@@ -1,5 +1,5 @@
 // The binding test extension: one class (`Tester : Node3D`) that exercises every binding feature of
-// unified:gdext; tests/godot/test.gd drives it under headless Godot (`python tools/dev.py godot-test`).
+// unified:gdext; tests/godot/test.gd drives it under headless Godot (`uni test --suite godot-bindings`).
 package gdext_test_ext
 
 import "base:runtime"

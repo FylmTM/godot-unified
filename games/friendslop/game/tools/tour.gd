@@ -36,7 +36,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	var game: Node = root.get_node(^"Game")
 	if game.session == null:
-		_fail("the tour needs the game library (python tools/dev.py game build friendslop)")
+		_fail("the tour needs the game library (uni build friendslop)")
 		return
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await _wait_for(func() -> bool: return _scene_is("MainMenu"), 5.0, "main menu")

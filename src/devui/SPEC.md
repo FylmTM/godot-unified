@@ -2,11 +2,11 @@
 
 Decided autonomously 2026-11-09, pending developer review.
 
-The in-game dev UI: Dear ImGui drawn into Godot from Odin (`src/devui`, with `src/imgui` and `tools/imgui.py`).
+The in-game dev UI: Dear ImGui drawn into Godot from Odin (`src/devui`, with `src/imgui`, built by `uni setup`).
 Game-agnostic: the game passes its values; it knows nothing about any game. **Every build includes it for now**,
 release too (developer's call). `godot_host` reaches it only through `godot_host/dev.odin`: building with
 `-define:UNIFIED_DEVUI=false` turns those calls into no-ops and links no ImGui (survivor's library: 2.9 MB ->
-1.5 MB). `dev.py vet` checks that build; turning it off for players is that one flag.
+1.5 MB). `uni vet` checks that build; turning it off for players is that one flag.
 
 ## API
 
@@ -25,7 +25,7 @@ devui.wants_mouse() / wants_keyboard()
 
 ## How it works
 
-- **Third-party code.** `tools/imgui.py` builds Dear ImGui 1.92.9b-docking and dear_bindings v0.21's C API into
+- **Third-party code.** `uni setup` builds Dear ImGui 1.92.9b-docking and dear_bindings v0.21's C API into
   one static library per platform: clang++ on macOS and Linux, clang-cl + llvm-lib on Windows, the same compilers
   Box3D uses. It takes ~2.5 s and is cached by a stamp. `src/imgui` is odin-imgui at a pinned commit with three
   marked local changes: the library path, the `ImGuiMod_*` keys, and `SizingStretchProp`. The font is Open Sans
@@ -40,8 +40,8 @@ devui.wants_mouse() / wants_keyboard()
   marked handled. Sizes are in points (`screen_get_scale`).
 - **F3.** Saves a screenshot, then shows a note with a thumbnail. Send writes `<dir>/<stamp>/screenshot.png` and
   `note.txt` and calls `on_feedback`, where the host adds its snapshot, input log and net stats (not wired yet).
-- **Tests.** `dev.py godot-test` draws it under headless Godot (canvas items appear). Every entry point needs
-  Godot, so there is no Odin unit test.
+- **Tests.** `uni test --suite godot-bindings` draws it under headless Godot (canvas items appear). Every entry point
+  needs Godot, so there is no Odin unit test.
 - **Cost.** About 0.2–0.5 ms of main-thread time per frame when shown (spike: 0.34–0.52 ms with every panel open).
 
 ## Open

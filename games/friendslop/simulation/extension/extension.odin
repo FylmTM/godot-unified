@@ -1,6 +1,6 @@
 // friendslop's GDExtension (game/friendslop.gdextension -> .out/bin/libfriendslop.*): the friendslop sim run by
 // unified:godot_host, plus the game's glue: views, the HUD, and how the InputMap and the camera become an Input.
-// Built by `python tools/dev.py game build friendslop`.
+// Built by `uni build friendslop`.
 package friendslop_extension
 
 import "base:runtime"

@@ -74,7 +74,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	_game = root.get_node(^"Game")
 	if _game.is_mock:
-		_fail("the play check needs the native extension (python tools/dev.py game build survivor)")
+		_fail("the play check needs the native extension (uni build survivor)")
 		return
 	_game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void: _events[kind] = _events.get(kind, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))

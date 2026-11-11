@@ -5,7 +5,7 @@ extends Node
 ##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
 ##
 ## The session is the native `UnifiedSession` from the game library (there is no GDScript mock: the library builds in
-## about a second, `python tools/dev.py game build friendslop`). Without it the app shows a fatal screen. Everything
+## about a second, `uni build friendslop`). Without it the app shows a fatal screen. Everything
 ## reads the sim through `Game.hud` (refreshed once per frame) and its fixed numbers through `Game.constants` (the
 ## session's `constants()`, read once).
 
@@ -76,7 +76,7 @@ func _ready() -> void:
 	fps_layer.add_child(_fps_label)
 	Settings.changed.connect(_on_setting_changed)
 	_fit_window.call_deferred()
-	# Release smoke test (tools/release.py runs the export headless with `-- --smoke-test`): exercise the sim too.
+	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
 	if "--smoke-test" in OS.get_cmdline_user_args():
 		print("friendslop: smoke test, starting single player")
 		play_single.call_deferred()
@@ -248,7 +248,7 @@ func _on_status_changed(new_status: String, detail: String) -> void:
 				get_tree().change_scene_to_file(ARENA_SCENE)
 		"failed":
 			if "--smoke-test" in OS.get_cmdline_user_args():
-				push_error("friendslop: smoke test: the session failed: %s" % detail)  # tools/release.py fails on it
+				push_error("friendslop: smoke test: the session failed: %s" % detail)  # uni release fails on it
 				quit_app.call_deferred(1)
 				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")
@@ -303,7 +303,7 @@ func _fit_window() -> void:
 ## Without the game library nothing can run: say so and offer Quit.
 func _fatal() -> void:
 	push_error("friendslop: the game library failed to load (UnifiedSession missing): in the repo, build it with " +
-		"`python tools/dev.py game build friendslop`; an export without it is broken")
+		"`./uni build friendslop`; an export without it is broken")
 	set_process(false)
 	set_process_unhandled_input(false)
 	get_tree().unload_current_scene.call_deferred()
@@ -330,7 +330,7 @@ func _fatal() -> void:
 	var detail := Label.new()
 	detail.theme_type_variation = &"Dim"
 	detail.text = ("This copy of the game is incomplete or damaged. Download it again." if OS.has_feature("template")
-		else "Build it first: python tools/dev.py game build friendslop")
+		else "Build it first: ./uni build friendslop")
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(detail)
 	var quit := Button.new()

@@ -9,7 +9,8 @@ game and CI read the results.
    - add a **client policy** that allows **Connect**, **P2P** and **Lobbies** (the "Peer2Peer" preset, or a custom
      policy with those three);
    - add a **client** that uses that policy.
-3. **SDK.** Download the latest **EOS C SDK** zip (not the Unity/Unreal one) and unzip it to `~/tools/eos-sdk`.
+3. **SDK.** Download the **EOS C SDK** zip (not the Unity/Unreal one) of the version `pins.cfg` pins, unzip it
+   anywhere outside the repo and point `UNIFIED_EOS_SDK` at it (the environment, or `.env` at the project root).
 4. **Local IDs**, outside the repo, in `~/.config/unified/eos.ini`:
    ```ini
    [eos]
@@ -31,7 +32,7 @@ game and CI read the results.
    ```
 
 Client credentials ship inside game builds (that's how EOS game clients work), so they aren't true secrets, but they
-stay out of the repo. CI gets the SDK from an asset on a draft GitHub release of this repo (`tools/eos.py`, fetched by
-`.github/workflows/eos-sdk.yml`, the only job with a write token), checked against a pinned SHA-256. The client
+stay out of the repo. CI gets the SDK from assets on a draft GitHub release of this repo (`uni eos upload`, fetched by
+`.github/workflows/eos-sdk.yml`, the only job with a write token), checked against pinned SHA-256s. The client
 policy should allow only what a game client needs (Connect, P2P, Lobbies), since the client ID and secret ship in
 every build.

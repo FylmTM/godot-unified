@@ -41,7 +41,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	var game: Node = root.get_node(^"Game")
 	if game.session == null:
-		_fail("the tour needs the game library (python tools/dev.py game build drift)")
+		_fail("the tour needs the game library (uni build drift)")
 		_finish()
 		return
 	game.session.sim_event_2d.connect(func(kind: StringName, _tick: int, _ent: int, _pos: Vector2, _val: float) -> void:

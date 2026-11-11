@@ -7,8 +7,8 @@ The deterministic sim, its headless binary and the GDExtension live in `simulati
 ## Run
 
 ```
-python tools/dev.py game build friendslop     # the game library -> .out/bin/; the game needs it
-python tools/dev.py game run friendslop       # windowed
+uni build friendslop     # the game library -> .out/bin/; the game needs it
+uni run friendslop       # windowed
 ```
 
 There is no GDScript mock session: without the library the game says how to build it.
@@ -21,13 +21,13 @@ child, `volumes.gd` for pads, plates, bells, switches, bumpers, checkpoints, sta
 each sim view adopts its marker's visuals, so a level is authored once. After editing a level:
 
 ```
-python tools/dev.py game export-level friendslop   # game/levels/*.tscn -> *.level (commit both); validate checks it
+uni bake friendslop   # game/levels/*.tscn -> *.level (commit both); the godot suite checks it
 ```
 
 ## Checks
 
-`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
-suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
+`uni test --suite godot` runs every Godot check for every game, and `uni test` runs this game's end-to-end suite.
+Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

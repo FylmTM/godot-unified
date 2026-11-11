@@ -83,9 +83,9 @@ nearest enemies, collect gems, dash out of contact, level-ups round-robin). Medi
 | 3 | 21 s (13-39) | 317 s (244-539) |
 | 4 | 26 s (12-41) | 354 s (207-600+) |
 
-The same bot under `stress` dies at 16-30 s, half the time before its first level-up. The windowed bot of
-`dev.py game play` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `simulation/tests` guards the targets
-on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
+The same bot under `stress` dies at 16-30 s, half the time before its first level-up. The windowed bot of `uni tool
+survivor play_check --window` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `simulation/tests`
+guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
 
 ## Systems (run in this order every tick)
 
@@ -196,7 +196,7 @@ The Godot side of `games/survivor/`: everything except `simulation/`. Hand-writt
 
 ```
 project.godot          Forward+, 1280x720, canvas_items stretch, InputMap, autoloads, audio buses
-export_presets.cfg     "macOS" (universal, thinned by tools/release.py) and "Windows Desktop"; library from .out/bin/;
+export_presets.cfg     "macOS" (universal, thinned by `uni release`) and "Windows Desktop"; library from .out/bin/;
                        game/tools/ and game/session/ are excluded
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
 game/autoload/         Settings (user://settings.cfg), Sfx (procedural sounds), Game (flow + session)
@@ -205,7 +205,7 @@ game/ui/               theme (code-built), main menu, settings, connect overlay,
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, camera), follow camera
 game/views/            player/crate/barrel scenes (GameView), GameBulkView (MultiMesh)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
-game/tools/            the check and tour scripts `dev.py game` runs (validate, ui_walk, tour, coop, ...; not exported)
+game/tools/            the tool scripts `uni` runs (validate, ui_walk, tour, coop, ...; not exported)
 ```
 
 ### Flow
@@ -251,11 +251,11 @@ and load without the library (Godot replaces unknown native node types with a pl
 
 ### Checks
 
-Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `game validate` compares the mock
-session's `constants()` and idle `hud()` with the native session's, `game walk` goes through every flow (menu,
+Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` compares the mock session's
+`constants()` and idle `hud()` with the native session's, `walk` (`ui_walk.gd`) goes through every flow (menu,
 settings, single, lobby, match, level-up, Esc menu, game over, host, join error) on the mock with real input events,
-and `game tour` plays the real game headless: menu → single → lobby → walk out → match with enemies (`--shots`: a
-whole match to game over and back to the lobby, in a window).
+and `tour` plays the real game headless: menu → single → lobby → walk out → match with enemies (`uni tool survivor
+tour --window --shots`: a whole match to game over and back to the lobby).
 
 ### Feel
 
@@ -266,7 +266,7 @@ XP bar flashes on pickup; level-up cards pop when picked (key, pad or click) and
 time, wave, level, best time (`user://settings.cfg`), countdown to the lobby (`over_hold_s`). Hints
 and level-up key labels follow the last input device; pads get A/B on `ui_accept`/`ui_cancel` (none by default in
 Godot 4.7). The host's code is copied to the clipboard on arrival; the Join panel prefills a code found on it.
-`tools/game.py` lists in `.godot/extension_list.cfg` only the extensions whose library exists for this host.
+`uni` lists in `.godot/extension_list.cfg` only the extensions whose library exists for this host.
 
 ### HUD baseline (every game)
 

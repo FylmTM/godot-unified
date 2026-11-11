@@ -9,7 +9,7 @@ phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which descr
 ## CLI
 
 The modes come from `unified:headless/modes` (`modes.run(&HEADLESS, variants, online)`: `--game NAME` picks one of the
-variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`out/<mode>/<game>`). Below,
+variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`.out/<mode>/<game>`). Below,
 `unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
 Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
 
@@ -29,11 +29,11 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   multi-process test.
 - `unified snapshot --ticks T --out F [--seed S] [--players P]`: run offline to tick T and write a portable snapshot.
   `unified resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
-- `unified bench --enemies E --window W --ticks N`: JSON with mean/p99 µs for the forward step, save, restore, W-tick
-  re-sim, and snapshot bytes.
+- `unified bench [--enemies E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
+  W-tick re-sim, and snapshot bytes. Without arguments it runs the game's standard benchmark (`Headless.bench`).
 
-Conventions (`dev.py check` drives `relay` and `client`, `dev.py bench` drives `bench`; the suites call the same procs
-in-process):
+Conventions (`uni test --suite net` drives `relay` and `client`, `uni bench` drives `bench`; the suites call the same
+procs in-process):
 - Defaults: `--seed 1`, `--players 4`. `relay` and `client` have no `--seed` and use the default.
 - Ticks are numbered from 1: the state after the k-th step is tick k, and `--ticks N` ends at tick N. A trace has one
   line per tick, 1..N in order (`resume` from a tick-T snapshot traces T+1..T+N). Checksums in traces and JSON are
@@ -119,27 +119,27 @@ Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `
 
 ### Running
 
-- **One group: every scenario runs in `python tools/dev.py test`**, at full length, in the same compile and parallel
-  run as the unit tests. Each scenario is its own test, so the runner spreads them over the cores: the wall time
-  grows by the slowest scenario, not by their sum. If the suites push `dev.py test` over its budget, the remedy is a
+- **One group: every scenario runs in `uni test`** (the `odin` suite), at full length, in the same compile and
+  parallel run as the unit tests. Each scenario is its own test, so the runner spreads them over the cores: the wall
+  time grows by the slowest scenario, not by their sum. If the suites push `uni test` over its budget, the remedy is a
   shorter scenario in that game's suite, not a second tier. One game alone:
   `odin test games/<game>/simulation/tests -collection:unified=src`.
-- **`python tools/dev.py check`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
+- **`uni test --suite net`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
   (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless/modes`).
-- **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `dev.py test` (every
-  suite and every reference run: the cross-check), then `dev.py check`, then `dev.py bench`.
-- **Benchmarks are not part of the suites:** `python tools/dev.py bench` runs each game's `bench` mode alone on a
-  release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
+- **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `uni test` (every
+  suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`.
+- **Benchmarks are not part of the suites:** `uni bench` runs each game's `bench` mode (its standard benchmark) alone
+  on a release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
   them.
 
 ### Reference runs (#61)
 
-A reference run is a committed run every platform must reproduce. `python tools/dev.py regen <game>|toy`, on any
+A reference run is a committed run every platform must reproduce. `uni record-reference <game>|toy`, on any
 machine, runs that suite with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes `ref.log`, `ref.trace`
 and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes `ref.json` (where it
 was made: OS, architecture, Odin version, build flags, commit; when; the parameters). `reference_resumes` skips in
 that build (it would race the writes); the other scenarios run as usual. Regenerate only after a change that
 legitimately alters the simulation or the log or snapshot format, and commit the files with it, saying why. Nothing
 else in the tools, suites or docs names a platform, and every build is for the machine it runs on (no `--arch` in
-`dev.py build`, `game build` or `box3d.py`). CI runs both x64 and arm64, so it is the cross-architecture check.
+`uni build` or `uni setup`). CI runs both x64 and arm64, so it is the cross-architecture check.

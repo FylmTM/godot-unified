@@ -1,7 +1,7 @@
 # Godot classes and builtins the generator (src/gdext/gen) emits bindings for, from api/extension_api.json.
 # Ancestors of every listed class are added automatically (plus Object and RefCounted). Every method of a listed
 # class gets a typed wrapper (ptrcall; vararg methods a Variant call); the compiler drops the unused ones.
-# Add what the library or a game's extension calls; `python tools/dev.py gen` regenerates in well under a second.
+# Add what the library or a game's extension calls; `uni godot-gen` regenerates in well under a second.
 # tests/gdext fails on an entry no Odin code uses (every listed class costs compile time on every build).
 
 [classes]
