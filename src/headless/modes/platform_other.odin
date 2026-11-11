@@ -1,4 +1,4 @@
 #+build !windows
-package cli
+package modes
 
 platform_init :: proc() {}

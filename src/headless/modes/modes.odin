@@ -1,7 +1,7 @@
 // A game's headless binary: the CLI of src/headless/SPEC.md (CLI), generic over the game, on top of the
-// in-memory runs of unified:headless. The game's `main` builds a headless.Headless and calls cli.run.
+// in-memory runs of unified:headless. The game's `main` builds a headless.Headless and calls modes.run.
 // Every mode prints one JSON object as its last stdout line; a non-zero exit code means failure.
-package cli
+package modes
 
 import "core:fmt"
 import "core:os"

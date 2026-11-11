@@ -1,9 +1,9 @@
 // Online modes, the game topology end to end without Godot, over a transport the game's binary
-// plugs in (cli.run's `online`; e.g. EOS lobbies + P2P), so this package never imports a platform SDK.
+// plugs in (modes.run's `online`; e.g. EOS lobbies + P2P), so this package never imports a platform SDK.
 // `<name>-host` runs a host (relay + the host's own player in slot 0) whose relay also serves the
 // transport's link, opens a lobby and prints its code; `<name>-client` joins by code and plays a
 // remote slot (a late join: the host's clock is already running). Inputs are the game's script.
-package cli
+package modes
 
 import "core:fmt"
 import "core:os"

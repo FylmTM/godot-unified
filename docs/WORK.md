@@ -52,24 +52,8 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
   matched bring-your-own-state at ~8 µs/tick and 46 KiB, an engine-owned ECS was ~2× slower and 1.8× larger.
   Open details go into the core module spec: how tables are detected, whether `using` means "component", optional
   components, cross-table helpers.
-- **Consumption:** each game pins `unified` as a git submodule. A committed launcher (`./unified`) builds the CLI
-  from that same submodule (cached by source hash), so library and CLI always match. The CLI checks the pinned Odin
-  and Godot versions.
-- **Config:** `unified.cfg` in Godot's ConfigFile syntax (the same as `project.godot`), read with Odin's
-  `core:encoding/ini`. No TOML. It holds only what the CLI needs before building or running (name, tests,
-  benchmarks and budgets, CI platforms, extra collections). Runtime settings live in game code and data.
-- **Game repo layout** (conventions, not config):
-  ```
-  /             Godot project root (res://) and Odin workspace root
-  project.godot, unified.cfg
-  unified/      submodule; ships its own .gdignore
-  simulation/   game sim code (Odin); .gdignore created by `unified init`
-  game/         everything Godot: scenes, scripts, assets
-  .out/         all artifacts (CLI cache, Box3D builds, game library, F3 feedback, test output), hidden, git-ignored
-  .godot/       Godot import cache
-  ```
-  `unified check` fails if Godot imported anything outside `game/`. To verify in the GDExtension spike: the library
-  loads and exports from hidden `res://.out/bin/`.
+- **Consumption, game repo layout, the CLI:** `src/cli/SPEC.md` (#20). Each game pins `unified` as a git
+  submodule at `unified/`; no project config file yet, conventions only.
 
 - **Godot route: GDExtension.** LibGodot stays a later option (our init runs unchanged under a LibGodot host).
 - **View binding: (C) hybrid.**
@@ -97,8 +81,6 @@ review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes
 - **View logic:** GDScript by default; Odin for anything performance-critical or shared across games (e.g. the
   character rig).
 
-- **CLI in Odin**, replacing every `tools/*.py` script (migrated into subcommands, then deleted). `--json` output
-  and a time budget on every command.
 - **Skills for working on this repo** live in `.claude/skills/`, and rules for one kind of file in `.claude/rules/`
   (2026-11-10). AGENTS.md keeps only what holds in every session.
 - **Skills for the games built on `unified`** (writing a sim, the `unified` CLI), used by this repo and by external

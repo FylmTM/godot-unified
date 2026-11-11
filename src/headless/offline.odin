@@ -1,5 +1,5 @@
 // Offline runs, generic over the game: scripted runs, sync-test, replay, snapshot/resume, all in
-// memory (the CLI, unified:headless/cli, does the file I/O).
+// memory (the CLI, unified:headless/modes, does the file I/O).
 package headless
 
 import "core:fmt"

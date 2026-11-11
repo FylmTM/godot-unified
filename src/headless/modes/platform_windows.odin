@@ -1,4 +1,4 @@
-package cli
+package modes
 
 import win "core:sys/windows"
 

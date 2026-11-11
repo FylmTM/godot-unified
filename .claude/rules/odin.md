@@ -11,7 +11,7 @@ paths:
   package `net`, which is why ours is `netcode`.
 - Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
   package that doesn't call them. Keep such imports behind small non-generic helpers (`sim.write_file`,
-  `sim.hash_bytes`, ...), or in a package of their own (`unified:headless/cli`: the game suites import
+  `sim.hash_bytes`, ...), or in a package of their own (`unified:headless/modes`: the game suites import
   `unified:headless` and never instantiate the CLI modes).
 - A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's
   `client.odin` imports `sim` as `usim`.
