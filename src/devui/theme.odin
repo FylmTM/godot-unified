@@ -63,6 +63,7 @@ theme_init :: proc() {
 		gd.Theme_set_stylebox(t, name, "CheckBox", empty)
 	}
 	gd.Theme_set_constant(t, "h_separation", "CheckBox", 2)
+	gd.Theme_set_constant(t, "check_v_offset", "CheckBox", 3)
 	icon(t, "unchecked", "CheckBox", 10, 10, DARK, DIM)
 	icon(t, "checked", "CheckBox", 10, 10, ON, TEXT)
 	for name in ([]string{"grabber", "grabber_highlight", "grabber_disabled"}) do icon(t, name, "HSlider", 6, 12, TEXT, TEXT)
@@ -90,13 +91,20 @@ theme_init :: proc() {
 	flat(t, "hovered", "Tree", {1, 1, 1, 0.05}, 0, {})
 	gd.Theme_set_color(t, "font_color", "Tree", TEXT)
 	gd.Theme_set_color(t, "font_selected_color", "Tree", TEXT)
-	gd.Theme_set_constant(t, "v_separation", "Tree", 0)
+	gd.Theme_set_constant(t, "v_separation", "Tree", 2)
 	gd.Theme_set_constant(t, "h_separation", "Tree", 4)
-	gd.Theme_set_constant(t, "item_margin", "Tree", 10)
 	gd.Theme_set_constant(t, "inner_item_margin_left", "Tree", 2)
 	gd.Theme_set_constant(t, "inner_item_margin_right", "Tree", 2)
-	gd.Theme_set_constant(t, "draw_guides", "Tree", 0)
-	gd.Theme_set_constant(t, "draw_relationship_lines", "Tree", 0)
+	gd.Theme_set_constant(t, "draw_guides", "Tree", 1)
+	gd.Theme_set_color(t, "guide_color", "Tree", {1, 1, 1, 0.05})
+	gd.Theme_set_constant(t, "draw_relationship_lines", "Tree", 1)
+	for c in ([]string{"relationship_line_color", "parent_hl_line_color", "children_hl_line_color"}) {
+		gd.Theme_set_color(t, c, "Tree", {1, 1, 1, 0.12})
+	}
+	for c in ([]string{"relationship_line_width", "parent_hl_line_width", "children_hl_line_width"}) {
+		gd.Theme_set_constant(t, c, "Tree", 1)
+	}
+	gd.Theme_set_constant(t, "item_margin", "Tree", 14)
 	gd.Theme_set_constant(t, "scroll_speed", "Tree", 24)
 
 	flat(t, "normal", "TextEdit", DARK, 2, {3, 2, 3, 2})

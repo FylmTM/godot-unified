@@ -64,8 +64,9 @@ build_inspector :: proc() {
 	gd.Control_set_focus_mode(n.tree, .FOCUS_NONE)
 	gd.Tree_set_columns(n.tree, 2)
 	gd.Tree_set_hide_root(n.tree, true)
-	gd.Tree_set_column_expand(n.tree, 1, false)
-	gd.Tree_set_column_custom_minimum_width(n.tree, 1, 110)
+	gd.Tree_set_column_expand_ratio(n.tree, 0, 3)
+	gd.Tree_set_column_expand_ratio(n.tree, 1, 2)
+	gd.Tree_set_column_clip_content(n.tree, 1, true)
 	gd.Tree_set_column_clip_content(n.tree, 0, true)
 	n.top = gd.Tree_create_item(n.tree)
 	n.empty = gd.Tree_create_item(n.tree, n.top)
@@ -149,9 +150,14 @@ new_node :: proc(parent: gd.TreeItem, root: int, offset: uintptr, type: typeid, 
 	kind := classify(type)
 	item := gd.Tree_create_item(n.tree, parent)
 	gd.TreeItem_set_text(item, 0, label)
+	gd.TreeItem_set_selectable(item, 0, false)
+	gd.TreeItem_set_selectable(item, 1, false)
 	if kind != .Leaf {
 		gd.Tree_create_item(n.tree, item)
 		gd.TreeItem_set_collapsed(item, true)
+	} else {
+		gd.TreeItem_set_custom_color(item, 0, DIM)
+		gd.TreeItem_set_custom_font(item, 1, s.mono)
 	}
 	i := len(n.nodes)
 	append(&n.nodes, Insp_Node{item = item, root = root, offset = offset, type = type, kind = kind})

@@ -173,16 +173,21 @@ Note :: struct {
 }
 
 @(private)
-NOTE_THUMB_W :: 240
+NOTE_THUMB_W :: 640 // the screenshot kept for the note (it scales with the panel, aspect kept)
 
 @(private)
 build_note :: proc() {
 	n := &s.note
 	box := gd.VBoxContainer_new()
 	n.thumb = add(box, gd.TextureRect_new())
+	gd.TextureRect_set_expand_mode(n.thumb, .EXPAND_IGNORE_SIZE)
+	gd.TextureRect_set_stretch_mode(n.thumb, .STRETCH_KEEP_ASPECT_CENTERED)
+	gd.Control_set_custom_minimum_size(n.thumb, {160, 90})
+	gd.Control_set_v_size_flags(n.thumb, .SIZE_EXPAND_FILL)
+	gd.Control_set_stretch_ratio(n.thumb, 3)
 	n.text = add(box, gd.TextEdit_new())
 	gd.TextEdit_set_placeholder(n.text, "what happened?")
-	gd.Control_set_custom_minimum_size(n.text, {NOTE_THUMB_W, 54})
+	gd.Control_set_custom_minimum_size(n.text, {160, 54})
 	gd.Control_set_v_size_flags(n.text, .SIZE_EXPAND_FILL)
 	// Enter sends, Ctrl+Enter is TextEdit's own new line. The signal comes before TextEdit handles the key.
 	on(n.text, "gui_input", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
@@ -200,7 +205,7 @@ build_note :: proc() {
 	n.sent_l = label(row, "")
 	gd.Control_set_h_size_flags(n.sent_l, .SIZE_EXPAND_FILL)
 	button(row, "send", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {note_send(); return {}})
-	panel_make(.Note, "Feedback", {320, 60, NOTE_THUMB_W + 10, 260}, box)
+	panel_make(.Note, "Feedback", {300, 40, 560, 440}, box)
 }
 
 @(private)

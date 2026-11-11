@@ -45,36 +45,35 @@ netsim_changed: bool // set by the Netsim panel; the host clears it after applyi
 
 @(private)
 State :: struct {
-	cfg:        Config,
-	inited:     bool,
-	root:       gd.Window,
-	root_id:    u64,
-	layer:      gd.CanvasLayer,
-	layer_id:   u64,
-	rs:         gd.RenderingServer,
-	theme:      gd.Ref(gd.Theme),
-	mono:       gd.Ref(gd.SystemFont),
-	shown:      bool, // on screen (visible is what F1 or the host asked for)
-	scale:      f32, // window pixels per point (HiDPI)
-	stretch:    f32, // the game's canvas stretch, undone by the layer
-	view:       gd.Vector2, // the game window in points
-	panels:     [Panel_Kind]Panel,
-	overlay:    Overlay,
-	insp:       Inspector,
-	events:     Events_Panel,
-	net:        Netsim_Panel,
-	note:       Note,
-	stats:      [dynamic]string,
-	logs:       [LOG_ROWS]Log_Row,
-	log_n:      int,
-	ui_ms:      f32,
-	last_slow:  time.Tick,
-	hotkeys:    gd.Callable,
-	toggle_req: bool,
-	note_req:   bool,
-	mouse:      gd.Vector2, // the cursor in window pixels (from window_input: Godot stops tracking it over GUI)
-	want_key:   bool,
-	nodes:      int, // controls created (frame_stats)
+	cfg:       Config,
+	inited:    bool,
+	root:      gd.Window,
+	root_id:   u64,
+	layer:     gd.CanvasLayer,
+	layer_id:  u64,
+	rs:        gd.RenderingServer,
+	theme:     gd.Ref(gd.Theme),
+	mono:      gd.Ref(gd.SystemFont),
+	shown:     bool, // on screen (visible is what F1 or the host asked for)
+	scale:     f32, // window pixels per point (HiDPI)
+	stretch:   f32, // the game's canvas stretch, undone by the layer
+	view:      gd.Vector2, // the game window in points
+	panels:    [Panel_Kind]Panel,
+	overlay:   Overlay,
+	insp:      Inspector,
+	events:    Events_Panel,
+	net:       Netsim_Panel,
+	note:      Note,
+	stats:     [dynamic]string,
+	logs:      [LOG_ROWS]Log_Row,
+	log_n:     int,
+	ui_ms:     f32,
+	last_slow: time.Tick,
+	hotkeys:   gd.Callable,
+	note_req:  bool,
+	mouse:     gd.Vector2, // the cursor in window pixels (from window_input: Godot stops tracking it over GUI)
+	want_key:  bool,
+	nodes:     int, // controls created (frame_stats)
 }
 
 @(private)
@@ -207,10 +206,6 @@ frame :: proc(dt: f64) {
 		clear(&s.stats)
 		inspector_end_frame()
 	}
-	if s.toggle_req {
-		s.toggle_req = false
-		visible = !visible
-	}
 	if s.note_req {
 		s.note_req = false
 		if s.panels[.Note].open do panel_open(.Note, false)
@@ -295,7 +290,7 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	if k.ptr == nil || !gd.InputEvent_is_pressed(k) || gd.InputEvent_is_echo(k) do return {}
 	#partial switch gd.InputEventKey_get_keycode(k) {
 	case .KEY_F1:
-		s.toggle_req = true
+		visible = !visible // now: the host adds its stats before the next frame()
 	case .KEY_F3:
 		s.note_req = true
 	case:
