@@ -85,7 +85,7 @@ Public (`unified:cli`, every project):
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the `third_party/` dependencies, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it |
-| `test [game] [--suite s,...] [--only name,...]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`) |
+| `test [game] [--suite s,...] [--only name,...] [--long]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
@@ -94,7 +94,7 @@ Public (`unified:cli`, every project):
 | `bench [game...]` | each game's standard benchmark, alone, on a release build (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |
 | `init <dir> [--unified <url>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, the submodule |
-| `verify` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`) |
+| `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
 Private (this repo's `tools/`; promoted to public only when a game needs one):
@@ -127,18 +127,25 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   `ERROR` line, a leak at exit or a GDScript warning fails. `run` and `editor` only report. Windowed runs give focus
   back to the frontmost app on macOS.
 - **Test suites**, each with its own budget (`test`'s budget is the sum of its suites'); a project's `tools/` adds
-  its own with `cli.add_suites` (this repo: `net`, `godot-bindings`):
+  its own with `cli.add_suites` (this repo: `net`, `godot-bindings`). By default a suite runs the least that shows
+  the library correct and each game working; `test --long` (`Suite.long_budget`, `cli.state.long`) runs the longer
+  variant, by hand, never in CI:
   - `odin`: the test packages in one compile (this repo: every package under `tests/`, the games' suites included;
     a game repo: its `simulation/tests`): unit tests, the library's black-box tests, end-to-end suites, the
-    reference-run replays, the Box3D golden trace, the determinism and import lint. The inner loop.
+    reference-run replays, the Box3D golden trace, the determinism and import lint. The inner loop. `--long`
+    builds with `-define:UNIFIED_LONG_TESTS=true` (`scenarios.LONG`): every standard scenario of each game at full
+    length, and the tests a game keeps for it (`src/headless/SPEC.md`, Running).
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
-    only), `editor` (the extension loads, no errors), `session` (a headless session; its checksums equal the offline
-    headless binary's), `bake` (`--check`), then each tool script the game has of `validate`, `session_check`,
-    `walk` (`ui_walk.gd`), `tour` (quick). A step the game can't run prints `skipped: <why>`.
+    only), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
+    checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
+    `validate`, `walk` (`ui_walk.gd`), `tour` (quick). A step the game can't run prints `skipped: <why>`. Several
+    games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
+    parent first makes current what they share (Godot, the bindings, Box3D, Dear ImGui, the EOS SDK).
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
-    960 ticks at 64 Hz (at least 15 s, so never in the inner loop); checksums agree every 16th tick, 0 desyncs
-    (`.out/net.json`, `.out/net/`).
-  - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot.
+    320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
+    desyncs (`.out/net.json`, `.out/net/`).
+  - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot; `tests/godot_views`
+    also runs `session_check.gd`, godot_host's session lifecycle.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window, ticks), which its `bench` mode runs with no arguments; the target, a forward step plus an 8-tick
   re-sim within 6 ms, is unified's.

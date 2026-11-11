@@ -165,11 +165,12 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one, typed
   scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands reach the
   sim once, in order, every field kind converted (read back through the HUD), and each refusal returns false with its
-  error line (the suite expects those lines and no others). Its extension doesn't link Box3D.
-- **Commands.** `uni build|run|editor <game>`; `uni test <game> --suite godot` steps `editor`, `session` and
-  `session_check`. `session` runs a scripted single-player session under headless Godot and compares its checksums
-  with the offline headless binary's. `session_check` (`game/tools/session_check.gd`) checks starting during a
-  goodbye.
+  error line (the suite expects those lines and no others). Its extension doesn't link Box3D. Its
+  `session_check.gd`, on the same toy session, checks starting during a goodbye: leave then start single player,
+  leave then host on the same port, and a start cancelled by a second leave.
+- **Commands.** `uni build|run|editor <game>`; `uni test <game> --suite godot` steps `editor` and `session`.
+  `session` runs a scripted single-player session under headless Godot and compares its checksums with the offline
+  headless binary's.
 
 ## Open
 

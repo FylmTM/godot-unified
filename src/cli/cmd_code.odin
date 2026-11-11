@@ -64,8 +64,10 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	// the suites as record-reference builds them (unified:headless/scenarios writes reference runs)
-	if sources_import(test_root(), `"unified:headless/scenarios"`) || is_unified_repo() {
+	// and as `test --long` builds them
+	if uses_scenarios() {
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_REGEN=true"})
+		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_LONG_TESTS=true"})
 	}
 	runs := make([]Run, len(jobs))
 	for j, i in jobs {
@@ -293,6 +295,13 @@ fmt_hook :: proc() -> ! {
 
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
+// Whether the tests build unified:headless/scenarios, which declares UNIFIED_REGEN and UNIFIED_LONG_TESTS (odin
+// rejects a -define nothing declares).
+@(private)
+uses_scenarios :: proc() -> bool {
+	return is_unified_repo() || sources_import(test_root(), `"unified:headless/scenarios"`)
+}
+
 // Every test package in one compile: unit tests, the library's black-box tests, the end-to-end suites with their
 // reference-run replays, the Box3D golden trace, the determinism and import lint.
 @(private)
@@ -308,6 +317,9 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 	}
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
+	if state.long && uses_scenarios() {
+		append(&cmd, "-define:UNIFIED_LONG_TESTS=true")
+	}
 	if len(only) > 0 {
 		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(only, ",")))
 	}

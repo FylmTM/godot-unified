@@ -46,8 +46,8 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "test",
-				usage = "[game] [--suite s,...] [--only name,...]",
-				summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one",
+				usage = "[game] [--suite s,...] [--only name,...] [--long]",
+				summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants",
 				budget = 6,
 				run = cmd_test,
 			},
@@ -108,8 +108,9 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "verify",
+				usage = "[--long]",
 				summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, bench",
-				budget = 100,
+				budget = 40,
 				run = cmd_verify,
 			},
 			{name = "version", summary = "the CLI's source hash, Odin, and the pins", budget = 1, run = cmd_version},
@@ -124,9 +125,16 @@ public_suites :: proc() -> []Suite {
 				name = "odin",
 				summary = "every Odin test package in one compile (the inner loop)",
 				budget = 6,
+				long_budget = 12,
 				run = suite_odin,
 			},
-			{name = "godot", summary = "each game under headless Godot", budget = 60, run = suite_godot},
+			{
+				name = "godot",
+				summary = "each game under headless Godot, the games in parallel",
+				budget = 20,
+				long_budget = 25,
+				run = suite_godot,
+			},
 		},
 	)
 }
@@ -139,9 +147,11 @@ cmd_test :: proc(args: []string) -> Result {
 		game:  string `args:"pos=0" usage:"a game (default: every game)"`,
 		suite: string `usage:"suites, comma-separated, or all (default: odin)"`,
 		only:  string `usage:"tests (odin) or steps (godot), comma-separated"`,
+		long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
 	}
 	opts: Opts
 	parse(&opts, args)
+	state.long = opts.long
 	names := split_list(opts.suite)
 	if len(names) == 0 {
 		names = {"odin"}
@@ -158,7 +168,7 @@ cmd_test :: proc(args: []string) -> Result {
 		for &s in state.suites {
 			if s.name == n {
 				append(&suites, &s)
-				state.budget += s.budget
+				state.budget += opts.long && s.long_budget > 0 ? s.long_budget : s.budget
 				found = true
 			}
 		}
@@ -208,17 +218,23 @@ split_list :: proc(s: string) -> []string {
 
 // --- verify -----------------------------------------------------------------------------------------------------
 
+// `verify --long`'s budget (plain `verify`: the command's).
+VERIFY_LONG_BUDGET :: 60
+
 // The gate: every step runs in this process, in order; the first failure stops it.
 @(private)
 cmd_verify :: proc(args: []string) -> Result {
-	Opts :: struct {}
+	Opts :: struct {
+		long: bool `usage:"test --long: the suites' long variants"`,
+	}
 	opts: Opts
 	parse(&opts, args)
 	Step :: struct {
 		name: string,
 		args: []string,
 	}
-	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", {"--suite", "all"}}, {"bench", {}}}
+	test := opts.long ? []string{"--suite", "all", "--long"} : []string{"--suite", "all"}
+	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}, {"bench", {}}}
 	self := state.command
 	for st in steps {
 		c := find_command(st.name)
@@ -240,7 +256,7 @@ cmd_verify :: proc(args: []string) -> Result {
 			return {ok = false, summary = tprint("verify: %s failed: %s", st.name, r.summary)}
 		}
 	}
-	state.budget = 0
+	state.budget = opts.long ? VERIFY_LONG_BUDGET : 0
 	return {ok = true, summary = "verify: fmt, vet, every test suite and the benchmarks passed"}
 }
 

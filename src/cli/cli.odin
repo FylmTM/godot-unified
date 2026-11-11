@@ -28,10 +28,11 @@ Command :: struct {
 // A test suite of `test` (SPEC.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
 // with `add_suites` before `run`.
 Suite :: struct {
-	name:    string,
-	summary: string,
-	budget:  f64,
-	run:     proc(games: []Game, only: []string) -> bool,
+	name:        string,
+	summary:     string,
+	budget:      f64,
+	long_budget: f64, // with `test --long` (0: `budget`)
+	run:         proc(games: []Game, only: []string) -> bool,
 }
 
 // What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
@@ -57,7 +58,12 @@ State :: struct {
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
 	budget:   f64, // set by a command whose budget depends on its arguments (test: its suites)
+	long:     bool, // `test --long`: the suites' long variants (SPEC.md, Test suites)
 }
+
+// Set in the environment of a `uni` the CLI starts itself (the godot suite's one per game): that run leaves
+// .out/timings.json to its parent.
+CHILD_ENV :: "UNIFIED_CLI_CHILD"
 
 // Adds a project's own test suites (call before `run`).
 add_suites :: proc(suites: ..Suite) {
@@ -274,6 +280,9 @@ report_timing :: proc(secs: f64, ok: bool) {
 	what := strings.join(state.argv, " ", context.temp_allocator)
 	log("uni: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
 	// .out/timings.json keeps each command line's last run (CI's job summary shows it).
+	if os.get_env(CHILD_ENV, context.temp_allocator) != "" {
+		return
+	}
 	path := join(state.project.out, "timings.json")
 	timings: map[string]Entry
 	if data, err := os.read_entire_file(path, context.allocator); err == nil {
