@@ -17,6 +17,13 @@ public_commands :: proc() -> []Command {
 				run = cmd_setup,
 			},
 			{
+				name = "clean",
+				usage = "[--check]",
+				summary = "remove what the CLI built or fetched (.out/, .godot/, third_party/ dependencies, generated bindings)",
+				budget = 5,
+				run = cmd_clean,
+			},
+			{
 				name = "build",
 				usage = "[game] [--mode dev|release|debug]",
 				summary = "each game's extension and headless binary, in parallel",

@@ -2,10 +2,11 @@ package cli
 
 import "core:encoding/json"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
-// bench, record-reference, setup.
+// bench, record-reference, setup, clean.
 
 // A forward step plus an 8-tick re-sim must fit here (unified's target; each game owns its benchmark's setup).
 BENCH_TARGET_US :: 6000.0
@@ -315,4 +316,120 @@ env_source :: proc(key: string) -> string {
 		}
 	}
 	return "environment"
+}
+
+// --- clean ------------------------------------------------------------------------------------------------------
+
+// Removes what the CLI built or fetched: every .out/ and .godot/ in the project (outside hidden directories, so not
+// another checkout's under .claude/), the dependencies in third_party/ and the generated Godot bindings. The running
+// CLI stays, with its manifest and `current` (Windows can't delete a running .exe; the next command needs no
+// bootstrap). Godot's export templates stay: they live in Godot's user directory, shared by every project.
+@(private)
+cmd_clean :: proc(args: []string) -> Result {
+	Opts :: struct {
+		check: bool `usage:"report only: list what would be removed, remove nothing"`,
+	}
+	opts: Opts
+	parse(&opts, args)
+	p := state.project
+	deps := []string {
+		join(p.unified, "third_party", "box3d"),
+		join(p.unified, "third_party", "imgui"),
+		join(p.unified, "third_party", "eos"),
+	}
+	gdext := join(p.unified, "src", "gdext")
+	targets: [dynamic]string
+	for d in deps {
+		append(&targets, d)
+	}
+	append(&targets, join(gdext, "api.gen.odin"), join(gdext, "gdi"))
+	// The root's .out/ but the running CLI.
+	exe, _ := os.get_executable_path(context.allocator)
+	cli_dir := join(p.out, "cli")
+	keep := []string{os.base(exe), tprint("%s.inputs", os.base(exe)), "current"}
+	if entries, err := os.read_all_directory_by_path(p.out, context.allocator); err == nil {
+		for e in entries {
+			if e.name != "cli" {
+				append(&targets, e.fullpath)
+			}
+		}
+	}
+	if entries, err := os.read_all_directory_by_path(cli_dir, context.allocator); err == nil {
+		for e in entries {
+			if !slice.contains(keep, e.name) {
+				append(&targets, e.fullpath)
+			}
+		}
+	}
+	// Every other .out/ and .godot/: a game's, a Godot test project's.
+	w := os.walker_create(p.root)
+	defer os.walker_destroy(&w)
+	for fi in os.walker_walk(&w) {
+		if fi.type != .Directory {
+			continue
+		}
+		if fi.name == ".out" || fi.name == ".godot" {
+			if !same_path(fi.fullpath, p.out) {
+				append(&targets, strings.clone(fi.fullpath))
+			}
+			os.walker_skip_dir(&w)
+		} else if strings.has_prefix(fi.name, ".") {
+			os.walker_skip_dir(&w) // .git, .claude (other checkouts), .toolchains
+		} else {
+			for d in deps {
+				if same_path(fi.fullpath, d) {
+					os.walker_skip_dir(&w) // removed whole above
+				}
+			}
+		}
+	}
+	removed: [dynamic]string
+	failed := 0
+	for t in targets {
+		if !os.exists(t) {
+			continue
+		}
+		name, _ := strings.replace_all(rel(t), "\\", "/")
+		append(&removed, name)
+		if opts.check {
+			log("  %s", name)
+			continue
+		}
+		// remove_all can return no error and leave files a running process holds (Windows: a Godot this project
+		// started, its loaded extension, an older uni still running), so what is left decides.
+		err := os.remove_all(t)
+		if os.exists(t) {
+			log(
+				"  %s: not removed%s: in use? (close Godot and other uni commands, then run clean again)",
+				name,
+				err != nil ? tprint(" (%v)", err) : "",
+			)
+			failed += 1
+		} else {
+			log("  %s", name)
+		}
+	}
+	summary: string
+	switch {
+	case len(removed) == 0:
+		summary = "clean: nothing to remove"
+	case opts.check:
+		summary = tprint("clean: %d paths would go (nothing removed)", len(removed))
+	case failed > 0:
+		summary = tprint("clean: %d of %d paths could not be removed (above)", failed, len(removed))
+	case:
+		summary = tprint("clean: removed %d paths (uni setup fetches and builds them again)", len(removed))
+	}
+	return {ok = failed == 0, summary = summary, data = box(removed[:])}
+}
+
+// Whether two paths name the same place (slashes and, on Windows, case aside).
+@(private)
+same_path :: proc(a, b: string) -> bool {
+	norm :: proc(s: string) -> string {
+		slashed, _ := strings.replace_all(s, "\\", "/", context.temp_allocator)
+		slashed = strings.trim_right(slashed, "/")
+		return ODIN_OS == .Windows ? strings.to_lower(slashed, context.temp_allocator) : slashed
+	}
+	return norm(a) == norm(b)
 }

@@ -82,6 +82,7 @@ Public (`unified:cli`, every project):
 | Command | What |
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment) (`--check`: report only) |
+| `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the `third_party/` dependencies, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it |
 | `test [game] [--suite s,...] [--only name,...]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`) |
