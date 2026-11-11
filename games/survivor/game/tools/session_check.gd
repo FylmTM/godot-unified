@@ -7,7 +7,7 @@ extends SceneTree
 ## 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
 ## 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("disconnected").
 ## --idle-end S: stay S seconds with no session before quitting (to see the power activity released).
-## Prints `SESSION_JSON {...}`; exits 1 on a failed expectation or any engine/script error.
+## Prints `UNIFIED_RESULT {...}`; exits 1 on a failed expectation or any engine/script error.
 
 var cap: Logger
 var s: Node
@@ -137,6 +137,6 @@ func _finish() -> void:
 	var ok: bool = _failed == "" and cap.errors.is_empty()
 	if not cap.errors.is_empty():
 		print(cap.report())
-	print("SESSION_JSON " + JSON.stringify({"ok": ok, "failed": _failed, "errors": cap.errors, "steps": _steps}))
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "failed": _failed, "errors": cap.errors, "steps": _steps}))
 	OS.remove_logger(cap)
-	quit(0 if ok else 1)
+	root.get_node(^"Game").quit_app(0 if ok else 1)  # audio first: a live playback leaks

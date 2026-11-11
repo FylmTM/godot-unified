@@ -5,7 +5,7 @@ extends SceneTree
 ## match is lost -> over -> back to the lobby -> leave. `--quick` stops after the match has enemies (a headless
 ## smoke check of the real flow, a few seconds). `--frames` records every frame's time, tagged with the sim events,
 ## steps, dashes and HUD panels around it, and reports the hitches (frames over HITCH_MS) and the worst frame after
-## each first use ("FIRST <tag>"). Prints steps and `TOUR_JSON {...}`; exits 1 on failure or errors.
+## each first use ("FIRST <tag>"). Prints steps and `UNIFIED_RESULT {...}`; exits 1 on failure or errors.
 
 var cap: Logger
 var shots_dir := ""
@@ -193,7 +193,7 @@ func _finish() -> void:
 	print("tour: %d steps, %s in %d ms" % [_steps.size(), "OK" if ok else "FAILED", Time.get_ticks_msec() - _t0])
 	if not cap.errors.is_empty() or not cap.warnings.is_empty():
 		print(cap.report())
-	print("TOUR_JSON " + JSON.stringify({"ok": ok, "steps": _steps, "failed": _failed, "errors": errors, "frames": frame_report}))
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "steps": _steps, "failed": _failed, "errors": errors, "frames": frame_report}))
 	OS.remove_logger(cap)
 	var game: Node = root.get_node(^"Game")
 	if game.status != "idle":

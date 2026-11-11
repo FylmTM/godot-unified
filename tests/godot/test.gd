@@ -81,8 +81,8 @@ func check_level_export() -> void:
 			"--scene=res://levels/bad_2d.tscn"], out, true)
 	var data = null
 	for line in "".join(out).split("\n"):
-		if line.begins_with("LEVEL_JSON "):
-			data = JSON.parse_string(line.trim_prefix("LEVEL_JSON "))
+		if line.begins_with("UNIFIED_RESULT "):
+			data = JSON.parse_string(line.trim_prefix("UNIFIED_RESULT "))
 	check("level export ran", data is Dictionary and code == 1, code)
 	if not data is Dictionary:
 		return

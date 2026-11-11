@@ -7,7 +7,7 @@ extends SceneTree
 ## breaks free, the host leaves; the joiner must see the disconnect on its menu. With --rejoin (both roles), the
 ## joiner leaves and joins again with the same code (a late join) before the host leaves. With --lan (both roles),
 ## no EOS: the host clicks Host on LAN (direct UDP, port 7777) and the joiner types 127.0.0.1:7777. Prints steps and
-## `COOP_JSON {...}`; exits 1 on failure.
+## `UNIFIED_RESULT {...}`; exits 1 on failure.
 
 var cap: Logger
 var role := ""
@@ -245,12 +245,12 @@ func _finish() -> void:
 	_done = true
 	var ok := _failed == ""
 	print("coop %s: %s" % [role, "OK" if ok else "FAILED"])
-	print("COOP_JSON " + JSON.stringify({"ok": ok, "role": role, "steps": _steps, "failed": _failed, "errors": cap.errors}))
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "role": role, "steps": _steps, "failed": _failed, "errors": cap.errors}))
 	OS.remove_logger(cap)
 	var game: Node = root.get_node(^"Game")
 	if game.status != "idle":
 		game.session.leave()
-	quit(0 if ok else 1)
+	root.get_node(^"Game").quit_app(0 if ok else 1)  # audio first: a live playback leaks
 
 
 func _seconds(s: float) -> void:

@@ -4,7 +4,7 @@ extends SceneTree
 ## menu -> single player -> lobby -> walk out -> match -> level-up (key 1) -> Esc menu -> match over -> lobby
 ## -> leave -> host online (code, bot joins, squad list) -> leave -> join a bad code (error shown) -> menu.
 ## With `--shots=<dir>` (needs a window, not --headless) it saves PNGs at the key moments.
-## Prints each step, one `WALK_JSON {...}` line, exits 1 on the first failure or any engine/script error.
+## Prints each step, one `UNIFIED_RESULT {...}` line, exits 1 on the first failure or any engine/script error.
 
 var cap: Logger
 var shots_dir := ""
@@ -240,7 +240,7 @@ func _finish() -> void:
 	print("ui walk: %d steps, %s in %d ms" % [_steps.size(), "OK" if ok else "FAILED", ms])
 	if not cap.errors.is_empty() or not cap.warnings.is_empty():
 		print(cap.report())
-	print("WALK_JSON " + JSON.stringify({"ok": ok, "ms": ms, "steps": _steps, "failed": _failed, "errors": cap.errors}))
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "ms": ms, "steps": _steps, "failed": _failed, "errors": cap.errors}))
 	OS.remove_logger(cap)
 	print("music synthesis: %d us last frame" % root.get_node(^"Sfx").music.cost_us)
 	root.get_node(^"Game").quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit

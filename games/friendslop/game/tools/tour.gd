@@ -4,7 +4,7 @@ extends SceneTree
 ##   godot --path games/friendslop -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
 ## menu -> single player -> hub: walk to a crate, grab it, charge and throw it, walk onto the jump pad and get
 ## launched onto the high ledge, then leave. `--quick` stops after the throw (a headless smoke check, a few
-## seconds). Prints steps and `TOUR_JSON {...}`; exits 1 on failure or errors.
+## seconds). Prints steps and `UNIFIED_RESULT {...}`; exits 1 on failure or errors.
 
 var cap: Logger
 var shots_dir := ""
@@ -105,7 +105,7 @@ func _finish() -> void:
 	var ok: bool = _failed == "" and cap.errors.is_empty()
 	var report := {"ok": ok, "steps": _steps, "errors": cap.errors, "failed": _failed,
 		"seconds": (Time.get_ticks_msec() - _t0) / 1000.0}
-	print("TOUR_JSON " + JSON.stringify(report))
+	print("UNIFIED_RESULT " + JSON.stringify(report))
 	OS.remove_logger(cap)
 	if game.session != null:
 		game.session.leave()

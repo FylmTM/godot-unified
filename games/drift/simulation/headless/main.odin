@@ -30,7 +30,7 @@ summary :: proc(s: ^drift.State) -> string {
 		if sh.active do present += 1
 	}
 	return fmt.tprintf(
-		`"phase":"%v","players":%d,"matches":%d,"waves":%d,"station_hp":%d,"score":%d,"rocks":%d`,
+		`"phase":"%v","players_present":%d,"matches":%d,"waves":%d,"station_hp":%d,"score":%d,"rocks":%d`,
 		s.phase,
 		present,
 		s.matches,

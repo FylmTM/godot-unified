@@ -29,7 +29,7 @@ summary :: proc(s: ^friendslop.State) -> string {
 		if p.active do present += 1
 	}
 	return fmt.tprintf(
-		`"phase":"%v","players":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
+		`"phase":"%v","players_present":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
 		s.phase,
 		present,
 		s.grabs,

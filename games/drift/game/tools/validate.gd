@@ -5,7 +5,7 @@ extends SceneTree
 ## 2. loads and instantiates every .tscn/.tres (missing deps, and the unknown properties Godot silently drops),
 ## 3. with the game library loaded, checks the view contract the scripts rely on (the sim's constants, one rock bulk
 ## view per rock shape, the level's px_per_m), 4. runs the main scene for N frames (default 30) to catch runtime
-## errors. The level export being current is checked after this script by tools/game.py (export-level --check). Prints a summary and one `VALIDATE_JSON {...}` line; exits 1 on any error.
+## errors. The level export being current is checked after this script by tools/game.py (export-level --check). Prints a summary and one `UNIFIED_RESULT {...}` line; exits 1 on any error.
 
 var cap: Logger
 var frames := 30
@@ -78,7 +78,7 @@ func _process(_delta: float) -> bool:
 		report.ms.scripts, report.ms.resources, report.ms.run])
 	if not ok or not cap.warnings.is_empty():
 		print(cap.report())
-	print("VALIDATE_JSON " + JSON.stringify(report))
+	print("UNIFIED_RESULT " + JSON.stringify(report))
 	OS.remove_logger(cap)
 	_quitting = true
 	root.get_node(^"Game").quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit
