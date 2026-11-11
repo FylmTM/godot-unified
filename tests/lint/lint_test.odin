@@ -59,6 +59,25 @@ RULES := []Rule {
 		ban_idents = FLOAT_TRAPS,
 		ban_matrix = true,
 	},
+	// The Odin port of Box3D (src/box3d_port/PORTING.md): f32 and hardware sqrt only, no core:math. File I/O, threads
+	// and timers are host-side helpers upstream has (dumps, the task scheduler, profiling), never a step's results.
+	{
+		pkg = "box3d_port",
+		only_imports = {
+			"base:intrinsics",
+			"base:runtime",
+			"core:fmt",
+			"core:mem",
+			"core:os",
+			"core:simd",
+			"core:strconv",
+			"core:sync",
+			"core:thread",
+			"core:time",
+		},
+		ban_idents = FLOAT_TRAPS,
+		ban_matrix = true,
+	},
 	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
 	// stay off core:math.
