@@ -30,11 +30,12 @@ Event_Kind :: enum u16 {
 	Left,
 }
 
-EVENT_NAMES := []string{"joined", "left"}
+EVENT_NAMES :: []string{"joined", "left"}
 
 Game :: sim.Game(State, Input, World, MAX_PLAYERS)
 Inputs :: sim.Inputs(Input, MAX_PLAYERS)
 
+@(rodata)
 GAME := Game {
 	name = "__GAME__",
 	version = "1",
