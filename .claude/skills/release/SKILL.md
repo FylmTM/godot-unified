@@ -68,7 +68,8 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
   and no `ERROR` lines. With the `--smoke-test` user argument the game starts single player and fails (an `ERROR`
   line, exit 1) if the session fails to start.
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `uni release`
-  fails if one is missing from the export.
+  fails if one is missing from the export. Box3D (unified-box3d's shared library, `libbox3d.dylib` / `box3d.dll`)
+  is linked: an extension that uses physics doesn't load without it, so its `.gdextension` lists it.
 - Online: when the extension imports `unified:eos`, every build needs the five `EOS_*` IDs and fails unless the game
   build compiled each value into the extension (as `-define`s; logs show them redacted) and the export ships the EOS
   SDK library; testers' machines have no EOS config.

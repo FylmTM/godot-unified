@@ -5,7 +5,7 @@ package test_physics
 
 import "core:testing"
 
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -26,25 +26,25 @@ arena_walls :: proc(w: ^physics.World, half: [2]f32) {
 		{{half.x + T, 0}, {T, half.y}},
 	}
 	for wall in walls {
-		bd := physics.body_def_2d(.staticBody, wall[0])
-		id := b3.CreateBody(w.id, &bd)
-		sd := b3.DefaultShapeDef()
-		sd.filter.categoryBits = CAT_STATIC
+		bd := physics.body_def_2d(.Static_Body, wall[0])
+		id := b3.create_body(w.id, &bd)
+		sd := b3.default_shape_def()
+		sd.filter.category_bits = CAT_STATIC
 		physics.box_2d(id, &sd, wall[1], DEPTH_2D)
 	}
 }
 
 // An irregular heptagon of radius about 1; rock sizes 1..3 scale it.
 ROCK_POINTS := [7][2]f32{{1, 0}, {0.62, 0.78}, {-0.2, 0.95}, {-0.9, 0.45}, {-0.85, -0.5}, {-0.15, -1}, {0.7, -0.68}}
-ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_rejects_new_hulls)
+ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_carries_new_hulls)
 
 rock_body :: proc(w: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) -> physics.Body_Ref {
-	bd := physics.body_def_2d(.dynamicBody, pos, rot)
-	bd.linearVelocity = {vel.x, vel.y, 0}
-	bd.angularVelocity = {0, 0, ang}
-	id := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_ROCK
+	bd := physics.body_def_2d(.Dynamic_Body, pos, rot)
+	bd.linear_velocity = {vel.x, vel.y, 0}
+	bd.angular_velocity = {0, 0, ang}
+	id := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_ROCK
 	pts: [len(ROCK_POINTS)][2]f32
 	for p, i in ROCK_POINTS {
 		pts[i] = p * ROCK_RADIUS[size]
@@ -61,12 +61,12 @@ circle_body :: proc(
 	cat := CAT_SHIP,
 	restitution: f32 = 0,
 ) -> physics.Body_Ref {
-	bd := physics.body_def_2d(.dynamicBody, pos)
-	bd.linearVelocity = {vel.x, vel.y, 0}
-	id := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = cat
-	sd.baseMaterial.restitution = restitution
+	bd := physics.body_def_2d(.Dynamic_Body, pos)
+	bd.linear_velocity = {vel.x, vel.y, 0}
+	id := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = cat
+	sd.base_material.restitution = restitution
 	physics.circle_2d(id, &sd, radius)
 	return physics.ref_of(id)
 }
@@ -78,9 +78,17 @@ zero_g :: proc() -> ^physics.World {
 // Whether a dynamic body sits exactly on the plane: z, and the quaternion's x and y, are zero (±0).
 on_plane :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
 	id := physics.body_id(w, r)
-	p := b3.Body_GetPosition(id)
-	q := b3.Body_GetRotation(id)
-	return p.z == 0 && q.v.x == 0 && q.v.y == 0
+	p := b3.body_get_position(id)
+	q := b3.body_get_rotation(id)
+	return p.z == 0 && q.x == 0 && q.y == 0
+}
+
+// Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step (#87).
+in_plane_velocity :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
+	id := physics.body_id(w, r)
+	v := b3.body_get_linear_velocity(id)
+	a := b3.body_get_angular_velocity(id)
+	return v.z == 0 && a.x == 0 && a.y == 0
 }
 
 @(test)
@@ -118,10 +126,10 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 				it.radius = rnd(&rng, 0.3, 0.7)
 				it.body = circle_body(w, pos, vel, it.radius, restitution = 0.5)
 			case .Box:
-				bd := physics.body_def_2d(.dynamicBody, pos, rot)
-				bd.linearVelocity = {vel.x, vel.y, 0}
-				id := b3.CreateBody(w.id, &bd)
-				sd := b3.DefaultShapeDef()
+				bd := physics.body_def_2d(.Dynamic_Body, pos, rot)
+				bd.linear_velocity = {vel.x, vel.y, 0}
+				id := b3.create_body(w.id, &bd)
+				sd := b3.default_shape_def()
 				physics.box_2d(id, &sd, {rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)}, DEPTH_2D)
 				it.body = physics.ref_of(id)
 			case .Rock:
@@ -141,7 +149,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		append(&items, Item{f, .Circle, 0.25})
 	}
 
-	off_plane, escaped := 0, 0
+	off_plane, off_velocity, escaped := 0, 0, 0
 	sink: f32
 	bounced := false
 	for tk in 1 ..= 640 { 	// 10 s
@@ -157,6 +165,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		step(w)
 		for it in items {
 			if !on_plane(w, it.body) do off_plane += 1
+			if !in_plane_velocity(w, it.body) do off_velocity += 1
 			p, _ := physics.pose_2d(w, it.body)
 			if abs(p.x) >= ARENA.x || abs(p.y) >= ARENA.y do escaped += 1
 			if it.radius > 0 do sink = max(sink, abs(p.x) + it.radius - ARENA.x, abs(p.y) + it.radius - ARENA.y)
@@ -165,6 +174,13 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		bounced ||= v.x < -1
 	}
 	testing.expectf(t, off_plane == 0, "%d body-ticks left the plane (z or quaternion x/y not zero)", off_plane)
+	// Boxes and hulls too: their contact points sit at z = ±depth/2 and are solved in 3D (#87).
+	testing.expectf(
+		t,
+		off_velocity == 0,
+		"%d body-ticks reported off-plane velocity (v.z, ω.x or ω.y)",
+		off_velocity,
+	)
 	testing.expectf(t, escaped == 0, "%d body-ticks outside the walls", escaped)
 	// Contacts are soft: a hard hit sinks a circle into a wall for a tick or two, never through it.
 	testing.expectf(t, sink < 0.15, "a circle sank %v m into a wall", sink)
@@ -224,21 +240,21 @@ rot_2d_round_trips :: proc(t: ^testing.T) {
 shapes_and_rays_2d :: proc(t: ^testing.T) {
 	w := zero_g()
 	defer physics.destroy(w)
-	sd := b3.DefaultShapeDef()
+	sd := b3.default_shape_def()
 	sd.density = 2
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
-	cbd := physics.body_def_2d(.dynamicBody, {0, 0})
-	c := b3.CreateBody(w.id, &cbd)
+	cbd := physics.body_def_2d(.Dynamic_Body, {0, 0})
+	c := b3.create_body(w.id, &cbd)
 	physics.circle_2d(c, &sd, 1)
-	bbd := physics.body_def_2d(.dynamicBody, {5, 0})
-	b := b3.CreateBody(w.id, &bbd)
+	bbd := physics.body_def_2d(.Dynamic_Body, {5, 0})
+	b := b3.create_body(w.id, &bbd)
 	physics.box_2d(b, &sd, {1, 0.5}, 0.4)
-	tbd := physics.body_def_2d(.dynamicBody, {10, 0}, {0, 1})
-	tri := b3.CreateBody(w.id, &tbd)
+	tbd := physics.body_def_2d(.Dynamic_Body, {10, 0}, {0, 1})
+	tri := b3.create_body(w.id, &tbd)
 	_, ok := physics.polygon_2d(tri, &sd, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
-	testing.expectf(t, abs(b3.Body_GetMass(b) - 2 * 2 * 1 * 0.4) < 1e-4, "box mass %v", b3.Body_GetMass(b))
-	testing.expectf(t, abs(b3.Body_GetMass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.Body_GetMass(tri))
+	testing.expectf(t, abs(b3.body_get_mass(b) - 2 * 2 * 1 * 0.4) < 1e-4, "box mass %v", b3.body_get_mass(b))
+	testing.expectf(t, abs(b3.body_get_mass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.body_get_mass(tri))
 	pos, rot := physics.pose_2d(w, physics.ref_of(tri))
 	testing.expectf(t, pos == {10, 0} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 
@@ -260,7 +276,7 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	physics.set_velocity_2d(w, physics.ref_of(c), {1, 2}, 3)
 	lin, ang := physics.velocity_2d(w, physics.ref_of(c))
 	testing.expect(t, lin == {1, 2} && ang == 3)
-	m := b3.Body_GetMass(c)
+	m := b3.body_get_mass(c)
 	physics.apply_impulse_2d(w, physics.ref_of(c), {m, -m})
 	lin, _ = physics.velocity_2d(w, physics.ref_of(c))
 	testing.expectf(t, abs(lin.x - 2) < 1e-5 && abs(lin.y - 1) < 1e-5, "after the impulse %v", lin)
@@ -495,11 +511,10 @@ field_synctest_and_resume :: proc(t: ^testing.T) {
 	}
 }
 
-// Box3D's image names hull geometry by its index in the world's registry, which a fresh world
-// fills from its tick-0 save. A hull first made after tick 0 is unknown there: the load refuses
-// it (it never maps it to the wrong hull).
+// The image carries the geometry its shapes use (#86): a hull first made after tick 0 reaches a
+// late joiner, which then runs on identically, deep checksums included.
 @(test)
-portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
+portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 	s := sim.create(&FIELD, 3)
 	defer sim.destroy(s)
 	for tk in u32(1) ..= 20 {
@@ -510,14 +525,22 @@ portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
 	snap := sim.snapshot_encode(s, 20)
 	defer delete(snap)
 	s2, err := sim.from_snapshot(&FIELD, snap)
-	testing.expect_value(t, err, sim.Snap_Error.Extra_Rejected)
-	if s2 != nil do sim.destroy(s2)
-	// A refused load leaves the world as it was (it would otherwise be half-written).
+	testing.expect_value(t, err, sim.Snap_Error.None)
+	if s2 == nil do return
+	defer sim.destroy(s2)
+	for tk in u32(21) ..= 100 {
+		ins := field_inputs(tk)
+		sim.step(s, &ins)
+		sim.step(s2, &ins)
+		testing.expect_value(t, sim.checksum(s2), sim.checksum(s))
+	}
+
+	// A damaged image is refused and leaves the world as it was (it would otherwise be half-written).
 	s3 := sim.create(&FIELD, 3)
 	defer sim.destroy(s3)
 	before := sim.checksum(s3)
-	img := s.extras[0].image(s.extras[0].data, 20 % sim.RING)
-	testing.expect(t, !s3.extras[0].load(s3.extras[0].data, img))
+	img := s.extras[0].image(s.extras[0].data, 100 % sim.RING)
+	testing.expect(t, !s3.extras[0].load(s3.extras[0].data, img[:len(img) / 2]))
 	testing.expect_value(t, sim.checksum(s3), before)
 	ins := field_inputs(1)
 	sim.step(s3, &ins)
@@ -526,7 +549,7 @@ portable_image_rejects_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0xa06b2d3fdb8126c3, 0x6c26b2ac503f6e46, 0xee280c2cc5f5ec61, 0x1a1969424f1dd13a}
+GOLDEN_FIELD := [4]u64{0xa3eb235bb23d2e5d, 0xf9ed32943b7f89cf, 0x3d4a2fb24df33278, 0xd15988de679f7278}
 
 @(test)
 field_golden_trace :: proc(t: ^testing.T) {

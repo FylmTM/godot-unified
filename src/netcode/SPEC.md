@@ -30,10 +30,10 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   one (`replaced`); commands go in as below. `present` = connected slots
   from their join tick. Broadcasts unacked finalized ticks (as many as fit one datagram, ≤ 32, fewer when they carry commands; a longer backlog, up to 384 ticks, goes
   out one window per broadcast in turn, so a client catches up after a stall at a window per tick, not per RTT), keeps the official
-  input log, routes snapshots, compares checksums (every 16 ticks). Hello carries protocol, slot (or any), join tick
+  input log, routes snapshots, compares checksums (every `sim.DEEP_CHECKSUM_EVERY` = 16 ticks, the ones that cover every extra's whole state). Hello carries protocol, slot (or any), join tick
   and a `compat` id (default `sim.compat_of(game)`: layouts, command types, slots, tick rate, game name and version; a relay with
   compat 0 accepts any); rejects: full, slot taken, incompatible, not started. `ticks = 0` is an endless session.
-  `PROTOCOL_VERSION` 6 (6: commands; a game bumps its lobby bucket with it).
+  `PROTOCOL_VERSION` 7 (7: snapshots v4 and checksums covering Box3D's whole state; a game bumps its lobby bucket with it).
 - **Client** (`client_create(&GAME, cfg, link, hooks)`, `client_step`, `client_stop`, `client_state`,
   `client_destroy`): verified and predicted frames, rollback from the first mispredicted tick (presence, input
   bytes and commands compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (218 ms = 14 ticks at 64 Hz, the most RING

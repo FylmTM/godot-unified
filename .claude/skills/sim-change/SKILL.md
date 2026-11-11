@@ -11,7 +11,7 @@ They change only on purpose, never to make a test pass.
 ## When a reference run or the golden trace fails
 
 `./uni test` replays every game's reference run (`games/<game>/simulation/tests/testdata/`, the toy's
-in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/box3d`. A mismatch means the simulation changed.
+in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_MOVERS` in `tests/physics`). A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
    a dependency bump you thought neutral: no, so find the cause. Bisect with `git stash` or the previous commit; a
@@ -22,7 +22,7 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/box3d`. A mismatch
    ./uni record-reference <game>      # or: record-reference toy
    ```
 
-   It lists the files that changed. For a Box3D change, update `GOLDEN` in `tests/box3d/box3d_test.odin` to the
+   It lists the files that changed. For a Box3D change, update `GOLDEN` in `tests/b3/golden_test.odin` to the
    value the failing test prints.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
    right.

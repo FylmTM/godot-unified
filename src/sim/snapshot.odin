@@ -9,7 +9,7 @@ import "base:intrinsics"
 import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
-SNAP_VERSION :: 3
+SNAP_VERSION :: 4 // 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2)
 SNAP_HEADER :: 48
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.

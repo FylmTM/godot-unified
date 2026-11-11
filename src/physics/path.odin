@@ -2,7 +2,7 @@
 // drive that makes a kinematic body follow it without drift.
 package physics
 
-import b3 "unified:box3d"
+import "unified:b3"
 
 MAX_PATH_POINTS :: 16
 
@@ -106,8 +106,8 @@ path_sample :: proc(p: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
 // is now: no drift, and exactly still during waits. `tick_hz` is the step rate.
 drive_kinematic :: proc(w: ^World, r: Body_Ref, target: [3]f32, tick_hz: int) {
 	id := body_id(w, r)
-	p := b3.Body_GetPosition(id)
+	p := b3.body_get_position(id)
 	hz := f32(tick_hz)
-	b3.Body_SetLinearVelocity(id, {(target.x - p.x) * hz, (target.y - p.y) * hz, (target.z - p.z) * hz})
-	b3.Body_SetAngularVelocity(id, {})
+	b3.body_set_linear_velocity(id, {(target.x - p.x) * hz, (target.y - p.y) * hz, (target.z - p.z) * hz})
+	b3.body_set_angular_velocity(id, {})
 }

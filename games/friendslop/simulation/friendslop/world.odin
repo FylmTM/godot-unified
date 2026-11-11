@@ -2,7 +2,7 @@
 // markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"
@@ -380,18 +380,18 @@ init :: proc(s: ^State, w: ^World, seed: u64) {
 	}
 	for i in 0 ..< w.n_platforms {
 		d := &w.platforms[i]
-		bd := b3.DefaultBodyDef()
-		bd.type = .kinematicBody
-		bd.position = physics.v3(d.origin)
-		bd.rotation = physics.quat(d.rot)
-		bd.enableSleep = false
-		id := b3.CreateBody(w.phys.id, &bd)
-		sd := b3.DefaultShapeDef()
-		sd.filter.categoryBits = CAT_PLATFORM
-		sd.baseMaterial.userMaterialId = MAT_PLATFORM + u64(i)
-		sd.baseMaterial.friction = 0.8
-		h := b3.MakeBoxHull(d.half.x, d.half.y, d.half.z)
-		b3.CreateHullShape(id, &sd, &h.base)
+		bd := b3.default_body_def()
+		bd.type = .Kinematic_Body
+		bd.position = d.origin
+		bd.rotation = d.rot
+		bd.enable_sleep = false
+		id := b3.create_body(w.phys.id, &bd)
+		sd := b3.default_shape_def()
+		sd.filter.category_bits = CAT_PLATFORM
+		sd.base_material.user_material_id = MAT_PLATFORM + u64(i)
+		sd.base_material.friction = 0.8
+		h := b3.make_box_hull(d.half.x, d.half.y, d.half.z)
+		b3.create_hull_shape(id, &sd, &h.base)
 		s.platforms[i] = {
 			body    = physics.ref_of(id),
 			running = d.trigger < 0,
@@ -400,15 +400,15 @@ init :: proc(s: ^State, w: ^World, seed: u64) {
 	for i in 0 ..< w.n_triggers {
 		d := &w.triggers[i]
 		if d.kind != .Bell do continue
-		bd := b3.DefaultBodyDef()
-		bd.position = physics.v3(d.vol.pos)
-		id := b3.CreateBody(w.phys.id, &bd)
-		sd := b3.DefaultShapeDef()
-		sd.filter.categoryBits = CAT_TRIGGER
-		sd.baseMaterial.userMaterialId = MAT_TRIGGER + u64(i)
-		sd.enableHitEvents = true
+		bd := b3.default_body_def()
+		bd.position = d.vol.pos
+		id := b3.create_body(w.phys.id, &bd)
+		sd := b3.default_shape_def()
+		sd.filter.category_bits = CAT_TRIGGER
+		sd.base_material.user_material_id = MAT_TRIGGER + u64(i)
+		sd.enable_hit_events = true
 		sp := b3.Sphere{{}, d.radius}
-		b3.CreateSphereShape(id, &sd, &sp)
+		b3.create_sphere_shape(id, &sd, &sp)
 		s.bodies[i] = physics.ref_of(id)
 	}
 }
@@ -416,27 +416,27 @@ init :: proc(s: ^State, w: ^World, seed: u64) {
 create_item_body :: proc(w: ^World, i: int) -> Body_Ref {
 	d := &w.items[i]
 	spec := &ITEM_SPECS[d.kind]
-	bd := b3.DefaultBodyDef()
-	bd.type = .dynamicBody
-	bd.position = physics.v3(d.pos)
-	bd.rotation = physics.quat(d.rot)
-	id := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_ITEM
-	sd.baseMaterial.userMaterialId = MAT_ITEM + u64(i)
-	sd.baseMaterial.friction = spec.friction
-	sd.baseMaterial.restitution = spec.restitution
-	sd.enableHitEvents = true
+	bd := b3.default_body_def()
+	bd.type = .Dynamic_Body
+	bd.position = d.pos
+	bd.rotation = d.rot
+	id := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_ITEM
+	sd.base_material.user_material_id = MAT_ITEM + u64(i)
+	sd.base_material.friction = spec.friction
+	sd.base_material.restitution = spec.restitution
+	sd.enable_hit_events = true
 	if spec.half == {} {
 		r := spec.radius
 		sd.density = spec.mass / (4.0 / 3.0 * 3.1415927 * r * r * r)
 		sp := b3.Sphere{{}, r}
-		b3.CreateSphereShape(id, &sd, &sp)
+		b3.create_sphere_shape(id, &sd, &sp)
 	} else {
 		hx, hy, hz := spec.half.x, spec.half.y, spec.half.z
 		sd.density = spec.mass / (8 * hx * hy * hz)
-		h := b3.MakeBoxHull(hx, hy, hz)
-		b3.CreateHullShape(id, &sd, &h.base)
+		h := b3.make_box_hull(hx, hy, hz)
+		b3.create_hull_shape(id, &sd, &h.base)
 	}
 	return physics.ref_of(id)
 }

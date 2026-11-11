@@ -2,9 +2,8 @@
 // of the world state, so the same world answers the same way after a restore or on another machine.
 package physics
 
-import "base:runtime"
 
-import b3 "unified:box3d"
+import "unified:b3"
 
 // Which shapes a query sees: shapes whose category is in `mask` (and whose own mask has one of
 // `category`'s bits). Zero value: everything.
@@ -14,10 +13,10 @@ Query :: struct {
 }
 
 @(private)
-query_filter :: proc(q: Query) -> b3.QueryFilter {
-	f := b3.DefaultQueryFilter()
-	if q.category != 0 do f.categoryBits = q.category
-	if q.mask != 0 do f.maskBits = q.mask
+query_filter :: proc(q: Query) -> b3.Query_Filter {
+	f := b3.default_query_filter()
+	if q.category != 0 do f.category_bits = q.category
+	if q.mask != 0 do f.mask_bits = q.mask
 	return f
 }
 
@@ -32,22 +31,13 @@ Ray_Hit :: struct {
 // Box3D's closest hit along `translation` from `origin` (b3World_CastRayClosest), filtered by `q` only. The cheapest
 // ray; ray_closest also skips a given body and sensors.
 ray_first :: proc(w: ^World, origin, translation: [3]f32, q := Query{}) -> (hit: Ray_Hit, ok: bool) {
-	r := b3.World_CastRayClosest(w.id, v3(origin), v3(translation), query_filter(q))
-	if !r.hit do return
-	return {
-			link_of(b3.Shape_GetBody(r.shapeId)),
-			{r.point.x, r.point.y, r.point.z},
-			{r.normal.x, r.normal.y, r.normal.z},
-			r.fraction,
-			r.userMaterialId,
-		},
-		true
+	r := b3.world_cast_ray_closest(w.id, origin, translation, query_filter(q)) or_return
+	return {link_of(b3.shape_get_body(r.shape_id)), r.point, r.normal, r.fraction, r.user_material_id}, true
 }
 
 @(private)
 Ray_Ctx :: struct {
-	w:      ^World,
-	ignore: b3.BodyId,
+	ignore: b3.Body_Id,
 	hit:    Ray_Hit,
 	found:  bool,
 }
@@ -64,47 +54,39 @@ ray_closest :: proc(
 	ok: bool,
 ) {
 	ctx := Ray_Ctx {
-		w      = w,
 		ignore = link_id(w, ignore),
 	}
-	b3.World_CastRay(w.id, v3(origin), v3(translation), query_filter(q), ray_callback, &ctx)
+	b3.world_cast_ray(w.id, origin, translation, query_filter(q), ray_callback, &ctx)
 	return ctx.hit, ctx.found
 }
 
 @(private)
-ray_callback :: proc "c" (
-	shape: b3.ShapeId,
-	point: b3.Pos,
-	normal: b3.Vec3,
+ray_callback :: proc(
+	shape: b3.Shape_Id,
+	point: [3]f32,
+	normal: [3]f32,
 	fraction: f32,
 	material: u64,
 	_: i32,
 	_: i32,
-	ctx: rawptr,
+	user: rawptr,
 ) -> f32 {
-	c := (^Ray_Ctx)(ctx)
-	body := b3.Shape_GetBody(shape)
+	c := (^Ray_Ctx)(user)
+	body := b3.shape_get_body(shape)
 	if (c.ignore.index1 != 0 && body.index1 == c.ignore.index1 && body.generation == c.ignore.generation) ||
-	   b3.Shape_IsSensor(shape) {
+	   b3.shape_is_sensor(shape) {
 		return -1
 	}
-	c.hit = {link_of(body), {point.x, point.y, point.z}, {normal.x, normal.y, normal.z}, fraction, material}
+	c.hit = {link_of(body), point, normal, fraction, material}
 	c.found = true
 	return fraction
-}
-
-@(private)
-Overlap_Ctx :: struct {
-	out: ^[dynamic]Body_Link,
-	ctx: runtime.Context, // the caller's (append may allocate)
 }
 
 // Appends every body with a shape overlapping the box [lo, hi] (fat AABBs, so "near" rather than
 // exact), sorted by body index, without duplicates.
 overlap_aabb :: proc(w: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, q := Query{}) {
 	start := len(out)
-	ctx := Overlap_Ctx{out, context}
-	b3.World_OverlapAABB(w.id, {v3(lo), v3(hi)}, query_filter(q), overlap_callback, &ctx)
+	b3.world_overlap_aabb(w.id, {lo, hi}, query_filter(q), overlap_callback, out)
 	got := out[start:]
 	// Insertion sort: a handful of bodies, and no core:slice in tick code.
 	for i in 1 ..< len(got) {
@@ -126,10 +108,8 @@ overlap_aabb :: proc(w: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, q := Q
 }
 
 @(private)
-overlap_callback :: proc "c" (shape: b3.ShapeId, ctx: rawptr) -> bool {
-	c := (^Overlap_Ctx)(ctx)
-	context = c.ctx
-	append(c.out, link_of(b3.Shape_GetBody(shape)))
+overlap_callback :: proc(shape: b3.Shape_Id, user: rawptr) -> bool {
+	append((^[dynamic]Body_Link)(user), link_of(b3.shape_get_body(shape)))
 	return true
 }
 
@@ -142,61 +122,56 @@ Hit_Event :: struct {
 	material_b: u64,
 }
 
-// The step's hit events (contacts between shapes with `enableHitEvents` that approached faster than
+// The step's hit events (contacts between shapes with `enable_hit_events` that approached faster than
 // Settings.hit_threshold), in Box3D's order. Read them right after the step, before destroying
 // bodies; a re-simulation regenerates them.
 hit_events :: proc(w: ^World, out: ^[dynamic]Hit_Event) {
-	ev := b3.World_GetContactEvents(w.id)
-	for i in 0 ..< int(ev.hitCount) {
-		h := ev.hitEvents[i]
+	for h in b3.world_get_contact_events(w.id).hit_events {
 		append(
 			out,
 			Hit_Event {
-				link_of(b3.Shape_GetBody(h.shapeIdA)),
-				link_of(b3.Shape_GetBody(h.shapeIdB)),
-				{h.point.x, h.point.y, h.point.z},
-				{h.normal.x, h.normal.y, h.normal.z},
-				h.approachSpeed,
-				h.userMaterialIdA,
-				h.userMaterialIdB,
+				link_of(b3.shape_get_body(h.shape_id_a)),
+				link_of(b3.shape_get_body(h.shape_id_b)),
+				h.point,
+				h.normal,
+				h.approach_speed,
+				h.user_material_id_a,
+				h.user_material_id_b,
 			},
 		)
 	}
 }
 
-// ---- body helpers (thin; anything else goes through body_id and unified:box3d)
+// ---- body helpers (thin; anything else goes through body_id and unified:b3)
 
 position :: proc(w: ^World, r: Body_Ref) -> [3]f32 {
-	p := b3.Body_GetPosition(body_id(w, r))
-	return {p.x, p.y, p.z}
+	return b3.body_get_position(body_id(w, r))
 }
 
 velocity :: proc(w: ^World, r: Body_Ref) -> [3]f32 {
-	v := b3.Body_GetLinearVelocity(body_id(w, r))
-	return {v.x, v.y, v.z}
+	return b3.body_get_linear_velocity(body_id(w, r))
 }
 
 set_velocity :: proc(w: ^World, r: Body_Ref, v: [3]f32) {
-	b3.Body_SetLinearVelocity(body_id(w, r), v3(v))
+	b3.body_set_linear_velocity(body_id(w, r), v)
 }
 
 rotation :: proc(w: ^World, r: Body_Ref) -> [4]f32 {
-	q := b3.Body_GetRotation(body_id(w, r))
-	return {q.v.x, q.v.y, q.v.z, q.s}
+	return b3.body_get_rotation(body_id(w, r))
 }
 
 mass :: proc(w: ^World, r: Body_Ref) -> f32 {
-	return b3.Body_GetMass(body_id(w, r))
+	return b3.body_get_mass(body_id(w, r))
 }
 
 impulse :: proc(w: ^World, r: Body_Ref, j: [3]f32) {
-	b3.Body_ApplyLinearImpulseToCenter(body_id(w, r), v3(j), true)
+	b3.body_apply_linear_impulse_to_center(body_id(w, r), j, true)
 }
 
 // Moves a body (respawns, resets): its velocities are zeroed.
 teleport :: proc(w: ^World, r: Body_Ref, pos: [3]f32, rot := [4]f32{0, 0, 0, 1}) {
 	id := body_id(w, r)
-	b3.Body_SetTransform(id, v3(pos), {{rot.x, rot.y, rot.z}, rot.w})
-	b3.Body_SetLinearVelocity(id, {})
-	b3.Body_SetAngularVelocity(id, {})
+	b3.body_set_transform(id, pos, rot)
+	b3.body_set_linear_velocity(id, {})
+	b3.body_set_angular_velocity(id, {})
 }

@@ -23,13 +23,13 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
   for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its budget (`uni <command> -h`;
   an over-budget run says so) is a bug: find out why and fix it.
 - **Correct, proven by tests at every layer.** Each module, including every third-party dependency we rely on (the
-  Box3D fork and its bindings first), has independent tests covering everything we use: determinism, save/restore,
+  Box3D library and its bindings first), has independent tests covering everything we use: determinism, save/restore,
   rollback, replays. Upgrading a dependency must be safe because the tests say so.
 - **Deterministic simulation.** f32 only. No FMA contraction. No transcendentals except our own deterministic ones
   (hardware `+ − × ÷ sqrt` only). No `matrix` types, no `core:math` transcendentals, no wall-clock time, no
   unordered iteration that affects state, no pointers or heap data in sim state. The state block is pointer-free and
   padding-free, so a snapshot is a memcpy and the bytes are the checksum. Physics state lives in Box3D and is
-  snapshotted through our fork.
+  snapshotted through unified-box3d (our Odin port).
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
 - **Narrow, purpose-built tooling.** No random scripts in random languages: one CLI, `uni`, in Odin
   (`src/cli/SPEC.md`). Agents must know exactly how to operate everything: keep `uni help` and each command's `-h`

@@ -52,12 +52,16 @@ RULES := []Rule {
 	},
 	// The harness: also walks RTTI, hashes, formats errors and reads and writes log files.
 	{pkg = "sim", only_imports = SIM_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true, tick = true},
-	// The Box3D binding: foreign code by nature, through core:c only.
+	// The Box3D API (src/b3/SPEC.md): conversions over the library's bindings, called inside a tick, so tick rules.
+	// base:runtime carries the caller's context through the library's C callbacks. The `box3d:` collection itself
+	// (unified-box3d's bindings) is foreign code, outside src/, like the old C binding was.
 	{
-		pkg = "box3d",
-		only_imports = {"core:c", "../../third_party/box3d/"},
-		ban_idents = FLOAT_TRAPS,
+		pkg = "b3",
+		only_imports = {"box3d:bindings", "base:runtime"},
+		ban_idents = SIM_IDENTS,
 		ban_matrix = true,
+		strict = true,
+		tick = true,
 	},
 	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
@@ -83,7 +87,7 @@ PHYSICS_IMPORTS :: []string {
 	"unified:sim",
 	"unified:level",
 	"unified:dmath",
-	"unified:box3d",
+	"unified:b3",
 	"base:intrinsics",
 	"base:runtime",
 	"core:math/bits",

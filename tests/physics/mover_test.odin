@@ -5,7 +5,7 @@ package test_physics
 
 import "core:testing"
 
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -50,24 +50,24 @@ MOVER := physics.Mover_Def {
 box :: proc(
 	w: ^physics.World,
 	pos, half: [3]f32,
-	type: b3.BodyType = .staticBody,
-	rot := b3.Quat{{0, 0, 0}, 1},
+	type: b3.Body_Type = .Static_Body,
+	rot := [4]f32{0, 0, 0, 1},
 	cat := CAT_STATIC,
 	density: f32 = 1,
 	hit := false,
-) -> b3.BodyId {
-	bd := b3.DefaultBodyDef()
+) -> b3.Body_Id {
+	bd := b3.default_body_def()
 	bd.type = type
 	bd.position = {pos.x, pos.y, pos.z}
 	bd.rotation = rot
-	if type == .kinematicBody do bd.enableSleep = false
-	id := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
+	if type == .Kinematic_Body do bd.enable_sleep = false
+	id := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
 	sd.density = density
-	sd.filter.categoryBits = cat
-	sd.enableHitEvents = hit
-	h := b3.MakeBoxHull(half.x, half.y, half.z)
-	b3.CreateHullShape(id, &sd, &h.base)
+	sd.filter.category_bits = cat
+	sd.enable_hit_events = hit
+	h := b3.make_box_hull(half.x, half.y, half.z)
+	b3.create_hull_shape(id, &sd, &h.base)
 	return id
 }
 
@@ -146,11 +146,11 @@ RIG := Rig_Game {
 		}
 		for &b, i in s.boxes {
 			s.boxes[i] = physics.ref_of(
-				box(w, {f32(i) - 1.5, 0.5, 2}, {0.3, 0.3, 0.3}, .dynamicBody, cat = CAT_BOX, hit = true),
+				box(w, {f32(i) - 1.5, 0.5, 2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, hit = true),
 			)
 			_ = b
 		}
-		s.platform = physics.ref_of(box(w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .kinematicBody, cat = CAT_PLATFORM))
+		s.platform = physics.ref_of(box(w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
 	},
 	tick = proc(s: ^Rig, rw: ^Rig_World, t: u32, inputs: ^Rig_Inputs, events: ^[dynamic]sim.Event) {
 		w := rw.phys
@@ -168,17 +168,17 @@ RIG := Rig_Game {
 		phase := t % 40
 		if phase == 5 && s.hold == {} {
 			b := s.boxes[(t / 40) % 4]
-			jd := b3.DefaultMotorJointDef()
-			jd.base.bodyIdA = physics.body_id(w, s.movers[0].body)
-			jd.base.bodyIdB = physics.body_id(w, b)
-			jd.base.localFrameA = {{0, 0.3, 0.9}, {{0, 0, 0}, 1}}
-			jd.linearHertz = 6
-			jd.linearDampingRatio = 1
-			jd.maxSpringForce = 400
-			jd.angularHertz = 4
-			jd.angularDampingRatio = 1
-			jd.maxSpringTorque = 50
-			s.hold = physics.joint_ref_of(b3.CreateMotorJoint(w.id, &jd))
+			jd := b3.default_motor_joint_def()
+			jd.base.body_id_a = physics.body_id(w, s.movers[0].body)
+			jd.base.body_id_b = physics.body_id(w, b)
+			jd.base.local_frame_a = {{0, 0.3, 0.9}, {0, 0, 0, 1}}
+			jd.linear_hertz = 6
+			jd.linear_damping_ratio = 1
+			jd.max_spring_force = 400
+			jd.angular_hertz = 4
+			jd.angular_damping_ratio = 1
+			jd.max_spring_torque = 50
+			s.hold = physics.joint_ref_of(b3.create_motor_joint(w.id, &jd))
 			s.held = (t / 40) % 4 + 1
 		} else if phase == 30 && s.hold != {} {
 			physics.destroy_joint(w, &s.hold)
@@ -330,7 +330,7 @@ mover_slides_off_a_steep_slope :: proc(t: ^testing.T) {
 	s := solo({0, 3, 0})
 	defer physics.destroy(s.w)
 	// 50° about z: (0, 0, sin 25°, cos 25°)
-	box(s.w, {0, 1, 0}, {3, 0.2, 2}, rot = {{0, 0, 0.42261826}, 0.90630779})
+	box(s.w, {0, 1, 0}, {3, 0.2, 2}, rot = {0, 0, 0.42261826, 0.90630779})
 	run(&s, 192)
 	p := physics.position(s.w, s.m.body)
 	testing.expectf(t, p.x > 1 || p.x < -1, "still on the slope at %v", p)
@@ -340,7 +340,7 @@ mover_slides_off_a_steep_slope :: proc(t: ^testing.T) {
 mover_rides_platforms :: proc(t: ^testing.T) {
 	s := solo({0, 1.6, 6})
 	defer physics.destroy(s.w)
-	plat := physics.ref_of(box(s.w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .kinematicBody, cat = CAT_PLATFORM))
+	plat := physics.ref_of(box(s.w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
 	cycle := int(physics.path_duration_ticks(&RIG_PATH, HZ))
 	worst: f32 = 0
 	for i in 0 ..< 2 * cycle {
@@ -366,7 +366,7 @@ mover_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
 	run(&s, 64)
 	x0 := physics.position(s.w, s.m.body).x
 	// A heavy box (86 kg, about the mover's mass) at 14 m/s: the drive's force cap gives way.
-	b := physics.ref_of(box(s.w, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .dynamicBody, cat = CAT_BOX, density = 400))
+	b := physics.ref_of(box(s.w, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400))
 	physics.set_velocity(s.w, b, {14, 0, 0})
 	run(&s, 64)
 	pushed := physics.position(s.w, s.m.body).x - x0
@@ -409,8 +409,8 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	w := physics.create({anchor = true, hit_threshold = 1})
 	defer physics.destroy(w)
 	ground(w)
-	a := box(w, {0, 2, 0}, {0.5, 0.5, 0.5}, .dynamicBody, cat = CAT_BOX, hit = true)
-	c := box(w, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .dynamicBody, cat = CAT_BOX)
+	a := box(w, {0, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic_Body, cat = CAT_BOX, hit = true)
+	c := box(w, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic_Body, cat = CAT_BOX)
 	// A ray from inside `a` skips it when told to, and finds the ground under it.
 	h, ok := physics.ray_closest(w, {0, 2, 0}, {0, -5, 0}, {}, physics.link_of(a))
 	testing.expect(t, ok && abs(h.point.y) < 1e-4 && h.normal.y > 0.99)
@@ -448,7 +448,7 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	}
 	_ = physics.extra(w, Two)
 	testing.expect(t, physics.check_refs(w, &two))
-	b3.DestroyBody(c)
+	b3.destroy_body(c)
 	testing.expect(t, !physics.check_refs(w, &two))
 }
 
@@ -485,7 +485,7 @@ kinematic_drive_does_not_drift :: proc(t: ^testing.T) {
 	w := new_world()
 	defer physics.destroy(w)
 	p := RIG_PATH
-	plat := physics.ref_of(box(w, p.points[0], {1, 0.25, 1}, .kinematicBody, cat = CAT_PLATFORM))
+	plat := physics.ref_of(box(w, p.points[0], {1, 0.25, 1}, .Kinematic_Body, cat = CAT_PLATFORM))
 	cycle := physics.path_duration_ticks(&p, HZ)
 	worst: f32 = 0
 	for i in u32(1) ..= 10 * cycle {

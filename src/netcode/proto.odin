@@ -5,7 +5,7 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-PROTOCOL_VERSION :: 6 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands
+PROTOCOL_VERSION :: 7 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands; 7: snapshots v4, checksums cover Box3D's whole state
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
@@ -20,7 +20,7 @@ PREDICTION_MS :: 218
 INPUTS_MAX :: 32 // own inputs resent per client packet
 COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more: the send fails)
 WINDOW_MAX :: 32 // finalized ticks resent per relay packet
-CHECKSUM_EVERY :: 16
+CHECKSUM_EVERY :: sim.DEEP_CHECKSUM_EVERY // the ticks whose checksums cover every extra's whole state
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
 SNAP_CHUNK :: 1000
 DEFAULT_POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets

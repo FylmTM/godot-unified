@@ -2,7 +2,7 @@
 
 Signed off by the developer 2026-11-09. Extends the physics plug-in in `src/sim/SPEC.md` with what every co-op
 physics game needs. First user: `games/friendslop/SPEC.md`. Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed
-tables instead of trig, Box3D with one worker, state in the block or in the Box3D world (both snapshotted).
+tables instead of trig, Box3D (one worker unless `Settings.workers`; any worker count steps identically), state in the block or in the Box3D world (both snapshotted).
 
 ## References in the block
 
@@ -13,18 +13,15 @@ tables instead of trig, Box3D with one worker, state in the block or in the Box3
   effect shows in its bodies one tick later, which sync-test and desync checks still catch.
 - `check_refs(w, s)`: every `Body_Ref` and `Joint_Ref` in the block is valid (tests run it after every restore).
 
-## Bindings added to `unified:box3d`
+## Box3D
 
-Joints (motor, mover, pogo, distance, weld, filter; create, destroy, `IsValid`, `GetBodyA/B`, the motor/mover/pogo
-setters and getters), `World_CastRay` with a callback, `World_OverlapAABB`, `World_GetContactEvents` (hit events),
-shape defs with `enableHitEvents`, `Body_SetTransform`, `Body_SetAngularVelocity`, `Body_GetType`,
-`Body_GetMass`, `Body_ApplyLinearImpulse`, `Body_SetGravityScale`, `Body_GetWorldPointVelocity`,
-`Shape_GetBody`, `Shape_IsSensor`. Only what a game uses gets bound; each binding gets a test.
+Through `unified:b3` (`src/b3/SPEC.md`): `[3]f32`/`[4]f32` everywhere, Odin callbacks, mirrored defs. What physics
+and the games use is what `b3` covers; each proc has a test in `tests/b3`.
 
 ## Queries and events
 
-Games step and query only through here, never `b3World_Step` or `b3World_CastRay*` directly (body and shape
-creation still use Box3D's defs).
+Games step and query only through here, never `b3.world_step` or `b3.world_cast_ray*` directly (body and shape
+creation use `b3`'s defs: `b3.create_body(w.id, &bd)`, `physics.body_id(w, ref)` for a stored body).
 
 ```odin
 step(w, dt, substeps)
@@ -91,16 +88,16 @@ live at z = 0. A 2D rotation is about +Z, positive turns +x toward +y (Godot's `
 (`Settings.gravity`: zero for top-down, `{0, g, 0}` for a side view, y down).
 
 ```odin
-body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> b3.BodyDef   // z = 0, locks linear Z, angular X and Y
+body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> b3.Body_Def  // z = 0, locks linear Z, angular X and Y
 quat_2d(rot: [2]f32) -> [4]f32        // any non-zero direction (normalised; zero: identity) -> about +Z, w ≥ 0
 rot_2d(q: [4]f32) -> [2]f32           // (w² − z², 2wz)
 pose_2d(w, Body_Ref) -> (pos: [2]f32, rot: [2]f32)
 velocity_2d(w, Body_Ref) -> (linear: [2]f32, angular: f32)
 set_velocity_2d(w, Body_Ref, linear: [2]f32, angular: f32)
 apply_impulse_2d(w, Body_Ref, j: [2]f32)   // at the centre of mass; a force F over a tick is F · dt
-circle_2d(body, ^ShapeDef, radius, center: [2]f32 = {}) -> ShapeId          // a sphere at z = 0
-box_2d(body, ^ShapeDef, half: [2]f32, depth) -> ShapeId                    // centred on the plane
-polygon_2d(body, ^ShapeDef, points: [][2]f32, depth) -> (ShapeId, bool)    // convex hull of 3..32 points, extruded
+circle_2d(body, ^b3.Shape_Def, radius, center: [2]f32 = {}) -> b3.Shape_Id        // a sphere at z = 0
+box_2d(body, ^b3.Shape_Def, half: [2]f32, depth) -> b3.Shape_Id                  // centred on the plane
+polygon_2d(body, ^b3.Shape_Def, points: [][2]f32, depth) -> (b3.Shape_Id, bool)  // convex hull of 3..32 points, extruded
 ```
 
 Rays are `ray_closest`/`ray_first` with z = 0. The half angle comes from `√((1 + c)/2)` when c ≥ 0, else from
@@ -108,9 +105,9 @@ Rays are `ray_closest`/`ray_first` with z = 0. The half angle comes from `√((1
 
 How it holds: Box3D zeroes locked velocity components right before each substep's position update (and in the
 continuous-collision time-of-impact pose), so with z, quaternion x and y starting at zero they stay exactly zero
-(±0): tested bit-exact. The reported velocities are not clean: box and hull contacts (points at z = ±depth/2, solved
-with full 3D inertia) leave off-plane components after the relax iterations (seen: |v.z| up to 0.16 m/s, |ω.xy| up
-to 0.4 rad/s), which the next substep drops before moving. `velocity_2d` reads only the plane's components.
+(±0): tested bit-exact. Box and hull contacts (points at z = ±depth/2, solved with full 3D inertia) leave off-plane
+velocity after the relax iterations; the fork zeroes the locked components again when the step ends (#87), so the
+reported v.z, ω.x and ω.y are exactly zero too (tested).
 
 Portable images and hulls: Box3D's image names hull geometry by its index in the world's registry, which a fresh
 world fills from its tick-0 save. A late joiner can load an image only if every hull in it already existed somewhere
@@ -118,16 +115,16 @@ in the world at tick 0 (rocks that split into shapes from a fixed set, all prese
 hull made later is refused (`Extra_Rejected`) and the world is left as it was. Open: how games with generated
 geometry (arbitrary split shapes) late-join.
 
-Tests: the plane stays exact for 10 s of 42 mixed bodies (circles, boxes, hulls) hitting each other and static
-walls under impulses and angular velocity, two of them near 60 m/s (continuous collision keeps them in); circles
-don't sink into each other or more than 0.15 m into walls; rotation round trips, near ±180° included; shape masses,
+Tests: the plane (positions and reported velocities) stays exact for 10 s of 42 mixed bodies (circles, boxes,
+hulls) hitting each other and static walls under impulses and angular velocity, two of them near 60 m/s
+(continuous collision keeps them in); circles don't sink into each other or more than 0.15 m into walls; rotation round trips, near ±180° included; shape masses,
 ray hits and poses; a top-down game (ships turning and thrusting, ray-cast shots splitting rocks, respawns) sync-
 tests in 8-tick windows with 0 mismatches, resumes bit-exact from a portable image, and has a pinned golden trace;
 an image with a hull made after tick 0 is refused.
 
 ## Tests (`tests/physics`)
 
-- Every new binding; `check_refs` after restore.
+- `check_refs` after restore (the Box3D procs themselves: `tests/b3`).
 - Joints under save/restore: create and destroy motor, mover and pogo joints inside an 8-tick window, sync-test
   with 0 mismatches; a portable image with joints loads in a fresh world and continues bit-exact.
 - Mover: stands still on flat ground (no drift over 10 s), climbs a 0.3 m step, slides off a steep slope, jumps to

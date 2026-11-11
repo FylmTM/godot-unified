@@ -75,7 +75,7 @@ C_Toolchain :: struct {
 @(private)
 toolchain_cache: Maybe(C_Toolchain)
 
-// The C toolchain Box3D and Dear ImGui build with: one compiler family everywhere, clang (clang-cl on Windows, with
+// The C toolchain Dear ImGui builds with: one compiler family everywhere, clang (clang-cl on Windows, with
 // the MSVC environment from vswhere and vcvarsall passed to the child processes, and the static CRT like Odin's).
 c_toolchain :: proc() -> C_Toolchain {
 	if t, ok := toolchain_cache.?; ok {
@@ -279,98 +279,165 @@ git_checkout :: proc(dir, url, commit: string) {
 
 // --- Box3D ------------------------------------------------------------------------------------------------------
 
-// Box3D: the pinned commit plus third_party/box3d.patch (applied exactly), compiled with our flags into
-// third_party/box3d/build/<platform>/lib, its public headers into .../include (the bindings test reads them). The
-// flags are CMake's for the upstream project, minus warnings: C17 with GNU extensions, -O2 -DNDEBUG, no FP
-// contraction, the AVX2 path compiled out (x64 runs the same 4-wide path as ARM64), the static CRT on Windows.
-ensure_box3d :: proc() {
-	root := join(state.project.unified, "third_party", "box3d")
-	src := join(root, "src")
-	out := join(root, "build", PLATFORM)
-	lib := join(out, "lib", ODIN_OS == .Windows ? "box3d.lib" : "libbox3d.a")
-	patch_text := must_read(join(state.project.unified, "third_party", "box3d.patch"))
-	patch, _ := strings.replace_all(patch_text, "\r\n", "\n")
-	commit := pin("box3d", "commit")
-	t := c_toolchain()
-	flags := box3d_flags(t, src)
-	key := sha256_hex(
-		transmute([]byte)tprint(
-			"%d %s %s %s %s %s",
-			RECIPE_VERSION,
-			commit,
-			sha256_hex(transmute([]byte)patch),
-			PLATFORM,
-			strings.join(flags, " ", context.temp_allocator),
-			file_identity(t.cc),
-		),
-	)
-	stamp := join(out, "box3d.stamp")
-	if os.is_file(lib) && stamp_ok(stamp, key) {
+// Box3D is unified-box3d (Box3D ported to Odin): a shared library with upstream's C API, its headers and Odin
+// bindings, in box3d_dir() (the `box3d:` collection). By default the pinned release for this platform, downloaded,
+// checked against its SHA-256 and unpacked with the zip's top folder flattened into .out/unified-box3d/; with
+// UNIFIED_BOX3D, a local unified-box3d checkout, built there by its own `b3 build` (release and --debug). A program
+// links lib/<platform>[-debug]/ and loads the library from its own directory (stage_box3d): Odin's default rpath
+// ($ORIGIN, @loader_path) and Windows' DLL search look there, and so does Godot for an extension's dependencies.
+
+box3d_dir :: proc() -> string {
+	if local := box3d_local(); local != "" {
+		return local
+	}
+	return join(state.project.out, "unified-box3d")
+}
+
+// The unified-box3d checkout UNIFIED_BOX3D names, or "".
+box3d_local :: proc() -> string {
+	p := os.get_env("UNIFIED_BOX3D", context.allocator)
+	if p == "" {
+		return ""
+	}
+	p = strings.trim_right(p, `/\`)
+	if !os.is_file(join(p, "bindings", "library.odin")) {
+		fatal("UNIFIED_BOX3D=%s is not a unified-box3d checkout (no bindings/library.odin)", p)
+	}
+	return p
+}
+
+// The library for this platform: the release build, or the debug one (-define:BOX3D_LIB_DEBUG=true links it).
+box3d_lib :: proc(debug := false) -> string {
+	return join(box3d_dir(), "lib", tprint("%s%s", PLATFORM, debug ? "-debug" : ""), lib_name("box3d"))
+}
+
+// Makes box3d_dir() hold the library (both builds) and the bindings: a stamp check when they do. With UNIFIED_BOX3D,
+// builds a missing library in the checkout (`build`: always; quick when nothing changed).
+ensure_box3d :: proc(build := false) {
+	if local := box3d_local(); local != "" {
+		if build || !box3d_ready() {
+			box3d_build_local(local)
+		}
 		return
 	}
+	if box3d_ready() {
+		return
+	}
+	dir := box3d_dir()
+	repo, tag := pin("box3d", "repo"), pin("box3d", "tag")
 	start := time.tick_now()
-	cold("Box3D build")
-	src_key := tprint("%s %s", commit, sha256_hex(transmute([]byte)patch))
-	src_stamp := join(root, "src.stamp")
-	if !stamp_ok(src_stamp, src_key) || !os.is_file(join(src, "src", "world_state.c")) {
-		git_checkout(src, pin("box3d", "url"), commit)
-		lf_patch := join(root, "box3d.lf.patch")
-		write_text(lf_patch, patch)
-		check := run_proc({cmd = {git(), "-C", src, "apply", "--check", lf_patch}, capture = true, quiet = true})
-		if !check.ok {
-			fatal("third_party/box3d.patch does not apply cleanly to %s:\n%s", commit, check.stderr)
-		}
-		must_run(
-			{cmd = {git(), "-C", src, "apply", "--whitespace=nowarn", lf_patch}, capture = true, quiet = true},
-			"applying the Box3D patch",
-		)
-		os.remove(lf_patch)
-		write_text(src_stamp, tprint("%s\n", src_key))
+	cold("unified-box3d download")
+	name := tprint("unified-box3d-%s-%s.zip", tag, PLATFORM)
+	sha := pin("box3d", PLATFORM)
+	zip := join(state.project.out, "downloads", name)
+	download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha, name)
+	remove_tree(dir)
+	if os.exists(dir) {
+		fatal("cannot replace %s: in use? (close Godot and other uni commands)", dir)
 	}
-	sources := find_files(join(src, "src"), ".c")
-	if len(sources) < 20 {
-		fatal("Box3D has only %d sources in %s", len(sources), join(src, "src"))
+	z := zip_open_file(zip)
+	zip_extract_all(&z, dir, strip_top = true)
+	os.remove(zip)
+	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
+		fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
 	}
-	remove_tree(out)
-	build_static_lib(t, t.cc, flags, sources, join(root, "work", PLATFORM), lib)
-	// The public headers, as CMake's install laid them out.
-	for h in find_files(join(src, "include", "box3d"), ".h") {
-		copy_file(join(out, "include", "box3d", os.base(h)), h)
+	write_text(join(dir, "release.stamp"), tprint("%s\n", box3d_release_key()))
+	log("uni: unified-box3d %s ready in %.1fs", tag, seconds_since(start))
+}
+
+// Whether box3d_dir() holds both builds of the library (and, from a release, the pinned one): no process started.
+box3d_ready :: proc() -> bool {
+	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
+		return false
 	}
-	write_text(stamp, tprint("%s\n", key))
-	log("uni: Box3D built in %.1fs (%d sources)", time.duration_seconds(time.tick_since(start)), len(sources))
+	return box3d_local() != "" || stamp_ok(join(box3d_dir(), "release.stamp"), box3d_release_key())
 }
 
 @(private)
-box3d_flags :: proc(t: C_Toolchain, src: string) -> []string {
-	inc := join(src, "include")
-	srcdir := join(src, "src")
-	if t.msvc {
-		return strs(
-			tprint("/I%s", inc),
-			tprint("/I%s", srcdir),
-			"/DBOX3D_DISABLE_AVX2",
-			"/O2",
-			"/DNDEBUG",
-			"/std:c17",
-			"/clang:-ffp-contract=off",
-		)
-	}
-	return strs(
-		tprint("-I%s", inc),
-		tprint("-I%s", srcdir),
-		"-DBOX3D_DISABLE_AVX2",
-		"-O2",
-		"-DNDEBUG",
-		"-std=gnu17",
-		"-fvisibility=hidden",
-		"-ffp-contract=off",
-	)
+box3d_release_key :: proc() -> string {
+	return tprint("%s %s %s %s", pin("box3d", "repo"), pin("box3d", "tag"), PLATFORM, pin("box3d", PLATFORM))
 }
 
-// Whether a game's Odin code imports physics: only then is Box3D built for it.
+// `b3 build` and `b3 build --debug` in a local checkout (each rebuilds only when the port's sources changed).
+@(private)
+box3d_build_local :: proc(local: string) {
+	for debug in ([]bool{false, true}) {
+		cmd: [dynamic]string
+		when ODIN_OS == .Windows {
+			append(&cmd, "cmd", "/c", join(local, "b3.cmd"), "build")
+		} else {
+			append(&cmd, join(local, "b3"), "build")
+		}
+		if debug {
+			append(&cmd, "--debug")
+		}
+		what := tprint("b3 build%s in %s", debug ? " --debug" : "", local)
+		must_run({cmd = cmd[:], dir = local, capture = true, quiet = true}, what)
+		if !os.is_file(box3d_lib(debug)) {
+			fatal("%s made no %s", what, box3d_lib(debug))
+		}
+	}
+}
+
+// Copies the library into `dir`, next to an executable or extension that loads it (for --mode debug the debug build,
+// with its .pdb on Windows); nothing when the copy there is current.
+stage_box3d :: proc(dir: string, debug := false) {
+	src := box3d_lib(debug)
+	files: [dynamic]string
+	append(&files, src)
+	when ODIN_OS == .Windows {
+		if pdb := tprint("%s.pdb", src[:len(src) - len(".dll")]); debug && os.is_file(pdb) {
+			append(&files, pdb)
+		} else if !debug {
+			os.remove(join(dir, "box3d.pdb")) // the debug build's, from an earlier --mode debug
+		}
+	}
+	for f in files {
+		dst := join(dir, os.base(f))
+		sfi, e1 := os.stat(f, context.temp_allocator)
+		if e1 != nil {
+			fatal("%s is missing (uni setup)", f)
+		}
+		dfi, e2 := os.stat(dst, context.temp_allocator)
+		if e2 == nil && sfi.size == dfi.size {
+			if time.diff(dfi.modification_time, sfi.modification_time) <= 0 {
+				continue
+			}
+			// a newer source (a fresh download, a local rebuild) may hold the same bytes; a running program holds
+			// the copy on Windows
+			a, _ := sha256_file(f)
+			b, _ := sha256_file(dst)
+			if a == b {
+				continue
+			}
+		}
+		make_dirs(dir)
+		copy_file(dst, f)
+	}
+}
+
+// The defines of a build in mode `m` that links Box3D (`uses`): --mode debug links the library's debug build. Odin
+// rejects a -define nothing declares, so a build without Box3D gets none.
+box3d_defines :: proc(m: Mode, uses: bool) -> []string {
+	return uses && m == .debug ? strs("-define:BOX3D_LIB_DEBUG=true") : nil
+}
+
+// Whether a game's Odin code uses Box3D (through unified's physics, or directly): only then is it fetched for it.
 game_uses_box3d :: proc(g: Game) -> bool {
-	return sources_import(join(g.dir, "simulation"), `"unified:physics"`, `"unified:box3d"`)
+	return sources_import(join(g.dir, "simulation"), `"unified:physics"`, `"unified:b3"`, `"box3d:`)
+}
+
+// Whether anything this project builds links Box3D (this repo's tests always do).
+project_uses_box3d :: proc() -> bool {
+	if is_unified_repo() {
+		return true
+	}
+	for g in state.project.games {
+		if game_uses_box3d(g) {
+			return true
+		}
+	}
+	return false
 }
 
 sources_import :: proc(dir: string, imports: ..string) -> bool {

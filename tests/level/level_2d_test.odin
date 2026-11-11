@@ -6,7 +6,7 @@ package test_level
 import "core:math"
 import "core:testing"
 
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:level"
 import "unified:physics"
 
@@ -191,7 +191,7 @@ create_static_2d :: proc(t: ^testing.T) {
 	_, gh, _ := front(w, 0, 10)
 	testing.expect_value(t, gh.material, 7)
 	gid := physics.link_id(w, gh.body)
-	gp := b3.Body_GetPosition(gid)
+	gp := b3.body_get_position(gid)
 	testing.expect(t, gp == {0, 10, 0})
 	// Shapes, turned 90° at (10, 4): the ball (radius 1) at its origin, the capsule's centre 2 m along the
 	// body's +x = world +y, lying along world x (the body's local y), the wedge's tip at (9, 2), the box (0.5 x 1
@@ -203,8 +203,8 @@ create_static_2d :: proc(t: ^testing.T) {
 	expect_front(t, w, 9.2, 2, -0.25)
 	expect_miss(t, w, 8.8, 2)
 	expect_front(t, w, 8, 4, -0.25)
-	sid := b3.Body_GetRotation(physics.link_id(w, front_body(w, 10, 4)))
-	testing.expectf(t, near_q({sid.v.x, sid.v.y, sid.v.z, sid.s}, qz(math.PI / 2)), "%v", sid)
+	sid := b3.body_get_rotation(physics.link_id(w, front_body(w, 10, 4)))
+	testing.expectf(t, near_q(sid, qz(math.PI / 2)), "%v", sid)
 	// Walls: the L at (-10, 0): its top arm and its stem, not the notch.
 	expect_front(t, w, -8.5, 0.5, -0.25)
 	expect_front(t, w, -9.5, 2.5, -0.25)

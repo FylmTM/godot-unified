@@ -33,35 +33,25 @@ Render-side code (`view`, `godot_host`, `devui`) may use it: nothing there feeds
 clamped values. `tests/lint` enforces the import and type bans per package, including the games' simulation
 packages.
 
-## Box3D binding
+## Box3D
 
-Hand-written, with layout `#assert`s (sizes/offsets from a C probe against the pinned headers; the layouts are the
-same on x64 Linux/Windows); `src/box3d/SPEC.md` lists what we use and how to upgrade. `vendor:box3d` targets an
-older commit with a different ABI.
-
-The static library is imported by a relative path per target
-(`../../third_party/box3d/build/<platform>/lib/libbox3d.a`, `box3d.lib` on Windows), where `tools/box3d.py` puts it,
-so `odin build`/`odin test` need no linker flags. (`foreign import` rejects absolute paths, even from a `#config`
-constant.) On Windows Box3D is built with the static CRT (`/MT`), which is what Odin links, so there is one CRT and
-no `/NODEFAULTLIB` override.
+Box3D is the unified-box3d shared library (Box3D ported to Odin; upstream's C API plus our snapshots and canonical
+images), pinned in `pins.cfg` and unpacked by `uni` into `.out/unified-box3d/`, whose Odin bindings are the
+`box3d:` collection. Unified's code goes through `unified:b3` (`src/b3/SPEC.md`): Odin names, `[3]f32`/`[4]f32`,
+mirrored defs, Odin callbacks; conversions only.
 
 Shape categories (static/crate/barrel/player) filter the ray casts; each item's shape carries
-`userMaterialId = 1000 + item index`, which ray results report, so a projectile knows which barrel it hit without
+`user_material_id = 1000 + item index`, which ray results report, so a projectile knows which barrel it hit without
 a lookup. Both survive save/restore (they're in Box3D's shape structs).
 
 ## Snapshots
 
-- Ring of 16: the block copy, the tick's events and every Extra's save (physics: `b3World_SaveState` into a
-  per-slot reusable `b3WorldState`), saved after every step (including tick 0). Restore = copy back + the extras'
-  restores.
-- Portable snapshot (`snapshot`/`resume`, late join): `UNIS` v3, seed, content hash, tick, block size, the block type's layout
-  hash, an XXH3 of the payload, the block bytes and each Extra's image. Box3D's image nulls pointers and refers to
-  hull geometry by index into the `b3WorldStateCache` registry. The receiver builds the same initial world and saves
-  tick 0 once, which fills its registry in the same order, then loads the image.
-- **Workaround (fork gap):** the fork has no call to load an image from foreign bytes. `World_RestoreStateFromBytes`
-  mirrors `b3WorldState`'s single `b3RecBuffer` (`data, capacity, size, countOnly`), points a scratch state at the
-  bytes for the restore, then detaches them. It depends on that private layout; a `b3WorldState_Load` in the fork
-  would remove it.
+- Ring of 16: the block copy, the tick's events and every Extra's save (physics: a Box3D snapshot per slot, a memcpy
+  of the world's arena), saved after every step (including tick 0). Restore = copy back + the extras' restores.
+- Portable snapshot (`snapshot`/`resume`, late join): `UNIS`, seed, content hash, tick, block size, the block type's
+  layout hash, an XXH3 of the payload, the block bytes and each Extra's image (physics: Box3D's canonical image with
+  its geometry, the same bytes on every platform). The receiver builds the same initial world, saves tick 0, then
+  loads the image.
 
 ## Checksum
 

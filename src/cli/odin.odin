@@ -30,8 +30,15 @@ mode_flags :: proc(m: Mode) -> []string {
 	return nil
 }
 
-collection :: proc() -> string {
-	return tprint("-collection:unified=%s", join(state.project.unified, "src"))
+// The collections every Odin build passes: unified's packages, and `box3d:` (unified-box3d's bindings and library,
+// box3d_dir()) once it is there (odin refuses a collection that isn't a directory; a project without physics never
+// fetches it).
+collection :: proc() -> []string {
+	unified := tprint("-collection:unified=%s", join(state.project.unified, "src"))
+	if dir := box3d_dir(); os.is_directory(dir) {
+		return strs(unified, tprint("-collection:box3d=%s", dir))
+	}
+	return strs(unified)
 }
 
 // This repo (unified itself) rather than a game repo: its own tests, the toy game and the Godot test projects.
@@ -41,19 +48,21 @@ is_unified_repo :: proc() -> bool {
 
 // A headless binary: each game's simulation/headless, and in this repo the toy game's.
 Headless :: struct {
-	name: string,
-	pkg:  string,
+	name:  string,
+	pkg:   string,
+	box3d: bool, // links Box3D
 }
 
 headless_packages :: proc() -> []Headless {
 	out: [dynamic]Headless
 	for g in state.project.games {
 		if pkg := join(g.dir, "simulation", "headless"); os.is_directory(pkg) {
-			append(&out, Headless{g.name, pkg})
+			append(&out, Headless{g.name, pkg, game_uses_box3d(g)})
 		}
 	}
 	if is_unified_repo() {
-		append(&out, Headless{"toy", join(state.project.root, "tests", "toy", "headless")})
+		toy := join(state.project.root, "tests", "toy")
+		append(&out, Headless{"toy", join(toy, "headless"), sources_import(toy, `"unified:physics"`, `"box3d:`)})
 	}
 	return out[:]
 }
@@ -122,7 +131,8 @@ Build :: struct {
 // The full odin command line of a build.
 build_cmd :: proc(b: Build, deps_file := "") -> []string {
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", b.pkg, collection(), tprint("-out:%s", b.out))
+	append(&cmd, odin(), "build", b.pkg, tprint("-out:%s", b.out))
+	append(&cmd, ..collection())
 	append(&cmd, ..b.flags)
 	append(&cmd, ..VET)
 	if deps_file != "" {
@@ -177,7 +187,8 @@ odin_build :: proc(b: Build, what: string, manifest := "") -> f64 {
 
 // --- the headless binaries --------------------------------------------------------------------------------------
 
-// Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`).
+// Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
+// library beside them when one links it.
 build_headless :: proc(m: Mode, force := false) -> (built: int) {
 	ensure_deps_for_headless()
 	hs := headless_packages()
@@ -187,10 +198,9 @@ build_headless :: proc(m: Mode, force := false) -> (built: int) {
 		p: Proc,
 	}
 	for h, i in hs {
-		builds[i] = {
-			pkg   = h.pkg,
-			out   = headless_path(h.name, m),
-			flags = mode_flags(m),
+		builds[i] = headless_build(h, m)
+		if h.box3d {
+			stage_box3d(os.dir(builds[i].out), debug = m == .debug)
 		}
 		if force || stale(builds[i]) {
 			append(&procs, struct {
@@ -211,18 +221,18 @@ build_headless :: proc(m: Mode, force := false) -> (built: int) {
 	return len(procs)
 }
 
+headless_build :: proc(h: Headless, m: Mode) -> Build {
+	flags: [dynamic]string
+	append(&flags, ..mode_flags(m))
+	append(&flags, ..box3d_defines(m, h.box3d))
+	return {pkg = h.pkg, out = headless_path(h.name, m), flags = flags[:]}
+}
+
 // Box3D when any headless binary or test may link it (this repo's tests always do).
 @(private)
 ensure_deps_for_headless :: proc() {
-	if is_unified_repo() {
+	if project_uses_box3d() {
 		ensure_box3d()
-		return
-	}
-	for g in state.project.games {
-		if game_uses_box3d(g) {
-			ensure_box3d()
-			return
-		}
 	}
 }
 

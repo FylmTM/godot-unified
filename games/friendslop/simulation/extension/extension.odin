@@ -5,7 +5,7 @@ package friendslop_extension
 
 import "base:runtime"
 import "core:math"
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -34,8 +34,8 @@ friendslop_init :: proc "c" (
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "friendslop/2"
-#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump BUCKET with it")
+BUCKET :: "friendslop/3"
+#assert(netcode.PROTOCOL_VERSION == 7, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -188,8 +188,8 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 	add_body :: proc(out: ^gh.Frame, w: ^fs.World, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
 		id := physics.body_id(w.phys, body)
-		p := b3.Body_GetPosition(id)
-		q := b3.Body_GetRotation(id)
+		p := b3.body_get_position(id)
+		q := b3.body_get_rotation(id)
 		gh.push_scene(
 			out,
 			{
@@ -198,7 +198,7 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 				slot = -1,
 				entity = u32(marker + 1),
 				pos = {p.x, p.y, p.z},
-				rot = {q.v.x, q.v.y, q.v.z, q.s},
+				rot = q,
 			},
 		)
 	}

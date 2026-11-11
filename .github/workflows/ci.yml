@@ -119,18 +119,7 @@ jobs:
           key: ${{ needs.eos-sdk.outputs.cache-key }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      # Box3D, built from its pin and patch: cached by `uni ci cache-key box3d` (the pins, the patch, our recipe, the
-      # compiler's version). The build's own stamp is the check: a stale restore is rebuilt, never used. The sources
-      # come too: the bindings test reads their internal headers.
-      - id: keys
-        run: echo "box3d=$($UNI ci cache-key box3d)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/box3d/build
-            third_party/box3d/src
-            third_party/box3d/src.stamp
-          key: ${{ steps.keys.outputs.box3d }}
+      # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
         run: $UNI test
       - name: test --suite net (release build; real UDP, separate processes, 5 s on the real clock)
@@ -163,21 +152,13 @@ jobs:
       - id: keys
         run: |
           echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
-          echo "box3d=$(./uni ci cache-key box3d)" >> "$GITHUB_OUTPUT"
           echo "imgui=$(./uni ci cache-key imgui)" >> "$GITHUB_OUTPUT"
       # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .out/godot
           key: ${{ steps.keys.outputs.godot }}
-      # Box3D and Dear ImGui builds, as in the test job (each build's stamp is the check).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            third_party/box3d/build
-            third_party/box3d/src
-            third_party/box3d/src.stamp
-          key: ${{ steps.keys.outputs.box3d }}
+      # The Dear ImGui build (its stamp is the check); unified-box3d comes on the way, as in the test job.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/imgui/build

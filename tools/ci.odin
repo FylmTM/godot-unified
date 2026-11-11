@@ -56,15 +56,6 @@ cache_key :: proc(dep: string) -> string {
 		fmt.sbprintf(&b, "%s=%s\n", k, pins[k])
 	}
 	switch dep {
-	case "box3d":
-		fmt.sbprintf(
-			&b,
-			"patch %s\n",
-			cli.sha256_hex(
-				transmute([]byte)cli.must_read(cli.join(cli.state.project.unified, "third_party", "box3d.patch")),
-			),
-		)
-		fallthrough
 	case "imgui":
 		t := cli.c_toolchain()
 		r := cli.run_proc({cmd = cli.strs(t.cc, "--version"), capture = true, quiet = true, env = t.env})

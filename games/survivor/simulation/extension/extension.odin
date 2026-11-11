@@ -6,7 +6,7 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
-import b3 "unified:box3d"
+import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -36,8 +36,8 @@ survivor_init :: proc "c" (
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
-SURVIVOR_BUCKET :: "survivor/4"
-#assert(netcode.PROTOCOL_VERSION == 6, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
+SURVIVOR_BUCKET :: "survivor/5"
+#assert(netcode.PROTOCOL_VERSION == 7, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(ev: ^gh.Transport_Events) -> bool {
@@ -151,8 +151,8 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 		item := &cur.items[i]
 		if !item.alive do continue
 		id := physics.body_id(w.phys, item.body)
-		p := b3.Body_GetPosition(id)
-		q := b3.Body_GetRotation(id)
+		p := b3.body_get_position(id)
+		q := b3.body_get_rotation(id)
 		gh.push_scene(
 			out,
 			{
@@ -161,7 +161,7 @@ extract :: proc(cur, prev: ^S, w: ^survivor.World, out: ^gh.Frame) {
 				slot   = -1,
 				entity = u32(i + 1), // barrel_exploded's entity: item index + 1
 				pos    = {p.x, p.y, p.z},
-				rot    = {q.v.x, q.v.y, q.v.z, q.s},
+				rot    = q,
 			},
 		)
 	}

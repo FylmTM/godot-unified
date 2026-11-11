@@ -2,9 +2,10 @@
 
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 **Godot** (through GDExtension) as the host for rendering, audio, UI and the editor; rendering is never written from
-scratch. It gives a game a fixed-tick deterministic sim, **Box3D** physics through a fork that can save and restore
-the world, snapshots, checksums, sync-test and replays, and an input relay with prediction, rollback and late join,
-plus a headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Three games live
+scratch. It gives a game a fixed-tick deterministic sim, **Box3D** physics through
+[unified-box3d](https://github.com/FylmTM/unified-box3d) (our Odin port, which saves and restores the world),
+snapshots, checksums, sync-test and replays, and an input relay with prediction, rollback and late join, plus a
+headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Three games live
 here: `games/survivor/` (a co-op survivor, the test game), `games/friendslop/` (a co-op physics sandbox) and
 `games/drift/` (a co-op 2D ship arena, the 2D test game: 2D views, physics locked to a plane, a 2D level). Larger
 3D co-op games follow, the first migrated later from the developer's current Unity game.
@@ -74,14 +75,14 @@ Toolchain (macOS ARM64, Linux x64 or Windows x64):
 
 - **Odin** at the release and commit `pins.cfg` pins, on PATH (macOS: `brew install odin`). The CLI refuses another.
 - What Odin needs anyway: **clang** on macOS and Linux; on Windows, Visual Studio Build Tools with the C++ Clang
-  tools (Box3D and Dear ImGui build with clang-cl).
+  tools (Dear ImGui builds with clang-cl).
 - **git** and **curl** (macOS, Windows 10+ and Linux ship curl).
-- **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` collection, the strict checker flags,
-  format on save with `odinfmt.json`).
+- **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` and `box3d` collections, the strict
+  checker flags, format on save with `odinfmt.json`).
 
 Everything else (Godot, odinfmt, Box3D, Dear ImGui, the EOS SDK) the CLI fetches or builds from `pins.cfg`. A local
-Godot or EOS SDK can stand in through `UNIFIED_GODOT` and `UNIFIED_EOS_SDK` in a git-ignored `.env`
-([`src/cli/SPEC.md`](src/cli/SPEC.md)). Then, from the repo root (`uni.cmd` on Windows):
+Godot, EOS SDK or unified-box3d checkout can stand in through `UNIFIED_GODOT`, `UNIFIED_EOS_SDK` and `UNIFIED_BOX3D`
+in a git-ignored `.env` ([`src/cli/SPEC.md`](src/cli/SPEC.md)). Then, from the repo root (`uni.cmd` on Windows):
 
 ```
 ./uni help                # every command (the first run builds the CLI, in about a second)

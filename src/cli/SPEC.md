@@ -23,21 +23,24 @@ ImGui, the EOS SDK) the CLI fetches or builds, pinned and hash-checked.
   tools/              the project's CLI: package main, imports unified:cli, adds the project's commands
                       (this repo: the private commands; a game repo: main.odin and a .gdignore from `init`)
   unified/            game repo only: the submodule, always at this path
-  pins.cfg            this repo only: every pin (Odin, Godot, templates, OLS, Box3D, Dear ImGui, EOS SDK)
+  pins.cfg            this repo only: every pin (Odin, Godot, templates, OLS, unified-box3d, Dear ImGui, EOS SDK)
   .env                git-ignored: this checkout's UNIFIED_* settings (below)
   .out/               everything generated, git-ignored, safe to delete
     cli/              the CLI binaries (uni-<hash>), `current`, their manifests (`<binary>.inputs`)
     godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest
+    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection)
     timings.json      each command line's last time against its budget
 ```
 
-Box3D, Dear ImGui and the EOS SDK live under `third_party/<dep>/` in the `unified` checkout (the submodule in a game
-repo): their bindings name them by relative path (`foreign import`). A game is a directory with `project.godot` and
-`simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional when there is one. In a
-game repo, `test`, `vet`, `fmt` and `verify` cover the game only: never the submodule, which `unified`'s own CI
-proves.
+Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); Dear ImGui and the EOS SDK live
+under `third_party/` in the `unified` checkout (the submodule in a game repo). Their bindings name them by relative
+path (`foreign import`). Every Odin build gets two collections: `unified` (`src/`) and `box3d` (unified-box3d,
+imported as `box3d:bindings`). A game is a directory
+with `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
+when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the game only: never the submodule, which
+`unified`'s own CI proves.
 
 ## Bootstrap and self-rebuild
 
@@ -81,7 +84,7 @@ Public (`unified:cli`, every project):
 
 | Command | What |
 |---|---|
-| `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment) (`--check`: report only) |
+| `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the `third_party/` dependencies, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it |
@@ -111,7 +114,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 ## Local settings
 
 A git-ignored `.env` at the project root holds this checkout's `UNIFIED_*` variables: local paths (`UNIFIED_GODOT`,
-`UNIFIED_EOS_SDK`) and the runtime's own knobs (`UNIFIED_EOS_LOG`, ...). One `KEY=value` per line, `#` comments and
+`UNIFIED_EOS_SDK`, `UNIFIED_BOX3D`) and the runtime's own knobs (`UNIFIED_EOS_LOG`, ...). One `KEY=value` per line, `#` comments and
 blank lines; no quotes, `export` or expansion. Any key not starting with `UNIFIED_` is an error. The file wins over
 the shell's environment, and the CLI passes the merged environment to every process it starts (Godot, headless
 binaries, `coop`). A game opened in Godot directly, not through `uni editor`, doesn't see it. `init` git-ignores it.
@@ -167,14 +170,21 @@ Odin files are formatted after the name is put in (it changes line lengths).
   exact pinned version (anything else is refused; the check is remembered per file). Export templates (`release`
   only) go where Godot looks for them, its user directory (`export_templates/<version>.stable`), checked against
   their pinned hashes.
-- **Box3D and Dear ImGui:** git fetches the pinned commit (Box3D: plus `third_party/box3d.patch`, exactly); the CLI
-  calls clang (clang-cl and llvm-lib on Windows, with the MSVC environment from vswhere and vcvarsall passed to the
-  child processes) on every source in parallel and archives them. Box3D's sources are `src/*.c` (today exactly
-  CMake's list): a missing file fails the link, a changed behaviour the golden trace. Box3D's flags are what its CMake
-  build used, minus warnings: `-std=gnu17` (CMake's C17 with extensions; `/std:c17`), `-O2 -DNDEBUG
-  -fvisibility=hidden -ffp-contract=off -DBOX3D_DISABLE_AVX2`, the static CRT `/MT` on Windows, macOS 11.0 minimum.
-  One stamp scheme: pins, recipe, flags, platform and compiler identity. The public headers (the bindings test reads
-  them) are copied next to the library.
+- **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library (static Odin-in-Odin linking clashes) with
+  upstream's C API, headers and Odin bindings. By default this platform's zip of the pinned release (`[box3d]`: repo,
+  tag, a SHA-256 per platform), checked and unpacked with its top folder flattened into `.out/unified-box3d/`
+  (a stamp of the pin makes the warm check free). `UNIFIED_BOX3D` may name a local unified-box3d checkout instead:
+  the `box3d` collection points there, and `setup` runs its `b3 build` and `b3 build --debug` (other commands only
+  build a missing library). Programs link `lib/<platform>/` (`--mode debug`: `-define:BOX3D_LIB_DEBUG=true` and
+  `lib/<platform>-debug/`) and load the library from their own directory: the CLI copies it next to each output that
+  links it (`.out/test/`, `.out/<mode>/`, `.out/record-reference/`, a game's `.out/bin/`), where Odin's default rpath
+  (`$ORIGIN`, `@loader_path`; the library's install name is `@rpath/libbox3d.dylib`, its soname `libbox3d.so`) and
+  the Windows DLL search find it. A game's `.gdextension` lists it under `[dependencies]`: Godot loads it from the
+  extension's folder and an export ships it.
+- **Dear ImGui:** git fetches the pinned commit and dear_bindings' release files; the CLI calls clang (clang-cl and
+  llvm-lib on Windows, with the MSVC environment from vswhere and vcvarsall passed to the child processes) on every
+  source in parallel and archives them, `-O2 -DNDEBUG`, the static CRT `/MT` on Windows, macOS 11.0 minimum. Its
+  stamp: pins, recipe, flags, platform and compiler identity.
 - **EOS SDK:** from the local SDK `UNIFIED_EOS_SDK` names, else this host's part of the draft release (needs `gh`),
   staged in `third_party/eos/`; the library is copied next to the game library. Missing: a warning for `build`, an
   error for `release`.

@@ -51,6 +51,7 @@ extension_build :: proc(g: Game, m: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
 	append(&flags, ..mode_flags(m))
+	append(&flags, ..box3d_defines(m, game_uses_box3d(g)))
 	append(&flags, ..eos_defines(g))
 	return {pkg = join(g.dir, "simulation", "extension"), out = extension_lib(g), flags = flags[:]}
 }
@@ -60,13 +61,25 @@ has_extension :: proc(g: Game) -> bool {
 }
 
 // Builds the game's extension when stale (always with `force`). The build tag
-// (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale.
+// (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale. The
+// Box3D library goes next to it (the .gdextension's [dependencies] ship it from there): the debug build for --mode
+// debug.
 ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 	if !has_extension(g) {
 		fatal("%s has no simulation/extension to build", g.name)
 	}
 	if game_uses_box3d(g) {
 		ensure_box3d()
+		stage_box3d(os.dir(extension_lib(g)), debug = m == .debug)
+		for ext in gdextensions(g.dir) {
+			if text, _ := read_text(ext); !strings.contains(text, tprint("res://.out/bin/%s", lib_name("box3d"))) {
+				log(
+					"uni: warning: %s's [dependencies] don't list %s: an export won't load",
+					rel(ext),
+					lib_name("box3d"),
+				)
+			}
+		}
 	}
 	ensure_imgui() // the dev UI (godot_host); -define:UNIFIED_DEVUI=false compiles it out
 	ensure_bindings()

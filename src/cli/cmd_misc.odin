@@ -179,14 +179,16 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	if !os.is_file(join(pkg, "suite_test.odin")) {
 		usage("%s has no end-to-end suite (suite_test.odin)", rel(pkg))
 	}
-	if needs_box3d {
-		ensure_box3d()
-	}
 	exe := join(state.project.out, "record-reference", tprint("%s_suite%s", opts.game, EXE))
 	make_dirs(os.dir(exe))
+	if needs_box3d {
+		ensure_box3d()
+		stage_box3d(os.dir(exe))
+	}
 	commit := git_commit()
 	cmd: [dynamic]string
-	append(&cmd, odin(), "test", pkg, collection(), tprint("-out:%s", exe), "-define:UNIFIED_REGEN=true")
+	append(&cmd, odin(), "test", pkg, tprint("-out:%s", exe), "-define:UNIFIED_REGEN=true")
+	append(&cmd, ..collection())
 	append(&cmd, tprint("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
@@ -239,7 +241,7 @@ cmd_setup :: proc(args: []string) -> Result {
 		ensure_odinfmt()
 		ensure_bindings()
 		if uses_box3d {
-			ensure_box3d()
+			ensure_box3d(build = true)
 		}
 		if uses_ext {
 			ensure_imgui()
@@ -252,19 +254,12 @@ cmd_setup :: proc(args: []string) -> Result {
 		Dep{"odinfmt", tprint("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
 	)
 	if uses_box3d {
-		lib := join(
-			state.project.unified,
-			"third_party",
-			"box3d",
-			"build",
-			PLATFORM,
-			"lib",
-			ODIN_OS == .Windows ? "box3d.lib" : "libbox3d.a",
-		)
-		append(
-			&deps,
-			Dep{"box3d", pin("box3d", "commit")[:10], "built from the pin + third_party/box3d.patch", os.is_file(lib)},
-		)
+		version, src := pin("box3d", "tag"), "pinned release (.out/unified-box3d)"
+		if local := box3d_local(); local != "" {
+			version = "local"
+			src = tprint("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
+		}
+		append(&deps, Dep{"box3d", version, src, box3d_ready()})
 	}
 	if uses_ext {
 		lib := join(
@@ -332,11 +327,7 @@ cmd_clean :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	p := state.project
-	deps := []string {
-		join(p.unified, "third_party", "box3d"),
-		join(p.unified, "third_party", "imgui"),
-		join(p.unified, "third_party", "eos"),
-	}
+	deps := []string{join(p.unified, "third_party", "imgui"), join(p.unified, "third_party", "eos")}
 	gdext := join(p.unified, "src", "gdext")
 	targets: [dynamic]string
 	for d in deps {
