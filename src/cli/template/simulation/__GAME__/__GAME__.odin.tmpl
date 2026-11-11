@@ -1,0 +1,72 @@
+// __GAME__'s deterministic simulation, a unified sim package (unified/src/sim/SPEC.md): f32 only, no pointers or
+// heap data in State, which is snapshotted with a memcpy. Each player moves a dot.
+package __GAME__
+
+import "unified:sim"
+
+MAX_PLAYERS :: 4
+TICK_HZ :: 64 // a power of two: dt is exact
+// Metres a dot moves per tick at full input.
+STEP :: f32(4) / f32(127 * TICK_HZ)
+
+Input :: struct {
+	dx:   i8, // -127 .. 127, right
+	dy:   i8, // -127 .. 127, down
+	_pad: [2]u8,
+}
+
+State :: struct {
+	pos:    [MAX_PLAYERS][2]f32, // metres
+	joined: [MAX_PLAYERS]bool,
+}
+
+// What lives outside the snapshotted state (physics, a level): nothing yet.
+World :: struct {
+	_unused: u8,
+}
+
+Event_Kind :: enum u16 {
+	Joined,
+	Left,
+}
+
+EVENT_NAMES :: []string{"joined", "left"}
+
+Game :: sim.Game(State, Input, World, MAX_PLAYERS)
+Inputs :: sim.Inputs(Input, MAX_PLAYERS)
+
+@(rodata)
+GAME := Game {
+	name = "__GAME__",
+	version = "1",
+	tick_hz = TICK_HZ,
+	world_create = proc(seed: u64, _: []u8) -> ^World {return new(World)},
+	world_destroy = proc(w: ^World) {free(w)},
+	init = proc(s: ^State, w: ^World, seed: u64) {},
+	tick = tick,
+	event_names = EVENT_NAMES,
+}
+
+tick :: proc(s: ^State, w: ^World, t: u32, inputs: ^Inputs, events: ^[dynamic]sim.Event) {
+	for p in 0 ..< MAX_PLAYERS {
+		here := p in inputs.present
+		if here != s.joined[p] {
+			s.joined[p] = here
+			s.pos[p] = {f32(p), 0}
+			sim.emit(events, here ? Event_Kind.Joined : Event_Kind.Left, slot = p)
+		}
+		if here {
+			s.pos[p].x += f32(inputs.input[p].dx) * STEP
+			s.pos[p].y += f32(inputs.input[p].dy) * STEP
+		}
+	}
+}
+
+// Scripted input for headless checks: a hash of (seed, slot, tick / 16), so any tick can be asked for in any order.
+script :: proc(seed: u64, slot: int, t: u32) -> Input {
+	x := u32(seed) * 0x9E3779B1 ~ u32(slot + 1) * 0x85EBCA77 ~ (t / 16) * 0xC2B2AE3D
+	x ~= x >> 15
+	x *= 0x2C1B3C6D
+	x ~= x >> 12
+	return {dx = i8(x % 255) - 127, dy = i8((x >> 8) % 255) - 127}
+}

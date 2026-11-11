@@ -5,14 +5,16 @@
 // deterministically.
 package headless
 
-import "core:fmt"
-import cnet "core:net"
-import "core:sync"
-import "core:thread"
-import "core:time"
+// Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
+// instantiates those (a game's tests that run the sim offline only).
+@(require) import "core:fmt"
+@(require) import cnet "core:net"
+@(require) import "core:sync"
+@(require) import "core:thread"
+@(require) import "core:time"
 
 import "unified:netcode"
-import "unified:sim"
+@(require) import "unified:sim"
 
 Session_Config :: struct {
 	clients:     int,

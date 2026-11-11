@@ -1,0 +1,21 @@
+; Engine configuration file. Hand-maintained (no editor in the loop): keep sections sorted and comments short.
+
+config_version=5
+
+[application]
+
+config/name="__GAME__"
+; "dev" in the repo: `unified release` stamps a release's version into its export.
+config/version="dev"
+run/main_scene="res://game/main.tscn"
+config/features=PackedStringArray("4.7")
+
+[debug]
+
+; The game's tool scripts run with the debugger on and fail on any GDScript warning.
+gdscript/warnings/untyped_declaration=1
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720

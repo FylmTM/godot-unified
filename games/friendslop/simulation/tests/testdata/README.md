@@ -2,7 +2,7 @@
 
 friendslop's reference run (`src/headless/SPEC.md`, Reference runs): every platform must reproduce it bit for bit,
 dynamic movers, joints, platforms, carries and throws included. `the_reference_run_replays` and
-`the_reference_run_resumes` in `../suite_test.odin` check it in `dev.py test`.
+`the_reference_run_resumes` in `../suite_test.odin` check it in `uni test`.
 
 | File | What it is |
 |---|---|
@@ -11,5 +11,5 @@ dynamic movers, joints, platforms, carries and throws included. `the_reference_r
 | `ref-900.snap` | Portable snapshot after tick 900 of the same run |
 | `ref.json` | Where, when and how it was made, and the final checksum |
 
-Regenerate deliberately, on any machine: `python tools/dev.py regen friendslop`, then commit the files with the
+Regenerate deliberately, on any machine: `uni record-reference friendslop`, then commit the files with the
 change that made it necessary.

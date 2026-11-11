@@ -12,7 +12,7 @@ Closes #<!-- each issue this PR finishes (merging closes it); "Part of #N" for o
 
 ## Verified
 
-<!-- What was run and its result: dev.py fmt --check / vet / test / check, game checks, by hand. -->
+<!-- What was run and its result: uni fmt --check / vet / test (and which suites), by hand. -->
 
 ## Decisions made without sign-off
 

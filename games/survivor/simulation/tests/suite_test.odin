@@ -1,6 +1,6 @@
 // The survivor's end-to-end suite: every standard scenario of unified:headless/scenarios on the game
 // with the `stress` tuning (what its headless binary runs), and its reference run (testdata/, made by
-// `python tools/dev.py regen survivor`). The game's own scenarios follow the standard ones here and
+// `uni record-reference survivor`). The game's own scenarios follow the standard ones here and
 // in the other files of this package (scenario_test.odin: explosions, deaths and resets inside
 // rollback windows).
 package test_survivor

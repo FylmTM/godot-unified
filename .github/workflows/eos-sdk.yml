@@ -1,8 +1,9 @@
-# The EOS SDK (tools/eos.py) for the other workflows, as a cross-OS cache entry. The SDK is a set of per-platform
-# zips on a draft release, and GitHub lists drafts only to tokens that can write to the repo. So this one small
-# job holds `contents: write` and runs no repository code: it reads the pinned version and the zips' SHA-256 out
-# of tools/eos.py, downloads every zip with gh, checks the hashes and caches the unpacked SDK (all platforms). Jobs that build or test (pull-request
-# code) restore that cache with `contents: read` and never see a write token.
+# The EOS SDK for the other workflows, as a cross-OS cache entry. The SDK is a set of per-platform zips on a draft
+# release (`uni eos upload`), and GitHub lists drafts only to tokens that can write to the repo. So this one small
+# job holds `contents: write` and runs no repository code: it reads the pinned version and the zips' SHA-256 out of
+# pins.cfg ([eos_sdk], with sed), downloads every zip with gh, checks the hashes and caches the unpacked SDK (all
+# platforms). Jobs that build or test (pull-request code) restore that cache with `contents: read` and never see a
+# write token.
 name: eos-sdk
 
 on:
@@ -25,21 +26,21 @@ jobs:
     outputs:
       key: ${{ steps.v.outputs.key }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: tools/eos.py
+          sparse-checkout: pins.cfg
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - id: v
         name: Pinned version and hashes (read, not run)
         run: |
-          version=$(sed -n 's/^VERSION = "\([0-9.]*\)"$/\1/p' tools/eos.py)
-          # "part sha" lines from the ASSET_SHA256 dict, one entry per line
-          sed -n '/^ASSET_SHA256 = {/,/^}/s/^    "\([a-z0-9-]*\)": "\([0-9a-f]\{64\}\)",$/\1 \2/p' tools/eos.py \
-            > "$RUNNER_TEMP/eos-parts.txt"
+          section() { sed -n '/^\[eos_sdk\]/,/^\[/p' pins.cfg; }
+          version=$(section | sed -n 's/^version = "\([0-9.]*\)"$/\1/p')
+          # "part sha" lines: every key of [eos_sdk] whose value is a SHA-256
+          section | sed -n 's/^\([a-z0-9-]*\) = "\([0-9a-f]\{64\}\)"$/\1 \2/p' > "$RUNNER_TEMP/eos-parts.txt"
           cat "$RUNNER_TEMP/eos-parts.txt"
           if [ -z "$version" ] || [ ! -s "$RUNNER_TEMP/eos-parts.txt" ]; then
-            echo "::error::tools/eos.py: VERSION or ASSET_SHA256 not found"
+            echo "::error::pins.cfg: [eos_sdk] version or part hashes not found"
             exit 1
           fi
           all=$(sha256sum < "$RUNNER_TEMP/eos-parts.txt" | cut -c1-16)
@@ -48,7 +49,7 @@ jobs:
             echo "key=eos-sdk-$version-$all"
           } >> "$GITHUB_OUTPUT"
       - id: cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/eos
           key: ${{ steps.v.outputs.key }}

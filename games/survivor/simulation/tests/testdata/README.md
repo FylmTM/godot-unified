@@ -1,7 +1,7 @@
 # testdata
 
 The survivor's reference run (`src/headless/SPEC.md`, Reference runs): every platform must reproduce it bit for bit.
-`the_reference_run_replays` and `the_reference_run_resumes` in `../suite_test.odin` check it in `dev.py test`.
+`the_reference_run_replays` and `the_reference_run_resumes` in `../suite_test.odin` check it in `uni test`.
 
 | File | What it is |
 |---|---|
@@ -10,5 +10,5 @@ The survivor's reference run (`src/headless/SPEC.md`, Reference runs): every pla
 | `ref-1800.snap` | Portable snapshot after tick 1800 of the same run |
 | `ref.json` | Where, when and how it was made, and the final checksum |
 
-Regenerate deliberately, on any machine: `python tools/dev.py regen survivor`, then commit the files with the change
+Regenerate deliberately, on any machine: `uni record-reference survivor`, then commit the files with the change
 that made it necessary.

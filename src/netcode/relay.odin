@@ -10,8 +10,10 @@
 // in-process client plus remote peers) and is driven by relay_step from the host's own loop.
 package netcode
 
-import "core:fmt"
-import "core:sync"
+// Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
+// instantiates those (a game's tests that run the sim offline only).
+@(require) import "core:fmt"
+@(require) import "core:sync"
 
 import "unified:sim"
 import "unified:wire"

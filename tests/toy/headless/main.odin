@@ -1,5 +1,5 @@
 // The toy game's headless binary: every mode of src/headless/SPEC.md (CLI) on the toy, through
-// unified:headless/modes. `python tools/dev.py check` drives it for the real-UDP, multi-process test (a
+// unified:headless/modes. `uni test --suite net` drives it for the real-UDP, multi-process test (a
 // relay and three client processes): a netcode transport test at library level.
 package main
 

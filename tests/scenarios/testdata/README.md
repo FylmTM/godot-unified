@@ -2,7 +2,7 @@
 
 The toy game's reference run: the library's own cross-platform proof (`src/headless/SPEC.md`, Reference runs), with
 no game or physics in it. `the_reference_run_replays` and `the_reference_run_resumes` in `../suite_test.odin` check it
-in `dev.py test`.
+in `uni test`.
 
 | File | What it is |
 |---|---|
@@ -11,5 +11,5 @@ in `dev.py test`.
 | `ref-900.snap` | Portable snapshot after tick 900 of the same run |
 | `ref.json` | Where, when and how it was made, and the final checksum |
 
-Regenerate deliberately, on any machine: `python tools/dev.py regen toy`, then commit the files with the change that
+Regenerate deliberately, on any machine: `uni record-reference toy`, then commit the files with the change that
 made it necessary.

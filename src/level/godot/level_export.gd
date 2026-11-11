@@ -15,7 +15,7 @@ extends SceneTree
 ## split into convex parts) children, and TileMapLayers (one body each, the tiles' physics layer 0 polygons).
 ## Markers: nodes whose script has `const UNIFIED_KIND` (or a `unified_kind` property, or metadata):
 ## kind, name, global transform, every exported script property, the points of a Path3D / Path2D child.
-## Prints one `LEVEL_JSON {...}` line.
+## Prints one `UNIFIED_RESULT {...}` line.
 
 const MAGIC := "UNLV"
 const VERSION := 2
@@ -61,12 +61,28 @@ func _initialize() -> void:
 			f.store_buffer(bytes)
 			f.close()
 		if check and not same:
-			errors.append("%s is stale: run `python tools/dev.py game export-level`" % target)
+			errors.append("%s is stale: run `uni bake`" % target)
 			ok = false
 		out.append({"scene": path, "level": target, "bytes": bytes.size(), "changed": not same})
 	ok = ok and errors.is_empty()
-	print("LEVEL_JSON " + JSON.stringify({"ok": ok, "check": check, "levels": out, "errors": errors}))
-	quit(0 if ok else 1)
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "check": check, "levels": out, "errors": errors}))
+	_quit_quietly(0 if ok else 1)
+
+
+## Quits once the sounds the game's autoloads started have stopped and the AudioServer has freed their playbacks
+## (at most 1 s): quitting with a sound playing reports it as leaked at exit, which fails the run.
+func _quit_quietly(code: int) -> void:
+	await process_frame  # the autoloads' _ready has run
+	var playbacks: Array[WeakRef] = []
+	for type: String in ["AudioStreamPlayer", "AudioStreamPlayer2D", "AudioStreamPlayer3D"]:
+		for n: Node in root.find_children("*", type, true, false):
+			if n.get("playing"):
+				playbacks.append(weakref(n.call("get_stream_playback")))
+				n.call("stop")
+	var deadline := Time.get_ticks_msec() + 1000
+	while Time.get_ticks_msec() < deadline and playbacks.any(func(w: WeakRef) -> bool: return w.get_ref() != null):
+		await process_frame
+	quit(code)
 
 
 var _root: Node
@@ -80,23 +96,23 @@ func export_scene(path: String) -> PackedByteArray:
 		errors.append("cannot load " + path)
 		return PackedByteArray()
 	# Not added to the tree (it isn't running yet): transforms are composed by _xf / _xf2, and no _ready runs.
-	var root := ps.instantiate()
-	_root = root
+	var scene := ps.instantiate()
+	_root = scene
 	_ppm = 0.0
-	if root is Node2D:
-		_ppm = float(root.get_meta("unified_px_per_m", 64.0))
-		_depth = float(root.get_meta("unified_depth_m", 1.0))
+	if scene is Node2D:
+		_ppm = float(scene.get_meta("unified_px_per_m", 64.0))
+		_depth = float(scene.get_meta("unified_depth_m", 1.0))
 		if _ppm <= 0.0 or _depth <= 0.0:
 			errors.append("%s: unified_px_per_m and unified_depth_m must be positive" % path)
 	var bodies := []
 	var markers := []
-	_collect(root, bodies, markers)
+	_collect(scene, bodies, markers)
 	var marker_index := {}
 	for i in markers.size():
 		marker_index[markers[i]] = i
 	var strings := [""]
 	var bytes := _encode(bodies, markers, marker_index, strings)
-	root.free()
+	scene.free()
 	return bytes
 
 
@@ -184,15 +200,15 @@ func _props(n: Node) -> Array:
 
 func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: Array) -> PackedByteArray:
 	# The string table comes first, in the order the reader meets the strings.
-	for b in bodies:
+	for b: Node in bodies:
 		_intern(strings, b.name)
 	var mprops := []
-	for m in markers:
+	for m: Node in markers:
 		_intern(strings, _kind(m))
 		_intern(strings, m.name)
 		var ps := _props(m)
 		mprops.append(ps)
-		for p in ps:
+		for p: Array in ps:
 			_intern(strings, p[0])
 			if p[1] is String or p[1] is StringName:
 				_intern(strings, str(p[1]))
@@ -202,16 +218,16 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 	w.put_u16(VERSION)
 	w.put_float(_ppm)
 	w.put_u32(strings.size())
-	for s in strings:
+	for s: String in strings:
 		var u: PackedByteArray = s.to_utf8_buffer()
 		w.put_u16(u.size())
 		w.put_data(u)
 	w.put_u32(bodies.size())
-	for b in bodies:
+	for b: Node in bodies:
 		if b is StaticBody3D:
-			_body3d(w, b, strings)
+			_body3d(w, b as StaticBody3D, strings)
 		else:
-			_body2d(w, b, strings)
+			_body2d(w, b as Node2D, strings)
 	w.put_u32(markers.size())
 	for i in markers.size():
 		var m: Node = markers[i]
@@ -230,12 +246,12 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 			_v3(w, gt.basis.get_scale())
 		var ps: Array = mprops[i]
 		var kept := []
-		for p in ps:
+		for p: Array in ps:
 			if _prop_type(p[1]) >= 0:
 				kept.append(p)
 		w.put_u16(kept.size())
-		for p in kept:
-			var v = p[1]
+		for p: Array in kept:
+			var v: Variant = p[1]
 			var t := _prop_type(v)
 			w.put_u32(_intern(strings, p[0]))
 			w.put_u8(t)
@@ -260,11 +276,11 @@ func _encode(bodies: Array, markers: Array, marker_index: Dictionary, strings: A
 		var pts := PackedVector3Array()
 		for c in m.get_children():
 			if c is Path3D and c.curve != null:
-				for k in c.curve.point_count:
+				for k: int in c.curve.point_count:
 					pts.append(_xf(c) * c.curve.get_point_position(k))
 				break
 			if c is Path2D and c.curve != null:
-				for k in c.curve.point_count:
+				for k: int in c.curve.point_count:
 					pts.append(_m3(_xf2(c) * c.curve.get_point_position(k)))
 				break
 		w.put_u16(pts.size())
@@ -327,7 +343,7 @@ func _body2d(w: StreamPeerBuffer, b: Node2D, strings: Array) -> void:
 	w.put_u64(int(b.get_meta("unified_category", 0)))
 	w.put_u64(int(b.get_meta("unified_material", 0)))
 	w.put_u16(recs.size())
-	for r in recs:
+	for r: Dictionary in recs:
 		w.put_u8(r.kind)
 		_v3(w, r.get("pos", Vector3.ZERO))
 		_quat(w, r.get("rot", Quaternion.IDENTITY))
@@ -341,7 +357,7 @@ func _body2d(w: StreamPeerBuffer, b: Node2D, strings: Array) -> void:
 				w.put_float(r.half_height)
 			Shape.HULL:
 				w.put_u16(r.points.size())
-				for p in r.points:
+				for p: Vector3 in r.points:
 					_v3(w, p)
 
 
@@ -426,7 +442,7 @@ func _shape2d(recs: Array, local: Transform2D, s: Shape2D, where: String) -> voi
 		errors.append("%s: unsupported shape %s (rectangle, circle, capsule, convex polygon)" % [where, s.get_class()])
 
 
-func _prop_type(v) -> int:
+func _prop_type(v: Variant) -> int:
 	if v is bool:
 		return Prop.BOOL
 	if v is int:

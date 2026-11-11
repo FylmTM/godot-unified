@@ -130,9 +130,10 @@ checkpoints. Sounds synthesized at boot, as in the survivor.
   and ride (players start next to items and platforms); scenarios asserting outcomes (two lift the heavy crate, one
   can't; a rider stays on for a full platform cycle; a throw stuns a friend; a held friend breaks free); a netcode
   session under the `bad` profile.
-- A headless binary with the `src/headless/SPEC.md` CLI modes; sync-test and session runs for friendslop in `check`.
-- `dev.py game validate|walk|tour|coop friendslop` as for the survivor; `tour` drives a scripted bot through the
-  route.
+- A headless binary with the `src/headless/SPEC.md` CLI modes; sync-test and session runs for friendslop in its
+  end-to-end suite (`uni test`).
+- The `godot` suite's `validate` and `tour` steps and `uni coop friendslop`, as for the survivor; `tour` drives a
+  scripted bot through the route.
 - Budget (to be measured, then set): forward step ≤ 0.5 ms with 4 players and ~60 dynamic bodies; an 8-tick re-sim
   ≤ 4 ms.
 

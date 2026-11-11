@@ -1,6 +1,6 @@
 // friendslop's end-to-end suite: every standard scenario of unified:headless/scenarios on the game and
 // its park level (dynamic movers, joints, platforms, carries and throws under rollback), and its
-// reference run (testdata/, made by `python tools/dev.py regen friendslop`). The game's own
+// reference run (testdata/, made by `uni record-reference friendslop`). The game's own
 // scenarios are in the other files of this package (friendslop_test.odin, route_test.odin).
 package test_friendslop
 

@@ -90,7 +90,7 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads; the
   error says why not, the library never prints).
 - **Format versions:** readers accept only the current version of each; nothing is kept for older files yet. A format
-  change bumps the version and regenerates every reference run (`python tools/dev.py regen <game>|toy`).
+  change bumps the version and regenerates every reference run (`uni record-reference <game>|toy`).
 
 ## Physics plug-in (`unified:physics`)
 

@@ -5,7 +5,7 @@ extends SceneTree
 ## The host clicks Host online and writes the lobby code to the file; the joiner types it into the Join panel.
 ## Both wait for two players in the lobby; the host walks out, they fight ~8 s, the host leaves; the joiner must
 ## see the disconnect on its menu. With --rejoin (both roles), the joiner leaves mid-match and joins again with the
-## same code (a late join into the running match) before the host leaves. Prints steps and `COOP_JSON {...}`; exits
+## same code (a late join into the running match) before the host leaves. Prints steps and `UNIFIED_RESULT {...}`; exits
 ## 1 on failure.
 
 var cap: Logger
@@ -173,12 +173,12 @@ func _finish() -> void:
 	_done = true
 	var ok := _failed == ""
 	print("coop %s: %s" % [role, "OK" if ok else "FAILED"])
-	print("COOP_JSON " + JSON.stringify({"ok": ok, "role": role, "steps": _steps, "failed": _failed, "errors": cap.errors}))
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "role": role, "steps": _steps, "failed": _failed, "errors": cap.errors}))
 	OS.remove_logger(cap)
 	var game: Node = root.get_node(^"Game")
 	if game.status != "idle":
 		game.session.leave()
-	quit(0 if ok else 1)
+	root.get_node(^"Game").quit_app(0 if ok else 1)  # audio first: a live playback leaks
 
 
 func _seconds(s: float) -> void:

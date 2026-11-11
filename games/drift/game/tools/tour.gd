@@ -6,7 +6,7 @@ extends SceneTree
 ## command) -> match: aim with the stick (the ship turns to it), thrust (it moves, the camera follows), fire
 ## (bullets in the bulk view) while the first wave's rocks drift in (rock bulk views) -> leave to the menu.
 ## Without `--quick` it also hunts rocks (aims at the nearest, read back from the rock bulk views' MultiMesh) until
-## one splits or is destroyed. Prints steps and `TOUR_JSON {...}`; exits 1 on failure or errors.
+## one splits or is destroyed. Prints steps and `UNIFIED_RESULT {...}`; exits 1 on failure or errors.
 
 const ROCK_KINDS := ["rock_0", "rock_1", "rock_2", "rock_3"]
 
@@ -41,7 +41,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	var game: Node = root.get_node(^"Game")
 	if game.session == null:
-		_fail("the tour needs the game library (python tools/dev.py game build drift)")
+		_fail("the tour needs the game library (uni build drift)")
 		_finish()
 		return
 	game.session.sim_event_2d.connect(func(kind: StringName, _tick: int, _ent: int, _pos: Vector2, _val: float) -> void:
@@ -207,7 +207,7 @@ func _finish() -> void:
 	var ok: bool = _failed == "" and cap.errors.is_empty()
 	var report := {"ok": ok, "steps": _steps, "errors": cap.errors, "failed": _failed, "events": _events,
 		"seconds": (Time.get_ticks_msec() - _t0) / 1000.0}
-	print("TOUR_JSON " + JSON.stringify(report))
+	print("UNIFIED_RESULT " + JSON.stringify(report))
 	OS.remove_logger(cap)
 	if game.session != null:
 		game.session.leave()

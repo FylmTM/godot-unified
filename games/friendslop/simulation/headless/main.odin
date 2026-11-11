@@ -12,9 +12,14 @@ import "unified:headless/modes"
 PARK_LEVEL :: #load("../../game/levels/park.level")
 
 HEADLESS := headless.Headless(friendslop.State, friendslop.Input, friendslop.World, friendslop.MAX_PLAYERS) {
-	game    = &friendslop.GAME,
-	script  = friendslop.script,
+	game = &friendslop.GAME,
+	script = friendslop.script,
 	summary = summary,
+	bench = {
+		what = "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick",
+		window = 8,
+		ticks = 600,
+	},
 }
 
 main :: proc() {
@@ -29,7 +34,7 @@ summary :: proc(s: ^friendslop.State) -> string {
 		if p.active do present += 1
 	}
 	return fmt.tprintf(
-		`"phase":"%v","players":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
+		`"phase":"%v","players_present":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
 		s.phase,
 		present,
 		s.grabs,

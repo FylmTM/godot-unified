@@ -36,7 +36,7 @@ the game's extension wires them (`init` first, with the game library's directory
   hand-written for the subset we use (`api.odin`); `tests/eos` checks every struct's size and offsets and every
   copied constant against the headers with a C compiler, and that the library loads and initializes.
 - **Credentials.** Compiled in with `-define:EOS_PRODUCT_ID=...` (and `EOS_SANDBOX_ID`, `EOS_DEPLOYMENT_ID`,
-  `EOS_CLIENT_ID`, `EOS_CLIENT_SECRET`; `python tools/eos.py defines` prints them from the environment, CI has
+  `EOS_CLIENT_ID`, `EOS_CLIENT_SECRET`; `uni build` and `uni release` pass them from the environment, CI has
   them as secrets), else the same names from the environment, else `~/.config/unified/eos.ini` (`[eos]`,
   `$UNIFIED_EOS_INI` overrides the path). Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
@@ -66,7 +66,7 @@ the game's extension wires them (`init` first, with the game library's directory
   dialog) and `forget_device` at exit, so the next build starts clean.
 - **Keychain dialogs in dev runs.** A "wants to use your confidential information stored in
   com.epicgames.sdk.connect.access_token" dialog means a binary that doesn't own the entry asked for it. To avoid it:
-  play online from Godot (editor, `dev.py game run`, `godot --headless --path games/survivor`), which owns the
+  play online from Godot (editor, `uni run`, `godot --headless --path games/survivor`), which owns the
   entry; the headless `survivor` binary never shows the dialog (it fails with "the device ID in the keychain
   belongs to another build" instead), so don't mix it with Godot runs on one Mac; an exported build asks once per
   build (Always Allow is fine: it is the game's own anonymous ID). A dialog whose process has exited (killed or
@@ -85,15 +85,15 @@ the game's extension wires them (`init` first, with the game library's directory
 
 ## Crossplay (macOS ↔ Windows over the internet)
 
-`.github/workflows/eos-crossplay.yml` (manual, Windows runner only): a Mac hosts, the runner joins by code and plays
-the scripted session; both sides print their verified checksums. Mac side, the game itself:
+By hand, on two machines (no CI job): a Mac hosts, a Windows machine joins by code and plays the scripted session;
+both sides print their verified checksums. Mac side, the game itself:
 `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`
-(`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
-ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
-(a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
-`games/survivor/simulation/extension/extension.odin`) works too where the binary owns the keychain entry (not on a
-Mac where Godot.app made the device ID).
+(`UNIFIED_EOS_RELAYS=force` to force Epic's relays). Windows side, the release headless binary:
+`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360 --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
+`games/survivor/simulation/extension/extension.odin`; `--relays force` to force the relays), or the exported game
+from a release zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
+sides' result lines. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` hosts too where the
+binary owns the keychain entry (not on a Mac where Godot.app made the device ID).
 
 A run passes when every common verified checksum matches (0 mismatches). The measured runs so far (RTT, input
 delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS review issue, #11.
@@ -103,6 +103,6 @@ delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS revie
   the label as a hint; RTT is the better signal.
 - **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
   within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
-  the same code as a new peer. `dev.py game coop survivor --rejoin` covers a clean leave and rejoin by the same
+  the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
   player on one Mac.
 

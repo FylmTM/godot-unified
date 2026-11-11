@@ -193,15 +193,25 @@ mode_resume :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 
 mode_bench :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	check_known(a, "enemies", "window", "ticks", "seed", "players")
-	enemies := opt_int(a, "enemies", 1000, lo = 0, hi = 1 << 20)
-	window := u32(opt_int(a, "window", 8, lo = 1, hi = sim.RING - 1))
-	ticks := u32(opt_int(a, "ticks", 600, lo = 1, hi = 1_000_000))
+	std := h.bench
+	if std.ticks == 0 {
+		std = {
+			what    = "the default benchmark",
+			enemies = 1000,
+			window  = 8,
+			ticks   = 600,
+		}
+	}
+	enemies := opt_int(a, "enemies", std.enemies, lo = 0, hi = 1 << 20)
+	window := u32(opt_int(a, "window", std.window, lo = 1, hi = sim.RING - 1))
+	ticks := u32(opt_int(a, "ticks", std.ticks, lo = 1, hi = 1_000_000))
 	br := run_bench(h, enemies, window, ticks, seed_opt(a), players_opt(a, P))
 	st :: proc(s: Stat) -> string {
 		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, s.mean, s.p99)
 	}
 	fmt.printfln(
-		`{{"mode":"bench","enemies":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"enemies_mean":%.1f,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","enemies":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"enemies_mean":%.1f,"mismatches":%d}}`,
+		std.what,
 		enemies,
 		window,
 		ticks,

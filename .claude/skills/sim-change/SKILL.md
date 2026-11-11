@@ -1,6 +1,6 @@
 ---
 name: sim-change
-description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol and lobby-bucket bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the Box3D fork, and whenever dev.py test reports a reference run or golden trace mismatch.
+description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol and lobby-bucket bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the Box3D fork, and whenever uni test reports a reference run or golden trace mismatch.
 ---
 
 # Changing what the simulation computes
@@ -10,7 +10,7 @@ They change only on purpose, never to make a test pass.
 
 ## When a reference run or the golden trace fails
 
-`python tools/dev.py test` replays every game's reference run (`games/<game>/simulation/tests/testdata/`, the toy's
+`./uni test` replays every game's reference run (`games/<game>/simulation/tests/testdata/`, the toy's
 in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/box3d`. A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
@@ -19,7 +19,7 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/box3d`. A mismatch
 2. **If it was meant to:** regenerate, on any machine, and commit the files with the change that caused them:
 
    ```
-   python tools/dev.py regen <game>      # or: regen toy
+   ./uni record-reference <game>      # or: record-reference toy
    ```
 
    It lists the files that changed. For a Box3D change, update `GOLDEN` in `tests/box3d/box3d_test.odin` to the
@@ -51,7 +51,7 @@ Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
 A change to a sim, `src/physics`, `src/netcode` or the rollback path runs the benchmarks too:
 
 ```
-python tools/dev.py bench
+./uni bench
 ```
 
 Target: forward step plus an 8-tick re-sim within 6 ms. A re-sim that disagrees with the forward run fails the

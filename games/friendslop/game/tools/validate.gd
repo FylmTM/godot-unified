@@ -1,11 +1,11 @@
 extends SceneTree
 ## Headless project check, no editor:
 ##   godot --headless -d --path games/friendslop -s res://game/tools/validate.gd -- --no-settings [--frames=N]
-## 1. compiles every .gd under res://game (`-d` makes Godot print GDScript warnings; tools/game.py fails on them),
+## 1. compiles every .gd under res://game (`-d` makes Godot print GDScript warnings; uni fails on them),
 ## 2. loads and instantiates every .tscn/.tres (missing deps, and the unknown properties Godot silently drops),
 ## 3. with the game library loaded, checks the level's item markers against the sim's item sizes, 4. runs the main
 ## scene for N frames
-## (default 30) to catch runtime errors. Prints a summary and one `VALIDATE_JSON {...}` line; exits 1 on any error.
+## (default 30) to catch runtime errors. Prints a summary and one `UNIFIED_RESULT {...}` line; exits 1 on any error.
 
 var cap: Logger
 var frames := 30
@@ -78,7 +78,7 @@ func _process(_delta: float) -> bool:
 		report.ms.scripts, report.ms.resources, report.ms.run])
 	if not ok or not cap.warnings.is_empty():
 		print(cap.report())
-	print("VALIDATE_JSON " + JSON.stringify(report))
+	print("UNIFIED_RESULT " + JSON.stringify(report))
 	OS.remove_logger(cap)
 	_quitting = true
 	root.get_node(^"Game").quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit

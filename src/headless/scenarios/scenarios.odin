@@ -15,10 +15,10 @@ import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-// `python tools/dev.py regen <game>|toy` runs a suite with -define:UNIFIED_REGEN=true:
+// `uni record-reference <game>|toy` runs a suite with -define:UNIFIED_REGEN=true:
 // reference_replays then writes a new reference run (and checks it) instead of only reading it.
 UNIFIED_REGEN :: #config(UNIFIED_REGEN, false)
-// The commit a regenerated reference run is made from (dev.py regen passes it, "+dirty" when the
+// The commit a regenerated reference run is made from (record-reference passes it, "+dirty" when the
 // tree has changes); recorded in ref.json.
 UNIFIED_REGEN_COMMIT :: #config(UNIFIED_REGEN_COMMIT, "unknown")
 

@@ -13,7 +13,6 @@ const FULLSCREEN := 1
 const DEFAULTS := {
 	&"master_volume": ["audio", 0.8],
 	&"sfx_volume": ["audio", 0.8],
-	&"music_volume": ["audio", 0.5],
 	&"window_mode": ["video", WINDOWED],
 	&"vsync": ["video", true],
 	&"render_scale": ["video", 1.0],
@@ -75,8 +74,6 @@ func _apply(key: StringName) -> void:
 			_set_bus_volume(&"Master", v)
 		&"sfx_volume":
 			_set_bus_volume(&"SFX", v)
-		&"music_volume":
-			_set_bus_volume(&"Music", v)
 		&"window_mode":
 			if _apply_window:
 				var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if v == FULLSCREEN else DisplayServer.WINDOW_MODE_WINDOWED

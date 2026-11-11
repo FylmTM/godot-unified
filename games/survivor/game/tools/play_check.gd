@@ -9,7 +9,7 @@ extends SceneTree
 ## survives one death, so the enemy count climbs past 1000 for the frame-time numbers.
 ## menu -> single player -> lobby -> walk out of the start circle -> play (circle-strafe, pick level-ups) ->
 ## stand still until the match is over -> back in the lobby. Measures frame time and sim rate by enemy count.
-## Prints `PLAY_JSON {...}`; exits 1 on a failed expectation or any engine/script error.
+## Prints `UNIFIED_RESULT {...}`; exits 1 on a failed expectation or any engine/script error.
 
 var cap: Logger
 var shots_dir := ""
@@ -74,7 +74,7 @@ func _process(_delta: float) -> bool:
 func _run() -> void:
 	_game = root.get_node(^"Game")
 	if _game.is_mock:
-		_fail("the play check needs the native extension (python tools/dev.py game build survivor)")
+		_fail("the play check needs the native extension (uni build survivor)")
 		return
 	_game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void: _events[kind] = _events.get(kind, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
@@ -342,13 +342,13 @@ func _finish() -> void:
 			"over_33ms": b[3]}
 	if not cap.errors.is_empty() or not cap.warnings.is_empty():
 		print(cap.report())
-	print("PLAY_JSON " + JSON.stringify({"ok": ok, "ms": Time.get_ticks_msec() - _t0, "steps": _steps, "failed": _failed,
+	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "ms": Time.get_ticks_msec() - _t0, "steps": _steps, "failed": _failed,
 		"errors": cap.errors, "events": _events, "max_enemies": _max_enemies, "frame_ms_by_enemies": bands,
 		"levelups_chosen": _levelups_chosen, "shots": _shots}))
 	OS.remove_logger(cap)
 	for p in root.get_node(^"Sfx").get_children():
 		p.stop()
-	quit(0 if ok else 1)
+	root.get_node(^"Game").quit_app(0 if ok else 1)  # audio first: a live playback leaks
 
 
 func _find(from: Node, path: String) -> Node:

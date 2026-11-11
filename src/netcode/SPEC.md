@@ -99,4 +99,4 @@ messages, another build refused, a seeded fuzz of the channel, relay and client 
 commands (`command_test.odin`): exactly once and in order under `bad` (loss, duplicates, reordering), a late input's
 command moved to a later tick with the sender rolling back and everyone verifying it there, the 5th command of a
 tick waiting for the next. The end-to-end suites run the same code on the virtual clock through
-`unified:headless` (`src/headless/SPEC.md`); `dev.py check` runs it in real time over UDP between processes.
+`unified:headless` (`src/headless/SPEC.md`); `uni test --suite net` runs it in real time over UDP between processes.

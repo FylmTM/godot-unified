@@ -283,7 +283,7 @@ image_into_another_world :: proc(t: ^testing.T) {
 
 // The pinned fork's results: a fixed scene, 240 ticks, hashed every 60. The same on every platform.
 // A Box3D upgrade or a build-flag change that alters any of these values fails here; if the change
-// is intended, update the values (and regenerate the reference runs, `dev.py regen <game>|toy`) in
+// is intended, update the values (and regenerate the reference runs, `uni record-reference <game>|toy`) in
 // the same commit.
 GOLDEN := [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
 
@@ -371,7 +371,7 @@ bindings_match_the_headers :: proc(t: ^testing.T) {
 	include := fmt.tprintf("%s/include", platform_dir())
 	internal :: BOX3D_DIR + "/src/src"
 	if !os.exists(fmt.tprintf("%s/box3d/box3d.h", include)) || !os.exists(internal + "/recording.h") {
-		log.info("Box3D headers not staged (python tools/box3d.py); layout check skipped")
+		log.info("Box3D headers not staged (uni setup); layout check skipped")
 		return
 	}
 	cc := ""

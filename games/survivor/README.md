@@ -9,18 +9,18 @@ client): [`SPEC.md`](SPEC.md).
 Open this folder with Godot 4.7.2 (standard build), or from the repo root:
 
 ```
-godot --path games/survivor                  # the game; uses the game library if built, else the mock session
-godot --path games/survivor -- --mock        # force the GDScript mock session
+uni run survivor                  # the game; builds the game library first
+uni run survivor -- --mock        # force the GDScript mock session
 ```
 
-The game library is built into `.out/bin/` (`libsurvivor.dylib`, `survivor.dll`); without it a dev run uses the
-mock session (`game/session/`), a fake sim with the same API, so every screen works. Exports never include the
-mock: without the library they show a "game library failed to load" screen.
+The game library is built into `.out/bin/` (`libsurvivor.dylib`, `survivor.dll`; `uni build survivor`); without it a
+dev run uses the mock session (`game/session/`), a fake sim with the same API, so every screen works. Exports never
+include the mock: without the library they show a "game library failed to load" screen.
 
 ## Checks
 
-`python tools/dev.py godot-checks` runs every Godot check for every game, and `dev.py test` runs this game's end-to-end
-suite. Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
+`uni test --suite godot` runs every Godot check for every game, and `uni test` runs this game's end-to-end suite.
+Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
 
 ## Controls
 

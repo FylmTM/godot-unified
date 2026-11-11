@@ -1,5 +1,5 @@
 # Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/SPEC.md): run headless by
-# `python tools/dev.py godot-test`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
+# `uni test --suite godot-bindings`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
 # count. After changing the exporter or levels/level_2d.tscn on purpose, rewrite levels/level_2d.level (from
 # tests/godot, once this has run): godot --headless --path . -s res://.out/tools/level_export.gd -- \
 #   --scene=res://levels/level_2d.tscn
@@ -81,8 +81,8 @@ func check_level_export() -> void:
 			"--scene=res://levels/bad_2d.tscn"], out, true)
 	var data = null
 	for line in "".join(out).split("\n"):
-		if line.begins_with("LEVEL_JSON "):
-			data = JSON.parse_string(line.trim_prefix("LEVEL_JSON "))
+		if line.begins_with("UNIFIED_RESULT "):
+			data = JSON.parse_string(line.trim_prefix("UNIFIED_RESULT "))
 	check("level export ran", data is Dictionary and code == 1, code)
 	if not data is Dictionary:
 		return

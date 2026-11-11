@@ -1,6 +1,6 @@
 // drift's end-to-end suite: every standard scenario of unified:headless/scenarios on the game and its arena
 // (2D physics locked to a plane: ships, rocks that split, a kinematic station, ray-cast bullets, under
-// rollback), and its reference run (testdata/, made by `python tools/dev.py regen drift`). The game's own
+// rollback), and its reference run (testdata/, made by `uni record-reference drift`). The game's own
 // scenarios are in drift_test.odin.
 package test_drift
 

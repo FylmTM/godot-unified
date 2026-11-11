@@ -79,17 +79,17 @@ physics.create_static(w, &lvl)           // static bodies in file order
 - Headless: `--level FILE`. Embedding is an option per game: `DEFAULT_LEVEL :: #load(...)` as the fallback when no
   file is given, so tests and headless runs need no path while the runtime file still wins. Recommended for the
   headless binary and tests; the Godot build always loads the file.
-- The exported file is committed next to its scene (CI and headless runs need no Godot). `dev.py game
-  export-level <game>` (headless Godot, ~1 s) writes it; `game validate` re-exports in memory and fails if the
+- The exported file is committed next to its scene (CI and headless runs need no Godot). `uni bake
+  <game>` (headless Godot, ~1 s) writes it; `uni bake <game> --check` (a step of the `godot` suite) fails if the
   committed file is stale.
 
 ## Tests
 
-`tests/level`: round-trip of every record and property type; rejects bad magic, versions and truncated files;
-version 1 loads; `create_static` builds the expected bodies, also from the 2D fixture's exported file. `tests/godot`
-(`dev.py godot-test`): export the 2D fixture scene (`levels/level_2d.tscn`) and compare to its committed file; an
-unsupported shape fails the export with the node's name.
-A replay or resume with a different level fails with the level hash in the error.
+`tests/level`: round-trip of every record and property type; rejects bad magic, versions and truncated files; version
+1 loads; `create_static` builds the expected bodies, also from the 2D fixture's exported file. `tests/godot` (`uni
+test --suite godot-bindings`): export the 2D fixture scene (`levels/level_2d.tscn`) and compare to its committed file;
+an unsupported shape fails the export with the node's name. A replay or resume with a different level fails with the
+level hash in the error.
 
 ## Open
 

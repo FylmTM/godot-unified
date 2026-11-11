@@ -1,27 +1,22 @@
-# Build outputs, anywhere
-.DS_Store
-out/
+# Generated output, anywhere (src/cli/SPEC.md): the CLI, builds, downloads, Godot's import caches. Safe to delete.
+.out/
 .godot/
-__pycache__/
+.DS_Store
 
-# Box3D sources and builds are fetched by tools/box3d.py
+# This checkout's UNIFIED_* settings (src/cli/SPEC.md, Local settings): never committed.
+.env
+
+# Dependencies the CLI fetches and builds from their pins (pins.cfg)
 /third_party/box3d/
+/third_party/imgui/
+/third_party/eos/
 
-# CI toolchain downloads (tools/ci.py odin)
+# CI's Odin download (.github/actions/odin)
 /.toolchains/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)
 !/games/*/simulation/tests/testdata/ref.log
 !/tests/scenarios/testdata/ref.log
 
-# Generated Godot bindings (python tools/dev.py gen)
+# Generated Godot bindings (uni godot-gen)
 *.gen.odin
-
-# Godot build outputs (game libraries, exports) and import caches
-.out/
-
-# Dear ImGui sources and builds are fetched by tools/imgui.py
-/third_party/imgui/
-
-# EOS SDK (headers + shipping libraries), staged by tools/eos.py
-/third_party/eos/

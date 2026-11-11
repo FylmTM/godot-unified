@@ -22,5 +22,5 @@ paths:
 - Windows links the static CRT (`/defaultlib:libcmt`): C libraries we build (Box3D, Dear ImGui) use `/MT` to match.
 - Windows sleeps round to ~15.6 ms without `timeBeginPeriod(1)` (headless startup calls it), and UDP `recvfrom`
   reports WSAECONNRESET after an ICMP port-unreachable: skip it, it isn't "no data".
-- Never edit `*.gen.odin`: `python tools/dev.py gen` writes them. `.odin` files are formatted with odinfmt on every
-  edit (a hook); `python tools/dev.py fmt --check` is what CI runs.
+- Never edit `*.gen.odin`: `uni godot-gen` writes them. `.odin` files are formatted with odinfmt on every edit (a
+  hook); `uni fmt --check` is what CI runs.

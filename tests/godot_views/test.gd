@@ -1,8 +1,8 @@
-# godot_host view tests: run headless by `python tools/dev.py godot-test`. A single player session of the toy
+# godot_host view tests: run headless by `uni test --suite godot-bindings`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that 2D and 3D scene views spawn, get their pose and
 # _sim_update and their typed data as properties, that 2D and 3D bulk views get their MultiMesh buffers, that
 # verified events also come as sim_event_2d, and that send_command converts a Dictionary into the toy's commands
-# (and refuses what doesn't fit, with an error line dev.py expects). Prints one line per check and
+# (and refuses what doesn't fit, with an error line the suite expects). Prints one line per check and
 # "VIEWS TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
 

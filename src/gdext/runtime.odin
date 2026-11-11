@@ -6,7 +6,7 @@
 //   variant.odin      Odin values <-> Variant and ptrcall slots
 //   classes.odin      extension classes: registration, virtuals, typed methods, properties, signals, Callables
 //
-// The generated files are git-ignored; `python tools/dev.py gen` writes them from the committed
+// The generated files are git-ignored; `uni godot-gen` writes them from the committed
 // api/*.json and bindings.txt. Every Godot call must happen on Godot's main thread (checked in debug builds).
 package gdext
 

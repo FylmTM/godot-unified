@@ -35,7 +35,7 @@ func _ready() -> void:
 ## Draws each effect material once, under the floor, while the arena loads. A new material's shader compiles the
 ## first time it's drawn, which otherwise hitches the frame of the first kill or ring (on an exported game's first
 ## launch 0.4-0.7 s; 30 ms in dev runs). Lights need no warm-up (they don't change a material's shader). A new effect
-## material needs a line here; `game tour --frames --cold` measures every first use.
+## material needs a line here; `uni tool survivor tour --window --cold -- --frames` measures every first use.
 func _warm_up() -> void:
 	var at := Vector3(0, -4, 0)
 	_burst(at, Color.WHITE, 1, 0.0, 0.1, 0.1, 0.0)  # vertex-coloured cubes: kills, gems, level-ups, deaths

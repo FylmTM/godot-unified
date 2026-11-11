@@ -36,7 +36,7 @@ clamped_conversion :: proc(t: ^testing.T) {
 // runs would only show an unexplained "trace differs at tick N". Here a*b = 1 + 2^-11 + 2^-24
 // exactly: rounded to f32 it loses the 2^-24, so unfused a*b + c is 0 and fused it is 2^-24. The
 // inputs go through volatile loads, so the optimizer can't fold them; the expression is compiled
-// with the test build's flags (dev.py TEST_FLAGS).
+// with the test build's flags (the CLI's TEST_FLAGS, src/cli/odin.odin).
 @(test)
 no_fma_contraction :: proc(t: ^testing.T) {
 	A :: 1 + 1.0 / 4096

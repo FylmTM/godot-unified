@@ -1,0 +1,32 @@
+// __GAME__'s tests: the sim is deterministic under rollback (every tick restored 8 ticks back and re-simulated), the
+// same seed gives the same run, and the code keeps the determinism rules (unified's lint).
+package test___GAME__
+
+import "core:testing"
+import "unified:headless"
+import "unified:lint"
+
+import g "../__GAME__"
+
+H := headless.Headless(g.State, g.Input, g.World, g.MAX_PLAYERS) {
+	game = &g.GAME,
+	script = proc(seed: u64, slot: int, t: u32, state: ^g.State) -> g.Input {return g.script(seed, slot, t)},
+}
+
+@(test)
+rollback_resimulates_the_same :: proc(t: ^testing.T) {
+	r := headless.run_synctest(&H, 600, 8, 1, g.MAX_PLAYERS)
+	testing.expect_value(t, r.mismatches, 0)
+}
+
+@(test)
+same_seed_same_run :: proc(t: ^testing.T) {
+	a := headless.run_sim(&H, 600, 7, 2)
+	b := headless.run_sim(&H, 600, 7, 2)
+	testing.expect_value(t, a.final_checksum, b.final_checksum)
+}
+
+@(test)
+determinism_lint :: proc(t: ^testing.T) {
+	lint.check_game(t, #directory + "/..")
+}

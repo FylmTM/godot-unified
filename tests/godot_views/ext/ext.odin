@@ -1,7 +1,7 @@
 // The godot_host view test extension: the toy game (no physics: it also proves godot_host links without
 // Box3D) with a Glue that shows fixed 2D and 3D scene and bulk items, and the toy's command counters in the
-// HUD. tests/godot_views/test.gd starts a single player session under headless Godot (`python tools/dev.py
-// godot-test`) and checks where the views end up and what send_command delivers.
+// HUD. tests/godot_views/test.gd starts a single player session under headless Godot (`uni test --suite
+// godot-bindings`) and checks where the views end up and what send_command delivers.
 package views_test_ext
 
 import "base:runtime"

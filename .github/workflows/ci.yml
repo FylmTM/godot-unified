@@ -1,8 +1,7 @@
-# Parallel jobs: `lint` (format check + vet for every target, Linux), `test` (odin test: unit tests and every
-# end-to-end suite, reference runs included; then `dev.py check`, the real-UDP multi-process test, and
-# `dev.py bench`, the benchmarks, in the job summary), and `godot` (Linux x64: `dev.py godot-checks`, the binding tests and every game's
-# headless Godot checks, GDScript included). Together they run what
-# `python tools/dev.py all` runs locally.
+# Parallel jobs, all through the uni CLI (src/cli/SPEC.md): `lint` (fmt --check + vet for every target, Linux),
+# `test` (the odin suite: unit tests and every end-to-end suite, reference runs included; then the net suite, the
+# real-UDP multi-process test, and the benchmarks, both in the job summary) and `godot` (Linux x64: the godot and
+# godot-bindings suites, every game under headless Godot). Together they run what `./uni verify` runs locally.
 #
 # Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
 #   pull request         linux-x64, linux-arm64
@@ -12,8 +11,8 @@
 #
 # Security: every job that runs repository code has `contents: read`. The EOS SDK (a draft-release asset, which
 # needs a write token to list) comes from eos-sdk.yml as a cache entry. Actions are pinned by commit, runner
-# images by version (an image update can change compilers, so it is a deliberate bump), downloads by SHA-256
-# (tools/ci.py, tools/common.py), and the Box3D cache key includes the compiler version.
+# images by version (an image update can change compilers, so it is a deliberate bump), and every download by its
+# SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
 name: ci
 
 on:
@@ -31,10 +30,6 @@ concurrency:
 
 permissions:
   contents: read
-
-env:
-  ODIN_TAG: dev-2026-11
-  PYTHONUNBUFFERED: "1"
 
 jobs:
   # Nightly only: run macOS if main's head differs from the last completed nightly's (whatever its result:
@@ -69,24 +64,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/odin
+      - id: keys
+        run: echo "odinfmt=$(./uni ci cache-key odinfmt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .toolchains
-          key: toolchains-linux-x64-${{ env.ODIN_TAG }}-${{ hashFiles('tools/ci.py') }}
-      # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
-      - name: Odin
-        run: python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-      - name: odinfmt
-        run: |
-          odin version
-          python3 tools/ci.py odinfmt .toolchains/odinfmt
-
+          path: .out/odinfmt
+          key: ${{ steps.keys.outputs.odinfmt }}
       - name: fmt --check
-        run: python3 tools/dev.py fmt --check
+        run: ./uni fmt --check
       - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
-        run: python3 tools/dev.py vet
+        run: ./uni vet
 
   eos-sdk:
     needs: nightly
@@ -114,66 +103,40 @@ jobs:
           github.event_name == 'schedule' && '["macos-arm64"]' ||
           '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
     env:
-      PY: ${{ matrix.platform == 'windows-x64' && 'python' || 'python3' }}
+      # Windows runs the cmd shim (it proves uni.cmd too); elsewhere the sh one.
+      UNI: ${{ matrix.platform == 'windows-x64' && './uni.cmd' || './uni' }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: .toolchains/odin
-          key: odin-${{ env.ODIN_TAG }}-${{ matrix.platform }}
-      # `ci.py odin` adds Odin to $GITHUB_PATH, which takes effect from the next step on.
-      - name: Odin
-        run: $PY tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-
-      # Box3D: rebuilt only when the pinned commit, the fork patch, the recipe or the compiler change. Building it
-      # needs CMake + Ninja (and clang-cl with the MSVC environment on Windows, which box3d.py loads itself).
-      - id: cc
-        run: echo "id=$($PY tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
-      - id: box3d-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/box3d/build/${{ matrix.platform }}
-          key: box3d-${{ matrix.platform }}-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
-      - if: steps.box3d-cache.outputs.cache-hit != 'true'
-        run: $PY tools/ci.py ensure-ninja
-      - name: Box3D
-        run: |
-          odin version
-          $PY tools/box3d.py
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/odin
       # EOS SDK (headers + libraries): the bindings' layout check and the library load test in tests/eos.
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: third_party/eos
           key: ${{ needs.eos-sdk.outputs.cache-key }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      - name: EOS SDK
-        run: $PY tools/eos.py
-
-      - name: odin test
-        run: $PY tools/dev.py test
-      - name: check (release build; real-UDP multi-process test)
-        run: $PY tools/dev.py check
+      # Box3D and the bindings build from their pins on the way (seconds), every run: nothing stale to cache.
+      - name: test (the odin suite)
+        run: $UNI test
+      - name: test --suite net (release build; real UDP, separate processes)
+        run: $UNI test --suite net
       - name: bench (release build; reported in the summary, not gated)
-        run: $PY tools/dev.py bench
-
+        run: $UNI bench
       - name: Summary
         if: always()
-        run: $PY tools/ci.py summary >> "$GITHUB_STEP_SUMMARY"
+        run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: check-${{ matrix.platform }}
+          name: test-${{ matrix.platform }}
           path: |
-            out/check.json
-            out/bench.json
-            out/timings.json
-            out/check/
+            .out/net.json
+            .out/bench.json
+            .out/timings.json
+            .out/net/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -183,41 +146,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/odin
+      - id: keys
+        run: echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
+      # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .toolchains/odin
-          key: odin-${{ env.ODIN_TAG }}-linux-x64
-      - name: Odin
-        run: python3 tools/ci.py odin ${{ env.ODIN_TAG }} .toolchains/odin
-
-      - id: cc
-        run: echo "id=$(python3 tools/ci.py compiler-id)" >> "$GITHUB_OUTPUT"
-      - id: box3d-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/box3d/build/linux-x64
-          key: box3d-linux-x64-${{ steps.cc.outputs.id }}-${{ hashFiles('third_party/box3d.patch', 'tools/box3d.py', 'tools/common.py') }}
-      - if: steps.box3d-cache.outputs.cache-hit != 'true'
-        run: python3 tools/ci.py ensure-ninja
-      - name: Box3D
-        run: python3 tools/box3d.py
-
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/imgui/build/linux-x64
-          key: imgui-linux-x64-${{ steps.cc.outputs.id }}-${{ hashFiles('tools/imgui.py') }}
-      - name: Dear ImGui
-        run: python3 tools/imgui.py
-
-      # The official editor, hash-checked (tools/common.py GODOT_EDITORS), in .toolchains/godot/<version>/.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: .toolchains/godot
-          key: godot-${{ hashFiles('tools/common.py') }}-linux-x64
-      - name: Godot (standard build)
-        run: python3 tools/ci.py godot
-
-      - name: godot-checks (binding tests; per game headless, session, editor, validate, walk)
-        run: python3 tools/dev.py godot-checks
+          path: .out/godot
+          key: ${{ steps.keys.outputs.godot }}
+      - name: test --suite godot,godot-bindings (every game under headless Godot; the binding tests)
+        run: ./uni test --suite godot,godot-bindings

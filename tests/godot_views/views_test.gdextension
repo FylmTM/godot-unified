@@ -1,4 +1,4 @@
-; The godot_host view test extension (tests/godot_views/ext), built by `python tools/dev.py godot-test`.
+; The godot_host view test extension (tests/godot_views/ext), built by `uni test --suite godot-bindings`.
 [configuration]
 
 entry_symbol = "views_test_init"

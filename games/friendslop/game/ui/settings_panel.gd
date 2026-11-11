@@ -11,7 +11,6 @@ func _ready() -> void:
 	_name_row()
 	_slider_row("Master volume", &"master_volume")
 	_slider_row("Effects volume", &"sfx_volume")
-	_slider_row("Music volume", &"music_volume")
 	_slider_row("Mouse sensitivity", &"mouse_sensitivity", 0.2, 3.0)
 	_check_row("Invert look", &"invert_y")
 	_option_row("Window", &"window_mode", ["Windowed", "Fullscreen"])
