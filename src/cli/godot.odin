@@ -32,21 +32,9 @@ godot :: proc() -> string {
 		cached = p
 		return p
 	}
+	exe, asset, sha := godot_download()
 	tag := tprint("%s-stable", version)
 	dir := join(state.project.out, "godot", version)
-	when ODIN_OS == .Darwin {
-		asset := tprint("Godot_v%s_macos.universal.zip", tag)
-		exe := join(dir, "Godot.app", "Contents", "MacOS", "Godot")
-		sha := pin("godot", "sha256_macos")
-	} else when ODIN_OS == .Windows {
-		asset := tprint("Godot_v%s_win64.exe.zip", tag)
-		exe := join(dir, tprint("Godot_v%s_win64_console.exe", tag))
-		sha := pin("godot", "sha256_windows")
-	} else {
-		asset := tprint("Godot_v%s_linux.x86_64.zip", tag)
-		exe := join(dir, tprint("Godot_v%s_linux.x86_64", tag))
-		sha := pin("godot", "sha256_linux")
-	}
 	if !os.is_file(exe) {
 		cold("Godot download")
 		zip := join(dir, asset)
@@ -61,6 +49,32 @@ godot :: proc() -> string {
 	}
 	cached = exe
 	return exe
+}
+
+// Where the pinned download goes (the editor executable), its release asset and pinned hash.
+godot_download :: proc() -> (exe, asset, sha: string) {
+	version := pin("godot", "version")
+	tag := tprint("%s-stable", version)
+	dir := join(state.project.out, "godot", version)
+	when ODIN_OS == .Darwin {
+		return join(
+			dir,
+			"Godot.app",
+			"Contents",
+			"MacOS",
+			"Godot",
+		), tprint("Godot_v%s_macos.universal.zip", tag), pin("godot", "sha256_macos")
+	} else when ODIN_OS == .Windows {
+		return join(
+			dir,
+			tprint("Godot_v%s_win64_console.exe", tag),
+		), tprint("Godot_v%s_win64.exe.zip", tag), pin("godot", "sha256_windows")
+	} else {
+		return join(
+			dir,
+			tprint("Godot_v%s_linux.x86_64", tag),
+		), tprint("Godot_v%s_linux.x86_64.zip", tag), pin("godot", "sha256_linux")
+	}
 }
 
 godot_version :: proc(exe: string) -> string {

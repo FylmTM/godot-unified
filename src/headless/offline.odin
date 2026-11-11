@@ -24,9 +24,20 @@ Headless :: struct($S, $I, $W: typeid, $P: int) {
 	bench_prepare:   proc(s: ^S, w: ^W, n: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
 	bench_count:     proc(s: ^S) -> int,
+	// The game's standard benchmark: what `bench` runs without arguments (`unified bench`).
+	bench:           Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.
 	content:         []u8,
+}
+
+// A benchmark's setup: `enemies` entities held (with bench_prepare), a `window`-tick rollback every tick, for
+// `ticks` ticks. `what` says what it measures.
+Bench :: struct {
+	what:    string,
+	enemies: int,
+	window:  int,
+	ticks:   int,
 }
 
 // A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.
