@@ -81,6 +81,21 @@ zip_round_trip :: proc(t: ^testing.T) {
 	again := cli.zip_finish(&w2)
 	first, _ := os.read_entire_file(path, context.allocator)
 	testing.expect(t, string(again) == string(first))
+	// A release zip of one top folder unpacks flattened (the unified-box3d release).
+	w3: cli.Zip_Writer
+	cli.zip_add(&w3, "pkg-1.0/", nil)
+	cli.zip_add(&w3, "pkg-1.0/lib/x/lib.so", big, 0o755)
+	cli.zip_add(&w3, "pkg-1.0/README.md", transmute([]byte)string("hi\n"))
+	top := cli.join(dir, "top.zip")
+	testing.expect(t, cli.write_file(top, cli.zip_finish(&w3)))
+	z3 := cli.zip_open_file(top)
+	flat := cli.join(dir, "flat")
+	cli.zip_extract_all(&z3, flat, strip_top = true)
+	readme, _ := os.read_entire_file(cli.join(flat, "README.md"), context.allocator)
+	testing.expect_value(t, string(readme), "hi\n")
+	lib, _ := os.read_entire_file(cli.join(flat, "lib", "x", "lib.so"), context.allocator)
+	testing.expect(t, string(lib) == string(big))
+	testing.expect(t, !os.exists(cli.join(flat, "pkg-1.0")))
 }
 
 @(test)

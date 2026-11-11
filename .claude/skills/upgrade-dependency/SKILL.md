@@ -1,6 +1,6 @@
 ---
 name: upgrade-dependency
-description: Upgrading a pinned dependency of unified - Box3D (the fork), Dear ImGui and dear_bindings, Godot (the editor, export templates and the GDExtension API dump), Odin, odinfmt (OLS) or the EOS SDK. Where each pin lives (pins.cfg), what to bump together, and what proves the upgrade safe. Use when bumping any of them, or when a pin's hash or commit has to change.
+description: Upgrading a pinned dependency of unified - Box3D (the unified-box3d release), Dear ImGui and dear_bindings, Godot (the editor, export templates and the GDExtension API dump), Odin, odinfmt (OLS) or the EOS SDK. Where each pin lives (pins.cfg), what to bump together, and what proves the upgrade safe. Use when bumping any of them, or when a pin's hash or commit has to change.
 ---
 
 # Upgrading a dependency
@@ -19,16 +19,19 @@ For every upgrade:
 4. Run CI on the branch on all four platforms: `gh workflow run ci.yml --ref <branch>`.
 5. The PR names the old and new version and what changed upstream that matters to us.
 
-## Box3D (the fork)
+## Box3D (unified-box3d)
 
-- Pin: `[box3d] commit`. The fork is `third_party/box3d.patch`: rebase it until it applies exactly.
-- The CLI compiles `src/*.c` with its own flags (`src/cli/SPEC.md`, Dependencies): check the new commit's
-  CMakeLists for a source or a flag our build must follow.
-- `tests/box3d` compiles a C layout probe against the pinned headers: update the bindings in `src/box3d` and their
-  `#assert`s until it passes.
-- `tests/box3d`'s golden trace (`GOLDEN`) pins the fork's results. If it or a reference run changes, the simulation
+- Box3D is a release of [unified-box3d](https://github.com/FylmTM/unified-box3d) (Box3D ported to Odin, a shared
+  library with its bindings). Pins in `[box3d]`: `tag` (`<upstream commit>-r<revision>`) and each platform's zip
+  hash, from the release's `SHA256SUMS`: `gh release download <tag> -R FylmTM/unified-box3d -p SHA256SUMS -O -`.
+- The bindings come with the release: `src/b3` mirrors them, and `tests/b3` checks every mirrored struct's layout
+  and each wrapper against the library. Update `src/b3` until `./uni vet` and those tests pass.
+- `tests/b3`'s golden trace (`GOLDEN`) pins the library's results. If it or a reference run changes, the simulation
   changed: update `GOLDEN` and regenerate the reference runs deliberately (`sim-change`).
-- What we use and how the fork works: `src/box3d/SPEC.md`.
+- CI on all four platforms proves each platform's library (they must agree on every golden value and reference run).
+- Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
+  there (`src/cli/SPEC.md`, Dependencies). Pin the release before merging.
+- What we use: `src/b3/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
 
 ## Dear ImGui and dear_bindings
 

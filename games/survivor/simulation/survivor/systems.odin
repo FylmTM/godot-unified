@@ -2,7 +2,7 @@
 // the order the spec gives; no `matrix` types and no core:math (determinism traps, see AGENTS.md).
 package survivor
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -168,8 +168,8 @@ sys_players :: proc(s: ^State, w: ^World, inputs: ^Inputs, ev: ^[dynamic]sim.Eve
 			pl.dash_ticks -= 1
 		}
 		body := body_id(w, pl.body)
-		v := b3.Body_GetLinearVelocity(body)
-		b3.Body_SetLinearVelocity(body, {vx, v.y, vz})
+		v := b3.body_get_linear_velocity(body)
+		b3.body_set_linear_velocity(body, {vx, v.y, vz})
 	}
 }
 
@@ -570,7 +570,7 @@ sys_barrels :: proc(s: ^State, w: ^World, t: u32, ev: ^[dynamic]sim.Event) {
 		if it.kind != .Barrel || !it.alive || it.hp > 0 {
 			continue
 		}
-		c := b3.Body_GetPosition(body_id(w, it.body))
+		c := b3.body_get_position(body_id(w, it.body))
 		center := [3]f32{c.x, c.y, c.z}
 		for j in 0 ..< ITEM_COUNT {
 			o := &s.items[j]
@@ -616,8 +616,8 @@ sys_barrels :: proc(s: ^State, w: ^World, t: u32, ev: ^[dynamic]sim.Event) {
 }
 
 @(private)
-explosion_impulse :: proc(w: ^World, center: [3]f32, body: b3.BodyId) {
-	q := b3.Body_GetPosition(body)
+explosion_impulse :: proc(w: ^World, center: [3]f32, body: b3.Body_Id) {
+	q := b3.body_get_position(body)
 	dx := q.x - center.x
 	dy := q.y - center.y
 	dz := q.z - center.z
@@ -634,7 +634,7 @@ explosion_impulse :: proc(w: ^World, center: [3]f32, body: b3.BodyId) {
 	uy: f32 = 0.5
 	ul := dmath.sqrt(hx * hx + uy * uy + hz * hz)
 	k := 12 * (1 - d / 5)
-	b3.Body_ApplyLinearImpulseToCenter(body, {hx / ul * k, uy / ul * k, hz / ul * k}, true)
+	b3.body_apply_linear_impulse_to_center(body, {hx / ul * k, uy / ul * k, hz / ul * k}, true)
 }
 
 // 9. Deaths, gems, XP and level thresholds.
@@ -699,7 +699,7 @@ read_back :: proc(s: ^State, w: ^World) {
 	for p in 0 ..< MAX_PLAYERS {
 		pl := &s.players[p]
 		if pl.alive {
-			q := b3.Body_GetPosition(body_id(w, pl.body))
+			q := b3.body_get_position(body_id(w, pl.body))
 			pl.pos = {q.x, q.y, q.z}
 		}
 	}

@@ -1,6 +1,9 @@
 {
 	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
-	"collections": [{ "name": "unified", "path": "src" }],
+	"collections": [
+		{ "name": "unified", "path": "src" },
+		{ "name": "box3d", "path": "third_party/unified-box3d" }
+	],
 	"enable_format": true,
 	"enable_semantic_tokens": true,
 	"enable_document_symbols": true,

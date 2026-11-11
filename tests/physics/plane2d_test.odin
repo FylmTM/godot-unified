@@ -5,7 +5,7 @@ package test_physics
 
 import "core:testing"
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -26,10 +26,10 @@ arena_walls :: proc(w: ^physics.World, half: [2]f32) {
 		{{half.x + T, 0}, {T, half.y}},
 	}
 	for wall in walls {
-		bd := physics.body_def_2d(.staticBody, wall[0])
-		id := b3.CreateBody(w.id, &bd)
-		sd := b3.DefaultShapeDef()
-		sd.filter.categoryBits = CAT_STATIC
+		bd := physics.body_def_2d(.Static_Body, wall[0])
+		id := b3.create_body(w.id, &bd)
+		sd := b3.default_shape_def()
+		sd.filter.category_bits = CAT_STATIC
 		physics.box_2d(id, &sd, wall[1], DEPTH_2D)
 	}
 }
@@ -39,12 +39,12 @@ ROCK_POINTS := [7][2]f32{{1, 0}, {0.62, 0.78}, {-0.2, 0.95}, {-0.9, 0.45}, {-0.8
 ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_carries_new_hulls)
 
 rock_body :: proc(w: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) -> physics.Body_Ref {
-	bd := physics.body_def_2d(.dynamicBody, pos, rot)
-	bd.linearVelocity = {vel.x, vel.y, 0}
-	bd.angularVelocity = {0, 0, ang}
-	id := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_ROCK
+	bd := physics.body_def_2d(.Dynamic_Body, pos, rot)
+	bd.linear_velocity = {vel.x, vel.y, 0}
+	bd.angular_velocity = {0, 0, ang}
+	id := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_ROCK
 	pts: [len(ROCK_POINTS)][2]f32
 	for p, i in ROCK_POINTS {
 		pts[i] = p * ROCK_RADIUS[size]
@@ -61,12 +61,12 @@ circle_body :: proc(
 	cat := CAT_SHIP,
 	restitution: f32 = 0,
 ) -> physics.Body_Ref {
-	bd := physics.body_def_2d(.dynamicBody, pos)
-	bd.linearVelocity = {vel.x, vel.y, 0}
-	id := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = cat
-	sd.baseMaterial.restitution = restitution
+	bd := physics.body_def_2d(.Dynamic_Body, pos)
+	bd.linear_velocity = {vel.x, vel.y, 0}
+	id := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = cat
+	sd.base_material.restitution = restitution
 	physics.circle_2d(id, &sd, radius)
 	return physics.ref_of(id)
 }
@@ -78,16 +78,16 @@ zero_g :: proc() -> ^physics.World {
 // Whether a dynamic body sits exactly on the plane: z, and the quaternion's x and y, are zero (±0).
 on_plane :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
 	id := physics.body_id(w, r)
-	p := b3.Body_GetPosition(id)
-	q := b3.Body_GetRotation(id)
-	return p.z == 0 && q.v.x == 0 && q.v.y == 0
+	p := b3.body_get_position(id)
+	q := b3.body_get_rotation(id)
+	return p.z == 0 && q.x == 0 && q.y == 0
 }
 
 // Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step (#87).
 in_plane_velocity :: proc(w: ^physics.World, r: physics.Body_Ref) -> bool {
 	id := physics.body_id(w, r)
-	v := b3.Body_GetLinearVelocity(id)
-	a := b3.Body_GetAngularVelocity(id)
+	v := b3.body_get_linear_velocity(id)
+	a := b3.body_get_angular_velocity(id)
 	return v.z == 0 && a.x == 0 && a.y == 0
 }
 
@@ -126,10 +126,10 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 				it.radius = rnd(&rng, 0.3, 0.7)
 				it.body = circle_body(w, pos, vel, it.radius, restitution = 0.5)
 			case .Box:
-				bd := physics.body_def_2d(.dynamicBody, pos, rot)
-				bd.linearVelocity = {vel.x, vel.y, 0}
-				id := b3.CreateBody(w.id, &bd)
-				sd := b3.DefaultShapeDef()
+				bd := physics.body_def_2d(.Dynamic_Body, pos, rot)
+				bd.linear_velocity = {vel.x, vel.y, 0}
+				id := b3.create_body(w.id, &bd)
+				sd := b3.default_shape_def()
 				physics.box_2d(id, &sd, {rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)}, DEPTH_2D)
 				it.body = physics.ref_of(id)
 			case .Rock:
@@ -240,21 +240,21 @@ rot_2d_round_trips :: proc(t: ^testing.T) {
 shapes_and_rays_2d :: proc(t: ^testing.T) {
 	w := zero_g()
 	defer physics.destroy(w)
-	sd := b3.DefaultShapeDef()
+	sd := b3.default_shape_def()
 	sd.density = 2
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
-	cbd := physics.body_def_2d(.dynamicBody, {0, 0})
-	c := b3.CreateBody(w.id, &cbd)
+	cbd := physics.body_def_2d(.Dynamic_Body, {0, 0})
+	c := b3.create_body(w.id, &cbd)
 	physics.circle_2d(c, &sd, 1)
-	bbd := physics.body_def_2d(.dynamicBody, {5, 0})
-	b := b3.CreateBody(w.id, &bbd)
+	bbd := physics.body_def_2d(.Dynamic_Body, {5, 0})
+	b := b3.create_body(w.id, &bbd)
 	physics.box_2d(b, &sd, {1, 0.5}, 0.4)
-	tbd := physics.body_def_2d(.dynamicBody, {10, 0}, {0, 1})
-	tri := b3.CreateBody(w.id, &tbd)
+	tbd := physics.body_def_2d(.Dynamic_Body, {10, 0}, {0, 1})
+	tri := b3.create_body(w.id, &tbd)
 	_, ok := physics.polygon_2d(tri, &sd, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
-	testing.expectf(t, abs(b3.Body_GetMass(b) - 2 * 2 * 1 * 0.4) < 1e-4, "box mass %v", b3.Body_GetMass(b))
-	testing.expectf(t, abs(b3.Body_GetMass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.Body_GetMass(tri))
+	testing.expectf(t, abs(b3.body_get_mass(b) - 2 * 2 * 1 * 0.4) < 1e-4, "box mass %v", b3.body_get_mass(b))
+	testing.expectf(t, abs(b3.body_get_mass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.body_get_mass(tri))
 	pos, rot := physics.pose_2d(w, physics.ref_of(tri))
 	testing.expectf(t, pos == {10, 0} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 
@@ -276,7 +276,7 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	physics.set_velocity_2d(w, physics.ref_of(c), {1, 2}, 3)
 	lin, ang := physics.velocity_2d(w, physics.ref_of(c))
 	testing.expect(t, lin == {1, 2} && ang == 3)
-	m := b3.Body_GetMass(c)
+	m := b3.body_get_mass(c)
 	physics.apply_impulse_2d(w, physics.ref_of(c), {m, -m})
 	lin, _ = physics.velocity_2d(w, physics.ref_of(c))
 	testing.expectf(t, abs(lin.x - 2) < 1e-5 && abs(lin.y - 1) < 1e-5, "after the impulse %v", lin)

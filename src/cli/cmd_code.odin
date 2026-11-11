@@ -44,6 +44,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	ensure_bindings()
+	ensure_deps_for_headless() // the Box3D bindings
 	start := time.tick_now()
 	Job :: struct {
 		pkg:    Vet_Package,
@@ -70,7 +71,8 @@ cmd_vet :: proc(args: []string) -> Result {
 	runs := make([]Run, len(jobs))
 	for j, i in jobs {
 		cmd: [dynamic]string
-		append(&cmd, odin(), "check", j.pkg.pkg, tprint("-target:%s", j.target), collection())
+		append(&cmd, odin(), "check", j.pkg.pkg, tprint("-target:%s", j.target))
+		append(&cmd, ..collection())
 		if !j.pkg.entry {
 			append(&cmd, "-no-entry-point")
 		}
@@ -301,8 +303,12 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 	ensure_bindings()
 	out := join(state.project.out, "test", tprint("unified_tests%s", EXE))
 	make_dirs(os.dir(out))
+	if project_uses_box3d() {
+		stage_box3d(os.dir(out))
+	}
 	cmd: [dynamic]string
-	append(&cmd, odin(), "test", test_root(), collection(), tprint("-out:%s", out))
+	append(&cmd, odin(), "test", test_root(), tprint("-out:%s", out))
+	append(&cmd, ..collection())
 	if is_unified_repo() {
 		append(&cmd, "-all-packages") // tests/ is a root that pulls in every test package; a game's tests are one
 	}

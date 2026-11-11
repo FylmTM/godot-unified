@@ -3,7 +3,7 @@
 // plates and switches; stuns; falls; the run (start, checkpoints, finish, reset).
 package friendslop
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -258,29 +258,29 @@ grabbable :: proc(s: ^State, w: ^World, p: int, kind: Held_Kind, index: int, che
 hold_frame :: proc(pl: ^Player, target: Held_Kind) -> b3.Transform {
 	up: f32 = HOLD_UP + pl.aim.y * HOLD_PITCH + (target == .Player ? 0.5 : 0)
 	off := [3]f32{pl.facing.x * HOLD_DIST, up, pl.facing.y * HOLD_DIST}
-	return {physics.v3(off), physics.quat(yaw_quat(pl.facing))}
+	return {off, yaw_quat(pl.facing)}
 }
 
 grab :: proc(s: ^State, w: ^World, p: int, t: Target, events: Events) {
 	pl := &s.players[p]
-	jd := b3.DefaultMotorJointDef()
-	jd.base.bodyIdA = physics.body_id(w.phys, pl.mover.body)
-	jd.base.localFrameA = hold_frame(pl, t.kind)
-	jd.base.collideConnected = false
-	jd.linearHertz = 5
-	jd.linearDampingRatio = 1
-	jd.angularHertz = 5
-	jd.angularDampingRatio = 1
+	jd := b3.default_motor_joint_def()
+	jd.base.body_id_a = physics.body_id(w.phys, pl.mover.body)
+	jd.base.local_frame_a = hold_frame(pl, t.kind)
+	jd.base.collide_connected = false
+	jd.linear_hertz = 5
+	jd.linear_damping_ratio = 1
+	jd.angular_hertz = 5
+	jd.angular_damping_ratio = 1
 	key: u32
 	switch t.kind {
 	case .Item:
 		it := &s.items[t.index]
 		kind := w.items[t.index].kind
 		spec := &ITEM_SPECS[kind]
-		jd.base.bodyIdB = physics.body_id(w.phys, it.body)
-		jd.base.localFrameB = {physics.v3(item_handle(kind, t.handle)), {{0, 0, 0}, 1}}
-		jd.maxSpringForce = spec.lift * spec.mass * GRAVITY
-		jd.maxSpringTorque = spec.handles > 1 ? 0 : spec.mass * 20
+		jd.base.body_id_b = physics.body_id(w.phys, it.body)
+		jd.base.local_frame_b = {item_handle(kind, t.handle), {0, 0, 0, 1}}
+		jd.max_spring_force = spec.lift * spec.mass * GRAVITY
+		jd.max_spring_torque = spec.handles > 1 ? 0 : spec.mass * 20
 		it.holders[t.handle] = u8(p + 1)
 		it.thrown_ticks = 0
 		it.thrown_by = 0
@@ -296,15 +296,15 @@ grab :: proc(s: ^State, w: ^World, p: int, t: Target, events: Events) {
 		q.thrown = false
 		q.charge = 0
 		limp(s, w, t.index)
-		jd.base.bodyIdB = physics.body_id(w.phys, q.mover.body)
-		jd.base.localFrameB = {{}, {{0, 0, 0}, 1}}
-		jd.maxSpringForce = PLAYER_LIFT * physics.mass(w.phys, q.mover.body) * GRAVITY * MOVER.gravity_scale
-		jd.maxSpringTorque = 0
+		jd.base.body_id_b = physics.body_id(w.phys, q.mover.body)
+		jd.base.local_frame_b = {{}, {0, 0, 0, 1}}
+		jd.max_spring_force = PLAYER_LIFT * physics.mass(w.phys, q.mover.body) * GRAVITY * MOVER.gravity_scale
+		jd.max_spring_torque = 0
 		key = u32(t.index + 1)
 	case .None:
 		return
 	}
-	pl.hold = physics.joint_ref_of(b3.CreateMotorJoint(w.phys.id, &jd))
+	pl.hold = physics.joint_ref_of(b3.create_motor_joint(w.phys.id, &jd))
 	pl.held_kind = t.kind
 	pl.held_index = u8(t.index)
 	pl.handle = u8(t.handle)
@@ -376,7 +376,7 @@ update_holds :: proc(s: ^State, w: ^World) {
 			pl.hold = {}
 			continue
 		}
-		b3.Joint_SetLocalFrameA(physics.joint_id(w.phys, pl.hold), hold_frame(pl, pl.held_kind))
+		b3.joint_set_local_frame_a(physics.joint_id(w.phys, pl.hold), hold_frame(pl, pl.held_kind))
 	}
 }
 
@@ -553,10 +553,10 @@ plates_and_switches :: proc(s: ^State, w: ^World, events: Events) {
 			mass: f32 = 0
 			for l in w.links {
 				id := physics.link_id(w.phys, l)
-				c := b3.Body_GetPosition(id)
+				c := b3.body_get_position(id)
 				if abs(c.x - d.vol.pos.x) > d.vol.half.x || abs(c.z - d.vol.pos.z) > d.vol.half.z do continue
 				if c.y < top - 0.2 || c.y > top + 2.5 do continue
-				mass += b3.Body_GetMass(id)
+				mass += b3.body_get_mass(id)
 			}
 			on := mass >= d.mass
 			if on != tr.active {

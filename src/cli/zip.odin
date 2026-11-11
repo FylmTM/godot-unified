@@ -212,13 +212,24 @@ S_IFLNK :: 0o120000
 S_IFDIR :: 0o040000
 
 // Extracts every member under `dest` (refusing names that would escape it), keeping Unix modes and symlinks (a
-// macOS .app has both).
-zip_extract_all :: proc(r: ^Zip_Reader, dest: string) {
+// macOS .app has both). `strip_top`: an archive of one top folder, whose contents go straight into `dest`.
+zip_extract_all :: proc(r: ^Zip_Reader, dest: string, strip_top := false) {
 	for e in zip_entries(r) {
 		if strings.has_prefix(e.name, "/") || strings.contains(e.name, "..") {
 			fatal("unexpected path in the archive: %s", e.name)
 		}
-		path := join(dest, e.name)
+		name := e.name
+		if strip_top {
+			slash := strings.index_byte(name, '/')
+			if slash < 0 {
+				fatal("%s is outside the archive's top folder", e.name)
+			}
+			name = name[slash + 1:]
+			if name == "" {
+				continue
+			}
+		}
+		path := join(dest, name)
 		if strings.has_suffix(e.name, "/") || e.mode & S_IFMT == S_IFDIR {
 			make_dirs(path)
 			continue

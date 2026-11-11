@@ -12,7 +12,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "setup",
 				usage = "[--check]",
-				summary = "fetch and build everything this project needs; print each dependency's version and source",
+				summary = "fetch and build everything this project needs (UNIFIED_BOX3D: build that unified-box3d checkout instead of the release); print each dependency's version and source",
 				no_budget = "downloads and builds",
 				run = cmd_setup,
 			},

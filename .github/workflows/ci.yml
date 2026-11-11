@@ -118,7 +118,7 @@ jobs:
           key: ${{ needs.eos-sdk.outputs.cache-key }}
           enableCrossOsArchive: true
           fail-on-cache-miss: true
-      # Box3D and the bindings build from their pins on the way (seconds), every run: nothing stale to cache.
+      # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
         run: $UNI test
       - name: test --suite net (release build; real UDP, separate processes)

@@ -4,7 +4,7 @@ package test_physics
 
 import "core:testing"
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -22,20 +22,20 @@ State :: struct {
 
 make_world :: proc(s: ^State) -> ^physics.World {
 	w := physics.create()
-	bd := b3.DefaultBodyDef()
-	ground := b3.CreateBody(w.id, &bd)
-	sd := b3.DefaultShapeDef()
-	hull := b3.MakeBoxHull(10, 0.5, 10)
-	b3.CreateHullShape(ground, &sd, &hull.base)
+	bd := b3.default_body_def()
+	ground := b3.create_body(w.id, &bd)
+	sd := b3.default_shape_def()
+	hull := b3.make_box_hull(10, 0.5, 10)
+	b3.create_hull_shape(ground, &sd, &hull.base)
 	for &c, i in s.crates {
-		cd := b3.DefaultBodyDef()
-		cd.type = .dynamicBody
+		cd := b3.default_body_def()
+		cd.type = .Dynamic_Body
 		cd.position = {f32(i) * 2 - 2, 2 + f32(i), 0}
-		body := b3.CreateBody(w.id, &cd)
-		ch := b3.MakeBoxHull(0.5, 0.5, 0.5)
-		csd := b3.DefaultShapeDef()
+		body := b3.create_body(w.id, &cd)
+		ch := b3.make_box_hull(0.5, 0.5, 0.5)
+		csd := b3.default_shape_def()
 		csd.density = 1
-		b3.CreateHullShape(body, &csd, &ch.base)
+		b3.create_hull_shape(body, &csd, &ch.base)
 		c.body = physics.ref_of(body)
 	}
 	return w
@@ -58,7 +58,7 @@ save_restore_hash :: proc(t: ^testing.T) {
 	e.save(e.data, 0)
 	h0 := checksum(&s, &e)
 	for _ in 0 ..< 30 {
-		b3.World_Step(w.id, 1.0 / 64, 4)
+		b3.world_step(w.id, 1.0 / 64, 4)
 	}
 	h30 := checksum(&s, &e)
 	testing.expect(t, h30 != h0)

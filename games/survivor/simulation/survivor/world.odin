@@ -2,7 +2,7 @@
 // games/survivor/SPEC.md creation order) and per-tick scratch; plus body creation and the game descriptor.
 package survivor
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -108,55 +108,55 @@ item_kind :: proc(i: int) -> Item_Kind {
 	return i % 5 == 2 ? .Barrel : .Crate
 }
 
-body_id :: proc(w: ^World, r: Body_Ref) -> b3.BodyId {
+body_id :: proc(w: ^World, r: Body_Ref) -> b3.Body_Id {
 	return physics.body_id(w.phys, r)
 }
 
 @(private)
 add_static_box :: proc(w: ^World, pos: [3]f32, half: [3]f32) {
-	bd := b3.DefaultBodyDef()
-	bd.position = physics.v3(pos)
-	body := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_STATIC
-	hull := b3.MakeBoxHull(half.x, half.y, half.z)
-	b3.CreateHullShape(body, &sd, &hull.base)
+	bd := b3.default_body_def()
+	bd.position = pos
+	body := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_STATIC
+	hull := b3.make_box_hull(half.x, half.y, half.z)
+	b3.create_hull_shape(body, &sd, &hull.base)
 }
 
 // Creates the body of item i (a crate or a barrel) at its grid spot.
 create_item_body :: proc(w: ^World, i: int) -> Body_Ref {
-	bd := b3.DefaultBodyDef()
-	bd.type = .dynamicBody
-	bd.position = physics.v3(item_position(i))
-	body := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
+	bd := b3.default_body_def()
+	bd.type = .Dynamic_Body
+	bd.position = item_position(i)
+	body := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
 	sd.density = 1
-	sd.baseMaterial.userMaterialId = MAT_ITEM_BASE + u64(i)
+	sd.base_material.user_material_id = MAT_ITEM_BASE + u64(i)
 	if item_kind(i) == .Barrel {
-		sd.filter.categoryBits = CAT_BARREL
+		sd.filter.category_bits = CAT_BARREL
 		capsule := b3.Capsule{{0, -0.3, 0}, {0, 0.3, 0}, 0.4}
-		b3.CreateCapsuleShape(body, &sd, &capsule)
+		b3.create_capsule_shape(body, &sd, &capsule)
 	} else {
-		sd.filter.categoryBits = CAT_CRATE
-		hull := b3.MakeBoxHull(0.5, 0.5, 0.5)
-		b3.CreateHullShape(body, &sd, &hull.base)
+		sd.filter.category_bits = CAT_CRATE
+		hull := b3.make_box_hull(0.5, 0.5, 0.5)
+		b3.create_hull_shape(body, &sd, &hull.base)
 	}
 	return physics.ref_of(body)
 }
 
 create_player_body :: proc(w: ^World, p: int) -> Body_Ref {
-	bd := b3.DefaultBodyDef()
-	bd.type = .dynamicBody
-	bd.position = physics.v3(PLAYER_START[p])
-	bd.motionLocks.angularX = true
-	bd.motionLocks.angularY = true
-	bd.motionLocks.angularZ = true
-	bd.enableSleep = false
-	body := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_PLAYER
+	bd := b3.default_body_def()
+	bd.type = .Dynamic_Body
+	bd.position = PLAYER_START[p]
+	bd.motion_locks.angular_x = true
+	bd.motion_locks.angular_y = true
+	bd.motion_locks.angular_z = true
+	bd.enable_sleep = false
+	body := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_PLAYER
 	capsule := b3.Capsule{{0, -0.45, 0}, {0, 0.45, 0}, 0.45}
-	b3.CreateCapsuleShape(body, &sd, &capsule)
+	b3.create_capsule_shape(body, &sd, &capsule)
 	return physics.ref_of(body)
 }
 

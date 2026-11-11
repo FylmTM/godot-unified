@@ -2,7 +2,7 @@
 // its markers, body creation, and the game descriptor.
 package drift
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 import "unified:level"
 import "unified:physics"
@@ -120,11 +120,11 @@ world_destroy :: proc(w: ^World) {
 // fresh world fills from its tick-0 save, so a late joiner can load any rock a split makes later
 // (src/physics/SPEC.md, 2D: generated geometry).
 create_catalogue :: proc(w: ^World) {
-	bd := physics.body_def_2d(.staticBody, {-1000, -1000})
-	id := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_CATALOGUE
-	sd.filter.maskBits = 0
+	bd := physics.body_def_2d(.Static_Body, {-1000, -1000})
+	id := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_CATALOGUE
+	sd.filter.mask_bits = 0
 	for v in 0 ..< ROCK_VARIANTS {
 		for size in Rock_Size {
 			pts := rock_points(v, size)
@@ -151,11 +151,11 @@ HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 init :: proc(s: ^State, w: ^World, seed: u64) {
 	s.rng = sim.rng_seed(seed)
 	s.station_hp = STATION_HP
-	bd := physics.body_def_2d(.kinematicBody, w.station)
-	id := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
-	sd.filter.categoryBits = CAT_STATION
-	sd.baseMaterial.userMaterialId = MAT_STATION
+	bd := physics.body_def_2d(.Kinematic_Body, w.station)
+	id := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
+	sd.filter.category_bits = CAT_STATION
+	sd.base_material.user_material_id = MAT_STATION
 	pts: [6][2]f32
 	for k in 0 ..< 6 do pts[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
 	physics.polygon_2d(id, &sd, pts[:], ROCK_DEPTH)
@@ -164,15 +164,15 @@ init :: proc(s: ^State, w: ^World, seed: u64) {
 }
 
 create_ship :: proc(s: ^State, w: ^World, p: int) {
-	bd := physics.body_def_2d(.dynamicBody, w.spawns[p], {0, -1})
-	bd.linearDamping = SHIP_DAMPING
-	bd.isBullet = false
-	id := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
+	bd := physics.body_def_2d(.Dynamic_Body, w.spawns[p], {0, -1})
+	bd.linear_damping = SHIP_DAMPING
+	bd.is_bullet = false
+	id := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
 	sd.density = SHIP_DENSITY
-	sd.baseMaterial.restitution = 0.5
-	sd.baseMaterial.friction = 0.1
-	sd.filter.categoryBits = CAT_SHIP
+	sd.base_material.restitution = 0.5
+	sd.base_material.friction = 0.1
+	sd.filter.category_bits = CAT_SHIP
 	physics.circle_2d(id, &sd, SHIP_RADIUS)
 	s.ships[p].body = physics.ref_of(id)
 }
@@ -188,14 +188,14 @@ create_rock :: proc(
 ) -> bool {
 	r, h, ok := sim.spawn(&s.rocks)
 	if !ok do return false
-	bd := physics.body_def_2d(.dynamicBody, pos)
-	id := b3.CreateBody(w.phys.id, &bd)
-	sd := b3.DefaultShapeDef()
+	bd := physics.body_def_2d(.Dynamic_Body, pos)
+	id := b3.create_body(w.phys.id, &bd)
+	sd := b3.default_shape_def()
 	sd.density = 1
-	sd.baseMaterial.restitution = 0.4
-	sd.baseMaterial.friction = 0.3
-	sd.baseMaterial.userMaterialId = MAT_ROCK + u64(h.index)
-	sd.filter.categoryBits = CAT_ROCK
+	sd.base_material.restitution = 0.4
+	sd.base_material.friction = 0.3
+	sd.base_material.user_material_id = MAT_ROCK + u64(h.index)
+	sd.filter.category_bits = CAT_ROCK
 	pts := rock_points(variant, size)
 	physics.polygon_2d(id, &sd, pts[:], ROCK_DEPTH)
 	r^ = {

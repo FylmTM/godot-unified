@@ -5,7 +5,7 @@ package friendslop_extension
 
 import "base:runtime"
 import "core:math"
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -188,8 +188,8 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 	add_body :: proc(out: ^gh.Frame, w: ^fs.World, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
 		id := physics.body_id(w.phys, body)
-		p := b3.Body_GetPosition(id)
-		q := b3.Body_GetRotation(id)
+		p := b3.body_get_position(id)
+		q := b3.body_get_rotation(id)
 		gh.push_scene(
 			out,
 			{
@@ -198,7 +198,7 @@ extract :: proc(cur, prev: ^S, w: ^fs.World, out: ^gh.Frame) {
 				slot = -1,
 				entity = u32(marker + 1),
 				pos = {p.x, p.y, p.z},
-				rot = {q.v.x, q.v.y, q.v.z, q.s},
+				rot = q,
 			},
 		)
 	}

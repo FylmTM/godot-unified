@@ -99,7 +99,7 @@ extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the 
 `destroy_body`, `extra(w, S) -> sim.Extra`: finds every `Body_Ref` in `S` by RTTI once (fields, arrays,
 table items); ring slots are Box3D snapshots (a memcpy of the world's arena); the hash is Box3D's whole-world hash
 on `DEEP_CHECKSUM_EVERY` ticks, otherwise each referenced body (position, rotation, velocities; −0 → +0) in block
-order; images are Box3D's canonical images with their geometry (`src/box3d_port/SPEC.md`).
+order; images are Box3D's canonical images with their geometry (unified-box3d's SPEC.md).
 
 ## `unified:dmath`
 

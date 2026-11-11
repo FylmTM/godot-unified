@@ -1,5 +1,5 @@
 // The mover's golden trace: our own physics code (the mover, kinematic paths, the Extra's hash)
-// pinned on every platform, like Box3D's results are in tests/box3d (GOLDEN there).
+// pinned on every platform, like Box3D's results are in tests/b3 (GOLDEN there).
 package test_physics
 
 import "core:testing"
@@ -21,7 +21,7 @@ GOLDEN_TICKS :: 512 // 8 s: the platform's whole ping-pong cycle
 GOLDEN_EVERY :: 128
 
 // A change to src/physics, Box3D or the build flags that alters any of these fails here. If the
-// change is intended, update the values in the same commit (with tests/box3d's GOLDEN and the
+// change is intended, update the values in the same commit (with tests/b3's GOLDEN and the
 // games' reference runs when they change too).
 GOLDEN_MOVERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
 	0xc6fbc220c82ebad2,
@@ -38,7 +38,7 @@ mover_golden_trace :: proc(t: ^testing.T) {
 	ground(w)
 	box(w, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
 	s: Golden
-	s.platform = physics.ref_of(box(w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .kinematicBody, cat = CAT_PLATFORM))
+	s.platform = physics.ref_of(box(w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
 	physics.mover_create(w, &s.rider, &MOVER, {0, 1.6, 6})
 	physics.mover_create(w, &s.walker, &MOVER, {-8, 1.5, 0})
 	physics.mover_create(w, &s.target, &MOVER, {4, 1.5, -2})
@@ -58,7 +58,7 @@ mover_golden_trace :: proc(t: ^testing.T) {
 		if tk == 64 {
 			// A heavy box (about the mover's mass) at 14 m/s: the drive's force cap gives way.
 			s.thrown = physics.ref_of(
-				box(w, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .dynamicBody, cat = CAT_BOX, density = 400),
+				box(w, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
 			)
 			physics.set_velocity(w, s.thrown, {14, 0, 0})
 			target_x0 = physics.position(w, s.target.body).x

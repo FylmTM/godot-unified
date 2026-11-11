@@ -3,7 +3,7 @@
 // about +Z, so nothing here needs trig.
 package physics
 
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:dmath"
 
 // The most points polygon_2d takes (its prism stays well inside Box3D's hull limits).
@@ -11,15 +11,15 @@ POLYGON_2D_MAX :: 32
 
 // A body definition locked to the plane: z = 0, no linear z motion, rotation only about Z.
 // `rot` is any non-zero direction (normalised here); zero means no rotation.
-body_def_2d :: proc(type: b3.BodyType, pos: [2]f32, rot := [2]f32{1, 0}) -> b3.BodyDef {
-	bd := b3.DefaultBodyDef()
+body_def_2d :: proc(type: b3.Body_Type, pos: [2]f32, rot := [2]f32{1, 0}) -> b3.Body_Def {
+	bd := b3.default_body_def()
 	bd.type = type
 	bd.position = {pos.x, pos.y, 0}
-	bd.rotation = quat(quat_2d(rot))
-	bd.motionLocks = {
-		linearZ  = true,
-		angularX = true,
-		angularY = true,
+	bd.rotation = quat_2d(rot)
+	bd.motion_locks = {
+		linear_z  = true,
+		angular_x = true,
+		angular_y = true,
 	}
 	return bd
 }
@@ -50,54 +50,54 @@ rot_2d :: proc "contextless" (q: [4]f32) -> [2]f32 {
 // A plane-locked body's position and 2D rotation.
 pose_2d :: proc(w: ^World, r: Body_Ref) -> (pos: [2]f32, rot: [2]f32) {
 	id := body_id(w, r)
-	p := b3.Body_GetPosition(id)
-	q := b3.Body_GetRotation(id)
-	return {p.x, p.y}, rot_2d({q.v.x, q.v.y, q.v.z, q.s})
+	p := b3.body_get_position(id)
+	q := b3.body_get_rotation(id)
+	return {p.x, p.y}, rot_2d(q)
 }
 
 // Linear velocity in the plane and angular velocity about +Z (rad/s, positive turns +x toward +y).
 velocity_2d :: proc(w: ^World, r: Body_Ref) -> (linear: [2]f32, angular: f32) {
 	id := body_id(w, r)
-	v := b3.Body_GetLinearVelocity(id)
-	a := b3.Body_GetAngularVelocity(id)
+	v := b3.body_get_linear_velocity(id)
+	a := b3.body_get_angular_velocity(id)
 	return {v.x, v.y}, a.z
 }
 
 set_velocity_2d :: proc(w: ^World, r: Body_Ref, linear: [2]f32, angular: f32) {
 	id := body_id(w, r)
-	b3.Body_SetLinearVelocity(id, {linear.x, linear.y, 0})
-	b3.Body_SetAngularVelocity(id, {0, 0, angular})
+	b3.body_set_linear_velocity(id, {linear.x, linear.y, 0})
+	b3.body_set_angular_velocity(id, {0, 0, angular})
 }
 
 // An impulse (N·s) at the centre of mass, waking the body. A force F over one tick is F · dt.
 apply_impulse_2d :: proc(w: ^World, r: Body_Ref, j: [2]f32) {
-	b3.Body_ApplyLinearImpulseToCenter(body_id(w, r), {j.x, j.y, 0}, true)
+	b3.body_apply_linear_impulse_to_center(body_id(w, r), {j.x, j.y, 0}, true)
 }
 
 // A circle: a sphere centred in the plane.
-circle_2d :: proc(body: b3.BodyId, sd: ^b3.ShapeDef, radius: f32, center := [2]f32{}) -> b3.ShapeId {
+circle_2d :: proc(body: b3.Body_Id, sd: ^b3.Shape_Def, radius: f32, center := [2]f32{}) -> b3.Shape_Id {
 	s := b3.Sphere{{center.x, center.y, 0}, radius}
-	return b3.CreateSphereShape(body, sd, &s)
+	return b3.create_sphere_shape(body, sd, &s)
 }
 
 // A box centred on the body, `depth` thick along z (centred on the plane).
-box_2d :: proc(body: b3.BodyId, sd: ^b3.ShapeDef, half: [2]f32, depth: f32) -> b3.ShapeId {
-	h := b3.MakeBoxHull(half.x, half.y, depth * 0.5)
-	return b3.CreateHullShape(body, sd, &h.base)
+box_2d :: proc(body: b3.Body_Id, sd: ^b3.Shape_Def, half: [2]f32, depth: f32) -> b3.Shape_Id {
+	h := b3.make_box_hull(half.x, half.y, depth * 0.5)
+	return b3.create_hull_shape(body, sd, &h.base)
 }
 
 // The convex hull of `points` (body-local, any order; 3 to POLYGON_2D_MAX) extruded to `depth`,
 // centred on the plane. Not ok: too few or too many points, or a degenerate hull (collinear points).
-polygon_2d :: proc(body: b3.BodyId, sd: ^b3.ShapeDef, points: [][2]f32, depth: f32) -> (b3.ShapeId, bool) {
+polygon_2d :: proc(body: b3.Body_Id, sd: ^b3.Shape_Def, points: [][2]f32, depth: f32) -> (b3.Shape_Id, bool) {
 	if len(points) < 3 || len(points) > POLYGON_2D_MAX do return {}, false
 	h := depth * 0.5
-	pts: [2 * POLYGON_2D_MAX]b3.Vec3
+	pts: [2 * POLYGON_2D_MAX][3]f32
 	for p, i in points {
 		pts[2 * i] = {p.x, p.y, -h}
 		pts[2 * i + 1] = {p.x, p.y, h}
 	}
-	hull := b3.CreateHull(&pts[0], i32(2 * len(points)), 2 * POLYGON_2D_MAX)
+	hull := b3.create_hull(pts[:2 * len(points)], 2 * POLYGON_2D_MAX)
 	if hull == nil do return {}, false
-	defer b3.DestroyHull(hull)
-	return b3.CreateHullShape(body, sd, hull), true
+	defer b3.destroy_hull(hull)
+	return b3.create_hull_shape(body, sd, hull), true
 }

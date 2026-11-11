@@ -7,7 +7,7 @@ package test_drift
 import "core:testing"
 
 import dr "../drift"
-import b3 "unified:box3d_port"
+import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -99,9 +99,9 @@ check_plane :: proc(r: ^Run) {
 	s := &r.s.state
 	on :: proc(w: ^physics.World, ref: physics.Body_Ref) -> bool {
 		id := physics.body_id(w, ref)
-		p := b3.Body_GetPosition(id)
-		q := b3.Body_GetRotation(id)
-		return p.z == 0 && q.v.x == 0 && q.v.y == 0
+		p := b3.body_get_position(id)
+		q := b3.body_get_rotation(id)
+		return p.z == 0 && q.x == 0 && q.y == 0
 	}
 	for &sh in s.ships do if sh.active && !on(w, sh.body) do r.off_plane += 1
 	for i in 0 ..< s.rocks.high_water {
