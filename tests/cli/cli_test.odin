@@ -10,6 +10,7 @@ import "unified:cli"
 
 @(test)
 config_sections_keys_quotes_comments :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	c := cli.config_parse(
 		`; a comment
 top = "level"
@@ -35,6 +36,7 @@ version.txt = "abc"
 
 @(test)
 env_takes_unified_keys_only :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	pairs, err := cli.env_parse("# local paths\nUNIFIED_GODOT=/opt/godot/Godot\n\nUNIFIED_EOS_SDK = /sdk \n")
 	testing.expect_value(t, err, "")
 	testing.expect_value(t, len(pairs), 2)
@@ -50,6 +52,7 @@ env_takes_unified_keys_only :: proc(t: ^testing.T) {
 
 @(test)
 zip_round_trip :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	dir, derr := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
 	testing.expect(t, derr == nil)
 	defer os.remove_all(dir)
@@ -82,6 +85,7 @@ zip_round_trip :: proc(t: ^testing.T) {
 
 @(test)
 manifest_notices_changes :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	dir, _ := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
 	defer os.remove_all(dir)
 	pkg := cli.join(dir, "pkg")
@@ -105,6 +109,7 @@ manifest_notices_changes :: proc(t: ^testing.T) {
 
 @(test)
 sha256_known_vector :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	testing.expect_value(
 		t,
 		cli.sha256_hex(transmute([]byte)string("abc")),
@@ -114,6 +119,7 @@ sha256_known_vector :: proc(t: ^testing.T) {
 
 @(test)
 small_parsers :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	testing.expect_value(t, len(cli.split_list(" odin, godot ,,")), 2)
 	testing.expect(t, cli.valid_game_name("dots_2"))
 	testing.expect(t, !cli.valid_game_name("2dots"))

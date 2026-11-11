@@ -140,7 +140,7 @@ build_key :: proc(b: Build) -> string {
 // Whether `out` is missing or older than its sources (by its manifest: sizes and times of every source file and
 // directory, the odin executable, the same command line).
 stale :: proc(b: Build, manifest := "") -> bool {
-	m := manifest != "" ? manifest : tprint("%s.manifest", b.out)
+	m := manifest != "" ? manifest : tprint("%s.inputs", b.out)
 	if !os.exists(b.out) {
 		return true
 	}
@@ -159,7 +159,7 @@ finish_build :: proc(b: Build, p: ^Proc, manifest := "") -> Ran {
 	deps := tprint("%s.deps.json", b.out)
 	if r.ok {
 		files, odin_path := read_deps(deps)
-		write_manifest(manifest != "" ? manifest : tprint("%s.manifest", b.out), build_key(b), files, odin_path)
+		write_manifest(manifest != "" ? manifest : tprint("%s.inputs", b.out), build_key(b), files, odin_path)
 	}
 	os.remove(deps)
 	return r

@@ -92,9 +92,9 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 	append(&flags, ..b.flags)
 	append(&flags, tprint("-define:UNIFIED_BUILD_TAG=%v-%s", m, stamp[:15]))
 	built.flags = flags[:]
-	secs := odin_build(built, tprint("building %s's extension", g.name), tprint("%s.manifest", lib))
+	secs := odin_build(built, tprint("building %s's extension", g.name), tprint("%s.inputs", lib))
 	// The manifest's key is the build without the tag (see above).
-	if entries, _, ok := read_manifest(tprint("%s.manifest", lib)); ok {
+	if entries, _, ok := read_manifest(tprint("%s.inputs", lib)); ok {
 		files: [dynamic]string
 		odin_path := ""
 		for e in entries {
@@ -104,7 +104,7 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 				odin_path = e.path
 			}
 		}
-		write_manifest(tprint("%s.manifest", lib), build_key(b), files[:], odin_path)
+		write_manifest(tprint("%s.inputs", lib), build_key(b), files[:], odin_path)
 	}
 	if versioned {
 		link := tprint("%s.new", lib)

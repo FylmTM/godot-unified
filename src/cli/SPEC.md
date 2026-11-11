@@ -26,7 +26,7 @@ ImGui, the EOS SDK) the CLI fetches or builds, pinned and hash-checked.
   pins.cfg            this repo only: every pin (Odin, Godot, templates, OLS, Box3D, Dear ImGui, EOS SDK)
   .env                git-ignored: this checkout's UNIFIED_* settings (below)
   .out/               everything generated, git-ignored, safe to delete
-    cli/              the CLI binaries (uni-<hash>), `current`, their manifests
+    cli/              the CLI binaries (uni-<hash>), `current`, their manifests (`<binary>.inputs`)
     godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest

@@ -8,12 +8,13 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-// The self-rebuild (SPEC.md, Bootstrap and self-rebuild). Each binary .out/cli/unified-<hash> has a manifest,
-// <binary>.manifest: the content hash, then one line per input with its size and modification time: every source
-// file it was built from (outside the Odin install), the directories they sit in (a new file changes its
-// directory's time) and the odin executable. Before every command the binary checks them: all the same, it runs.
-// Else it hashes the sources: the same content, it refreshes the times and runs; different, it rebuilds itself to
-// unified-<new hash>, points .out/cli/current at it and runs that with the same arguments.
+// The self-rebuild (SPEC.md, Bootstrap and self-rebuild). Each binary .out/cli/uni-<hash> has a manifest,
+// <binary>.inputs (not .manifest: Windows reads foo.exe.manifest as the program's own): the content hash, then one
+// line per input with its size and modification time: every source file it was built from (outside the Odin
+// install), the directories they sit in (a new file changes its directory's time) and the odin executable. Before
+// every command the binary checks them: all the same, it runs. Else it hashes the sources: the same content, it
+// refreshes the times and runs; different, it rebuilds itself to uni-<new hash>, points .out/cli/current at it and
+// runs that with the same arguments.
 
 Manifest_Entry :: struct {
 	kind:  string, // "file", "dir" or "odin"
@@ -39,12 +40,12 @@ self_check :: proc(args: []string) {
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
-		write_manifest(tprint("%s.manifest", target), hash, files, odin)
+		write_manifest(tprint("%s.inputs", target), hash, files, odin)
 		write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
 		os.remove(deps)
 		return
 	}
-	entries, hash, ok := read_manifest(tprint("%s.manifest", exe))
+	entries, hash, ok := read_manifest(tprint("%s.inputs", exe))
 	if ok && entries_current(entries) {
 		return
 	}
@@ -62,7 +63,7 @@ self_check :: proc(args: []string) {
 					odin = e.path
 				}
 			}
-			write_manifest(tprint("%s.manifest", exe), hash, files[:], odin)
+			write_manifest(tprint("%s.inputs", exe), hash, files[:], odin)
 			return
 		}
 	}
@@ -110,7 +111,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("uni: cannot install %s", target)
 		os.exit(1)
 	}
-	write_manifest(tprint("%s.manifest", target), hash, files, odin_path)
+	write_manifest(tprint("%s.inputs", target), hash, files, odin_path)
 	write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
 	prune_binaries(cli_dir)
 	cmd := make([dynamic]string)
@@ -273,7 +274,7 @@ prune_binaries :: proc(cli_dir: string) {
 	bins: [dynamic]os.File_Info
 	for fi in infos {
 		if strings.has_prefix(fi.name, "uni-") &&
-		   !strings.has_suffix(fi.name, ".manifest") &&
+		   !strings.has_suffix(fi.name, ".inputs") &&
 		   !strings.has_suffix(fi.name, ".json") &&
 		   !strings.has_prefix(fi.name, "uni-bootstrap") &&
 		   !strings.has_prefix(fi.name, "uni-build-") {
@@ -285,7 +286,7 @@ prune_binaries :: proc(cli_dir: string) {
 	})
 	for fi in bins[min(CLI_KEEP, len(bins)):] {
 		if os.remove(fi.fullpath) == nil {
-			os.remove(tprint("%s.manifest", fi.fullpath))
+			os.remove(tprint("%s.inputs", fi.fullpath))
 		}
 	}
 }
