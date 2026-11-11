@@ -11,8 +11,11 @@ below.
 
 1. **Product.** At <https://dev.epicgames.com/portal>, create a product (e.g. "unified survivor").
 2. **Client.** Product Settings → Clients:
-   - add a **client policy** that allows **Connect**, **P2P** and **Lobbies** and nothing else (the "Peer2Peer"
-     preset, or a custom policy with those three): the client ID and secret ship inside every online build;
+   - add a **custom client policy** with only **Lobbies** enabled (all its actions). The client ID and secret ship
+     inside every online build, so anyone can call EOS as this client: allow nothing the game doesn't use. Connect
+     (the anonymous device-ID login) and P2P aren't policy features. Not the "Peer2Peer" preset: it also enables
+     Achievements, Leaderboards, Metrics, Notifications, Player Data Storage, Player Reports, Progression Snapshot,
+     Sanctions, Sessions, Stats, Title Storage and Voice;
    - add a **client** that uses that policy.
 3. **SDK.** Download the **EOS C SDK** zip (not the Unity/Unreal one) of the version `pins.cfg` `[eos_sdk]` pins,
    unzip it anywhere outside the repo and point `UNIFIED_EOS_SDK` at it. `uni setup` shows whether it is found and
