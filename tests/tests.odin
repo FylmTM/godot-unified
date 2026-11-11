@@ -9,6 +9,7 @@
 package tests
 
 @(require) import "box3d"
+@(require) import "cli"
 @(require) import "dmath"
 @(require) import "eos"
 @(require) import "gdext"
