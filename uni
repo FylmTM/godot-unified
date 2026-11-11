@@ -16,7 +16,9 @@ if ! command -v odin > /dev/null 2>&1; then
 fi
 src="$root/src"
 [ -d "$root/unified/src/cli" ] && src="$root/unified/src"
+exe=
+[ "$OS" = Windows_NT ] && exe=.exe # Git Bash on Windows: odin wants the extension
 mkdir -p "$cli"
-odin build "$root/tools" "-collection:unified=$src" -o:minimal "-out:$cli/uni-bootstrap" \
+odin build "$root/tools" "-collection:unified=$src" -o:minimal "-out:$cli/uni-bootstrap$exe" \
 	-export-dependencies:json "-export-dependencies-file:$cli/uni-bootstrap.deps.json" || exit 1
-exec "$cli/uni-bootstrap" "$@"
+exec "$cli/uni-bootstrap$exe" "$@"
