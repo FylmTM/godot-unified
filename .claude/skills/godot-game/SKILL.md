@@ -48,7 +48,9 @@ Commit the `.tscn` and the `.level` together; the `bake` step fails when they di
 
 ## Looking at it
 
-These need a display and steal focus (the CLI gives it back on macOS); they don't run in CI:
+These need a display and steal focus (the CLI gives it back on macOS); they don't run in CI. **A window you start for the
+developer (to look at, or as a check) opens with `--mute --screen left`**: they may be using the main screen. `run`,
+`editor`, `tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`).
 
 - `./uni run <game>` (windowed; arguments after `--` go to the game), `./uni editor <game>`.
 - `./uni tool <game> <script> --window [--shots] [-- args]`: any of the game's tool scripts in a window, PNGs in

@@ -87,12 +87,12 @@ Public (`unified:cli`, every project):
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the `third_party/` dependencies, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
-| `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it |
+| `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window` |
 | `test [game] [--suite s,...] [--only name,...] [--long]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
-| `tool [game] <script> [--window] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
-| `coop [game] [--window] [--rejoin] [--lan]` | host and joiner processes, a real lobby |
+| `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
+| `coop [game] [--window [--mute] [--screen s]] [--rejoin] [--lan]` | host and joiner processes, a real lobby |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |

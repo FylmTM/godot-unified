@@ -32,14 +32,14 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "run",
-				usage = "[game] [-- args]",
+				usage = "[game] [--mute] [--screen s] [-- args]",
 				summary = "the game in a window (arguments after -- go to the game)",
 				no_budget = "interactive",
 				run = cmd_run,
 			},
 			{
 				name = "editor",
-				usage = "[game]",
+				usage = "[game] [--mute] [--screen s]",
 				summary = "the Godot editor on the game",
 				no_budget = "interactive",
 				run = cmd_editor,
@@ -66,14 +66,14 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "tool",
-				usage = "[game] <script> [--window] [--shots] [-- args]",
+				usage = "[game] <script> [--window [--mute] [--screen s]] [--shots] [-- args]",
 				summary = "run game/tools/<script>.gd (headless unless --window)",
 				no_budget = "depends on the script",
 				run = cmd_tool,
 			},
 			{
 				name = "coop",
-				usage = "[game] [--window] [--rejoin] [--lan]",
+				usage = "[game] [--window [--mute] [--screen s]] [--rejoin] [--lan]",
 				summary = "host and joiner processes in a real lobby (EOS, or --lan)",
 				no_budget = "networked",
 				run = cmd_coop,

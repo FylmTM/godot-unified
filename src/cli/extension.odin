@@ -122,13 +122,15 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 		link := tprint("%s.new", lib)
 		os.remove(link)
 		if os.symlink(os.base(tmp), link) != nil || os.rename(link, lib) != nil {
+			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
 			fatal("cannot point %s at %s", lib, os.base(tmp))
 		}
 		prune_versions(g)
 	} else {
 		os.remove(lib)
 		if os.rename(tmp, lib) != nil {
-			fatal("cannot move %s into place", lib)
+			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
+			fatal("cannot move %s into place (a running game holds it?)", lib)
 		}
 		when ODIN_OS == .Windows {
 			for ext in ([]string{".pdb", ".lib", ".exp"}) {
