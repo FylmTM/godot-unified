@@ -1,0 +1,18 @@
+# __GAME__
+
+A co-op game on [unified](https://github.com/FylmTM/unified) (deterministic rollback netcode, Odin + Godot), started
+from `unified init`: each player moves a dot. Make it yours from here.
+
+```
+./unified run              # play (unified.cmd on Windows)
+./unified test --suite all # the sim tests and the game under headless Godot
+./unified help             # every command
+```
+
+- `simulation/__GAME__/`: the deterministic sim (unified/src/sim/SPEC.md: f32 only, no pointers in the state).
+- `simulation/headless/`: the headless binary (offline runs, sync-tests, benchmarks).
+- `simulation/extension/`: the GDExtension: the sim run by unified's Godot host, and how the state becomes views.
+- `simulation/tests/`: the sim's tests and the determinism lint.
+- `game/`: the Godot side: scenes, views and scripts. GDScript reads the sim; input is the only way in.
+- `tools/`: this game's CLI (unified's public commands, plus the game's own).
+- `unified/`: unified, as a git submodule. Local paths (a Godot install, the EOS SDK) go in a git-ignored `.env`.

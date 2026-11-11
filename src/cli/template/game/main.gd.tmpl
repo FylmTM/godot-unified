@@ -1,0 +1,9 @@
+extends Node2D
+## The game: a single player session, the players' dots drawn as scene views under this node (arrow keys move).
+
+
+func _ready() -> void:
+	var session: Node = $Session
+	session.set("view_root", self)
+	if not session.call("is_running"):  # headless checks (--autostart) have started one already
+		session.call("start_single")

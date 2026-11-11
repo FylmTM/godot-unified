@@ -1,0 +1,53 @@
+// __GAME__'s GDExtension (game/__GAME__.gdextension -> .out/bin/): the sim run by unified's Godot host
+// (unified/src/godot_host/SPEC.md), and the glue: how the state becomes views and how input becomes an Input.
+package __GAME___extension
+
+import "base:runtime"
+import gd "unified:gdext"
+import "unified:gdext/gdi"
+import gh "unified:godot_host"
+import "unified:view"
+
+import g "../__GAME__"
+
+PX_PER_M :: 64 // the views are in pixels
+
+GLUE := gh.Glue(g.State, g.Input, g.World) {
+	scenes = {{name = "player"}}, // res://game/views/player.tscn
+	scene_dir = "res://game/views",
+	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels
+	actions = {move = {"ui_left", "ui_right", "ui_up", "ui_down"}},
+	extract = extract,
+	sample = proc(a: gh.Actions, slot: int, tick: u32, state: ^g.State) -> g.Input {
+		return {dx = i8(clamp(a.move.x, -1, 1) * 127), dy = i8(clamp(a.move.y, -1, 1) * 127)}
+	},
+	scripted = proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {return g.script(seed, slot, tick)},
+	hud = proc(f: ^gh.Frame, d: ^gd.Dictionary) {},
+}
+
+// A dot per player, in pixels.
+extract :: proc(cur, prev: ^g.State, w: ^g.World, out: ^gh.Frame) {
+	rot := view.quat_angle2d(0)
+	for p in 0 ..< g.MAX_PLAYERS {
+		if !cur.joined[p] do continue
+		item := gh.Scene_Item {
+			key  = view.Key(p + 1),
+			slot = i8(p),
+			pos  = {cur.pos[p].x * PX_PER_M, cur.pos[p].y * PX_PER_M, 0},
+			rot  = rot,
+		}
+		if prev != nil && prev.joined[p] {
+			item.has_prev = true
+			item.prev_pos = {prev.pos[p].x * PX_PER_M, prev.pos[p].y * PX_PER_M, 0}
+			item.prev_rot = rot
+		}
+		gh.push_scene(out, item)
+	}
+}
+
+@(export, link_name = "__GAME___init")
+__GAME___init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+	context = runtime.default_context()
+	gh.install(&g.GAME, GLUE)
+	return gh.entry(gpa, lib, init)
+}

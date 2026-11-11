@@ -1,0 +1,101 @@
+package cli
+
+import "core:os"
+import "core:strings"
+
+// `init <dir>`: a new game repo. The template (template/, every file a .tmpl with __GAME__ for the game's name, the
+// directory's) is a complete small game, each player moving a dot: its sim, headless binary, extension, Godot
+// scenes and tests. Plus the shims, tools/ (the game's CLI), .gitignore, and unified as a git submodule at unified/.
+@(private)
+cmd_init :: proc(args: []string) -> Result {
+	Opts :: struct {
+		dir:     string `args:"pos=0,required" usage:"the new game repo; its name is the game's"`,
+		unified: string `usage:"where to clone unified from (default: this checkout's origin)"`,
+	}
+	opts: Opts
+	parse(&opts, args)
+	dir, _ := os.get_absolute_path(opts.dir, context.allocator)
+	name := os.base(dir)
+	if !valid_game_name(name) {
+		usage("%q is not a game name: lowercase letters, digits and _, starting with a letter", name)
+	}
+	if os.exists(dir) {
+		entries, _ := os.read_all_directory_by_path(dir, context.temp_allocator)
+		if len(entries) > 0 {
+			usage("%s exists and is not empty", dir)
+		}
+	}
+	source := opts.unified
+	if source == "" {
+		r := run_proc(
+			{
+				cmd = strs(git(), "-C", state.project.unified, "remote", "get-url", "origin"),
+				capture = true,
+				quiet = true,
+			},
+		)
+		source = strings.trim_space(r.stdout)
+		if source == "" {
+			usage("this checkout has no origin: pass --unified <url or path>")
+		}
+	}
+	make_dirs(dir)
+	must_run({cmd = strs(git(), "-C", dir, "init", "-q")}, "git init")
+	// protocol.file.allow: a local path is allowed as the source (selftest clones from one)
+	must_run(
+		{
+			cmd = strs(
+				git(),
+				"-C",
+				dir,
+				"-c",
+				"protocol.file.allow=always",
+				"submodule",
+				"add",
+				"-q",
+				source,
+				"unified",
+			),
+			capture = true,
+		},
+		tprint("adding %s as the unified submodule", source),
+	)
+	template := join(state.project.unified, "src", "cli", "template")
+	n := 0
+	for f in find_files(template, ".tmpl") {
+		rel_path := f[len(template) + 1:len(f) - len(".tmpl")]
+		if rel_path == "gitignore" {
+			rel_path = ".gitignore"
+		}
+		target, _ := strings.replace_all(rel_path, "__GAME__", name)
+		text, _ := strings.replace_all(must_read(f), "__GAME__", name)
+		write_text(join(dir, target), text)
+		n += 1
+	}
+	write_text(join(dir, "tools", ".gdignore"), "")
+	for shim in ([]string{"unified", "unified.cmd"}) {
+		copy_file(join(dir, shim), join(state.project.unified, shim))
+	}
+	os.change_mode(join(dir, "unified"), os.perm_number(0o755))
+	return {
+		ok = true,
+		summary = tprint(
+			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && ./unified run",
+			name,
+			n,
+			opts.dir,
+		),
+	}
+}
+
+valid_game_name :: proc(name: string) -> bool {
+	if name == "" || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for c in name {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
