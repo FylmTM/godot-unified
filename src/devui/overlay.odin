@@ -150,7 +150,7 @@ build_overlay :: proc() {
 	o.empty_v = gd.PackedVector2Array_new0()
 	o.empty_i = gd.PackedInt32Array_new0()
 	o.empty_f = gd.PackedFloat32Array_new0()
-	graph_make("frame ms", .Frame, "frame", 1)
+	graph_make("frame", .Frame, "frame", 1)
 }
 
 @(private)
@@ -178,6 +178,7 @@ overlay_shutdown :: proc() {
 // In its corner of the game window (◳ moves it on when the game's own UI is there).
 @(private)
 overlay_place :: proc() {
+	gd.Control_reset_size(s.overlay.panel) // shrink to fit: graphs and lines come and go
 	size := gd.Control_get_size(s.overlay.panel)
 	right := s.overlay.corner == 0 || s.overlay.corner == 3
 	bottom := s.overlay.corner >= 2
@@ -229,6 +230,7 @@ group_index :: proc(name: string) -> int {
 			gr.shown = !gr.shown
 			gd.BaseButton_set_pressed_no_signal(gr.toggle, gr.shown)
 			for g in s.overlay.graphs do if g.group == i do gd.CanvasItem_set_visible(g.ctl, gr.shown)
+			overlay_place()
 			return {}
 		}, rawptr(uintptr(len(o.groups))))
 	gd.BaseButton_set_toggle_mode(gr.toggle, true)

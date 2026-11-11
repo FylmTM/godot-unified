@@ -46,10 +46,10 @@ devui.wants_mouse() / wants_keyboard()
   frame graph is coloured green / yellow / red against 16.7 and 33.3 ms; scales pick the smallest round step that
   fits. Each graph has its title and legend in a band above it: its parts with their average per frame over the
   last second (marks: per second); a thin rule separates the graphs. Graphs belong to groups the overlay toggles; only `frame` starts shown. The host's groups
-  (`godot_host/dev.odin`): `frame` (frame time; main thread: host, dev UI, game, render), `sim` (sim time and ticks
-  stepped: verified, re-simulated, predicted; ticks ahead; marks: rollback, late input, stall), `net` (rtt, kB/s in
-  and out, time since the relay's last message), plus a render stats line (draw calls, primitives, video memory,
-  nodes).
+  (`godot_host/dev.odin`): `frame` (frame; main thread ms: views, dev ui, game, render), `sim` (sim thread ms and ticks
+  stepped: verified, rollback, predicted; ticks ahead; sim events: rollback, late input, stall), `net` (round trip ms,
+  bandwidth kB/s in and out, relay silence ms: time since the relay's last message), plus a render stats line (draw
+  calls, triangles, video memory, nodes). The overlay shrinks to fit what is shown.
 - **Conditions** panel: a frame-rate cap (`Engine.max_fps`: none, 144, 60, 30, 15) and the network simulation per
   direction (latency, jitter, loss up to the relay and down from it; presets; "both ways" moves both together).
 - **Panels** (Inspector, Conditions, Events, Note): our own floating panels, closed until toggled. Drag the title bar

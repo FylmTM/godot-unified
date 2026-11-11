@@ -2,12 +2,12 @@
 // procs become no-ops). On in every build for now, release included.
 //
 // The host feeds the dev UI's graphs, in groups the overlay toggles:
-//   frame  the main thread's frame, split: host (this session's _process: input, views, the dev UI's own share
-//          shown apart), game (every other node's _process up to drawing), render (the RenderingServer's draw)
-//   sim    the sim thread: time and ticks stepped per frame (verified, re-simulated after a rollback, newly
-//          predicted), how far prediction runs ahead of the verified tick, and marks: rollback, late input (the
+//   frame  the frame time; the main thread split: views (this session's _process: input and view sync, the dev UI's
+//          own share shown apart), game (every other node's _process up to drawing), render (the RenderingServer's draw)
+//   sim    the sim thread: time and ticks stepped per frame (verified, re-run in a rollback, newly predicted),
+//          ticks ahead (predicted past the verified tick), and marks: rollback, late input (the
 //          relay replaced ours), stall (the prediction cap held the sim back)
-//   net    round trip, bandwidth in and out, time since the relay's last message
+//   net    round trip, bandwidth in and out, relay silence (time since the relay's last message)
 package godot_host
 
 import "core:time"
@@ -106,13 +106,13 @@ when DEVUI {
 			devui.stat("tick", "%d   verified %d   slot %d", f.tick, f.verified, f.local_slot)
 			devui.stat(
 				"net",
-				"rtt %.0f ms   delay %d   rollbacks %d   resim %d",
+				"rtt %.0f ms   input delay %d   rollbacks %d (%d ticks)",
 				f.net.rtt_ms,
 				f.net.delay,
 				f.net.rollbacks,
 				f.net.resim_ticks,
 			)
-			devui.stat("views", "%d scene   %d bulk   sync %.0f µs", f.n_scene, f.n_bulk, s.sync_us)
+			devui.stat("views", "%d scene   %d multimesh   sync %.0f µs", f.n_scene, f.n_bulk, s.sync_us)
 			if st := api.state(); st != nil do devui.inspect("predicted state (read-only)", st)
 		} else if devui.visible {
 			devui.stat("session", "%s", STATUS_NAMES[s.status])
@@ -121,7 +121,7 @@ when DEVUI {
 			p := gd.Performance_singleton()
 			devui.stat(
 				"render",
-				"%.0f draws   %.0fk prims   %.0f MB video   %.0f nodes",
+				"%.0f draw calls   %.0fk triangles   %.0f MB video   %.0f nodes",
 				gd.Performance_get_monitor(p, .RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 				gd.Performance_get_monitor(p, .RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000,
 				gd.Performance_get_monitor(p, .RENDER_VIDEO_MEM_USED) / (1 << 20),
@@ -151,7 +151,7 @@ when DEVUI {
 		ui := min(dev.prev_ui_ms, host)
 		game := ms(dev.prev_end, dev.pre)
 		render := ms(dev.pre, dev.post)
-		devui.stack("main ms", {host - ui, ui, game, render}, {"host", "dev ui", "game", "render"}, "frame")
+		devui.stack("main thread ms", {host - ui, ui, game, render}, {"views", "dev ui", "game", "render"}, "frame")
 	}
 
 	@(private)
@@ -169,15 +169,15 @@ when DEVUI {
 			d_us[k] = f32(n.step_us[k] - p.step_us[k]) / 1000
 			d_steps[k] = f32(n.steps[k] - p.steps[k])
 		}
-		legend := []string{"verified", "resim", "predicted"}
-		devui.stack("sim ms", d_us[:], legend, "sim")
-		devui.stack("ticks", d_steps[:], legend, "sim")
-		devui.plot("ahead (ticks)", f32(f.tick) - f32(f.verified), 0, 0, "sim")
+		legend := []string{"verified", "rollback", "predicted"}
+		devui.stack("sim thread ms", d_us[:], legend, "sim")
+		devui.stack("ticks stepped", d_steps[:], legend, "sim")
+		devui.plot("ticks ahead", f32(f.tick) - f32(f.verified), 0, 0, "sim")
 		if n.rollbacks > p.rollbacks do devui.mark("sim events", "rollback", "sim")
 		if n.replaced > p.replaced do devui.mark("sim events", "late input", "sim")
 		if n.stalls > p.stalls do devui.mark("sim events", "stall", "sim")
 
-		devui.plot("rtt ms", n.rtt_ms, 0, 0, "net")
+		devui.plot("round trip ms", n.rtt_ms, 0, 0, "net")
 		// bandwidth over 250 ms windows
 		dev.bw_bytes[0] += n.bytes_in - p.bytes_in
 		dev.bw_bytes[1] += n.bytes_out - p.bytes_out
@@ -186,10 +186,10 @@ when DEVUI {
 			for k in 0 ..< 2 do dev.bw[k] = f32(dev.bw_bytes[k]) / 1024 / (f32(dev.bw_us) / 1e6)
 			dev.bw_bytes, dev.bw_us = {}, 0
 		}
-		devui.lines("kB/s", dev.bw[:], {"in", "out"}, 0, 0, "net")
+		devui.lines("bandwidth kB/s", dev.bw[:], {"in", "out"}, 0, 0, "net")
 		since: f32
 		if n.last_msg_us != 0 do since = f32(netcode.now_us() - n.last_msg_us) / 1000
-		devui.plot("since last msg ms", since, 0, 0, "net")
+		devui.plot("relay silence ms", since, 0, 0, "net")
 	}
 } else {
 	_ :: devui
