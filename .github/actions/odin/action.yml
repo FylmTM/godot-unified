@@ -1,0 +1,61 @@
+# The Odin release pins.cfg pins ([odin] tag and this runner's asset SHA-256), downloaded once (cached), checked
+# and put on PATH. Read with sed: nothing of the repository runs before Odin exists. The CLI then refuses an Odin
+# whose commit isn't the pinned one.
+name: Odin (pinned)
+description: Install the Odin release pinned in pins.cfg
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      run: |
+        pin() { sed -n "/^\[odin\]/,/^\[/s/^$1 = \"\(.*\)\"$/\1/p" pins.cfg; }
+        tag=$(pin tag)
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) asset="odin-linux-amd64-$tag.tar.gz"; sha=$(pin sha256_linux_x64) ;;
+          Linux-ARM64) asset="odin-linux-arm64-$tag.tar.gz"; sha=$(pin sha256_linux_arm64) ;;
+          macOS-ARM64) asset="odin-macos-arm64-$tag.tar.gz"; sha=$(pin sha256_macos_arm64) ;;
+          Windows-X64) asset="odin-windows-amd64-$tag.zip"; sha=$(pin sha256_windows_x64) ;;
+          *) echo "::error::no Odin for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        if [ -z "$tag" ] || [ -z "$sha" ]; then
+          echo "::error::pins.cfg: [odin] tag or this runner's sha256 not found"
+          exit 1
+        fi
+        {
+          echo "tag=$tag"
+          echo "asset=$asset"
+          echo "sha=$sha"
+        } >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: .toolchains/odin
+        key: odin-${{ steps.pin.outputs.tag }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.pin.outputs.sha }}
+    - shell: bash
+      env:
+        TAG: ${{ steps.pin.outputs.tag }}
+        ASSET: ${{ steps.pin.outputs.asset }}
+        SHA: ${{ steps.pin.outputs.sha }}
+      run: |
+        dir=.toolchains/odin
+        exe=odin; [ "$RUNNER_OS" = Windows ] && exe=odin.exe
+        find_odin() { find "$dir" -name "$exe" -type f 2>/dev/null | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-; }
+        if [ -z "$(find_odin)" ]; then
+          mkdir -p "$dir"
+          file="$RUNNER_TEMP/$ASSET"
+          curl -fsSL --retry 5 -o "$file" "https://github.com/odin-lang/Odin/releases/download/$TAG/$ASSET"
+          if command -v sha256sum > /dev/null; then got=$(sha256sum "$file" | cut -d' ' -f1); else got=$(shasum -a 256 "$file" | cut -d' ' -f1); fi
+          if [ "$got" != "$SHA" ]; then
+            echo "::error::$ASSET: SHA-256 $got, pinned $SHA"
+            exit 1
+          fi
+          case "$ASSET" in
+            *.zip) 7z x -y -o"$dir" "$file" > /dev/null ;;
+            *) tar -xzf "$file" -C "$dir" ;;
+          esac
+        fi
+        odin=$(find_odin)
+        chmod +x "$odin" || true
+        bin=$(cd "$(dirname "$odin")" && { pwd -W 2> /dev/null || pwd; })
+        echo "$bin" >> "$GITHUB_PATH"
+        "$odin" version
