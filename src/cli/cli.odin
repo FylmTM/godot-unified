@@ -1,2 +1,282 @@
-// The unified CLI as a library (SPEC.md, a draft for sign-off: #20). The code lands with the switch from tools/*.py.
+// The unified CLI as a library (SPEC.md). A project's tools/ package (package main) calls `run` with the public
+// commands plus its own:
+//
+//	main :: proc() {cli.run(cli.public_commands(), my_commands)}
+//
+// It imports only core:, so editing the rest of the library never rebuilds the CLI.
 package cli
+
+import "core:encoding/json"
+import "core:flags"
+import "core:fmt"
+import "core:os"
+import "core:slice"
+import "core:strings"
+import "core:time"
+
+// A command: `run` parses its own arguments with `parse` and returns its result. `budget` is the seconds a warm run
+// may take (0: none, and `no_budget` says why).
+Command :: struct {
+	name:      string,
+	usage:     string, // the arguments, for `help`: "[game] [--mode dev|release|debug]"
+	summary:   string,
+	budget:    f64,
+	no_budget: string,
+	run:       proc(args: []string) -> Result,
+}
+
+// What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
+// returns, so it must not point at the command's stack).
+Result :: struct {
+	ok:      bool,
+	summary: string,
+	data:    any,
+}
+
+// CI allows this many times a command's budget (shared runners are slower and noisier).
+CI_BUDGET_SCALE :: 3
+
+State :: struct {
+	project:  Project,
+	pins:     Config,
+	commands: [dynamic]Command,
+	command:  ^Command,
+	argv:     []string, // the command line after the program name, --json removed
+	json:     bool,
+	start:    time.Tick,
+	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
+	env_keys: []string, // the variables .env set
+}
+
+state: State
+
+// The entry point: finds the project, keeps the binary current (it may rebuild and re-run itself), loads .env and
+// the pins, then runs the command named on the command line.
+run :: proc(command_sets: ..[]Command) -> ! {
+	args := os.args[1:]
+	state.project = find_project()
+	self_check(args)
+	pins, ok := config_load(join(state.project.unified, "pins.cfg"))
+	if !ok {
+		fatal("cannot read %s", join(state.project.unified, "pins.cfg"))
+	}
+	state.pins = pins
+	check_odin_version()
+	state.env_keys = env_load(state.project.root)
+	for set in command_sets {
+		for c in set {
+			if find_command(c.name) != nil {
+				fatal("command %s is defined twice", c.name)
+			}
+			append(&state.commands, c)
+		}
+	}
+	argv := make([dynamic]string)
+	for a in args {
+		if a == "--json" {
+			state.json = true
+		} else {
+			append(&argv, a)
+		}
+	}
+	state.argv = argv[:]
+	if len(argv) == 0 || argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
+		print_help()
+		os.exit(len(argv) == 0 ? 2 : 0)
+	}
+	cmd := find_command(argv[0])
+	if cmd == nil {
+		log("unified: unknown command %q (unified help lists them)", argv[0])
+		os.exit(2)
+	}
+	state.command = cmd
+	state.start = time.tick_now()
+	result := cmd.run(argv[1:])
+	finish(result)
+}
+
+find_command :: proc(name: string) -> ^Command {
+	for &c in state.commands {
+		if c.name == name {
+			return &c
+		}
+	}
+	return nil
+}
+
+print_help :: proc() {
+	fmt.println("unified: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
+	fmt.println("usage: unified <command> [options] [--json]   (unified <command> -h: its options and budget)\n")
+	width := 0
+	for c in state.commands {
+		width = max(width, len(c.name) + 1 + len(c.usage))
+	}
+	for c in state.commands {
+		line := strings.concatenate({c.name, " ", c.usage}, context.temp_allocator)
+		fmt.printf("  %-*s  %s\n", width, line, c.summary)
+	}
+	fmt.printf(
+		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
+		CI_BUDGET_SCALE,
+	)
+}
+
+budget_text :: proc(c: ^Command) -> string {
+	if c.budget > 0 {
+		return tprint("budget: %.0fs for a warm run (%dx in CI)", c.budget, CI_BUDGET_SCALE)
+	}
+	return tprint("budget: none (%s)", c.no_budget)
+}
+
+// Parses a command's arguments into `opts` (core:flags, Unix style: --name value, --name=value, positionals, and
+// everything after -- into an `overflow` field). -h prints the usage and exits; a bad argument exits 2.
+parse :: proc(opts: ^$T, args: []string) {
+	if slice.contains(args, "-h") || slice.contains(args, "--help") {
+		c := state.command
+		fmt.printf("usage: unified %s %s\n%s\n%s\n\n", c.name, c.usage, c.summary, budget_text(c))
+		flags.write_usage(os.to_stream(os.stdout), T, tprint("unified %s", c.name), .Unix)
+		os.exit(0)
+	}
+	if err := flags.parse(opts, args, .Unix); err != nil {
+		usage_error(err)
+	}
+}
+
+@(private)
+usage_error :: proc(err: flags.Error) -> ! {
+	msg := ""
+	switch e in err {
+	case flags.Parse_Error:
+		msg = e.message
+	case flags.Validation_Error:
+		msg = e.message
+	case flags.Open_File_Error:
+		msg = tprint("cannot open %s", e.filename)
+	case flags.Help_Request:
+		msg = "-h prints the usage"
+	}
+	log("unified %s: %s (unified %s -h)", state.command.name, msg, state.command.name)
+	os.exit(2)
+}
+
+// Stops with a usage error (exit 2).
+usage :: proc(format: string, args: ..any) -> ! {
+	log("unified %s: %s (unified %s -h)", state.command.name, tprint(format, ..args), state.command.name)
+	os.exit(2)
+}
+
+// Ends the run: the result on stdout, the time against the budget on stderr and in .out/timings.json, the exit code.
+@(private)
+finish :: proc(r: Result) -> ! {
+	secs := time.duration_seconds(time.tick_since(state.start))
+	report_timing(secs, r.ok)
+	if state.json {
+		Out :: struct {
+			command: string,
+			ok:      bool,
+			summary: string,
+			seconds: f64,
+			cold:    []string,
+		}
+		head, err := json.marshal(Out{state.command.name, r.ok, r.summary, round2(secs), state.cold[:]})
+		data := transmute([]byte)string("null")
+		if err == nil && r.data != nil {
+			data, err = json.marshal(r.data)
+		}
+		if err != nil {
+			log("unified: cannot encode the result as JSON: %v", err)
+			os.exit(1)
+		}
+		// {"command":...,"cold":[...],"data":<the command's data>}
+		fmt.printf("%s,\"data\":%s}\n", string(head[:len(head) - 1]), string(data))
+	} else if r.summary != "" {
+		fmt.println(r.summary)
+	}
+	os.exit(r.ok ? 0 : 1)
+}
+
+// Stops the command as failed: the message on stderr (and in the --json result).
+fatal :: proc(format: string, args: ..any) -> ! {
+	msg := tprint(format, ..args)
+	if state.command == nil {
+		log("unified: %s", msg)
+		os.exit(1)
+	}
+	log("unified %s: %s", state.command.name, msg)
+	finish({ok = false, summary = msg})
+}
+
+// Marks the run cold: it built or fetched `what` first, so it isn't held to its budget.
+cold :: proc(what: string) {
+	append(&state.cold, strings.clone(what))
+}
+
+in_ci :: proc() -> bool {
+	return os.get_env("CI", context.temp_allocator) == "true"
+}
+
+@(private)
+report_timing :: proc(secs: f64, ok: bool) {
+	c := state.command
+	note := ""
+	Entry :: struct {
+		seconds: f64,
+		budget:  f64,
+		over:    bool,
+		cold:    []string,
+		ok:      bool,
+	}
+	entry := Entry {
+		seconds = round2(secs),
+		cold    = state.cold[:],
+		ok      = ok,
+	}
+	if c.budget > 0 {
+		allowed := c.budget * (in_ci() ? CI_BUDGET_SCALE : 1)
+		entry.budget = allowed
+		if len(state.cold) > 0 {
+			note = tprint(
+				" (budget %.0fs; cold run, not held to it: %s)",
+				allowed,
+				strings.join(state.cold[:], ", ", context.temp_allocator),
+			)
+		} else if secs > allowed {
+			entry.over = true
+			note = tprint(" (budget %.0fs)", allowed)
+			log(
+				"unified: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
+				strings.join(state.argv, " ", context.temp_allocator),
+				secs,
+				allowed,
+			)
+		} else {
+			note = tprint(" (budget %.0fs)", allowed)
+		}
+	}
+	what := strings.join(state.argv, " ", context.temp_allocator)
+	log("unified: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
+	// .out/timings.json keeps each command line's last run (CI's job summary shows it).
+	path := join(state.project.out, "timings.json")
+	timings: map[string]Entry
+	if data, err := os.read_entire_file(path, context.allocator); err == nil {
+		_ = json.unmarshal(data, &timings)
+	}
+	timings[what] = entry
+	if data, err := json.marshal(timings, {pretty = true}); err == nil {
+		_ = write_file(path, data)
+	}
+}
+
+round2 :: proc(x: f64) -> f64 {
+	return f64(i64(x * 100 + 0.5)) / 100
+}
+
+// Progress and errors go to stderr; stdout carries only the result.
+log :: proc(format: string, args: ..any) {
+	fmt.eprintf(format, ..args)
+	fmt.eprintln()
+}
+
+tprint :: proc(format: string, args: ..any) -> string {
+	return fmt.aprintf(format, ..args)
+}

@@ -1,0 +1,22 @@
+#!/bin/sh
+# The unified CLI (src/cli/SPEC.md): runs the binary .out/cli/current names. Only when there is none yet, it builds
+# one with the odin on PATH; from then on the binary keeps itself current.
+case "$0" in
+*/*) root=${0%/*} ;;
+*) root=. ;;
+esac
+cli="$root/.out/cli"
+if [ -f "$cli/current" ]; then
+	read -r name < "$cli/current"
+	[ -x "$cli/$name" ] && exec "$cli/$name" "$@"
+fi
+if ! command -v odin > /dev/null 2>&1; then
+	echo "unified: odin is not on PATH: install the Odin release pinned in pins.cfg (README.md, Requirements)" >&2
+	exit 1
+fi
+src="$root/src"
+[ -d "$root/unified/src/cli" ] && src="$root/unified/src"
+mkdir -p "$cli"
+odin build "$root/tools" "-collection:unified=$src" -o:minimal "-out:$cli/unified-bootstrap" \
+	-export-dependencies:json "-export-dependencies-file:$cli/unified-bootstrap.deps.json" || exit 1
+exec "$cli/unified-bootstrap" "$@"
