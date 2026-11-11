@@ -52,7 +52,6 @@ Graph :: struct {
 	lo, hi:  f32, // Lines: the scale (lo == hi: from 0 to a round value above the largest shown)
 	ring:    [FRAME_HIST][MAX_PARTS]f32, // by frame index (Marks: 1 = set)
 	written: int, // the frame index last written (a frame without a sample reads 0)
-	last:    [MAX_PARTS]f32, // the latest values (Marks: the count since the last text update)
 	ctl:     gd.Control,
 	ci:      gd.RID, // our own canvas item under the control's (Godot never clears it)
 	title:   gd.Label,
@@ -74,9 +73,13 @@ Overlay :: struct {
 	buttons: gd.VBoxContainer, // the toggle rows (the only part of the overlay that takes clicks)
 	toggles: [Panel_Kind]gd.Button,
 	gbar:    gd.HBoxContainer, // the group toggles
-	stats:   gd.Label,
-	text:    strings.Builder,
+	corner:  int, // where the overlay sits: 0 top right, 1 top left, 2 bottom left, 3 bottom right
+	grid:    gd.GridContainer, // the stat lines: key, value
+	keys:    [dynamic]gd.Label,
+	vals:    [dynamic]gd.Label,
 	frames:  [FRAME_HIST]f32, // ms, by frame index
+	ends:    [FRAME_HIST]f64, // when each frame ended, ms since the first (the time axis)
+	now_ms:  f64,
 	frame_n: int,
 	graphs:  [dynamic]^Graph,
 	groups:  [dynamic]Group,
@@ -101,6 +104,7 @@ build_overlay :: proc() {
 	gd.Control_set_mouse_filter(o.panel, .MOUSE_FILTER_IGNORE)
 	gd.Control_set_custom_minimum_size(o.panel, {OVERLAY_W, 0})
 	o.box = add(o.panel, gd.VBoxContainer_new())
+	gd.Control_add_theme_constant_override(o.box, "separation", 6)
 	gd.Control_set_mouse_filter(o.box, .MOUSE_FILTER_IGNORE)
 	o.buttons = add(o.box, gd.VBoxContainer_new())
 	gd.Control_set_mouse_filter(o.buttons, .MOUSE_FILTER_IGNORE)
@@ -108,6 +112,13 @@ build_overlay :: proc() {
 	prow := add(o.buttons, gd.HBoxContainer_new())
 	gd.BoxContainer_set_alignment(prow, .ALIGNMENT_END)
 	gd.Control_set_mouse_filter(prow, .MOUSE_FILTER_IGNORE)
+	corner := button(prow, "◳", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
+		s.overlay.corner = (s.overlay.corner + 1) % 4
+		overlay_place()
+		return {}
+	})
+	gd.Control_set_theme_type_variation(corner, "DevToggle")
+	gd.Control_set_tooltip_text(corner, "move to the next corner")
 	names := [Panel_Kind]string {
 		.Inspector  = "inspect",
 		.Conditions = "conditions",
@@ -128,8 +139,11 @@ build_overlay :: proc() {
 	o.gbar = add(o.buttons, gd.HBoxContainer_new())
 	gd.BoxContainer_set_alignment(o.gbar, .ALIGNMENT_END)
 	gd.Control_set_mouse_filter(o.gbar, .MOUSE_FILTER_IGNORE)
-	o.stats = label(o.box, "")
-	gd.Control_add_theme_font_override(o.stats, "font", s.mono)
+	o.grid = add(o.box, gd.GridContainer_new())
+	gd.GridContainer_set_columns(o.grid, 2)
+	gd.Control_set_mouse_filter(o.grid, .MOUSE_FILTER_IGNORE)
+	gd.Control_add_theme_constant_override(o.grid, "h_separation", 8)
+	gd.Control_add_theme_constant_override(o.grid, "v_separation", 0)
 	o.points = gd.PackedVector2Array_new0()
 	o.colors = gd.PackedColorArray_new0()
 	o.indices = gd.PackedInt32Array_new0()
@@ -151,7 +165,8 @@ overlay_shutdown :: proc() {
 	delete(o.graphs)
 	for gr in o.groups do delete(gr.name)
 	delete(o.groups)
-	strings.builder_destroy(&o.text)
+	delete(o.keys)
+	delete(o.vals)
 	gd.PackedVector2Array_destroy(&o.points)
 	gd.PackedColorArray_destroy(&o.colors)
 	gd.PackedInt32Array_destroy(&o.indices)
@@ -160,11 +175,37 @@ overlay_shutdown :: proc() {
 	gd.PackedFloat32Array_destroy(&o.empty_f)
 }
 
-// Top right of the game window.
+// In its corner of the game window (◳ moves it on when the game's own UI is there).
 @(private)
 overlay_place :: proc() {
 	size := gd.Control_get_size(s.overlay.panel)
-	gd.Control_set_position(s.overlay.panel, {s.view.x - size.x - 4, 4})
+	right := s.overlay.corner == 0 || s.overlay.corner == 3
+	bottom := s.overlay.corner >= 2
+	gd.Control_set_position(s.overlay.panel, {right ? s.view.x - size.x - 4 : 4, bottom ? s.view.y - size.y - 4 : 4})
+}
+
+// The stat lines as a grid: a dim key, a monospace value (rows are kept and reused).
+@(private)
+stats_update :: proc() {
+	o := &s.overlay
+	for len(o.keys) < len(s.stats) {
+		k := label(o.grid, "")
+		gd.Control_set_theme_type_variation(k, "DevKey")
+		gd.Control_add_theme_font_override(k, "font", s.mono)
+		v := label(o.grid, "")
+		gd.Control_add_theme_font_override(v, "font", s.mono)
+		append(&o.keys, k)
+		append(&o.vals, v)
+	}
+	for i in 0 ..< len(o.keys) {
+		on := i < len(s.stats)
+		gd.CanvasItem_set_visible(o.keys[i], on)
+		gd.CanvasItem_set_visible(o.vals[i], on)
+		if on {
+			gd.Label_set_text(o.keys[i], s.stats[i][0])
+			gd.Label_set_text(o.vals[i], s.stats[i][1])
+		}
+	}
 }
 
 @(private)
@@ -224,7 +265,7 @@ graph_make :: proc(name: string, kind: Graph_Kind, group: string, n: int) -> ^Gr
 	gd.Control_set_position(row, {2, -1})
 	gd.Control_set_mouse_filter(row, .MOUSE_FILTER_IGNORE)
 	gd.Control_add_theme_constant_override(row, "separation", 6)
-	g.title = label(row, kind == .Frame ? "" : name)
+	g.title = label(row, name)
 	gd.Control_set_theme_type_variation(g.title, "DevGraphLabel")
 	if kind != .Frame {
 		for i in 0 ..< MAX_PARTS {
@@ -241,7 +282,7 @@ graph_make :: proc(name: string, kind: Graph_Kind, group: string, n: int) -> ^Gr
 graph_h :: proc(g: ^Graph) -> f32 {
 	switch g.kind {
 	case .Frame:
-		return FRAME_H
+		return LEGEND_H + FRAME_H
 	case .Marks:
 		return LEGEND_H + f32(MAX_PARTS) * LANE_H
 	case .Lines, .Stack:
@@ -275,10 +316,7 @@ graph_lines :: proc(name: string, values: []f32, legend: []string, lo, hi: f32, 
 		graph_names(g, legend)
 	}
 	row := graph_slot(g)
-	for v, i in values[:min(len(values), g.n)] {
-		row[i] = v
-		g.last[i] = v
-	}
+	for v, i in values[:min(len(values), g.n)] do row[i] = v
 }
 
 @(private)
@@ -289,10 +327,7 @@ graph_stack :: proc(name: string, parts: []f32, legend: []string, group: string)
 		graph_names(g, legend)
 	}
 	row := graph_slot(g)
-	for v, i in parts[:min(len(parts), g.n)] {
-		row[i] = max(v, 0)
-		g.last[i] = v
-	}
+	for v, i in parts[:min(len(parts), g.n)] do row[i] = max(v, 0)
 }
 
 @(private)
@@ -310,7 +345,6 @@ graph_mark :: proc(strip, lane: string, group: string) {
 		g.n += 1
 	}
 	graph_slot(g)[i] = 1
-	g.last[i] += 1
 }
 
 // Before the frame index advances: frames without a sample read 0.
@@ -319,6 +353,8 @@ frame_time_add :: proc(ms: f32) {
 	o := &s.overlay
 	for g in o.graphs do if g.kind != .Frame do graph_slot(g)
 	o.frames[o.frame_n % FRAME_HIST] = ms
+	o.now_ms += f64(ms)
+	o.ends[o.frame_n % FRAME_HIST] = o.now_ms
 	o.frame_n += 1
 }
 
@@ -328,12 +364,7 @@ frame_time_add :: proc(ms: f32) {
 overlay_update :: proc(slow: bool) {
 	o := &s.overlay
 	if slow {
-		b := &o.text
-		strings.builder_reset(b)
-		last, avg, worst := frame_summary()
-		fmt.sbprintf(b, "frame %5.2f ms  avg %5.2f  max %5.1f  ui %.2f", last, avg, worst, s.ui_ms)
-		for line in s.stats do fmt.sbprintf(b, "\n%s", line)
-		gd.Label_set_text(o.stats, strings.to_string(b^))
+		stats_update()
 		for g in o.graphs do if o.groups[g.group].shown do graph_text(g)
 	}
 	o.w = clamp(int(gd.Control_get_size(o.graphs[0].ctl).x), 1, MAX_W)
@@ -357,23 +388,30 @@ overlay_update :: proc(slow: bool) {
 graph_text :: proc(g: ^Graph) {
 	switch g.kind {
 	case .Frame:
+		last, avg, worst := frame_summary()
+		gd.Label_set_text(
+			g.title,
+			fmt.tprintf("frame %.2f ms   avg %.2f   max %.1f   dev ui %.2f", last, avg, worst, s.ui_ms),
+		)
 	case .Stack:
+		// per-frame averages over the last second (one frame alone may have no tick at all)
+		m, _ := recent(g)
 		total: f32
-		for i in 0 ..< g.n do total += g.last[i]
+		for i in 0 ..< g.n do total += m[i]
 		gd.Label_set_text(g.title, fmt.tprintf("%s %s", g.name, num(total)))
-		for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(g.last[i])))
+		for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(m[i])))
 	case .Lines:
+		m, _ := recent(g)
 		if g.n == 1 {
-			gd.Label_set_text(g.title, fmt.tprintf("%s %s", g.name, num(g.last[0])))
+			gd.Label_set_text(g.title, fmt.tprintf("%s %s", g.name, num(m[0])))
 		} else {
-			for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(g.last[i])))
+			for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(m[i])))
 		}
 	case .Marks:
-		// each lane's count since the last update
+		// each lane's count in the last second
+		_, n := recent(g)
 		for i in 0 ..< g.n {
-			n := int(g.last[i])
-			gd.Label_set_text(g.legend[i], n > 0 ? fmt.tprintf("%s %d", g.names[i], n) : g.names[i])
-			g.last[i] = 0
+			gd.Label_set_text(g.legend[i], n[i] > 0 ? fmt.tprintf("%s %d/s", g.names[i], n[i]) : g.names[i])
 		}
 	}
 }
@@ -409,20 +447,26 @@ frame_summary :: proc() -> (last, avg, worst: f32) {
 	return
 }
 
-// Which frames each pixel column covers, newest at the right edge.
+// Which frames each pixel column covers, newest at the right edge. Columns are fixed slices of absolute time (the
+// frames' end times), so a column's frames don't change as the graph scrolls: it moves by whole columns instead of
+// re-slicing every frame, which made the bars jump about.
 @(private)
 map_columns :: proc() {
 	o := &s.overlay
 	for c in 0 ..< o.w do o.cols[c] = {1, 0}
-	px_per_ms := f32(o.w) / FRAME_SPAN_MS
-	x := f32(o.w)
-	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST) && x > 0; i -= 1 {
-		x0 := x - o.frames[i % FRAME_HIST] * px_per_ms
-		for c in max(int(x0), 0) ..< min(int(x + 0.999), o.w) {
+	ms_per_col := f64(FRAME_SPAN_MS) / f64(o.w)
+	now_col := i64(o.now_ms / ms_per_col) // the column of the newest moment, drawn at the right edge
+	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST); i -= 1 {
+		end := o.ends[i % FRAME_HIST]
+		start := end - f64(o.frames[i % FRAME_HIST])
+		last_col := i64(end / ms_per_col)
+		if now_col - last_col >= i64(o.w) do break // older than the graph
+		for col := i64(start / ms_per_col); col <= last_col; col += 1 {
+			c := o.w - 1 - int(now_col - col)
+			if c < 0 do continue
 			if o.cols[c][0] > o.cols[c][1] do o.cols[c] = {i, i}
 			else do o.cols[c][0] = i
 		}
-		x = x0
 	}
 }
 
@@ -463,11 +507,11 @@ draw_frame :: proc(g: ^Graph) {
 		col :=
 			ms <= 16.7 ? gd.Color{0.4, 0.78, 0.45, 1} : ms <= 33.4 ? gd.Color{0.95, 0.75, 0.3, 1} : gd.Color{0.95, 0.35, 0.3, 1}
 		h := min(ms / top, 1) * FRAME_H
-		quad(f32(c), FRAME_H - h, 1, h, col)
+		quad(f32(c), LEGEND_H + FRAME_H - h, 1, h, col)
 	}
 	quads_end(g)
 	if top > 16.67 { 	// the 60 Hz budget, when it is on the scale
-		y := FRAME_H - 16.67 / top * FRAME_H
+		y := LEGEND_H + FRAME_H - 16.67 / top * FRAME_H
 		gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, y}, {f32(o.w), 1}}, {1, 1, 1, 0.25})
 	}
 }
@@ -525,8 +569,7 @@ draw_lines :: proc(g: ^Graph) {
 	lo, hi := g.lo, g.hi
 	if lo == hi do lo, hi = 0, nice_ceil(top)
 	gd.RenderingServer_canvas_item_clear(s.rs, g.ci)
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {f32(o.w), LEGEND_H}}, {0, 0, 0, 0.45})
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, LEGEND_H}, {f32(o.w), GRAPH_H}}, {0, 0, 0, 0.3})
+	graph_back(g)
 	gd.PackedColorArray_resize(&o.colors, 1)
 	for p in 0 ..< g.n {
 		gd.PackedVector2Array_resize(&o.points, o.w)
@@ -597,9 +640,7 @@ quad :: proc(x, y, w, h: f32, col: gd.Color) {
 quads_end :: proc(g: ^Graph) {
 	o := &s.overlay
 	gd.RenderingServer_canvas_item_clear(s.rs, g.ci)
-	band: f32 = g.kind == .Frame ? 0 : LEGEND_H
-	if band > 0 do gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {f32(o.w), band}}, {0, 0, 0, 0.45})
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, band}, {f32(o.w), graph_h(g) - band}}, {0, 0, 0, 0.3})
+	graph_back(g)
 	if quad_n == 0 do return
 	gd.PackedVector2Array_resize(&o.points, quad_n * 4)
 	gd.PackedColorArray_resize(&o.colors, quad_n * 4)
@@ -615,4 +656,31 @@ quads_end :: proc(g: ^Graph) {
 		o.empty_f,
 		{},
 	)
+}
+
+// A graph's background: a thin rule on top (it separates the graphs), the legend band, the plot area.
+@(private)
+graph_back :: proc(g: ^Graph) {
+	w := f32(s.overlay.w)
+	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {w, LEGEND_H}}, {1, 1, 1, 0.06})
+	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {w, 1}}, {1, 1, 1, 0.14})
+	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, LEGEND_H}, {w, graph_h(g) - LEGEND_H}}, {0, 0, 0, 0.35})
+}
+
+// Over the last second: each part's mean per frame, and how many frames had it set (marks).
+@(private)
+recent :: proc(g: ^Graph) -> (mean: [MAX_PARTS]f32, count: [MAX_PARTS]int) {
+	o := &s.overlay
+	frames := 0
+	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST); i -= 1 {
+		if o.now_ms - o.ends[i % FRAME_HIST] >= 1000 do break
+		for p in 0 ..< g.n {
+			v := g.ring[i % FRAME_HIST][p]
+			mean[p] += v
+			if v > 0 do count[p] += 1
+		}
+		frames += 1
+	}
+	for p in 0 ..< g.n do mean[p] /= f32(max(frames, 1))
+	return
 }

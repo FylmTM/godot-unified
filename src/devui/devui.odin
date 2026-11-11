@@ -73,7 +73,7 @@ State :: struct {
 	events:    Events_Panel,
 	cond:      Conditions_Panel,
 	note:      Note,
-	stats:     [dynamic]string,
+	stats:     [dynamic][2]string, // this frame's stat lines: key, value
 	logs:      [LOG_ROWS]Log_Row,
 	log_n:     int,
 	ui_ms:     f32,
@@ -212,7 +212,7 @@ mark :: proc(strip, lane: string, group := "game") {
 // A line in the overlay this frame.
 stat :: proc(label: string, format: string, args: ..any) {
 	if !s.inited || !visible do return
-	append(&s.stats, fmt.aprintf("%s  %s", label, fmt.tprintf(format, ..args), allocator = context.temp_allocator))
+	append(&s.stats, [2]string{fmt.tprint(label), fmt.tprintf(format, ..args)})
 }
 
 // A row in the event log (the newest 1000 are kept).

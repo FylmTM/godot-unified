@@ -43,6 +43,7 @@ HSlider
 HBoxContainer
 VBoxContainer
 PanelContainer
+GridContainer
 Tree
 TreeItem
 TextEdit

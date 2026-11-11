@@ -36,14 +36,16 @@ devui.wants_mouse() / wants_keyboard()
 - **Theme.** Complete and its own (`theme.odin`): a game may change Godot's default theme in place, and theme
   lookup ends there, so every item the dev UI uses is set. Fonts are the system's (sans-serif; monospace for the
   overlay's numbers).
-- **Overlay**, top right: the panel toggles, the graph-group toggles, the stats, the graphs. Clicks go through it,
-  except on its buttons.
+- **Overlay**, top right (◳ moves it to the next corner, when the game's own UI is there): the panel toggles, the
+  graph-group toggles, the stat lines as a key / value grid, the graphs. Nearly opaque, so it reads over game UI.
+  Clicks go through it, except on its buttons.
 - **Graphs** share one time axis, real time (the last 2 s): each frame takes a width proportional to how long it
-  lasted, so a hitch covers as much of a graph as the time it cost and the graphs line up. A pixel column shows the
+  lasted, so a hitch covers as much of a graph as the time it cost and the graphs line up. Columns are fixed slices
+  of absolute time, so the graphs scroll by whole columns instead of re-slicing (which made them jump). A pixel column shows the
   frames overlapping it: the frame graph and stacks their longest frame, lines their largest value, marks any. The
   frame graph is coloured green / yellow / red against 16.7 and 33.3 ms; scales pick the smallest round step that
-  fits. A legend band above each graph names its parts with their latest values (marks: counts since the last
-  update). Graphs belong to groups the overlay toggles; only `frame` starts shown. The host's groups
+  fits. Each graph has its title and legend in a band above it: its parts with their average per frame over the
+  last second (marks: per second); a thin rule separates the graphs. Graphs belong to groups the overlay toggles; only `frame` starts shown. The host's groups
   (`godot_host/dev.odin`): `frame` (frame time; main thread: host, dev UI, game, render), `sim` (sim time and ticks
   stepped: verified, re-simulated, predicted; ticks ahead; marks: rollback, late input, stall), `net` (rtt, kB/s in
   and out, time since the relay's last message), plus a render stats line (draw calls, primitives, video memory,

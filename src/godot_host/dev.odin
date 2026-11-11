@@ -103,16 +103,16 @@ when DEVUI {
 		dev_main_thread()
 		if devui.visible && s.frame != nil {
 			f := s.frame
-			devui.stat("tick", "%d  verified %d  slot %d", f.tick, f.verified, f.local_slot)
+			devui.stat("tick", "%d   verified %d   slot %d", f.tick, f.verified, f.local_slot)
 			devui.stat(
 				"net",
-				"rtt %.0f ms  delay %d  rollbacks %d  resim %d",
+				"rtt %.0f ms   delay %d   rollbacks %d   resim %d",
 				f.net.rtt_ms,
 				f.net.delay,
 				f.net.rollbacks,
 				f.net.resim_ticks,
 			)
-			devui.stat("views", "%d scene  %d bulk  sync %.0f us", f.n_scene, f.n_bulk, s.sync_us)
+			devui.stat("views", "%d scene   %d bulk   sync %.0f µs", f.n_scene, f.n_bulk, s.sync_us)
 			if st := api.state(); st != nil do devui.inspect("predicted state (read-only)", st)
 		} else if devui.visible {
 			devui.stat("session", "%s", STATUS_NAMES[s.status])
@@ -121,7 +121,7 @@ when DEVUI {
 			p := gd.Performance_singleton()
 			devui.stat(
 				"render",
-				"%.0f draws  %.0fk prims  %.0f MB video  %.0f nodes",
+				"%.0f draws   %.0fk prims   %.0f MB video   %.0f nodes",
 				gd.Performance_get_monitor(p, .RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 				gd.Performance_get_monitor(p, .RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000,
 				gd.Performance_get_monitor(p, .RENDER_VIDEO_MEM_USED) / (1 << 20),
