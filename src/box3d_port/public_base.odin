@@ -7,7 +7,7 @@ package box3d_port
 // (C only). B3_ASSERT is Odin's assert, B3_BREAKPOINT is intrinsics.debug_trap (core.odin).
 
 // unified: validation is on in debug builds unless -define:BOX3D_VALIDATE=false (C: BOX3D_VALIDATE and !NDEBUG).
-ENABLE_VALIDATION :: #config(BOX3D_VALIDATE, ODIN_DEBUG)
+ENABLE_VALIDATION :: #config(BOX3D_VALIDATE, B3_DEBUG)
 // unified end
 
 // Base

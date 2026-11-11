@@ -10,7 +10,7 @@ import "core:mem"
 
 // unified: the platform, CPU, SIMD and compiler detection macros are Odin's ODIN_OS/ODIN_ARCH; the port has one
 // 4-wide SIMD path on every platform (PORTING.md, SIMD).
-B3_DEBUG :: ODIN_DEBUG
+B3_DEBUG :: #config(BOX3D_DEBUG, false) // the C library is built with NDEBUG; -define:BOX3D_DEBUG=true turns on its debug checks
 // unified end
 
 AtomicInt :: struct {
