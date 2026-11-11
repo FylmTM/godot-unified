@@ -242,7 +242,6 @@ func _finish() -> void:
 		print(cap.report())
 	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "ms": ms, "steps": _steps, "failed": _failed, "errors": cap.errors}))
 	OS.remove_logger(cap)
-	print("music synthesis: %d us last frame" % root.get_node(^"Sfx").music.cost_us)
 	root.get_node(^"Game").quit_app(0 if ok else 1)  # stops the audio first: a live playback leaks at exit
 
 
@@ -350,8 +349,6 @@ func _measure_frames(what: String) -> void:
 	var frame_total := 0.0
 	var frame_max := 0.0
 	var mock_total := 0.0
-	var music_total := 0.0
-	var music: Node = root.get_node(^"Sfx").music
 	var t := Time.get_ticks_usec()
 	for i in 60:
 		await process_frame
@@ -361,9 +358,8 @@ func _measure_frames(what: String) -> void:
 		frame_total += ms
 		frame_max = maxf(frame_max, ms)
 		mock_total += mock.cost_us / 1000.0
-		music_total += music.cost_us
-	print("  perf  %s: frame %.2f ms mean, %.2f ms max; mock session %.2f ms; music %d us (means; time scale %.0f)" % [
-		what, frame_total / 60.0, frame_max, mock_total / 60.0, roundi(music_total / 60.0), Engine.time_scale])
+	print("  perf  %s: frame %.2f ms mean, %.2f ms max; mock session %.2f ms (means; time scale %.0f)" % [
+		what, frame_total / 60.0, frame_max, mock_total / 60.0, Engine.time_scale])
 
 
 func _player_views() -> int:

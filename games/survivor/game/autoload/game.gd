@@ -94,7 +94,6 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	hud = session.hud()
-	Sfx.music.set_intensity(1.0 if hud.get("phase", "") == "match" and flow == Flow.PLAYING else 0.0)
 	_frame_ms = lerpf(_frame_ms, delta * 1000.0 / maxf(Engine.time_scale, 0.001), 0.05)
 	if _fps_label.visible:
 		_fps_label.text = "%d FPS  ·  %.1f ms" % [roundi(1000.0 / maxf(_frame_ms, 0.01)), _frame_ms]
