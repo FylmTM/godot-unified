@@ -85,15 +85,15 @@ the game's extension wires them (`init` first, with the game library's directory
 
 ## Crossplay (macOS ↔ Windows over the internet)
 
-`.github/workflows/eos-crossplay.yml` (manual, Windows runner only): a Mac hosts, the runner joins by code and plays
-the scripted session; both sides print their verified checksums. Mac side, the game itself:
+By hand, on two machines (no CI job): a Mac hosts, a Windows machine joins by code and plays the scripted session;
+both sides print their verified checksums. Mac side, the game itself:
 `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`
-(`UNIFIED_EOS_RELAYS=force` to force Epic's relays); then `gh workflow run eos-crossplay.yml -f code=XXXXXX -f
-ticks=15360 -f client=source|export [-f relays=force] [-f release_run=ID]`. The runner joins ~1–1.5 min later
-(a late join with a snapshot). Compare the `checksums` of the host's `unified: result` line with the artifact's
-`client.json`. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
-`games/survivor/simulation/extension/extension.odin`) works too where the binary owns the keychain entry (not on a
-Mac where Godot.app made the device ID).
+(`UNIFIED_EOS_RELAYS=force` to force Epic's relays). Windows side, the release headless binary:
+`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360 --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
+`games/survivor/simulation/extension/extension.odin`; `--relays force` to force the relays), or the exported game
+from a release zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
+sides' result lines. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` hosts too where the
+binary owns the keychain entry (not on a Mac where Godot.app made the device ID).
 
 A run passes when every common verified checksum matches (0 mismatches). The measured runs so far (RTT, input
 delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS review issue, #11.
