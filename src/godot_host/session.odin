@@ -214,12 +214,15 @@ session_ready :: proc(s: ^Session_Node) {
 		s.quit_at_end = s.args.quit
 		if s.args.lag_ms > 0 {
 			l := f32(s.args.lag_ms)
-			set_netsim({true, l, l / 4, 1})
+			set_netsim({true, {l, l / 4, 1}, {l, l / 4, 1}})
 		}
 		read_app_version()
 	}
 	lag: Netsim_Settings
-	if s.args.lag_ms > 0 do lag = {true, f32(s.args.lag_ms), f32(s.args.lag_ms) / 4, 1}
+	if s.args.lag_ms > 0 {
+		l := f32(s.args.lag_ms)
+		lag = {true, {l, l / 4, 1}, {l, l / 4, 1}}
+	}
 	dev_init(s.args.devui, lag)
 	switch {
 	case s.args.autostart:
@@ -334,6 +337,7 @@ emit_status :: proc(s: ^Session_Node, st: Status_Kind, detail: string) {
 @(private)
 session_process :: proc(s: ^Session_Node, dt: f64) {
 	if is_editor() || active != s do return
+	dev_begin()
 	sample_input(dev_wants_keyboard())
 	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
 	t0 := time.tick_now()

@@ -3,19 +3,22 @@
 //   devui.init({feedback_dir = ..., on_feedback = ...})   main thread, once the scene tree exists
 //   every frame, before devui.frame(dt):
 //     devui.inspect("state", &frame_state)     RTTI tree of any value (read-only)
-//     devui.plot("ping ms", ping, 0, 300)       a sample for a graph in the overlay
+//     devui.plot("ping ms", ping, 0, 300, "net")  a line graph sample (group "net"; groups are toggled in the overlay)
+//     devui.lines("kB/s", {i, o}, {"in", "out"}) several lines in one graph
+//     devui.stack("sim ms", {v, r}, {"verified", "resim"})   stacked bars
+//     devui.mark("events", "rollback")         a mark in a strip (a lane per name)
 //     devui.stat("tick", "%d", tick)            a line in the overlay
 //     devui.log(tick, "barrel exploded")        a row in the event log (kept across frames)
 //   devui.frame(dt)                            updates the panels (and the frame-time graph from dt)
 //   devui.shutdown()
 //
-// Retained: the controls are built once, frame() updates values (text at 10 Hz, graphs every frame). Sizes are in
+// Graphs share the frame graph's time axis (overlay.odin). Retained: the controls are built once, frame() updates values (text at 10 Hz, graphs every frame). Sizes are in
 // screen points whatever the game's stretch: the layer undoes the root viewport's canvas stretch. Godot routes the
 // input: a click on a panel stops there, the overlay lets clicks through, a focused text field takes the keyboard
 // (wants_keyboard tells the host, whose game input is polled).
 //
 // Files: panel.odin (the floating panel), overlay.odin (top right: toggles, stats, graphs), inspector.odin,
-// panels.odin (netsim, events, note), theme.odin.
+// panels.odin (conditions, events, note), theme.odin.
 package devui
 
 import "core:fmt"
@@ -32,16 +35,22 @@ Config :: struct {
 	visible:      bool, // start shown
 }
 
-Netsim :: struct {
-	enabled:    bool,
+// One direction of the network simulation.
+Netsim_Dir :: struct {
 	latency_ms: f32,
 	jitter_ms:  f32,
 	loss_pct:   f32,
 }
 
+Netsim :: struct {
+	enabled: bool,
+	up:      Netsim_Dir, // to the relay
+	down:    Netsim_Dir, // from it
+}
+
 visible: bool
 netsim: Netsim
-netsim_changed: bool // set by the Netsim panel; the host clears it after applying
+netsim_changed: bool // set by the Conditions panel; the host clears it after applying
 
 @(private)
 State :: struct {
@@ -62,7 +71,7 @@ State :: struct {
 	overlay:   Overlay,
 	insp:      Inspector,
 	events:    Events_Panel,
-	net:       Netsim_Panel,
+	cond:      Conditions_Panel,
 	note:      Note,
 	stats:     [dynamic]string,
 	logs:      [LOG_ROWS]Log_Row,
@@ -115,7 +124,7 @@ init :: proc(cfg: Config) {
 	theme_init()
 	build_overlay()
 	build_inspector()
-	build_netsim()
+	build_conditions()
 	build_events()
 	build_note()
 	// deferred: init usually runs inside a node's _ready, while the root is busy adding children
@@ -162,12 +171,12 @@ frame_stats :: proc() -> (items: int, ui_ms: f32) {
 
 // True while the cursor is over a panel or the overlay's buttons (Godot already stops those clicks there).
 wants_mouse :: proc() -> bool {
-	return s.inited && s.shown && over_ui(points(s.mouse))
+	return s.inited && (s.shown || s.panels[.Note].open) && over_ui(points(s.mouse))
 }
 
 // True while a dev UI text field (or a popped-out panel window) has the keyboard: polled game input should
 // ignore keys then. Godot routes the events themselves.
-wants_keyboard :: proc() -> bool {return s.inited && s.shown && s.want_key}
+wants_keyboard :: proc() -> bool {return s.inited && s.want_key}
 
 // Shows `data` (any value, read by RTTI) in the Inspector this frame.
 inspect :: proc(name: string, data: any, editable := false) {
@@ -175,10 +184,29 @@ inspect :: proc(name: string, data: any, editable := false) {
 	inspector_set(name, data)
 }
 
-// Adds a sample to the overlay graph `name` (created on first use; lo == hi: auto scale).
-plot :: proc(name: string, v: f32, lo: f32 = 0, hi: f32 = 0) {
+// This frame's sample of the line graph `name` in `group` (created on first use; lo == hi: from 0 to a round value
+// above the largest shown).
+plot :: proc(name: string, v: f32, lo: f32 = 0, hi: f32 = 0, group := "game") {
 	if !s.inited do return
-	graph_add(name, v, lo, hi)
+	graph_lines(name, {v}, nil, lo, hi, group)
+}
+
+// Up to 4 lines in one graph, named by `legend`.
+lines :: proc(name: string, values: []f32, legend: []string, lo: f32 = 0, hi: f32 = 0, group := "game") {
+	if !s.inited do return
+	graph_lines(name, values, legend, lo, hi, group)
+}
+
+// Up to 4 parts stacked bottom up, named by `legend` (each frame's bar as tall as their sum).
+stack :: proc(name: string, parts: []f32, legend: []string, group := "game") {
+	if !s.inited do return
+	graph_stack(name, parts, legend, group)
+}
+
+// A mark this frame in the strip `strip`, lane `lane` (up to 4 lanes, created on first use).
+mark :: proc(strip, lane: string, group := "game") {
+	if !s.inited do return
+	graph_mark(strip, lane, group)
 }
 
 // A line in the overlay this frame.
@@ -212,7 +240,12 @@ frame :: proc(dt: f64) {
 		else do note_open()
 	}
 	if visible != s.shown do set_shown(visible)
-	if !s.shown do return
+	if !s.shown {
+		// F3 without F1: the note alone
+		if s.panels[.Note].open do update_focus()
+		else do s.want_key = false
+		return
+	}
 	slow := time.duration_milliseconds(time.tick_since(s.last_slow)) >= SLOW_MS
 	if slow {
 		s.last_slow = time.tick_now()
@@ -229,7 +262,7 @@ frame :: proc(dt: f64) {
 @(private)
 set_shown :: proc(on: bool) {
 	s.shown = on
-	gd.CanvasLayer_set_visible(s.layer, on)
+	layer_sync()
 	for k in Panel_Kind do panel_sync(k)
 	if on {
 		update_metrics()
@@ -237,6 +270,13 @@ set_shown :: proc(on: bool) {
 	} else {
 		s.want_key = false
 	}
+}
+
+// The layer is up while the dev UI is shown or the note is open (F3 works without F1); the overlay only when shown.
+@(private)
+layer_sync :: proc() {
+	gd.CanvasLayer_set_visible(s.layer, s.shown || s.panels[.Note].open)
+	gd.CanvasItem_set_visible(s.overlay.panel, s.shown)
 }
 
 // Points, and the layer's scale: points * HiDPI scale / the game's canvas stretch (canvas_items stretch scales
@@ -276,7 +316,7 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 		if mb := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton"); mb.ptr != nil {
 			s.mouse = gd.InputEventMouse_get_position(mb)
 			// A click outside the dev UI gives the keyboard back to the game.
-			if s.shown && gd.InputEvent_is_pressed(mb) && !over_ui(points(s.mouse)) {
+			if (s.shown || s.panels[.Note].open) && gd.InputEvent_is_pressed(mb) && !over_ui(points(s.mouse)) {
 				if ours(gd.Viewport_gui_get_focus_owner(s.root)) do gd.Viewport_gui_release_focus(s.root)
 			}
 			return {}
@@ -303,9 +343,9 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 // The point (in points) is over a panel or the overlay's buttons.
 @(private)
 over_ui :: proc(p: gd.Vector2) -> bool {
-	if rect_has(gd.Control_get_global_rect(s.overlay.buttons), p) do return true
+	if s.shown && rect_has(gd.Control_get_global_rect(s.overlay.buttons), p) do return true
 	for &pn in s.panels {
-		if pn.open && pn.window.ptr == nil && rect_has(gd.Control_get_global_rect(pn.frame), p) do return true
+		if gd.CanvasItem_is_visible(pn.frame) && rect_has(gd.Control_get_global_rect(pn.frame), p) do return true
 	}
 	return false
 }

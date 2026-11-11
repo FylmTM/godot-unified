@@ -7,7 +7,7 @@ import gd "unified:gdext"
 @(private)
 Panel_Kind :: enum {
 	Inspector,
-	Netsim,
+	Conditions,
 	Events,
 	Note,
 }
@@ -128,16 +128,17 @@ panel_open :: proc(k: Panel_Kind, on: bool) {
 	p.open = on
 	if !on && p.window.ptr != nil do panel_pop(k, false)
 	panel_sync(k)
+	if k == .Note do layer_sync()
 	overlay_sync_toggles()
 	if k == .Inspector && on do s.insp.dirty = true
-	if k == .Netsim && on do netsim_sync()
+	if k == .Conditions && on do conditions_sync()
 }
 
 // Shows what should be on screen: the frame, or the native window while popped out.
 @(private)
 panel_sync :: proc(k: Panel_Kind) {
 	p := &s.panels[k]
-	on := s.shown && p.open
+	on := p.open && (s.shown || k == .Note)
 	gd.CanvasItem_set_visible(p.frame, on && p.window.ptr == nil)
 	if p.window.ptr != nil do gd.Window_set_visible(p.window, on)
 	if on do gd.Node_move_child(s.layer, p.frame, -1)

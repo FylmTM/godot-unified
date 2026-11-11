@@ -50,6 +50,7 @@ TextureRect
 Theme
 StyleBoxFlat
 StyleBoxEmpty
+Performance
 SystemFont
 
 # Builtins that get method wrappers (all builtins get layouts; opaque ones also constructors/destructors).

@@ -1,4 +1,4 @@
-// The Netsim, Events and F3 note panels.
+// The Conditions, Events and F3 note panels.
 package devui
 
 import "core:fmt"
@@ -7,28 +7,48 @@ import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 
-// ---- netsim
+// ---- conditions: a frame-rate cap and the network simulation, per direction
 
 @(private)
-Netsim_Panel :: struct {
+Conditions_Panel :: struct {
+	fps:     [len(FPS_CAPS)]gd.Button,
+	cap:     int, // the current cap (0: none)
 	enabled: gd.CheckBox,
-	sliders: [3]gd.HSlider,
-	values:  [3]gd.Label,
+	both:    gd.CheckBox, // the sliders move both directions together
+	sliders: [2][3]gd.HSlider, // [up, down][latency, jitter, loss]
+	values:  [2][3]gd.Label,
 }
 
 @(private)
-NET_SLIDERS := [3]struct {
-	name:   string,
-	max:    f64,
-	format: string,
-}{{"latency", 300, "%.0f ms"}, {"jitter", 50, "%.0f ms"}, {"loss", 20, "%.1f %%"}}
+FPS_CAPS := [?]int{0, 144, 60, 30, 15} // Engine.max_fps (0: none)
 
 @(private)
-build_netsim :: proc() {
-	n := &s.net
+NET_FIELDS := [3]struct {
+	name:   string,
+	max:    f64,
+	step:   f64,
+	format: string,
+}{{"latency", 300, 1, "%.0f ms"}, {"jitter", 50, 1, "%.0f ms"}, {"loss", 20, 0.1, "%.1f %%"}}
+
+@(private)
+build_conditions :: proc() {
+	n := &s.cond
 	box := gd.VBoxContainer_new()
 	row := add(box, gd.HBoxContainer_new())
-	n.enabled = check(row, "on")
+	l := label(row, "fps cap")
+	gd.Control_set_custom_minimum_size(l, {52, 0})
+	for cap, i in FPS_CAPS {
+		b := button(row, cap == 0 ? "none" : fmt.tprint(cap), proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+				s.cond.cap = FPS_CAPS[int(uintptr(user))]
+				gd.Engine_set_max_fps(gd.Engine_singleton(), s.cond.cap)
+				conditions_sync()
+				return {}
+			}, rawptr(uintptr(i)))
+		gd.BaseButton_set_toggle_mode(b, true)
+		n.fps[i] = b
+	}
+	row = add(box, gd.HBoxContainer_new())
+	n.enabled = check(row, "netsim")
 	on(n.enabled, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		netsim.enabled, _ = gd.from_variant(bool, args[0])
 		netsim_changed = true
@@ -37,68 +57,88 @@ build_netsim :: proc() {
 	PRESETS := [4]string{"LAN", "WAN", "bad Wi-Fi", "off"}
 	for name, i in PRESETS {
 		button(row, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+				d: Netsim_Dir
 				switch int(uintptr(user)) {
 				case 0:
-					netsim = {true, 2, 1, 0}
+					d = {2, 1, 0}
 				case 1:
-					netsim = {true, 60, 10, 1}
+					d = {60, 10, 1}
 				case 2:
-					netsim = {true, 140, 40, 6}
+					d = {140, 40, 6}
 				case:
 					netsim.enabled = false
+					netsim_changed = true
+					conditions_sync()
+					return {}
 				}
+				netsim = {true, d, d}
 				netsim_changed = true
-				netsim_sync()
+				conditions_sync()
 				return {}
 			}, rawptr(uintptr(i)))
 	}
-	for sl, i in NET_SLIDERS {
-		line := add(box, gd.HBoxContainer_new())
-		l := label(line, sl.name)
-		gd.Control_set_custom_minimum_size(l, {48, 0})
-		h := add(line, gd.HSlider_new())
+	n.both = check(row, "both ways")
+	gd.BaseButton_set_pressed_no_signal(n.both, true)
+	head := add(box, gd.HBoxContainer_new())
+	gd.Control_set_custom_minimum_size(label(head, ""), {52, 0})
+	for name in ([]string{"up (to the relay)", "down"}) {
+		h := label(head, name)
 		gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
-		gd.Control_set_v_size_flags(h, .SIZE_SHRINK_CENTER)
-		gd.Control_set_focus_mode(h, .FOCUS_NONE)
-		gd.Range_set_max(h, sl.max)
-		gd.Range_set_step(h, i == 2 ? 0.1 : 1)
-		on(h, "value_changed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
-				v, _ := gd.from_variant(f64, args[0])
-				netsim_field(int(uintptr(user)))^ = f32(v)
-				netsim_changed = true
-				netsim_labels()
-				return {}
-			}, rawptr(uintptr(i)))
-		n.sliders[i] = h
-		n.values[i] = label(line, "")
-		gd.Control_set_custom_minimum_size(n.values[i], {48, 0})
+		gd.Control_set_theme_type_variation(h, "DevTitleLabel")
 	}
-	panel_make(.Netsim, "Netsim", {380, 40, 300, 106}, box)
+	for f, k in NET_FIELDS {
+		line := add(box, gd.HBoxContainer_new())
+		name := label(line, f.name)
+		gd.Control_set_custom_minimum_size(name, {52, 0})
+		for d in 0 ..< 2 {
+			h := add(line, gd.HSlider_new())
+			gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
+			gd.Control_set_v_size_flags(h, .SIZE_SHRINK_CENTER)
+			gd.Control_set_focus_mode(h, .FOCUS_NONE)
+			gd.Range_set_max(h, f.max)
+			gd.Range_set_step(h, f.step)
+			on(h, "value_changed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
+					v, _ := gd.from_variant(f64, args[0])
+					d, k := int(uintptr(user)) / 3, int(uintptr(user)) % 3
+					net_field(d, k)^ = f32(v)
+					if gd.BaseButton_is_pressed(s.cond.both) do net_field(1 - d, k)^ = f32(v)
+					netsim_changed = true
+					conditions_sync()
+					return {}
+				}, rawptr(uintptr(d * 3 + k)))
+			n.sliders[d][k] = h
+			n.values[d][k] = label(line, "")
+			gd.Control_set_custom_minimum_size(n.values[d][k], {46, 0})
+		}
+	}
+	panel_make(.Conditions, "Conditions", {350, 40, 470, 140}, box)
 }
 
+// Direction d (0 up, 1 down), field k (latency, jitter, loss) of `netsim`.
 @(private)
-netsim_field :: proc(i: int) -> ^f32 {
-	switch i {
+net_field :: proc(d, k: int) -> ^f32 {
+	dir := d == 0 ? &netsim.up : &netsim.down
+	switch k {
 	case 0:
-		return &netsim.latency_ms
+		return &dir.latency_ms
 	case 1:
-		return &netsim.jitter_ms
+		return &dir.jitter_ms
 	}
-	return &netsim.loss_pct
+	return &dir.loss_pct
 }
 
-// The widgets from `netsim` (the host or a preset changed it).
+// The widgets from the current values (the host, a preset or a slider changed them).
 @(private)
-netsim_sync :: proc() {
-	n := &s.net
+conditions_sync :: proc() {
+	n := &s.cond
+	for cap, i in FPS_CAPS do gd.BaseButton_set_pressed_no_signal(n.fps[i], cap == n.cap)
 	gd.BaseButton_set_pressed_no_signal(n.enabled, netsim.enabled)
-	for i in 0 ..< 3 do gd.Range_set_value_no_signal(n.sliders[i], f64(netsim_field(i)^))
-	netsim_labels()
-}
-
-@(private)
-netsim_labels :: proc() {
-	for sl, i in NET_SLIDERS do gd.Label_set_text(s.net.values[i], fmt.tprintf(sl.format, netsim_field(i)^))
+	for d in 0 ..< 2 {
+		for f, k in NET_FIELDS {
+			gd.Range_set_value_no_signal(n.sliders[d][k], f64(net_field(d, k)^))
+			gd.Label_set_text(n.values[d][k], fmt.tprintf(f.format, net_field(d, k)^))
+		}
+	}
 }
 
 // ---- event log: a two-column Tree, rows appended as they come (the newest LOG_ROWS kept)
@@ -229,8 +269,7 @@ note_open :: proc() {
 		gd.ImageTexture_set_image(n.tex, img)
 	}
 	gd.TextureRect_set_texture(n.thumb, n.tex)
-	visible = true
-	if !s.shown do set_shown(true)
+	update_metrics() // the note may open with the rest of the dev UI hidden
 	panel_open(.Note, true)
 	gd.Object_call_deferred(n.text, "grab_focus")
 }

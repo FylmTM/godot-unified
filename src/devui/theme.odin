@@ -43,6 +43,13 @@ theme_init :: proc() {
 	flat(t, "panel", "DevOverlay", {0.05, 0.055, 0.07, 0.6}, 2, {4, 3, 4, 3})
 	gd.Theme_set_type_variation(t, "DevTitleLabel", "Label")
 	gd.Theme_set_color(t, "font_color", "DevTitleLabel", DIM)
+	// graph titles and legends, over the graph
+	gd.Theme_set_type_variation(t, "DevGraphLabel", "Label")
+	gd.Theme_set_font_size(t, "font_size", "DevGraphLabel", 10)
+	gd.Theme_set_color(t, "font_color", "DevGraphLabel", DIM)
+	gd.Theme_set_color(t, "font_shadow_color", "DevGraphLabel", {0, 0, 0, 0.8})
+	gd.Theme_set_constant(t, "shadow_offset_x", "DevGraphLabel", 1)
+	gd.Theme_set_constant(t, "shadow_offset_y", "DevGraphLabel", 1)
 
 	// buttons: flat, 1 px vertical padding
 	flat(t, "normal", "Button", FRAME, 2, {5, 0, 5, 0})

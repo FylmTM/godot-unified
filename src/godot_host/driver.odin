@@ -55,11 +55,17 @@ set_transport :: proc(t: ^Transport) {
 
 // Network impairment for remote links (the dev UI's Netsim panel): the main thread publishes settings, the
 // session thread applies them to every wrapped link.
-Netsim_Settings :: struct {
-	enabled:    bool,
-	latency_ms: f32, // one way
+// One direction of the dev netsim.
+Netsim_Dir :: struct {
+	latency_ms: f32,
 	jitter_ms:  f32,
 	loss_pct:   f32,
+}
+
+Netsim_Settings :: struct {
+	enabled: bool,
+	up:      Netsim_Dir, // to the relay
+	down:    Netsim_Dir, // from it
 }
 
 @(private)
@@ -77,13 +83,13 @@ set_netsim :: proc(n: Netsim_Settings) {
 }
 
 @(private)
-netsim_profile :: proc(n: Netsim_Settings) -> netcode.Profile {
-	if !n.enabled do return {name = "devui"}
+netsim_profile :: proc(enabled: bool, d: Netsim_Dir) -> netcode.Profile {
+	if !enabled do return {name = "devui"}
 	return {
 		name = "devui",
-		latency = i64(n.latency_ms * 1000),
-		jitter = i64(n.jitter_ms * 1000),
-		loss = u32(n.loss_pct * 10),
+		latency = i64(d.latency_ms * 1000),
+		jitter = i64(d.jitter_ms * 1000),
+		loss = u32(d.loss_pct * 10),
 	}
 }
 
@@ -160,13 +166,17 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 
 // Applies the panel's settings (the link's thread).
 dev_link_set :: proc(dl: ^Dev_Link, n: Netsim_Settings) {
-	p := netsim_profile(n)
-	dl.on = p.latency != 0 || p.jitter != 0 || p.loss != 0
+	up, down := netsim_profile(n.enabled, n.up), netsim_profile(n.enabled, n.down)
+	ideal :: proc(p: netcode.Profile) -> bool {return p.latency == 0 && p.jitter == 0 && p.loss == 0}
+	dl.on = !ideal(up) || !ideal(down)
 	if dl.on && dl.sim.data == nil {
 		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
 		dl.sim = netcode.netsim_wrap(dl.inner, {name = "devui", latency = 1}, dl.seed)
 	}
-	if dl.sim.data != nil do (^netcode.Net_Sim)(dl.sim.data).profile = p
+	if dl.sim.data != nil {
+		ns := (^netcode.Net_Sim)(dl.sim.data)
+		ns.profile, ns.profile_in, ns.split = up, down, true
+	}
 }
 
 @(private)
@@ -443,6 +453,13 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 				rollbacks   = i32(c.rollbacks),
 				resim_ticks = i32(c.resim_ticks),
 				depth_max   = i32(c.depth_max),
+				stalls      = i32(c.stall_ticks),
+				replaced    = i32(c.own_replaced),
+				steps       = {i32(c.steps[.Verified]), i32(c.steps[.Resim]), i32(c.steps[.Predicted])},
+				step_us     = {c.step_us[.Verified], c.step_us[.Resim], c.step_us[.Predicted]},
+				last_msg_us = c.last_msg_us,
+				bytes_in    = i64(c.ch.stats.bytes_recv),
+				bytes_out   = i64(c.ch.stats.bytes_sent),
 			}
 			for slot in 0 ..< min(P, MAX_NAMED) {
 				out.names[slot] = {}

@@ -60,6 +60,14 @@ Net_Stats :: struct {
 	rollbacks:   i32,
 	resim_ticks: i32,
 	depth_max:   i32,
+	// cumulative, for the dev UI's graphs (the host takes differences)
+	stalls:      i32, // ticks held back by the prediction cap
+	replaced:    i32, // ticks where the relay replaced our input (it arrived too late)
+	steps:       [3]i32, // ticks stepped: verified, re-simulated, predicted
+	step_us:     [3]i64, // time stepping them, µs
+	last_msg_us: i64, // when the relay's last message arrived (netcode.now_us)
+	bytes_in:    i64,
+	bytes_out:   i64,
 }
 
 Frame :: struct {

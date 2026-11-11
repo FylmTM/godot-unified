@@ -220,7 +220,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	n, from, ok := netcode.link_recv(&l, buf[:])
 	testing.expect(t, ok && n == 1 && buf[0] == 9 && from == 1)
 
-	gh.dev_link_set(dl, {enabled = true, latency_ms = 20})
+	gh.dev_link_set(dl, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
 	netcode.link_send(&l, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)
