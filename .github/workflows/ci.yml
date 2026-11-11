@@ -1,7 +1,8 @@
 # Parallel jobs, all through the uni CLI (src/cli/SPEC.md): `lint` (fmt --check + vet for every target, Linux),
 # `test` (the odin suite: unit tests and every end-to-end suite, reference runs included; then the net suite, the
 # real-UDP multi-process test, and the benchmarks, both in the job summary) and `godot` (Linux x64: the godot and
-# godot-bindings suites, every game under headless Godot). Together they run what `./uni verify` runs locally.
+# godot-bindings suites, every game under headless Godot). Together they run what `./uni verify` runs locally; the
+# suites' long variants (`--long`) run only on demand.
 #
 # Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
 #   pull request         linux-x64, linux-arm64
@@ -121,7 +122,7 @@ jobs:
       # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
         run: $UNI test
-      - name: test --suite net (release build; real UDP, separate processes)
+      - name: test --suite net (release build; real UDP, separate processes, 5 s on the real clock)
         run: $UNI test --suite net
       - name: bench (release build; reported in the summary, not gated)
         run: $UNI bench
@@ -149,11 +150,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/odin
       - id: keys
-        run: echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
+          echo "imgui=$(./uni ci cache-key imgui)" >> "$GITHUB_OUTPUT"
       # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .out/godot
           key: ${{ steps.keys.outputs.godot }}
-      - name: test --suite godot,godot-bindings (every game under headless Godot; the binding tests)
+      # The Dear ImGui build (its stamp is the check); unified-box3d comes on the way, as in the test job.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: third_party/imgui/build
+          key: ${{ steps.keys.outputs.imgui }}
+      - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
         run: ./uni test --suite godot,godot-bindings

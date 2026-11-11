@@ -40,11 +40,11 @@ private_commands :: proc() -> []cli.Command {
 			run = cmd_board,
 		},
 		{
-			name = "ci",
-			usage = "summary | cache-key <dep>",
+			name    = "ci",
+			usage   = "summary | cache-key <dep>",
 			summary = "the CI job summary (markdown); a dependency's cache key",
-			budget = 1,
-			run = cmd_ci,
+			budget  = 2, // a compiled dependency's key asks the C compiler its version (on Windows, through vcvars)
+			run     = cmd_ci,
 		},
 		{
 			name = "selftest",

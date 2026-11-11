@@ -104,6 +104,7 @@ back:
 ./uni bench                    # when the sim, physics or rollback changed: step and re-sim times
 ./uni test --suite godot       # when Godot-side code or GDScript changed (`--only <step>`, `uni tool` for one script)
 ./uni verify                   # everything CI runs; before merging
+./uni test --long              # when a game's rules, physics, netcode or rollback changed: the full-length suites
 ```
 
 ## Where things are

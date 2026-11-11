@@ -105,7 +105,7 @@ ensure_eos :: proc() -> (problem: string) {
 		}
 		part := eos_part()
 		name := tprint("eos-sdk-%s-%s.zip", pin("eos_sdk", "version"), part)
-		tmp := join(state.project.out, "eos-download")
+		tmp := join(state.project.out, tprint("eos-download-%d", os.get_pid())) // the godot suite's games may try at once
 		remove_tree(tmp)
 		make_dirs(tmp)
 		log("uni: downloading %s from the draft release", name)
@@ -128,6 +128,7 @@ ensure_eos :: proc() -> (problem: string) {
 			},
 		)
 		if !r.ok {
+			remove_tree(tmp)
 			return tprint("gh release download failed: %s", strings.trim_space(r.stderr))
 		}
 		zip := join(tmp, name)

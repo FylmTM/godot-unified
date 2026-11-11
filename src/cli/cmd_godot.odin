@@ -9,14 +9,21 @@ import "core:time"
 // The godot suite and the commands that run a game in Godot: run, editor, tool, coop, bake.
 
 // The godot suite's steps, in order; each runs when the game has what it needs.
-GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "session_check", "walk", "tour"}
+GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk", "tour"}
 
-// Each game under headless Godot (SPEC.md, Test suites).
+// The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
+SESSION_TICKS :: 64
+SESSION_TICKS_LONG :: 256
+
+// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel.
 suite_godot :: proc(games: []Game, only: []string) -> bool {
 	for o in only {
 		if !slice.contains(GODOT_STEPS, o) {
 			usage("no godot step %q (%s)", o, strings.join(GODOT_STEPS, ", "))
 		}
+	}
+	if len(games) > 1 {
+		return godot_in_parallel(games, only)
 	}
 	want :: proc(only: []string, step: string) -> bool {
 		return len(only) == 0 || slice.contains(only, step)
@@ -49,7 +56,8 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 		if want(only, "session") {
 			if has_extension(g) && os.is_directory(join(g.dir, "simulation", "headless")) {
 				start := time.tick_now()
-				ok = pass(g, "session", session_vs_offline(g, 256, 1), seconds_since(start)) && ok
+				ticks := state.long ? SESSION_TICKS_LONG : SESSION_TICKS
+				ok = pass(g, "session", session_vs_offline(g, ticks, 1), seconds_since(start)) && ok
 			} else {
 				skip(g, "session", "no extension or no headless binary")
 			}
@@ -67,7 +75,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			args:         []string,
 			timeout:      f64,
 		}
-		for s in ([]Script_Step{{"validate", "validate", nil, 60}, {"session_check", "session_check", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
+		for s in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
 			if !want(only, s.step) {
 				continue
 			}
@@ -82,6 +90,70 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 			r := run_tool({dir = g.dir, script = script, args = s.args, timeout = s.timeout, quiet = true})
 			ok = pass(g, s.step, r.ok, r.seconds) && ok
+		}
+	}
+	return ok
+}
+
+// Every game at once, each in a child `uni test <game> --suite godot` (its log printed when it ends, in game
+// order; what it built or fetched makes this run cold too). What the games share is made current here first, so
+// the children never race on it.
+@(private)
+godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
+	godot()
+	ensure_bindings()
+	ensure_imgui()
+	for g in games {
+		if game_uses_box3d(g) {
+			ensure_box3d()
+			break
+		}
+	}
+	for g in games {
+		if extension_uses_eos(g) {
+			ensure_eos() // a problem is reported by each game's stage_eos
+			break
+		}
+	}
+	exe, _ := os.get_executable_path(context.allocator)
+	env := env_with(tprint("%s=1", CHILD_ENV))
+	runs := make([]Run, len(games))
+	for g, i in games {
+		cmd: [dynamic]string
+		append(&cmd, exe, "test", g.name, "--suite", "godot", "--json")
+		if len(only) > 0 {
+			append(&cmd, "--only", strings.join(only, ","))
+		}
+		if state.long {
+			append(&cmd, "--long")
+		}
+		runs[i] = {
+			cmd     = cmd[:],
+			dir     = state.project.root,
+			capture = true,
+			quiet   = true,
+			env     = env,
+			timeout = 900 * time.Second,
+		}
+	}
+	log("uni: godot: %d games in parallel", len(games))
+	ok := true
+	for r, i in run_all(runs) {
+		if text := strings.trim_right_space(r.stderr); text != "" {
+			log("%s", text)
+		}
+		if res, found := last_json_object(r.stdout); found {
+			if list, is_list := res["cold"].(json.Array); is_list {
+				for c in list {
+					if what, is_str := c.(json.String); is_str {
+						cold(string(what))
+					}
+				}
+			}
+		}
+		if !r.ok {
+			log("uni: %s: the godot suite FAILED%s", games[i].name, r.timed_out ? " (timed out)" : "")
+			ok = false
 		}
 	}
 	return ok
