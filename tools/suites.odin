@@ -12,13 +12,14 @@ private_suites :: proc() -> []cli.Suite {
 	return cli.box_suites(
 		{
 			name = "net",
-			summary = "the toy's relay and 3 clients over real UDP on the real clock (at least 15 s)",
-			budget = 30,
+			summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
+			budget = 10,
+			long_budget = 25,
 			run = suite_net,
 		},
 		{
 			name = "godot-bindings",
-			summary = "tests/godot and tests/godot_views under headless Godot",
+			summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
 			budget = 5,
 			run = suite_godot_bindings,
 		},
@@ -27,7 +28,8 @@ private_suites :: proc() -> []cli.Suite {
 
 // --- net --------------------------------------------------------------------------------------------------------
 
-UDP_TICKS :: 960 // 15 s of the toy's 64 Hz clock
+UDP_TICKS :: 320 // 5 s of the toy's 64 Hz clock
+UDP_TICKS_LONG :: 960 // with `test --long`: 15 s
 UDP_CLIENTS :: 3 // the last one under the `bad` profile
 
 // A relay and UDP_CLIENTS client processes of the toy's binary over localhost UDP on the real clock: every client
@@ -40,7 +42,7 @@ suite_net :: proc(games: []cli.Game, only: []string) -> bool {
 	cli.remove_tree(work)
 	cli.make_dirs(work)
 	start := time.tick_now()
-	detail, ok := udp_processes(binary, work)
+	detail, ok := udp_processes(binary, work, cli.state.long ? UDP_TICKS_LONG : UDP_TICKS)
 	secs := cli.seconds_since(start)
 	Test :: struct {
 		status:  string,
@@ -67,9 +69,9 @@ suite_net :: proc(games: []cli.Game, only: []string) -> bool {
 }
 
 @(private)
-udp_processes :: proc(binary, work: string) -> (detail: string, ok: bool) {
+udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: bool) {
 	port := free_udp_port()
-	timeout := time.Duration(f64(UDP_TICKS) / 64 * 4 + 90) * time.Second
+	timeout := time.Duration(f64(ticks) / 64 * 4 + 90) * time.Second
 	start :: proc(binary, work, name: string, timeout: time.Duration, args: ..string) -> cli.Proc {
 		cmd: [dynamic]string
 		append(&cmd, binary)
@@ -90,7 +92,7 @@ udp_processes :: proc(binary, work: string) -> (detail: string, ok: bool) {
 		"--players",
 		cli.tprint("%d", UDP_CLIENTS),
 		"--ticks",
-		cli.tprint("%d", UDP_TICKS),
+		cli.tprint("%d", ticks),
 		"--log",
 		cli.join(work, "relay.log"),
 	)
@@ -106,7 +108,7 @@ udp_processes :: proc(binary, work: string) -> (detail: string, ok: bool) {
 			"--player",
 			cli.tprint("%d", i),
 			"--ticks",
-			cli.tprint("%d", UDP_TICKS),
+			cli.tprint("%d", ticks),
 		)
 		if i == UDP_CLIENTS - 1 {
 			append(&args, "--profile", "bad")
@@ -150,19 +152,18 @@ udp_processes :: proc(binary, work: string) -> (detail: string, ok: bool) {
 	}
 	ref: map[int]string
 	for c, i in results {
-		if cli.json_int(c["final_tick"]) != UDP_TICKS {
-			return cli.tprint("client %d verified up to tick %d of %d", i, cli.json_int(c["final_tick"]), UDP_TICKS),
-				false
+		if cli.json_int(c["final_tick"]) != ticks {
+			return cli.tprint("client %d verified up to tick %d of %d", i, cli.json_int(c["final_tick"]), ticks), false
 		}
 		cs := cli.checksums(c["checksums"])
-		if len(cs) != UDP_TICKS / 16 {
+		if len(cs) != ticks / 16 {
 			return cli.tprint("client %d's checksums don't cover every 16th tick", i), false
 		}
 		if i == 0 {
 			ref = cs
 			continue
 		}
-		for t := 16; t <= UDP_TICKS; t += 16 {
+		for t := 16; t <= ticks; t += 16 {
 			if cs[t] != ref[t] {
 				return cli.tprint("client %d's checksum differs first at tick %d: %s vs %s", i, t, cs[t], ref[t]),
 					false
@@ -172,7 +173,7 @@ udp_processes :: proc(binary, work: string) -> (detail: string, ok: bool) {
 	return cli.tprint(
 			"toy relay + %d client processes (one under `bad`) over UDP, %d ticks on the real clock: 0 desyncs, checksums agree",
 			UDP_CLIENTS,
-			UDP_TICKS,
+			ticks,
 		),
 		true
 }
@@ -193,23 +194,26 @@ free_udp_port :: proc() -> int {
 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
-// The Godot-side library tests: the gdext bindings (tests/godot) and godot_host's views and send_command's refusals
-// (tests/godot_views), each an extension plus a test script under headless Godot. `expected`: error lines the test
-// provokes on purpose (they must show up, and nothing else may).
+// The Godot-side library tests: the gdext bindings (tests/godot), godot_host's views and send_command's refusals,
+// and its session lifecycle (tests/godot_views), each an extension plus a test script under headless Godot.
+// `expected`: error lines the test provokes on purpose (they must show up, and nothing else may).
 suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 	Project :: struct {
-		dir, pkg, stem, summary, expected: string,
+		dir, pkg, stem, script, summary, expected: string,
 	}
 	root := cli.state.project.root
+	views := cli.join(root, "tests", "godot_views")
 	projects := []Project {
-		{cli.join(root, "tests", "godot"), cli.join(root, "tests", "godot", "ext"), "gdext_test", "GDEXT TESTS", ""},
 		{
-			cli.join(root, "tests", "godot_views"),
-			cli.join(root, "tests", "godot_views", "ext"),
-			"views_test",
-			"VIEWS TESTS",
-			"unified: send_command(",
+			cli.join(root, "tests", "godot"),
+			cli.join(root, "tests", "godot", "ext"),
+			"gdext_test",
+			"test.gd",
+			"GDEXT TESTS",
+			"",
 		},
+		{views, cli.join(views, "ext"), "views_test", "test.gd", "VIEWS TESTS", "unified: send_command("},
+		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", ""},
 	}
 	cli.ensure_imgui()
 	cli.ensure_bindings()
@@ -228,7 +232,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 		}
 		cli.write_extension_list_dir(p.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
-		r := cli.run_godot({"--headless", "--verbose", "--path", p.dir, "-s", "res://test.gd"}, 30)
+		r := cli.run_godot({"--headless", "--verbose", "--path", p.dir, "-s", cli.tprint("res://%s", p.script)}, 30)
 		out := strings.concatenate({r.stdout, r.stderr})
 		for line in strings.split_lines(r.stdout) {
 			if strings.has_prefix(line, "PASS") ||
@@ -259,7 +263,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			cli.log("godot: %s", e)
 		}
 		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
-		cli.log("uni: %s: %s", cli.rel(p.dir), passed ? "ok" : "FAILED")
+		cli.log("uni: %s %s: %s", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED")
 		ok = ok && passed
 	}
 	return ok

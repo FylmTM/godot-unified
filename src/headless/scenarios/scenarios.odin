@@ -21,6 +21,9 @@ UNIFIED_REGEN :: #config(UNIFIED_REGEN, false)
 // The commit a regenerated reference run is made from (record-reference passes it, "+dirty" when the
 // tree has changes); recorded in ref.json.
 UNIFIED_REGEN_COMMIT :: #config(UNIFIED_REGEN_COMMIT, "unknown")
+// `uni test --long` builds with -define:UNIFIED_LONG_TESTS=true: a game's suite then runs every
+// standard scenario at full length (src/headless/SPEC.md, Running). The toy's suite always does.
+LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: its headless descriptor and the parameters of its runs.
 Suite :: struct($S, $I, $W: typeid, $P: int) {

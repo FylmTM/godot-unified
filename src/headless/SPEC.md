@@ -115,20 +115,24 @@ rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SU
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
 ```
 
-Every game calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc once.
+The toy's suite calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc
+once: it proves the library. A game's suite runs the minimal set that proves the game (`rollback_every_tick`, 4
+clients under `bad`, a late joiner, the reference run's replay and resume) and puts the rest in `when scenarios.LONG`.
 
 ### Running
 
-- **One group: every scenario runs in `uni test`** (the `odin` suite), at full length, in the same compile and
-  parallel run as the unit tests. Each scenario is its own test, so the runner spreads them over the cores: the wall
-  time grows by the slowest scenario, not by their sum. If the suites push `uni test` over its budget, the remedy is a
-  shorter scenario in that game's suite, not a second tier. One game alone:
-  `odin test games/<game>/simulation/tests -collection:unified=src`.
+- **Two tiers** (2026-11-11, replacing the one group of #4: on CI's few cores the games' full suites were most of
+  the odin suite's time). `uni test` (the `odin` suite, in `verify` and CI) runs the toy's suite whole and each
+  game's minimal set on short runs (`ticks = scenarios.LONG ? 3600 : 600`), in the same compile and parallel run as
+  the unit tests; each scenario is its own test, so the runner spreads them over the cores. `uni test --long` builds
+  with `-define:UNIFIED_LONG_TESTS=true` (`scenarios.LONG`): every standard scenario at full length, plus the slow
+  tests a game keeps behind `when scenarios.LONG` (survivor's bot tuning check); run it by hand after a change to a
+  game's rules or the netcode. One game alone: `odin test games/<game>/simulation/tests -collection:unified=src`.
 - **`uni test --suite net`** keeps only the real-UDP, real-clock, multi-process test (a relay and 3 client
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
   (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless/modes`).
 - **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `uni test` (every
-  suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`.
+  suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`. Never `--long`.
 - **Benchmarks are not part of the suites:** `uni bench` runs each game's `bench` mode (its standard benchmark) alone
   on a release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
   them.

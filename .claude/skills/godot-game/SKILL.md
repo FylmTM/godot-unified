@@ -28,12 +28,12 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
 3. `tour`: the real game, headless, through lobby and match (quick).
 4. `session`: a headless Godot session's checksums must equal the offline binary's. Run it after a change to the
    extension, `src/godot_host` or anything between input and the sim.
-5. `session_check`: leave, then host or join at once. Run it after a session or netcode change.
-6. `editor`: the extension loads in a headless editor with no `ERROR` lines.
-7. `bake`: each level's `.level` file is current.
+5. `editor`: the extension loads in a headless editor with no `ERROR` lines.
+6. `bake`: each level's `.level` file is current.
 
-`./uni test --suite godot,godot-bindings` runs every game's steps plus the binding and host-view tests: what CI's
-Godot job runs. Run it before handing back any Godot-side change.
+`./uni test --suite godot,godot-bindings` runs every game's steps (the games in parallel) plus the binding,
+host-view and session-lifecycle tests (`tests/godot_views/session_check.gd`: leave, then host or join at once; it
+covers a session or netcode change): what CI's Godot job runs. Run it before handing back any Godot-side change.
 
 ## Levels
 

@@ -31,6 +31,16 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/box3d`. A mismatch
 
 Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
 
+## The long suites
+
+`./uni test` runs only each game's minimal set of standard scenarios, on short runs. A change to a game's rules or
+tuning, `src/physics`, `src/netcode` or the rollback path also runs the long variant once before the PR:
+
+```
+./uni test --long                  # every standard scenario of every game at full length, survivor's tuning check
+./uni test --suite net --long      # when netcode changed: the real-UDP run for 15 s
+```
+
 ## Format and protocol changes
 
 - **State layout, input, commands, player count, tick rate, game name or version:** `sim.compat_of` changes with

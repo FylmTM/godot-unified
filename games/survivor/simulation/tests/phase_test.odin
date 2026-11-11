@@ -5,6 +5,7 @@ package test_survivor
 import "core:testing"
 
 import "../survivor"
+import "unified:headless/scenarios"
 import "unified:sim"
 
 // Steps with fixed inputs for the present slots.
@@ -128,31 +129,34 @@ no_items_inside_the_start_circle :: proc(t: ^testing.T) {
 }
 
 // The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin), 2 seeds:
-// guards the tuning's targets (games/survivor/SPEC.md). `survivor bot` measures more seeds.
-@(test)
-play_tuning_with_the_bot :: proc(t: ^testing.T) {
-	for seed in 1 ..= u64(2) {
-		s := sim.create(&survivor.GAME, seed)
-		defer sim.destroy(s)
-		first_level: f32 = -1
-		out: sim.Command_Out
-		defer delete(out.list)
-		for s.tick < 200 * survivor.TICK_HZ && s.state.phase != .Over {
-			in_ := survivor.bot_tick(&s.state, 1, s.tick + 1, &out)
-			sim.step(s, &in_)
-			if first_level < 0 && s.state.players[0].level > 1 {
-				first_level = f32(s.tick - s.state.match_tick) * survivor.DT
+// guards the tuning's targets (games/survivor/SPEC.md). `survivor bot` measures more seeds. A balance check,
+// not a correctness one: `uni test --long` only.
+when scenarios.LONG {
+	@(test)
+	play_tuning_with_the_bot :: proc(t: ^testing.T) {
+		for seed in 1 ..= u64(2) {
+			s := sim.create(&survivor.GAME, seed)
+			defer sim.destroy(s)
+			first_level: f32 = -1
+			out: sim.Command_Out
+			defer delete(out.list)
+			for s.tick < 200 * survivor.TICK_HZ && s.state.phase != .Over {
+				in_ := survivor.bot_tick(&s.state, 1, s.tick + 1, &out)
+				sim.step(s, &in_)
+				if first_level < 0 && s.state.players[0].level > 1 {
+					first_level = f32(s.tick - s.state.match_tick) * survivor.DT
+				}
 			}
+			survived := f32((s.state.phase == .Over ? s.state.over_tick : s.tick) - s.state.match_tick) * survivor.DT
+			testing.expectf(
+				t,
+				first_level > 10 && first_level < 45,
+				"seed %d: first level-up at %.1f s",
+				seed,
+				first_level,
+			)
+			testing.expectf(t, survived > 100, "seed %d: survived %.1f s", seed, survived)
+			testing.expectf(t, s.state.wave >= 3, "seed %d: wave %d", seed, s.state.wave)
 		}
-		survived := f32((s.state.phase == .Over ? s.state.over_tick : s.tick) - s.state.match_tick) * survivor.DT
-		testing.expectf(
-			t,
-			first_level > 10 && first_level < 45,
-			"seed %d: first level-up at %.1f s",
-			seed,
-			first_level,
-		)
-		testing.expectf(t, survived > 100, "seed %d: survived %.1f s", seed, survived)
-		testing.expectf(t, s.state.wave >= 3, "seed %d: wave %d", seed, s.state.wave)
 	}
 }
