@@ -41,10 +41,10 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 
 ## Workflow
 
-- Iterate locally first. CI is the final check, and the cross-check of every reference run:
-  Linux x64 and arm64 on every PR, Windows x64 after each push to `main`, macOS ARM64 nightly when `main` moved
-  (the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all four on a branch.
-- CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
+- Iterate locally first; `./uni verify` before merging. CI is minimal for now, to save Actions minutes: one
+  linux-arm64 job (fmt, vet, the odin and net suites) on pushes to `main` only, none on PRs (the top of
+  `.github/workflows/ci.yml`); `gh workflow run ci.yml --ref <branch>` runs it on a branch.
+- CI must stay fast.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
 
