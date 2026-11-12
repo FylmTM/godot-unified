@@ -16,7 +16,7 @@ For every upgrade:
 2. `./uni verify --long` (every suite's long variant). Every game's reference run must still reproduce byte for byte: if one changes, the simulation
    changed, and the `sim-change` skill applies. Say in the commit why it changed.
 3. `./uni selftest` (a fresh clone and a new game repo, end to end).
-4. Run CI on the branch: `gh workflow run ci.yml --ref <branch>` (linux-arm64 only for now).
+4. Run CI on the branch on all four platforms: `gh workflow run ci.yml --ref <branch>`.
 5. The PR names the old and new version and what changed upstream that matters to us.
 
 ## Box3D (unified-box3d)

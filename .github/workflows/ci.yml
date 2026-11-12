@@ -1,32 +1,72 @@
-# Minimal CI while we save Actions minutes: one job on linux-arm64, on pushes to main (and by hand,
-# `gh workflow run ci.yml --ref <branch>`), never on pull requests. It runs fmt --check, vet for every target, the odin
-# suite and the net suite through the uni CLI (src/cli/SPEC.md). Not run here, until CI is rebuilt: the other
-# platforms (linux-x64, windows-x64, macos-arm64), the benchmarks and the godot suites; run them locally
-# (`./uni verify`).
+# Parallel jobs, all through the uni CLI (src/cli/SPEC.md): `lint` (fmt --check + vet for every target, Linux),
+# `test` (the odin suite: unit tests and every end-to-end suite, reference runs included; then the net suite, the
+# real-UDP multi-process test, and the benchmarks, both in the job summary) and `godot` (Linux x64: the godot and
+# godot-bindings suites, every game under headless Godot). Together they run what `./uni verify` runs locally; the
+# suites' long variants (`--long`) run only on demand.
 #
-# Security: the job reads only (`contents: read`) and CI holds no secrets: no EOS SDK and no EOS credentials (Epic's
-# licence keeps the SDK out; its tests run where a developer has it). Actions are pinned by commit, runner images by
-# version (an image update can change compilers, so it is a deliberate bump), and every download by its SHA-256 in
-# pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
+# Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
+#   pull request         linux-x64, linux-arm64
+#   push to main         linux-x64, linux-arm64, windows-x64
+#   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
+#   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
+#
+# Security: jobs read only (`contents: read`; the nightly check also `actions: read`) and CI holds no secrets:
+# no EOS SDK and no EOS credentials (Epic's licence keeps the SDK out; its tests run where a developer has it).
+# Actions are pinned by commit, runner images by version (an image update can change compilers, so it is a
+# deliberate bump), and every download by its SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
 name: ci
 
+# MINIMAL MODE (temporary, to save Actions minutes): only pushes to main run, and only `lint` (format + vet) and `test` on
+# linux-arm64. To re-enable everything, uncomment the triggers below, restore the push platforms in `test`'s matrix, and remove
+# `if: false` from `godot`.
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+  # pull_request:
+  # schedule:
+  #   - cron: "17 3 * * *" # 03:17 UTC
+  # workflow_dispatch:
 
+# The nightly has its own group: a push to main must not cancel it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  check:
-    name: format + vet + test / linux-arm64
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+  # Nightly only: run macOS if main's head differs from the last completed nightly's (whatever its result:
+  # a red nightly is not retried every night, only after main moves or by a manual dispatch).
+  nightly:
+    name: nightly / main moved?
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          last=$(gh run list -R "$GITHUB_REPOSITORY" -w ci.yml -e schedule -s completed -L 1 --json headSha --jq '.[0].headSha // ""')
+          if [ "$last" = "$SHA" ]; then
+            echo "main is still at $SHA (last nightly): nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "main moved: ${last:-none} -> $SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    name: format + vet
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/odin
@@ -40,10 +80,72 @@ jobs:
         run: ./uni fmt --check
       - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
         run: ./uni vet
+
+  test:
+    name: test / ${{ matrix.platform }}
+    needs: nightly
+    if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
+    runs-on: >-
+      ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
+      "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Per event, see the top of this file.
+        # MINIMAL MODE; push was: '["linux-x64", "linux-arm64", "windows-x64"]'
+        platform: >-
+          ${{ fromJSON(
+          github.event_name == 'pull_request' && '["linux-x64", "linux-arm64"]' ||
+          github.event_name == 'push' && '["linux-arm64"]' ||
+          github.event_name == 'schedule' && '["macos-arm64"]' ||
+          '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
+    env:
+      # Windows runs the cmd shim (it proves uni.cmd too); elsewhere the sh one.
+      UNI: ${{ matrix.platform == 'windows-x64' && './uni.cmd' || './uni' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/odin
+      # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
-        run: ./uni test
+        run: $UNI test
       - name: test --suite net (release build; real UDP, separate processes, 5 s on the real clock)
-        run: ./uni test --suite net
+        run: $UNI test --suite net
+      - name: bench (release build; reported in the summary, not gated)
+        run: $UNI bench
       - name: Summary
         if: always()
-        run: ./uni ci summary >> "$GITHUB_STEP_SUMMARY"
+        run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-${{ matrix.platform }}
+          path: |
+            .out/net.json
+            .out/bench.json
+            .out/timings.json
+            .out/net/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  godot:
+    name: godot headless / linux-x64
+    if: false # MINIMAL MODE; was: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/odin
+      - id: keys
+        run: |
+          echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
+      # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .out/godot
+          key: ${{ steps.keys.outputs.godot }}
+      - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
+        run: ./uni test --suite godot,godot-bindings

@@ -26,8 +26,8 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_M
    value the failing test prints.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
    right.
-4. Run CI on the branch before merging (`gh workflow run ci.yml --ref <branch>`): it checks the new reference runs
-   reproduce on linux-arm64 (CI is linux-arm64 only for now; the other platforms are checked by hand where available).
+4. Run CI on all four platforms before merging (`gh workflow run ci.yml --ref <branch>`): CI is the cross-check that
+   the new reference runs reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64.
 
 Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
 

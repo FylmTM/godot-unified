@@ -132,7 +132,7 @@ clients under `bad`, a late joiner, the reference run's replay and resume) and p
   processes, one under `bad`): a netcode transport test, at library level, on the toy's headless binary
   (`tests/toy/headless/`, a few lines wiring the toy into `unified:headless/modes`).
 - **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `uni test` (every
-  suite and every reference run: the cross-check), then `uni test --suite net`. Never `--long`.
+  suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`. Never `--long`.
 - **Benchmarks are not part of the suites:** `uni bench` runs each game's `bench` mode (its standard benchmark) alone
   on a release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
   them.
