@@ -7,7 +7,9 @@
 package netcode
 
 import "core:fmt"
-import "core:time"
+// Used only inside generic procs: @(require) keeps -vet from calling it unused in a program that never instantiates
+// them (a game's tests that don't run the netcode).
+@(require) import "core:time"
 
 import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
