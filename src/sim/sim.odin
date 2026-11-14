@@ -69,27 +69,30 @@ Extra :: struct {
 
 // A game, as the harness, netcode and tools see it.
 Game :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	name:          string,
+	name:            string,
 	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
 	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
 	// play together instead of desyncing.
-	version:       string,
-	tick_hz:       int, // a power of two, 32..128; dt = 1 / tick_hz exactly
+	version:         string,
+	tick_hz:         int, // a power of two, 32..128; dt = 1 / tick_hz exactly
+	// The least input delay the netcode gives a player, in ticks (0: 1). The delay grows past it only as far as a
+	// round trip needs to keep the prediction inside the rollback window (src/netcode/SPEC.md, Timing).
+	min_input_delay: int,
 	// The World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes
 	// outlive the World (the caller of create owns them).
-	world_create:  proc(seed: u64, content: []u8) -> ^World,
-	world_destroy: proc(world: ^World),
+	world_create:    proc(seed: u64, content: []u8) -> ^World,
+	world_destroy:   proc(world: ^World),
 	// The World's rollback state (nil: none).
-	extras:        proc(world: ^World) -> []Extra,
+	extras:          proc(world: ^World) -> []Extra,
 	// Fills the tick-0 state (the block is zeroed before). May create physics bodies.
-	init:          proc(state: ^State, world: ^World, seed: u64),
+	init:            proc(state: ^State, world: ^World, seed: u64),
 	// Advances the state from tick.number - 1 to tick.number.
-	tick:          proc(tick: ^Tick(State, Input, World, PLAYERS)),
+	tick:            proc(tick: ^Tick(State, Input, World, PLAYERS)),
 	// The game's event union (event.odin): one plain struct per event (nil: no events).
-	events:        typeid,
+	events:          typeid,
 	// The game's command union (command.odin): one plain struct per command (nil: no commands).
-	commands:      typeid,
+	commands:        typeid,
 }
 
 MIN_RING_SIZE :: 8
@@ -103,7 +106,8 @@ ring_size :: proc(tick_hz: int) -> int {
 
 Ring_Slot :: struct($State: typeid) {
 	tick:   u32,
-	valid:  bool,
+	valid:  bool, // the slot holds `tick`'s events
+	saved:  bool, // ... and its state (step_unsaved leaves it out): state_at, restore and snapshots read it
 	state:  State,
 	events: Events, // emitted by the step that produced `tick`
 }
@@ -264,6 +268,17 @@ step :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs
 	save(simulation)
 }
 
+// Advances one tick and keeps its events in the ring, without saving its state: for ticks nothing will roll back
+// to (the netcode re-simulating ticks that are already final, #117). events_at answers for it; state_at, restore
+// and snapshot_encode don't.
+step_unsaved :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
+	advance(simulation, inputs)
+	slot := &simulation.ring[ring_slot(simulation, simulation.tick)]
+	slot.tick = simulation.tick
+	slot.valid = true
+	slot.saved = false
+}
+
 // Saves the current state into its ring slot (keeping that slot's events).
 save :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 	index := ring_slot(simulation, simulation.tick)
@@ -274,6 +289,7 @@ save :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 	}
 	slot.tick = simulation.tick
 	slot.valid = true
+	slot.saved = true
 }
 
 // Restores the saved state of `tick` (it must still be in the ring). The extras go first: if one
@@ -282,7 +298,7 @@ save :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 restore :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), tick: u32) -> bool {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
-	if !slot.valid || slot.tick != tick {
+	if !slot.saved || slot.tick != tick {
 		return false
 	}
 	for &extra in simulation.extras {
@@ -298,7 +314,7 @@ restore :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), tick: u32) -
 // The saved state of `tick`, or nil when it is not in the ring.
 state_at :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), tick: u32) -> ^State {
 	slot := &simulation.ring[ring_slot(simulation, tick)]
-	return &slot.state if slot.valid && slot.tick == tick else nil
+	return &slot.state if slot.saved && slot.tick == tick else nil
 }
 
 // The events the step to `tick` emitted, in emission order (empty when the tick is not in the

@@ -12,7 +12,6 @@ import "core:time"
 
 import uheadless "unified:headless"
 import "unified:netcode"
-import "unified:sim"
 
 
 // An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
@@ -116,7 +115,13 @@ mode_online_host :: proc(
 	scripted := uheadless.Scripted_User(State, Input, World, PLAYERS){headless, 1}
 	host := netcode.host_create(
 		headless.game,
-		netcode.Host_Config{seed = 1, ticks = ticks, name = "host", content = headless.content},
+		netcode.Host_Config {
+			seed = 1,
+			ticks = ticks,
+			name = "host",
+			content = headless.content,
+			recording = log_opt(args),
+		},
 		uheadless.scripted_hooks(&scripted),
 	)
 	defer netcode.host_destroy(host)
@@ -139,9 +144,7 @@ mode_online_host :: proc(
 		}
 	}
 	ok = host.client.verified == ticks && joined >= want
-	if path := opt_str(args, "log"); path != "" {
-		ok &&= sim.log_write(path, &relay.log)
-	}
+	ok &&= netcode.relay_end_recording(relay)
 	fmt.printfln(
 		`{{"mode":"%s","code":"%s","lobby_ready_ms":%.0f,"players":%d,"desyncs":%d,"finalized":%d,"net":%s,"client":%s,"ok":%v}}`,
 		args.mode,

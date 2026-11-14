@@ -50,11 +50,22 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 }
 
 Net :: struct {
-	clock:   netcode.Virtual_Clock,
-	hub:     ^netcode.Hub, // remote side: endpoint 0 is the relay
-	host:    ^Host,
-	clients: [dynamic]^Client,
-	watch:   [8]Watch,
+	clock:     netcode.Virtual_Clock,
+	hub:       ^netcode.Hub, // remote side: endpoint 0 is the relay
+	host:      ^Host,
+	clients:   [dynamic]^Client,
+	watch:     [8]Watch,
+	recording: [dynamic]u8, // the relay's recording
+	log:       sim.Input_Log(toy.Input, toy.PLAYERS), // decoded by net_log
+}
+
+// The relay's recording so far, decoded (valid until the next call).
+net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Input, toy.PLAYERS) {
+	sim.log_destroy(&session.log)
+	ok: bool
+	session.log, ok = sim.log_decode(session.recording[:], toy.Input, toy.PLAYERS)
+	assert(ok, "the recording does not decode")
+	return &session.log
 }
 
 net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
@@ -62,7 +73,15 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
 	session.hub = netcode.hub_create(8)
 	session.host = netcode.host_create(
 		&toy.GAME,
-		{seed = SEED, ticks = ticks, name = "host", player_name = "Ada", quiet = true},
+		{
+			seed = SEED,
+			ticks = ticks,
+			name = "host",
+			player_name = "Ada",
+			quiet = true,
+			recording = sim.log_sink_memory(&session.recording),
+			desync_detail = true,
+		},
 		hooks_for(&session.watch[0]),
 	)
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
@@ -99,6 +118,8 @@ net_destroy :: proc(session: ^Net) {
 	for &watch in session.watch {
 		delete(watch.statuses)
 	}
+	delete(session.recording)
+	sim.log_destroy(&session.log)
 }
 
 // Steps everything every 250 µs of virtual time for `seconds`, or until `done` says so.
@@ -181,8 +202,9 @@ host_and_two_remote_clients :: proc(t: ^testing.T) {
 	// The relay's log replays to the verified result.
 	simulation := sim.create(&toy.GAME, SEED)
 	defer sim.destroy(simulation)
-	for k in 0 ..< len(session.host.relay.log.ticks) {
-		inputs := sim.log_inputs(&session.host.relay.log, k)
+	input_log := net_log(&session)
+	for k in 0 ..< len(input_log.ticks) {
+		inputs := sim.log_inputs(input_log, k)
 		sim.step(simulation, &inputs)
 	}
 	testing.expect_value(t, simulation.tick, 640)
@@ -202,7 +224,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	testing.expect_value(t, late.player, 2)
 	testing.expect(t, late.first_tick > 64 * 3)
 	testing.expect(t, late.verified > late.first_tick)
-	testing.expect(t, len(session.host.relay.log.commands) > 0) // the snapshot's history had commands
+	testing.expect(t, len(net_log(&session).commands) > 0) // the snapshot's history had commands
 	expect_agree(t, &session)
 	// The roster: every client knows every name.
 	for client in ([]^Client{session.host.client, session.clients[0], late}) {
@@ -215,7 +237,8 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	netcode.client_stop(session.clients[0], session.clock.now)
 	net_run(&session, 2)
 	testing.expect_value(t, session.clients[0].status, netcode.Status.Disconnected)
-	last := session.host.relay.log.ticks[len(session.host.relay.log.ticks) - 1]
+	input_log := net_log(&session)
+	last := input_log.ticks[len(input_log.ticks) - 1]
 	testing.expect(t, 1 not_in last.present)
 	testing.expect(t, 0 in last.present && 2 in last.present)
 	// Its player is free again for the next joiner.

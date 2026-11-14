@@ -42,7 +42,7 @@ snapshot_encode :: proc(
 ) -> []u8 {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
-	assert(slot.valid && slot.tick == tick, "snapshot of a tick that is not in the ring")
+	assert(slot.saved && slot.tick == tick, "snapshot of a tick that is not in the ring")
 	header := Snap_Header {
 		extras  = len(simulation.extras),
 		seed    = simulation.seed,
@@ -165,6 +165,7 @@ from_snapshot :: proc(
 	}
 	for &slot in simulation.ring {
 		slot.valid = false
+		slot.saved = false
 	}
 	save(simulation)
 	return simulation, .None

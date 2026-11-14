@@ -9,6 +9,7 @@ package headless
 // instantiates those (a game's tests that run the sim offline only).
 @(require) import "core:fmt"
 @(require) import cnet "core:net"
+@(require) import "core:strings"
 @(require) import "core:sync"
 @(require) import "core:thread"
 @(require) import "core:time"
@@ -28,11 +29,12 @@ Session_Config :: struct {
 }
 
 Session_Result :: struct($Input: typeid, $PLAYERS: int) {
-	ok:        bool, // every client verified every tick and disconnected cleanly
-	desyncs:   int, // checksum mismatches the relay detected
+	ok:        bool, // every client verified every tick and disconnected cleanly, and nothing desynced
+	desyncs:   int, // desyncs the relay detected and reported (a checksum tick on which players differ)
+	desync:    netcode.Desync_Report, // the first one, with its typed detail (owned by the result)
 	replaced:  int, // inputs the relay replaced (late or missing)
 	clients:   []netcode.Client_Result, // one per player, in player order
-	log:       sim.Input_Log(Input, PLAYERS), // the relay's official input log
+	log:       sim.Input_Log(Input, PLAYERS), // the relay's official input log (its recording, in memory)
 	relay_net: netcode.Channel_Stats,
 }
 
@@ -41,6 +43,7 @@ session_result_destroy :: proc(result: ^Session_Result($Input, $PLAYERS)) {
 		delete(client.checksums)
 	}
 	delete(result.clients)
+	delete(result.desync.detail)
 	sim.log_destroy(&result.log)
 	result^ = {}
 }
@@ -162,6 +165,8 @@ session_run :: proc(
 	}
 	timeout := session_timeout_s(cfg.ticks, headless.game.tick_hz)
 	session.deadline = session_now(&session) + i64(timeout * 1e6)
+	recording: [dynamic]u8
+	defer delete(recording)
 	relay_cfg := netcode.Relay_Config {
 		tick_hz       = headless.game.tick_hz,
 		seed          = cfg.seed,
@@ -171,6 +176,8 @@ session_run :: proc(
 		content       = sim.content_hash(headless.content),
 		name          = "relay",
 		quiet         = cfg.virtual, // test time: wall-clock log lines would only be noise
+		recording     = sim.log_sink_memory(&recording),
+		desync_diff   = netcode.desync_diff_of(State),
 	}
 	session.relay = netcode.relay_create(relay_cfg, Input, PLAYERS)
 	if cfg.transport == "udp" {
@@ -192,9 +199,13 @@ session_run :: proc(
 
 	relay := session.relay
 	result.desyncs = relay.desyncs
+	result.desync = relay.first_desync
+	result.desync.detail = strings.clone(relay.first_desync.detail)
+	result.ok &&= relay.desyncs == 0
 	result.replaced = relay.replaced
-	result.log = relay.log
-	relay.log = {}
+	if netcode.relay_end_recording(relay) {
+		result.log, _ = sim.log_decode(recording[:], Input, PLAYERS)
+	}
 	result.relay_net = relay.ch.stats
 	result.clients = make([]netcode.Client_Result, cfg.clients)
 	for &task, player in session.tasks {

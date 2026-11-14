@@ -7,6 +7,7 @@ import "core:slice"
 import "core:time"
 
 import uheadless "unified:headless"
+@(require) import "unified:netcode"
 import "unified:sim"
 
 Stat :: struct {
@@ -184,4 +185,70 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 		sparse_sum ~ dense_sum,
 	)
 	return int(sparse.count) == live
+}
+
+// `net-bench` (N10, the #8 sitting): the netcode's cost, a session on the virtual clock (one thread steps the relay
+// and every client through test time, so the run is deterministic and its wall time is the clients' and relay's
+// CPU time): wall time, rollbacks and what they re-simulated, the time each kind of step took, and the bytes per
+// second on the wire.
+mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "clients", "ticks", "profile", "seed")
+	cfg := uheadless.Session_Config {
+		clients     = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),
+		transport   = "loopback",
+		virtual     = true,
+		profile     = profile_opt(args, "bad"),
+		ticks       = u32(opt_int(args, "ticks", 1200, low = 64, high = 1_000_000)),
+		seed        = seed_opt(args),
+		late_player = -1,
+	}
+	start := time.tick_now()
+	result := uheadless.session_run(headless, cfg)
+	defer uheadless.session_result_destroy(&result)
+	wall_ms := time.duration_milliseconds(time.tick_since(start))
+	seconds := f64(cfg.ticks) / f64(headless.game.tick_hz)
+	rollbacks, resim_ticks, stall_ticks, resends: int
+	depth_sum := 0.0
+	client_bytes: int
+	steps: [3]int
+	step_us: [3]i64
+	for client in result.clients {
+		rollbacks += client.rollbacks
+		resim_ticks += client.resim_ticks
+		stall_ticks += client.stall_ticks
+		depth_sum += client.rollback_depth_avg * f64(client.rollbacks)
+		client_bytes += client.net.bytes_sent
+		resends += client.net.resends
+		for kind, k in ([3]netcode.Step_Kind{.Verified, .Resim, .Predicted}) {
+			steps[k] += client.steps[kind]
+			step_us[k] += client.step_us[kind]
+		}
+	}
+	resends += result.relay_net.resends
+	fmt.printfln(
+		`{{"mode":"net-bench","clients":%d,"profile":"%s","ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"ok":%v}}`,
+		cfg.clients,
+		cfg.profile.name,
+		cfg.ticks,
+		headless.game.tick_hz,
+		wall_ms,
+		rollbacks,
+		rollbacks > 0 ? depth_sum / f64(rollbacks) : 0,
+		resim_ticks,
+		stall_ticks,
+		result.replaced,
+		result.desyncs,
+		steps[0],
+		steps[1],
+		steps[2],
+		step_us[0],
+		step_us[1],
+		step_us[2],
+		f64(result.relay_net.bytes_sent) / seconds,
+		f64(client_bytes) / seconds / f64(cfg.clients),
+		f64(result.relay_net.datagrams_sent) / seconds,
+		resends,
+		result.ok,
+	)
+	return result.ok && result.desyncs == 0
 }

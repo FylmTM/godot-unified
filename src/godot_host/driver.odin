@@ -151,13 +151,10 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 // Applies the panel's settings (the link's thread).
 dev_link_set :: proc(dev_link: ^Dev_Link, settings: Netsim_Settings) {
 	up, down := netsim_profile(settings.enabled, settings.up), netsim_profile(settings.enabled, settings.down)
-	ideal :: proc(profile: netcode.Profile) -> bool {
-		return profile.latency == 0 && profile.jitter == 0 && profile.loss == 0
-	}
-	dev_link.on = !ideal(up) || !ideal(down)
+	dev_link.on = !netcode.profile_is_ideal(up) || !netcode.profile_is_ideal(down)
 	if dev_link.on && dev_link.sim.data == nil {
-		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
-		dev_link.sim = netcode.netsim_wrap(dev_link.inner, {name = "devui", latency = 1}, dev_link.seed)
+		// a profile that isn't ideal, so netsim_wrap wraps; both directions are set below
+		dev_link.sim = netcode.netsim_wrap(dev_link.inner, netcode.profile_is_ideal(up) ? down : up, dev_link.seed)
 	}
 	if dev_link.sim.data != nil {
 		net_sim := (^netcode.Net_Sim)(dev_link.sim.data)

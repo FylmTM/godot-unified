@@ -109,7 +109,8 @@ rnet_agree :: proc(t: ^testing.T, session: ^Rnet) {
 
 // With nobody left in the session the relay must not finalize ahead of its clock: an endless host
 // session whose players all leave (or whose own loopback peer times out) used to append ticks
-// until the session length (forever when endless) in one step.
+// until the session length (forever when endless) in one step. A player who comes back is refused: nobody is
+// left to send it a snapshot, and the relay keeps only its last RELAY_RING ticks (no replay from tick 0).
 @(test)
 relay_idles_when_everyone_left :: proc(t: ^testing.T) {
 	session: Rnet
@@ -124,16 +125,16 @@ relay_idles_when_everyone_left :: proc(t: ^testing.T) {
 	testing.expect(t, !session.relay.connected[0])
 	testing.expectf(
 		t,
-		len(session.relay.log.ticks) <= int(session.relay.clock) + 1,
-		"log holds %d ticks at clock %d",
-		len(session.relay.log.ticks),
+		session.relay.finalized <= session.relay.clock + 1,
+		"finalized %d at clock %d",
+		session.relay.finalized,
 		session.relay.clock,
 	)
-	// A player who comes back finds a relay that kept pace, not one a million ticks ahead.
 	again := rnet_join(&session)
 	rnet_run(&session, 2)
-	testing.expect_value(t, again.status, netcode.Status.Connected)
-	testing.expect(t, again.verified > again.first_tick)
+	testing.expect_value(t, again.status, netcode.Status.Failed)
+	testing.expect_value(t, again.detail, "no player can send this player a snapshot")
+	testing.expect(t, session.relay.finalized <= session.relay.clock + 1)
 }
 
 // The provider of a late joiner's snapshot leaves before sending it: the relay asks another player.
@@ -157,9 +158,9 @@ snapshot_provider_leaves_another_steps_in :: proc(t: ^testing.T) {
 	rnet_agree(t, &session)
 }
 
-// ... and with nobody else to ask, the joiner starts from tick 0 and replays the log.
+// ... and with nobody else to ask, the joiner is refused and its seat is free again.
 @(test)
-snapshot_provider_leaves_joiner_replays :: proc(t: ^testing.T) {
+snapshot_provider_leaves_joiner_is_refused :: proc(t: ^testing.T) {
 	session: Rnet
 	rnet_make(&session, 1, 0)
 	defer rnet_destroy(&session)
@@ -170,21 +171,9 @@ snapshot_provider_leaves_joiner_replays :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.relay.provider[1], 0)
 	netcode.client_stop(provider, session.clock.now)
 	rnet_run(&session, 4)
-	testing.expect_value(t, joiner.status, netcode.Status.Connected)
-	testing.expect(t, joiner.verified > joiner.first_tick)
-	testing.expect(t, len(session.relay.log.commands) > 0) // the replay reproduces commands too
-	// The joiner's verified checksums are the log's, replayed from tick 0.
-	if !testing.expect(t, len(joiner.checksums) > 0) {
-		return
-	}
-	last := joiner.checksums[len(joiner.checksums) - 1]
-	simulation := sim.create(&toy.GAME, SEED)
-	defer sim.destroy(simulation)
-	for k in 0 ..< int(last[0]) {
-		inputs := sim.log_inputs(&session.relay.log, k)
-		sim.step(simulation, &inputs)
-	}
-	testing.expect_value(t, sim.checksum(simulation), last[1])
+	testing.expect_value(t, joiner.status, netcode.Status.Failed)
+	testing.expect_value(t, joiner.detail, "no player can send this player a snapshot")
+	testing.expect(t, !session.relay.connected[1])
 }
 
 // A raw channel standing in for the relay, to send a client exactly the messages a test wants.

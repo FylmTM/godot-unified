@@ -72,7 +72,8 @@ gated_join :: proc(
 }
 
 // The relay gives up on a client whose packets stopped arriving, while the client still hears the
-// relay. When the client's packets flow again, the client must learn that the relay forgot it
+// relay: once the ticks the client hasn't acked leave the relay's ring (RELAY_RING, 8 s at 64 Hz), it is
+// refused as too far behind (else the channel's 10 s timeout). The client must learn that the relay forgot it
 // (status Disconnected), not sit in a frozen "Connected" session forever.
 @(test)
 one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
@@ -88,7 +89,7 @@ one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
 	gate.block_out = false
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
-	testing.expect_value(t, client.detail, "connection lost")
+	testing.expect_value(t, client.detail, "fell too far behind the session")
 }
 
 // A client vanishes without saying goodbye (crash, killed process) and a new one comes back on the
@@ -171,8 +172,8 @@ long_round_trip_join_keeps_its_first_inputs :: proc(t: ^testing.T) {
 	}
 }
 
-// After a few seconds of outage both ways (Wi-Fi drop), a client ~200 ms away must get back to
-// the live tick quickly: the relay streams the backlog faster than one window per round trip.
+// After a few seconds of outage both ways (Wi-Fi drop; 5 s, inside the relay's ring), a client ~200 ms away
+// must get back to the live tick quickly: the relay streams the backlog faster than one window per round trip.
 @(test)
 catch_up_after_an_outage :: proc(t: ^testing.T) {
 	session: Net
@@ -186,7 +187,7 @@ catch_up_after_an_outage :: proc(t: ^testing.T) {
 	)
 	net_run(&session, 3)
 	gate.block_out, gate.block_in = true, true
-	net_run(&session, 8)
+	net_run(&session, 5)
 	gate.block_out, gate.block_in = false, false
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	start := session.clock.now

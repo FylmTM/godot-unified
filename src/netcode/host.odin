@@ -6,14 +6,17 @@ package netcode
 import "unified:sim"
 
 Host_Config :: struct {
-	seed:        u64,
-	ticks:       u32, // 0: endless
-	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:     []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
-	name:        string, // for log lines
-	player_name: string, // the host player's display name
-	poll_us:     i64,
-	quiet:       bool,
+	seed:          u64,
+	ticks:         u32, // 0: endless
+	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
+	content:       []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
+	name:          string, // for log lines
+	player_name:   string, // the host player's display name
+	poll_us:       i64,
+	quiet:         bool,
+	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
+	// Typed desync reports (dev builds): the relay diffs two players' snapshots of a desynced tick (Relay_Config.desync_diff).
+	desync_detail: bool,
 }
 
 Host :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
@@ -44,6 +47,8 @@ host_create :: proc(
 		poll_us       = cfg.poll_us,
 		quiet         = cfg.quiet,
 		local_start   = true, // the only start player is the host's own client
+		recording     = cfg.recording,
+		desync_diff   = cfg.desync_detail ? desync_diff_of(State) : nil,
 	}
 	host.relay = relay_create(relay_config, Input, PLAYERS)
 	relay_add_link(host.relay, loopback_link(host.hub, 0))
