@@ -124,7 +124,7 @@ Link_Event :: struct {
 }
 
 @(private)
-g: Online
+session: Online
 
 // --- public API ---------------------------------------------------------------------------------
 
@@ -133,14 +133,14 @@ g: Online
 // $UNIFIED_EOS_SDK names (its SDK/Bin: tests and headless tools on a developer's machine).
 default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	dirs := make([dynamic]string, allocator)
-	if d := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); d != "" {
-		append(&dirs, d)
+	if dir := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); dir != "" {
+		append(&dirs, dir)
 	}
 	if exe, err := os.get_executable_directory(allocator); err == nil {
 		append(&dirs, exe)
 		when ODIN_OS == .Darwin {
-			fw, _ := filepath.join({exe, "..", "Frameworks"}, allocator)
-			append(&dirs, fw)
+			frameworks, _ := filepath.join({exe, "..", "Frameworks"}, allocator)
+			append(&dirs, frameworks)
 		}
 	}
 	if sdk := os.get_env("UNIFIED_EOS_SDK", allocator); sdk != "" {
@@ -154,21 +154,21 @@ default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 // Loads the SDK and creates the platform. Safe to call again (returns the first result). On
 // failure, `status` says why and online play stays off.
 init :: proc(opts: Init_Options) -> bool {
-	o := &g
-	sync.guard(&o.mu)
-	if o.stage != .Off {
+	online := &session
+	sync.guard(&online.mu)
+	if online.stage != .Off {
 		return true
 	}
-	if o.platform != nil || o.detail_len > 0 {
+	if online.platform != nil || online.detail_len > 0 {
 		return false // a previous init failed
 	}
-	o.relay_control = opts.relay_control.? or_else .Allow_Relays
+	online.relay_control = opts.relay_control.? or_else .Allow_Relays
 	// $UNIFIED_EOS_RELAYS=force|none overrides the default (testing relays from a game build).
 	switch os.get_env("UNIFIED_EOS_RELAYS", context.temp_allocator) {
 	case "force":
-		o.relay_control = .Force_Relays
+		online.relay_control = .Force_Relays
 	case "none":
-		o.relay_control = .No_Relays
+		online.relay_control = .No_Relays
 	}
 	if opts.no_keychain_prompts {
 		disable_keychain_prompts()
@@ -179,37 +179,37 @@ init :: proc(opts: Init_Options) -> bool {
 	}
 	loaded := false
 	if opts.sdk != nil {
-		o.api = opts.sdk^
-		copy(o.lib_path[:len(o.lib_path) - 1], "(test SDK)")
+		online.api = opts.sdk^
+		copy(online.lib_path[:len(online.lib_path) - 1], "(test SDK)")
 		loaded = true
 		dirs = nil
 	}
-	for d in dirs {
-		path, _ := filepath.join({d, LIB_NAME}, context.temp_allocator)
+	for dir in dirs {
+		path, _ := filepath.join({dir, LIB_NAME}, context.temp_allocator)
 		if !os.exists(path) {
 			continue
 		}
-		if api_load(&o.api, path) {
-			copy(o.lib_path[:len(o.lib_path) - 1], path)
+		if api_load(&online.api, path) {
+			copy(online.lib_path[:len(online.lib_path) - 1], path)
 			loaded = true
 			break
 		}
-		set_detail(o, "%s: cannot load it or a symbol is missing (SDK too old?)", path)
+		set_detail(online, "%s: cannot load it or a symbol is missing (SDK too old?)", path)
 		return false
 	}
 	if !loaded {
-		set_detail(o, "%s not found (looked in %s)", LIB_NAME, strings.join(dirs, ", ", context.temp_allocator))
+		set_detail(online, "%s not found (looked in %s)", LIB_NAME, strings.join(dirs, ", ", context.temp_allocator))
 		return false
 	}
 
 	creds, source := credentials_load(context.temp_allocator)
 	if !credentials_complete(creds) && opts.sdk == nil {
-		set_detail(o, "EOS credentials missing (compiled in, or UNIFIED_EOS_* in the environment or .env)")
+		set_detail(online, "EOS credentials missing (compiled in, or UNIFIED_EOS_* in the environment or .env)")
 		return false
 	}
 	_ = source
 
-	io := Initialize_Options {
+	init_options := Initialize_Options {
 		api_version     = INITIALIZE_API_LATEST,
 		product_name    = strings.clone_to_cstring(
 			opts.product_name != "" ? opts.product_name : "unified",
@@ -220,12 +220,12 @@ init :: proc(opts: Init_Options) -> bool {
 			context.temp_allocator,
 		),
 	}
-	if r := o.api.Initialize(&io); r != .Success && r != .AlreadyConfigured {
-		set_detail(o, "EOS_Initialize: %s", o.api.EResult_ToString(r))
+	if result := online.api.Initialize(&init_options); result != .Success && result != .AlreadyConfigured {
+		set_detail(online, "EOS_Initialize: %s", online.api.EResult_ToString(result))
 		return false
 	}
-	o.api.Logging_SetCallback(on_log)
-	o.api.Logging_SetLogLevel(LC_ALL_CATEGORIES, log_level_from_env())
+	online.api.Logging_SetCallback(on_log)
+	online.api.Logging_SetLogLevel(LC_ALL_CATEGORIES, log_level_from_env())
 
 	cache := opts.cache_dir
 	if cache == "" {
@@ -235,7 +235,7 @@ init :: proc(opts: Init_Options) -> bool {
 		)
 	}
 	_ = os.make_directory_all(cache)
-	po := Platform_Options {
+	platform_options := Platform_Options {
 		api_version = PLATFORM_OPTIONS_API_LATEST,
 		product_id = strings.clone_to_cstring(creds.product_id, context.temp_allocator),
 		sandbox_id = strings.clone_to_cstring(creds.sandbox_id, context.temp_allocator),
@@ -247,23 +247,23 @@ init :: proc(opts: Init_Options) -> bool {
 		flags = PF_DISABLE_OVERLAY | PF_DISABLE_SOCIAL_OVERLAY,
 		cache_directory = strings.clone_to_cstring(cache, context.temp_allocator),
 	}
-	o.platform = o.api.Platform_Create(&po)
-	if o.platform == nil {
-		o.api.Shutdown() // EOS_Initialize succeeded: undo it
-		set_detail(o, "EOS_Platform_Create failed (check the IDs in the credentials)")
+	online.platform = online.api.Platform_Create(&platform_options)
+	if online.platform == nil {
+		online.api.Shutdown() // EOS_Initialize succeeded: undo it
+		set_detail(online, "EOS_Platform_Create failed (check the IDs in the credentials)")
 		return false
 	}
-	o.connect = o.api.Platform_GetConnectInterface(o.platform)
-	o.p2p = o.api.Platform_GetP2PInterface(o.platform)
-	o.lobby = o.api.Platform_GetLobbyInterface(o.platform)
-	rc := P2P_Set_Relay_Control_Options {
+	online.connect = online.api.Platform_GetConnectInterface(online.platform)
+	online.p2p = online.api.Platform_GetP2PInterface(online.platform)
+	online.lobby = online.api.Platform_GetLobbyInterface(online.platform)
+	relay_options := P2P_Set_Relay_Control_Options {
 		api_version   = P2P_SETRELAYCONTROL_API_LATEST,
-		relay_control = o.relay_control,
+		relay_control = online.relay_control,
 	}
-	o.api.P2P_SetRelayControl(o.p2p, &rc)
-	o.fresh_device = os.get_env("UNIFIED_EOS_FRESH_DEVICE", context.temp_allocator) == "1"
-	o.stage = .Idle
-	o.detail_len = 0
+	online.api.P2P_SetRelayControl(online.p2p, &relay_options)
+	online.fresh_device = os.get_env("UNIFIED_EOS_FRESH_DEVICE", context.temp_allocator) == "1"
+	online.stage = .Idle
+	online.detail_len = 0
 	return true
 }
 
@@ -275,21 +275,21 @@ host :: proc(bucket: string) -> bool {
 
 // Starts joining the lobby with `code` (as typed: case and dashes don't matter).
 join :: proc(bucket: string, code: string) -> bool {
-	c, ok := code_parse(code)
+	game_code, ok := code_parse(code)
 	if !ok {
-		o := &g
-		sync.guard(&o.mu)
-		set_detail(o, "%q is not a game code (6 letters and digits)", code)
+		online := &session
+		sync.guard(&online.mu)
+		set_detail(online, "%q is not a game code (6 letters and digits)", code)
 		return false
 	}
-	return begin(.Join, bucket, c)
+	return begin(.Join, bucket, game_code)
 }
 
 // Ticks EOS and advances the session. Call it regularly while no link is in use.
 poll :: proc() {
-	o := &g
-	sync.guard(&o.mu)
-	tick(o)
+	online := &session
+	sync.guard(&online.mu)
+	tick(online)
 }
 
 Status :: struct {
@@ -305,27 +305,27 @@ Status :: struct {
 }
 
 // A snapshot of the session; strings are allocated with `allocator`.
-status :: proc(allocator := context.temp_allocator) -> (s: Status) {
-	o := &g
-	sync.guard(&o.mu)
-	s.stage = o.stage
-	s.role = o.role
-	if o.role != .None && o.code[0] != 0 {
-		s.code = strings.clone(string(o.code[:]), allocator)
+status :: proc(allocator := context.temp_allocator) -> (snapshot: Status) {
+	online := &session
+	sync.guard(&online.mu)
+	snapshot.stage = online.stage
+	snapshot.role = online.role
+	if online.role != .None && online.code[0] != 0 {
+		snapshot.code = strings.clone(string(online.code[:]), allocator)
 	}
-	s.detail = strings.clone(string(o.detail[:o.detail_len]), allocator)
-	s.local = strings.clone(cstr(o.local_str[:]), allocator)
-	s.lib = strings.clone(cstr(o.lib_path[:]), allocator)
-	for &r, i in o.remotes {
-		if !r.used {
+	snapshot.detail = strings.clone(string(online.detail[:online.detail_len]), allocator)
+	snapshot.local = strings.clone(cstr(online.local_str[:]), allocator)
+	snapshot.lib = strings.clone(cstr(online.lib_path[:]), allocator)
+	for &remote, i in online.remotes {
+		if !remote.used {
 			continue
 		}
-		if r.connected {
-			s.peers += 1
+		if remote.connected {
+			snapshot.peers += 1
 		}
-		if o.role == .Join && i == 0 {
-			s.host = strings.clone(cstr(r.id_str[:]), allocator)
-			s.network = r.network
+		if online.role == .Join && i == 0 {
+			snapshot.host = strings.clone(cstr(remote.id_str[:]), allocator)
+			snapshot.network = remote.network
 		}
 	}
 	return
@@ -335,19 +335,19 @@ status :: proc(allocator := context.temp_allocator) -> (s: Status) {
 // receives nothing until Ready). Host: peer i >= 1 is the i-th joiner that sent a packet; joiner:
 // peer 0 is the host. The link ticks EOS on every recv that finds nothing (at most every
 // TICK_EVERY_US), so the thread running the netcode keeps EOS alive.
-link :: proc() -> (l: netcode.Link, ok: bool) {
-	o := &g
-	sync.guard(&o.mu)
-	if o.stage == .Off || o.role == .None {
+link :: proc() -> (net_link: netcode.Link, ok: bool) {
+	online := &session
+	sync.guard(&online.mu)
+	if online.stage == .Off || online.role == .None {
 		return
 	}
-	return {data = o, send = link_send, recv = link_recv, close = link_close, event = link_event}, true
+	return {data = online, send = link_send, recv = link_recv, close = link_close, event = link_event}, true
 }
 
 // --- transport shape (godot_host.Transport) -----------------------------------------------------
 
 // Starts hosting and returns the link at once (init must have succeeded).
-open_host :: proc(bucket: string) -> (l: netcode.Link, ok: bool) {
+open_host :: proc(bucket: string) -> (net_link: netcode.Link, ok: bool) {
 	if !host(bucket) {
 		return
 	}
@@ -355,7 +355,7 @@ open_host :: proc(bucket: string) -> (l: netcode.Link, ok: bool) {
 }
 
 // Starts joining `code` and returns the link at once; a bad code fails here.
-open_join :: proc(bucket, code: string) -> (l: netcode.Link, ok: bool) {
+open_join :: proc(bucket, code: string) -> (net_link: netcode.Link, ok: bool) {
 	if !join(bucket, code) {
 		return
 	}
@@ -368,17 +368,17 @@ Pump_Result :: struct {
 }
 
 // Ticks EOS and reports what changed since the last call. Strings use `allocator`.
-pump :: proc(allocator := context.temp_allocator) -> (r: Pump_Result) {
-	o := &g
-	sync.guard(&o.mu)
-	tick(o)
-	if o.stage == .Ready && o.role == .Host && !o.reported_code {
-		o.reported_code = true
-		r.code = strings.clone(string(o.code[:]), allocator)
+pump :: proc(allocator := context.temp_allocator) -> (result: Pump_Result) {
+	online := &session
+	sync.guard(&online.mu)
+	tick(online)
+	if online.stage == .Ready && online.role == .Host && !online.reported_code {
+		online.reported_code = true
+		result.code = strings.clone(string(online.code[:]), allocator)
 	}
-	if o.stage == .Failed && !o.reported_fail {
-		o.reported_fail = true
-		r.failed = strings.clone(string(o.detail[:o.detail_len]), allocator)
+	if online.stage == .Failed && !online.reported_fail {
+		online.reported_fail = true
+		result.failed = strings.clone(string(online.detail[:online.detail_len]), allocator)
 	}
 	return
 }
@@ -393,11 +393,11 @@ close :: proc() {
 // or quitting, may not tick EOS again for a long time, and an unsent leave keeps the player a lobby
 // member (or the host's lobby open) until Epic notices, possibly after the player rejoined.
 leave :: proc() {
-	o := &g
-	sync.guard(&o.mu)
-	end_session(o)
-	for i := 0; i < LEAVE_FLUSH_MS / 5 && o.in_lobby && o.platform != nil; i += 1 {
-		tick(o)
+	online := &session
+	sync.guard(&online.mu)
+	end_session(online)
+	for i := 0; i < LEAVE_FLUSH_MS / 5 && online.in_lobby && online.platform != nil; i += 1 {
+		tick(online)
 		time.sleep(5 * time.Millisecond)
 	}
 }
@@ -407,20 +407,20 @@ LEAVE_FLUSH_MS :: 500
 // Deletes this machine's device ID (the next login makes a new anonymous user). For test tools,
 // so runs leave nothing behind; blocks up to ~5 s while EOS completes it.
 forget_device :: proc() {
-	o := &g
-	sync.guard(&o.mu)
-	if o.platform == nil {
+	online := &session
+	sync.guard(&online.mu)
+	if online.platform == nil {
 		return
 	}
 	done := false
-	do_ := Connect_Delete_Device_Id_Options {
+	delete_options := Connect_Delete_Device_Id_Options {
 		api_version = CONNECT_DELETEDEVICEID_API_LATEST,
 	}
-	o.api.Connect_DeleteDeviceId(o.connect, &do_, &done, proc "c" (info: ^Result_Callback_Info) {
+	online.api.Connect_DeleteDeviceId(online.connect, &delete_options, &done, proc "c" (info: ^Result_Callback_Info) {
 		(^bool)(info.client_data)^ = true
 	})
 	for _ in 0 ..< 500 {
-		tick(o)
+		tick(online)
 		if done {
 			return
 		}
@@ -430,99 +430,102 @@ forget_device :: proc() {
 
 // Releases the platform; call once at exit. EOS can't be initialized again in this process.
 shutdown :: proc() {
-	o := &g
-	sync.guard(&o.mu)
-	if o.platform == nil {
+	online := &session
+	sync.guard(&online.mu)
+	if online.platform == nil {
 		return
 	}
-	end_session(o)
+	end_session(online)
 	// Let the leave requests go out.
 	for _ in 0 ..< 50 {
-		o.api.Platform_Tick(o.platform)
-		if !o.in_lobby {
+		online.api.Platform_Tick(online.platform)
+		if !online.in_lobby {
 			break
 		}
 		time.sleep(10 * time.Millisecond)
 	}
-	o.api.Platform_Release(o.platform)
-	o.api.Shutdown()
-	o.platform = nil
-	o.stage = .Off
-	set_detail(o, "shut down")
+	online.api.Platform_Release(online.platform)
+	online.api.Shutdown()
+	online.platform = nil
+	online.stage = .Off
+	set_detail(online, "shut down")
 }
 
 // --- session state machine ----------------------------------------------------------------------
 
 @(private)
 begin :: proc(role: Role, bucket: string, code: Code) -> bool {
-	o := &g
-	sync.guard(&o.mu)
-	if o.stage == .Off {
+	online := &session
+	sync.guard(&online.mu)
+	if online.stage == .Off {
 		return false
 	}
-	if o.stage != .Idle && o.stage != .Failed {
-		end_session(o)
+	if online.stage != .Idle && online.stage != .Failed {
+		end_session(online)
 	}
-	o.gen += 1
-	o.role = role
-	o.code = code
-	o.reported_code = false
-	o.reported_fail = false
-	o.searches = 0
-	o.search_at_us = 0
-	o.n_events = 0
-	o.bucket = {}
-	copy(o.bucket[:len(o.bucket) - 1], bucket)
-	o.detail_len = 0
-	if o.local == nil {
-		o.stage = .Login
-		if !o.login_busy {
-			start_login(o)
+	online.gen += 1
+	online.role = role
+	online.code = code
+	online.reported_code = false
+	online.reported_fail = false
+	online.searches = 0
+	online.search_at_us = 0
+	online.n_events = 0
+	online.bucket = {}
+	copy(online.bucket[:len(online.bucket) - 1], bucket)
+	online.detail_len = 0
+	if online.local == nil {
+		online.stage = .Login
+		if !online.login_busy {
+			start_login(online)
 		}
 	} else {
-		start_lobby(o)
+		start_lobby(online)
 	}
 	return true
 }
 
 @(private)
-tick :: proc(o: ^Online) {
-	if o.platform == nil {
+tick :: proc(online: ^Online) {
+	if online.platform == nil {
 		return
 	}
-	o.api.Platform_Tick(o.platform)
+	online.api.Platform_Tick(online.platform)
 	pump_main_run_loop()
-	o.last_tick_us = netcode.now_us()
-	if o.search_at_us != 0 && o.last_tick_us >= o.search_at_us && o.stage == .Lobby && o.role == .Join {
-		o.search_at_us = 0
-		start_lobby(o)
+	online.last_tick_us = netcode.now_us()
+	if online.search_at_us != 0 &&
+	   online.last_tick_us >= online.search_at_us &&
+	   online.stage == .Lobby &&
+	   online.role == .Join {
+		online.search_at_us = 0
+		start_lobby(online)
 	}
-	if o.relogin_at_us != 0 && o.last_tick_us >= o.relogin_at_us && !o.login_busy {
-		o.relogin_at_us = 0
-		start_login(o)
+	if online.relogin_at_us != 0 && online.last_tick_us >= online.relogin_at_us && !online.login_busy {
+		online.relogin_at_us = 0
+		start_login(online)
 	}
 }
 
 RELOGIN_RETRY_US :: 15_000_000
 
 @(private)
-fail :: proc(o: ^Online, format: string, args: ..any) {
-	set_detail(o, format, ..args)
-	o.stage = .Failed
-	log_line("session failed: %s", string(o.detail[:o.detail_len]))
+fail :: proc(online: ^Online, format: string, args: ..any) {
+	set_detail(online, format, ..args)
+	online.stage = .Failed
+	log_line("session failed: %s", string(online.detail[:online.detail_len]))
 }
 
 @(private)
-start_login :: proc(o: ^Online) {
-	o.login_busy = true
-	if o.fresh_device {
+start_login :: proc(online: ^Online) {
+	online.login_busy = true
+	if online.fresh_device {
 		// Test aid: a brand-new device ID gives this process its own Product User ID, so two
 		// processes on one machine can play each other.
-		o.fresh_device = false
-		do_ := Connect_Delete_Device_Id_Options {
+		online.fresh_device = false
+		delete_options := Connect_Delete_Device_Id_Options {
 			api_version = CONNECT_DELETEDEVICEID_API_LATEST,
 		}
-		o.api.Connect_DeleteDeviceId(o.connect, &do_, o, on_device_deleted)
+		online.api.Connect_DeleteDeviceId(online.connect, &delete_options, online, on_device_deleted)
 		return
 	}
 	name := os.get_env("UNIFIED_EOS_NAME", context.temp_allocator)
@@ -537,182 +540,193 @@ start_login :: proc(o: ^Online) {
 		api_version  = CONNECT_USERLOGININFO_API_LATEST,
 		display_name = strings.clone_to_cstring(name[:min(len(name), 32)], context.temp_allocator),
 	}
-	lo := Connect_Login_Options {
+	login_options := Connect_Login_Options {
 		api_version     = CONNECT_LOGIN_API_LATEST,
 		credentials     = &creds,
 		user_login_info = &info,
 	}
-	o.api.Connect_Login(o.connect, &lo, o, on_login)
+	online.api.Connect_Login(online.connect, &login_options, online, on_login)
 }
 
 @(private)
 on_device_deleted :: proc "c" (info: ^Result_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	log_line("device ID deleted: %s", o.api.EResult_ToString(info.result_code))
-	create_device_id(o)
+	log_line("device ID deleted: %s", online.api.EResult_ToString(info.result_code))
+	create_device_id(online)
 }
 
 @(private)
-create_device_id :: proc(o: ^Online) {
-	o.device_tries += 1
+create_device_id :: proc(online: ^Online) {
+	online.device_tries += 1
 	model := os.get_env("UNIFIED_EOS_DEVICE_MODEL", context.temp_allocator)
 	if model == "" {
 		model = ODIN_OS == .Windows ? "Windows PC" : ODIN_OS == .Darwin ? "Mac" : "Linux PC"
 	}
-	co := Connect_Create_Device_Id_Options {
+	create_device_options := Connect_Create_Device_Id_Options {
 		api_version  = CONNECT_CREATEDEVICEID_API_LATEST,
 		device_model = strings.clone_to_cstring(model, context.temp_allocator),
 	}
-	o.api.Connect_CreateDeviceId(o.connect, &co, o, on_device_created)
+	online.api.Connect_CreateDeviceId(online.connect, &create_device_options, online, on_device_created)
 }
 
 @(private)
 on_device_created :: proc "c" (info: ^Result_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	log_line("device ID: %s", o.api.EResult_ToString(info.result_code))
+	log_line("device ID: %s", online.api.EResult_ToString(info.result_code))
 	if info.result_code != .Success && info.result_code != .DuplicateNotAllowed {
-		o.login_busy = false
-		fail(o, "creating a device ID: %s", o.api.EResult_ToString(info.result_code))
+		online.login_busy = false
+		fail(online, "creating a device ID: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
-	start_login(o)
+	start_login(online)
 }
 
 @(private)
 on_login :: proc "c" (info: ^Connect_Login_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if info.result_code != .Success {
-		log_line("login: %s", o.api.EResult_ToString(info.result_code))
+		log_line("login: %s", online.api.EResult_ToString(info.result_code))
 	}
-	if info.result_code != .Success && o.local != nil {
+	if info.result_code != .Success && online.local != nil {
 		// A token refresh (on_auth_expiring) failed, e.g. a network blip an hour into a session. The
 		// session still runs on the current token: keep it and try again, rather than fail it.
-		o.login_busy = false
-		o.relogin_at_us = netcode.now_us() + RELOGIN_RETRY_US
+		online.login_busy = false
+		online.relogin_at_us = netcode.now_us() + RELOGIN_RETRY_US
 		return
 	}
 	#partial switch info.result_code {
 	case .Success:
-		logged_in(o, info.local_user_id)
+		logged_in(online, info.local_user_id)
 	case .NotFound:
 		// No device ID on this machine yet.
-		if o.device_tries >= 2 {
-			o.login_busy = false
-			fail(o, "login: no device ID after creating one")
+		if online.device_tries >= 2 {
+			online.login_busy = false
+			fail(online, "login: no device ID after creating one")
 			return
 		}
-		create_device_id(o)
+		create_device_id(online)
 	case .UnexpectedError:
-		o.login_busy = false
+		online.login_busy = false
 		when ODIN_OS == .Darwin {
 			// The keychain entry belongs to another build of this program and access was denied
 			// (or prompts are off).
 			fail(
-				o,
+				online,
 				"login: the device ID in the keychain belongs to another build; allow access, or delete it: security delete-generic-password -s %s",
 				KEYCHAIN_SERVICE,
 			)
 		} else {
-			fail(o, "login: %s", o.api.EResult_ToString(info.result_code))
+			fail(online, "login: %s", online.api.EResult_ToString(info.result_code))
 		}
 	case .InvalidUser:
 		// First login with this device ID: create the product user.
-		cu := Connect_Create_User_Options {
+		create_user_options := Connect_Create_User_Options {
 			api_version       = CONNECT_CREATEUSER_API_LATEST,
 			continuance_token = info.continuance_token,
 		}
-		o.api.Connect_CreateUser(o.connect, &cu, o, on_user_created)
+		online.api.Connect_CreateUser(online.connect, &create_user_options, online, on_user_created)
 	case:
-		o.login_busy = false
-		fail(o, "login: %s", o.api.EResult_ToString(info.result_code))
+		online.login_busy = false
+		fail(online, "login: %s", online.api.EResult_ToString(info.result_code))
 	}
 }
 
 @(private)
 on_user_created :: proc "c" (info: ^Connect_Create_User_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if info.result_code != .Success {
-		o.login_busy = false
-		fail(o, "creating the user: %s", o.api.EResult_ToString(info.result_code))
+		online.login_busy = false
+		fail(online, "creating the user: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
-	logged_in(o, info.local_user_id)
+	logged_in(online, info.local_user_id)
 }
 
 @(private)
-logged_in :: proc(o: ^Online, id: Product_User_Id) {
-	first := o.local == nil
-	o.local = id
-	o.login_busy = false
-	id_to_string(o, id, o.local_str[:])
+logged_in :: proc(online: ^Online, id: Product_User_Id) {
+	first := online.local == nil
+	online.local = id
+	online.login_busy = false
+	id_to_string(online, id, online.local_str[:])
 	if first {
-		log_line("logged in as %s", cstr(o.local_str[:]))
-		ao := Connect_Add_Notify_Auth_Expiration_Options {
+		log_line("logged in as %s", cstr(online.local_str[:]))
+		auth_notify_options := Connect_Add_Notify_Auth_Expiration_Options {
 			api_version = CONNECT_ADDNOTIFYAUTHEXPIRATION_API_LATEST,
 		}
-		o.notify_auth = o.api.Connect_AddNotifyAuthExpiration(o.connect, &ao, o, on_auth_expiring)
-		mo := Version_Options {
+		online.notify_auth = online.api.Connect_AddNotifyAuthExpiration(
+			online.connect,
+			&auth_notify_options,
+			online,
+			on_auth_expiring,
+		)
+		member_notify_options := Version_Options {
 			api_version = LOBBY_ADDNOTIFYLOBBYMEMBERSTATUSRECEIVED_API_LATEST,
 		}
-		o.notify_member = o.api.Lobby_AddNotifyLobbyMemberStatusReceived(o.lobby, &mo, o, on_member_status)
+		online.notify_member = online.api.Lobby_AddNotifyLobbyMemberStatusReceived(
+			online.lobby,
+			&member_notify_options,
+			online,
+			on_member_status,
+		)
 	}
-	if o.stage == .Login {
-		start_lobby(o)
+	if online.stage == .Login {
+		start_lobby(online)
 	}
 }
 
 @(private)
 on_auth_expiring :: proc "c" (info: ^Connect_Auth_Expiration_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	// The access token lasts about an hour; refreshing is just logging in again.
-	if !o.login_busy {
-		start_login(o)
+	if !online.login_busy {
+		start_login(online)
 	}
 }
 
 @(private)
-start_lobby :: proc(o: ^Online) {
-	o.stage = .Lobby
-	if o.role == .Host {
-		o.code = code_new()
-		open_socket(o)
-		co := Lobby_Create_Lobby_Options {
+start_lobby :: proc(online: ^Online) {
+	online.stage = .Lobby
+	if online.role == .Host {
+		online.code = code_new()
+		open_socket(online)
+		create_lobby_options := Lobby_Create_Lobby_Options {
 			api_version            = LOBBY_CREATELOBBY_API_LATEST,
-			local_user_id          = o.local,
+			local_user_id          = online.local,
 			max_lobby_members      = MAX_MEMBERS,
 			permission_level       = .Public_Advertised,
-			bucket_id              = cstring(&o.bucket[0]),
+			bucket_id              = cstring(&online.bucket[0]),
 			disable_host_migration = true,
 		}
-		o.api.Lobby_CreateLobby(o.lobby, &co, call_new(o), on_lobby_created)
-		set_detail(o, "creating the lobby")
+		online.api.Lobby_CreateLobby(online.lobby, &create_lobby_options, call_new(online), on_lobby_created)
+		set_detail(online, "creating the lobby")
 		return
 	}
 	search: H_Lobby_Search
-	so := Lobby_Create_Lobby_Search_Options {
+	create_search_options := Lobby_Create_Lobby_Search_Options {
 		api_version = LOBBY_CREATELOBBYSEARCH_API_LATEST,
 		max_results = 2,
 	}
-	if r := o.api.Lobby_CreateLobbySearch(o.lobby, &so, &search); r != .Success {
-		fail(o, "lobby search: %s", o.api.EResult_ToString(r))
+	if result := online.api.Lobby_CreateLobbySearch(online.lobby, &create_search_options, &search);
+	   result != .Success {
+		fail(online, "lobby search: %s", online.api.EResult_ToString(result))
 		return
 	}
-	code_c := strings.clone_to_cstring(string(o.code[:]), context.temp_allocator)
+	code_c := strings.clone_to_cstring(string(online.code[:]), context.temp_allocator)
 	params := [2]Lobby_Attribute_Data {
 		{
 			api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
 			key = LOBBY_SEARCH_BUCKET_ID,
-			value = {as_utf8 = cstring(&o.bucket[0])},
+			value = {as_utf8 = cstring(&online.bucket[0])},
 			value_type = .String,
 		},
 		{
@@ -722,25 +736,25 @@ start_lobby :: proc(o: ^Online) {
 			value_type = .String,
 		},
 	}
-	for &p in params {
-		sp := Lobby_Search_Set_Parameter_Options {
+	for &param in params {
+		search_param_options := Lobby_Search_Set_Parameter_Options {
 			api_version   = LOBBYSEARCH_SETPARAMETER_API_LATEST,
-			parameter     = &p,
+			parameter     = &param,
 			comparison_op = CO_EQUAL,
 		}
-		if r := o.api.LobbySearch_SetParameter(search, &sp); r != .Success {
-			o.api.LobbySearch_Release(search)
-			fail(o, "lobby search parameter: %s", o.api.EResult_ToString(r))
+		if result := online.api.LobbySearch_SetParameter(search, &search_param_options); result != .Success {
+			online.api.LobbySearch_Release(search)
+			fail(online, "lobby search parameter: %s", online.api.EResult_ToString(result))
 			return
 		}
 	}
-	fo := Lobby_Search_Find_Options {
+	find_options := Lobby_Search_Find_Options {
 		api_version   = LOBBYSEARCH_FIND_API_LATEST,
-		local_user_id = o.local,
+		local_user_id = online.local,
 	}
-	o.searches += 1
-	o.api.LobbySearch_Find(search, &fo, call_new(o, search), on_search_done)
-	set_detail(o, "looking for game %s", string(o.code[:]))
+	online.searches += 1
+	online.api.LobbySearch_Find(search, &find_options, call_new(online, search), on_search_done)
+	set_detail(online, "looking for game %s", string(online.code[:]))
 }
 
 ATTR_CODE :: "code"
@@ -755,221 +769,221 @@ Call :: struct {
 }
 
 @(private)
-call_new :: proc(o: ^Online, search: H_Lobby_Search = nil) -> rawptr {
-	c := new(Call, runtime.heap_allocator()) // freed in a callback, which runs with a fresh context
-	c^ = {o.gen, search}
-	return c
+call_new :: proc(online: ^Online, search: H_Lobby_Search = nil) -> rawptr {
+	call := new(Call, runtime.heap_allocator()) // freed in a callback, which runs with a fresh context
+	call^ = {online.gen, search}
+	return call
 }
 
 // Takes the callback's Call: (search handle, true if it belongs to the current session).
 @(private)
-call_take :: proc(o: ^Online, data: rawptr) -> (search: H_Lobby_Search, current: bool) {
-	c := (^Call)(data)
-	search, current = c.search, c.gen == o.gen
-	free(c, runtime.heap_allocator())
+call_take :: proc(online: ^Online, data: rawptr) -> (search: H_Lobby_Search, current: bool) {
+	call := (^Call)(data)
+	search, current = call.search, call.gen == online.gen
+	free(call, runtime.heap_allocator())
 	return
 }
 
 // Destroys (owner) or leaves a lobby that an abandoned session's request created or joined.
 @(private)
-drop_lobby :: proc(o: ^Online, id: Lobby_Id, owner: bool) {
-	lo := Lobby_User_Lobby_Options {
-		local_user_id = o.local,
+drop_lobby :: proc(online: ^Online, id: Lobby_Id, owner: bool) {
+	leave_options := Lobby_User_Lobby_Options {
+		local_user_id = online.local,
 		lobby_id      = id,
 	}
 	if owner {
-		lo.api_version = LOBBY_DESTROYLOBBY_API_LATEST
-		o.api.Lobby_DestroyLobby(o.lobby, &lo, o, on_lobby_left)
+		leave_options.api_version = LOBBY_DESTROYLOBBY_API_LATEST
+		online.api.Lobby_DestroyLobby(online.lobby, &leave_options, online, on_lobby_left)
 	} else {
-		lo.api_version = LOBBY_LEAVELOBBY_API_LATEST
-		o.api.Lobby_LeaveLobby(o.lobby, &lo, o, on_lobby_left)
+		leave_options.api_version = LOBBY_LEAVELOBBY_API_LATEST
+		online.api.Lobby_LeaveLobby(online.lobby, &leave_options, online, on_lobby_left)
 	}
 }
 
 @(private)
 on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := &g
+	online := &session
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Host {
+	if _, current := call_take(online, info.client_data); !current || online.stage != .Lobby || online.role != .Host {
 		// Left (or started another session) while the request was in flight.
 		if info.result_code == .Success {
-			drop_lobby(o, info.lobby_id, true)
+			drop_lobby(online, info.lobby_id, true)
 		}
 		return
 	}
 	if info.result_code != .Success {
-		fail(o, "creating the lobby: %s", o.api.EResult_ToString(info.result_code))
+		fail(online, "creating the lobby: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
-	o.in_lobby = true
-	o.lobby_id = {}
-	copy(o.lobby_id[:len(o.lobby_id) - 1], string(info.lobby_id))
+	online.in_lobby = true
+	online.lobby_id = {}
+	copy(online.lobby_id[:len(online.lobby_id) - 1], string(info.lobby_id))
 	mod: H_Lobby_Modification
-	mo := Lobby_User_Lobby_Options {
+	modify_options := Lobby_User_Lobby_Options {
 		api_version   = LOBBY_UPDATELOBBYMODIFICATION_API_LATEST,
-		local_user_id = o.local,
-		lobby_id      = cstring(&o.lobby_id[0]),
+		local_user_id = online.local,
+		lobby_id      = cstring(&online.lobby_id[0]),
 	}
-	if r := o.api.Lobby_UpdateLobbyModification(o.lobby, &mo, &mod); r != .Success {
-		fail(o, "lobby modification: %s", o.api.EResult_ToString(r))
+	if result := online.api.Lobby_UpdateLobbyModification(online.lobby, &modify_options, &mod); result != .Success {
+		fail(online, "lobby modification: %s", online.api.EResult_ToString(result))
 		return
 	}
-	defer o.api.LobbyModification_Release(mod)
-	code_c := strings.clone_to_cstring(string(o.code[:]), context.temp_allocator)
+	defer online.api.LobbyModification_Release(mod)
+	code_c := strings.clone_to_cstring(string(online.code[:]), context.temp_allocator)
 	attr := Lobby_Attribute_Data {
 		api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
 		key = ATTR_CODE,
 		value = {as_utf8 = code_c},
 		value_type = .String,
 	}
-	ao := Lobby_Modification_Add_Attribute_Options {
+	attribute_options := Lobby_Modification_Add_Attribute_Options {
 		api_version = LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST,
 		attribute   = &attr,
 		visibility  = LA_PUBLIC,
 	}
-	if r := o.api.LobbyModification_AddAttribute(mod, &ao); r != .Success {
-		fail(o, "lobby code attribute: %s", o.api.EResult_ToString(r))
+	if result := online.api.LobbyModification_AddAttribute(mod, &attribute_options); result != .Success {
+		fail(online, "lobby code attribute: %s", online.api.EResult_ToString(result))
 		return
 	}
-	uo := Lobby_Update_Lobby_Options {
+	update_options := Lobby_Update_Lobby_Options {
 		api_version               = LOBBY_UPDATELOBBY_API_LATEST,
 		lobby_modification_handle = mod,
 	}
-	o.api.Lobby_UpdateLobby(o.lobby, &uo, call_new(o), on_lobby_updated)
+	online.api.Lobby_UpdateLobby(online.lobby, &update_options, call_new(online), on_lobby_updated)
 }
 
 @(private)
 on_lobby_updated :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := &g
+	online := &session
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby {
+	if _, current := call_take(online, info.client_data); !current || online.stage != .Lobby {
 		return
 	}
 	if info.result_code != .Success {
-		fail(o, "publishing the lobby code: %s", o.api.EResult_ToString(info.result_code))
+		fail(online, "publishing the lobby code: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
-	o.stage = .Ready
-	set_detail(o, "hosting game %s", string(o.code[:]))
-	log_line("hosting game %s (lobby %s)", string(o.code[:]), cstr(o.lobby_id[:]))
+	online.stage = .Ready
+	set_detail(online, "hosting game %s", string(online.code[:]))
+	log_line("hosting game %s (lobby %s)", string(online.code[:]), cstr(online.lobby_id[:]))
 }
 
 @(private)
 on_search_done :: proc "c" (info: ^Result_Callback_Info) {
-	o := &g
+	online := &session
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	search, current := call_take(o, info.client_data)
-	defer o.api.LobbySearch_Release(search)
-	if !current || o.stage != .Lobby || o.role != .Join {
+	search, current := call_take(online, info.client_data)
+	defer online.api.LobbySearch_Release(search)
+	if !current || online.stage != .Lobby || online.role != .Join {
 		return
 	}
 	count: u32
 	if info.result_code == .Success {
-		co := Version_Options {
+		count_options := Version_Options {
 			api_version = LOBBYSEARCH_GETSEARCHRESULTCOUNT_API_LATEST,
 		}
-		count = o.api.LobbySearch_GetSearchResultCount(search, &co)
+		count = online.api.LobbySearch_GetSearchResultCount(search, &count_options)
 	} else if info.result_code != .NotFound {
-		fail(o, "lobby search: %s", o.api.EResult_ToString(info.result_code))
+		fail(online, "lobby search: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
 	if count == 0 {
-		if o.searches < SEARCH_TRIES {
-			o.search_at_us = netcode.now_us() + SEARCH_RETRY_US
+		if online.searches < SEARCH_TRIES {
+			online.search_at_us = netcode.now_us() + SEARCH_RETRY_US
 			return
 		}
-		fail(o, "no game with code %s", string(o.code[:]))
+		fail(online, "no game with code %s", string(online.code[:]))
 		return
 	}
 	details: H_Lobby_Details
-	ro := Lobby_Search_Copy_Search_Result_By_Index_Options {
+	copy_options := Lobby_Search_Copy_Search_Result_By_Index_Options {
 		api_version = LOBBYSEARCH_COPYSEARCHRESULTBYINDEX_API_LATEST,
 	}
-	if r := o.api.LobbySearch_CopySearchResultByIndex(search, &ro, &details); r != .Success {
-		fail(o, "lobby search result: %s", o.api.EResult_ToString(r))
+	if result := online.api.LobbySearch_CopySearchResultByIndex(search, &copy_options, &details); result != .Success {
+		fail(online, "lobby search result: %s", online.api.EResult_ToString(result))
 		return
 	}
-	defer o.api.LobbyDetails_Release(details)
-	oo := Version_Options {
+	defer online.api.LobbyDetails_Release(details)
+	owner_options := Version_Options {
 		api_version = LOBBYDETAILS_GETLOBBYOWNER_API_LATEST,
 	}
-	o.host = o.api.LobbyDetails_GetLobbyOwner(details, &oo)
-	if o.host == nil {
-		fail(o, "the game has no host")
+	online.host = online.api.LobbyDetails_GetLobbyOwner(details, &owner_options)
+	if online.host == nil {
+		fail(online, "the game has no host")
 		return
 	}
-	jo := Lobby_Join_Lobby_Options {
+	join_options := Lobby_Join_Lobby_Options {
 		api_version          = LOBBY_JOINLOBBY_API_LATEST,
 		lobby_details_handle = details,
-		local_user_id        = o.local,
+		local_user_id        = online.local,
 	}
-	o.api.Lobby_JoinLobby(o.lobby, &jo, call_new(o), on_lobby_joined)
-	set_detail(o, "joining game %s", string(o.code[:]))
+	online.api.Lobby_JoinLobby(online.lobby, &join_options, call_new(online), on_lobby_joined)
+	set_detail(online, "joining game %s", string(online.code[:]))
 }
 
 @(private)
 on_lobby_joined :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := &g
+	online := &session
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if _, current := call_take(o, info.client_data); !current || o.stage != .Lobby || o.role != .Join {
+	if _, current := call_take(online, info.client_data); !current || online.stage != .Lobby || online.role != .Join {
 		// Left (or started another session) while the request was in flight; keep the lobby if
 		// the current session is in it.
-		if info.result_code == .Success && !(o.in_lobby && string(info.lobby_id) == cstr(o.lobby_id[:])) {
-			drop_lobby(o, info.lobby_id, false)
+		if info.result_code == .Success && !(online.in_lobby && string(info.lobby_id) == cstr(online.lobby_id[:])) {
+			drop_lobby(online, info.lobby_id, false)
 		}
 		return
 	}
 	if info.result_code != .Success {
-		fail(o, "joining the game: %s", o.api.EResult_ToString(info.result_code))
+		fail(online, "joining the game: %s", online.api.EResult_ToString(info.result_code))
 		return
 	}
-	o.in_lobby = true
-	o.lobby_id = {}
-	copy(o.lobby_id[:len(o.lobby_id) - 1], string(info.lobby_id))
-	open_socket(o)
-	r := &o.remotes[0]
-	r^ = {
+	online.in_lobby = true
+	online.lobby_id = {}
+	copy(online.lobby_id[:len(online.lobby_id) - 1], string(info.lobby_id))
+	open_socket(online)
+	remote := &online.remotes[0]
+	remote^ = {
 		used = true,
-		id   = o.host,
+		id   = online.host,
 	}
-	id_to_string(o, o.host, r.id_str[:])
-	o.stage = .Ready
-	set_detail(o, "joined game %s", string(o.code[:]))
-	log_line("joined game %s, host %s", string(o.code[:]), cstr(r.id_str[:]))
+	id_to_string(online, online.host, remote.id_str[:])
+	online.stage = .Ready
+	set_detail(online, "joined game %s", string(online.code[:]))
+	log_line("joined game %s, host %s", string(online.code[:]), cstr(remote.id_str[:]))
 }
 
 @(private)
 on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if !o.in_lobby || string(info.lobby_id) != cstr(o.lobby_id[:]) {
+	if !online.in_lobby || string(info.lobby_id) != cstr(online.lobby_id[:]) {
 		return
 	}
 	buf: [PRODUCTUSERID_MAX_LENGTH + 1]u8
-	id_to_string(o, info.target_user_id, buf[:])
+	id_to_string(online, info.target_user_id, buf[:])
 	log_line("lobby member %s: %v", cstr(buf[:]), info.current_status)
-	if o.role == .Join && o.stage == .Ready {
+	if online.role == .Join && online.stage == .Ready {
 		host_gone := info.current_status == .Closed
 		if info.current_status == .Left || info.current_status == .Disconnected {
-			host_gone = cstr(buf[:]) == cstr(o.remotes[0].id_str[:])
+			host_gone = cstr(buf[:]) == cstr(online.remotes[0].id_str[:])
 		}
 		if host_gone {
-			o.in_lobby = false
-			push_event(o, 0, false)
-			fail(o, "the host closed the game")
+			online.in_lobby = false
+			push_event(online, 0, false)
+			fail(online, "the host closed the game")
 		}
 	}
 	gone := info.current_status == .Left || info.current_status == .Disconnected || info.current_status == .Kicked
-	if o.role == .Host && gone {
-		for &r, i in o.remotes {
-			if r.used && cstr(r.id_str[:]) == cstr(buf[:]) {
-				r.connected = false
-				push_event(o, netcode.Peer(i), false)
+	if online.role == .Host && gone {
+		for &remote, i in online.remotes {
+			if remote.used && cstr(remote.id_str[:]) == cstr(buf[:]) {
+				remote.connected = false
+				push_event(online, netcode.Peer(i), false)
 			}
 		}
 	}
@@ -977,223 +991,246 @@ on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info)
 
 // P2P socket for this session: "unified-<code>", so packets of an old session never mix in.
 @(private)
-open_socket :: proc(o: ^Online) {
-	o.socket = {
+open_socket :: proc(online: ^Online) {
+	online.socket = {
 		api_version = P2P_SOCKETID_API_LATEST,
 	}
 	name := fmt.bprintf(
-		o.socket.socket_name[:P2P_SOCKETID_SOCKETNAME_SIZE - 1],
+		online.socket.socket_name[:P2P_SOCKETID_SOCKETNAME_SIZE - 1],
 		"%s%s",
 		SOCKET_PREFIX,
-		string(o.code[:]),
+		string(online.code[:]),
 	)
 	_ = name
-	so := P2P_Socket_Options {
+	socket_options := P2P_Socket_Options {
 		api_version   = P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST,
-		local_user_id = o.local,
-		socket_id     = &o.socket,
+		local_user_id = online.local,
+		socket_id     = &online.socket,
 	}
-	o.notify_req = o.api.P2P_AddNotifyPeerConnectionRequest(o.p2p, &so, o, on_connection_request)
-	so.api_version = P2P_ADDNOTIFYPEERCONNECTIONESTABLISHED_API_LATEST
-	o.notify_est = o.api.P2P_AddNotifyPeerConnectionEstablished(o.p2p, &so, o, on_connection_established)
-	so.api_version = P2P_ADDNOTIFYPEERCONNECTIONCLOSED_API_LATEST
-	o.notify_closed = o.api.P2P_AddNotifyPeerConnectionClosed(o.p2p, &so, o, on_connection_closed)
-	qo := P2P_Set_Packet_Queue_Size_Options {
+	online.notify_req = online.api.P2P_AddNotifyPeerConnectionRequest(
+		online.p2p,
+		&socket_options,
+		online,
+		on_connection_request,
+	)
+	socket_options.api_version = P2P_ADDNOTIFYPEERCONNECTIONESTABLISHED_API_LATEST
+	online.notify_est = online.api.P2P_AddNotifyPeerConnectionEstablished(
+		online.p2p,
+		&socket_options,
+		online,
+		on_connection_established,
+	)
+	socket_options.api_version = P2P_ADDNOTIFYPEERCONNECTIONCLOSED_API_LATEST
+	online.notify_closed = online.api.P2P_AddNotifyPeerConnectionClosed(
+		online.p2p,
+		&socket_options,
+		online,
+		on_connection_closed,
+	)
+	queue_options := P2P_Set_Packet_Queue_Size_Options {
 		api_version                          = P2P_SETPACKETQUEUESIZE_API_LATEST,
 		incoming_packet_queue_max_size_bytes = 4 << 20,
 		outgoing_packet_queue_max_size_bytes = 4 << 20,
 	}
-	o.api.P2P_SetPacketQueueSize(o.p2p, &qo)
+	online.api.P2P_SetPacketQueueSize(online.p2p, &queue_options)
 }
 
 @(private)
 on_connection_request :: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if o.stage != .Ready {
+	if online.stage != .Ready {
 		return
 	}
 	// The joiner only talks to the host.
-	if o.role == .Join && !same_user(o, info.remote_user_id, &o.remotes[0]) {
+	if online.role == .Join && !same_user(online, info.remote_user_id, &online.remotes[0]) {
 		return
 	}
-	ao := P2P_Accept_Connection_Options {
+	accept_options := P2P_Accept_Connection_Options {
 		api_version    = P2P_ACCEPTCONNECTION_API_LATEST,
-		local_user_id  = o.local,
+		local_user_id  = online.local,
 		remote_user_id = info.remote_user_id,
-		socket_id      = &o.socket,
+		socket_id      = &online.socket,
 	}
-	r := o.api.P2P_AcceptConnection(o.p2p, &ao)
-	if r != .Success {
-		log_line("accepting a P2P connection: %s", o.api.EResult_ToString(r))
+	result := online.api.P2P_AcceptConnection(online.p2p, &accept_options)
+	if result != .Success {
+		log_line("accepting a P2P connection: %s", online.api.EResult_ToString(result))
 	}
 }
 
 @(private)
 on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	i := remote_index(o, info.remote_user_id, o.role == .Host)
+	i := remote_index(online, info.remote_user_id, online.role == .Host)
 	if i < 0 {
 		return
 	}
-	r := &o.remotes[i]
-	r.connected = true
-	r.network = info.network_type
-	push_event(o, netcode.Peer(i), true)
-	log_line("P2P connected to %s (%v)", cstr(r.id_str[:]), info.network_type)
+	remote := &online.remotes[i]
+	remote.connected = true
+	remote.network = info.network_type
+	push_event(online, netcode.Peer(i), true)
+	log_line("P2P connected to %s (%v)", cstr(remote.id_str[:]), info.network_type)
 }
 
 @(private)
 on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	i := remote_index(o, info.remote_user_id, false)
+	i := remote_index(online, info.remote_user_id, false)
 	if i < 0 {
 		return
 	}
-	o.remotes[i].connected = false
-	push_event(o, netcode.Peer(i), false)
-	log_line("P2P connection to %s closed (reason %d)", cstr(o.remotes[i].id_str[:]), info.reason)
+	online.remotes[i].connected = false
+	push_event(online, netcode.Peer(i), false)
+	log_line("P2P connection to %s closed (reason %d)", cstr(online.remotes[i].id_str[:]), info.reason)
 }
 
 @(private)
-end_session :: proc(o: ^Online) {
-	if o.platform == nil {
+end_session :: proc(online: ^Online) {
+	if online.platform == nil {
 		return
 	}
-	if o.socket.api_version != 0 {
-		so := P2P_Socket_Options {
+	if online.socket.api_version != 0 {
+		socket_options := P2P_Socket_Options {
 			api_version   = P2P_CLOSECONNECTIONS_API_LATEST,
-			local_user_id = o.local,
-			socket_id     = &o.socket,
+			local_user_id = online.local,
+			socket_id     = &online.socket,
 		}
-		o.api.P2P_CloseConnections(o.p2p, &so)
-		o.api.P2P_RemoveNotifyPeerConnectionRequest(o.p2p, o.notify_req)
-		o.api.P2P_RemoveNotifyPeerConnectionEstablished(o.p2p, o.notify_est)
-		o.api.P2P_RemoveNotifyPeerConnectionClosed(o.p2p, o.notify_closed)
-		o.socket = {}
+		online.api.P2P_CloseConnections(online.p2p, &socket_options)
+		online.api.P2P_RemoveNotifyPeerConnectionRequest(online.p2p, online.notify_req)
+		online.api.P2P_RemoveNotifyPeerConnectionEstablished(online.p2p, online.notify_est)
+		online.api.P2P_RemoveNotifyPeerConnectionClosed(online.p2p, online.notify_closed)
+		online.socket = {}
 	}
-	if o.in_lobby {
-		lo := Lobby_User_Lobby_Options {
-			local_user_id = o.local,
-			lobby_id      = cstring(&o.lobby_id[0]),
+	if online.in_lobby {
+		leave_options := Lobby_User_Lobby_Options {
+			local_user_id = online.local,
+			lobby_id      = cstring(&online.lobby_id[0]),
 		}
-		if o.role == .Host {
-			lo.api_version = LOBBY_DESTROYLOBBY_API_LATEST
-			o.api.Lobby_DestroyLobby(o.lobby, &lo, o, on_lobby_left)
+		if online.role == .Host {
+			leave_options.api_version = LOBBY_DESTROYLOBBY_API_LATEST
+			online.api.Lobby_DestroyLobby(online.lobby, &leave_options, online, on_lobby_left)
 		} else {
-			lo.api_version = LOBBY_LEAVELOBBY_API_LATEST
-			o.api.Lobby_LeaveLobby(o.lobby, &lo, o, on_lobby_left)
+			leave_options.api_version = LOBBY_LEAVELOBBY_API_LATEST
+			online.api.Lobby_LeaveLobby(online.lobby, &leave_options, online, on_lobby_left)
 		}
 	}
-	o.gen += 1
-	o.remotes = {}
-	o.host = nil
-	o.role = .None
-	o.code = {}
-	if o.stage != .Off && o.stage != .Login {
-		o.stage = .Idle
+	online.gen += 1
+	online.remotes = {}
+	online.host = nil
+	online.role = .None
+	online.code = {}
+	if online.stage != .Off && online.stage != .Login {
+		online.stage = .Idle
 	}
 }
 
 @(private)
 on_lobby_left :: proc "c" (info: ^Lobby_Callback_Info) {
-	o := (^Online)(info.client_data)
+	online := (^Online)(info.client_data)
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	if string(info.lobby_id) == cstr(o.lobby_id[:]) {
-		o.in_lobby = false
+	if string(info.lobby_id) == cstr(online.lobby_id[:]) {
+		online.in_lobby = false
 	}
-	log_line("left lobby %s: %s", string(info.lobby_id), o.api.EResult_ToString(info.result_code))
+	log_line("left lobby %s: %s", string(info.lobby_id), online.api.EResult_ToString(info.result_code))
 }
 
 // --- the link -----------------------------------------------------------------------------------
 
 @(private)
 link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
-	o := (^Online)(data)
-	sync.guard(&o.mu)
-	if o.stage != .Ready || int(to) < 0 || int(to) >= MAX_REMOTES || !o.remotes[to].used {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if online.stage != .Ready || int(to) < 0 || int(to) >= MAX_REMOTES || !online.remotes[to].used {
 		return
 	}
 	Ctx :: struct {
-		o:  ^Online,
-		to: Product_User_Id,
+		online: ^Online,
+		to:     Product_User_Id,
 	}
-	c := Ctx{o, o.remotes[to].id}
-	sent := frame_split(bytes, &o.next_frag, proc(user: rawptr, pkt: []u8) {
-			c := (^Ctx)(user)
-			send_packet(c.o, c.to, pkt)
-		}, &c)
+	ctx := Ctx{online, online.remotes[to].id}
+	sent := frame_split(bytes, &online.next_frag, proc(user: rawptr, pkt: []u8) {
+			ctx := (^Ctx)(user)
+			send_packet(ctx.online, ctx.to, pkt)
+		}, &ctx)
 	if !sent {
-		o.send_errors += 1 // larger than the receiver reassembles: dropped, like a lost datagram
+		online.send_errors += 1 // larger than the receiver reassembles: dropped, like a lost datagram
 	}
 }
 
 @(private)
-send_packet :: proc(o: ^Online, to: Product_User_Id, pkt: []u8) {
-	so := P2P_Send_Packet_Options {
+send_packet :: proc(online: ^Online, to: Product_User_Id, pkt: []u8) {
+	send_options := P2P_Send_Packet_Options {
 		api_version            = P2P_SENDPACKET_API_LATEST,
-		local_user_id          = o.local,
+		local_user_id          = online.local,
 		remote_user_id         = to,
-		socket_id              = &o.socket,
+		socket_id              = &online.socket,
 		channel                = 0,
 		data_length_bytes      = u32(len(pkt)),
 		data                   = raw_data(pkt),
 		allow_delayed_delivery = true,
 		reliability            = .Unreliable_Unordered,
 	}
-	if r := o.api.P2P_SendPacket(o.p2p, &so); r != .Success {
-		o.send_errors += 1
-		if o.send_errors < 10 {
-			log_line("P2P send: %s", o.api.EResult_ToString(r))
+	if result := online.api.P2P_SendPacket(online.p2p, &send_options); result != .Success {
+		online.send_errors += 1
+		if online.send_errors < 10 {
+			log_line("P2P send: %s", online.api.EResult_ToString(result))
 		}
 		return
 	}
-	o.sent += 1
+	online.sent += 1
 }
 
 @(private)
-link_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: netcode.Peer, ok: bool) {
-	o := (^Online)(data)
-	sync.guard(&o.mu)
-	if o.platform == nil {
+link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, ok: bool) {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if online.platform == nil {
 		return
 	}
 	for attempt in 0 ..< 2 {
-		for o.stage == .Ready {
+		for online.stage == .Ready {
 			pkt: [P2P_MAX_PACKET]u8
 			peer: Product_User_Id
 			sock: P2P_Socket_Id
 			channel: u8
 			written: u32
-			ro := P2P_Receive_Packet_Options {
+			receive_options := P2P_Receive_Packet_Options {
 				api_version         = P2P_RECEIVEPACKET_API_LATEST,
-				local_user_id       = o.local,
+				local_user_id       = online.local,
 				max_data_size_bytes = P2P_MAX_PACKET,
 			}
-			r := o.api.P2P_ReceivePacket(o.p2p, &ro, &peer, &sock, &channel, &pkt[0], &written)
-			if r != .Success {
+			result := online.api.P2P_ReceivePacket(
+				online.p2p,
+				&receive_options,
+				&peer,
+				&sock,
+				&channel,
+				&pkt[0],
+				&written,
+			)
+			if result != .Success {
 				break
 			}
-			if cstr(sock.socket_name[:]) != cstr(o.socket.socket_name[:]) {
+			if cstr(sock.socket_name[:]) != cstr(online.socket.socket_name[:]) {
 				continue
 			}
-			i := remote_index(o, peer, o.role == .Host)
+			i := remote_index(online, peer, online.role == .Host)
 			if i < 0 {
 				continue
 			}
-			o.received += 1
-			if nn, done := frame_join(&o.remotes[i].reasm, pkt[:written], buf); done {
-				return nn, netcode.Peer(i), true
+			online.received += 1
+			if joined, done := frame_join(&online.remotes[i].reasm, pkt[:written], buf); done {
+				return joined, netcode.Peer(i), true
 			}
 		}
-		if attempt == 0 && netcode.now_us() - o.last_tick_us >= TICK_EVERY_US {
-			tick(o)
+		if attempt == 0 && netcode.now_us() - online.last_tick_us >= TICK_EVERY_US {
+			tick(online)
 			continue
 		}
 		break
@@ -1208,22 +1245,22 @@ link_close :: proc(data: rawptr) {
 
 @(private)
 link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
-	o := (^Online)(data)
-	sync.guard(&o.mu)
-	if o.n_events == 0 {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if online.n_events == 0 {
 		return
 	}
-	e := o.events[0]
-	copy(o.events[:], o.events[1:o.n_events])
-	o.n_events -= 1
-	return e.peer, e.connected ? .Connected : .Disconnected, true
+	event := online.events[0]
+	copy(online.events[:], online.events[1:online.n_events])
+	online.n_events -= 1
+	return event.peer, event.connected ? .Connected : .Disconnected, true
 }
 
 @(private)
-push_event :: proc(o: ^Online, peer: netcode.Peer, connected: bool) {
-	if o.n_events < len(o.events) {
-		o.events[o.n_events] = {peer, connected}
-		o.n_events += 1
+push_event :: proc(online: ^Online, peer: netcode.Peer, connected: bool) {
+	if online.n_events < len(online.events) {
+		online.events[online.n_events] = {peer, connected}
+		online.n_events += 1
 	}
 }
 
@@ -1232,24 +1269,24 @@ push_event :: proc(o: ^Online, peer: netcode.Peer, connected: bool) {
 // The remote slot of `id`, or -1. The host adds unknown users (from index 1, like the UDP relay)
 // when `add` is set.
 @(private)
-remote_index :: proc(o: ^Online, id: Product_User_Id, add: bool) -> int {
-	for &r, i in o.remotes {
-		if r.used && same_user(o, id, &r) {
+remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
+	for &remote, i in online.remotes {
+		if remote.used && same_user(online, id, &remote) {
 			return i
 		}
 	}
-	if !add || o.role != .Host {
+	if !add || online.role != .Host {
 		return -1
 	}
 	for i in 1 ..< MAX_REMOTES {
-		r := &o.remotes[i]
-		if !r.used {
-			r^ = {
+		remote := &online.remotes[i]
+		if !remote.used {
+			remote^ = {
 				used = true,
 				id   = id,
 			}
-			id_to_string(o, id, r.id_str[:])
-			log_line("peer %d = %s", i, cstr(r.id_str[:]))
+			id_to_string(online, id, remote.id_str[:])
+			log_line("peer %d = %s", i, cstr(remote.id_str[:]))
 			return i
 		}
 	}
@@ -1257,40 +1294,40 @@ remote_index :: proc(o: ^Online, id: Product_User_Id, add: bool) -> int {
 }
 
 @(private)
-same_user :: proc(o: ^Online, id: Product_User_Id, r: ^Remote) -> bool {
-	if id == r.id {
+same_user :: proc(online: ^Online, id: Product_User_Id, remote: ^Remote) -> bool {
+	if id == remote.id {
 		return true
 	}
 	buf: [PRODUCTUSERID_MAX_LENGTH + 1]u8
-	id_to_string(o, id, buf[:])
-	return cstr(buf[:]) == cstr(r.id_str[:])
+	id_to_string(online, id, buf[:])
+	return cstr(buf[:]) == cstr(remote.id_str[:])
 }
 
 @(private)
-id_to_string :: proc(o: ^Online, id: Product_User_Id, out: []u8) {
+id_to_string :: proc(online: ^Online, id: Product_User_Id, out: []u8) {
 	for &b in out {
 		b = 0
 	}
-	n := i32(len(out))
-	if o.api.ProductUserId_ToString(id, raw_data(out), &n) != .Success {
+	length := i32(len(out))
+	if online.api.ProductUserId_ToString(id, raw_data(out), &length) != .Success {
 		out[0] = 0
 	}
 }
 
 @(private)
-cstr :: proc(b: []u8) -> string {
-	for c, i in b {
-		if c == 0 {
-			return string(b[:i])
+cstr :: proc(bytes: []u8) -> string {
+	for char, i in bytes {
+		if char == 0 {
+			return string(bytes[:i])
 		}
 	}
-	return string(b)
+	return string(bytes)
 }
 
 @(private)
-set_detail :: proc(o: ^Online, format: string, args: ..any) {
-	s := fmt.bprintf(o.detail[:], format, ..args)
-	o.detail_len = len(s)
+set_detail :: proc(online: ^Online, format: string, args: ..any) {
+	text := fmt.bprintf(online.detail[:], format, ..args)
+	online.detail_len = len(text)
 }
 
 @(private)

@@ -104,19 +104,19 @@ SIM_IMPORTS :: []string {
 	"core:hash/xxhash",
 }
 
-rule_dir :: proc(r: Rule) -> string {
-	if r.dir != "" {
-		return strings.concatenate({SRC_DIR, "/../", r.dir}, context.temp_allocator)
+rule_dir :: proc(rule: Rule) -> string {
+	if rule.dir != "" {
+		return strings.concatenate({SRC_DIR, "/../", rule.dir}, context.temp_allocator)
 	}
-	return strings.concatenate({SRC_DIR, "/", r.pkg}, context.temp_allocator)
+	return strings.concatenate({SRC_DIR, "/", rule.pkg}, context.temp_allocator)
 }
 
 @(test)
 library_follows_determinism_rules :: proc(t: ^testing.T) {
-	for r in RULES {
-		r := r
-		r.dir = rule_dir(r)
-		lint.check(t, r)
+	for rule in RULES {
+		rule := rule
+		rule.dir = rule_dir(rule)
+		lint.check(t, rule)
 	}
 }
 
@@ -125,9 +125,9 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 @(test)
 games_follow_determinism_rules :: proc(t: ^testing.T) {
 	root, _ := os.read_entire_file(SRC_DIR + "/../tests/tests.odin", context.temp_allocator)
-	for g in game_dirs(t) {
-		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, g))
-		imp := fmt.tprintf("\"../games/%s/simulation/tests\"", g)
+	for game in game_dirs(t) {
+		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, game))
+		imp := fmt.tprintf("\"../games/%s/simulation/tests\"", game)
 		testing.expectf(t, strings.contains(string(root), imp), "tests/tests.odin does not import %s", imp)
 	}
 }
@@ -136,8 +136,8 @@ game_dirs :: proc(t: ^testing.T) -> []string {
 	infos, err := os.read_all_directory_by_path(GAMES_DIR, context.temp_allocator)
 	testing.expectf(t, err == nil, "cannot list %s: %v", GAMES_DIR, err)
 	out := make([dynamic]string, context.temp_allocator)
-	for fi in infos {
-		if fi.type == .Directory && os.exists(fmt.tprintf("%s/simulation", fi.fullpath)) do append(&out, fi.name)
+	for info in infos {
+		if info.type == .Directory && os.exists(fmt.tprintf("%s/simulation", info.fullpath)) do append(&out, info.name)
 	}
 	testing.expect(t, len(out) > 0, "no games under games/")
 	return out[:]
@@ -150,16 +150,16 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 	if !testing.expectf(t, err == nil, "cannot list %s: %v", SRC_DIR, err) {
 		return
 	}
-	outer: for fi in infos {
-		if fi.type != .Directory {
+	outer: for info in infos {
+		if info.type != .Directory {
 			continue
 		}
-		for r in RULES {
-			if r.dir == "" && r.pkg == fi.name {
+		for rule in RULES {
+			if rule.dir == "" && rule.pkg == info.name {
 				continue outer
 			}
 		}
-		testing.expectf(t, false, "src/%s has no determinism rule in tests/lint/lint_test.odin", fi.name)
+		testing.expectf(t, false, "src/%s has no determinism rule in tests/lint/lint_test.odin", info.name)
 	}
 }
 
@@ -188,8 +188,8 @@ D :: 1.5
 `
 	game_rule := lint.sim_rule("survivor", "")
 	testing.expect_value(t, len(lint.scan(game_rule, "bad.odin", bad)), 6)
-	for v in lint.scan(game_rule, "clean.odin", clean) {
-		testing.expect(t, false, v)
+	for violation in lint.scan(game_rule, "clean.odin", clean) {
+		testing.expect(t, false, violation)
 	}
 
 	// Package-level variables in tick code: each mutable one is caught, by name.
@@ -233,18 +233,18 @@ when ODIN_DEBUG {
 	testing.expect_value(t, len(found), 7)
 	for want in ([]string{"counter", "a", "b", "debug_hits", "hits", "P", "world_mutex"}) { 	// world_mutex: allowed in physics only
 		hit := false
-		for v in found {
-			hit ||= strings.contains(v, fmt.tprintf("`%s`", want))
+		for violation in found {
+			hit ||= strings.contains(violation, fmt.tprintf("`%s`", want))
 		}
 		testing.expectf(t, hit, "package-level variable %s not caught", want)
 	}
-	for v in lint.scan_globals(game_rule, "clean_globals.odin", clean_globals) {
-		testing.expect(t, false, v)
+	for violation in lint.scan_globals(game_rule, "clean_globals.odin", clean_globals) {
+		testing.expect(t, false, violation)
 	}
 	physics_rule: Rule
-	for r in RULES {
-		if r.pkg == "physics" {
-			physics_rule = r
+	for rule in RULES {
+		if rule.pkg == "physics" {
+			physics_rule = rule
 		}
 	}
 	testing.expect_value(
@@ -278,27 +278,27 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 	}
 	game_rule := lint.sim_rule("survivor", "")
 	sim_rule: Rule
-	for r in RULES {
-		if r.pkg == "sim" {
-			sim_rule = r
+	for rule in RULES {
+		if rule.pkg == "sim" {
+			sim_rule = rule
 		}
 	}
-	for c, i in cases {
-		src := strings.concatenate({"package survivor\n", c.src}, context.temp_allocator)
+	for test_case, i in cases {
+		src := strings.concatenate({"package survivor\n", test_case.src}, context.temp_allocator)
 		testing.expectf(
 			t,
 			len(lint.scan(game_rule, "case.odin", src)) > 0,
 			"case %d not caught by the game rule:\n%s",
 			i,
-			c.src,
+			test_case.src,
 		)
-		if c.no_imp || i == 11 {
+		if test_case.no_imp || i == 11 {
 			testing.expectf(
 				t,
 				len(lint.scan(sim_rule, "case.odin", src)) > 0,
 				"case %d not caught by the sim rule:\n%s",
 				i,
-				c.src,
+				test_case.src,
 			)
 		}
 	}

@@ -14,8 +14,8 @@ helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), dmath.Vec2{0.6, 0.8})
 	testing.expect_value(t, dmath.dist_sq2({1, 1}, {4, 5}), 25)
 	for k in 0 ..< 8 {
-		l := dmath.length2({dmath.DIR8_C[k], dmath.DIR8_S[k]})
-		testing.expect(t, l > 0.99999 && l < 1.00001)
+		length := dmath.length2({dmath.DIR8_C[k], dmath.DIR8_S[k]})
+		testing.expect(t, length > 0.99999 && length < 1.00001)
 	}
 }
 

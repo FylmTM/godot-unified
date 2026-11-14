@@ -119,15 +119,15 @@ check_game :: proc(
 		return
 	}
 	out := make([dynamic]string, context.temp_allocator)
-	for fi in infos {
-		if fi.type != .Directory do continue
-		switch fi.name {
+	for info in infos {
+		if info.type != .Directory do continue
+		switch info.name {
 		case "headless":
 			check(
 				t,
 				{
 					pkg = "headless",
-					dir = fi.fullpath,
+					dir = info.fullpath,
 					ban_imports = MATH,
 					allow_imports = MATH_OK,
 					ban_idents = float_traps,
@@ -138,8 +138,8 @@ check_game :: proc(
 		case "extension", "tests":
 		// host side and test code: nothing inside a tick
 		case:
-			check(t, sim_rule(fi.name, fi.fullpath, extra_imports), loc)
-			append(&out, fi.fullpath)
+			check(t, sim_rule(info.name, info.fullpath, extra_imports), loc)
+			append(&out, info.fullpath)
 		}
 	}
 	testing.expectf(t, len(out) > 0, "lint: no sim package in %s", simulation_dir, loc = loc)
@@ -149,11 +149,11 @@ check_game :: proc(
 @(private)
 float_traps := FLOAT_TRAPS
 
-// Lints every .odin file under `r.dir` (an absolute path, or relative to the current directory) with `scan`,
-// and with `scan_globals` when `r.tick`: one test failure per violation, and one when there are no files.
-check :: proc(t: ^testing.T, r: Rule, loc := #caller_location) {
+// Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,
+// and with `scan_globals` when `rule.tick`: one test failure per violation, and one when there are no files.
+check :: proc(t: ^testing.T, rule: Rule, loc := #caller_location) {
 	files := make([dynamic]string, context.temp_allocator)
-	if !testing.expectf(t, odin_files(r.dir, &files), "lint: cannot list %s", r.dir, loc = loc) {
+	if !testing.expectf(t, odin_files(rule.dir, &files), "lint: cannot list %s", rule.dir, loc = loc) {
 		return
 	}
 	for path in files {
@@ -161,44 +161,51 @@ check :: proc(t: ^testing.T, r: Rule, loc := #caller_location) {
 		if !testing.expectf(t, rerr == nil, "lint: cannot read %s", path, loc = loc) {
 			continue
 		}
-		for v in scan(r, path, string(data)) {
-			testing.expect(t, false, v, loc = loc)
+		for violation in scan(rule, path, string(data)) {
+			testing.expect(t, false, violation, loc = loc)
 		}
-		if r.tick {
-			for v in scan_globals(r, path, string(data)) {
-				testing.expect(t, false, v, loc = loc)
+		if rule.tick {
+			for violation in scan_globals(rule, path, string(data)) {
+				testing.expect(t, false, violation, loc = loc)
 			}
 		}
 	}
-	testing.expectf(t, len(files) > 0, "lint: no .odin files in %s", r.dir, loc = loc)
+	testing.expectf(t, len(files) > 0, "lint: no .odin files in %s", rule.dir, loc = loc)
 }
 
-// Returns one line per violation in `src` (file `name`) under rule `r`.
-scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
+// Returns one line per violation in `src` (file `name`) under rule `rule`.
+scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
 	out := make([dynamic]string, allocator)
 	report :: proc(
 		out: ^[dynamic]string,
 		tok: tokenizer.Token,
 		name, what: string,
-		r: Rule,
+		rule: Rule,
 		allocator: runtime.Allocator,
 	) {
 		where_ := fmt.tprintf("%s(%d:%d)", name, tok.pos.line, tok.pos.column)
-		append(out, fmt.aprintf("%s: %s is banned in package %s", where_, what, r.pkg, allocator = allocator))
+		append(out, fmt.aprintf("%s: %s is banned in package %s", where_, what, rule.pkg, allocator = allocator))
 	}
-	tz: tokenizer.Tokenizer
-	tokenizer.init(&tz, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
-	tz.flags = {.Insert_Semicolon} // a newline ends a statement: `x := 1.5` is caught, `x := 1.5 * y` is not
+	scanner: tokenizer.Tokenizer
+	tokenizer.init(&scanner, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
+	scanner.flags = {.Insert_Semicolon} // a newline ends a statement: `x := 1.5` is caught, `x := 1.5 * y` is not
 	after_import := false
 	prev: [3]tokenizer.Token_Kind // the last significant tokens, prev[0] the latest
 	pending: Maybe(tokenizer.Token) // an untyped float literal right after `:=`, if the statement ends there
-	for tok := tokenizer.scan(&tz);; tok = tokenizer.scan(&tz) {
+	for tok := tokenizer.scan(&scanner);; tok = tokenizer.scan(&scanner) {
 		if tok.kind == .Comment {
 			continue
 		}
-		if f, ok := pending.?; ok {
+		if literal, ok := pending.?; ok {
 			if tok.kind == .Semicolon || tok.kind == .EOF || tok.kind == .Close_Brace {
-				report(&out, f, name, fmt.tprintf("`:= %s` (an untyped float literal is f64)", f.text), r, allocator)
+				report(
+					&out,
+					literal,
+					name,
+					fmt.tprintf("`:= %s` (an untyped float literal is f64)", literal.text),
+					rule,
+					allocator,
+				)
 			}
 			pending = nil
 		}
@@ -211,21 +218,21 @@ scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) ->
 			prev = {tok.kind, prev[0], prev[1]}
 			continue
 		case .Matrix:
-			if r.ban_matrix {
-				report(&out, tok, name, "`matrix`", r, allocator)
+			if rule.ban_matrix {
+				report(&out, tok, name, "`matrix`", rule, allocator)
 			}
 		case .Foreign:
-			if r.strict {
-				report(&out, tok, name, "`foreign`", r, allocator)
+			if rule.strict {
+				report(&out, tok, name, "`foreign`", rule, allocator)
 			}
 		case .Map:
-			if r.strict {
-				report(&out, tok, name, "`map` (unordered)", r, allocator)
+			if rule.strict {
+				report(&out, tok, name, "`map` (unordered)", rule, allocator)
 			}
 		case .Float:
 			after_colon_eq := prev[0] == .Eq && prev[1] == .Colon
 			signed := (prev[0] == .Sub || prev[0] == .Add) && prev[1] == .Eq && prev[2] == .Colon
-			if r.strict && (after_colon_eq || signed) {
+			if rule.strict && (after_colon_eq || signed) {
 				pending = tok
 			}
 		case .Ident:
@@ -233,16 +240,16 @@ scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) ->
 				prev = {tok.kind, prev[0], prev[1]}
 				continue // import alias
 			}
-			for b in r.ban_idents {
-				if tok.text == b {
-					report(&out, tok, name, fmt.tprintf("`%s`", b), r, allocator)
+			for banned in rule.ban_idents {
+				if tok.text == banned {
+					report(&out, tok, name, fmt.tprintf("`%s`", banned), rule, allocator)
 				}
 			}
 		case .String:
 			if after_import {
 				path := strings.trim(tok.text, "\"`")
-				if banned_import(r, path) {
-					report(&out, tok, name, fmt.tprintf("import %q", path), r, allocator)
+				if banned_import(rule, path) {
+					report(&out, tok, name, fmt.tprintf("import %q", path), rule, allocator)
 				}
 			}
 		}
@@ -253,15 +260,15 @@ scan :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) ->
 }
 
 // Returns one line per package-level variable in `src` that is neither `@(rodata)` nor in
-// `r.allow_globals`. A write to one during a tick would be state outside the block: not rolled
+// `rule.allow_globals`. A write to one during a tick would be state outside the block: not rolled
 // back, not hashed, a desync nothing else catches. Token-level: a package-level statement
 // (outside every brace except a `when`/`else` block's, outside parentheses and brackets) of the
 // form `a, b: ...` or `a := ...` declares variables; `a :: ...` is a constant.
-scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
+scan_globals :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator) -> []string {
 	out := make([dynamic]string, allocator)
-	tz: tokenizer.Tokenizer
-	tokenizer.init(&tz, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
-	tz.flags = {.Insert_Semicolon}
+	scanner: tokenizer.Tokenizer
+	tokenizer.init(&scanner, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
+	scanner.flags = {.Insert_Semicolon}
 	braces: [64]bool // open braces, innermost last: true for a package-level `when`/`else` block
 	nbraces, opaque, parens := 0, 0, 0
 	at_start := true // the next token starts a package-level statement
@@ -270,7 +277,7 @@ scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_alloc
 	attr, attr_parens := false, 0 // inside an attribute: `@(...)` or `@name`
 	phase := 0 // 1: after a name, 2: after `,`, 3: after `name :`, 0: not (or no longer) a declaration
 	names := make([dynamic]tokenizer.Token, context.temp_allocator)
-	for tok := tokenizer.scan(&tz); tok.kind != .EOF; tok = tokenizer.scan(&tz) {
+	for tok := tokenizer.scan(&scanner); tok.kind != .EOF; tok = tokenizer.scan(&scanner) {
 		if tok.kind == .Comment || tok.kind == .File_Tag {
 			continue
 		}
@@ -324,7 +331,7 @@ scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_alloc
 				case .Colon:
 					next = 0
 				case .Eq, .Semicolon:
-					report_globals(&out, r, name, names[:], rodata, allocator)
+					report_globals(&out, rule, name, names[:], rodata, allocator)
 					next = 0
 				case:
 					next = 4
@@ -362,7 +369,7 @@ scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_alloc
 		}
 	}
 	if phase == 3 || phase == 4 {
-		report_globals(&out, r, name, names[:], rodata, allocator)
+		report_globals(&out, rule, name, names[:], rodata, allocator)
 	}
 	return out[:]
 }
@@ -370,48 +377,48 @@ scan_globals :: proc(r: Rule, name, src: string, allocator := context.temp_alloc
 @(private)
 report_globals :: proc(
 	out: ^[dynamic]string,
-	r: Rule,
+	rule: Rule,
 	file: string,
 	names: []tokenizer.Token,
 	rodata: bool,
 	allocator: runtime.Allocator,
 ) {
-	for n in names {
-		if rodata || slice.contains(r.allow_globals, n.text) {
+	for token in names {
+		if rodata || slice.contains(rule.allow_globals, token.text) {
 			continue
 		}
-		where_ := fmt.tprintf("%s(%d:%d)", file, n.pos.line, n.pos.column)
+		where_ := fmt.tprintf("%s(%d:%d)", file, token.pos.line, token.pos.column)
 		append(
 			out,
 			fmt.aprintf(
 				"%s: package-level variable `%s` in tick package %s: a write during a tick is state outside the block (not rolled back, not hashed); make it `@(rodata)` or a `::` constant, or list it in the rule's allow_globals with a reason",
 				where_,
-				n.text,
-				r.pkg,
+				token.text,
+				rule.pkg,
 				allocator = allocator,
 			),
 		)
 	}
 }
 
-banned_import :: proc(r: Rule, path: string) -> bool {
-	if r.only_imports != nil {
+banned_import :: proc(rule: Rule, path: string) -> bool {
+	if rule.only_imports != nil {
 		// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified
 		// package, so a game's `../sim` is not unified:sim and must be listed itself (extra_imports).
-		for ok in r.only_imports {
+		for ok in rule.only_imports {
 			if path == ok || (strings.has_suffix(ok, "/") && strings.has_prefix(path, ok)) {
 				return false
 			}
 		}
 		return true
 	}
-	for ok in r.allow_imports {
+	for ok in rule.allow_imports {
 		if path == ok {
 			return false
 		}
 	}
-	for b in r.ban_imports {
-		if path == b || strings.has_prefix(path, strings.concatenate({b, "/"}, context.temp_allocator)) {
+	for banned in rule.ban_imports {
+		if path == banned || strings.has_prefix(path, strings.concatenate({banned, "/"}, context.temp_allocator)) {
 			return true
 		}
 	}
@@ -424,11 +431,11 @@ odin_files :: proc(dir: string, out: ^[dynamic]string) -> bool {
 	if err != nil {
 		return false
 	}
-	for fi in infos {
-		if fi.type == .Directory {
-			odin_files(fi.fullpath, out)
-		} else if strings.has_suffix(fi.name, ".odin") {
-			append(out, fi.fullpath)
+	for info in infos {
+		if info.type == .Directory {
+			odin_files(info.fullpath, out)
+		} else if strings.has_suffix(info.name, ".odin") {
+			append(out, info.fullpath)
 		}
 	}
 	return true

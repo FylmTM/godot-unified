@@ -63,7 +63,7 @@ Reasm :: struct {
 
 // Feeds one EOS packet. Returns the complete datagram (copied into `out`) when this packet
 // finished one, or ok = false. Malformed packets are dropped.
-frame_join :: proc(r: ^Reasm, pkt: []u8, out: []u8) -> (n: int, ok: bool) {
+frame_join :: proc(reasm: ^Reasm, pkt: []u8, out: []u8) -> (length: int, ok: bool) {
 	if len(pkt) < 1 {
 		return
 	}
@@ -88,49 +88,49 @@ frame_join :: proc(r: ^Reasm, pkt: []u8, out: []u8) -> (n: int, ok: bool) {
 		if index < count - 1 && len(part) != PART_MAX {
 			return
 		}
-		r.clock += 1
-		s: ^Reasm_Slot
-		for &x in r.slots {
-			if x.used && x.id == id {
-				s = &x
+		reasm.clock += 1
+		slot: ^Reasm_Slot
+		for &candidate in reasm.slots {
+			if candidate.used && candidate.id == id {
+				slot = &candidate
 				break
 			}
 		}
-		if s == nil {
+		if slot == nil {
 			// Take a free slot or evict the oldest.
-			s = &r.slots[0]
-			for &x in r.slots {
-				if !x.used {
-					s = &x
+			slot = &reasm.slots[0]
+			for &candidate in reasm.slots {
+				if !candidate.used {
+					slot = &candidate
 					break
 				}
-				if x.age < s.age {
-					s = &x
+				if candidate.age < slot.age {
+					slot = &candidate
 				}
 			}
-			s^ = Reasm_Slot {
+			slot^ = Reasm_Slot {
 				used  = true,
 				id    = id,
 				count = u8(count),
 			}
 		}
-		if int(s.count) != count {
-			s.used = false
+		if int(slot.count) != count {
+			slot.used = false
 			return
 		}
-		s.age = r.clock
-		s.lens[index] = u16(len(part))
-		copy(s.data[index * PART_MAX:], part)
-		s.have |= 1 << u8(index)
-		if s.have != u8((1 << uint(count)) - 1) {
+		slot.age = reasm.clock
+		slot.lens[index] = u16(len(part))
+		copy(slot.data[index * PART_MAX:], part)
+		slot.have |= 1 << u8(index)
+		if slot.have != u8((1 << uint(count)) - 1) {
 			return
 		}
-		s.used = false
-		total := (count - 1) * PART_MAX + int(s.lens[count - 1])
+		slot.used = false
+		total := (count - 1) * PART_MAX + int(slot.lens[count - 1])
 		if total > len(out) {
 			return
 		}
-		return copy(out, s.data[:total]), true
+		return copy(out, slot.data[:total]), true
 	}
 	return
 }

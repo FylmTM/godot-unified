@@ -27,11 +27,11 @@ world_get_gravity :: proc(world_id: World_Id) -> [3]f32 {
 
 // The last step's contact events: slices into Box3D's memory, valid until the next step.
 world_get_contact_events :: proc(world_id: World_Id) -> Contact_Events {
-	ev := box3d.World_GetContactEvents(world_id)
+	events := box3d.World_GetContactEvents(world_id)
 	return {
-		begin_events = ([^]Contact_Begin_Touch_Event)(ev.beginEvents)[:ev.beginCount],
-		end_events = ([^]Contact_End_Touch_Event)(ev.endEvents)[:ev.endCount],
-		hit_events = ([^]Contact_Hit_Event)(ev.hitEvents)[:ev.hitCount],
+		begin_events = ([^]Contact_Begin_Touch_Event)(events.beginEvents)[:events.beginCount],
+		end_events = ([^]Contact_End_Touch_Event)(events.endEvents)[:events.endCount],
+		hit_events = ([^]Contact_Hit_Event)(events.hitEvents)[:events.hitCount],
 	}
 }
 
@@ -43,15 +43,15 @@ world_overlap_aabb :: proc(
 	fcn: Overlap_Result_Fcn,
 	user: rawptr,
 ) -> Tree_Stats {
-	t := Overlap_Trampoline{context, fcn, user}
-	s := box3d.World_OverlapAABB(
+	trampoline := Overlap_Trampoline{context, fcn, user}
+	stats := box3d.World_OverlapAABB(
 		world_id,
 		transmute(box3d.AABB)aabb,
 		transmute(box3d.QueryFilter)filter,
 		overlap_trampoline,
-		&t,
+		&trampoline,
 	)
-	return transmute(Tree_Stats)s
+	return transmute(Tree_Stats)stats
 }
 
 // Calls `fcn` (with the caller's context) for every shape along the ray; its return value steers the cast.
@@ -63,16 +63,16 @@ world_cast_ray :: proc(
 	fcn: Cast_Result_Fcn,
 	user: rawptr,
 ) -> Tree_Stats {
-	t := Cast_Trampoline{context, fcn, user}
-	s := box3d.World_CastRay(
+	trampoline := Cast_Trampoline{context, fcn, user}
+	stats := box3d.World_CastRay(
 		world_id,
 		transmute(box3d.Vec3)origin,
 		transmute(box3d.Vec3)translation,
 		transmute(box3d.QueryFilter)filter,
 		cast_trampoline,
-		&t,
+		&trampoline,
 	)
-	return transmute(Tree_Stats)s
+	return transmute(Tree_Stats)stats
 }
 
 // The closest hit along the ray; not ok: no hit.
@@ -85,13 +85,13 @@ world_cast_ray_closest :: proc(
 	result: Ray_Result,
 	ok: bool,
 ) {
-	r := box3d.World_CastRayClosest(
+	closest := box3d.World_CastRayClosest(
 		world_id,
 		transmute(box3d.Vec3)origin,
 		transmute(box3d.Vec3)translation,
 		transmute(box3d.QueryFilter)filter,
 	)
-	return (^Ray_Result)(&r)^, r.hit
+	return (^Ray_Result)(&closest)^, closest.hit
 }
 
 // ---- snapshots and images (step boundaries only)
@@ -337,9 +337,9 @@ Overlap_Trampoline :: struct {
 
 @(private)
 overlap_trampoline :: proc "c" (shape_id: box3d.ShapeId, context_: rawptr) -> bool {
-	t := (^Overlap_Trampoline)(context_)
-	context = t.ctx
-	return t.fcn(shape_id, t.user)
+	trampoline := (^Overlap_Trampoline)(context_)
+	context = trampoline.ctx
+	return trampoline.fcn(shape_id, trampoline.user)
 }
 
 @(private)
@@ -360,9 +360,9 @@ cast_trampoline :: proc "c" (
 	child_index: i32,
 	context_: rawptr,
 ) -> f32 {
-	t := (^Cast_Trampoline)(context_)
-	context = t.ctx
-	return t.fcn(
+	trampoline := (^Cast_Trampoline)(context_)
+	context = trampoline.ctx
+	return trampoline.fcn(
 		shape_id,
 		transmute([3]f32)point,
 		transmute([3]f32)normal,
@@ -370,6 +370,6 @@ cast_trampoline :: proc "c" (
 		user_material_id,
 		triangle_index,
 		child_index,
-		t.user,
+		trampoline.user,
 	)
 }

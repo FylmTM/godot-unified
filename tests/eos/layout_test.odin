@@ -20,11 +20,11 @@ OUT_DIR :: #directory + "/../../.out"
 
 // The SDK's SDK/ folder from UNIFIED_EOS_SDK (its root or SDK/ itself), or "" when it isn't set.
 sdk_dir :: proc() -> string {
-	p := os.get_env("UNIFIED_EOS_SDK", context.temp_allocator)
-	if p == "" do return ""
-	if filepath.base(p) == "SDK" do return p
-	d, _ := filepath.join({p, "SDK"}, context.temp_allocator)
-	return d
+	sdk := os.get_env("UNIFIED_EOS_SDK", context.temp_allocator)
+	if sdk == "" do return ""
+	if filepath.base(sdk) == "SDK" do return sdk
+	dir, _ := filepath.join({sdk, "SDK"}, context.temp_allocator)
+	return dir
 }
 
 Layout :: struct {
@@ -238,8 +238,8 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	}
 	cc := ""
 	for name in ([]string{"clang", "cc"}) {
-		if p, ok := find_on_path(name); ok {
-			cc = p
+		if found, ok := find_on_path(name); ok {
+			cc = found
 			break
 		}
 	}
@@ -247,26 +247,33 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 		log.info("no C compiler on PATH; layout check skipped")
 		return
 	}
-	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintln(&b, "#include <stdio.h>\n#include <stddef.h>")
-	for h in ([]string{"eos_sdk.h", "eos_logging.h", "eos_connect.h", "eos_p2p.h", "eos_lobby.h"}) {
-		fmt.sbprintfln(&b, "#include \"%s\"", h)
+	builder := strings.builder_make(context.temp_allocator)
+	fmt.sbprintln(&builder, "#include <stdio.h>\n#include <stddef.h>")
+	for header in ([]string{"eos_sdk.h", "eos_logging.h", "eos_connect.h", "eos_p2p.h", "eos_lobby.h"}) {
+		fmt.sbprintfln(&builder, "#include \"%s\"", header)
 	}
-	fmt.sbprintln(&b, "int main(void) {")
-	for l in LAYOUTS {
-		fmt.sbprintfln(&b, "printf(\"size %s %%zu\\n\", sizeof(%s));", l.c, l.c)
-		for f in strings.fields(l.fields, context.temp_allocator) {
-			fmt.sbprintfln(&b, "printf(\"off %s.%s %%zu\\n\", offsetof(%s, %s));", l.c, f, l.c, f)
+	fmt.sbprintln(&builder, "int main(void) {")
+	for layout in LAYOUTS {
+		fmt.sbprintfln(&builder, "printf(\"size %s %%zu\\n\", sizeof(%s));", layout.c, layout.c)
+		for field in strings.fields(layout.fields, context.temp_allocator) {
+			fmt.sbprintfln(
+				&builder,
+				"printf(\"off %s.%s %%zu\\n\", offsetof(%s, %s));",
+				layout.c,
+				field,
+				layout.c,
+				field,
+			)
 		}
 	}
-	for c in CONSTANTS {
-		fmt.sbprintfln(&b, "printf(\"const %s %%lld\\n\", (long long)(%s));", c.c, c.c)
+	for constant in CONSTANTS {
+		fmt.sbprintfln(&builder, "printf(\"const %s %%lld\\n\", (long long)(%s));", constant.c, constant.c)
 	}
-	fmt.sbprintln(&b, "return 0; }")
+	fmt.sbprintln(&builder, "return 0; }")
 
 	// The probe's output only depends on its source and the headers (their version): a stamp in the
 	// repo's .out/ skips the compile when both are unchanged.
-	probe := strings.to_string(b)
+	probe := strings.to_string(builder)
 	version, _ := os.read_entire_file(fmt.tprintf("%s/eos_version.h", include), context.temp_allocator)
 	stamp := fmt.tprintf(
 		"%s/eos-layout-%16x.ok",
@@ -285,67 +292,77 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	testing.expect(t, os.write_entire_file(src, transmute([]u8)probe) == nil)
 	defer os.remove(src)
 	defer os.remove(exe)
-	st, _, cerr, err := os.process_exec({command = {cc, "-I", include, "-o", exe, src}}, context.temp_allocator)
+	compile_state, _, cerr, err := os.process_exec(
+		{command = {cc, "-I", include, "-o", exe, src}},
+		context.temp_allocator,
+	)
 	if !testing.expectf(
 		t,
-		err == nil && st.exit_code == 0,
+		err == nil && compile_state.exit_code == 0,
 		"compiling the layout probe failed: %v\n%s",
 		err,
 		string(cerr),
 	) {
 		return
 	}
-	st2, out, _, err2 := os.process_exec({command = {exe}}, context.temp_allocator)
-	if !testing.expect(t, err2 == nil && st2.exit_code == 0, "running the layout probe failed") {
+	run_state, out, _, err2 := os.process_exec({command = {exe}}, context.temp_allocator)
+	if !testing.expect(t, err2 == nil && run_state.exit_code == 0, "running the layout probe failed") {
 		return
 	}
 	c_vals := make(map[string]i64, context.temp_allocator)
 	for line in strings.split_lines(string(out), context.temp_allocator) {
 		parts := strings.fields(line, context.temp_allocator)
 		if len(parts) == 3 {
-			v, _ := strconv.parse_i64(parts[2])
-			c_vals[strings.concatenate({parts[0], " ", parts[1]}, context.temp_allocator)] = v
+			value, _ := strconv.parse_i64(parts[2])
+			c_vals[strings.concatenate({parts[0], " ", parts[1]}, context.temp_allocator)] = value
 		}
 	}
-	for l in LAYOUTS {
-		key := fmt.tprintf("size %s", l.c)
+	for layout in LAYOUTS {
+		key := fmt.tprintf("size %s", layout.c)
 		testing.expectf(
 			t,
-			c_vals[key] == i64(reflect.size_of_typeid(l.odin)),
+			c_vals[key] == i64(reflect.size_of_typeid(layout.odin)),
 			"%s: C size %d, Odin %d",
-			l.c,
+			layout.c,
 			c_vals[key],
-			reflect.size_of_typeid(l.odin),
+			reflect.size_of_typeid(layout.odin),
 		)
-		names := strings.fields(l.fields, context.temp_allocator)
-		offsets := reflect.struct_field_offsets(l.odin)
+		names := strings.fields(layout.fields, context.temp_allocator)
+		offsets := reflect.struct_field_offsets(layout.odin)
 		if !testing.expectf(
 			t,
 			len(names) == len(offsets),
 			"%v: %d Odin fields, %d C names",
-			l.odin,
+			layout.odin,
 			len(offsets),
 			len(names),
 		) {
 			continue
 		}
-		for f, i in names {
-			k := fmt.tprintf("off %s.%s", l.c, f)
+		for field, i in names {
+			offset_key := fmt.tprintf("off %s.%s", layout.c, field)
 			testing.expectf(
 				t,
-				c_vals[k] == i64(offsets[i]),
+				c_vals[offset_key] == i64(offsets[i]),
 				"%s.%s: C offset %d, Odin %d",
-				l.c,
-				f,
-				c_vals[k],
+				layout.c,
+				field,
+				c_vals[offset_key],
 				offsets[i],
 			)
 		}
 	}
 	failed := false
-	for c in CONSTANTS {
-		k := fmt.tprintf("const %s", c.c)
-		failed ||= !testing.expectf(t, c_vals[k] == c.odin, "%s: header %d, Odin %d", c.c, c_vals[k], c.odin)
+	for constant in CONSTANTS {
+		key := fmt.tprintf("const %s", constant.c)
+		failed ||= !testing.expectf(
+			t,
+			c_vals[key] == constant.odin,
+			"%s: header %d, Odin %d",
+			constant.c,
+			c_vals[key],
+			constant.odin,
+		)
 	}
 	if !failed && !testing.failed(t) {
 		_ = os.write_entire_file(stamp, "ok\n")
@@ -354,13 +371,13 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 
 find_on_path :: proc(name: string) -> (string, bool) {
 	path := os.get_env("PATH", context.temp_allocator)
-	for d in strings.split(path, ODIN_OS == .Windows ? ";" : ":", context.temp_allocator) {
-		p, _ := filepath.join(
-			{d, ODIN_OS == .Windows ? strings.concatenate({name, ".exe"}, context.temp_allocator) : name},
+	for dir in strings.split(path, ODIN_OS == .Windows ? ";" : ":", context.temp_allocator) {
+		candidate, _ := filepath.join(
+			{dir, ODIN_OS == .Windows ? strings.concatenate({name, ".exe"}, context.temp_allocator) : name},
 			context.temp_allocator,
 		)
-		if os.is_file(p) {
-			return p, true
+		if os.is_file(candidate) {
+			return candidate, true
 		}
 	}
 	return "", false
@@ -384,10 +401,10 @@ sdk_library_loads :: proc(t: ^testing.T) {
 		product_name    = "unified-test",
 		product_version = "1",
 	}
-	r := api.Initialize(&opts)
-	testing.expectf(t, r == .Success, "EOS_Initialize: %v", r)
+	result := api.Initialize(&opts)
+	testing.expectf(t, result == .Success, "EOS_Initialize: %v", result)
 	testing.expect_value(t, string(api.EResult_ToString(.NotFound)), "EOS_NotFound")
-	if r == .Success {
+	if result == .Success {
 		testing.expect_value(t, api.Shutdown(), eos.Result.Success)
 	}
 }

@@ -6,31 +6,31 @@ import "unified:wire"
 
 @(test)
 round_trip :: proc(t: ^testing.T) {
-	w := wire.writer_make(0, context.temp_allocator)
-	wire.w_u8(&w, 0xAB)
-	wire.w_u16(&w, 0xBEEF)
-	wire.w_u32(&w, 0xDEADBEEF)
-	wire.w_u64(&w, 0x0123_4567_89AB_CDEF)
-	wire.w_bytes(&w, {1, 2, 3})
-	testing.expect_value(t, len(w.buf), 1 + 2 + 4 + 8 + 3)
-	testing.expect_value(t, w.buf[1], 0xEF) // little-endian
+	writer := wire.writer_make(0, context.temp_allocator)
+	wire.w_u8(&writer, 0xAB)
+	wire.w_u16(&writer, 0xBEEF)
+	wire.w_u32(&writer, 0xDEADBEEF)
+	wire.w_u64(&writer, 0x0123_4567_89AB_CDEF)
+	wire.w_bytes(&writer, {1, 2, 3})
+	testing.expect_value(t, len(writer.buf), 1 + 2 + 4 + 8 + 3)
+	testing.expect_value(t, writer.buf[1], 0xEF) // little-endian
 
-	r := wire.reader_make(w.buf[:])
-	testing.expect_value(t, wire.r_u8(&r), 0xAB)
-	testing.expect_value(t, wire.r_u16(&r), 0xBEEF)
-	testing.expect_value(t, wire.r_u32(&r), 0xDEADBEEF)
-	testing.expect_value(t, wire.r_u64(&r), 0x0123_4567_89AB_CDEF)
-	b := wire.r_bytes(&r, 3)
-	testing.expect(t, len(b) == 3 && b[0] == 1 && b[2] == 3)
-	testing.expect(t, r.ok)
+	reader := wire.reader_make(writer.buf[:])
+	testing.expect_value(t, wire.r_u8(&reader), 0xAB)
+	testing.expect_value(t, wire.r_u16(&reader), 0xBEEF)
+	testing.expect_value(t, wire.r_u32(&reader), 0xDEADBEEF)
+	testing.expect_value(t, wire.r_u64(&reader), 0x0123_4567_89AB_CDEF)
+	bytes := wire.r_bytes(&reader, 3)
+	testing.expect(t, len(bytes) == 3 && bytes[0] == 1 && bytes[2] == 3)
+	testing.expect(t, reader.ok)
 }
 
 @(test)
 short_read_fails_softly :: proc(t: ^testing.T) {
 	data := [3]u8{1, 2, 3}
-	r := wire.reader_make(data[:])
-	testing.expect_value(t, wire.r_u32(&r), 0)
-	testing.expect(t, !r.ok)
-	testing.expect_value(t, wire.r_u8(&r), 0) // stays failed, yields zeros
-	testing.expect(t, wire.r_bytes(&r, -1) == nil)
+	reader := wire.reader_make(data[:])
+	testing.expect_value(t, wire.r_u32(&reader), 0)
+	testing.expect(t, !reader.ok)
+	testing.expect_value(t, wire.r_u8(&reader), 0) // stays failed, yields zeros
+	testing.expect(t, wire.r_bytes(&reader, -1) == nil)
 }

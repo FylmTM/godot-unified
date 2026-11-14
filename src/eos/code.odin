@@ -12,7 +12,7 @@ Code :: [CODE_LEN]u8
 
 // A fresh random code. `random` fills a buffer with random bytes (crypto by default; tests pass a
 // seeded one). Unbiased: bytes >= 248 (= 31 * 8) are rejected.
-code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (c: Code) {
+code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (code: Code) {
 	N :: len(CODE_ALPHABET)
 	LIMIT :: 256 - 256 % N
 	alphabet := CODE_ALPHABET
@@ -20,11 +20,11 @@ code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (c: Code) {
 	i := 0
 	for i < CODE_LEN {
 		random(buf[:])
-		for b in buf {
-			if int(b) >= LIMIT {
+		for random_byte in buf {
+			if int(random_byte) >= LIMIT {
 				continue
 			}
-			c[i] = alphabet[int(b) % N]
+			code[i] = alphabet[int(random_byte) % N]
 			i += 1
 			if i == CODE_LEN {
 				break
@@ -34,35 +34,35 @@ code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (c: Code) {
 	return
 }
 
-code_string :: proc(c: ^Code) -> string {
-	return string(c[:])
+code_string :: proc(code: ^Code) -> string {
+	return string(code[:])
 }
 
 // Parses what a player typed: case-insensitive, spaces and dashes ignored, and the look-alikes the
 // alphabet leaves out are read as what they resemble only when that is unambiguous (O -> 0 is not,
 // as 0 isn't in the alphabet either), so they are rejected.
-code_parse :: proc(s: string) -> (c: Code, ok: bool) {
-	n := 0
-	for i in 0 ..< len(s) {
-		ch := s[i]
-		switch ch {
+code_parse :: proc(text: string) -> (code: Code, ok: bool) {
+	count := 0
+	for i in 0 ..< len(text) {
+		char := text[i]
+		switch char {
 		case ' ', '-', '\t':
 			continue
 		case 'a' ..= 'z':
-			ch -= 'a' - 'A'
+			char -= 'a' - 'A'
 		}
-		if !code_char_ok(ch) || n == CODE_LEN {
+		if !code_char_ok(char) || count == CODE_LEN {
 			return {}, false
 		}
-		c[n] = ch
-		n += 1
+		code[count] = char
+		count += 1
 	}
-	return c, n == CODE_LEN
+	return code, count == CODE_LEN
 }
 
-code_char_ok :: proc(ch: u8) -> bool {
-	for a in transmute([]u8)string(CODE_ALPHABET) {
-		if a == ch {
+code_char_ok :: proc(char: u8) -> bool {
+	for letter in transmute([]u8)string(CODE_ALPHABET) {
+		if letter == char {
 			return true
 		}
 	}

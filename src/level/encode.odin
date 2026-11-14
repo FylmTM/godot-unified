@@ -7,94 +7,101 @@ import "unified:wire"
 // Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices), in the
 // current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D level.
 encode :: proc(bodies: []Body, markers: []Marker, px_per_m: f32 = 0, allocator := context.allocator) -> []u8 {
-	strs := make([dynamic]string, 0, 64, context.temp_allocator)
-	append(&strs, "")
-	intern :: proc(strs: ^[dynamic]string, s: string) -> u32 {
-		for x, i in strs {
-			if x == s do return u32(i)
+	string_table := make([dynamic]string, 0, 64, context.temp_allocator)
+	append(&string_table, "")
+	intern :: proc(string_table: ^[dynamic]string, text: string) -> u32 {
+		for existing, i in string_table {
+			if existing == text do return u32(i)
 		}
-		append(strs, s)
-		return u32(len(strs) - 1)
+		append(string_table, text)
+		return u32(len(string_table) - 1)
 	}
 	// Strings first, in the order the reader meets them.
-	for &b in bodies do intern(&strs, b.name)
-	for &m in markers {
-		intern(&strs, m.kind)
-		intern(&strs, m.name)
-		for &p in m.props {
-			intern(&strs, p.key)
-			if p.type == .String do intern(&strs, p.s)
+	for &body in bodies do intern(&string_table, body.name)
+	for &marker in markers {
+		intern(&string_table, marker.kind)
+		intern(&string_table, marker.name)
+		for &property in marker.props {
+			intern(&string_table, property.key)
+			if property.type == .String do intern(&string_table, property.s)
 		}
 	}
 
-	w := wire.writer_make(1024, allocator)
-	f :: proc(w: ^wire.Writer, x: f32) {wire.w_u32(w, transmute(u32)x)}
-	v :: proc(w: ^wire.Writer, x: [3]f32) {f(w, x.x); f(w, x.y); f(w, x.z)}
-	q :: proc(w: ^wire.Writer, x: [4]f32) {f(w, x.x); f(w, x.y); f(w, x.z); f(w, x.w)}
-	pts :: proc(w: ^wire.Writer, ps: [][3]f32) {
-		wire.w_u16(w, u16(len(ps)))
-		for p in ps do v(w, p)
+	writer := wire.writer_make(1024, allocator)
+	write_f32 :: proc(writer: ^wire.Writer, x: f32) {wire.w_u32(writer, transmute(u32)x)}
+	write_vec3 :: proc(writer: ^wire.Writer, x: [3]f32) {write_f32(writer, x.x); write_f32(writer, x.y); write_f32(
+			writer,
+			x.z,
+		)}
+	write_quat :: proc(writer: ^wire.Writer, x: [4]f32) {write_f32(writer, x.x); write_f32(writer, x.y); write_f32(
+			writer,
+			x.z,
+		)
+		write_f32(writer, x.w)}
+	write_points :: proc(writer: ^wire.Writer, points: [][3]f32) {
+		wire.w_u16(writer, u16(len(points)))
+		for point in points do write_vec3(writer, point)
 	}
-	wire.w_bytes(&w, transmute([]u8)string(MAGIC))
-	wire.w_u16(&w, VERSION)
-	f(&w, px_per_m)
-	wire.w_u32(&w, u32(len(strs)))
-	for s in strs {
-		wire.w_u16(&w, u16(len(s)))
-		wire.w_bytes(&w, transmute([]u8)s)
+	wire.w_bytes(&writer, transmute([]u8)string(MAGIC))
+	wire.w_u16(&writer, VERSION)
+	write_f32(&writer, px_per_m)
+	wire.w_u32(&writer, u32(len(string_table)))
+	for text in string_table {
+		wire.w_u16(&writer, u16(len(text)))
+		wire.w_bytes(&writer, transmute([]u8)text)
 	}
-	wire.w_u32(&w, u32(len(bodies)))
-	for &b in bodies {
-		wire.w_u32(&w, intern(&strs, b.name))
-		v(&w, b.pos)
-		q(&w, b.rot)
-		f(&w, b.friction)
-		f(&w, b.restitution)
-		wire.w_u64(&w, b.category)
-		wire.w_u64(&w, b.material)
-		wire.w_u16(&w, u16(len(b.shapes)))
-		for &sh in b.shapes {
-			wire.w_u8(&w, u8(sh.kind))
-			v(&w, sh.pos)
-			q(&w, sh.rot)
-			switch sh.kind {
+	wire.w_u32(&writer, u32(len(bodies)))
+	for &body in bodies {
+		wire.w_u32(&writer, intern(&string_table, body.name))
+		write_vec3(&writer, body.pos)
+		write_quat(&writer, body.rot)
+		write_f32(&writer, body.friction)
+		write_f32(&writer, body.restitution)
+		wire.w_u64(&writer, body.category)
+		wire.w_u64(&writer, body.material)
+		wire.w_u16(&writer, u16(len(body.shapes)))
+		for &shape in body.shapes {
+			wire.w_u8(&writer, u8(shape.kind))
+			write_vec3(&writer, shape.pos)
+			write_quat(&writer, shape.rot)
+			switch shape.kind {
 			case .Box:
-				v(&w, sh.half)
+				write_vec3(&writer, shape.half)
 			case .Sphere:
-				f(&w, sh.radius)
+				write_f32(&writer, shape.radius)
 			case .Capsule:
-				f(&w, sh.radius)
-				f(&w, sh.half_height)
+				write_f32(&writer, shape.radius)
+				write_f32(&writer, shape.half_height)
 			case .Hull:
-				pts(&w, sh.points)
+				write_points(&writer, shape.points)
 			}
 		}
 	}
-	wire.w_u32(&w, u32(len(markers)))
-	for &m in markers {
-		wire.w_u32(&w, intern(&strs, m.kind))
-		wire.w_u32(&w, intern(&strs, m.name))
-		v(&w, m.pos)
-		q(&w, m.rot)
-		v(&w, m.scale)
-		wire.w_u16(&w, u16(len(m.props)))
-		for &p in m.props {
-			wire.w_u32(&w, intern(&strs, p.key))
-			wire.w_u8(&w, u8(p.type))
-			switch p.type {
+	wire.w_u32(&writer, u32(len(markers)))
+	for &marker in markers {
+		wire.w_u32(&writer, intern(&string_table, marker.kind))
+		wire.w_u32(&writer, intern(&string_table, marker.name))
+		write_vec3(&writer, marker.pos)
+		write_quat(&writer, marker.rot)
+		write_vec3(&writer, marker.scale)
+		wire.w_u16(&writer, u16(len(marker.props)))
+		for &property in marker.props {
+			wire.w_u32(&writer, intern(&string_table, property.key))
+			wire.w_u8(&writer, u8(property.type))
+			switch property.type {
 			case .Bool:
-				wire.w_u8(&w, u8(p.b))
+				wire.w_u8(&writer, u8(property.b))
 			case .Int, .Ref:
-				wire.w_u32(&w, u32(p.i))
+				wire.w_u32(&writer, u32(property.i))
 			case .Float:
-				f(&w, p.f)
+				write_f32(&writer, property.f)
 			case .Vec3:
-				v(&w, p.v)
+				write_vec3(&writer, property.v)
 			case .String:
-				wire.w_u32(&w, intern(&strs, p.s))
+				wire.w_u32(&writer, intern(&string_table, property.s))
 			}
 		}
-		pts(&w, m.path)
+		write_points(&writer, marker.path)
 	}
-	return w.buf[:]
+	return writer.buf[:]
 }
