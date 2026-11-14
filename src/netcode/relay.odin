@@ -28,11 +28,15 @@ Relay_Config :: struct {
 	name:          string, // for log lines
 	poll_us:       i64, // 0: DEFAULT_POLL_US
 	quiet:         bool,
+	// Every start player is in-process (a host's own client): tick 1 is due a tick after Welcome. Otherwise
+	// the clock starts START_LEAD_MS after Welcome, so a far start player's first inputs arrive in time.
+	local_start:   bool,
 }
 
 INPUT_RING :: 256
 CHECK_RING :: 64
 JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock at its Hello
+START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
 
 // A received command waiting for the tick it goes in.
 @(private)
@@ -53,9 +57,11 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	tm:          Timing,
 	ch:          ^Channel,
 	w:           wire.Writer,
-	started:     bool,
-	start_us:    i64,
-	clock:       u32,
+	started:     bool, // Welcome sent to the start players
+	welcome_us:  i64,
+	lead:        u32, // ticks from Welcome to the clock's tick 0
+	beats:       u32, // ticks since Welcome, the lead included (a broadcast goes out on each)
+	clock:       u32, // beats - lead (0 during the lead)
 	clock_pub:   u32, // clock, readable from other threads (atomic)
 	finalized:   u32,
 	peer_of:     [PLAYERS]Peer,
@@ -79,7 +85,7 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	rotate:      [PLAYERS]u32, // which window of a long backlog the next broadcast carries
 	echo_time:   [PLAYERS]i64,
 	echo_recv:   [PLAYERS]i64,
-	sent_clock:  u32,
+	sent_beats:  u32,
 	log:         sim.Input_Log(Input, PLAYERS),
 	checks:      [CHECK_RING]Check,
 	desyncs:     int,
@@ -246,7 +252,8 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 			}
 		}
 		relay.started = true
-		relay.start_us = now
+		relay.welcome_us = now
+		relay.lead = relay.cfg.local_start ? 0 : ceil_ticks(START_LEAD_MS * 1000, relay.tm.tick_us)
 		for other in 0 ..< relay.cfg.start_players {
 			send_welcome(relay, other, false, now)
 		}
@@ -518,7 +525,8 @@ broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 			continue
 		}
 		writer := msg_begin(&relay.w, .Finalized)
-		w_i64(writer, now - relay.start_us)
+		// Relay time: when tick 0 was due, so negative during the lead.
+		w_i64(writer, i64(f64(now - relay.welcome_us) - f64(relay.lead) * relay.tm.tick_us))
 		w_i64(writer, relay.echo_time[player])
 		w_i64(writer, relay.echo_time[player] != 0 ? now - relay.echo_recv[player] : 0)
 		wire.w_u32(writer, max(relay.recv_upto[player], relay.finalized))
@@ -681,13 +689,15 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 		}
 	}
 	if relay.started && !relay.finished {
-		relay.clock = u32(f64(now - relay.start_us) / relay.tm.tick_us)
+		relay.beats = u32(f64(now - relay.welcome_us) / relay.tm.tick_us)
+		relay.clock = relay.beats > relay.lead ? relay.beats - relay.lead : 0
 		sync.atomic_store(&relay.clock_pub, relay.clock)
 		finalized_before := relay.finalized
 		finalize(relay)
-		if relay.clock != relay.sent_clock || relay.finalized != finalized_before {
+		// During the lead too: the clients time their clocks from these.
+		if relay.beats != relay.sent_beats || relay.finalized != finalized_before {
 			broadcast(relay, now)
-			relay.sent_clock = relay.clock
+			relay.sent_beats = relay.beats
 		}
 	}
 	if !relay.ending && relay.started && relay.cfg.ticks != 0 && relay.finalized == relay.cfg.ticks {
@@ -713,7 +723,7 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 	}
 	wake_us = now + relay.cfg.poll_us
 	if relay.started {
-		wake_us = min(wake_us, relay.start_us + i64(f64(relay.clock + 1) * relay.tm.tick_us) + 1)
+		wake_us = min(wake_us, relay.welcome_us + i64(f64(relay.beats + 1) * relay.tm.tick_us) + 1)
 	}
 	return
 }
