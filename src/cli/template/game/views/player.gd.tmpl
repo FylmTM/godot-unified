@@ -1,18 +1,13 @@
 extends Node2D
-## One player's dot: a scene view. The host sets its position every frame, interpolated between ticks.
+## One player's dot: a scene view (kind `player`, its UnifiedView marker). The host sets its position every frame,
+## interpolated between ticks; the marker says which player it shows.
 
-var kind := &""
-var entity := 0
-var player := -1
+@onready var view: UnifiedView = %UnifiedView
 
 
 func _ready() -> void:
 	queue_redraw()
 
 
-func _sim_update(_position: Vector2, _rotation: float, _alpha: float) -> void:
-	pass
-
-
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(maxi(player, 0)) / 4.0, 0.6, 1.0))
+	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(maxi(view.player, 0)) / 4.0, 0.6, 1.0))

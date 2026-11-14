@@ -12,8 +12,20 @@ config/features=PackedStringArray("4.7")
 
 [debug]
 
-; The game's tool scripts run with the debugger on and fail on any GDScript warning.
-gdscript/warnings/untyped_declaration=1
+; Strict typing: untyped and unsafe code is an error, and tool runs fail on any warning. Tool scripts (game/tools,
+; addons, generated .out) are left out: they compile before autoloads exist.
+gdscript/warnings/directory_rules={
+"res://.out": 0,
+"res://addons": 0,
+"res://game/tools": 0
+}
+gdscript/warnings/unused_signal=0
+gdscript/warnings/shadowed_variable=0
+gdscript/warnings/untyped_declaration=2
+gdscript/warnings/unsafe_property_access=2
+gdscript/warnings/unsafe_method_access=2
+gdscript/warnings/unsafe_cast=2
+gdscript/warnings/unsafe_call_argument=2
 
 [display]
 
