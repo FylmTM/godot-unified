@@ -15,48 +15,48 @@ Fuzz :: struct {
 	state: u32,
 }
 
-fz_next :: proc(fuzz: ^Fuzz) -> u32 {
+fuzz_next :: proc(fuzz: ^Fuzz) -> u32 {
 	fuzz.state ~= fuzz.state << 13
 	fuzz.state ~= fuzz.state >> 17
 	fuzz.state ~= fuzz.state << 5
 	return fuzz.state
 }
 
-fz_below :: proc(fuzz: ^Fuzz, bound: int) -> int {
-	return int(fz_next(fuzz) % u32(bound))
+fuzz_below :: proc(fuzz: ^Fuzz, bound: int) -> int {
+	return int(fuzz_next(fuzz) % u32(bound))
 }
 
 // Random bytes, or a mutation of `valid` (a byte flipped, cut short, a field set to an extreme).
-fz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
+fuzz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
 	clear(out)
-	switch fz_below(fuzz, 4) {
+	switch fuzz_below(fuzz, 4) {
 	case 0:
-		for _ in 0 ..< fz_below(fuzz, 64) {
-			append(out, u8(fz_next(fuzz)))
+		for _ in 0 ..< fuzz_below(fuzz, 64) {
+			append(out, u8(fuzz_next(fuzz)))
 		}
 	case 1:
 		append(out, ..valid)
 		if len(out) > 0 {
-			resize(out, fz_below(fuzz, len(out)))
+			resize(out, fuzz_below(fuzz, len(out)))
 		}
 	case:
 		append(out, ..valid)
-		for _ in 0 ..< 1 + fz_below(fuzz, 4) {
+		for _ in 0 ..< 1 + fuzz_below(fuzz, 4) {
 			if len(out) == 0 {
 				break
 			}
-			i := fz_below(fuzz, len(out))
-			switch fz_below(fuzz, 3) {
+			index := fuzz_below(fuzz, len(out))
+			switch fuzz_below(fuzz, 3) {
 			case 0:
-				out[i] ~= u8(1 << u32(fz_below(fuzz, 8)))
+				out[index] ~= u8(1 << u32(fuzz_below(fuzz, 8)))
 			case 1:
-				out[i] = 0xFF
+				out[index] = 0xFF
 			case:
-				out[i] = 0
+				out[index] = 0
 			}
 		}
-		for _ in 0 ..< fz_below(fuzz, 3) * fz_below(fuzz, 400) {
-			append(out, u8(fz_next(fuzz))) // trailing junk, up to oversized chunks
+		for _ in 0 ..< fuzz_below(fuzz, 3) * fuzz_below(fuzz, 400) {
+			append(out, u8(fuzz_next(fuzz))) // trailing junk, up to oversized chunks
 		}
 	}
 }
@@ -138,10 +138,10 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_u8(writer, 2)
 		inputs := finalized_of(5, 1)
 		sim.inputs_write(writer, &inputs)
-		bump, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{3})
+		bump, _ := sim.command_make(toy.Command, toy.Cmd_Bump{3})
 		sim.add_command(&inputs, bump)
-		mark, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Mark{count = 2})
-		mark.slot = 1
+		mark, _ := sim.command_make(toy.Command, toy.Cmd_Mark{count = 2})
+		mark.player = 1
 		sim.add_command(&inputs, mark)
 		sim.inputs_write(writer, &inputs)
 	case .Snap_Request:
@@ -158,8 +158,8 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	case .Reject:
 		wire.w_u8(writer, 2)
 	case .Roster:
-		wire.w_u8(writer, toy.SLOTS)
-		for _ in 0 ..< toy.SLOTS {
+		wire.w_u8(writer, toy.PLAYERS)
+		for _ in 0 ..< toy.PLAYERS {
 			wire.w_u8(writer, 1)
 			wire.w_u8(writer, 2)
 			wire.w_bytes(writer, {'h', 'i'})
@@ -192,7 +192,7 @@ fuzz_channel_datagrams :: proc(t: ^testing.T) {
 	ids := [3]u32{0, 1, 600}
 	for k in 0 ..< 4000 {
 		reliable_datagram(&writer, u32(k % 7 + 1), u32(k), ids[:1 + k % 3])
-		fz_bytes(&fuzz, &buf, writer.buf[:])
+		fuzz_bytes(&fuzz, &buf, writer.buf[:])
 		if len(buf) > netcode.MAX_DATAGRAM {
 			resize(&buf, netcode.MAX_DATAGRAM)
 		}
@@ -232,13 +232,13 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 		netcode.channel_destroy(attacker)
 	}
 	for k in 0 ..< 4000 {
-		i := k % 2
-		fz_bytes(&fuzz, &buf, relay_samples(&writer, fz_below(&fuzz, 13), u8(1 + i)))
+		attacker_index := k % 2
+		fuzz_bytes(&fuzz, &buf, relay_samples(&writer, fuzz_below(&fuzz, 13), u8(1 + attacker_index)))
 		netcode.channel_send(
-			attackers[i],
-			peers[i],
+			attackers[attacker_index],
+			peers[attacker_index],
 			buf[:],
-			fz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
+			fuzz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
 			session.clock.now,
 		)
 		if k % 4 == 0 {
@@ -278,11 +278,17 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	buf: [dynamic]u8
 	defer delete(buf)
 	for k in 0 ..< 4000 {
-		fz_bytes(&fuzz, &buf, client_samples(&writer, fz_below(&fuzz, 13)))
-		if fz_below(&fuzz, 13) == 0 {
+		fuzz_bytes(&fuzz, &buf, client_samples(&writer, fuzz_below(&fuzz, 13)))
+		if fuzz_below(&fuzz, 13) == 0 {
 			continue // keep End and Reject rare: they end the session early
 		}
-		netcode.channel_send(fake.ch, fake.peer, buf[:], fz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable, fake.now)
+		netcode.channel_send(
+			fake.channel,
+			fake.peer,
+			buf[:],
+			fuzz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
+			fake.now,
+		)
 		if k % 4 == 0 {
 			fake_step(&fake, client)
 		}

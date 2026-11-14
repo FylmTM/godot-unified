@@ -6,21 +6,26 @@ package modes
 import "core:fmt"
 import "core:os"
 
-import "unified:headless"
+// Imported as `uheadless`: the modes name their Headless parameter `headless`.
+import uheadless "unified:headless"
 import "unified:sim"
 
 // Runs the mode named on the command line. `variants`: other variants of the game (e.g. other
 // tunings), picked with `--game NAME` (sim.Game.name) on any mode. `online`: a lobby transport for the
 // <name>-host and <name>-client modes (optional).
-run :: proc(h: ^headless.Headless($S, $I, $W, $P), variants: []^sim.Game(S, I, W, P) = nil, online: ^Online = nil) {
+run :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
+	variants: []^sim.Game(State, Input, World, PLAYERS) = nil,
+	online: ^Online = nil,
+) {
 	platform_init()
-	a := parse_args()
-	if name, has := a.opts["game"]; has {
-		delete_key(&a.opts, "game")
-		found := h.game.name == name
-		for g in variants {
-			if !found && g.name == name {
-				h.game = g
+	args := parse_args()
+	if name, has := args.opts["game"]; has {
+		delete_key(&args.opts, "game")
+		found := headless.game.name == name
+		for variant in variants {
+			if !found && variant.name == name {
+				headless.game = variant
 				found = true
 			}
 		}
@@ -28,41 +33,40 @@ run :: proc(h: ^headless.Headless($S, $I, $W, $P), variants: []^sim.Game(S, I, W
 			die("unknown --game %q", name)
 		}
 	}
-	if path, has := a.opts["level"]; has {
-		delete_key(&a.opts, "level")
+	if path, has := args.opts["level"]; has {
+		delete_key(&args.opts, "level")
 		data, err := os.read_entire_file(path, context.allocator)
 		if err != nil {
 			die("cannot read --level %s", path)
 		}
-		h.content = data
+		headless.content = data
 	}
 	ok := true
-	switch a.mode {
+	switch args.mode {
 	case "sim":
-		ok = mode_sim(h, &a)
+		ok = mode_sim(headless, &args)
 	case "synctest":
-		ok = mode_synctest(h, &a)
+		ok = mode_synctest(headless, &args)
 	case "replay":
-		ok = mode_replay(h, &a)
+		ok = mode_replay(headless, &args)
 	case "snapshot":
-		ok = mode_snapshot(h, &a)
+		ok = mode_snapshot(headless, &args)
 	case "resume":
-		ok = mode_resume(h, &a)
+		ok = mode_resume(headless, &args)
 	case "bench":
-		ok = mode_bench(h, &a)
+		ok = mode_bench(headless, &args)
 	case "session":
-		ok = mode_session(h, &a)
+		ok = mode_session(headless, &args)
 	case "relay":
-		ok = mode_relay(h, &a)
+		ok = mode_relay(headless, &args)
 	case "client":
-		ok = mode_client(h, &a)
+		ok = mode_client(headless, &args)
 	case:
-		o := online
 		switch {
-		case o != nil && a.mode == fmt.tprintf("%s-host", o.name):
-			ok = mode_online_host(h, o, &a)
-		case o != nil && a.mode == fmt.tprintf("%s-client", o.name):
-			ok = mode_online_client(h, o, &a)
+		case online != nil && args.mode == fmt.tprintf("%s-host", online.name):
+			ok = mode_online_host(headless, online, &args)
+		case online != nil && args.mode == fmt.tprintf("%s-client", online.name):
+			ok = mode_online_client(headless, online, &args)
 		case:
 			usage()
 		}
@@ -70,48 +74,63 @@ run :: proc(h: ^headless.Headless($S, $I, $W, $P), variants: []^sim.Game(S, I, W
 	os.exit(ok ? 0 : 1)
 }
 
-seed_opt :: proc(a: ^Args) -> u64 {
-	return u64(opt_int(a, "seed", 1, lo = 0, hi = int(max(u32))))
+seed_opt :: proc(args: ^Args) -> u64 {
+	return u64(opt_int(args, "seed", 1, low = 0, high = int(max(u32))))
 }
 
-players_opt :: proc(a: ^Args, slots: int) -> int {
-	return opt_int(a, "players", slots, lo = 1, hi = slots)
+players_opt :: proc(args: ^Args, max_players: int) -> int {
+	return opt_int(args, "players", max_players, low = 1, high = max_players)
 }
 
-mode_sim :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "ticks", "seed", "players", "trace", "log")
-	ticks := u32(opt_int(a, "ticks", required = true, hi = 10_000_000))
-	seed := seed_opt(a)
-	players := players_opt(a, P)
-	trace_path, log_path := opt_str(a, "trace"), opt_str(a, "log")
-	tr: headless.Trace
-	defer headless.trace_destroy(&tr)
-	lg: sim.Input_Log(I, P)
-	defer sim.log_destroy(&lg)
-	res := headless.run_sim(h, ticks, seed, players, &tr, &lg if log_path != "" else nil)
-	ok := trace_path == "" || headless.trace_write(&tr, trace_path)
-	ok &&= log_path == "" || sim.log_write(log_path, &lg)
+// `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window).
+window_opt :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
+	args: ^Args,
+	fallback := 0,
+	required := false,
+) -> u32 {
+	longest := uheadless.max_window(headless.game)
+	window := opt_int(args, "window", fallback, required, low = 1, high = longest)
+	if window < 1 || window > longest {
+		die("%s: the window must be in [1, %d] (the game's ring), got %d", args.mode, longest, window)
+	}
+	return u32(window)
+}
+
+mode_sim :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "ticks", "seed", "players", "trace", "log")
+	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
+	seed := seed_opt(args)
+	players := players_opt(args, PLAYERS)
+	trace_path, log_path := opt_str(args, "trace"), opt_str(args, "log")
+	trace: uheadless.Trace
+	defer uheadless.trace_destroy(&trace)
+	input_log: sim.Input_Log(Input, PLAYERS)
+	defer sim.log_destroy(&input_log)
+	result := uheadless.run_sim(headless, ticks, seed, players, &trace, &input_log if log_path != "" else nil)
+	ok := trace_path == "" || uheadless.trace_write(&trace, trace_path)
+	ok &&= log_path == "" || sim.log_write(log_path, &input_log)
 	fmt.printfln(
 		`{{"mode":"sim","ticks":%d,"seed":%d,"players":%d,"final_checksum":"%016x",%s"ok":%v}}`,
-		res.final_tick,
+		result.final_tick,
 		seed,
 		players,
-		res.final_checksum,
-		res.summary != "" ? fmt.tprintf("%s,", res.summary) : "",
+		result.final_checksum,
+		result.summary != "" ? fmt.tprintf("%s,", result.summary) : "",
 		ok,
 	)
 	return ok
 }
 
-mode_synctest :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "ticks", "window", "seed", "players")
-	ticks := u32(opt_int(a, "ticks", required = true, hi = 10_000_000))
-	window := u32(opt_int(a, "window", required = true, lo = 1, hi = sim.RING - 1))
-	seed := seed_opt(a)
-	players := players_opt(a, P)
-	res := headless.run_synctest(h, ticks, window, seed, players)
-	if res.mismatches > 0 {
-		fmt.eprintfln("synctest: tick %d re-simulated differently at %d", res.first_tick, res.first_at)
+mode_synctest :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "ticks", "window", "seed", "players")
+	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
+	window := window_opt(headless, args, required = true)
+	seed := seed_opt(args)
+	players := players_opt(args, PLAYERS)
+	result := uheadless.run_synctest(headless, ticks, window, seed, players)
+	if result.mismatches > 0 {
+		fmt.eprintfln("synctest: tick %d re-simulated differently at %d", result.first_tick, result.first_at)
 	}
 	fmt.printfln(
 		`{{"mode":"synctest","ticks":%d,"window":%d,"seed":%d,"players":%d,"mismatches":%d,"first_mismatch":%d,"resimulated_ticks":%d,"final_checksum":"%016x"}}`,
@@ -119,42 +138,42 @@ mode_synctest :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 		window,
 		seed,
 		players,
-		res.mismatches,
-		res.first_tick,
-		res.resimulated,
-		res.final_checksum,
+		result.mismatches,
+		result.first_tick,
+		result.resimulated,
+		result.final_checksum,
 	)
-	return res.mismatches == 0
+	return result.mismatches == 0
 }
 
-mode_replay :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "log", "trace")
-	log_path := opt_str(a, "log", required = true)
-	lg, lok := sim.log_read(log_path, I, P)
-	if !lok {
+mode_replay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "log", "trace")
+	log_path := opt_str(args, "log", required = true)
+	input_log, log_ok := sim.log_read(log_path, Input, PLAYERS)
+	if !log_ok {
 		die("replay: cannot read input log %s (or it is for another game build)", log_path)
 	}
-	defer sim.log_destroy(&lg)
-	tr: headless.Trace
-	defer headless.trace_destroy(&tr)
-	res, ok := headless.run_replay(h, &lg, &tr)
-	if path := opt_str(a, "trace"); ok && path != "" {
-		ok = headless.trace_write(&tr, path)
+	defer sim.log_destroy(&input_log)
+	trace: uheadless.Trace
+	defer uheadless.trace_destroy(&trace)
+	result, ok := uheadless.run_replay(headless, &input_log, &trace)
+	if path := opt_str(args, "trace"); ok && path != "" {
+		ok = uheadless.trace_write(&trace, path)
 	}
 	fmt.printfln(
 		`{{"mode":"replay","ticks":%d,"final_checksum":"%016x","ok":%v}}`,
-		res.final_tick,
-		res.final_checksum,
+		result.final_tick,
+		result.final_checksum,
 		ok,
 	)
 	return ok
 }
 
-mode_snapshot :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "ticks", "out", "seed", "players")
-	ticks := u32(opt_int(a, "ticks", required = true, hi = 10_000_000))
-	out := opt_str(a, "out", required = true)
-	data, checksum := headless.run_snapshot(h, ticks, seed_opt(a), players_opt(a, P))
+mode_snapshot :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "ticks", "out", "seed", "players")
+	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
+	out := opt_str(args, "out", required = true)
+	data, checksum := uheadless.run_snapshot(headless, ticks, seed_opt(args), players_opt(args, PLAYERS))
 	defer delete(data)
 	ok := os.write_entire_file(out, data) == nil
 	fmt.printfln(
@@ -167,62 +186,62 @@ mode_snapshot :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	return ok
 }
 
-mode_resume :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "in", "ticks", "trace", "players")
-	ticks := u32(opt_int(a, "ticks", required = true, hi = 10_000_000))
-	in_path := opt_str(a, "in", required = true)
+mode_resume :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "in", "ticks", "trace", "players")
+	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
+	in_path := opt_str(args, "in", required = true)
 	data, err := os.read_entire_file(in_path, context.allocator)
 	if err != nil {
 		die("resume: cannot read %s", in_path)
 	}
 	defer delete(data)
-	tr: headless.Trace
-	defer headless.trace_destroy(&tr)
-	res, ok := headless.run_resume(h, data, ticks, players_opt(a, P), &tr)
-	if path := opt_str(a, "trace"); ok && path != "" {
-		ok = headless.trace_write(&tr, path)
+	trace: uheadless.Trace
+	defer uheadless.trace_destroy(&trace)
+	result, ok := uheadless.run_resume(headless, data, ticks, players_opt(args, PLAYERS), &trace)
+	if path := opt_str(args, "trace"); ok && path != "" {
+		ok = uheadless.trace_write(&trace, path)
 	}
 	fmt.printfln(
 		`{{"mode":"resume","final_tick":%d,"final_checksum":"%016x","ok":%v}}`,
-		res.final_tick,
-		res.final_checksum,
+		result.final_tick,
+		result.final_checksum,
 		ok,
 	)
 	return ok
 }
 
-mode_bench :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "enemies", "window", "ticks", "seed", "players")
-	std := h.bench
-	if std.ticks == 0 {
-		std = {
+mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "enemies", "window", "ticks", "seed", "players")
+	standard := headless.bench
+	if standard.ticks == 0 {
+		standard = {
 			what    = "the default benchmark",
 			enemies = 1000,
 			window  = 8,
 			ticks   = 600,
 		}
 	}
-	enemies := opt_int(a, "enemies", std.enemies, lo = 0, hi = 1 << 20)
-	window := u32(opt_int(a, "window", std.window, lo = 1, hi = sim.RING - 1))
-	ticks := u32(opt_int(a, "ticks", std.ticks, lo = 1, hi = 1_000_000))
-	br := run_bench(h, enemies, window, ticks, seed_opt(a), players_opt(a, P))
-	st :: proc(s: Stat) -> string {
-		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, s.mean, s.p99)
+	enemies := opt_int(args, "enemies", standard.enemies, low = 0, high = 1 << 20)
+	window := window_opt(headless, args, standard.window)
+	ticks := u32(opt_int(args, "ticks", standard.ticks, low = 1, high = 1_000_000))
+	result := run_bench(headless, enemies, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
+	stat_json :: proc(stat: Stat) -> string {
+		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 	}
 	fmt.printfln(
 		`{{"mode":"bench","what":"%s","enemies":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"enemies_mean":%.1f,"mismatches":%d}}`,
-		std.what,
+		standard.what,
 		enemies,
 		window,
 		ticks,
-		st(br.step),
-		st(br.save),
-		st(br.restore),
-		st(br.resim),
-		br.snapshot_bytes,
-		br.block_bytes,
-		br.enemies_mean,
-		br.mismatches,
+		stat_json(result.step),
+		stat_json(result.save),
+		stat_json(result.restore),
+		stat_json(result.resim),
+		result.snapshot_bytes,
+		result.block_bytes,
+		result.enemies_mean,
+		result.mismatches,
 	)
-	return br.mismatches == 0
+	return result.mismatches == 0
 }

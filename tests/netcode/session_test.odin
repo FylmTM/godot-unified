@@ -8,9 +8,9 @@ import "../toy"
 import "unified:netcode"
 import "unified:sim"
 
-Client :: netcode.Client(toy.State, toy.Input, toy.World, toy.SLOTS)
-Host :: netcode.Host(toy.State, toy.Input, toy.World, toy.SLOTS)
-Hooks :: netcode.Hooks(toy.State, toy.Input, toy.World, toy.SLOTS)
+Client :: netcode.Client(toy.State, toy.Input, toy.World, toy.PLAYERS)
+Host :: netcode.Host(toy.State, toy.Input, toy.World, toy.PLAYERS)
+Hooks :: netcode.Hooks(toy.State, toy.Input, toy.World, toy.PLAYERS)
 
 SEED :: 5
 
@@ -25,9 +25,9 @@ Watch :: struct {
 hooks_for :: proc(watch: ^Watch) -> Hooks {
 	watch.in_order = true
 	return {user = watch, sample = proc(user: rawptr, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-			return toy.script(SEED, player, tick)
+			return toy.scripted_input(SEED, player, tick)
 		}, commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
-			toy.script_commands(SEED, player, tick, out)
+			toy.scripted_commands(SEED, player, tick, out)
 		}, frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
 			watch := (^Watch)(user)
 			watch.frames += 1
@@ -36,7 +36,7 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 				frame.resim_from <= frame.tick &&
 				frame.verified <= frame.tick,
 			)
-		}, verified = proc(user: rawptr, simulation: ^toy.Sim, tick: u32, events: []sim.Event) {
+		}, verified = proc(user: rawptr, simulation: ^toy.Sim, tick: u32, events: []sim.Raw_Event) {
 			watch := (^Watch)(user)
 			if tick != watch.verified_upto + 1 && watch.verified_upto != 0 {
 				watch.in_order = false
@@ -72,18 +72,18 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
 }
 
 net_join :: proc(session: ^Net, profile: netcode.Profile, player := -1) -> ^Client {
-	k := len(session.clients) + 1
+	endpoint := len(session.clients) + 1
 	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(k)),
+		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
 		profile,
-		u32(k) * 7919,
+		u32(endpoint) * 7919,
 		&session.clock,
 	)
 	client := netcode.client_create(
 		&toy.GAME,
-		{player = player, name = "remote", player_name = k == 1 ? "Grace" : "Linus", quiet = true},
+		{player = player, name = "remote", player_name = endpoint == 1 ? "Grace" : "Linus", quiet = true},
 		link,
-		hooks_for(&session.watch[k]),
+		hooks_for(&session.watch[endpoint]),
 	)
 	append(&session.clients, client)
 	return client

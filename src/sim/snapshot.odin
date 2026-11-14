@@ -1,7 +1,7 @@
 // Portable snapshot: "UNIS", version u16, extra count u16, seed u64, content hash u64 (the level,
-// 0: none), tick u32, block size u32, layout hash u64 (layout_hash of S), payload XXH3 u64, then the block bytes, then per Extra its
-// size u32 and image bytes. All of it is fixed-width little-endian data without pointers, so a
-// snapshot restores on another OS or CPU (late join, `resume`).
+// 0: none), tick u32, block size u32, layout hash u64 (layout_hash of the State), payload XXH3 u64, then
+// the block bytes, then per Extra its size u32 and image bytes. All of it is fixed-width little-endian
+// data without pointers, so a snapshot restores on another OS or CPU (late join, `resume`).
 package sim
 
 import "base:intrinsics"
@@ -9,7 +9,9 @@ import "base:intrinsics"
 import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
-SNAP_VERSION :: 4 // 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2)
+// 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2); 5: the #6
+// sitting's sim (the bytes are laid out as in 4).
+SNAP_VERSION :: 5
 SNAP_HEADER :: 48
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
@@ -33,117 +35,137 @@ Snap_Header :: struct {
 }
 
 // Encodes the ring snapshot of `tick` into a new byte slice.
-snapshot_encode :: proc(s: ^Sim($S, $I, $W, $P), tick: u32, allocator := context.allocator) -> []u8 {
-	idx := int(tick % RING)
-	slot := &s.ring[idx]
+snapshot_encode :: proc(
+	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	tick: u32,
+	allocator := context.allocator,
+) -> []u8 {
+	index := ring_slot(simulation, tick)
+	slot := &simulation.ring[index]
 	assert(slot.valid && slot.tick == tick, "snapshot of a tick that is not in the ring")
-	h := Snap_Header{len(s.extras), s.seed, s.content_hash, tick, size_of(S), layout_hash(S)}
-	w := snap_begin(h, ([^]u8)(&slot.state)[:size_of(S)], snapshot_size(s), allocator)
-	for &e in s.extras {
-		snap_add(&w, e.image(e.data, idx))
+	header := Snap_Header {
+		extras  = len(simulation.extras),
+		seed    = simulation.seed,
+		content = simulation.content_hash,
+		tick    = tick,
+		block   = size_of(State),
+		layout  = layout_hash(State),
 	}
-	return snap_end(&w)
+	writer := snap_begin(header, ([^]u8)(&slot.state)[:size_of(State)], snapshot_size(simulation), allocator)
+	for &extra in simulation.extras {
+		snap_add(&writer, extra.image(extra.data, index))
+	}
+	return snap_end(&writer)
 }
 
-snap_begin :: proc(h: Snap_Header, block: []u8, size_hint: int, allocator := context.allocator) -> wire.Writer {
-	w := wire.writer_make(SNAP_HEADER + size_hint + 16, allocator)
-	wire.w_bytes(&w, transmute([]u8)string(SNAP_MAGIC))
-	wire.w_u16(&w, SNAP_VERSION)
-	wire.w_u16(&w, u16(h.extras))
-	wire.w_u64(&w, h.seed)
-	wire.w_u64(&w, h.content)
-	wire.w_u32(&w, h.tick)
-	wire.w_u32(&w, u32(h.block))
-	wire.w_u64(&w, h.layout)
-	wire.w_u64(&w, 0) // payload digest, patched by snap_end
-	wire.w_bytes(&w, block)
-	return w
+snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator := context.allocator) -> wire.Writer {
+	writer := wire.writer_make(SNAP_HEADER + size_hint + 16, allocator)
+	wire.w_bytes(&writer, transmute([]u8)string(SNAP_MAGIC))
+	wire.w_u16(&writer, SNAP_VERSION)
+	wire.w_u16(&writer, u16(header.extras))
+	wire.w_u64(&writer, header.seed)
+	wire.w_u64(&writer, header.content)
+	wire.w_u32(&writer, header.tick)
+	wire.w_u32(&writer, u32(header.block))
+	wire.w_u64(&writer, header.layout)
+	wire.w_u64(&writer, 0) // payload digest, patched by snap_end
+	wire.w_bytes(&writer, block)
+	return writer
 }
 
-snap_add :: proc(w: ^wire.Writer, img: []u8) {
-	wire.w_u32(w, u32(len(img)))
-	wire.w_bytes(w, img)
+snap_add :: proc(writer: ^wire.Writer, image: []u8) {
+	wire.w_u32(writer, u32(len(image)))
+	wire.w_bytes(writer, image)
 }
 
-snap_end :: proc(w: ^wire.Writer) -> []u8 {
-	d := transmute([8]u8)u64le(hash_bytes(w.buf[SNAP_HEADER:]))
-	copy(w.buf[SNAP_HEADER - 8:], d[:])
-	return w.buf[:]
+snap_end :: proc(writer: ^wire.Writer) -> []u8 {
+	digest := transmute([8]u8)u64le(hash_bytes(writer.buf[SNAP_HEADER:]))
+	copy(writer.buf[SNAP_HEADER - 8:], digest[:])
+	return writer.buf[:]
 }
 
-// Parses and verifies the header and payload digest; `r` is left at the extras.
+// Parses and verifies the header and payload digest; `reader` is left at the extras. The magic and
+// version come first (Bad_Header), then this build's block size and layout (Layout_Differs), then the
+// payload digest (Checksum_Mismatch).
 snap_read :: proc(
 	data: []u8,
 	block_size: int,
 	layout: u64,
 ) -> (
-	h: Snap_Header,
+	header: Snap_Header,
 	block: []u8,
-	r: wire.Reader,
+	reader: wire.Reader,
 	err: Snap_Error,
 ) {
-	r = wire.reader_make(data)
-	magic := wire.r_bytes(&r, 4)
-	version := wire.r_u16(&r)
-	if !r.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION {
+	reader = wire.reader_make(data)
+	magic := wire.r_bytes(&reader, 4)
+	version := wire.r_u16(&reader)
+	if !reader.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION {
 		err = .Bad_Header
 		return
 	}
-	h.extras = int(wire.r_u16(&r))
-	h.seed = wire.r_u64(&r)
-	h.content = wire.r_u64(&r)
-	h.tick = wire.r_u32(&r)
-	h.block = int(wire.r_u32(&r))
-	h.layout = wire.r_u64(&r)
-	digest := wire.r_u64(&r)
-	header := r.pos
+	header.extras = int(wire.r_u16(&reader))
+	header.seed = wire.r_u64(&reader)
+	header.content = wire.r_u64(&reader)
+	header.tick = wire.r_u32(&reader)
+	header.block = int(wire.r_u32(&reader))
+	header.layout = wire.r_u64(&reader)
+	digest := wire.r_u64(&reader)
+	payload := reader.pos
 	switch {
-	case !r.ok:
+	case !reader.ok:
 		err = .Bad_Header
-	case h.block != block_size || h.layout != layout:
+	case header.block != block_size || header.layout != layout:
 		err = .Layout_Differs
-	case hash_bytes(data[header:]) != digest:
+	case hash_bytes(data[payload:]) != digest:
 		err = .Checksum_Mismatch
 	}
 	if err == .None {
-		block = wire.r_bytes(&r, h.block)
-		if !r.ok do err = .Bad_Header // shorter than its block
+		block = wire.r_bytes(&reader, header.block)
+		if !reader.ok do err = .Bad_Header // shorter than its block
 	}
 	return
 }
 
-snap_extra :: proc(r: ^wire.Reader) -> (img: []u8, ok: bool) {
-	img = wire.r_bytes(r, int(wire.r_u32(r)))
-	return img, r.ok
+snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
+	image = wire.r_bytes(reader, int(wire.r_u32(reader)))
+	return image, reader.ok
 }
 
 // Builds a new Sim from a portable snapshot, or says why the bytes are not a valid snapshot for
 // this game build and content (the Sim is nil then). `content` is borrowed like create's.
-from_snapshot :: proc(game: ^Game($S, $I, $W, $P), data: []u8, content: []u8 = nil) -> (^Sim(S, I, W, P), Snap_Error) {
-	h, block, r, err := snap_read(data, size_of(S), layout_hash(S))
+from_snapshot :: proc(
+	game: ^Game($State, $Input, $World, $PLAYERS),
+	data: []u8,
+	content: []u8 = nil,
+) -> (
+	^Sim(State, Input, World, PLAYERS),
+	Snap_Error,
+) {
+	header, block, reader, err := snap_read(data, size_of(State), layout_hash(State))
 	if err != .None {
 		return nil, err
 	}
-	if h.content != content_hash(content) {
+	if header.content != content_hash(content) {
 		return nil, .Content_Differs
 	}
-	s := create(game, h.seed, content)
-	if h.extras != len(s.extras) {
-		destroy(s)
+	simulation := create(game, header.seed, content)
+	if header.extras != len(simulation.extras) {
+		destroy(simulation)
 		return nil, .Extra_Count
 	}
-	intrinsics.mem_copy_non_overlapping(&s.state, raw_data(block), size_of(S))
-	s.tick = h.tick
-	for &e in s.extras {
-		img, iok := snap_extra(&r)
-		if !iok || !e.load(e.data, img) {
-			destroy(s)
+	intrinsics.mem_copy_non_overlapping(&simulation.state, raw_data(block), size_of(State))
+	simulation.tick = header.tick
+	for &extra in simulation.extras {
+		image, image_ok := snap_extra(&reader)
+		if !image_ok || !extra.load(extra.data, image) {
+			destroy(simulation)
 			return nil, .Extra_Rejected
 		}
 	}
-	for &slot in s.ring {
+	for &slot in simulation.ring {
 		slot.valid = false
 	}
-	save(s)
-	return s, .None
+	save(simulation)
+	return simulation, .None
 }

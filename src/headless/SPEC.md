@@ -17,7 +17,8 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 
 - `unified sim --ticks N [--seed S] [--players P] [--trace F] [--log F]`: offline run with scripted inputs (`games/survivor/SPEC.md`
   §input script); per-tick `"%06d %016x"` trace; `--log` writes the run's inputs as an input log (nothing replaced).
-- `unified synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`.
+- `unified synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`. `W` (here and in
+  `bench`) is 1 to `headless.max_window(game)`, the game's ring depth (its tick rate sets it).
 - `unified replay --log F --trace F`: replays an input log.
 - `unified session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
   [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
@@ -59,8 +60,8 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 ### Where things are
 
-- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `script`, optional
-  `script_commands(seed, slot, t, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
+- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `scripted_input`, optional
+  `scripted_commands(seed, player, tick, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
   (`run_sim`, `run_synctest`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
   only this. Scripted commands go into offline runs as the relay places them (at most 4 of a player per tick, the
   rest in the next ticks, in order) and every session client sends them through the netcode; a resume starts with
@@ -77,8 +78,8 @@ calls each one explicitly; tests are named for what they check; no platform assu
 ### API
 
 ```odin
-Suite :: struct($S, $I, $W: typeid, $P: int) {
-	h:       ^headless.Headless(S, I, W, P),
+Suite :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	game:    ^headless.Headless(State, Input, World, PLAYERS),
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
@@ -94,13 +95,13 @@ Reference :: struct {
 
 | Proc | Passes when |
 |---|---|
-| `rollback_every_tick(t, s, window = 8)` | restoring `window` ticks back and re-simulating, every tick: 0 mismatches |
-| `runs_match(t, s)` | two scripted runs: identical traces |
-| `session_agrees(t, s, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
-| `session_log_replays(t, s, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
-| `late_join_agrees(t, s, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
-| `reference_replays(t, s)` | replay of `ref.log` equals `ref.trace` |
-| `reference_resumes(t, s)` | resume of the snapshot equals the rest of `ref.trace` |
+| `rollback_every_tick(t, suite, window = 8)` | restoring `window` (at most `headless.max_window(game)`) ticks back and re-simulating, every tick: 0 mismatches |
+| `runs_match(t, suite)` | two scripted runs: identical traces |
+| `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
+| `session_log_replays(t, suite, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
+| `late_join_agrees(t, suite, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
+| `reference_replays(t, suite)` | replay of `ref.log` equals `ref.trace` |
+| `reference_resumes(t, suite)` | resume of the snapshot equals the rest of `ref.trace` |
 
 `profile` is `scenarios.Profile` (`.Ideal`, `.Wan`, `.Bad`: the network profiles above). Sessions run on the virtual
 clock over loopback with the suite's seed and ticks; `late_join_agrees` runs `players` clients, `player` joining at

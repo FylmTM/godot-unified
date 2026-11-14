@@ -8,29 +8,46 @@ import "../survivor"
 import "unified:headless/scenarios"
 import "unified:sim"
 
-// Steps with fixed inputs for the present slots.
-step_with :: proc(s: ^survivor.Sim, present: sim.Players, in_: survivor.Input) {
+// Steps with fixed inputs for the present players.
+step_with :: proc(simulation: ^survivor.Sim, present: sim.Players, input: survivor.Input) {
 	inputs: survivor.Inputs
 	inputs.present = present
-	for p in present {
-		inputs.input[p] = in_
+	for player in present {
+		inputs.input[player] = input
 	}
-	sim.step(s, &inputs)
+	sim.step(simulation, &inputs)
+}
+
+// Damages players between ticks, as a system would inside one (the events go nowhere).
+damage_players :: proc(simulation: ^survivor.Sim, amount: i32, players: ..int) {
+	events := sim.Events {
+		type = survivor.Event,
+	}
+	defer delete(events.list)
+	game := survivor.Tick {
+		state  = &simulation.state,
+		world  = simulation.world,
+		number = simulation.tick,
+		seed   = simulation.seed,
+		events = &events,
+	}
+	for player in players {
+		survivor.damage_player(&game, player, amount)
+	}
 }
 
 @(test)
 lobby_match_over_lobby :: proc(t: ^testing.T) {
-	s := sim.create(&survivor.GAME, 9)
-	defer sim.destroy(s)
+	simulation := sim.create(&survivor.GAME, 9)
+	defer sim.destroy(simulation)
 	for _ in 0 ..< 64 {
-		step_with(s, {0, 1}, {}) // standing still: stays in the lobby, no enemies
+		step_with(simulation, {0, 1}, {}) // standing still: stays in the lobby, no enemies
 	}
-	testing.expect_value(t, s.state.phase, survivor.Phase.Lobby)
-	testing.expect_value(t, s.state.enemies.count, 0)
-	st := &s.state
-	testing.expect_value(t, st.phase, survivor.Phase.Lobby)
-	testing.expect_value(t, st.circle_radius, survivor.START_RADIUS)
-	testing.expect(t, st.players[0].active && st.players[1].active && !st.players[2].active)
+	state := &simulation.state
+	testing.expect_value(t, state.phase, survivor.Phase.Lobby)
+	testing.expect_value(t, state.enemies.count, 0)
+	testing.expect_value(t, state.circle_radius, survivor.START_RADIUS)
+	testing.expect(t, state.players[0].active && state.players[1].active && !state.players[2].active)
 
 	// Player 0 walks out of the circle (+x): the match starts on the tick its centre crosses.
 	started: u32
@@ -40,63 +57,61 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 		inputs.input[0] = {
 			move_x = 127,
 		}
-		sim.step(s, &inputs)
-		if s.state.phase == .Match {
-			started = s.tick
+		sim.step(simulation, &inputs)
+		if state.phase == .Match {
+			started = simulation.tick
 			break
 		}
 	}
 	testing.expect(t, started > 0)
-	testing.expect_value(t, s.state.match_tick, started)
-	pos := s.state.players[0].pos
+	testing.expect_value(t, state.match_tick, started)
+	pos := state.players[0].pos
 	testing.expect(t, pos.x * pos.x + pos.z * pos.z > survivor.START_RADIUS * survivor.START_RADIUS)
 	found := false
-	for e in sim.events_at(s, started) {
-		found ||= e.kind == u16(survivor.Event_Kind.Match_Started) && e.slot == 0
+	for &raw in sim.events_at(simulation, started) {
+		if event, ok := sim.event_value(&raw, survivor.Event).(survivor.Match_Started); ok {
+			found ||= event.player == 0
+		}
 	}
 	testing.expect(t, found)
 	for _ in 0 ..< 2 * survivor.TUNINGS[.Play].spawn_every_ticks {
-		step_with(s, {0, 1}, {})
+		step_with(simulation, {0, 1}, {})
 	}
-	testing.expect(t, s.state.enemies.count > 0)
-	testing.expect_value(t, st.wave, 0) // the HUD shows wave + 1
-	testing.expect_value(t, st.circle_radius, 0)
-	testing.expect(t, s.tick > st.match_tick)
+	testing.expect(t, state.enemies.count > 0)
+	testing.expect_value(t, state.wave, 0) // the HUD shows wave + 1
+	testing.expect_value(t, state.circle_radius, 0)
+	testing.expect(t, simulation.tick > state.match_tick)
 
 	// Everyone present dies in the same tick: over; nobody respawns; after the hold, a fresh lobby.
-	ev: [dynamic]sim.Event
-	defer delete(ev)
-	survivor.damage_player(&s.state, s.world, 0, 1000, &ev)
-	survivor.damage_player(&s.state, s.world, 1, 1000, &ev)
-	step_with(s, {0, 1}, {})
-	testing.expect_value(t, s.state.phase, survivor.Phase.Over)
-	over := s.tick
+	damage_players(simulation, 1000, 0, 1)
+	step_with(simulation, {0, 1}, {})
+	testing.expect_value(t, state.phase, survivor.Phase.Over)
+	over := simulation.tick
 	for _ in 0 ..< survivor.OVER_HOLD_TICKS - 1 {
-		step_with(s, {0, 1}, {})
-		testing.expect(t, !s.state.players[0].alive)
+		step_with(simulation, {0, 1}, {})
+		testing.expect(t, !state.players[0].alive)
 	}
-	testing.expect_value(t, s.state.phase, survivor.Phase.Over)
-	step_with(s, {0, 1}, {})
-	testing.expect_value(t, s.tick, over + survivor.OVER_HOLD_TICKS)
-	testing.expect_value(t, s.state.phase, survivor.Phase.Lobby)
-	testing.expect_value(t, s.state.enemies.count, 0)
-	testing.expect(t, s.state.players[0].alive && s.state.players[1].alive && !s.state.players[2].active)
-	testing.expect_value(t, s.state.players[0].level, 1)
-	testing.expect_value(t, s.state.matches, 1)
-	testing.expect_value(t, st.phase, survivor.Phase.Lobby)
+	testing.expect_value(t, state.phase, survivor.Phase.Over)
+	step_with(simulation, {0, 1}, {})
+	testing.expect_value(t, simulation.tick, over + survivor.OVER_HOLD_TICKS)
+	testing.expect_value(t, state.phase, survivor.Phase.Lobby)
+	testing.expect_value(t, state.enemies.count, 0)
+	testing.expect(t, state.players[0].alive && state.players[1].alive && !state.players[2].active)
+	testing.expect_value(t, state.players[0].level, 1)
+	testing.expect_value(t, state.matches, 1)
 }
 
 @(test)
 joining_mid_match_spawns_at_the_start_spot :: proc(t: ^testing.T) {
-	s := sim.create(&survivor.GAME, 4)
-	defer sim.destroy(s)
-	for s.state.phase == .Lobby && s.tick < 200 {
-		step_with(s, {0}, {move_z = 127})
+	simulation := sim.create(&survivor.GAME, 4)
+	defer sim.destroy(simulation)
+	for simulation.state.phase == .Lobby && simulation.tick < 200 {
+		step_with(simulation, {0}, {move_z = 127})
 	}
-	testing.expect_value(t, s.state.phase, survivor.Phase.Match)
-	step_with(s, {0, 3}, {})
-	testing.expect(t, s.state.players[3].alive)
-	testing.expect_value(t, s.state.players[3].pos.x, survivor.PLAYER_START[3].x)
+	testing.expect_value(t, simulation.state.phase, survivor.Phase.Match)
+	step_with(simulation, {0, 3}, {})
+	testing.expect(t, simulation.state.players[3].alive)
+	testing.expect_value(t, simulation.state.players[3].pos.x, survivor.PLAYER_START[3].x)
 }
 
 @(test)
@@ -109,11 +124,15 @@ time_constants_are_whole_ticks :: proc(t: ^testing.T) {
 
 @(test)
 levels_start_at_one :: proc(t: ^testing.T) {
-	s := sim.create(&survivor.GAME, 2)
-	defer sim.destroy(s)
-	step_with(s, {0}, {})
-	testing.expect_value(t, s.state.players[0].level, 1)
-	testing.expect_value(t, survivor.xp_next(&s.state, s.state.players[0].level), survivor.TUNINGS[.Play].xp_first)
+	simulation := sim.create(&survivor.GAME, 2)
+	defer sim.destroy(simulation)
+	step_with(simulation, {0}, {})
+	testing.expect_value(t, simulation.state.players[0].level, 1)
+	testing.expect_value(
+		t,
+		survivor.xp_next(&simulation.state, simulation.state.players[0].level),
+		survivor.TUNINGS[.Play].xp_first,
+	)
 	stress := sim.create(&survivor.GAME_STRESS, 2)
 	defer sim.destroy(stress)
 	testing.expect_value(t, stress.state.tuning, survivor.Tuning_Kind.Stress)
@@ -123,8 +142,8 @@ levels_start_at_one :: proc(t: ^testing.T) {
 @(test)
 no_items_inside_the_start_circle :: proc(t: ^testing.T) {
 	for i in 0 ..< survivor.ITEM_COUNT {
-		c := survivor.item_position(i)
-		testing.expectf(t, c.x * c.x + c.z * c.z > 4.0 * 4.0, "item %d at %v", i, c)
+		spot := survivor.item_position(i)
+		testing.expectf(t, spot.x * spot.x + spot.z * spot.z > 4.0 * 4.0, "item %d at %v", i, spot)
 	}
 }
 
@@ -135,19 +154,21 @@ when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {
 		for seed in 1 ..= u64(2) {
-			s := sim.create(&survivor.GAME, seed)
-			defer sim.destroy(s)
+			simulation := sim.create(&survivor.GAME, seed)
+			defer sim.destroy(simulation)
+			state := &simulation.state
 			first_level: f32 = -1
 			out: sim.Command_Out
 			defer delete(out.list)
-			for s.tick < 200 * survivor.TICK_HZ && s.state.phase != .Over {
-				in_ := survivor.bot_tick(&s.state, 1, s.tick + 1, &out)
-				sim.step(s, &in_)
-				if first_level < 0 && s.state.players[0].level > 1 {
-					first_level = f32(s.tick - s.state.match_tick) * survivor.DT
+			for simulation.tick < 200 * survivor.TICK_HZ && state.phase != .Over {
+				inputs := survivor.bot_tick(state, 1, simulation.tick + 1, &out)
+				sim.step(simulation, &inputs)
+				if first_level < 0 && state.players[0].level > 1 {
+					first_level = f32(simulation.tick - state.match_tick) * survivor.DT
 				}
 			}
-			survived := f32((s.state.phase == .Over ? s.state.over_tick : s.tick) - s.state.match_tick) * survivor.DT
+			survived :=
+				f32((state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick) * survivor.DT
 			testing.expectf(
 				t,
 				first_level > 10 && first_level < 45,
@@ -156,7 +177,7 @@ when scenarios.LONG {
 				first_level,
 			)
 			testing.expectf(t, survived > 100, "seed %d: survived %.1f s", seed, survived)
-			testing.expectf(t, s.state.wave >= 3, "seed %d: wave %d", seed, s.state.wave)
+			testing.expectf(t, state.wave >= 3, "seed %d: wave %d", seed, state.wave)
 		}
 	}
 }

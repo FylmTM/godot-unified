@@ -17,7 +17,7 @@ State :: struct {
 	player: physics.Body_Ref,
 	crates: [3]Crate,
 	misc:   sim.Table(Crate, 4),
-	n:      u32,
+	count:  u32,
 }
 
 make_world :: proc(state: ^State) -> ^physics.World {

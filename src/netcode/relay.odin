@@ -38,7 +38,7 @@ JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock 
 @(private)
 Wait_Command :: struct {
 	want: u32, // the tick the sender predicted it at
-	cmd:  sim.Command,
+	cmd:  sim.Raw_Command,
 }
 
 @(private)
@@ -394,7 +394,7 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 		waiting := Wait_Command {
 			// a wanted tick far ahead would hold back the sender's later commands: clamp it
 			want = min(want, relay.finalized + INPUT_RING),
-			cmd = {kind = kind, slot = u8(player), size = u8(size)},
+			cmd = {kind = kind, player = u8(player), size = u8(size)},
 		}
 		copy(waiting.cmd.data[:], bytes)
 		append(&relay.cmd_wait[player], waiting)
@@ -503,8 +503,8 @@ take_commands :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, tick_inputs: ^
 	for player in 0 ..< PLAYERS {
 		waiting := &relay.cmd_wait[player]
 		for k in 0 ..< taken[player] {
-			tick_inputs.commands[tick_inputs.n_commands] = waiting[k].cmd
-			tick_inputs.n_commands += 1
+			tick_inputs.commands[tick_inputs.command_count] = waiting[k].cmd
+			tick_inputs.command_count += 1
 		}
 		remove_range(waiting, 0, taken[player])
 	}

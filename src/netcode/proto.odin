@@ -12,11 +12,6 @@ NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 TOLERANCE_MS :: 100 // relay hard tolerance: a tick is finalized at the latest this long after it is due
 MAX_DELAY_MS :: 100 // input delay ceiling
 DELAY_MARGIN_US :: 8_000 // input delay = ceil((rtt / 2 + margin) / tick)
-// How far a client may predict past its verified tick. A client runs about one round trip plus
-// its input delay ahead of what it has verified, so this bounds the round trip it plays smoothly
-// at: ~300 ms with 218 ms (14 ticks at 64 Hz, the most a sim.RING of 16 allows); past it the
-// client stalls every tick. 166 ms stalled most ticks from ~250 ms.
-PREDICTION_MS :: 218
 INPUTS_MAX :: 32 // own inputs resent per client packet
 COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more: the send fails)
 WINDOW_MAX :: 32 // finalized ticks resent per relay packet
@@ -32,7 +27,11 @@ Timing :: struct {
 	tick_us:        f64,
 	tolerance:      u32, // ticks
 	max_delay:      u32, // ticks
-	prediction_cap: u32, // ticks, < sim.RING - 1 so a rollback target is always in the ring
+	// How far a client may predict past its verified tick: sim.ring_size(tick_hz) - 2, the most the ring
+	// allows (a rollback target is always in it): ~250 ms of ring, so 187 ms at 32 Hz, 218 ms at 64, 234 ms
+	// at 128. A client runs about one round trip plus its input delay ahead of what it has verified, so this
+	// bounds the round trip it plays smoothly at (~300 ms at 64 Hz); past it the client stalls every tick.
+	prediction_cap: u32,
 }
 
 ceil_ticks :: proc(us: f64, tick_us: f64) -> u32 {
@@ -54,7 +53,7 @@ timing_of :: proc(tick_hz: int) -> Timing {
 	}
 	timing.tolerance = max(ceil_ticks(TOLERANCE_MS * 1000, timing.tick_us), 2)
 	timing.max_delay = max(ceil_ticks(MAX_DELAY_MS * 1000, timing.tick_us), 1)
-	timing.prediction_cap = clamp(ceil_ticks(PREDICTION_MS * 1000, timing.tick_us), 2, sim.RING - 2)
+	timing.prediction_cap = u32(sim.ring_size(tick_hz) - 2)
 	return timing
 }
 

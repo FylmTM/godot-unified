@@ -52,7 +52,12 @@ Hooks :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	// and frame.tick - 1 for interpolation, and usim.events_at for ticks frame.resim_from..frame.tick.
 	frame:    proc(user: rawptr, simulation: ^usim.Sim(State, Input, World, PLAYERS), frame: Frame_Info),
 	// Each newly verified tick, in order, with the events it emitted under the final inputs.
-	verified: proc(user: rawptr, simulation: ^usim.Sim(State, Input, World, PLAYERS), tick: u32, events: []usim.Event),
+	verified: proc(
+		user: rawptr,
+		simulation: ^usim.Sim(State, Input, World, PLAYERS),
+		tick: u32,
+		events: []usim.Raw_Event,
+	),
 	status:   proc(user: rawptr, status: Status, detail: string),
 }
 
@@ -61,7 +66,7 @@ Hooks :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 Own_Command :: struct {
 	seq:  u32,
 	want: u32, // the tick it was sent for (W)
-	cmd:  usim.Command,
+	cmd:  usim.Raw_Command,
 }
 
 @(private)
@@ -635,8 +640,8 @@ generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 		client.own_last = tick
 		if client.hooks.commands != nil {
 			out := &client.cmd_out
-			out.kinds = client.game.commands
-			out.slot = client.player
+			out.commands = client.game.commands
+			out.player = client.player
 			out.cap = COMMAND_QUEUE - len(client.own_cmds)
 			clear(&out.list)
 			client.hooks.commands(client.hooks.user, client.player, tick, client_state(client), out)

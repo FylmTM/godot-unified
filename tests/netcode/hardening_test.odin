@@ -12,7 +12,7 @@ import "unified:netcode"
 import "unified:sim"
 import "unified:wire"
 
-Relay :: netcode.Relay(toy.Input, toy.SLOTS)
+Relay :: netcode.Relay(toy.Input, toy.PLAYERS)
 
 // A plain relay (no host player) and remote clients over loopback, on a virtual clock.
 Rnet :: struct {
@@ -26,7 +26,7 @@ Rnet :: struct {
 rnet_make :: proc(session: ^Rnet, start_players: int, ticks: u32) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	cfg := netcode.Relay_Config {
+	config := netcode.Relay_Config {
 		tick_hz       = toy.HZ,
 		seed          = SEED,
 		ticks         = ticks,
@@ -35,24 +35,24 @@ rnet_make :: proc(session: ^Rnet, start_players: int, ticks: u32) {
 		name          = "relay",
 		quiet         = true,
 	}
-	session.relay = netcode.relay_create(cfg, toy.Input, toy.SLOTS)
+	session.relay = netcode.relay_create(config, toy.Input, toy.PLAYERS)
 	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 }
 
 // A client under the `wan` profile.
 rnet_join :: proc(session: ^Rnet, player := -1) -> ^Client {
-	k := len(session.clients) + 1
+	endpoint := len(session.clients) + 1
 	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(k)),
+		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
 		netcode.PROFILES[1],
-		u32(k) * 7919,
+		u32(endpoint) * 7919,
 		&session.clock,
 	)
 	client := netcode.client_create(
 		&toy.GAME,
 		{player = player, name = "c", quiet = true},
 		link,
-		hooks_for(&session.watch[k]),
+		hooks_for(&session.watch[endpoint]),
 	)
 	append(&session.clients, client)
 	return client
@@ -189,31 +189,31 @@ snapshot_provider_leaves_joiner_replays :: proc(t: ^testing.T) {
 
 // A raw channel standing in for the relay, to send a client exactly the messages a test wants.
 Fake_Relay :: struct {
-	ch:   ^netcode.Channel,
-	peer: netcode.Peer,
-	w:    wire.Writer,
-	now:  i64,
+	channel: ^netcode.Channel,
+	peer:    netcode.Peer,
+	writer:  wire.Writer,
+	now:     i64,
 }
 
 fake_make :: proc(fake: ^Fake_Relay, hub: ^netcode.Hub) {
-	fake.ch = netcode.channel_make()
-	netcode.channel_add_link(fake.ch, netcode.loopback_link(hub, 0))
+	fake.channel = netcode.channel_make()
+	netcode.channel_add_link(fake.channel, netcode.loopback_link(hub, 0))
 	fake.peer = -1
-	fake.w = wire.writer_make(netcode.MAX_DATAGRAM)
+	fake.writer = wire.writer_make(netcode.MAX_DATAGRAM)
 	fake.now = 1_000_000
 }
 
 fake_destroy :: proc(fake: ^Fake_Relay) {
-	netcode.channel_destroy(fake.ch)
-	delete(fake.w.buf)
+	netcode.channel_destroy(fake.channel)
+	delete(fake.writer.buf)
 }
 
-// Steps the fake relay and the client once, `us` later.
-fake_step :: proc(fake: ^Fake_Relay, client: ^Client, us: i64 = 1000) {
-	fake.now += us
-	netcode.channel_flush(fake.ch, fake.now)
+// Steps the fake relay and the client once, `elapsed_us` later.
+fake_step :: proc(fake: ^Fake_Relay, client: ^Client, elapsed_us: i64 = 1000) {
+	fake.now += elapsed_us
+	netcode.channel_flush(fake.channel, fake.now)
 	netcode.client_step(client, fake.now)
-	for event in netcode.channel_poll(fake.ch, fake.now) {
+	for event in netcode.channel_poll(fake.channel, fake.now) {
 		if event.kind == .Connected || event.kind == .Message {
 			fake.peer = event.peer
 		}
@@ -221,13 +221,13 @@ fake_step :: proc(fake: ^Fake_Relay, client: ^Client, us: i64 = 1000) {
 }
 
 fake_send :: proc(fake: ^Fake_Relay, delivery: netcode.Delivery = .Reliable) {
-	netcode.channel_send(fake.ch, fake.peer, fake.w.buf[:], delivery, fake.now)
+	netcode.channel_send(fake.channel, fake.peer, fake.writer.buf[:], delivery, fake.now)
 }
 
 fake_begin :: proc(fake: ^Fake_Relay, msg: netcode.Msg) -> ^wire.Writer {
-	clear(&fake.w.buf)
-	wire.w_u8(&fake.w, u8(msg))
-	return &fake.w
+	clear(&fake.writer.buf)
+	wire.w_u8(&fake.writer, u8(msg))
+	return &fake.writer
 }
 
 fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {

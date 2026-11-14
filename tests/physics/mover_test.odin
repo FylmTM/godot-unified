@@ -120,6 +120,7 @@ RIG_PATH := physics.Path {
 
 Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, 2)
 Rig_Inputs :: sim.Inputs(Rig_Input, 2)
+Rig_Tick :: sim.Tick(Rig, Rig_Input, Rig_World, 2)
 
 RIG := Rig_Game {
 	name = "rig",
@@ -154,48 +155,51 @@ RIG := Rig_Game {
 			box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
 		)
 	},
-	tick = proc(state: ^Rig, rig_world: ^Rig_World, tick: u32, inputs: ^Rig_Inputs, events: ^[dynamic]sim.Event) {
-		world := rig_world.phys
-		physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, tick, HZ), HZ)
-		for &mover, i in state.movers {
-			player_input := inputs.input[i]
-			move := [2]f32{f32(player_input.mx) / 127, f32(player_input.mz) / 127}
-			if physics.mover_update(world, &mover, &MOVER, move, bool(player_input.jump && !state.prev[i]), 1, DT) {
-				state.jumps += 1
-			}
-			state.prev[i] = player_input.jump
+	tick = rig_tick,
+}
+
+rig_tick :: proc(game: ^Rig_Tick) {
+	state, rig_world, tick := game.state, game.world, game.number
+	world := rig_world.phys
+	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, tick, HZ), HZ)
+	for &mover, player in state.movers {
+		player_input := game.inputs.input[player]
+		move := [2]f32{f32(player_input.mx) / 127, f32(player_input.mz) / 127}
+		if physics.mover_update(world, &mover, &MOVER, move, bool(player_input.jump && !state.prev[player]), 1, DT) {
+			state.jumps += 1
 		}
-		// Mover 0 grabs box (t / 40) % 4 for 25 ticks of every 40: a motor joint created and
-		// destroyed inside rollback windows.
-		phase := tick % 40
-		if phase == 5 && state.hold == {} {
-			box_ref := state.boxes[(tick / 40) % 4]
-			joint_def := b3.default_motor_joint_def()
-			joint_def.base.body_id_a = physics.body_id(world, state.movers[0].body)
-			joint_def.base.body_id_b = physics.body_id(world, box_ref)
-			joint_def.base.local_frame_a = {{0, 0.3, 0.9}, {0, 0, 0, 1}}
-			joint_def.linear_hertz = 6
-			joint_def.linear_damping_ratio = 1
-			joint_def.max_spring_force = 400
-			joint_def.angular_hertz = 4
-			joint_def.angular_damping_ratio = 1
-			joint_def.max_spring_torque = 50
-			state.hold = physics.joint_ref_of(b3.create_motor_joint(world.id, &joint_def))
-			state.held = (tick / 40) % 4 + 1
-		} else if phase == 30 && state.hold != {} {
-			physics.destroy_joint(world, &state.hold)
-			// throw it at mover 1
-			box_ref := state.boxes[state.held - 1]
-			box_pos := physics.position(world, box_ref)
-			target_pos := physics.position(world, state.movers[1].body)
-			physics.impulse(world, box_ref, {(target_pos.x - box_pos.x) * 2, 3, (target_pos.z - box_pos.z) * 2})
-			state.held = {}
-		}
-		step(world)
-		clear(&rig_world.scratch)
-		physics.hit_events(world, &rig_world.scratch)
-		state.hits += u32(len(rig_world.scratch))
-	},
+		state.prev[player] = player_input.jump
+	}
+	// Mover 0 grabs box (tick / 40) % 4 for 25 ticks of every 40: a motor joint created and
+	// destroyed inside rollback windows.
+	phase := tick % 40
+	if phase == 5 && state.hold == {} {
+		box_ref := state.boxes[(tick / 40) % 4]
+		joint_def := b3.default_motor_joint_def()
+		joint_def.base.body_id_a = physics.body_id(world, state.movers[0].body)
+		joint_def.base.body_id_b = physics.body_id(world, box_ref)
+		joint_def.base.local_frame_a = {{0, 0.3, 0.9}, {0, 0, 0, 1}}
+		joint_def.linear_hertz = 6
+		joint_def.linear_damping_ratio = 1
+		joint_def.max_spring_force = 400
+		joint_def.angular_hertz = 4
+		joint_def.angular_damping_ratio = 1
+		joint_def.max_spring_torque = 50
+		state.hold = physics.joint_ref_of(b3.create_motor_joint(world.id, &joint_def))
+		state.held = (tick / 40) % 4 + 1
+	} else if phase == 30 && state.hold != {} {
+		physics.destroy_joint(world, &state.hold)
+		// throw it at mover 1
+		box_ref := state.boxes[state.held - 1]
+		box_pos := physics.position(world, box_ref)
+		target_pos := physics.position(world, state.movers[1].body)
+		physics.impulse(world, box_ref, {(target_pos.x - box_pos.x) * 2, 3, (target_pos.z - box_pos.z) * 2})
+		state.held = {}
+	}
+	step(world)
+	clear(&rig_world.scratch)
+	physics.hit_events(world, &rig_world.scratch)
+	state.hits += u32(len(rig_world.scratch))
 }
 
 rig_input :: proc(player: int, tick: u32) -> Rig_Input {

@@ -7,28 +7,28 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
-import "unified:netcode"
+@(require) import "unified:netcode" // only in generic procs
 import "unified:sim"
 
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
-Headless :: struct($S, $I, $W: typeid, $P: int) {
-	game:            ^sim.Game(S, I, W, P),
-	// Scripted input of `slot` for tick t; `state` is the caller's current state (nil if none).
-	script:          proc(seed: u64, slot: int, t: u32, state: ^S) -> I,
-	// Optional: the scripted commands of `slot` for tick t (sim.send_command(out, cmd)); called right after
-	// `script` for the same tick, in offline runs and by every client of a session.
-	script_commands: proc(seed: u64, slot: int, t: u32, state: ^S, out: ^sim.Command_Out),
+Headless :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	game:              ^sim.Game(State, Input, World, PLAYERS),
+	// Scripted input of `player` for a tick; `state` is the caller's current state (nil if none).
+	scripted_input:    proc(seed: u64, player: int, tick: u32, state: ^State) -> Input,
+	// Optional: the scripted commands of `player` for a tick (sim.send_command(out, command)); called right
+	// after `scripted_input` for the same tick, in offline runs and by every client of a session.
+	scripted_commands: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out),
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
-	summary:         proc(s: ^S) -> string,
-	// `bench`: fill the state with n entities and hold that population (optional).
-	bench_prepare:   proc(s: ^S, w: ^W, n: int),
+	summary:           proc(state: ^State) -> string,
+	// `bench`: fill the state with `count` entities and hold that population (optional).
+	bench_prepare:     proc(state: ^State, world: ^World, count: int),
 	// `bench`: the current entity count, for enemies_mean (optional).
-	bench_count:     proc(s: ^S) -> int,
+	bench_count:       proc(state: ^State) -> int,
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
-	bench:           Bench,
+	bench:             Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.
-	content:         []u8,
+	content:           []u8,
 }
 
 // A benchmark's setup: `enemies` entities held (with bench_prepare), a `window`-tick rollback every tick, for
@@ -40,6 +40,11 @@ Bench :: struct {
 	ticks:   int,
 }
 
+// The longest rollback window a game's ring allows (sim.ring_size(tick_hz) - 1).
+max_window :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS)) -> int {
+	return sim.ring_size(game.tick_hz) - 1
+}
+
 // A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.
 // On disk (`--trace`, a reference run's ref.trace): one "%06d %016x" line per tick, in order.
 Trace :: struct {
@@ -47,59 +52,60 @@ Trace :: struct {
 	sums:  [dynamic]u64,
 }
 
-trace_add :: proc(tr: ^Trace, tick: u32, checksum: u64) {
-	if len(tr.sums) == 0 {
-		tr.first = tick
+trace_add :: proc(trace: ^Trace, tick: u32, checksum: u64) {
+	if len(trace.sums) == 0 {
+		trace.first = tick
 	}
-	assert(tick == tr.first + u32(len(tr.sums)), "trace ticks must be consecutive")
-	append(&tr.sums, checksum)
+	assert(tick == trace.first + u32(len(trace.sums)), "trace ticks must be consecutive")
+	append(&trace.sums, checksum)
 }
 
-trace_destroy :: proc(tr: ^Trace) {
-	delete(tr.sums)
-	tr^ = {}
+trace_destroy :: proc(trace: ^Trace) {
+	delete(trace.sums)
+	trace^ = {}
 }
 
-// The checksum of tick t, if the trace has it.
-trace_at :: proc(tr: ^Trace, t: u32) -> (checksum: u64, ok: bool) {
-	if t < tr.first || t - tr.first >= u32(len(tr.sums)) {
+// The checksum of a tick, if the trace has it.
+trace_at :: proc(trace: ^Trace, tick: u32) -> (checksum: u64, ok: bool) {
+	if tick < trace.first || tick - trace.first >= u32(len(trace.sums)) {
 		return
 	}
-	return tr.sums[t - tr.first], true
+	return trace.sums[tick - trace.first], true
 }
 
-trace_write :: proc(tr: ^Trace, path: string) -> bool {
-	b := strings.builder_make(0, len(tr.sums) * 24)
-	defer strings.builder_destroy(&b)
-	for c, i in tr.sums {
-		fmt.sbprintf(&b, "%06d %016x\n", tr.first + u32(i), c)
+trace_write :: proc(trace: ^Trace, path: string) -> bool {
+	builder := strings.builder_make(0, len(trace.sums) * 24)
+	defer strings.builder_destroy(&builder)
+	for checksum, i in trace.sums {
+		fmt.sbprintf(&builder, "%06d %016x\n", trace.first + u32(i), checksum)
 	}
-	return os.write_entire_file(path, b.buf[:]) == nil
+	return os.write_entire_file(path, builder.buf[:]) == nil
 }
 
 // Reads a trace file; fails on a malformed line or ticks out of order.
-trace_read :: proc(path: string) -> (tr: Trace, ok: bool) {
+trace_read :: proc(path: string) -> (trace: Trace, ok: bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		return
 	}
 	defer delete(data)
 	text := string(data)
-	for line in strings.split_lines_iterator(&text) {
-		l := strings.trim_right(line, "\r")
-		if l == "" {
+	for raw_line in strings.split_lines_iterator(&text) {
+		line := strings.trim_right(raw_line, "\r")
+		if line == "" {
 			continue
 		}
-		sp := strings.index_byte(l, ' ')
-		tick, tok := strconv.parse_u64_of_base(l[:max(sp, 0)], 10)
-		sum, sok := strconv.parse_u64_of_base(l[sp + 1:] if sp > 0 else "", 16)
-		if !tok || !sok || tick > u64(max(u32)) || (len(tr.sums) > 0 && u32(tick) != tr.first + u32(len(tr.sums))) {
-			trace_destroy(&tr)
+		space := strings.index_byte(line, ' ')
+		tick, tick_ok := strconv.parse_u64_of_base(line[:max(space, 0)], 10)
+		sum, sum_ok := strconv.parse_u64_of_base(line[space + 1:] if space > 0 else "", 16)
+		in_order := len(trace.sums) == 0 || u32(tick) == trace.first + u32(len(trace.sums))
+		if !tick_ok || !sum_ok || tick > u64(max(u32)) || !in_order {
+			trace_destroy(&trace)
 			return {}, false
 		}
-		trace_add(&tr, u32(tick), sum)
+		trace_add(&trace, u32(tick), sum)
 	}
-	return tr, true
+	return trace, true
 }
 
 Run_Result :: struct {
@@ -111,85 +117,85 @@ Run_Result :: struct {
 // The scripted commands of an offline run that wait for a tick: as in a session, at most
 // sim.COMMANDS_PER_PLAYER of a player go in one tick and the rest follow in order, and a script's send
 // fails once netcode.COMMAND_QUEUE of its commands wait.
-Script_Commands :: struct {
-	waiting: [sim.MAX_SLOTS][dynamic]sim.Command,
+Scripted_Commands :: struct {
+	waiting: [sim.MAX_PLAYERS][dynamic]sim.Raw_Command,
 	out:     sim.Command_Out,
 }
 
-script_commands_destroy :: proc(sc: ^Script_Commands) {
-	for &q in sc.waiting {
-		delete(q)
+scripted_commands_destroy :: proc(commands: ^Scripted_Commands) {
+	for &queue in commands.waiting {
+		delete(queue)
 	}
-	delete(sc.out.list)
+	delete(commands.out.list)
 }
 
-// Scripted inputs and commands of tick t: slots < players present.
+// Scripted inputs and commands of a tick: players < `players` present.
 scripted :: proc(
-	h: ^Headless($S, $I, $W, $P),
-	s: ^sim.Sim(S, I, W, P),
-	t: u32,
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
+	simulation: ^sim.Sim(State, Input, World, PLAYERS),
+	tick: u32,
 	players: int,
-	sc: ^Script_Commands,
+	commands: ^Scripted_Commands,
 ) -> (
-	in_: sim.Inputs(I, P),
+	inputs: sim.Inputs(Input, PLAYERS),
 ) {
-	for p in 0 ..< players {
-		in_.present += {p}
-		in_.input[p] = h.script(s.seed, p, t, &s.state)
-		if h.script_commands == nil {
+	for player in 0 ..< players {
+		inputs.present += {player}
+		inputs.input[player] = headless.scripted_input(simulation.seed, player, tick, &simulation.state)
+		if headless.scripted_commands == nil {
 			continue
 		}
-		q := &sc.waiting[p]
-		out := &sc.out
-		out.kinds = h.game.commands
-		out.slot = p
-		out.cap = netcode.COMMAND_QUEUE - len(q)
+		queue := &commands.waiting[player]
+		out := &commands.out
+		out.commands = headless.game.commands
+		out.player = player
+		out.cap = netcode.COMMAND_QUEUE - len(queue)
 		clear(&out.list)
-		h.script_commands(s.seed, p, t, &s.state, out)
-		append(q, ..out.list[:])
-		n := 0
-		for n < len(q) && sim.add_command(&in_, q[n]) {
-			n += 1
+		headless.scripted_commands(simulation.seed, player, tick, &simulation.state, out)
+		append(queue, ..out.list[:])
+		added := 0
+		for added < len(queue) && sim.add_command(&inputs, queue[added]) {
+			added += 1
 		}
-		remove_range(q, 0, n)
+		remove_range(queue, 0, added)
 	}
 	return
 }
 
-// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `tr` and its inputs
-// into `lg` (each optional).
+// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `trace` and its inputs
+// into `input_log` (each optional).
 run_sim :: proc(
-	h: ^Headless($S, $I, $W, $P),
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	ticks: u32,
 	seed: u64,
 	players: int,
-	tr: ^Trace = nil,
-	lg: ^sim.Input_Log(I, P) = nil,
+	trace: ^Trace = nil,
+	input_log: ^sim.Input_Log(Input, PLAYERS) = nil,
 ) -> (
-	res: Run_Result,
+	result: Run_Result,
 ) {
-	s := sim.create(h.game, seed, h.content)
-	defer sim.destroy(s)
-	sc: Script_Commands
-	defer script_commands_destroy(&sc)
-	if lg != nil {
-		lg.seed = seed
-		lg.content = s.content_hash
+	simulation := sim.create(headless.game, seed, headless.content)
+	defer sim.destroy(simulation)
+	commands: Scripted_Commands
+	defer scripted_commands_destroy(&commands)
+	if input_log != nil {
+		input_log.seed = seed
+		input_log.content = simulation.content_hash
 	}
-	for t in 1 ..= ticks {
-		inputs := scripted(h, s, t, players, &sc)
-		if lg != nil {
-			sim.log_append(lg, &inputs)
+	for tick in 1 ..= ticks {
+		inputs := scripted(headless, simulation, tick, players, &commands)
+		if input_log != nil {
+			sim.log_append(input_log, &inputs)
 		}
-		sim.step(s, &inputs)
-		res.final_checksum = sim.checksum(s)
-		if tr != nil {
-			trace_add(tr, t, res.final_checksum)
+		sim.step(simulation, &inputs)
+		result.final_checksum = sim.checksum(simulation)
+		if trace != nil {
+			trace_add(trace, tick, result.final_checksum)
 		}
 	}
-	res.final_tick = ticks
-	if h.summary != nil {
-		res.summary = h.summary(&s.state)
+	result.final_tick = ticks
+	if headless.summary != nil {
+		result.summary = headless.summary(&simulation.state)
 	}
 	return
 }
@@ -203,89 +209,90 @@ Synctest_Result :: struct {
 }
 
 // `synctest`: every tick, once `window` ticks exist, restore `window` ticks back, re-simulate with
-// the recorded inputs and compare each tick's checksum with the forward one.
+// the recorded inputs and compare each tick's checksum with the forward one. `window` is at most
+// max_window(game) (the ring's depth).
 run_synctest :: proc(
-	h: ^Headless($S, $I, $W, $P),
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	ticks, window: u32,
 	seed: u64,
 	players: int,
 ) -> (
-	res: Synctest_Result,
+	result: Synctest_Result,
 ) {
-	assert(window >= 1 && window < sim.RING)
-	s := sim.create(h.game, seed, h.content)
-	defer sim.destroy(s)
-	sc: Script_Commands
-	defer script_commands_destroy(&sc)
-	recorded := make([]sim.Inputs(I, P), ticks + 1)
+	assert(window >= 1 && int(window) <= max_window(headless.game))
+	simulation := sim.create(headless.game, seed, headless.content)
+	defer sim.destroy(simulation)
+	commands: Scripted_Commands
+	defer scripted_commands_destroy(&commands)
+	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	defer delete(recorded)
 	defer delete(forward)
-	for t in 1 ..= ticks {
-		recorded[t] = scripted(h, s, t, players, &sc)
-		sim.step(s, &recorded[t])
-		forward[t] = sim.checksum(s)
-		if t < window {
+	for tick in 1 ..= ticks {
+		recorded[tick] = scripted(headless, simulation, tick, players, &commands)
+		sim.step(simulation, &recorded[tick])
+		forward[tick] = sim.checksum(simulation)
+		if tick < window {
 			continue
 		}
-		base := t - window
-		if !sim.restore(s, base) {
-			if res.mismatches == 0 {
-				res.first_tick, res.first_at = base, t
+		base := tick - window
+		if !sim.restore(simulation, base) {
+			if result.mismatches == 0 {
+				result.first_tick, result.first_at = base, tick
 			}
-			res.mismatches += 1
+			result.mismatches += 1
 			continue
 		}
-		for u in base + 1 ..= t {
-			sim.step(s, &recorded[u])
-			res.resimulated += 1
-			if sim.checksum(s) != forward[u] {
-				if res.mismatches == 0 {
-					res.first_tick, res.first_at = u, t
+		for resim in base + 1 ..= tick {
+			sim.step(simulation, &recorded[resim])
+			result.resimulated += 1
+			if sim.checksum(simulation) != forward[resim] {
+				if result.mismatches == 0 {
+					result.first_tick, result.first_at = resim, tick
 				}
-				res.mismatches += 1
+				result.mismatches += 1
 			}
 		}
 	}
-	res.final_checksum = forward[ticks] if ticks > 0 else 0
+	result.final_checksum = forward[ticks] if ticks > 0 else 0
 	return
 }
 
-// `replay`: re-simulates an input log, recording every tick's checksum into `tr` (optional). Fails
+// `replay`: re-simulates an input log, recording every tick's checksum into `trace` (optional). Fails
 // when the log was recorded with other content (another level).
 run_replay :: proc(
-	h: ^Headless($S, $I, $W, $P),
-	lg: ^sim.Input_Log(I, P),
-	tr: ^Trace = nil,
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
+	input_log: ^sim.Input_Log(Input, PLAYERS),
+	trace: ^Trace = nil,
 ) -> (
-	res: Run_Result,
+	result: Run_Result,
 	ok: bool,
 ) {
-	if lg.content != sim.content_hash(h.content) {
+	if input_log.content != sim.content_hash(headless.content) {
 		fmt.eprintfln(
 			"replay: the log was recorded with another level (content %016x, this run has %016x; see --level)",
-			lg.content,
-			sim.content_hash(h.content),
+			input_log.content,
+			sim.content_hash(headless.content),
 		)
 		return
 	}
-	s := sim.create(h.game, lg.seed, h.content)
-	defer sim.destroy(s)
-	for k in 0 ..< len(lg.ticks) {
-		in_ := sim.log_inputs(lg, k)
-		sim.step(s, &in_)
-		res.final_checksum = sim.checksum(s)
-		if tr != nil {
-			trace_add(tr, u32(k + 1), res.final_checksum)
+	simulation := sim.create(headless.game, input_log.seed, headless.content)
+	defer sim.destroy(simulation)
+	for k in 0 ..< len(input_log.ticks) {
+		inputs := sim.log_inputs(input_log, k)
+		sim.step(simulation, &inputs)
+		result.final_checksum = sim.checksum(simulation)
+		if trace != nil {
+			trace_add(trace, u32(k + 1), result.final_checksum)
 		}
 	}
-	res.final_tick = u32(len(lg.ticks))
-	return res, true
+	result.final_tick = u32(len(input_log.ticks))
+	return result, true
 }
 
 // `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick (the caller owns `data`).
 run_snapshot :: proc(
-	h: ^Headless($S, $I, $W, $P),
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	ticks: u32,
 	seed: u64,
 	players: int,
@@ -293,46 +300,47 @@ run_snapshot :: proc(
 	data: []u8,
 	checksum: u64,
 ) {
-	s := sim.create(h.game, seed, h.content)
-	defer sim.destroy(s)
-	sc: Script_Commands
-	defer script_commands_destroy(&sc)
-	for t in 1 ..= ticks {
-		in_ := scripted(h, s, t, players, &sc)
-		sim.step(s, &in_)
+	simulation := sim.create(headless.game, seed, headless.content)
+	defer sim.destroy(simulation)
+	commands: Scripted_Commands
+	defer scripted_commands_destroy(&commands)
+	for tick in 1 ..= ticks {
+		inputs := scripted(headless, simulation, tick, players, &commands)
+		sim.step(simulation, &inputs)
 	}
-	return sim.snapshot_encode(s, ticks), sim.checksum(s)
+	return sim.snapshot_encode(simulation, ticks), sim.checksum(simulation)
 }
 
 // `resume`: restores a portable snapshot and continues the scripted run for `ticks` ticks with
-// `players` players present, recording every tick's checksum into `tr` (optional).
+// `players` players present, recording every tick's checksum into `trace` (optional).
 run_resume :: proc(
-	h: ^Headless($S, $I, $W, $P),
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	data: []u8,
 	ticks: u32,
 	players: int,
-	tr: ^Trace = nil,
+	trace: ^Trace = nil,
 ) -> (
-	res: Run_Result,
+	result: Run_Result,
 	ok: bool,
 ) {
-	s, serr := sim.from_snapshot(h.game, data, h.content)
-	if serr != .None {
-		fmt.eprintfln("resume: not a valid snapshot for this build: %v", serr)
+	simulation, snap_err := sim.from_snapshot(headless.game, data, headless.content)
+	if snap_err != .None {
+		fmt.eprintfln("resume: not a valid snapshot for this build: %v", snap_err)
 		return
 	}
-	defer sim.destroy(s)
-	sc: Script_Commands // commands still waiting at the snapshot's tick are not in it (they are input)
-	defer script_commands_destroy(&sc)
-	start := s.tick
-	for t in start + 1 ..= start + ticks {
-		in_ := scripted(h, s, t, players, &sc)
-		sim.step(s, &in_)
-		res.final_checksum = sim.checksum(s)
-		if tr != nil {
-			trace_add(tr, t, res.final_checksum)
+	defer sim.destroy(simulation)
+	// commands still waiting at the snapshot's tick are not in it (they are input)
+	commands: Scripted_Commands
+	defer scripted_commands_destroy(&commands)
+	start := simulation.tick
+	for tick in start + 1 ..= start + ticks {
+		inputs := scripted(headless, simulation, tick, players, &commands)
+		sim.step(simulation, &inputs)
+		result.final_checksum = sim.checksum(simulation)
+		if trace != nil {
+			trace_add(trace, tick, result.final_checksum)
 		}
 	}
-	res.final_tick = start + ticks
-	return res, true
+	result.final_tick = start + ticks
+	return result, true
 }

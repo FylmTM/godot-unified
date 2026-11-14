@@ -1,4 +1,4 @@
-// friendslop (games/friendslop/SPEC.md): constants, input, and the pointer-free state block.
+// friendslop (games/friendslop/SPEC.md): constants, input, the pointer-free state block and the events.
 package friendslop
 
 import "unified:physics"
@@ -7,7 +7,7 @@ import "unified:sim"
 TICK_HZ :: 64
 DT: f32 : 1.0 / TICK_HZ // exact
 SUBSTEPS :: 4
-MAX_PLAYERS :: 4
+PLAYERS :: 4
 MAX_ITEMS :: 64
 MAX_PLATFORMS :: 24
 MAX_TRIGGERS :: 16
@@ -82,7 +82,8 @@ Input :: struct {
 }
 #assert(size_of(Input) == 8)
 
-Inputs :: sim.Inputs(Input, MAX_PLAYERS)
+Inputs :: sim.Inputs(Input, PLAYERS)
+Tick :: sim.Tick(State, Input, World, PLAYERS)
 
 Body_Ref :: physics.Body_Ref
 
@@ -98,9 +99,9 @@ Player :: struct {
 	facing:        [2]f32, // unit (x, z)
 	aim:           [3]f32, // unit look direction from the last input
 	held_kind:     Held_Kind,
-	held_index:    u8, // item index or player slot
-	handle:        u8, // which grab point of the held item
-	held_by:       u8, // slot + 1 of the player holding this one (0: free)
+	held_index:    u8, // item index or player
+	grab_point:    u8, // which grab point of the held item
+	held_by:       u8, // player + 1 of the player holding this one (0: free)
 	stun:          u16, // ticks left limp (hit, thrown)
 	charge:        u16, // ticks the throw button has been held while holding something
 	held_ticks:    u16, // ticks this player has been held
@@ -115,8 +116,8 @@ Player :: struct {
 
 Item :: struct {
 	body:         Body_Ref,
-	holders:      [2]u8, // slot + 1 holding each grab point (0: free)
-	thrown_by:    u8, // slot + 1 of the last thrower (while thrown_ticks > 0)
+	holders:      [2]u8, // player + 1 holding each grab point (0: free)
+	thrown_by:    u8, // player + 1 of the last thrower (while thrown_ticks > 0)
 	alive:        bool,
 	thrown_ticks: u16,
 	pad_cooldown: u16,
@@ -142,7 +143,7 @@ Phase :: enum u8 {
 }
 
 State :: struct {
-	players:      [MAX_PLAYERS]Player,
+	players:      [PLAYERS]Player,
 	items:        [MAX_ITEMS]Item,
 	platforms:    [MAX_PLATFORMS]Platform,
 	bodies:       [MAX_TRIGGERS]Body_Ref, // bells' and switches' bodies (static, owned by the sim)
@@ -160,45 +161,156 @@ State :: struct {
 	_pad:         [3]u8,
 }
 
-Event_Kind :: enum u16 {
+// Events (src/sim/SPEC.md "Events"): one plain struct per event, named as GDScript matches them (the type
+// name lowercased). `player` is the player the event is about (only events about a player have it;
+// sim.NO_PLAYER: none), `entity` the level marker index + 1 of an item, plate, bell, switch or lock (0: none),
+// `position` where it happened (metres).
+
+Player_Joined :: struct {
+	position: sim.Position, // where the player appears
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Player_Left :: struct {
+	player: u8,
+}
+
+Jumped :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// A jump pad launched a player (entity 0) or an item (player NO_PLAYER).
+Launched :: struct {
+	entity:   u64,
+	position: sim.Position, // the pad's
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// `player` grabbed an item (entity) or another player (held_player).
+Grabbed :: struct {
+	entity:      u64, // the item (0: a player)
+	position:    sim.Position, // the holder's
+	player:      u8, // the holder
+	held_kind:   Held_Kind,
+	held_player: u8, // the held player (NO_PLAYER: an item)
+	_pad:        u8,
+}
+
+// `player` let go of what it held (also before a throw).
+Dropped :: struct {
+	entity:      u64, // the item (0: a player)
+	position:    sim.Position, // the holder's
+	player:      u8, // the holder
+	held_kind:   Held_Kind,
+	held_player: u8, // the dropped player (NO_PLAYER: an item)
+	_pad:        u8,
+}
+
+Thrown :: struct {
+	entity:      u64, // the item (0: a player)
+	position:    sim.Position, // the thrower's
+	speed:       f32, // m/s along the aim
+	player:      u8, // the thrower
+	held_kind:   Held_Kind,
+	held_player: u8, // the thrown player (NO_PLAYER: an item)
+	_pad:        [5]u8,
+}
+
+// A player was hit by an item or a bumper.
+Hit :: struct {
+	position: sim.Position,
+	speed:    f32, // the knockback's horizontal speed
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Broke_Free :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Fell :: struct {
+	position: sim.Position, // where it fell below the kill height
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Respawned :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// The team reached a checkpoint (the player who reached it).
+Checkpoint :: struct {
+	position: sim.Position, // the checkpoint's
+	index:    i32, // the checkpoint's index (State.checkpoint)
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// A player walked through the start gate.
+Run_Started :: struct {
+	position: sim.Position, // the gate's
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// The trophy (entity) reached the pedestal.
+Run_Finished :: struct {
+	entity:   u64,
+	position: sim.Position, // the finish volume's
+	seconds:  f32, // the run's time
+}
+
+Plate_On :: struct {
+	entity:   u64,
+	position: sim.Position,
+	mass:     f32, // kg on the plate
+}
+
+Plate_Off :: struct {
+	entity:   u64,
+	position: sim.Position,
+	mass:     f32,
+}
+
+Bell_Rung :: struct {
+	entity:   u64,
+	position: sim.Position, // where it was hit
+	speed:    f32, // the hit's approach speed
+}
+
+// A switch (touched by `player`) or a lock (opened by a key: player NO_PLAYER) fired.
+Switch_On :: struct {
+	entity:   u64,
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Event :: union {
 	Player_Joined,
 	Player_Left,
 	Jumped,
-	Launched, // a jump pad (players and items)
+	Launched,
 	Grabbed,
 	Dropped,
 	Thrown,
-	Hit, // a player was hit by an item or a bumper (value: speed)
+	Hit,
 	Broke_Free,
 	Fell,
 	Respawned,
-	Checkpoint, // value: index
+	Checkpoint,
 	Run_Started,
-	Run_Finished, // value: seconds
+	Run_Finished,
 	Plate_On,
 	Plate_Off,
 	Bell_Rung,
 	Switch_On,
 }
-
-EVENT_NAMES :: []string {
-	"player_joined",
-	"player_left",
-	"jumped",
-	"launched",
-	"grabbed",
-	"dropped",
-	"thrown",
-	"hit",
-	"broke_free",
-	"fell",
-	"respawned",
-	"checkpoint",
-	"run_started",
-	"run_finished",
-	"plate_on",
-	"plate_off",
-	"bell_rung",
-	"switch_on",
-}
-#assert(len(Event_Kind) == 18)

@@ -18,12 +18,12 @@ ARENA :: [2]f32{12, 8} // inner half extents of the walled arena
 
 // Four static walls 0.5 m thick whose inner faces are at ±half.
 arena_walls :: proc(world: ^physics.World, half: [2]f32) {
-	T :: f32(0.25)
+	HALF_THICK :: f32(0.25)
 	walls := [4][2][2]f32 {
-		{{0, -half.y - T}, {half.x + 2 * T, T}},
-		{{0, half.y + T}, {half.x + 2 * T, T}},
-		{{-half.x - T, 0}, {T, half.y}},
-		{{half.x + T, 0}, {T, half.y}},
+		{{0, -half.y - HALF_THICK}, {half.x + 2 * HALF_THICK, HALF_THICK}},
+		{{0, half.y + HALF_THICK}, {half.x + 2 * HALF_THICK, HALF_THICK}},
+		{{-half.x - HALF_THICK, 0}, {HALF_THICK, half.y}},
+		{{half.x + HALF_THICK, 0}, {HALF_THICK, half.y}},
 	}
 	for wall in walls {
 		body_def := physics.body_def_2d(.Static_Body, wall[0])
@@ -345,6 +345,7 @@ Field_World :: struct {
 
 Field_Game :: sim.Game(Field, Field_Input, Field_World, 2)
 Field_Inputs :: sim.Inputs(Field_Input, 2)
+Field_Tick :: sim.Tick(Field, Field_Input, Field_World, 2)
 
 FIELD := Field_Game {
 	name = "field",
@@ -381,66 +382,63 @@ FIELD := Field_Game {
 			)
 		}
 	},
-	tick = proc(
-		state: ^Field,
-		field_world: ^Field_World,
-		tick: u32,
-		inputs: ^Field_Inputs,
-		events: ^[dynamic]sim.Event,
-	) {
-		world := field_world.phys
-		for &ship, i in state.ships {
-			player_input := inputs.input[i]
-			pos, rot := physics.pose_2d(world, ship.body)
-			lin, _ := physics.velocity_2d(world, ship.body)
-			turn := f32(player_input.turn) * (4.0 / 127)
-			if player_input.turn == 0 {
-				// No steering: the ship turns toward the first rock (aim assist), by the sign of the
-				// cross product of its heading and the direction to the rock.
-				for rock in state.rocks {
-					if rock.size == 0 do continue
-					rock_pos, _ := physics.pose_2d(world, rock.body)
-					to_rock := rock_pos - pos
-					turn = rot.x * to_rock.y - rot.y * to_rock.x > 0 ? 5 : -5
-					break
-				}
+	tick = field_tick,
+}
+
+field_tick :: proc(game: ^Field_Tick) {
+	state := game.state
+	world := game.world.phys
+	for &ship, player in state.ships {
+		player_input := game.inputs.input[player]
+		pos, rot := physics.pose_2d(world, ship.body)
+		lin, _ := physics.velocity_2d(world, ship.body)
+		turn := f32(player_input.turn) * (4.0 / 127)
+		if player_input.turn == 0 {
+			// No steering: the ship turns toward the first rock (aim assist), by the sign of the
+			// cross product of its heading and the direction to the rock.
+			for rock in state.rocks {
+				if rock.size == 0 do continue
+				rock_pos, _ := physics.pose_2d(world, rock.body)
+				to_rock := rock_pos - pos
+				turn = rot.x * to_rock.y - rot.y * to_rock.x > 0 ? 5 : -5
+				break
 			}
-			physics.set_velocity_2d(world, ship.body, lin, turn)
-			if player_input.thrust {
-				physics.apply_impulse_2d(world, ship.body, rot * (10 * DT * physics.mass(world, ship.body)))
-			}
-			if ship.cooldown > 0 do ship.cooldown -= 1
-			if player_input.fire && ship.cooldown == 0 {
-				ship.cooldown = 6
-				nose := pos + rot * 0.5
-				hit, ok := physics.ray_closest(
-					world,
-					{nose.x, nose.y, 0},
-					{rot.x * 30, rot.y * 30, 0},
-					{mask = CAT_ROCK | CAT_STATIC},
-					physics.link(ship.body),
-				)
-				if ok {
-					for &rock in state.rocks {
-						if rock.size != 0 && physics.link(rock.body) == hit.body {
-							rock_split(state, world, &rock, rot)
-							ship.kills += 1
-							break
-						}
+		}
+		physics.set_velocity_2d(world, ship.body, lin, turn)
+		if player_input.thrust {
+			physics.apply_impulse_2d(world, ship.body, rot * (10 * DT * physics.mass(world, ship.body)))
+		}
+		if ship.cooldown > 0 do ship.cooldown -= 1
+		if player_input.fire && ship.cooldown == 0 {
+			ship.cooldown = 6
+			nose := pos + rot * 0.5
+			hit, ok := physics.ray_closest(
+				world,
+				{nose.x, nose.y, 0},
+				{rot.x * 30, rot.y * 30, 0},
+				{mask = CAT_ROCK | CAT_STATIC},
+				physics.link(ship.body),
+			)
+			if ok {
+				for &rock in state.rocks {
+					if rock.size != 0 && physics.link(rock.body) == hit.body {
+						rock_split(state, world, &rock, rot)
+						ship.kills += 1
+						break
 					}
 				}
 			}
 		}
-		// Fewer than six rocks: a big one drifts in from a corner.
-		live := 0
-		for rock in state.rocks do live += int(rock.size != 0)
-		if live < 6 {
-			corner := [2]f32{f32(sim.rng_below(&state.rng, 2)) * 2 - 1, f32(sim.rng_below(&state.rng, 2)) * 2 - 1}
-			rock_add(state, world, corner * (ARENA - 2), {1, 0}, -corner * 2, 1, 3)
-			state.spawns += 1
-		}
-		step(world)
-	},
+	}
+	// Fewer than six rocks: a big one drifts in from a corner.
+	live := 0
+	for rock in state.rocks do live += int(rock.size != 0)
+	if live < 6 {
+		corner := [2]f32{f32(sim.rng_below(&state.rng, 2)) * 2 - 1, f32(sim.rng_below(&state.rng, 2)) * 2 - 1}
+		rock_add(state, world, corner * (ARENA - 2), {1, 0}, -corner * 2, 1, 3)
+		state.spawns += 1
+	}
+	step(world)
 }
 
 rock_add :: proc(state: ^Field, world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) {
@@ -564,7 +562,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 	session3 := sim.create(&FIELD, 3)
 	defer sim.destroy(session3)
 	before := sim.checksum(session3)
-	image := session.extras[0].image(session.extras[0].data, 100 % sim.RING)
+	image := session.extras[0].image(session.extras[0].data, sim.ring_slot(session, 100))
 	testing.expect(t, !session3.extras[0].load(session3.extras[0].data, image[:len(image) / 2]))
 	testing.expect_value(t, sim.checksum(session3), before)
 	inputs := field_inputs(1)
@@ -574,7 +572,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0xa3eb235bb23d2e5d, 0xf9ed32943b7f89cf, 0x3d4a2fb24df33278, 0xd15988de679f7278}
+GOLDEN_FIELD := [4]u64{0xf955d18a5e864152, 0x9af275f076bc5f7d, 0xc0e2e275edb3e2e1, 0xb6c5cee7dd2d87fa}
 
 @(test)
 field_golden_trace :: proc(t: ^testing.T) {

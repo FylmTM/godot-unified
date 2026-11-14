@@ -1,5 +1,5 @@
-// What the HUD shows (games/friendslop/SPEC.md), from the state alone: the run, and per slot what the player
-// is doing. The extension turns it into the HUD Dictionary.
+// What the HUD shows (games/friendslop/SPEC.md), from the state alone: the run, and per player what they
+// are doing. The extension turns it into the HUD Dictionary.
 package friendslop
 
 Hud_Player :: struct {
@@ -20,7 +20,7 @@ Hud :: struct {
 	checkpoint: i32,
 	reset_in_s: f32, // Finished: seconds until everyone is back in the hub
 	triggers:   u32, // bit i: trigger i is active
-	players:    [MAX_PLAYERS]Hud_Player,
+	players:    [PLAYERS]Hud_Player,
 }
 
 @(rodata)
@@ -30,31 +30,31 @@ PHASE_NAMES := [Phase]string {
 	.Finished = "finished",
 }
 
-hud :: proc(s: ^State, tick: u32) -> (h: Hud) {
-	h.phase = s.phase
-	h.tick = tick
-	h.runs = s.runs
-	h.best_s = f32(s.best_ticks) * DT
-	h.checkpoint = s.checkpoint
-	switch s.phase {
+hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
+	result.phase = state.phase
+	result.tick = tick
+	result.runs = state.runs
+	result.best_s = f32(state.best_ticks) * DT
+	result.checkpoint = state.checkpoint
+	switch state.phase {
 	case .Hub:
 	case .Run:
-		h.run_s = f32(tick - s.run_tick) * DT
+		result.run_s = f32(tick - state.run_tick) * DT
 	case .Finished:
-		h.run_s = f32(s.finish_tick - s.run_tick) * DT
-		h.reset_in_s = f32(FINISH_HOLD_TICKS - min(tick - s.finish_tick, FINISH_HOLD_TICKS)) * DT
+		result.run_s = f32(state.finish_tick - state.run_tick) * DT
+		result.reset_in_s = f32(FINISH_HOLD_TICKS - min(tick - state.finish_tick, FINISH_HOLD_TICKS)) * DT
 	}
-	for tr, i in s.triggers {
-		if tr.active do h.triggers |= 1 << u32(i)
+	for trigger, i in state.triggers {
+		if trigger.active do result.triggers |= 1 << u32(i)
 	}
-	for &pl, p in s.players {
-		h.players[p] = {
-			present = pl.active,
-			holding = pl.held_kind,
-			held    = pl.held_by != 0,
-			stunned = pl.stun > 0,
-			fallen  = pl.respawn > 0,
-			charge  = f32(pl.charge) / f32(THROW_CHARGE_TICKS),
+	for &character, player in state.players {
+		result.players[player] = {
+			present = character.active,
+			holding = character.held_kind,
+			held    = character.held_by != 0,
+			stunned = character.stun > 0,
+			fallen  = character.respawn > 0,
+			charge  = f32(character.charge) / f32(THROW_CHARGE_TICKS),
 		}
 	}
 	return

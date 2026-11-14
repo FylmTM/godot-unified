@@ -10,30 +10,29 @@ import "../toy"
 import "unified:netcode"
 import "unified:sim"
 
-// What toy.script_commands sends from `player` over ticks first..last, in order.
-scripted_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Command {
+// What toy.scripted_commands sends from `player` over ticks first..last, in order.
+sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
 	out := sim.Command_Out {
-		kinds = toy.GAME.commands,
-		slot  = player,
-		cap   = 1 << 20,
+		commands = toy.Command,
+		player   = player,
+		cap      = 1 << 20,
 	}
 	for tick in first ..= last {
-		toy.script_commands(SEED, player, tick, &out)
+		toy.scripted_commands(SEED, player, tick, &out)
 	}
 	return out.list
 }
 
-// The commands of `player` in the relay's log (typed, for sim.command_as), in tick order, with their ticks.
+// The commands of `player` in the relay's log, in tick order, with their ticks.
 logged_commands :: proc(
-	log: ^sim.Input_Log(toy.Input, toy.SLOTS),
+	log: ^sim.Input_Log(toy.Input, toy.PLAYERS),
 	player: int,
 ) -> (
-	commands: [dynamic]sim.Command,
+	commands: [dynamic]sim.Raw_Command,
 	ticks: [dynamic]u32,
 ) {
 	for k in 0 ..< len(log.ticks) {
 		inputs := sim.log_inputs(log, k)
-		sim.bind_commands(&inputs, toy.GAME.commands)
 		for command in sim.commands(&inputs, player) {
 			append(&commands, command)
 			append(&ticks, u32(k + 1))
@@ -47,7 +46,7 @@ logged_commands :: proc(
 placed_ticks :: proc(player: int, first, last: u32) -> (ticks: [dynamic]u32) {
 	at, in_tick: u32 = 0, 0
 	for tick in first ..= last {
-		sent := scripted_commands(player, tick, tick)
+		sent := sent_commands(player, tick, tick)
 		defer delete(sent)
 		for _ in sent {
 			lands_at := max(tick, at)
@@ -64,8 +63,8 @@ placed_ticks :: proc(player: int, first, last: u32) -> (ticks: [dynamic]u32) {
 	return
 }
 
-same_command :: proc(a, b: sim.Command) -> bool {
-	return a.kind == b.kind && a.slot == b.slot && a.size == b.size && a.data == b.data
+same_command :: proc(got, want: sim.Raw_Command) -> bool {
+	return got.kind == want.kind && got.player == want.player && got.size == want.size && got.data == want.data
 }
 
 @(test)
@@ -86,12 +85,12 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		testing.expect_value(t, client.verified, TICKS)
 		// Every command sent for a tick up to the end, once, in the order sent (one sent in the last
 		// ticks may arrive after the session ended).
-		want := scripted_commands(client.player, client.first_tick, TICKS)
+		want := sent_commands(client.player, client.first_tick, TICKS)
 		defer delete(want)
 		got, at := logged_commands(log, client.player)
 		defer delete(got)
 		defer delete(at)
-		late := scripted_commands(client.player, TICKS - 64, TICKS)
+		late := sent_commands(client.player, TICKS - 64, TICKS)
 		defer delete(late)
 		testing.expectf(
 			t,
@@ -125,7 +124,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		sum: i32
 		bumps: u32
 		for &command in got {
-			if bump, ok := sim.command_as(&command, toy.Cmd_Bump); ok {
+			if bump, ok := sim.command_value(&command, toy.Command).(toy.Cmd_Bump); ok {
 				bumps += 1
 				sum += bump.amount
 				fold = toy.bump_fold(fold, bump.amount)
@@ -250,7 +249,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 }
 
 // The host's own commands always arrive in time: each lands in the tick it was sent for, except that
-// a tick takes at most four of a player's (toy.script_commands sends six at tick 250: two wait for 251).
+// a tick takes at most four of a player's (toy.scripted_commands sends six at tick 250: two wait for 251).
 @(test)
 the_fifth_command_of_a_tick_waits_for_the_next :: proc(t: ^testing.T) {
 	session: Net

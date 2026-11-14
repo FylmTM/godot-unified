@@ -1,5 +1,5 @@
 // The physics plug-in: a thin layer over Box3D (unified:b3). A World is one Box3D world set up for
-// determinism (one worker by default, fixed creation order is the game's job) plus RING saved images; it
+// determinism (one worker by default, fixed creation order is the game's job) plus one saved image per ring slot; it
 // plugs into the sim harness as Extra state (save/restore/hash/image/load). Bodies are referenced
 // from the state block by Body_Ref, which leaves out Box3D's world index so the block is identical
 // across the worlds of one process and across machines.
@@ -49,7 +49,7 @@ Settings :: struct {
 World :: struct {
 	id:         b3.World_Id,
 	// In-process snapshots (Box3D's world arena: a memcpy), one per ring slot.
-	ring:       [sim.RING]b3.World_Snapshot,
+	ring:       [sim.MAX_RING_SIZE]b3.World_Snapshot, // slots past the sim's ring_size stay empty
 	scratch:    b3.World_Snapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
 	image:      ^b3.World_State, // the last portable image `image` built
 	// Offsets of every Body_Ref / Joint_Ref in the state block, in memory order (the hash order).

@@ -11,9 +11,9 @@ import "unified:headless/modes"
 
 PARK_LEVEL :: #load("../../game/levels/park.level")
 
-HEADLESS := headless.Headless(friendslop.State, friendslop.Input, friendslop.World, friendslop.MAX_PLAYERS) {
+HEADLESS := headless.Headless(friendslop.State, friendslop.Input, friendslop.World, friendslop.PLAYERS) {
 	game = &friendslop.GAME,
-	script = friendslop.script,
+	scripted_input = friendslop.scripted_input,
 	summary = summary,
 	bench = {
 		what = "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick",
@@ -28,19 +28,19 @@ main :: proc() {
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
-summary :: proc(s: ^friendslop.State) -> string {
+summary :: proc(state: ^friendslop.State) -> string {
 	present := 0
-	for p in s.players {
-		if p.active do present += 1
+	for character in state.players {
+		if character.active do present += 1
 	}
 	return fmt.tprintf(
 		`"phase":"%v","players_present":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
-		s.phase,
+		state.phase,
 		present,
-		s.grabs,
-		s.throws,
-		s.hits,
-		s.pad_launches,
-		s.runs,
+		state.grabs,
+		state.throws,
+		state.hits,
+		state.pad_launches,
+		state.runs,
 	)
 }

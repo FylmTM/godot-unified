@@ -13,7 +13,7 @@ CAT_PLAYER :: u64(1 << 1)
 CAT_ITEM :: u64(1 << 2)
 CAT_PLATFORM :: u64(1 << 3)
 CAT_TRIGGER :: u64(1 << 4)
-MAT_PLAYER :: u64(100) // + slot
+MAT_PLAYER :: u64(100) // + player
 MAT_ITEM :: u64(1000) // + item index
 MAT_TRIGGER :: u64(2000) // + trigger index
 MAT_PLATFORM :: u64(3000) // + platform index
@@ -46,7 +46,7 @@ Item_Spec :: struct {
 	lift:        f32, // one holder's spring force cap, in multiples of the item's weight
 	friction:    f32,
 	restitution: f32,
-	handles:     u8, // grab points: 1 = the centre, 2 = ±x ends
+	grab_points: u8, // 1 = the centre, 2 = ±x ends
 	throwable:   bool,
 }
 
@@ -59,10 +59,10 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 		lift = 3,
 		friction = 0.6,
 		restitution = 0.1,
-		handles = 1,
+		grab_points = 1,
 		throwable = true,
 	},
-	.Ball = {radius = 0.3, mass = 3, lift = 3, friction = 0.5, restitution = 0.6, handles = 1, throwable = true},
+	.Ball = {radius = 0.3, mass = 3, lift = 3, friction = 0.5, restitution = 0.6, grab_points = 1, throwable = true},
 	.Cube = {
 		half = {0.4, 0.4, 0.4},
 		radius = 0.4,
@@ -70,7 +70,7 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 		lift = 2,
 		friction = 0.7,
 		restitution = 0,
-		handles = 1,
+		grab_points = 1,
 		throwable = true,
 	},
 	.Key = {
@@ -80,7 +80,7 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 		lift = 3,
 		friction = 0.6,
 		restitution = 0.1,
-		handles = 1,
+		grab_points = 1,
 		throwable = true,
 	},
 	.Heavy = {
@@ -90,7 +90,7 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 		lift = 0.6,
 		friction = 0.6,
 		restitution = 0,
-		handles = 2,
+		grab_points = 2,
 		throwable = false,
 	},
 	.Trophy = {
@@ -100,7 +100,7 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 		lift = 3,
 		friction = 0.6,
 		restitution = 0.1,
-		handles = 1,
+		grab_points = 1,
 		throwable = true,
 	},
 }
@@ -109,7 +109,7 @@ ITEM_SPECS := [Item_Kind]Item_Spec {
 // the body, not just hold it: 1.4× only drags a friend along the floor).
 PLAYER_LIFT :: 2.5
 
-Plat_Mode :: enum u8 {
+Platform_Mode :: enum u8 {
 	Ping_Pong,
 	Loop,
 	Once,
@@ -140,14 +140,14 @@ Platform_Def :: struct {
 	origin:  [3]f32, // the marker's position: the body at phase 0
 	rot:     [4]f32,
 	half:    [3]f32,
-	mode:    Plat_Mode,
+	mode:    Platform_Mode,
 	trigger: int, // trigger index (-1: none)
 	marker:  int,
 }
 
 Trigger_Def :: struct {
 	kind:       Trigger_Kind,
-	vol:        Volume,
+	volume:     Volume,
 	mass:       f32, // plates
 	radius:     f32, // bells
 	items_only: bool, // plates: players don't count
@@ -155,58 +155,58 @@ Trigger_Def :: struct {
 }
 
 Pad_Def :: struct {
-	vol:    Volume,
+	volume: Volume,
 	launch: [3]f32, // the velocity given (y up, plus a push)
 }
 
 Bumper_Def :: struct {
-	vol:      Volume,
+	volume:   Volume,
 	strength: f32,
 }
 
 Checkpoint_Def :: struct {
-	index: int,
-	vol:   Volume,
+	index:  int,
+	volume: Volume,
 }
 
 World :: struct {
-	phys:          ^physics.World,
-	extras:        [1]sim.Extra,
-	lvl:           level.Level,
-	movers:        [MAX_PLAYERS]physics.Mover_Def,
-	items:         [MAX_ITEMS]Item_Def,
-	n_items:       int,
-	platforms:     [MAX_PLATFORMS]Platform_Def,
-	n_platforms:   int,
-	triggers:      [MAX_TRIGGERS]Trigger_Def,
-	n_triggers:    int,
-	pads:          [MAX_PADS]Pad_Def,
-	n_pads:        int,
-	bumpers:       [MAX_BUMPERS]Bumper_Def,
-	n_bumpers:     int,
-	checkpoints:   [MAX_CHECKPOINTS]Checkpoint_Def,
-	n_checkpoints: int,
-	spawns:        [MAX_PLAYERS][3]f32,
-	start:         Volume, // walking in starts a run (zero: no route)
-	finish:        Volume, // the trophy in it ends the run
-	links:         [dynamic]physics.Body_Link, // scratch
-	hits:          [dynamic]physics.Hit_Event, // scratch
+	phys:             ^physics.World,
+	extras:           [1]sim.Extra,
+	level:            level.Level,
+	movers:           [PLAYERS]physics.Mover_Def,
+	items:            [MAX_ITEMS]Item_Def,
+	item_count:       int,
+	platforms:        [MAX_PLATFORMS]Platform_Def,
+	platform_count:   int,
+	triggers:         [MAX_TRIGGERS]Trigger_Def,
+	trigger_count:    int,
+	pads:             [MAX_PADS]Pad_Def,
+	pad_count:        int,
+	bumpers:          [MAX_BUMPERS]Bumper_Def,
+	bumper_count:     int,
+	checkpoints:      [MAX_CHECKPOINTS]Checkpoint_Def,
+	checkpoint_count: int,
+	spawns:           [PLAYERS][3]f32,
+	start:            Volume, // walking in starts a run (zero: no route)
+	finish:           Volume, // the trophy in it ends the run
+	links:            [dynamic]physics.Body_Link, // scratch
+	hits:             [dynamic]physics.Hit_Event, // scratch
 }
 
-Game :: sim.Game(State, Input, World, MAX_PLAYERS)
-Sim :: sim.Sim(State, Input, World, MAX_PLAYERS)
+Game :: sim.Game(State, Input, World, PLAYERS)
+Sim :: sim.Sim(State, Input, World, PLAYERS)
 
 @(rodata)
 GAME := Game {
 	name = "friendslop",
-	version = "1",
+	version = "2",
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(w: ^World) -> []sim.Extra {return w.extras[:]},
+	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	event_names = EVENT_NAMES,
+	events = Event,
 }
 
 @(rodata)
@@ -240,24 +240,24 @@ MOVER := physics.Mover_Def {
 // Builds the world from the level (src/level/SPEC.md): static geometry, then the markers the sim uses.
 // Bodies the block owns (items, platforms, bells) are created by init, in this order.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
-	w := new(World)
-	lvl, ok := level.load(content)
+	world := new(World)
+	loaded, ok := level.load(content)
 	assert(ok, "friendslop: the level file is missing or not a level (src/level/SPEC.md)")
-	w.lvl = lvl
-	w.phys = physics.create({anchor = true, hit_threshold = 2})
-	w.extras[0] = physics.extra(w.phys, State)
-	physics.create_static(w.phys, &w.lvl, CAT_STATIC)
-	for p in 0 ..< MAX_PLAYERS {
-		w.movers[p] = MOVER
-		w.movers[p].material = MAT_PLAYER + u64(p)
-		w.spawns[p] = {f32(p) * 1.5 - 2.25, 1.2, 0}
+	world.level = loaded
+	world.phys = physics.create({anchor = true, hit_threshold = 2})
+	world.extras[0] = physics.extra(world.phys, State)
+	physics.create_static(world.phys, &world.level, CAT_STATIC)
+	for player in 0 ..< PLAYERS {
+		world.movers[player] = MOVER
+		world.movers[player].material = MAT_PLAYER + u64(player)
+		world.spawns[player] = {f32(player) * 1.5 - 2.25, 1.2, 0}
 	}
 	// Triggers first: platforms refer to them by marker index.
-	trigger_of := make([]int, len(w.lvl.markers), context.temp_allocator)
-	for &t in trigger_of do t = -1
-	for &m in w.lvl.markers {
+	trigger_of := make([]int, len(world.level.markers), context.temp_allocator)
+	for &trigger in trigger_of do trigger = -1
+	for &marker in world.level.markers {
 		kind: Trigger_Kind
-		switch m.kind {
+		switch marker.kind {
 		case "plate":
 			kind = .Plate
 		case "bell":
@@ -269,187 +269,187 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 		case:
 			continue
 		}
-		assert(w.n_triggers < MAX_TRIGGERS, "friendslop: too many triggers")
-		trigger_of[m.index] = w.n_triggers
-		w.triggers[w.n_triggers] = {
+		assert(world.trigger_count < MAX_TRIGGERS, "friendslop: too many triggers")
+		trigger_of[marker.index] = world.trigger_count
+		world.triggers[world.trigger_count] = {
 			kind       = kind,
-			vol        = {m.pos, level.prop_vec3(&m, "size", {0.75, 0.25, 0.75})},
-			mass       = level.prop_f32(&m, "mass", 15),
-			radius     = level.prop_f32(&m, "radius", 0.5),
-			items_only = level.prop_bool(&m, "items_only"),
-			marker     = m.index,
+			volume     = {marker.pos, level.prop_vec3(&marker, "size", {0.75, 0.25, 0.75})},
+			mass       = level.prop_f32(&marker, "mass", 15),
+			radius     = level.prop_f32(&marker, "radius", 0.5),
+			items_only = level.prop_bool(&marker, "items_only"),
+			marker     = marker.index,
 		}
-		w.n_triggers += 1
+		world.trigger_count += 1
 	}
-	for &m in w.lvl.markers {
-		switch m.kind {
+	for &marker in world.level.markers {
+		switch marker.kind {
 		case "spawn":
-			slot := level.prop_int(&m, "slot")
-			if slot >= 0 && slot < MAX_PLAYERS do w.spawns[slot] = m.pos
+			player := level.prop_int(&marker, "slot") // the level file's name for the player
+			if player >= 0 && player < PLAYERS do world.spawns[player] = marker.pos
 		case "item":
-			assert(w.n_items < MAX_ITEMS, "friendslop: too many items")
+			assert(world.item_count < MAX_ITEMS, "friendslop: too many items")
 			kind := Item_Kind.Crate
-			name := level.prop_string(&m, "kind", "crate")
-			for n, k in ITEM_KIND_NAMES {
-				if n == name do kind = k
+			name := level.prop_string(&marker, "kind", "crate")
+			for kind_name, candidate in ITEM_KIND_NAMES {
+				if kind_name == name do kind = candidate
 			}
-			w.items[w.n_items] = {kind, m.pos, m.rot, m.index}
-			w.n_items += 1
+			world.items[world.item_count] = {kind, marker.pos, marker.rot, marker.index}
+			world.item_count += 1
 		case "platform":
-			assert(w.n_platforms < MAX_PLATFORMS, "friendslop: too many platforms")
-			d := &w.platforms[w.n_platforms]
-			d.origin = m.pos
-			d.rot = m.rot
-			d.half = level.prop_vec3(&m, "size", {1.5, 0.25, 1.5})
-			d.marker = m.index
-			d.trigger = -1
-			if r := level.prop_ref(&m, "trigger"); r >= 0 do d.trigger = trigger_of[r]
-			switch level.prop_string(&m, "mode", "ping_pong") {
+			assert(world.platform_count < MAX_PLATFORMS, "friendslop: too many platforms")
+			def := &world.platforms[world.platform_count]
+			def.origin = marker.pos
+			def.rot = marker.rot
+			def.half = level.prop_vec3(&marker, "size", {1.5, 0.25, 1.5})
+			def.marker = marker.index
+			def.trigger = -1
+			if ref := level.prop_ref(&marker, "trigger"); ref >= 0 do def.trigger = trigger_of[ref]
+			switch level.prop_string(&marker, "mode", "ping_pong") {
 			case "loop":
-				d.mode = .Loop
+				def.mode = .Loop
 			case "once":
-				d.mode = .Once
+				def.mode = .Once
 			case "follow":
-				d.mode = .Follow
+				def.mode = .Follow
 			case:
-				d.mode = .Ping_Pong
+				def.mode = .Ping_Pong
 			}
-			seconds := level.prop_f32(&m, "seconds", 2)
-			wait := level.prop_f32(&m, "wait", 0.5)
-			d.path.ease = level.prop_bool(&m, "smooth", true) ? .Smooth : .Linear
-			d.path.mode = d.mode == .Loop ? .Loop : d.mode == .Ping_Pong ? .Ping_Pong : .Once
-			n := min(len(m.path), physics.MAX_PATH_POINTS)
-			if n == 0 {
-				d.path.points[0] = m.pos
-				n = 1
+			seconds := level.prop_f32(&marker, "seconds", 2)
+			wait := level.prop_f32(&marker, "wait", 0.5)
+			def.path.ease = level.prop_bool(&marker, "smooth", true) ? .Smooth : .Linear
+			def.path.mode = def.mode == .Loop ? .Loop : def.mode == .Ping_Pong ? .Ping_Pong : .Once
+			point_count := min(len(marker.path), physics.MAX_PATH_POINTS)
+			if point_count == 0 {
+				def.path.points[0] = marker.pos
+				point_count = 1
 			}
-			for i in 0 ..< n {
-				if len(m.path) > 0 do d.path.points[i] = m.path[i]
-				d.path.seconds[i] = seconds
-				d.path.wait_s[i] = d.mode == .Follow ? 0 : wait
+			for i in 0 ..< point_count {
+				if len(marker.path) > 0 do def.path.points[i] = marker.path[i]
+				def.path.seconds[i] = seconds
+				def.path.wait_s[i] = def.mode == .Follow ? 0 : wait
 			}
-			d.path.count = u8(n)
-			w.n_platforms += 1
+			def.path.count = u8(point_count)
+			world.platform_count += 1
 		case "pad":
-			assert(w.n_pads < MAX_PADS, "friendslop: too many pads")
-			w.pads[w.n_pads] = {
-				vol    = {m.pos, level.prop_vec3(&m, "size", {0.75, 0.3, 0.75})},
-				launch = level.prop_vec3(&m, "launch", {0, 12, 0}),
+			assert(world.pad_count < MAX_PADS, "friendslop: too many pads")
+			world.pads[world.pad_count] = {
+				volume = {marker.pos, level.prop_vec3(&marker, "size", {0.75, 0.3, 0.75})},
+				launch = level.prop_vec3(&marker, "launch", {0, 12, 0}),
 			}
-			w.n_pads += 1
+			world.pad_count += 1
 		case "bumper":
-			assert(w.n_bumpers < MAX_BUMPERS, "friendslop: too many bumpers")
-			w.bumpers[w.n_bumpers] = {
-				vol      = {m.pos, level.prop_vec3(&m, "size", {0.6, 0.8, 0.6})},
-				strength = level.prop_f32(&m, "strength", 9),
+			assert(world.bumper_count < MAX_BUMPERS, "friendslop: too many bumpers")
+			world.bumpers[world.bumper_count] = {
+				volume   = {marker.pos, level.prop_vec3(&marker, "size", {0.6, 0.8, 0.6})},
+				strength = level.prop_f32(&marker, "strength", 9),
 			}
-			w.n_bumpers += 1
+			world.bumper_count += 1
 		case "checkpoint":
-			assert(w.n_checkpoints < MAX_CHECKPOINTS, "friendslop: too many checkpoints")
-			w.checkpoints[w.n_checkpoints] = {
-				index = level.prop_int(&m, "index", w.n_checkpoints + 1),
-				vol   = {m.pos, level.prop_vec3(&m, "size", {2, 2, 2})},
+			assert(world.checkpoint_count < MAX_CHECKPOINTS, "friendslop: too many checkpoints")
+			world.checkpoints[world.checkpoint_count] = {
+				index  = level.prop_int(&marker, "index", world.checkpoint_count + 1),
+				volume = {marker.pos, level.prop_vec3(&marker, "size", {2, 2, 2})},
 			}
-			w.n_checkpoints += 1
+			world.checkpoint_count += 1
 		case "start":
-			w.start = {m.pos, level.prop_vec3(&m, "size", {2, 2, 0.5})}
+			world.start = {marker.pos, level.prop_vec3(&marker, "size", {2, 2, 0.5})}
 		case "finish":
-			w.finish = {m.pos, level.prop_vec3(&m, "size", {1, 1, 1})}
+			world.finish = {marker.pos, level.prop_vec3(&marker, "size", {1, 1, 1})}
 		}
 	}
-	return w
+	return world
 }
 
-world_destroy :: proc(w: ^World) {
-	physics.destroy(w.phys)
-	level.destroy(&w.lvl)
-	delete(w.links)
-	delete(w.hits)
-	free(w)
+world_destroy :: proc(world: ^World) {
+	physics.destroy(world.phys)
+	level.destroy(&world.level)
+	delete(world.links)
+	delete(world.hits)
+	free(world)
 }
 
 // The tick-0 state: the hub, every item, platform and bell with its body; players join when present.
-init :: proc(s: ^State, w: ^World, seed: u64) {
-	s.phase = .Hub
-	s.checkpoint = -1
-	for i in 0 ..< w.n_items {
-		s.items[i] = {
-			body  = create_item_body(w, i),
+init :: proc(state: ^State, world: ^World, seed: u64) {
+	state.phase = .Hub
+	state.checkpoint = -1
+	for i in 0 ..< world.item_count {
+		state.items[i] = {
+			body  = create_item_body(world, i),
 			alive = true,
 		}
 	}
-	for i in 0 ..< w.n_platforms {
-		d := &w.platforms[i]
-		bd := b3.default_body_def()
-		bd.type = .Kinematic_Body
-		bd.position = d.origin
-		bd.rotation = d.rot
-		bd.enable_sleep = false
-		id := b3.create_body(w.phys.id, &bd)
-		sd := b3.default_shape_def()
-		sd.filter.category_bits = CAT_PLATFORM
-		sd.base_material.user_material_id = MAT_PLATFORM + u64(i)
-		sd.base_material.friction = 0.8
-		h := b3.make_box_hull(d.half.x, d.half.y, d.half.z)
-		b3.create_hull_shape(id, &sd, &h.base)
-		s.platforms[i] = {
+	for i in 0 ..< world.platform_count {
+		def := &world.platforms[i]
+		body_def := b3.default_body_def()
+		body_def.type = .Kinematic_Body
+		body_def.position = def.origin
+		body_def.rotation = def.rot
+		body_def.enable_sleep = false
+		id := b3.create_body(world.phys.id, &body_def)
+		shape_def := b3.default_shape_def()
+		shape_def.filter.category_bits = CAT_PLATFORM
+		shape_def.base_material.user_material_id = MAT_PLATFORM + u64(i)
+		shape_def.base_material.friction = 0.8
+		hull := b3.make_box_hull(def.half.x, def.half.y, def.half.z)
+		b3.create_hull_shape(id, &shape_def, &hull.base)
+		state.platforms[i] = {
 			body    = physics.ref_of(id),
-			running = d.trigger < 0,
+			running = def.trigger < 0,
 		}
 	}
-	for i in 0 ..< w.n_triggers {
-		d := &w.triggers[i]
-		if d.kind != .Bell do continue
-		bd := b3.default_body_def()
-		bd.position = d.vol.pos
-		id := b3.create_body(w.phys.id, &bd)
-		sd := b3.default_shape_def()
-		sd.filter.category_bits = CAT_TRIGGER
-		sd.base_material.user_material_id = MAT_TRIGGER + u64(i)
-		sd.enable_hit_events = true
-		sp := b3.Sphere{{}, d.radius}
-		b3.create_sphere_shape(id, &sd, &sp)
-		s.bodies[i] = physics.ref_of(id)
+	for i in 0 ..< world.trigger_count {
+		def := &world.triggers[i]
+		if def.kind != .Bell do continue
+		body_def := b3.default_body_def()
+		body_def.position = def.volume.pos
+		id := b3.create_body(world.phys.id, &body_def)
+		shape_def := b3.default_shape_def()
+		shape_def.filter.category_bits = CAT_TRIGGER
+		shape_def.base_material.user_material_id = MAT_TRIGGER + u64(i)
+		shape_def.enable_hit_events = true
+		sphere := b3.Sphere{{}, def.radius}
+		b3.create_sphere_shape(id, &shape_def, &sphere)
+		state.bodies[i] = physics.ref_of(id)
 	}
 }
 
-create_item_body :: proc(w: ^World, i: int) -> Body_Ref {
-	d := &w.items[i]
-	spec := &ITEM_SPECS[d.kind]
-	bd := b3.default_body_def()
-	bd.type = .Dynamic_Body
-	bd.position = d.pos
-	bd.rotation = d.rot
-	id := b3.create_body(w.phys.id, &bd)
-	sd := b3.default_shape_def()
-	sd.filter.category_bits = CAT_ITEM
-	sd.base_material.user_material_id = MAT_ITEM + u64(i)
-	sd.base_material.friction = spec.friction
-	sd.base_material.restitution = spec.restitution
-	sd.enable_hit_events = true
+create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
+	def := &world.items[index]
+	spec := &ITEM_SPECS[def.kind]
+	body_def := b3.default_body_def()
+	body_def.type = .Dynamic_Body
+	body_def.position = def.pos
+	body_def.rotation = def.rot
+	id := b3.create_body(world.phys.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.filter.category_bits = CAT_ITEM
+	shape_def.base_material.user_material_id = MAT_ITEM + u64(index)
+	shape_def.base_material.friction = spec.friction
+	shape_def.base_material.restitution = spec.restitution
+	shape_def.enable_hit_events = true
 	if spec.half == {} {
-		r := spec.radius
-		sd.density = spec.mass / (4.0 / 3.0 * 3.1415927 * r * r * r)
-		sp := b3.Sphere{{}, r}
-		b3.create_sphere_shape(id, &sd, &sp)
+		radius := spec.radius
+		shape_def.density = spec.mass / (4.0 / 3.0 * 3.1415927 * radius * radius * radius)
+		sphere := b3.Sphere{{}, radius}
+		b3.create_sphere_shape(id, &shape_def, &sphere)
 	} else {
-		hx, hy, hz := spec.half.x, spec.half.y, spec.half.z
-		sd.density = spec.mass / (8 * hx * hy * hz)
-		h := b3.make_box_hull(hx, hy, hz)
-		b3.create_hull_shape(id, &sd, &h.base)
+		half := spec.half
+		shape_def.density = spec.mass / (8 * half.x * half.y * half.z)
+		hull := b3.make_box_hull(half.x, half.y, half.z)
+		b3.create_hull_shape(id, &shape_def, &hull.base)
 	}
 	return physics.ref_of(id)
 }
 
-// The grab point `handle` of item i, in the item's local frame.
-item_handle :: proc(kind: Item_Kind, handle: int) -> [3]f32 {
+// The offset of an item's grab point `point` in the item's local frame.
+grab_point_offset :: proc(kind: Item_Kind, point: int) -> [3]f32 {
 	spec := &ITEM_SPECS[kind]
-	if spec.handles < 2 do return {}
+	if spec.grab_points < 2 do return {}
 	x := spec.half.x + 0.05
-	return {handle == 0 ? -x : x, 0, 0}
+	return {point == 0 ? -x : x, 0, 0}
 }
 
-in_volume :: proc(v: Volume, p: [3]f32) -> bool {
-	d := p - v.pos
-	return abs(d.x) <= v.half.x && abs(d.y) <= v.half.y && abs(d.z) <= v.half.z
+in_volume :: proc(volume: Volume, point: [3]f32) -> bool {
+	offset := point - volume.pos
+	return abs(offset.x) <= volume.half.x && abs(offset.y) <= volume.half.y && abs(offset.z) <= volume.half.z
 }

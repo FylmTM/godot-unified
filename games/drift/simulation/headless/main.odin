@@ -11,10 +11,10 @@ import "unified:headless/modes"
 
 ARENA_LEVEL :: #load("../../game/levels/arena.level")
 
-HEADLESS := headless.Headless(drift.State, drift.Input, drift.World, drift.MAX_PLAYERS) {
+HEADLESS := headless.Headless(drift.State, drift.Input, drift.World, drift.PLAYERS) {
 	game = &drift.GAME,
-	script = drift.script,
-	script_commands = drift.script_commands,
+	scripted_input = drift.scripted_input,
+	scripted_commands = drift.scripted_commands,
 	summary = summary,
 	bench = {
 		what = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), 8-tick rollback every tick",
@@ -29,19 +29,19 @@ main :: proc() {
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
-summary :: proc(s: ^drift.State) -> string {
+summary :: proc(state: ^drift.State) -> string {
 	present := 0
-	for sh in s.ships {
-		if sh.active do present += 1
+	for ship in state.ships {
+		if ship.active do present += 1
 	}
 	return fmt.tprintf(
 		`"phase":"%v","players_present":%d,"matches":%d,"waves":%d,"station_hp":%d,"score":%d,"rocks":%d`,
-		s.phase,
+		state.phase,
 		present,
-		s.matches,
-		s.waves,
-		s.station_hp,
-		s.score,
-		s.rocks.count,
+		state.matches,
+		state.waves,
+		state.station_hp,
+		state.score,
+		state.rocks.count,
 	)
 }
