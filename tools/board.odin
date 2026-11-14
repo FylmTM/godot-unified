@@ -13,7 +13,7 @@ import "unified:cli"
 
 BOARD_OWNER :: "FylmTM"
 BOARD_NUMBER :: "2"
-BOARD_REPO :: "FylmTM/unified"
+BOARD_REPO :: "FylmTM/godot-unified"
 BOARD_DONE :: "Done" // the Status column whose issues are closed: `set --status done` closes the issue too
 
 cmd_board :: proc(args: []string) -> cli.Result {
