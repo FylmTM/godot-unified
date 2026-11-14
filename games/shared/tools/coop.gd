@@ -117,14 +117,14 @@ func _join() -> void:
 		await _enter_code(code)
 		await wait_for(func() -> bool: return scene_is("Arena") and game.present_players().size() >= 2 and _playing(),
 			120.0, "back in the game after the crash")
-		step("back %.1f s after entering the code, slot %d: %s" % [(Time.get_ticks_msec() - t) / 1000.0,
-			game.local_slot(), player_names()])
+		step("back %.1f s after entering the code, player %d: %s" % [(Time.get_ticks_msec() - t) / 1000.0,
+			game.local_player(), player_names()])
 		await wait_for_scene("MainMenu", 60.0)
 		return
 	await _enter_code(code)
 	await wait_for_scene("Arena", 30.0)
 	await wait_for(func() -> bool: return game.present_players().size() >= 2, 30.0, "both players in")
-	step("joined as slot %d: %s" % [game.local_slot(), player_names()])
+	step("joined as player %d: %s" % [game.local_player(), player_names()])
 	await _join_play()
 	if crash or rejoin:
 		await wait_for(func() -> bool: return FileAccess.file_exists(_played_file()), 60.0, "the host's play")
@@ -144,7 +144,7 @@ func _join() -> void:
 		await wait_for_scene("Arena", 30.0)
 		await wait_for(func() -> bool: return game.present_players().size() >= 2 and _playing(), 30.0,
 			"back in the game")
-		step("rejoined as slot %d: %s" % [game.local_slot(), player_names()])
+		step("rejoined as player %d: %s" % [game.local_player(), player_names()])
 	await wait_for_scene("MainMenu", 60.0)
 	var error := find(menu(), ^"%ErrorMessage") as Label
 	if failed():

@@ -15,7 +15,7 @@ Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
 	view_root:   gd.Node, // a Node3D or Node2D (any Node): views are spawned as its children
 	root_id:     u64,
-	root_2d:     bool, // view_root is a Node2D: verified events also go out as sim_event_2d
+	root_2d:     bool, // the last view_root set is a Node2D: event positions are Vector2s
 	seed:        i64,
 	ticks:       i64,
 	name:        string,
@@ -58,138 +58,140 @@ register_session_class :: proc() {
 		name = "UnifiedSession",
 		parent = "Node",
 		size = size_of(Session_Node),
-		init = proc(i: rawptr) {
-			s := (^Session_Node)(i)
-			s.seed = 1
-			s.name = strings.clone("player")
+		init = proc(instance: rawptr) {
+			session := (^Session_Node)(instance)
+			session.seed = 1
+			session.name = strings.clone("player")
 		},
-		fini = proc(i: rawptr) {
-			s := (^Session_Node)(i)
-			if active == s {
-				session_end(s)
+		fini = proc(instance: rawptr) {
+			session := (^Session_Node)(instance)
+			if active == session {
+				session_end(session)
 				active = nil
 			}
-			clear_pending(s)
-			delete(s.name)
-			delete(s.detail)
+			clear_pending(session)
+			delete(session.name)
+			delete(session.detail)
 		},
-		ready = proc(i: rawptr) {session_ready((^Session_Node)(i))},
-		process = proc(i: rawptr, dt: f64) {session_process((^Session_Node)(i), dt)},
-		notification = proc(i: rawptr, what: i32) {
-			s := (^Session_Node)(i)
+		ready = proc(instance: rawptr) {session_ready((^Session_Node)(instance))},
+		process = proc(instance: rawptr, dt: f64) {session_process((^Session_Node)(instance), dt)},
+		notification = proc(instance: rawptr, what: i32) {
+			session := (^Session_Node)(instance)
 			switch what {
 			case gd.Node_NOTIFICATION_EXIT_TREE:
-				if active == s {
-					session_end(s)
+				if active == session {
+					session_end(session)
 					views_clear()
 					dev_shutdown()
 					active = nil
 				}
 			case gd.Object_NOTIFICATION_EXTENSION_RELOADED:
 				// New code, same Godot object: Odin state is fresh; Godot restored the saved properties.
-				if !is_editor() && gd.Node_is_inside_tree(node_of(s)) do session_ready(s)
+				if !is_editor() && gd.Node_is_inside_tree(node_of(session)) do session_ready(session)
 			}
 		},
 	}
-	c := &session_class
-	gd.register_class(c)
+	class := &session_class
+	gd.register_class(class)
 	gd.bind_property(
-		c,
+		class,
 		"seed",
-		proc(s: ^Session_Node) -> i64 {return s.seed},
-		proc(s: ^Session_Node, v: i64) {s.seed = v},
+		proc(session: ^Session_Node) -> i64 {return session.seed},
+		proc(session: ^Session_Node, value: i64) {session.seed = value},
 	)
 	gd.bind_property(
-		c,
+		class,
 		"ticks",
-		proc(s: ^Session_Node) -> i64 {return s.ticks},
-		proc(s: ^Session_Node, v: i64) {s.ticks = v},
+		proc(session: ^Session_Node) -> i64 {return session.ticks},
+		proc(session: ^Session_Node, value: i64) {session.ticks = value},
 	)
-	gd.bind_property(c, "view_root", proc(s: ^Session_Node) -> gd.Node {
-			if !alive(s.root_id) do return {}
-			return s.view_root
-		}, proc(s: ^Session_Node, v: gd.Node) {
-			s.view_root = v
-			s.root_id = v.ptr != nil ? gdi.object_get_instance_id(v.ptr) : 0
-			s.root_2d = v.ptr != nil && gd.object_cast(gd.Node2D, v, "Node2D").ptr != nil
+	gd.bind_property(
+		class,
+		"view_root",
+		proc(session: ^Session_Node) -> gd.Node {
+			if !alive(session.root_id) do return {}
+			return session.view_root
+		},
+		proc(session: ^Session_Node, node: gd.Node) {
+			session.view_root = node
+			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
+			// kept while view_root is cleared: a game's events stay Vector2s (2D) or Vector3s between scenes
+			if node.ptr != nil do session.root_2d = gd.object_cast(gd.Node2D, node, "Node2D").ptr != nil
 			views_root_changed()
-		})
-	gd.bind_method(c, "start_single", proc(s: ^Session_Node) -> bool {return session_start(s, {mode = .Single})})
-	gd.bind_method(c, "host_online", proc(s: ^Session_Node) -> bool {return session_start(s, {mode = .Host_Online})})
-	gd.bind_method(c, "host_direct", proc(s: ^Session_Node, port: i64) -> bool {
-		return session_start(s, {mode = .Host_Direct, port = int(port)})
+		},
+	)
+	gd.bind_method(
+		class,
+		"start_single",
+		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Single})},
+	)
+	gd.bind_method(
+		class,
+		"host_online",
+		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Host_Online})},
+	)
+	gd.bind_method(class, "host_direct", proc(session: ^Session_Node, port: i64) -> bool {
+		return session_start(session, {mode = .Host_Direct, port = int(port)})
 	}, {"port"})
-	gd.bind_method(c, "join_online", proc(s: ^Session_Node, code: string) -> bool {
-		return session_start(s, {mode = .Join_Online, arg = code})
+	gd.bind_method(class, "join_online", proc(session: ^Session_Node, code: string) -> bool {
+		return session_start(session, {mode = .Join_Online, arg = code})
 	}, {"code"})
-	gd.bind_method(c, "join_direct", proc(s: ^Session_Node, address: string) -> bool {
-		return session_start(s, {mode = .Join_Direct, arg = address})
+	gd.bind_method(class, "join_direct", proc(session: ^Session_Node, address: string) -> bool {
+		return session_start(session, {mode = .Join_Direct, arg = address})
 	}, {"address"})
 	gd.bind_method(
-		c,
+		class,
 		"leave",
-		proc(s: ^Session_Node) {
-			if s.has_pending { 	// the waiting session never started
-				clear_pending(s)
-				emit_status(s, .Disconnected, "left")
+		proc(session: ^Session_Node) {
+			if session.has_pending { 	// the waiting session never started
+				clear_pending(session)
+				emit_status(session, .Disconnected, "left")
 			}
 			if api.installed do api.stop()
 		},
 	)
-	gd.bind_method(c, "press_action", proc(s: ^Session_Node, action: string) {
-		i := button_index(action)
-		if i < 0 {
+	gd.bind_method(class, "press_action", proc(session: ^Session_Node, action: string) {
+		button := button_index(action)
+		if button < 0 {
 			gd.print_warning(fmt.tprintf("unified: press_action(%q): not one of the game's button actions", action))
 			return
 		}
-		press_button(i)
+		press_button(button)
 	}, {"action"})
-	gd.bind_method(c, "send_command", proc(s: ^Session_Node, name: gd.StringName, args: gd.Dictionary) -> bool {
-		name, args := name, args
-		return send_command(gd.string_name_to_odin(&name), &args)
-	}, {"name", "args"})
-	gd.bind_method(c, "set_input_vector", proc(s: ^Session_Node, index: i64, v: gd.Vector3) {
-		set_input_vector(int(index), {v.x, v.y, v.z})
+	gd.bind_method(
+		class,
+		"send_command",
+		proc(session: ^Session_Node, name: gd.StringName, args: gd.Dictionary) -> bool {
+			name, args := name, args
+			return send_command(gd.string_name_to_odin(&name), &args)
+		},
+		{"name", "args"},
+	)
+	gd.bind_method(class, "set_input_vector", proc(session: ^Session_Node, index: i64, vector: gd.Vector3) {
+		set_input_vector(int(index), {vector.x, vector.y, vector.z})
 	}, {"index", "vector"})
-	gd.bind_method(c, "set_input_vector_2d", proc(s: ^Session_Node, index: i64, v: gd.Vector2) {
-		set_input_vector(int(index), {v.x, v.y, 0})
+	gd.bind_method(class, "set_input_vector_2d", proc(session: ^Session_Node, index: i64, vector: gd.Vector2) {
+		set_input_vector(int(index), {vector.x, vector.y, 0})
 	}, {"index", "vector"})
-	gd.bind_method(c, "set_player_name", proc(s: ^Session_Node, name: string) {
-		delete(s.name)
-		s.name = strings.clone(name)
+	gd.bind_method(class, "set_player_name", proc(session: ^Session_Node, name: string) {
+		delete(session.name)
+		session.name = strings.clone(name)
 	}, {"name"})
-	gd.bind_method(c, "hud", session_hud)
-	gd.bind_method(c, "constants", session_constants)
-	gd.bind_method(c, "get_status", proc(s: ^Session_Node) -> string {return STATUS_NAMES[s.status]})
-	gd.bind_method(c, "is_running", proc(s: ^Session_Node) -> bool {return api.installed && api.running()})
-	gd.bind_method(c, "get_tick", proc(s: ^Session_Node) -> i64 {return i64(s.last_tick)})
-	gd.bind_method(c, "toggle_devui", proc(s: ^Session_Node) {dev_toggle()})
-	gd.bind_method(c, "is_devui_visible", proc(s: ^Session_Node) -> bool {return dev_visible()})
-	gd.bind_signal(c, "status_changed", {"status", string}, {"detail", string})
-	gd.bind_signal(c, "lobby_code", {"code", string})
-	gd.bind_signal(
-		c,
-		"sim_event",
-		{"kind", gd.StringName},
-		{"tick", i64},
-		{"entity", i64},
-		{"position", gd.Vector3},
-		{"value", f64},
-	)
-	gd.bind_signal(
-		c,
-		"sim_event_2d",
-		{"kind", gd.StringName},
-		{"tick", i64},
-		{"entity", i64},
-		{"position", gd.Vector2},
-		{"value", f64},
-	)
+	gd.bind_method(class, "hud", session_hud)
+	gd.bind_method(class, "constants", session_constants)
+	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
+	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
+	gd.bind_method(class, "get_tick", proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)})
+	gd.bind_method(class, "toggle_devui", proc(session: ^Session_Node) {dev_toggle()})
+	gd.bind_method(class, "is_devui_visible", proc(session: ^Session_Node) -> bool {return dev_visible()})
+	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
+	gd.bind_signal(class, "lobby_code", {"code", string})
+	gd.bind_signal(class, "sim_event", {"event", gd.StringName}, {"data", gd.Dictionary})
 }
 
 @(private)
-node_of :: proc(s: ^Session_Node) -> gd.Node {
-	return gd.cast_to(gd.Node, s.obj)
+node_of :: proc(session: ^Session_Node) -> gd.Node {
+	return gd.cast_to(gd.Node, session.obj)
 }
 
 @(private)
@@ -198,125 +200,126 @@ alive :: proc(id: u64) -> bool {
 }
 
 @(private)
-session_ready :: proc(s: ^Session_Node) {
+session_ready :: proc(session: ^Session_Node) {
 	if is_editor() do return // the editor shows scenes; the game never runs in it
-	if active != nil && active != s {
+	if active != nil && active != session {
 		gd.print_warning("unified: a second UnifiedSession; only the first one runs")
 		return
 	}
-	active = s
-	gd.Node_set_process_priority(node_of(s), -1000) // views are written before any other _process
-	gd.Node_set_process(node_of(s), true)
-	if !s.args_read {
-		s.args_read = true
-		s.args = parse_args()
-		if s.args.seed != 0 do s.seed = s.args.seed
-		if s.args.ticks != 0 do s.ticks = i64(s.args.ticks)
-		s.quit_at_end = s.args.quit
-		if s.args.lag_ms > 0 {
-			l := f32(s.args.lag_ms)
-			set_netsim({true, {l, l / 4, 1}, {l, l / 4, 1}})
+	active = session
+	gd.Node_set_process_priority(node_of(session), -1000) // views are written before any other _process
+	gd.Node_set_process(node_of(session), true)
+	if !session.args_read {
+		session.args_read = true
+		session.args = parse_args()
+		if session.args.seed != 0 do session.seed = session.args.seed
+		if session.args.ticks != 0 do session.ticks = i64(session.args.ticks)
+		session.quit_at_end = session.args.quit
+		if session.args.lag_ms > 0 {
+			lag_ms := f32(session.args.lag_ms)
+			set_netsim({true, {lag_ms, lag_ms / 4, 1}, {lag_ms, lag_ms / 4, 1}})
 		}
 		read_app_version()
 	}
 	lag: Netsim_Settings
-	if s.args.lag_ms > 0 {
-		l := f32(s.args.lag_ms)
-		lag = {true, {l, l / 4, 1}, {l, l / 4, 1}}
+	if session.args.lag_ms > 0 {
+		lag_ms := f32(session.args.lag_ms)
+		lag = {true, {lag_ms, lag_ms / 4, 1}, {lag_ms, lag_ms / 4, 1}}
 	}
-	dev_init(s.args.devui, lag)
+	dev_init(session.args.devui, lag)
 	switch {
-	case s.args.autostart:
-		session_start(s, {mode = .Single, scripted = s.args.scripted})
-	case s.args.host_port != 0:
-		session_start(s, {mode = .Host_Direct, port = s.args.host_port, scripted = s.args.scripted})
-	case s.args.join != "":
-		session_start(s, {mode = .Join_Direct, arg = s.args.join, scripted = s.args.scripted})
-	case s.args.online:
-		session_start(s, {mode = .Host_Online, scripted = s.args.scripted})
-	case s.args.join_code != "":
-		session_start(s, {mode = .Join_Online, arg = s.args.join_code, scripted = s.args.scripted})
+	case session.args.autostart:
+		session_start(session, {mode = .Single, scripted = session.args.scripted})
+	case session.args.host_port != 0:
+		session_start(session, {mode = .Host_Direct, port = session.args.host_port, scripted = session.args.scripted})
+	case session.args.join != "":
+		session_start(session, {mode = .Join_Direct, arg = session.args.join, scripted = session.args.scripted})
+	case session.args.online:
+		session_start(session, {mode = .Host_Online, scripted = session.args.scripted})
+	case session.args.join_code != "":
+		session_start(session, {mode = .Join_Online, arg = session.args.join_code, scripted = session.args.scripted})
 	}
-	s.args.autostart, s.args.host_port, s.args.join, s.args.online, s.args.join_code = false, 0, "", false, ""
+	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
+		false, 0, "", false, ""
 }
 
 @(private)
-session_start :: proc(s: ^Session_Node, req: Start) -> bool {
+session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 	if !api.installed {
-		emit_status(s, .Failed, "no game installed in this extension")
+		emit_status(session, .Failed, "no game installed in this extension")
 		return false
 	}
 	if api.running() {
 		// Leave, then Host or Join at once: the left session is still saying goodbye (<= 1 s once hurried). The
 		// new one starts when it is gone (session_process); its own messages are dropped meanwhile.
-		if !api.stopping() || s.has_pending {
-			emit_status(s, .Failed, "a session is already running")
+		if !api.stopping() || session.has_pending {
+			emit_status(session, .Failed, "a session is already running")
 			return false
 		}
-		s.pending = req
-		s.pending.arg = strings.clone(req.arg)
-		s.has_pending = true
+		session.pending = request
+		session.pending.arg = strings.clone(request.arg)
+		session.has_pending = true
 		api.hurry()
-		emit_status(s, .Connecting, "")
+		emit_status(session, .Connecting, "")
 		return true
 	}
-	return session_launch(s, req)
+	return session_launch(session, request)
 }
 
 @(private)
-session_launch :: proc(s: ^Session_Node, req: Start) -> bool {
-	s.frame = nil // it points into the finished session, which wait frees
+session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
+	session.frame = nil // it points into the finished session, which wait frees
 	api.wait() // a finished session's thread
-	req := req
-	if req.mode == .Single do req.bench = s.args.bench
-	req.local = s.args.local_net
-	req.seed = u64(s.seed)
-	req.ticks = u32(max(s.ticks, 0))
-	req.name = s.name
+	request := request
+	if request.mode == .Single do request.bench = session.args.bench
+	request.local = session.args.local_net
+	request.seed = u64(session.seed)
+	request.ticks = u32(max(session.ticks, 0))
+	request.name = session.name
 	level: []u8
 	defer delete(level)
 	if api.level != "" {
 		level = read_res_file(api.level)
 		if len(level) == 0 {
-			emit_status(s, .Failed, fmt.tprintf("cannot read the level %s", api.level))
+			emit_status(session, .Failed, fmt.tprintf("cannot read the level %s", api.level))
 			return false
 		}
-		req.content = level
+		request.content = level
 	}
-	ok, err := api.start(req)
+	ok, err := api.start(request)
 	if !ok {
-		emit_status(s, .Failed, err)
+		emit_status(session, .Failed, err)
 		return false
 	}
-	emit_status(s, .Connecting, "")
+	emit_status(session, .Connecting, "")
 	return true
 }
 
 @(private)
-clear_pending :: proc(s: ^Session_Node) {
-	if s.has_pending do delete(s.pending.arg)
-	s.pending, s.has_pending = {}, false
+clear_pending :: proc(session: ^Session_Node) {
+	if session.has_pending do delete(session.pending.arg)
+	session.pending, session.has_pending = {}, false
 }
 
 // Starts the waiting session once the previous one has finished.
 @(private)
-start_pending :: proc(s: ^Session_Node) {
-	if !s.has_pending || api.running() do return
-	req := s.pending
-	s.has_pending = false
-	s.pending = {}
-	defer delete(req.arg)
-	session_launch(s, req)
+start_pending :: proc(session: ^Session_Node) {
+	if !session.has_pending || api.running() do return
+	request := session.pending
+	session.has_pending = false
+	session.pending = {}
+	defer delete(request.arg)
+	session_launch(session, request)
 }
 
 @(private)
-session_end :: proc(s: ^Session_Node) {
-	clear_pending(s)
+session_end :: proc(session: ^Session_Node) {
+	clear_pending(session)
 	if api.installed {
 		api.stop()
 		api.wait()
 	}
-	s.frame = nil
+	session.frame = nil
 }
 
 session_shutdown_all :: proc() {
@@ -328,160 +331,154 @@ session_shutdown_all :: proc() {
 }
 
 @(private)
-emit_status :: proc(s: ^Session_Node, st: Status_Kind, detail: string) {
-	if st == s.status && detail == s.detail do return
-	s.status = st
-	delete(s.detail)
-	s.detail = strings.clone(detail)
-	gd.emit_signal(s.obj, gd.sn("status_changed"), STATUS_NAMES[st], detail)
+emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string) {
+	if status == session.status && detail == session.detail do return
+	session.status = status
+	delete(session.detail)
+	session.detail = strings.clone(detail)
+	gd.emit_signal(session.obj, gd.sn("status_changed"), STATUS_NAMES[status], detail)
 }
 
 @(private)
-session_process :: proc(s: ^Session_Node, dt: f64) {
-	if is_editor() || active != s do return
+session_process :: proc(session: ^Session_Node, dt: f64) {
+	if is_editor() || active != session do return
 	dev_begin()
 	sample_input(dev_wants_keyboard())
 	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
-	t0 := time.tick_now()
+	started := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
 	fresh := false
 	if api.installed {
-		s.frame, fresh = api.front()
+		session.frame, fresh = api.front()
 	}
 	now := time.tick_now()
-	if s.frame != nil {
-		f := s.frame
-		s.last_tick = f.tick
-		tick_us := i64(1_000_000 / max(f.tick_hz, 1))
-		a := view.alpha(now._nsec / 1000, f.due_us, tick_us)
-		root := alive(s.root_id) ? s.view_root : {}
-		views_sync(root, f, fresh, a, f32(dt))
+	if session.frame != nil {
+		frame := session.frame
+		session.last_tick = frame.tick
+		tick_us := i64(1_000_000 / max(frame.tick_hz, 1))
+		alpha := view.alpha(now._nsec / 1000, frame.due_us, tick_us)
+		root := alive(session.root_id) ? session.view_root : {}
+		views_sync(root, frame, fresh, alpha, f32(dt))
 	}
-	drain_messages(s)
-	start_pending(s)
-	s.sync_us = f32(time.duration_microseconds(time.tick_since(t0)))
+	drain_messages(session)
+	start_pending(session)
+	session.sync_us = f32(time.duration_microseconds(time.tick_since(started)))
 	sync.atomic_store(&want_state, dev_visible())
-	dev_frame(s, dt)
+	dev_frame(session, dt)
 }
 
 @(private)
-drain_messages :: proc(s: ^Session_Node) {
+drain_messages :: proc(session: ^Session_Node) {
 	if !api.installed do return
 	for {
-		m, ok := api.pop()
+		message, ok := api.pop()
 		if !ok do break
-		text := string(m.text[:m.len])
-		if s.has_pending && m.kind != .Result do continue // the left session's last words; the new one is connecting
-		switch m.kind {
+		text := string(message.text[:message.len])
+		if session.has_pending && message.kind != .Result do continue // the left session's last words; the new one is connecting
+		switch message.kind {
 		case .Status:
-			emit_status(s, m.status, text)
+			emit_status(session, message.status, text)
 		case .Lobby_Code:
 			fmt.printfln("unified: lobby code %s", text)
-			gd.emit_signal(s.obj, gd.sn("lobby_code"), text)
+			gd.emit_signal(session.obj, gd.sn("lobby_code"), text)
 		case .Event:
-			route_event(s, m)
+			route_event(session, message)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
-			if s.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(s)), 0)
+			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)
 		}
 	}
 }
 
+// An event, in one of its states: its fields as a Dictionary (events.odin) plus `tick`, `state` ("predicted",
+// "confirmed" or "cancelled") and `first` (the first time it is shown), to the subject's view (_sim_event) and to
+// the sim_event signal, in the order the ticks emitted them.
 @(private)
-event_name :: proc(kind: u16) -> string {
-	if int(kind) < len(api.event_names) do return api.event_names[kind]
-	return fmt.tprintf("event_%d", kind)
-}
-
-@(private)
-route_event :: proc(s: ^Session_Node, m: Message) {
-	e := m.event
-	name := event_name(e.kind)
-	pos := gd.Vector3{e.pos.x, e.pos.y, e.pos.z}
-	if m.action == .Confirm {
-		// player events carry the slot as their entity (UI: slot colours, "is it me")
-		entity := e.slot != sim.NO_SLOT ? i64(e.slot) : i64(e.entity)
-		gd.emit_signal(s.obj, gd.sn("sim_event"), gd.sn(name)^, i64(m.tick), entity, pos, f64(e.value))
-		if s.root_2d && alive(s.root_id) {
-			pos2 := gd.Vector2{e.pos.x, e.pos.y}
-			gd.emit_signal(s.obj, gd.sn("sim_event_2d"), gd.sn(name)^, i64(m.tick), entity, pos2, f64(e.value))
-		}
+route_event :: proc(session: ^Session_Node, message: Message) {
+	raw := message.event
+	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
+	layout := &api.events[raw.kind]
+	data := event_dictionary(layout, raw.data[:raw.size], session.root_2d)
+	defer gd.Dictionary_destroy(&data)
+	gd.dict_set(&data, "tick", i64(message.tick))
+	gd.dict_set(&data, "state", STATE_NAMES[message.action])
+	gd.dict_set(&data, "first", message.first)
+	views_event(layout, &raw, &data)
+	gd.emit_signal(session.obj, gd.sn("sim_event"), gd.sn(layout.name)^, data)
+	if message.action == .Confirmed {
+		player, entity := event_subject(layout, raw.data[:raw.size])
 		dev_log(
-			m.tick,
-			"%s entity %d slot %d value %.2f",
-			name,
-			e.entity,
-			i32(e.slot) if e.slot != 0xFF else -1,
-			e.value,
+			message.tick,
+			"%s player %d entity %d",
+			layout.name,
+			i32(player) if player != u32(sim.NO_PLAYER) else -1,
+			entity,
 		)
-		return
 	}
-	verified := s.frame != nil ? s.frame.verified : 0
-	views_event(e, name, m.tick, m.action == .Cancel, m.tick > verified)
 }
 
 @(private)
-session_hud :: proc(s: ^Session_Node) -> gd.Dictionary {
-	d := gd.dict_new()
+session_hud :: proc(session: ^Session_Node) -> gd.Dictionary {
+	dict := gd.dict_new()
 	// before the first frame the game fills every contract key with its empty value
-	if api.installed && api.hud != nil do api.hud(s.frame, &d)
-	return d
+	if api.installed && api.hud != nil do api.hud(session.frame, &dict)
+	return dict
 }
 
 // The game's constants for scripts (Glue.constants) plus `tick_hz`.
 @(private)
-session_constants :: proc(s: ^Session_Node) -> gd.Dictionary {
-	d := gd.dict_new()
-	if !api.installed do return d
-	gd.dict_set(&d, "tick_hz", i64(api.tick_hz))
-	if api.constants != nil do api.constants(&d)
-	return d
+session_constants :: proc(session: ^Session_Node) -> gd.Dictionary {
+	dict := gd.dict_new()
+	if !api.installed do return dict
+	gd.dict_set(&dict, "tick_hz", i64(api.tick_hz))
+	if api.constants != nil do api.constants(&dict)
+	return dict
 }
 
 // ---- command line (user args after `--`)
 
 @(private)
-parse_args :: proc() -> (a: Args) {
+parse_args :: proc() -> (args: Args) {
 	list := gd.OS_get_cmdline_user_args(gd.OS_singleton())
 	defer gd.PackedStringArray_destroy(&list)
-	n := int(gd.PackedStringArray_size(&list))
-	strs := make([]string, n, context.temp_allocator)
-	for i in 0 ..< n {
-		strs[i] = gd.string_to_odin(cast(^gd.String)gdi.packed_string_array_operator_index(&list, i64(i)))
+	count := int(gd.PackedStringArray_size(&list))
+	user_args := make([]string, count, context.temp_allocator)
+	for i in 0 ..< count {
+		user_args[i] = gd.string_to_odin(cast(^gd.String)gdi.packed_string_array_operator_index(&list, i64(i)))
 	}
-	next :: proc(strs: []string, i: ^int) -> string {
-		i^ += 1
-		return i^ < len(strs) ? strs[i^] : ""
+	next :: proc(user_args: []string, index: ^int) -> string {
+		index^ += 1
+		return index^ < len(user_args) ? user_args[index^] : ""
 	}
-	for i := 0; i < len(strs); i += 1 {
-		switch strs[i] {
+	for i := 0; i < len(user_args); i += 1 {
+		switch user_args[i] {
 		case "--autostart":
-			a.autostart = true
+			args.autostart = true
 		case "--scripted":
-			a.scripted = true
+			args.scripted = true
 		case "--quit-at-end":
-			a.quit = true
+			args.quit = true
 		case "--devui":
-			a.devui = true
+			args.devui = true
 		case "--ticks":
-			a.ticks, _ = strconv.parse_int(next(strs, &i))
+			args.ticks, _ = strconv.parse_int(next(user_args, &i))
 		case "--seed":
-			v, _ := strconv.parse_i64(next(strs, &i))
-			a.seed = v
+			seed, _ := strconv.parse_i64(next(user_args, &i))
+			args.seed = seed
 		case "--join":
-			a.join = strings.clone(next(strs, &i))
+			args.join = strings.clone(next(user_args, &i))
 		case "--bench":
-			a.bench, _ = strconv.parse_int(next(strs, &i))
+			args.bench, _ = strconv.parse_int(next(user_args, &i))
 		case "--host-online":
-			a.online = true
+			args.online = true
 		case "--join-code":
-			a.join_code = strings.clone(next(strs, &i))
+			args.join_code = strings.clone(next(user_args, &i))
 		case "--lag":
-			a.lag_ms, _ = strconv.parse_int(next(strs, &i))
+			args.lag_ms, _ = strconv.parse_int(next(user_args, &i))
 		case "--host-port":
-			a.host_port, _ = strconv.parse_int(next(strs, &i))
+			args.host_port, _ = strconv.parse_int(next(user_args, &i))
 		case "--local-net":
-			a.local_net = true
+			args.local_net = true
 		}
 	}
 	return
@@ -490,11 +487,11 @@ parse_args :: proc() -> (a: Args) {
 // A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.
 @(private)
 read_res_file :: proc(path: string, allocator := context.allocator) -> []u8 {
-	pba := gd.FileAccess_get_file_as_bytes(path)
-	defer gd.PackedByteArray_destroy(&pba)
-	n := gd.PackedByteArray_size(&pba)
-	if n <= 0 do return nil
-	out := make([]u8, n, allocator)
-	copy(out, gdi.packed_byte_array_operator_index(&pba, 0)[:n])
+	bytes := gd.FileAccess_get_file_as_bytes(path)
+	defer gd.PackedByteArray_destroy(&bytes)
+	size := gd.PackedByteArray_size(&bytes)
+	if size <= 0 do return nil
+	out := make([]u8, size, allocator)
+	copy(out, gdi.packed_byte_array_operator_index(&bytes, 0)[:size])
 	return out
 }

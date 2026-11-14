@@ -303,11 +303,11 @@ func setting(key: StringName) -> Variant:
 	return root.get_node(^"Settings").get_value(key)
 
 
-## "slot:name, ..." of the present players.
+## "player:name, ..." of the present players.
 func player_names() -> String:
 	var out: Array[String] = []
 	for p: Dictionary in game.present_players():
-		out.append("%d:%s" % [p.slot, game.player_name(p)])
+		out.append("%d:%s" % [p.player, game.player_name(p)])
 	return ", ".join(out)
 
 
@@ -320,11 +320,9 @@ func _start() -> void:
 		fail("no session: build the game library (uni build)")
 		return
 	if frame_log != null:
-		game.session.sim_event.connect(func(k: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void:
-			frame_tag(k))
-		if game.session.has_signal(&"sim_event_2d"):
-			game.session.sim_event_2d.connect(func(k: StringName, _t: int, _e: int, _p: Vector2, _v: float) -> void:
-				frame_tag(k))
+		game.session.sim_event.connect(func(event: StringName, data: Dictionary) -> void:
+			if data.state == "confirmed":
+				frame_tag(event))
 		# A window that loses focus or gets covered can stall a frame in the driver: tag it, not to blame the game.
 		root.focus_entered.connect(frame_tag.bind("window focused"))
 		root.focus_exited.connect(frame_tag.bind("window unfocused"))

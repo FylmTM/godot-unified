@@ -32,15 +32,20 @@ when ODIN_OS == .Darwin {
 
 	// The session thread: a time-constraint policy, period one tick, ~1 ms of computation, 2 ms constraint.
 	set_realtime_thread :: proc(tick_hz: int) {
-		tb: [2]u32 // numer, denom: ns = units * numer / denom
-		mach_timebase_info(&tb)
-		units :: proc(tb: [2]u32, ns: u64) -> u32 {return u32(ns * u64(tb[1]) / u64(tb[0]))}
+		timebase: [2]u32 // numer, denom: ns = units * numer / denom
+		mach_timebase_info(&timebase)
+		units :: proc(timebase: [2]u32, ns: u64) -> u32 {return u32(ns * u64(timebase[1]) / u64(timebase[0]))}
 		Time_Constraint :: struct {
 			period, computation, constraint, preemptible: u32,
 		}
 		period := u64(1_000_000_000 / max(tick_hz, 1))
-		tc := Time_Constraint{units(tb, period), units(tb, 1_000_000), units(tb, 2_000_000), 1}
-		if thread_policy_set(mach_thread_self(), 2, &tc, 4) != 0 { 	// THREAD_TIME_CONSTRAINT_POLICY
+		constraint := Time_Constraint {
+			units(timebase, period),
+			units(timebase, 1_000_000),
+			units(timebase, 2_000_000),
+			1,
+		}
+		if thread_policy_set(mach_thread_self(), 2, &constraint, 4) != 0 { 	// THREAD_TIME_CONSTRAINT_POLICY
 			fmt.eprintln("unified: thread_policy_set(TIME_CONSTRAINT) failed")
 		}
 	}

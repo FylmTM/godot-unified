@@ -32,7 +32,8 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   the session. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(name, args)`. State: `session`, `is_mock`, `flow`,
   `mode`, `status`, `status_detail`, `lobby_code`, `lan_port`, `lan_address`, `last_error`, `hud`, `constants`,
-  `using_pad`. Helpers: `local_slot()`, `player(slot)`, `local_player()`, `present_players()`, `player_name(p)`,
+  `using_pad`. Helpers: `local_player()` (the index), `player_info(player)`, `local_player_info()`, `present_players()`,
+  `player_name(info)`,
   `hint(keys, pad)`, `rumble`, `clipboard_get/set`, `copy_with_feedback`. Signals: `flow_changed`,
   `status_changed`, `lobby_code_changed`, `input_device_changed`. Virtual: `_create_session()` (a game with a
   GDScript stand-in returns it and sets `is_mock`).
@@ -69,7 +70,7 @@ the native session's own (`--autostart`, `--scripted`, `--join`, ...: `src/godot
   most 1 s) until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
 - **`Game.hud` is current for event handlers.** The session emits its events before `Game` refreshes `hud` in its
   `_process`; `Game` connects to the session first and refreshes `hud` on the frame's first event, so a handler
-  never compares against the previous frame's (a stale `local_slot` of -1 made single player announce its own join).
+  never compares against the previous frame's (a stale `local_player` of -1 made single player announce its own join).
 - **Play scene** (#89): the main menu loads the play scene on a worker thread
   (`ResourceLoader.load_threaded_request`) once it is on screen, so its shaders compile in the background, and
   collects it on leaving. In Godot 4.7.2 a resource a script first loads with `preload()` on a worker thread is

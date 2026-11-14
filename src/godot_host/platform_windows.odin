@@ -24,8 +24,8 @@ set_power_throttling :: proc(control: u32) {
 	PROCESS_POWER_THROTTLING :: 4 // PROCESS_INFORMATION_CLASS.ProcessPowerThrottling
 	// control: the policies we decide (EXECUTION_SPEED 0x1, IGNORE_TIMER_RESOLUTION 0x4); state 0 = not
 	// throttled. control 0 hands both back to the system.
-	st := Power_Throttling_State{1, control, 0}
-	_ = SetProcessInformation(win.GetCurrentProcess(), PROCESS_POWER_THROTTLING, &st, size_of(st)) // Windows 8+; best effort
+	throttling := Power_Throttling_State{1, control, 0}
+	_ = SetProcessInformation(win.GetCurrentProcess(), PROCESS_POWER_THROTTLING, &throttling, size_of(throttling)) // Windows 8+; best effort
 }
 
 set_realtime_thread :: proc(tick_hz: int) {}

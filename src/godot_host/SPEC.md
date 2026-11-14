@@ -36,19 +36,21 @@ installs its sim and its glue.
 ## godot_host API
 
 ```odin
-godot_host.install(&GAME, glue)            // sim.Game(S, I, W, P) + Glue(S, I, W)
+godot_host.install(&GAME, glue)            // sim.Game(State, Input, World, PLAYERS) + Glue(State, Input, World)
 godot_host.set_transport(&transport)       // optional: online play (EOS...), never imported by godot_host
 return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
 Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default (a warning for 2D views) */,
        actions: {move: [4]string, buttons: []string},
-       extract(cur, prev, world, ^Frame), sample(Actions, slot, tick, ^S) -> I, scripted(seed, slot, tick, ^S) -> I,
-       scripted_commands(seed, slot, tick, ^S, ^sim.Command_Out) /* optional: --scripted sends these */,
-       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench, event_key,
-       event_pos(pos, ^W) -> pos /* optional: events in extract's units, e.g. metres or cells to pixels */, compat,
+       extract(current, previous, world, ^Frame), poll_input(Actions, player, tick, ^State) -> Input,
+       scripted_input(seed, player, tick, ^State) -> Input,
+       scripted_commands(seed, player, tick, ^State, ^sim.Command_Out) /* optional: --scripted sends these */,
+       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench,
+       event_key(^sim.Raw_Event) -> view.Key /* optional: overrides the routing by subject */,
+       event_pos(sim.Position, ^World) -> sim.Position /* optional: event positions in extract's units */, compat,
        level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
 godot_host.app_version                     // application/config/version, read before the first session
-Frame { tick, verified, due_us, local_slot, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
-Scene_Item { key, kind, slot, entity, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot, data: [64]u8 }
+Frame { tick, verified, due_us, local_player, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
+Scene_Item { key, kind, player, entity: u64, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot, data: [64]u8 }
 Bulk_Item { kind, has_prev, pos, prev_pos, yaw, prev_yaw, scale: [3]f32 /* zero = 1 */, color /* zero = white */, custom }
 push_scene(out, item) / push_scene(out, item, data: T) -> bool    // extract: append; false (and `dropped`) when full
 push_bulk(out, item) -> bool
@@ -60,15 +62,15 @@ GDScript sees contract v0:
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
     `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
     `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `sim_event`, and `sim_event_2d` (the same, position a Vector2) when
-    `view_root` is a Node2D;
+  - signals: `status_changed`, `lobby_code`, `sim_event(event: StringName, data: Dictionary)` (every event in every
+    state: "Events" below);
   - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice),
     `host_direct(port)` (every interface; 127.0.0.1 only when the process got `--local-net`, which `uni` passes to
     every tool run and the session test),
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
   - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
-    latest value; the game's `sample` reads it as `Actions.vectors[i]` (i < 4); `set_input_vector_2d(i, v)` takes
+    latest value; the game's `poll_input` reads it as `Actions.vectors[i]` (i < 4); `set_input_vector_2d(i, v)` takes
     a Vector2 (z = 0), e.g. a 2D aim direction;
   - `send_command(name: StringName, args: Dictionary) -> bool` (signed off 2026-11-10): sends one of the game's
     commands (`sim.Game.commands`, src/sim/SPEC.md), delivered to the sim exactly once. The host converts the
@@ -78,8 +80,8 @@ GDScript sees contract v0:
     command, a missing or unknown field, a wrong type or range, no running session or a full queue (64 waiting)
     returns false with a `print_error` naming it. Main thread; queued to the session thread, which hands it to the
     client's `commands` hook (the command's tick is the next one the client samples).
-- **`SimView`** (Node3D: `kind`, `entity`, `slot`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
-  and `_sim_event(kind, data)`).
+- **`SimView`** (Node3D: `kind`, `entity`, `player`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
+  and `_sim_event(event: StringName, data: Dictionary)`).
 - **`SimView2D`** (Node2D: the same, with `_sim_update(position: Vector2, rotation, alpha)`).
 - **`SimBulkView`** (MultiMeshInstance3D: `kind`), **`SimBulkView2D`** (MultiMeshInstance2D: `kind`); both join
   the `sim_bulk` group.
@@ -96,10 +98,11 @@ Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the
   than it snaps.
 - Rotation: the angle about Z (`Node2D.rotation`: 0 = +x, positive turns +x toward +y, clockwise on screen):
   `Scene_Item.rot = view.quat_angle2d(a)`, `Bulk_Item.yaw = a`. The host sets the root's `position` and
-  `rotation`, then calls `_sim_update(Vector2, rotation, alpha)`; `_sim_event` data carries `position` as a
-  Vector2. The `sim_event` signal keeps its Vector3; `sim_event_2d` carries a Vector2. Event positions are the
-  sim's units unless the game sets `Glue.event_pos` (session thread, with the World) to convert them into the
-  units its `extract` writes, so views and effects never scale them by hand (signed off 2026-11-10).
+  `rotation`, then calls `_sim_update(Vector2, rotation, alpha)`. Event positions (`sim.Position` fields) are
+  Vector2s when `view_root` is a Node2D, Vector3s otherwise (the last `view_root` set decides: clearing it between
+  scenes keeps the game's shape), in the sim's units unless the game sets
+  `Glue.event_pos` (session thread, with the World) to convert them into the units its `extract` writes, so views
+  and effects never scale them by hand (signed off 2026-11-10).
 - Bulk: the MultiMesh's `transform_format` decides the layout: `TRANSFORM_2D` writes 8 floats per instance
   (`cs, -sn, 0, x,  sn, cs, 0, y`, uniform scale in cs/sn), `TRANSFORM_3D` 12; then the color (`use_colors`)
   and the custom data (`use_custom_data`), 4 floats each. A node whose MultiMesh has the other format is
@@ -122,6 +125,30 @@ local axis (2D: x, y), zero meaning 1; color and custom are the tick's. One pass
 every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames); a full Frame counts
 `dropped` and the host warns once.
 
+## Events
+
+Decided in the #6 sitting (D5, D6; `src/sim/SPEC.md` "Events" has the game's side), built with it; #9's sitting
+reviews it. `install` reads the game's event union by RTTI once: each kind's name (its type name, lowercased), its
+`player` field, its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) and its
+`sim.Position` fields.
+
+- **States.** Each event is **Predicted** (a tick not yet verified produced it), then **Confirmed** (its tick is
+  verified) or **Cancelled** (a re-simulation no longer produces it). An event first seen when its tick is
+  verified is only Confirmed. The tracker (`view.Event_Tracker`) tells them apart by tick, kind, subject and index
+  among the tick's events of that kind and subject.
+- **Data.** A Dictionary of the event's fields, converted by type: a handle becomes its key (int, `sim.handle_key`),
+  a `sim.Position` a Vector2 (2D) or Vector3 in view units, an enum its member's name lowercased (a String), a
+  bit_set an Array of those, `[2]f32` / `[3]f32` / `[4]f32` a Vector2 / Vector3 / Color, a nested struct a
+  Dictionary, other numbers int or float; fields named `_...` are left out, and a `player` field holding
+  `sim.NO_PLAYER` is -1. Plus `tick`, `state` (`"predicted"`, `"confirmed"`, `"cancelled"`) and `first` (true the
+  first time the event is shown: most effects play `if data.first`; a Cancelled is never first).
+- **Where.** Every event, in every state, goes to the `sim_event(event, data)` signal and to its subject's view's
+  `_sim_event(event, data)`: the view `Glue.event_key` names when the game sets it (0: none); else the view keyed by
+  the event's handle (`view.Key(sim.handle_key(handle))`), else the views whose `Scene_Item.entity` is its `entity`
+  field, else its player's views (`Scene_Item.player`). The view gets it first, then the signal.
+- **Order.** A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order
+  (#152). A view also gets `_sim_event("revived" | "despawned", {})` for its own lifetime (a linger).
+
 ## How it works
 
 - **Threads.** A session (single player = a host with no remote links; host; join) runs netcode's
@@ -131,9 +158,9 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   NSProcessInfo activity (no App Nap, no idle system sleep); on Windows, `timeBeginPeriod(1)` (Sleep rounds
   up to 15.6 ms without it) plus opting out of power throttling, since Windows 11 ignores a minimised
   process's timer request. The netcode hooks run there:
-  - `sample` reads the input atomics, or scripted input in headless checks;
+  - `sample` calls `Glue.poll_input` with the input atomics, or `scripted_input` in headless checks;
   - `frame` feeds the predicted ticks' events to the tracker and publishes a Frame (`extract`);
-  - `verified` confirms or cancels events;
+  - `verified` feeds the verified tick's events (`verifying`) and confirms or cancels events;
   - `status` posts the status.
 
   Godot is only called from the main thread.
@@ -145,8 +172,7 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
      rotation), call `_sim_update`;
   4. writes each bulk view's MultiMesh buffer in one `set_buffer` (one pass over the items; interpolated, stride
      from the MultiMesh's transform format and flags);
-  5. routes events: predicted ones and cancels go to `_sim_event` on the entity's or slot's view, verified ones
-     go to the `sim_event` signal;
+  5. routes events (Events, above): each to its subject's view and to the `sim_event` signal;
   6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see `src/devui/SPEC.md`).
 - **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's Netsim panel is
   off, through a `netcode.Net_Sim` (created on first enable) while on, drained after.
@@ -163,9 +189,10 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
   and the Dev_Link switch. `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session
   under headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event`), the MultiMesh buffers of a typed 2D bulk view
-  (colors and custom data, rotation on the shorter arc, scale per axis), a plain one (stride 8) and a 3D one, typed
-  scene data set as properties only when it changes, `sim_event_2d`, and `send_command`: the toy's commands reach the
+  view_root (position, rotation, `_sim_update`, a 2D `_sim_event` with the converted fields and states), the MultiMesh
+  buffers of a typed 2D bulk view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one
+  (stride 8) and a 3D one, typed scene data set as properties only when it changes, `sim_event` (fields, Vector2
+  positions, states, `first`), and `send_command`: the toy's commands reach the
   sim once, in order, every field kind converted (read back through the HUD), and each refusal returns false with its
   error line (the suite expects those lines and no others). Its extension doesn't link Box3D. Its
   `session_check.gd`, on the same toy session, checks starting during a goodbye: leave then start single player,

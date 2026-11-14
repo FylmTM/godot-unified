@@ -6,7 +6,7 @@ extends PanelContainer
 ## one small line (friends can still join), the players. Hidden when solo and offline.
 ## The game passes its rows; the panel owns the look. Built in code.
 
-## One per present player, in slot order: {slot: int, name: String, status: String, bar: float (0..1, < 0 hides)}.
+## One per present player, in player order: {player: int, name: String, status: String, bar: float (0..1, < 0 hides)}.
 var _rows: Array[Dictionary] = []
 var _heading: Label
 var _code_row: HBoxContainer
@@ -93,15 +93,15 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 			_hint.text = start_hint
 	while _rows.size() < rows.size():
 		_rows.append(_make_row())
-	var local_slot := Game.local_slot()
+	var local_player := Game.local_player()
 	for i in _rows.size():
 		var row := _rows[i]
 		row.box.visible = i < rows.size()
 		if not row.box.visible:
 			continue
 		var r: Dictionary = rows[i]
-		row.dot.color = UiTheme.slot_color(r.slot)
-		row.name.text = String(r.name) + (" (you)" if r.slot == local_slot else "")
+		row.dot.color = UiTheme.player_color(r.player)
+		row.name.text = String(r.name) + (" (you)" if r.player == local_player else "")
 		row.status.text = r.get("status", "")
 		var bar: float = r.get("bar", -1.0)
 		row.bar.visible = bar >= 0.0

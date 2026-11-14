@@ -31,33 +31,35 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 	scenes = {{name = "dot"}},
 	scene_dir = "res://views",
 	actions = {buttons = {"spawn"}},
-	extract = proc(cur, prev: ^toy.State, w: ^toy.World, out: ^gh.Frame) {
-		for p in 0 ..< toy.SLOTS {
-			if !cur.joined[p] do continue
+	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^gh.Frame) {
+		for player in 0 ..< toy.PLAYERS {
+			if !current.joined[player] do continue
 			out.scene[out.n_scene] = {
-				key  = view.Key(1 + p),
-				slot = i8(p),
-				pos  = {cur.pos[p].x, 0, cur.pos[p].y},
+				key    = view.Key(1 + player),
+				player = i8(player),
+				pos    = {current.pos[player].x, 0, current.pos[player].y},
 			}
 			out.n_scene += 1
 		}
-		sync.atomic_store(&seen.bumps, cur.bumps[0])
-		sync.atomic_store(&seen.bump_fold, cur.bump_fold[0])
+		sync.atomic_store(&seen.bumps, current.bumps[0])
+		sync.atomic_store(&seen.bump_fold, current.bump_fold[0])
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
-	event_pos = proc(pos: [3]f32, w: ^toy.World) -> [3]f32 {return pos * 10 + {0, 0, 1}},
-	sample = proc(a: gh.Actions, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
-		sync.atomic_or(&seen.pressed, a.pressed)
-		return {dx = 1, buttons = u8(a.pressed & 1)}
+	event_pos = proc(position: sim.Position, world: ^toy.World) -> sim.Position {
+		return {position.x * 10, position.y * 10, position.z * 10 + 1}
+	},
+	poll_input = proc(actions: gh.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sync.atomic_or(&seen.pressed, actions.pressed)
+		return {dx = 1, buttons = u8(actions.pressed & 1)}
 	},
 }
 
 @(private = "file")
 FAILING := gh.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, ev: ^gh.Transport_Events) -> (netcode.Link, bool) {
-		ev.fail(ev.ctx, "fake: no lobby service")
+	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+		events.fail(events.ctx, "fake: no lobby service")
 		return {}, false
 	},
 	close = proc(_: rawptr) {seen.closes += 1},
@@ -66,24 +68,24 @@ FAILING := gh.Transport {
 @(private = "file")
 OPENING := gh.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, ev: ^gh.Transport_Events) -> (netcode.Link, bool) {
-		ev.code(ev.ctx, "ABC123")
+	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+		events.code(events.ctx, "ABC123")
 		return netcode.loopback_link(seen.hub, 0), true
 	},
-	pump = proc(_: rawptr, ev: ^gh.Transport_Events) {seen.pumps += 1},
+	pump = proc(_: rawptr, events: ^gh.Transport_Events) {seen.pumps += 1},
 	close = proc(_: rawptr) {seen.closes += 1},
 }
 
 // Pops messages until `pred` holds or `ms` pass; returns every message seen.
 @(private = "file")
-drain :: proc(out: ^[dynamic]gh.Message, ms: int, pred: proc(m: gh.Message) -> bool) -> bool {
-	deadline := time.tick_now()
-	for time.duration_milliseconds(time.tick_since(deadline)) < f64(ms) {
+drain :: proc(out: ^[dynamic]gh.Message, ms: int, done: proc(message: gh.Message) -> bool) -> bool {
+	start := time.tick_now()
+	for time.duration_milliseconds(time.tick_since(start)) < f64(ms) {
 		for {
-			m, ok := gh.api.pop()
+			message, ok := gh.api.pop()
 			if !ok do break
-			append(out, m)
-			if pred(m) do return true
+			append(out, message)
+			if done(message) do return true
 		}
 		time.sleep(2 * time.Millisecond)
 	}
@@ -91,13 +93,13 @@ drain :: proc(out: ^[dynamic]gh.Message, ms: int, pred: proc(m: gh.Message) -> b
 }
 
 @(private = "file")
-text :: proc(m: gh.Message) -> string {
-	m := m
-	return strings.clone(string(m.text[:m.len]), context.temp_allocator)
+text :: proc(message: gh.Message) -> string {
+	message := message
+	return strings.clone(string(message.text[:message.len]), context.temp_allocator)
 }
 
 @(private = "file")
-is_result :: proc(m: gh.Message) -> bool {return m.kind == .Result}
+is_result :: proc(message: gh.Message) -> bool {return message.kind == .Result}
 
 @(test)
 driver_sessions :: proc(t: ^testing.T) {
@@ -115,27 +117,40 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, ok, err)
 		gh.press_button(0)
 		for amount in ([]i32{3, -1, 8}) {
-			c, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{amount})
-			testing.expect(t, gh.api.send(c))
+			command, _ := sim.command_make(toy.Command, toy.Cmd_Bump{amount})
+			testing.expect(t, gh.api.send(command))
 		}
-		msgs := make([dynamic]gh.Message, context.temp_allocator)
-		testing.expect(t, drain(&msgs, 5000, is_result), "the session ends with a result")
+		messages := make([dynamic]gh.Message, context.temp_allocator)
+		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
 		connected, joined, spawned := false, false, false
-		for m in msgs {
-			if m.kind == .Status && m.status == .Connected do connected = true
-			if m.kind == .Event && m.action == .Confirm && toy.Event_Kind(m.event.kind) == .Joined do joined = true
-			if m.kind == .Event && toy.Event_Kind(m.event.kind) == .Spawned {
+		for &message in messages {
+			if message.kind == .Status && message.status == .Connected do connected = true
+			if message.kind != .Event do continue
+			switch event in sim.event_value(&message.event, toy.Event) {
+			case toy.Joined:
+				if message.action == .Confirmed do joined = true
+			case toy.Spawned:
 				// the sim emits {x, 0, y} with y = 0 and x > 0: event_pos made it {10x, 0, 1}
 				spawned = true
-				testing.expectf(t, m.event.pos.z == 1 && m.event.pos.x > 0, "event_pos applied: %v", m.event.pos)
+				testing.expectf(
+					t,
+					event.position.z == 1 && event.position.x > 0,
+					"event_pos applied: %v",
+					event.position,
+				)
+			case toy.Left, toy.Expired:
 			}
 		}
 		testing.expect(t, spawned, "the press spawned a thing, its event posted")
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
-		f, _ := gh.api.front()
-		testing.expect(t, f != nil && f.n_scene == 1 && f.local_slot == 0, "the last frame shows the player")
-		testing.expect(t, f != nil && f.tick >= 39, "the last frame is at the end")
+		frame, _ := gh.api.front()
+		testing.expect(
+			t,
+			frame != nil && frame.n_scene == 1 && frame.local_player == 0,
+			"the last frame shows the player",
+		)
+		testing.expect(t, frame != nil && frame.tick >= 39, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
 		testing.expect_value(t, sync.atomic_load(&seen.pressed), 1) // exactly the one press, once
 		testing.expect_value(t, sync.atomic_load(&seen.bumps), 3)
@@ -163,11 +178,13 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, _ := gh.api.start({mode = .Host_Online})
 		testing.expect(t, ok)
 		for gh.api.running() do time.sleep(time.Millisecond)
-		msgs := make([dynamic]gh.Message, context.temp_allocator)
-		drain(&msgs, 50, proc(m: gh.Message) -> bool {return false})
+		messages := make([dynamic]gh.Message, context.temp_allocator)
+		drain(&messages, 50, proc(message: gh.Message) -> bool {return false})
 		failed: [dynamic]string
 		failed.allocator = context.temp_allocator
-		for m in msgs do if m.kind == .Status && m.status == .Failed do append(&failed, text(m))
+		for message in messages {
+			if message.kind == .Status && message.status == .Failed do append(&failed, text(message))
+		}
 		testing.expect_value(t, len(failed), 1)
 		if len(failed) == 1 do testing.expect_value(t, failed[0], "fake: no lobby service")
 		gh.api.wait()
@@ -183,15 +200,15 @@ driver_sessions :: proc(t: ^testing.T) {
 		defer gh.set_transport(nil)
 		ok, _ := gh.api.start({mode = .Host_Online, seed = 3})
 		testing.expect(t, ok)
-		msgs := make([dynamic]gh.Message, context.temp_allocator)
-		got_code := drain(&msgs, 2000, proc(m: gh.Message) -> bool {
-			return m.kind == .Lobby_Code && text(m) == "ABC123"
+		messages := make([dynamic]gh.Message, context.temp_allocator)
+		got_code := drain(&messages, 2000, proc(message: gh.Message) -> bool {
+			return message.kind == .Lobby_Code && text(message) == "ABC123"
 		})
 		testing.expect(t, got_code, "the lobby code is posted")
 		time.sleep(50 * time.Millisecond)
 		gh.api.stop()
 		testing.expect(t, gh.api.stopping())
-		testing.expect(t, drain(&msgs, 5000, is_result), "a stopped session ends with a result")
+		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
 		for gh.api.running() do time.sleep(time.Millisecond)
 		gh.api.wait()
 		testing.expect(t, seen.pumps > 0, "the transport is pumped")
@@ -204,7 +221,7 @@ driver_sessions :: proc(t: ^testing.T) {
 dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
-	dl, l := gh.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
+	dev_link, link := gh.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
 	other := netcode.loopback_link(hub, 1)
 	defer netcode.link_close(&other)
 	buf: [64]u8
@@ -213,28 +230,28 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 		return len(hub.inboxes[i].queue)
 	}
 
-	netcode.link_send(&l, 1, {1, 2, 3})
+	netcode.link_send(&link, 1, {1, 2, 3})
 	testing.expect_value(t, inbox(hub, 1), 1) // delivered at once, no netsim
-	testing.expect(t, dl.sim.data == nil, "no netsim created while off")
+	testing.expect(t, dev_link.sim.data == nil, "no netsim created while off")
 	netcode.link_send(&other, 0, {9})
-	n, from, ok := netcode.link_recv(&l, buf[:])
-	testing.expect(t, ok && n == 1 && buf[0] == 9 && from == 1)
+	size, from, ok := netcode.link_recv(&link, buf[:])
+	testing.expect(t, ok && size == 1 && buf[0] == 9 && from == 1)
 
-	gh.dev_link_set(dl, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
-	netcode.link_send(&l, 1, {4})
+	gh.dev_link_set(dev_link, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
+	netcode.link_send(&link, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)
-	_, _, _ = netcode.link_recv(&l, buf[:]) // pumps the netsim
+	_, _, _ = netcode.link_recv(&link, buf[:]) // pumps the netsim
 	testing.expect_value(t, inbox(hub, 1), 2)
 
 	// Off again: a datagram received while on is still delivered (drained), then direct.
 	netcode.link_send(&other, 0, {7})
-	_, _, _ = netcode.link_recv(&l, buf[:]) // the netsim takes it in, due in 20 ms
-	gh.dev_link_set(dl, {})
+	_, _, _ = netcode.link_recv(&link, buf[:]) // the netsim takes it in, due in 20 ms
+	gh.dev_link_set(dev_link, {})
 	time.sleep(30 * time.Millisecond)
-	n, _, ok = netcode.link_recv(&l, buf[:])
-	testing.expect(t, ok && n == 1 && buf[0] == 7, "drained after the switch")
-	netcode.link_send(&l, 1, {5})
+	size, _, ok = netcode.link_recv(&link, buf[:])
+	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")
+	netcode.link_send(&link, 1, {5})
 	testing.expect_value(t, inbox(hub, 1), 3) // direct again
-	netcode.link_close(&l)
+	netcode.link_close(&link)
 }

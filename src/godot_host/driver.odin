@@ -1,4 +1,4 @@
-// The session driver, generic over the game (S state, I input, W world, P slots): owns the netcode host or
+// The session driver, generic over the game (its State, Input, World and PLAYERS): owns the netcode host or
 // client and runs it on its own thread; the netcode hooks publish Frames, events and status for the main
 // thread. `install` instantiates it for one game and fills the non-generic `api` the Godot classes call.
 package godot_host
@@ -16,31 +16,32 @@ import "unified:view"
 
 // The game-independent face of the installed driver (main thread).
 Api :: struct {
-	installed:   bool,
-	game_name:   string,
-	tick_hz:     int,
-	scenes:      []Scene_Kind,
-	scene_dir:   string,
-	bulk_kinds:  []string,
-	smoothing:   view.Smoothing,
-	actions:     Action_Map,
-	event_names: []string,
-	commands:    []sim.Command_Kind, // the game's (send_command)
-	start:       proc(req: Start) -> (ok: bool, err: string),
-	stop:        proc(), // ask the session to end (it keeps running until it has said goodbye)
-	hurry:       proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
-	stopping:    proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
-	wait:        proc(), // join the session thread (after stop)
-	running:     proc() -> bool,
-	front:       proc() -> (f: ^Frame, fresh: bool),
-	pop:         proc() -> (m: Message, ok: bool),
-	hud:         proc(f: ^Frame, d: rawptr), // f nil: before the first frame
-	constants:   proc(d: rawptr), // nil: the game exposes none
-	state:       proc() -> any, // the newest predicted state, for the inspector (while want_state)
-	event_key:   proc(e: sim.Event) -> view.Key, // the game's event -> scene view mapping (nil: default routing)
-	level:       string, // Glue.level
-	result:      proc() -> string, // the finished session's result JSON (after a Result message)
-	send:        proc(c: sim.Command) -> bool, // queue a command for the running session (false: full)
+	installed:     bool,
+	game_name:     string,
+	tick_hz:       int,
+	scenes:        []Scene_Kind,
+	scene_dir:     string,
+	bulk_kinds:    []string,
+	smoothing:     view.Smoothing,
+	actions:       Action_Map,
+	events:        []Event_Layout, // the game's event union, by kind (events.odin)
+	commands:      typeid, // the game's command union (send_command)
+	command_names: []string, // by kind
+	start:         proc(request: Start) -> (ok: bool, err: string),
+	stop:          proc(), // ask the session to end (it keeps running until it has said goodbye)
+	hurry:         proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
+	stopping:      proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
+	wait:          proc(), // join the session thread (after stop)
+	running:       proc() -> bool,
+	front:         proc() -> (frame: ^Frame, fresh: bool),
+	pop:           proc() -> (message: Message, ok: bool),
+	hud:           proc(frame: ^Frame, dict: rawptr), // frame nil: before the first frame
+	constants:     proc(dict: rawptr), // nil: the game exposes none
+	state:         proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	event_key:     proc(event: ^sim.Raw_Event) -> view.Key, // Glue.event_key (nil: routing by the subject)
+	level:         string, // Glue.level
+	result:        proc() -> string, // the finished session's result JSON (after a Result message)
+	send:          proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
 }
 
 api: Api
@@ -49,8 +50,8 @@ transport: ^Transport // set by the game's extension (online play); nil: Host_On
 // The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
 
-set_transport :: proc(t: ^Transport) {
-	transport = t
+set_transport :: proc(new_transport: ^Transport) {
+	transport = new_transport
 }
 
 // Network impairment for remote links (the dev UI's Netsim panel): the main thread publishes settings, the
@@ -75,47 +76,30 @@ netsim_req: struct {
 	set: Netsim_Settings,
 }
 
-set_netsim :: proc(n: Netsim_Settings) {
+set_netsim :: proc(settings: Netsim_Settings) {
 	sync.mutex_lock(&netsim_req.mu)
-	netsim_req.set = n
+	netsim_req.set = settings
 	sync.atomic_add(&netsim_req.gen, 1)
 	sync.mutex_unlock(&netsim_req.mu)
 }
 
 @(private)
-netsim_profile :: proc(enabled: bool, d: Netsim_Dir) -> netcode.Profile {
+netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile {
 	if !enabled do return {name = "devui"}
 	return {
 		name = "devui",
-		latency = i64(d.latency_ms * 1000),
-		jitter = i64(d.jitter_ms * 1000),
-		loss = u32(d.loss_pct * 10),
+		latency = i64(direction.latency_ms * 1000),
+		jitter = i64(direction.jitter_ms * 1000),
+		loss = u32(direction.loss_pct * 10),
 	}
 }
 
-@(private)
-Tick_Event :: struct {
-	tick:  u32,
-	nth:   u32, // among events of the same kind and entity in this tick
-	event: sim.Event,
-}
-
-@(private)
-tick_event_id :: proc(e: Tick_Event) -> view.Event_Id {
-	return {
-		tick = e.tick,
-		kind = u32(e.event.kind),
-		entity = u64(e.event.entity) | u64(e.event.slot) << 32,
-		extra = u64(e.nth),
-	}
-}
-
-Driver :: struct($S, $I, $W: typeid, $P: int) {
-	game:      ^sim.Game(S, I, W, P),
-	glue:      ^Glue(S, I, W),
+Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	game:      ^sim.Game(State, Input, World, PLAYERS),
+	glue:      ^Glue(State, Input, World),
 	req:       Start,
-	host:      ^netcode.Host(S, I, W, P),
-	client:    ^netcode.Client(S, I, W, P), // the local player's client (the host's own in host modes)
+	host:      ^netcode.Host(State, Input, World, PLAYERS),
+	client:    ^netcode.Client(State, Input, World, PLAYERS), // the local player's client (the host's own in host modes)
 	tev:       Transport_Events,
 	uses_tp:   bool,
 	thread:    ^thread.Thread,
@@ -126,14 +110,14 @@ Driver :: struct($S, $I, $W: typeid, $P: int) {
 	stopping:  bool,
 	stop_at:   i64,
 	frames:    view.Triple(Frame),
-	states:    view.Triple(S),
+	states:    view.Triple(State),
 	queue:     view.Queue(Message, 4096),
-	commands:  view.Queue(sim.Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
+	commands:  view.Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
 	tracker:   view.Event_Tracker(Tick_Event),
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
-	bench:     sim.Game(S, I, W, P), // the game with Glue.bench after init (req.bench > 0)
+	bench:     sim.Game(State, Input, World, PLAYERS), // the game with Glue.bench after init (req.bench > 0)
 	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
 	nets:      [dynamic]^Dev_Link, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
@@ -150,13 +134,13 @@ Dev_Link :: struct {
 }
 
 dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Link) {
-	dl := new(Dev_Link)
-	dl^ = {
+	dev_link := new(Dev_Link)
+	dev_link^ = {
 		inner = inner,
 		seed  = seed | 1,
 	}
-	return dl, {
-		data = dl,
+	return dev_link, {
+		data = dev_link,
 		send = dev_link_send,
 		recv = dev_link_recv,
 		close = dev_link_close,
@@ -165,70 +149,72 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 }
 
 // Applies the panel's settings (the link's thread).
-dev_link_set :: proc(dl: ^Dev_Link, n: Netsim_Settings) {
-	up, down := netsim_profile(n.enabled, n.up), netsim_profile(n.enabled, n.down)
-	ideal :: proc(p: netcode.Profile) -> bool {return p.latency == 0 && p.jitter == 0 && p.loss == 0}
-	dl.on = !ideal(up) || !ideal(down)
-	if dl.on && dl.sim.data == nil {
-		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
-		dl.sim = netcode.netsim_wrap(dl.inner, {name = "devui", latency = 1}, dl.seed)
+dev_link_set :: proc(dev_link: ^Dev_Link, settings: Netsim_Settings) {
+	up, down := netsim_profile(settings.enabled, settings.up), netsim_profile(settings.enabled, settings.down)
+	ideal :: proc(profile: netcode.Profile) -> bool {
+		return profile.latency == 0 && profile.jitter == 0 && profile.loss == 0
 	}
-	if dl.sim.data != nil {
-		ns := (^netcode.Net_Sim)(dl.sim.data)
-		ns.profile, ns.profile_in, ns.split = up, down, true
+	dev_link.on = !ideal(up) || !ideal(down)
+	if dev_link.on && dev_link.sim.data == nil {
+		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
+		dev_link.sim = netcode.netsim_wrap(dev_link.inner, {name = "devui", latency = 1}, dev_link.seed)
+	}
+	if dev_link.sim.data != nil {
+		net_sim := (^netcode.Net_Sim)(dev_link.sim.data)
+		net_sim.profile, net_sim.profile_in, net_sim.split = up, down, true
 	}
 }
 
 @(private)
-dev_link_draining :: proc(dl: ^Dev_Link) -> bool {
-	if dl.sim.data == nil do return false
-	ns := (^netcode.Net_Sim)(dl.sim.data)
-	return dl.on || len(ns.outgoing) > 0 || len(ns.incoming) > 0
+dev_link_draining :: proc(dev_link: ^Dev_Link) -> bool {
+	if dev_link.sim.data == nil do return false
+	net_sim := (^netcode.Net_Sim)(dev_link.sim.data)
+	return dev_link.on || len(net_sim.outgoing) > 0 || len(net_sim.incoming) > 0
 }
 
 @(private)
 dev_link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
-	dl := (^Dev_Link)(data)
-	if dl.on {
-		dl.sim.send(dl.sim.data, to, bytes)
+	dev_link := (^Dev_Link)(data)
+	if dev_link.on {
+		dev_link.sim.send(dev_link.sim.data, to, bytes)
 	} else {
-		dl.inner.send(dl.inner.data, to, bytes)
+		dev_link.inner.send(dev_link.inner.data, to, bytes)
 	}
 }
 
 @(private)
-dev_link_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: netcode.Peer, ok: bool) {
-	dl := (^Dev_Link)(data)
-	if dev_link_draining(dl) do return dl.sim.recv(dl.sim.data, buf)
-	return dl.inner.recv(dl.inner.data, buf)
+dev_link_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: netcode.Peer, ok: bool) {
+	dev_link := (^Dev_Link)(data)
+	if dev_link_draining(dev_link) do return dev_link.sim.recv(dev_link.sim.data, buf)
+	return dev_link.inner.recv(dev_link.inner.data, buf)
 }
 
 @(private)
 dev_link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
-	dl := (^Dev_Link)(data)
-	return dl.inner.event(dl.inner.data)
+	dev_link := (^Dev_Link)(data)
+	return dev_link.inner.event(dev_link.inner.data)
 }
 
 @(private)
 dev_link_close :: proc(data: rawptr) {
-	dl := (^Dev_Link)(data)
-	if dl.sim.data != nil {
-		netcode.link_close(&dl.sim) // closes inner too
+	dev_link := (^Dev_Link)(data)
+	if dev_link.sim.data != nil {
+		netcode.link_close(&dev_link.sim) // closes inner too
 	} else {
-		netcode.link_close(&dl.inner)
+		netcode.link_close(&dev_link.inner)
 	}
-	free(dl)
+	free(dev_link)
 }
 
 @(private)
-wrap_link :: proc(d: ^Driver($S, $I, $W, $P), link: netcode.Link) -> netcode.Link {
-	dl, w := dev_link_wrap(link, u32(d.req.seed))
+wrap_link :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), link: netcode.Link) -> netcode.Link {
+	dev_link, wrapped := dev_link_wrap(link, u32(driver.req.seed))
 	sync.mutex_lock(&netsim_req.mu)
-	dev_link_set(dl, netsim_req.set)
-	d.net_gen = netsim_req.gen
+	dev_link_set(dev_link, netsim_req.set)
+	driver.net_gen = netsim_req.gen
 	sync.mutex_unlock(&netsim_req.mu)
-	append(&d.nets, dl)
-	return w
+	append(&driver.nets, dev_link)
+	return wrapped
 }
 
 @(private)
@@ -238,250 +224,290 @@ g_glue: rawptr
 @(private)
 g_driver: rawptr
 @(private)
-g_bench_n: int
+g_bench_count: int
 
 // Installs the game: call once, before godot_host.entry.
-install :: proc(game: ^sim.Game($S, $I, $W, $P), glue: Glue(S, I, W)) {
-	D :: Driver(S, I, W, P)
-	gl := new(Glue(S, I, W), runtime.heap_allocator()) // lives as long as the process
-	gl^ = glue
+install :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS), glue: Glue(State, Input, World)) {
+	This_Driver :: Driver(State, Input, World, PLAYERS)
+	This_Glue :: Glue(State, Input, World)
+	kept_glue := new(This_Glue, runtime.heap_allocator()) // lives as long as the process
+	kept_glue^ = glue
 	g_game = game
-	g_glue = gl
+	g_glue = kept_glue
 	api = {
-		installed   = true,
-		game_name   = game.name,
-		tick_hz     = game.tick_hz,
-		scenes      = glue.scenes,
-		scene_dir   = glue.scene_dir,
-		bulk_kinds  = glue.bulk_kinds,
-		smoothing   = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
-		actions     = glue.actions,
-		event_names = game.event_names,
-		commands    = game.commands,
-		event_key   = glue.event_key,
-		level       = glue.level,
+		installed     = true,
+		game_name     = game.name,
+		tick_hz       = game.tick_hz,
+		scenes        = glue.scenes,
+		scene_dir     = glue.scene_dir,
+		bulk_kinds    = glue.bulk_kinds,
+		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
+		actions       = glue.actions,
+		events        = event_layouts(game.events),
+		commands      = game.commands,
+		command_names = sim.command_names(game.commands, runtime.heap_allocator()),
+		event_key     = glue.event_key,
+		level         = glue.level,
 	}
-	api.start = proc(req: Start) -> (bool, string) {
+	api.start = proc(request: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
-		game := (^sim.Game(S, I, W, P))(g_game)
-		glue := (^Glue(S, I, W))(g_glue)
-		if (req.mode == .Host_Online || req.mode == .Join_Online) && transport == nil {
+		game := (^sim.Game(State, Input, World, PLAYERS))(g_game)
+		glue := (^This_Glue)(g_glue)
+		if (request.mode == .Host_Online || request.mode == .Join_Online) && transport == nil {
 			return false, "online play is not available in this build"
 		}
-		d := new(D)
-		d.alloc = context.allocator
-		d.game = game
-		d.glue = glue
-		d.req = req
-		d.req.arg = strings.clone(req.arg)
-		d.req.name = strings.clone(req.name)
-		d.req.content = slice.clone(req.content)
-		view.triple_init(&d.frames)
-		view.triple_init(&d.states)
-		view.tracker_init(&d.tracker, tick_event_id)
-		d.tev = {
-			ctx = d,
-			code = proc(ctx: rawptr, code: string) {post_text((^D)(ctx), .Lobby_Code, code)},
+		driver := new(This_Driver)
+		driver.alloc = context.allocator
+		driver.game = game
+		driver.glue = glue
+		driver.req = request
+		driver.req.arg = strings.clone(request.arg)
+		driver.req.name = strings.clone(request.name)
+		driver.req.content = slice.clone(request.content)
+		view.triple_init(&driver.frames)
+		view.triple_init(&driver.states)
+		view.tracker_init(&driver.tracker, tick_event_id)
+		driver.tev = {
+			ctx = driver,
+			code = proc(ctx: rawptr, code: string) {post_text((^This_Driver)(ctx), .Lobby_Code, code)},
 			fail = proc(ctx: rawptr, reason: string) {
-				d := (^D)(ctx)
-				post_status(d, .Failed, reason)
-				d.failed = true
-				sync.atomic_store(&d.stop_req, true)
+				driver := (^This_Driver)(ctx)
+				post_status(driver, .Failed, reason)
+				driver.failed = true
+				sync.atomic_store(&driver.stop_req, true)
 			},
 		}
-		g_driver = d
-		d.thread = thread.create_and_start_with_poly_data(d, driver_run)
+		g_driver = driver
+		driver.thread = thread.create_and_start_with_poly_data(driver, driver_run)
 		return true, ""
 	}
 	api.stop = proc() {
 		if g_driver == nil do return
-		sync.atomic_store(&(^D)(g_driver).stop_req, true)
+		sync.atomic_store(&(^This_Driver)(g_driver).stop_req, true)
 	}
 	api.hurry = proc() {
 		if g_driver == nil do return
-		sync.atomic_store(&(^D)(g_driver).hurry, true)
+		sync.atomic_store(&(^This_Driver)(g_driver).hurry, true)
 	}
 	api.stopping = proc() -> bool {
-		return g_driver != nil && sync.atomic_load(&(^D)(g_driver).stop_req)
+		return g_driver != nil && sync.atomic_load(&(^This_Driver)(g_driver).stop_req)
 	}
 	api.wait = proc() {
 		if g_driver == nil do return
-		d := (^D)(g_driver)
-		sync.atomic_store(&d.stop_req, true)
-		thread.join(d.thread)
-		thread.destroy(d.thread)
-		view.tracker_destroy(&d.tracker)
-		delete(d.scratch)
-		delete(d.req.arg)
-		delete(d.req.name)
-		delete(d.req.content)
-		delete(d.result)
-		delete(d.nets)
-		free(d)
+		driver := (^This_Driver)(g_driver)
+		sync.atomic_store(&driver.stop_req, true)
+		thread.join(driver.thread)
+		thread.destroy(driver.thread)
+		view.tracker_destroy(&driver.tracker)
+		delete(driver.scratch)
+		delete(driver.req.arg)
+		delete(driver.req.name)
+		delete(driver.req.content)
+		delete(driver.result)
+		delete(driver.nets)
+		free(driver)
 		g_driver = nil
 	}
 	api.running = proc() -> bool {
-		return g_driver != nil && !sync.atomic_load(&(^D)(g_driver).finished)
+		return g_driver != nil && !sync.atomic_load(&(^This_Driver)(g_driver).finished)
 	}
 	api.front = proc() -> (^Frame, bool) {
 		if g_driver == nil do return nil, false
-		f, fresh := view.triple_front(&(^D)(g_driver).frames)
-		if f.published == 0 do return nil, false
-		return f, fresh
+		frame, fresh := view.triple_front(&(^This_Driver)(g_driver).frames)
+		if frame.published == 0 do return nil, false
+		return frame, fresh
 	}
 	api.pop = proc() -> (Message, bool) {
 		if g_driver == nil do return {}, false
-		return view.queue_pop(&(^D)(g_driver).queue)
+		return view.queue_pop(&(^This_Driver)(g_driver).queue)
 	}
-	api.hud = proc(f: ^Frame, d: rawptr) {
-		glue := (^Glue(S, I, W))(g_glue)
-		if glue.hud != nil do glue.hud(f, auto_cast d)
+	api.hud = proc(frame: ^Frame, dict: rawptr) {
+		glue := (^This_Glue)(g_glue)
+		if glue.hud != nil do glue.hud(frame, auto_cast dict)
 	}
 	if glue.constants != nil {
-		api.constants = proc(d: rawptr) {(^Glue(S, I, W))(g_glue).constants(auto_cast d)}
+		api.constants = proc(dict: rawptr) {(^This_Glue)(g_glue).constants(auto_cast dict)}
 	}
-	api.send = proc(c: sim.Command) -> bool {
+	api.send = proc(command: sim.Raw_Command) -> bool {
 		if g_driver == nil do return false
-		return view.queue_push(&(^D)(g_driver).commands, c)
+		return view.queue_push(&(^This_Driver)(g_driver).commands, command)
 	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
-		return (^D)(g_driver).result
+		return (^This_Driver)(g_driver).result
 	}
 	api.state = proc() -> any {
 		if g_driver == nil do return nil
-		d := (^D)(g_driver)
-		s, _ := view.triple_front(&d.states)
-		return s^
+		driver := (^This_Driver)(g_driver)
+		state, _ := view.triple_front(&driver.states)
+		return state^
 	}
 }
 
 @(private)
-post :: proc(d: ^Driver($S, $I, $W, $P), m: Message) {
-	_ = view.queue_push(&d.queue, m) // full: the main thread is stalled; dropping beats blocking the sim
+post :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), message: Message) {
+	_ = view.queue_push(&driver.queue, message) // full: the main thread is stalled; dropping beats blocking the sim
 }
 
 @(private)
-post_text :: proc(d: ^Driver($S, $I, $W, $P), kind: type_of(Message{}.kind), text: string) {
-	m := Message {
+post_text :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), kind: type_of(Message{}.kind), text: string) {
+	message := Message {
 		kind = kind,
 	}
-	n := copy(m.text[:], text)
-	m.len = u8(n)
-	post(d, m)
+	message.len = u8(copy(message.text[:], text))
+	post(driver, message)
 }
 
 @(private)
-post_status :: proc(d: ^Driver($S, $I, $W, $P), st: Status_Kind, detail: string) {
-	m := Message {
+post_status :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), status: Status_Kind, detail: string) {
+	message := Message {
 		kind   = .Status,
-		status = st,
+		status = status,
 	}
-	m.len = u8(copy(m.text[:], detail))
-	post(d, m)
+	message.len = u8(copy(message.text[:], detail))
+	post(driver, message)
 }
 
+// Posts the tracker's output: each event's sim.Position fields converted into view units first (Glue.event_pos).
 @(private)
-flush_events :: proc(d: ^Driver($S, $I, $W, $P), world: ^W) {
-	for a in d.tracker.out {
-		e := a.event.event
-		if d.glue.event_pos != nil do e.pos = d.glue.event_pos(e.pos, world)
-		post(d, Message{kind = .Event, action = a.action, tick = a.event.tick, event = e})
-	}
-	clear(&d.tracker.out)
-}
-
-// Feeds one simulated tick's events to the tracker (numbering repeats of a kind+entity within the tick).
-@(private)
-track_tick :: proc(d: ^Driver($S, $I, $W, $P), tick: u32, events: []sim.Event) {
-	view.tracker_begin_tick(&d.tracker, tick)
-	clear(&d.scratch)
-	for e in events {
-		nth: u32
-		for prev in d.scratch {
-			if prev.event.kind == e.kind && prev.event.entity == e.entity && prev.event.slot == e.slot do nth += 1
+flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), world: ^World) {
+	for tracked in driver.tracker.out {
+		raw := tracked.event.raw
+		if driver.glue.event_pos != nil && int(raw.kind) < len(api.events) {
+			for offset in api.events[raw.kind].positions {
+				position := (^sim.Position)(&raw.data[offset])
+				position^ = driver.glue.event_pos(position^, world)
+			}
 		}
-		te := Tick_Event{tick, nth, e}
-		append(&d.scratch, te)
-		view.tracker_event(&d.tracker, te)
+		post(
+			driver,
+			Message {
+				kind = .Event,
+				action = tracked.action,
+				first = tracked.first,
+				tick = tracked.event.tick,
+				event = raw,
+			},
+		)
 	}
-	view.tracker_end_tick(&d.tracker, tick)
+	clear(&driver.tracker.out)
+}
+
+// Feeds one simulated tick's events to the tracker, numbering repeats of a kind and subject within the tick.
+// `verifying`: the tick is about to be verified (an event no prediction showed is only Confirmed).
+@(private)
+track_tick :: proc(
+	driver: ^Driver($State, $Input, $World, $PLAYERS),
+	tick: u32,
+	events: []sim.Raw_Event,
+	verifying := false,
+) {
+	view.tracker_begin_tick(&driver.tracker, tick, verifying)
+	clear(&driver.scratch)
+	for &raw in events {
+		event := Tick_Event {
+			tick   = tick,
+			raw    = raw,
+			player = u32(sim.NO_PLAYER),
+		}
+		if int(raw.kind) < len(api.events) {
+			event.player, event.entity = event_subject(&api.events[raw.kind], raw.data[:raw.size])
+		}
+		for earlier in driver.scratch {
+			same := earlier.raw.kind == raw.kind && earlier.entity == event.entity && earlier.player == event.player
+			if same do event.nth += 1
+		}
+		append(&driver.scratch, event)
+		view.tracker_event(&driver.tracker, event)
+	}
+	view.tracker_end_tick(&driver.tracker, tick)
 }
 
 @(private)
-driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
-	D :: Driver(S, I, W, P)
+driver_hooks :: proc(
+	driver: ^Driver($State, $Input, $World, $PLAYERS),
+) -> netcode.Hooks(State, Input, World, PLAYERS) {
+	This_Driver :: Driver(State, Input, World, PLAYERS)
 	return {
-		user = d,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
-			d := (^D)(user)
-			if d.req.scripted && d.glue.scripted != nil do return d.glue.scripted(d.req.seed, slot, tick, state)
-			return d.glue.sample(take_actions(), slot, tick, state)
+		user = driver,
+		sample = proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input {
+			driver := (^This_Driver)(user)
+			if driver.req.scripted && driver.glue.scripted_input != nil {
+				return driver.glue.scripted_input(driver.req.seed, player, tick, state)
+			}
+			return driver.glue.poll_input(take_actions(), player, tick, state)
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
-		commands = proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out) {
-			d := (^D)(user)
-			if d.req.scripted {
-				if d.glue.scripted_commands != nil do d.glue.scripted_commands(d.req.seed, slot, tick, state, out)
+		commands = proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+			driver := (^This_Driver)(user)
+			if driver.req.scripted {
+				if driver.glue.scripted_commands != nil {
+					driver.glue.scripted_commands(driver.req.seed, player, tick, state, out)
+				}
 				return
 			}
 			for len(out.list) < out.cap {
-				c := view.queue_pop(&d.commands) or_break
-				sim.push_command(out, c)
+				command := view.queue_pop(&driver.commands) or_break
+				sim.push_command(out, command)
 			}
 		},
-		frame = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), f: netcode.Frame_Info) {
-			d := (^D)(user)
-			for t in f.resim_from ..= f.tick do track_tick(d, t, sim.events_at(s, t))
-			flush_events(d, s.world)
-			cur := sim.state_at(s, f.tick)
-			if cur == nil do cur = &s.state
-			prev := f.tick > 0 ? sim.state_at(s, f.tick - 1) : nil
-			out := view.triple_back(&d.frames)
+		frame = proc(user: rawptr, simulation: ^sim.Sim(State, Input, World, PLAYERS), info: netcode.Frame_Info) {
+			driver := (^This_Driver)(user)
+			for tick in info.resim_from ..= info.tick do track_tick(driver, tick, sim.events_at(simulation, tick))
+			flush_events(driver, simulation.world)
+			current := sim.state_at(simulation, info.tick)
+			if current == nil do current = &simulation.state
+			previous := info.tick > 0 ? sim.state_at(simulation, info.tick - 1) : nil
+			out := view.triple_back(&driver.frames)
 			out.n_scene, out.n_bulk, out.dropped = 0, 0, 0
-			c := d.client
-			d.published += 1
-			out.published = d.published
-			out.tick = f.tick
-			out.verified = f.verified
-			out.tick_hz = u32(d.game.tick_hz)
-			out.due_us = i64(c.next_tick_us - c.tm.tick_us)
-			out.local_slot = i32(c.player)
+			client := driver.client
+			driver.published += 1
+			out.published = driver.published
+			out.tick = info.tick
+			out.verified = info.verified
+			out.tick_hz = u32(driver.game.tick_hz)
+			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
+			out.local_player = i32(client.player)
 			out.net = {
-				rtt_ms      = f32(netcode.client_rtt_ms(c)),
-				delay       = c.delay,
-				rollbacks   = i32(c.rollbacks),
-				resim_ticks = i32(c.resim_ticks),
-				depth_max   = i32(c.depth_max),
-				stalls      = i32(c.stall_ticks),
-				replaced    = i32(c.own_replaced),
-				steps       = {i32(c.steps[.Verified]), i32(c.steps[.Resim]), i32(c.steps[.Predicted])},
-				step_us     = {c.step_us[.Verified], c.step_us[.Resim], c.step_us[.Predicted]},
-				last_msg_us = c.last_msg_us,
-				bytes_in    = i64(c.ch.stats.bytes_recv),
-				bytes_out   = i64(c.ch.stats.bytes_sent),
+				rtt_ms      = f32(netcode.client_rtt_ms(client)),
+				delay       = client.delay,
+				rollbacks   = i32(client.rollbacks),
+				resim_ticks = i32(client.resim_ticks),
+				depth_max   = i32(client.depth_max),
+				stalls      = i32(client.stall_ticks),
+				replaced    = i32(client.own_replaced),
+				steps       = {i32(client.steps[.Verified]), i32(client.steps[.Resim]), i32(client.steps[.Predicted])},
+				step_us     = {client.step_us[.Verified], client.step_us[.Resim], client.step_us[.Predicted]},
+				last_msg_us = client.last_msg_us,
+				bytes_in    = i64(client.ch.stats.bytes_recv),
+				bytes_out   = i64(client.ch.stats.bytes_sent),
 			}
-			for slot in 0 ..< min(P, MAX_NAMED) {
-				out.names[slot] = {}
-				copy(out.names[slot][:NAME_BYTES - 1], netcode.client_player_name(c, slot))
+			for player in 0 ..< min(PLAYERS, MAX_NAMED) {
+				out.names[player] = {}
+				copy(out.names[player][:NAME_BYTES - 1], netcode.client_player_name(client, player))
 			}
-			d.glue.extract(cur, prev, s.world, out)
-			view.triple_publish(&d.frames)
+			driver.glue.extract(current, previous, simulation.world, out)
+			view.triple_publish(&driver.frames)
 			if sync.atomic_load(&want_state) {
-				view.triple_back(&d.states)^ = cur^
-				view.triple_publish(&d.states)
+				view.triple_back(&driver.states)^ = current^
+				view.triple_publish(&driver.states)
 			}
 		},
-		verified = proc(user: rawptr, s: ^sim.Sim(S, I, W, P), tick: u32, events: []sim.Event) {
-			d := (^D)(user)
-			track_tick(d, tick, events)
-			view.tracker_verified(&d.tracker, tick)
-			flush_events(d, s.world)
+		verified = proc(
+			user: rawptr,
+			simulation: ^sim.Sim(State, Input, World, PLAYERS),
+			tick: u32,
+			events: []sim.Raw_Event,
+		) {
+			driver := (^This_Driver)(user)
+			track_tick(driver, tick, events, verifying = true)
+			view.tracker_verified(&driver.tracker, tick)
+			flush_events(driver, simulation.world)
 		},
-		status = proc(user: rawptr, st: netcode.Status, detail: string) {
-			d := (^D)(user)
-			if d.failed do return // the transport's failure is the session's last word
-			post_status(d, Status_Kind(st), detail)
+		status = proc(user: rawptr, status: netcode.Status, detail: string) {
+			driver := (^This_Driver)(user)
+			if driver.failed do return // the transport's failure is the session's last word
+			post_status(driver, Status_Kind(status), detail)
 		},
 	}
 }
@@ -492,159 +518,161 @@ GOODBYE_US :: 3_000_000
 HURRY_US :: 1_000_000
 
 @(private)
-driver_run :: proc(d: ^Driver($S, $I, $W, $P)) {
-	context.allocator = d.alloc // (the temp allocator stays this thread's own)
-	set_realtime_thread(d.game.tick_hz)
+driver_run :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS)) {
+	context.allocator = driver.alloc // (the temp allocator stays this thread's own)
+	set_realtime_thread(driver.game.tick_hz)
 	session_power_begin()
-	if !driver_open(d) {
-		driver_close(d)
+	if !driver_open(driver) {
+		driver_close(driver)
 		session_power_end() // before finished: the next session's thread may begin its own right after
-		sync.atomic_store(&d.finished, true)
+		sync.atomic_store(&driver.finished, true)
 		return
 	}
 	for {
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
-		if d.uses_tp && transport.pump != nil do transport.pump(transport.user, &d.tev)
-		if len(d.nets) > 0 && sync.atomic_load(&netsim_req.gen) != d.net_gen {
+		if driver.uses_tp && transport.pump != nil do transport.pump(transport.user, &driver.tev)
+		if len(driver.nets) > 0 && sync.atomic_load(&netsim_req.gen) != driver.net_gen {
 			sync.mutex_lock(&netsim_req.mu)
-			for dl in d.nets do dev_link_set(dl, netsim_req.set)
-			d.net_gen = netsim_req.gen
+			for dev_link in driver.nets do dev_link_set(dev_link, netsim_req.set)
+			driver.net_gen = netsim_req.gen
 			sync.mutex_unlock(&netsim_req.mu)
 		}
-		if sync.atomic_load(&d.stop_req) && !d.stopping {
-			d.stopping = true
-			d.stop_at = now
-			if d.host != nil do netcode.host_stop(d.host, now)
-			else do netcode.client_stop(d.client, now)
+		if sync.atomic_load(&driver.stop_req) && !driver.stopping {
+			driver.stopping = true
+			driver.stop_at = now
+			if driver.host != nil do netcode.host_stop(driver.host, now)
+			else do netcode.client_stop(driver.client, now)
 		}
 		wake: i64
-		if d.host != nil {
-			wake = netcode.host_step(d.host, now)
-			if netcode.host_finished(d.host) do break
+		if driver.host != nil {
+			wake = netcode.host_step(driver.host, now)
+			if netcode.host_finished(driver.host) do break
 		} else {
-			wake = netcode.client_step(d.client, now)
-			if d.client.status == .Failed || d.client.status == .Disconnected do break
+			wake = netcode.client_step(driver.client, now)
+			if driver.client.status == .Failed || driver.client.status == .Disconnected do break
 		}
-		if d.stopping && now - d.stop_at > (sync.atomic_load(&d.hurry) ? HURRY_US : GOODBYE_US) do break
-		if d.uses_tp do wake = min(wake, now + 4_000)
+		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
+		if driver.stopping && now - driver.stop_at > goodbye do break
+		if driver.uses_tp do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
-	d.result = strings.clone(netcode.client_json(netcode.client_result(d.client, context.temp_allocator)))
-	post(d, Message{kind = .Result})
-	driver_close(d)
+	driver.result = strings.clone(netcode.client_json(netcode.client_result(driver.client, context.temp_allocator)))
+	post(driver, Message{kind = .Result})
+	driver_close(driver)
 	session_power_end()
-	sync.atomic_store(&d.finished, true)
+	sync.atomic_store(&driver.finished, true)
 }
 
 @(private)
-driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
-	r := &d.req
-	g := d.game
-	hooks := driver_hooks(d)
-	host_cfg := netcode.Host_Config {
-		player_name = r.name,
-		seed        = r.seed,
-		ticks       = r.ticks,
-		compat      = d.glue.compat,
-		content     = r.content,
+driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS)) -> bool {
+	request := &driver.req
+	game := driver.game
+	hooks := driver_hooks(driver)
+	host_config := netcode.Host_Config {
+		player_name = request.name,
+		seed        = request.seed,
+		ticks       = request.ticks,
+		compat      = driver.glue.compat,
+		content     = request.content,
 		name        = "host",
 		quiet       = true,
 	}
-	client_cfg := netcode.Client_Config {
-		player_name = r.name,
+	client_config := netcode.Client_Config {
+		player_name = request.name,
 		player      = -1,
-		compat      = d.glue.compat,
-		content     = r.content,
+		compat      = driver.glue.compat,
+		content     = request.content,
 		name        = "client",
 		quiet       = true,
 	}
-	switch r.mode {
+	switch request.mode {
 	case .Single:
-		if r.bench > 0 && d.glue.bench != nil {
+		if request.bench > 0 && driver.glue.bench != nil {
 			// The same game, with the benchmark state prepared after init (this process is the only peer).
-			g_bench_n = r.bench
-			d.bench = g^
-			d.bench.init = proc(s: ^S, w: ^W, seed: u64) {
-				game := (^sim.Game(S, I, W, P))(g_game)
-				glue := (^Glue(S, I, W))(g_glue)
-				game.init(s, w, seed)
-				glue.bench(s, w, g_bench_n)
+			g_bench_count = request.bench
+			driver.bench = game^
+			driver.bench.init = proc(state: ^State, world: ^World, seed: u64) {
+				game := (^sim.Game(State, Input, World, PLAYERS))(g_game)
+				glue := (^Glue(State, Input, World))(g_glue)
+				game.init(state, world, seed)
+				glue.bench(state, world, g_bench_count)
 			}
-			d.host = netcode.host_create(&d.bench, host_cfg, hooks)
+			driver.host = netcode.host_create(&driver.bench, host_config, hooks)
 		} else {
-			d.host = netcode.host_create(g, host_cfg, hooks)
+			driver.host = netcode.host_create(game, host_config, hooks)
 		}
 	case .Host_Direct:
-		link, ok := netcode.udp_listen(r.port, r.local ? .Local : .Lan)
+		link, ok := netcode.udp_listen(request.port, request.local ? .Local : .Lan)
 		if !ok {
-			post_status(d, .Failed, fmt.tprintf("cannot listen on UDP port %d", r.port))
+			post_status(driver, .Failed, fmt.tprintf("cannot listen on UDP port %d", request.port))
 			return false
 		}
-		d.host = netcode.host_create(g, host_cfg, hooks)
-		post_text(d, .Lobby_Code, fmt.tprintf("%d", netcode.udp_bound_port(&link)))
-		netcode.host_add_link(d.host, wrap_link(d, link))
+		driver.host = netcode.host_create(game, host_config, hooks)
+		post_text(driver, .Lobby_Code, fmt.tprintf("%d", netcode.udp_bound_port(&link)))
+		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Host_Online:
-		d.uses_tp = true
-		link, ok := transport.open_host(transport.user, &d.tev)
+		driver.uses_tp = true
+		link, ok := transport.open_host(transport.user, &driver.tev)
 		if !ok {
 			// the transport's fail hook may have posted the real reason already
-			if !d.failed do post_status(d, .Failed, fmt.tprintf("%s: cannot host", transport.name))
+			if !driver.failed do post_status(driver, .Failed, fmt.tprintf("%s: cannot host", transport.name))
 			return false
 		}
-		d.host = netcode.host_create(g, host_cfg, hooks)
-		netcode.host_add_link(d.host, wrap_link(d, link))
+		driver.host = netcode.host_create(game, host_config, hooks)
+		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Join_Direct:
-		ep, ok := cnet.parse_endpoint(r.arg)
+		endpoint, ok := cnet.parse_endpoint(request.arg)
 		if !ok {
-			if host, port, split := split_host_port(r.arg); split {
-				if ep4, rerr := cnet.resolve_ip4(fmt.tprintf("%s:%d", host, port)); rerr == nil {
-					ep, ok = ep4, true
+			if host, port, split := split_host_port(request.arg); split {
+				if resolved, resolve_err := cnet.resolve_ip4(fmt.tprintf("%s:%d", host, port)); resolve_err == nil {
+					endpoint, ok = resolved, true
 				}
 			}
 		}
 		if !ok {
-			post_status(d, .Failed, fmt.tprintf("bad address %q (want host:port)", r.arg))
+			post_status(driver, .Failed, fmt.tprintf("bad address %q (want host:port)", request.arg))
 			return false
 		}
-		link, lok := netcode.udp_connect(ep)
-		if !lok {
-			post_status(d, .Failed, "cannot open a UDP socket")
+		link, link_ok := netcode.udp_connect(endpoint)
+		if !link_ok {
+			post_status(driver, .Failed, "cannot open a UDP socket")
 			return false
 		}
-		d.client = netcode.client_create(g, client_cfg, wrap_link(d, link), hooks)
+		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
 	case .Join_Online:
-		d.uses_tp = true
-		link, ok := transport.open_join(transport.user, r.arg, &d.tev)
+		driver.uses_tp = true
+		link, ok := transport.open_join(transport.user, request.arg, &driver.tev)
 		if !ok {
-			if !d.failed do post_status(d, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, r.arg))
+			if !driver.failed {
+				post_status(driver, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, request.arg))
+			}
 			return false
 		}
-		d.client = netcode.client_create(g, client_cfg, wrap_link(d, link), hooks)
+		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
 	}
-	if d.host != nil do d.client = d.host.client
+	if driver.host != nil do driver.client = driver.host.client
 	return true
 }
 
 @(private)
-driver_close :: proc(d: ^Driver($S, $I, $W, $P)) {
-	if d.host != nil {
-		netcode.host_destroy(d.host)
-	} else if d.client != nil {
-		netcode.client_destroy(d.client)
+driver_close :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS)) {
+	if driver.host != nil {
+		netcode.host_destroy(driver.host)
+	} else if driver.client != nil {
+		netcode.client_destroy(driver.client)
 	}
-	d.host, d.client = nil, nil
-	if d.uses_tp && transport.close != nil do transport.close(transport.user)
+	driver.host, driver.client = nil, nil
+	if driver.uses_tp && transport.close != nil do transport.close(transport.user)
 }
 
 @(private)
-split_host_port :: proc(s: string) -> (host: string, port: int, ok: bool) {
-	i := strings.last_index_byte(s, ':')
-	if i <= 0 do return
-	p := 0
-	for c in s[i + 1:] {
-		if c < '0' || c > '9' do return
-		p = p * 10 + int(c - '0')
+split_host_port :: proc(address: string) -> (host: string, port: int, ok: bool) {
+	colon := strings.last_index_byte(address, ':')
+	if colon <= 0 do return
+	for digit in address[colon + 1:] {
+		if digit < '0' || digit > '9' do return
+		port = port * 10 + int(digit - '0')
 	}
-	return s[:i], p, p > 0 && p < 65536
+	return address[:colon], port, port > 0 && port < 65536
 }
