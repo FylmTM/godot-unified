@@ -2,7 +2,7 @@
 
 Updated 2026-11-09. Language: **Odin**. Host: **Godot via GDExtension**. Current and upcoming work is on the
 [board](https://github.com/users/FylmTM/projects/2). These decisions move into the specs during the foundations
-review ([#22](https://github.com/FylmTM/unified/issues/22)), then this file goes.
+review ([#22](https://github.com/FylmTM/godot-unified/issues/22)), then this file goes.
 
 ## Phases
 

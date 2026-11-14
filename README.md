@@ -1,73 +1,95 @@
 # unified
 
-A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
-**Godot** (through GDExtension) as the host for rendering, audio, UI and the editor; rendering is never written from
-scratch. It gives a game a fixed-tick deterministic sim, **Box3D** physics through
-[unified-box3d](https://github.com/FylmTM/unified-box3d) (our Odin port, which saves and restores the world),
-snapshots, checksums, sync-test and replays, and an input relay with prediction, rollback and late join, plus a
-headless CLI and a Godot host. Code-first, built for AI agents, with fast iteration loops. Three games live
-here: `games/survivor/` (a co-op survivor, the test game), `games/friendslop/` (a co-op physics sandbox) and
-`games/drift/` (a co-op 2D ship arena, the 2D test game: 2D views, physics locked to a plane, a 2D level). Larger
-3D co-op games follow, the first migrated later from the developer's current Unity game.
+[![ci](https://github.com/FylmTM/godot-unified/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/FylmTM/godot-unified/actions/workflows/ci.yml)
 
-## Why
+**A deterministic core for co-op games with rollback netcode, written in Odin, with Godot as the host.**
 
-- **Unity is the bottleneck:** Editor refresh and domain reloads, crashes, dialogs that block tools, only one agent
-  at a time can use the Editor, and testing co-op needs a build or multiplayer play mode.
-- **Deterministic netcode without the glue:** the commercial SDK used today is great (determinism, replays,
-  snapshots, headless tests), but the Unity world and the sim world are glued by a bridge, schema codegen, map baking,
-  an asset DB export and physics separate from Unity's, plus a commercial service dependency.
-- **Code-first, not Editor-first:** the developer never really uses the Editor. Levels come from code, art from
-  Blender scripts, everything is driven from the CLI; dev tools live inside the game.
+`unified` runs a game's simulation as a fixed-tick, bit-for-bit deterministic function of player input, and
+[Godot](https://godotengine.org) (through GDExtension) renders it, plays its audio and draws its UI. Rigid-body
+physics ([Box3D](https://github.com/erincatto/box3d)) runs inside the rollback. Everything is code-first and driven
+from one CLI. It's built for fast iteration and for AI coding agents.
 
-## Requirements
+> [!NOTE]
+> **Status: pre-1.0.** The foundations are under review: the simulation, physics, netcode and Godot host are being
+> reviewed one at a time. The API is not stable yet, and breaking changes land without notice.
 
-- **Scope:** hobby time but ambitious (agents do most of the work); features when needed, the core architecture
-  designed up front; for the developer now, maybe open source later.
-- **Platforms:** Steam on Windows x64, macOS ARM64 and Linux / Steam Deck. Consoles not now.
-- **Crossplay macOS ARM64 ↔ Windows x64**, so determinism holds bit for bit across architectures.
-- **Scale:** 2–4 players, 64 Hz (a per-game power of two), 1000+ entities, full rigid-body physics inside rollback.
-- **Simulation:** f32 with a deterministic discipline (fixed point was rejected); single-threaded, parallel only
-  where measurements demand it.
-- **Netcode:** the host runs an input relay that stamps each tick's official inputs, so a laggy player never stalls
-  the others (a peer-to-peer mesh that waits for every peer was rejected); late join from a snapshot, and a dropped
-  player rejoins as a late joiner. No backend.
-- **Transports** (pluggable): in-process loopback, direct UDP / LAN, and Epic Online Services (lobbies by code, P2P
-  with Epic's relays as fallback). Steam later.
-- **Co-op testing:** N clients per process over any transport, views on or off; headless loopback with a network
-  simulator is the workhorse for tests, agents and CI.
-- **Tests:** headless sim tests; replays as exact regression tests within a build, scenario tests across builds;
-  per-game end-to-end suites; reference runs, regenerated on any machine, that every platform reproduces bit for bit
-  (CI on Linux x64 and arm64, Windows x64 and macOS ARM64 is the cross-check).
-- **Dev tools in the game:** entity picker and inspector, timeline scrub, network simulator panel with desync diffs,
-  tuning sliders that write back to text files, F3 feedback, free camera, perf overlay; a level editor eventually.
-- **Agent API** in the running game: query and edit state, step ticks, inject input per player, snapshots, replays,
-  screenshots, scripted scenarios.
-- **Gameplay code:** plain functions over typed queries, minimal magic; keep design options open.
-- **Hot reload:** configs, shaders and probably UI; code reload only if it costs nothing else (fast compiles matter
-  more, and agents work in parallel worktrees).
-- **Levels:** friendslop's level is a Godot scene exported to a `.level` file the sim loads; how entity kinds and
-  levels are authored in general is open
-  ([#38](https://github.com/FylmTM/unified/issues/38)).
-- **Content:** nothing ported from Unity's third-party packs; rebuilt in code or taken from what Godot provides.
-- **Characters, animation, audio:** rigs are view-only and procedural (physically grabbing things is worth trying);
-  prefer what the host offers and avoid licence costs.
-- **UI:** game UI in Godot (GDScript allowed in the view layer); dev tools in the game; immediate-mode or reactive.
-- **Version control:** git + LFS.
+## Features
+
+- **Deterministic simulation:** f32 math with a strict discipline (no FMA, no platform transcendentals) that gives
+  the same bits on x64 and ARM64, so macOS, Windows and Linux players can play together.
+- **One pointer-free state block:** a snapshot is a memcpy, a checksum is a hash of the bytes, and a late joiner
+  receives the block.
+- **Physics inside rollback:** Box3D through [unified-box3d](https://github.com/FylmTM/unified-box3d), an Odin port
+  that saves, restores and hashes the world.
+- **Input-relay netcode:** the host stamps each tick's official inputs, so one laggy player never stalls the others.
+  Each client predicts and rolls back, and players can join late or rejoin after a drop. It needs no backend.
+- **Pluggable transports:** in-process loopback, direct UDP / LAN, and Epic Online Services (lobbies by code, P2P
+  with relay fallback).
+- **Sync-test mode:** in single player, every frame rolls back, re-simulates and compares checksums, so "works in
+  single player" means "works online".
+- **Replays and reference runs:** replays are exact regression tests within a build, and every platform has to reproduce the
+  recorded reference runs bit for bit.
+- **Headless everything:** N clients in one process with a network simulator, for tests, CI and agents.
+- **Godot host:** the view reads predicted frames for motion, verified frames for scores and events for effects.
+  It never writes to the simulation. Dev tools live in the game.
 
 ## How it works
 
-All simulation state lives in one contiguous, pointer-free block (handles, not pointers). That makes a snapshot a
-memcpy, a checksum a hash of the block, late join a transfer of the block, and it enables rewind / scrub,
-state-keeping hot reload, and a **sync-test mode** that rolls back and re-simulates N frames every frame in single
-player, comparing checksums. That mode is what makes "works in single player ⇒ works online" a property we can
-check. Physics state lives in Box3D and is saved, restored and hashed alongside the block. The view reads simulation
-state (predicted frames for motion, verified frames for scores, events for effects) and never writes it; player
-input is the only way in.
+```mermaid
+flowchart TD
+    input["Player input (Godot)"] --> netcode["Netcode<br/>relay, prediction, rollback"]
+    peers["Other players<br/>loopback, UDP, EOS"] <-->|"official inputs"| netcode
+    netcode -->|"inputs per tick"| sim["Deterministic sim<br/>game rules + Box3D"]
+    sim <-->|"save, restore"| state[("State block")]
+    sim -->|"frames, events"| view["Godot view<br/>rendering, audio, UI"]
+```
 
-A game is a deterministic sim package (its state, input and tick) plus a Godot project; the library supplies the
-harness, physics, netcode, the headless CLI and the Godot host. [`src/README.md`](src/README.md) is how the core
-works inside.
+All simulation state lives in one contiguous block with no pointers (handles instead). Physics state lives in Box3D
+and is saved, restored and hashed alongside the block. Player input is the only way into the simulation: the view
+only reads it. That single rule makes snapshots, rewind, late join and sync-test cheap, and it lets the
+"single player ⇒ online" property be checked rather than hoped for.
+
+A game is a deterministic sim package (its state, input and tick) plus a Godot project. The library supplies the
+harness, physics, netcode, the headless runs and the Godot host. [`src/README.md`](src/README.md) explains how the
+core works inside.
+
+## Why
+
+- **No glue between two worlds.** When an engine owns the scene and a separate deterministic sim owns the game,
+  the two are joined by bridges, schema codegen, map baking, asset exports and a second physics world. Here the sim
+  is the game, and Godot only views it.
+- **Code-first, not editor-first.** Levels and content come from code and scripts, everything runs from the CLI,
+  and dev tools live inside the game.
+- **Fast loops.** Builds, tests and tools are held to time budgets. Co-op is tested headless, many clients per
+  process, without making a build.
+- **Agent-friendly.** One CLI with self-describing commands, deterministic tests and parallel worktrees: AI agents
+  can do most of the work safely.
+
+## Design targets
+
+- **Platforms:** Steam on Windows x64, macOS ARM64 and Linux / Steam Deck. Consoles are out of scope for now.
+- **Crossplay** between macOS ARM64 and Windows x64, so determinism holds bit for bit across architectures.
+- **Scale:** 2–4 players, a per-game tick rate (a power of two, 64 Hz by default), 1000+ entities and full rigid-body
+  physics inside rollback.
+- **Simulation:** single-threaded f32 (fixed point was rejected). Parallel only where measurements demand it.
+- **Testing:** headless sim tests, per-game end-to-end suites, and reference runs that CI reproduces on Linux x64
+  and arm64, Windows x64 and macOS ARM64.
+- **Dev tools in the game:** entity inspector, timeline scrub, a network simulator panel with desync diffs, tuning
+  that writes back to text files, a free camera and a perf overlay.
+- **An agent API in the running game:** query and edit state, step ticks, inject input per player, snapshots,
+  replays, screenshots and scripted scenarios.
+- **Gameplay code:** plain functions over typed queries, with minimal magic.
+- **Minimal dependencies:** every third-party dependency needs a reason and its own tests. Some designs are still
+  open, such as how entity kinds and levels are authored
+  ([#38](https://github.com/FylmTM/godot-unified/issues/38)).
+
+## The games
+
+Three co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
+
+- [`games/survivor/`](games/survivor/SPEC.md): a top-down survivor with waves of enemies and physics props (3D).
+- [`games/friendslop/`](games/friendslop/SPEC.md): a third-person physics sandbox: carry, stack, throw (3D).
+- [`games/drift/`](games/drift/SPEC.md): a ship arena defending a station (2D views, physics locked to a plane).
 
 ## Getting started
 
@@ -80,14 +102,15 @@ Toolchain (macOS ARM64, Linux x64 or Windows x64):
 - **Editor:** VS Code with the OLS extension picks up `ols.json` (the `unified` and `box3d` collections, the strict
   checker flags, format on save with `odinfmt.json`).
 
-Everything else (Godot, odinfmt, Box3D) the CLI fetches or builds from `pins.cfg`; a local Godot or unified-box3d
+The CLI fetches or builds everything else (Godot, odinfmt, Box3D) from `pins.cfg`. A local Godot or unified-box3d
 checkout can stand in through `UNIFIED_GODOT` and `UNIFIED_BOX3D` in a git-ignored `.env`. Online play also needs the
-EOS SDK, which Epic's licence keeps out of the repo: download it and set `UNIFIED_EOS_SDK` and the `UNIFIED_EOS_*` IDs
-([`docs/EOS.md`](docs/EOS.md)); without it everything else works. Settings: [`src/cli/SPEC.md`](src/cli/SPEC.md).
+EOS SDK, which Epic's licence keeps out of the repo: download it and set `UNIFIED_EOS_SDK` and the `UNIFIED_EOS_*`
+IDs ([`docs/EOS.md`](docs/EOS.md)). Everything else works without it. All settings: [`src/cli/SPEC.md`](src/cli/SPEC.md).
+
 Then, from the repo root (`uni.cmd` on Windows):
 
-```
-./uni help                # every command (the first run builds the CLI, in about a second)
+```sh
+./uni help                # every command (the first run builds the CLI)
 ./uni test                # build and run every test package
 ./uni run survivor        # play it (builds its extension the first time)
 ./uni verify              # everything CI runs
@@ -95,13 +118,23 @@ Then, from the repo root (`uni.cmd` on Windows):
 ```
 
 A step-by-step guide to setting up and making a tiny game is planned
-([#21](https://github.com/FylmTM/unified/issues/21)).
+([#21](https://github.com/FylmTM/godot-unified/issues/21)).
 
-## Where next
+## Documentation
 
-- [`AGENTS.md`](AGENTS.md): roles, rules and workflow for working on unified.
-- The [board](https://github.com/users/FylmTM/projects/2): current and upcoming work.
 - `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
+- [`src/README.md`](src/README.md): how the core works inside, across packages.
 - [`tools/README.md`](tools/README.md): this repo's CLI, `uni`, and its private commands.
-- [`docs/`](docs/): decisions so far (`WORK.md`), online setup (`EOS.md`), open research
-  (`research/`) and phase 2 results (`archive/`).
+- [`AGENTS.md`](AGENTS.md): the rules and workflow for working on unified, for people and agents alike.
+- [`docs/`](docs/): decisions so far (`WORK.md`), online setup (`EOS.md`), open research (`research/`) and earlier
+  results (`archive/`).
+- [Issues](https://github.com/FylmTM/godot-unified/issues): current and upcoming work.
+
+## License
+
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as
+defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+Third-party code keeps its own license: Box3D and unified-box3d (MIT), Godot (MIT). The EOS SDK is not included.
