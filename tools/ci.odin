@@ -20,7 +20,7 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 		return {ok = true, summary = ci_summary()}
 	case "cache-key":
 		Opts :: struct {
-			dep: string `args:"pos=0,required" usage:"odin, odinfmt, godot or box3d"`,
+			dep: string `args:"pos=0,required" usage:"odinfmt or godot"`,
 		}
 		opts: Opts
 		cli.parse(&opts, args[1:])
@@ -34,11 +34,13 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 }
 
 // A dependency's cache key: its pins, our recipe and, for odinfmt (built with Odin), the Odin it was built with.
+// Only what CI caches: Odin's cache is keyed in the workflow (the key must exist before Odin does), and
+// unified-box3d is fetched every run.
 @(private)
 cache_key :: proc(dep: string) -> string {
 	section := dep
-	if dep != "odin" && dep != "odinfmt" && dep != "godot" && dep != "box3d" {
-		cli.usage("no dependency %q (odin, odinfmt, godot, box3d)", dep)
+	if dep != "odinfmt" && dep != "godot" {
+		cli.usage("no dependency %q (odinfmt, godot)", dep)
 	}
 	pins, ok := cli.state.pins.sections[section]
 	if !ok {

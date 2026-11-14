@@ -11,8 +11,8 @@ with its own commands into its CLI (`tools/`). The only requirements are Odin an
 Installed by the developer, nothing else: what Odin needs (clang on macOS and Linux; Visual Studio Build Tools on
 Windows: its linker and the Windows SDK), **git** and **curl** (shipped with macOS, Windows 10+ and Linux). **Odin**
 is the exact pinned release (`pins.cfg`): the odin on PATH when it is that one, else the shims download it (below).
-A CLI built with another Odin is refused with the pin. CI installs the pinned Odin with `.github/actions/odin`
-(cached), which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D) the CLI
+A CLI built with another Odin is refused with the pin. CI gets Odin the same way, through the shims (their
+download cached). Everything else (Godot, export templates, odinfmt, Box3D) the CLI
 fetches or builds, pinned and hash-checked. Nothing it builds is C or C++. The EOS SDK is the exception: Epic's
 licence keeps it out of the repo and CI, so a machine that plays online downloads it from Epic and names it with
 `UNIFIED_EOS_SDK` (`docs/EOS.md`).
@@ -91,10 +91,10 @@ when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the g
 
 ## Pins
 
-`pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so a workflow that
-runs no repository code (`.github/actions/odin`) reads it with `sed`, and the shims with shell builtins. Odin is
-pinned by tag (the release) and commit (what `odin version` reports). CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
-compile, the compiler's version), never from tool sources.
+`pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so the shims read it
+with shell builtins before any Odin exists. Odin is pinned by tag (the release) and commit (what `odin version`
+reports). CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
+compile, the compiler's version), never from tool sources; Odin's own cache is keyed by `pins.cfg` in the workflow.
 
 ## Commands
 
