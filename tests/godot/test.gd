@@ -29,6 +29,8 @@ func _initialize() -> void:
 	check("property", t.value == 17 and t.get("value") == 17, t.value)
 	t.fired.connect(func(n, msg, pos): fired.append([n, msg, pos]))
 	t.fire(5)
+	check("class constants (in an enum, and alone)", t.MODE_FAST == 7 and t.MODE_SLOW == 0 		and ClassDB.class_get_integer_constant(&"Tester", &"ANSWER") == 42 		and ClassDB.class_get_integer_constant_enum(&"Tester", &"MODE_FAST") == &"Mode",
+		[t.MODE_FAST, ClassDB.class_get_integer_constant(&"Tester", &"ANSWER")])
 	check("signal with args", fired == [[5, "fired 5", Vector3(5, 0, 0)]], fired)
 	t.call_back(9)
 	check("script virtual called from Odin", t.got == 9, t.got)

@@ -61,8 +61,8 @@ func any_player_view() -> Node3D:
 
 
 ## Effects play when an event is confirmed (its tick verified), never on a prediction.
-func _on_sim_event(event: StringName, data: Dictionary) -> void:
-	if data.state != "confirmed":
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
 		return
 	var local: bool = data.has("player") and int(data.player) == Game.local_player()
 	if event == &"match_started":

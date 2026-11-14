@@ -71,7 +71,7 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-func _sim_event(event: StringName, _data: Dictionary) -> void:
+func _sim_event(event: StringName, _state: int, _data: Dictionary) -> void:
 	if event == &"despawned":  # died or left: shrink away during the host's linger time
 		_leaving = true
 		_exit = create_tween()

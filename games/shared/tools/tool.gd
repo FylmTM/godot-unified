@@ -320,8 +320,8 @@ func _start() -> void:
 		fail("no session: build the game library (uni build)")
 		return
 	if frame_log != null:
-		game.session.sim_event.connect(func(event: StringName, data: Dictionary) -> void:
-			if data.state == "confirmed":
+		game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
+			if state == SimEvent.CONFIRMED:
 				frame_tag(event))
 		# A window that loses focus or gets covered can stall a frame in the driver: tag it, not to blame the game.
 		root.focus_entered.connect(frame_tag.bind("window focused"))

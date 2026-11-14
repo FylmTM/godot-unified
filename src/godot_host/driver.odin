@@ -379,30 +379,15 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), world: ^
 				position^ = driver.glue.event_pos(position^, world)
 			}
 		}
-		post(
-			driver,
-			Message {
-				kind = .Event,
-				action = tracked.action,
-				first = tracked.first,
-				tick = tracked.event.tick,
-				event = raw,
-			},
-		)
+		post(driver, Message{kind = .Event, action = tracked.action, tick = tracked.event.tick, event = raw})
 	}
 	clear(&driver.tracker.out)
 }
 
 // Feeds one simulated tick's events to the tracker, numbering repeats of a kind and subject within the tick.
-// `verifying`: the tick is about to be verified (an event no prediction showed is only Confirmed).
 @(private)
-track_tick :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS),
-	tick: u32,
-	events: []sim.Raw_Event,
-	verifying := false,
-) {
-	view.tracker_begin_tick(&driver.tracker, tick, verifying)
+track_tick :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS), tick: u32, events: []sim.Raw_Event) {
+	view.tracker_begin_tick(&driver.tracker, tick)
 	clear(&driver.scratch)
 	for &raw in events {
 		event := Tick_Event {
@@ -500,7 +485,7 @@ driver_hooks :: proc(
 			events: []sim.Raw_Event,
 		) {
 			driver := (^This_Driver)(user)
-			track_tick(driver, tick, events, verifying = true)
+			track_tick(driver, tick, events)
 			view.tracker_verified(&driver.tracker, tick)
 			flush_events(driver, simulation.world)
 		},

@@ -15,8 +15,8 @@ var _events: Dictionary[String, int] = {}
 
 
 func _run() -> void:
-	game.session.sim_event.connect(func(event: StringName, data: Dictionary) -> void:
-		if data.state == "confirmed":
+	game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
+		if state == SimEvent.CONFIRMED:
 			_events[String(event)] = int(_events.get(String(event), 0)) + 1)
 	result["events"] = _events
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))

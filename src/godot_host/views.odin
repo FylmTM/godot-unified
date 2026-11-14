@@ -104,7 +104,7 @@ register_classes :: proc() {
 }
 
 // SimView / SimView2D: kind, entity, player and the script virtuals _sim_update(position, yaw | rotation, alpha)
-// and _sim_event(event, data).
+// and _sim_event(event, state, data).
 @(private)
 register_view_class :: proc(class: ^gd.Class, name, parent: string, position_type: typeid, angle_name: string) {
 	class^ = {
@@ -137,7 +137,7 @@ register_view_class :: proc(class: ^gd.Class, name, parent: string, position_typ
 		proc(node: ^Sim_View_Node, player: i64) {node.player = player},
 	)
 	gd.bind_script_virtual(class, "_sim_update", {"position", position_type}, {angle_name, f64}, {"alpha", f64})
-	gd.bind_script_virtual(class, "_sim_event", {"event", gd.StringName}, {"data", gd.Dictionary})
+	gd.bind_script_virtual(class, "_sim_event", {"event", gd.StringName}, {"state", i64}, {"data", gd.Dictionary})
 }
 
 // SimBulkView / SimBulkView2D: `kind`, and the node joins the `sim_bulk` group when it enters the tree.
@@ -471,7 +471,13 @@ views_sync :: proc(root: gd.Node, frame: ^Frame, fresh: bool, alpha: f32, dt: f3
 			if revived && scene_view.has_event && alive(scene_view.id) {
 				// a rollback brought it back during its linger: undo the exit animation
 				dict := gd.dict_new()
-				result := gd.call_script(scene_view.node, gd.sn("_sim_event"), gd.sn("revived")^, dict)
+				result := gd.call_script(
+					scene_view.node,
+					gd.sn("_sim_event"),
+					gd.sn("revived")^,
+					i64(view.Event_Action.Emitted),
+					dict,
+				)
 				gd.variant_destroy(&result)
 				gd.Dictionary_destroy(&dict)
 			}
@@ -492,7 +498,13 @@ views_sync :: proc(root: gd.Node, frame: ^Frame, fresh: bool, alpha: f32, dt: f3
 			if entry := view.set_get(&V.set, key);
 			   entry != nil && entry.view != nil && entry.view.has_event && alive(entry.view.id) {
 				dict := gd.dict_new()
-				result := gd.call_script(entry.view.node, gd.sn("_sim_event"), gd.sn("despawned")^, dict)
+				result := gd.call_script(
+					entry.view.node,
+					gd.sn("_sim_event"),
+					gd.sn("despawned")^,
+					i64(view.Event_Action.Emitted),
+					dict,
+				)
 				gd.variant_destroy(&result)
 				gd.Dictionary_destroy(&dict)
 			}
@@ -524,10 +536,10 @@ views_sync :: proc(root: gd.Node, frame: ^Frame, fresh: bool, alpha: f32, dt: f3
 	bulk_sync(root, frame, alpha)
 }
 
-// An event to its subject's scene view (_sim_event(event, data)): with Glue.event_key, the view it names; else the
+// An event to its subject's scene view (_sim_event(event, state, data)): with Glue.event_key, the view it names; else the
 // view keyed by the event's handle field (a view keyed by sim.handle_key), else the view whose Scene_Item.entity
 // is the event's `entity` field, else its player's view (Scene_Item.player).
-views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, data: ^gd.Dictionary) {
+views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, data: ^gd.Dictionary) {
 	key := view.Key(0)
 	if api.event_key != nil {
 		key = api.event_key(raw)
@@ -551,7 +563,7 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, data: ^gd.Dictio
 			match = scene_view.player >= 0 && u32(scene_view.player) == player
 		}
 		if !match do continue
-		result := gd.call_script(scene_view.node, gd.sn("_sim_event"), gd.sn(layout.name)^, data^)
+		result := gd.call_script(scene_view.node, gd.sn("_sim_event"), gd.sn(layout.name)^, state, data^)
 		gd.variant_destroy(&result)
 	}
 }

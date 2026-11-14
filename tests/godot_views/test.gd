@@ -63,7 +63,8 @@ func _initialize() -> void:
 	var session = ClassDB.instantiate("UnifiedSession")
 	root.add_child(session)
 	var events := []
-	session.sim_event.connect(func(event: StringName, data: Dictionary) -> void: events.append([event, data]))
+	session.sim_event.connect(func(event: StringName, state: int, data: Dictionary) -> void:
+		events.append([event, state, data]))
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("send_command without a session: false", not session.send_command(&"bump", {"amount": 1}))
@@ -75,7 +76,7 @@ func _initialize() -> void:
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
 		if typed != null and typed.updates > 1 and typed.ticks_sets > 2 and typed_bulk.multimesh.visible_instance_count == 2 \
-				and events.any(func(e: Array) -> bool: return e[0] == &"expired" and e[1].state == "confirmed"):
+				and events.any(func(e: Array) -> bool: return e[0] == &"expired" and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned", typed != null and typed is SimView2D, typed)
 	if typed == null:
@@ -129,25 +130,33 @@ func _initialize() -> void:
 	await check_commands(session)
 	finish(session)
 
-# The events: every one, in every state, on the sim_event signal; its fields converted by type; the subject's view
-# gets them too (the player's view: the toy's things have no scene view, so `spawned` falls back to its player).
+# The events: every one on the sim_event signal, EMITTED once and then CONFIRMED or CANCELLED once; its fields
+# converted by type; the subject's view gets them too (the player's view: the toy's things have no scene view, so
+# `spawned` falls back to its player).
 func check_events(events: Array, typed: Node) -> void:
+	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
+		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
+		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
 	var joined: Array = events.filter(func(e: Array) -> bool: return e[0] == &"joined")
-	check("sim_event: joined, player 0", joined.size() > 0 and joined[0][1].player == 0, joined)
-	check("sim_event: shown once, then confirmed", joined.filter(func(e: Array) -> bool: return e[1].first).size() == 1 		and joined[-1][1].state == "confirmed" and joined[0][1].tick == 1, joined)
+	check("sim_event: joined, player 0, tick 1", joined.size() > 0 and joined[0][2].player == 0 \
+		and joined[0][2].tick == 1, joined)
+	check("joined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
+		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
 	var spawned: Array = events.filter(func(e: Array) -> bool: return e[0] == &"spawned")
-	var data: Dictionary = spawned[0][1] if spawned.size() > 0 else {}
+	var data: Dictionary = spawned[0][2] if spawned.size() > 0 else {}
 	check("spawned: a handle as its key, the position a Vector2 in view units, the enum by name",
-		data.get("thing", 0) is int and data.get("thing", 0) > 0 and data.get("position") is Vector2 		and data.position.x > 1 and data.get("shape") in ["dot", "ring", "star"] and data.get("player") == 0 		and not data.has("_pad") and data.get("tick") == 5, data)
+		data.get("thing", 0) is int and data.get("thing", 0) > 0 and data.get("position") is Vector2 \
+		and data.position.x > 1 and data.get("shape") in ["dot", "ring", "star"] and data.get("player") == 0 \
+		and not data.has("_pad") and data.get("tick") == 5 and data.keys().size() == 5, data)
+	check("spawned: emitted, then confirmed (first seen at verification too)",
+		spawned.map(func(e: Array) -> int: return e[1]) \
+		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
 	var expired: Array = events.filter(func(e: Array) -> bool: return e[0] == &"expired")
-	check("expired: the same thing's key, confirmed", expired.size() > 0 and expired[-1][1].state == "confirmed" 		and expired[-1][1].thing == data.get("thing"), expired)
-	var states := {}
-	for e: Array in events:
-		states[e[1].state] = true
-	check("states are predicted/confirmed/cancelled names", states.keys().all(func(s: String) -> bool:
-		return s in ["predicted", "confirmed", "cancelled"]), states.keys())
+	check("expired: the same thing's key, confirmed last", expired.size() > 0 \
+		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and expired[-1][2].thing == data.get("thing"), expired)
 	var on_view: Array = typed.events.filter(func(e: Array) -> bool: return e[0] in [&"joined", &"spawned"])
-	check("the player's view gets its events, position a Vector2", on_view.size() >= 2 		and on_view.any(func(e: Array) -> bool: return e[0] == &"spawned" and e[1].position is Vector2), typed.events)
+	check("the player's view gets its events in both states, position a Vector2", on_view.size() >= 4 \
+		and on_view.any(func(e: Array) -> bool: return e[0] == &"spawned" and e[2].position is Vector2), typed.events)
 
 const MARK := {"at": Vector2(1.5, -2), "normal": Vector3(0, 1, 0), "weight": 0.25, "count": -300,
 	"shape": "star", "shapes": ["Dot", 2], "loud": true}

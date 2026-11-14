@@ -186,7 +186,8 @@ register_session_class :: proc() {
 	gd.bind_method(class, "is_devui_visible", proc(session: ^Session_Node) -> bool {return dev_visible()})
 	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(class, "lobby_code", {"code", string})
-	gd.bind_signal(class, "sim_event", {"event", gd.StringName}, {"data", gd.Dictionary})
+	gd.bind_signal(class, "sim_event", {"event", gd.StringName}, {"state", i64}, {"data", gd.Dictionary})
+	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
 }
 
 @(private)
@@ -390,9 +391,9 @@ drain_messages :: proc(session: ^Session_Node) {
 	}
 }
 
-// An event, in one of its states: its fields as a Dictionary (events.odin) plus `tick`, `state` ("predicted",
-// "confirmed" or "cancelled") and `first` (the first time it is shown), to the subject's view (_sim_event) and to
-// the sim_event signal, in the order the ticks emitted them.
+// An event in one of its states (EVENT_EMITTED, then EVENT_CONFIRMED or EVENT_CANCELLED), with its fields as a
+// Dictionary (events.odin) plus `tick`: to the subject's view (_sim_event(event, state, data)), then to the
+// sim_event signal, in the order the ticks emitted them.
 @(private)
 route_event :: proc(session: ^Session_Node, message: Message) {
 	raw := message.event
@@ -401,10 +402,9 @@ route_event :: proc(session: ^Session_Node, message: Message) {
 	data := event_dictionary(layout, raw.data[:raw.size], session.root_2d)
 	defer gd.Dictionary_destroy(&data)
 	gd.dict_set(&data, "tick", i64(message.tick))
-	gd.dict_set(&data, "state", STATE_NAMES[message.action])
-	gd.dict_set(&data, "first", message.first)
-	views_event(layout, &raw, &data)
-	gd.emit_signal(session.obj, gd.sn("sim_event"), gd.sn(layout.name)^, data)
+	state := i64(message.action)
+	views_event(layout, &raw, state, &data)
+	gd.emit_signal(session.obj, gd.sn("sim_event"), gd.sn(layout.name)^, state, data)
 	if message.action == .Confirmed {
 		player, entity := event_subject(layout, raw.data[:raw.size])
 		dev_log(

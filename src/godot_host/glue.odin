@@ -222,8 +222,7 @@ Message :: struct {
 		Result,
 	},
 	status: Status_Kind,
-	action: view.Event_Action,
-	first:  bool, // the first time this event is shown
+	action: view.Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
 	event:  sim.Raw_Event, // positions already in view units
 	text:   [128]u8,

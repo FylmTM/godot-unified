@@ -2,20 +2,19 @@ package view
 
 import "core:slice"
 
-// Predicted events (an explosion, a death) are shown as soon as a predicted tick produces them. A rollback
-// re-simulates ticks: an event produced again must not be shown twice, one that is no longer produced is
-// cancelled, and one whose tick becomes verified is confirmed. The tracker runs on the sim thread, sees every
-// simulated tick (predicted, re-simulated or verified), and outputs actions for the render thread:
+// A sim event's lifecycle on the view side. Events (an explosion, a death) are produced by every simulation of a
+// tick: predicted, re-simulated after a rollback, verified. The tracker turns that into exactly two steps per
+// event: **Emitted** once, the first time any simulation of its tick produces it; then once either **Confirmed**
+// (its tick is verified) or **Cancelled** (a re-simulation no longer produces it). An event first produced when
+// its tick is verified is Emitted and Confirmed together. The tracker runs on the sim thread and outputs actions
+// for the render thread:
 //
 //   tracker_begin_tick(t, T); for each event of tick T, in emission order: tracker_event(t, e); tracker_end_tick(t, T)
-//   tracker_verified(t, V)       after tick V is verified (no rollback can reach it any more); a tick fed with
-//                                verifying = true just before is the verified tick itself
+//   tracker_verified(t, V)       after tick V is verified (no rollback can reach it any more)
 //   for a in t.out { ... }; clear(&t.out)   (or push them into a Queue for the render thread)
 //
-// Each event is Predicted (first produced by an unverified tick), then Confirmed or Cancelled; an event first
-// seen when its tick is verified is only Confirmed. `first` is true the first time an event is shown (its
-// Predicted, or a Confirmed nothing predicted). Cancels and confirmations of one tick come out in emission
-// order, and ticks in order.
+// A tick's Emitted come in emission order; cancels and confirmations come in tick order and, within a tick,
+// in emission order.
 //
 // Events are identified by `Event_Id` (tick, kind, subject, nth): the caller picks what makes two events "the
 // same" across re-simulations (src/sim/SPEC.md "Events": the subject convention).
@@ -29,14 +28,13 @@ Event_Id :: struct {
 }
 
 Event_Action :: enum u8 {
-	Predicted, // produced by a tick not yet verified: show it
-	Confirmed, // its tick is verified: it will never be cancelled (show it if `first`)
-	Cancelled, // a re-simulation no longer produces it: undo it (stop the effect)
+	Emitted, // first produced by a simulation of its tick
+	Confirmed, // its tick is verified: it will never be cancelled
+	Cancelled, // a re-simulation no longer produces it
 }
 
 Tracked :: struct($E: typeid) {
 	action: Event_Action,
-	first:  bool, // the first time this event is shown
 	event:  E,
 }
 
@@ -45,16 +43,14 @@ Pending :: struct($E: typeid) {
 	event: E,
 	order: u32, // its index among the tick's events, the last time the tick was simulated
 	seen:  bool, // produced again by the current simulation of its tick
-	shown: bool, // went out as Predicted (false: first seen while verifying its tick)
 }
 
 Event_Tracker :: struct($E: typeid) {
 	id_of:        proc(event: E) -> Event_Id,
-	pending:      map[Event_Id]Pending(E), // seen, not yet verified
+	pending:      map[Event_Id]Pending(E), // emitted, not yet confirmed or cancelled
 	verified:     u32,
 	has_verified: bool,
 	current_tick: u32,
-	verifying:    bool, // the current tick is being verified: new events wait for tracker_verified
 	emitted:      u32, // events of the current tick so far
 	out:          [dynamic]Tracked(E),
 	scratch:      [dynamic]Flush_Item,
@@ -71,11 +67,9 @@ tracker_destroy :: proc(tracker: ^Event_Tracker($E)) {
 }
 
 // Ticks at or below the verified one are final: re-simulating them (a rollback that starts there) changes
-// nothing the view has not already confirmed, so their events are ignored. `verifying`: this is the tick
-// about to be verified (tracker_verified follows), so an event no prediction showed is only Confirmed.
-tracker_begin_tick :: proc(tracker: ^Event_Tracker($E), tick: u32, verifying := false) {
+// nothing the view has not already confirmed, so their events are ignored.
+tracker_begin_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
 	tracker.current_tick = tick
-	tracker.verifying = verifying
 	tracker.emitted = 0
 	for id, &pending in tracker.pending {
 		if id.tick == tick do pending.seen = false
@@ -93,8 +87,8 @@ tracker_event :: proc(tracker: ^Event_Tracker($E), event: E) {
 		pending.order = order
 		return
 	}
-	tracker.pending[id] = {event, order, true, !tracker.verifying}
-	if !tracker.verifying do append(&tracker.out, Tracked(E){.Predicted, true, event})
+	tracker.pending[id] = {event, order, true}
+	append(&tracker.out, Tracked(E){.Emitted, event})
 }
 
 tracker_end_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
@@ -108,7 +102,6 @@ tracker_verified :: proc(tracker: ^Event_Tracker($E), verified: u32) {
 	low := tracker.verified + 1 if tracker.has_verified else 0
 	tracker.verified = verified
 	tracker.has_verified = true
-	tracker.verifying = false
 	tracker_flush(tracker, low, verified, .Confirmed, proc(pending: Pending(E)) -> bool {return true})
 }
 
@@ -131,8 +124,7 @@ tracker_flush :: proc(
 	for item in tracker.scratch {
 		pending := tracker.pending[item.id]
 		delete_key(&tracker.pending, item.id)
-		if action == .Cancelled && !pending.shown do continue // never shown: nothing to undo
-		append(&tracker.out, Tracked(E){action, action == .Confirmed && !pending.shown, pending.event})
+		append(&tracker.out, Tracked(E){action, pending.event})
 	}
 }
 

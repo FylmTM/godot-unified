@@ -631,6 +631,16 @@ bind_signal :: proc(cls: ^Class, name: string, args: ..Arg) {
 	gdi.classdb_register_extension_class_signal(library, &cls.name_sn, &name_sn, &infos[0], i64(len(args)))
 }
 
+// Declares an integer constant of the class, in the enum `enum_name` ("" for none): scripts read it as
+// `Class.NAME` (and an enum's as `Class.Enum.NAME`, which can type a GDScript variable).
+bind_constant :: proc(cls: ^Class, enum_name, name: string, value: i64) {
+	enum_sn := string_name_from(enum_name)
+	defer StringName_destroy(&enum_sn)
+	name_sn := string_name_from(name)
+	defer StringName_destroy(&name_sn)
+	gdi.classdb_register_extension_class_integer_constant(library, &cls.name_sn, &enum_sn, &name_sn, value, 0)
+}
+
 // Declares a virtual that scripts may implement (docs, autocomplete); Odin calls it with call_script.
 bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
 	name_sn := string_name_from(name)

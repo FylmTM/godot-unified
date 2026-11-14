@@ -260,14 +260,14 @@ sim_tick :: proc(tracker: ^view.Event_Tracker(Ev), tick: u32, events: ..Ev) {
 
 // The tick being verified, then the verification (what a session's verified hook does).
 verify_tick :: proc(tracker: ^view.Event_Tracker(Ev), tick: u32, events: ..Ev) {
-	view.tracker_begin_tick(tracker, tick, verifying = true)
+	view.tracker_begin_tick(tracker, tick)
 	for event in events do view.tracker_event(tracker, event)
 	view.tracker_end_tick(tracker, tick)
 	view.tracker_verified(tracker, tick)
 }
 
 @(test)
-events_predicted_cancelled_confirmed :: proc(t: ^testing.T) {
+events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	tracker: view.Event_Tracker(Ev)
 	view.tracker_init(&tracker, event_id)
 	defer view.tracker_destroy(&tracker)
@@ -277,39 +277,40 @@ events_predicted_cancelled_confirmed :: proc(t: ^testing.T) {
 	sim_tick(&tracker, 5, boom)
 	sim_tick(&tracker, 6, death)
 	testing.expect_value(t, len(tracker.out), 2)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Predicted, true, boom})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, boom})
 	clear(&tracker.out)
-	// rollback to 5: tick 5 produces the explosion again (not shown twice), tick 6 no longer kills
+	// rollback to 5: tick 5 produces the explosion again (not emitted twice), tick 6 no longer kills
 	sim_tick(&tracker, 5, boom)
 	sim_tick(&tracker, 6)
 	testing.expect_value(t, len(tracker.out), 1)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Cancelled, false, death})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Cancelled, death})
 	clear(&tracker.out)
-	// tick 5 verified: confirmed once, not first (it was shown)
+	// tick 5 verified: confirmed once
 	view.tracker_verified(&tracker, 5)
 	view.tracker_verified(&tracker, 5)
 	testing.expect_value(t, len(tracker.out), 1)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Confirmed, false, boom})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Confirmed, boom})
 	clear(&tracker.out)
-	// re-simulating a verified tick (a rollback that starts there) shows nothing again
+	// re-simulating a verified tick (a rollback that starts there) emits nothing again
 	sim_tick(&tracker, 5, boom)
 	testing.expect_value(t, len(tracker.out), 0)
-	// a re-simulated tick that produces a different event: show the new one, cancel the old one
+	// a re-simulated tick that produces a different event: emit the new one, cancel the old one
 	sim_tick(&tracker, 7, Ev{7, 1, 1})
 	sim_tick(&tracker, 7, Ev{7, 1, 2})
-	testing.expect_value(t, len(tracker.out), 3) // predicted 1, predicted 2, cancelled 1
-	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Predicted, true, Ev{7, 1, 2}})
-	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Cancelled, false, Ev{7, 1, 1}})
+	testing.expect_value(t, len(tracker.out), 3) // emitted 1, emitted 2, cancelled 1
+	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Emitted, Ev{7, 1, 2}})
+	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Cancelled, Ev{7, 1, 1}})
 	clear(&tracker.out)
-	// tick 8 is first seen as it is verified: only Confirmed, and first; a predicted one of 8 that the
+	// tick 8 is first seen as it is verified: emitted and confirmed together; a predicted one of 8 that the
 	// verified simulation drops is cancelled
 	sim_tick(&tracker, 8, Ev{8, 3, 1})
 	clear(&tracker.out)
 	verify_tick(&tracker, 8, Ev{8, 4, 1})
-	testing.expect_value(t, len(tracker.out), 3)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Cancelled, false, Ev{8, 3, 1}})
-	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Confirmed, false, Ev{7, 1, 2}})
-	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Confirmed, true, Ev{8, 4, 1}})
+	testing.expect_value(t, len(tracker.out), 4)
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, Ev{8, 4, 1}})
+	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Cancelled, Ev{8, 3, 1}})
+	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Confirmed, Ev{7, 1, 2}})
+	testing.expect_value(t, tracker.out[3], view.Tracked(Ev){.Confirmed, Ev{8, 4, 1}})
 }
 
 // #152: a tick's cancels and confirmations come out in emission order (and ticks in order), whatever
@@ -335,5 +336,5 @@ events_keep_emission_order :: proc(t: ^testing.T) {
 	clear(&tracker.out)
 	sim_tick(&tracker, 12)
 	testing.expect_value(t, len(tracker.out), len(tick12))
-	for event, i in tick12 do testing.expect_value(t, tracker.out[i], view.Tracked(Ev){.Cancelled, false, event})
+	for event, i in tick12 do testing.expect_value(t, tracker.out[i], view.Tracked(Ev){.Cancelled, event})
 }

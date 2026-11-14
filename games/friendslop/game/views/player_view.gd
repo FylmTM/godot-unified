@@ -97,8 +97,8 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 
 
 ## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
-func _sim_event(event: StringName, data: Dictionary) -> void:
-	if not data.get("first", false):
+func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
+	if state != SimEvent.EMITTED:
 		return
 	var local := player == Game.local_player()
 	match event:

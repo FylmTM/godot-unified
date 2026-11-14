@@ -98,7 +98,7 @@ func _draw() -> void:
 
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it); a
 ## cancelled one has already played and is left as is.
-func _sim_event(event: StringName, data: Dictionary) -> void:
+func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
 	match event:
 		&"despawned":
 			_gone = true
@@ -106,7 +106,7 @@ func _sim_event(event: StringName, data: Dictionary) -> void:
 		&"revived":
 			_gone = false
 			return
-	if not data.first:
+	if state != SimEvent.EMITTED:
 		return
 	var local := player == Game.local_player()
 	match event:

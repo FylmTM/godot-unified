@@ -66,8 +66,10 @@ func _ready() -> void:
 		return
 	session.name = &"Session"
 	add_child(session)
+	if not is_mock:
+		_check_event_states()
 	# Connected before any view or HUD: a handler of the frame's first event reads this frame's hud.
-	session.sim_event.connect(func(_event: StringName, _data: Dictionary) -> void: _refresh_hud())
+	session.sim_event.connect(func(_event: StringName, _state: int, _data: Dictionary) -> void: _refresh_hud())
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
 	hud = session.hud()
@@ -262,6 +264,16 @@ func copy_with_feedback(button: Button, text: String) -> void:
 
 
 ## Once per frame, from the session's first event or this node's _process, whichever comes first.
+## SimEvent's values are the native session's (scripts use SimEvent so they also run on a GDScript stand-in).
+func _check_event_states() -> void:
+	var native := {&"EVENT_EMITTED": SimEvent.EMITTED, &"EVENT_CONFIRMED": SimEvent.CONFIRMED,
+		&"EVENT_CANCELLED": SimEvent.CANCELLED}
+	for name: StringName in native:
+		var value := ClassDB.class_get_integer_constant(&"UnifiedSession", name)
+		if value != native[name]:
+			push_error("SimEvent and UnifiedSession.%s differ (%d, native %d)" % [name, native[name], value])
+
+
 func _refresh_hud() -> void:
 	var frame := Engine.get_process_frames()
 	if frame != _hud_frame:

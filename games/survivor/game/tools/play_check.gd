@@ -53,8 +53,8 @@ func _run() -> void:
 	if game.is_mock:
 		fail("the play check needs the native extension (uni build survivor)")
 		return
-	game.session.sim_event.connect(func(event: StringName, data: Dictionary) -> void:
-		if data.state == "confirmed":
+	game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
+		if state == SimEvent.CONFIRMED:
 			_events[event] = _events.get(event, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)

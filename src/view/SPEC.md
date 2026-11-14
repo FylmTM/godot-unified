@@ -26,8 +26,8 @@ View_Set($V)  set_begin / set_see(key) -> (^Entry, spawned) / set_end(now_s, lin
 Pool($V)      pool_get / pool_put
 
 // predicted events
-Event_Tracker($E)  tracker_init(id_of) / tracker_begin_tick(tick, verifying) / tracker_event / tracker_end_tick
-                   / tracker_verified -> out: []{Predicted | Confirmed | Cancelled, first, E}
+Event_Tracker($E)  tracker_init(id_of) / tracker_begin_tick / tracker_event / tracker_end_tick / tracker_verified
+                   -> out: []{Emitted | Confirmed | Cancelled, E}
 Event_Id { tick, kind, entity, player, nth }  // the subject convention: src/sim/SPEC.md "Events"
 ```
 
@@ -43,12 +43,12 @@ Event_Id { tick, kind, entity, player, nth }  // the subject convention: src/sim
 - **Lifetimes.** Views are keyed by the sim's spawn keys, not by slot indices. A key missing from a frame starts
   a linger, which covers an exit animation or a rollback that brings the entity back (it is revived, not
   respawned). A re-used slot gets a new key, so it gets a new view.
-- **Events** (D6, the #6 sitting). The tracker sees every simulated tick: predicted, re-simulated and verified. An
-  event is **Predicted** when a tick not yet verified first produces it; a re-simulation that produces it again
-  shows nothing new; one that drops it **Cancels** it; once its tick is verified it is **Confirmed**. An event first
-  seen when its tick is verified (the tick fed with `verifying`) is only Confirmed. `first` is true the first time
-  an event is shown (its Predicted, or a Confirmed nothing predicted). Cancels and confirmations come out in tick
-  order and, within a tick, in emission order (#152). Re-simulations of ticks at or below the verified tick are
+- **Events** (D6, the #6 sitting; its states renamed in #168's review). The tracker sees every simulated tick:
+  predicted, re-simulated and verified. Every event is **Emitted** exactly once, the first time any simulation of
+  its tick produces it (a re-simulation that produces it again emits nothing new), then exactly once either
+  **Confirmed** (its tick is verified) or **Cancelled** (a re-simulation drops it). An event first produced when its
+  tick is verified is Emitted, then Confirmed, in the same output. Cancels and confirmations come out in tick order
+  and, within a tick, in emission order (#152). Re-simulations of ticks at or below the verified tick are
   ignored, since they are final.
 
 ## Open

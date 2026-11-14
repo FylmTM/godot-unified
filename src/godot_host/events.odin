@@ -72,6 +72,8 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 			case name == "player" && is_integer(field):
 				layout.player, layout.player_size = offset, field.size
 			}
+			// the host adds `tick` to every event's data
+			if name == "tick" do fmt.panicf("unified: event %v has a field named `tick`, which the host's event data reserves", variant.id)
 		}
 	}
 	return layouts
@@ -242,9 +244,10 @@ enum_name :: proc(info: runtime.Type_Info_Enum, value: u64, size: int) -> string
 	return fmt.tprintf("%d", value)
 }
 
-@(private)
-STATE_NAMES := [view.Event_Action]string {
-	.Predicted = "predicted",
-	.Confirmed = "confirmed",
-	.Cancelled = "cancelled",
+// The event states as GDScript sees them: UnifiedSession.EVENT_EMITTED, EVENT_CONFIRMED, EVENT_CANCELLED (in the
+// enum UnifiedSession.EventState), the values of view.Event_Action.
+EVENT_STATE_NAMES := [view.Event_Action]string {
+	.Emitted   = "EVENT_EMITTED",
+	.Confirmed = "EVENT_CONFIRMED",
+	.Cancelled = "EVENT_CANCELLED",
 }

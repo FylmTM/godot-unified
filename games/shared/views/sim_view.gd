@@ -17,7 +17,7 @@ func _sim_update(_position: Vector3, _yaw: float, _alpha: float) -> void:
 	pass
 
 
-## A sim event for this entity, in any state (as the session's `sim_event`: data has the event's fields plus
-## `tick`, `state` ("predicted", "confirmed", "cancelled") and `first`), or `revived` / `despawned` (empty data).
-func _sim_event(_event: StringName, _data: Dictionary) -> void:
+## A sim event for this entity, as the session's `sim_event`: its state (SimEvent.EMITTED, then CONFIRMED or
+## CANCELLED) and data (the event's fields plus `tick`); or `revived` / `despawned` (EMITTED, empty data).
+func _sim_event(_event: StringName, _state: int, _data: Dictionary) -> void:
 	pass

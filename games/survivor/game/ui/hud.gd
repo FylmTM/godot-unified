@@ -232,8 +232,8 @@ func _session_rows(lobby: bool) -> Array[Dictionary]:
 
 
 ## Banners show when an event is confirmed (its tick verified), never on a prediction.
-func _on_sim_event(event: StringName, data: Dictionary) -> void:
-	if data.state != "confirmed":
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
 		return
 	var local := Game.local_player()
 	match event:

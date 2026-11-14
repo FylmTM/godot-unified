@@ -64,6 +64,6 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, ring, -PI / 2.0, -PI / 2.0 + TAU * hp_frac, 64, hp_col, 4.0, true)
 
 
-func _sim_event(event: StringName, data: Dictionary) -> void:
-	if event == &"station_hit" and data.first:
+func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
+	if event == &"station_hit" and state == SimEvent.EMITTED:
 		_flash = 1.0

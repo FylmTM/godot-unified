@@ -23,6 +23,7 @@ installs its sim and its glue.
     trampoline per signature;
   - `bind_property(cls, name, get, set, hint)`;
   - `bind_signal(cls, name, {"arg", type}...)`;
+  - `bind_constant(cls, enum_name, name, value)` (an integer constant, `Class.NAME`; in an enum, `Class.Enum.NAME`);
   - `bind_script_virtual`, `emit_signal`, `call_script`;
   - `callable_create(proc, user, owner)`, `connect`;
   - `sn("name")` returns interned StringNames.
@@ -31,7 +32,7 @@ installs its sim and its glue.
 - **Value conversions.** `to_variant`, `from_variant`, `variant_from_any`, and the `dict_*` / `array_*` helpers.
 - **Tests.** `uni test --suite godot-bindings` runs a test class (`tests/godot`) under headless Godot (`--verbose`; an
   orphan StringName or a leak at exit fails it) covering every feature above, again through typed calls (checked to
-  take ptrcall), a nested callback, plus a dev UI smoke test.
+  take ptrcall), a nested callback, class constants, plus a dev UI smoke test.
 
 ## godot_host API
 
@@ -62,8 +63,8 @@ GDScript sees contract v0:
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
     `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
     `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `sim_event(event: StringName, data: Dictionary)` (every event in every
-    state: "Events" below);
+  - signals: `status_changed`, `lobby_code`, `sim_event(event: StringName, state: int, data: Dictionary)` (every
+    event in every state: "Events" below); constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED`;
   - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice),
     `host_direct(port)` (every interface; 127.0.0.1 only when the process got `--local-net`, which `uni` passes to
     every tool run and the session test),
@@ -81,7 +82,7 @@ GDScript sees contract v0:
     returns false with a `print_error` naming it. Main thread; queued to the session thread, which hands it to the
     client's `commands` hook (the command's tick is the next one the client samples).
 - **`SimView`** (Node3D: `kind`, `entity`, `player`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
-  and `_sim_event(event: StringName, data: Dictionary)`).
+  and `_sim_event(event: StringName, state: int, data: Dictionary)`).
 - **`SimView2D`** (Node2D: the same, with `_sim_update(position: Vector2, rotation, alpha)`).
 - **`SimBulkView`** (MultiMeshInstance3D: `kind`), **`SimBulkView2D`** (MultiMeshInstance2D: `kind`); both join
   the `sim_bulk` group.
@@ -132,22 +133,26 @@ reviews it. `install` reads the game's event union by RTTI once: each kind's nam
 `player` field, its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) and its
 `sim.Position` fields.
 
-- **States.** Each event is **Predicted** (a tick not yet verified produced it), then **Confirmed** (its tick is
-  verified) or **Cancelled** (a re-simulation no longer produces it). An event first seen when its tick is
-  verified is only Confirmed. The tracker (`view.Event_Tracker`) tells them apart by tick, kind, subject and index
-  among the tick's events of that kind and subject.
+- **States** (`UnifiedSession.EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED`, the enum
+  `UnifiedSession.EventState`; decided after #168's review). Every event is **Emitted** exactly once, the first time
+  any simulation of its tick produces it (a prediction, or the verified tick itself), then exactly once either
+  **Confirmed** (its tick is verified) or **Cancelled** (a re-simulation no longer produces it). An event first
+  produced when its tick is verified is Emitted and Confirmed in the same frame. So each handler looks at one
+  state: effects and sounds on EMITTED, what must be final (score, banners, match over) on CONFIRMED, undoing an
+  effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and index among
+  the tick's events of that kind and subject.
 - **Data.** A Dictionary of the event's fields, converted by type: a handle becomes its key (int, `sim.handle_key`),
   a `sim.Position` a Vector2 (2D) or Vector3 in view units, an enum its member's name lowercased (a String), a
   bit_set an Array of those, `[2]f32` / `[3]f32` / `[4]f32` a Vector2 / Vector3 / Color, a nested struct a
   Dictionary, other numbers int or float; fields named `_...` are left out, and a `player` field holding
-  `sim.NO_PLAYER` is -1. Plus `tick`, `state` (`"predicted"`, `"confirmed"`, `"cancelled"`) and `first` (true the
-  first time the event is shown: most effects play `if data.first`; a Cancelled is never first).
-- **Where.** Every event, in every state, goes to the `sim_event(event, data)` signal and to its subject's view's
-  `_sim_event(event, data)`: the view `Glue.event_key` names when the game sets it (0: none); else the view keyed by
+  `sim.NO_PLAYER` is -1. Plus `tick`; `install` refuses an event with a field named `tick`.
+- **Where.** Every event, in every state, goes to the `sim_event(event: StringName, state: int, data: Dictionary)`
+  signal and to its subject's view's `_sim_event(event, state, data)`: the view `Glue.event_key` names when the game sets it (0: none); else the view keyed by
   the event's handle (`view.Key(sim.handle_key(handle))`), else the views whose `Scene_Item.entity` is its `entity`
   field, else its player's views (`Scene_Item.player`). The view gets it first, then the signal.
 - **Order.** A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order
-  (#152). A view also gets `_sim_event("revived" | "despawned", {})` for its own lifetime (a linger).
+  (#152). A view also gets `_sim_event("revived" | "despawned", EVENT_EMITTED, {})` for its own lifetime (a
+  linger).
 
 ## How it works
 
@@ -160,7 +165,7 @@ reviews it. `install` reads the game's event union by RTTI once: each kind's nam
   process's timer request. The netcode hooks run there:
   - `sample` calls `Glue.poll_input` with the input atomics, or `scripted_input` in headless checks;
   - `frame` feeds the predicted ticks' events to the tracker and publishes a Frame (`extract`);
-  - `verified` feeds the verified tick's events (`verifying`) and confirms or cancels events;
+  - `verified` feeds the verified tick's events and confirms or cancels events;
   - `status` posts the status.
 
   Godot is only called from the main thread.
@@ -189,10 +194,10 @@ reviews it. `install` reads the game's event union by RTTI once: each kind's nam
   delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
   and the Dev_Link switch. `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session
   under headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event` with the converted fields and states), the MultiMesh
+  view_root (position, rotation, `_sim_update`, a 2D `_sim_event` with the converted fields and the states), the MultiMesh
   buffers of a typed 2D bulk view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one
   (stride 8) and a 3D one, typed scene data set as properties only when it changes, `sim_event` (fields, Vector2
-  positions, states, `first`), and `send_command`: the toy's commands reach the
+  positions, each event emitted then confirmed, the state constants), and `send_command`: the toy's commands reach the
   sim once, in order, every field kind converted (read back through the HUD), and each refusal returns false with its
   error line (the suite expects those lines and no others). Its extension doesn't link Box3D. Its
   `session_check.gd`, on the same toy session, checks starting during a goodbye: leave then start single player,

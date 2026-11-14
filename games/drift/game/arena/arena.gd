@@ -100,11 +100,11 @@ static func level_bounds(level: Node) -> Rect2:
 	return r
 
 
-func _on_sim_event(event: StringName, data: Dictionary) -> void:
-	# rock effects play when the event is first shown (a cancelled one has already played: left as is); the rest
-	# wait for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	# rock effects play when the event is emitted (a cancelled one has already played: left as is); the rest wait
+	# for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
 	var rock_effect := event in [&"rock_hit", &"rock_split", &"rock_destroyed"]
-	if not (data.first if rock_effect else data.state == "confirmed"):
+	if state != (SimEvent.EMITTED if rock_effect else SimEvent.CONFIRMED):
 		return
 	var at: Vector2 = data.get("position", Vector2.ZERO)
 	var near := at.distance_to(camera.get_screen_center_position()) < 900.0

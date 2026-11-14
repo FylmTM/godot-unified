@@ -130,8 +130,8 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 
 
 ## Verified events only (as the banners always were).
-func _on_sim_event(event: StringName, data: Dictionary) -> void:
-	if data.state != "confirmed":
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
 		return
 	match event:
 		&"run_started":

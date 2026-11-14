@@ -107,6 +107,9 @@ register :: proc() {
 		proc(self: ^Tester, value: i64) {self.value = value},
 	)
 	gd.bind_signal(cls, "fired", {"n", i64}, {"msg", string}, {"pos", gd.Vector3})
+	gd.bind_constant(cls, "Mode", "MODE_SLOW", 0)
+	gd.bind_constant(cls, "Mode", "MODE_FAST", 7)
+	gd.bind_constant(cls, "", "ANSWER", 42)
 	gd.bind_method(cls, "fire", proc(self: ^Tester, number: i64) {
 		gd.emit_signal(
 			self.obj,

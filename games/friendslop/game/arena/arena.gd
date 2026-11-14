@@ -40,8 +40,8 @@ func local_player_view() -> GameView:
 
 
 ## Verified events only (predictions are the views' business).
-func _on_sim_event(event: StringName, data: Dictionary) -> void:
-	if data.state != "confirmed":
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
 		return
 	match event:
 		&"run_started":

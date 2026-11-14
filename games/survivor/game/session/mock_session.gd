@@ -12,7 +12,7 @@ signal status_changed(status: String, detail: String)
 signal lobby_code(code: String)
 ## Every event, as the native session sends it: the event struct's fields plus `tick`, `state` and `first`. The
 ## fake sim never predicts, so every event arrives once, "confirmed" and first.
-signal sim_event(event: StringName, data: Dictionary)
+signal sim_event(event: StringName, state: int, data: Dictionary)
 
 # The sim's numbers, reported by constants() exactly as the native session reports them (games/survivor/SPEC.md).
 const TICK_HZ := 64
@@ -903,16 +903,16 @@ func _nearest_player(pos: Vector3) -> Player:
 	return best
 
 
-## Like the native session: the event's view (`view_key`, -1 for none) gets it first, then the signal.
+## Like the native session: the event's view (`view_key`, -1 for none) gets it first, then the signal. Nothing is
+## predicted here, so every event is emitted and confirmed at once.
 func _emit(event: StringName, fields: Dictionary, view_key := -1) -> void:
 	var data := fields.duplicate()
 	data.tick = _tick
-	data.state = "confirmed"
-	data.first = true
 	var view: Node3D = _views.get(view_key)
-	if view != null and view.has_method(&"_sim_event"):
-		view._sim_event(event, data)
-	sim_event.emit(event, data)
+	for state: int in [SimEvent.EMITTED, SimEvent.CONFIRMED]:
+		if view != null and view.has_method(&"_sim_event"):
+			view._sim_event(event, state, data)
+		sim_event.emit(event, state, data)
 
 
 func _make_code() -> String:
@@ -984,7 +984,7 @@ func _despawn_view(entity: int, linger := true) -> void:
 		node.queue_free()
 		return
 	if node.has_method(&"_sim_event"):
-		node._sim_event(&"despawned", {})
+		node._sim_event(&"despawned", SimEvent.EMITTED, {})
 	get_tree().create_timer(LINGER).timeout.connect(node.queue_free)
 
 

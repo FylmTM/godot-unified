@@ -48,7 +48,9 @@ UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (
 and `tagline`), `pause_menu.tscn`, `connect_overlay.tscn` (shown by `Game` while connecting), `SettingsPanel`,
 `SessionPanel` and `ControlsPanel` (a HUD's top-right session panel and bottom-right controls list: the game passes
 rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). Views: `GameView` (`views/`, a
-GDScript base for 3D scene views with the native `SimView`'s properties). Audio: `audio/bus_layout.tres`.
+GDScript base for 3D scene views with the native `SimView`'s properties), `SimEvent` (`views/sim_event.gd`: the
+event states `EMITTED`, `CONFIRMED`, `CANCELLED`, the native `UnifiedSession.EVENT_*` values, which `Game` checks at
+start; scripts use them so they also run on a GDScript stand-in session). Audio: `audio/bus_layout.tres`.
 
 Tools (`tools/`): `UnifiedTool` (the base of every tool script: `_run()`, `step`, `expect`, `fail`, `finish`, waits,
 real input events, screenshots, `--frames` with `UnifiedFrameLog`, errors through `UnifiedLogCapture`),

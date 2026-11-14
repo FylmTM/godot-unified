@@ -238,10 +238,10 @@ and load without the library (Godot replaces unknown native node types with a pl
 - `view_root: Node3D` property (extension): set by the arena on load, cleared on exit; views spawn under it.
 - Scene views: `res://game/views/<kind>.tscn`, root `Node3D` with script properties `kind`, `entity`, `player` (-1
   if not a player), set before `add_child`. Each frame: `position` = interpolated body centre, then
-  `_sim_update(position, yaw, alpha)`. Events: `sim_event(event, data)` (the signal) and the subject's view's
-  `_sim_event(event, data)`, `data` = the event's fields (Events above) plus `tick`, `state` and `first`
-  (`src/godot_host/SPEC.md`). The arena's effects and the HUD's banners play on `"confirmed"` events only; the mock
-  sends every event once, confirmed and first.
+  `_sim_update(position, yaw, alpha)`. Events: `sim_event(event, state, data)` (the signal) and the subject's view's
+  `_sim_event(event, state, data)`, `data` = the event's fields (Events above) plus `tick`, `state` one of
+  `SimEvent.EMITTED`, `CONFIRMED`, `CANCELLED` (`src/godot_host/SPEC.md`). The arena's effects and the HUD's banners
+  play on CONFIRMED only; the mock emits and confirms every event at once.
 - Bulk views: `MultiMeshInstance3D` in group `sim_bulk` under `view_root`, property `kind` (grunt, runner, brute,
   projectile, gem). 3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the
   floor plane (y = 0), the shaders lift the meshes.

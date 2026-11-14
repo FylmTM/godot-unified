@@ -90,8 +90,8 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   - `gem`: a pulse that squashes and stretches.
 - Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
 - Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
-  rock effects when an event is first shown (predicted), and everything else, like the HUD's banners, once its tick
-  is confirmed.
+  rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
+  banners, once it is confirmed.
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick.
 - HUD: phase, wave, station HP, score, time, the next wave in, and the players.
