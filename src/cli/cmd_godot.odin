@@ -1,6 +1,7 @@
 package cli
 
 import "core:encoding/json"
+import "core:net"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -513,12 +514,19 @@ cmd_coop :: proc(args: []string) -> Result {
 		usage("--mute and --screen need --window")
 	}
 	selected := game(opts.game)
-	script := tool_script(selected, "coop")
-	if script == "" {
-		usage("%s has no coop tool script", selected.name)
-	}
 	if !has_extension(selected) {
 		usage("%s has no extension", selected.name)
+	}
+	script := tool_script(selected, "coop")
+	if script == "" {
+		// no coop tool script (no menus to drive): unified's default, a host and a joiner over direct UDP
+		if !opts.lan || opts.rejoin || opts.crash || opts.window {
+			usage(
+				"%s has no coop tool script: its default runs with --lan only (a host and a joiner, headless)",
+				selected.name,
+			)
+		}
+		return coop_default(selected)
 	}
 	ensure_extension(selected, .dev)
 	ensure_imported(selected.dir)
@@ -530,7 +538,8 @@ cmd_coop :: proc(args: []string) -> Result {
 		append(&extra, "--crash")
 	}
 	if opts.lan {
-		append(&extra, "--lan")
+		// a free port: two runs at once (parallel agents) never meet in each other's lobby
+		append(&extra, "--lan", tprint("--lan-port=%d", free_udp_port()))
 	}
 	code := join(selected.dir, ".out", "coop_code.txt")
 	os.remove(code)
@@ -727,6 +736,90 @@ bake :: proc(game: Game, check: bool) -> Tool_Result {
 	return result
 }
 
+COOP_DEFAULT_TICKS :: 600
+
+// A game without a coop tool script: a host (`--host-port`, 127.0.0.1 only) and a joiner (`--join`), both headless
+// with scripted input, for COOP_DEFAULT_TICKS ticks; ok when both finish with the same checksums.
+@(private)
+coop_default :: proc(game: Game) -> Result {
+	ensure_extension(game, .dev)
+	ensure_imported(game.dir)
+	port := free_udp_port()
+	common := []string{"--scripted", "--quit-at-end", "--no-settings"}
+	host_cmd, join_cmd: [dynamic]string
+	append(
+		&host_cmd,
+		godot(),
+		"--headless",
+		"--path",
+		game.dir,
+		"--",
+		"--host-port",
+		tprint("%d", port),
+		"--local-net",
+	)
+	append(&host_cmd, ..common)
+	append(&host_cmd, "--ticks", tprint("%d", COOP_DEFAULT_TICKS))
+	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", tprint("127.0.0.1:%d", port))
+	append(&join_cmd, ..common)
+	timeout := time.Duration(COOP_DEFAULT_TICKS / 64 + 60) * time.Second
+	host := start({cmd = host_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_host")})
+	time.sleep(500 * time.Millisecond) // the host listens before the joiner says hello
+	joiner := start(
+		{cmd = join_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_join")},
+	)
+	host_ran, join_ran := wait(&host), wait(&joiner)
+	ok := true
+	results: [2]map[int]string
+	for ran, i in ([]Ran{host_ran, join_ran}) {
+		role := i == 0 ? "host" : "joiner"
+		out := strings.concatenate({ran.stdout, ran.stderr})
+		for line in godot_errors(out) {
+			log("uni: coop %s %s: %s", game.name, role, line)
+			ok = false
+		}
+		report, has := last_json_after(ran.stdout, "unified: result ").(json.Object)
+		if !has {
+			log("%s", tail(out, 2000))
+			log("uni: coop %s %s: no result line", game.name, role)
+			ok = false
+			continue
+		}
+		results[i] = checksums(report["checksums"])
+		log(
+			"uni: coop %s %s: %d checksums, final tick %d",
+			game.name,
+			role,
+			len(results[i]),
+			json_int(report["final_tick"]),
+		)
+	}
+	compared := 0
+	for tick, host_sum in results[0] {
+		if join_sum, found := results[1][tick]; found {
+			compared += 1
+			if join_sum != host_sum {
+				log("uni: coop %s: checksum at tick %d: host %s, joiner %s", game.name, tick, host_sum, join_sum)
+				ok = false
+			}
+		}
+	}
+	if compared == 0 {
+		log("uni: coop %s: no checksum both sides report", game.name)
+		ok = false
+	}
+	return {
+		ok = ok,
+		summary = tprint(
+			"coop %s (default, port %d): %d checksums compared, %s",
+			game.name,
+			port,
+			compared,
+			ok ? "ok" : "FAILED",
+		),
+	}
+}
+
 // `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
 // same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
 @(private)
@@ -797,4 +890,18 @@ coop_crash :: proc(
 			rejoin_result.ok ? "ok" : "FAILED",
 		),
 	}
+}
+
+// A UDP port free on 127.0.0.1 right now (the OS picks it).
+free_udp_port :: proc() -> int {
+	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
+	if err != nil {
+		fatal("cannot bind a UDP socket: %v", err)
+	}
+	defer net.close(sock)
+	endpoint, endpoint_err := net.bound_endpoint(sock)
+	if endpoint_err != nil {
+		fatal("cannot read the UDP socket's port: %v", endpoint_err)
+	}
+	return endpoint.port
 }

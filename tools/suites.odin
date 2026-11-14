@@ -1,7 +1,6 @@
 package main
 
 import "core:encoding/json"
-import "core:net"
 import "core:strings"
 import "core:time"
 
@@ -70,7 +69,7 @@ suite_net :: proc(games: []cli.Game, only: []string) -> bool {
 
 @(private)
 udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: bool) {
-	port := free_udp_port()
+	port := cli.free_udp_port()
 	timeout := time.Duration(f64(ticks) / 64 * 4 + 90) * time.Second
 	start :: proc(binary, work, name: string, timeout: time.Duration, args: ..string) -> cli.Proc {
 		cmd: [dynamic]string
@@ -178,19 +177,6 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		true
 }
 
-@(private)
-free_udp_port :: proc() -> int {
-	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
-	if err != nil {
-		cli.fatal("cannot bind a UDP socket: %v", err)
-	}
-	defer net.close(sock)
-	ep, eerr := net.bound_endpoint(sock)
-	if eerr != nil {
-		cli.fatal("cannot read the UDP socket's port: %v", eerr)
-	}
-	return ep.port
-}
 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
