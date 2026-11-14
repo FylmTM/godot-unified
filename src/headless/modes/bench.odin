@@ -2,6 +2,7 @@
 // every tick, for `uni bench`.
 package modes
 
+import "core:fmt"
 import "core:slice"
 import "core:time"
 
@@ -115,3 +116,72 @@ run_bench :: proc(
 	return
 }
 
+// `table-bench` (N9, the #6 sitting): what a table walk costs when the table is sparse. sim.iterate / sim.next look
+// at every slot up to high_water, which never goes down, so a table that once held 65,536 items and now holds a few
+// still walks them all. Measures that walk against a dense table holding the same live items; an alive bitmask
+// (1 bit per slot) comes only if this shows the scan matters. Game-independent: `uni bench` runs it once.
+TABLE_BENCH_CAPACITY :: 65_536
+
+Table_Bench_Item :: struct {
+	position: [3]f32,
+	velocity: [3]f32,
+	life:     i32,
+	kind:     u32,
+}
+
+Table_Bench :: sim.Table(Table_Bench_Item, TABLE_BENCH_CAPACITY)
+
+mode_table_bench :: proc(args: ^Args) -> bool {
+	check_known(args, "live", "walks")
+	live := opt_int(args, "live", 1000, low = 1, high = TABLE_BENCH_CAPACITY)
+	walks := opt_int(args, "walks", 300, low = 1, high = 100_000)
+	sparse, dense := new(Table_Bench), new(Table_Bench)
+	defer free(sparse)
+	defer free(dense)
+	// sparse: every slot used once, then all but `live` (spread evenly) despawned; dense: `live` items at the front
+	for i in 0 ..< TABLE_BENCH_CAPACITY {
+		item, _, _ := sim.spawn(sparse)
+		item.life = i32(i)
+	}
+	keep_every := TABLE_BENCH_CAPACITY / live
+	for i in 0 ..< TABLE_BENCH_CAPACITY {
+		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, i)
+	}
+	for i in 0 ..< live {
+		item, _, _ := sim.spawn(dense)
+		item.life = i32(i)
+	}
+	walk :: proc(table: ^Table_Bench) -> (micros: f64, sum: i64) {
+		start := time.tick_now()
+		items := sim.iterate(table)
+		for item, handle in sim.next(&items) {
+			sum += i64(item.life) + i64(handle.index)
+		}
+		return time.duration_microseconds(time.tick_since(start)), sum
+	}
+	sparse_us, dense_us := make([]f64, walks), make([]f64, walks)
+	defer delete(sparse_us)
+	defer delete(dense_us)
+	sparse_sum, dense_sum: i64
+	for i in 0 ..< walks {
+		sum: i64
+		sparse_us[i], sum = walk(sparse)
+		sparse_sum += sum
+		dense_us[i], sum = walk(dense)
+		dense_sum += sum
+	}
+	sparse_stat, dense_stat := stat_of(sparse_us), stat_of(dense_us)
+	stat_json :: proc(stat: Stat) -> string {
+		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
+	}
+	fmt.printfln(
+		`{{"mode":"table-bench","capacity":%d,"live":%d,"walks":%d,"sparse_us":%s,"dense_us":%s,"checksum":%d}}`,
+		TABLE_BENCH_CAPACITY,
+		int(sparse.count),
+		walks,
+		stat_json(sparse_stat),
+		stat_json(dense_stat),
+		sparse_sum ~ dense_sum,
+	)
+	return int(sparse.count) == live
+}

@@ -32,6 +32,10 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   `unified resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
 - `unified bench [--enemies E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
   W-tick re-sim, and snapshot bytes. Without arguments it runs the game's standard benchmark (`Headless.bench`).
+- `unified table-bench [--live L --walks W]`: a `sim.iterate`/`sim.next` walk of a 65,536-slot table that once held
+  every slot and now holds L (1000) items spread across it, against a dense table holding L items: JSON
+  `sparse_us` and `dense_us`, each `{"mean": µs, "p99": µs}` (src/sim/SPEC.md "Tables and handles": an alive bitmask
+  comes only if this shows the scan matters). Game-independent; `uni bench` runs it once.
 
 Conventions (`uni test --suite net` drives `relay` and `client`, `uni bench` drives `bench`; the suites call the same
 procs in-process):

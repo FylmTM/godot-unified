@@ -28,6 +28,7 @@ usage :: proc() -> ! {
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --enemies E --window W --ticks N [--seed S] [--players P]
+  table-bench [--live L] [--walks W]  (a sparse 65,536-slot table walk vs a dense one; game-independent)
   any mode: [--game NAME] picks a variant of the game (e.g. its play tuning)`,
 	)
 	os.exit(2)

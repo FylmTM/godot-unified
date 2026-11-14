@@ -47,11 +47,20 @@ cmd_bench :: proc(args: []string) -> Result {
 		within_target:      bool,
 		mismatches:         int,
 	}
+	// The sim's sparse-table walk (the headless `table-bench` mode, game-independent): reported, no target.
+	Table_Line :: struct {
+		capacity:       int,
+		live:           int,
+		sparse_mean_us: f64,
+		sparse_p99_us:  f64,
+		dense_mean_us:  f64,
+	}
 	Summary :: struct {
 		platform:   string,
 		commit:     string,
 		target_us:  f64,
 		benchmarks: map[string]Bench_Line,
+		table:      Table_Line,
 	}
 	summary := new(Summary)
 	summary^ = {
@@ -109,6 +118,45 @@ cmd_bench :: proc(args: []string) -> Result {
 		)
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
+		}
+	}
+	if len(games) > 0 {
+		// any game's binary runs it; once is enough
+		result := run_proc(
+			{
+				cmd = strs(headless_path(games[0].name, .release), "table-bench"),
+				capture = true,
+				quiet = true,
+				timeout = 120 * time.Second,
+				log_to = join(work, "table"),
+			},
+		)
+		obj, ok := last_json_object(result.stdout)
+		if result.ok && ok {
+			section :: proc(object: json.Object, key, field: string) -> f64 {
+				inner, _ := object[key].(json.Object)
+				return json_f64(inner[field])
+			}
+			summary.table = {
+				capacity       = json_int(obj["capacity"]),
+				live           = json_int(obj["live"]),
+				sparse_mean_us = section(obj, "sparse_us", "mean"),
+				sparse_p99_us  = section(obj, "sparse_us", "p99"),
+				dense_mean_us  = section(obj, "dense_us", "mean"),
+			}
+			log(
+				"%-12s walk of a %d-slot table holding %d: %.1f us (p99 %.1f); the same %d dense: %.1f us",
+				"sim.table",
+				summary.table.capacity,
+				summary.table.live,
+				summary.table.sparse_mean_us,
+				summary.table.sparse_p99_us,
+				summary.table.live,
+				summary.table.dense_mean_us,
+			)
+		} else {
+			log("uni: table-bench failed (exit %d):\n%s", result.exit_code, tail(result.stderr, 2000))
+			append(&failed, "table-bench")
 		}
 	}
 	if data, err := json.marshal(summary^, {pretty = true}); err == nil {

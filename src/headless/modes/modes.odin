@@ -55,6 +55,8 @@ run :: proc(
 		ok = mode_resume(headless, &args)
 	case "bench":
 		ok = mode_bench(headless, &args)
+	case "table-bench":
+		ok = mode_table_bench(&args)
 	case "session":
 		ok = mode_session(headless, &args)
 	case "relay":
