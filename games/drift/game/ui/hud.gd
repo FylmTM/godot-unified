@@ -74,11 +74,14 @@ func _ready() -> void:
 	pv.add_child(start_button)
 
 	_banner = _label(root, &"Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_banner.position = Vector2(-300, -170)
-	_banner.custom_minimum_size = Vector2(600, 0)
 	_banner.add_theme_font_size_override(&"font_size", 44)
 	_banner.visible = false
+	# 600 px wide, 170 px above the centre (anchors first, then the offsets: `position` would put it off screen)
+	_banner.set_anchors_preset(Control.PRESET_CENTER)
+	_banner.offset_left = -300.0
+	_banner.offset_right = 300.0
+	_banner.offset_top = -170.0
+	_banner.offset_bottom = -110.0
 	_session = SessionPanel.new()
 	root.add_child(_session)
 	_controls = ControlsPanel.new()

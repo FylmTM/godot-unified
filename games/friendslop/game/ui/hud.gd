@@ -39,24 +39,20 @@ func _ready() -> void:
 	_best = _label(top, &"Dim")
 	var cross := _label(root, &"")
 	cross.text = "·"
-	cross.set_anchors_preset(Control.PRESET_CENTER)
+	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	cross.add_theme_font_size_override(&"font_size", 28)
+	_centre(cross, Rect2(-20, -20, 40, 40))
 	_state = _label(root, &"")
-	_state.set_anchors_preset(Control.PRESET_CENTER)
-	_state.position.y += 40
+	_centre(_state, Rect2(-200, 40, 400, 30))
 	_charge = ProgressBar.new()
-	_charge.set_anchors_preset(Control.PRESET_CENTER)
-	_charge.custom_minimum_size = Vector2(160, 10)
-	_charge.position += Vector2(-80, 24)
 	_charge.show_percentage = false
 	_charge.max_value = 1.0
 	root.add_child(_charge)
+	_centre(_charge, Rect2(-80, 24, 160, 10))
 	_banner = _label(root, &"Heading")
-	_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_banner.position = Vector2(-300, -140)
-	_banner.custom_minimum_size = Vector2(600, 0)
 	_banner.add_theme_font_size_override(&"font_size", 48)
 	_banner.visible = false
+	_centre(_banner, Rect2(-300, -140, 600, 60))
 	_session = SessionPanel.new()
 	root.add_child(_session)
 	_controls = ControlsPanel.new()
@@ -144,6 +140,15 @@ func _on_sim_event(kind: StringName, _tick: int, _entity: int, _pos: Vector3, va
 			var saved: float = Settings.get_value(&"best_time")
 			if saved <= 0.0 or value < saved:
 				Settings.set_value(&"best_time", value)
+
+
+## Places a control at `rect` relative to the screen centre.
+static func _centre(c: Control, rect: Rect2) -> void:
+	c.set_anchors_preset(Control.PRESET_CENTER)
+	c.offset_left = rect.position.x
+	c.offset_top = rect.position.y
+	c.offset_right = rect.end.x
+	c.offset_bottom = rect.end.y
 
 
 static func _label(parent: Control, variation: StringName) -> Label:
