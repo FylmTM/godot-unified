@@ -4,16 +4,17 @@ extends Node2D
 ## local ship, effects and the HUD. Turns the mouse or the right stick into the aim every frame, and routes the
 ## sim's verified events (sim_event_2d) to effects, sounds and camera shake.
 
-@onready var _views: Node2D = $Views
-@onready var _level: Node2D = $Level
-@onready var camera: Camera2D = $Camera
-@onready var effects: Node2D = $Effects
 ## The arena's extent in pixels (the level's art), the camera's limits.
 var bounds := Rect2()
-## The mouse aims (relative to the local ship) once it moves, until the right stick is used.
-var _mouse_aim := false
 ## Off: only the right stick aims (game/tools/tour.gd, so a real mouse over the window can't steer the ship).
 var mouse_aim_enabled := true
+## The mouse aims (relative to the local ship) once it moves, until the right stick is used.
+var _mouse_aim := false
+
+@onready var camera: Camera2D = $Camera
+@onready var effects: Node2D = $Effects
+@onready var _views: Node2D = $Views
+@onready var _level: Node2D = $Level
 
 
 func _ready() -> void:

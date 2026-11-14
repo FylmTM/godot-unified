@@ -6,8 +6,10 @@ description: Building, running and checking a Godot game under games/<game> (sur
 # Working on a Godot game
 
 A game is a Godot project in `games/<game>/` (`res://`): Odin in `simulation/` (the sim, its headless binary, its
-GDExtension in `extension/`, its tests), everything Godot in `game/`. The view reads the sim and never writes it;
-player input and commands are the only way in. Every command and its options: `./uni help`, `-h` on a command. Rules
+GDExtension in `extension/`, its tests), everything Godot in `game/`. What every game shares (the flow, settings,
+sounds, menus, HUD panels, tool scripts) is demo-games code in `games/shared` (its SPEC.md; not the library), which
+`uni` mirrors into the game's `addons/shared/` before every run: edit it there, never the copy. The view reads the sim
+and never writes it; player input and commands are the only way in. Every command and its options: `./uni help`, `-h` on a command. Rules
 for editing Godot files load on their own (`.claude/rules/godot.md`).
 
 ## The loop, cheapest first
@@ -22,9 +24,11 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
 1. `validate`: compiles every script with warnings as errors (`untyped_declaration` included), loads and
    instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (survivor: the mock
    session's `constants()` and idle `hud()` against the native session's; friendslop: item sizes against the sim;
-   drift: the view contract), runs the menu for 30 frames. Run it after every GDScript or scene change.
-2. `walk` (`ui_walk.gd`, survivor): a headless scripted walk through the menus and flows with real input events,
-   on the mock session.
+   drift: the view contract), fails on a `preload(` in a script the play scene loads (it loads on a thread:
+   `games/shared/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene change.
+2. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
+   (settings, pad navigation, single player, Esc menu, LAN host, a failed join); survivor adds its match flows on
+   its mock session.
 3. `tour`: the real game, headless, through lobby and match (quick).
 4. `session`: a headless Godot session's checksums must equal the offline binary's. Run it after a change to the
    extension, `src/godot_host` or anything between input and the sim.
@@ -48,16 +52,20 @@ Commit the `.tscn` and the `.level` together; the `bake` step fails when they di
 
 ## Looking at it
 
-These need a display and steal focus (the CLI gives it back on macOS); they don't run in CI. **A window you start for the
-developer (to look at, or as a check) opens with `--mute --screen left`**: they may be using the main screen. `run`,
-`editor`, `tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`).
+These need a display; they don't run in CI. **A window you start for the developer (to look at, or as a check)
+opens with `--mute --screen left` and never takes focus**: they may be typing on the main screen. `run`, `editor`,
+`tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`). `tool`
+and `coop` windows never take focus (and keep running while not frontmost); `run` needs `--background`; the editor
+always takes focus, so open it only when asked.
 
-- `./uni run <game>` (windowed; arguments after `--` go to the game), `./uni editor <game>`.
+- `./uni run <game> --mute --screen left --background` (arguments after `--` go to the game), `./uni editor <game>`.
 - `./uni tool <game> <script> --window [--shots] [-- args]`: any of the game's tool scripts in a window, PNGs in
-  `games/<game>/.out/shots/<script>/` with `--shots`. Survivor's walk: `tool survivor ui_walk --window --shots --
-  --mock`. A whole match: `tool <game> tour --window --shots`; `-- --frames` reports frame times and first-use
+  `games/<game>/.out/shots/<script>/` with `--shots`. The walk: `tool <game> ui_walk --window --shots` (survivor:
+  `-- --mock`). A whole match: `tool <game> tour --window --shots`; `-- --frames` reports frame times and first-use
   hitches, `--cold` clears the shader caches first.
 - `./uni tool survivor play_check --window`: a bot plays (`-- --coop`, `-- --bench N`).
-- `./uni coop <game>`: two processes through EOS, the host picks the friend up (EOS setup: `docs/EOS.md`).
+- `./uni coop <game>`: a host and a joiner process through EOS (`--lan`: direct UDP, no EOS), in every game; then
+  the game's own play (survivor: a match, friendslop: the host picks the friend up, drift: the host starts a match)
+  (EOS setup: `docs/EOS.md`).
 
 Read the PNGs to check what you changed looks right.

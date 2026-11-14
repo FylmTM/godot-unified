@@ -3,9 +3,17 @@ extends GameView
 ## facing (the root's rotation); everything else here is view-only: lean into motion, squash on jumps and landings,
 ## tip over while stunned or held, arms out while holding, a name tag and a throw-charge ring.
 
-const COLORS := [Color(1.0, 0.55, 0.3), Color(0.4, 0.75, 1.0), Color(1.0, 0.5, 0.8), Color(0.6, 0.9, 0.4)]
+const COLORS: Array[Color] = [Color(1.0, 0.55, 0.3), Color(0.4, 0.75, 1.0), Color(1.0, 0.5, 0.8), Color(0.6, 0.9, 0.4)]
 
-var _body: Node3D  ## everything that leans and squashes
+## The sim's Player_View data (simulation/extension), set by the host when it changes.
+## Stunned or held: the body tips over.
+var limp := false
+var holding := false
+## The throw charge, 0..1.
+var charge := 0.0
+
+## Everything that leans and squashes.
+var _body: Node3D
 var _arms: Node3D
 var _tag: Label3D
 var _ring: MeshInstance3D
@@ -17,7 +25,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	var c: Color = COLORS[clampi(slot, 0, 3)]
+	var c := COLORS[clampi(slot, 0, COLORS.size() - 1)]
 	_body = Node3D.new()
 	add_child(_body)
 	var radius: float = Game.constants.get("player_radius", 0.35)
@@ -31,9 +39,11 @@ func _ready() -> void:
 		var foot := Greybox.set_mesh(_body, Greybox.sphere(0.13), c.darkened(0.35),
 			Vector3(0.15 * side, -feet + 0.12, 0.05), 0.0, "Foot%d" % (side + 1))
 		foot.scale = Vector3(1, 0.7, 1.4)
-		var eye := Greybox.set_mesh(_body, Greybox.sphere(0.11), Color.WHITE, Vector3(0.13 * side, 0.45, radius - 0.03), 0.0,
+		var eye := Greybox.set_mesh(_body, Greybox.sphere(0.11), Color.WHITE,
+			Vector3(0.13 * side, 0.45, radius - 0.03), 0.0,
 			"Eye%d" % (side + 1))
-		var pupil := Greybox.set_mesh(eye, Greybox.sphere(0.05), Color(0.05, 0.05, 0.08), Vector3(0, 0, 0.08), 0.0, "Pupil")
+		var pupil := Greybox.set_mesh(eye, Greybox.sphere(0.05), Color(0.05, 0.05, 0.08), Vector3(0, 0, 0.08), 0.0,
+			"Pupil")
 		pupil.set_meta(&"wobble", side)
 	_arms = Node3D.new()
 	_body.add_child(_arms)
@@ -41,7 +51,8 @@ func _ready() -> void:
 		var arm := CapsuleMesh.new()
 		arm.radius = 0.08
 		arm.height = 0.6
-		var a := Greybox.set_mesh(_arms, arm, c.darkened(0.15), Vector3(0.3 * side, 0.15, 0.3), 0.0, "Arm%d" % (side + 1))
+		var a := Greybox.set_mesh(_arms, arm, c.darkened(0.15), Vector3(0.3 * side, 0.15, 0.3), 0.0,
+			"Arm%d" % (side + 1))
 		a.rotation.x = PI / 2.0
 	_arms.visible = false
 	_tag = Label3D.new()
@@ -60,12 +71,6 @@ func _ready() -> void:
 	_last_pos = position
 
 
-## The sim's Player_View data (simulation/extension), set by the host when it changes.
-var limp := false  # stunned or held: the body tips over
-var holding := false
-var charge := 0.0  # throw charge 0..1
-
-
 func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	var dt := get_process_delta_time()
 	if dt <= 0.0:
@@ -73,7 +78,6 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_t += dt
 	_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 10.0))
 	_last_pos = pos
-	var me := _hud_player()
 	_tip = move_toward(_tip, 1.0 if limp else 0.0, dt * (6.0 if limp else 3.0))
 	_squash = move_toward(_squash, 0.0, dt * 4.0)
 	# Lean into the horizontal motion (in the root's frame, which turns with the facing).
@@ -85,16 +89,17 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_arms.visible = holding
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
-	var n: String = Game.player_name(me) if not me.is_empty() else "P%d" % (slot + 1)
+	var p := Game.player(slot)
+	var n := Game.player_name(p) if not p.is_empty() else "P%d" % (slot + 1)
 	if _tag.text != n:
 		_tag.text = n
-	_tag.visible = slot != int(Game.hud.get("local_slot", -1))
+	_tag.visible = slot != Game.local_slot()
 
 
 func _sim_event(event: StringName, data: Dictionary) -> void:
 	if data.get("cancelled", false):
 		return
-	var local := slot == int(Game.hud.get("local_slot", -1))
+	var local := slot == Game.local_slot()
 	match event:
 		&"jumped":
 			_squash = -0.6
@@ -120,10 +125,3 @@ func _sim_event(event: StringName, data: Dictionary) -> void:
 		&"respawned":
 			_squash = 0.5
 			Sfx.play(&"respawn", -4.0)
-
-
-func _hud_player() -> Dictionary:
-	for p: Dictionary in Game.hud.get("players", []):
-		if int(p.get("slot", -1)) == slot:
-			return p
-	return {}

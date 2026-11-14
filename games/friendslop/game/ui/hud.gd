@@ -1,22 +1,31 @@
 extends CanvasLayer
-## In-game HUD, built in code: the run timer and best time, the checkpoint, a crosshair, the local player's state
-## (holding, charge, held, stunned, fallen), the session panel (code + players) and the controls list (both shared
-## with the other games), and banners for run events.
+## The in-game HUD, built in code: the run timer and the best time, the checkpoint, a crosshair, the local player's
+## state (holding, charge, held, stunned, fallen), the shared session panel and controls list, and banners for
+## run events.
 
+const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]
+const PAD_HELD := [["A (mash)", "Break free"], ["Start", "Menu"]]
+const KEYS_HOLDING := [["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Drop"],
+	["Hold RMB / Q", "Charge, release to throw"], ["Esc", "Menu"]]
+const PAD_HOLDING := [["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Drop"],
+	["Hold LT", "Charge, release to throw"], ["Start", "Menu"]]
+const KEYS := [["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Grab"], ["Esc", "Menu"]]
+const PAD := [["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Grab"], ["Start", "Menu"]]
+
+var _phase: Label
 var _timer: Label
 var _best: Label
-var _phase: Label
 var _state: Label
 var _banner: Label
 var _charge: ProgressBar
-var _cross: Label
-var _banner_t := 0.0
 var _session: SessionPanel
 var _controls: ControlsPanel
+var _banner_t := 0.0
 
 
 func _ready() -> void:
 	var root := Control.new()
+	root.name = &"Root"
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
@@ -24,31 +33,26 @@ func _ready() -> void:
 	top.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	top.position = Vector2(-200, 14)
 	top.custom_minimum_size = Vector2(400, 0)
-	top.alignment = BoxContainer.ALIGNMENT_BEGIN
 	root.add_child(top)
-	_phase = _label(top, "Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	_timer = _label(top, "Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_best = _label(top, "Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	_cross = _label(root, "", HORIZONTAL_ALIGNMENT_CENTER)
-	_cross.text = "·"
-	_cross.set_anchors_preset(Control.PRESET_CENTER)
-	_cross.add_theme_font_size_override(&"font_size", 28)
-	_state = _label(root, "", HORIZONTAL_ALIGNMENT_CENTER)
-	_state.set_anchors_preset(Control.PRESET_CENTER)
-	_state.position.y += 40
+	_phase = _label(top, &"Dim")
+	_timer = _label(top, &"Heading")
+	_best = _label(top, &"Dim")
+	var cross := _label(root, &"")
+	cross.text = "·"
+	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cross.add_theme_font_size_override(&"font_size", 28)
+	_centre(cross, Rect2(-20, -20, 40, 40))
+	_state = _label(root, &"")
+	_centre(_state, Rect2(-200, 40, 400, 30))
 	_charge = ProgressBar.new()
-	_charge.set_anchors_preset(Control.PRESET_CENTER)
-	_charge.custom_minimum_size = Vector2(160, 10)
-	_charge.position += Vector2(-80, 24)
 	_charge.show_percentage = false
 	_charge.max_value = 1.0
 	root.add_child(_charge)
-	_banner = _label(root, "Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_banner.position = Vector2(-300, -140)
-	_banner.custom_minimum_size = Vector2(600, 0)
+	_centre(_charge, Rect2(-80, 24, 160, 10))
+	_banner = _label(root, &"Heading")
 	_banner.add_theme_font_size_override(&"font_size", 48)
 	_banner.visible = false
+	_centre(_banner, Rect2(-300, -140, 600, 60))
 	_session = SessionPanel.new()
 	root.add_child(_session)
 	_controls = ControlsPanel.new()
@@ -56,24 +60,9 @@ func _ready() -> void:
 	Game.session.sim_event.connect(_on_sim_event)
 
 
-func _label(parent: Control, variation: String, align: HorizontalAlignment) -> Label:
-	var l := Label.new()
-	if variation != "":
-		l.theme_type_variation = StringName(variation)
-	l.horizontal_alignment = align
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(l)
-	return l
-
-
-static func _time(s: float) -> String:
-	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]
-
-
 func _process(delta: float) -> void:
 	var h := Game.hud
 	var phase: String = h.get("phase", "hub")
-	var best: float = h.get("best_s", 0.0)
 	match phase:
 		"run":
 			_phase.text = "RUN  ·  checkpoint %d" % maxi(int(h.get("checkpoint", -1)), 0)
@@ -84,11 +73,38 @@ func _process(delta: float) -> void:
 		_:
 			_phase.text = "HUB"
 			_timer.text = ""
+	var best := _best_time(h.get("best_s", 0.0))
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
-	var rows := []
-	for p: Dictionary in h.get("players", []):
-		if not p.get("present", false):
-			continue
+	_session.refresh(_session_rows(), phase == "hub", "Walk through the start gate to start the run.")
+
+	var me := Game.local_player()
+	var holding := int(me.get("holding", 0)) != 0
+	var held: bool = me.get("held", false)
+	_charge.value = me.get("charge", 0.0)
+	_charge.visible = holding and _charge.value > 0.0
+	if held:
+		_state.text = Game.hint("Mash Space to break free!", "Mash A to break free!")
+	elif me.get("fallen", false):
+		_state.text = "Oops!"
+	elif me.get("stunned", false):
+		_state.text = "Dazed"
+	else:
+		_state.text = ""
+	if held:
+		_controls.refresh(KEYS_HELD, PAD_HELD)
+	elif holding:
+		_controls.refresh(KEYS_HOLDING, PAD_HOLDING)
+	else:
+		_controls.refresh(KEYS, PAD)
+
+	_banner_t = maxf(_banner_t - delta, 0.0)
+	_banner.visible = _banner_t > 0.0
+	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
+
+
+func _session_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for p in Game.present_players():
 		var tags: Array[String] = []
 		if p.get("held", false):
 			tags.append("held")
@@ -97,34 +113,15 @@ func _process(delta: float) -> void:
 		if p.get("fallen", false):
 			tags.append("fell")
 		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": ", ".join(tags)})
-	_session.refresh(rows, phase == "hub", "Walk through the start gate to start the run.")
-	var me := Game.local_player()
-	var holding: int = me.get("holding", 0)
-	_charge.value = me.get("charge", 0.0)
-	_charge.visible = holding != 0 and _charge.value > 0.0
-	if me.get("held", false):
-		_state.text = Game.hint("Mash Space to break free!", "Mash A to break free!")
-	elif me.get("fallen", false):
-		_state.text = "Oops!"
-	elif me.get("stunned", false):
-		_state.text = "Dazed"
-	else:
-		_state.text = ""
-	if me.get("held", false):
-		_controls.refresh([["Space (mash)", "Break free"], ["Esc", "Menu"]], [["A (mash)", "Break free"], ["Start", "Menu"]])
-	elif holding != 0:
-		_controls.refresh(
-			[["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Drop"],
-				["Hold RMB / Q", "Charge, release to throw"], ["Esc", "Menu"]],
-			[["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Drop"],
-				["Hold LT", "Charge, release to throw"], ["Start", "Menu"]])
-	else:
-		_controls.refresh(
-			[["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Grab"], ["Esc", "Menu"]],
-			[["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Grab"], ["Start", "Menu"]])
-	_banner_t = maxf(_banner_t - delta, 0.0)
-	_banner.visible = _banner_t > 0.0
-	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
+	return rows
+
+
+## The better of this session's best (the sim's) and the personal best kept in the settings; 0 when neither.
+static func _best_time(session_best: float) -> float:
+	var saved: float = Settings.get_value(&"best_time")
+	if saved <= 0.0 or (session_best > 0.0 and session_best < saved):
+		return session_best
+	return saved
 
 
 func _show_banner(text: String, seconds := 2.0) -> void:
@@ -140,6 +137,28 @@ func _on_sim_event(kind: StringName, _tick: int, _entity: int, _pos: Vector3, va
 			_show_banner("Checkpoint %d" % int(value), 1.5)
 		&"run_finished":
 			_show_banner("Finished in %s" % _time(value), 4.0)
-			var best: float = Settings.get_value(&"best_time")
-			if best <= 0.0 or value < best:
+			var saved: float = Settings.get_value(&"best_time")
+			if saved <= 0.0 or value < saved:
 				Settings.set_value(&"best_time", value)
+
+
+## Places a control at `rect` relative to the screen centre.
+static func _centre(c: Control, rect: Rect2) -> void:
+	c.set_anchors_preset(Control.PRESET_CENTER)
+	c.offset_left = rect.position.x
+	c.offset_top = rect.position.y
+	c.offset_right = rect.end.x
+	c.offset_bottom = rect.end.y
+
+
+static func _label(parent: Control, variation: StringName) -> Label:
+	var l := Label.new()
+	l.theme_type_variation = variation
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(l)
+	return l
+
+
+static func _time(s: float) -> String:
+	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]

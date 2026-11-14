@@ -32,7 +32,7 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "run",
-				usage = "[game] [--mute] [--screen s] [-- args]",
+				usage = "[game] [--mute] [--screen s] [--background] [-- args]",
 				summary = "the game in a window (arguments after -- go to the game)",
 				no_budget = "interactive",
 				run = cmd_run,
@@ -67,7 +67,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "tool",
 				usage = "[game] <script> [--window [--mute] [--screen s]] [--shots] [-- args]",
-				summary = "run game/tools/<script>.gd (headless unless --window)",
+				summary = "run a tool script, the game's or games/shared's (headless unless --window)",
 				no_budget = "depends on the script",
 				run = cmd_tool,
 			},

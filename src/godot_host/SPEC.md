@@ -174,6 +174,11 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   `session` runs a scripted single-player session under headless Godot and compares its checksums with the offline
   headless binary's.
 
+## The demo games' side
+
+What this repo's demo games share on the Godot side (the app flow, settings, sounds, menus, HUD panels, their tool
+scripts) is demo-games code, not the library: `games/shared` (its SPEC.md), mirrored by `uni` into each game.
+
 ## Open
 
 - F3 extras: snapshot, input log, net stats.

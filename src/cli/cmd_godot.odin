@@ -81,7 +81,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 			script := tool_script(g, s.script)
 			if script == "" {
-				skip(g, s.step, tprint("no game/tools/%s.gd", s.script))
+				skip(g, s.step, tprint("no %s tool script", s.script))
 				continue
 			}
 			if s.step == "tour" && !has_extension(g) {
@@ -330,17 +330,19 @@ last_json_after :: proc(text, prefix: string) -> json.Value {
 @(private)
 cmd_run :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
-		mute:     bool `usage:"no sound (Godot's dummy audio driver)"`,
-		screen:   string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
-		overflow: [dynamic]string `usage:"after --: the game's own arguments"`,
+		game:       string `args:"pos=0" usage:"the game (default: the only one)"`,
+		mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
+		screen:     string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
+		background: bool `usage:"the window never takes focus (a window an agent opens)"`,
+		overflow:   [dynamic]string `usage:"after --: the game's own arguments"`,
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen})
+	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen, opts.background})
 }
 
 @(private)
+// The editor takes focus: Godot applies no project override to it, so `--background` has no hook there.
 cmd_editor :: proc(args: []string) -> Result {
 	Opts :: struct {
 		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
@@ -349,7 +351,7 @@ cmd_editor :: proc(args: []string) -> Result {
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), true, nil, {opts.mute, opts.screen})
+	return play(game(opts.game), true, nil, {opts.mute, opts.screen, false})
 }
 
 @(private)
@@ -358,6 +360,8 @@ play :: proc(g: Game, editor: bool, extra: []string, place: Window_Opts) -> Resu
 		ensure_extension(g, .dev)
 	}
 	write_extension_list(g)
+	cleanup := with_window(g.dir, place)
+	defer cleanup(g.dir)
 	cmd: [dynamic]string
 	append(&cmd, godot())
 	append(&cmd, ..window_args(place))
@@ -408,7 +412,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	}
 	script := tool_script(g, name)
 	if script == "" {
-		usage("%s has no game/tools/%s.gd", g.name, name)
+		usage("%s has no tool script %s (game/tools/ or games/shared/tools/)", g.name, name)
 	}
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
@@ -430,7 +434,7 @@ cmd_tool :: proc(args: []string) -> Result {
 			args = split < len(args) ? args[split + 1:] : nil,
 			window = opts.window,
 			shots = opts.shots ? name : "",
-			place = {opts.mute, opts.screen},
+			place = {opts.mute, opts.screen, true},
 			timeout = 1800,
 		},
 	)
@@ -470,7 +474,7 @@ godot_user_dir :: proc() -> string {
 // --- coop -------------------------------------------------------------------------------------------------------
 
 // A host (windowed with --window, else headless) and a headless joiner with a fresh EOS device id, as two Godot
-// processes running game/tools/coop.gd; the host hands the lobby code over through a file. The joiner is always
+// processes running the coop tool script; the host hands the lobby code over through a file. The joiner is always
 // reaped, also when the host fails: an orphan would stay connected to EOS.
 @(private)
 cmd_coop :: proc(args: []string) -> Result {
@@ -492,8 +496,9 @@ cmd_coop :: proc(args: []string) -> Result {
 		usage("--mute and --screen need --window")
 	}
 	g := game(opts.game)
-	if tool_script(g, "coop") == "" {
-		usage("%s has no game/tools/coop.gd", g.name)
+	script := tool_script(g, "coop")
+	if script == "" {
+		usage("%s has no coop tool script", g.name)
 	}
 	if !has_extension(g) {
 		usage("%s has no extension", g.name)
@@ -517,7 +522,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&join_args, ..extra[:])
 	joiner_run := Tool_Run {
 		dir     = g.dir,
-		script  = "res://game/tools/coop.gd",
+		script  = script,
 		args    = join_args[:],
 		timeout = 210,
 		env     = env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1"),
@@ -535,16 +540,16 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
 	if opts.crash {
-		return coop_crash(g, &joiner, host_args[:], opts.window, {opts.mute, opts.screen})
+		return coop_crash(g, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen, true})
 	}
 	host := run_tool(
 		{
 			dir = g.dir,
-			script = "res://game/tools/coop.gd",
+			script = script,
 			args = host_args[:],
 			window = opts.window,
 			shots = opts.window ? "coop" : "",
-			place = {opts.mute, opts.screen},
+			place = {opts.mute, opts.screen, true},
 			timeout = 180,
 		},
 	)
@@ -623,15 +628,24 @@ bake :: proc(g: Game, check: bool) -> Tool_Result {
 // `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
 // same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
 @(private)
-coop_crash :: proc(g: Game, joiner: ^Proc, host_args: []string, window: bool, place: Window_Opts) -> Result {
+coop_crash :: proc(
+	g: Game,
+	script: string,
+	joiner: ^Proc,
+	host_args: []string,
+	window: bool,
+	place: Window_Opts,
+) -> Result {
 	host_run := Tool_Run {
 		dir    = g.dir,
-		script = "res://game/tools/coop.gd",
+		script = script,
 		args   = host_args,
 		window = window,
 		shots  = window ? "coop" : "",
 		place  = place,
 	}
+	cleanup := window ? with_window(g.dir, place) : no_cleanup
+	defer cleanup(g.dir)
 	host := start(
 		{
 			cmd = tool_cmd(host_run),
@@ -647,7 +661,7 @@ coop_crash :: proc(g: Game, joiner: ^Proc, host_args: []string, window: bool, pl
 	crashed := strings.contains(out, "crashing (the process kills itself")
 	second_run := Tool_Run {
 		dir    = g.dir,
-		script = "res://game/tools/coop.gd",
+		script = script,
 		args   = {"--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash"},
 		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
 	}

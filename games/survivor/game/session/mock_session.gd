@@ -337,7 +337,8 @@ func debug_grant_levelup() -> void:
 func debug_explode_nearest_barrel() -> void:
 	var best: Item = null
 	for it in _items:
-		if it.alive and it.kind == &"barrel" and (best == null or it.pos.distance_to(_players[_local_slot].pos) < best.pos.distance_to(_players[_local_slot].pos)):
+		var me: Vector3 = _players[_local_slot].pos
+		if it.alive and it.kind == &"barrel" and (best == null or it.pos.distance_to(me) < best.pos.distance_to(me)):
 			best = it
 	if best != null:
 		_explode(best)
@@ -904,7 +905,8 @@ func _emit(kind: StringName, entity: int, pos: Vector3, value: float) -> void:
 	var view: Node3D = _views.get(entity)
 	if view != null and view.has_method(&"_sim_event"):
 		var slot := entity if entity < 4 else -1
-		view._sim_event(kind, {"tick": _tick, "entity": entity, "slot": slot, "position": pos, "value": value, "predicted": false, "cancelled": false})
+		view._sim_event(kind, {"tick": _tick, "entity": entity, "slot": slot, "position": pos, "value": value,
+			"predicted": false, "cancelled": false})
 
 
 func _make_code() -> String:

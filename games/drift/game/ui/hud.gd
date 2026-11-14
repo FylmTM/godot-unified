@@ -2,9 +2,10 @@ extends CanvasLayer
 ## In-game HUD, built in code: the phase and wave, the match time, the station's HP bar, the score; the lobby's
 ## start prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
 ## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
-## controls list (both shared with the other games).
+## controls list (games/shared).
 
-var start_button: Button  ## the prompt's button (Start in the lobby, Restart when over); the tour clicks it
+## The prompt's button (Start in the lobby, Restart when over); the tour clicks it.
+var start_button: Button
 var _phase: Label
 var _time: Label
 var _hp: ProgressBar
@@ -73,30 +74,19 @@ func _ready() -> void:
 	pv.add_child(start_button)
 
 	_banner = _label(root, &"Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_banner.position = Vector2(-300, -170)
-	_banner.custom_minimum_size = Vector2(600, 0)
 	_banner.add_theme_font_size_override(&"font_size", 44)
 	_banner.visible = false
+	# 600 px wide, 170 px above the centre (anchors first, then the offsets: `position` would put it off screen)
+	_banner.set_anchors_preset(Control.PRESET_CENTER)
+	_banner.offset_left = -300.0
+	_banner.offset_right = 300.0
+	_banner.offset_top = -170.0
+	_banner.offset_bottom = -110.0
 	_session = SessionPanel.new()
 	root.add_child(_session)
 	_controls = ControlsPanel.new()
 	root.add_child(_controls)
 	Game.session.sim_event_2d.connect(_on_sim_event)
-
-
-func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:
-	var l := Label.new()
-	if variation != &"":
-		l.theme_type_variation = variation
-	l.horizontal_alignment = align
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(l)
-	return l
-
-
-static func _time_text(s: float) -> String:
-	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]
 
 
 func _process(delta: float) -> void:
@@ -123,7 +113,7 @@ func _process(delta: float) -> void:
 	var sb := _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
 	if sb != null and sb.bg_color != fill:
 		_hp.add_theme_stylebox_override(&"fill", UiTheme.box(fill, 6, 0))
-	var best: float = Settings.get_value(&"best_survived")
+	var best: float = Settings.get_value(&"best_time")
 	_score.text = "score %d  ·  rocks %d%s" % [int(h.get("score", 0)), int(h.get("rocks", 0)),
 		("  ·  best %s" % _time_text(best)) if best > 0.0 else ""]
 
@@ -138,10 +128,8 @@ func _process(delta: float) -> void:
 		_prompt_sub.text = "Back to the lobby in %d s" % ceili(h.get("reset_in_s", 0.0))
 		start_button.text = "Restart"
 
-	var rows := []
-	for p: Dictionary in h.get("players", []):
-		if not p.get("present", false):
-			continue
+	var rows: Array[Dictionary] = []
+	for p in Game.present_players():
 		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": "%d gems" % int(p.get("gems", 0))})
 	_session.refresh(rows, phase == "lobby", "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
@@ -191,6 +179,19 @@ func _on_sim_event(kind: StringName, _tick: int, _entity: int, _pos: Vector2, va
 				_show_banner("Wave %d" % int(value), 2.0)
 		&"match_over":
 			_show_banner("Station lost", 3.0)
-			var best: float = Settings.get_value(&"best_survived")
+			var best: float = Settings.get_value(&"best_time")
 			if value > best:
-				Settings.set_value(&"best_survived", value)
+				Settings.set_value(&"best_time", value)
+
+
+static func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:
+	var l := Label.new()
+	l.theme_type_variation = variation
+	l.horizontal_alignment = align
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(l)
+	return l
+
+
+static func _time_text(s: float) -> String:
+	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]

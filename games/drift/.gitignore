@@ -1,0 +1,7 @@
+# Build outputs (game library, exports, screenshots, test output) and Godot's import cache.
+/.out/
+/.godot/
+# The demo games' shared Godot code, mirrored from games/shared by uni before every Godot run.
+/addons/shared/
+# A background window's no-focus override, written by uni for the run (safe to delete).
+/override.cfg

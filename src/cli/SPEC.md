@@ -104,11 +104,11 @@ Public (`unified:cli`, every project):
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
-| `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window` |
+| `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
-| `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
+| `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build (`.out/bench.json`) |
@@ -137,7 +137,12 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
 
 ## Test suites and tool scripts
 
-- **Tool scripts** are a game's `game/tools/<name>.gd`, run with Godot's `-s`. Each prints one
+- **Shared Godot code**: a project's `games/shared` (this repo: the demo games' code, its SPEC.md; not the library)
+  is mirrored into a game that uses it (its `project.godot` names `res://addons/shared/`) as `addons/shared/` before
+  every Godot run (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new shared
+  script is copied back). `games/shared` is no game: a game has `project.godot` and `simulation/`.
+- **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd` (validate, ui_walk and
+  coop, which a game's own script extends), run with Godot's `-s`. Each prints one
   `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data); the CLI passes `--no-settings`,
   `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`. Headless runs have the debugger on
   (`-d`), which prints GDScript warnings. A script quits through the game's own quit (audio stopped first): a live
@@ -163,7 +168,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
     only), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
-    `validate`, `walk` (`ui_walk.gd`), `tour` (quick). A step the game can't run prints `skipped: <why>`. Several
+    `validate`, `walk` (`ui_walk.gd`, with `--mock`: a game with a GDScript stand-in session walks on it), `tour`
+    (quick). A step the game can't run prints `skipped: <why>`. Several
     games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
     parent first makes current what they share (Godot, the bindings, Box3D).
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,

@@ -33,7 +33,8 @@ static func material(c: Color, glow := 0.0) -> StandardMaterial3D:
 
 
 ## Replaces the node's generated visuals (children named "Greybox*") with one mesh.
-static func set_mesh(n: Node3D, mesh: Mesh, c: Color, offset := Vector3.ZERO, glow := 0.0, name := "Greybox") -> MeshInstance3D:
+static func set_mesh(n: Node3D, mesh: Mesh, c: Color, offset := Vector3.ZERO, glow := 0.0,
+		name := "Greybox") -> MeshInstance3D:
 	var old := n.get_node_or_null(NodePath(name))
 	if old:
 		n.remove_child(old)
