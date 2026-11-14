@@ -132,6 +132,9 @@ A step-by-step guide to setting up and making a tiny game is planned
 
 ## License
 
-No license has been chosen yet; one will be added as a `LICENSE` file. Until then the default copyright applies
-(all rights reserved).
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as
+defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
 Third-party code keeps its own license: Box3D and unified-box3d (MIT), Godot (MIT). The EOS SDK is not included.
