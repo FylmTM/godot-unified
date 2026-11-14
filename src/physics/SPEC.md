@@ -1,8 +1,18 @@
 # `unified:physics`: characters, joints, kinematic paths
 
-Signed off by the developer 2026-11-09. Extends the physics plug-in in `src/sim/SPEC.md` with what every co-op
-physics game needs. First user: `games/friendslop/SPEC.md`. Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed
-tables instead of trig, Box3D (one worker unless `Settings.workers`; any worker count steps identically), state in the block or in the Box3D world (both snapshotted).
+Signed off by the developer 2026-11-09 (the plug-in section moved here from `src/sim/SPEC.md` in the #6 sitting).
+Box3D as `sim` rollback state, plus what every co-op physics game needs. First user: `games/friendslop/SPEC.md`.
+Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed tables instead of trig, Box3D (one worker unless `Settings.workers`; any worker count steps identically), state in the block or in the Box3D world (both snapshotted).
+
+## The plug-in
+
+`create(settings) -> ^World` (one Box3D world, one worker unless `Settings.workers`; creation is mutex-guarded),
+`destroy`, `Body_Ref {index1, generation}` (no world index, so blocks match across worlds and machines), `body_id`,
+`ref_of`, `destroy_body`, `extra(w, State) -> sim.Extra`: finds every `Body_Ref` in the block by RTTI once (fields,
+arrays, table items); its saves are Box3D snapshots (a memcpy of the world's arena), one per ring slot
+(`sim.ring_size(tick_hz)`, so 32 at 128 Hz; today a fixed `[sim.RING]`, #161); the hash is Box3D's whole-world hash
+on `DEEP_CHECKSUM_EVERY` ticks, otherwise each referenced body (position, rotation, velocities; −0 → +0) in block
+order; images are Box3D's canonical images with their geometry (unified-box3d's SPEC.md).
 
 ## References in the block
 
