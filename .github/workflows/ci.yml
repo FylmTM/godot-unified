@@ -1,7 +1,7 @@
 # One job per platform, every step one uni command (src/cli/SPEC.md). Each job runs `uni test` (the odin suite: unit
 # tests and every end-to-end suite, reference runs included, so CI is the cross-platform check of determinism),
-# `uni test --suite net` (real UDP, separate processes), `uni bench` (both reported in the job summary; the
-# benchmarks are not gated) and `uni selftest --shims` (a fresh clone's Odin download). linux-x64 also runs `uni fmt --check`, `uni vet` (every target) and the godot and
+# `uni test --suite net` (real UDP, separate processes) and `uni bench` (both reported in the job summary; the
+# benchmarks are not gated). linux-x64 also runs `uni fmt --check`, `uni vet` (every target) and the godot and
 # godot-bindings suites (every game under headless Godot): together, what `./uni verify` runs locally. The suites'
 # long variants (`--long`) run only on demand. A check runs even when an earlier one failed, so one red step doesn't
 # hide the others.
@@ -22,7 +22,9 @@
 # Actions are pinned by commit (the repo requires it, and allows GitHub-owned actions only), runner images by version
 # (an image update can change compilers, so it is a deliberate bump), and every download by its SHA-256 in pins.cfg.
 # Odin comes through the uni shim, as on a fresh clone: the pinned release, checked and kept in the shim's folder,
-# which is cached. Each command fetches or builds what else it needs.
+# which is cached. When that cache misses (pins.cfg changed, or the cache expired), the job's first step is a fresh
+# clone's real download, which is how CI proves the shims' download. Each command fetches or builds what else it
+# needs.
 name: ci
 
 on:
@@ -145,11 +147,6 @@ jobs:
       - name: bench (release build; reported in the summary, not gated)
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI bench
-      # A fresh clone's shim with no pinned Odin to find and an empty cache of its own (in .out/selftest, so the
-      # cached Odin above doesn't count): the newcomer's first run (download, SHA-256 check, unpack, CLI build).
-      - name: selftest --shims (the shims' Odin download)
-        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
-        run: $UNI selftest --shims
       - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
         if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
         run: ./uni test --suite godot,godot-bindings
