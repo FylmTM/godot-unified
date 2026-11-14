@@ -63,7 +63,9 @@ GDScript sees contract v0:
   - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
     `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
     `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `sim_event(event: StringName, state: int, data: Dictionary)` (every
+  - signals: `status_changed`, `lobby_code`, `desync(tick: int, detail: String)` (the relay found the players'
+    checksums differ: who, and in dev builds what, `src/netcode/SPEC.md`; also printed and in the dev UI's log),
+    `sim_event(event: StringName, state: int, data: Dictionary)` (every
     event in every state: "Events" below); constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED`;
   - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice),
     `host_direct(port)` (every interface; 127.0.0.1 only when the process got `--local-net`, which `uni` passes to

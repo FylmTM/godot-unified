@@ -28,7 +28,8 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   `tick_hz` (a power of two, 32..128; `dt = 1/tick_hz` exactly), `world_create(seed, content)` (`content`: the
   level file's bytes, `src/level/SPEC.md`; empty when the game has none), `world_destroy`, `extras(world)`,
   `init(state, world, seed)` (tick 0; the block is zeroed before), `tick(tick: ^Tick)`, `events` (the event union,
-  below), `commands` (the command union, below).
+  below), `commands` (the command union, below), `min_input_delay` (the least input delay the netcode gives a
+  player, in ticks; 0: 1; `src/netcode/SPEC.md`, Timing).
 - `compat_of(&GAME, content) -> u64`: the build's identity for the netcode (the layouts of `State`, `Input` and
   `Inputs`, the command and event types, `PLAYERS`, `tick_hz`, `name`, `version`, the content hash).
 
@@ -142,7 +143,9 @@ sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y,
   It walks the slots up to `high_water`, which never goes down. `uni bench` measures a sparse 64k table; an alive
   bitmask (1 bit per slot) comes only if that shows the scan matters.
 - `schema_of(State)`: tables (by shape: `items` + `slots`; fixed arrays of structs count as always-live tables) and
-  globals, with byte offsets, for inspectors, diffs and dumps.
+  globals, with byte offsets, for inspectors, diffs and dumps. `snapshot_diff(State, a, b) -> string` (typed desync
+  reports): what differs between two snapshots, down to the leaf field ("tick 4160: enemies[12].pos.x 3.25 vs
+  3.5"), then each extra's image by its first differing byte; at most `DIFF_MAX` (8) listed.
 
 ## Random numbers
 
@@ -166,8 +169,10 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   32 at 128), allocated once at `create`. It bounds rollback: the netcode predicts at most ring − 2 ticks ahead
   (`src/netcode/SPEC.md`).
 - `create(&GAME, seed, content)` (world, init, save tick 0), `destroy`.
-- `step(simulation, &inputs)` = advance (build the `Tick`, run `tick`) + save. `restore(simulation, tick)` (extras
-  first: on failure the block and tick are untouched; false when the tick is no longer in the ring),
+- `step(simulation, &inputs)` = advance (build the `Tick`, run `tick`) + save. `step_unsaved` keeps the tick's
+  events in the ring but not its state (the netcode re-simulating ticks that are already final, #117):
+  `events_at` answers for it, `state_at`, `restore` and `snapshot_encode` don't. `restore(simulation, tick)`
+  (extras first: on failure the block and tick are untouched; false when the tick is no longer saved in the ring),
   `state_at(simulation, tick)`, `events_at(simulation, tick)`.
 - `checksum(simulation)`: XXH3-64 (one-shot; Odin's streaming XXH3 is wrong for some lengths) over the tick (u32 LE),
   the block, then each Extra's bytes. Peers compare it on finalized ticks.
@@ -178,11 +183,14 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 ## Files
 
-- **Input log** `UNIL`: seed, content hash, players, input size, ticks; per tick (`write_tick`, also the netcode's
-  finalized tick) present, replaced, the players' input bytes, a command count (an empty tick costs one byte) and
-  per command its player, kind, size and struct bytes. Seed + content + log = the whole session (replays, reference
-  runs). `Input_Log` in memory: `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1),
-  `log_encode / decode / read / write`; decoding refuses a malformed tick.
+- **Input log** `UNIL`: seed, content hash, players, input size, ticks (0 with ticks after it: a recording that
+  never ended, read to its end); per tick (`write_tick`, also the netcode's finalized tick) present, replaced, the
+  players' input bytes, a command count (an empty tick costs one byte) and per command its player, kind, size and
+  struct bytes. Seed + content + log = the whole session (replays, reference runs). `Input_Log` in memory:
+  `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1), `log_encode / decode / read / write`;
+  decoding refuses a malformed tick. Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
+  bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
+  (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
 - **Portable snapshot** `UNIS`: seed, content hash, tick, block size, `layout_hash(State)` (field names, offsets and
   types), a payload digest, the block bytes, each Extra's image. `snapshot_encode(simulation, tick)`,
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads).
@@ -195,5 +203,5 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 ## Open
 
-Optional components and `using` as component; cross-table helpers; desync recovery policy; keeping only the
-verified and the predicted state instead of a ring (#153).
+Optional components and `using` as component; cross-table helpers; keeping only the verified and the predicted
+state instead of a ring (#153). Desync recovery is the netcode's (`src/netcode/SPEC.md`, #188).

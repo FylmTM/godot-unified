@@ -201,9 +201,12 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     also runs `session_check.gd`, godot_host's session lifecycle. The extensions build at once, then the three
     Godot runs go at once: the session check (its waits for goodbyes and timers) is the suite's time.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
-  rollback window, ticks), which its `bench` mode runs with no arguments; the target, a forward step plus an 8-tick
-  re-sim within 6 ms, is unified's. `bench` also runs the headless `table-bench` mode once (any game's binary): a walk
-  of a sparse 65,536-slot table against a dense one, reported in `.out/bench.json` (`table`) without a target.
+  rollback window (default: the netcode's prediction cap, 14 ticks at 64 Hz), ticks), which its `bench` mode runs
+  with no arguments; the target, a forward step plus a re-sim at the prediction cap within 6 ms, is unified's (the
+  same re-sim of final ticks, saving only the last, is reported beside it). `bench` also runs each game's
+  `net-bench` (a session of 4 clients under `bad` on the virtual clock: time, rollbacks, stalls, replaced inputs,
+  bytes per second; `net` in `.out/bench.json`, no target) and the headless `table-bench` mode once (any game's
+  binary): a walk of a sparse 65,536-slot table against a dense one (`table`), without a target.
 
 ## The template game
 

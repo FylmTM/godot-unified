@@ -68,6 +68,7 @@ Net_Stats :: struct {
 	last_msg_us: i64, // when the relay's last message arrived (netcode.now_us)
 	bytes_in:    i64,
 	bytes_out:   i64,
+	desyncs:     i32, // the relay's desync reports so far
 }
 
 Frame :: struct {
@@ -220,6 +221,7 @@ Message :: struct {
 		Lobby_Code,
 		Event,
 		Result,
+		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 	},
 	status: Status_Kind,
 	action: view.Event_Action, // Emitted, Confirmed or Cancelled

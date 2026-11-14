@@ -463,6 +463,7 @@ driver_hooks :: proc(
 				last_msg_us = client.last_msg_us,
 				bytes_in    = i64(client.ch.stats.bytes_recv),
 				bytes_out   = i64(client.ch.stats.bytes_sent),
+				desyncs     = i32(client.desyncs),
 			}
 			for player in 0 ..< min(PLAYERS, MAX_NAMED) {
 				out.names[player] = {}
@@ -490,6 +491,21 @@ driver_hooks :: proc(
 			driver := (^This_Driver)(user)
 			if driver.failed do return // the transport's failure is the session's last word
 			post_status(driver, Status_Kind(status), detail)
+		},
+		desync = proc(user: rawptr, report: netcode.Desync_Report) {
+			driver := (^This_Driver)(user)
+			message := Message {
+				kind = .Desync,
+				tick = report.tick,
+			}
+			text := fmt.tprintf(
+				"players %v differ%s%s",
+				report.diverged,
+				report.detail != "" ? ": " : "",
+				report.detail,
+			)
+			message.len = u8(copy(message.text[:], text))
+			post(driver, message)
 		},
 	}
 }
@@ -552,13 +568,14 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS)) -> bool {
 	game := driver.game
 	hooks := driver_hooks(driver)
 	host_config := netcode.Host_Config {
-		player_name = request.name,
-		seed        = request.seed,
-		ticks       = request.ticks,
-		compat      = driver.glue.compat,
-		content     = request.content,
-		name        = "host",
-		quiet       = true,
+		desync_detail = DEVUI, // typed desync reports where the dev UI is (every build for now)
+		player_name   = request.name,
+		seed          = request.seed,
+		ticks         = request.ticks,
+		compat        = driver.glue.compat,
+		content       = request.content,
+		name          = "host",
+		quiet         = true,
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,
