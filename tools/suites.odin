@@ -216,8 +216,17 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", ""},
 	}
 	cli.ensure_bindings()
-	ok := true
-	for p in projects {
+	// The stale extensions build at once, then the three Godot runs go at once (the session check alone takes most
+	// of the time: it waits on purpose for goodbyes and timers); their results are read in order.
+	Started :: struct {
+		build: cli.Build,
+		child: cli.Proc,
+	}
+	building: [dynamic]Started
+	for p, i in projects {
+		if i > 0 && p.pkg == projects[i - 1].pkg {
+			continue
+		}
 		flags: [dynamic]string
 		append(&flags, "-build-mode:dll")
 		append(&flags, ..cli.mode_flags(.dev))
@@ -227,14 +236,37 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			flags = flags[:],
 		}
 		if cli.stale(b) {
-			cli.odin_build(b, cli.tprint("building %s", cli.rel(p.pkg)))
+			append(&building, Started{b, cli.start_build(b)})
 		}
+	}
+	for &started in building {
+		if !cli.finish_build(started.build, &started.child).ok {
+			cli.fatal("building %s failed", cli.rel(started.build.pkg))
+		}
+	}
+	runs := make([]cli.Run, len(projects))
+	for p, i in projects {
 		cli.write_extension_list_dir(p.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
-		r := cli.run_godot(
-			{"--headless", "--verbose", "--path", p.dir, "-s", cli.tprint("res://%s", p.script), "--", "--local-net"},
-			30,
-		)
+		runs[i] = {
+			cmd     = cli.strs(
+				cli.godot(),
+				"--headless",
+				"--verbose",
+				"--path",
+				p.dir,
+				"-s",
+				cli.tprint("res://%s", p.script),
+				"--",
+				"--local-net",
+			),
+			capture = true,
+			timeout = 30 * time.Second,
+		}
+	}
+	ok := true
+	for r, i in cli.run_all(runs) {
+		p := projects[i]
 		out := strings.concatenate({r.stdout, r.stderr})
 		for line in strings.split_lines(r.stdout) {
 			if strings.has_prefix(line, "PASS") ||
@@ -265,7 +297,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			cli.log("godot: %s", e)
 		}
 		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
-		cli.log("uni: %s %s: %s", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED")
+		cli.log("uni: %s %s: %s (%.1fs)", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED", r.seconds)
 		ok = ok && passed
 	}
 	return ok

@@ -195,7 +195,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
     desyncs (`.out/net.json`, `.out/net/`).
   - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot; `tests/godot_views`
-    also runs `session_check.gd`, godot_host's session lifecycle.
+    also runs `session_check.gd`, godot_host's session lifecycle. The extensions build at once, then the three
+    Godot runs go at once: the session check (its waits for goodbyes and timers) is the suite's time.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window, ticks), which its `bench` mode runs with no arguments; the target, a forward step plus an 8-tick
   re-sim within 6 ms, is unified's. `bench` also runs the headless `table-bench` mode once (any game's binary): a walk
