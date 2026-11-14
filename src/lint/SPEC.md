@@ -37,7 +37,10 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
   `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex types, cycle counters, random generators);
   no `matrix`; strict: no `foreign`, no `map`, no `x := 1.5` (an untyped float literal is f64); tick: every
   package-level variable is `@(rodata)` or listed in `allow_globals` (a write during a tick would be state outside
-  the block: not rolled back, not hashed).
+  the block: not rolled back, not hashed). unified's own tick packages name their exceptions with a reason
+  (physics' `world_mutex`); `sim` and `physics` also import what the harness needs (RTTI, hashing, files, a mutex).
+- **What it can't see:** types. A float-to-int conversion goes through `dmath.to_i32_clamped` by convention (x86
+  and ARM convert out-of-range floats differently).
 - **Game layout** (`check_game`): `headless/` gets the real-time rule (off `core:math`, no float traps),
   `extension/` and `tests/` nothing (host and test code), every other directory the sim rule. A new sim package
   is linted without editing a list.
