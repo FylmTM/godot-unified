@@ -67,6 +67,38 @@ headless_packages :: proc() -> []Headless {
 	return out[:]
 }
 
+// The headless binary a command names: a game's, in this repo also the toy's; the only one when it names none.
+headless_package :: proc(name: string) -> Headless {
+	packages := headless_packages()
+	if name == "" && len(packages) == 1 {
+		return packages[0]
+	}
+	names := make([]string, len(packages))
+	for headless, i in packages {
+		if headless.name == name {
+			return headless
+		}
+		names[i] = headless.name
+	}
+	if name == "" {
+		usage("name a game: %s", strings.join(names, ", "))
+	}
+	usage("no headless binary %q: %s", name, strings.join(names, ", "))
+}
+
+// Builds one headless binary when stale, with the Box3D library beside it when it links it; its path.
+ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
+	build := headless_build(headless, mode)
+	if headless.box3d {
+		ensure_box3d()
+		stage_box3d(os.dir(build.out), debug = mode == .debug)
+	}
+	if stale(build) {
+		odin_build(build, tprint("building %s's headless binary", headless.name))
+	}
+	return build.out
+}
+
 headless_path :: proc(name: string, mode: Mode) -> string {
 	return join(state.project.out, tprint("%v", mode), tprint("%s%s", name, EXE))
 }

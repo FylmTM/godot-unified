@@ -101,7 +101,7 @@ compile, the compiler's version), never from tool sources; Odin's own cache is k
 Every command rejects unknown arguments; `-h` on any command prints its options and budget; `uni help` lists them
 all. Progress goes to stderr, the result to stdout: one line, or with `--json` (any command) one object
 `{command, ok, summary, seconds, cold, data}`. Exit 0 ok, 1 failed, 2 usage. A warm run over its budget prints
-`OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, or imported a project) is
+`OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, generated the Godot bindings, or imported a project) is
 exempt and says so. Commands that need a game library or headless binary rebuild it when its build manifest is
 stale; `build` always builds.
 
@@ -111,7 +111,8 @@ Public (`unified:cli`, every project):
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check] [--cache]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env`, the per-user cache (`--cache`: its Godot and unified-box3d downloads too, never the shims' Odin) or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
-| `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
+| `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension (this repo: `toy` builds no extension) |
+| `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
@@ -121,7 +122,7 @@ Public (`unified:cli`, every project):
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
-| `init <dir> [--unified <url>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule |
+| `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
 | `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
@@ -133,7 +134,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there; CI doesn't run it, its own download runs whenever its Odin cache misses), `init` a game outside it with the clone as its submodule, then that game's `build`, `test --suite all` and `verify` |
+| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there; CI doesn't run it, its own download runs whenever its Odin cache misses), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
 
 ## Line endings
 
@@ -201,6 +202,12 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   of a sparse 65,536-slot table against a dense one, reported in `.out/bench.json` (`table`) without a target.
 
 ## The template game
+
+`init` adds unified as a git submodule at `unified/`, from `--unified` or this checkout's `origin`, a GitHub SSH
+URL rewritten to HTTPS (unified is public: anyone and any CI clones it without keys). It pins the source's default
+branch at its current commit (`main`, which CI proves), or `--ref` (a commit, tag or branch, fetched by name); a
+pushed commit, never a local one, so the game repo clones anywhere. Then it writes the template and the shims from
+that submodule, never from this checkout, so they always match the library they build against.
 
 `init` writes `template/`: every file a `.tmpl` with `__GAME__` for the game's name (the directory's: lowercase
 letters, digits and `_`). It is a complete small game, each player moving a dot: its sim package, headless binary

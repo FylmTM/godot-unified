@@ -19,7 +19,7 @@ HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, su
 	bench_count = proc(state: ^survivor.State) -> int {return int(state.enemies.count)},
 	bench = {
 		what = "survivor (stress tuning) holding 1000 enemies, 8-tick rollback every tick",
-		enemies = 1000,
+		entities = 1000,
 		window = 8,
 		ticks = 600,
 	},

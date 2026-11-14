@@ -195,7 +195,7 @@ inside rollback windows comes from deaths and respawns instead (and from the for
 ## Expected scale
 
 The headless modes run `stress`: scripted players leave the circle within a second; within 3600 ticks there are matches with a few hundred enemies,
-game overs and resets. `bench --enemies 1000` pre-spawns to 1000 and holds there (the match never ends in bench) to
+game overs and resets. `bench --entities 1000` pre-spawns to 1000 and holds there (the match never ends in bench) to
 measure the rollback cost. `simulation/tests` adds a scenario that forces barrel explosions, deaths, respawns and
 resets every few ticks, checked by sync-test and by a networked session under the `bad` profile.
 

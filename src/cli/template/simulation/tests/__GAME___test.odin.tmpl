@@ -8,22 +8,24 @@ import "unified:lint"
 
 import g "../__GAME__"
 
-H := headless.Headless(g.State, g.Input, g.World, g.MAX_PLAYERS) {
+HEADLESS := headless.Headless(g.State, g.Input, g.World, g.PLAYERS) {
 	game = &g.GAME,
-	script = proc(seed: u64, slot: int, t: u32, state: ^g.State) -> g.Input {return g.script(seed, slot, t)},
+	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^g.State) -> g.Input {
+		return g.scripted_input(seed, player, tick)
+	},
 }
 
 @(test)
 rollback_resimulates_the_same :: proc(t: ^testing.T) {
-	r := headless.run_synctest(&H, 600, 8, 1, g.MAX_PLAYERS)
-	testing.expect_value(t, r.mismatches, 0)
+	result := headless.run_synctest(&HEADLESS, 600, 8, 1, g.PLAYERS)
+	testing.expect_value(t, result.mismatches, 0)
 }
 
 @(test)
 same_seed_same_run :: proc(t: ^testing.T) {
-	a := headless.run_sim(&H, 600, 7, 2)
-	b := headless.run_sim(&H, 600, 7, 2)
-	testing.expect_value(t, a.final_checksum, b.final_checksum)
+	first := headless.run_sim(&HEADLESS, 600, 7, 2)
+	second := headless.run_sim(&HEADLESS, 600, 7, 2)
+	testing.expect_value(t, first.final_checksum, second.final_checksum)
 }
 
 @(test)

@@ -103,7 +103,7 @@ ci_summary :: proc() -> string {
 		pass, _ := obj["ok"].(json.Boolean)
 		fmt.sbprintf(
 			&out,
-			"### `unified test --suite net`: %s\n\n| test | result | seconds | detail |\n|---|---|---:|---|\n",
+			"### `uni test --suite net`: %s\n\n| test | result | seconds | detail |\n|---|---|---:|---|\n",
 			pass ? "PASS" : "**FAIL**",
 		)
 		tests, _ := obj["tests"].(json.Object)
@@ -126,7 +126,7 @@ ci_summary :: proc() -> string {
 		obj, _ := v.(json.Object)
 		fmt.sbprintf(
 			&out,
-			"\n### Benchmarks (`unified bench`, release; target: step + re-sim <= %.0f ms)\n\n| benchmark | step µs (p99) | save µs | restore µs | re-sim µs (p99) | step + re-sim | snapshot bytes |\n|---|---:|---:|---:|---:|---:|---:|\n",
+			"\n### Benchmarks (`uni bench`, release; target: step + re-sim <= %.0f ms)\n\n| benchmark | step µs (p99) | save µs | restore µs | re-sim µs (p99) | step + re-sim | snapshot bytes |\n|---|---:|---:|---:|---:|---:|---:|\n",
 			cli.json_f64(obj["target_us"]) / 1000,
 		)
 		benches, _ := obj["benchmarks"].(json.Object)
@@ -149,7 +149,7 @@ ci_summary :: proc() -> string {
 			)
 		}
 	} else {
-		strings.write_string(&out, "\nNo .out/bench.json: `unified bench` did not run.\n")
+		strings.write_string(&out, "\nNo .out/bench.json: `uni bench` did not run.\n")
 	}
 	return strings.to_string(out)
 }

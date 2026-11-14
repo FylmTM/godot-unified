@@ -10,15 +10,19 @@ import "core:time"
 @(private)
 cmd_build :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game: string `args:"pos=0" usage:"a game (default: every game)"`,
+		game: string `args:"pos=0" usage:"a game (default: every game; in this repo also toy, which has no extension)"`,
 		mode: Mode `usage:"dev (default), release or debug"`,
 	}
 	opts: Opts
 	parse(&opts, args)
 	start := time.tick_now()
+	games: []Game
+	if opts.game != "toy" || !is_unified_repo() {
+		games = games_or_all(opts.game) // the name is checked before anything builds
+	}
 	built := build_headless(opts.mode, force = true)
 	libs: [dynamic]string
-	for game in games_or_all(opts.game) {
+	for game in games {
 		if has_extension(game) {
 			append(&libs, rel(ensure_extension(game, opts.mode, force = true)))
 		}
@@ -34,6 +38,37 @@ cmd_build :: proc(args: []string) -> Result {
 		),
 		data = box(libs[:]),
 	}
+}
+
+// --- headless ---------------------------------------------------------------------------------------------------
+
+// The game's headless binary (src/headless/SPEC.md: offline runs, sync-tests, replays, sessions, the relay and
+// clients, benchmarks), built when stale and run with our stdin, stdout and stderr: its JSON is this command's
+// stdout.
+@(private)
+cmd_headless :: proc(args: []string) -> Result {
+	Opts :: struct {
+		game:     string `args:"pos=0" usage:"the game (default: the only one; in this repo also toy)"`,
+		mode:     Mode `usage:"the build: dev (default), release or debug"`,
+		overflow: [dynamic]string `usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
+	}
+	opts: Opts
+	parse(&opts, args)
+	if len(opts.overflow) == 0 {
+		usage("name a headless mode after --, e.g. uni headless -- sim --ticks 600 (-- help: every mode)")
+	}
+	headless := headless_package(opts.game)
+	cmd: [dynamic]string
+	append(&cmd, ensure_headless(headless, opts.mode))
+	append(&cmd, ..opts.overflow[:])
+	ran := run_proc({cmd = cmd[:], interactive = true})
+	if !ran.ok {
+		return {
+			ok = false,
+			summary = tprint("headless %s %s: exit %d", headless.name, opts.overflow[0], ran.exit_code),
+		}
+	}
+	return {ok = true}
 }
 
 // --- vet --------------------------------------------------------------------------------------------------------

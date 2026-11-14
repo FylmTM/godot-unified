@@ -31,6 +31,13 @@ public_commands :: proc() -> []Command {
 				run = cmd_build,
 			},
 			{
+				name = "headless",
+				usage = "[game] [--mode dev|release|debug] -- <mode> [options]",
+				summary = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench; its JSON on stdout",
+				no_budget = "the mode decides",
+				run = cmd_headless,
+			},
+			{
 				name = "run",
 				usage = "[game] [--mute] [--screen s] [--background] [-- args]",
 				summary = "the game in a window (arguments after -- go to the game)",
@@ -101,8 +108,8 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "init",
-				usage = "<dir>",
-				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule",
+				usage = "<dir> [--unified <url>] [--ref <ref>]",
+				summary = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref)",
 				no_budget = "clones unified",
 				run = cmd_init,
 			},

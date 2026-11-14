@@ -240,19 +240,14 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 // game itself runs), as {tick: checksum}.
 @(private)
 offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
-	headless := Headless{game.name, join(game.dir, "simulation", "headless"), game_uses_box3d(game)}
-	build := headless_build(headless, .release)
-	if headless.box3d {
-		ensure_box3d()
-		stage_box3d(os.dir(build.out))
-	}
-	if stale(build) {
-		odin_build(build, tprint("building %s's headless binary", game.name))
-	}
+	binary := ensure_headless(
+		Headless{game.name, join(game.dir, "simulation", "headless"), game_uses_box3d(game)},
+		.release,
+	)
 	result := run_proc(
 		{
 			cmd = strs(
-				build.out,
+				binary,
 				"sim",
 				"--ticks",
 				tprint("%d", ticks),

@@ -9,9 +9,10 @@ import "unified:cli"
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
 // pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
-// clone as its submodule, then build it and run every test suite in that game repo. Only when called (before tooling
-// PRs, after a pin or toolchain change); never by `verify`. `--shims` stops after the bootstrap (CI runs that on
-// every platform). It tests the committed HEAD, so it refuses uncommitted changes.
+// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it,
+// run a headless mode and every test suite in that game repo. Only when called (before tooling PRs, after a pin or
+// toolchain change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD,
+// so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	Opts :: struct {
 		shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
@@ -26,6 +27,9 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	work := cli.join(cli.state.project.out, "selftest")
 	cli.remove_tree(work)
 	cli.make_dirs(work)
+	head := strings.trim_space(
+		cli.run_proc({cmd = cli.strs("git", "-C", root, "rev-parse", "HEAD"), capture = true, quiet = true}).stdout,
+	)
 	clone := cli.join(work, "unified")
 	game := cli.join(work, "selftest_game")
 	cache := cli.join(work, "cache")
@@ -41,36 +45,66 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		return cmd[:]
 	}
 	Step :: struct {
-		what: string,
-		cmd:  []string,
-		dir:  string,
-		env:  []string,
+		what:   string,
+		cmd:    []string,
+		dir:    string,
+		env:    []string,
+		check:  proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
+		expect: string, // what cmd's stdout must contain
 	}
 	steps: [dynamic]Step
 	append(
 		&steps,
-		Step{"clone", cli.strs("git", "clone", "-q", root, clone), "", env},
+		Step{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone), env = env},
 		Step {
-			"bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
-			shim(clone, "version"),
-			clone,
-			download_env(work, cache),
+			what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
+			cmd = shim(clone, "version"),
+			dir = clone,
+			env = download_env(work, cache),
 		},
 	)
 	if !opts.shims {
 		append(
 			&steps,
-			Step{"init a game outside the repo", shim(clone, "init", game, "--unified", clone), work, env},
-			Step{"build the game", shim(game, "build"), game, env},
-			Step{"every test suite of the game", shim(game, "test", "--suite", "all"), game, env},
-			Step{"the game repo's gate", shim(game, "verify"), game, env},
+			Step {
+				what = "init a game outside the repo",
+				cmd = shim(clone, "init", game, "--unified", clone, "--ref", head),
+				dir = work,
+				env = env,
+				check = check_init,
+			},
+			// the first build generates the Godot bindings: a cold run, not one over its budget
+			Step {
+				what = "build the game",
+				cmd = shim(game, "build", "--json"),
+				dir = game,
+				env = env,
+				expect = `"Godot bindings"`,
+			},
+			Step {
+				what = "the headless binary through uni",
+				cmd = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
+				dir = game,
+				env = env,
+				expect = `"mismatches":0`,
+			},
+			Step {
+				what = "every test suite of the game",
+				cmd = shim(game, "test", "--suite", "all"),
+				dir = game,
+				env = env,
+			},
+			Step{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game, env = env},
 		)
 	}
 	start := time.tick_now()
 	for s, i in steps {
 		t := time.tick_now()
 		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = s.env})
+		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = s.env, capture = s.expect != ""})
+		if s.expect != "" {
+			cli.log("%s%s", r.stderr, r.stdout)
+		}
 		if !r.ok {
 			return {
 				ok = false,
@@ -80,6 +114,17 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 					r.exit_code,
 					cli.rel(work),
 				),
+			}
+		}
+		if s.expect != "" && !strings.contains(r.stdout, s.expect) {
+			return {ok = false, summary = cli.tprint("selftest: %s: its output has no %s", s.what, s.expect)}
+		}
+		if s.check != nil {
+			if problem := s.check(game, head); problem != "" {
+				return {
+					ok = false,
+					summary = cli.tprint("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
+				}
 			}
 		}
 		if i == 1 { 	// the bootstrap: the Odin it ran with is the download
@@ -144,4 +189,29 @@ download_env :: proc(work, cache: string) -> []string {
 	}
 	append(&out, cli.tprint("PATH=%s", path), cli.tprint("%s=%s", cache_key, cache))
 	return out[:]
+}
+
+// What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files
+// name are the current ones (the shims are `uni` and `uni.cmd`, the repo is godot-unified).
+check_init :: proc(game, head: string) -> string {
+	pinned := cli.run_proc(
+		{cmd = cli.strs("git", "-C", game, "ls-files", "--stage", "unified"), capture = true, quiet = true},
+	)
+	if !strings.contains(pinned.stdout, head) {
+		return cli.tprint("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
+	}
+	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
+	for file in cli.find_files(game, "") {
+		in_repo := file[len(game) + 1:]
+		if strings.has_prefix(in_repo, "unified/") || strings.has_prefix(in_repo, "unified\\") {
+			continue // the submodule
+		}
+		text, _ := cli.read_text(file)
+		for stale in STALE {
+			if strings.contains(text, stale) {
+				return cli.tprint("%s names %q", cli.rel(file), stale)
+			}
+		}
+	}
+	return ""
 }
