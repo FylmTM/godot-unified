@@ -11,8 +11,8 @@ with its own commands into its CLI (`tools/`). The only requirements are Odin an
 Installed by the developer, nothing else: what Odin needs (clang on macOS and Linux; Visual Studio Build Tools on
 Windows: its linker and the Windows SDK), **git** and **curl** (shipped with macOS, Windows 10+ and Linux). **Odin**
 is the exact pinned release (`pins.cfg`): the odin on PATH when it is that one, else the shims download it (below).
-A CLI built with another Odin is refused with the pin. CI installs the pinned Odin with `.github/actions/odin`
-(cached), which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D) the CLI
+A CLI built with another Odin is refused with the pin. CI gets Odin the same way, through the shims (their
+download cached). Everything else (Godot, export templates, odinfmt, Box3D) the CLI
 fetches or builds, pinned and hash-checked. Nothing it builds is C or C++. The EOS SDK is the exception: Epic's
 licence keeps it out of the repo and CI, so a machine that plays online downloads it from Epic and names it with
 `UNIFIED_EOS_SDK` (`docs/EOS.md`).
@@ -91,10 +91,10 @@ when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the g
 
 ## Pins
 
-`pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so a workflow that
-runs no repository code (`.github/actions/odin`) reads it with `sed`, and the shims with shell builtins. Odin is
-pinned by tag (the release) and commit (what `odin version` reports). CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
-compile, the compiler's version), never from tool sources.
+`pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so the shims read it
+with shell builtins before any Odin exists. Odin is pinned by tag (the release) and commit (what `odin version`
+reports). CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
+compile, the compiler's version), never from tool sources; Odin's own cache is keyed by `pins.cfg` in the workflow.
 
 ## Commands
 
@@ -134,7 +134,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there, and CI runs it on every platform), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
+| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there; CI doesn't run it, its own download runs whenever its Odin cache misses), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
 
 ## Line endings
 

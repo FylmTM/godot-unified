@@ -1,24 +1,30 @@
-# Parallel jobs, all through the uni CLI (src/cli/SPEC.md): `lint` (fmt --check + vet for every target, Linux),
-# `test` (the odin suite: unit tests and every end-to-end suite, reference runs included; then the net suite, the
-# real-UDP multi-process test, and the benchmarks, both in the job summary) and `godot` (Linux x64: the godot and
-# godot-bindings suites, every game under headless Godot). Together they run what `./uni verify` runs locally; the
-# suites' long variants (`--long`) run only on demand.
+# One job per platform, every step one uni command (src/cli/SPEC.md). Each job runs `uni test` (the odin suite: unit
+# tests and every end-to-end suite, reference runs included, so CI is the cross-platform check of determinism),
+# `uni test --suite net` (real UDP, separate processes) and `uni bench` (both reported in the job summary; the
+# benchmarks are not gated). linux-x64 also runs `uni fmt --check`, `uni vet` (every target) and the godot and
+# godot-bindings suites (every game under headless Godot): together, what `./uni verify` runs locally. The suites'
+# long variants (`--long`) run only on demand. A check runs even when an earlier one failed, so one red step doesn't
+# hide the others.
 #
-# Which platforms `test` runs on depends on the event, to keep the costly runners off pull requests:
-#   pull request         linux-x64, linux-arm64
-#   push to main         linux-x64, linux-arm64, windows-x64
-#   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
-#                        (macOS runs only on main: its runners are often out of capacity)
-#   manual dispatch      all four on main; elsewhere linux-x64, linux-arm64, windows-x64, plus macos-arm64 with
-#                        `-f macos=true` (sim changes and dependency upgrades)
+# Platforms per event:
+#   pull request, push to main   linux-x64, linux-arm64, windows-x64
+#   nightly (schedule)           macos-arm64, only if main moved since the last nightly (the `nightly` job)
+#   manual dispatch              all four on main; elsewhere the three above, plus macos-arm64 with `-f macos=true`
+#                                (sim changes and dependency upgrades)
+# macOS runs only on main: its runners are often out of capacity. One job per platform keeps a run to three runners
+# (GitHub Free runs 20 jobs at once, 5 of them on macOS).
 #
 # Cost: the repo is public, so every runner here (GitHub's standard hosted runners) is free and unlimited; larger
 # runners would be billed.
 #
 # Security: jobs read only (`contents: read`; the nightly check also `actions: read`) and CI holds no secrets:
 # no EOS SDK and no EOS credentials (Epic's licence keeps the SDK out; its tests run where a developer has it).
-# Actions are pinned by commit, runner images by version (an image update can change compilers, so it is a
-# deliberate bump), and every download by its SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
+# Actions are pinned by commit (the repo requires it, and allows GitHub-owned actions only), runner images by version
+# (an image update can change compilers, so it is a deliberate bump), and every download by its SHA-256 in pins.cfg.
+# Odin comes through the uni shim, as on a fresh clone: the pinned release, checked and kept in the shim's folder,
+# which is cached. When that cache misses (pins.cfg changed, or the cache expired), the job's first step is a fresh
+# clone's real download, which is how CI proves the shims' download. Each command fetches or builds what else it
+# needs.
 name: ci
 
 on:
@@ -69,27 +75,8 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-  lint:
-    name: format + vet
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/odin
-      - id: keys
-        run: echo "odinfmt=$(./uni ci cache-key odinfmt)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .out/odinfmt
-          key: ${{ steps.keys.outputs.odinfmt }}
-      - name: fmt --check
-        run: ./uni fmt --check
-      - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
-        run: ./uni vet
-
-  test:
-    name: test / ${{ matrix.platform }}
+  ci:
+    name: ${{ matrix.platform }}
     needs: nightly
     if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
     runs-on: >-
@@ -102,38 +89,74 @@ jobs:
         # Per event, see the top of this file.
         platform: >-
           ${{ fromJSON(
-          github.event_name == 'pull_request' && '["linux-x64", "linux-arm64"]' ||
-          github.event_name == 'push' && '["linux-x64", "linux-arm64", "windows-x64"]' ||
           github.event_name == 'schedule' && '["macos-arm64"]' ||
-          github.ref != 'refs/heads/main' && !inputs.macos && '["linux-x64", "linux-arm64", "windows-x64"]' ||
-          '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
+          github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos) &&
+          '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]' ||
+          '["linux-x64", "linux-arm64", "windows-x64"]') }}
     env:
       # Windows runs the cmd shim (it proves uni.cmd too); elsewhere the sh one.
       UNI: ${{ matrix.platform == 'windows-x64' && './uni.cmd' || './uni' }}
+      LINUX_X64: ${{ matrix.platform == 'linux-x64' }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/odin
+      # Where the shims keep the pinned Odin (`uni`: ~/.cache/unified/odin; `uni.cmd`: %LOCALAPPDATA%\unified\odin).
+      # Keyed by pins.cfg: the key must exist before Odin does.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/unified/odin
+            ~/AppData/Local/unified/odin
+          key: odin-${{ matrix.platform }}-${{ hashFiles('pins.cfg') }}
+      # The shim fetches Odin if needed and builds the CLI; every later step relies on it.
+      - id: ready
+        name: uni version (the pinned Odin, the CLI)
+        run: $UNI version
+      - id: keys
+        if: env.LINUX_X64 == 'true'
+        run: |
+          echo "odinfmt=$(./uni ci cache-key odinfmt)" >> "$GITHUB_OUTPUT"
+          echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
+      - if: env.LINUX_X64 == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .out/odinfmt
+          key: ${{ steps.keys.outputs.odinfmt }}
+      # The official editor, hash-checked against pins.cfg when downloaded, in the per-user cache
+      # (src/cli/SPEC.md, Layout); under its own key, not with the Odin above.
+      - if: env.LINUX_X64 == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unified/godot
+          key: ${{ steps.keys.outputs.godot }}
+      - name: fmt --check
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
+        run: ./uni fmt --check
+      - name: vet (darwin_arm64, linux_amd64, linux_arm64, windows_amd64)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
+        run: ./uni vet
       # unified-box3d (the pinned release) and the Godot bindings come on the way, every run: nothing to cache.
       - name: test (the odin suite)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI test
       - name: test --suite net (release build; real UDP, separate processes, 5 s on the real clock)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI test --suite net
       - name: bench (release build; reported in the summary, not gated)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI bench
-      # A fresh clone's shim with no pinned Odin to find and an empty cache: the newcomer's first run (download,
-      # SHA-256 check, unpack, CLI build) on each platform this job runs on.
-      - name: selftest --shims (the shims' Odin download)
-        run: $UNI selftest --shims
+      - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
+        run: ./uni test --suite godot,godot-bindings
       - name: Summary
-        if: always()
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
-      - if: always()
+      - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-${{ matrix.platform }}
+          name: ci-${{ matrix.platform }}
           path: |
             .out/net.json
             .out/bench.json
@@ -141,23 +164,3 @@ jobs:
             .out/net/
           if-no-files-found: ignore
           retention-days: 14
-
-  godot:
-    name: godot headless / linux-x64
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/odin
-      - id: keys
-        run: |
-          echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
-      # The official editor, hash-checked against pins.cfg when downloaded, in the per-user cache
-      # (src/cli/SPEC.md, Layout).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/unified/godot
-          key: ${{ steps.keys.outputs.godot }}
-      - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
-        run: ./uni test --suite godot,godot-bindings

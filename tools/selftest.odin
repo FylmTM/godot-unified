@@ -11,8 +11,8 @@ import "unified:cli"
 // pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
 // clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it,
 // run a headless mode and every test suite in that game repo. Only when called (before tooling PRs, after a pin or
-// toolchain change); never by `verify`. `--shims` stops after the bootstrap (CI runs that on every platform). It
-// tests the committed HEAD, so it refuses uncommitted changes.
+// toolchain change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD,
+// so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	Opts :: struct {
 		shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
