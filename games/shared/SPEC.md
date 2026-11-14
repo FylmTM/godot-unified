@@ -17,26 +17,31 @@ a directory with `project.godot` and `simulation/` as one.
   stops the run with a message, since the change belongs here. A `.uid` file Godot writes for a new script here is
   copied back, so it is committed and every game shares the UID.
 - **Tool scripts.** `uni tool <game> <name>` and the godot suite run `game/tools/<name>.gd`, else `tools/<name>.gd`
-  here. A game adds its own steps by extending the shared script in `game/tools/`.
+  here, else the library's (`src/godot/tools`, mirrored as `res://addons/unified/`: `UnifiedTool`, `UnifiedValidate`).
+  A game adds its own steps by extending the shared or library script in `game/tools/`.
 - **Exports** leave `addons/shared/tools/` out (each game's `export_presets.cfg`).
 - **Conventions** the shared code relies on: the menu scene at `res://game/ui/main_menu.tscn` (root `MainMenu`, the
   shared menu instanced as `Menu`), the play scene at `res://game/arena/arena.tscn` (root `Arena`, with `Views`,
-  `HUD` whose `Root` control holds the session panel and controls list, and the shared `PauseMenu`); the input
-  actions `menu`, `toggle_devui`, `ui_accept`, `ui_cancel` and the audio buses Master and SFX.
+  `HUD` whose `Root` control holds the session panel and controls list, and the shared `PauseMenu`); a `hud` view
+  kind (`game/views/hud.tscn`: a Node with `views/hud_view.gd` and a UnifiedView marker); the input actions `menu`,
+  `toggle_devui`, `ui_accept`, `ui_cancel` and the audio buses Master and SFX; the autoloads `LibraryCheck` (first),
+  `Settings`, `Sfx`, `Game`.
 
 ## API
 
 Autoloads (a game registers its own script, extending the shared one, or the shared one itself):
 
-- **`UnifiedGame`** (`autoload/game.gd`, the `Game` autoload): the app's flow, MENU -> CONNECTING -> PLAYING, owning
+- **`LibraryCheck`** (`autoload/library_check.gd`, the first autoload): without the game library (UnifiedSession
+  missing) it shows "the game library failed to load" and Quit instead of the game (the `Game` autoload, which names
+  the library classes, does not load then); `--smoke-test` quits with 1.
+- **`UnifiedGame`** (`autoload/game.gd`, the `Game` autoload): the app flow, MENU -> CONNECTING -> PLAYING, owning
   the session. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
-  `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(name, args)`. State: `session`, `is_mock`, `flow`,
-  `mode`, `status`, `status_detail`, `lobby_code`, `lan_port`, `lan_address`, `last_error`, `hud`, `constants`,
-  `using_pad`. Helpers: `local_player()` (the index), `player_info(player)`, `local_player_info()`, `present_players()`,
-  `player_name(info)`,
-  `hint(keys, pad)`, `rumble`, `clipboard_get/set`, `copy_with_feedback`. Signals: `flow_changed`,
-  `status_changed`, `lobby_code_changed`, `input_device_changed`. Virtual: `_create_session()` (a game with a
-  GDScript stand-in returns it and sets `is_mock`).
+  `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(command: UnifiedCommand)`. State: `session` (a typed
+  `UnifiedSession`), `flow`, `mode`, `status`, `status_detail`, `lobby_code`, `lan_port`, `lan_address`,
+  `last_error`, `hud` (the HUD view fields), `constants`, `using_pad`. Helpers: `local_player()` (the session's),
+  `player_info(player)` (an entry of `hud.players`), `local_player_info()`, `present_players()`, `player_name(info)`
+  (the synced name, else "P<n>"), `hint(keys, pad)`, `rumble`, `clipboard_get/set`, `copy_with_feedback`. Signals:
+  `flow_changed`, `status_changed`, `lobby_code_changed`, `input_device_changed`.
 - **`UnifiedSettings`** (`autoload/settings.gd`, `Settings`): `get_value`, `set_value(key, v, persist)`, `save`,
   `has`, signal `changed`. The shared keys (`DEFAULTS`: volumes, window mode, vsync, show FPS, player name); a game
   adds its own in `_game_keys()`, among them the standard optional ones (`OPTIONAL`: `render_scale`,
@@ -47,42 +52,37 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
 UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (`main_menu.tscn`, exports `title`
 and `tagline`), `pause_menu.tscn`, `connect_overlay.tscn` (shown by `Game` while connecting), `SettingsPanel`,
 `SessionPanel` and `ControlsPanel` (a HUD's top-right session panel and bottom-right controls list: the game passes
-rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). Views: `GameView` (`views/`, a
-GDScript base for 3D scene views with the native `SimView`'s properties), `SimEvent` (`views/sim_event.gd`: the
-event states `EMITTED`, `CONFIRMED`, `CANCELLED`, the native `UnifiedSession.EVENT_*` values, which `Game` checks at
-start; scripts use them so they also run on a GDScript stand-in session). Audio: `audio/bus_layout.tres`.
+rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). Views (`views/`): `GameView` (a base
+for 3D scene views: `kind`, `entity`, `player` read the scene UnifiedView marker; `_sim_update`, `_sim_event`,
+`_despawned`, `_revived`), `hud_view.gd` (the HUD view root script: the host sets each field of the game HUD data as
+a property, kept in `Game.hud`; any field name reads back, 0 before the first frame). Audio: `audio/bus_layout.tres`.
 
-Tools (`tools/`): `UnifiedTool` (the base of every tool script: `_run()`, `step`, `expect`, `fail`, `finish`, waits,
-real input events, screenshots, `--frames` with `UnifiedFrameLog`, errors through `UnifiedLogCapture`),
-`UnifiedValidate` (`validate`, with the game's `_check_contract()`), `UnifiedUiWalk` (`ui_walk`, with
-`_walk_play()` and `_walk_online()`), `UnifiedCoop` (`coop`, with `_host_play()`, `_join_play()`, `_playing()`).
+Tools (`tools/`, on the library `UnifiedTool`): `UnifiedUiWalk` (`ui_walk`, with `_walk_play()` and
+`_walk_online()`) and `UnifiedCoop` (`coop`, with `_host_play()`, `_join_play()`, `_playing()`; `--lan-port=N`, a
+free port `uni coop --lan` passes), which drive the shared menus by name.
 A tool script is compiled before the autoloads exist, so it never names a script that uses them: it reaches the game
 through its untyped `game` and the scene tree.
 
 ## Flags every game accepts
 
 After `--`: `--no-settings` (tools: defaults, nothing saved, no window changes), `--smoke-test` (start single
-player at boot; `uni release`), `--mock` (a game with a GDScript stand-in session uses it; others ignore it), plus
-the native session's own (`--autostart`, `--scripted`, `--join`, ...: `src/godot_host`).
+player at boot; `uni release`), plus the session flags (`--autostart`, `--scripted`, `--join`, ...:
+`src/godot/SPEC.md`).
 
 ## How it works
 
 - **Quitting** goes through `Game.quit_app()` (the menus, the window's close button, every tool): the session ends
   (no event starts a sound any more), every AudioStreamPlayer (2D, 3D) in the tree stops, and the quit waits (at
   most 1 s) until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
-- **`Game.hud` is current for event handlers.** The session emits its events before `Game` refreshes `hud` in its
-  `_process`; `Game` connects to the session first and refreshes `hud` on the frame's first event, so a handler
-  never compares against the previous frame's (a stale `local_player` of -1 made single player announce its own join).
+- **`Game.hud` is current for event handlers.** The session sets the HUD view data while it syncs the views,
+  before it routes the frame events, so a handler never reads the previous frame values.
 - **Play scene** (#89): the main menu loads the play scene on a worker thread
   (`ResourceLoader.load_threaded_request`) once it is on screen, so its shaders compile in the background, and
   collects it on leaving. In Godot 4.7.2 a resource a script first loads with `preload()` on a worker thread is
   reported as leaked at exit (one object per resource), even when the threaded load is collected; the same script
   with `load()` doesn't leak, nor does a project without the threaded load (reproduced without unified: a menu that
   requests a scene whose script preloads a texture). So the scripts the play scene loads use `load()`, never
-  `preload()`; the shared `validate` fails on a `preload(` in any script the play scene depends on.
-
-## Library candidates
-
-What `uni` itself drives for every game lives here for now and may belong in the library later: `tools/tool.gd`
-(`UnifiedTool`, with `log_capture.gd` and `frame_log.gd`), `tools/validate.gd`, `tools/ui_walk.gd` and
-`tools/coop.gd` (the godot suite's `validate` and `walk` steps and `uni coop` fall back to them).
+  `preload()`; the library `validate` fails on a `preload(` in any script the play scene (`Game.PLAY_SCENE`)
+  depends on.
+- **Strict typing** (#9 T5): every game `project.godot` makes untyped and unsafe GDScript an error; the tool
+  scripts (`game/tools`, `addons`, `.out`) are left out, since they reach the `Game` autoload untyped.

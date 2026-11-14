@@ -1,6 +1,6 @@
 ---
 name: godot-game
-description: Building, running and checking a Godot game under games/<game> (survivor, friendslop, drift) - which step of the godot test suite proves what, the order to run them in, baking a level after editing it, and the windowed checks that need a display. Use after changing a game's GDScript, scenes, levels, extension or view contract, or src/godot_host, src/view or src/gdext, and when asked to run or look at a game.
+description: Building, running and checking a Godot game under games/<game> (survivor, friendslop, drift) - which step of the godot test suite proves what, the order to run them in, baking a level after editing it, and the windowed checks that need a display. Use after changing a game's GDScript, scenes, levels, extension or view contract, or src/godot, src/view or src/gdext, and when asked to run or look at a game.
 ---
 
 # Working on a Godot game
@@ -21,19 +21,22 @@ it is stale and re-imports the project when an imported file changed, so there i
 `./uni test <game> --suite godot` runs these steps in order, each when the game has what it needs; `--only` picks
 steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at exit or a GDScript warning fails it.
 
-1. `validate`: compiles every script with warnings as errors (`untyped_declaration` included), loads and
-   instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (survivor: the mock
-   session's `constants()` and idle `hud()` against the native session's; friendslop: item sizes against the sim;
-   drift: the view contract), fails on a `preload(` in a script the play scene loads (it loads on a thread:
-   `games/shared/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene change.
+1. `validate` (the library's `UnifiedValidate`, `src/godot/tools`): compiles every script with warnings as errors
+   (the strict typing in each `project.godot`: untyped or unsafe code is an error outside the tool scripts), loads
+   and instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (friendslop: item
+   sizes against the sim; drift: the view contract), fails on a `preload(` in a script the play scene loads (it
+   loads on a thread: `games/shared/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene
+   change. A `-d` run stops at the first strict error and waits in the debugger: to list them all at once, run the
+   validate script without `-d` (`godot --headless --path games/<game> -s res://addons/unified/validate.gd --
+   --no-settings --frames=5`) and read its `Parse Error` lines.
 2. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
-   (settings, pad navigation, single player, Esc menu, LAN host, a failed join); survivor adds its match flows on
-   its mock session.
+   (settings, pad navigation, single player, Esc menu, LAN host, a failed join); survivor adds its match flows.
 3. `tour`: the real game, headless, through lobby and match (quick).
 4. `session`: a headless Godot session's checksums must equal the offline binary's. Run it after a change to the
-   extension, `src/godot_host` or anything between input and the sim.
+   extension, `src/godot` or anything between input and the sim.
 5. `editor`: the extension loads in a headless editor with no `ERROR` lines.
-6. `bake`: each level's `.level` file is current.
+6. `bake`: the view index (`unified_index.tres`, every scene with a UnifiedView marker by kind) and each level's
+   `.level` file are current (`./uni bake <game>` writes them; commit both).
 
 `./uni test --suite godot,godot-bindings` runs every game's steps (the games in parallel) plus the binding,
 host-view and session-lifecycle tests (`tests/godot_views/session_check.gd`: leave, then host or join at once; it

@@ -2,7 +2,7 @@
 
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
 input-relay netcode with a step API (`netcode`, `eos`), the generic headless runs and CLI (`headless`) that a game's
-headless binary wires up, the Godot host (`gdext`, `view`, `devui`, `godot_host`), and the determinism lint a
+headless binary wires up, the Godot integration (`gdext`, `view`, `devui`, `godot`), and the determinism lint a
 game's tests run (`lint`). The test games live in
 `games/survivor/` (3D) and `games/drift/` (2D). Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
 core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `uni -h`.
@@ -29,7 +29,7 @@ a player's input travels and is logged as its bytes (a command as its struct's b
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only; no `matrix` types, no `core:math` in the
 deterministic packages (`sim`, `physics`, `dmath`, `netcode`, a game's sim; the netcode's ceilings are done by hand).
-Render-side code (`view`, `godot_host`, `devui`) may use it: nothing there feeds the sim. Float→int casts only see
+Render-side code (`view`, `godot`, `devui`) may use it: nothing there feeds the sim. Float→int casts only see
 clamped values. `tests/lint` enforces the import and type bans per package, including the games' simulation
 packages.
 

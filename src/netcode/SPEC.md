@@ -10,7 +10,7 @@ thread or loop of its own: the host application calls `*_step(now_us) -> wake_us
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
 `sleep_until(wake_us)`. `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
 picks EOS, UDP or loopback), `PROTOCOL_VERSION` with its lobby bucket, `Hooks`, the configs (through
-`godot_host`'s driver, or directly in its tests) and the test helpers (`Profile`, `Virtual_Clock`, `hub_create`,
+`unified:godot`'s driver, or directly in its tests) and the test helpers (`Profile`, `Virtual_Clock`, `hub_create`,
 through `headless.session_run`).
 
 ## Pieces

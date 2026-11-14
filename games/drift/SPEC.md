@@ -9,7 +9,8 @@ slowly turning station at the centre. The players shoot them (big rocks split, t
 them aside. When the station's HP reaches 0 the match is over, and everyone goes back to the lobby. drift exists to
 prove `unified` for 2D games:
 
-- 2D views: rotating, smoothed `SimView2D`s, `SimBulkView2D`s with rotation, per-axis scale, color and custom data.
+- 2D views: rotating, smoothed Node2D scene views, MultiMesh views with rotation, per-axis scale, color and custom
+  data, physics bodies interpolated like plain state (the host remembers the poses).
 - Typed scene data and commands.
 - 2D physics locked to a plane (`src/physics/SPEC.md`, 2D).
 - A level drawn in Godot's 2D editor (`src/level/SPEC.md`, 2D levels).
@@ -80,11 +81,13 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
 
 ## View (`simulation/extension`, `game/`)
 
-- Scene views:
-  - `ship`: SimView2D, Ship_View `{boost_ready, thrust}`.
-  - `station`: a plain Node2D, Station_View `{hp_frac}`.
-  - `gate`: SimView2D, Gate_View `{charge}`.
-- Bulk views (MultiMeshInstance2D, TRANSFORM_2D):
+- Scene views (`View`, each scene a Node2D with a UnifiedView marker, in the view index):
+  - `ship`: Ship_View `{boost_ready, thrust}`.
+  - `station`: Station_View `{hp_frac}`.
+  - `gate`: Gate_View `{charge}`.
+  - `hud`: the HUD data (games/shared `hud_view.gd`, `Game.hud`).
+- MultiMesh views (`Multi`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
+  handles):
   - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with rotation and a hit flash in custom data.
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the owner's color.
   - `gem`: a pulse that squashes and stretches.
@@ -93,7 +96,8 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
   banners, once it is confirmed.
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
-  relative to the ship) or the right stick.
+  relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
+  the movement, fire and boost actions.
 - HUD: phase, wave, station HP, score, time, the next wave in, and the players.
 
 ## Tests (`simulation/tests`)

@@ -77,7 +77,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			args:         []string,
 			timeout:      f64,
 		}
-		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
+		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}, {"tour", "tour", {"--quick"}, 60}}) {
 			if !want(only, script_step.step) {
 				continue
 			}

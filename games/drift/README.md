@@ -18,16 +18,17 @@ There is no GDScript mock session: without the library the game says how to buil
 
 The view contract is `simulation/extension/extension.odin`; the Godot side follows it:
 
-- Scene views (`game/views/`): `ship.tscn` and `gate.tscn` are `SimView2D`s, `station.tscn` a plain `Node2D` (both
-  paths of the host stay in use). Each is drawn in code at the sim's sizes (`Game.constants`, metres) times the
-  level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
-  properties.
-- Bulk views (`game/bulk/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant, the
-  sim's own hull) and gems are `SimBulkView2D`s; bullets are a plain `MultiMeshInstance2D` in the `sim_bulk` group.
-  All use `TRANSFORM_2D` MultiMeshes with colours and custom data, read by small shaders (`game/shaders/`).
-- `game/arena/arena.gd` sets the aim every frame before the session samples input: the mouse's world position
-  relative to the local ship (once the mouse moves), else the right stick. The camera (`follow_camera.gd`) follows
-  the local ship within the level's bounds. Sim events (`sim_event_2d`, positions in metres) drive effects and sounds.
+- Scene views (`game/views/`): `ship.tscn`, `gate.tscn` and `station.tscn` are Node2D roots with a UnifiedView
+  marker (`uni bake drift` indexes them). Each is drawn in code at the sim's sizes (`Game.constants`, metres) times
+  the level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
+  properties. `hud.tscn` is the HUD view (`Game.hud`).
+- MultiMesh views (`game/bulk/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant,
+  the sim's own hull), bullets and gems are MultiMeshInstance2D nodes, each with a UnifiedMultiView marker. All use
+  `TRANSFORM_2D` MultiMeshes with colours and custom data, read by small shaders (`game/shaders/`).
+- `game/arena/arena.gd` sets the aim every frame before the session samples input (the input value `aim`): the
+  mouse's world position relative to the local ship (once the mouse moves), else the right stick. The camera
+  (`follow_camera.gd`) follows the local ship within the level's bounds. Sim events (typed classes, positions in
+  pixels) drive effects and sounds.
 - The HUD's lobby prompt sends the `start` command (Enter / X, or the Start button); when the match is over,
   `restart`.
 

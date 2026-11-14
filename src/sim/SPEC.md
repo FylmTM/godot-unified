@@ -118,9 +118,9 @@ sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y,
   subject is its `player` field and its first `Handle(T)` field (or a `u64` field named `entity`), when it has them.
   The view's tracker identifies an event by (tick, type, subject, its index among events of that type and subject
   in the tick).
-- How GDScript receives them (a Dictionary of the fields: a handle becomes its key, `sim.Position` is converted to
+- How GDScript receives them (an object of a class per event kind, a typed property per field: a handle becomes its key, `sim.Position` is converted to
   view units, an enum becomes its name; the states Emitted, Confirmed and Cancelled; routing to the subject's
-  view and one global `sim_event` signal): `src/godot_host/SPEC.md`.
+  view and one global `sim_event` signal): `src/godot/SPEC.md`.
 
 ## Tables and handles
 

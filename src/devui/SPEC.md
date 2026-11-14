@@ -4,7 +4,7 @@ Pending developer review (Godot controls replace Dear ImGui, developer, 2026-11-
 
 The in-game dev UI, built from Godot's own controls and driven from Odin (`src/devui`). Game-agnostic: the game
 passes its values; it knows nothing about any game. **Every build includes it for now**, release too (developer's
-call). `godot_host` reaches it only through `godot_host/dev.odin`: building with `-define:UNIFIED_DEVUI=false` turns
+call). `unified:godot` reaches it only through `godot/dev.odin`: building with `-define:UNIFIED_DEVUI=false` turns
 those calls into no-ops. `uni vet` checks that build. No third-party code.
 
 ## API
@@ -46,7 +46,7 @@ devui.wants_mouse() / wants_keyboard()
   frame graph is coloured green / yellow / red against 16.7 and 33.3 ms; scales pick the smallest round step that
   fits. Each graph has its title and legend in a band above it: its parts with their average per frame over the
   last second (marks: per second); a thin rule separates the graphs. Graphs belong to groups the overlay toggles; only `frame` starts shown. The host's groups
-  (`godot_host/dev.odin`): `frame` (frame; main thread ms: views, dev ui, game, render), `sim` (sim thread ms and ticks
+  (`godot/dev.odin`): `frame` (frame; main thread ms: views, dev ui, game, render), `sim` (sim thread ms and ticks
   stepped: verified, rollback, predicted; ticks ahead; sim events: rollback, late input, stall), `net` (round trip ms,
   bandwidth kB/s in and out, relay silence ms: time since the relay's last message), plus a render stats line (draw
   calls, triangles, video memory, nodes). The overlay shrinks to fit what is shown.
@@ -77,7 +77,7 @@ devui.wants_mouse() / wants_keyboard()
 ## Open
 
 - Switching it off in release builds (the flag above) once the developer decides.
-- Game-specific panels (through `godot_host` when a game needs one).
+- Game-specific panels (through `unified:godot` when a game needs one).
 - Edits through tick-stamped debug commands (WORK.md). Today the inspector is read-only.
 - Panel layout isn't remembered between runs.
 - The F3 capture on a worker thread (~60 ms on the main thread today; it shows as a red bar in the frame graph).
