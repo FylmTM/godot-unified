@@ -1,6 +1,7 @@
 ---
 paths:
   - "games/**/*.gd"
+  - "src/godot_host/addon/**"
   - "games/**/*.tscn"
   - "games/**/*.tres"
   - "games/**/*.gdshader"
@@ -18,8 +19,14 @@ paths:
   fails on warnings).
 - Godot writes a `.uid` file next to every new script and shader: commit it with the file.
 - Never edit `.godot/` or `.import` files; they are Godot's cache.
+- A game's `addons/unified/` is a copy of the unified addon (`src/godot_host/addon`, its SPEC.md), refreshed by `uni`
+  before every run: change the addon there, never in a game. Shared GDScript goes in the addon, not into copies.
+- Static typing per Godot's style guide, members in its order (signals, enums, constants, exports, vars,
+  `@onready` vars, virtuals, public, private); nodes a script reaches by name are `%Unique` in their scene.
+- A tool script (`-s`) is compiled before the autoloads exist: it never names a script that uses `Game`,
+  `Settings` or `Sfx` (reach them through the scene tree). Scripts the play scene loads never `preload()`.
 - GDScript belongs to the view layer only. It reads the sim and never writes it: input and commands are the only way
-  in. Anything performance-critical or shared across games is Odin.
+  in. Anything performance-critical is Odin.
 - After editing a level scene in `game/levels/`, run `./uni bake <game>` and commit both files.
 - After any change here, `./uni test <game> --suite godot --only validate` (the `godot-game` skill has the rest of
   the loop).
