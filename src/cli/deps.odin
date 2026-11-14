@@ -13,10 +13,11 @@ MACOS_MIN :: "11.0"
 
 // --- downloads --------------------------------------------------------------------------------------------------
 
-// Downloads `url` to `dest` through the system curl (retries, redirects), checked against the pinned SHA-256.
+// Downloads `url` to `dest` through the system curl (retries, redirects), checked against the pinned SHA-256. The
+// part file is this process's own: another checkout may download the same file into the shared cache meanwhile.
 download :: proc(url, dest, sha256, what: string) {
 	make_dirs(os.dir(dest))
-	part := tprint("%s.part", dest)
+	part := tprint("%s.%d.part", dest, os.get_pid())
 	log("uni: downloading %s", url)
 	must_run(
 		{
@@ -27,7 +28,10 @@ download :: proc(url, dest, sha256, what: string) {
 	)
 	check_sha256(part, sha256, what)
 	if os.rename(part, dest) != nil {
-		fatal("cannot move %s into place", dest)
+		os.remove(part)
+		if !os.is_file(dest) {
+			fatal("cannot move %s into place", dest)
+		} // else another process put the same checked file there first
 	}
 }
 
@@ -98,7 +102,8 @@ git_checkout :: proc(dir, url, commit: string) {
 
 // Box3D is unified-box3d (Box3D ported to Odin): a shared library with upstream's C API, its headers and Odin
 // bindings, in box3d_dir() (the `box3d:` collection). By default the pinned release for this platform, downloaded,
-// checked against its SHA-256 and unpacked with the zip's top folder flattened into .out/unified-box3d/; with
+// checked against its SHA-256 (the zip kept in the per-user cache) and unpacked with the zip's top folder flattened into
+// .out/unified-box3d/; with
 // UNIFIED_BOX3D, a local unified-box3d checkout, built there by its own `b3 build` (release and --debug). A program
 // links lib/<platform>[-debug]/ and loads the library from its own directory (stage_box3d): Odin's default rpath
 // ($ORIGIN, @loader_path) and Windows' DLL search look there, and so does Godot for an extension's dependencies.
@@ -143,18 +148,27 @@ ensure_box3d :: proc(build := false) {
 	dir := box3d_dir()
 	repo, tag := pin("box3d", "repo"), pin("box3d", "tag")
 	start := time.tick_now()
-	cold("unified-box3d download")
 	name := tprint("unified-box3d-%s-%s.zip", tag, PLATFORM)
 	sha256 := pin("box3d", PLATFORM)
-	zip := join(state.project.out, "downloads", name)
-	download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
+	// The zip stays in the per-user cache: the next checkout unpacks it without a download. Each checkout unpacks
+	// its own copy, so ols.json can name the bindings inside the project.
+	zip := join(
+		user_cache(),
+		"downloads",
+		tprint("%s-%s.zip", name[:len(name) - len(".zip")], sha256[:min(12, len(sha256))]),
+	)
+	if have, _ := sha256_file(zip); have == sha256 {
+		cold("unified-box3d unpack (the download cached)")
+	} else {
+		cold("unified-box3d download")
+		download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
+	}
 	remove_tree(dir)
 	if os.exists(dir) {
 		fatal("cannot replace %s: in use? (close Godot and other uni commands)", dir)
 	}
 	archive := zip_open_file(zip)
 	zip_extract_all(&archive, dir, strip_top = true)
-	os.remove(zip)
 	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
 		fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
 	}

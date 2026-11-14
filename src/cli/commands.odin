@@ -18,8 +18,8 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "clean",
-				usage = "[--check]",
-				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings)",
+				usage = "[--check] [--cache]",
+				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
 				budget = 5,
 				run = cmd_clean,
 			},
@@ -60,7 +60,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "fmt",
 				usage = "[--check] [path...] | --hook",
-				summary = "odinfmt (pinned) over the project's Odin code; --hook: the file a Claude Code edit names",
+				summary = "odinfmt (pinned) over the project's Odin code, and LF line endings in every text file; --hook: the file a Claude Code edit names",
 				budget = 1,
 				run = cmd_fmt,
 			},
@@ -102,7 +102,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "init",
 				usage = "<dir>",
-				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, the unified submodule",
+				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule",
 				no_budget = "clones unified",
 				run = cmd_init,
 			},

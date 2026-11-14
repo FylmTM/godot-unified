@@ -58,13 +58,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/odin
-      # The Godot editor (.out/godot); the export templates are fetched into Godot's own folder per run, checked
-      # against pins.cfg (range reads: ~120 MB).
+      # The Godot editor (the per-user cache: ~/.cache/unified on macOS, %LOCALAPPDATA%\unified on Windows); the
+      # export templates are fetched into Godot's own folder per run, checked against pins.cfg (range reads: ~120 MB).
       - id: keys
         run: echo "godot=$(${{ matrix.uni }} ci cache-key godot)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .out/godot
+          path: |
+            ~/.cache/unified/godot
+            ~/AppData/Local/unified/godot
           key: ${{ steps.keys.outputs.godot }}
       # Extension, version stamp, import, export, sign, zip, smoke test; no EOS (single player and LAN).
       - name: uni release

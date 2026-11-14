@@ -41,7 +41,8 @@ private_commands :: proc() -> []cli.Command {
 		},
 		{
 			name = "selftest",
-			summary = "the bootstrap and init end to end, from a fresh clone (run before tooling PRs; never by verify)",
+			usage = "[--shims]",
+			summary = "the bootstrap (the shims' Odin download) and init end to end, from a fresh clone (run before tooling PRs; never by verify); --shims: the bootstrap only",
 			no_budget = "clones and builds from scratch",
 			run = cmd_selftest,
 		},

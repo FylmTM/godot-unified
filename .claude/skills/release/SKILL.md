@@ -54,7 +54,7 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
   (each unpacks to one folder of its own name with the game inside), `SHA256SUMS.txt` (LF line endings, so
   `shasum -a 256 -c` works on macOS), and tester notes (how to open an unsigned build, plus
   `games/<game>/RELEASE_NOTES.md`).
-- **Downloads.** Godot is the pinned editor in `.out/godot/<version>/` (or `UNIFIED_GODOT` at exactly that
+- **Downloads.** Godot is the pinned editor in the per-user cache, shared by every checkout (`uni setup` prints where; or `UNIFIED_GODOT` at exactly that
   version); export templates go to Godot's standard folder (only this platform's files, pulled from the official
   `.tpz` by range requests). Every download is checked against its SHA-256 in `pins.cfg`.
 

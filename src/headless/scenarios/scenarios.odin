@@ -502,7 +502,8 @@ check_session :: proc(
 }
 
 // Writes a new reference run into suite.ref.dir: ref.log and ref.trace from run_sim, the snapshot from
-// run_snapshot, and ref.json (where, when and how it was made).
+// run_snapshot, and ref.json (where, when and how it was made). A run that reproduces the committed one byte for byte
+// leaves ref.json alone too, so the directory shows no change (`uni record-reference` says "nothing changed").
 @(private)
 regenerate :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) -> bool {
 	reference := suite.ref
@@ -522,14 +523,26 @@ regenerate :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS
 	snapshot, _ := headless.run_snapshot(suite.game, reference.snapshot_tick, reference.seed, reference.players)
 	defer delete(snapshot)
 	snapshot_path := ref_path(reference, fmt.tprintf("ref-%d.snap", reference.snapshot_tick))
-	ok := headless.trace_write(&trace, ref_path(reference, "ref.trace"))
-	ok &&= sim.log_write(ref_path(reference, "ref.log"), &input_log)
-	ok &&= os.write_entire_file(snapshot_path, snapshot) == nil
-	meta := ref_json(reference, result.final_checksum)
-	ok &&= os.write_entire_file(ref_path(reference, "ref.json"), transmute([]u8)meta) == nil
+	files := [3]string{ref_path(reference, "ref.trace"), ref_path(reference, "ref.log"), snapshot_path}
+	before: [3]string
+	for file, i in files {
+		before[i] = read_or_empty(file)
+	}
+	ok := headless.trace_write(&trace, files[0])
+	ok &&= sim.log_write(files[1], &input_log)
+	ok &&= os.write_entire_file(files[2], snapshot) == nil
+	reproduced := ok && os.is_file(ref_path(reference, "ref.json"))
+	for file, i in files {
+		reproduced &&= before[i] != "" && read_or_empty(file) == before[i]
+	}
+	if !reproduced {
+		meta := ref_json(reference, result.final_checksum)
+		ok &&= os.write_entire_file(ref_path(reference, "ref.json"), transmute([]u8)meta) == nil
+	}
 	regen_note(
 		fmt.tprintf(
-			"regen: wrote a reference run into %s (final checksum %016x)",
+			"regen: %s %s (final checksum %016x)",
+			reproduced ? "reproduced the reference run in" : "wrote a reference run into",
 			reference.dir,
 			result.final_checksum,
 		),
@@ -542,6 +555,13 @@ regenerate :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS
 @(private)
 regen_note :: proc(message: string) {
 	log.info(message)
+}
+
+// A file's bytes ("" when it can't be read; temp-allocated).
+@(private)
+read_or_empty :: proc(path: string) -> string {
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	return err == nil ? string(data) : ""
 }
 
 // ref.json: where, when and how a reference run was made, and its parameters (temp-allocated).

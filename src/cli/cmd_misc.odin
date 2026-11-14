@@ -300,18 +300,19 @@ cmd_setup :: proc(args: []string) -> Result {
 		Dep{"odinfmt", tprint("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
 	)
 	if uses_box3d {
-		version, src := pin("box3d", "tag"), "pinned release (.out/unified-box3d)"
+		version, src :=
+			pin("box3d", "tag"), tprint("pinned release (.out/unified-box3d; the zip in %s/downloads)", user_cache())
 		if local := box3d_local(); local != "" {
 			version = "local"
 			src = tprint("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
 		}
 		append(&deps, Dep{"box3d", version, src, box3d_ready()})
 	}
-	godot_source := "pinned download (.out/godot)"
+	godot_dir, godot_exe, _, _ := godot_download()
+	godot_source := tprint("pinned download, shared by every checkout (%s)", godot_dir)
 	if os.get_env("UNIFIED_GODOT", context.temp_allocator) != "" {
 		godot_source = tprint("UNIFIED_GODOT (%s)", env_source("UNIFIED_GODOT"))
 	}
-	godot_exe, _, _ := godot_download()
 	if env := os.get_env("UNIFIED_GODOT", context.temp_allocator); env != "" {
 		godot_exe = env
 	}
@@ -352,11 +353,13 @@ env_source :: proc(key: string) -> string {
 // Removes what the CLI built or fetched: every .out/ and .godot/ in the project (outside hidden directories, so not
 // another checkout's under .claude/), and the generated Godot bindings. The running
 // CLI stays, with its manifest and `current` (Windows can't delete a running .exe; the next command needs no
-// bootstrap). Godot's export templates stay: they live in Godot's user directory, shared by every project.
+// bootstrap). What every checkout shares stays: the per-user cache (Godot, the unified-box3d zip; `--cache` clears
+// them) and Godot's export templates (Godot's user directory).
 @(private)
 cmd_clean :: proc(args: []string) -> Result {
 	Opts :: struct {
 		check: bool `usage:"report only: list what would be removed, remove nothing"`,
+		cache: bool `usage:"also the per-user cache's Godot and unified-box3d downloads, shared by every checkout (the shims' Odin stays)"`,
 	}
 	opts: Opts
 	parse(&opts, args)
@@ -381,6 +384,9 @@ cmd_clean :: proc(args: []string) -> Result {
 				append(&targets, entry.fullpath)
 			}
 		}
+	}
+	if opts.cache {
+		append(&targets, ..user_cache_cleanable())
 	}
 	// Every other .out/ and .godot/: a game's, a Godot test project's.
 	walker := os.walker_create(project.root)
@@ -423,6 +429,9 @@ cmd_clean :: proc(args: []string) -> Result {
 		} else {
 			log("  %s", name)
 		}
+	}
+	if !opts.cache {
+		log("  kept: the per-user cache %s, shared by every checkout (--cache clears its downloads)", user_cache())
 	}
 	summary: string
 	switch {
