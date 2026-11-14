@@ -88,9 +88,14 @@ func _host() -> void:
 	if crash or rejoin:
 		FileAccess.open(_played_file(), FileAccess.WRITE).close()
 	if crash:
+		# The crashed player's seat drops out once the host gives up on it. Through EOS the friend comes back
+		# as the same peer (their Product User ID), which ends the old connection first; over direct UDP the
+		# new process is a new endpoint, so the friend is back in another seat before the old one times out.
+		var friend := _friend_player()
 		var t := Time.get_ticks_msec()
-		await wait_for(func() -> bool: return game.present_players().size() == 1, 60.0, "the crashed friend drops out")
-		step("friend dropped out after %.1f s: %s" % [(Time.get_ticks_msec() - t) / 1000.0, player_names()])
+		await wait_for(func() -> bool: return not _is_present(friend), 60.0, "the crashed friend drops out")
+		step("friend (player %d) dropped out after %.1f s: %s" % [friend, (Time.get_ticks_msec() - t) / 1000.0,
+			player_names()])
 		t = Time.get_ticks_msec()
 		await wait_for(func() -> bool: return game.present_players().size() >= 2, 120.0, "the friend is back")
 		step("friend back %.1f s after dropping out: %s" % [(Time.get_ticks_msec() - t) / 1000.0, player_names()])
@@ -173,6 +178,22 @@ func _enter_code(code: String) -> void:
 		await seconds(0.1)
 		await click_menu("CodeJoin")
 	step("joining %s" % code)
+
+
+## The first present player other than the local one (-1: none).
+func _friend_player() -> int:
+	for info: Dictionary in game.present_players():
+		var player := int(info.get("player", -1))
+		if player != game.local_player():
+			return player
+	return -1
+
+
+func _is_present(player: int) -> bool:
+	for info: Dictionary in game.present_players():
+		if int(info.get("player", -1)) == player:
+			return true
+	return false
 
 
 ## Written by the host once its play is done: the joiner's cue to leave (--rejoin) or crash (--crash).

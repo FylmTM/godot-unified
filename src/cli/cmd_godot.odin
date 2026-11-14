@@ -501,7 +501,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
 		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
-		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again: timed"`,
+		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (with --lan, in a new seat): timed"`,
 		lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 	}
 	opts: Opts
@@ -557,7 +557,15 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
 	if opts.crash {
-		return coop_crash(selected, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen, true})
+		return coop_crash(
+			selected,
+			script,
+			&joiner,
+			host_args[:],
+			opts.lan,
+			opts.window,
+			{opts.mute, opts.screen, true},
+		)
 	}
 	host := run_tool(
 		{
@@ -658,6 +666,7 @@ coop_crash :: proc(
 	script: string,
 	joiner: ^Proc,
 	host_args: []string,
+	lan: bool,
 	window: bool,
 	place: Window_Opts,
 ) -> Result {
@@ -684,10 +693,15 @@ coop_crash :: proc(
 	out := strings.concatenate({first.stdout, first.stderr})
 	for line in strings.split_lines(out) do if strings.contains(line, " ok ") || strings.contains(line, "FAIL") do log("%s", line)
 	crashed := strings.contains(out, "crashing (the process kills itself")
+	second_args: [dynamic]string
+	append(&second_args, "--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash")
+	if lan {
+		append(&second_args, "--lan") // it enters the address, as the first joiner did
+	}
 	second_run := Tool_Run {
 		dir    = game.dir,
 		script = script,
-		args   = {"--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash"},
+		args   = second_args[:],
 		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
 	}
 	second := start(
