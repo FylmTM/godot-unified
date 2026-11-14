@@ -36,17 +36,12 @@ from one CLI. It's built for fast iteration and for AI coding agents.
 ## How it works
 
 ```mermaid
-flowchart LR
-    subgraph host["Godot host"]
-        input["Player input"]
-        view["View: rendering, audio, UI"]
-    end
-    input --> netcode["Netcode<br/>input relay, prediction, rollback"]
-    netcode <-->|"official inputs"| peers["Other players<br/>loopback / UDP / EOS"]
+flowchart TD
+    input["Player input (Godot)"] --> netcode["Netcode<br/>relay, prediction, rollback"]
+    peers["Other players<br/>loopback, UDP, EOS"] <-->|"official inputs"| netcode
     netcode -->|"inputs per tick"| sim["Deterministic sim<br/>game rules + Box3D"]
-    sim --> state[("State block<br/>snapshot = memcpy<br/>checksum = hash")]
-    state -.->|"restore on rollback"| sim
-    state -->|"predicted and verified frames, events"| view
+    sim <-->|"save, restore"| state[("State block")]
+    sim -->|"frames, events"| view["Godot view<br/>rendering, audio, UI"]
 ```
 
 All simulation state lives in one contiguous block with no pointers (handles instead). Physics state lives in Box3D
