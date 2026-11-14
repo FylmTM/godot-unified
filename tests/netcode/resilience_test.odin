@@ -44,11 +44,20 @@ gate_wrap :: proc(inner: netcode.Link) -> (netcode.Link, ^Gate) {
 }
 
 // A remote client on hub endpoint `endpoint`, behind a gate and a network simulator.
-gated_join :: proc(n: ^Net, endpoint: int, profile: netcode.Profile, watch: ^Watch) -> (^Client, ^Gate) {
+gated_join :: proc(
+	n: ^Net,
+	endpoint: int,
+	profile: netcode.Profile,
+	watch: ^Watch,
+	seed: u32 = 0,
+) -> (
+	^Client,
+	^Gate,
+) {
 	inner := netcode.netsim_wrap(
 		netcode.loopback_link(n.hub, netcode.Peer(endpoint)),
 		profile,
-		u32(endpoint) * 7919 + u32(len(n.clients)),
+		u32(endpoint) * 7919 + u32(len(n.clients)) + seed * 104_729,
 		&n.clock,
 	)
 	link, g := gate_wrap(inner)
@@ -118,15 +127,43 @@ long_round_trip_keeps_up :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.status, netcode.Status.Connected)
 	ticks := int(c.verified - c.first_tick)
 	testing.expectf(t, c.stall_ticks * 20 < ticks, "stalled %d of %d ticks", c.stall_ticks, ticks)
-	// The join itself is tight at this round trip: the client starts a few ticks after its join tick and
-	// its first inputs reach the relay about a tick before the tolerance, so jitter can cost those. After
-	// that, nothing may be replaced.
-	replaced := 0
-	for tk, k in n.host.relay.log.ticks {
-		replaced += int(u32(k + 1) > c.first_tick + 8 && tk.replaced != {})
-	}
-	testing.expect_value(t, replaced, 0)
+	testing.expect_value(t, n.host.relay.replaced, 0)
 	expect_agree(t, &n)
+}
+
+// A player joining a running session from far away (240 to 300 ms round trip, the most a client plays
+// smoothly at) gets its join tick half a second ahead of the relay clock. Its inputs must reach the
+// relay within the tolerance from that tick on: none of them replaced, across network seeds.
+@(test)
+long_round_trip_join_keeps_its_first_inputs :: proc(t: ^testing.T) {
+	for latency in ([?]i64{120_000, 140_000, 150_000}) {
+		for seed in u32(0) ..< 6 {
+			n: Net
+			net_make(&n, 0, 0)
+			profile := netcode.Profile {
+				name    = "far",
+				latency = latency,
+				jitter  = 10_000,
+				loss    = 10,
+			}
+			c, _ := gated_join(&n, 1, profile, &n.watch[1], seed)
+			net_run(&n, 2, proc(n: ^Net) -> bool {
+				c := n.clients[0]
+				return c.first_tick != 0 && n.host.relay.finalized >= c.first_tick + 16
+			})
+			testing.expectf(t, c.first_tick != 0, "latency %d seed %d: never welcomed", latency, seed)
+			testing.expectf(
+				t,
+				n.host.relay.replaced == 0,
+				"latency %d seed %d: %d inputs replaced (join tick %d)",
+				latency,
+				seed,
+				n.host.relay.replaced,
+				c.first_tick,
+			)
+			net_destroy(&n)
+		}
+	}
 }
 
 // After a few seconds of outage both ways (Wi-Fi drop), a client ~200 ms away must get back to

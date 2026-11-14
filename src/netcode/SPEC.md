@@ -39,7 +39,9 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   `client_destroy`): verified and predicted frames, rollback from the first mispredicted tick (presence, input
   bytes and commands compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (218 ms = 14 ticks at 64 Hz, the most RING
   allows; a client plays smoothly up to ~300 ms RTT, 166 ms stalled most ticks from ~250 ms), input delay `clamp(ceil((rtt/2 + 8 ms)/tick), 1, 100 ms)`
-  re-evaluated each second by ±1, clock slewed ±2% towards relay tick + delay.
+  re-evaluated each second by ±1, clock slewed ±2% towards relay tick + delay. The clock starts at the first
+  Finalized after Welcome, timed by the channel's latest RTT sample until the relay echoes an Inputs packet (a
+  round trip later), so a joiner's inputs for its join tick arrive within the tolerance up to ~550 ms RTT.
   Cumulative counters for tools (the dev UI's graphs take differences): rollbacks, stall and re-simulated ticks, ticks
   stepped and the time stepping them by `Step_Kind` (verified, re-simulated after a rollback, newly predicted), our
   inputs the relay replaced (they came too late), when the relay's last message arrived.
