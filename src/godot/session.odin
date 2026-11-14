@@ -158,6 +158,12 @@ register_session_class :: proc() {
 	}, {"name"})
 	gd.bind_method(class, "constants", session_constants)
 	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
+	gd.bind_method(class, "get_local_player", proc(session: ^Session_Node) -> i64 {
+		return session.frame != nil ? i64(session.frame.local_player) : -1
+	})
+	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
+		return session.frame != nil ? frame_player_name(session.frame, int(player)) : ""
+	}, {"player"})
 	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
 	gd.bind_method(class, "get_tick", proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)})
 	gd.bind_method(class, "toggle_devui", proc(session: ^Session_Node) {dev_toggle()})

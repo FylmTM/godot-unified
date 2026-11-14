@@ -41,22 +41,14 @@ Scene_View :: struct {
 	data:       []u8, // the data last set as properties
 }
 
-// One field of a view's data type, set as the view's property of the same name.
+// One field of a view's data type, set as the view's property of the same name (converted like an event's fields:
+// events.odin field_variant).
 @(private)
 Data_Field :: struct {
 	name:   ^gd.StringName,
 	text:   string,
+	type:   ^runtime.Type_Info,
 	offset: int,
-	conv:   enum u8 {
-		Bool,
-		Int,
-		Uint,
-		F32,
-		Vec2,
-		Vec3,
-		Color,
-	},
-	size:   int, // Int/Uint: bytes
 }
 
 // A MultiMesh view: a MultiMeshInstance3D / 2D and its UnifiedMultiView marker.
@@ -389,8 +381,7 @@ set_pose :: proc(scene_view: ^Scene_View, pose: view.Pose) {
 	}
 }
 
-// The fields of a view data type, built once; an unsupported field type is an error reported once, and the field
-// is left out.
+// The fields of a view data type, built once (fields named `_...` are padding).
 @(private)
 data_fields :: proc(data_type: typeid) -> []Data_Field {
 	if fields, ok := V.fields[data_type]; ok do return fields
@@ -403,43 +394,7 @@ data_fields :: proc(data_type: typeid) -> []Data_Field {
 		for i in 0 ..< int(struct_info.field_count) {
 			name := struct_info.names[i]
 			if strings.has_prefix(name, "_") do continue // padding
-			field_type := runtime.type_info_base(struct_info.types[i])
-			field := Data_Field {
-				name   = gd.sn(name),
-				text   = name,
-				offset = int(struct_info.offsets[i]),
-				size   = field_type.size,
-			}
-			ok := true
-			#partial switch info in field_type.variant {
-			case runtime.Type_Info_Boolean:
-				field.conv = .Bool
-			case runtime.Type_Info_Integer:
-				field.conv = info.signed ? .Int : .Uint
-			case runtime.Type_Info_Enum:
-				backing := runtime.type_info_base(info.base)
-				field.conv = backing.variant.(runtime.Type_Info_Integer).signed ? .Int : .Uint
-			case runtime.Type_Info_Float:
-				ok = field_type.size == 4
-				field.conv = .F32
-			case runtime.Type_Info_Array:
-				ok = info.elem.id == f32 && info.count >= 2 && info.count <= 4
-				field.conv = info.count == 2 ? .Vec2 : info.count == 3 ? .Vec3 : .Color
-			case:
-				ok = false
-			}
-			if !ok {
-				gd.print_error(
-					fmt.tprintf(
-						"unified: view data %v: field %q has an unsupported type %v",
-						data_type,
-						name,
-						struct_info.types[i].id,
-					),
-				)
-				continue
-			}
-			append(&out, field)
+			append(&out, Data_Field{name = gd.sn(name), text = name, type = struct_info.types[i], offset = int(struct_info.offsets[i])})
 		}
 	}
 	V.fields[data_type] = out[:]
@@ -456,63 +411,11 @@ set_data :: proc(scene_view: ^Scene_View, fields: []Data_Field, data: []u8, fres
 		fresh = true
 	}
 	for &field in fields {
-		bytes := data[field.offset:][:field.size if field.conv < .F32 else field_bytes(field.conv)]
+		bytes := data[field.offset:][:field.type.size]
 		if !fresh && string(bytes) == string(scene_view.data[field.offset:][:len(bytes)]) do continue
-		raw := raw_data(bytes)
-		value: gd.Variant
-		switch field.conv {
-		case .Bool:
-			value = gd.to_variant(raw[0] != 0)
-		case .Int:
-			switch field.size {
-			case 1:
-				value = gd.to_variant(i64((^i8)(raw)^))
-			case 2:
-				value = gd.to_variant(i64((^i16le)(raw)^))
-			case 4:
-				value = gd.to_variant(i64((^i32le)(raw)^))
-			case:
-				value = gd.to_variant(i64((^i64le)(raw)^))
-			}
-		case .Uint:
-			switch field.size {
-			case 1:
-				value = gd.to_variant(i64(raw[0]))
-			case 2:
-				value = gd.to_variant(i64((^u16le)(raw)^))
-			case 4:
-				value = gd.to_variant(i64((^u32le)(raw)^))
-			case:
-				value = gd.to_variant(i64((^u64le)(raw)^))
-			}
-		case .F32:
-			value = gd.to_variant((^f32)(raw)^)
-		case .Vec2:
-			vector := (^[2]f32)(raw)^
-			value = gd.to_variant(gd.Vector2{vector.x, vector.y})
-		case .Vec3:
-			vector := (^[3]f32)(raw)^
-			value = gd.to_variant(gd.Vector3{vector.x, vector.y, vector.z})
-		case .Color:
-			color := (^[4]f32)(raw)^
-			value = gd.to_variant(gd.Color{color[0], color[1], color[2], color[3]})
-		}
-		set_prop(scene_view.node, field.name, value)
+		set_prop(scene_view.node, field.name, field_variant(field.type, bytes, api.is_2d))
 	}
 	copy(scene_view.data, data)
-}
-
-@(private)
-field_bytes :: proc(conv: type_of(Data_Field{}.conv)) -> int {
-	#partial switch conv {
-	case .F32:
-		return 4
-	case .Vec2:
-		return 8
-	case .Vec3:
-		return 12
-	}
-	return 16
 }
 
 @(private)

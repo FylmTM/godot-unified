@@ -9,7 +9,7 @@ var despawns := 0
 
 # Typed2D_Data (ext/ext.odin), set by the host on spawn and when a field's bytes change.
 var shown := false
-var mode := 0
+var mode := &""
 var hp := 0:
 	set(v):
 		hp = v

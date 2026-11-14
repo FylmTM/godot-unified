@@ -87,6 +87,7 @@ func _initialize() -> void:
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void: events.append([event, state]))
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
+	check("no session: no local player", session.get_local_player() == -1)
 	var early := Bump.new()
 	early.amount = 1
 	check("send_command without a session: false", not session.send_command(early))
@@ -124,13 +125,15 @@ func _initialize() -> void:
 	var hud := child_of_kind(views, "hud") as Control
 	check("Control view: data only, no pose", hud != null and hud.position == Vector2.ZERO and hud.get("x") > 0, hud)
 	check_events(events, typed)
-	check("scene data as properties", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
+	check("scene data as properties (an enum by name)", typed.get("shown") and typed.get("mode") == &"open" and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
 		[typed.get("shown"), typed.get("mode"), typed.get("hp"), typed.get("charge"), typed.get("dir"), typed.get("tint")])
 	check("scene data set only when it changes", typed.get("hp_sets") == 1 and typed.get("ticks_sets") > 2,
 		[typed.get("hp_sets"), typed.get("ticks_sets")])
 	check("one latched press spawned one thing", hud.get("spawned") == 1, hud.get("spawned"))
+	check("the local player and its name", session.get_local_player() == 0 and session.get_player_name(0) == "player",
+		[session.get_local_player(), session.get_player_name(0)])
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -227,8 +230,8 @@ func check_commands(session: UnifiedSession, hud: Control) -> void:
 		and hud.get("mark_normal") == Vector3(0, 1, 0), [hud.get("mark_at"), hud.get("mark_normal")])
 	check("float, int and bool fields", near(hud.get("mark_weight"), 0.25) and hud.get("mark_count") == -300 \
 		and hud.get("mark_loud") == true, [hud.get("mark_weight"), hud.get("mark_count"), hud.get("mark_loud")])
-	# shape "star" = 2; shapes [Dot, 2 (Star)] = bits 0 and 2
-	check("enum by name, bit_set by names and values", hud.get("mark_shape") == 2 and hud.get("mark_shapes") == 5,
+	# shape "star"; shapes [Dot, 2 (Star)] = bits 0 and 2
+	check("enum by name, bit_set by names and values", hud.get("mark_shape") == &"star" and hud.get("mark_shapes") == 5,
 		[hud.get("mark_shape"), hud.get("mark_shapes")])
 
 
