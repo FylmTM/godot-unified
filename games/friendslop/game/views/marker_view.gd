@@ -28,8 +28,9 @@ func _process(delta: float) -> void:
 		_visuals[i].scale = _scales[i] * s
 
 
+## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
 func _sim_event(event: StringName, data: Dictionary) -> void:
-	if data.get("cancelled", false):
+	if not data.get("first", false):
 		return
 	match event:
 		&"bell_rung", &"launched", &"plate_on", &"switch_on":

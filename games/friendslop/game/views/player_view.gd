@@ -25,7 +25,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	var c := COLORS[clampi(slot, 0, COLORS.size() - 1)]
+	var c := COLORS[clampi(player, 0, COLORS.size() - 1)]
 	_body = Node3D.new()
 	add_child(_body)
 	var radius: float = Game.constants.get("player_radius", 0.35)
@@ -89,17 +89,18 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_arms.visible = holding
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
-	var p := Game.player(slot)
-	var n := Game.player_name(p) if not p.is_empty() else "P%d" % (slot + 1)
-	if _tag.text != n:
-		_tag.text = n
-	_tag.visible = slot != Game.local_slot()
+	var info := Game.player_info(player)
+	var player_name := Game.player_name(info) if not info.is_empty() else "P%d" % (player + 1)
+	if _tag.text != player_name:
+		_tag.text = player_name
+	_tag.visible = player != Game.local_player()
 
 
+## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
 func _sim_event(event: StringName, data: Dictionary) -> void:
-	if data.get("cancelled", false):
+	if not data.get("first", false):
 		return
-	var local := slot == Game.local_slot()
+	var local := player == Game.local_player()
 	match event:
 		&"jumped":
 			_squash = -0.6

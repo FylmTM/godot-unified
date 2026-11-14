@@ -77,7 +77,7 @@ func _process(delta: float) -> void:
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
 	_session.refresh(_session_rows(), phase == "hub", "Walk through the start gate to start the run.")
 
-	var me := Game.local_player()
+	var me := Game.local_player_info()
 	var holding := int(me.get("holding", 0)) != 0
 	var held: bool = me.get("held", false)
 	_charge.value = me.get("charge", 0.0)
@@ -112,7 +112,7 @@ func _session_rows() -> Array[Dictionary]:
 			tags.append("dazed")
 		if p.get("fallen", false):
 			tags.append("fell")
-		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": ", ".join(tags)})
+		rows.append({"player": p.player, "name": Game.player_name(p), "status": ", ".join(tags)})
 	return rows
 
 
@@ -129,17 +129,21 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 	_banner_t = seconds
 
 
-func _on_sim_event(kind: StringName, _tick: int, _entity: int, _pos: Vector3, value: float) -> void:
-	match kind:
+## Verified events only (as the banners always were).
+func _on_sim_event(event: StringName, data: Dictionary) -> void:
+	if data.state != "confirmed":
+		return
+	match event:
 		&"run_started":
 			_show_banner("GO!", 1.5)
 		&"checkpoint":
-			_show_banner("Checkpoint %d" % int(value), 1.5)
+			_show_banner("Checkpoint %d" % data.index, 1.5)
 		&"run_finished":
-			_show_banner("Finished in %s" % _time(value), 4.0)
+			var seconds: float = data.seconds
+			_show_banner("Finished in %s" % _time(seconds), 4.0)
 			var saved: float = Settings.get_value(&"best_time")
-			if saved <= 0.0 or value < saved:
-				Settings.set_value(&"best_time", value)
+			if saved <= 0.0 or seconds < saved:
+				Settings.set_value(&"best_time", seconds)
 
 
 ## Places a control at `rect` relative to the screen centre.
