@@ -1,0 +1,173 @@
+package cli
+
+import "core:os"
+import "core:strings"
+import "core:time"
+
+// Odin's test runner stops a crashed test by freezing its thread: a lock that test held (a mutex shared between
+// tests, the heap) stays held, every test that waits for it waits forever, and the runner never ends. So a test
+// binary never runs bare: uni builds it (-build-mode:test, TEST_RUN_FLAGS) and runs it under a watchdog that kills
+// it CRASH_GRACE after a crash or at its timeout, and names the test that crashed and the tests still running.
+
+// The runner logs each test's state changes; the watchdog reads them (and doesn't echo them).
+TEST_RUN_FLAGS :: []string{"-build-mode:test", "-define:ODIN_TEST_LOG_STATE_CHANGES=true"}
+
+// How long a test binary may run on after a test crashed: the other tests normally end within it.
+CRASH_GRACE :: 3 * time.Second
+
+// What the runner's output says about the tests.
+Test_Watch :: struct {
+	running: [dynamic]string, // package.test, in start order
+	crashed: [dynamic]string,
+}
+
+// Takes one line of the runner's output; true when it is a state change (the log has it, the terminal doesn't).
+test_watch_line :: proc(w: ^Test_Watch, line: string) -> (state_change: bool) {
+	CHANGE :: " changed state to "
+	CRASH :: "Caught signal to stop test #"
+	if i := strings.index(line, "] Test #"); i >= 0 {
+		rest := line[i + len("] Test #"):]
+		j := strings.index(rest, CHANGE)
+		sp := strings.index_byte(rest, ' ')
+		if j < 0 || sp < 0 || sp >= j {
+			return false
+		}
+		name := rest[sp + 1:j]
+		if strings.trim_right(rest[j + len(CHANGE):], ".\r\n") == "Running" {
+			append(&w.running, strings.clone(name))
+		} else {
+			test_watch_drop(w, name)
+		}
+		return true
+	}
+	if i := strings.index(line, CRASH); i >= 0 {
+		rest := line[i + len(CRASH):]
+		sp := strings.index_byte(rest, ' ')
+		j := strings.index(rest, " for: ")
+		if sp >= 0 && j > sp {
+			name := rest[sp + 1:j]
+			append(&w.crashed, strings.clone(name))
+			test_watch_drop(w, name)
+		}
+	}
+	return false
+}
+
+@(private)
+test_watch_drop :: proc(w: ^Test_Watch, name: string) {
+	for r, k in w.running {
+		if r == name {
+			ordered_remove(&w.running, k)
+			return
+		}
+	}
+}
+
+// Runs a test binary to the end under the watchdog: its output is echoed (state changes aside) and kept whole in
+// <exe>.log; a run killed after a crash or at its timeout says which tests crashed and which were still running.
+run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
+	log_path := tprint("%s.log", exe)
+	out, err := os.open(log_path, {.Write, .Create, .Trunc, .Inheritable})
+	if err != nil {
+		fatal("cannot create %s", log_path)
+	}
+	log("+ %s", exe)
+	start := time.tick_now()
+	process, perr := os.process_start({command = strs(exe), stdout = out, stderr = out})
+	if perr != nil {
+		fatal("cannot start %s: %v", exe, perr)
+	}
+	reader, rerr := os.open(log_path)
+	if rerr != nil {
+		fatal("cannot read %s", log_path)
+	}
+	w: Test_Watch
+	pending: [dynamic]u8
+	buf: [16 * 1024]u8
+	crash_at: Maybe(time.Tick)
+	exited: Maybe(os.Process_State)
+	killed := ""
+	for {
+		if st, e := os.process_wait(process, 0); e == nil && st.exited {
+			exited = st
+		}
+		// Drain what the binary wrote (all of it once it has exited).
+		for {
+			n, _ := os.read(reader, buf[:])
+			if n <= 0 {
+				break
+			}
+			append(&pending, ..buf[:n])
+			for {
+				nl := -1
+				for c, k in pending {
+					if c == '\n' {
+						nl = k
+						break
+					}
+				}
+				if nl < 0 {
+					break
+				}
+				line := string(pending[:nl + 1])
+				had := len(w.crashed)
+				if !test_watch_line(&w, line) {
+					os.write_string(os.stderr, line)
+				}
+				if len(w.crashed) > had && crash_at == nil {
+					crash_at = time.tick_now()
+				}
+				remove_range(&pending, 0, nl + 1)
+			}
+		}
+		if exited != nil {
+			break
+		}
+		if t, ok := crash_at.?; ok && time.tick_since(t) > CRASH_GRACE {
+			killed = tprint("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
+		} else if timeout > 0 && time.tick_since(start) > timeout {
+			killed = tprint("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
+		}
+		if killed != "" {
+			_ = os.process_kill(process)
+			st, _ := os.process_wait(process)
+			exited = st
+			// one more pass collects what it wrote before it died
+			continue
+		}
+		time.sleep(10 * time.Millisecond)
+	}
+	if len(pending) > 0 {
+		os.write_string(os.stderr, string(pending[:]))
+		os.write_string(os.stderr, "\n")
+	}
+	os.close(reader)
+	os.close(out)
+	st := exited.?
+	seconds := time.duration_seconds(time.tick_since(start))
+	if killed != "" {
+		log("uni: %s killed after %.1fs: %s", os.base(exe), seconds, killed)
+		if len(w.crashed) > 0 {
+			log("  crashed: %s", strings.join(w.crashed[:], ", "))
+			log("  (a crashed test can leave a lock held that other tests wait for)")
+		}
+		if len(w.running) > 0 {
+			log("  still running: %s", strings.join(w.running[:], ", "))
+		}
+		log("  the whole output: %s", rel(log_path))
+		return false
+	}
+	return st.exited && st.exit_code == 0
+}
+
+// What CI allows a suite (its budget, CI_BUDGET_SCALE times; `test --long`: its long budget): a test binary still
+// running then has hung.
+suite_timeout :: proc(name: string) -> time.Duration {
+	for s in state.suites {
+		if s.name == name {
+			b := state.long && s.long_budget > 0 ? s.long_budget : s.budget
+			return time.Duration(b * CI_BUDGET_SCALE * f64(time.Second))
+		}
+	}
+	return 0
+}

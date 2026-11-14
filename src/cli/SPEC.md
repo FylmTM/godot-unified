@@ -89,7 +89,7 @@ Public (`unified:cli`, every project):
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window` |
-| `test [game] [--suite s,...] [--only name,...] [--long]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant |
+| `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run `game/tools/<script>.gd`, headless unless `--window`; `--cold` clears the shader caches first |
@@ -137,7 +137,13 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     a game repo: its `simulation/tests`): unit tests, the library's black-box tests, end-to-end suites, the
     reference-run replays, the Box3D golden trace, the determinism and import lint. The inner loop. `--long`
     builds with `-define:UNIFIED_LONG_TESTS=true` (`scenarios.LONG`): every standard scenario of each game at full
-    length, and the tests a game keeps for it (`src/headless/SPEC.md`, Running).
+    length, and the tests a game keeps for it (`src/headless/SPEC.md`, Running). The binary runs under a watchdog
+    (`testrun.odin`), as does `record-reference`'s: Odin's runner freezes a crashed test's thread, so a lock it held
+    stays held and a test waiting for it would hang the run. The watchdog kills the binary 3s after a crash, or at
+    the suite's CI allowance (budget × 3), and names the crashed and still-running tests (the runner logs state
+    changes for it; they stay out of the terminal). The whole output is kept in `.out/test/unified_tests.exe.log`.
+    `--crash` (this repo) adds `tests/cli`'s test that crashes while holding a lock another test waits for: the
+    run must fail within seconds and name both.
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
     only), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
@@ -189,7 +195,7 @@ Odin files are formatted after the name is put in (it changes line lengths).
 
 ## Testing
 
-`tests/cli/` tests the library parts (the config and `.env` parsers, zip, build manifests, SHA-256, small parsers)
-in `uni test`. `uni selftest` proves the bootstrap, `init` and the template end to end; it runs only when called
+`tests/cli/` tests the library parts (the config and `.env` parsers, zip, build manifests, SHA-256, small parsers,
+the test watchdog's reading of the runner's output) in `uni test`; `uni test --crash` runs its crash test. `uni selftest` proves the bootstrap, `init` and the template end to end; it runs only when called
 (before tooling PRs, after a pin or toolchain change), locally. It tests the committed HEAD, so it refuses a working
 tree with uncommitted changes. CI runs every command through the shims, as a developer does (`uni.cmd` on Windows).

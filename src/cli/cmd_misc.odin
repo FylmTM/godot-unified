@@ -187,12 +187,16 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	}
 	commit := git_commit()
 	cmd: [dynamic]string
-	append(&cmd, odin(), "test", pkg, tprint("-out:%s", exe), "-define:UNIFIED_REGEN=true")
+	append(&cmd, odin(), "build", pkg, tprint("-out:%s", exe), "-define:UNIFIED_REGEN=true")
 	append(&cmd, ..collection())
 	append(&cmd, tprint("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
+	append(&cmd, ..TEST_RUN_FLAGS)
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
-	must_run({cmd = cmd[:]}, tprint("record-reference %s", opts.game))
+	must_run({cmd = cmd[:]}, tprint("record-reference %s: the build", opts.game))
+	if !run_test_binary(exe, time.Duration(state.command.budget * CI_BUDGET_SCALE * f64(time.Second))) {
+		fatal("record-reference %s: the suite failed", opts.game)
+	}
 	data := join(pkg, "testdata")
 	st := run_proc(
 		{cmd = strs(git(), "-C", state.project.root, "status", "--short", "--", data), capture = true, quiet = true},

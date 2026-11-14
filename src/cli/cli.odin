@@ -59,6 +59,7 @@ State :: struct {
 	suites:   [dynamic]Suite,
 	budget:   f64, // set by a command whose budget depends on its arguments (test: its suites)
 	long:     bool, // `test --long`: the suites' long variants (SPEC.md, Test suites)
+	crash:    bool, // `test --crash`: the tests that crash on purpose run (src/cli/testrun.odin)
 }
 
 // Set in the environment of a `uni` the CLI starts itself (the godot suite's one per game): that run leaves

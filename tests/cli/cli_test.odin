@@ -143,3 +143,29 @@ small_parsers :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.parse_i64("1234 bytes"), 1234)
 	testing.expect_value(t, cli.join("a/", "b", "", "c"), "a/b/c")
 }
+
+// The test runner's output (-define:ODIN_TEST_LOG_STATE_CHANGES=true) as the test watchdog reads it.
+@(test)
+test_watch_follows_the_runner :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	w: cli.Test_Watch
+	lines := []string {
+		"[INFO ] --- [2026-11-14 10:44:53] Test #0 test_b3.crashes changed state to Running.\n",
+		"[INFO ] --- [2026-11-14 10:44:53] Test #1 test_b3.waits changed state to Running.\r\n",
+		"[INFO ] --- [2026-11-14 10:44:53] Test #2 test_sim.quick changed state to Running.\n",
+		"[INFO ] --- [2026-11-14 10:44:53] Test #2 test_sim.quick changed state to Successful.\n",
+		"[FATAL] --- [2026-11-14 10:44:53] Caught signal to stop test #0 test_b3.crashes for: Segmentation_Fault.\n",
+		"[INFO ] --- [2026-11-14 10:44:53] [x.odin:1:p()] a test's own line: Test #9 a.b changed state to Running.\n",
+	}
+	echoed := 0
+	for l in lines {
+		if !cli.test_watch_line(&w, l) {
+			echoed += 1
+		}
+	}
+	testing.expect_value(t, echoed, 2) // the crash and the test's own line
+	testing.expect_value(t, len(w.crashed), 1)
+	testing.expect_value(t, w.crashed[0], "test_b3.crashes")
+	testing.expect_value(t, len(w.running), 1)
+	testing.expect_value(t, w.running[0], "test_b3.waits")
+}
