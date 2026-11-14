@@ -18,27 +18,29 @@ GLUE := gh.Glue(g.State, g.Input, g.World) {
 	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels
 	actions = {move = {"ui_left", "ui_right", "ui_up", "ui_down"}},
 	extract = extract,
-	sample = proc(a: gh.Actions, slot: int, tick: u32, state: ^g.State) -> g.Input {
-		return {dx = i8(clamp(a.move.x, -1, 1) * 127), dy = i8(clamp(a.move.y, -1, 1) * 127)}
+	poll_input = proc(actions: gh.Actions, player: int, tick: u32, state: ^g.State) -> g.Input {
+		return {dx = i8(clamp(actions.move.x, -1, 1) * 127), dy = i8(clamp(actions.move.y, -1, 1) * 127)}
 	},
-	scripted = proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {return g.script(seed, slot, tick)},
-	hud = proc(f: ^gh.Frame, d: ^gd.Dictionary) {},
+	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^g.State) -> g.Input {
+		return g.scripted_input(seed, player, tick)
+	},
+	hud = proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {},
 }
 
 // A dot per player, in pixels.
-extract :: proc(cur, prev: ^g.State, w: ^g.World, out: ^gh.Frame) {
+extract :: proc(current, previous: ^g.State, world: ^g.World, out: ^gh.Frame) {
 	rot := view.quat_angle2d(0)
-	for p in 0 ..< g.MAX_PLAYERS {
-		if !cur.joined[p] do continue
+	for player in 0 ..< g.PLAYERS {
+		if !current.joined[player] do continue
 		item := gh.Scene_Item {
-			key  = view.Key(p + 1),
-			slot = i8(p),
-			pos  = {cur.pos[p].x * PX_PER_M, cur.pos[p].y * PX_PER_M, 0},
-			rot  = rot,
+			key    = view.Key(player + 1),
+			player = i8(player),
+			pos    = {current.pos[player].x * PX_PER_M, current.pos[player].y * PX_PER_M, 0},
+			rot    = rot,
 		}
-		if prev != nil && prev.joined[p] {
+		if previous != nil && previous.joined[player] {
 			item.has_prev = true
-			item.prev_pos = {prev.pos[p].x * PX_PER_M, prev.pos[p].y * PX_PER_M, 0}
+			item.prev_pos = {previous.pos[player].x * PX_PER_M, previous.pos[player].y * PX_PER_M, 0}
 			item.prev_rot = rot
 		}
 		gh.push_scene(out, item)
@@ -47,11 +49,11 @@ extract :: proc(cur, prev: ^g.State, w: ^g.World, out: ^gh.Frame) {
 
 @(export, link_name = "__GAME___init")
 __GAME___init :: proc "c" (
-	gpa: gdi.InterfaceGetProcAddress,
-	lib: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
+	get_proc_address: gdi.InterfaceGetProcAddress,
+	library: gdi.ClassLibraryPtr,
+	initialization: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	gh.install(&g.GAME, GLUE)
-	return gh.entry(gpa, lib, init)
+	return gh.entry(get_proc_address, library, initialization)
 }

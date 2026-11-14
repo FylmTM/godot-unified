@@ -3,7 +3,7 @@ extends Node2D
 
 var kind := &""
 var entity := 0
-var slot := -1
+var player := -1
 
 
 func _ready() -> void:
@@ -15,4 +15,4 @@ func _sim_update(_position: Vector2, _rotation: float, _alpha: float) -> void:
 
 
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(maxi(slot, 0)) / 4.0, 0.6, 1.0))
+	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(maxi(player, 0)) / 4.0, 0.6, 1.0))
