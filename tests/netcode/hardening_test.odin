@@ -377,7 +377,7 @@ channel_memory :: proc(t: ^testing.T) {
 // don't use up the relay's peer numbers.
 @(test)
 udp_endpoints_are_reused :: proc(t: ^testing.T) {
-	link, ok := netcode.udp_listen(0)
+	link, ok := netcode.udp_listen(0, .Local)
 	if !testing.expect(t, ok) {
 		return
 	}

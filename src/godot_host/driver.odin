@@ -576,7 +576,7 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 			d.host = netcode.host_create(g, host_cfg, hooks)
 		}
 	case .Host_Direct:
-		link, ok := netcode.udp_listen(r.port)
+		link, ok := netcode.udp_listen(r.port, r.local ? .Local : .Lan)
 		if !ok {
 			post_status(d, .Failed, fmt.tprintf("cannot listen on UDP port %d", r.port))
 			return false
