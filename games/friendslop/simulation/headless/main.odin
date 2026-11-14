@@ -16,7 +16,7 @@ HEADLESS := headless.Headless(friendslop.State, friendslop.Input, friendslop.Wor
 	scripted_input = friendslop.scripted_input,
 	summary = summary,
 	bench = {
-		what = "friendslop on the park level (Box3D movers and joints), 8-tick rollback every tick",
+		what = "friendslop on the park level (Box3D characters and joints), 8-tick rollback every tick",
 		window = 8,
 		ticks = 600,
 	},

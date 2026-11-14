@@ -1,5 +1,5 @@
 // The tick (games/friendslop/SPEC.md), in this order: presence; per player input (break free, grab, drop,
-// throw); holds; movers; platforms; pads and bumpers; the physics step; hits (players, bells);
+// throw); holds; characters; platforms; pads and bumpers; the physics step; hits (players, bells);
 // plates and switches; stuns; falls; the run (start, checkpoints, finish, reset).
 package friendslop
 
@@ -33,7 +33,7 @@ tick :: proc(tick: ^Tick) {
 // ---- helpers
 
 player_pos :: proc(state: ^State, world: ^World, player: int) -> [3]f32 {
-	return physics.position(world.phys, state.players[player].mover.body)
+	return physics.position(world.phys, state.players[player].controller.body)
 }
 
 holding :: proc(character: ^Player) -> bool {
@@ -69,7 +69,7 @@ entity_of :: proc(material: u64) -> (Held_Kind, int) {
 }
 
 limp :: proc(state: ^State, world: ^World, player: int) {
-	physics.mover_set_limp(world.phys, &state.players[player].mover, true)
+	physics.character_set_limp(world.phys, &state.players[player].controller, true)
 }
 
 // ---- presence
@@ -85,10 +85,10 @@ presence :: proc(tick: ^Tick) {
 				facing = {0, 1},
 				aim    = {0, 0, 1},
 			}
-			physics.mover_create(
+			physics.character_create(
 				world.phys,
-				&character.mover,
-				&world.movers[player],
+				&character.controller,
+				&world.character_defs[player],
 				respawn_point(state, world, player),
 			)
 			sim.emit(
@@ -97,7 +97,7 @@ presence :: proc(tick: ^Tick) {
 			)
 		} else if !here && character.active {
 			release_all(tick, player)
-			physics.mover_destroy(world.phys, &character.mover)
+			physics.character_destroy(world.phys, &character.controller)
 			character^ = {}
 			sim.emit(tick, Player_Left{player = u8(player)})
 		}
@@ -125,7 +125,7 @@ release_all :: proc(tick: ^Tick, player: int) {
 
 // ---- actions
 
-// Break free, grab, drop, throw. Returns whether jump was pressed this tick (for the mover).
+// Break free, grab, drop, throw. Returns whether jump was pressed this tick (for the character).
 player_actions :: proc(tick: ^Tick, player: int, input: Input) -> (jump: bool) {
 	state, world := tick.state, tick.world
 	character := &state.players[player]
@@ -153,8 +153,8 @@ player_actions :: proc(tick: ^Tick, player: int, input: Input) -> (jump: bool) {
 			drop(tick, holder)
 			physics.set_velocity(
 				world.phys,
-				character.mover.body,
-				physics.velocity(world.phys, character.mover.body) + {0, 4, 0},
+				character.controller.body,
+				physics.velocity(world.phys, character.controller.body) + {0, 4, 0},
 			)
 			sim.emit(tick, Broke_Free{position = sim.Position(player_pos(state, world, player)), player = u8(player)})
 		}
@@ -198,7 +198,7 @@ try_grab :: proc(tick: ^Tick, player: int, only_thrown: bool) {
 		chest,
 		character.aim * (GRAB_RANGE + 0.7),
 		{mask = CAT_ITEM | CAT_PLAYER | CAT_STATIC | CAT_PLATFORM},
-		physics.link(character.mover.body),
+		physics.link(character.controller.body),
 	); ok {
 		kind, index := entity_of(hit.material)
 		if kind != .None {
@@ -305,7 +305,7 @@ grab :: proc(tick: ^Tick, player: int, target: Target) {
 	state, world := tick.state, tick.world
 	character := &state.players[player]
 	joint_def := b3.default_motor_joint_def()
-	joint_def.base.body_id_a = physics.body_id(world.phys, character.mover.body)
+	joint_def.base.body_id_a = physics.body_id(world.phys, character.controller.body)
 	joint_def.base.local_frame_a = hold_frame(character, target.kind)
 	joint_def.base.collide_connected = false
 	joint_def.linear_hertz = 5
@@ -338,10 +338,10 @@ grab :: proc(tick: ^Tick, player: int, target: Target) {
 		held.thrown = false
 		held.charge = 0
 		limp(state, world, target.index)
-		joint_def.base.body_id_b = physics.body_id(world.phys, held.mover.body)
+		joint_def.base.body_id_b = physics.body_id(world.phys, held.controller.body)
 		joint_def.base.local_frame_b = {{}, {0, 0, 0, 1}}
 		joint_def.max_spring_force =
-			PLAYER_LIFT * physics.mass(world.phys, held.mover.body) * GRAVITY * MOVER.gravity_scale
+			PLAYER_LIFT * physics.mass(world.phys, held.controller.body) * GRAVITY * CHARACTER_DEF.gravity_scale
 		joint_def.max_spring_torque = 0
 		held_player = u8(target.index)
 	case .None:
@@ -412,7 +412,7 @@ throw :: proc(tick: ^Tick, player: int) {
 	}
 	charge := f32(character.charge) / f32(THROW_CHARGE_TICKS)
 	speed := THROW_SPEED_MIN + THROW_SPEED_ADD * charge
-	velocity := physics.velocity(world.phys, character.mover.body) + character.aim * speed + {0, 1.5, 0}
+	velocity := physics.velocity(world.phys, character.controller.body) + character.aim * speed + {0, 1.5, 0}
 	drop(tick, player)
 	body: Body_Ref
 	entity: u64
@@ -424,7 +424,7 @@ throw :: proc(tick: ^Tick, player: int) {
 		body = item.body
 		entity = item_entity(world, index)
 	} else {
-		body = state.players[index].mover.body
+		body = state.players[index].controller.body
 		held_player = u8(index)
 	}
 	physics.set_velocity(world.phys, body, velocity)
@@ -442,7 +442,7 @@ throw :: proc(tick: ^Tick, player: int) {
 	)
 }
 
-// Every tick, before the movers: hold points follow facing and aim; holds whose target went away end.
+// Every tick, before the characters: hold points follow facing and aim; holds whose target went away end.
 update_holds :: proc(state: ^State, world: ^World) {
 	for player in 0 ..< PLAYERS {
 		character := &state.players[player]
@@ -478,7 +478,15 @@ player_move :: proc(tick: ^Tick, player: int, input: Input, jump: bool) {
 		scale = HOLD_SLOW
 		if character.held_kind == .Item && world.items[character.held_index].kind == .Heavy do scale = HOLD_SLOW_HEAVY
 	}
-	if physics.mover_update(world.phys, &character.mover, &world.movers[player], move, jump, scale, DT) {
+	if physics.character_update(
+		world.phys,
+		&character.controller,
+		&world.character_defs[player],
+		move,
+		jump,
+		scale,
+		DT,
+	) {
 		sim.emit(tick, Jumped{position = sim.Position(player_pos(state, world, player)), player = u8(player)})
 	}
 }
@@ -524,10 +532,10 @@ pads :: proc(tick: ^Tick) {
 			if !in_volume(pad.volume, feet) do continue
 			physics.set_velocity(
 				world.phys,
-				character.mover.body,
-				pad_velocity(pad, physics.velocity(world.phys, character.mover.body)),
+				character.controller.body,
+				pad_velocity(pad, physics.velocity(world.phys, character.controller.body)),
 			)
-			physics.mover_launch(world.phys, &character.mover)
+			physics.character_launch(world.phys, &character.controller)
 			character.pad_cooldown = PAD_COOLDOWN_TICKS
 			state.pad_launches += 1
 			sim.emit(tick, Launched{position = sim.Position(pad.volume.pos), player = u8(player)})
@@ -569,7 +577,11 @@ knock :: proc(tick: ^Tick, player: int, direction: [2]f32, speed: f32) {
 	character.stun = STUN_TICKS
 	character.thrown = false
 	character.charge = 0
-	physics.set_velocity(world.phys, character.mover.body, {direction.x * speed, KNOCKBACK_UP, direction.y * speed})
+	physics.set_velocity(
+		world.phys,
+		character.controller.body,
+		{direction.x * speed, KNOCKBACK_UP, direction.y * speed},
+	)
 	state.hits += 1
 	sim.emit(tick, Hit{position = sim.Position(player_pos(state, world, player)), speed = speed, player = u8(player)})
 }
@@ -732,14 +744,14 @@ stuns :: proc(state: ^State, world: ^World) {
 				pos,
 				{0, -(FEET + 0.25), 0},
 				{},
-				physics.link(character.mover.body),
+				physics.link(character.controller.body),
 			); ok {
 				character.stun = 0
 			}
 		}
 		if character.stun == 0 {
 			character.thrown = false
-			physics.mover_set_limp(world.phys, &character.mover, false)
+			physics.character_set_limp(world.phys, &character.controller, false)
 		}
 	}
 }
@@ -753,8 +765,8 @@ falls :: proc(tick: ^Tick) {
 			character.respawn -= 1
 			if character.respawn == 0 {
 				pos := respawn_point(state, world, player)
-				physics.mover_teleport(world.phys, &character.mover, pos)
-				physics.mover_set_limp(world.phys, &character.mover, false)
+				physics.character_teleport(world.phys, &character.controller, pos)
+				physics.character_set_limp(world.phys, &character.controller, false)
 				sim.emit(tick, Respawned{position = sim.Position(pos), player = u8(player)})
 			}
 			continue
@@ -767,7 +779,7 @@ falls :: proc(tick: ^Tick) {
 		character.respawn = RESPAWN_TICKS
 		limp(state, world, player)
 		// Park the body far below while it waits.
-		physics.teleport(world.phys, character.mover.body, {f32(player) * 4, -60, 0})
+		physics.teleport(world.phys, character.controller.body, {f32(player) * 4, -60, 0})
 		sim.emit(tick, Fell{position = sim.Position(pos), player = u8(player)})
 	}
 	for i in 0 ..< world.item_count {
@@ -862,8 +874,8 @@ reset_route :: proc(tick: ^Tick) {
 		character.stun = 0
 		character.thrown = false
 		character.respawn = 0
-		physics.mover_teleport(world.phys, &character.mover, world.spawns[player])
-		physics.mover_set_limp(world.phys, &character.mover, false)
+		physics.character_teleport(world.phys, &character.controller, world.spawns[player])
+		physics.character_set_limp(world.phys, &character.controller, false)
 		sim.emit(tick, Respawned{position = sim.Position(world.spawns[player]), player = u8(player)})
 	}
 	for i in 0 ..< world.item_count do item_home(tick, i)

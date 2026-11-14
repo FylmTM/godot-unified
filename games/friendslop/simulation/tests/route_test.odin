@@ -58,9 +58,9 @@ put_item :: proc(run: ^Run, item: int, at: [3]f32) {
 put_player :: proc(run: ^Run, player: int, at: [3]f32) {
 	run.setup_index, run.setup_pos = player, at
 	setup(run, proc(run: ^Run) {
-		physics.mover_teleport(
+		physics.character_teleport(
 			run.simulation.world.phys,
-			&run.simulation.state.players[run.setup_index].mover,
+			&run.simulation.state.players[run.setup_index].controller,
 			run.setup_pos,
 		)
 	})

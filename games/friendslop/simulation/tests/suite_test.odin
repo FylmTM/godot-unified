@@ -1,5 +1,5 @@
 // friendslop's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game and
-// its park level (dynamic movers, joints, platforms, carries and throws under rollback), and its
+// its park level (dynamic characters, joints, platforms, carries and throws under rollback), and its
 // reference run (testdata/, made by `uni record-reference friendslop`). The game's own
 // scenarios are in the other files of this package (friendslop_test.odin, route_test.odin).
 package test_friendslop

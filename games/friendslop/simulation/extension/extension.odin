@@ -181,7 +181,7 @@ extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^gh.Frame) 
 				key = view.Key(PLAYER_KEY + player),
 				kind = SCENE_PLAYER,
 				player = i8(player),
-				pos = physics.position(world.phys, character.mover.body),
+				pos = physics.position(world.phys, character.controller.body),
 				rot = fs.yaw_quat(character.facing),
 			},
 			Player_View {

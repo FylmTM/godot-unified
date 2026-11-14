@@ -168,7 +168,7 @@ body_id :: proc(world: ^World, ref: Body_Ref) -> b3.Body_Id {
 add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
 	body_def := b3.default_body_def()
 	body_def.position = pos
-	body := b3.create_body(world.phys.id, &body_def)
+	body := physics.body_id(world.phys, physics.create_body(world.phys, &body_def))
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATIC
 	hull := b3.make_box_hull(half.x, half.y, half.z)
@@ -180,7 +180,8 @@ create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 	body_def := b3.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = item_position(i)
-	body := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	body := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.density = 1
 	shape_def.base_material.user_material_id = MAT_ITEM_BASE + u64(i)
@@ -193,7 +194,7 @@ create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 		hull := b3.make_box_hull(0.5, 0.5, 0.5)
 		b3.create_hull_shape(body, &shape_def, &hull.base)
 	}
-	return physics.ref_of(body)
+	return ref
 }
 
 create_player_body :: proc(world: ^World, player: int) -> Body_Ref {
@@ -204,12 +205,13 @@ create_player_body :: proc(world: ^World, player: int) -> Body_Ref {
 	body_def.motion_locks.angular_y = true
 	body_def.motion_locks.angular_z = true
 	body_def.enable_sleep = false
-	body := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	body := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_PLAYER
 	capsule := b3.Capsule{{0, -0.45, 0}, {0, 0.45, 0}, 0.45}
 	b3.create_capsule_shape(body, &shape_def, &capsule)
-	return physics.ref_of(body)
+	return ref
 }
 
 destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
@@ -219,7 +221,7 @@ destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 // The physics world with its static geometry (games/survivor/SPEC.md creation order: ground, walls, pillars).
 world_create :: proc(seed: u64, _: []u8) -> ^World {
 	world := new(World)
-	world.phys = physics.create()
+	world.phys = physics.create({workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	add_static_box(world, {0, -0.5, 0}, {ARENA_HALF, 0.5, ARENA_HALF}) // ground
 	add_static_box(world, {30.5, 1.5, 0}, {0.5, 1.5, 31}) // walls: inner faces at x, z = ±30

@@ -1,7 +1,7 @@
 # testdata
 
 friendslop's reference run (`src/headless/SPEC.md`, Reference runs): every platform must reproduce it bit for bit,
-dynamic movers, joints, platforms, carries and throws included. `the_reference_run_replays` and
+dynamic characters, joints, platforms, carries and throws included. `the_reference_run_replays` and
 `the_reference_run_resumes` in `../suite_test.odin` check it in `uni test`.
 
 | File | What it is |

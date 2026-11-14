@@ -1,4 +1,4 @@
-// The mover's golden trace: our own physics code (the mover, kinematic paths, the Extra's hash)
+// The character's golden trace: our own physics code (the character, kinematic paths, the Extra's hash)
 // pinned on every platform, like Box3D's results are in tests/b3 (GOLDEN there).
 package test_physics
 
@@ -7,12 +7,11 @@ import "core:testing"
 import "unified:physics"
 import "unified:sim"
 
-// The scene's block: what a game would keep. Its bytes and the Extra's hash (every referenced
-// body's pose and velocities) make each value of the trace.
+// The scene's block: what a game would keep. Its bytes and the Extra's hash make each value of the trace.
 Golden :: struct {
-	rider:    physics.Mover, // stands on the platform for a whole path cycle
-	walker:   physics.Mover, // walks over a step and jumps
-	target:   physics.Mover, // stands, is hit by a heavy box, gets up again
+	rider:    physics.Character, // stands on the platform for a whole path cycle
+	walker:   physics.Character, // walks over a step and jumps
+	target:   physics.Character, // stands, is hit by a heavy box, gets up again
 	platform: physics.Body_Ref,
 	thrown:   physics.Body_Ref,
 }
@@ -23,17 +22,24 @@ GOLDEN_EVERY :: 128
 // A change to src/physics, Box3D or the build flags that alters any of these fails here. If the
 // change is intended, update the values in the same commit (with tests/b3's GOLDEN and the
 // games' reference runs when they change too).
-GOLDEN_MOVERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
-	0xc6fbc220c82ebad2,
-	0xaf656bbf14eeec50,
-	0xb18bbeed772fcf7a,
-	0x492e32dfe79899ff,
+GOLDEN_CHARACTERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
+	0xdf33d7851d354ae0,
+	0x0366abcca4f15d0e,
+	0x79cae35e15958f91,
+	0x06044d6818f89ceb,
 }
 
+// On 1 and on 4 workers: the same values.
 @(test)
-mover_golden_trace :: proc(t: ^testing.T) {
+character_golden_trace :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(Golden)), "")
-	world := new_world()
+	for workers in ([]i32{1, 4}) {
+		character_golden(t, workers)
+	}
+}
+
+character_golden :: proc(t: ^testing.T, workers: i32) {
+	world := new_world(workers)
 	defer physics.destroy(world)
 	ground(world)
 	box(world, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
@@ -41,24 +47,24 @@ mover_golden_trace :: proc(t: ^testing.T) {
 	state.platform = physics.ref_of(
 		box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
 	)
-	physics.mover_create(world, &state.rider, &MOVER, {0, 1.6, 6})
-	physics.mover_create(world, &state.walker, &MOVER, {-8, 1.5, 0})
-	physics.mover_create(world, &state.target, &MOVER, {4, 1.5, -2})
+	physics.character_create(world, &state.rider, &CHARACTER, {0, 1.6, 6})
+	physics.character_create(world, &state.walker, &CHARACTER, {-8, 1.5, 0})
+	physics.character_create(world, &state.target, &CHARACTER, {4, 1.5, -2})
 	extra := physics.extra(world, Golden)
 
-	got: [len(GOLDEN_MOVERS)]u64
+	got: [len(GOLDEN_CHARACTERS)]u64
 	buf := make([dynamic]u8, context.temp_allocator)
 	jumped, rode := false, true
 	target_x0: f32
 	for tick in 1 ..= GOLDEN_TICKS {
 		physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, u32(tick), HZ), HZ)
-		physics.mover_update(world, &state.rider, &MOVER, {}, false, 1, DT)
+		physics.character_update(world, &state.rider, &CHARACTER, {}, false, 1, DT)
 		// The walker heads +x over the step, jumps twice, then turns back.
 		walk := tick < 300 ? [2]f32{0.6, 0} : [2]f32{-0.6, 0.3}
-		physics.mover_update(world, &state.walker, &MOVER, walk, tick == 160 || tick == 360, 1, DT)
-		physics.mover_update(world, &state.target, &MOVER, {}, false, 1, DT)
+		physics.character_update(world, &state.walker, &CHARACTER, walk, tick == 160 || tick == 360, 1, DT)
+		physics.character_update(world, &state.target, &CHARACTER, {}, false, 1, DT)
 		if tick == 64 {
-			// A heavy box (about the mover's mass) at 14 m/s: the drive's force cap gives way.
+			// A heavy box (about the character's mass) at 14 m/s: the drive's force cap gives way.
 			state.thrown = physics.ref_of(
 				box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
 			)
@@ -66,7 +72,7 @@ mover_golden_trace :: proc(t: ^testing.T) {
 			target_x0 = physics.position(world, state.target.body).x
 		}
 		step(world)
-		jumped ||= tick > 160 && !physics.mover_grounded(&state.walker)
+		jumped ||= tick > 160 && !physics.character_grounded(&state.walker)
 		if tick > 32 {
 			rode &&= state.rider.ground == physics.link(state.platform)
 		}
@@ -83,12 +89,13 @@ mover_golden_trace :: proc(t: ^testing.T) {
 	testing.expect(t, physics.position(world, state.walker.body).y > 1.1, "the walker fell through")
 	pushed := physics.position(world, state.target.body).x - target_x0
 	testing.expectf(t, pushed > 0.1, "the target was pushed only %v m", pushed)
-	testing.expect(t, physics.mover_grounded(&state.target), "the target did not get up again")
+	testing.expect(t, physics.character_grounded(&state.target), "the target did not get up again")
 	testing.expectf(
 		t,
-		got == GOLDEN_MOVERS,
-		"mover golden trace changed: %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_MOVERS in tests/physics/golden_test.odin in the same commit",
+		got == GOLDEN_CHARACTERS,
+		"character golden trace on %d workers changed: %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_CHARACTERS in tests/physics/golden_test.odin in the same commit",
+		workers,
 		got,
-		GOLDEN_MOVERS,
+		GOLDEN_CHARACTERS,
 	)
 }

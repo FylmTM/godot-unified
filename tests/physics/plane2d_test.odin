@@ -71,8 +71,8 @@ circle_body :: proc(
 	return physics.ref_of(id)
 }
 
-zero_g :: proc() -> ^physics.World {
-	return physics.create({gravity = [3]f32{0, 0, 0}})
+zero_g :: proc(workers: i32 = 1) -> ^physics.World {
+	return physics.create({gravity = [3]f32{0, 0, 0}, workers = workers})
 }
 
 // Whether a dynamic body sits exactly on the plane: z, and the quaternion's x and y, are zero (±0).
@@ -351,13 +351,7 @@ FIELD := Field_Game {
 	name = "field",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^Field_World {
-		field_world := new(Field_World)
-		field_world.phys = zero_g()
-		arena_walls(field_world.phys, ARENA)
-		field_world.extras[0] = physics.extra(field_world.phys, Field)
-		return field_world
-	},
+	world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(1)},
 	world_destroy = proc(field_world: ^Field_World) {
 		physics.destroy(field_world.phys)
 		free(field_world)
@@ -383,6 +377,21 @@ FIELD := Field_Game {
 		}
 	},
 	tick = field_tick,
+}
+
+field_world_create :: proc(workers: i32) -> ^Field_World {
+	field_world := new(Field_World)
+	field_world.phys = zero_g(workers)
+	arena_walls(field_world.phys, ARENA)
+	field_world.extras[0] = physics.extra(field_world.phys, Field)
+	return field_world
+}
+
+// The field with its world stepped on 4 workers: every checksum must match the 1-worker field's.
+field_on_4_workers :: proc() -> Field_Game {
+	game := FIELD
+	game.world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(4)}
+	return game
 }
 
 field_tick :: proc(tick: ^Field_Tick) {
@@ -483,14 +492,25 @@ field_inputs :: proc(tick: u32) -> Field_Inputs {
 	return inputs
 }
 
+FIELD_TICKS :: 640
+
+// The field sync-tested on 1 and on 4 workers: the same checksums on every tick.
 @(test)
 field_synctest_and_resume :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(Field)), "")
-	TICKS :: 640
+	one_worker := field_synctest(t, &FIELD)
+	field_4 := field_on_4_workers()
+	four_workers := field_synctest(t, &field_4)
+	testing.expect(t, four_workers == one_worker, "the field on 4 workers: checksums differ from 1 worker's")
+}
+
+// Rolls back WINDOW ticks after every tick and re-simulates (the plane must hold), then resumes a second session from
+// a portable snapshot. Returns the forward checksums.
+field_synctest :: proc(t: ^testing.T, game: ^Field_Game) -> (forward: [FIELD_TICKS + 1]u64) {
+	TICKS :: FIELD_TICKS
 	WINDOW :: 8
-	session := sim.create(&FIELD, 3)
+	session := sim.create(game, 3)
 	defer sim.destroy(session)
-	forward: [TICKS + 1]u64
 	mismatches, off_plane := 0, 0
 	for tick in u32(1) ..= TICKS {
 		inputs := field_inputs(tick)
@@ -521,7 +541,7 @@ field_synctest_and_resume :: proc(t: ^testing.T) {
 	// A portable snapshot loads into a fresh world and continues bit-exactly.
 	snap := sim.snapshot_encode(session, TICKS)
 	defer delete(snap)
-	session2, err := sim.from_snapshot(&FIELD, snap)
+	session2, err := sim.from_snapshot(game, snap)
 	testing.expect_value(t, err, sim.Snap_Error.None)
 	if session2 == nil do return
 	defer sim.destroy(session2)
@@ -532,6 +552,7 @@ field_synctest_and_resume :: proc(t: ^testing.T) {
 		sim.step(session2, &inputs2)
 		testing.expect_value(t, sim.checksum(session2), sim.checksum(session))
 	}
+	return
 }
 
 // The image carries the geometry its shapes use (#86): a hull first made after tick 0 reaches a
@@ -574,9 +595,16 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // if it is intended, update the values in the same commit.
 GOLDEN_FIELD := [4]u64{0xf955d18a5e864152, 0x9af275f076bc5f7d, 0xc0e2e275edb3e2e1, 0xb6c5cee7dd2d87fa}
 
+// On 1 and on 4 workers: the same values.
 @(test)
 field_golden_trace :: proc(t: ^testing.T) {
-	session := sim.create(&FIELD, 5)
+	field_golden(t, &FIELD)
+	field_4 := field_on_4_workers()
+	field_golden(t, &field_4)
+}
+
+field_golden :: proc(t: ^testing.T, game: ^Field_Game) {
+	session := sim.create(game, 5)
 	defer sim.destroy(session)
 	got: [len(GOLDEN_FIELD)]u64
 	for tick in u32(1) ..= 512 {
@@ -588,7 +616,8 @@ field_golden_trace :: proc(t: ^testing.T) {
 	testing.expectf(
 		t,
 		got == GOLDEN_FIELD,
-		"2D golden trace changed: %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_FIELD in tests/physics/plane2d_test.odin in the same commit",
+		"2D golden trace changed (on %d workers): %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_FIELD in tests/physics/plane2d_test.odin in the same commit",
+		session.world.phys.workers,
 		got,
 		GOLDEN_FIELD,
 	)

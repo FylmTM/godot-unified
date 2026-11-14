@@ -67,7 +67,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
 	world.level_data = loaded
 	world.px_per_m = loaded.px_per_m
-	world.phys = physics.create({gravity = [3]f32{0, 0, 0}})
+	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	create_catalogue(world)
@@ -122,7 +122,7 @@ world_destroy :: proc(world: ^World) {
 // (src/physics/SPEC.md, 2D: generated geometry).
 create_catalogue :: proc(world: ^World) {
 	body_def := physics.body_def_2d(.Static_Body, {-1000, -1000})
-	body := b3.create_body(world.phys.id, &body_def)
+	body := physics.body_id(world.phys, physics.create_body(world.phys, &body_def))
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_CATALOGUE
 	shape_def.filter.mask_bits = 0
@@ -153,14 +153,15 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	state.rng = sim.rng_seed(seed)
 	state.station_hp = STATION_HP
 	body_def := physics.body_def_2d(.Kinematic_Body, world.station)
-	body := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	body := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATION
 	shape_def.base_material.user_material_id = MAT_STATION
 	corners: [6][2]f32
 	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
 	physics.polygon_2d(body, &shape_def, corners[:], ROCK_DEPTH)
-	state.station = physics.ref_of(body)
+	state.station = ref
 	physics.set_velocity_2d(world.phys, state.station, {}, STATION_SPIN)
 }
 
@@ -168,14 +169,15 @@ create_ship :: proc(state: ^State, world: ^World, player: int) {
 	body_def := physics.body_def_2d(.Dynamic_Body, world.spawns[player], {0, -1})
 	body_def.linear_damping = SHIP_DAMPING
 	body_def.is_bullet = false
-	body := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	body := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.density = SHIP_DENSITY
 	shape_def.base_material.restitution = 0.5
 	shape_def.base_material.friction = 0.1
 	shape_def.filter.category_bits = CAT_SHIP
 	physics.circle_2d(body, &shape_def, SHIP_RADIUS)
-	state.ships[player].body = physics.ref_of(body)
+	state.ships[player].body = ref
 }
 
 // A rock in the rocks table and its body (ok = false: the table is full). Its shapes carry its slot index as
@@ -194,7 +196,8 @@ create_rock :: proc(
 	rock: ^Rock
 	rock, handle = sim.spawn(&state.rocks) or_return
 	body_def := physics.body_def_2d(.Dynamic_Body, pos)
-	body := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	body := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.density = 1
 	shape_def.base_material.restitution = 0.4
@@ -204,7 +207,7 @@ create_rock :: proc(
 	points := rock_points(variant, size)
 	physics.polygon_2d(body, &shape_def, points[:], ROCK_DEPTH)
 	rock^ = {
-		body    = physics.ref_of(body),
+		body    = ref,
 		size    = size,
 		variant = u8(variant),
 		hp      = ROCK_HP[size],

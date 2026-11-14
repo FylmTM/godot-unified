@@ -47,19 +47,20 @@ Result :: struct {
 CI_BUDGET_SCALE :: 3
 
 State :: struct {
-	project:  Project,
-	pins:     Config,
-	commands: [dynamic]Command,
-	command:  ^Command,
-	argv:     []string, // the command line after the program name, --json removed
-	json:     bool,
-	start:    time.Tick,
-	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
-	env_keys: []string, // the variables .env set
-	suites:   [dynamic]Suite,
-	budget:   f64, // set by a command whose budget depends on its arguments (test: its suites)
-	long:     bool, // `test --long`: the suites' long variants (SPEC.md, Test suites)
-	crash:    bool, // `test --crash`: the tests that crash on purpose run (src/cli/testrun.odin)
+	project:     Project,
+	pins:        Config,
+	commands:    [dynamic]Command,
+	command:     ^Command,
+	argv:        []string, // the command line after the program name, --json removed
+	json:        bool,
+	start:       time.Tick,
+	cold:        [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
+	env_keys:    []string, // the variables .env set
+	suites:      [dynamic]Suite,
+	budget:      f64, // set by a command whose budget depends on its arguments (test: its suites)
+	long:        bool, // `test --long`: the suites' long variants (SPEC.md, Test suites)
+	crash:       bool, // `test --crash`: the tests that crash on purpose run (src/cli/testrun.odin)
+	box3d_debug: bool, // `test --box3d-debug`: the odin suite links Box3D's debug library (its asserts on)
 }
 
 // Set in the environment of a `uni` the CLI starts itself (the godot suite's one per game): that run leaves

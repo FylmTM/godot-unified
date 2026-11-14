@@ -197,9 +197,7 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	return ""
 }
 
-// Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it. That first
-// save also lets physics fill its geometry registry in a fixed order, which is what makes a portable
-// snapshot from another process restore here.
+// Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it.
 create :: proc(
 	game: ^Game($State, $Input, $World, $PLAYERS),
 	seed: u64,

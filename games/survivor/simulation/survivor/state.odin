@@ -6,6 +6,7 @@ import "unified:sim"
 
 TICK_HZ :: 64
 DT: f32 : 1.0 / TICK_HZ // exact
+PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4 // player seats
 MAX_ENEMIES :: 1200

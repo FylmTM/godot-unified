@@ -258,6 +258,30 @@ test_world_hash_state :: proc(t: ^testing.T) {
 	testing.expect_value(t, b3.world_hash_state(scene_a.world), box3d.World_HashState(scene_a.world))
 }
 
+@(test)
+test_world_hash_awake_bodies :: proc(t: ^testing.T) {
+	scene_a, scene_b: Scene
+	scene_make(&scene_a)
+	defer scene_destroy(&scene_a)
+	scene_make(&scene_b)
+	defer scene_destroy(&scene_b)
+	testing.expect_value(t, b3.world_hash_awake_bodies(scene_a.world), b3.world_hash_awake_bodies(scene_b.world))
+	hash := b3.world_hash_awake_bodies(scene_a.world)
+	step(scene_a.world, 1)
+	step(scene_b.world, 1)
+	testing.expect(t, b3.world_hash_awake_bodies(scene_a.world) != hash)
+	testing.expect_value(t, b3.world_hash_awake_bodies(scene_a.world), b3.world_hash_awake_bodies(scene_b.world))
+	testing.expect_value(t, b3.world_hash_awake_bodies(scene_a.world), box3d.World_HashAwakeBodies(scene_a.world))
+	// Which bodies are awake counts: putting one to sleep changes the hash.
+	box3d.Body_SetAwake(scene_b.bodies[len(scene_b.bodies) - 1], false)
+	testing.expect(t, b3.world_hash_awake_bodies(scene_a.world) != b3.world_hash_awake_bodies(scene_b.world))
+	// So does any awake body's velocity.
+	b3.body_set_linear_velocity(scene_a.bodies[2], {0, 1, 0})
+	b3.body_set_linear_velocity(scene_b.bodies[2], {0, 1.5, 0})
+	box3d.Body_SetAwake(scene_b.bodies[len(scene_b.bodies) - 1], true)
+	testing.expect(t, b3.world_hash_awake_bodies(scene_a.world) != b3.world_hash_awake_bodies(scene_b.world))
+}
+
 // ---- bodies
 
 @(test)

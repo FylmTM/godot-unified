@@ -53,7 +53,7 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "test",
-				usage = "[game] [--suite s,...] [--only name,...] [--long] [--crash]",
+				usage = "[game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]",
 				summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants",
 				budget = 6,
 				run = cmd_test,
@@ -116,8 +116,8 @@ public_commands :: proc() -> []Command {
 			{
 				name = "verify",
 				usage = "[--long]",
-				summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, bench",
-				budget = 40,
+				summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, test --box3d-debug, bench",
+				budget = 45,
 				run = cmd_verify,
 			},
 			{name = "version", summary = "the CLI's source hash, Odin, and the pins", budget = 1, run = cmd_version},
@@ -148,21 +148,34 @@ public_suites :: proc() -> []Suite {
 
 // --- test -------------------------------------------------------------------------------------------------------
 
+// What `test --box3d-debug` adds to the odin suite's budget: the debug library's physics is unoptimised, so the run
+// takes 3-4 times as long (3.4x here on 28 threads, 4x on CI's 4-core linux-x64: 17 s against 4 s); the compile is the
+// same, into a folder of its own.
+BOX3D_DEBUG_EXTRA_BUDGET :: 6
+
 @(private)
 cmd_test :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game:  string `args:"pos=0" usage:"a game (default: every game)"`,
-		suite: string `usage:"suites, comma-separated, or all (default: odin)"`,
-		only:  string `usage:"tests (odin) or steps (godot), comma-separated"`,
-		long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
-		crash: bool `usage:"odin, this repo: a test also crashes holding a lock another test waits for; proves the run fails within seconds and names it"`,
+		game:        string `args:"pos=0" usage:"a game (default: every game)"`,
+		suite:       string `usage:"suites, comma-separated, or all (default: odin)"`,
+		only:        string `usage:"tests (odin) or steps (godot), comma-separated"`,
+		long:        bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
+		crash:       bool `usage:"odin, this repo: a test also crashes holding a lock another test waits for; proves the run fails within seconds and names it"`,
+		box3d_debug: bool `args:"name=box3d-debug" usage:"odin: link Box3D's debug library (its id and state asserts trap a misuse the release library lets through)"`,
 	}
 	opts: Opts
 	parse(&opts, args)
 	state.long = opts.long
 	state.crash = opts.crash
+	state.box3d_debug = opts.box3d_debug
 	if opts.crash && !is_unified_repo() {
 		usage("--crash runs tests/cli's crash test: the unified repo only")
+	}
+	if opts.box3d_debug && opts.suite != "" && opts.suite != "odin" {
+		usage("--box3d-debug is for the odin suite")
+	}
+	if opts.box3d_debug {
+		state.budget += BOX3D_DEBUG_EXTRA_BUDGET
 	}
 	names := split_list(opts.suite)
 	if len(names) == 0 {
@@ -234,7 +247,7 @@ split_list :: proc(text: string) -> []string {
 // --- verify -----------------------------------------------------------------------------------------------------
 
 // `verify --long`'s budget (plain `verify`: the command's).
-VERIFY_LONG_BUDGET :: 60
+VERIFY_LONG_BUDGET :: 65
 
 // The gate: every step runs in this process, in order; the first failure stops it.
 @(private)
@@ -249,7 +262,8 @@ cmd_verify :: proc(args: []string) -> Result {
 		args: []string,
 	}
 	test := opts.long ? []string{"--suite", "all", "--long"} : []string{"--suite", "all"}
-	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}, {"bench", {}}}
+	// The odin suite again against Box3D's debug library, where a misused id traps.
+	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}, {"test", {"--box3d-debug"}}, {"bench", {}}}
 	self := state.command
 	for step in steps {
 		command := find_command(step.name)

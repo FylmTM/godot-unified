@@ -1,4 +1,4 @@
-// src/physics/SPEC.md: the dynamic mover, joints under rollback, queries, hit events and kinematic paths.
+// src/physics/SPEC.md: the dynamic character, joints under rollback, queries, hit events and kinematic paths.
 // The rig is a small game run through the real harness (sim.create/step/restore/checksum), so joint
 // churn, platforms and hit events are checked the way a game uses them.
 package test_physics
@@ -13,15 +13,15 @@ HZ :: 64
 DT: f32 : 1.0 / HZ
 
 CAT_STATIC :: u64(1 << 0)
-CAT_MOVER :: u64(1 << 1)
+CAT_CHARACTER :: u64(1 << 1)
 CAT_BOX :: u64(1 << 2)
 CAT_PLATFORM :: u64(1 << 3)
 
-MOVER := physics.Mover_Def {
+CHARACTER := physics.Character_Def {
 	radius                 = 0.3,
 	half_height            = 0.5,
 	density                = 200,
-	category               = CAT_MOVER,
+	category               = CAT_CHARACTER,
 	material               = 7,
 	hit_events             = true,
 	max_speed              = 6,
@@ -75,15 +75,15 @@ ground :: proc(world: ^physics.World) {
 	box(world, {0, -0.5, 0}, {30, 0.5, 30})
 }
 
-new_world :: proc() -> ^physics.World {
-	return physics.create({anchor = true})
+new_world :: proc(workers: i32 = 1) -> ^physics.World {
+	return physics.create({anchor = true, workers = workers})
 }
 
 step :: proc(world: ^physics.World) {
 	physics.step(world, DT, 4)
 }
 
-// ---- the rig: two movers, boxes, a platform on a path, a hold joint that comes and goes
+// ---- the rig: two characters, boxes, a platform on a path, a hold joint that comes and goes
 
 Rig_Input :: struct {
 	mx, mz: i8,
@@ -92,15 +92,15 @@ Rig_Input :: struct {
 }
 
 Rig :: struct {
-	movers:   [2]physics.Mover,
-	boxes:    [4]physics.Body_Ref,
-	platform: physics.Body_Ref,
-	hold:     physics.Joint_Ref,
-	held:     u32, // box index + 1 (0: none)
-	hits:     u32,
-	jumps:    u32,
-	prev:     [2]b8,
-	_pad:     u16,
+	characters: [2]physics.Character,
+	boxes:      [4]physics.Body_Ref,
+	platform:   physics.Body_Ref,
+	hold:       physics.Joint_Ref,
+	held:       u32, // box index + 1 (0: none)
+	hits:       u32,
+	jumps:      u32,
+	prev:       [2]b8,
+	_pad:       u16,
 }
 
 Rig_World :: struct {
@@ -126,14 +126,7 @@ RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {
-		rig_world := new(Rig_World)
-		rig_world.phys = physics.create({anchor = true, hit_threshold = 1})
-		ground(rig_world.phys)
-		box(rig_world.phys, {-4, 0.15, 0}, {1, 0.15, 1}) // a step
-		rig_world.extras[0] = physics.extra(rig_world.phys, Rig)
-		return rig_world
-	},
+	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(1)},
 	world_destroy = proc(rig_world: ^Rig_World) {
 		physics.destroy(rig_world.phys)
 		delete(rig_world.scratch)
@@ -142,8 +135,8 @@ RIG := Rig_Game {
 	extras = proc(rig_world: ^Rig_World) -> []sim.Extra {return rig_world.extras[:]},
 	init = proc(state: ^Rig, rig_world: ^Rig_World, seed: u64) {
 		world := rig_world.phys
-		for &mover, i in state.movers {
-			physics.mover_create(world, &mover, &MOVER, {f32(i) * 2, 1.2, 0})
+		for &character, i in state.characters {
+			physics.character_create(world, &character, &CHARACTER, {f32(i) * 2, 1.2, 0})
 		}
 		for &box_ref, i in state.boxes {
 			state.boxes[i] = physics.ref_of(
@@ -158,25 +151,49 @@ RIG := Rig_Game {
 	tick = rig_tick,
 }
 
+rig_world_create :: proc(workers: i32) -> ^Rig_World {
+	rig_world := new(Rig_World)
+	rig_world.phys = physics.create({anchor = true, hit_threshold = 1, workers = workers})
+	ground(rig_world.phys)
+	box(rig_world.phys, {-4, 0.15, 0}, {1, 0.15, 1}) // a step
+	rig_world.extras[0] = physics.extra(rig_world.phys, Rig)
+	return rig_world
+}
+
+// The rig with its world stepped on 4 workers: every checksum must match the 1-worker rig's.
+rig_on_4_workers :: proc() -> Rig_Game {
+	game := RIG
+	game.world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(4)}
+	return game
+}
+
 rig_tick :: proc(tick: ^Rig_Tick) {
 	state, rig_world, number := tick.state, tick.world, tick.number
 	world := rig_world.phys
 	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, number, HZ), HZ)
-	for &mover, player in state.movers {
+	for &character, player in state.characters {
 		player_input := tick.inputs.input[player]
 		move := [2]f32{f32(player_input.mx) / 127, f32(player_input.mz) / 127}
-		if physics.mover_update(world, &mover, &MOVER, move, bool(player_input.jump && !state.prev[player]), 1, DT) {
+		if physics.character_update(
+			world,
+			&character,
+			&CHARACTER,
+			move,
+			bool(player_input.jump && !state.prev[player]),
+			1,
+			DT,
+		) {
 			state.jumps += 1
 		}
 		state.prev[player] = player_input.jump
 	}
-	// Mover 0 grabs box (number / 40) % 4 for 25 ticks of every 40: a motor joint created and
+	// Character 0 grabs box (number / 40) % 4 for 25 ticks of every 40: a motor joint created and
 	// destroyed inside rollback windows.
 	phase := number % 40
 	if phase == 5 && state.hold == {} {
 		box_ref := state.boxes[(number / 40) % 4]
 		joint_def := b3.default_motor_joint_def()
-		joint_def.base.body_id_a = physics.body_id(world, state.movers[0].body)
+		joint_def.base.body_id_a = physics.body_id(world, state.characters[0].body)
 		joint_def.base.body_id_b = physics.body_id(world, box_ref)
 		joint_def.base.local_frame_a = {{0, 0.3, 0.9}, {0, 0, 0, 1}}
 		joint_def.linear_hertz = 6
@@ -189,10 +206,10 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 		state.held = (number / 40) % 4 + 1
 	} else if phase == 30 && state.hold != {} {
 		physics.destroy_joint(world, &state.hold)
-		// throw it at mover 1
+		// throw it at character 1
 		box_ref := state.boxes[state.held - 1]
 		box_pos := physics.position(world, box_ref)
-		target_pos := physics.position(world, state.movers[1].body)
+		target_pos := physics.position(world, state.characters[1].body)
 		physics.impulse(world, box_ref, {(target_pos.x - box_pos.x) * 2, 3, (target_pos.z - box_pos.z) * 2})
 		state.held = {}
 	}
@@ -220,13 +237,24 @@ rig_inputs :: proc(tick: u32) -> Rig_Inputs {
 	return inputs
 }
 
+RIG_TICKS :: 640
+
+// The rig sync-tested on 1 and on 4 workers: the same checksums on every tick.
 @(test)
 rig_synctest_with_joints :: proc(t: ^testing.T) {
-	TICKS :: 640
+	one_worker := rig_synctest(t, &RIG)
+	rig_4 := rig_on_4_workers()
+	four_workers := rig_synctest(t, &rig_4)
+	testing.expect(t, four_workers == one_worker, "the rig on 4 workers: checksums differ from 1 worker's")
+}
+
+// Rolls back WINDOW ticks after every tick and re-simulates, then resumes a second session from a portable snapshot.
+// Returns the forward checksums.
+rig_synctest :: proc(t: ^testing.T, game: ^Rig_Game) -> (forward: [RIG_TICKS + 1]u64) {
+	TICKS :: RIG_TICKS
 	WINDOW :: 8
-	session := sim.create(&RIG, 1)
+	session := sim.create(game, 1)
 	defer sim.destroy(session)
-	forward: [TICKS + 1]u64
 	mismatches := 0
 	for tick in u32(1) ..= TICKS {
 		inputs := rig_inputs(tick)
@@ -249,7 +277,7 @@ rig_synctest_with_joints :: proc(t: ^testing.T) {
 	// A portable snapshot loads into a fresh world and continues bit-exactly.
 	snap := sim.snapshot_encode(session, TICKS)
 	defer delete(snap)
-	session2, err := sim.from_snapshot(&RIG, snap)
+	session2, err := sim.from_snapshot(game, snap)
 	testing.expect_value(t, err, sim.Snap_Error.None)
 	if session2 == nil do return
 	defer sim.destroy(session2)
@@ -260,13 +288,14 @@ rig_synctest_with_joints :: proc(t: ^testing.T) {
 		sim.step(session2, &inputs2)
 		testing.expect_value(t, sim.checksum(session2), sim.checksum(session))
 	}
+	return
 }
 
-// ---- mover behaviour
+// ---- character behaviour
 
 Solo :: struct {
-	world: ^physics.World,
-	mover: physics.Mover,
+	world:     ^physics.World,
+	character: physics.Character,
 }
 
 solo :: proc(pos: [3]f32) -> Solo {
@@ -274,29 +303,29 @@ solo :: proc(pos: [3]f32) -> Solo {
 		world = new_world(),
 	}
 	ground(scene.world)
-	physics.mover_create(scene.world, &scene.mover, &MOVER, pos)
+	physics.character_create(scene.world, &scene.character, &CHARACTER, pos)
 	return scene
 }
 
 run :: proc(scene: ^Solo, ticks: int, move := [2]f32{}, jump_at := -1) -> (peak: f32) {
 	peak = -1e9
 	for i in 0 ..< ticks {
-		physics.mover_update(scene.world, &scene.mover, &MOVER, move, i == jump_at, 1, DT)
+		physics.character_update(scene.world, &scene.character, &CHARACTER, move, i == jump_at, 1, DT)
 		step(scene.world)
-		peak = max(peak, physics.position(scene.world, scene.mover.body).y)
+		peak = max(peak, physics.position(scene.world, scene.character.body).y)
 	}
 	return
 }
 
 @(test)
-mover_stands_still :: proc(t: ^testing.T) {
+character_stands_still :: proc(t: ^testing.T) {
 	scene := solo({0, 1.5, 0})
 	defer physics.destroy(scene.world)
 	run(&scene, 128)
-	testing.expect(t, physics.mover_grounded(&scene.mover))
-	pos_before := physics.position(scene.world, scene.mover.body)
+	testing.expect(t, physics.character_grounded(&scene.character))
+	pos_before := physics.position(scene.world, scene.character.body)
 	run(&scene, 640)
-	pos_after := physics.position(scene.world, scene.mover.body)
+	pos_after := physics.position(scene.world, scene.character.body)
 	testing.expectf(
 		t,
 		abs(pos_after.x - pos_before.x) + abs(pos_after.y - pos_before.y) + abs(pos_after.z - pos_before.z) < 1e-3,
@@ -309,47 +338,47 @@ mover_stands_still :: proc(t: ^testing.T) {
 }
 
 @(test)
-mover_walks_and_jumps :: proc(t: ^testing.T) {
+character_walks_and_jumps :: proc(t: ^testing.T) {
 	scene := solo({0, 1.5, 0})
 	defer physics.destroy(scene.world)
 	run(&scene, 64)
 	run(&scene, 64, {1, 0})
-	vel := physics.velocity(scene.world, scene.mover.body)
+	vel := physics.velocity(scene.world, scene.character.body)
 	testing.expectf(t, vel.x > 5.5 && vel.x < 6.1, "walk speed %v", vel.x)
-	y0 := physics.position(scene.world, scene.mover.body).y
+	y0 := physics.position(scene.world, scene.character.body).y
 	peak := run(&scene, 96, {}, 2)
 	// v²/2g with gravity scale 1.5: 1.66 m (the pogo adds a little at take-off).
 	testing.expectf(t, peak - y0 > 1.3 && peak - y0 < 2.2, "jump height %v", peak - y0)
 	run(&scene, 64)
-	testing.expect(t, physics.mover_grounded(&scene.mover))
+	testing.expect(t, physics.character_grounded(&scene.character))
 }
 
 @(test)
-mover_climbs_a_step :: proc(t: ^testing.T) {
+character_climbs_a_step :: proc(t: ^testing.T) {
 	scene := solo({0, 1.5, 0})
 	defer physics.destroy(scene.world)
 	box(scene.world, {6, 0.15, 0}, {4, 0.15, 2}) // a 0.3 m step at x = 2
 	run(&scene, 64)
-	y0 := physics.position(scene.world, scene.mover.body).y
+	y0 := physics.position(scene.world, scene.character.body).y
 	run(&scene, 40, {1, 0})
 	run(&scene, 64)
-	pos := physics.position(scene.world, scene.mover.body)
+	pos := physics.position(scene.world, scene.character.body)
 	testing.expectf(t, pos.x > 2.5 && pos.y - y0 > 0.25, "on the step: %v (from y %v)", pos, y0)
 }
 
 @(test)
-mover_slides_off_a_steep_slope :: proc(t: ^testing.T) {
+character_slides_off_a_steep_slope :: proc(t: ^testing.T) {
 	scene := solo({0, 3, 0})
 	defer physics.destroy(scene.world)
 	// 50° about z: (0, 0, sin 25°, cos 25°)
 	box(scene.world, {0, 1, 0}, {3, 0.2, 2}, rot = {0, 0, 0.42261826, 0.90630779})
 	run(&scene, 192)
-	pos := physics.position(scene.world, scene.mover.body)
+	pos := physics.position(scene.world, scene.character.body)
 	testing.expectf(t, pos.x > 1 || pos.x < -1, "still on the slope at %v", pos)
 }
 
 @(test)
-mover_rides_platforms :: proc(t: ^testing.T) {
+character_rides_platforms :: proc(t: ^testing.T) {
 	scene := solo({0, 1.6, 6})
 	defer physics.destroy(scene.world)
 	plat := physics.ref_of(box(scene.world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
@@ -357,75 +386,75 @@ mover_rides_platforms :: proc(t: ^testing.T) {
 	worst: f32 = 0
 	for i in 0 ..< 2 * cycle {
 		physics.drive_kinematic(scene.world, plat, physics.path_sample(&RIG_PATH, u32(i + 1), HZ), HZ)
-		physics.mover_update(scene.world, &scene.mover, &MOVER, {}, false, 1, DT)
+		physics.character_update(scene.world, &scene.character, &CHARACTER, {}, false, 1, DT)
 		step(scene.world)
 		if i > 32 {
 			plat_pos := physics.position(scene.world, plat)
-			mover_pos := physics.position(scene.world, scene.mover.body)
-			gap := max(abs(mover_pos.x - plat_pos.x), abs(mover_pos.z - plat_pos.z))
+			character_pos := physics.position(scene.world, scene.character.body)
+			gap := max(abs(character_pos.x - plat_pos.x), abs(character_pos.z - plat_pos.z))
 			worst = max(worst, gap)
 			testing.expectf(
 				t,
-				mover_pos.y > plat_pos.y + 0.5,
-				"fell off at tick %d: mover %v, platform %v",
+				character_pos.y > plat_pos.y + 0.5,
+				"fell off at tick %d: character %v, platform %v",
 				i,
-				mover_pos,
+				character_pos,
 				plat_pos,
 			)
-			if mover_pos.y <= plat_pos.y + 0.5 do return
+			if character_pos.y <= plat_pos.y + 0.5 do return
 		}
 	}
 	testing.expectf(t, worst < 0.6, "slipped %v m on the platform", worst)
 }
 
 @(test)
-mover_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
+character_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
 	scene := solo({0, 1.5, 0})
 	defer physics.destroy(scene.world)
 	run(&scene, 64)
-	x0 := physics.position(scene.world, scene.mover.body).x
-	// A heavy box (86 kg, about the mover's mass) at 14 m/s: the drive's force cap gives way.
+	x0 := physics.position(scene.world, scene.character.body).x
+	// A heavy box (86 kg, about the character's mass) at 14 m/s: the drive's force cap gives way.
 	thrown := physics.ref_of(
 		box(scene.world, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
 	)
 	physics.set_velocity(scene.world, thrown, {14, 0, 0})
 	run(&scene, 64)
-	pushed := physics.position(scene.world, scene.mover.body).x - x0
+	pushed := physics.position(scene.world, scene.character.body).x - x0
 	testing.expectf(t, pushed > 0.1, "pushed only %v m", pushed)
 
-	top: physics.Mover
-	physics.mover_create(
+	top: physics.Character
+	physics.character_create(
 		scene.world,
 		&top,
-		&MOVER,
-		physics.position(scene.world, scene.mover.body) + [3]f32{0, 2.2, 0},
+		&CHARACTER,
+		physics.position(scene.world, scene.character.body) + [3]f32{0, 2.2, 0},
 	)
 	for _ in 0 ..< 160 {
-		physics.mover_update(scene.world, &scene.mover, &MOVER, {}, false, 1, DT)
-		physics.mover_update(scene.world, &top, &MOVER, {}, false, 1, DT)
+		physics.character_update(scene.world, &scene.character, &CHARACTER, {}, false, 1, DT)
+		physics.character_update(scene.world, &top, &CHARACTER, {}, false, 1, DT)
 		step(scene.world)
 	}
-	lo := physics.position(scene.world, scene.mover.body)
+	lo := physics.position(scene.world, scene.character.body)
 	hi := physics.position(scene.world, top.body)
-	testing.expectf(t, hi.y - lo.y > 1.3, "not standing on the other mover: %v over %v", hi, lo)
-	testing.expect(t, top.ground == physics.link(scene.mover.body))
+	testing.expectf(t, hi.y - lo.y > 1.3, "not standing on the other character: %v over %v", hi, lo)
+	testing.expect(t, top.ground == physics.link(scene.character.body))
 }
 
 @(test)
-mover_limp_and_teleport :: proc(t: ^testing.T) {
+character_limp_and_teleport :: proc(t: ^testing.T) {
 	scene := solo({0, 1.5, 0})
 	defer physics.destroy(scene.world)
 	run(&scene, 64)
-	physics.mover_set_limp(scene.world, &scene.mover, true)
-	testing.expect(t, scene.mover.pogo == {})
+	physics.character_set_limp(scene.world, &scene.character, true)
+	testing.expect(t, scene.character.pogo == {})
 	run(&scene, 64, {1, 0}, 3) // input is ignored while limp
-	testing.expect(t, abs(physics.position(scene.world, scene.mover.body).x) < 0.01)
-	physics.mover_set_limp(scene.world, &scene.mover, false)
-	physics.mover_teleport(scene.world, &scene.mover, {5, 2, 5})
+	testing.expect(t, abs(physics.position(scene.world, scene.character.body).x) < 0.01)
+	physics.character_set_limp(scene.world, &scene.character, false)
+	physics.character_teleport(scene.world, &scene.character, {5, 2, 5})
 	run(&scene, 96)
-	pos := physics.position(scene.world, scene.mover.body)
+	pos := physics.position(scene.world, scene.character.body)
 	testing.expectf(t, abs(pos.x - 5) < 0.01 && abs(pos.z - 5) < 0.01, "teleported to %v", pos)
-	testing.expect(t, physics.mover_grounded(&scene.mover))
+	testing.expect(t, physics.character_grounded(&scene.character))
 }
 
 // ---- queries, events, refs
