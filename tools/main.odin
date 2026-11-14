@@ -1,5 +1,5 @@
 // This repo's CLI (src/cli/SPEC.md): the public commands of unified:cli plus unified's private ones, which no game
-// needs (yet). Run it through the shims, ./unified or unified.cmd.
+// needs (yet). Run it through the shims, ./uni or uni.cmd.
 package main
 
 import "unified:cli"

@@ -143,7 +143,15 @@ print_help :: proc() {
 		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
 		CI_BUDGET_SCALE,
 	)
+	fmt.printf(
+		"Odin: the release pins.cfg pins. The shims (./uni, uni.cmd) use the odin on PATH when it reports the pinned commit, else download that release once into a per-user cache (%s) and put it first on PATH.\n",
+		ODIN_CACHE,
+	)
 }
+
+// Where the shims download the pinned Odin (one directory per tag): per user, shared by every checkout.
+@(private)
+ODIN_CACHE :: "%LOCALAPPDATA%\\unified\\odin" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified/odin"
 
 budget_text :: proc(c: ^Command) -> string {
 	if c.budget > 0 {
