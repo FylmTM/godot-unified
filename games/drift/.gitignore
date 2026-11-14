@@ -3,5 +3,7 @@
 /.godot/
 # The demo games' shared Godot code, mirrored from games/shared by uni before every Godot run.
 /addons/shared/
+# unified's tool scripts (src/godot/tools), mirrored by uni before every Godot run.
+/addons/unified/
 # A background window's no-focus override, written by uni for the run (safe to delete).
 /override.cfg

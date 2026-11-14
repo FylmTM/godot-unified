@@ -343,13 +343,16 @@ restore_front_app :: proc(bundle: string) {
 }
 
 // A tool script by name: the game's game/tools/<name>.gd, else the shared code's tools/<name>.gd when the game uses
-// it ("" when neither has it).
+// it, else unified's (src/godot/tools, mirrored as res://addons/unified/) ("" when none has it).
 tool_script :: proc(game: Game, name: string) -> string {
 	if os.is_file(join(game.dir, "game", "tools", tprint("%s.gd", name))) {
 		return tprint("res://game/tools/%s.gd", name)
 	}
 	if uses_shared(game.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", tprint("%s.gd", name))) {
 		return tprint("res://%s/tools/%s.gd", SHARED_DIR, name)
+	}
+	if os.is_file(join(state.project.unified, TOOLS_SOURCE, tprint("%s.gd", name))) {
+		return tprint("res://%s/%s.gd", TOOLS_DIR, name)
 	}
 	return ""
 }

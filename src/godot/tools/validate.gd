@@ -2,12 +2,15 @@ class_name UnifiedValidate
 extends UnifiedTool
 ## The headless project check, no editor (the godot suite's `validate` step):
 ##   godot --headless -d --path games/<game> -s <this script> -- --no-settings [--frames=N]
-## 1. compiles every script under res://game and res://addons/shared (`-d` makes Godot print GDScript warnings; uni
+## 1. compiles every script under res://game and res://addons (`-d` makes Godot print GDScript warnings; uni
 ## fails on them), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
-const ROOTS: Array[String] = ["res://game", "res://addons/shared"]
+## Also: no preload() in the scripts the play scene loads (the Game autoload's PLAY_SCENE, else the main scene).
+## unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
+
+const ROOTS: Array[String] = ["res://game", "res://addons"]
 
 
 func _run() -> void:
@@ -49,12 +52,15 @@ func _run() -> void:
 		"ms": {"scripts": _ms(t1 - t0), "resources": _ms(t2 - t1), "run": _ms(Time.get_ticks_usec() - t3)}}
 
 
-## The scripts the play scene loads (its scenes' scripts, recursively) use no preload(): the main menu loads the
-## play scene on a thread, and in Godot 4.7 a resource a script first preloads on a worker thread leaks at exit
-## (games/shared/SPEC.md, Play scene). They load() what they need when they need it.
+## The scripts the play scene loads (its scenes' scripts, recursively) use no preload(): a play scene loaded on a
+## worker thread (the demo games' menu does) leaks, in Godot 4.7, a resource a script first preloads there at exit.
+## They load() what they need when they need it.
 func _check_play_scene_preloads() -> void:
 	var seen := {}
-	var todo: Array[String] = [game.PLAY_SCENE]
+	var play_scene: String = ProjectSettings.get_setting("application/run/main_scene")
+	if game != null and &"PLAY_SCENE" in game:
+		play_scene = game.get(&"PLAY_SCENE")
+	var todo: Array[String] = [play_scene]
 	while not todo.is_empty():
 		var path: String = todo.pop_back()
 		if seen.has(path):
@@ -101,6 +107,8 @@ static func _ms(usec: int) -> int:
 
 
 static func _walk(dir: String, out: Array[String]) -> void:
+	if not DirAccess.dir_exists_absolute(dir):
+		return
 	for f in DirAccess.get_files_at(dir):
 		out.append(dir.path_join(f))
 	for d in DirAccess.get_directories_at(dir):

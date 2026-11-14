@@ -1,5 +1,5 @@
-// godot_host without Godot: the session driver (its thread, frames, events, statuses, transports) installed
-// with the toy game, and the dev UI's switchable netsim link. The Godot-facing classes run under headless
+// unified:godot without Godot: the session driver (its thread, frames, previous poses, the input hand-off, events,
+// statuses, transports) installed with the toy game, and the dev UI's switchable netsim link. The Godot-facing classes run under headless
 // Godot (the godot suite's `session` step, tests/godot, tests/godot_views).
 package test_godot_driver
 
@@ -17,8 +17,8 @@ import "../toy"
 
 @(private = "file")
 seen: struct {
-	pressed:   u32, // button edges the sample hook received (atomic)
-	extracted: int, // frames extracted (atomic)
+	dx:        i8, // what the main thread samples (atomic: the test's main thread sets it)
+	extracted: int, // frames filled (atomic)
 	bumps:     u32, // the local player's bump commands applied, in the last frame (atomic)
 	bump_fold: u32,
 	pumps:     int,
@@ -27,31 +27,40 @@ seen: struct {
 }
 
 @(private = "file")
-GLUE := godot.Glue(toy.State, toy.Input, toy.World) {
-	scenes = {{name = "dot"}},
-	scene_dir = "res://views",
-	actions = {buttons = {"spawn"}},
-	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^godot.Frame) {
+View :: enum u8 {
+	Dot,
+}
+
+@(private = "file")
+Multi :: enum u8 {
+	Spark,
+}
+
+@(private = "file")
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, Multi) {
+	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
+	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, Multi)) {
+		state := frame.state
 		for player in 0 ..< toy.PLAYERS {
-			if !current.joined[player] do continue
-			out.scene[out.n_scene] = {
-				key    = view.Key(1 + player),
-				player = i8(player),
-				pos    = {current.pos[player].x, 0, current.pos[player].y},
-			}
-			out.n_scene += 1
+			if !state.joined[player] do continue
+			godot.push_view(
+				frame,
+				{
+					key = view.Key(1 + player),
+					kind = .Dot,
+					player = player,
+					pos = {state.pos[player].x, 0, state.pos[player].y},
+				},
+			)
+			godot.push_multi(frame, {key = u64(1 + player), kind = .Spark, pos = {state.pos[player].x, 1, 0}})
 		}
-		sync.atomic_store(&seen.bumps, current.bumps[0])
-		sync.atomic_store(&seen.bump_fold, current.bump_fold[0])
+		sync.atomic_store(&seen.bumps, state.bumps[0])
+		sync.atomic_store(&seen.bump_fold, state.bump_fold[0])
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
 	event_pos = proc(position: sim.Position, world: ^toy.World) -> sim.Position {
 		return {position.x * 10, position.y * 10, position.z * 10 + 1}
-	},
-	poll_input = proc(actions: godot.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-		sync.atomic_or(&seen.pressed, actions.pressed)
-		return {dx = 1, buttons = u8(actions.pressed & 1)}
 	},
 }
 
@@ -105,54 +114,57 @@ is_result :: proc(message: godot.Message) -> bool {return message.kind == .Resul
 driver_sessions :: proc(t: ^testing.T) {
 	godot.install(&toy.GAME, GLUE)
 	testing.expect(t, godot.api.installed)
-	testing.expect_value(t, godot.api.scene_dir, "res://views")
+	testing.expect_value(t, len(godot.api.view_names), 1)
+	if len(godot.api.view_names) == 1 do testing.expect_value(t, godot.api.view_names[0], "dot")
 	testing.expect_value(t, godot.api.tick_hz, toy.HZ)
 
-	// Single player, 40 ticks: connected, frames published, a pressed button reaches sample once,
-	// commands sent from the main thread reach the sim once each, in order, verified events confirmed, a
-	// result at the end.
+	// Single player, 40 ticks: connected, frames published with the previous poses the host remembered, the
+	// main thread's input sample reaches the sim, commands sent from the main thread reach the sim once each, in
+	// order, verified events confirmed, a result at the end.
 	{
 		testing.expect(t, !godot.api.send({}), "no session: nothing to send to")
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
+		sync.atomic_store(&seen.dx, 1)
+		godot.api.sample_input()
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo", scripted = false})
 		testing.expect(t, ok, err)
-		godot.press_button(0)
+		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
 			command, _ := sim.command_make(toy.Command, toy.Cmd_Bump{amount})
 			testing.expect(t, godot.api.send(command))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
-		connected, joined, spawned := false, false, false
+		connected, joined := false, false
 		for &message in messages {
 			if message.kind == .Status && message.status == .Connected do connected = true
 			if message.kind != .Event do continue
 			switch event in sim.event_value(&message.event, toy.Event) {
 			case toy.Joined:
 				if message.action == .Confirmed do joined = true
-			case toy.Spawned:
-				// the sim emits {x, 0, y} with y = 0 and x > 0: event_pos made it {10x, 0, 1}
-				spawned = true
-				testing.expectf(
-					t,
-					event.position.z == 1 && event.position.x > 0,
-					"event_pos applied: %v",
-					event.position,
-				)
-			case toy.Left, toy.Expired:
+			case toy.Spawned, toy.Left, toy.Expired:
 			}
 		}
-		testing.expect(t, spawned, "the press spawned a thing, its event posted")
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		frame, _ := godot.api.front()
 		testing.expect(
 			t,
-			frame != nil && frame.n_scene == 1 && frame.local_player == 0,
+			frame != nil && frame.n_views == 1 && frame.n_multis == 1 && frame.local_player == 0,
 			"the last frame shows the player",
 		)
 		testing.expect(t, frame != nil && frame.tick >= 39, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
-		testing.expect_value(t, sync.atomic_load(&seen.pressed), 1) // exactly the one press, once
+		if frame != nil && frame.n_views == 1 && frame.n_multis == 1 {
+			// the sampled dx moved the dot every tick; the host remembered where it was one tick earlier
+			dot, spark := frame.views[0], frame.multis[0]
+			testing.expectf(t, dot.has_prev && dot.pos.x > dot.prev_pos.x, "a view's previous pose: %v", dot)
+			testing.expectf(
+				t,
+				spark.has_prev && spark.pos.x > spark.prev_pos.x,
+				"an instance's previous pose: %v",
+				spark,
+			)
+		}
 		testing.expect_value(t, sync.atomic_load(&seen.bumps), 3)
 		testing.expect_value(
 			t,

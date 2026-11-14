@@ -10,6 +10,9 @@ import "core:strings"
 
 SHARED_SOURCE :: "games/shared"
 SHARED_DIR :: "addons/shared"
+// unified's library tooling (src/godot/SPEC.md): the tool base and the validate step, mirrored into every game.
+TOOLS_SOURCE :: "src/godot/tools"
+TOOLS_DIR :: "addons/unified"
 // What the mirror wrote last (path and SHA-256 per file), to tell an in-place edit from a stale copy.
 SHARED_STAMP :: ".unified_mirror"
 
@@ -25,11 +28,18 @@ uses_shared :: proc(dir: string) -> bool {
 // change belongs in games/shared. A .uid file Godot wrote for a new shared script is copied back, so it is committed
 // and every game shares the UID. The SPEC.md stays behind.
 sync_shared :: proc(dir: string) {
-	if !uses_shared(dir) {
-		return
+	if uses_shared(dir) {
+		mirror_tree(join(state.project.root, SHARED_SOURCE), join(dir, SHARED_DIR), SHARED_SOURCE)
 	}
-	src := join(state.project.root, SHARED_SOURCE)
-	dst := join(dir, SHARED_DIR)
+	// every game (a Godot project with game/): unified's tool scripts
+	if os.is_directory(join(dir, "game")) {
+		mirror_tree(join(state.project.unified, TOOLS_SOURCE), join(dir, TOOLS_DIR), TOOLS_SOURCE)
+	}
+}
+
+// Brings `dst` in line with `src` (see sync_shared); `label` names the source in messages.
+@(private = "file")
+mirror_tree :: proc(src, dst, label: string) {
 	stamp := join(dst, SHARED_STAMP)
 	last := make(map[string]string, context.temp_allocator)
 	if text, ok := read_text(stamp); ok {
@@ -54,7 +64,7 @@ sync_shared :: proc(dir: string) {
 				fatal(
 					"%s was edited in place: make the change in %s/%s (uni overwrites the copy), then delete the copy",
 					rel_path(file),
-					SHARED_SOURCE,
+					label,
 					relative,
 				)
 			}
@@ -62,7 +72,7 @@ sync_shared :: proc(dir: string) {
 		   os.is_file(join(src, strings.trim_suffix(relative, ".uid"))) &&
 		   !os.is_file(join(src, relative)) {
 			copy_file(join(src, relative), file)
-			log("uni: %s/%s: the UID Godot gave a new shared script (commit it)", SHARED_SOURCE, relative)
+			log("uni: %s/%s: the UID Godot gave a new shared script (commit it)", label, relative)
 		}
 	}
 	builder := strings.builder_make()
@@ -98,7 +108,7 @@ sync_shared :: proc(dir: string) {
 		write_text(stamp, strings.to_string(builder))
 	}
 	if changed > 0 {
-		log("uni: %s: the shared Godot code mirrored (%d file(s) changed)", rel_path(dst), changed)
+		log("uni: %s: %s mirrored (%d file(s) changed)", rel_path(dst), label, changed)
 	}
 }
 

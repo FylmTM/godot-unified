@@ -37,6 +37,24 @@ Inputs :: struct($Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <=
 	commands:      [TICK_COMMANDS]Raw_Command, // ordered by player, each player's in the order sent (sim.commands)
 }
 
+// Who joined and who left since the last tick: compares this tick's presence with `present`, a Players field the
+// game keeps in its State, and updates it. The game emits its own events from the two sets.
+//
+//   joined, left := sim.presence_changes(tick, &state.present)
+//   for player in joined do sim.emit(tick, Joined{player = u8(player)})
+presence_changes :: proc(
+	tick: ^Tick($State, $Input, $World, $PLAYERS),
+	present: ^Players,
+) -> (
+	joined: Players,
+	left: Players,
+) {
+	now := tick.inputs.present
+	joined, left = now - present^, present^ - now
+	present^ = now
+	return
+}
+
 // What `tick` gets: the harness builds one for each step. Per-tick helpers that need more than the
 // block take it (emit, roll_below).
 Tick :: struct($State, $Input, $World: typeid, $PLAYERS: int) {

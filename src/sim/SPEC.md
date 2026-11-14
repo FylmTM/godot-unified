@@ -51,7 +51,9 @@ take `tick` or narrower arguments, as the game prefers. Odin's implicit `context
 `Inputs(Input, PLAYERS) = {present: Players, replaced: Players, input: [PLAYERS]Input, commands}`. `present` (a
 `bit_set[0 ..< 32; u32]`) is who is in the game this tick: joining and leaving are presence changes the relay
 decides, never flags in `Input`. `replaced` marks inputs the relay substituted (informational). `inputs_same(a, b)`:
-same presence, input bytes and commands.
+same presence, input bytes and commands. `joined, left := presence_changes(tick, &state.present)` (#9's T6) compares this
+tick's presence with a `Players` field the game keeps in its State and updates it: the game emits its own join and
+leave events from the two sets.
 
 ## Commands
 

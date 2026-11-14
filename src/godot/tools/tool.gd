@@ -7,15 +7,20 @@ extends SceneTree
 ## A script overrides `_run()` (a coroutine, started on the first frame, once the autoloads exist), reports with
 ## `step()`, `expect()` and `fail()`, and may `finish()` early. A failure ends the run at once: every wait returns
 ## and every input helper does nothing after it. The result carries `ok`, `ms`, `steps`, `failed`, `errors` and
-## what the script adds to `result`. The run ends through the game's own quit (Game.quit_app).
+## what the script adds to `result`. The run ends through the game's own quit when it has a Game autoload with
+## `quit_app` (the demo games'), else `quit()`. unified's library tooling (src/godot/SPEC.md), mirrored into every
+## game as res://addons/unified/; the few helpers that name the demo games' menus (`menu`, `click_menu`,
+## `player_names`, `setting`) only work in a game that has them.
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
 ## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run) and `--frames` (frame times and first-use hitches,
 ## UnifiedFrameLog; a script tags its own moments with `frame_tag()`).
 
-## The Game autoload (a UnifiedGame). Untyped on purpose: a `-s` script compiles before the autoloads exist, so it
-## names no script that uses them.
+## The Game autoload, when the game has one (the demo games' UnifiedGame). Untyped on purpose: a `-s` script
+## compiles before the autoloads exist, so it names no script that uses them.
 var game: Node
+## The game's UnifiedSession (the Game autoload's, else the first one in the tree), found when the run starts.
+var session: UnifiedSession
 ## Engine and script errors and warnings, collected in-process.
 var log_capture := UnifiedLogCapture.new()
 ## Where `shot()` saves PNGs (`--shots=<dir>`, a windowed run); empty: no shots.
@@ -127,8 +132,8 @@ func finish() -> void:
 	out.merge(result)
 	print("UNIFIED_RESULT " + JSON.stringify(out))
 	OS.remove_logger(log_capture)
-	if game != null:
-		game.quit_app(0 if ok else 1)
+	if game != null and game.has_method(&"quit_app"):
+		game.call(&"quit_app", 0 if ok else 1)
 	else:
 		quit(0 if ok else 1)
 
@@ -277,25 +282,35 @@ func click_menu(unique_name: String) -> void:
 	await click(find(menu(), "%" + unique_name) as Control)
 
 
-## The views of `kind` under the play scene's Views.
+## The scene views of `kind` (their roots) under the session's view_root.
 func views(kind: StringName) -> Array[Node]:
 	var out: Array[Node] = []
-	var root_views := current_scene.get_node_or_null(^"Views") if current_scene != null else null
-	if root_views != null:
-		for v in root_views.get_children():
-			if str(v.get(&"kind")) == String(kind) and not v.is_queued_for_deletion():
-				out.append(v)
+	var view_root := session.view_root if session != null else null
+	if view_root != null:
+		for v in view_root.get_children():
+			for child in v.get_children():
+				var marker := child as UnifiedView
+				if marker != null and marker.kind == String(kind) and not v.is_queued_for_deletion():
+					out.append(v)
 	return out
 
 
-## The instances a bulk view of `kind` draws (0 without one).
-func bulk_count(kind: StringName) -> int:
-	for n in get_nodes_in_group(&"sim_bulk"):
-		var mmi := n as MultiMeshInstance3D
-		var mm: MultiMesh = mmi.multimesh if mmi != null else (n as MultiMeshInstance2D).multimesh
-		if str(n.get(&"kind")) == String(kind) and mm != null:
-			return mm.visible_instance_count
-	return 0
+## The instances the MultiMesh views of `kind` draw (0 without one).
+func multi_count(kind: StringName) -> int:
+	var count := 0
+	for marker: Node in root.find_children("*", "UnifiedMultiView", true, false):
+		var multi_view := marker as UnifiedMultiView
+		if multi_view.kind != String(kind):
+			continue
+		var parent := multi_view.get_parent()
+		var mm: MultiMesh = null
+		if parent is MultiMeshInstance3D:
+			mm = (parent as MultiMeshInstance3D).multimesh
+		elif parent is MultiMeshInstance2D:
+			mm = (parent as MultiMeshInstance2D).multimesh
+		if mm != null:
+			count += mm.visible_instance_count
+	return count
 
 
 ## A player setting (the Settings autoload's value).
@@ -306,23 +321,22 @@ func setting(key: StringName) -> Variant:
 ## "player:name, ..." of the present players.
 func player_names() -> String:
 	var out: Array[String] = []
-	for p: Dictionary in game.present_players():
-		out.append("%d:%s" % [p.player, game.player_name(p)])
+	for p: Dictionary in game.call(&"present_players"):
+		out.append("%d:%s" % [p.player, game.call(&"player_name", p)])
 	return ", ".join(out)
 
 
 func _start() -> void:
 	game = root.get_node_or_null(^"Game")
-	if game == null:
-		fail("no Game autoload")
-		return
-	if game.session == null:
-		fail("no session: build the game library (uni build)")
-		return
-	if frame_log != null:
-		game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
-			if state == SimEvent.CONFIRMED:
-				frame_tag(event))
+	if game != null:
+		session = game.get(&"session") as UnifiedSession
+	if session == null:
+		var found := root.find_children("*", "UnifiedSession", true, false)
+		session = found[0] as UnifiedSession if not found.is_empty() else null
+	if frame_log != null and session != null:
+		session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
+			if state == UnifiedSession.EVENT_CONFIRMED:
+				frame_tag(event.get_class()))
 		# A window that loses focus or gets covered can stall a frame in the driver: tag it, not to blame the game.
 		root.focus_entered.connect(frame_tag.bind("window focused"))
 		root.focus_exited.connect(frame_tag.bind("window unfocused"))

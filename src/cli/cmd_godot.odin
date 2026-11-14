@@ -64,12 +64,12 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 		}
 		if want(only, "bake") {
+			start := time.tick_now()
+			baked := bake_view_index(game, check = true)
 			if os.is_directory(join(game.dir, "game", "levels")) {
-				result := bake(game, check = true)
-				ok = pass(game, "bake", result.ok, result.seconds) && ok
-			} else {
-				skip(game, "bake", "no game/levels")
+				baked = bake(game, check = true).ok && baked
 			}
+			ok = pass(game, "bake", baked, seconds_since(start)) && ok
 		}
 		Script_Step :: struct {
 			step, script: string,
@@ -598,28 +598,94 @@ cmd_coop :: proc(args: []string) -> Result {
 @(private)
 cmd_bake :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game:  string `args:"pos=0" usage:"a game (default: every game with game/levels)"`,
-		check: bool `usage:"write nothing; fail when a .level file is stale"`,
+		game:  string `args:"pos=0" usage:"a game (default: every game)"`,
+		check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
 	}
 	opts: Opts
 	parse(&opts, args)
 	ok := true
 	count := 0
 	for game in games_or_all(opts.game) {
-		if !os.is_directory(join(game.dir, "game", "levels")) {
-			if opts.game != "" {
-				usage("%s has no game/levels", game.name)
-			}
-			continue
+		ok = bake_view_index(game, opts.check) && ok
+		if os.is_directory(join(game.dir, "game", "levels")) {
+			ok = bake(game, opts.check).ok && ok
 		}
-		result := bake(game, opts.check)
-		ok = ok && result.ok
 		count += 1
 	}
 	return {
 		ok = ok,
 		summary = tprint("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
 	}
+}
+
+VIEW_INDEX :: "unified_index.tres"
+
+// The view index (src/godot/SPEC.md): every scene of the game whose root has a UnifiedView marker as a direct child,
+// by the marker's kind, written to <game>/unified_index.tres (committed; `check`: fail when it is stale instead). A
+// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line.
+bake_view_index :: proc(game: Game, check: bool) -> bool {
+	Found :: struct {
+		kind, path: string,
+	}
+	found: [dynamic]Found
+	ok := true
+	for file in find_files(game.dir, ".tscn") {
+		rel_path := strings.trim_prefix(file[len(game.dir):], "/")
+		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
+		if strings.has_prefix(rel_path, "addons/") do continue
+		text, read := read_text(file)
+		if !read do continue
+		in_marker := false
+		for raw_line in strings.split_lines(text) {
+			line := strings.trim_space(raw_line)
+			if strings.has_prefix(line, "[") {
+				in_marker = strings.has_prefix(line, "[node ") && strings.contains(line, `type="UnifiedView"`)
+				if in_marker && !strings.contains(line, `parent="."`) {
+					log("uni: %s: a UnifiedView must be a direct child of the scene's root", rel_path)
+					ok = false
+					in_marker = false
+				}
+				continue
+			}
+			if !in_marker || !strings.has_prefix(line, "kind = ") do continue
+			kind := strings.trim_prefix(strings.trim_prefix(line, "kind = "), "&")
+			kind = strings.trim_suffix(strings.trim_prefix(kind, `"`), `"`)
+			if kind == "" {
+				log("uni: %s: its UnifiedView has no kind", rel_path)
+				ok = false
+				continue
+			}
+			for earlier in found {
+				if earlier.kind == kind {
+					log("uni: view kind %q is in two scenes: %s and %s", kind, earlier.path, rel_path)
+					ok = false
+				}
+			}
+			append(&found, Found{kind, tprint("res://%s", rel_path)})
+		}
+	}
+	slice.sort_by(found[:], proc(a, b: Found) -> bool {return a.kind < b.kind})
+	builder := strings.builder_make(context.temp_allocator)
+	strings.write_string(&builder, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\nmetadata/views = {\n")
+	for item, i in found {
+		strings.write_string(&builder, tprint("%q: %q%s\n", item.kind, item.path, i + 1 < len(found) ? "," : ""))
+	}
+	strings.write_string(&builder, "}\n")
+	want := strings.to_string(builder)
+	path := join(game.dir, VIEW_INDEX)
+	have, exists := read_text(path)
+	if len(found) == 0 && !exists do return ok
+	if exists && have == want {
+		log("uni: %s view index: %d kind(s), current", game.name, len(found))
+		return ok
+	}
+	if check {
+		log("uni: %s: %s is stale: run `uni bake %s`", game.name, VIEW_INDEX, game.name)
+		return false
+	}
+	write_text(path, want)
+	log("uni: %s view index: %d kind(s) -> %s", game.name, len(found), VIEW_INDEX)
+	return ok
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
