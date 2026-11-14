@@ -133,7 +133,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule, then that game's `build`, `test --suite all` and `verify` |
+| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there, and CI runs it on every platform), `init` a game outside it with the clone as its submodule, then that game's `build`, `test --suite all` and `verify` |
 
 ## Line endings
 

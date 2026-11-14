@@ -123,6 +123,10 @@ jobs:
         run: $UNI test --suite net
       - name: bench (release build; reported in the summary, not gated)
         run: $UNI bench
+      # A fresh clone's shim with no pinned Odin to find and an empty cache: the newcomer's first run (download,
+      # SHA-256 check, unpack, CLI build) on each platform this job runs on.
+      - name: selftest --shims (the shims' Odin download)
+        run: $UNI selftest --shims
       - name: Summary
         if: always()
         run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
