@@ -1,6 +1,6 @@
-// Sessions on the virtual clock that check what the #8 sitting decided: a desync is detected and reported to
-// everyone with a typed detail (D5), inputs keep counting past the round-trip ceiling (D4), the input delay stays
-// at the game's floor while the round trip fits the window (D3).
+// Sessions on the virtual clock that check the netcode's policies end to end: a desync is detected and reported
+// to everyone with a typed detail, inputs keep counting past the round-trip ceiling, the input delay stays at the
+// game's floor while the round trip fits the window.
 package test_headless
 
 import "core:strings"
