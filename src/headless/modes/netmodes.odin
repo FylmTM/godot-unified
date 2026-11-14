@@ -1,13 +1,15 @@
 package modes
 
-import "core:fmt"
-import cnet "core:net"
-import "core:strconv"
-import "core:strings"
+// Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that
+// instantiates only some modes (the tests run the online modes alone).
+@(require) import "core:fmt"
+@(require) import cnet "core:net"
+@(require) import "core:strconv"
+@(require) import "core:strings"
 
 import uheadless "unified:headless"
 import "unified:netcode"
-import "unified:sim"
+@(require) import "unified:sim"
 
 
 profile_opt :: proc(args: ^Args) -> netcode.Profile {

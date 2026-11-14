@@ -54,7 +54,9 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   inputs the relay replaced (they came too late), when the relay's last message arrived.
 - **Host** (`host_create(&GAME, cfg, hooks)`, `host_add_link`, `host_step`, `host_stop`, `host_finished`,
   `host_destroy`): relay + the host's own client (player 0) joined by loopback. Single player is a host with no remote
-  links. Remote players reach the relay through any added link; the relay serves all links at once.
+  links. Remote players reach the relay through any added link; the relay serves all links at once, from when the
+  host's own player is in (so a remote player whose Hello was already waiting joins as a late joiner, never as
+  player 0). The host's relay starts its clock without the start lead (`local_start`).
 
 ## Hooks (called from `client_step`, on the caller's thread)
 

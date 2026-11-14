@@ -3,8 +3,9 @@
 // Every mode prints one JSON object as its last stdout line; a non-zero exit code means failure.
 package modes
 
-import "core:fmt"
-import "core:os"
+// Used only inside generic procs (see netmodes.odin).
+@(require) import "core:fmt"
+@(require) import "core:os"
 
 // Imported as `uheadless`: the modes name their Headless parameter `headless`.
 import uheadless "unified:headless"

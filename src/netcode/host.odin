@@ -17,9 +17,10 @@ Host_Config :: struct {
 }
 
 Host :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	relay:  ^Relay(Input, PLAYERS),
-	client: ^Client(State, Input, World, PLAYERS),
-	hub:    ^Hub,
+	relay:   ^Relay(Input, PLAYERS),
+	client:  ^Client(State, Input, World, PLAYERS),
+	hub:     ^Hub,
+	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
 }
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
@@ -59,15 +60,28 @@ host_create :: proc(
 	return host
 }
 
-// Adds a transport for remote players (the relay owns it from now on).
-host_add_link :: proc(host: ^Host($State, $Input, $World, $PLAYERS), link: Link) -> int {
-	return relay_add_link(host.relay, link)
+// Adds a transport for remote players (the host owns it from now on). The relay serves it once the host's
+// own player is in (its clock started), so a remote Hello already waiting on the link (a player who connected
+// while the host waited for them) joins as a remote player instead of taking the host's player 0.
+host_add_link :: proc(host: ^Host($State, $Input, $World, $PLAYERS), link: Link) {
+	if host.relay.started {
+		relay_add_link(host.relay, link)
+	} else {
+		append(&host.waiting, link)
+	}
 }
 
 // Steps the relay and the host's client; returns the earlier of their wake times.
 host_step :: proc(host: ^Host($State, $Input, $World, $PLAYERS), now: i64) -> i64 {
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
+	if host.relay.started && len(host.waiting) > 0 {
+		for link in host.waiting {
+			relay_add_link(host.relay, link)
+		}
+		clear(&host.waiting)
+		relay_wake = now // serve them at once
+	}
 	return min(relay_wake, client_wake)
 }
 
@@ -82,6 +96,10 @@ host_finished :: proc(host: ^Host($State, $Input, $World, $PLAYERS)) -> bool {
 }
 
 host_destroy :: proc(host: ^Host($State, $Input, $World, $PLAYERS)) {
+	for &link in host.waiting {
+		link_close(&link)
+	}
+	delete(host.waiting)
 	client_destroy(host.client)
 	relay_destroy(host.relay)
 	hub_destroy(host.hub)
