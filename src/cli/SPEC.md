@@ -93,7 +93,7 @@ compile, the compiler's version), never from tool sources.
 Every command rejects unknown arguments; `-h` on any command prints its options and budget; `uni help` lists them
 all. Progress goes to stderr, the result to stdout: one line, or with `--json` (any command) one object
 `{command, ok, summary, seconds, cold, data}`. Exit 0 ok, 1 failed, 2 usage. A warm run over its budget prints
-`OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, or imported a project) is
+`OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, generated the Godot bindings, or imported a project) is
 exempt and says so. Commands that need a game library or headless binary rebuild it when its build manifest is
 stale; `build` always builds.
 
@@ -125,7 +125,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule, then that game's `build`, `test --suite all` and `verify` |
+| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), `test --suite all` and `verify` |
 
 ## Local settings
 

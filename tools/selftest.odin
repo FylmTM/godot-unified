@@ -40,10 +40,11 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		return cmd[:]
 	}
 	Step :: struct {
-		what:  string,
-		cmd:   []string,
-		dir:   string,
-		check: proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
+		what:   string,
+		cmd:    []string,
+		dir:    string,
+		check:  proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
+		expect: string, // what cmd's stdout must contain (it runs with --json)
 	}
 	steps := []Step {
 		{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone)},
@@ -54,7 +55,8 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			dir = work,
 			check = check_init,
 		},
-		{what = "build the game", cmd = shim(game, "build"), dir = game},
+		// the first build generates the Godot bindings: a cold run, not one over its budget
+		{what = "build the game", cmd = shim(game, "build", "--json"), dir = game, expect = `"Godot bindings"`},
 		{what = "every test suite of the game", cmd = shim(game, "test", "--suite", "all"), dir = game},
 		{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game},
 	}
@@ -62,7 +64,10 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	for s in steps {
 		t := time.tick_now()
 		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = env})
+		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = env, capture = s.expect != ""})
+		if s.expect != "" {
+			cli.log("%s%s", r.stderr, r.stdout)
+		}
 		if !r.ok {
 			return {
 				ok = false,
@@ -73,6 +78,9 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 					cli.rel(work),
 				),
 			}
+		}
+		if s.expect != "" && !strings.contains(r.stdout, s.expect) {
+			return {ok = false, summary = cli.tprint("selftest: %s: its output has no %s", s.what, s.expect)}
 		}
 		if s.check != nil {
 			if problem := s.check(game, head); problem != "" {

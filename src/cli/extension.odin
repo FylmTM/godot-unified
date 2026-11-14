@@ -7,6 +7,7 @@ import "core:time"
 
 // The Godot bindings (src/gdext/*.gen.odin), generated from the committed API dump: no Godot needed. Skipped when
 // the inputs (api/*.json, bindings.txt, the generator's source) hash the same as last time and the outputs exist.
+// Generating them is first-time work (a fresh checkout or game repo, a Godot upgrade): it makes the run cold.
 ensure_bindings :: proc(force := false) {
 	gdext := join(state.project.unified, "src", "gdext")
 	inputs: [dynamic]string
@@ -27,6 +28,7 @@ ensure_bindings :: proc(force := false) {
 	if !force && stamp_ok(stamp, key) && os.is_file(outputs[0]) && os.is_file(outputs[1]) {
 		return
 	}
+	cold("Godot bindings")
 	start := time.tick_now()
 	make_dirs(join(gdext, "gdi"))
 	make_dirs(out)
