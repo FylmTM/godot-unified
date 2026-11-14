@@ -97,32 +97,32 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 
 
 ## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
-func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
-	if state != SimEvent.EMITTED:
+func _sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_EMITTED:
 		return
 	var local := player == Game.local_player()
-	match event:
-		&"jumped":
+	match event.kind:
+		"jumped":
 			_squash = -0.6
 			Sfx.play(&"pop", -6.0, 1.4)
-		&"launched":
+		"launched":
 			_squash = -1.0
 			Sfx.play(&"start", -2.0, 1.6)
-		&"grabbed":
+		"grabbed":
 			Sfx.play(&"click", -2.0, 1.3)
-		&"dropped":
+		"dropped":
 			Sfx.play(&"click", -4.0, 0.8)
-		&"thrown":
+		"thrown":
 			Sfx.play(&"pop", 0.0, 0.8)
-		&"hit":
+		"hit":
 			_squash = 0.8
 			Sfx.play(&"hit")
 			if local:
 				Game.rumble(0.4, 0.6, 0.25)
-		&"broke_free":
+		"broke_free":
 			Sfx.play(&"pop", 0.0, 1.8)
-		&"fell":
+		"fell":
 			Sfx.play(&"die", -3.0)
-		&"respawned":
+		"respawned":
 			_squash = 0.5
 			Sfx.play(&"respawn", -4.0)

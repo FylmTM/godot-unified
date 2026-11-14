@@ -63,22 +63,26 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var h := Game.hud
 	var phase: String = h.get("phase", "hub")
+	var checkpoint: int = h.get("checkpoint", -1)
+	var run_s: float = h.get("run_s", 0.0)
+	var reset_in_s: float = h.get("reset_in_s", 0.0)
+	var best_s: float = h.get("best_s", 0.0)
 	match phase:
 		"run":
-			_phase.text = "RUN  ·  checkpoint %d" % maxi(int(h.get("checkpoint", -1)), 0)
-			_timer.text = _time(h.get("run_s", 0.0))
+			_phase.text = "RUN  ·  checkpoint %d" % maxi(checkpoint, 0)
+			_timer.text = _time(run_s)
 		"finished":
-			_phase.text = "FINISHED  ·  back to the hub in %d" % ceili(h.get("reset_in_s", 0.0))
-			_timer.text = _time(h.get("run_s", 0.0))
+			_phase.text = "FINISHED  ·  back to the hub in %d" % ceili(reset_in_s)
+			_timer.text = _time(run_s)
 		_:
 			_phase.text = "HUB"
 			_timer.text = ""
-	var best := _best_time(h.get("best_s", 0.0))
+	var best := _best_time(best_s)
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
 	_session.refresh(_session_rows(), phase == "hub", "Walk through the start gate to start the run.")
 
 	var me := Game.local_player_info()
-	var holding := int(me.get("holding", 0)) != 0
+	var holding: bool = me.get("holding", &"none") != &"none"
 	var held: bool = me.get("held", false)
 	_charge.value = me.get("charge", 0.0)
 	_charge.visible = holding and _charge.value > 0.0
@@ -130,20 +134,19 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 
 
 ## Verified events only (as the banners always were).
-func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
-	if state != SimEvent.CONFIRMED:
+func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	match event:
-		&"run_started":
-			_show_banner("GO!", 1.5)
-		&"checkpoint":
-			_show_banner("Checkpoint %d" % data.index, 1.5)
-		&"run_finished":
-			var seconds: float = data.seconds
-			_show_banner("Finished in %s" % _time(seconds), 4.0)
-			var saved: float = Settings.get_value(&"best_time")
-			if saved <= 0.0 or seconds < saved:
-				Settings.set_value(&"best_time", seconds)
+	if event is RunStarted:
+		_show_banner("GO!", 1.5)
+	elif event is Checkpoint:
+		_show_banner("Checkpoint %d" % (event as Checkpoint).index, 1.5)
+	elif event is RunFinished:
+		var seconds := (event as RunFinished).seconds
+		_show_banner("Finished in %s" % _time(seconds), 4.0)
+		var saved: float = Settings.get_value(&"best_time")
+		if saved <= 0.0 or seconds < saved:
+			Settings.set_value(&"best_time", seconds)
 
 
 ## Places a control at `rect` relative to the screen centre.

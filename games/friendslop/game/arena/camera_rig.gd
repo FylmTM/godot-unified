@@ -2,7 +2,7 @@ class_name CameraRig
 extends Node3D
 ## The third-person orbit camera behind the local player: the mouse (captured while playing) or the right stick turn
 ## it, it pulls in when the level is in the way, and every frame it tells the session where it looks
-## (UnifiedSession.set_input_vector: 0 = the look direction, 1 = flat right), which the input sampler turns into
+## (UnifiedSession.set_input_value: &"look" = the look direction, &"right" = flat right), which the input sampler turns into
 ## camera-relative movement and the aim.
 
 const DISTANCE := 6.0
@@ -40,14 +40,15 @@ func _process(delta: float) -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(
 		PhysicsRayQueryParameters3D.create(_pivot, _pivot - dir * DISTANCE))
 	if not hit.is_empty():
-		dist = maxf(_pivot.distance_to(hit.position) - 0.3, 1.0)
+		var hit_at: Vector3 = hit.position
+		dist = maxf(_pivot.distance_to(hit_at) - 0.3, 1.0)
 	global_position = _pivot - dir * dist
 	_shake = move_toward(_shake, 0.0, delta * 0.8)
 	var jitter := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), 0) * _shake * 0.3
 	_camera.global_position = global_position + global_transform.basis * jitter
 	_camera.look_at(_pivot + dir * 2.0, Vector3.UP)
-	Game.session.set_input_vector(0, dir)
-	Game.session.set_input_vector(1, Vector3(-cos(yaw), 0, sin(yaw)))  # flat right of `dir`
+	Game.session.set_input_value(&"look", dir)
+	Game.session.set_input_value(&"right", Vector3(-cos(yaw), 0, sin(yaw)))  # flat right of `dir`
 
 
 func _unhandled_input(event: InputEvent) -> void:

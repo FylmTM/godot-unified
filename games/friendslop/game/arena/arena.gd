@@ -40,23 +40,23 @@ func local_player_view() -> GameView:
 
 
 ## Verified events only (predictions are the views' business).
-func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
-	if state != SimEvent.CONFIRMED:
+func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	match event:
-		&"run_started":
+	match event.kind:
+		"run_started":
 			Sfx.play(&"start")
-		&"run_finished":
+		"run_finished":
 			Sfx.play(&"level")
-		&"checkpoint":
+		"checkpoint":
 			Sfx.play(&"respawn")
-		&"bell_rung":
+		"bell_rung":
 			Sfx.play(&"gem", 2.0, 0.6)
-		&"plate_on", &"switch_on":
+		"plate_on", "switch_on":
 			Sfx.play(&"click", 0.0, 0.7)
-		&"plate_off":
+		"plate_off":
 			Sfx.play(&"click", -4.0, 0.5)
-		&"hit":
-			var at: Vector3 = data.position
-			if at.distance_to(camera_rig.global_position) < 18.0:
-				camera_rig.shake(0.25 if data.speed > 7.0 else 0.15)
+		"hit":
+			var hit := event as Hit
+			if hit.position.distance_to(camera_rig.global_position) < 18.0:
+				camera_rig.shake(0.25 if hit.speed > 7.0 else 0.15)

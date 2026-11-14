@@ -1,5 +1,5 @@
 // friendslop's GDExtension (game/friendslop.gdextension -> .out/bin/libfriendslop.*): the friendslop sim run by
-// unified:godot_host, plus the game's glue: views, the HUD, and how the InputMap and the camera become an Input.
+// unified:godot, plus the game's glue: views, the HUD view, and how the InputMap and the camera become an Input.
 // Built by `uni build friendslop`.
 package friendslop_extension
 
@@ -30,7 +30,7 @@ friendslop_init :: proc "c" (
 	return godot.entry(gpa, lib, init)
 }
 
-// ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
+// ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
 BUCKET :: "friendslop/5"
@@ -67,37 +67,34 @@ EOS_TRANSPORT := godot.Transport {
 	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
 
-// ---- glue
+/// ---- glue
 
-// Scene views (res://game/views/<kind>.tscn). Every sim object the level placed (items, platforms, bells, plates,
-// switches) is a "marker" view: entity = its level marker index + 1 (the `entity` of its events), and the view
-// adopts that marker's visuals.
-SCENE_PLAYER :: 0
-SCENE_MARKER :: 1
+// Scene views (the view index: a scene per kind, with a UnifiedView marker). Every sim object the level placed
+// (items, platforms, bells, plates, switches) is a `marker` view: entity = its level marker index + 1 (the
+// `entity` of its events), and the view adopts that marker's visuals. The HUD view feeds Game.hud.
+View :: enum u8 {
+	Player,
+	Marker,
+	Hud,
+}
 
-BUTTON_JUMP :: 0
-BUTTON_GRAB :: 1
-BUTTON_THROW :: 2
+// No MultiMesh views.
+Multi :: enum u8 {}
 
-// Input vectors the camera sets (UnifiedSession.set_input_vector): its look direction and its flat right.
-VECTOR_LOOK :: 0
-VECTOR_RIGHT :: 1
+Frame :: godot.Frame(fs.State, fs.World, View, Multi)
 
-GLUE := godot.Glue(fs.State, fs.Input, fs.World) {
-	scenes = {{"player", Player_View}, {name = "marker"}},
-	scene_dir = "res://game/views",
-	actions = {move = {"move_left", "move_right", "move_forward", "move_back"}, buttons = {"jump", "grab", "throw"}},
-	extract = extract,
-	poll_input = poll_input,
+GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, Multi) {
+	sample_input   = sample_input,
+	fill_frame     = fill_frame,
 	scripted_input = fs.scripted_input,
-	hud = hud,
-	constants = constants,
-	event_key = event_key,
-	level = "res://game/levels/park.level",
+	constants      = constants,
+	event_key      = event_key,
+	level          = "res://game/levels/park.level",
 }
 
 PLAYER_KEY :: 1 // + player
 MARKER_KEY :: 0x100 // + marker index
+HUD_KEY :: 0x1000
 
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
@@ -114,39 +111,28 @@ event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
 	return 0
 }
 
-// ---- input (session thread): move relative to the camera, aim = the camera's look
+// ---- input (main thread): move relative to the camera, aim = the camera's look
 
-poll_input :: proc(actions: godot.Actions, player: int, tick: u32, state: ^fs.State) -> fs.Input {
-	look := actions.vectors[VECTOR_LOOK]
-	right := actions.vectors[VECTOR_RIGHT]
+// The camera rig sets its look direction and its flat right every frame (UnifiedSession.set_input_value: &"look",
+// &"right"); movement is relative to them. A jump or grab tap shorter than a tick still counts (action_pressed).
+sample_input :: proc(input: ^fs.Input) {
+	look := godot.input_value("look")
+	right := godot.input_value("right")
 	if look == {} do look = {0, 0, -1}
 	if right == {} do right = {1, 0, 0}
 	forward := normalize2({look.x, look.z})
 	flat_right := normalize2({right.x, right.z})
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
-	move_x := flat_right.x * actions.move.x - forward.x * actions.move.y
-	move_z := flat_right.y * actions.move.x - forward.y * actions.move.y
+	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
 	look_length := length3(look)
-	input := fs.Input {
-		move_x = quantize(move_x),
-		move_z = quantize(move_z),
-		aim_x  = quantize(look.x / look_length),
-		aim_y  = quantize(look.y / look_length),
-		aim_z  = quantize(look.z / look_length),
-	}
-	if actions.held & (1 << BUTTON_JUMP) != 0 || actions.pressed & (1 << BUTTON_JUMP) != 0 {
-		input.buttons |= fs.BUTTON_JUMP
-	}
-	if actions.held & (1 << BUTTON_GRAB) != 0 || actions.pressed & (1 << BUTTON_GRAB) != 0 {
-		input.buttons |= fs.BUTTON_GRAB
-	}
-	if actions.held & (1 << BUTTON_THROW) != 0 do input.buttons |= fs.BUTTON_THROW
-	return input
-}
-
-// -1..1 to an i8 axis.
-quantize :: proc(x: f32) -> i8 {
-	return i8(clamp(x, -1, 1) * 127)
+	input.move_x = godot.axis_i8(flat_right.x * move.x - forward.x * move.y)
+	input.move_z = godot.axis_i8(flat_right.y * move.x - forward.y * move.y)
+	input.aim_x = godot.axis_i8(look.x / look_length)
+	input.aim_y = godot.axis_i8(look.y / look_length)
+	input.aim_z = godot.axis_i8(look.z / look_length)
+	if godot.action_held("jump") || godot.action_pressed("jump") do input.buttons |= fs.BUTTON_JUMP
+	if godot.action_held("grab") || godot.action_pressed("grab") do input.buttons |= fs.BUTTON_GRAB
+	if godot.action_held("throw") do input.buttons |= fs.BUTTON_THROW
 }
 
 normalize2 :: proc(v: [2]f32) -> [2]f32 {
@@ -161,26 +147,26 @@ length3 :: proc(v: [3]f32) -> f32 {
 	return length > 1e-6 ? length : 1
 }
 
-// ---- frame extraction (session thread)
+// ---- the frame (session thread)
 
-// The player view's data (Scene_Kind.data): set as its properties when it changes.
+// The player view's data: set as its properties when it changes.
 Player_View :: struct {
 	limp:    bool, // stunned or held: the body tips over
 	holding: bool,
-	_pad:    [2]u8,
 	charge:  f32, // throw charge 0..1
 }
 
-extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^godot.Frame) {
+fill_frame :: proc(frame: ^Frame) {
+	state, world := frame.state, frame.world
 	for player in 0 ..< fs.PLAYERS {
-		character := &current.players[player]
+		character := &state.players[player]
 		if !character.active do continue
-		godot.push_scene(
-			out,
+		godot.push_view(
+			frame,
 			{
 				key = view.Key(PLAYER_KEY + player),
-				kind = SCENE_PLAYER,
-				player = i8(player),
+				kind = .Player,
+				player = player,
 				pos = physics.position(world.phys, character.controller.body),
 				rot = fs.yaw_quat(character.facing),
 			},
@@ -191,78 +177,39 @@ extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^godot.Fram
 			},
 		)
 	}
-	add_body :: proc(out: ^godot.Frame, world: ^fs.World, body: physics.Body_Ref, marker: int) {
+	add_body :: proc(frame: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
-		id := physics.body_id(world.phys, body)
+		id := physics.body_id(frame.world.phys, body)
 		pos := b3.body_get_position(id)
-		godot.push_scene(
-			out,
+		godot.push_view(
+			frame,
 			{
 				key = view.Key(MARKER_KEY + marker),
-				kind = SCENE_MARKER,
-				player = -1,
+				kind = .Marker,
 				entity = fs.marker_entity(marker),
 				pos = {pos.x, pos.y, pos.z},
 				rot = b3.body_get_rotation(id),
 			},
 		)
 	}
-	add_static :: proc(out: ^godot.Frame, pos: [3]f32, rot: [4]f32, marker: int) {
-		godot.push_scene(
-			out,
+	for i in 0 ..< world.item_count {
+		if state.items[i].alive do add_body(frame, state.items[i].body, world.items[i].marker)
+	}
+	for i in 0 ..< world.platform_count do add_body(frame, state.platforms[i].body, world.platforms[i].marker)
+	for i in 0 ..< world.trigger_count {
+		marker := world.triggers[i].marker
+		godot.push_view(
+			frame,
 			{
 				key = view.Key(MARKER_KEY + marker),
-				kind = SCENE_MARKER,
-				player = -1,
+				kind = .Marker,
 				entity = fs.marker_entity(marker),
-				pos = pos,
-				rot = rot,
+				pos = world.triggers[i].volume.pos,
+				rot = world.level.markers[marker].rot,
 			},
 		)
 	}
-	for i in 0 ..< world.item_count {
-		if current.items[i].alive do add_body(out, world, current.items[i].body, world.items[i].marker)
-	}
-	for i in 0 ..< world.platform_count do add_body(out, world, current.platforms[i].body, world.platforms[i].marker)
-	for i in 0 ..< world.trigger_count {
-		marker := world.triggers[i].marker
-		add_static(out, world.triggers[i].volume.pos, world.level.markers[marker].rot, marker)
-	}
-	(^fs.Hud)(&out.hud[0])^ = fs.hud(current, out.tick)
-}
-
-#assert(size_of(fs.Hud) <= godot.HUD_BYTES)
-
-// ---- HUD (main thread)
-
-hud :: proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
-	state: fs.Hud
-	if frame != nil do state = (^fs.Hud)(&frame.hud[0])^
-	gd.dict_set(dict, "phase", fs.PHASE_NAMES[state.phase])
-	gd.dict_set(dict, "tick", i64(state.tick))
-	gd.dict_set(dict, "run_s", f64(state.run_s))
-	gd.dict_set(dict, "best_s", f64(state.best_s))
-	gd.dict_set(dict, "runs", i64(state.runs))
-	gd.dict_set(dict, "checkpoint", i64(state.checkpoint))
-	gd.dict_set(dict, "reset_in_s", f64(state.reset_in_s))
-	gd.dict_set(dict, "triggers", i64(state.triggers))
-	gd.dict_set(dict, "local_player", frame != nil ? i64(frame.local_player) : -1)
-	players := gd.array_new()
-	if frame != nil {
-		for &hud_player, player in state.players {
-			entry := gd.dict_new()
-			gd.dict_set(&entry, "player", i64(player))
-			gd.dict_set(&entry, "present", hud_player.present)
-			gd.dict_set(&entry, "holding", i64(hud_player.holding))
-			gd.dict_set(&entry, "held", hud_player.held)
-			gd.dict_set(&entry, "stunned", hud_player.stunned)
-			gd.dict_set(&entry, "fallen", hud_player.fallen)
-			gd.dict_set(&entry, "charge", f64(hud_player.charge))
-			if name := godot.frame_player_name(frame, player); name != "" do gd.dict_set(&entry, "name", name)
-			gd.array_push_move(&players, &entry)
-		}
-	}
-	gd.dict_set_move(dict, "players", &players)
+	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, fs.hud(state, frame.tick))
 }
 
 // ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
