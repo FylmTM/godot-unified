@@ -81,7 +81,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 			script := tool_script(g, s.script)
 			if script == "" {
-				skip(g, s.step, tprint("no game/tools/%s.gd", s.script))
+				skip(g, s.step, tprint("no %s tool script", s.script))
 				continue
 			}
 			if s.step == "tour" && !has_extension(g) {
@@ -408,7 +408,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	}
 	script := tool_script(g, name)
 	if script == "" {
-		usage("%s has no game/tools/%s.gd", g.name, name)
+		usage("%s has no tool script %s (game/tools/ or the unified addon)", g.name, name)
 	}
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
@@ -470,7 +470,7 @@ godot_user_dir :: proc() -> string {
 // --- coop -------------------------------------------------------------------------------------------------------
 
 // A host (windowed with --window, else headless) and a headless joiner with a fresh EOS device id, as two Godot
-// processes running game/tools/coop.gd; the host hands the lobby code over through a file. The joiner is always
+// processes running the coop tool script; the host hands the lobby code over through a file. The joiner is always
 // reaped, also when the host fails: an orphan would stay connected to EOS.
 @(private)
 cmd_coop :: proc(args: []string) -> Result {
@@ -492,8 +492,9 @@ cmd_coop :: proc(args: []string) -> Result {
 		usage("--mute and --screen need --window")
 	}
 	g := game(opts.game)
-	if tool_script(g, "coop") == "" {
-		usage("%s has no game/tools/coop.gd", g.name)
+	script := tool_script(g, "coop")
+	if script == "" {
+		usage("%s has no coop tool script", g.name)
 	}
 	if !has_extension(g) {
 		usage("%s has no extension", g.name)
@@ -517,7 +518,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&join_args, ..extra[:])
 	joiner_run := Tool_Run {
 		dir     = g.dir,
-		script  = "res://game/tools/coop.gd",
+		script  = script,
 		args    = join_args[:],
 		timeout = 210,
 		env     = env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1"),
@@ -535,12 +536,12 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
 	if opts.crash {
-		return coop_crash(g, &joiner, host_args[:], opts.window, {opts.mute, opts.screen})
+		return coop_crash(g, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen})
 	}
 	host := run_tool(
 		{
 			dir = g.dir,
-			script = "res://game/tools/coop.gd",
+			script = script,
 			args = host_args[:],
 			window = opts.window,
 			shots = opts.window ? "coop" : "",
@@ -623,10 +624,17 @@ bake :: proc(g: Game, check: bool) -> Tool_Result {
 // `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
 // same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
 @(private)
-coop_crash :: proc(g: Game, joiner: ^Proc, host_args: []string, window: bool, place: Window_Opts) -> Result {
+coop_crash :: proc(
+	g: Game,
+	script: string,
+	joiner: ^Proc,
+	host_args: []string,
+	window: bool,
+	place: Window_Opts,
+) -> Result {
 	host_run := Tool_Run {
 		dir    = g.dir,
-		script = "res://game/tools/coop.gd",
+		script = script,
 		args   = host_args,
 		window = window,
 		shots  = window ? "coop" : "",
@@ -647,7 +655,7 @@ coop_crash :: proc(g: Game, joiner: ^Proc, host_args: []string, window: bool, pl
 	crashed := strings.contains(out, "crashing (the process kills itself")
 	second_run := Tool_Run {
 		dir    = g.dir,
-		script = "res://game/tools/coop.gd",
+		script = script,
 		args   = {"--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash"},
 		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
 	}

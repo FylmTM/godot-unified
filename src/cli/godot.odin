@@ -148,9 +148,10 @@ import_signature :: proc(dir: string) -> string {
 	return strings.join(parts[:], "\n")
 }
 
-// Refreshes Godot's import cache (.godot/) when it is missing or stale, after writing the extension list (so the
-// import sees the extension's classes). Returns the extensions listed.
+// Refreshes Godot's import cache (.godot/) when it is missing or stale, after mirroring the unified addon and
+// writing the extension list (so the import sees the extension's classes). Returns the extensions listed.
 ensure_imported :: proc(dir: string) -> []string {
+	sync_addon(dir)
 	exts := write_extension_list_dir(dir)
 	stamp := join(dir, ".godot", "unified_import.sig")
 	sig := import_signature(dir)
@@ -311,10 +312,14 @@ restore_front_app :: proc(bundle: string) {
 	}
 }
 
-// The game's tool script by name ("" when it has none).
+// A tool script by name: the game's game/tools/<name>.gd, else the unified addon's tools/<name>.gd when the game
+// uses the addon ("" when neither has it).
 tool_script :: proc(g: Game, name: string) -> string {
 	if os.is_file(join(g.dir, "game", "tools", tprint("%s.gd", name))) {
 		return tprint("res://game/tools/%s.gd", name)
+	}
+	if uses_addon(g.dir) && os.is_file(join(state.project.unified, ADDON_SOURCE, "tools", tprint("%s.gd", name))) {
+		return tprint("res://%s/tools/%s.gd", ADDON_DIR, name)
 	}
 	return ""
 }

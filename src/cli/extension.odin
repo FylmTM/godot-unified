@@ -205,6 +205,7 @@ when ODIN_OS == .Windows {
 // writes it for a fresh checkout, listing only extensions whose library for this host exists: a missing library is
 // an error on every run (a game without its library falls back to its mock session). Returns the list.
 write_extension_list :: proc(g: Game) -> []string {
+	sync_addon(g.dir)
 	return write_extension_list_dir(g.dir)
 }
 
