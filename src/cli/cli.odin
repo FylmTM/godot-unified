@@ -73,17 +73,17 @@ add_suites :: proc(suites: ..Suite) {
 
 state: State
 
-// The entry point: finds the project, keeps the binary current (it may rebuild and re-run itself), loads .env and
-// the pins, then runs the command named on the command line.
+// The entry point: finds the project, loads the pins, keeps the binary current (it may rebuild and re-run itself),
+// loads .env, then runs the command named on the command line.
 run :: proc(command_sets: ..[]Command) -> ! {
 	args := os.args[1:]
 	state.project = find_project()
-	self_check(args)
 	pins, ok := config_load(join(state.project.unified, "pins.cfg"))
 	if !ok {
 		fatal("cannot read %s", join(state.project.unified, "pins.cfg"))
 	}
 	state.pins = pins
+	self_check(args)
 	check_odin_version()
 	state.env_keys = env_load(state.project.root)
 	inject_at(&state.suites, 0, ..public_suites())
