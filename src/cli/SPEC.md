@@ -115,10 +115,10 @@ Public (`unified:cli`, every project):
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast; `--box3d-debug` runs the `odin` suite against Box3D's debug library |
-| `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
+| `vet` | `odin check`, strict flags, every target and define variant, the CLI included; in this repo also the template game's Odin (below) |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
-| `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
+| `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; with `--lan` in a new seat, as direct UDP has no player identity) |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
@@ -198,7 +198,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
     desyncs (`.out/net.json`, `.out/net/`).
   - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot; `tests/godot_views`
-    also runs `session_check.gd`, godot_host's session lifecycle.
+    also runs `session_check.gd`, godot_host's session lifecycle. The extensions build at once, then the three
+    Godot runs go at once: the session check (its waits for goodbyes and timers) is the suite's time.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window, ticks), which its `bench` mode runs with no arguments; the target, a forward step plus an 8-tick
   re-sim within 6 ms, is unified's. `bench` also runs the headless `table-bench` mode once (any game's binary): a walk
@@ -216,7 +217,9 @@ that submodule, never from this checkout, so they always match the library they 
 letters, digits and `_`). It is a complete small game, each player moving a dot: its sim package, headless binary
 (with a standard benchmark), extension (one scene view), main scene with a `UnifiedSession`, and tests (sync-test
 under rollback, a repeatable run, the determinism lint), so the new repo passes its own `verify` at once. The
-Odin files are formatted after the name is put in (it changes line lengths).
+Odin files are formatted after the name is put in (it changes line lengths). In this repo `vet` writes the template's Odin files
+for a game named `template_game` into `.out/template/` and type-checks its packages (one target), so a library API
+change that breaks a new game fails `verify`.
 
 ## Dependencies
 

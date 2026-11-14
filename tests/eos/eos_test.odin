@@ -4,26 +4,42 @@ package test_eos
 
 import "core:math/rand"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "unified:eos"
 import "unified:netcode"
+import "unified:sim"
+
+// The seeded byte source of codes_use_the_alphabet_and_parse_back (sim's SplitMix64 stream: fixed, so the run
+// is the same every time).
+seeded_rng: sim.Rng
 
 @(test)
 codes_use_the_alphabet_and_parse_back :: proc(t: ^testing.T) {
+	seeded :: proc(buf: []u8) {
+		for &value in buf {
+			value = u8(sim.rng_next(&seeded_rng))
+		}
+	}
+	seeded_rng = sim.rng_seed(1)
 	seen := make(map[string]bool, context.temp_allocator)
-	for _ in 0 ..< 2000 {
-		code := eos.code_new()
+	for i in 0 ..= 2000 {
+		// the first from the default (crypto) source, the rest seeded
+		code := i == 0 ? eos.code_new() : eos.code_new(seeded)
 		text := eos.code_string(&code)
 		testing.expect_value(t, len(text), eos.CODE_LEN)
-		for i in 0 ..< len(text) {
-			testing.expectf(t, eos.code_char_ok(text[i]), "code %q has %q", text, text[i])
+		for j in 0 ..< len(text) {
+			testing.expectf(t, eos.code_char_ok(text[j]), "code %q has %q", text, text[j])
 		}
 		back, ok := eos.code_parse(text)
 		testing.expect(t, ok && back == code)
-		seen[text] = true
+		if i > 0 {
+			seen[strings.clone(text, context.temp_allocator)] = true
+		}
 	}
-	// 2000 draws from 31^6 codes: a collision would mean the generator is broken.
+	// 2000 seeded draws from 31^6 codes, all distinct. Not a property of a random source: a correct one collides
+	// in about 0.2% of runs (the birthday bound, 2000^2 / (2 * 31^6)); a fixed stream either collides or never.
 	testing.expect_value(t, len(seen), 2000)
 }
 

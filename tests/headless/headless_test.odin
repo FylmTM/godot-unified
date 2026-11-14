@@ -171,3 +171,47 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 	testing.expect_value(t, netcode.client_json(first.clients[0]), netcode.client_json(second.clients[0]))
 	testing.expect_value(t, first.relay_net, second.relay_net)
 }
+
+// Start players far from the relay (up to 300 ms round trip, the most a client plays smoothly at, and the
+// `bad` profile) keep their inputs from tick 1 on: the relay's clock starts half a second after Welcome,
+// so a far player's first inputs reach the relay in time. Nothing replaced, across network seeds.
+@(test)
+far_start_players_keep_their_first_inputs :: proc(t: ^testing.T) {
+	profiles := [?]netcode.Profile {
+		{name = "far", latency = 150_000, jitter = 10_000},
+		{name = "far-lossy", latency = 140_000, jitter = 10_000, loss = 20},
+		netcode.PROFILES[2], // bad: 120 ± 40 ms each way, loss, reordering
+	}
+	for profile in profiles {
+		for seed in u64(1) ..= 4 {
+			cfg := headless.Session_Config {
+				clients     = 2,
+				transport   = "loopback",
+				virtual     = true,
+				profile     = profile,
+				ticks       = 192,
+				seed        = seed,
+				late_player = -1,
+			}
+			result := headless.session_run(&HEADLESS, cfg)
+			defer headless.session_result_destroy(&result)
+			testing.expectf(t, result.ok, "%s, seed %d: the session failed", profile.name, seed)
+			first_replaced := -1
+			for tick, k in result.log.ticks {
+				if tick.replaced != {} {
+					first_replaced = k + 1
+					break
+				}
+			}
+			testing.expectf(
+				t,
+				result.replaced == 0,
+				"%s, seed %d: %d inputs replaced, the first at tick %d",
+				profile.name,
+				seed,
+				result.replaced,
+				first_replaced,
+			)
+		}
+	}
+}

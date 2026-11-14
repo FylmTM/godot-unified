@@ -201,7 +201,7 @@ fuzz_channel_datagrams :: proc(t: ^testing.T) {
 			rnet_run(&session, 0.001)
 		}
 	}
-	rnet_run(&session, 2)
+	rnet_run(&session, 2.5) // 4 s since Welcome, of which the relay's start lead (0.5 s) is before tick 1
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, client.verified > 3 * toy.HZ)
 }

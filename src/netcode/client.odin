@@ -706,10 +706,14 @@ schedule :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) ->
 	tick_us := client.tm.tick_us
 	relay_tick := (f64(now) + client.offset_us) / tick_us
 	if !client.started {
+		delay := want_delay(client.rtt_us, client.tm)
+		if relay_tick + f64(delay) < 0 {
+			return // the relay's start lead: wait until the local clock's tick 0 is due
+		}
 		client.started = true
-		client.delay = want_delay(client.rtt_us, client.tm)
+		client.delay = delay
 		client.delay_eval_us = now
-		client.local = max(u32(max(relay_tick, 0)) + client.delay, client.verified)
+		client.local = max(u32(relay_tick + f64(delay)), client.verified)
 		client.next_tick_us = f64(now) + tick_us
 		generate_inputs(client)
 		return true
