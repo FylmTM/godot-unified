@@ -199,5 +199,5 @@ scenario_networked :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, rollbacks > 0)
-	testing.expect(t, host.relay.log.ticks[TICKS - 1].present == {0, 1, 2, 3})
+	testing.expect(t, netcode.relay_tick(host.relay, TICKS).present == {0, 1, 2, 3})
 }

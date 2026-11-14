@@ -74,8 +74,9 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
   client on the real clock or steps everything on one thread on the virtual clock (the end-to-end suites), the
   Godot host runs its own loop. Time-dependent code takes `now` as a parameter, so tests run whole sessions on a
   virtual clock in milliseconds.
-- **Relay / client:** see `src/netcode/SPEC.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, input
-  delay from RTT, ±2% clock slew, checksums every 16 verified ticks, late join with a queued snapshot or a full replay).
+- **Relay / client:** see `src/netcode/SPEC.md` (finalization with a 100 ms tolerance, prediction cap 218 ms, an
+  input delay just big enough for the round trip, ±2% clock slew, checksums every 16 verified ticks judged by
+  majority, late join from a checked snapshot of a checksum tick).
 - **Threads:** Box3D world creation/destruction touch Box3D globals (world table, lazily initialised contact
   registers), so `physics.create/destroy` are serialised by a mutex.
 - **Windows:** `timeBeginPeriod(1)` at headless startup (otherwise sleeps round to ~15.6 ms). UDP `recvfrom` errors

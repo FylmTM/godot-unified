@@ -12,13 +12,26 @@ import "unified:netcode"
 @(require) import "unified:sim"
 
 
-profile_opt :: proc(args: ^Args) -> netcode.Profile {
-	name := opt_str(args, "profile", "ideal")
+profile_opt :: proc(args: ^Args, fallback := "ideal") -> netcode.Profile {
+	name := opt_str(args, "profile", fallback)
 	profile, ok := netcode.profile_by_name(name)
 	if !ok {
 		die("%s: unknown profile %q (ideal, wan, bad)", args.mode, name)
 	}
 	return profile
+}
+
+// `--log F`: the relay's recording, streamed to F as ticks are finalized (none without the option).
+log_opt :: proc(args: ^Args) -> sim.Log_Sink {
+	path := opt_str(args, "log")
+	if path == "" {
+		return {}
+	}
+	sink, ok := sim.log_sink_file(path)
+	if !ok {
+		die("%s: cannot write --log %s", args.mode, path)
+	}
+	return sink
 }
 
 mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
@@ -60,7 +73,7 @@ mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAY
 	}
 	result := uheadless.session_run(headless, cfg)
 	defer uheadless.session_result_destroy(&result)
-	ok := result.ok && result.desyncs == 0
+	ok := result.ok
 	if path := opt_str(args, "log"); path != "" {
 		ok &&= sim.log_write(path, &result.log)
 	}
@@ -109,15 +122,14 @@ mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		compat        = sim.compat_of(headless.game, headless.content),
 		content       = sim.content_hash(headless.content),
 		name          = "relay",
+		recording     = log_opt(args),
 	}
 	relay := netcode.relay_create(cfg, Input, PLAYERS)
 	defer netcode.relay_destroy(relay)
 	netcode.relay_add_link(relay, link)
 	deadline := netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6)
 	ok := uheadless.run_relay(relay, deadline)
-	if path := opt_str(args, "log"); path != "" {
-		ok &&= sim.log_write(path, &relay.log)
-	}
+	ok &&= netcode.relay_end_recording(relay)
 	fmt.printfln(
 		`{{"mode":"relay","desyncs":%d,"replaced_inputs":%d,"finalized":%d,"net":%s,"ok":%v}}`,
 		relay.desyncs,

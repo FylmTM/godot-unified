@@ -18,6 +18,17 @@ PROFILES := [?]Profile {
 	{name = "bad", latency = 120_000, jitter = 40_000, loss = 80, duplicate = 30, reorder = 50},
 }
 
+// A profile that changes nothing (netsim_wrap returns the link it is given).
+profile_is_ideal :: proc(profile: Profile) -> bool {
+	return(
+		profile.latency == 0 &&
+		profile.jitter == 0 &&
+		profile.loss == 0 &&
+		profile.duplicate == 0 &&
+		profile.reorder == 0 \
+	)
+}
+
 profile_by_name :: proc(name: string) -> (Profile, bool) {
 	for profile in PROFILES {
 		if profile.name == name {
@@ -72,7 +83,7 @@ Net_Sim_Stats :: struct {
 
 // Wraps `inner`; the result owns it. An ideal profile returns `inner` unchanged.
 netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Clock = nil) -> Link {
-	if profile.latency == 0 && profile.loss == 0 && profile.duplicate == 0 && profile.reorder == 0 {
+	if profile_is_ideal(profile) {
 		return inner
 	}
 	netsim := new(Net_Sim)

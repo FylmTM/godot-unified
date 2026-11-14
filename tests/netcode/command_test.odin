@@ -79,7 +79,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 	net_run(&session, 60, all_done)
 	testing.expect(t, all_done(&session))
 	expect_agree(t, &session)
-	log := &session.host.relay.log
+	log := net_log(&session)
 	clients := []^Client{session.host.client, session.clients[0], session.clients[1], session.clients[2]}
 	for client in clients {
 		testing.expect_value(t, client.verified, TICKS)
@@ -171,7 +171,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	session.hub = netcode.hub_create(8)
 	session.host = netcode.host_create(
 		&toy.GAME,
-		{seed = SEED, ticks = 0, name = "host", quiet = true},
+		{seed = SEED, ticks = 0, name = "host", quiet = true, recording = sim.log_sink_memory(&session.recording)},
 		quiet_hooks(&session.watch[0]),
 	)
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
@@ -206,7 +206,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, client.rollbacks > rollbacks)
 	// The log: W replaced the sender's input and holds no command; the bump is in one later tick T, once.
-	log := &session.host.relay.log
+	log := net_log(&session)
 	testing.expect(t, client.player in log.ticks[sent_for - 1].replaced)
 	testing.expect_value(t, len(sim.log_commands(log, int(sent_for - 1))), 0)
 	bump_tick: u32
@@ -258,7 +258,7 @@ the_fifth_command_of_a_tick_waits_for_the_next :: proc(t: ^testing.T) {
 	net_run(&session, 20, all_done)
 	testing.expect(t, all_done(&session))
 	expect_agree(t, &session)
-	got, at := logged_commands(&session.host.relay.log, 0)
+	got, at := logged_commands(net_log(&session), 0)
 	defer delete(got)
 	defer delete(at)
 	want := placed_ticks(0, 1, 400)

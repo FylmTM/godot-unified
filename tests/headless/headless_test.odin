@@ -168,6 +168,7 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 	second := headless.session_run(&HEADLESS, cfg)
 	defer headless.session_result_destroy(&second)
 	testing.expect(t, first.ok && second.ok)
+	first.clients[0].step_us, second.clients[0].step_us = {}, {} // wall time, the one thing that may differ
 	testing.expect_value(t, netcode.client_json(first.clients[0]), netcode.client_json(second.clients[0]))
 	testing.expect_value(t, first.relay_net, second.relay_net)
 }

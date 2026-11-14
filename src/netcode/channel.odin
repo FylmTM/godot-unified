@@ -9,7 +9,9 @@
 //
 // Every datagram acks the peer's latest sequence number plus a 32-bit history. A reliable message
 // rides in datagrams until one of them is acked, and is resent after a timeout derived from the
-// measured RTT. Reliable messages are delivered once, in order. Unreliable ones are delivered as
+// measured RTT. At most REL_IN_FLIGHT datagrams carrying reliable messages are in flight past the newest seq the
+// peer acked, so one ack (its seq and 32 more) covers a whole burst (a snapshot): the rest waits for that ack instead
+// of being resent though it arrived. Reliable messages are delivered once, in order. Unreliable ones are delivered as
 // they arrive (possibly duplicated or reordered by the network). A sender keeps at most REL_WINDOW
 // reliable messages in flight past its oldest unacked one, and a receiver drops anything further
 // ahead, so a peer cannot grow the out-of-order buffer at will. A datagram whose header doesn't
@@ -50,6 +52,7 @@ MAX_PEERS :: 32
 SENT_RING :: 1024 // per active connection, allocated when it opens
 MAX_IDS_PER_PACKET :: 64
 REL_WINDOW :: 512 // reliable messages in flight past the oldest unacked one
+REL_IN_FLIGHT :: 32 // datagrams with reliable messages past the newest seq the peer acked (one ack covers 33 seqs)
 FLUSH_BUDGET :: 96 * 1024 // reliable bytes per peer per flush
 DISCONNECT_US :: 10_000_000
 KEEPALIVE_US :: 250_000
@@ -105,6 +108,10 @@ Conn :: struct {
 	next_rel_id: u32,
 	unrel_out:   [dynamic][]u8,
 	srtt_us:     f64,
+	acked_max:   u32, // the newest of our seqs the peer acked (0: none)
+	rel_seqs:    [REL_IN_FLIGHT]u32, // seqs of datagrams with reliable messages, newer than acked_max (a FIFO)
+	rel_first:   int,
+	rel_count:   int,
 	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_seen)
 	rtt_seen:    bool,
 	// receive side
@@ -425,6 +432,7 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 // acknowledged prefix of the reliable queue.
 @(private)
 take_acks :: proc(conn: ^Conn, ack, ack_bits: u32, now: i64) {
+	conn.acked_max = max(conn.acked_max, min(ack, conn.next_seq - 1))
 	seq_acked(conn, ack, now)
 	for bit in 0 ..< u32(32) {
 		if ack_bits & (1 << bit) != 0 && ack > bit + 1 {
@@ -531,12 +539,27 @@ end_packet :: proc(channel: ^Channel, builder: ^Packet_Builder, conn: ^Conn, pee
 	record.seq = conn.next_seq
 	record.valid = true
 	record.at = now
+	if builder.sp.n_ids > 0 {
+		conn.rel_seqs[(conn.rel_first + conn.rel_count) % REL_IN_FLIGHT] = conn.next_seq
+		conn.rel_count += 1
+	}
 	conn.next_seq += 1
 	conn.last_sent = now
 	conn.ack_pending = false
 	link_send(&channel.links[conn.link], conn.lpeer, builder.w.buf[:])
 	channel.stats.datagrams_sent += 1
 	channel.stats.bytes_sent += len(builder.w.buf)
+}
+
+// Whether another datagram may carry reliable messages: fewer than REL_IN_FLIGHT of them are newer than the
+// peer's newest ack (the older ones were acked, or are lost and resent when their timer runs out).
+@(private)
+rel_room :: proc(conn: ^Conn) -> bool {
+	for conn.rel_count > 0 && conn.rel_seqs[conn.rel_first] <= conn.acked_max {
+		conn.rel_first = (conn.rel_first + 1) % REL_IN_FLIGHT
+		conn.rel_count -= 1
+	}
+	return conn.rel_count < REL_IN_FLIGHT
 }
 
 // Sends everything queued, plus due resends and pending acks, as datagrams.
@@ -578,6 +601,9 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			if !fits(&builder, CHUNK_OVERHEAD + len(message.data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
 				end_packet(channel, &builder, &conn, peer, now)
 				begin_packet(&builder, &conn)
+			}
+			if builder.sp.n_ids == 0 && !rel_room(&conn) {
+				break // as many reliable datagrams in flight as one ack covers: wait for it
 			}
 			if message.last_sent != 0 {
 				channel.stats.resends += 1

@@ -33,7 +33,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "headless",
 				usage = "[game] [--mode dev|release|debug] -- <mode> [options]",
-				summary = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench; its JSON on stdout",
+				summary = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench, net-bench; its JSON on stdout",
 				no_budget = "the mode decides",
 				run = cmd_headless,
 			},

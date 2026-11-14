@@ -1,5 +1,6 @@
 // Input log (the replay file): "UNIL", version u16, seed u64, content hash u64 (the level, 0: none),
-// players u8, input size u16, tick count u32, then per tick (write_tick, also the netcode's finalized tick):
+// players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to the
+// end), then per tick (write_tick, also the netcode's finalized tick):
 // present u32, replaced u32, players × the input's bytes (plain data, so its memory is its little-endian
 // serialization), command count u8, then per command: player u8, kind u8, size u8, the struct's bytes.
 package sim
@@ -13,6 +14,7 @@ LOG_MAGIC :: "UNIL"
 // before replays differently: the bytes are laid out as in 4.
 LOG_VERSION :: 5
 LOG_HEADER :: 29
+LOG_TICKS_AT :: 25 // the header's tick count
 COMMAND_HEAD :: 3 // player, kind, size: a command's bytes on the wire and in the log, before its data
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
@@ -188,7 +190,9 @@ log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 	input_log.ticks = make([dynamic]Log_Tick(Input, PLAYERS), 0, header.ticks)
 	reader := wire.reader_make(body)
 	inputs: Inputs(Input, PLAYERS)
-	for _ in 0 ..< header.ticks {
+	// A recording whose writer never patched the count (it stopped without ending): every tick to the end.
+	unended := header.ticks == 0
+	for k := 0; unended ? wire.r_remaining(&reader) > 0 : k < header.ticks; k += 1 {
 		if !inputs_read(&reader, &inputs) {
 			log_destroy(&input_log)
 			return {}, false
@@ -212,6 +216,137 @@ log_read :: proc(path: string, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 	data := read_file(path) or_return
 	defer delete(data)
 	return log_decode(data, Input, PLAYERS)
+}
+
+// Where a log goes as it grows (a relay's recording, src/netcode/SPEC.md): `write` puts bytes at an offset (the
+// end, to append; the header's tick count, when it ends), `close` (optional) ends it. log_sink_memory and
+// log_sink_file are the two the library has.
+Log_Sink :: struct {
+	user:  rawptr,
+	write: proc(user: rawptr, offset: int, bytes: []u8) -> bool,
+	close: proc(user: rawptr),
+}
+
+// A sink into `buf` (the caller owns it): log_decode reads the bytes back.
+log_sink_memory :: proc(buf: ^[dynamic]u8) -> Log_Sink {
+	return {user = buf, write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
+			buf := (^[dynamic]u8)(user)
+			if offset + len(bytes) > len(buf) {
+				resize(buf, offset + len(bytes))
+			}
+			copy(buf[offset:], bytes)
+			return true
+		}}
+}
+
+@(private)
+File_Sink :: struct {
+	file:    ^os.File,
+	pending: [dynamic]u8, // appended bytes not written yet, from offset `written`
+	written: int,
+	ok:      bool,
+}
+
+@(private)
+file_sink_flush :: proc(sink: ^File_Sink) {
+	if len(sink.pending) > 0 {
+		_, err := os.write_at(sink.file, sink.pending[:], i64(sink.written))
+		sink.ok &&= err == nil
+		sink.written += len(sink.pending)
+		clear(&sink.pending)
+	}
+}
+
+// A sink into a new file at `path` (64 KB written at a time). The sink owns the file: close flushes and closes it.
+log_sink_file :: proc(path: string) -> (sink: Log_Sink, ok: bool) {
+	file, err := os.create(path)
+	if err != nil {
+		return
+	}
+	file_sink := new(File_Sink)
+	file_sink.file = file
+	file_sink.ok = true
+	sink.user = file_sink
+	sink.write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
+		file_sink := (^File_Sink)(user)
+		if offset == file_sink.written + len(file_sink.pending) {
+			append(&file_sink.pending, ..bytes)
+			if len(file_sink.pending) >= 64 * 1024 {
+				file_sink_flush(file_sink)
+			}
+		} else {
+			file_sink_flush(file_sink)
+			_, err := os.write_at(file_sink.file, bytes, i64(offset))
+			file_sink.ok &&= err == nil
+		}
+		return file_sink.ok
+	}
+	sink.close = proc(user: rawptr) {
+		file_sink := (^File_Sink)(user)
+		file_sink_flush(file_sink)
+		os.close(file_sink.file)
+		delete(file_sink.pending)
+		free(file_sink)
+	}
+	return sink, true
+}
+
+// A log being written to a sink tick by tick: log_stream_begin writes the header (tick count 0), log_stream_tick
+// each tick, log_stream_end the count, then closes the sink.
+Log_Stream :: struct {
+	sink:   Log_Sink,
+	size:   int, // bytes written so far
+	ticks:  int,
+	ok:     bool, // every write succeeded
+	writer: wire.Writer,
+}
+
+log_stream_begin :: proc(stream: ^Log_Stream, sink: Log_Sink, header: Log_Header) {
+	if sink.write == nil {
+		stream^ = {} // no recording
+		return
+	}
+	stream^ = {
+		sink   = sink,
+		ok     = true,
+		writer = wire.writer_make(LOG_HEADER),
+	}
+	unended := header
+	unended.ticks = 0
+	write_log_header(&stream.writer, unended)
+	log_stream_put(stream)
+}
+
+@(private)
+log_stream_put :: proc(stream: ^Log_Stream) {
+	stream.ok &&= stream.sink.write(stream.sink.user, stream.size, stream.writer.buf[:])
+	stream.size += len(stream.writer.buf)
+	clear(&stream.writer.buf)
+}
+
+log_stream_tick :: proc(stream: ^Log_Stream, inputs: ^Inputs($Input, $PLAYERS)) {
+	if stream.sink.write == nil {
+		return
+	}
+	inputs_write(&stream.writer, inputs)
+	log_stream_put(stream)
+	stream.ticks += 1
+}
+
+// Patches the tick count, closes the sink; false if a write failed.
+log_stream_end :: proc(stream: ^Log_Stream) -> bool {
+	if stream.sink.write == nil {
+		return true
+	}
+	count := transmute([4]u8)u32le(u32(stream.ticks))
+	stream.ok &&= stream.sink.write(stream.sink.user, LOG_TICKS_AT, count[:])
+	if stream.sink.close != nil {
+		stream.sink.close(stream.sink.user)
+	}
+	delete(stream.writer.buf)
+	ok := stream.ok
+	stream^ = {}
+	return ok
 }
 
 Log_Header :: struct {

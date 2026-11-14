@@ -24,16 +24,23 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 - `session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
   [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
   the real clock; on the virtual clock, loopback only, one thread steps everything through test time). Writes the
-  relay's official input log. JSON includes, per client, the verified checksums for every 16th tick, `desyncs`,
-  rollback count and average/max rollback depth, stall ticks, and final ticks.
+  relay's official input log (its recording, `src/netcode/SPEC.md`). JSON includes, per client, the verified
+  checksums for every 16th tick, `desyncs`, rollback count and average/max rollback depth, stall ticks, and final
+  ticks. A desync fails it.
 - `relay --port P --players N --ticks T --log F` and
   `client --connect HOST:PORT --player I --ticks T [--profile ...]`: separate processes over UDP, for the
   multi-process test.
 - `snapshot --ticks T --out F [--seed S] [--players P]`: run offline to tick T and write a portable snapshot.
   `resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
 - `bench [--entities E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
-  W-tick re-sim, and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
-  enemies), `entities_mean` the count it held. Without arguments it runs the game's standard benchmark (`Headless.bench`).
+  W-tick re-sim (`resim_us`), the same re-sim of final ticks saving only the last (`resim_final_us`, a catch-up
+  burst), and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
+  enemies), `entities_mean` the count it held. Without arguments it runs the game's standard benchmark
+  (`Headless.bench`; W defaults to the prediction cap, `headless.prediction_window(game)`).
+- `net-bench [--clients N --ticks T --profile P | --latency MS [--jitter MS] [--loss PERMILLE]] [--seed S]`: a
+  session on the virtual clock (default: 4 clients, `bad`, 1,200 ticks): JSON with the wall time, each client's
+  input delay, rollbacks and their depth, re-simulated, stalled and replaced ticks, the step counts and times by
+  kind, the relay's and an average client's bytes per second, the relay's datagrams per second and the resends.
 - `table-bench [--live L --walks W]`: a `sim.iterate`/`sim.next` walk of a 65,536-slot table that once held
   every slot and now holds L (1000) items spread across it, against a dense table holding L items: JSON
   `sparse_us` and `dense_us`, each `{"mean": µs, "p99": µs}` (src/sim/SPEC.md "Tables and handles": an alive bitmask

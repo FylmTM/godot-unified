@@ -17,8 +17,7 @@ HEADLESS := headless.Headless(drift.State, drift.Input, drift.World, drift.PLAYE
 	scripted_commands = drift.scripted_commands,
 	summary = summary,
 	bench = {
-		what = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), 8-tick rollback every tick",
-		window = 8,
+		what = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), a rollback at the prediction cap every tick",
 		ticks = 1800,
 	},
 }

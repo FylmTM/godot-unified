@@ -151,13 +151,10 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 // Applies the panel's settings (the link's thread).
 dev_link_set :: proc(dev_link: ^Dev_Link, settings: Netsim_Settings) {
 	up, down := netsim_profile(settings.enabled, settings.up), netsim_profile(settings.enabled, settings.down)
-	ideal :: proc(profile: netcode.Profile) -> bool {
-		return profile.latency == 0 && profile.jitter == 0 && profile.loss == 0
-	}
-	dev_link.on = !ideal(up) || !ideal(down)
+	dev_link.on = !netcode.profile_is_ideal(up) || !netcode.profile_is_ideal(down)
 	if dev_link.on && dev_link.sim.data == nil {
-		// any non-ideal profile makes netsim_wrap wrap; the real one is set below
-		dev_link.sim = netcode.netsim_wrap(dev_link.inner, {name = "devui", latency = 1}, dev_link.seed)
+		// a profile that isn't ideal, so netsim_wrap wraps; both directions are set below
+		dev_link.sim = netcode.netsim_wrap(dev_link.inner, netcode.profile_is_ideal(up) ? down : up, dev_link.seed)
 	}
 	if dev_link.sim.data != nil {
 		net_sim := (^netcode.Net_Sim)(dev_link.sim.data)
@@ -466,6 +463,7 @@ driver_hooks :: proc(
 				last_msg_us = client.last_msg_us,
 				bytes_in    = i64(client.ch.stats.bytes_recv),
 				bytes_out   = i64(client.ch.stats.bytes_sent),
+				desyncs     = i32(client.desyncs),
 			}
 			for player in 0 ..< min(PLAYERS, MAX_NAMED) {
 				out.names[player] = {}
@@ -493,6 +491,21 @@ driver_hooks :: proc(
 			driver := (^This_Driver)(user)
 			if driver.failed do return // the transport's failure is the session's last word
 			post_status(driver, Status_Kind(status), detail)
+		},
+		desync = proc(user: rawptr, report: netcode.Desync_Report) {
+			driver := (^This_Driver)(user)
+			message := Message {
+				kind = .Desync,
+				tick = report.tick,
+			}
+			text := fmt.tprintf(
+				"players %v differ%s%s",
+				report.diverged,
+				report.detail != "" ? ": " : "",
+				report.detail,
+			)
+			message.len = u8(copy(message.text[:], text))
+			post(driver, message)
 		},
 	}
 }
@@ -555,13 +568,14 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS)) -> bool {
 	game := driver.game
 	hooks := driver_hooks(driver)
 	host_config := netcode.Host_Config {
-		player_name = request.name,
-		seed        = request.seed,
-		ticks       = request.ticks,
-		compat      = driver.glue.compat,
-		content     = request.content,
-		name        = "host",
-		quiet       = true,
+		desync_detail = DEVUI, // typed desync reports where the dev UI is (every build for now)
+		player_name   = request.name,
+		seed          = request.seed,
+		ticks         = request.ticks,
+		compat        = driver.glue.compat,
+		content       = request.content,
+		name          = "host",
+		quiet         = true,
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,

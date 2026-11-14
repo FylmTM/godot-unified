@@ -186,6 +186,7 @@ register_session_class :: proc() {
 	gd.bind_method(class, "is_devui_visible", proc(session: ^Session_Node) -> bool {return dev_visible()})
 	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(class, "lobby_code", {"code", string})
+	gd.bind_signal(class, "desync", {"tick", i64}, {"detail", string})
 	gd.bind_signal(class, "sim_event", {"event", gd.StringName}, {"state", i64}, {"data", gd.Dictionary})
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
 }
@@ -384,6 +385,10 @@ drain_messages :: proc(session: ^Session_Node) {
 			gd.emit_signal(session.obj, gd.sn("lobby_code"), text)
 		case .Event:
 			route_event(session, message)
+		case .Desync:
+			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
+			dev_log(message.tick, "desync: %s", text)
+			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
 			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)

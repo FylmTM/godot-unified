@@ -6,7 +6,8 @@
 //          own share shown apart), game (every other node's _process up to drawing), render (the RenderingServer's draw)
 //   sim    the sim thread: time and ticks stepped per frame (verified, re-run in a rollback, newly predicted),
 //          ticks ahead (predicted past the verified tick), and marks: rollback, late input (the
-//          relay replaced ours), stall (the prediction cap held the sim back)
+//          relay replaced ours), stall (the prediction cap held the sim back), desync (the relay's report; its
+//          detail goes to the dev UI's log)
 //   net    round trip, bandwidth in and out, relay silence (time since the relay's last message)
 package godot_host
 
@@ -184,6 +185,7 @@ when DEVUI {
 		if net.rollbacks > prev.rollbacks do devui.mark("sim events", "rollback", "sim")
 		if net.replaced > prev.replaced do devui.mark("sim events", "late input", "sim")
 		if net.stalls > prev.stalls do devui.mark("sim events", "stall", "sim")
+		if net.desyncs > prev.desyncs do devui.mark("sim events", "desync", "sim")
 
 		devui.plot("round trip ms", net.rtt_ms, 0, 0, "net")
 		// bandwidth over 250 ms windows
