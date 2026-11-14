@@ -446,7 +446,7 @@ driver_hooks :: proc(d: ^Driver($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
 			out.verified = f.verified
 			out.tick_hz = u32(d.game.tick_hz)
 			out.due_us = i64(c.next_tick_us - c.tm.tick_us)
-			out.local_slot = i32(c.slot)
+			out.local_slot = i32(c.player)
 			out.net = {
 				rtt_ms      = f32(netcode.client_rtt_ms(c)),
 				delay       = c.delay,
@@ -543,21 +543,21 @@ driver_open :: proc(d: ^Driver($S, $I, $W, $P)) -> bool {
 	g := d.game
 	hooks := driver_hooks(d)
 	host_cfg := netcode.Host_Config {
-		player  = r.name,
-		seed    = r.seed,
-		ticks   = r.ticks,
-		compat  = d.glue.compat,
-		content = r.content,
-		name    = "host",
-		quiet   = true,
+		player_name = r.name,
+		seed        = r.seed,
+		ticks       = r.ticks,
+		compat      = d.glue.compat,
+		content     = r.content,
+		name        = "host",
+		quiet       = true,
 	}
 	client_cfg := netcode.Client_Config {
-		player  = r.name,
-		slot    = -1,
-		compat  = d.glue.compat,
-		content = r.content,
-		name    = "client",
-		quiet   = true,
+		player_name = r.name,
+		player      = -1,
+		compat      = d.glue.compat,
+		content     = r.content,
+		name        = "client",
+		quiet       = true,
 	}
 	switch r.mode {
 	case .Single:

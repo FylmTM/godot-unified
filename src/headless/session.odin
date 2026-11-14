@@ -215,7 +215,7 @@ session_client :: proc(ss: ^Session($S, $I, $W, $P), p: int, join: u32) -> ^netc
 	}
 	link = netcode.netsim_wrap(link, cfg.profile, u32(cfg.seed) * 7919 + u32(p) * 104729 + 17, ss.clock)
 	ccfg := netcode.Client_Config {
-		slot      = p,
+		player    = p,
 		join_tick = join,
 		content   = ss.h.content,
 		name      = fmt.aprintf("client%d", p),

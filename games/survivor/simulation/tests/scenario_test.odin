@@ -158,7 +158,7 @@ scenario_networked :: proc(t: ^testing.T) {
 			u32(i + 1) * 7919,
 			&clock,
 		)
-		c = netcode.client_create(&SCENARIO, {slot = -1, quiet = true}, link, hooks)
+		c = netcode.client_create(&SCENARIO, {player = -1, quiet = true}, link, hooks)
 	}
 	defer for c in clients {
 		netcode.client_destroy(c)
@@ -184,7 +184,7 @@ scenario_networked :: proc(t: ^testing.T) {
 		for e in c.checksums {
 			for r in host.client.checksums {
 				if r[0] == e[0] {
-					testing.expectf(t, r[1] == e[1], "slot %d disagrees at tick %d", c.slot, e[0])
+					testing.expectf(t, r[1] == e[1], "slot %d disagrees at tick %d", c.player, e[0])
 				}
 			}
 		}

@@ -177,7 +177,7 @@ mode_online_client :: proc(h: ^headless.Headless($S, $I, $W, $P), o: ^Online, a:
 	user := headless.Script_User(S, I, W, P){h, 1}
 	c := netcode.client_create(
 		h.game,
-		netcode.Client_Config{slot = -1, name = "client", content = h.content},
+		netcode.Client_Config{player = -1, name = "client", content = h.content},
 		link,
 		headless.script_hooks(&user),
 	)

@@ -142,7 +142,7 @@ mode_client :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	}
 	link = netcode.netsim_wrap(link, profile_opt(a), u32(player) * 104729 + 17)
 	cfg := netcode.Client_Config {
-		slot    = player,
+		player  = player,
 		content = h.content,
 		name    = fmt.tprintf("client%d", player),
 	}

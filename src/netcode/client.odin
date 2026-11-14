@@ -15,14 +15,14 @@ import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
 
 Client_Config :: struct {
-	slot:      int, // the slot to ask for; -1: any free slot
-	join_tick: u32, // the earliest tick to become present (0: as soon as possible)
-	compat:    u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:   []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the client's lifetime
-	player:    string, // the player's display name (sent to the relay, shared with everyone)
-	name:      string, // for log lines
-	poll_us:   i64, // 0: DEFAULT_POLL_US
-	quiet:     bool,
+	player:      int, // the player to ask for; -1: any free one
+	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
+	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
+	content:     []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the client's lifetime
+	player_name: string, // the player's display name (sent to the relay, shared with everyone)
+	name:        string, // for log lines
+	poll_us:     i64, // 0: DEFAULT_POLL_US
+	quiet:       bool,
 }
 
 Status :: enum u8 {
@@ -40,19 +40,19 @@ Frame_Info :: struct {
 	resim_from: u32, // ticks resim_from..tick were computed in this step: their events are new
 }
 
-Hooks :: struct($S, $I, $W: typeid, $P: int) {
+Hooks :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	user:     rawptr,
 	// The local player's input for `tick`, sampled when the client's clock reaches it. `state` is
 	// the latest predicted state (nil before the sim exists).
-	sample:   proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I,
+	sample:   proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input,
 	// Optional: the local player's commands for `tick`, called right after `sample` for every tick the
-	// client generates. usim.send_command(out, cmd) returns false once COMMAND_QUEUE commands wait.
-	commands: proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^usim.Command_Out),
-	// After a step that computed new predicted ticks: the view reads sim.state_at(s, f.tick) and
-	// f.tick - 1 for interpolation, and usim.events_at for ticks f.resim_from..f.tick.
-	frame:    proc(user: rawptr, s: ^usim.Sim(S, I, W, P), f: Frame_Info),
+	// client generates. usim.send_command(out, command) returns false once COMMAND_QUEUE commands wait.
+	commands: proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^usim.Command_Out),
+	// After a step that computed new predicted ticks: the view reads sim.state_at(simulation, frame.tick)
+	// and frame.tick - 1 for interpolation, and usim.events_at for ticks frame.resim_from..frame.tick.
+	frame:    proc(user: rawptr, simulation: ^usim.Sim(State, Input, World, PLAYERS), frame: Frame_Info),
 	// Each newly verified tick, in order, with the events it emitted under the final inputs.
-	verified: proc(user: rawptr, s: ^usim.Sim(S, I, W, P), tick: u32, events: []usim.Event),
+	verified: proc(user: rawptr, simulation: ^usim.Sim(State, Input, World, PLAYERS), tick: u32, events: []usim.Event),
 	status:   proc(user: rawptr, status: Status, detail: string),
 }
 
@@ -84,41 +84,41 @@ Step_Kind :: enum u8 {
 	Predicted,
 }
 
-Client :: struct($S, $I, $W: typeid, $P: int) {
-	game:          ^usim.Game(S, I, W, P),
+Client :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	game:          ^usim.Game(State, Input, World, PLAYERS),
 	cfg:           Client_Config,
-	hooks:         Hooks(S, I, W, P),
+	hooks:         Hooks(State, Input, World, PLAYERS),
 	tm:            Timing,
 	ch:            ^Channel,
 	relay:         Peer,
 	w:             wire.Writer,
-	sim:           ^usim.Sim(S, I, W, P), // nil until welcomed (a late joiner: until its snapshot lands)
+	sim:           ^usim.Sim(State, Input, World, PLAYERS), // nil until welcomed (a late joiner: until its snapshot lands)
 	status:        Status,
 	detail:        string,
 	hello_sent:    bool,
 	// from Welcome
 	welcomed:      bool,
-	slot:          int,
+	player:        int,
 	seed:          u64,
 	ticks:         u32, // session length, 0: endless
 	first_tick:    u32, // J: first tick this player is present
 	// finalized inputs from the relay
-	fin:           [FIN_RING]usim.Inputs(I, P),
+	fin:           [FIN_RING]usim.Inputs(Input, PLAYERS),
 	fin_tick:      [FIN_RING]u32,
-	fin_scratch:   usim.Inputs(I, P), // a finalized tick being decoded
+	fin_scratch:   usim.Inputs(Input, PLAYERS), // a finalized tick being decoded
 	fin_upto:      u32, // highest contiguous finalized tick held
 	// frames
 	verified:      u32, // V
 	predicted:     u32, // P (the sim's current tick)
 	local:         u32, // L (scheduler tick)
 	resim_from:    u32,
-	pred_inputs:   [PRED_RING]usim.Inputs(I, P),
+	pred_inputs:   [PRED_RING]usim.Inputs(Input, PLAYERS),
 	chk:           [CHK_RING]struct {
 		tick:  u32,
 		value: u64,
 	},
 	// own inputs
-	own:           [OWN_RING]I,
+	own:           [OWN_RING]Input,
 	own_last:      u32,
 	own_acked:     u32,
 	// own commands: sent (until acked) and predicted until a verified tick carries them
@@ -159,158 +159,158 @@ Client :: struct($S, $I, $W: typeid, $P: int) {
 	step_us:       [Step_Kind]i64, // time spent stepping them, µs
 	last_msg_us:   i64, // when the relay's last message arrived (now_us; 0: none yet)
 	// roster from the relay
-	connected:     [P]bool,
-	names:         [P]Player_Name,
+	connected:     [PLAYERS]bool,
+	names:         [PLAYERS]Player_Name,
 }
 
-// The display name of the player in `slot` ("" if none or unknown).
-client_player_name :: proc(c: ^Client($S, $I, $W, $P), slot: int) -> string {
-	return name_string(&c.names[slot]) if slot >= 0 && slot < P else ""
+// The display name of `player` ("" if none or unknown).
+client_player_name :: proc(client: ^Client($State, $Input, $World, $PLAYERS), player: int) -> string {
+	return name_string(&client.names[player]) if player >= 0 && player < PLAYERS else ""
 }
 
 // Creates a client talking to a relay over `link` (the client owns it). Nothing is sent until the
 // first client_step.
 client_create :: proc(
-	game: ^usim.Game($S, $I, $W, $P),
+	game: ^usim.Game($State, $Input, $World, $PLAYERS),
 	cfg: Client_Config,
 	link: Link,
-	hooks: Hooks(S, I, W, P),
-) -> ^Client(S, I, W, P) {
-	usim.check_plain(I)
-	c := new(Client(S, I, W, P))
-	c.game = game
-	c.cfg = cfg
-	if c.cfg.compat == 0 {
-		c.cfg.compat = usim.compat_of(game, c.cfg.content)
+	hooks: Hooks(State, Input, World, PLAYERS),
+) -> ^Client(State, Input, World, PLAYERS) {
+	usim.check_plain(Input)
+	client := new(Client(State, Input, World, PLAYERS))
+	client.game = game
+	client.cfg = cfg
+	if client.cfg.compat == 0 {
+		client.cfg.compat = usim.compat_of(game, client.cfg.content)
 	}
-	if c.cfg.poll_us <= 0 {
-		c.cfg.poll_us = DEFAULT_POLL_US
+	if client.cfg.poll_us <= 0 {
+		client.cfg.poll_us = DEFAULT_POLL_US
 	}
-	c.hooks = hooks
-	c.tm = timing_of(game.tick_hz)
-	c.ch = channel_make()
-	li := channel_add_link(c.ch, link)
-	c.relay = channel_peer(c.ch, li, 0)
-	c.w = wire.writer_make(MAX_DATAGRAM)
-	c.delay = 1
-	c.slot = -1
-	return c
+	client.hooks = hooks
+	client.tm = timing_of(game.tick_hz)
+	client.ch = channel_make()
+	link_index := channel_add_link(client.ch, link)
+	client.relay = channel_peer(client.ch, link_index, 0)
+	client.w = wire.writer_make(MAX_DATAGRAM)
+	client.delay = 1
+	client.player = -1
+	return client
 }
 
-client_destroy :: proc(c: ^Client($S, $I, $W, $P)) {
-	channel_destroy(c.ch)
-	if c.sim != nil {
-		usim.destroy(c.sim)
+client_destroy :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
+	channel_destroy(client.ch)
+	if client.sim != nil {
+		usim.destroy(client.sim)
 	}
-	delete(c.w.buf)
-	delete(c.snap_buf)
-	delete(c.snap_reqs)
-	delete(c.checksums)
-	delete(c.own_cmds)
-	delete(c.cmd_out.list)
-	free(c)
+	delete(client.w.buf)
+	delete(client.snap_buf)
+	delete(client.snap_reqs)
+	delete(client.checksums)
+	delete(client.own_cmds)
+	delete(client.cmd_out.list)
+	free(client)
 }
 
-// Leaves the session: the relay frees the slot at once. Keep stepping until the status is
+// Leaves the session: the relay frees the player at once. Keep stepping until the status is
 // Disconnected (at most ~0.5 s, so the Leave gets through).
-client_stop :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
-	if c.status == .Failed || c.status == .Disconnected || c.end_us != 0 {
+client_stop :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) {
+	if client.status == .Failed || client.status == .Disconnected || client.end_us != 0 {
 		return
 	}
-	if c.hello_sent {
-		csend(c, msg_begin(&c.w, .Leave), .Reliable, now)
+	if client.hello_sent {
+		csend(client, msg_begin(&client.w, .Leave), .Reliable, now)
 	}
-	c.end_us = now
-	c.leaving = true
-	c.detail = "left"
+	client.end_us = now
+	client.leaving = true
+	client.detail = "left"
 }
 
 // The latest predicted state (nil before the sim exists).
-client_state :: proc(c: ^Client($S, $I, $W, $P)) -> ^S {
-	return &c.sim.state if c.sim != nil else nil
+client_state :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> ^State {
+	return &client.sim.state if client.sim != nil else nil
 }
 
-client_rtt_ms :: proc(c: ^Client($S, $I, $W, $P)) -> f64 {
-	return c.rtt_us / 1000
-}
-
-@(private)
-set_status :: proc(c: ^Client($S, $I, $W, $P), st: Status, detail: string) {
-	if c.status == st {
-		return
-	}
-	c.status = st
-	c.detail = detail
-	if !c.cfg.quiet && (st == .Failed || st == .Disconnected) {
-		fmt.eprintfln("%s: %v (%s)", c.cfg.name, st, detail)
-	}
-	if c.hooks.status != nil {
-		c.hooks.status(c.hooks.user, st, detail)
-	}
+client_rtt_ms :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> f64 {
+	return client.rtt_us / 1000
 }
 
 @(private)
-csend :: proc(c: ^Client($S, $I, $W, $P), w: ^wire.Writer, d: Delivery, now: i64) {
-	channel_send(c.ch, c.relay, w.buf[:], d, now)
+set_status :: proc(client: ^Client($State, $Input, $World, $PLAYERS), status: Status, detail: string) {
+	if client.status == status {
+		return
+	}
+	client.status = status
+	client.detail = detail
+	if !client.cfg.quiet && (status == .Failed || status == .Disconnected) {
+		fmt.eprintfln("%s: %v (%s)", client.cfg.name, status, detail)
+	}
+	if client.hooks.status != nil {
+		client.hooks.status(client.hooks.user, status, detail)
+	}
 }
 
 @(private)
-on_welcome :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader) {
-	slot := int(wire.r_u8(rd))
-	seed := wire.r_u64(rd)
-	hz := int(wire.r_u16(rd))
-	ticks := wire.r_u32(rd)
-	first := wire.r_u32(rd)
-	from_start := wire.r_u8(rd) != 0
-	if !rd.ok || c.welcomed || slot >= P || (c.cfg.slot >= 0 && slot != c.cfg.slot) {
+csend :: proc(client: ^Client($State, $Input, $World, $PLAYERS), writer: ^wire.Writer, delivery: Delivery, now: i64) {
+	channel_send(client.ch, client.relay, writer.buf[:], delivery, now)
+}
+
+@(private)
+on_welcome :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^wire.Reader) {
+	player := int(wire.r_u8(reader))
+	seed := wire.r_u64(reader)
+	tick_hz := int(wire.r_u16(reader))
+	ticks := wire.r_u32(reader)
+	first := wire.r_u32(reader)
+	from_start := wire.r_u8(reader) != 0
+	if !reader.ok || client.welcomed || player >= PLAYERS || (client.cfg.player >= 0 && player != client.cfg.player) {
 		return
 	}
-	if hz != c.game.tick_hz {
-		set_status(c, .Failed, "the relay runs another tick rate")
+	if tick_hz != client.game.tick_hz {
+		set_status(client, .Failed, "the relay runs another tick rate")
 		return
 	}
-	c.welcomed = true
-	c.slot = slot
-	c.seed = seed
-	c.ticks = ticks
-	c.first_tick = first
-	c.own_last = first - 1
-	c.own_acked = first - 1
+	client.welcomed = true
+	client.player = player
+	client.seed = seed
+	client.ticks = ticks
+	client.first_tick = first
+	client.own_last = first - 1
+	client.own_acked = first - 1
 	if first <= 1 || from_start {
-		c.sim = usim.create(c.game, seed, c.cfg.content)
-		set_status(c, .Connected, "")
+		client.sim = usim.create(client.game, seed, client.cfg.content)
+		set_status(client, .Connected, "")
 	}
 }
 
 @(private)
-fin_have :: #force_inline proc(c: ^Client($S, $I, $W, $P), t: u32) -> bool {
-	return c.fin_tick[t % FIN_RING] == t
+fin_have :: #force_inline proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32) -> bool {
+	return client.fin_tick[tick % FIN_RING] == tick
 }
 
 // The base the finalized ring is anchored to: ticks beyond base + FIN_RING are not accepted yet.
 @(private)
-fin_base :: proc(c: ^Client($S, $I, $W, $P)) -> u32 {
-	return c.sim != nil ? c.verified : c.snap_tick
+fin_base :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> u32 {
+	return client.sim != nil ? client.verified : client.snap_tick
 }
 
 @(private)
-on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
-	relay_time := r_i64(rd)
-	echo := r_i64(rd)
-	hold := r_i64(rd)
-	input_ack := wire.r_u32(rd)
-	cmd_ack := wire.r_u32(rd)
-	first := wire.r_u32(rd)
-	count := u32(wire.r_u8(rd))
-	if !rd.ok || !c.welcomed {
+on_finalized :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^wire.Reader, now: i64) {
+	relay_time := r_i64(reader)
+	echo := r_i64(reader)
+	hold := r_i64(reader)
+	input_ack := wire.r_u32(reader)
+	command_ack := wire.r_u32(reader)
+	first := wire.r_u32(reader)
+	count := u32(wire.r_u8(reader))
+	if !reader.ok || !client.welcomed {
 		return
 	}
-	c.cmd_acked = max(c.cmd_acked, min(cmd_ack, c.cmd_seq))
+	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
 	if echo > 0 {
 		sample := f64(now - echo - hold)
 		if sample > 0 {
-			c.rtt_us = c.rtt_samples == 0 ? sample : c.rtt_us + (sample - c.rtt_us) * 0.1
-			c.rtt_samples += 1
+			client.rtt_us = client.rtt_samples == 0 ? sample : client.rtt_us + (sample - client.rtt_us) * 0.1
+			client.rtt_samples += 1
 		}
 	}
 	// Until the first echo of our inputs (they go out from Welcome on, so it takes a round trip), the
@@ -318,538 +318,571 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 	// echo replaces it. Waiting for echoes would start a late joiner's clock a round trip later and land
 	// its inputs for the join tick at the relay about two round trips after its Hello: past J + tolerance
 	// from ~280 ms.
-	rtt_ok := c.rtt_samples > 0
+	rtt_ok := client.rtt_samples > 0
 	if !rtt_ok {
-		c.rtt_us, rtt_ok = channel_rtt(c.ch, c.relay)
+		client.rtt_us, rtt_ok = channel_rtt(client.ch, client.relay)
 	}
 	if rtt_ok {
-		off := f64(relay_time) + c.rtt_us / 2 - f64(now)
-		c.offset_us = c.have_offset ? c.offset_us + (off - c.offset_us) * 0.05 : off
-		c.have_offset = true
+		offset := f64(relay_time) + client.rtt_us / 2 - f64(now)
+		client.offset_us = client.have_offset ? client.offset_us + (offset - client.offset_us) * 0.05 : offset
+		client.have_offset = true
 	}
-	c.own_acked = max(c.own_acked, input_ack)
-	limit := fin_base(c) + FIN_RING - 64
-	lt := &c.fin_scratch
+	client.own_acked = max(client.own_acked, input_ack)
+	limit := fin_base(client) + FIN_RING - 64
+	tick_inputs := &client.fin_scratch
 	for k in 0 ..< count {
-		t := first + k
-		if !usim.inputs_read(rd, lt) {
+		tick := first + k
+		if !usim.inputs_read(reader, tick_inputs) {
 			break // malformed: the ticks after it can't be found
 		}
 		// Ticks at or below fin_upto are held or consumed already: a stale datagram must not
 		// overwrite the ring slot a newer tick shares with them.
-		if t <= c.fin_upto || t > limit || (c.ticks != 0 && t > c.ticks) || fin_have(c, t) {
+		if tick <= client.fin_upto ||
+		   tick > limit ||
+		   (client.ticks != 0 && tick > client.ticks) ||
+		   fin_have(client, tick) {
 			continue
 		}
-		c.fin[t % FIN_RING] = lt^
-		c.fin_tick[t % FIN_RING] = t
+		client.fin[tick % FIN_RING] = tick_inputs^
+		client.fin_tick[tick % FIN_RING] = tick
 	}
-	for fin_have(c, c.fin_upto + 1) {
-		c.fin_upto += 1
+	for fin_have(client, client.fin_upto + 1) {
+		client.fin_upto += 1
 	}
 }
 
 @(private)
-handle_client_msg :: proc(c: ^Client($S, $I, $W, $P), data: []u8, now: i64) {
-	c.last_msg_us = now
-	rd := wire.reader_make(data)
-	#partial switch Msg(wire.r_u8(&rd)) {
+handle_client_msg :: proc(client: ^Client($State, $Input, $World, $PLAYERS), data: []u8, now: i64) {
+	client.last_msg_us = now
+	reader := wire.reader_make(data)
+	#partial switch Msg(wire.r_u8(&reader)) {
 	case .Welcome:
-		on_welcome(c, &rd)
+		on_welcome(client, &reader)
 	case .Reject:
 		detail := "rejected"
-		switch Reject_Reason(wire.r_u8(&rd)) {
+		switch Reject_Reason(wire.r_u8(&reader)) {
 		case .Full:
 			detail = "the session is full"
-		case .Slot_Taken:
-			detail = "that player slot is taken"
+		case .Player_Taken:
+			detail = "that player is taken"
 		case .Incompatible:
 			detail = "a different game build or level"
 		case .Not_Started:
 			detail = "the session has not started"
 		}
-		set_status(c, .Failed, detail)
+		set_status(client, .Failed, detail)
 	case .Finalized:
-		on_finalized(c, &rd, now)
+		on_finalized(client, &reader, now)
 	case .Snap_Request:
-		req := Snap_Req{int(wire.r_u8(&rd)), wire.r_u32(&rd)}
-		if rd.ok {
-			append(&c.snap_reqs, req)
+		request := Snap_Req{int(wire.r_u8(&reader)), wire.r_u32(&reader)}
+		if reader.ok {
+			append(&client.snap_reqs, request)
 		}
 	case .Snap_Begin:
-		_ = wire.r_u8(&rd)
-		tick := wire.r_u32(&rd)
-		total := int(wire.r_u32(&rd))
-		if !rd.ok || !c.welcomed || c.sim != nil {
+		_ = wire.r_u8(&reader)
+		tick := wire.r_u32(&reader)
+		total := int(wire.r_u32(&reader))
+		if !reader.ok || !client.welcomed || client.sim != nil {
 			return
 		}
 		if total == 0 {
 			// The provider left and nobody else can send one: start from tick 0 and replay the log.
-			c.fin_tick = {}
-			c.fin_upto = 0
-			c.snap_tick = 0
-			c.sim = usim.create(c.game, c.seed, c.cfg.content)
-			set_status(c, .Connected, "")
+			client.fin_tick = {}
+			client.fin_upto = 0
+			client.snap_tick = 0
+			client.sim = usim.create(client.game, client.seed, client.cfg.content)
+			set_status(client, .Connected, "")
 			return
 		}
-		c.snap_tick = tick
-		c.snap_total = total
-		clear(&c.snap_buf)
+		client.snap_tick = tick
+		client.snap_total = total
+		clear(&client.snap_buf)
 		// Finalized ticks are streamed from the snapshot tick on.
-		c.fin_upto = max(c.fin_upto, c.snap_tick - 1)
-		for fin_have(c, c.fin_upto + 1) {
-			c.fin_upto += 1
+		client.fin_upto = max(client.fin_upto, client.snap_tick - 1)
+		for fin_have(client, client.fin_upto + 1) {
+			client.fin_upto += 1
 		}
 	case .Snap_Chunk:
-		_ = wire.r_u8(&rd)
-		offset := int(wire.r_u32(&rd))
-		bytes := rd.data[rd.pos:]
-		if !rd.ok || c.sim != nil || offset != len(c.snap_buf) || len(bytes) > c.snap_total - offset {
+		_ = wire.r_u8(&reader)
+		offset := int(wire.r_u32(&reader))
+		bytes := reader.data[reader.pos:]
+		if !reader.ok ||
+		   client.sim != nil ||
+		   offset != len(client.snap_buf) ||
+		   len(bytes) > client.snap_total - offset {
 			return
 		}
-		append(&c.snap_buf, ..bytes)
-		if c.snap_total > 0 && len(c.snap_buf) == c.snap_total {
-			load_snapshot(c)
+		append(&client.snap_buf, ..bytes)
+		if client.snap_total > 0 && len(client.snap_buf) == client.snap_total {
+			load_snapshot(client)
 		}
 	case .Roster:
-		if int(wire.r_u8(&rd)) == P {
-			for p in 0 ..< P {
-				conn := wire.r_u8(&rd) != 0
-				name := r_name(&rd)
-				if rd.ok {
-					c.connected[p] = conn
-					c.names[p] = name
+		if int(wire.r_u8(&reader)) == PLAYERS {
+			for player in 0 ..< PLAYERS {
+				connected := wire.r_u8(&reader) != 0
+				name := r_name(&reader)
+				if reader.ok {
+					client.connected[player] = connected
+					client.names[player] = name
 				}
 			}
 		}
 	case .End:
-		if c.end_us == 0 {
-			c.end_us = now
-			c.detail = "session ended"
+		if client.end_us == 0 {
+			client.end_us = now
+			client.detail = "session ended"
 		}
 	}
 }
 
 @(private)
-load_snapshot :: proc(c: ^Client($S, $I, $W, $P)) {
-	sim, err := usim.from_snapshot(c.game, c.snap_buf[:], c.cfg.content)
+load_snapshot :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
+	sim, err := usim.from_snapshot(client.game, client.snap_buf[:], client.cfg.content)
 	if err != .None {
-		set_status(c, .Failed, fmt.tprintf("received snapshot does not restore: %v", err))
+		set_status(client, .Failed, fmt.tprintf("received snapshot does not restore: %v", err))
 		return
 	}
-	c.sim = sim
-	c.verified = c.sim.tick
-	c.predicted = c.verified
-	c.own_last = max(c.own_last, c.verified)
-	if !c.cfg.quiet {
-		fmt.eprintfln("%s: restored snapshot of tick %d (%d bytes)", c.cfg.name, c.verified, len(c.snap_buf))
+	client.sim = sim
+	client.verified = client.sim.tick
+	client.predicted = client.verified
+	client.own_last = max(client.own_last, client.verified)
+	if !client.cfg.quiet {
+		fmt.eprintfln(
+			"%s: restored snapshot of tick %d (%d bytes)",
+			client.cfg.name,
+			client.verified,
+			len(client.snap_buf),
+		)
 	}
-	delete(c.snap_buf)
-	c.snap_buf = nil
-	set_status(c, .Connected, "")
+	delete(client.snap_buf)
+	client.snap_buf = nil
+	set_status(client, .Connected, "")
 }
 
-// Inputs for predicting tick t: own input and commands, the others' latest finalized input repeated
+// Inputs for predicting `tick`: own input and commands, the others' latest finalized input repeated
 // (their commands are unknown until finalized: none).
 @(private)
-predicted_inputs :: proc(c: ^Client($S, $I, $W, $P), t: u32, out: ^usim.Inputs(I, P)) {
+predicted_inputs :: proc(
+	client: ^Client($State, $Input, $World, $PLAYERS),
+	tick: u32,
+	out: ^usim.Inputs(Input, PLAYERS),
+) {
 	out^ = {}
-	if c.fin_upto >= 1 && fin_have(c, c.fin_upto) {
-		last := &c.fin[c.fin_upto % FIN_RING]
+	if client.fin_upto >= 1 && fin_have(client, client.fin_upto) {
+		last := &client.fin[client.fin_upto % FIN_RING]
 		out.present = last.present
 		out.input = last.input
 	}
-	if t >= c.first_tick {
-		out.present += {c.slot}
-		out.input[c.slot] = c.own[min(t, c.own_last) % OWN_RING]
+	if tick >= client.first_tick {
+		out.present += {client.player}
+		out.input[client.player] = client.own[min(tick, client.own_last) % OWN_RING]
 	}
 	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
 	// for, or the first tick not finalized yet when that one is (a late command moves on), in order, at
 	// most COMMANDS_PER_PLAYER per tick. A wrong guess is an ordinary misprediction.
 	at, in_tick: u32 = 0, 0
-	for &oc in c.own_cmds {
-		tk := max(oc.want, c.fin_upto + 1, at)
-		if tk == at && in_tick == usim.COMMANDS_PER_PLAYER {
-			tk += 1
+	for &own_command in client.own_cmds {
+		lands_at := max(own_command.want, client.fin_upto + 1, at)
+		if lands_at == at && in_tick == usim.COMMANDS_PER_PLAYER {
+			lands_at += 1
 		}
-		if tk != at {
-			at, in_tick = tk, 0
+		if lands_at != at {
+			at, in_tick = lands_at, 0
 		}
 		in_tick += 1
-		if tk > t {
+		if lands_at > tick {
 			break
 		}
-		if tk == t {
-			usim.add_command(out, oc.cmd)
+		if lands_at == tick {
+			usim.add_command(out, own_command.cmd)
 		}
 	}
 }
 
 // A verified tick carries the own commands the relay put in it: they are no longer predicted.
 @(private)
-drop_verified_commands :: proc(c: ^Client($S, $I, $W, $P), t: u32) {
-	n := len(usim.commands(&c.fin[t % FIN_RING], c.slot))
-	remove_range(&c.own_cmds, 0, min(n, len(c.own_cmds)))
+drop_verified_commands :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32) {
+	carried := len(usim.commands(&client.fin[tick % FIN_RING], client.player))
+	remove_range(&client.own_cmds, 0, min(carried, len(client.own_cmds)))
 }
 
 @(private)
-record_checksum :: proc(c: ^Client($S, $I, $W, $P)) {
-	t := c.sim.tick
-	if t % CHECKSUM_EVERY == 0 {
-		c.chk[(t / CHECKSUM_EVERY) % CHK_RING] = {t, usim.checksum(c.sim)}
+record_checksum :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
+	tick := client.sim.tick
+	if tick % CHECKSUM_EVERY == 0 {
+		client.chk[(tick / CHECKSUM_EVERY) % CHK_RING] = {tick, usim.checksum(client.sim)}
 	}
 }
 
 @(private)
-step_tick :: proc(c: ^Client($S, $I, $W, $P), inputs: ^usim.Inputs(I, P), kind: Step_Kind) {
-	t0 := time.tick_now()
-	usim.step(c.sim, inputs)
-	c.steps[kind] += 1
-	c.step_us[kind] += i64(time.duration_microseconds(time.tick_since(t0)))
-	record_checksum(c)
-	if c.resim_from == 0 || c.sim.tick < c.resim_from {
-		c.resim_from = c.sim.tick
+step_tick :: proc(
+	client: ^Client($State, $Input, $World, $PLAYERS),
+	inputs: ^usim.Inputs(Input, PLAYERS),
+	kind: Step_Kind,
+) {
+	step_start := time.tick_now()
+	usim.step(client.sim, inputs)
+	client.steps[kind] += 1
+	client.step_us[kind] += i64(time.duration_microseconds(time.tick_since(step_start)))
+	record_checksum(client)
+	if client.resim_from == 0 || client.sim.tick < client.resim_from {
+		client.resim_from = client.sim.tick
 	}
 }
 
 @(private)
-on_tick_verified :: proc(c: ^Client($S, $I, $W, $P), t: u32) {
-	if c.hooks.verified != nil {
-		c.hooks.verified(c.hooks.user, c.sim, t, usim.events_at(c.sim, t))
+on_tick_verified :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32) {
+	if client.hooks.verified != nil {
+		client.hooks.verified(client.hooks.user, client.sim, tick, usim.events_at(client.sim, tick))
 	}
 }
 
 // Advances the verified frame with newly finalized ticks, rolling back on a misprediction.
 @(private)
-advance_verified :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
-	new_v := c.fin_upto
-	if c.sim == nil || new_v <= c.verified {
+advance_verified :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) {
+	new_verified := client.fin_upto
+	if client.sim == nil || new_verified <= client.verified {
 		return
 	}
-	old_v := c.verified
-	limit := min(new_v, c.predicted)
-	m: u32 = 0
-	for t in old_v + 1 ..= new_v {
-		assert(c.fin_tick[t % FIN_RING] == t, "finalized ring slot holds another tick")
+	old_verified := client.verified
+	limit := min(new_verified, client.predicted)
+	mispredicted: u32 = 0
+	for tick in old_verified + 1 ..= new_verified {
+		assert(client.fin_tick[tick % FIN_RING] == tick, "finalized ring slot holds another tick")
 	}
-	for t in old_v + 1 ..= limit {
+	for tick in old_verified + 1 ..= limit {
 		// Compared as bytes, like the checksum: -0.0 and +0.0 differ, a NaN equals itself.
-		if !usim.inputs_same(&c.pred_inputs[t % PRED_RING], &c.fin[t % FIN_RING]) {
-			m = t
+		if !usim.inputs_same(&client.pred_inputs[tick % PRED_RING], &client.fin[tick % FIN_RING]) {
+			mispredicted = tick
 			break
 		}
 	}
-	for t in old_v + 1 ..= new_v {
-		drop_verified_commands(c, t)
-		if c.slot >= 0 && c.slot in c.fin[t % FIN_RING].replaced do c.own_replaced += 1
+	for tick in old_verified + 1 ..= new_verified {
+		drop_verified_commands(client, tick)
+		if client.player >= 0 && client.player in client.fin[tick % FIN_RING].replaced do client.own_replaced += 1
 	}
-	for t in old_v + 1 ..= (m != 0 ? m - 1 : limit) {
-		on_tick_verified(c, t) // predicted right: the ring already holds the verified result
+	for tick in old_verified + 1 ..= (mispredicted != 0 ? mispredicted - 1 : limit) {
+		on_tick_verified(client, tick) // predicted right: the ring already holds the verified result
 	}
-	if m != 0 {
-		if !usim.restore(c.sim, m - 1) {
-			set_status(c, .Failed, "rollback failed: the target tick is not restorable")
+	if mispredicted != 0 {
+		if !usim.restore(client.sim, mispredicted - 1) {
+			set_status(client, .Failed, "rollback failed: the target tick is not restorable")
 			return
 		}
-		depth := int(c.predicted - (m - 1))
-		c.rollbacks += 1
-		c.depth_sum += depth
-		c.depth_max = max(c.depth_max, depth)
-		for t in m ..= new_v {
-			step_tick(c, &c.fin[t % FIN_RING], .Resim)
-			on_tick_verified(c, t)
-			c.resim_ticks += 1
+		depth := int(client.predicted - (mispredicted - 1))
+		client.rollbacks += 1
+		client.depth_sum += depth
+		client.depth_max = max(client.depth_max, depth)
+		for tick in mispredicted ..= new_verified {
+			step_tick(client, &client.fin[tick % FIN_RING], .Resim)
+			on_tick_verified(client, tick)
+			client.resim_ticks += 1
 		}
-		for t in new_v + 1 ..= c.predicted {
-			in_ := &c.pred_inputs[t % PRED_RING]
-			predicted_inputs(c, t, in_)
-			step_tick(c, in_, .Resim)
-			c.resim_ticks += 1
+		for tick in new_verified + 1 ..= client.predicted {
+			inputs := &client.pred_inputs[tick % PRED_RING]
+			predicted_inputs(client, tick, inputs)
+			step_tick(client, inputs, .Resim)
+			client.resim_ticks += 1
 		}
-		c.predicted = max(c.predicted, new_v)
-	} else if new_v > c.predicted {
-		for t in c.predicted + 1 ..= new_v {
-			step_tick(c, &c.fin[t % FIN_RING], .Verified)
-			on_tick_verified(c, t)
+		client.predicted = max(client.predicted, new_verified)
+	} else if new_verified > client.predicted {
+		for tick in client.predicted + 1 ..= new_verified {
+			step_tick(client, &client.fin[tick % FIN_RING], .Verified)
+			on_tick_verified(client, tick)
 		}
-		c.predicted = new_v
+		client.predicted = new_verified
 	}
-	c.verified = new_v
+	client.verified = new_verified
 	// Report the checksums of newly verified ticks (every 16th; a joiner from its join tick on).
-	first := (old_v / CHECKSUM_EVERY + 1) * CHECKSUM_EVERY
-	for t := first; t <= new_v; t += CHECKSUM_EVERY {
-		e := c.chk[(t / CHECKSUM_EVERY) % CHK_RING]
-		assert(e.tick == t, "missing checksum for a verified tick")
-		if t < c.first_tick {
+	first := (old_verified / CHECKSUM_EVERY + 1) * CHECKSUM_EVERY
+	for tick := first; tick <= new_verified; tick += CHECKSUM_EVERY {
+		entry := client.chk[(tick / CHECKSUM_EVERY) % CHK_RING]
+		assert(entry.tick == tick, "missing checksum for a verified tick")
+		if tick < client.first_tick {
 			continue
 		}
-		append(&c.checksums, [2]u64{u64(t), e.value})
-		w := msg_begin(&c.w, .Checksum)
-		wire.w_u8(w, u8(c.slot))
-		wire.w_u32(w, t)
-		wire.w_u64(w, e.value)
-		csend(c, w, .Reliable, now)
+		append(&client.checksums, [2]u64{u64(tick), entry.value})
+		writer := msg_begin(&client.w, .Checksum)
+		wire.w_u8(writer, u8(client.player))
+		wire.w_u32(writer, tick)
+		wire.w_u64(writer, entry.value)
+		csend(client, writer, .Reliable, now)
 	}
 }
 
 // Generates own inputs up to local + delay. A tick skipped because the delay grew repeats the
 // last input; when the delay shrinks, the already-sent input for a tick is kept.
 @(private)
-generate_inputs :: proc(c: ^Client($S, $I, $W, $P)) {
-	target := c.local + c.delay
-	if c.ticks != 0 {
-		target = min(target, c.ticks)
+generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
+	target := client.local + client.delay
+	if client.ticks != 0 {
+		target = min(target, client.ticks)
 	}
-	first_gen := c.own_last < c.first_tick
-	for t := c.own_last + 1; t <= target; t += 1 {
-		if t < target && !first_gen {
-			c.own[t % OWN_RING] = c.own[(t - 1) % OWN_RING]
-		} else if c.hooks.sample != nil {
-			c.own[t % OWN_RING] = c.hooks.sample(c.hooks.user, c.slot, t, client_state(c))
+	first_gen := client.own_last < client.first_tick
+	for tick := client.own_last + 1; tick <= target; tick += 1 {
+		if tick < target && !first_gen {
+			client.own[tick % OWN_RING] = client.own[(tick - 1) % OWN_RING]
+		} else if client.hooks.sample != nil {
+			client.own[tick % OWN_RING] = client.hooks.sample(
+				client.hooks.user,
+				client.player,
+				tick,
+				client_state(client),
+			)
 		} else {
-			c.own[t % OWN_RING] = {}
+			client.own[tick % OWN_RING] = {}
 		}
-		c.own_last = t
-		if c.hooks.commands != nil {
-			out := &c.cmd_out
-			out.kinds = c.game.commands
-			out.slot = c.slot
-			out.cap = COMMAND_QUEUE - len(c.own_cmds)
+		client.own_last = tick
+		if client.hooks.commands != nil {
+			out := &client.cmd_out
+			out.kinds = client.game.commands
+			out.slot = client.player
+			out.cap = COMMAND_QUEUE - len(client.own_cmds)
 			clear(&out.list)
-			c.hooks.commands(c.hooks.user, c.slot, t, client_state(c), out)
-			for cmd in out.list[:min(len(out.list), max(out.cap, 0))] {
-				c.cmd_seq += 1
-				append(&c.own_cmds, Own_Command{seq = c.cmd_seq, want = t, cmd = cmd})
+			client.hooks.commands(client.hooks.user, client.player, tick, client_state(client), out)
+			for command in out.list[:min(len(out.list), max(out.cap, 0))] {
+				client.cmd_seq += 1
+				append(&client.own_cmds, Own_Command{seq = client.cmd_seq, want = tick, cmd = command})
 			}
 		}
 	}
 }
 
 @(private)
-send_inputs :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
-	w := msg_begin(&c.w, .Inputs)
-	wire.w_u8(w, u8(c.slot))
-	w_i64(w, now)
-	wire.w_u32(w, min(c.fin_upto, fin_base(c) + FIN_RING - 64))
-	first := max(c.own_acked + 1, c.first_tick)
-	last := min(c.own_last, first + inputs_window(I) - 1)
-	wire.w_u32(w, first)
+send_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) {
+	writer := msg_begin(&client.w, .Inputs)
+	wire.w_u8(writer, u8(client.player))
+	w_i64(writer, now)
+	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
+	first := max(client.own_acked + 1, client.first_tick)
+	last := min(client.own_last, first + inputs_window(Input) - 1)
+	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
-	wire.w_u8(w, u8(count))
-	for t in first ..< first + count {
-		w_raw(w, &c.own[t % OWN_RING])
+	wire.w_u8(writer, u8(count))
+	for tick in first ..< first + count {
+		w_raw(writer, &client.own[tick % OWN_RING])
 	}
 	// Commands the relay hasn't acked, in seq order, as many as fit.
 	k := 0
-	for k < len(c.own_cmds) && c.own_cmds[k].seq <= c.cmd_acked {
+	for k < len(client.own_cmds) && client.own_cmds[k].seq <= client.cmd_acked {
 		k += 1
 	}
-	wire.w_u32(w, k < len(c.own_cmds) ? c.own_cmds[k].seq : c.cmd_seq + 1)
-	ncmd_at := len(w.buf)
-	wire.w_u8(w, 0)
-	n := 0
-	for ; k < len(c.own_cmds) && n < 255; k += 1 {
-		oc := &c.own_cmds[k]
-		if len(w.buf) + COMMAND_SEND_HEAD + int(oc.cmd.size) > MAX_MESSAGE {
+	wire.w_u32(writer, k < len(client.own_cmds) ? client.own_cmds[k].seq : client.cmd_seq + 1)
+	command_count_at := len(writer.buf)
+	wire.w_u8(writer, 0)
+	command_count := 0
+	for ; k < len(client.own_cmds) && command_count < 255; k += 1 {
+		own_command := &client.own_cmds[k]
+		if len(writer.buf) + COMMAND_SEND_HEAD + int(own_command.cmd.size) > MAX_MESSAGE {
 			break
 		}
-		wire.w_u32(w, oc.want)
-		wire.w_u8(w, oc.cmd.kind)
-		wire.w_u8(w, oc.cmd.size)
-		wire.w_bytes(w, oc.cmd.data[:oc.cmd.size])
-		n += 1
+		wire.w_u32(writer, own_command.want)
+		wire.w_u8(writer, own_command.cmd.kind)
+		wire.w_u8(writer, own_command.cmd.size)
+		wire.w_bytes(writer, own_command.cmd.data[:own_command.cmd.size])
+		command_count += 1
 	}
-	w.buf[ncmd_at] = u8(n)
-	csend(c, w, .Unreliable, now)
-	c.last_send_us = now
+	writer.buf[command_count_at] = u8(command_count)
+	csend(client, writer, .Unreliable, now)
+	client.last_send_us = now
 }
 
 @(private)
-at_end :: #force_inline proc(c: ^Client($S, $I, $W, $P), t: u32) -> bool {
-	return c.ticks != 0 && t >= c.ticks
+at_end :: #force_inline proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32) -> bool {
+	return client.ticks != 0 && tick >= client.ticks
 }
 
 // Scheduler: advances the local tick at the tick rate ± 2% towards relay tick + delay.
 @(private)
-schedule :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (advanced: bool) {
-	if !c.welcomed || !c.have_offset {
+schedule :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) -> (advanced: bool) {
+	if !client.welcomed || !client.have_offset {
 		return
 	}
-	tick_us := c.tm.tick_us
-	relay_tick := (f64(now) + c.offset_us) / tick_us
-	if !c.started {
-		c.started = true
-		c.delay = want_delay(c.rtt_us, c.tm)
-		c.delay_eval_us = now
-		c.local = max(u32(max(relay_tick, 0)) + c.delay, c.verified)
-		c.next_tick_us = f64(now) + tick_us
-		generate_inputs(c)
+	tick_us := client.tm.tick_us
+	relay_tick := (f64(now) + client.offset_us) / tick_us
+	if !client.started {
+		client.started = true
+		client.delay = want_delay(client.rtt_us, client.tm)
+		client.delay_eval_us = now
+		client.local = max(u32(max(relay_tick, 0)) + client.delay, client.verified)
+		client.next_tick_us = f64(now) + tick_us
+		generate_inputs(client)
 		return true
 	}
-	if now - c.delay_eval_us >= 1_000_000 {
-		c.delay_eval_us = now
-		want := want_delay(c.rtt_us, c.tm)
-		if want > c.delay {
-			c.delay += 1
-			c.delay_changes += 1
-		} else if want < c.delay {
-			c.delay -= 1
-			c.delay_changes += 1
+	if now - client.delay_eval_us >= 1_000_000 {
+		client.delay_eval_us = now
+		want := want_delay(client.rtt_us, client.tm)
+		if want > client.delay {
+			client.delay += 1
+			client.delay_changes += 1
+		} else if want < client.delay {
+			client.delay -= 1
+			client.delay_changes += 1
 		}
 	}
-	cap := c.tm.prediction_cap
-	err := relay_tick + f64(c.delay) - f64(c.local)
+	prediction_cap := client.tm.prediction_cap
+	behind := relay_tick + f64(client.delay) - f64(client.local) // ticks the local clock is behind its target
 	period := tick_us
-	if err > 1.0 {
+	if behind > 1.0 {
 		period *= 0.98
-	} else if err < 0 {
+	} else if behind < 0 {
 		period *= 1.02
 	}
-	for f64(now) >= c.next_tick_us {
-		c.next_tick_us += period
-		if at_end(c, c.local) || err < -4 {
+	for f64(now) >= client.next_tick_us {
+		client.next_tick_us += period
+		if at_end(client, client.local) || behind < -4 {
 			continue // finished, or far ahead of the relay: hold
 		}
-		if c.sim != nil && c.local + 1 > c.verified + cap {
-			c.stall_ticks += 1
+		if client.sim != nil && client.local + 1 > client.verified + prediction_cap {
+			client.stall_ticks += 1
 			continue
 		}
-		c.local += 1
-		err -= 1
+		client.local += 1
+		behind -= 1
 		advanced = true
-		generate_inputs(c)
+		generate_inputs(client)
 	}
 	// Far behind (e.g. after a stall): catch up without waiting for the slew.
-	for err > 4 && !at_end(c, c.local) && (c.sim == nil || c.local + 1 <= c.verified + cap) {
-		c.local += 1
-		err -= 1
+	for behind > 4 &&
+	    !at_end(client, client.local) &&
+	    (client.sim == nil || client.local + 1 <= client.verified + prediction_cap) {
+		client.local += 1
+		behind -= 1
 		advanced = true
-		generate_inputs(c)
+		generate_inputs(client)
 	}
 	return
 }
 
 @(private)
-predict :: proc(c: ^Client($S, $I, $W, $P)) {
-	if c.sim == nil {
+predict :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
+	if client.sim == nil {
 		return
 	}
-	for c.predicted < c.local && c.predicted < c.verified + c.tm.prediction_cap && !at_end(c, c.predicted) {
-		t := c.predicted + 1
-		in_ := &c.pred_inputs[t % PRED_RING]
-		predicted_inputs(c, t, in_)
-		step_tick(c, in_, .Predicted)
-		c.predicted = t
+	for client.predicted < client.local &&
+	    client.predicted < client.verified + client.tm.prediction_cap &&
+	    !at_end(client, client.predicted) {
+		tick := client.predicted + 1
+		inputs := &client.pred_inputs[tick % PRED_RING]
+		predicted_inputs(client, tick, inputs)
+		step_tick(client, inputs, .Predicted)
+		client.predicted = tick
 	}
 }
 
 @(private)
-serve_snapshot :: proc(c: ^Client($S, $I, $W, $P), now: i64) {
-	if len(c.snap_reqs) == 0 || c.sim == nil {
+serve_snapshot :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) {
+	if len(client.snap_reqs) == 0 || client.sim == nil {
 		return
 	}
 	data: []u8
 	defer delete(data)
-	for i := 0; i < len(c.snap_reqs); {
-		req := c.snap_reqs[i]
-		if c.verified < req.min_tick {
+	for i := 0; i < len(client.snap_reqs); {
+		request := client.snap_reqs[i]
+		if client.verified < request.min_tick {
 			i += 1
 			continue
 		}
 		if data == nil {
-			data = usim.snapshot_encode(c.sim, c.verified)
+			data = usim.snapshot_encode(client.sim, client.verified)
 		}
-		w := msg_begin(&c.w, .Snap_Begin)
-		wire.w_u8(w, u8(req.joiner))
-		wire.w_u32(w, c.verified)
-		wire.w_u32(w, u32(len(data)))
-		csend(c, w, .Reliable, now)
-		for off := 0; off < len(data); off += SNAP_CHUNK {
-			cw := msg_begin(&c.w, .Snap_Chunk)
-			wire.w_u8(cw, u8(req.joiner))
-			wire.w_u32(cw, u32(off))
-			wire.w_bytes(cw, data[off:min(off + SNAP_CHUNK, len(data))])
-			csend(c, cw, .Reliable, now)
+		writer := msg_begin(&client.w, .Snap_Begin)
+		wire.w_u8(writer, u8(request.joiner))
+		wire.w_u32(writer, client.verified)
+		wire.w_u32(writer, u32(len(data)))
+		csend(client, writer, .Reliable, now)
+		for offset := 0; offset < len(data); offset += SNAP_CHUNK {
+			chunk_writer := msg_begin(&client.w, .Snap_Chunk)
+			wire.w_u8(chunk_writer, u8(request.joiner))
+			wire.w_u32(chunk_writer, u32(offset))
+			wire.w_bytes(chunk_writer, data[offset:min(offset + SNAP_CHUNK, len(data))])
+			csend(client, chunk_writer, .Reliable, now)
 		}
-		if !c.cfg.quiet {
+		if !client.cfg.quiet {
 			fmt.eprintfln(
 				"%s: sent snapshot of tick %d (%d bytes) for player %d",
-				c.cfg.name,
-				c.verified,
+				client.cfg.name,
+				client.verified,
 				len(data),
-				req.joiner,
+				request.joiner,
 			)
 		}
-		ordered_remove(&c.snap_reqs, i)
+		ordered_remove(&client.snap_reqs, i)
 	}
 }
 
 // One step of the client: receive, verify (rolling back if needed), advance the local clock,
 // predict, publish, send. Returns when it wants to run next (a now_us value).
-client_step :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (wake_us: i64) {
-	if c.status == .Failed || c.status == .Disconnected {
+client_step :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) -> (wake_us: i64) {
+	if client.status == .Failed || client.status == .Disconnected {
 		return now + 100_000
 	}
-	if !c.hello_sent {
-		w := msg_begin(&c.w, .Hello)
-		wire.w_u16(w, PROTOCOL_VERSION)
-		wire.w_u8(w, c.cfg.slot < 0 ? ANY_SLOT : u8(c.cfg.slot))
-		wire.w_u32(w, c.cfg.join_tick)
-		wire.w_u64(w, c.cfg.compat)
-		name := name_of(c.cfg.player)
-		w_name(w, &name)
-		csend(c, w, .Reliable, now)
-		c.hello_sent = true
-		set_status(c, .Connecting, "")
+	if !client.hello_sent {
+		writer := msg_begin(&client.w, .Hello)
+		wire.w_u16(writer, PROTOCOL_VERSION)
+		wire.w_u8(writer, client.cfg.player < 0 ? ANY_PLAYER : u8(client.cfg.player))
+		wire.w_u32(writer, client.cfg.join_tick)
+		wire.w_u64(writer, client.cfg.compat)
+		name := name_of(client.cfg.player_name)
+		w_name(writer, &name)
+		csend(client, writer, .Reliable, now)
+		client.hello_sent = true
+		set_status(client, .Connecting, "")
 	}
-	for ev in channel_poll(c.ch, now) {
-		switch ev.kind {
+	for event in channel_poll(client.ch, now) {
+		switch event.kind {
 		case .Message:
-			handle_client_msg(c, ev.data, now)
+			handle_client_msg(client, event.data, now)
 		case .Disconnected:
-			if ev.peer == c.relay && c.end_us == 0 {
+			if event.peer == client.relay && client.end_us == 0 {
 				set_status(
-					c,
-					c.welcomed ? .Disconnected : .Failed,
-					c.welcomed ? "connection lost" : "no answer from the relay",
+					client,
+					client.welcomed ? .Disconnected : .Failed,
+					client.welcomed ? "connection lost" : "no answer from the relay",
 				)
 			}
 		case .Connected:
 		}
 	}
-	if c.status == .Failed || c.status == .Disconnected {
+	if client.status == .Failed || client.status == .Disconnected {
 		return now + 100_000
 	}
-	c.resim_from = 0
-	if !c.leaving {
-		advance_verified(c, now)
-		advanced := schedule(c, now)
-		predict(c)
-		if c.resim_from != 0 && c.hooks.frame != nil {
-			c.hooks.frame(c.hooks.user, c.sim, Frame_Info{c.predicted, c.verified, c.resim_from})
+	client.resim_from = 0
+	if !client.leaving {
+		advance_verified(client, now)
+		advanced := schedule(client, now)
+		predict(client)
+		if client.resim_from != 0 && client.hooks.frame != nil {
+			client.hooks.frame(
+				client.hooks.user,
+				client.sim,
+				Frame_Info{client.predicted, client.verified, client.resim_from},
+			)
 		}
-		serve_snapshot(c, now)
-		if c.welcomed && (advanced || f64(now - c.last_send_us) >= c.tm.tick_us) {
-			send_inputs(c, now)
+		serve_snapshot(client, now)
+		if client.welcomed && (advanced || f64(now - client.last_send_us) >= client.tm.tick_us) {
+			send_inputs(client, now)
 		}
-		if c.welcomed && c.ticks != 0 && c.verified >= c.ticks && !c.done_sent {
-			w := msg_begin(&c.w, .Done)
-			wire.w_u8(w, u8(c.slot))
-			wire.w_u32(w, c.verified)
-			csend(c, w, .Reliable, now)
-			c.done_sent = true
+		if client.welcomed && client.ticks != 0 && client.verified >= client.ticks && !client.done_sent {
+			writer := msg_begin(&client.w, .Done)
+			wire.w_u8(writer, u8(client.player))
+			wire.w_u32(writer, client.verified)
+			csend(client, writer, .Reliable, now)
+			client.done_sent = true
 		}
 	}
-	channel_flush(c.ch, now)
-	if c.end_us != 0 {
+	channel_flush(client.ch, now)
+	if client.end_us != 0 {
 		// Linger briefly so the last acks (End) or our Leave go out, then leave once our reliable
 		// queue is empty.
-		if (channel_idle(c.ch, c.relay) && now - c.end_us > 100_000) || now - c.end_us > 2_000_000 {
-			set_status(c, .Disconnected, c.detail)
+		if (channel_idle(client.ch, client.relay) && now - client.end_us > 100_000) ||
+		   now - client.end_us > 2_000_000 {
+			set_status(client, .Disconnected, client.detail)
 		}
 	}
-	wake_us = now + c.cfg.poll_us
-	if c.started {
-		wake_us = min(wake_us, i64(c.next_tick_us) + 1)
+	wake_us = now + client.cfg.poll_us
+	if client.started {
+		wake_us = min(wake_us, i64(client.next_tick_us) + 1)
 	}
 	return
 }
@@ -874,51 +907,54 @@ Client_Result :: struct {
 }
 
 // A client's results; the checksums are copied into `allocator` (the caller deletes them).
-client_result :: proc(c: ^Client($S, $I, $W, $P), allocator := context.allocator) -> Client_Result {
-	checksums := make([][2]u64, len(c.checksums), allocator)
-	copy(checksums, c.checksums[:])
+client_result :: proc(
+	client: ^Client($State, $Input, $World, $PLAYERS),
+	allocator := context.allocator,
+) -> Client_Result {
+	checksums := make([][2]u64, len(client.checksums), allocator)
+	copy(checksums, client.checksums[:])
 	return {
-		player = c.slot,
-		join_tick = c.first_tick,
-		final_tick = c.verified,
+		player = client.player,
+		join_tick = client.first_tick,
+		final_tick = client.verified,
 		checksums = checksums,
-		rollbacks = c.rollbacks,
-		rollback_depth_avg = c.rollbacks > 0 ? f64(c.depth_sum) / f64(c.rollbacks) : 0,
-		rollback_depth_max = c.depth_max,
-		stall_ticks = c.stall_ticks,
-		resim_ticks = c.resim_ticks,
-		delay = c.delay,
-		delay_changes = c.delay_changes,
-		rtt_ms = c.rtt_us / 1000,
-		ok = c.ticks != 0 && c.verified == c.ticks && c.status != .Failed,
-		net = c.ch.stats,
+		rollbacks = client.rollbacks,
+		rollback_depth_avg = client.rollbacks > 0 ? f64(client.depth_sum) / f64(client.rollbacks) : 0,
+		rollback_depth_max = client.depth_max,
+		stall_ticks = client.stall_ticks,
+		resim_ticks = client.resim_ticks,
+		delay = client.delay,
+		delay_changes = client.delay_changes,
+		rtt_ms = client.rtt_us / 1000,
+		ok = client.ticks != 0 && client.verified == client.ticks && client.status != .Failed,
+		net = client.ch.stats,
 	}
 }
 
 // The JSON object of a client's results (temp-allocated).
-client_json :: proc(r: Client_Result) -> string {
-	b := make([dynamic]u8, 0, 64 + len(r.checksums) * 32, context.temp_allocator)
-	for e, i in r.checksums {
+client_json :: proc(result: Client_Result) -> string {
+	checksums := make([dynamic]u8, 0, 64 + len(result.checksums) * 32, context.temp_allocator)
+	for entry, i in result.checksums {
 		if i > 0 {
-			append(&b, ',')
+			append(&checksums, ',')
 		}
-		append(&b, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, e[0], e[1]))
+		append(&checksums, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, entry[0], entry[1]))
 	}
 	return fmt.tprintf(
 		`{{"player":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ok":%v,"net":%s}}`,
-		r.player,
-		r.final_tick,
-		string(b[:]),
-		r.rollbacks,
-		r.rollback_depth_avg,
-		r.rollback_depth_max,
-		r.stall_ticks,
-		r.resim_ticks,
-		r.join_tick,
-		r.delay,
-		r.delay_changes,
-		r.rtt_ms,
-		r.ok,
-		channel_stats_json(r.net),
+		result.player,
+		result.final_tick,
+		string(checksums[:]),
+		result.rollbacks,
+		result.rollback_depth_avg,
+		result.rollback_depth_max,
+		result.stall_ticks,
+		result.resim_ticks,
+		result.join_tick,
+		result.delay,
+		result.delay_changes,
+		result.rtt_ms,
+		result.ok,
+		channel_stats_json(result.net),
 	)
 }
