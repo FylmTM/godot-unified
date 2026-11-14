@@ -46,7 +46,7 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "test",
-				usage = "[game] [--suite s,...] [--only name,...] [--long]",
+				usage = "[game] [--suite s,...] [--only name,...] [--long] [--crash]",
 				summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants",
 				budget = 6,
 				run = cmd_test,
@@ -148,10 +148,15 @@ cmd_test :: proc(args: []string) -> Result {
 		suite: string `usage:"suites, comma-separated, or all (default: odin)"`,
 		only:  string `usage:"tests (odin) or steps (godot), comma-separated"`,
 		long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
+		crash: bool `usage:"odin, this repo: a test also crashes holding a lock another test waits for; proves the run fails within seconds and names it"`,
 	}
 	opts: Opts
 	parse(&opts, args)
 	state.long = opts.long
+	state.crash = opts.crash
+	if opts.crash && !is_unified_repo() {
+		usage("--crash runs tests/cli's crash test: the unified repo only")
+	}
 	names := split_list(opts.suite)
 	if len(names) == 0 {
 		names = {"odin"}

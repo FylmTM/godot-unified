@@ -316,18 +316,25 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 		stage_box3d(os.dir(out))
 	}
 	cmd: [dynamic]string
-	append(&cmd, odin(), "test", test_root(), tprint("-out:%s", out))
+	append(&cmd, odin(), "build", test_root(), tprint("-out:%s", out))
 	append(&cmd, ..collection())
 	if is_unified_repo() {
 		append(&cmd, "-all-packages") // tests/ is a root that pulls in every test package; a game's tests are one
 	}
+	append(&cmd, ..TEST_RUN_FLAGS)
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
 	if state.long && uses_scenarios() {
 		append(&cmd, "-define:UNIFIED_LONG_TESTS=true")
 	}
+	if state.crash {
+		append(&cmd, "-define:UNIFIED_TEST_CRASH=true")
+	}
 	if len(only) > 0 {
 		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(only, ",")))
 	}
-	return run_proc({cmd = cmd[:]}).ok
+	if !run_proc({cmd = cmd[:]}).ok {
+		return false
+	}
+	return run_test_binary(out, suite_timeout("odin"))
 }
