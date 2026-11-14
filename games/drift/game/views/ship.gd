@@ -49,7 +49,7 @@ func _process(delta: float) -> void:
 	var local := slot == Game.local_slot()
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
-		var p := Game.player_for_slot(slot)
+		var p := Game.player(slot)
 		var n := Game.player_name(p) if not p.is_empty() else "P%d" % (slot + 1)
 		if _tag.text != n:
 			_tag.text = n
@@ -69,7 +69,8 @@ func _draw() -> void:
 	if boost_ready < 1.0:
 		draw_arc(Vector2.ZERO, ring_r, -PI / 2.0, -PI / 2.0 + TAU * boost_ready, 32, Color(_color, 0.45), 2.0, true)
 	else:
-		draw_arc(Vector2.ZERO, ring_r, 0.0, TAU, 32, Color(_color, 0.18 + 0.6 * _ready_pulse), 1.5 + 2.0 * _ready_pulse, true)
+		draw_arc(Vector2.ZERO, ring_r, 0.0, TAU, 32, Color(_color, 0.18 + 0.6 * _ready_pulse),
+			1.5 + 2.0 * _ready_pulse, true)
 	# thrust flame behind the hull, flickering
 	if thrust:
 		var f := 0.8 + 0.25 * sin(_t * 47.0) + 0.15 * sin(_t * 31.0)

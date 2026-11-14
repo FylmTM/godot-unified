@@ -3,7 +3,7 @@ extends MultiMeshInstance2D
 ## `sim_bulk` group itself, so the host's plain-node path stays exercised. A small quad the host stretches along
 ## the bullet's velocity (scale per axis); the shader tints it with the owner's slot colour (custom.x = slot).
 
-## Loaded in _ready, not preloaded: a preloaded shader leaks at exit once the menu has loaded the arena on a thread.
+## Loaded in _ready, not preloaded: the play scene loads on a thread (src/godot_host/SPEC.md, Play scene).
 const SHADER := "res://game/shaders/bullet.gdshader"
 
 var kind := "bullet"  ## a String, as the host reads it from plain nodes
