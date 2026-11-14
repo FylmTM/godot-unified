@@ -42,6 +42,7 @@ host_create :: proc(
 		name          = cfg.name,
 		poll_us       = cfg.poll_us,
 		quiet         = cfg.quiet,
+		local_start   = true, // the only start player is the host's own client
 	}
 	host.relay = relay_create(relay_config, Input, PLAYERS)
 	relay_add_link(host.relay, loopback_link(host.hub, 0))

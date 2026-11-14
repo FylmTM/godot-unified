@@ -28,7 +28,10 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   talking to a connection the other ended (timed out after a one-way outage) is told so at once, instead of
   sitting half-open.
 - **Relay** (`relay_create(cfg, Input, PLAYERS)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
-  `relay_clock`): owns the clock; finalizes tick T when every present player's input is in or the clock reaches
+  `relay_clock`): owns the clock, which starts once the start players have connected: it sends them Welcome and
+  tick 0 is due 500 ms later (`START_LEAD_MS`; at once with `local_start`, the host's in-process client), so a far
+  start player's inputs for tick 1 arrive in time, like a joiner's (its J is as far ahead); it broadcasts during
+  the lead too, with a negative relay time. Finalizes tick T when every present player's input is in or the clock reaches
   T + tolerance (100 ms), and never past the clock while nobody is present; a missing input repeats the player's last
   one (`replaced`); commands go in as below. `present` = connected players
   from their join tick. Broadcasts unacked finalized ticks (as many as fit one datagram, ≤ 32, fewer when they carry commands; a longer backlog, up to 384 ticks, goes
@@ -36,15 +39,16 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   input log, routes snapshots, compares checksums (every `sim.DEEP_CHECKSUM_EVERY` = 16 ticks, the ones that cover every extra's whole state). Hello carries protocol, player (or any), join tick
   and a `compat` id (default `sim.compat_of(game)`: layouts, command and event types, the player count, tick rate, game name and version; a relay with
   compat 0 accepts any); rejects: full, player taken, incompatible, not started. `ticks = 0` is an endless session.
-  `PROTOCOL_VERSION` 7 (7: snapshots v4 and checksums covering Box3D's whole state; a game bumps its lobby bucket with it).
+  `PROTOCOL_VERSION` 8 (8: the relay time is below 0 during the start lead; a game bumps its lobby bucket with it).
 - **Client** (`client_create(&GAME, cfg, link, hooks)`, `client_step`, `client_stop`, `client_state`,
   `client_destroy`): verified and predicted frames, rollback from the first mispredicted tick (presence, input
   bytes and commands compared, `sim.inputs_same`; finalized ticks at or below the held prefix are ignored), prediction cap (`sim.ring_size(tick_hz)` − 2 ticks, the most
   the ring allows: 187 ms at 32 Hz, 218 ms at 64, 234 ms at 128; at 64 Hz a client plays smoothly up to ~300 ms RTT, and
   166 ms stalled most ticks from ~250 ms), input delay `clamp(ceil((rtt/2 + 8 ms)/tick), 1, 100 ms)`
   re-evaluated each second by ±1, clock slewed ±2% towards relay tick + delay. The clock starts at the first
-  Finalized after Welcome, timed by the channel's latest RTT sample until the relay echoes an Inputs packet (a
-  round trip later), so a joiner's inputs for its join tick arrive within the tolerance up to ~550 ms RTT.
+  Finalized after Welcome (during the relay's start lead: once its tick 0 is due), timed by the channel's latest RTT
+  sample until the relay echoes an Inputs packet (a round trip later), so a joiner's inputs for its join tick and a
+  start player's for tick 1 arrive within the tolerance up to ~550 ms RTT.
   Cumulative counters for tools (the dev UI's graphs take differences): rollbacks, stall and re-simulated ticks, ticks
   stepped and the time stepping them by `Step_Kind` (verified, re-simulated after a rollback, newly predicted), our
   inputs the relay replaced (they came too late), when the relay's last message arrived.

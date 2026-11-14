@@ -5,7 +5,7 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-PROTOCOL_VERSION :: 7 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands; 7: snapshots v4, checksums cover Box3D's whole state
+PROTOCOL_VERSION :: 8 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands; 7: snapshots v4, checksums cover Box3D's whole state; 8: a relay time below 0 (the start lead) before tick 0
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
