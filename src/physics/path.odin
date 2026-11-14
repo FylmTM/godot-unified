@@ -41,32 +41,47 @@ Leg :: struct {
 }
 
 @(private)
-path_leg :: proc(p: ^Path, k: int, tick_hz: int) -> (leg: Leg, ok: bool) {
-	n := int(p.count)
-	switch p.mode {
+path_leg :: proc(path: ^Path, leg_index: int, tick_hz: int) -> (leg: Leg, ok: bool) {
+	count := int(path.count)
+	switch path.mode {
 	case .Once:
-		if k >= n - 1 do return
-		leg = {k, k + 1, ticks_of(p.wait_s[k], tick_hz), ticks_of(p.seconds[k], tick_hz)}
+		if leg_index >= count - 1 do return
+		leg = {
+			leg_index,
+			leg_index + 1,
+			ticks_of(path.wait_s[leg_index], tick_hz),
+			ticks_of(path.seconds[leg_index], tick_hz),
+		}
 	case .Loop:
-		if k >= n do return
-		leg = {k, (k + 1) % n, ticks_of(p.wait_s[k], tick_hz), ticks_of(p.seconds[k], tick_hz)}
+		if leg_index >= count do return
+		leg = {
+			leg_index,
+			(leg_index + 1) % count,
+			ticks_of(path.wait_s[leg_index], tick_hz),
+			ticks_of(path.seconds[leg_index], tick_hz),
+		}
 	case .Ping_Pong:
-		if k >= 2 * (n - 1) do return
-		if k < n - 1 {
-			leg = {k, k + 1, ticks_of(p.wait_s[k], tick_hz), ticks_of(p.seconds[k], tick_hz)}
+		if leg_index >= 2 * (count - 1) do return
+		if leg_index < count - 1 {
+			leg = {
+				leg_index,
+				leg_index + 1,
+				ticks_of(path.wait_s[leg_index], tick_hz),
+				ticks_of(path.seconds[leg_index], tick_hz),
+			}
 		} else {
-			i := 2 * (n - 1) - k // n-1 down to 1
-			leg = {i, i - 1, ticks_of(p.wait_s[i], tick_hz), ticks_of(p.seconds[i - 1], tick_hz)}
+			i := 2 * (count - 1) - leg_index // n-1 down to 1
+			leg = {i, i - 1, ticks_of(path.wait_s[i], tick_hz), ticks_of(path.seconds[i - 1], tick_hz)}
 		}
 	}
 	return leg, true
 }
 
 // Ticks in one cycle (Once: until it arrives).
-path_duration_ticks :: proc(p: ^Path, tick_hz: int) -> u32 {
+path_duration_ticks :: proc(path: ^Path, tick_hz: int) -> u32 {
 	total: u32
 	for k := 0;; k += 1 {
-		leg := path_leg(p, k, tick_hz) or_break
+		leg := path_leg(path, k, tick_hz) or_break
 		total += leg.wait + leg.travel
 	}
 	return total
@@ -74,40 +89,40 @@ path_duration_ticks :: proc(p: ^Path, tick_hz: int) -> u32 {
 
 // The position at `phase_tick` ticks into the path (cycles repeat; Once holds the last point).
 // Exact at the points: a wait returns the point itself.
-path_sample :: proc(p: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
-	n := int(p.count)
-	if n == 0 do return {}
-	if n == 1 do return p.points[0]
-	total := path_duration_ticks(p, tick_hz)
-	if total == 0 do return p.points[0]
-	t := phase_tick
-	if p.mode == .Once {
-		if t >= total do return p.points[n - 1]
+path_sample :: proc(path: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
+	count := int(path.count)
+	if count == 0 do return {}
+	if count == 1 do return path.points[0]
+	total := path_duration_ticks(path, tick_hz)
+	if total == 0 do return path.points[0]
+	tick := phase_tick
+	if path.mode == .Once {
+		if tick >= total do return path.points[count - 1]
 	} else {
-		t %= total
+		tick %= total
 	}
 	for k := 0;; k += 1 {
-		leg := path_leg(p, k, tick_hz) or_break
-		if t < leg.wait do return p.points[leg.from]
-		t -= leg.wait
-		if t < leg.travel {
-			u := f32(t) / f32(leg.travel)
-			if p.ease == .Smooth do u = u * u * (3 - 2 * u)
-			a := p.points[leg.from]
-			b := p.points[leg.to]
-			return {a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u}
+		leg := path_leg(path, k, tick_hz) or_break
+		if tick < leg.wait do return path.points[leg.from]
+		tick -= leg.wait
+		if tick < leg.travel {
+			progress := f32(tick) / f32(leg.travel)
+			if path.ease == .Smooth do progress = progress * progress * (3 - 2 * progress)
+			a := path.points[leg.from]
+			b := path.points[leg.to]
+			return {a.x + (b.x - a.x) * progress, a.y + (b.y - a.y) * progress, a.z + (b.z - a.z) * progress}
 		}
-		t -= leg.travel
+		tick -= leg.travel
 	}
-	return p.points[n - 1]
+	return path.points[count - 1]
 }
 
 // Sets a kinematic body's velocity so the next step lands it on `target`, measured from where it
 // is now: no drift, and exactly still during waits. `tick_hz` is the step rate.
-drive_kinematic :: proc(w: ^World, r: Body_Ref, target: [3]f32, tick_hz: int) {
-	id := body_id(w, r)
-	p := b3.body_get_position(id)
+drive_kinematic :: proc(world: ^World, ref: Body_Ref, target: [3]f32, tick_hz: int) {
+	id := body_id(world, ref)
+	pos := b3.body_get_position(id)
 	hz := f32(tick_hz)
-	b3.body_set_linear_velocity(id, {(target.x - p.x) * hz, (target.y - p.y) * hz, (target.z - p.z) * hz})
+	b3.body_set_linear_velocity(id, {(target.x - pos.x) * hz, (target.y - pos.y) * hz, (target.z - pos.z) * hz})
 	b3.body_set_angular_velocity(id, {})
 }

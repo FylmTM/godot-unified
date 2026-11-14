@@ -33,55 +33,57 @@ GOLDEN_MOVERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
 @(test)
 mover_golden_trace :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(Golden)), "")
-	w := new_world()
-	defer physics.destroy(w)
-	ground(w)
-	box(w, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
-	s: Golden
-	s.platform = physics.ref_of(box(w, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
-	physics.mover_create(w, &s.rider, &MOVER, {0, 1.6, 6})
-	physics.mover_create(w, &s.walker, &MOVER, {-8, 1.5, 0})
-	physics.mover_create(w, &s.target, &MOVER, {4, 1.5, -2})
-	e := physics.extra(w, Golden)
+	world := new_world()
+	defer physics.destroy(world)
+	ground(world)
+	box(world, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
+	state: Golden
+	state.platform = physics.ref_of(
+		box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
+	)
+	physics.mover_create(world, &state.rider, &MOVER, {0, 1.6, 6})
+	physics.mover_create(world, &state.walker, &MOVER, {-8, 1.5, 0})
+	physics.mover_create(world, &state.target, &MOVER, {4, 1.5, -2})
+	extra := physics.extra(world, Golden)
 
 	got: [len(GOLDEN_MOVERS)]u64
 	buf := make([dynamic]u8, context.temp_allocator)
 	jumped, rode := false, true
 	target_x0: f32
-	for tk in 1 ..= GOLDEN_TICKS {
-		physics.drive_kinematic(w, s.platform, physics.path_sample(&RIG_PATH, u32(tk), HZ), HZ)
-		physics.mover_update(w, &s.rider, &MOVER, {}, false, 1, DT)
+	for tick in 1 ..= GOLDEN_TICKS {
+		physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, u32(tick), HZ), HZ)
+		physics.mover_update(world, &state.rider, &MOVER, {}, false, 1, DT)
 		// The walker heads +x over the step, jumps twice, then turns back.
-		walk := tk < 300 ? [2]f32{0.6, 0} : [2]f32{-0.6, 0.3}
-		physics.mover_update(w, &s.walker, &MOVER, walk, tk == 160 || tk == 360, 1, DT)
-		physics.mover_update(w, &s.target, &MOVER, {}, false, 1, DT)
-		if tk == 64 {
+		walk := tick < 300 ? [2]f32{0.6, 0} : [2]f32{-0.6, 0.3}
+		physics.mover_update(world, &state.walker, &MOVER, walk, tick == 160 || tick == 360, 1, DT)
+		physics.mover_update(world, &state.target, &MOVER, {}, false, 1, DT)
+		if tick == 64 {
 			// A heavy box (about the mover's mass) at 14 m/s: the drive's force cap gives way.
-			s.thrown = physics.ref_of(
-				box(w, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
+			state.thrown = physics.ref_of(
+				box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
 			)
-			physics.set_velocity(w, s.thrown, {14, 0, 0})
-			target_x0 = physics.position(w, s.target.body).x
+			physics.set_velocity(world, state.thrown, {14, 0, 0})
+			target_x0 = physics.position(world, state.target.body).x
 		}
-		step(w)
-		jumped ||= tk > 160 && !physics.mover_grounded(&s.walker)
-		if tk > 32 {
-			rode &&= s.rider.ground == physics.link(s.platform)
+		step(world)
+		jumped ||= tick > 160 && !physics.mover_grounded(&state.walker)
+		if tick > 32 {
+			rode &&= state.rider.ground == physics.link(state.platform)
 		}
-		if tk % GOLDEN_EVERY == 0 {
+		if tick % GOLDEN_EVERY == 0 {
 			clear(&buf)
-			append(&buf, ..([^]u8)(&s)[:size_of(s)])
-			e.hash(e.data, &s, u32(tk), &buf)
-			got[tk / GOLDEN_EVERY - 1] = sim.hash_bytes(buf[:])
+			append(&buf, ..([^]u8)(&state)[:size_of(state)])
+			extra.hash(extra.data, &state, u32(tick), &buf)
+			got[tick / GOLDEN_EVERY - 1] = sim.hash_bytes(buf[:])
 		}
 	}
 	// The scene does what it is for, so the trace covers walking, jumping, riding and being pushed.
 	testing.expect(t, jumped, "the walker never left the ground")
 	testing.expect(t, rode, "the rider left the platform")
-	testing.expect(t, physics.position(w, s.walker.body).y > 1.1, "the walker fell through")
-	pushed := physics.position(w, s.target.body).x - target_x0
+	testing.expect(t, physics.position(world, state.walker.body).y > 1.1, "the walker fell through")
+	pushed := physics.position(world, state.target.body).x - target_x0
 	testing.expectf(t, pushed > 0.1, "the target was pushed only %v m", pushed)
-	testing.expect(t, physics.mover_grounded(&s.target), "the target did not get up again")
+	testing.expect(t, physics.mover_grounded(&state.target), "the target did not get up again")
 	testing.expectf(
 		t,
 		got == GOLDEN_MOVERS,
