@@ -1,17 +1,22 @@
 package main
 
+import "core:os"
 import "core:strings"
 import "core:time"
 
 import "unified:cli"
 
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
-// bootstrapped with only Odin (its shim builds its CLI), then `init` a game outside it with the clone as its
-// submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it, run a
-// headless mode and every test suite in that game repo. Only when called (before tooling PRs, after
-// a pin or toolchain change); never by `verify`. It tests the committed HEAD, so it refuses uncommitted changes.
+// bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
+// pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
+// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it,
+// run a headless mode and every test suite in that game repo. Only when called (before tooling PRs, after a pin or
+// toolchain change); never by `verify`. `--shims` stops after the bootstrap (CI runs that on every platform). It
+// tests the committed HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
-	Opts :: struct {}
+	Opts :: struct {
+		shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
+	}
 	opts: Opts
 	cli.parse(&opts, args)
 	root := cli.state.project.root
@@ -27,8 +32,8 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	)
 	clone := cli.join(work, "unified")
 	game := cli.join(work, "selftest_game")
-	// The game repo uses this checkout's Godot: the pinned version either way, without a second download.
-	env := cli.env_with(cli.tprint("UNIFIED_GODOT=%s", cli.godot()))
+	cache := cli.join(work, "cache")
+	env := cli.env_with() // the game repo finds the pinned Godot in the per-user cache, as every checkout does
 	shim :: proc(dir: string, args: ..string) -> []string {
 		cmd: [dynamic]string
 		when ODIN_OS == .Windows {
@@ -43,34 +48,60 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		what:   string,
 		cmd:    []string,
 		dir:    string,
+		env:    []string,
 		check:  proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
-		expect: string, // what cmd's stdout must contain (it runs with --json)
+		expect: string, // what cmd's stdout must contain
 	}
-	steps := []Step {
-		{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone)},
-		{what = "bootstrap (the shim builds the CLI with only Odin)", cmd = shim(clone, "version"), dir = clone},
-		{
-			what = "init a game outside the repo",
-			cmd = shim(clone, "init", game, "--unified", clone, "--ref", head),
-			dir = work,
-			check = check_init,
+	steps: [dynamic]Step
+	append(
+		&steps,
+		Step{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone), env = env},
+		Step {
+			what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
+			cmd = shim(clone, "version"),
+			dir = clone,
+			env = download_env(work, cache),
 		},
-		// the first build generates the Godot bindings: a cold run, not one over its budget
-		{what = "build the game", cmd = shim(game, "build", "--json"), dir = game, expect = `"Godot bindings"`},
-		{
-			what = "the headless binary through uni",
-			cmd = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
-			dir = game,
-			expect = `"mismatches":0`,
-		},
-		{what = "every test suite of the game", cmd = shim(game, "test", "--suite", "all"), dir = game},
-		{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game},
+	)
+	if !opts.shims {
+		append(
+			&steps,
+			Step {
+				what = "init a game outside the repo",
+				cmd = shim(clone, "init", game, "--unified", clone, "--ref", head),
+				dir = work,
+				env = env,
+				check = check_init,
+			},
+			// the first build generates the Godot bindings: a cold run, not one over its budget
+			Step {
+				what = "build the game",
+				cmd = shim(game, "build", "--json"),
+				dir = game,
+				env = env,
+				expect = `"Godot bindings"`,
+			},
+			Step {
+				what = "the headless binary through uni",
+				cmd = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
+				dir = game,
+				env = env,
+				expect = `"mismatches":0`,
+			},
+			Step {
+				what = "every test suite of the game",
+				cmd = shim(game, "test", "--suite", "all"),
+				dir = game,
+				env = env,
+			},
+			Step{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game, env = env},
+		)
 	}
 	start := time.tick_now()
-	for s in steps {
+	for s, i in steps {
 		t := time.tick_now()
 		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = env, capture = s.expect != ""})
+		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = s.env, capture = s.expect != ""})
 		if s.expect != "" {
 			cli.log("%s%s", r.stderr, r.stdout)
 		}
@@ -96,9 +127,68 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 				}
 			}
 		}
+		if i == 1 { 	// the bootstrap: the Odin it ran with is the download
+			odin := cli.join(cache, "unified", "odin", cli.pin("odin", "tag"), cli.tprint("odin%s", cli.EXE))
+			if !os.is_file(odin) {
+				return {
+					ok = false,
+					summary = cli.tprint("selftest: the bootstrap ran, but the shim downloaded no %s", odin),
+				}
+			}
+		}
 		cli.log("selftest: %s: ok (%.1fs)", s.what, cli.seconds_since(t))
 	}
-	return {ok = true, summary = cli.tprint("selftest passed in %.0fs (%s)", cli.seconds_since(start), cli.rel(work))}
+	return {
+		ok = true,
+		summary = cli.tprint(
+			"selftest%s passed in %.0fs (%s)",
+			opts.shims ? " --shims" : "",
+			cli.seconds_since(start),
+			cli.rel(work),
+		),
+	}
+}
+
+// The environment of the shim's download path: the per-user cache is `cache` (empty), and no odin on PATH is the
+// pinned one. Windows: every PATH directory holding an odin.exe is dropped (curl, tar and certutil come from
+// System32 by full path). Elsewhere a stand-in `odin` reporting another commit goes first on PATH, the case of a
+// developer with another Odin installed; dropping directories there could drop curl or clang with it.
+download_env :: proc(work, cache: string) -> []string {
+	cli.make_dirs(cache)
+	env, _ := os.environ(context.allocator)
+	out: [dynamic]string
+	path := ""
+	cache_key := ODIN_OS == .Windows ? "LOCALAPPDATA" : "XDG_CACHE_HOME"
+	for entry in env {
+		eq := strings.index_byte(entry, '=')
+		if eq > 0 {
+			key := strings.to_upper(entry[:eq]) // Windows spells it Path
+			if key == "PATH" {
+				path = entry[eq + 1:]
+				continue
+			}
+			if key == cache_key {
+				continue
+			}
+		}
+		append(&out, entry)
+	}
+	when ODIN_OS == .Windows {
+		kept: [dynamic]string
+		for dir in strings.split(path, ";") {
+			if dir != "" && !os.is_file(cli.join(dir, "odin.exe")) {
+				append(&kept, dir)
+			}
+		}
+		path = strings.join(kept[:], ";")
+	} else {
+		stand_in := cli.join(work, "other-odin")
+		cli.write_text(cli.join(stand_in, "odin"), "#!/bin/sh\necho 'odin version dev-2000-01:0000000'\n")
+		os.change_mode(cli.join(stand_in, "odin"), os.perm_number(0o755))
+		path = cli.tprint("%s:%s", stand_in, path)
+	}
+	append(&out, cli.tprint("PATH=%s", path), cli.tprint("%s=%s", cache_key, cache))
+	return out[:]
 }
 
 // What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files

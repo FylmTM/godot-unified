@@ -165,9 +165,9 @@ FMT_FILES_PER_RUN :: 8
 @(private)
 cmd_fmt :: proc(args: []string) -> Result {
 	Opts :: struct {
-		check:    bool `usage:"change nothing; fail when a file needs formatting"`,
+		check:    bool `usage:"change nothing; fail when a file needs formatting or has the wrong line endings"`,
 		hook:     bool `usage:"format the one file a Claude Code edit names (the hook's JSON on stdin)"`,
-		overflow: [dynamic]string `usage:"files or directories (default: every Odin source of the project)"`,
+		overflow: [dynamic]string `usage:"files or directories (default: the project: every Odin source, every text file's line endings)"`,
 	}
 	opts: Opts
 	parse(&opts, args)
@@ -190,25 +190,42 @@ cmd_fmt :: proc(args: []string) -> Result {
 			}
 		}
 	}
+	eol_listing := eol_start(opts.overflow[:]) // line endings, every text file: while odinfmt runs
 	changed := fmt_files(exe, srcs[:], opts.check)
+	bad_eol := eol_wait(&eol_listing)
+	for file in bad_eol {
+		if opts.check {
+			log("fmt: %s: %s", file.path, file.problem)
+		} else {
+			eol_fix(file)
+			log("fmt: %s: %s, fixed", file.path, file.problem)
+		}
+	}
 	if opts.check && len(changed) > 0 {
 		for path in changed {
 			log("fmt: needs formatting: %s", path)
 		}
+	}
+	if opts.check && len(changed) + len(bad_eol) > 0 {
 		return {
 			ok = false,
-			summary = tprint("%d file(s) need formatting: run uni fmt", len(changed)),
+			summary = tprint(
+				"%d file(s) need formatting, %d have wrong line endings: run uni fmt",
+				len(changed),
+				len(bad_eol),
+			),
 			data = box(changed),
 		}
 	}
 	return {
 		ok = true,
 		summary = tprint(
-			"fmt %s: %d of %d file(s) %s in %.2fs",
+			"fmt %s: %d of %d file(s) %s, %d line ending fix(es) in %.2fs",
 			opts.check ? "check ok" : "done",
 			len(changed),
 			len(srcs),
 			opts.check ? "to change" : "changed",
+			len(bad_eol),
 			seconds_since(start),
 		),
 		data = box(changed),

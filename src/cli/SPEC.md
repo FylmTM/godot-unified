@@ -30,17 +30,25 @@ licence keeps it out of the repo and CI, so a machine that plays online download
   .out/               everything generated, git-ignored, safe to delete
     cli/              the CLI binaries (uni-<hash>-<odin commit>), `current`, their manifests (`<binary>.inputs`),
                       `odin-on-path` (the shims' stamp: the pinned commit and the odin on PATH that reported it)
-    godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest
-    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection)
+    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection),
+                      unpacked from the cached zip (each project has its own: ols.json names it)
     timings.json      each command line's last time against its budget
 
-<per-user cache>/unified/odin/<tag>/   the pinned Odin release the shims downloaded, shared by every checkout
-                      (%LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere; `clean` leaves it)
+<per-user cache>/unified/   pinned downloads shared by every checkout, a directory or file per version and SHA-256
+                      (%LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere; `uni help` and `setup` say
+                      where; `clean` leaves it, `clean --cache` removes godot/ and downloads/)
+  odin/<tag>/         the pinned Odin release the shims downloaded
+  godot/<version>-<sha256>/   the pinned Godot editor: one download per machine, one path for the OS to remember
+                      (Windows Firewall); export templates stay in Godot's user directory
+  downloads/          unified-box3d-<tag>-<platform>-<sha256>.zip, the pinned release each project unpacks
 ```
 
-Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); the EOS SDK stays where
+A download into the cache goes to a part file of the process's own, then is renamed into place: checkouts fetching
+the same pin at once each finish, and the first rename wins.
+
+Box3D lives in the project's `.out/unified-box3d/` (each project unpacks its own from the cached zip); the EOS SDK stays where
 `UNIFIED_EOS_SDK` points (its library is loaded at run time, never linked). Every Odin build gets two collections:
 `unified` (`src/`) and `box3d` (unified-box3d, imported as `box3d:bindings`). A game is a directory with
 `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
@@ -102,19 +110,19 @@ Public (`unified:cli`, every project):
 | Command | What |
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
-| `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
+| `clean [--check] [--cache]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env`, the per-user cache (`--cache`: its Godot and unified-box3d downloads too, never the shims' Odin) or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension (this repo: `toy` builds no extension) |
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
-| `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
+| `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
-| `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |
-| `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, the submodule (below) |
+| `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
+| `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
 | `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
@@ -126,7 +134,16 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
+| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there, and CI runs it on every platform), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
+
+## Line endings
+
+LF in every text file, in the index and the working tree; CRLF only for batch files (`.cmd`, `.bat`: cmd.exe
+misreads labels and `goto` in an LF one). `.gitattributes` says so (`* text=auto eol=lf`, `*.cmd text eol=crlf`),
+so a checkout is LF whatever `core.autocrlf` says, and everything the CLI writes is LF. `fmt --check` fails on a text
+file (git's attributes and detection decide what is text: one `git ls-files --eol` over the tracked and untracked
+files, run alongside odinfmt) with CRLF or mixed endings, an LF batch file, or CRLF committed to the index; `fmt`
+rewrites the working-tree file. The CLI's config readers (`pins.cfg`, `.env`) accept either.
 
 ## Local settings
 
@@ -167,7 +184,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     `--crash` (this repo) adds `tests/cli`'s test that crashes while holding a lock another test waits for: the
     run must fail within seconds and name both.
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
-    only), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
+    only; every step, `--only` too, first re-imports a missing or stale class cache, as `tool`, `run`, `coop` and
+    `bake` do), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
     `validate`, `walk` (`ui_walk.gd`, with `--mock`: a game with a GDScript stand-in session walks on it), `tour`
     (quick). A step the game can't run prints `skipped: <why>`. Several
@@ -202,13 +220,13 @@ Odin files are formatted after the name is put in (it changes line lengths).
 - **Downloads:** `curl` (HTTPS, retries, byte ranges: only the needed members of the 1.3 GB templates archive),
   SHA-256 in Odin, our own zip reader and writer (`core:compress`: stored and deflated members, Zip64 sizes, Unix
   modes and symlinks), written to a temp path and renamed into place.
-- **Godot:** the pinned editor in `.out/godot/<version>/`; `UNIFIED_GODOT` may name a local install that reports the
+- **Godot:** the pinned editor in the per-user cache (`godot/<version>-<sha256>/`), shared by every checkout; `UNIFIED_GODOT` may name a local install that reports the
   exact pinned version (anything else is refused; the check is remembered per file). Export templates (`release`
   only) go where Godot looks for them, its user directory (`export_templates/<version>.stable`), checked against
   their pinned hashes.
 - **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library (static Odin-in-Odin linking clashes) with
   upstream's C API, headers and Odin bindings. By default this platform's zip of the pinned release (`[box3d]`: repo,
-  tag, a SHA-256 per platform), checked and unpacked with its top folder flattened into `.out/unified-box3d/`
+  tag, a SHA-256 per platform), checked, kept in the per-user cache and unpacked with its top folder flattened into `.out/unified-box3d/`
   (a stamp of the pin makes the warm check free). `UNIFIED_BOX3D` may name a local unified-box3d checkout instead:
   the `box3d` collection points there, and `setup` runs its `b3 build` and `b3 build --debug` (other commands only
   build a missing library). Programs link `lib/<platform>/` (`--mode debug`: `-define:BOX3D_LIB_DEBUG=true` and

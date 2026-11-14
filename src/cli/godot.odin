@@ -11,7 +11,8 @@ import "core:time"
 // tool scripts).
 
 // The pinned editor: UNIFIED_GODOT when it names an install that reports exactly the pinned version, else the
-// official build downloaded (hash-checked) into .out/godot/<version>/.
+// official build downloaded (hash-checked) into the per-user cache (user_cache), shared by every checkout: one
+// download per machine, and one path for the OS to know it by (Windows Firewall remembers programs by path).
 godot :: proc() -> string {
 	@(static) cached: string
 	if cached != "" {
@@ -33,54 +34,58 @@ godot :: proc() -> string {
 		cached = path
 		return path
 	}
-	exe, asset, sha256 := godot_download()
-	tag := tprint("%s-stable", version)
-	dir := join(state.project.out, "godot", version)
+	dir, exe, asset, sha256 := godot_download()
 	if !os.is_file(exe) {
 		cold("Godot download")
-		zip := join(dir, asset)
+		// Unpacked beside its final place and renamed into it: another checkout may be fetching it at the same time
+		// (the first rename wins), and a half-unpacked editor never sits at the final path.
+		tmp := tprint("%s.%d.tmp", dir, os.get_pid())
+		remove_tree(tmp)
+		zip := join(tmp, asset)
 		download(
-			tprint("https://github.com/godotengine/godot/releases/download/%s/%s", tag, asset),
+			tprint("https://github.com/godotengine/godot/releases/download/%s-stable/%s", version, asset),
 			zip,
 			sha256,
 			asset,
 		)
 		archive := zip_open_file(zip)
-		zip_extract_all(&archive, dir)
+		zip_extract_all(&archive, tmp)
 		os.remove(zip)
-		os.change_mode(exe, os.perm_number(0o755))
-		if got := godot_version(exe); !strings.has_prefix(got, want) {
+		tmp_exe := join(tmp, exe[len(dir) + 1:])
+		os.change_mode(tmp_exe, os.perm_number(0o755))
+		if got := godot_version(tmp_exe); !strings.has_prefix(got, want) {
 			fatal("the downloaded Godot reports %q, want %s", got, want)
 		}
+		rename_into_place(tmp, dir, exe)
 	}
 	cached = exe
 	return exe
 }
 
-// Where the pinned download goes (the editor executable), its release asset and pinned hash.
-godot_download :: proc() -> (exe, asset, sha256: string) {
+// Where the pinned editor goes in the per-user cache (a directory per version and SHA-256, so a re-published
+// asset never mixes with the old one), the editor executable in it, its release asset and pinned hash.
+godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 	version := pin("godot", "version")
 	tag := tprint("%s-stable", version)
-	dir := join(state.project.out, "godot", version)
 	when ODIN_OS == .Darwin {
-		return join(
-			dir,
-			"Godot.app",
-			"Contents",
-			"MacOS",
-			"Godot",
-		), tprint("Godot_v%s_macos.universal.zip", tag), pin("godot", "sha256_macos")
+		sha256 = pin("godot", "sha256_macos")
+		asset = tprint("Godot_v%s_macos.universal.zip", tag)
 	} else when ODIN_OS == .Windows {
-		return join(
-			dir,
-			tprint("Godot_v%s_win64_console.exe", tag),
-		), tprint("Godot_v%s_win64.exe.zip", tag), pin("godot", "sha256_windows")
+		sha256 = pin("godot", "sha256_windows")
+		asset = tprint("Godot_v%s_win64.exe.zip", tag)
 	} else {
-		return join(
-			dir,
-			tprint("Godot_v%s_linux.x86_64", tag),
-		), tprint("Godot_v%s_linux.x86_64.zip", tag), pin("godot", "sha256_linux")
+		sha256 = pin("godot", "sha256_linux")
+		asset = tprint("Godot_v%s_linux.x86_64.zip", tag)
 	}
+	dir = join(user_cache(), "godot", tprint("%s-%s", version, sha256[:min(12, len(sha256))]))
+	when ODIN_OS == .Darwin {
+		exe = join(dir, "Godot.app", "Contents", "MacOS", "Godot")
+	} else when ODIN_OS == .Windows {
+		exe = join(dir, tprint("Godot_v%s_win64_console.exe", tag))
+	} else {
+		exe = join(dir, tprint("Godot_v%s_linux.x86_64", tag))
+	}
+	return
 }
 
 godot_version :: proc(exe: string) -> string {
@@ -154,14 +159,13 @@ import_signature :: proc(dir: string) -> string {
 }
 
 // Refreshes Godot's import cache (.godot/) when it is missing or stale, after mirroring the shared Godot code and
-// writing the extension list (so the import sees the extension's classes). Returns the extensions listed.
+// writing the extension list (so the import sees the extension's classes). Returns the extensions listed. Every
+// command that starts Godot on a project calls it first but the editor, which imports by itself: a script that
+// names a class Godot hasn't cached stops at `Could not find base class` and hangs until its timeout.
 ensure_imported :: proc(dir: string) -> []string {
 	sync_shared(dir)
 	exts := write_extension_list_dir(dir)
-	stamp := join(dir, ".godot", "unified_import.sig")
-	sig := import_signature(dir)
-	fresh := os.is_file(join(dir, ".godot", "global_script_class_cache.cfg"))
-	if have, ok := read_text(stamp); fresh && ok && have == sig {
+	if import_current(dir) {
 		return exts
 	}
 	start := time.tick_now()
@@ -170,10 +174,23 @@ ensure_imported :: proc(dir: string) -> []string {
 		log("%s", tail(strings.concatenate({result.stdout, result.stderr}), 4000))
 		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
 	}
-	write_text(stamp, import_signature(dir)) // the import may have added .uid files
+	import_mark_current(dir) // after the import: it may have added .uid files
 	cold(tprint("Godot import of %s", os.base(dir)))
 	log("uni: imported %s in %.1fs", rel(dir), seconds_since(start))
 	return exts
+}
+
+// Whether Godot's import cache of a project is current: its class cache exists (a fresh checkout has none) and the
+// import signature (class names, new scripts, imported assets; the mirrored shared code included) is the one the
+// last import recorded.
+import_current :: proc(dir: string) -> bool {
+	have, ok := read_text(join(dir, ".godot", "unified_import.sig"))
+	return ok && os.is_file(join(dir, ".godot", "global_script_class_cache.cfg")) && have == import_signature(dir)
+}
+
+// Records the project's import signature as imported.
+import_mark_current :: proc(dir: string) {
+	write_text(join(dir, ".godot", "unified_import.sig"), import_signature(dir))
 }
 
 // Runs Godot to the end with a timeout (a headless Godot can hang, e.g. when an extension fails to load), output

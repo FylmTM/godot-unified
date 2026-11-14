@@ -123,6 +123,10 @@ jobs:
         run: $UNI test --suite net
       - name: bench (release build; reported in the summary, not gated)
         run: $UNI bench
+      # A fresh clone's shim with no pinned Odin to find and an empty cache: the newcomer's first run (download,
+      # SHA-256 check, unpack, CLI build) on each platform this job runs on.
+      - name: selftest --shims (the shims' Odin download)
+        run: $UNI selftest --shims
       - name: Summary
         if: always()
         run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
@@ -149,10 +153,11 @@ jobs:
       - id: keys
         run: |
           echo "godot=$(./uni ci cache-key godot)" >> "$GITHUB_OUTPUT"
-      # The official editor, hash-checked against pins.cfg when downloaded, in .out/godot/<version>/.
+      # The official editor, hash-checked against pins.cfg when downloaded, in the per-user cache
+      # (src/cli/SPEC.md, Layout).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .out/godot
+          path: ~/.cache/unified/godot
           key: ${{ steps.keys.outputs.godot }}
       - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
         run: ./uni test --suite godot,godot-bindings

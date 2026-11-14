@@ -40,10 +40,11 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 		if has_extension(game) {
 			ensure_extension(game, .dev)
 		}
+		// whatever steps run: each starts Godot on the project, which needs a current class cache
+		import_start := time.tick_now()
+		ensure_imported(game.dir)
 		if want(only, "import") {
-			start := time.tick_now()
-			ensure_imported(game.dir)
-			pass(game, "import", true, seconds_since(start))
+			pass(game, "import", true, seconds_since(import_start))
 		}
 		if want(only, "editor") {
 			if has_extension(game) {
@@ -371,7 +372,11 @@ play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> R
 	if has_extension(game) {
 		ensure_extension(game, .dev)
 	}
-	write_extension_list(game)
+	if editor {
+		write_extension_list(game) // the editor imports by itself
+	} else {
+		ensure_imported(game.dir)
+	}
 	cleanup := with_window(game.dir, place)
 	defer cleanup(game.dir)
 	cmd: [dynamic]string

@@ -149,7 +149,9 @@ clients under `bad`, a late joiner, the reference run's replay and resume) and p
 A reference run is a committed run every platform must reproduce. `uni record-reference <game>|toy`, on any
 machine, runs that suite with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes `ref.log`, `ref.trace`
 and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes `ref.json` (where it
-was made: OS, architecture, Odin version, build flags, commit; when; the parameters). `reference_resumes` skips in
+was made: OS, architecture, Odin version, build flags, commit; when; the parameters) unless the log, trace and
+snapshot came out byte for byte as committed: then ref.json stays too, and `record-reference` reports "nothing
+changed" (re-recording is how to ask whether a change alters the sim). `reference_resumes` skips in
 that build (it would race the writes); the other scenarios run as usual. Regenerate only after a change that
 legitimately alters the simulation or the log or snapshot format, and commit the files with it, saying why. Nothing
 else in the tools, suites or docs names a platform, and every build is for the machine it runs on (no `--arch` in

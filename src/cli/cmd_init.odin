@@ -5,8 +5,9 @@ import "core:strings"
 
 // `init <dir>`: a new game repo. The template (template/, every file a .tmpl with __GAME__ for the game's name, the
 // directory's) is a complete small game, each player moving a dot: its sim, headless binary, extension, Godot
-// scenes and tests. Plus the shims, tools/ (the game's CLI), .gitignore, and unified as a git submodule at unified/.
-// The template and the shims come from the submodule, so they always match the library they build against.
+// scenes and tests. Plus the shims, tools/ (the game's CLI), .gitignore, .gitattributes, and unified as a git
+// submodule at unified/. The template and the shims come from the submodule, so they always match the library they
+// build against.
 @(private)
 cmd_init :: proc(args: []string) -> Result {
 	Opts :: struct {
@@ -103,8 +104,8 @@ cmd_init :: proc(args: []string) -> Result {
 	count := 0
 	for file in find_files(template, ".tmpl") {
 		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
-		if rel_path == "gitignore" {
-			rel_path = ".gitignore"
+		if rel_path == "gitignore" || rel_path == "gitattributes" {
+			rel_path = tprint(".%s", rel_path)
 		}
 		target, _ := strings.replace_all(rel_path, "__GAME__", name)
 		text, _ := strings.replace_all(must_read(file), "__GAME__", name)

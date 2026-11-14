@@ -144,14 +144,14 @@ print_help :: proc() {
 		CI_BUDGET_SCALE,
 	)
 	fmt.printf(
-		"Odin: the release pins.cfg pins. The shims (./uni, uni.cmd) use the odin on PATH when it reports the pinned commit, else download that release once into a per-user cache (%s) and put it first on PATH.\n",
-		ODIN_CACHE,
+		"Odin: the release pins.cfg pins. The shims (./uni, uni.cmd) use the odin on PATH when it reports the pinned commit, else download that release once into the per-user cache and put it first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
+		USER_CACHE,
 	)
 }
 
-// Where the shims download the pinned Odin (one directory per tag): per user, shared by every checkout.
+// The per-user cache (cache.odin, user_cache), as `help` names it.
 @(private)
-ODIN_CACHE :: "%LOCALAPPDATA%\\unified\\odin" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified/odin"
+USER_CACHE :: "%LOCALAPPDATA%\\unified" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified"
 
 budget_text :: proc(command: ^Command) -> string {
 	if command.budget > 0 {
