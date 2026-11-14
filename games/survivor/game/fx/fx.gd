@@ -2,7 +2,9 @@ extends Node3D
 ## One-shot effects driven by sim events: death puffs, barrel explosions (light, fire, smoke, shock ring, screen
 ## shake), gem sparkles, level-up bursts, player death/respawn. Built from code-made CPUParticles3D, no assets.
 
-const ENEMY_COLORS := [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]  # grunt, runner, brute
+## Enemy_Kind's members as events name them, in order, and their colours.
+const ENEMY_KINDS: Array[String] = ["grunt", "runner", "brute"]
+const ENEMY_COLORS := [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]
 const GEM_COLOR := Color("5dffb1")
 const FIRE := Color("ffb347")
 const GOLD := Color("ffd23f")
@@ -42,14 +44,17 @@ func _warm_up() -> void:
 	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
 
 
-func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool) -> void:
-	match kind:
+## Plays the effect of a sim event (`data`: its fields, as the session's `sim_event` gives them); `local`: the
+## event is about the local player. `barrel_exploded` takes an optional `radius` (5 m without one).
+func play(event: StringName, data: Dictionary, local: bool) -> void:
+	var pos: Vector3 = data.get("position", Vector3.ZERO)
+	match event:
 		&"enemy_died":
-			var c: Color = ENEMY_COLORS[clampi(int(value), 0, 2)]
-			_burst(pos + Vector3(0, 0.5, 0), c, 10 if int(value) != 2 else 22, 4.0, 0.45, 0.8)
+			var kind := clampi(ENEMY_KINDS.find(String(data.get("kind", ""))), 0, 2)
+			_burst(pos + Vector3(0, 0.5, 0), ENEMY_COLORS[kind], 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
 			Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
 		&"barrel_exploded":
-			_explosion(pos, value if value > 0.0 else 5.0)
+			_explosion(pos, float(data.get("radius", 5.0)))
 		&"gem_collected":
 			_burst(pos + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
 			if local:
@@ -60,7 +65,7 @@ func play(kind: StringName, entity: int, pos: Vector3, value: float, local: bool
 			if local:
 				Sfx.play(&"level")
 		&"player_died":
-			var c := UiTheme.slot_color(entity)
+			var c := UiTheme.player_color(int(data.get("player", 0)))
 			_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
 			_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 			_shake(0.45 if local else 0.2)

@@ -45,7 +45,7 @@ func _walk_play() -> void:
 	await frames(10)
 	await shot("04_levelup")
 	await press_action(&"levelup_1")
-	await wait_for(func() -> bool: return int(game.local_player().pending_levelups) == 0, 1.0,
+	await wait_for(func() -> bool: return int(game.local_player_info().pending_levelups) == 0, 1.0,
 		"key 1 takes the level-up")
 	await wait_for(func() -> bool: return not _hud(^"LevelUp").visible, 1.0, "the level-up panel hides")
 	step("level-up chosen with key 1")

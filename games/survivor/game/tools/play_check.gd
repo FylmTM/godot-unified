@@ -53,8 +53,9 @@ func _run() -> void:
 	if game.is_mock:
 		fail("the play check needs the native extension (uni build survivor)")
 		return
-	game.session.sim_event.connect(func(kind: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void:
-		_events[kind] = _events.get(kind, 0) + 1)
+	game.session.sim_event.connect(func(event: StringName, data: Dictionary) -> void:
+		if data.state == "confirmed":
+			_events[event] = _events.get(event, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
 	await frames(5)
@@ -95,7 +96,7 @@ func _run() -> void:
 	var held: Array[StringName] = []
 	while not failed() and Time.get_ticks_msec() < end and game.hud.phase == "match":
 		var me := _me()
-		var lp: Dictionary = game.local_player()
+		var lp: Dictionary = game.local_player_info()
 		if me != null and lp.get("alive", false):
 			held = _steer(me.global_position, held)
 		if lp.get("pending_levelups", 0) > 0 and _visible("HUD/Root/LevelUp"):
@@ -105,7 +106,7 @@ func _run() -> void:
 				await _shot_paused("play_03_levelup")
 			var before: int = lp.pending_levelups
 			await press_action(StringName("levelup_%d" % (_levelups_chosen % 3 + 1)))
-			await wait_for(func() -> bool: return int(game.local_player().get("pending_levelups", 0)) < before, 2.0,
+			await wait_for(func() -> bool: return int(game.local_player_info().get("pending_levelups", 0)) < before, 2.0,
 				"a level-up key consumes the level-up")
 			_levelups_chosen += 1
 		if not shot_match and game.hud.time_s > 20.0:
@@ -136,7 +137,7 @@ func _run() -> void:
 	await _shot_paused("play_05_game_over")
 	step("match over after %.0f s, wave %d" % [game.hud.time_s, game.hud.wave])
 	await wait_for(func() -> bool: return game.hud.phase == "lobby", 10.0, "the sim returns to the lobby")
-	await wait_for(func() -> bool: return _me() != null and game.local_player().get("alive", false), 5.0,
+	await wait_for(func() -> bool: return _me() != null and game.local_player_info().get("alive", false), 5.0,
 		"player respawned in the lobby")
 	await seconds(1.0)
 	await _shot_paused("play_06_back_in_lobby")
@@ -234,11 +235,11 @@ func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 
 
 func _me() -> Node3D:
-	var slot: int = game.hud.get("local_slot", -1)
-	if current_scene == null or slot < 0:
+	var player: int = game.hud.get("local_player", -1)
+	if current_scene == null or player < 0:
 		return null
 	for n: Node in game.session.view_root.get_children() if game.session.view_root != null else []:
-		if n.get("slot") == slot and n.get("kind") == &"player":
+		if n.get("player") == player and n.get("kind") == &"player":
 			return n
 	return null
 
@@ -257,7 +258,7 @@ func _bench_run() -> void:
 	var t0 := Time.get_ticks_msec()
 	while not failed() and Time.get_ticks_msec() < end:
 		var me := _me()
-		if me != null and game.local_player().get("alive", false):
+		if me != null and game.local_player_info().get("alive", false):
 			held = _steer(me.global_position, held)
 		if not shot_taken and Time.get_ticks_msec() - t0 > 10000:
 			shot_taken = true
