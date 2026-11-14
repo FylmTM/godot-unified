@@ -75,7 +75,7 @@ event_count :: proc(run: ^Run, event: typeid) -> int {
 }
 
 player_pos :: proc(run: ^Run, player: int) -> [3]f32 {
-	return physics.position(run.simulation.world.phys, run.simulation.state.players[player].mover.body)
+	return physics.position(run.simulation.world.phys, run.simulation.state.players[player].controller.body)
 }
 
 item_pos :: proc(run: ^Run, item: int) -> [3]f32 {
@@ -140,7 +140,7 @@ level_loads :: proc(t: ^testing.T) {
 	idle(&run, 64)
 	// Players stand on the floor: centre at FEET above it.
 	testing.expectf(t, abs(player_pos(&run, 0).y - fs.FEET) < 0.05, "standing at %v", player_pos(&run, 0))
-	testing.expect(t, physics.mover_grounded(&run.simulation.state.players[0].mover))
+	testing.expect(t, physics.character_grounded(&run.simulation.state.players[0].controller))
 	expect_clean(t, &run)
 }
 
@@ -227,7 +227,7 @@ throw_hits_friend :: proc(t: ^testing.T) {
 	testing.expectf(t, event_count(&run, fs.Hit) >= 1, "no hit (thrown %d)", event_count(&run, fs.Thrown))
 	idle(&run, 96)
 	testing.expect_value(t, players[1].stun, 0)
-	testing.expect(t, .Limp not_in players[1].mover.flags)
+	testing.expect(t, .Limp not_in players[1].controller.flags)
 	expect_clean(t, &run)
 }
 
@@ -338,9 +338,9 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	testing.expect(t, !players[1].thrown)
 	testing.expectf(
 		t,
-		physics.mover_grounded(&players[1].mover),
+		physics.character_grounded(&players[1].controller),
 		"not back on its feet: %v at %v",
-		players[1].mover.flags,
+		players[1].controller.flags,
 		player_pos(&run, 1),
 	)
 	testing.expect_value(t, event_count(&run, fs.Fell), 0)

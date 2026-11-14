@@ -1,6 +1,6 @@
 ---
 name: sim-change
-description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol and lobby-bucket bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the Box3D fork, and whenever uni test reports a reference run or golden trace mismatch.
+description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol and lobby-bucket bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/b3, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
 ---
 
 # Changing what the simulation computes
@@ -11,7 +11,8 @@ They change only on purpose, never to make a test pass.
 ## When a reference run or the golden trace fails
 
 `./uni test` replays every game's reference run (`games/<game>/simulation/tests/testdata/`, the toy's
-in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_MOVERS` in `tests/physics`). A mismatch means the simulation changed.
+in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_CHARACTERS` and `GOLDEN_FIELD` in `tests/physics`). A mismatch means the
+simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
    a dependency bump you thought neutral: no, so find the cause. Bisect with `git stash` or the previous commit; a
@@ -26,10 +27,21 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_M
    value the failing test prints.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
    right.
-4. Run CI on all four platforms before merging (`gh workflow run ci.yml --ref <branch> -f macos=true`): CI is the cross-check that
-   the new reference runs reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64.
+4. Run CI on all four platforms before merging (below).
 
 Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
+
+## Full CI before merging
+
+A PR that touches `src/physics`, `src/b3`, the `[box3d]` pin or a game's sim runs CI on all four platforms before it
+merges, whether or not its results changed:
+
+```
+gh workflow run ci.yml --ref <branch> -f macos=true
+```
+
+The goldens and reference runs must reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64, and a PR's own CI
+skips macOS (it runs nightly on main). Wait for the run to pass and link it in the PR.
 
 ## The long suites
 

@@ -1,10 +1,10 @@
 # One job per platform, every step one uni command (src/cli/SPEC.md). Each job runs `uni test` (the odin suite: unit
 # tests and every end-to-end suite, reference runs included, so CI is the cross-platform check of determinism),
 # `uni test --suite net` (real UDP, separate processes) and `uni bench` (both reported in the job summary; the
-# benchmarks are not gated). linux-x64 also runs `uni fmt --check`, `uni vet` (every target) and the godot and
-# godot-bindings suites (every game under headless Godot): together, what `./uni verify` runs locally. The suites'
-# long variants (`--long`) run only on demand. A check runs even when an earlier one failed, so one red step doesn't
-# hide the others.
+# benchmarks are not gated). linux-x64 also runs `uni fmt --check`, `uni vet` (every target), `uni test
+# --box3d-debug` (the odin suite against Box3D's debug library) and the godot and godot-bindings suites (every game
+# under headless Godot): together, what `./uni verify` runs locally. The suites' long variants (`--long`) run only on
+# demand. A check runs even when an earlier one failed, so one red step doesn't hide the others.
 #
 # Platforms per event:
 #   pull request, push to main   linux-x64, linux-arm64, windows-x64
@@ -141,6 +141,9 @@ jobs:
       - name: test (the odin suite)
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI test
+      - name: test --box3d-debug (the odin suite against Box3D's debug library, whose asserts trap a misused id)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
+        run: ./uni test --box3d-debug
       - name: test --suite net (release build; real UDP, separate processes, 5 s on the real clock)
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI test --suite net

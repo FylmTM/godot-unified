@@ -151,26 +151,32 @@ hit_events :: proc(world: ^World, out: ^[dynamic]Hit_Event) {
 
 // ---- body helpers (thin; anything else goes through body_id and unified:b3)
 
+// A body's world position.
 position :: proc(world: ^World, ref: Body_Ref) -> [3]f32 {
 	return b3.body_get_position(body_id(world, ref))
 }
 
+// A body's linear velocity (m/s).
 velocity :: proc(world: ^World, ref: Body_Ref) -> [3]f32 {
 	return b3.body_get_linear_velocity(body_id(world, ref))
 }
 
+// Sets a body's linear velocity.
 set_velocity :: proc(world: ^World, ref: Body_Ref, vel: [3]f32) {
 	b3.body_set_linear_velocity(body_id(world, ref), vel)
 }
 
+// A body's world rotation (x, y, z, w).
 rotation :: proc(world: ^World, ref: Body_Ref) -> [4]f32 {
 	return b3.body_get_rotation(body_id(world, ref))
 }
 
+// A body's mass (kg).
 mass :: proc(world: ^World, ref: Body_Ref) -> f32 {
 	return b3.body_get_mass(body_id(world, ref))
 }
 
+// Adds an impulse (N·s) at a body's centre of mass, waking it.
 impulse :: proc(world: ^World, ref: Body_Ref, linear_impulse: [3]f32) {
 	b3.body_apply_linear_impulse_to_center(body_id(world, ref), linear_impulse, true)
 }

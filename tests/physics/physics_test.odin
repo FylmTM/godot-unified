@@ -1,4 +1,4 @@
-// The physics plug-in: Body_Ref discovery by RTTI, save/restore through the ring, the body hash,
+// The physics plug-in: Body_Ref discovery by RTTI, save/restore through the ring, the world hash,
 // and a portable image restored into a second world.
 package test_physics
 
@@ -68,7 +68,7 @@ save_restore_hash :: proc(t: ^testing.T) {
 	testing.expect(t, extra.restore(extra.data, 1))
 	testing.expect_value(t, checksum(&state, &extra), hash_30)
 
-	// Destroying a body clears the ref, and the hash skips it.
+	// Destroying a body clears the ref and changes the world's hash; destroying it again (a stale ref) is a no-op.
 	physics.destroy_body(world, &state.crates[1].body)
 	testing.expect(t, state.crates[1].body == physics.Body_Ref{})
 	testing.expect(t, checksum(&state, &extra) != hash_30)
@@ -78,11 +78,32 @@ save_restore_hash :: proc(t: ^testing.T) {
 	world2 := make_world(&state2)
 	defer physics.destroy(world2)
 	extra2 := physics.extra(world2, State)
-	extra2.save(extra2.data, 0) // fills the geometry registry in creation order
 	testing.expect(t, extra2.load(extra2.data, extra.image(extra.data, 1)))
 	state2 = state
-	state2.crates[1].body = state2.crates[0].body // any ref layout works: refs come from the block
+	state2.crates[1].body = state2.crates[0].body // the hash reads the world, not the block's refs
 	state.crates[1].body = state.crates[0].body
 	testing.expect(t, extra.restore(extra.data, 1))
 	testing.expect_value(t, checksum(&state2, &extra2), checksum(&state, &extra))
+}
+
+// create_body returns the block's ref; destroy_body checks it, so a stale ref (its body gone and the index reused, as
+// Box3D does last in, first out) leaves the new body alone. The release library wouldn't stop it.
+@(test)
+create_body_and_a_stale_destroy :: proc(t: ^testing.T) {
+	world := physics.create()
+	defer physics.destroy(world)
+	body_def := b3.default_body_def()
+	body_def.type = .Dynamic_Body
+	first := physics.create_body(world, &body_def)
+	testing.expect(t, physics.body_valid(world, physics.link(first)))
+	testing.expect_value(t, b3.body_get_type(physics.body_id(world, first)), b3.Body_Type.Dynamic_Body)
+	stale := first
+	physics.destroy_body(world, &first)
+	testing.expect(t, first == physics.Body_Ref{})
+	second := physics.create_body(world, &body_def)
+	testing.expect_value(t, second.index1, stale.index1)
+	testing.expect(t, !physics.body_valid(world, physics.link(stale)))
+	physics.destroy_body(world, &stale)
+	testing.expect(t, stale == physics.Body_Ref{})
+	testing.expect(t, physics.body_valid(world, physics.link(second)))
 }

@@ -63,6 +63,7 @@ velocity_2d :: proc(world: ^World, ref: Body_Ref) -> (linear: [2]f32, angular: f
 	return {vel.x, vel.y}, ang_vel.z
 }
 
+// Sets a plane-locked body's linear velocity in the plane and angular velocity about +Z.
 set_velocity_2d :: proc(world: ^World, ref: Body_Ref, linear: [2]f32, angular: f32) {
 	id := body_id(world, ref)
 	b3.body_set_linear_velocity(id, {linear.x, linear.y, 0})

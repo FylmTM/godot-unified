@@ -114,8 +114,8 @@ scene_destroy :: proc(scene: ^Scene) {
 	delete(scene.bodies)
 }
 
-// Moved from the old tests/box3d with the scene unchanged: the values are the in-tree port's, so the library and the
-// wrapper reproduce them bit for bit.
+// The library's cross-platform pin: a fixed scene (every body type, a stack that sleeps, a spinning capsule), hashed
+// every 60 ticks. The values must match on every platform; an intended change updates them in the same commit.
 GOLDEN := [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
 
 @(test)

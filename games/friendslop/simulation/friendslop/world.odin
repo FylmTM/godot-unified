@@ -173,7 +173,7 @@ World :: struct {
 	phys:             ^physics.World,
 	extras:           [1]sim.Extra,
 	level:            level.Level,
-	movers:           [PLAYERS]physics.Mover_Def,
+	character_defs:   [PLAYERS]physics.Character_Def,
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
 	platforms:        [MAX_PLATFORMS]Platform_Def,
@@ -210,7 +210,7 @@ GAME := Game {
 }
 
 @(rodata)
-MOVER := physics.Mover_Def {
+CHARACTER_DEF := physics.Character_Def {
 	radius                 = PLAYER_RADIUS,
 	half_height            = PLAYER_HALF_HEIGHT,
 	density                = 200,
@@ -244,12 +244,12 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	loaded, ok := level.load(content)
 	assert(ok, "friendslop: the level file is missing or not a level (src/level/SPEC.md)")
 	world.level = loaded
-	world.phys = physics.create({anchor = true, hit_threshold = 2})
+	world.phys = physics.create({anchor = true, hit_threshold = 2, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level, CAT_STATIC)
 	for player in 0 ..< PLAYERS {
-		world.movers[player] = MOVER
-		world.movers[player].material = MAT_PLAYER + u64(player)
+		world.character_defs[player] = CHARACTER_DEF
+		world.character_defs[player].material = MAT_PLAYER + u64(player)
 		world.spawns[player] = {f32(player) * 1.5 - 2.25, 1.2, 0}
 	}
 	// Triggers first: platforms refer to them by marker index.
@@ -385,7 +385,8 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 		body_def.position = def.origin
 		body_def.rotation = def.rot
 		body_def.enable_sleep = false
-		id := b3.create_body(world.phys.id, &body_def)
+		ref := physics.create_body(world.phys, &body_def)
+		id := physics.body_id(world.phys, ref)
 		shape_def := b3.default_shape_def()
 		shape_def.filter.category_bits = CAT_PLATFORM
 		shape_def.base_material.user_material_id = MAT_PLATFORM + u64(i)
@@ -393,7 +394,7 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 		hull := b3.make_box_hull(def.half.x, def.half.y, def.half.z)
 		b3.create_hull_shape(id, &shape_def, &hull.base)
 		state.platforms[i] = {
-			body    = physics.ref_of(id),
+			body    = ref,
 			running = def.trigger < 0,
 		}
 	}
@@ -402,14 +403,15 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 		if def.kind != .Bell do continue
 		body_def := b3.default_body_def()
 		body_def.position = def.volume.pos
-		id := b3.create_body(world.phys.id, &body_def)
+		ref := physics.create_body(world.phys, &body_def)
+		id := physics.body_id(world.phys, ref)
 		shape_def := b3.default_shape_def()
 		shape_def.filter.category_bits = CAT_TRIGGER
 		shape_def.base_material.user_material_id = MAT_TRIGGER + u64(i)
 		shape_def.enable_hit_events = true
 		sphere := b3.Sphere{{}, def.radius}
 		b3.create_sphere_shape(id, &shape_def, &sphere)
-		state.bodies[i] = physics.ref_of(id)
+		state.bodies[i] = ref
 	}
 }
 
@@ -420,7 +422,8 @@ create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 	body_def.type = .Dynamic_Body
 	body_def.position = def.pos
 	body_def.rotation = def.rot
-	id := b3.create_body(world.phys.id, &body_def)
+	ref := physics.create_body(world.phys, &body_def)
+	id := physics.body_id(world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_ITEM
 	shape_def.base_material.user_material_id = MAT_ITEM + u64(index)
@@ -438,7 +441,7 @@ create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 		hull := b3.make_box_hull(half.x, half.y, half.z)
 		b3.create_hull_shape(id, &shape_def, &hull.base)
 	}
-	return physics.ref_of(id)
+	return ref
 }
 
 // The offset of an item's grab point `point` in the item's local frame.

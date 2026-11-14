@@ -28,7 +28,10 @@ For every upgrade:
   and each wrapper against the library. Update `src/b3` until `./uni vet` and those tests pass.
 - `tests/b3`'s golden trace (`GOLDEN`) pins the library's results. If it or a reference run changes, the simulation
   changed: update `GOLDEN` and regenerate the reference runs deliberately (`sim-change`).
-- CI on all four platforms proves each platform's library (they must agree on every golden value and reference run).
+- CI on all four platforms proves each platform's library (they must agree on every golden value and reference run):
+  the run of step 4 is required before merging, as for any PR touching `src/physics`, `src/b3` or a game's sim
+  (`sim-change`, Full CI before merging). `verify` also runs the odin suite against the release's debug library
+  (`uni test --box3d-debug`), whose asserts catch misused ids.
 - Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
   there (`src/cli/SPEC.md`, Dependencies). Pin the release before merging.
 - What we use: `src/b3/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.

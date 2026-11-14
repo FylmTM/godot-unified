@@ -369,10 +369,12 @@ uses_scenarios :: proc() -> bool {
 suite_odin :: proc(games: []Game, only: []string) -> bool {
 	ensure_deps_for_headless()
 	ensure_bindings()
-	out := join(state.project.out, "test", tprint("unified_tests%s", EXE))
+	// --box3d-debug builds in a folder of its own: the debug library has the release one's file name.
+	out := join(state.project.out, state.box3d_debug ? "test-box3d-debug" : "test", tprint("unified_tests%s", EXE))
 	make_dirs(os.dir(out))
-	if project_uses_box3d() {
-		stage_box3d(os.dir(out))
+	uses_box3d := project_uses_box3d()
+	if uses_box3d {
+		stage_box3d(os.dir(out), debug = state.box3d_debug)
 	}
 	cmd: [dynamic]string
 	append(&cmd, odin(), "build", test_root(), tprint("-out:%s", out))
@@ -389,6 +391,7 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 	if state.crash {
 		append(&cmd, "-define:UNIFIED_TEST_CRASH=true")
 	}
+	append(&cmd, ..box3d_defines(state.box3d_debug ? .debug : .dev, uses_box3d))
 	if len(only) > 0 {
 		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(only, ",")))
 	}

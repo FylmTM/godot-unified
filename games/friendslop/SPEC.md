@@ -1,7 +1,7 @@
 # friendslop: the co-op physics sandbox (the second game)
 
 Signed off by the developer 2026-11-09; their decisions are marked (D). Code: `games/friendslop/`, laid
-out like `games/survivor/`. Library work it needs: `src/physics/SPEC.md` (mover, joints, paths) and `src/level/SPEC.md`
+out like `games/survivor/`. Library work it needs: `src/physics/SPEC.md` (character, joints, paths) and `src/level/SPEC.md`
 (Godot-authored levels).
 
 A third-person physics sandbox for 1–4 players (solo works): wobbly capsule characters who ride platforms, bounce
@@ -44,9 +44,9 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 | 10 | **Haul:** a heavy crate to the scale (items only) that opens the last door | two-person lift over a low wall; solo drags it round the wall's end (D) |
 | 11 | **Trophy ride:** the trophy across moving platforms to the pedestal | carrying while riding; throwing things at friends |
 
-## Player controller (D: dynamic mover)
+## Player controller (D: dynamic character)
 
-`physics.Mover` (`src/physics/SPEC.md`): a rotation-locked dynamic capsule (r 0.35, height 1.6), a mover joint (target
+`physics.Character` (`src/physics/SPEC.md`): a rotation-locked dynamic capsule (r 0.35, height 1.6), a mover joint (target
 velocity, force cap) and a pogo joint (ground spring, ray probes). Being a real body, it rides kinematic platforms
 (the mover joint attaches to them), is pushed by thrown items, bumpers and friends, stands on crates and other
 players, and feels the pull of what it holds, all without special cases.
@@ -64,7 +64,7 @@ holding.
   facing. Collisions push back, nothing teleports. Holding slows the holder: −15 %, −40 % for a heavy item.
 - **Heavy items** (5× a crate's mass, two handles): one holder's cap is ~60 % of the weight, so alone it only drags;
   two holders on two handles sum to ~120 % and lift it. Emergent from the force caps, not scripted.
-- **Holding a friend** (D): the held player goes limp (mover force 0, pogo released) and drops what they held; they
+- **Holding a friend** (D): the held player goes limp (drive force 0, pogo released) and drops what they held; they
   hang like a medium item. They break free with 3 jump presses within 1 s (not before 0.5 s held); auto-release
   after 4 s (D). No chains: a held player can't grab, and a player holding a player can't be grabbed.
 - **Drop:** grab again.
@@ -73,10 +73,10 @@ holding.
   ignores its thrower for 0.2 s). A thrown friend is stunned until they land (max 1 s).
 - **Catch:** holding grab while a thrown thing passes within reach grabs it.
 - **Hit** (D: knockback + stun): a Box3D contact hit event between a thrown or fast (> 6 m/s) item and a player →
-  impulse along the item's velocity, stun 0.75 s: drops what they hold, mover force 0, pogo released; the view tips
+  impulse along the item's velocity, stun 0.75 s: drops what they hold, drive force 0, pogo released; the view tips
   the character over. Bumpers do the same.
 - **Jump pads:** a box volume checked by the sim each tick (not Box3D sensors): a player whose feet are inside, or an
-  item whose centre is inside, gets the pad's launch velocity (vertical, plus an optional push); the mover is told
+  item whose centre is inside, gets the pad's launch velocity (vertical, plus an optional push); the character is told
   it launched. 0.25 s per-body cooldown.
 - **Platforms:** kinematic bodies on `physics.Path`s (waypoints, segment times, smoothstep, ping-pong or loop, waits),
   optionally gated by a plate, bell or switch. The pose is a pure function of the platform's state (`running`,
@@ -89,7 +89,7 @@ holding.
 ## Sim and view
 
 **Deterministic sim** (`simulation/friendslop`, block + Box3D): bodies (players, items, platforms, gates), joints
-(mover, pogo, hold), controller state, holds, throws, stuns, pads, plates, triggers, checkpoints, the run timer,
+(character, pogo, hold), controller state, holds, throws, stuns, pads, plates, triggers, checkpoints, the run timer,
 phases and events (`Event` in `state.odin`: player joined and left, jumped, launched, grabbed, dropped, thrown,
 hit, broke free, fell, respawned, checkpoint, run started and finished, plate on and off, bell rung, switch on).
 Each event is its own struct: `player` when it is about a player, `entity` (the level marker index + 1) when it is

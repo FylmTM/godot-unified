@@ -114,7 +114,7 @@ Public (`unified:cli`, every project):
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension (this repo: `toy` builds no extension) |
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
-| `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
+| `test [game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast; `--box3d-debug` runs the `odin` suite against Box3D's debug library |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
@@ -123,7 +123,7 @@ Public (`unified:cli`, every project):
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
 | `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
-| `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
+| `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `test --box3d-debug`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
 Private (this repo's `tools/`; promoted to public only when a game needs one):
@@ -183,6 +183,9 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     changes for it; they stay out of the terminal). The whole output is kept in `.out/test/unified_tests.exe.log`.
     `--crash` (this repo) adds `tests/cli`'s test that crashes while holding a lock another test waits for: the
     run must fail within seconds and name both.
+    `--box3d-debug` builds into `.out/test-box3d-debug/` against Box3D's debug library (`-define:BOX3D_LIB_DEBUG=true`),
+    whose asserts trap what the release library lets through (a stale id destroying another body); `verify` runs it
+    (about twice the release run's time: its physics is unoptimised).
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
     only; every step, `--only` too, first re-imports a missing or stale class cache, as `tool`, `run`, `coop` and
     `bake` do), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its

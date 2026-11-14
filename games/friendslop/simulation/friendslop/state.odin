@@ -6,6 +6,7 @@ import "unified:sim"
 
 TICK_HZ :: 64
 DT: f32 : 1.0 / TICK_HZ // exact
+PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4
 MAX_ITEMS :: 64
@@ -94,7 +95,7 @@ Held_Kind :: enum u8 {
 }
 
 Player :: struct {
-	mover:         physics.Mover,
+	controller:    physics.Character,
 	hold:          physics.Joint_Ref, // the joint to what this player holds
 	facing:        [2]f32, // unit (x, z)
 	aim:           [3]f32, // unit look direction from the last input

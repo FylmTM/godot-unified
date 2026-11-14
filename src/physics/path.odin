@@ -3,6 +3,7 @@
 package physics
 
 import "unified:b3"
+import "unified:dmath"
 
 MAX_PATH_POINTS :: 16
 
@@ -30,7 +31,8 @@ Path :: struct {
 
 @(private)
 ticks_of :: #force_inline proc(seconds: f32, tick_hz: int) -> u32 {
-	return u32(seconds * f32(tick_hz) + 0.5)
+	// Through dmath: level data may hold a negative, NaN or huge value, which converts differently on x86 and ARM.
+	return u32(dmath.to_i32_clamped(seconds * f32(tick_hz) + 0.5, 0, max(i32)))
 }
 
 // One leg of the cycle: wait at `from`, then travel to `to`.
