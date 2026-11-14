@@ -113,11 +113,8 @@ func _spawn_ghost() -> void:
 
 
 func _hud_player() -> Dictionary:
-	for p: Dictionary in Game.hud.get("players", []):
-		if p.get("slot", -1) == slot:
-			return p
-	return {}
+	return Game.player(slot)
 
 
 func _is_local() -> bool:
-	return slot == int(Game.hud.get("local_slot", 0))
+	return slot == Game.local_slot()

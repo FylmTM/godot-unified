@@ -160,7 +160,8 @@ func _ring(pos: Vector3, color: Color, radius: float, time: float) -> void:
 	r.position = pos
 	r.scale = Vector3(0.2, 0.2, 0.2)
 	var tw := r.create_tween().set_parallel()
-	tw.tween_property(r, "scale", Vector3(radius, 1.0, radius), time).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(r, "scale", Vector3(radius, 1.0, radius), time) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_property(m, "albedo_color:a", 0.0, time)
 	tw.chain().tween_callback(r.queue_free)
 

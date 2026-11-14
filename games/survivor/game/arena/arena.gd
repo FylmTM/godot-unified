@@ -46,7 +46,7 @@ func _process(delta: float) -> void:
 
 
 func local_player_view() -> Node3D:
-	var slot: int = Game.hud.get("local_slot", 0)
+	var slot := Game.local_slot()
 	for v in _views.get_children():
 		if v is GameView and v.kind == &"player" and v.slot == slot:
 			return v
@@ -61,7 +61,7 @@ func any_player_view() -> Node3D:
 
 
 func _on_sim_event(kind: StringName, _tick: int, entity: int, pos: Vector3, value: float) -> void:
-	var local := entity == int(Game.hud.get("local_slot", 0))
+	var local := entity == Game.local_slot()
 	if kind == &"match_started":
 		$Fx.shockwave(_radius)
 	$Fx.play(kind, entity, pos, value, local)

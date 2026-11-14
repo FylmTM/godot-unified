@@ -1,3 +1,5 @@
 # Build outputs (game library, exports, screenshots, test output) and Godot's import cache.
 /.out/
 /.godot/
+# The unified addon, mirrored from the library (src/godot_host/addon) before every Godot run.
+/addons/unified/

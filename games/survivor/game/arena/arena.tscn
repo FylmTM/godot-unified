@@ -9,7 +9,7 @@
 [ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="7_camera"]
 [ext_resource type="Script" path="res://game/fx/fx.gd" id="8_fx"]
 [ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="9_hud"]
-[ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="10_pause"]
+[ext_resource type="PackedScene" path="res://addons/unified/ui/pause_menu.tscn" id="10_pause"]
 
 [sub_resource type="ShaderMaterial" id="grunt_mat"]
 render_priority = 0

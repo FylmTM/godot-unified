@@ -1,12 +1,26 @@
 extends CanvasLayer
-## In-game HUD, driven by `Game.hud` every frame: local player card (HP, XP, level), wave/time/enemies, the
-## session panel (code + players) and the controls list (both shared with the other games), the start hint, banners,
-## the level-up choice and the match-over panel.
+## The in-game HUD, driven by `Game.hud` every frame: the local player card (HP, XP, level), wave, time and
+## enemies, the library's session panel and controls list, the start hint, banners, the level-up choice and the
+## match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
 ## Upgrade names and details come from the sim (`Game.constants.upgrades`), as does the "over" hold time.
 const KEYS := ["1", "2", "3"]
 const PAD_KEYS := ["X", "Y", "B"]
+
+var _last_wave := 0
+var _last_phase := ""
+var _t := 0.0
+var _last_hp := -1.0
+var _last_xp := -1
+## The red edge flash after taking damage, 0..1, decaying.
+var _hurt := 0.0
+## Keeps the panel up briefly after a choice, so the picked card can be seen.
+var _levelup_hold := 0.0
+var _over_since := 0.0
+var _new_best := false
+var _session: SessionPanel
+var _controls: ControlsPanel
 
 @onready var _card_name: Label = $Root/PlayerCard/VBox/Top/Name
 @onready var _card_level: Label = $Root/PlayerCard/VBox/Top/Level
@@ -29,18 +43,6 @@ const PAD_KEYS := ["X", "Y", "B"]
 @onready var _flash: ColorRect = $Root/Flash
 @onready var _hint_main: Label = $Root/Hint/Main
 @onready var _options: HBoxContainer = $Root/LevelUp/VBox/Options
-
-var _last_wave := 0
-var _last_phase := ""
-var _t := 0.0
-var _last_hp := -1.0
-var _last_xp := -1
-var _hurt := 0.0  # 0..1, decays: the red edge flash after taking damage
-var _levelup_hold := 0.0  # keeps the panel up briefly after a choice so the picked card can be seen
-var _over_since := 0.0
-var _new_best := false
-var _session: SessionPanel
-var _controls: ControlsPanel
 
 
 func _ready() -> void:
@@ -101,7 +103,8 @@ func _refresh(delta: float) -> void:
 			_xp.create_tween().tween_property(_xp, "modulate", Color.WHITE, 0.3)
 		_last_xp = me.xp
 	var hp_ratio: float = float(me.get("hp", 1)) / maxf(float(me.get("hp_max", 1)), 1.0)
-	var low: float = (0.25 + 0.15 * sin(_t * 6.0)) * (1.0 - hp_ratio / 0.3) if hp_ratio < 0.3 and me.get("alive", false) and phase == "match" else 0.0
+	var pulse_low: bool = hp_ratio < 0.3 and me.get("alive", false) and phase == "match"
+	var low := (0.25 + 0.15 * sin(_t * 6.0)) * (1.0 - hp_ratio / 0.3) if pulse_low else 0.0
 	_hurt = maxf(_hurt - delta * 2.5, 0.0) if me.get("alive", false) else 0.0
 	_vignette.set_shader_parameter(&"intensity", clampf(maxf(_hurt, low), 0.0, 0.6))
 
@@ -167,7 +170,8 @@ func _on_match_over(h: Dictionary, me: Dictionary) -> void:
 	var vbox := $Root/GameOver/Center/Panel/VBox
 	vbox.get_node(^"Title").text = "GAME OVER"
 	vbox.get_node(^"Survived").text = "You survived %s" % _clock(time_s)
-	vbox.get_node(^"Stats").text = "Wave %d  ·  level %d  ·  %d enemies left" % [h.get("wave", 0), me.get("level", 0), h.get("enemies_alive", 0)]
+	vbox.get_node(^"Stats").text = "Wave %d  ·  level %d  ·  %d enemies left" % [h.get("wave", 0), me.get("level", 0),
+		h.get("enemies_alive", 0)]
 	var best: float = Settings.get_value(&"best_time")
 	_new_best = time_s > best + 0.01
 	if _new_best:
@@ -216,11 +220,9 @@ func _update_controls(choosing: bool) -> void:
 
 
 ## The session panel's rows: everyone present, with their level and HP in a match.
-func _session_rows(lobby: bool) -> Array:
-	var rows := []
-	for p: Dictionary in Game.hud.get("players", []):
-		if not p.get("present", false):
-			continue
+func _session_rows(lobby: bool) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for p in Game.present_players():
 		var status := "ready"
 		if not lobby:
 			status = "down %.0fs" % ceilf(p.respawn_s) if not p.alive else "LV %d" % p.level
@@ -236,13 +238,14 @@ func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, val
 			_flash.color.a = 0.12
 			_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
 		&"level_up":
-			if entity == int(Game.hud.get("local_slot", 0)):
+			if entity == Game.local_slot():
 				_show_banner("LEVEL %d" % int(value), UiTheme.GOLD)
 		&"player_joined":
-			if entity != int(Game.hud.get("local_slot", 0)):  # your own join is not news
+			# Your own join is not news; nor is a join before the session knows your slot (yours, or one before you).
+			if Game.local_slot() >= 0 and entity != Game.local_slot():
 				_show_banner("%s JOINED" % _name_of(entity).to_upper(), UiTheme.GOOD, 32)
 		&"player_left":
-			if entity != int(Game.hud.get("local_slot", 0)):
+			if Game.local_slot() >= 0 and entity != Game.local_slot():
 				_show_banner("%s LEFT" % _name_of(entity).to_upper(), UiTheme.TEXT_DIM, 32)
 
 
@@ -268,10 +271,8 @@ func _choose(option: int) -> void:
 
 
 func _name_of(slot: int) -> String:
-	for p: Dictionary in Game.hud.get("players", []):
-		if p.get("slot", -1) == slot:
-			return Game.player_name(p)
-	return "P%d" % (slot + 1)
+	var p := Game.player(slot)
+	return Game.player_name(p) if not p.is_empty() else "P%d" % (slot + 1)
 
 
 static func _clock(seconds: float) -> String:
