@@ -97,82 +97,82 @@ Overlay :: struct {
 
 @(private)
 build_overlay :: proc() {
-	o := &s.overlay
-	o.panel = add(s.layer, gd.PanelContainer_new())
-	gd.Control_set_theme(o.panel, s.theme)
-	gd.Control_set_theme_type_variation(o.panel, "DevOverlay")
-	gd.Control_set_mouse_filter(o.panel, .MOUSE_FILTER_IGNORE)
-	gd.Control_set_custom_minimum_size(o.panel, {OVERLAY_W, 0})
-	o.box = add(o.panel, gd.VBoxContainer_new())
-	gd.Control_add_theme_constant_override(o.box, "separation", 6)
-	gd.Control_set_mouse_filter(o.box, .MOUSE_FILTER_IGNORE)
-	o.buttons = add(o.box, gd.VBoxContainer_new())
-	gd.Control_set_mouse_filter(o.buttons, .MOUSE_FILTER_IGNORE)
-	gd.Control_set_h_size_flags(o.buttons, .SIZE_SHRINK_END)
-	prow := add(o.buttons, gd.HBoxContainer_new())
-	gd.BoxContainer_set_alignment(prow, .ALIGNMENT_END)
-	gd.Control_set_mouse_filter(prow, .MOUSE_FILTER_IGNORE)
-	corner := button(prow, "◳", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
+	overlay := &s.overlay
+	overlay.panel = add(s.layer, gd.PanelContainer_new())
+	gd.Control_set_theme(overlay.panel, s.theme)
+	gd.Control_set_theme_type_variation(overlay.panel, "DevOverlay")
+	gd.Control_set_mouse_filter(overlay.panel, .MOUSE_FILTER_IGNORE)
+	gd.Control_set_custom_minimum_size(overlay.panel, {OVERLAY_W, 0})
+	overlay.box = add(overlay.panel, gd.VBoxContainer_new())
+	gd.Control_add_theme_constant_override(overlay.box, "separation", 6)
+	gd.Control_set_mouse_filter(overlay.box, .MOUSE_FILTER_IGNORE)
+	overlay.buttons = add(overlay.box, gd.VBoxContainer_new())
+	gd.Control_set_mouse_filter(overlay.buttons, .MOUSE_FILTER_IGNORE)
+	gd.Control_set_h_size_flags(overlay.buttons, .SIZE_SHRINK_END)
+	button_row := add(overlay.buttons, gd.HBoxContainer_new())
+	gd.BoxContainer_set_alignment(button_row, .ALIGNMENT_END)
+	gd.Control_set_mouse_filter(button_row, .MOUSE_FILTER_IGNORE)
+	corner_button := button(button_row, "◳", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 		s.overlay.corner = (s.overlay.corner + 1) % 4
 		overlay_place()
 		return {}
 	})
-	gd.Control_set_theme_type_variation(corner, "DevToggle")
-	gd.Control_set_tooltip_text(corner, "move to the next corner")
+	gd.Control_set_theme_type_variation(corner_button, "DevToggle")
+	gd.Control_set_tooltip_text(corner_button, "move to the next corner")
 	names := [Panel_Kind]string {
 		.Inspector  = "inspect",
 		.Conditions = "conditions",
 		.Events     = "events",
 		.Note       = "note",
 	}
-	for k in Panel_Kind {
-		b := button(prow, names[k], proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
-				k := Panel_Kind(uintptr(user))
-				if k == .Note && !s.panels[k].open do note_open()
-				else do panel_open(k, !s.panels[k].open)
+	for kind in Panel_Kind {
+		toggle := button(button_row, names[kind], proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+				kind := Panel_Kind(uintptr(user))
+				if kind == .Note && !s.panels[kind].open do note_open()
+				else do panel_open(kind, !s.panels[kind].open)
 				return {}
-			}, rawptr(uintptr(k)))
-		gd.BaseButton_set_toggle_mode(b, true)
-		gd.Control_set_theme_type_variation(b, "DevToggle")
-		o.toggles[k] = b
+			}, rawptr(uintptr(kind)))
+		gd.BaseButton_set_toggle_mode(toggle, true)
+		gd.Control_set_theme_type_variation(toggle, "DevToggle")
+		overlay.toggles[kind] = toggle
 	}
-	o.gbar = add(o.buttons, gd.HBoxContainer_new())
-	gd.BoxContainer_set_alignment(o.gbar, .ALIGNMENT_END)
-	gd.Control_set_mouse_filter(o.gbar, .MOUSE_FILTER_IGNORE)
-	o.grid = add(o.box, gd.GridContainer_new())
-	gd.GridContainer_set_columns(o.grid, 2)
-	gd.Control_set_mouse_filter(o.grid, .MOUSE_FILTER_IGNORE)
-	gd.Control_add_theme_constant_override(o.grid, "h_separation", 8)
-	gd.Control_add_theme_constant_override(o.grid, "v_separation", 0)
-	o.points = gd.PackedVector2Array_new0()
-	o.colors = gd.PackedColorArray_new0()
-	o.indices = gd.PackedInt32Array_new0()
-	o.empty_v = gd.PackedVector2Array_new0()
-	o.empty_i = gd.PackedInt32Array_new0()
-	o.empty_f = gd.PackedFloat32Array_new0()
+	overlay.gbar = add(overlay.buttons, gd.HBoxContainer_new())
+	gd.BoxContainer_set_alignment(overlay.gbar, .ALIGNMENT_END)
+	gd.Control_set_mouse_filter(overlay.gbar, .MOUSE_FILTER_IGNORE)
+	overlay.grid = add(overlay.box, gd.GridContainer_new())
+	gd.GridContainer_set_columns(overlay.grid, 2)
+	gd.Control_set_mouse_filter(overlay.grid, .MOUSE_FILTER_IGNORE)
+	gd.Control_add_theme_constant_override(overlay.grid, "h_separation", 8)
+	gd.Control_add_theme_constant_override(overlay.grid, "v_separation", 0)
+	overlay.points = gd.PackedVector2Array_new0()
+	overlay.colors = gd.PackedColorArray_new0()
+	overlay.indices = gd.PackedInt32Array_new0()
+	overlay.empty_v = gd.PackedVector2Array_new0()
+	overlay.empty_i = gd.PackedInt32Array_new0()
+	overlay.empty_f = gd.PackedFloat32Array_new0()
 	graph_make("frame", .Frame, "frame", 1)
 }
 
 @(private)
 overlay_shutdown :: proc() {
-	o := &s.overlay
-	for g in o.graphs {
-		gd.RenderingServer_free_rid(s.rs, g.ci)
-		delete(g.name)
-		for n in g.names do delete(n)
-		free(g)
+	overlay := &s.overlay
+	for graph in overlay.graphs {
+		gd.RenderingServer_free_rid(s.rs, graph.ci)
+		delete(graph.name)
+		for name in graph.names do delete(name)
+		free(graph)
 	}
-	delete(o.graphs)
-	for gr in o.groups do delete(gr.name)
-	delete(o.groups)
-	delete(o.keys)
-	delete(o.vals)
-	gd.PackedVector2Array_destroy(&o.points)
-	gd.PackedColorArray_destroy(&o.colors)
-	gd.PackedInt32Array_destroy(&o.indices)
-	gd.PackedVector2Array_destroy(&o.empty_v)
-	gd.PackedInt32Array_destroy(&o.empty_i)
-	gd.PackedFloat32Array_destroy(&o.empty_f)
+	delete(overlay.graphs)
+	for entry in overlay.groups do delete(entry.name)
+	delete(overlay.groups)
+	delete(overlay.keys)
+	delete(overlay.vals)
+	gd.PackedVector2Array_destroy(&overlay.points)
+	gd.PackedColorArray_destroy(&overlay.colors)
+	gd.PackedInt32Array_destroy(&overlay.indices)
+	gd.PackedVector2Array_destroy(&overlay.empty_v)
+	gd.PackedInt32Array_destroy(&overlay.empty_i)
+	gd.PackedFloat32Array_destroy(&overlay.empty_f)
 }
 
 // In its corner of the game window (◳ moves it on when the game's own UI is there).
@@ -188,101 +188,101 @@ overlay_place :: proc() {
 // The stat lines as a grid: a dim key, a monospace value (rows are kept and reused).
 @(private)
 stats_update :: proc() {
-	o := &s.overlay
-	for len(o.keys) < len(s.stats) {
-		k := label(o.grid, "")
-		gd.Control_set_theme_type_variation(k, "DevKey")
-		gd.Control_add_theme_font_override(k, "font", s.mono)
-		v := label(o.grid, "")
-		gd.Control_add_theme_font_override(v, "font", s.mono)
-		append(&o.keys, k)
-		append(&o.vals, v)
+	overlay := &s.overlay
+	for len(overlay.keys) < len(s.stats) {
+		key_label := label(overlay.grid, "")
+		gd.Control_set_theme_type_variation(key_label, "DevKey")
+		gd.Control_add_theme_font_override(key_label, "font", s.mono)
+		value_label := label(overlay.grid, "")
+		gd.Control_add_theme_font_override(value_label, "font", s.mono)
+		append(&overlay.keys, key_label)
+		append(&overlay.vals, value_label)
 	}
-	for i in 0 ..< len(o.keys) {
-		on := i < len(s.stats)
-		gd.CanvasItem_set_visible(o.keys[i], on)
-		gd.CanvasItem_set_visible(o.vals[i], on)
-		if on {
-			gd.Label_set_text(o.keys[i], s.stats[i][0])
-			gd.Label_set_text(o.vals[i], s.stats[i][1])
+	for i in 0 ..< len(overlay.keys) {
+		used := i < len(s.stats)
+		gd.CanvasItem_set_visible(overlay.keys[i], used)
+		gd.CanvasItem_set_visible(overlay.vals[i], used)
+		if used {
+			gd.Label_set_text(overlay.keys[i], s.stats[i][0])
+			gd.Label_set_text(overlay.vals[i], s.stats[i][1])
 		}
 	}
 }
 
 @(private)
 overlay_sync_toggles :: proc() {
-	for k in Panel_Kind do gd.BaseButton_set_pressed_no_signal(s.overlay.toggles[k], s.panels[k].open)
+	for kind in Panel_Kind do gd.BaseButton_set_pressed_no_signal(s.overlay.toggles[kind], s.panels[kind].open)
 }
 
 // ---- graphs: creation and samples
 
 @(private)
 group_index :: proc(name: string) -> int {
-	o := &s.overlay
-	for gr, i in o.groups do if gr.name == name do return i
-	gr := Group {
+	overlay := &s.overlay
+	for entry, i in overlay.groups do if entry.name == name do return i
+	entry := Group {
 		name  = strings.clone(name),
 		shown = name == "frame",
 	}
-	gr.toggle = button(o.gbar, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+	entry.toggle = button(overlay.gbar, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
 			i := int(uintptr(user))
-			gr := &s.overlay.groups[i]
-			gr.shown = !gr.shown
-			gd.BaseButton_set_pressed_no_signal(gr.toggle, gr.shown)
-			for g in s.overlay.graphs do if g.group == i do gd.CanvasItem_set_visible(g.ctl, gr.shown)
+			entry := &s.overlay.groups[i]
+			entry.shown = !entry.shown
+			gd.BaseButton_set_pressed_no_signal(entry.toggle, entry.shown)
+			for graph in s.overlay.graphs do if graph.group == i do gd.CanvasItem_set_visible(graph.ctl, entry.shown)
 			overlay_place()
 			return {}
-		}, rawptr(uintptr(len(o.groups))))
-	gd.BaseButton_set_toggle_mode(gr.toggle, true)
-	gd.BaseButton_set_pressed_no_signal(gr.toggle, gr.shown)
-	gd.Control_set_theme_type_variation(gr.toggle, "DevToggle")
-	append(&o.groups, gr)
-	return len(o.groups) - 1
+		}, rawptr(uintptr(len(overlay.groups))))
+	gd.BaseButton_set_toggle_mode(entry.toggle, true)
+	gd.BaseButton_set_pressed_no_signal(entry.toggle, entry.shown)
+	gd.Control_set_theme_type_variation(entry.toggle, "DevToggle")
+	append(&overlay.groups, entry)
+	return len(overlay.groups) - 1
 }
 
 @(private)
 graph_find :: proc(name: string) -> ^Graph {
-	for g in s.overlay.graphs do if g.name == name do return g
+	for graph in s.overlay.graphs do if graph.name == name do return graph
 	return nil
 }
 
 // A graph control: the drawing underneath, the title and legend (one label per part) on top.
 @(private)
-graph_make :: proc(name: string, kind: Graph_Kind, group: string, n: int) -> ^Graph {
-	o := &s.overlay
-	g := new(Graph)
-	g.name = strings.clone(name)
-	g.kind = kind
-	g.group = group_index(group)
-	g.n = clamp(n, 1, MAX_PARTS)
-	g.written = -1
-	g.ctl = add(o.box, gd.Control_new())
-	gd.Control_set_custom_minimum_size(g.ctl, {OVERLAY_W, graph_h(g)})
-	gd.Control_set_h_size_flags(g.ctl, .SIZE_EXPAND_FILL)
-	gd.Control_set_mouse_filter(g.ctl, .MOUSE_FILTER_IGNORE)
-	gd.CanvasItem_set_visible(g.ctl, o.groups[g.group].shown)
-	g.ci = gd.RenderingServer_canvas_item_create(s.rs)
-	gd.RenderingServer_canvas_item_set_parent(s.rs, g.ci, gd.CanvasItem_get_canvas_item(g.ctl))
-	row := add(g.ctl, gd.HBoxContainer_new())
+graph_make :: proc(name: string, kind: Graph_Kind, group: string, count: int) -> ^Graph {
+	overlay := &s.overlay
+	graph := new(Graph)
+	graph.name = strings.clone(name)
+	graph.kind = kind
+	graph.group = group_index(group)
+	graph.n = clamp(count, 1, MAX_PARTS)
+	graph.written = -1
+	graph.ctl = add(overlay.box, gd.Control_new())
+	gd.Control_set_custom_minimum_size(graph.ctl, {OVERLAY_W, graph_h(graph)})
+	gd.Control_set_h_size_flags(graph.ctl, .SIZE_EXPAND_FILL)
+	gd.Control_set_mouse_filter(graph.ctl, .MOUSE_FILTER_IGNORE)
+	gd.CanvasItem_set_visible(graph.ctl, overlay.groups[graph.group].shown)
+	graph.ci = gd.RenderingServer_canvas_item_create(s.rs)
+	gd.RenderingServer_canvas_item_set_parent(s.rs, graph.ci, gd.CanvasItem_get_canvas_item(graph.ctl))
+	row := add(graph.ctl, gd.HBoxContainer_new())
 	gd.Control_set_position(row, {2, -1})
 	gd.Control_set_mouse_filter(row, .MOUSE_FILTER_IGNORE)
 	gd.Control_add_theme_constant_override(row, "separation", 6)
-	g.title = label(row, name)
-	gd.Control_set_theme_type_variation(g.title, "DevGraphLabel")
+	graph.title = label(row, name)
+	gd.Control_set_theme_type_variation(graph.title, "DevGraphLabel")
 	if kind != .Frame {
 		for i in 0 ..< MAX_PARTS {
-			g.legend[i] = label(row, "")
-			gd.Control_set_theme_type_variation(g.legend[i], "DevGraphLabel")
-			gd.Control_add_theme_color_override(g.legend[i], "font_color", PALETTE[i])
+			graph.legend[i] = label(row, "")
+			gd.Control_set_theme_type_variation(graph.legend[i], "DevGraphLabel")
+			gd.Control_add_theme_color_override(graph.legend[i], "font_color", PALETTE[i])
 		}
 	}
-	append(&o.graphs, g)
-	return g
+	append(&overlay.graphs, graph)
+	return graph
 }
 
 @(private)
-graph_h :: proc(g: ^Graph) -> f32 {
-	switch g.kind {
+graph_h :: proc(graph: ^Graph) -> f32 {
+	switch graph.kind {
 	case .Frame:
 		return LEGEND_H + FRAME_H
 	case .Marks:
@@ -294,158 +294,161 @@ graph_h :: proc(g: ^Graph) -> f32 {
 
 // This frame's sample row of `g` (zeroed when first touched in a frame).
 @(private)
-graph_slot :: proc(g: ^Graph) -> ^[MAX_PARTS]f32 {
-	n := s.overlay.frame_n
-	row := &g.ring[n % FRAME_HIST]
-	if g.written != n {
+graph_slot :: proc(graph: ^Graph) -> ^[MAX_PARTS]f32 {
+	frame := s.overlay.frame_n
+	row := &graph.ring[frame % FRAME_HIST]
+	if graph.written != frame {
 		row^ = {}
-		g.written = n
+		graph.written = frame
 	}
 	return row
 }
 
 @(private)
-graph_names :: proc(g: ^Graph, legend: []string) {
-	for name, i in legend[:min(len(legend), g.n)] do g.names[i] = strings.clone(name)
+graph_names :: proc(graph: ^Graph, legend: []string) {
+	for name, i in legend[:min(len(legend), graph.n)] do graph.names[i] = strings.clone(name)
 }
 
 @(private)
 graph_lines :: proc(name: string, values: []f32, legend: []string, lo, hi: f32, group: string) {
-	g := graph_find(name)
-	if g == nil {
-		g = graph_make(name, .Lines, group, len(values))
-		g.lo, g.hi = lo, hi
-		graph_names(g, legend)
+	graph := graph_find(name)
+	if graph == nil {
+		graph = graph_make(name, .Lines, group, len(values))
+		graph.lo, graph.hi = lo, hi
+		graph_names(graph, legend)
 	}
-	row := graph_slot(g)
-	for v, i in values[:min(len(values), g.n)] do row[i] = v
+	row := graph_slot(graph)
+	for value, i in values[:min(len(values), graph.n)] do row[i] = value
 }
 
 @(private)
 graph_stack :: proc(name: string, parts: []f32, legend: []string, group: string) {
-	g := graph_find(name)
-	if g == nil {
-		g = graph_make(name, .Stack, group, len(parts))
-		graph_names(g, legend)
+	graph := graph_find(name)
+	if graph == nil {
+		graph = graph_make(name, .Stack, group, len(parts))
+		graph_names(graph, legend)
 	}
-	row := graph_slot(g)
-	for v, i in parts[:min(len(parts), g.n)] do row[i] = max(v, 0)
+	row := graph_slot(graph)
+	for value, i in parts[:min(len(parts), graph.n)] do row[i] = max(value, 0)
 }
 
 @(private)
 graph_mark :: proc(strip, lane: string, group: string) {
-	g := graph_find(strip)
-	if g == nil {
-		g = graph_make(strip, .Marks, group, 1)
-		g.n = 0
+	graph := graph_find(strip)
+	if graph == nil {
+		graph = graph_make(strip, .Marks, group, 1)
+		graph.n = 0
 	}
 	i := 0
-	for i < g.n && g.names[i] != lane do i += 1
-	if i == g.n {
-		if g.n == MAX_PARTS do return
-		g.names[i] = strings.clone(lane)
-		g.n += 1
+	for i < graph.n && graph.names[i] != lane do i += 1
+	if i == graph.n {
+		if graph.n == MAX_PARTS do return
+		graph.names[i] = strings.clone(lane)
+		graph.n += 1
 	}
-	graph_slot(g)[i] = 1
+	graph_slot(graph)[i] = 1
 }
 
 // Before the frame index advances: frames without a sample read 0.
 @(private)
 frame_time_add :: proc(ms: f32) {
-	o := &s.overlay
-	for g in o.graphs do if g.kind != .Frame do graph_slot(g)
-	o.frames[o.frame_n % FRAME_HIST] = ms
-	o.now_ms += f64(ms)
-	o.ends[o.frame_n % FRAME_HIST] = o.now_ms
-	o.frame_n += 1
+	overlay := &s.overlay
+	for graph in overlay.graphs do if graph.kind != .Frame do graph_slot(graph)
+	overlay.frames[overlay.frame_n % FRAME_HIST] = ms
+	overlay.now_ms += f64(ms)
+	overlay.ends[overlay.frame_n % FRAME_HIST] = overlay.now_ms
+	overlay.frame_n += 1
 }
 
 // ---- drawing
 
 @(private)
 overlay_update :: proc(slow: bool) {
-	o := &s.overlay
+	overlay := &s.overlay
 	if slow {
 		stats_update()
-		for g in o.graphs do if o.groups[g.group].shown do graph_text(g)
+		for graph in overlay.graphs do if overlay.groups[graph.group].shown do graph_text(graph)
 	}
-	o.w = clamp(int(gd.Control_get_size(o.graphs[0].ctl).x), 1, MAX_W)
+	overlay.w = clamp(int(gd.Control_get_size(overlay.graphs[0].ctl).x), 1, MAX_W)
 	map_columns()
-	for g in o.graphs {
-		if !o.groups[g.group].shown do continue
-		switch g.kind {
+	for graph in overlay.graphs {
+		if !overlay.groups[graph.group].shown do continue
+		switch graph.kind {
 		case .Frame:
-			draw_frame(g)
+			draw_frame(graph)
 		case .Stack:
-			draw_stack(g)
+			draw_stack(graph)
 		case .Lines:
-			draw_lines(g)
+			draw_lines(graph)
 		case .Marks:
-			draw_marks(g)
+			draw_marks(graph)
 		}
 	}
 }
 
 @(private)
-graph_text :: proc(g: ^Graph) {
-	switch g.kind {
+graph_text :: proc(graph: ^Graph) {
+	switch graph.kind {
 	case .Frame:
 		last, avg, worst := frame_summary()
 		gd.Label_set_text(
-			g.title,
+			graph.title,
 			fmt.tprintf("frame %.2f ms   avg %.2f   max %.1f   dev ui %.2f", last, avg, worst, s.ui_ms),
 		)
 	case .Stack:
 		// per-frame averages over the last second (one frame alone may have no tick at all)
-		m, _ := recent(g)
+		mean, _ := recent(graph)
 		total: f32
-		for i in 0 ..< g.n do total += m[i]
-		gd.Label_set_text(g.title, fmt.tprintf("%s %s", g.name, num(total)))
-		for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(m[i])))
+		for i in 0 ..< graph.n do total += mean[i]
+		gd.Label_set_text(graph.title, fmt.tprintf("%s %s", graph.name, num(total)))
+		for i in 0 ..< graph.n do gd.Label_set_text(graph.legend[i], fmt.tprintf("%s %s", graph.names[i], num(mean[i])))
 	case .Lines:
-		m, _ := recent(g)
-		if g.n == 1 {
-			gd.Label_set_text(g.title, fmt.tprintf("%s %s", g.name, num(m[0])))
+		mean, _ := recent(graph)
+		if graph.n == 1 {
+			gd.Label_set_text(graph.title, fmt.tprintf("%s %s", graph.name, num(mean[0])))
 		} else {
-			for i in 0 ..< g.n do gd.Label_set_text(g.legend[i], fmt.tprintf("%s %s", g.names[i], num(m[i])))
+			for i in 0 ..< graph.n do gd.Label_set_text(graph.legend[i], fmt.tprintf("%s %s", graph.names[i], num(mean[i])))
 		}
 	case .Marks:
 		// each lane's count in the last second
-		_, n := recent(g)
-		for i in 0 ..< g.n {
-			gd.Label_set_text(g.legend[i], n[i] > 0 ? fmt.tprintf("%s %d/s", g.names[i], n[i]) : g.names[i])
+		_, counts := recent(graph)
+		for i in 0 ..< graph.n {
+			gd.Label_set_text(
+				graph.legend[i],
+				counts[i] > 0 ? fmt.tprintf("%s %d/s", graph.names[i], counts[i]) : graph.names[i],
+			)
 		}
 	}
 }
 
 // A short number: about 3 significant digits.
 @(private)
-num :: proc(v: f32) -> string {
-	a := abs(v)
+num :: proc(value: f32) -> string {
+	magnitude := abs(value)
 	switch {
-	case a >= 100:
-		return fmt.tprintf("%.0f", v)
-	case a >= 10:
-		return fmt.tprintf("%.1f", v)
+	case magnitude >= 100:
+		return fmt.tprintf("%.0f", value)
+	case magnitude >= 10:
+		return fmt.tprintf("%.1f", value)
 	}
-	return fmt.tprintf("%.2f", v)
+	return fmt.tprintf("%.2f", value)
 }
 
 // The last frame, and the average and longest of the last second.
 @(private)
 frame_summary :: proc() -> (last, avg, worst: f32) {
-	o := &s.overlay
-	if o.frame_n == 0 do return
-	last = o.frames[(o.frame_n - 1) % FRAME_HIST]
+	overlay := &s.overlay
+	if overlay.frame_n == 0 do return
+	last = overlay.frames[(overlay.frame_n - 1) % FRAME_HIST]
 	sum: f32
-	n := 0
-	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST) && sum < 1000; i -= 1 {
-		ms := o.frames[i % FRAME_HIST]
+	count := 0
+	for i := overlay.frame_n - 1; i >= max(0, overlay.frame_n - FRAME_HIST) && sum < 1000; i -= 1 {
+		ms := overlay.frames[i % FRAME_HIST]
 		sum += ms
 		worst = max(worst, ms)
-		n += 1
+		count += 1
 	}
-	avg = sum / f32(max(n, 1))
+	avg = sum / f32(max(count, 1))
 	return
 }
 
@@ -454,33 +457,33 @@ frame_summary :: proc() -> (last, avg, worst: f32) {
 // re-slicing every frame, which made the bars jump about.
 @(private)
 map_columns :: proc() {
-	o := &s.overlay
-	for c in 0 ..< o.w do o.cols[c] = {1, 0}
-	ms_per_col := f64(FRAME_SPAN_MS) / f64(o.w)
-	now_col := i64(o.now_ms / ms_per_col) // the column of the newest moment, drawn at the right edge
-	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST); i -= 1 {
-		end := o.ends[i % FRAME_HIST]
-		start := end - f64(o.frames[i % FRAME_HIST])
+	overlay := &s.overlay
+	for column in 0 ..< overlay.w do overlay.cols[column] = {1, 0}
+	ms_per_col := f64(FRAME_SPAN_MS) / f64(overlay.w)
+	now_col := i64(overlay.now_ms / ms_per_col) // the column of the newest moment, drawn at the right edge
+	for i := overlay.frame_n - 1; i >= max(0, overlay.frame_n - FRAME_HIST); i -= 1 {
+		end := overlay.ends[i % FRAME_HIST]
+		start := end - f64(overlay.frames[i % FRAME_HIST])
 		last_col := i64(end / ms_per_col)
-		if now_col - last_col >= i64(o.w) do break // older than the graph
+		if now_col - last_col >= i64(overlay.w) do break // older than the graph
 		for col := i64(start / ms_per_col); col <= last_col; col += 1 {
-			c := o.w - 1 - int(now_col - col)
-			if c < 0 do continue
-			if o.cols[c][0] > o.cols[c][1] do o.cols[c] = {i, i}
-			else do o.cols[c][0] = i
+			column := overlay.w - 1 - int(now_col - col)
+			if column < 0 do continue
+			if overlay.cols[column][0] > overlay.cols[column][1] do overlay.cols[column] = {i, i}
+			else do overlay.cols[column][0] = i
 		}
 	}
 }
 
 // The smallest of 1, 2, 5 x 10^k at or above v.
 @(private)
-nice_ceil :: proc(v: f32) -> f32 {
-	if v <= 0 do return 1
+nice_ceil :: proc(value: f32) -> f32 {
+	if value <= 0 do return 1
 	step: f32 = 1
-	for step < v do step *= 10
-	for step / 10 >= v do step /= 10
-	if step / 5 >= v do return step / 5
-	if step / 2 >= v do return step / 2
+	for step < value do step *= 10
+	for step / 10 >= value do step /= 10
+	if step / 5 >= value do return step / 5
+	if step / 2 >= value do return step / 2
 	return step
 }
 
@@ -488,123 +491,123 @@ nice_ceil :: proc(v: f32) -> f32 {
 FRAME_SCALES := [?]f32{2, 4.17, 8.33, 16.67, 33.33, 66.67, 133.3, 1000}
 
 @(private)
-draw_frame :: proc(g: ^Graph) {
-	o := &s.overlay
-	cols: [MAX_W]f32 // each column's longest frame
+draw_frame :: proc(graph: ^Graph) {
+	overlay := &s.overlay
+	column_ms: [MAX_W]f32 // each column's longest frame
 	worst: f32
-	for c in 0 ..< o.w {
-		for i in o.cols[c][0] ..= o.cols[c][1] do cols[c] = max(cols[c], o.frames[i % FRAME_HIST])
-		worst = max(worst, cols[c])
+	for column in 0 ..< overlay.w {
+		for i in overlay.cols[column][0] ..= overlay.cols[column][1] do column_ms[column] = max(column_ms[column], overlay.frames[i % FRAME_HIST])
+		worst = max(worst, column_ms[column])
 	}
 	top := FRAME_SCALES[len(FRAME_SCALES) - 1]
-	for t in FRAME_SCALES {
-		if worst <= t {
-			top = t
+	for scale in FRAME_SCALES {
+		if worst <= scale {
+			top = scale
 			break
 		}
 	}
 	quads_begin()
-	for ms, c in cols[:o.w] {
+	for ms, column in column_ms[:overlay.w] {
 		if ms <= 0 do continue
-		col :=
+		color :=
 			ms <= 16.7 ? gd.Color{0.4, 0.78, 0.45, 1} : ms <= 33.4 ? gd.Color{0.95, 0.75, 0.3, 1} : gd.Color{0.95, 0.35, 0.3, 1}
-		h := min(ms / top, 1) * FRAME_H
-		quad(f32(c), LEGEND_H + FRAME_H - h, 1, h, col)
+		height := min(ms / top, 1) * FRAME_H
+		quad(f32(column), LEGEND_H + FRAME_H - height, 1, height, color)
 	}
-	quads_end(g)
+	quads_end(graph)
 	if top > 16.67 { 	// the 60 Hz budget, when it is on the scale
 		y := LEGEND_H + FRAME_H - 16.67 / top * FRAME_H
-		gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, y}, {f32(o.w), 1}}, {1, 1, 1, 0.25})
+		gd.RenderingServer_canvas_item_add_rect(s.rs, graph.ci, {{0, y}, {f32(overlay.w), 1}}, {1, 1, 1, 0.25})
 	}
 }
 
 @(private)
-draw_stack :: proc(g: ^Graph) {
-	o := &s.overlay
+draw_stack :: proc(graph: ^Graph) {
+	overlay := &s.overlay
 	best: [MAX_W]int // per column, the frame with the largest total
 	top: f32
-	for c in 0 ..< o.w {
-		best[c] = -1
-		bt: f32
-		for i in o.cols[c][0] ..= o.cols[c][1] {
-			t: f32
-			for p in 0 ..< g.n do t += g.ring[i % FRAME_HIST][p]
-			if t > bt {
-				bt = t
-				best[c] = i
+	for column in 0 ..< overlay.w {
+		best[column] = -1
+		best_total: f32
+		for i in overlay.cols[column][0] ..= overlay.cols[column][1] {
+			total: f32
+			for part in 0 ..< graph.n do total += graph.ring[i % FRAME_HIST][part]
+			if total > best_total {
+				best_total = total
+				best[column] = i
 			}
 		}
-		top = max(top, bt)
+		top = max(top, best_total)
 	}
 	top = nice_ceil(top)
 	quads_begin()
-	for c in 0 ..< o.w {
-		if best[c] < 0 do continue
-		row := &g.ring[best[c] % FRAME_HIST]
+	for column in 0 ..< overlay.w {
+		if best[column] < 0 do continue
+		row := &graph.ring[best[column] % FRAME_HIST]
 		y := f32(LEGEND_H + GRAPH_H)
-		for p in 0 ..< g.n {
-			h := row[p] / top * GRAPH_H
-			if h <= 0 do continue
-			y -= h
-			quad(f32(c), y, 1, h, PALETTE[p])
+		for part in 0 ..< graph.n {
+			height := row[part] / top * GRAPH_H
+			if height <= 0 do continue
+			y -= height
+			quad(f32(column), y, 1, height, PALETTE[part])
 		}
 	}
-	quads_end(g)
+	quads_end(graph)
 }
 
 @(private)
-draw_lines :: proc(g: ^Graph) {
-	o := &s.overlay
+draw_lines :: proc(graph: ^Graph) {
+	overlay := &s.overlay
 	vals: [MAX_W][MAX_PARTS]f32 // per column, each line's largest value
 	has: [MAX_W]bool
 	top: f32
-	for c in 0 ..< o.w {
-		for i in o.cols[c][0] ..= o.cols[c][1] {
-			for p in 0 ..< g.n {
-				v := g.ring[i % FRAME_HIST][p]
-				vals[c][p] = has[c] ? max(vals[c][p], v) : v
-				top = max(top, v)
+	for column in 0 ..< overlay.w {
+		for i in overlay.cols[column][0] ..= overlay.cols[column][1] {
+			for part in 0 ..< graph.n {
+				value := graph.ring[i % FRAME_HIST][part]
+				vals[column][part] = has[column] ? max(vals[column][part], value) : value
+				top = max(top, value)
 			}
-			has[c] = true
+			has[column] = true
 		}
 	}
-	lo, hi := g.lo, g.hi
+	lo, hi := graph.lo, graph.hi
 	if lo == hi do lo, hi = 0, nice_ceil(top)
-	gd.RenderingServer_canvas_item_clear(s.rs, g.ci)
-	graph_back(g)
-	gd.PackedColorArray_resize(&o.colors, 1)
-	for p in 0 ..< g.n {
-		gd.PackedVector2Array_resize(&o.points, o.w)
-		pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&o.points, 0))
-		n := 0
-		for c in 0 ..< o.w {
-			if !has[c] do continue
-			v := clamp(vals[c][p], lo, hi)
-			pts[n] = {f32(c), LEGEND_H + GRAPH_H - (v - lo) / (hi - lo) * (GRAPH_H - 1)}
-			n += 1
+	gd.RenderingServer_canvas_item_clear(s.rs, graph.ci)
+	graph_back(graph)
+	gd.PackedColorArray_resize(&overlay.colors, 1)
+	for part in 0 ..< graph.n {
+		gd.PackedVector2Array_resize(&overlay.points, overlay.w)
+		pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&overlay.points, 0))
+		count := 0
+		for column in 0 ..< overlay.w {
+			if !has[column] do continue
+			value := clamp(vals[column][part], lo, hi)
+			pts[count] = {f32(column), LEGEND_H + GRAPH_H - (value - lo) / (hi - lo) * (GRAPH_H - 1)}
+			count += 1
 		}
-		if n < 2 do continue
-		gd.PackedVector2Array_resize(&o.points, n)
-		(^gd.Color)(gdi.packed_color_array_operator_index(&o.colors, 0))^ = PALETTE[p]
-		gd.RenderingServer_canvas_item_add_polyline(s.rs, g.ci, o.points, o.colors, 1)
+		if count < 2 do continue
+		gd.PackedVector2Array_resize(&overlay.points, count)
+		(^gd.Color)(gdi.packed_color_array_operator_index(&overlay.colors, 0))^ = PALETTE[part]
+		gd.RenderingServer_canvas_item_add_polyline(s.rs, graph.ci, overlay.points, overlay.colors, 1)
 	}
 }
 
 @(private)
-draw_marks :: proc(g: ^Graph) {
-	o := &s.overlay
+draw_marks :: proc(graph: ^Graph) {
+	overlay := &s.overlay
 	quads_begin()
-	for c in 0 ..< o.w {
-		for p in 0 ..< g.n {
-			for i in o.cols[c][0] ..= o.cols[c][1] {
-				if g.ring[i % FRAME_HIST][p] > 0 {
-					quad(f32(c), LEGEND_H + f32(p) * LANE_H, 1, LANE_H - 1, PALETTE[p])
+	for column in 0 ..< overlay.w {
+		for part in 0 ..< graph.n {
+			for i in overlay.cols[column][0] ..= overlay.cols[column][1] {
+				if graph.ring[i % FRAME_HIST][part] > 0 {
+					quad(f32(column), LEGEND_H + f32(part) * LANE_H, 1, LANE_H - 1, PALETTE[part])
 					break
 				}
 			}
 		}
 	}
-	quads_end(g)
+	quads_end(graph)
 }
 
 // ---- batched quads: one triangle array per graph per frame
@@ -615,74 +618,80 @@ quad_n: int
 @(private)
 quads_begin :: proc() {
 	quad_n = 0
-	o := &s.overlay
-	gd.PackedVector2Array_resize(&o.points, MAX_W * MAX_PARTS * 4)
-	gd.PackedColorArray_resize(&o.colors, MAX_W * MAX_PARTS * 4)
-	gd.PackedInt32Array_resize(&o.indices, MAX_W * MAX_PARTS * 6)
+	overlay := &s.overlay
+	gd.PackedVector2Array_resize(&overlay.points, MAX_W * MAX_PARTS * 4)
+	gd.PackedColorArray_resize(&overlay.colors, MAX_W * MAX_PARTS * 4)
+	gd.PackedInt32Array_resize(&overlay.indices, MAX_W * MAX_PARTS * 6)
 }
 
 // At most MAX_W * MAX_PARTS per graph (one per column and part).
 @(private)
-quad :: proc(x, y, w, h: f32, col: gd.Color) {
-	o := &s.overlay
+quad :: proc(x, y, width, height: f32, color: gd.Color) {
+	overlay := &s.overlay
 	if quad_n >= MAX_W * MAX_PARTS do return
-	pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&o.points, 0))
-	cls := ([^]gd.Color)(gdi.packed_color_array_operator_index(&o.colors, 0))
-	idx := ([^]i32)(gdi.packed_int32_array_operator_index(&o.indices, 0))
-	v := quad_n * 4
-	pts[v + 0], pts[v + 1], pts[v + 2], pts[v + 3] = {x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}
-	for k in 0 ..< 4 do cls[v + k] = col
-	b := i32(v)
-	idx[quad_n * 6 + 0], idx[quad_n * 6 + 1], idx[quad_n * 6 + 2] = b, b + 1, b + 2
-	idx[quad_n * 6 + 3], idx[quad_n * 6 + 4], idx[quad_n * 6 + 5] = b, b + 2, b + 3
+	pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&overlay.points, 0))
+	colors := ([^]gd.Color)(gdi.packed_color_array_operator_index(&overlay.colors, 0))
+	indices := ([^]i32)(gdi.packed_int32_array_operator_index(&overlay.indices, 0))
+	vertex := quad_n * 4
+	pts[vertex + 0], pts[vertex + 1], pts[vertex + 2], pts[vertex + 3] =
+		{x, y}, {x + width, y}, {x + width, y + height}, {x, y + height}
+	for k in 0 ..< 4 do colors[vertex + k] = color
+	base := i32(vertex)
+	indices[quad_n * 6 + 0], indices[quad_n * 6 + 1], indices[quad_n * 6 + 2] = base, base + 1, base + 2
+	indices[quad_n * 6 + 3], indices[quad_n * 6 + 4], indices[quad_n * 6 + 5] = base, base + 2, base + 3
 	quad_n += 1
 }
 
 @(private)
-quads_end :: proc(g: ^Graph) {
-	o := &s.overlay
-	gd.RenderingServer_canvas_item_clear(s.rs, g.ci)
-	graph_back(g)
+quads_end :: proc(graph: ^Graph) {
+	overlay := &s.overlay
+	gd.RenderingServer_canvas_item_clear(s.rs, graph.ci)
+	graph_back(graph)
 	if quad_n == 0 do return
-	gd.PackedVector2Array_resize(&o.points, quad_n * 4)
-	gd.PackedColorArray_resize(&o.colors, quad_n * 4)
-	gd.PackedInt32Array_resize(&o.indices, quad_n * 6)
+	gd.PackedVector2Array_resize(&overlay.points, quad_n * 4)
+	gd.PackedColorArray_resize(&overlay.colors, quad_n * 4)
+	gd.PackedInt32Array_resize(&overlay.indices, quad_n * 6)
 	gd.RenderingServer_canvas_item_add_triangle_array(
 		s.rs,
-		g.ci,
-		o.indices,
-		o.points,
-		o.colors,
-		o.empty_v,
-		o.empty_i,
-		o.empty_f,
+		graph.ci,
+		overlay.indices,
+		overlay.points,
+		overlay.colors,
+		overlay.empty_v,
+		overlay.empty_i,
+		overlay.empty_f,
 		{},
 	)
 }
 
 // A graph's background: a thin rule on top (it separates the graphs), the legend band, the plot area.
 @(private)
-graph_back :: proc(g: ^Graph) {
+graph_back :: proc(graph: ^Graph) {
 	w := f32(s.overlay.w)
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {w, LEGEND_H}}, {1, 1, 1, 0.06})
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, 0}, {w, 1}}, {1, 1, 1, 0.14})
-	gd.RenderingServer_canvas_item_add_rect(s.rs, g.ci, {{0, LEGEND_H}, {w, graph_h(g) - LEGEND_H}}, {0, 0, 0, 0.35})
+	gd.RenderingServer_canvas_item_add_rect(s.rs, graph.ci, {{0, 0}, {w, LEGEND_H}}, {1, 1, 1, 0.06})
+	gd.RenderingServer_canvas_item_add_rect(s.rs, graph.ci, {{0, 0}, {w, 1}}, {1, 1, 1, 0.14})
+	gd.RenderingServer_canvas_item_add_rect(
+		s.rs,
+		graph.ci,
+		{{0, LEGEND_H}, {w, graph_h(graph) - LEGEND_H}},
+		{0, 0, 0, 0.35},
+	)
 }
 
 // Over the last second: each part's mean per frame, and how many frames had it set (marks).
 @(private)
-recent :: proc(g: ^Graph) -> (mean: [MAX_PARTS]f32, count: [MAX_PARTS]int) {
-	o := &s.overlay
+recent :: proc(graph: ^Graph) -> (mean: [MAX_PARTS]f32, count: [MAX_PARTS]int) {
+	overlay := &s.overlay
 	frames := 0
-	for i := o.frame_n - 1; i >= max(0, o.frame_n - FRAME_HIST); i -= 1 {
-		if o.now_ms - o.ends[i % FRAME_HIST] >= 1000 do break
-		for p in 0 ..< g.n {
-			v := g.ring[i % FRAME_HIST][p]
-			mean[p] += v
-			if v > 0 do count[p] += 1
+	for i := overlay.frame_n - 1; i >= max(0, overlay.frame_n - FRAME_HIST); i -= 1 {
+		if overlay.now_ms - overlay.ends[i % FRAME_HIST] >= 1000 do break
+		for part in 0 ..< graph.n {
+			value := graph.ring[i % FRAME_HIST][part]
+			mean[part] += value
+			if value > 0 do count[part] += 1
 		}
 		frames += 1
 	}
-	for p in 0 ..< g.n do mean[p] /= f32(max(frames, 1))
+	for part in 0 ..< graph.n do mean[part] /= f32(max(frames, 1))
 	return
 }

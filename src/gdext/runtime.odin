@@ -74,60 +74,60 @@ printf :: proc(format: string, args: ..any) {
 
 @(private)
 utility_print :: proc(name: string, msg: string) {
-	@(static) fns: map[string]gdi.PtrUtilityFunction
-	fp, ok := fns[name]
+	@(static) functions: map[string]gdi.PtrUtilityFunction
+	function, ok := functions[name]
 	if !ok {
-		n := string_name_from(name)
-		defer StringName_destroy(&n)
-		fp = gdi.variant_get_ptr_utility_function(&n, 2648703342)
-		fns[name] = fp
+		name_sn := string_name_from(name)
+		defer StringName_destroy(&name_sn)
+		function = gdi.variant_get_ptr_utility_function(&name_sn, 2648703342)
+		functions[name] = function
 	}
-	if fp == nil {
+	if function == nil {
 		fmt.println(msg)
 		return
 	}
-	v := to_variant(msg)
-	defer variant_destroy(&v)
-	args := [1]rawptr{&v}
+	message_variant := to_variant(msg)
+	defer variant_destroy(&message_variant)
+	args := [1]rawptr{&message_variant}
 	ret: Variant
-	fp(&ret, &args[0], 1)
+	function(&ret, &args[0], 1)
 }
 
 // ---- strings
 
-string_from :: proc(s: string) -> String {
-	r: String
-	gdi.string_new_with_utf8_chars_and_len2(&r, cstring(raw_data(s)), i64(len(s)))
-	return r
+string_from :: proc(text: string) -> String {
+	result: String
+	gdi.string_new_with_utf8_chars_and_len2(&result, cstring(raw_data(text)), i64(len(text)))
+	return result
 }
 
-string_to_odin :: proc(s: ^String, allocator := context.temp_allocator) -> string {
-	n := gdi.string_to_utf8_chars(s, nil, 0)
-	buf := make([]u8, n, allocator)
-	if n > 0 do gdi.string_to_utf8_chars(s, raw_data(buf), n)
+string_to_odin :: proc(string_ptr: ^String, allocator := context.temp_allocator) -> string {
+	length := gdi.string_to_utf8_chars(string_ptr, nil, 0)
+	buf := make([]u8, length, allocator)
+	if length > 0 do gdi.string_to_utf8_chars(string_ptr, raw_data(buf), length)
 	return string(buf)
 }
 
-string_name_from :: proc(s: string) -> StringName {
-	r: StringName
-	gdi.string_name_new_with_utf8_chars_and_len(&r, cstring(raw_data(s)), i64(len(s)))
-	return r
+string_name_from :: proc(text: string) -> StringName {
+	result: StringName
+	gdi.string_name_new_with_utf8_chars_and_len(&result, cstring(raw_data(text)), i64(len(text)))
+	return result
 }
 
-string_name_to_odin :: proc(s: ^StringName, allocator := context.temp_allocator) -> string {
-	str := String_new2(s^) // String(StringName)
+string_name_to_odin :: proc(name: ^StringName, allocator := context.temp_allocator) -> string {
+	str := String_new2(name^) // String(StringName)
 	defer String_destroy(&str)
 	return string_to_odin(&str, allocator)
 }
 
-node_path_from :: proc(s: string) -> NodePath {
-	str := string_from(s)
+node_path_from :: proc(path: string) -> NodePath {
+	str := string_from(path)
 	defer String_destroy(&str)
 	return NodePath_new2(str) // NodePath(String)
 }
 
-node_path_to_odin :: proc(p: ^NodePath, allocator := context.temp_allocator) -> string {
-	str := String_new3(p^) // String(NodePath)
+node_path_to_odin :: proc(path: ^NodePath, allocator := context.temp_allocator) -> string {
+	str := String_new3(path^) // String(NodePath)
 	defer String_destroy(&str)
 	return string_to_odin(&str, allocator)
 }
@@ -139,38 +139,38 @@ interned: map[string]^StringName
 
 // A StringName for `s` that stays valid until shutdown(): use it for signal, method and action names
 // passed every frame.
-sn :: proc(s: string) -> ^StringName {
-	if p, ok := interned[s]; ok do return p
-	p := new(StringName)
-	p^ = string_name_from(s)
-	interned[strings.clone(s)] = p
-	return p
+sn :: proc(text: string) -> ^StringName {
+	if name, ok := interned[text]; ok do return name
+	name := new(StringName)
+	name^ = string_name_from(text)
+	interned[strings.clone(text)] = name
+	return name
 }
 
 // ---- lookups (cached by the generated wrappers)
 
 method_bind :: proc(class, method: string, hash: i64) -> rawptr {
-	c := string_name_from(class)
-	defer StringName_destroy(&c)
-	m := string_name_from(method)
-	defer StringName_destroy(&m)
-	mb := gdi.classdb_get_method_bind(&c, &m, hash)
-	if mb == nil do fail(fmt.tprintf("method bind %s.%s (hash %d) not found: API mismatch", class, method, hash))
-	return mb
+	class_sn := string_name_from(class)
+	defer StringName_destroy(&class_sn)
+	method_sn := string_name_from(method)
+	defer StringName_destroy(&method_sn)
+	bind := gdi.classdb_get_method_bind(&class_sn, &method_sn, hash)
+	if bind == nil do fail(fmt.tprintf("method bind %s.%s (hash %d) not found: API mismatch", class, method, hash))
+	return bind
 }
 
-builtin_method :: proc(vt: gdi.VariantType, method: string, hash: i64) -> gdi.PtrBuiltInMethod {
-	m := string_name_from(method)
-	defer StringName_destroy(&m)
-	fp := gdi.variant_get_ptr_builtin_method(vt, &m, hash)
-	if fp == nil do fail(fmt.tprintf("builtin method %v.%s (hash %d) not found", vt, method, hash))
-	return fp
+builtin_method :: proc(kind: gdi.VariantType, method: string, hash: i64) -> gdi.PtrBuiltInMethod {
+	method_sn := string_name_from(method)
+	defer StringName_destroy(&method_sn)
+	function := gdi.variant_get_ptr_builtin_method(kind, &method_sn, hash)
+	if function == nil do fail(fmt.tprintf("builtin method %v.%s (hash %d) not found", kind, method, hash))
+	return function
 }
 
 get_singleton :: proc(name: string) -> rawptr {
-	n := string_name_from(name)
-	defer StringName_destroy(&n)
-	return gdi.global_get_singleton(&n)
+	name_sn := string_name_from(name)
+	defer StringName_destroy(&name_sn)
+	return gdi.global_get_singleton(&name_sn)
 }
 
 call_error :: proc(err: gdi.CallError, what: string) {
@@ -196,37 +196,37 @@ Ref :: struct($T: typeid) {
 // Constructs an engine object. RefCounted objects come back with one reference the caller owns;
 // POSTINITIALIZE is sent here (Godot 4.4+ leaves it to the caller).
 construct_object :: proc(class: string) -> rawptr {
-	n := string_name_from(class)
-	defer StringName_destroy(&n)
-	o := gdi.classdb_construct_object3(&n)
-	if o == nil do fail(fmt.tprintf("cannot construct %s", class))
-	Object_notification(Object{o}, 0) // NOTIFICATION_POSTINITIALIZE
-	return o
+	class_sn := string_name_from(class)
+	defer StringName_destroy(&class_sn)
+	object := gdi.classdb_construct_object3(&class_sn)
+	if object == nil do fail(fmt.tprintf("cannot construct %s", class))
+	Object_notification(Object{object}, 0) // NOTIFICATION_POSTINITIALIZE
+	return object
 }
 
 // Reinterprets an object handle as another class (check with is_class or object_cast first).
-cast_to :: proc($T: typeid, o: Object) -> T {
-	return transmute(T)o.ptr
+cast_to :: proc($T: typeid, object: Object) -> T {
+	return transmute(T)object.ptr
 }
 
 // The object as `T` when it is one (by class tag), else a null handle.
-object_cast :: proc($T: typeid, o: Object, class: string) -> T {
-	if o.ptr == nil do return {}
+object_cast :: proc($T: typeid, object: Object, class: string) -> T {
+	if object.ptr == nil do return {}
 	tag := gdi.classdb_get_class_tag(sn(class))
-	return transmute(T)gdi.object_cast_to(o.ptr, tag)
+	return transmute(T)gdi.object_cast_to(object.ptr, tag)
 }
 
 // Drops one reference; destroys the object when it was the last.
-unref :: proc(o: RefCounted) {
-	if o.ptr != nil && RefCounted_unreference(o) do gdi.object_destroy(o.ptr)
+unref :: proc(object: RefCounted) {
+	if object.ptr != nil && RefCounted_unreference(object) do gdi.object_destroy(object.ptr)
 }
 
 // Adds a reference (to keep an object that Godot handed over without one, e.g. a ptrcall argument).
-ref :: proc(o: $T) -> Ref(T) {
-	if o.ptr != nil do RefCounted_reference(RefCounted{o.ptr})
-	return Ref(T){o}
+ref :: proc(object: $T) -> Ref(T) {
+	if object.ptr != nil do RefCounted_reference(RefCounted{object.ptr})
+	return Ref(T){object}
 }
 
-is_valid :: proc(o: Object) -> bool {
-	return o.ptr != nil
+is_valid :: proc(object: Object) -> bool {
+	return object.ptr != nil
 }

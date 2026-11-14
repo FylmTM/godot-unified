@@ -101,16 +101,16 @@ Log_Row :: struct {
 @(private)
 SLOW_MS :: 100 // text and the inspector update at 10 Hz
 
-init :: proc(cfg: Config) {
+init :: proc(config: Config) {
 	if s.inited do return
-	s.cfg = cfg
+	s.cfg = config
 	if s.cfg.layer == 0 do s.cfg.layer = 128
 	if s.cfg.feedback_dir == "" {
 		s.cfg.feedback_dir = fmt.aprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
 	} else {
 		s.cfg.feedback_dir = strings.clone(s.cfg.feedback_dir)
 	}
-	visible = cfg.visible
+	visible = config.visible
 	s.rs = gd.RenderingServer_singleton()
 	tree := gd.cast_to(gd.SceneTree, gd.Engine_get_main_loop(gd.Engine_singleton()))
 	s.root = gd.SceneTree_get_root(tree)
@@ -186,9 +186,9 @@ inspect :: proc(name: string, data: any, editable := false) {
 
 // This frame's sample of the line graph `name` in `group` (created on first use; lo == hi: from 0 to a round value
 // above the largest shown).
-plot :: proc(name: string, v: f32, lo: f32 = 0, hi: f32 = 0, group := "game") {
+plot :: proc(name: string, value: f32, lo: f32 = 0, hi: f32 = 0, group := "game") {
 	if !s.inited do return
-	graph_lines(name, {v}, nil, lo, hi, group)
+	graph_lines(name, {value}, nil, lo, hi, group)
 }
 
 // Up to 4 lines in one graph, named by `legend`.
@@ -218,17 +218,17 @@ stat :: proc(label: string, format: string, args: ..any) {
 // A row in the event log (the newest 1000 are kept).
 log :: proc(tick: u32, format: string, args: ..any) {
 	if !s.inited do return
-	r := &s.logs[s.log_n % LOG_ROWS]
-	msg := fmt.bprintf(r.msg[:], format, ..args)
-	r.tick = tick
-	r.len = u8(len(msg))
+	row := &s.logs[s.log_n % LOG_ROWS]
+	msg := fmt.bprintf(row.msg[:], format, ..args)
+	row.tick = tick
+	row.len = u8(len(msg))
 	s.log_n += 1
 }
 
 // Updates the panels. Call once per frame on the main thread (from a node's _process).
 frame :: proc(dt: f64) {
 	if !s.inited do return
-	t0 := time.tick_now()
+	start := time.tick_now()
 	frame_time_add(f32(dt * 1000))
 	defer {
 		clear(&s.stats)
@@ -256,14 +256,14 @@ frame :: proc(dt: f64) {
 	if s.panels[.Inspector].open && (slow || s.insp.dirty) do inspector_refresh()
 	if s.panels[.Events].open do events_update()
 	update_focus()
-	s.ui_ms = f32(time.duration_milliseconds(time.tick_since(t0)))
+	s.ui_ms = f32(time.duration_milliseconds(time.tick_since(start)))
 }
 
 @(private)
 set_shown :: proc(on: bool) {
 	s.shown = on
 	layer_sync()
-	for k in Panel_Kind do panel_sync(k)
+	for kind in Panel_Kind do panel_sync(kind)
 	if on {
 		update_metrics()
 		overlay_update(true)
@@ -284,26 +284,26 @@ layer_sync :: proc() {
 @(private)
 update_metrics :: proc() {
 	s.scale = max(gd.DisplayServer_screen_get_scale(gd.DisplayServer_singleton(), -1), 1)
-	t := gd.Viewport_get_final_transform(s.root)
-	s.stretch = max(abs(t.x.x), 1e-3)
-	k := s.scale / s.stretch
-	gd.CanvasLayer_set_scale(s.layer, {k, k})
-	ws := gd.Window_get_size(s.root)
-	s.view = {f32(ws.x) / s.scale, f32(ws.y) / s.scale}
+	transform := gd.Viewport_get_final_transform(s.root)
+	s.stretch = max(abs(transform.x.x), 1e-3)
+	scale_factor := s.scale / s.stretch
+	gd.CanvasLayer_set_scale(s.layer, {scale_factor, scale_factor})
+	window_size := gd.Window_get_size(s.root)
+	s.view = {f32(window_size.x) / s.scale, f32(window_size.y) / s.scale}
 	overlay_place()
-	for k in Panel_Kind do panel_keep_on_screen(k)
+	for kind in Panel_Kind do panel_keep_on_screen(kind)
 }
 
 // The keyboard: a focused dev control (a text field), or a popped-out panel window with OS focus.
 @(private)
 update_focus :: proc() {
 	s.want_key = ours(gd.Viewport_gui_get_focus_owner(s.root))
-	for &p in s.panels do if p.window.ptr != nil && gd.Window_has_focus(p.window) do s.want_key = true
+	for &panel in s.panels do if panel.window.ptr != nil && gd.Window_has_focus(panel.window) do s.want_key = true
 }
 
 @(private)
-ours :: proc(c: gd.Control) -> bool {
-	return c.ptr != nil && gd.Node_is_ancestor_of(s.layer, c)
+ours :: proc(control: gd.Control) -> bool {
+	return control.ptr != nil && gd.Node_is_ancestor_of(s.layer, control)
 }
 
 // ---- window_input: hotkeys and the cursor, before the scene, the GUI or a popped-out window sees the event
@@ -313,22 +313,25 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
 	if window == nil {
-		if mb := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton"); mb.ptr != nil {
-			s.mouse = gd.InputEventMouse_get_position(mb)
+		if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton");
+		   mouse_button.ptr != nil {
+			s.mouse = gd.InputEventMouse_get_position(mouse_button)
 			// A click outside the dev UI gives the keyboard back to the game.
-			if (s.shown || s.panels[.Note].open) && gd.InputEvent_is_pressed(mb) && !over_ui(points(s.mouse)) {
+			if (s.shown || s.panels[.Note].open) &&
+			   gd.InputEvent_is_pressed(mouse_button) &&
+			   !over_ui(points(s.mouse)) {
 				if ours(gd.Viewport_gui_get_focus_owner(s.root)) do gd.Viewport_gui_release_focus(s.root)
 			}
 			return {}
 		}
-		if me := gd.object_cast(gd.InputEventMouse, obj, "InputEventMouse"); me.ptr != nil {
-			s.mouse = gd.InputEventMouse_get_position(me)
+		if mouse_event := gd.object_cast(gd.InputEventMouse, obj, "InputEventMouse"); mouse_event.ptr != nil {
+			s.mouse = gd.InputEventMouse_get_position(mouse_event)
 			return {}
 		}
 	}
-	k := gd.object_cast(gd.InputEventKey, obj, "InputEventKey")
-	if k.ptr == nil || !gd.InputEvent_is_pressed(k) || gd.InputEvent_is_echo(k) do return {}
-	#partial switch gd.InputEventKey_get_keycode(k) {
+	key_event := gd.object_cast(gd.InputEventKey, obj, "InputEventKey")
+	if key_event.ptr == nil || !gd.InputEvent_is_pressed(key_event) || gd.InputEvent_is_echo(key_event) do return {}
+	#partial switch gd.InputEventKey_get_keycode(key_event) {
 	case .KEY_F1:
 		visible = !visible // now: the host adds its stats before the next frame()
 	case .KEY_F3:
@@ -342,23 +345,28 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 
 // The point (in points) is over a panel or the overlay's buttons.
 @(private)
-over_ui :: proc(p: gd.Vector2) -> bool {
-	if s.shown && rect_has(gd.Control_get_global_rect(s.overlay.buttons), p) do return true
-	for &pn in s.panels {
-		if gd.CanvasItem_is_visible(pn.frame) && rect_has(gd.Control_get_global_rect(pn.frame), p) do return true
+over_ui :: proc(point: gd.Vector2) -> bool {
+	if s.shown && rect_has(gd.Control_get_global_rect(s.overlay.buttons), point) do return true
+	for &panel in s.panels {
+		if gd.CanvasItem_is_visible(panel.frame) && rect_has(gd.Control_get_global_rect(panel.frame), point) do return true
 	}
 	return false
 }
 
 @(private)
-rect_has :: proc(r: gd.Rect2, p: gd.Vector2) -> bool {
-	return p.x >= r.position.x && p.y >= r.position.y && p.x < r.position.x + r.size.x && p.y < r.position.y + r.size.y
+rect_has :: proc(rect: gd.Rect2, point: gd.Vector2) -> bool {
+	return(
+		point.x >= rect.position.x &&
+		point.y >= rect.position.y &&
+		point.x < rect.position.x + rect.size.x &&
+		point.y < rect.position.y + rect.size.y \
+	)
 }
 
 // ---- small builders
 
 @(private)
-add :: proc(parent: gd.Node, child: $T) -> T {
+add :: proc(parent: gd.Node, child: $Child) -> Child {
 	gd.Node_add_child(parent, gd.cast_to(gd.Node, gd.Object{child.ptr}))
 	s.nodes += 1
 	return child
@@ -366,45 +374,45 @@ add :: proc(parent: gd.Node, child: $T) -> T {
 
 @(private)
 label :: proc(parent: gd.Node, text: string) -> gd.Label {
-	l := add(parent, gd.Label_new())
-	gd.Label_set_text(l, text)
-	return l
+	node := add(parent, gd.Label_new())
+	gd.Label_set_text(node, text)
+	return node
 }
 
 @(private)
 button :: proc(parent: gd.Node, text: string, on_press: gd.Callable_Proc, user: rawptr = nil) -> gd.Button {
-	b := add(parent, gd.Button_new())
-	gd.Button_set_text(b, text)
-	gd.Control_set_focus_mode(b, .FOCUS_NONE)
-	on(b, "pressed", on_press, user)
-	return b
+	node := add(parent, gd.Button_new())
+	gd.Button_set_text(node, text)
+	gd.Control_set_focus_mode(node, .FOCUS_NONE)
+	on(node, "pressed", on_press, user)
+	return node
 }
 
 @(private)
 check :: proc(parent: gd.Node, text: string) -> gd.CheckBox {
-	c := add(parent, gd.CheckBox_new())
-	gd.Button_set_text(c, text)
-	gd.Control_set_focus_mode(c, .FOCUS_NONE)
-	return c
+	node := add(parent, gd.CheckBox_new())
+	gd.Button_set_text(node, text)
+	gd.Control_set_focus_mode(node, .FOCUS_NONE)
+	return node
 }
 
 @(private)
-on :: proc(obj: $T, signal: string, fn: gd.Callable_Proc, user: rawptr = nil) {
-	c := gd.callable_create(fn, user, gd.Object{obj.ptr})
-	gd.connect(gd.Object{obj.ptr}, signal, c)
-	gd.Callable_destroy(&c) // the connection holds its own reference
+on :: proc(obj: $Source, signal: string, fn: gd.Callable_Proc, user: rawptr = nil) {
+	callable := gd.callable_create(fn, user, gd.Object{obj.ptr})
+	gd.connect(gd.Object{obj.ptr}, signal, callable)
+	gd.Callable_destroy(&callable) // the connection holds its own reference
 }
 
 // The event of a signal's first argument, when it is a `T`.
 @(private)
-event_arg :: proc($T: typeid, args: []^gd.Variant, class: string) -> T {
+event_arg :: proc($Event: typeid, args: []^gd.Variant, class: string) -> Event {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	return gd.object_cast(T, obj, class)
+	return gd.object_cast(Event, obj, class)
 }
 
 // Window pixels to points.
 @(private)
-points :: proc(p: gd.Vector2) -> gd.Vector2 {
-	return {p.x / s.scale, p.y / s.scale}
+points :: proc(point: gd.Vector2) -> gd.Vector2 {
+	return {point.x / s.scale, point.y / s.scale}
 }
