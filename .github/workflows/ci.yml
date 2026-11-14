@@ -10,8 +10,11 @@
 #   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
 #   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
 #
-# Cost: the repo is public, so every runner here (GitHub's standard hosted runners) is free and unlimited; larger
-# runners would be billed.
+# Runners: the Linux jobs run on Blacksmith (blacksmith.sh; paid per minute, faster CPUs, its own cache behind
+# actions/cache): `lint` and `test / linux-*` on 4 vCPU, `godot` on 8 (it builds three games' extensions at once).
+# Windows and macOS stay on GitHub's standard runners, which are free and unlimited on this public repo. A pull
+# request from a fork runs every job on GitHub's runners instead: no spend and no third party for untrusted code.
+# Blacksmith labels pin the image version like GitHub's do (`-ubuntu-2404`).
 #
 # Security: jobs read only (`contents: read`; the nightly check also `actions: read`) and CI holds no secrets:
 # no EOS SDK and no EOS credentials (Epic's licence keeps the SDK out; its tests run where a developer has it).
@@ -65,7 +68,7 @@ jobs:
   lint:
     name: format + vet
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,8 +88,12 @@ jobs:
     name: test / ${{ matrix.platform }}
     needs: nightly
     if: ${{ !cancelled() && (needs.nightly.result == 'skipped' || needs.nightly.outputs.run == 'true') }}
+    # Fork pull requests on GitHub's runners, everything else with Linux on Blacksmith (the top of this file).
     runs-on: >-
-      ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
+      ${{ fromJSON(github.event.pull_request.head.repo.fork &&
+      '{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
+      "windows-x64": "windows-2025", "macos-arm64": "macos-15"}' ||
+      '{"linux-x64": "blacksmith-4vcpu-ubuntu-2404", "linux-arm64": "blacksmith-4vcpu-ubuntu-2404-arm",
       "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
     timeout-minutes: 30
     strategy:
@@ -133,7 +140,7 @@ jobs:
   godot:
     name: godot headless / linux-x64
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
