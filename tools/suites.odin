@@ -231,7 +231,10 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 		}
 		cli.write_extension_list_dir(p.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
-		r := cli.run_godot({"--headless", "--verbose", "--path", p.dir, "-s", cli.tprint("res://%s", p.script)}, 30)
+		r := cli.run_godot(
+			{"--headless", "--verbose", "--path", p.dir, "-s", cli.tprint("res://%s", p.script), "--", "--local-net"},
+			30,
+		)
 		out := strings.concatenate({r.stdout, r.stderr})
 		for line in strings.split_lines(r.stdout) {
 			if strings.has_prefix(line, "PASS") ||

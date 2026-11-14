@@ -73,17 +73,17 @@ add_suites :: proc(suites: ..Suite) {
 
 state: State
 
-// The entry point: finds the project, keeps the binary current (it may rebuild and re-run itself), loads .env and
-// the pins, then runs the command named on the command line.
+// The entry point: finds the project, loads the pins, keeps the binary current (it may rebuild and re-run itself),
+// loads .env, then runs the command named on the command line.
 run :: proc(command_sets: ..[]Command) -> ! {
 	args := os.args[1:]
 	state.project = find_project()
-	self_check(args)
 	pins, ok := config_load(join(state.project.unified, "pins.cfg"))
 	if !ok {
 		fatal("cannot read %s", join(state.project.unified, "pins.cfg"))
 	}
 	state.pins = pins
+	self_check(args)
 	check_odin_version()
 	state.env_keys = env_load(state.project.root)
 	inject_at(&state.suites, 0, ..public_suites())
@@ -143,7 +143,15 @@ print_help :: proc() {
 		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
 		CI_BUDGET_SCALE,
 	)
+	fmt.printf(
+		"Odin: the release pins.cfg pins. The shims (./uni, uni.cmd) use the odin on PATH when it reports the pinned commit, else download that release once into a per-user cache (%s) and put it first on PATH.\n",
+		ODIN_CACHE,
+	)
 }
+
+// Where the shims download the pinned Odin (one directory per tag): per user, shared by every checkout.
+@(private)
+ODIN_CACHE :: "%LOCALAPPDATA%\\unified\\odin" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified/odin"
 
 budget_text :: proc(c: ^Command) -> string {
 	if c.budget > 0 {

@@ -12,7 +12,9 @@ and sleeps with `sleep_until(wake_us)`. `now_us()` is the monotonic time base.
   optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (the channel is done with a peer
   number; UDP reuses it). Datagrams ≤ `MAX_DATAGRAM` (1152, fits EOS P2P), may be lost. A link numbers its remote
   endpoints as `Peer`s (a client-side link: peer 0). Implementations: in-process
-  loopback (`hub_create`, `loopback_link`), UDP (`udp_listen`, `udp_connect`), `netsim_wrap(link, profile, seed,
+  loopback (`hub_create`, `loopback_link`), UDP (`udp_listen(port, .Local | .Lan)`: 127.0.0.1, which never
+  triggers a firewall prompt, or every interface for players on other machines; `udp_connect`, loopback-bound for
+  a loopback remote), `netsim_wrap(link, profile, seed,
   clock)` (latency, jitter, loss, duplicates, reordering; real or virtual clock; `split` with `profile_in` impairs
   incoming apart). EOS implements a Link in its own
   package.

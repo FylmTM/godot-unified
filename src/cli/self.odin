@@ -36,7 +36,7 @@ self_check :: proc(args: []string) {
 		deps := join(cli_dir, "uni-bootstrap.deps.json")
 		files, odin := read_deps(deps)
 		hash := content_hash(files)
-		target := join(cli_dir, tprint("uni-%s%s", hash[:12], EXE))
+		target := join(cli_dir, binary_name(hash, ODIN_VERSION_HASH))
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
@@ -46,7 +46,9 @@ self_check :: proc(args: []string) {
 		return
 	}
 	entries, hash, ok := read_manifest(tprint("%s.inputs", exe))
-	if ok && entries_current(entries) {
+	// Built with an Odin that isn't the pinned one while PATH now names another odin (the shims put the pinned
+	// release first): rebuild with it. Else check_odin_version refuses.
+	if ok && entries_current(entries) && (built_with_pinned_odin() || !odin_changed(entries)) {
 		return
 	}
 	if ok && !odin_changed(entries) {
@@ -70,18 +72,28 @@ self_check :: proc(args: []string) {
 	rebuild(cli_dir, args)
 }
 
+// uni-<source hash>-<odin commit>: the same sources built by another Odin are another binary (the content hash
+// leaves the Odin install out), so switching to the pinned Odin never keeps a binary the old one built.
+@(private)
+binary_name :: proc(hash, odin_commit: string) -> string {
+	if odin_commit == "" {
+		return tprint("uni-%s%s", hash[:12], EXE)
+	}
+	return tprint("uni-%s-%s%s", hash[:12], odin_commit, EXE)
+}
+
 // Rebuilds the CLI from source, installs it and runs it with our arguments in our place.
 @(private)
 rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	odin := which("odin")
 	if odin == "" {
-		log("uni: odin is not on PATH: install the Odin release pinned in pins.cfg (README.md, Requirements)")
+		log("uni: odin is not on PATH: run uni through its shim (./uni, uni.cmd), which downloads the pinned release")
 		os.exit(1)
 	}
 	p := state.project
 	tmp := join(cli_dir, tprint("uni-build-%d%s", os.get_pid(), EXE))
 	deps := tprint("%s.deps.json", tmp)
-	log("uni: the CLI's sources changed: rebuilding it")
+	log("uni: the CLI's sources or its odin changed: rebuilding it")
 	ran := run_proc(
 		{
 			cmd = {
@@ -101,10 +113,18 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("uni: the CLI does not build (above)")
 		os.exit(1)
 	}
-	files, odin_path := read_deps(deps)
+	// The odin that built it may not be ours (the shims switched to the pinned one): its own install's files are
+	// left out of the manifest, and its commit names the binary.
+	root := run_proc({cmd = {odin, "root"}, capture = true, quiet = true})
+	odin_root := strings.trim_space(root.stdout)
+	version := run_proc({cmd = {odin, "version"}, capture = true, quiet = true})
+	// "<odin path> version <tag>:<commit>": the commit follows the last ':' (a Windows path has one too)
+	v := strings.trim_space(version.stdout)
+	commit := v[strings.last_index_byte(v, ':') + 1:] if version.ok && strings.contains_rune(v, ':') else ""
+	files, odin_path := read_deps(deps, odin_root if root.ok && odin_root != "" else ODIN_ROOT)
 	os.remove(deps)
 	hash := content_hash(files)
-	target := join(cli_dir, tprint("uni-%s%s", hash[:12], EXE))
+	target := join(cli_dir, binary_name(hash, commit))
 	if os.exists(target) {
 		os.remove(tmp)
 	} else if os.rename(tmp, target) != nil {
@@ -123,7 +143,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 
 // The source files of a build from Odin's dependency export, minus the Odin install's own (the odin executable
 // stands for those), and the odin executable.
-read_deps :: proc(path: string) -> (files: []string, odin: string) {
+read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> (files: []string, odin: string) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		log("uni: cannot read %s", path)
@@ -139,7 +159,6 @@ read_deps :: proc(path: string) -> (files: []string, odin: string) {
 		os.exit(1)
 	}
 	odin = which("odin")
-	odin_root := ODIN_ROOT
 	out: [dynamic]string
 	for f in d.source_files {
 		if !path_under(f, odin_root) {
@@ -291,8 +310,15 @@ prune_binaries :: proc(cli_dir: string) {
 	}
 }
 
+// Whether the binary was built with the pinned Odin's commit (a build without a commit hash counts: it only warns).
+@(private)
+built_with_pinned_odin :: proc() -> bool {
+	return ODIN_VERSION_HASH == "" || strings.has_prefix(pin("odin", "commit"), ODIN_VERSION_HASH)
+}
+
 // The binary was built with the pinned Odin (tag and commit), or it refuses to run: Odin has no semver, and a
-// build from master reports the month's tag too.
+// build from master reports the month's tag too. Refusing drops the shims' stamp (.out/cli/odin-on-path: this
+// odin on PATH is the pinned one), so the next run checks the odin on PATH again and downloads the pinned release.
 @(private)
 check_odin_version :: proc() {
 	tag := pin("odin", "tag")
@@ -302,9 +328,10 @@ check_odin_version :: proc() {
 		log("uni: warning: this Odin build has no commit hash; the pin is %s (%s)", tag, commit[:9])
 		return
 	}
-	if !strings.has_prefix(commit, built) {
+	if !built_with_pinned_odin() {
+		os.remove(join(state.project.out, "cli", "odin-on-path"))
 		log(
-			"uni: Odin %s (commit %s) is not the pinned %s (commit %s): install that release (README.md, Requirements)",
+			"uni: Odin %s (commit %s) is not the pinned %s (commit %s): run uni again, and the shim downloads that release",
 			ODIN_VERSION,
 			built,
 			tag,

@@ -82,11 +82,20 @@ mode_session :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 }
 
 mode_relay :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "port", "players", "ticks", "log")
+	check_known(a, "port", "players", "ticks", "log", "bind")
 	port := opt_int(a, "port", required = true, lo = 1, hi = 65535)
+	scope: netcode.Udp_Scope
+	switch b := opt_str(a, "bind", "local"); b {
+	case "local":
+		scope = .Local
+	case "lan":
+		scope = .Lan
+	case:
+		die("relay: --bind must be local or lan, got %q", b)
+	}
 	players := opt_int(a, "players", required = true, lo = 1, hi = P)
 	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
-	link, lok := netcode.udp_listen(port)
+	link, lok := netcode.udp_listen(port, scope)
 	if !lok {
 		die("relay: cannot bind UDP port %d", port)
 	}

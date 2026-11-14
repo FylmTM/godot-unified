@@ -215,7 +215,7 @@ tool_cmd :: proc(t: Tool_Run) -> []string {
 	} else {
 		append(&cmd, "--headless", "-d")
 	}
-	append(&cmd, "--path", t.dir, "-s", t.script, "--", "--no-settings")
+	append(&cmd, "--path", t.dir, "-s", t.script, "--", "--no-settings", "--local-net")
 	if t.shots != "" {
 		append(&cmd, tprint("--shots=res://.out/shots/%s", t.shots))
 	}

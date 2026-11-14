@@ -8,11 +8,11 @@ with its own commands into its CLI (`tools/`). The only requirements are Odin an
 
 ## Requirements
 
-Installed by the developer, nothing else: **Odin** at the exact pinned version (`pins.cfg`), what Odin needs anyway
-(clang on macOS and Linux; Visual Studio Build Tools on Windows: its linker and the Windows SDK), **git** and **curl**
-(shipped with macOS, Windows 10+ and Linux). An Odin other than the pinned tag and commit is refused with the pin;
-nothing downloads Odin locally (a downloading shim is #95). CI installs the pinned Odin with
-`.github/actions/odin`, which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D) the CLI
+Installed by the developer, nothing else: what Odin needs (clang on macOS and Linux; Visual Studio Build Tools on
+Windows: its linker and the Windows SDK), **git** and **curl** (shipped with macOS, Windows 10+ and Linux). **Odin**
+is the exact pinned release (`pins.cfg`): the odin on PATH when it is that one, else the shims download it (below).
+A CLI built with another Odin is refused with the pin. CI installs the pinned Odin with `.github/actions/odin`
+(cached), which reads `pins.cfg`. Everything else (Godot, export templates, odinfmt, Box3D) the CLI
 fetches or builds, pinned and hash-checked. Nothing it builds is C or C++. The EOS SDK is the exception: Epic's
 licence keeps it out of the repo and CI, so a machine that plays online downloads it from Epic and names it with
 `UNIFIED_EOS_SDK` (`docs/EOS.md`).
@@ -28,12 +28,16 @@ licence keeps it out of the repo and CI, so a machine that plays online download
   pins.cfg            this repo only: every pin (Odin, Godot, templates, OLS, unified-box3d, EOS SDK)
   .env                git-ignored: this checkout's UNIFIED_* settings (below)
   .out/               everything generated, git-ignored, safe to delete
-    cli/              the CLI binaries (uni-<hash>), `current`, their manifests (`<binary>.inputs`)
+    cli/              the CLI binaries (uni-<hash>-<odin commit>), `current`, their manifests (`<binary>.inputs`),
+                      `odin-on-path` (the shims' stamp: the pinned commit and the odin on PATH that reported it)
     godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest
     unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection)
     timings.json      each command line's last time against its budget
+
+<per-user cache>/unified/odin/<tag>/   the pinned Odin release the shims downloaded, shared by every checkout
+                      (%LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere; `clean` leaves it)
 ```
 
 Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); the EOS SDK stays where
@@ -45,21 +49,33 @@ when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the g
 
 ## Bootstrap and self-rebuild
 
-- **Shims** (sh and cmd, a few lines each): if `.out/cli/current` names an existing binary, run it with the
-  arguments; else check `odin` is on PATH and `odin build tools -collection:unified=<unified>/src -o:minimal`
-  into `.out/cli/uni-bootstrap`, with its dependency list, then run it. The bootstrap binary installs itself as
-  `uni-<hash>`.
+- **Shims** (POSIX sh and cmd, nothing else): first the pinned Odin, then the binary. They read `pins.cfg`'s
+  `[odin]` with shell builtins. The pinned release downloaded into the per-user cache (`<cache>/unified/odin/<tag>`)
+  goes first on PATH. Else the stamp `.out/cli/odin-on-path` (`<commit> <path>`) naming the pinned commit and the
+  odin on PATH (found by a builtin PATH search): use it. Both checks start no process. Else the odin on PATH, when
+  `odin version` reports the pinned commit, gets the
+  stamp; else the shim downloads this platform's release asset (curl), checks its SHA-256 against `pins.cfg`
+  (`sha256sum`/`shasum`; `certutil`), unpacks it next to its final directory (`tar`; the system `tar.exe` reads the
+  Windows zip; Git Bash: `unzip`), renames its top folder into place and puts it first on PATH. That first run
+  costs the download (60-160 MB, Windows the largest). Then: if `.out/cli/current` names an
+  existing binary, run it with the arguments; else `odin build tools -collection:unified=<unified>/src
+  -o:minimal` into `.out/cli/uni-bootstrap`, with its dependency list, then run it. The bootstrap binary installs
+  itself as `uni-<hash>-<odin commit>`.
 - **The binary checks itself** before every command: its manifest (from `-export-dependencies:json`: every source
   file outside the Odin install, their directories and the `odin` executable) holds sizes, times and a content hash.
   Sizes and times match: run (~1 ms). Else hash; same hash and no new file: refresh the times, run. Else rebuild to a
-  temp file, rename it to `uni-<hash>`, write `current`, and run it with the same arguments. A rebuild keeps the
+  temp file, rename it to `uni-<hash>-<odin commit>` (the hash leaves the Odin install out: the building odin's,
+  from `odin root`; the commit keeps another Odin's build of the same sources apart), write `current`, and run it
+  with the same arguments. A rebuild keeps the
   newest four binaries (switching branches back and forth needs none); a binary still running on Windows stays until
   a later rebuild. No lock: concurrent rebuilds write the same file. A CLI source that doesn't compile stops with the
   compiler's error.
 - **Odin version:** the binary compares the tag and commit it was built with (`ODIN_VERSION`, `ODIN_VERSION_HASH`)
   against the pin, at no cost, and refuses a mismatch (a build without a commit hash: a warning). The tag alone isn't
   enough: a build from Odin's master reports the month's tag. A changed `odin` executable shows in the manifest and
-  leads to a rebuild, so the check follows the installed Odin.
+  leads to a rebuild, so the check follows the installed Odin; so does a binary built with another Odin while PATH
+  names a different odin (the shim put the pinned one first). A refusal deletes the shims' stamp, so the next run
+  checks the odin on PATH again and downloads the pinned release.
 - **Imports:** `unified:cli` and the project's `tools/` import only `core:` (and each other; the lint holds it):
   library edits never rebuild the CLI. The one planned exception: the control socket's message types.
 - **Build mode `-o:minimal`**: ~0.3 s builds, SHA-256 at 186 ms/100 MB; measure again when the CLI does real CPU
@@ -68,8 +84,8 @@ when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the g
 ## Pins
 
 `pins.cfg`, Godot's ConfigFile syntax: `[section]` and `key = "value"` lines, one value per line, so a workflow that
-runs no repository code (`.github/actions/odin`) reads it with `sed`. Odin is pinned by tag and
-commit. CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
+runs no repository code (`.github/actions/odin`) reads it with `sed`, and the shims with shell builtins. Odin is
+pinned by tag (the release) and commit (what `odin version` reports). CI cache keys come from `uni ci cache-key <dep>` (the dependency's pins, the recipe version and, for what we
 compile, the compiler's version), never from tool sources.
 
 ## Commands

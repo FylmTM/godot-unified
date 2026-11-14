@@ -20,7 +20,7 @@ usage :: proc() -> ! {
   replay   --log F --trace F
   session  --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N
            [--late-join P@T] [--log F] [--seed S] [--clock real|virtual]
-  relay    --port P --players N --ticks T --log F
+  relay    --port P --players N --ticks T --log F [--bind local|lan]  (lan: listen on every interface)
   client   --connect HOST:PORT --player I --ticks T [--profile ideal|wan|bad]
   <online>-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--code-file F] [--log F] [transport options]
   <online>-client --code CODE --ticks T [--bucket B] [transport options]
