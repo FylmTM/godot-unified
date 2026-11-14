@@ -394,7 +394,15 @@ data_fields :: proc(data_type: typeid) -> []Data_Field {
 		for i in 0 ..< int(struct_info.field_count) {
 			name := struct_info.names[i]
 			if strings.has_prefix(name, "_") do continue // padding
-			append(&out, Data_Field{name = gd.sn(name), text = name, type = struct_info.types[i], offset = int(struct_info.offsets[i])})
+			append(
+				&out,
+				Data_Field {
+					name = gd.sn(name),
+					text = name,
+					type = struct_info.types[i],
+					offset = int(struct_info.offsets[i]),
+				},
+			)
 		}
 	}
 	V.fields[data_type] = out[:]

@@ -1,13 +1,8 @@
 extends Node2D
-## The station: a plain Node2D view (no SimView2D), so the host drives it through `Object.set`. The host sets its
+## The station: a Node2D view with a UnifiedView marker. The host sets its
 ## position and rotation (it turns slowly), and `hp_frac` from Station_View; it flashes when that drops. Drawn in
 ## code: the hexagon the sim simulates (corners at k × 60°, radius `station_radius`), and an HP ring that stays
 ## upright. Also the menu's backdrop decoration (no session there).
-
-## Set by the host on a plain view root (SimView2D has these natively).
-var kind: StringName
-var entity := -1
-var player := -1
 
 ## Station_View (simulation/extension), set by the host when it changes: 0..1.
 var hp_frac := 1.0:
@@ -23,7 +18,8 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	_r = float(Game.constants.get("station_radius", 2.5)) * Game.px_per_m
+	var radius: float = Game.constants.get("station_radius", 2.5)
+	_r = radius * Game.px_per_m
 
 
 func _process(delta: float) -> void:
@@ -64,6 +60,6 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, ring, -PI / 2.0, -PI / 2.0 + TAU * hp_frac, 64, hp_col, 4.0, true)
 
 
-func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
-	if event == &"station_hit" and state == SimEvent.EMITTED:
+func _sim_event(event: UnifiedEvent, state: int) -> void:
+	if event is StationHit and state == UnifiedSession.EVENT_EMITTED:
 		_flash = 1.0

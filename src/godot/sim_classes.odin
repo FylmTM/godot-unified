@@ -122,6 +122,11 @@ register_sim_classes :: proc() {
 	gd.register_class(&event_base_class)
 	gd.bind_method(&event_base_class, "get_tick", proc(object: ^Sim_Object) -> i64 {return object.tick})
 	gd.bind_property_by_name(&event_base_class, "tick", .INT, "get_tick")
+	gd.bind_method(&event_base_class, "get_kind", proc(object: ^Sim_Object) -> string {
+		if object.class == &event_base_class do return ""
+		return api.events[(^Sim_Class)(object.class).kind].name
+	})
+	gd.bind_property_by_name(&event_base_class, "kind", .STRING, "get_kind")
 	command_base_class = {
 		name   = "UnifiedCommand",
 		parent = "RefCounted",

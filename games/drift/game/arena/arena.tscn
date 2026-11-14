@@ -17,29 +17,42 @@ script = ExtResource("1_arena")
 
 [node name="Bulk" type="Node2D" parent="."]
 
-[node name="Gems" type="SimBulkView2D" parent="Bulk"]
-kind = "gem"
+[node name="Gems" type="MultiMeshInstance2D" parent="Bulk"]
 script = ExtResource("5_gem")
 
-[node name="Rock0" type="SimBulkView2D" parent="Bulk"]
-kind = "rock_0"
+[node name="Rock0" type="MultiMeshInstance2D" parent="Bulk"]
 script = ExtResource("3_rock")
 
-[node name="Rock1" type="SimBulkView2D" parent="Bulk"]
-kind = "rock_1"
+[node name="Rock1" type="MultiMeshInstance2D" parent="Bulk"]
 script = ExtResource("3_rock")
 
-[node name="Rock2" type="SimBulkView2D" parent="Bulk"]
-kind = "rock_2"
+[node name="Rock2" type="MultiMeshInstance2D" parent="Bulk"]
 script = ExtResource("3_rock")
 
-[node name="Rock3" type="SimBulkView2D" parent="Bulk"]
-kind = "rock_3"
+[node name="Rock3" type="MultiMeshInstance2D" parent="Bulk"]
 script = ExtResource("3_rock")
 
 [node name="Bullets" type="MultiMeshInstance2D" parent="Bulk"]
 z_index = 1
 script = ExtResource("4_bullet")
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Gems"]
+kind = "gem"
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Rock0"]
+kind = "rock_0"
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Rock1"]
+kind = "rock_1"
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Rock2"]
+kind = "rock_2"
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Rock3"]
+kind = "rock_3"
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Bullets"]
+kind = "bullet"
 
 [node name="Views" type="Node2D" parent="."]
 

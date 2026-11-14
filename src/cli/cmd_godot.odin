@@ -691,6 +691,9 @@ bake_view_index :: proc(game: Game, check: bool) -> bool {
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
 // level scenes (src/level/SPEC.md).
 bake :: proc(game: Game, check: bool) -> Tool_Result {
+	if has_extension(game) {
+		ensure_extension(game, .dev) // the game's scripts name its library's classes
+	}
 	ensure_imported(game.dir)
 	copy_file(
 		join(game.dir, ".out", "tools", "level_export.gd"),

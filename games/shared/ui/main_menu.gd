@@ -30,8 +30,7 @@ var _settings: SettingsPanel
 func _ready() -> void:
 	(%Title as Label).text = title
 	(%Tagline as Label).text = tagline
-	(%Footer as Label).text = "v%s%s" % [ProjectSettings.get_setting("application/config/version"),
-		"  ·  mock session (no game library)" if Game.is_mock else ""]
+	(%Footer as Label).text = "v%s" % ProjectSettings.get_setting("application/config/version")
 	(%HostLan as Button).text = "Host on LAN instead (port %d)" % Game.lan_port
 	_address.placeholder_text = "127.0.0.1:%d" % Game.lan_port
 	_single.pressed.connect(_click.bind(Game.play_single))

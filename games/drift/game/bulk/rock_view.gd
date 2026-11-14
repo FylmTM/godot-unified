@@ -1,5 +1,5 @@
-extends SimBulkView2D
-## Rocks of one shape variant (`kind` rock_0..rock_3, set in the arena scene): the typed bulk view. The mesh is
+extends MultiMeshInstance2D
+## Rocks of one shape variant (the MultiMesh views rock_0..rock_3, their markers' kind set in the arena scene). The mesh is
 ## the sim's own shape (constants().rock_shapes[variant], the 8 corners at radius 1) as its convex hull, the same
 ## hull the sim's bodies have; the host scales it by each rock's radius in pixels (squashed for a moment on a
 ## hit). The shader shades by size (custom.x) and flashes on a hit (custom.y).
@@ -9,7 +9,7 @@ const SHADER := "res://game/shaders/rock.gdshader"
 
 
 func _ready() -> void:
-	var variant := int(String(kind).trim_prefix("rock_"))
+	var variant := int(($UnifiedMultiView as UnifiedMultiView).kind.trim_prefix("rock_"))
 	var shapes: Array = Game.constants.get("rock_shapes", [])
 	var pts := PackedVector2Array()
 	if variant < shapes.size():

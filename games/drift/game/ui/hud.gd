@@ -95,16 +95,20 @@ func _process(delta: float) -> void:
 	var wave: int = h.get("wave", 0)
 	match phase:
 		"match":
-			_phase.text = "WAVE %d  ·  next wave in %d s" % [wave, ceili(h.get("next_wave_s", 0.0))]
-			_time.text = _time_text(h.get("time_s", 0.0))
+			var next_wave_s: float = h.get("next_wave_s", 0.0)
+			var time_s: float = h.get("time_s", 0.0)
+			_phase.text = "WAVE %d  ·  next wave in %d s" % [wave, ceili(next_wave_s)]
+			_time.text = _time_text(time_s)
 		"over":
 			_phase.text = "STATION LOST  ·  wave %d" % wave
-			_time.text = _time_text(h.get("time_s", 0.0))
+			var held_s: float = h.get("time_s", 0.0)
+			_time.text = _time_text(held_s)
 		_:
 			_phase.text = "LOBBY"
 			_time.text = ""
 	var hp: int = h.get("station_hp", 100)
-	var hp_max: int = maxi(int(h.get("station_max", 100)), 1)
+	var station_max: int = h.get("station_max", 100)
+	var hp_max := maxi(station_max, 1)
 	var frac := clampf(float(hp) / hp_max, 0.0, 1.0)
 	_hp_shown = lerpf(_hp_shown, frac, 1.0 - exp(-delta * 10.0))
 	_hp.value = _hp_shown
@@ -114,7 +118,9 @@ func _process(delta: float) -> void:
 	if sb != null and sb.bg_color != fill:
 		_hp.add_theme_stylebox_override(&"fill", UiTheme.box(fill, 6, 0))
 	var best: float = Settings.get_value(&"best_time")
-	_score.text = "score %d  ·  rocks %d%s" % [int(h.get("score", 0)), int(h.get("rocks", 0)),
+	var score: int = h.get("score", 0)
+	var rocks: int = h.get("rocks", 0)
+	_score.text = "score %d  ·  rocks %d%s" % [score, rocks,
 		("  ·  best %s" % _time_text(best)) if best > 0.0 else ""]
 
 	_prompt.visible = phase == "lobby" or phase == "over"
@@ -124,14 +130,16 @@ func _process(delta: float) -> void:
 		_prompt_sub.text = "Rocks drift in from the edges in waves. Keep them off the station."
 		start_button.text = "Start"
 	elif phase == "over":
-		_prompt_text.text = "The station is lost: you held out %s" % _time_text(h.get("time_s", 0.0))
-		_prompt_sub.text = "Back to the lobby in %d s" % ceili(h.get("reset_in_s", 0.0))
+		var survived_s: float = h.get("time_s", 0.0)
+		var reset_in_s: float = h.get("reset_in_s", 0.0)
+		_prompt_text.text = "The station is lost: you held out %s" % _time_text(survived_s)
+		_prompt_sub.text = "Back to the lobby in %d s" % ceili(reset_in_s)
 		start_button.text = "Restart"
 
 	var rows: Array[Dictionary] = []
 	for info in Game.present_players():
-		rows.append({"player": info.player, "name": Game.player_name(info),
-			"status": "%d gems" % int(info.get("gems", 0))})
+		var gems: int = info.get("gems", 0)
+		rows.append({"player": info.player, "name": Game.player_name(info), "status": "%d gems" % gems})
 	_session.refresh(rows, phase == "lobby", "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
 	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
@@ -157,13 +165,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## The lobby's `start` or the over screen's `restart` command (anyone may send either).
 func _start_or_restart() -> void:
-	match String(Game.hud.get("phase", "")):
+	var phase: String = Game.hud.get("phase", "")
+	match phase:
 		"lobby":
 			Sfx.play(&"click")
-			Game.send_command(&"start")
+			Game.send_command(Start.new())
 		"over":
 			Sfx.play(&"click")
-			Game.send_command(&"restart")
+			Game.send_command(Restart.new())
 
 
 func _show_banner(text: String, seconds := 2.0) -> void:
@@ -172,22 +181,21 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 
 
 ## Banners and the best time, once an event's tick is confirmed.
-func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
-	if state != SimEvent.CONFIRMED:
+func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	match event:
-		&"match_started":
-			_show_banner("Defend the station!", 2.0)
-		&"wave":
-			var wave := int(data.wave)
-			if wave > 1:
-				_show_banner("Wave %d" % wave, 2.0)
-		&"match_over":
-			_show_banner("Station lost", 3.0)
-			var survived := float(data.seconds_survived)
-			var best: float = Settings.get_value(&"best_time")
-			if survived > best:
-				Settings.set_value(&"best_time", survived)
+	if event is MatchStarted:
+		_show_banner("Defend the station!", 2.0)
+	elif event is Wave:
+		var wave := (event as Wave).wave
+		if wave > 1:
+			_show_banner("Wave %d" % wave, 2.0)
+	elif event is MatchOver:
+		_show_banner("Station lost", 3.0)
+		var survived := (event as MatchOver).seconds_survived
+		var best: float = Settings.get_value(&"best_time")
+		if survived > best:
+			Settings.set_value(&"best_time", survived)
 
 
 static func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:
