@@ -1,14 +1,14 @@
 // godot_host without Godot: the session driver (its thread, frames, events, statuses, transports) installed
 // with the toy game, and the dev UI's switchable netsim link. The Godot-facing classes run under headless
 // Godot (the godot suite's `session` step, tests/godot, tests/godot_views).
-package test_godot_host
+package test_godot_driver
 
 import "core:strings"
 import "core:sync"
 import "core:testing"
 import "core:time"
 
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:netcode"
 import "unified:sim"
 import "unified:view"
@@ -27,11 +27,11 @@ seen: struct {
 }
 
 @(private = "file")
-GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World) {
 	scenes = {{name = "dot"}},
 	scene_dir = "res://views",
 	actions = {buttons = {"spawn"}},
-	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^gh.Frame) {
+	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^godot.Frame) {
 		for player in 0 ..< toy.PLAYERS {
 			if !current.joined[player] do continue
 			out.scene[out.n_scene] = {
@@ -49,16 +49,16 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 	event_pos = proc(position: sim.Position, world: ^toy.World) -> sim.Position {
 		return {position.x * 10, position.y * 10, position.z * 10 + 1}
 	},
-	poll_input = proc(actions: gh.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+	poll_input = proc(actions: godot.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 		sync.atomic_or(&seen.pressed, actions.pressed)
 		return {dx = 1, buttons = u8(actions.pressed & 1)}
 	},
 }
 
 @(private = "file")
-FAILING := gh.Transport {
+FAILING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		events.fail(events.ctx, "fake: no lobby service")
 		return {}, false
 	},
@@ -66,23 +66,23 @@ FAILING := gh.Transport {
 }
 
 @(private = "file")
-OPENING := gh.Transport {
+OPENING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		events.code(events.ctx, "ABC123")
 		return netcode.loopback_link(seen.hub, 0), true
 	},
-	pump = proc(_: rawptr, events: ^gh.Transport_Events) {seen.pumps += 1},
+	pump = proc(_: rawptr, events: ^godot.Transport_Events) {seen.pumps += 1},
 	close = proc(_: rawptr) {seen.closes += 1},
 }
 
 // Pops messages until `pred` holds or `ms` pass; returns every message seen.
 @(private = "file")
-drain :: proc(out: ^[dynamic]gh.Message, ms: int, done: proc(message: gh.Message) -> bool) -> bool {
+drain :: proc(out: ^[dynamic]godot.Message, ms: int, done: proc(message: godot.Message) -> bool) -> bool {
 	start := time.tick_now()
 	for time.duration_milliseconds(time.tick_since(start)) < f64(ms) {
 		for {
-			message, ok := gh.api.pop()
+			message, ok := godot.api.pop()
 			if !ok do break
 			append(out, message)
 			if done(message) do return true
@@ -93,34 +93,34 @@ drain :: proc(out: ^[dynamic]gh.Message, ms: int, done: proc(message: gh.Message
 }
 
 @(private = "file")
-text :: proc(message: gh.Message) -> string {
+text :: proc(message: godot.Message) -> string {
 	message := message
 	return strings.clone(string(message.text[:message.len]), context.temp_allocator)
 }
 
 @(private = "file")
-is_result :: proc(message: gh.Message) -> bool {return message.kind == .Result}
+is_result :: proc(message: godot.Message) -> bool {return message.kind == .Result}
 
 @(test)
 driver_sessions :: proc(t: ^testing.T) {
-	gh.install(&toy.GAME, GLUE)
-	testing.expect(t, gh.api.installed)
-	testing.expect_value(t, gh.api.scene_dir, "res://views")
-	testing.expect_value(t, gh.api.tick_hz, toy.HZ)
+	godot.install(&toy.GAME, GLUE)
+	testing.expect(t, godot.api.installed)
+	testing.expect_value(t, godot.api.scene_dir, "res://views")
+	testing.expect_value(t, godot.api.tick_hz, toy.HZ)
 
 	// Single player, 40 ticks: connected, frames published, a pressed button reaches sample once,
 	// commands sent from the main thread reach the sim once each, in order, verified events confirmed, a
 	// result at the end.
 	{
-		testing.expect(t, !gh.api.send({}), "no session: nothing to send to")
-		ok, err := gh.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
+		testing.expect(t, !godot.api.send({}), "no session: nothing to send to")
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
 		testing.expect(t, ok, err)
-		gh.press_button(0)
+		godot.press_button(0)
 		for amount in ([]i32{3, -1, 8}) {
 			command, _ := sim.command_make(toy.Command, toy.Cmd_Bump{amount})
-			testing.expect(t, gh.api.send(command))
+			testing.expect(t, godot.api.send(command))
 		}
-		messages := make([dynamic]gh.Message, context.temp_allocator)
+		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
 		connected, joined, spawned := false, false, false
 		for &message in messages {
@@ -144,7 +144,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, spawned, "the press spawned a thing, its event posted")
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
-		frame, _ := gh.api.front()
+		frame, _ := godot.api.front()
 		testing.expect(
 			t,
 			frame != nil && frame.n_scene == 1 && frame.local_player == 0,
@@ -159,27 +159,27 @@ driver_sessions :: proc(t: ^testing.T) {
 			sync.atomic_load(&seen.bump_fold),
 			toy.bump_fold(toy.bump_fold(toy.bump_fold(0, 3), -1), 8),
 		)
-		testing.expect(t, strings.contains(gh.api.result(), "\"checksum"), gh.api.result())
-		for gh.api.running() do time.sleep(time.Millisecond)
-		gh.api.wait()
-		testing.expect(t, !gh.api.running())
+		testing.expect(t, strings.contains(godot.api.result(), "\"checksum"), godot.api.result())
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+		testing.expect(t, !godot.api.running())
 	}
 
 	// Online without a transport: refused before a thread starts.
 	{
-		ok, err := gh.api.start({mode = .Host_Online})
+		ok, err := godot.api.start({mode = .Host_Online})
 		testing.expect(t, !ok && err != "", "online needs a transport")
 	}
 
 	// A transport that fails to open: its reason is the only Failed status (no generic one after it).
 	{
-		gh.set_transport(&FAILING)
-		defer gh.set_transport(nil)
-		ok, _ := gh.api.start({mode = .Host_Online})
+		godot.set_transport(&FAILING)
+		defer godot.set_transport(nil)
+		ok, _ := godot.api.start({mode = .Host_Online})
 		testing.expect(t, ok)
-		for gh.api.running() do time.sleep(time.Millisecond)
-		messages := make([dynamic]gh.Message, context.temp_allocator)
-		drain(&messages, 50, proc(message: gh.Message) -> bool {return false})
+		for godot.api.running() do time.sleep(time.Millisecond)
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		drain(&messages, 50, proc(message: godot.Message) -> bool {return false})
 		failed: [dynamic]string
 		failed.allocator = context.temp_allocator
 		for message in messages {
@@ -187,7 +187,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		testing.expect_value(t, len(failed), 1)
 		if len(failed) == 1 do testing.expect_value(t, failed[0], "fake: no lobby service")
-		gh.api.wait()
+		godot.api.wait()
 	}
 
 	// A transport that opens: the code reaches the main thread, pump runs, stop ends the session
@@ -196,21 +196,21 @@ driver_sessions :: proc(t: ^testing.T) {
 		seen.hub = netcode.hub_create(2)
 		defer netcode.hub_destroy(seen.hub)
 		seen.closes, seen.pumps = 0, 0
-		gh.set_transport(&OPENING)
-		defer gh.set_transport(nil)
-		ok, _ := gh.api.start({mode = .Host_Online, seed = 3})
+		godot.set_transport(&OPENING)
+		defer godot.set_transport(nil)
+		ok, _ := godot.api.start({mode = .Host_Online, seed = 3})
 		testing.expect(t, ok)
-		messages := make([dynamic]gh.Message, context.temp_allocator)
-		got_code := drain(&messages, 2000, proc(message: gh.Message) -> bool {
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		got_code := drain(&messages, 2000, proc(message: godot.Message) -> bool {
 			return message.kind == .Lobby_Code && text(message) == "ABC123"
 		})
 		testing.expect(t, got_code, "the lobby code is posted")
 		time.sleep(50 * time.Millisecond)
-		gh.api.stop()
-		testing.expect(t, gh.api.stopping())
+		godot.api.stop()
+		testing.expect(t, godot.api.stopping())
 		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
-		for gh.api.running() do time.sleep(time.Millisecond)
-		gh.api.wait()
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
 		testing.expect(t, seen.pumps > 0, "the transport is pumped")
 		testing.expect_value(t, seen.closes, 1)
 	}
@@ -221,7 +221,7 @@ driver_sessions :: proc(t: ^testing.T) {
 dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
-	dev_link, link := gh.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
+	dev_link, link := godot.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
 	other := netcode.loopback_link(hub, 1)
 	defer netcode.link_close(&other)
 	buf: [64]u8
@@ -237,7 +237,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	size, from, ok := netcode.link_recv(&link, buf[:])
 	testing.expect(t, ok && size == 1 && buf[0] == 9 && from == 1)
 
-	gh.dev_link_set(dev_link, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
+	godot.dev_link_set(dev_link, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
 	netcode.link_send(&link, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)
@@ -247,7 +247,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	// Off again: a datagram received while on is still delivered (drained), then direct.
 	netcode.link_send(&other, 0, {7})
 	_, _, _ = netcode.link_recv(&link, buf[:]) // the netsim takes it in, due in 20 ms
-	gh.dev_link_set(dev_link, {})
+	godot.dev_link_set(dev_link, {})
 	time.sleep(30 * time.Millisecond)
 	size, _, ok = netcode.link_recv(&link, buf[:])
 	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")

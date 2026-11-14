@@ -1,5 +1,5 @@
 #+build windows
-package godot_host
+package godot
 
 import "core:c"
 import "core:fmt"

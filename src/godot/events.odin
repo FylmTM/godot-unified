@@ -3,7 +3,7 @@
 // tick, kind, subject and index among equal ones), converts their sim.Position fields into view units
 // (Glue.event_pos) and posts them as kind + bytes; the main thread turns each into a Dictionary of its fields
 // and hands it to the subject's view and to the `sim_event` signal, as Predicted, Confirmed or Cancelled.
-package godot_host
+package godot
 
 import "base:runtime"
 import "core:fmt"

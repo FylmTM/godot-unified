@@ -1,6 +1,6 @@
 // UnifiedSession.send_command(name, args): a GDScript Dictionary becomes the game's command struct by RTTI
 // (no per-game glue), then goes to the session thread, which hands it to the client (driver.odin).
-package godot_host
+package godot
 
 import "base:runtime"
 import "core:fmt"

@@ -5,34 +5,34 @@ package __GAME___extension
 import "base:runtime"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:view"
 
 import g "../__GAME__"
 
 PX_PER_M :: 64 // the views are in pixels
 
-GLUE := gh.Glue(g.State, g.Input, g.World) {
+GLUE := godot.Glue(g.State, g.Input, g.World) {
 	scenes = {{name = "player"}}, // res://game/views/player.tscn
 	scene_dir = "res://game/views",
 	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels
 	actions = {move = {"ui_left", "ui_right", "ui_up", "ui_down"}},
 	extract = extract,
-	poll_input = proc(actions: gh.Actions, player: int, tick: u32, state: ^g.State) -> g.Input {
+	poll_input = proc(actions: godot.Actions, player: int, tick: u32, state: ^g.State) -> g.Input {
 		return {dx = i8(clamp(actions.move.x, -1, 1) * 127), dy = i8(clamp(actions.move.y, -1, 1) * 127)}
 	},
 	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^g.State) -> g.Input {
 		return g.scripted_input(seed, player, tick)
 	},
-	hud = proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {},
+	hud = proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {},
 }
 
 // A dot per player, in pixels.
-extract :: proc(current, previous: ^g.State, world: ^g.World, out: ^gh.Frame) {
+extract :: proc(current, previous: ^g.State, world: ^g.World, out: ^godot.Frame) {
 	rot := view.quat_angle2d(0)
 	for player in 0 ..< g.PLAYERS {
 		if !current.joined[player] do continue
-		item := gh.Scene_Item {
+		item := godot.Scene_Item {
 			key    = view.Key(player + 1),
 			player = i8(player),
 			pos    = {current.pos[player].x * PX_PER_M, current.pos[player].y * PX_PER_M, 0},
@@ -43,7 +43,7 @@ extract :: proc(current, previous: ^g.State, world: ^g.World, out: ^gh.Frame) {
 			item.prev_pos = {previous.pos[player].x * PX_PER_M, previous.pos[player].y * PX_PER_M, 0}
 			item.prev_rot = rot
 		}
-		gh.push_scene(out, item)
+		godot.push_scene(out, item)
 	}
 }
 
@@ -54,6 +54,6 @@ __GAME___init :: proc "c" (
 	initialization: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gh.install(&g.GAME, GLUE)
-	return gh.entry(get_proc_address, library, initialization)
+	godot.install(&g.GAME, GLUE)
+	return godot.entry(get_proc_address, library, initialization)
 }

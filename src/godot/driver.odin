@@ -1,7 +1,7 @@
 // The session driver, generic over the game (its State, Input, World and PLAYERS): owns the netcode host or
 // client and runs it on its own thread; the netcode hooks publish Frames, events and status for the main
 // thread. `install` instantiates it for one game and fills the non-generic `api` the Godot classes call.
-package godot_host
+package godot
 
 import "base:runtime"
 import "core:fmt"

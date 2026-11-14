@@ -72,7 +72,7 @@ RULES := []Rule {
 	{pkg = "gdext"},
 	{pkg = "view"},
 	{pkg = "devui"},
-	{pkg = "godot_host"},
+	{pkg = "godot"},
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
 	{pkg = "lint", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.

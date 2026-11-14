@@ -9,7 +9,7 @@
 //          relay replaced ours), stall (the prediction cap held the sim back), desync (the relay's report; its
 //          detail goes to the dev UI's log)
 //   net    round trip, bandwidth in and out, relay silence (time since the relay's last message)
-package godot_host
+package godot
 
 import "core:time"
 import "unified:devui"

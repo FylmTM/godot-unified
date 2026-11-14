@@ -9,7 +9,7 @@ import "core:math"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:netcode"
 import "unified:physics"
 import "unified:sim"
@@ -24,9 +24,9 @@ drift_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gh.install(&dr.GAME, GLUE)
-	gh.set_transport(&EOS_TRANSPORT)
-	return gh.entry(gpa, lib, init)
+	godot.install(&dr.GAME, GLUE)
+	godot.set_transport(&EOS_TRANSPORT)
+	return godot.entry(gpa, lib, init)
 }
 
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
@@ -36,27 +36,27 @@ BUCKET :: "drift/4"
 #assert(netcode.PROTOCOL_VERSION == 9, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
-eos_init :: proc(events: ^gh.Transport_Events) -> bool {
-	if eos.init({product_name = "drift", product_version = gh.app_version}) do return true
+eos_init :: proc(events: ^godot.Transport_Events) -> bool {
+	if eos.init({product_name = "drift", product_version = godot.app_version}) do return true
 	events.fail(events.ctx, eos.status().detail)
 	return false
 }
 
-EOS_TRANSPORT := gh.Transport {
+EOS_TRANSPORT := godot.Transport {
 	name = "EOS",
-	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_host(BUCKET)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	open_join = proc(_: rawptr, code: string, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_join = proc(_: rawptr, code: string, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_join(BUCKET, code)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	pump = proc(_: rawptr, events: ^gh.Transport_Events) {
+	pump = proc(_: rawptr, events: ^godot.Transport_Events) {
 		result := eos.pump()
 		if result.code != "" do events.code(events.ctx, result.code)
 		if result.failed != "" do events.fail(events.ctx, result.failed)
@@ -104,7 +104,7 @@ BUTTON_BOOST :: 1
 // the mouse (relative to the local ship) or the right stick; zero keeps the heading.
 VEC_AIM :: 0
 
-GLUE := gh.Glue(dr.State, dr.Input, dr.World) {
+GLUE := godot.Glue(dr.State, dr.Input, dr.World) {
 	scenes = {{"ship", Ship_View}, {"station", Station_View}, {"gate", Gate_View}},
 	scene_dir = "res://game/views",
 	bulk_kinds = {"rock_0", "rock_1", "rock_2", "rock_3", "bullet", "gem"},
@@ -155,7 +155,7 @@ event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
 
 // ---- input (session thread, the one local player)
 
-poll_input :: proc(actions: gh.Actions, player: int, tick: u32, state: ^dr.State) -> dr.Input {
+poll_input :: proc(actions: godot.Actions, player: int, tick: u32, state: ^dr.State) -> dr.Input {
 	input := dr.Input {
 		move_x = quantize(actions.move.x), // get_vector(left, right, up, down): +y is down, the plane's +y
 		move_y = quantize(actions.move.y),
@@ -194,14 +194,14 @@ pixels :: proc(point: [2]f32, px_per_m: f32) -> [3]f32 {
 	return {point.x * px_per_m, point.y * px_per_m, 0}
 }
 
-extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) {
+extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^godot.Frame) {
 	px_per_m := world.px_per_m
 	tick := out.tick
 	for player in 0 ..< dr.PLAYERS {
 		ship := &current.ships[player]
 		if !ship.active do continue
 		pos, rotation := physics.pose_2d(world.phys, ship.body)
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key = view.Key(KEY_SHIP + player),
@@ -215,7 +215,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 	}
 	{
 		pos, rotation := physics.pose_2d(world.phys, current.station)
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key = KEY_STATION,
@@ -229,7 +229,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 		)
 	}
 	for gate in 0 ..< world.gate_count {
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key = view.Key(KEY_GATE + gate),
@@ -248,7 +248,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 		yaw := math.atan2(rotation.y, rotation.x)
 		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
 		flash := rock.hit_tick > 0 && tick >= rock.hit_tick ? max(0, 1 - f32(tick - rock.hit_tick) / 8) : 0
-		item := gh.Bulk_Item {
+		item := godot.Bulk_Item {
 			kind   = u8(BULK_ROCK + int(rock.variant)),
 			pos    = pixels(pos, px_per_m),
 			yaw    = yaw,
@@ -263,13 +263,13 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 		}
 		// a re-extract of the same tick keeps tick − 1's pose
 		if seen.tick != tick do seen^ = {tick, handle.generation, pos, yaw}
-		gh.push_bulk(out, item) or_break
+		godot.push_bulk(out, item) or_break
 	}
 	// bullets: stretched along their velocity, tinted with the owner's colour (the bulk view's colour index)
 	previous_bullets := previous != nil ? &previous.bullets : nil
 	bullets := sim.iterate(&current.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		item := gh.Bulk_Item {
+		item := godot.Bulk_Item {
 			kind   = BULK_BULLET,
 			pos    = pixels(bullet.pos, px_per_m),
 			yaw    = math.atan2(bullet.vel.y, bullet.vel.x),
@@ -281,7 +281,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 			item.prev_pos = pixels(before.pos, px_per_m)
 			item.prev_yaw = math.atan2(before.vel.y, before.vel.x)
 		}
-		gh.push_bulk(out, item) or_break
+		godot.push_bulk(out, item) or_break
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
 	previous_gems := previous != nil ? &previous.gems : nil
@@ -290,7 +290,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 		age := f32(tick - gem.spawn_tick) / dr.TICK_HZ
 		pulse := math.sin(age * 6) * 0.18
 		fade := clamp((f32(dr.GEM_LIFE_S) - age) / 2, 0, 1)
-		item := gh.Bulk_Item {
+		item := godot.Bulk_Item {
 			kind   = BULK_GEM,
 			pos    = pixels(gem.pos, px_per_m),
 			yaw    = age * 2,
@@ -303,7 +303,7 @@ extract :: proc(current, previous: ^dr.State, world: ^dr.World, out: ^gh.Frame) 
 			item.prev_pos = pixels(before.pos, px_per_m)
 			item.prev_yaw = f32(tick - 1 - before.spawn_tick) / dr.TICK_HZ * 2
 		}
-		gh.push_bulk(out, item) or_break
+		godot.push_bulk(out, item) or_break
 	}
 	(^Hud)(&out.hud[0])^ = hud_of(current, tick)
 }
@@ -332,7 +332,7 @@ Hud :: struct {
 	players:     [dr.PLAYERS]Hud_Player,
 }
 
-#assert(size_of(Hud) <= gh.HUD_BYTES)
+#assert(size_of(Hud) <= godot.HUD_BYTES)
 
 PHASE_NAMES := [dr.Phase]string {
 	.Lobby = "lobby",
@@ -368,7 +368,7 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (packed: Hud) {
 	return
 }
 
-hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
+hud :: proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
 	packed: Hud
 	if frame != nil do packed = (^Hud)(&frame.hud[0])^
 	gd.dict_set(dict, "phase", PHASE_NAMES[packed.phase])
@@ -391,7 +391,7 @@ hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
 			gd.dict_set(&entry, "present", info.active)
 			gd.dict_set(&entry, "shots", i64(info.shots))
 			gd.dict_set(&entry, "gems", i64(info.gems))
-			if name := gh.frame_player_name(frame, player); name != "" do gd.dict_set(&entry, "name", name)
+			if name := godot.frame_player_name(frame, player); name != "" do gd.dict_set(&entry, "name", name)
 			gd.array_push_move(&players, &entry)
 		}
 	}

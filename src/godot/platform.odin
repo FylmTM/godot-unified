@@ -14,7 +14,7 @@
 // - Windows: Sleep rounds up to the timer resolution (15.6 ms by default), so the session asks for 1 ms
 //   (timeBeginPeriod), and opts out of power throttling: Windows 11 ignores a minimised or occluded process's
 //   timer resolution request, and EcoQoS slows a background process's threads.
-package godot_host
+package godot
 
 import "base:intrinsics"
 import "core:c"

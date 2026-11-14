@@ -17,7 +17,7 @@
 //
 // Files: glue.odin (what a game provides, the Frame), driver.odin (the generic session driver), session.odin
 // (UnifiedSession), views.odin (scene and bulk views), input.odin (InputMap sampling), platform.odin.
-package godot_host
+package godot
 
 import "base:runtime"
 import "core:fmt"

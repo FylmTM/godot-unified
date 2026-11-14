@@ -8,7 +8,7 @@ import "base:runtime"
 import "core:math"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:sim"
 import "unified:view"
 
@@ -36,15 +36,15 @@ ANGLE_2D :: 0.5
 POS_3D :: [3]f32{1, 2, 3}
 YAW_3D :: 0.75
 
-GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World) {
 	scenes = {{name = "typed2d", data = Typed2D_Data}, {name = "plain2d"}, {name = "plain3d"}},
 	scene_dir = "res://views",
 	bulk_kinds = {"bulk2d", "bulk3d"},
 	smoothing = {tau_s = 0.1, teleport_dist = 64},
-	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^gh.Frame) {
+	extract = proc(current, previous: ^toy.State, world: ^toy.World, out: ^godot.Frame) {
 		q2 := view.quat_angle2d(ANGLE_2D)
 		q3 := view.quat_yaw(YAW_3D)
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{key = 1, kind = 0, player = 0, has_prev = true, pos = POS_2D, rot = q2, prev_pos = POS_2D, prev_rot = q2},
 			Typed2D_Data {
@@ -57,10 +57,10 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 				tint = {1, 0.5, 0.25, 1},
 			},
 		)
-		gh.push_scene(out, {key = 2, kind = 1, player = -1, entity = 7, pos = POS_2D + {10, 0, 0}, rot = q2})
-		gh.push_scene(out, {key = 3, kind = 2, player = -1, entity = 8, pos = POS_3D, rot = q3})
+		godot.push_scene(out, {key = 2, kind = 1, player = -1, entity = 7, pos = POS_2D + {10, 0, 0}, rot = q2})
+		godot.push_scene(out, {key = 3, kind = 2, player = -1, entity = 8, pos = POS_3D, rot = q3})
 		// prev_yaw a full turn away: the shorter arc is no turn at all, so the rotation is exact at any alpha
-		gh.push_bulk(
+		godot.push_bulk(
 			out,
 			{
 				kind = 0,
@@ -74,11 +74,11 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 				custom = {1, 2, 3, 4},
 			},
 		)
-		gh.push_bulk(out, {kind = 0, pos = {-5, 6, 0}}) // color zero: white; scale zero: 1
-		gh.push_bulk(out, {kind = 1, pos = POS_3D, yaw = YAW_3D, scale = {1, 2, 1}, color = {0, 1, 0, 1}})
+		godot.push_bulk(out, {kind = 0, pos = {-5, 6, 0}}) // color zero: white; scale zero: 1
+		godot.push_bulk(out, {kind = 1, pos = POS_3D, yaw = YAW_3D, scale = {1, 2, 1}, color = {0, 1, 0, 1}})
 		(^Hud)(&out.hud[0])^ = {current.bumps[0], current.bump_sum[0], current.marks[0], current.last_mark[0]}
 	},
-	hud = proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
+	hud = proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
 		hud: Hud
 		if frame != nil do hud = (^Hud)(&frame.hud[0])^
 		mark := &hud.mark
@@ -95,7 +95,7 @@ GLUE := gh.Glue(toy.State, toy.Input, toy.World) {
 	},
 	// the player drifts right and presses once at tick 5: one thing spawned (a `spawned` event with a handle, a
 	// position, the player and an enum), which expires a few dozen ticks later
-	poll_input = proc(actions: gh.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+	poll_input = proc(actions: godot.Actions, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 		return {dx = 2, buttons = u8(tick == 5)}
 	},
 	// the toy's {x, 0, y} (sim units) to the view's pixels: ×10 on the plane
@@ -119,6 +119,6 @@ views_test_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gh.install(&toy.GAME, GLUE)
-	return gh.entry(get_proc_address, library, init)
+	godot.install(&toy.GAME, GLUE)
+	return godot.entry(get_proc_address, library, init)
 }

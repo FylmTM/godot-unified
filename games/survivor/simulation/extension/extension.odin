@@ -10,7 +10,7 @@ import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:netcode"
 import "unified:physics"
 import "unified:sim"
@@ -26,9 +26,9 @@ survivor_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gh.install(&survivor.GAME, GLUE)
-	gh.set_transport(&EOS_TRANSPORT)
-	return gh.entry(gpa, lib, init)
+	godot.install(&survivor.GAME, GLUE)
+	godot.set_transport(&EOS_TRANSPORT)
+	return godot.entry(gpa, lib, init)
 }
 
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
@@ -39,27 +39,27 @@ SURVIVOR_BUCKET :: "survivor/7"
 #assert(netcode.PROTOCOL_VERSION == 9, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
-eos_init :: proc(events: ^gh.Transport_Events) -> bool {
-	if eos.init({product_name = "survivor", product_version = gh.app_version}) do return true
+eos_init :: proc(events: ^godot.Transport_Events) -> bool {
+	if eos.init({product_name = "survivor", product_version = godot.app_version}) do return true
 	events.fail(events.ctx, eos.status().detail)
 	return false
 }
 
-EOS_TRANSPORT := gh.Transport {
+EOS_TRANSPORT := godot.Transport {
 	name = "EOS",
-	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_host(SURVIVOR_BUCKET)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	open_join = proc(_: rawptr, code: string, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_join = proc(_: rawptr, code: string, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_join(SURVIVOR_BUCKET, code)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	pump = proc(_: rawptr, events: ^gh.Transport_Events) {
+	pump = proc(_: rawptr, events: ^godot.Transport_Events) {
 		result := eos.pump()
 		if result.code != "" do events.code(events.ctx, result.code)
 		if result.failed != "" do events.fail(events.ctx, result.failed)
@@ -83,7 +83,7 @@ BUTTON_DASH :: 0
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity` = item index + 1) the barrel's view (Scene_Item.entity); enemies and gems are bulk, so
 // their events (by handle) reach no view.
-GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
+GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World) {
 	scenes = {{"player", Player_View}, {name = "crate"}, {name = "barrel"}},
 	scene_dir = "res://game/views",
 	bulk_kinds = {"grunt", "runner", "brute", "projectile", "gem"},
@@ -102,7 +102,7 @@ GLUE := gh.Glue(survivor.State, survivor.Input, survivor.World) {
 
 // ---- input
 
-poll_input :: proc(actions: gh.Actions, player: int, tick: u32, state: ^survivor.State) -> (input: survivor.Input) {
+poll_input :: proc(actions: godot.Actions, player: int, tick: u32, state: ^survivor.State) -> (input: survivor.Input) {
 	input.move_x = i8(clamp(actions.move.x, -1, 1) * 127)
 	input.move_z = i8(clamp(actions.move.y, -1, 1) * 127) // Godot's get_vector: +y = move_back = +Z
 	if actions.held & (1 << BUTTON_DASH) != 0 do input.buttons |= survivor.BUTTON_DASH
@@ -121,11 +121,11 @@ Player_View :: struct {
 	hp: i32,
 }
 
-extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out: ^gh.Frame) {
+extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out: ^godot.Frame) {
 	for player in 0 ..< survivor.PLAYERS {
 		character := &current.players[player]
 		if !character.active do continue
-		item := gh.Scene_Item {
+		item := godot.Scene_Item {
 			key    = view.Key(PLAYER_KEY + player),
 			kind   = SCENE_PLAYER,
 			player = i8(player),
@@ -135,14 +135,14 @@ extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out:
 			item.has_prev = true
 			item.prev_pos = previous.players[player].pos
 		}
-		gh.push_scene(out, item, Player_View{hp = max(character.hp, 0)})
+		godot.push_scene(out, item, Player_View{hp = max(character.hp, 0)})
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &current.items[i]
 		if !item.alive do continue
 		body := physics.body_id(world.phys, item.body)
 		body_pos := b3.body_get_position(body)
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key    = view.Key(ITEM_KEY + i),
@@ -157,7 +157,7 @@ extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out:
 	// enemies (one bulk kind per Enemy_Kind)
 	enemies := sim.iterate(&current.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		bulk := gh.Bulk_Item {
+		bulk := godot.Bulk_Item {
 			kind   = u8(enemy.kind),
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
 			yaw    = enemy_yaw(enemy.vel),
@@ -169,11 +169,11 @@ extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out:
 			bulk.prev_pos = {before.pos.x, 0, before.pos.y}
 			bulk.prev_yaw = enemy_yaw(before.vel)
 		}
-		if !gh.push_bulk(out, bulk) do break
+		if !godot.push_bulk(out, bulk) do break
 	}
 	projectiles := sim.iterate(&current.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		bulk := gh.Bulk_Item {
+		bulk := godot.Bulk_Item {
 			kind = BULK_PROJECTILE,
 			pos  = {projectile.pos.x, 0, projectile.pos.z}, // bulk meshes are lifted in the game's shader
 			yaw  = math.atan2(projectile.vel.x, projectile.vel.z),
@@ -184,11 +184,11 @@ extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out:
 			bulk.prev_pos = {before.pos.x, 0, before.pos.z}
 			bulk.prev_yaw = math.atan2(before.vel.x, before.vel.z)
 		}
-		if !gh.push_bulk(out, bulk) do break
+		if !godot.push_bulk(out, bulk) do break
 	}
 	gems := sim.iterate(&current.gems)
 	for gem in sim.next(&gems) {
-		gh.push_bulk(
+		godot.push_bulk(
 			out,
 			{kind = BULK_GEM, pos = {gem.pos.x, 0, gem.pos.y}, custom = {0, age_s(out.tick, gem.spawn_tick), 0, 0}},
 		) or_break
@@ -196,7 +196,7 @@ extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out:
 	(^Hud)(&out.hud[0])^ = hud_of(current, out.tick)
 }
 
-#assert(size_of(Hud) <= gh.HUD_BYTES)
+#assert(size_of(Hud) <= godot.HUD_BYTES)
 
 HIT_FLASH_S :: 0.15
 
@@ -216,7 +216,7 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 
 // ---- HUD (contract v0): hud_of (hud.odin) on the session thread, a Dictionary on the main thread
 
-hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
+hud :: proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
 	if frame == nil { 	// no session yet: every key, empty
 		gd.dict_set(dict, "phase", "lobby")
 		gd.dict_set(dict, "tick", 0)
@@ -252,7 +252,7 @@ hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
 		gd.dict_set(&info, "level", i64(player.level))
 		gd.dict_set(&info, "pending_levelups", i64(player.pending_levelups))
 		gd.dict_set(&info, "respawn_s", f64(player.respawn_s))
-		if name := gh.frame_player_name(frame, player.player); name != "" do gd.dict_set(&info, "name", name)
+		if name := godot.frame_player_name(frame, player.player); name != "" do gd.dict_set(&info, "name", name)
 		gd.array_push_move(&players, &info)
 	}
 	gd.dict_set_move(dict, "players", &players)

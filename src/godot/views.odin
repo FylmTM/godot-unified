@@ -3,7 +3,7 @@
 // scenes may use the typed SimView / SimView2D / SimBulkView / SimBulkView2D roots or plain Node3D / Node2D /
 // MultiMeshInstance3D / MultiMeshInstance2D nodes with script properties (kind, entity, player): the host talks
 // to both through Object.set/call. A scene root's class (Node3D or Node2D) picks the 3D or 2D mapping.
-package godot_host
+package godot
 
 import "base:runtime"
 import "core:fmt"

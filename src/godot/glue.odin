@@ -1,4 +1,4 @@
-package godot_host
+package godot
 
 import gd "unified:gdext"
 import "unified:netcode"

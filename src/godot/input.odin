@@ -1,7 +1,7 @@
 // Input: the main thread samples the game's InputMap actions every frame into atomics; the session thread
 // takes them when the netcode asks for the local player's input. Button presses accumulate until taken, so a
 // tap shorter than a tick is never lost.
-package godot_host
+package godot
 
 import "core:sync"
 import gd "unified:gdext"

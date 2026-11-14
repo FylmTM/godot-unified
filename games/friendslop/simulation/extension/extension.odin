@@ -10,7 +10,7 @@ import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import gh "unified:godot_host"
+import "unified:godot"
 import "unified:netcode"
 import "unified:physics"
 import "unified:sim"
@@ -25,9 +25,9 @@ friendslop_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gh.install(&fs.GAME, GLUE)
-	gh.set_transport(&EOS_TRANSPORT)
-	return gh.entry(gpa, lib, init)
+	godot.install(&fs.GAME, GLUE)
+	godot.set_transport(&EOS_TRANSPORT)
+	return godot.entry(gpa, lib, init)
 }
 
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
@@ -37,27 +37,27 @@ BUCKET :: "friendslop/5"
 #assert(netcode.PROTOCOL_VERSION == 9, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
-eos_init :: proc(events: ^gh.Transport_Events) -> bool {
+eos_init :: proc(events: ^godot.Transport_Events) -> bool {
 	if eos.init({product_name = "friendslop", product_version = "0.1"}) do return true
 	events.fail(events.ctx, eos.status().detail)
 	return false
 }
 
-EOS_TRANSPORT := gh.Transport {
+EOS_TRANSPORT := godot.Transport {
 	name = "EOS",
-	open_host = proc(_: rawptr, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_host(BUCKET)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	open_join = proc(_: rawptr, code: string, events: ^gh.Transport_Events) -> (netcode.Link, bool) {
+	open_join = proc(_: rawptr, code: string, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
 		link, ok := eos.open_join(BUCKET, code)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	pump = proc(_: rawptr, events: ^gh.Transport_Events) {
+	pump = proc(_: rawptr, events: ^godot.Transport_Events) {
 		result := eos.pump()
 		if result.code != "" do events.code(events.ctx, result.code)
 		if result.failed != "" do events.fail(events.ctx, result.failed)
@@ -83,7 +83,7 @@ BUTTON_THROW :: 2
 VECTOR_LOOK :: 0
 VECTOR_RIGHT :: 1
 
-GLUE := gh.Glue(fs.State, fs.Input, fs.World) {
+GLUE := godot.Glue(fs.State, fs.Input, fs.World) {
 	scenes = {{"player", Player_View}, {name = "marker"}},
 	scene_dir = "res://game/views",
 	actions = {move = {"move_left", "move_right", "move_forward", "move_back"}, buttons = {"jump", "grab", "throw"}},
@@ -116,7 +116,7 @@ event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
 
 // ---- input (session thread): move relative to the camera, aim = the camera's look
 
-poll_input :: proc(actions: gh.Actions, player: int, tick: u32, state: ^fs.State) -> fs.Input {
+poll_input :: proc(actions: godot.Actions, player: int, tick: u32, state: ^fs.State) -> fs.Input {
 	look := actions.vectors[VECTOR_LOOK]
 	right := actions.vectors[VECTOR_RIGHT]
 	if look == {} do look = {0, 0, -1}
@@ -171,11 +171,11 @@ Player_View :: struct {
 	charge:  f32, // throw charge 0..1
 }
 
-extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^gh.Frame) {
+extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^godot.Frame) {
 	for player in 0 ..< fs.PLAYERS {
 		character := &current.players[player]
 		if !character.active do continue
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key = view.Key(PLAYER_KEY + player),
@@ -191,11 +191,11 @@ extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^gh.Frame) 
 			},
 		)
 	}
-	add_body :: proc(out: ^gh.Frame, world: ^fs.World, body: physics.Body_Ref, marker: int) {
+	add_body :: proc(out: ^godot.Frame, world: ^fs.World, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
 		id := physics.body_id(world.phys, body)
 		pos := b3.body_get_position(id)
-		gh.push_scene(
+		godot.push_scene(
 			out,
 			{
 				key = view.Key(MARKER_KEY + marker),
@@ -207,8 +207,8 @@ extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^gh.Frame) 
 			},
 		)
 	}
-	add_static :: proc(out: ^gh.Frame, pos: [3]f32, rot: [4]f32, marker: int) {
-		gh.push_scene(
+	add_static :: proc(out: ^godot.Frame, pos: [3]f32, rot: [4]f32, marker: int) {
+		godot.push_scene(
 			out,
 			{
 				key = view.Key(MARKER_KEY + marker),
@@ -231,11 +231,11 @@ extract :: proc(current, previous: ^fs.State, world: ^fs.World, out: ^gh.Frame) 
 	(^fs.Hud)(&out.hud[0])^ = fs.hud(current, out.tick)
 }
 
-#assert(size_of(fs.Hud) <= gh.HUD_BYTES)
+#assert(size_of(fs.Hud) <= godot.HUD_BYTES)
 
 // ---- HUD (main thread)
 
-hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
+hud :: proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
 	state: fs.Hud
 	if frame != nil do state = (^fs.Hud)(&frame.hud[0])^
 	gd.dict_set(dict, "phase", fs.PHASE_NAMES[state.phase])
@@ -258,7 +258,7 @@ hud :: proc(frame: ^gh.Frame, dict: ^gd.Dictionary) {
 			gd.dict_set(&entry, "stunned", hud_player.stunned)
 			gd.dict_set(&entry, "fallen", hud_player.fallen)
 			gd.dict_set(&entry, "charge", f64(hud_player.charge))
-			if name := gh.frame_player_name(frame, player); name != "" do gd.dict_set(&entry, "name", name)
+			if name := godot.frame_player_name(frame, player); name != "" do gd.dict_set(&entry, "name", name)
 			gd.array_push_move(&players, &entry)
 		}
 	}
