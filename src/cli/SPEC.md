@@ -30,17 +30,25 @@ licence keeps it out of the repo and CI, so a machine that plays online download
   .out/               everything generated, git-ignored, safe to delete
     cli/              the CLI binaries (uni-<hash>-<odin commit>), `current`, their manifests (`<binary>.inputs`),
                       `odin-on-path` (the shims' stamp: the pinned commit and the odin on PATH that reported it)
-    godot/<version>/  the pinned Godot editor (export templates stay in Godot's user directory)
     odinfmt/          odinfmt built from the pinned OLS commit
     <mode>/           the headless binaries (dev, release, debug), each with a build manifest
-    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection)
+    unified-box3d/    Box3D: the pinned release's library, headers and Odin bindings (the `box3d` collection),
+                      unpacked from the cached zip (each project has its own: ols.json names it)
     timings.json      each command line's last time against its budget
 
-<per-user cache>/unified/odin/<tag>/   the pinned Odin release the shims downloaded, shared by every checkout
-                      (%LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere; `clean` leaves it)
+<per-user cache>/unified/   pinned downloads shared by every checkout, a directory or file per version and SHA-256
+                      (%LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere; `uni help` and `setup` say
+                      where; `clean` leaves it, `clean --cache` removes godot/ and downloads/)
+  odin/<tag>/         the pinned Odin release the shims downloaded
+  godot/<version>-<sha256>/   the pinned Godot editor: one download per machine, one path for the OS to remember
+                      (Windows Firewall); export templates stay in Godot's user directory
+  downloads/          unified-box3d-<tag>-<platform>-<sha256>.zip, the pinned release each project unpacks
 ```
 
-Box3D lives in the project's `.out/unified-box3d/` (each project downloads its own); the EOS SDK stays where
+A download into the cache goes to a part file of the process's own, then is renamed into place: checkouts fetching
+the same pin at once each finish, and the first rename wins.
+
+Box3D lives in the project's `.out/unified-box3d/` (each project unpacks its own from the cached zip); the EOS SDK stays where
 `UNIFIED_EOS_SDK` points (its library is loaded at run time, never linked). Every Odin build gets two collections:
 `unified` (`src/`) and `box3d` (unified-box3d, imported as `box3d:bindings`). A game is a directory with
 `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take `[game]`, optional
@@ -102,7 +110,7 @@ Public (`unified:cli`, every project):
 | Command | What |
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
-| `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
+| `clean [--check] [--cache]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env`, the per-user cache (`--cache`: its Godot and unified-box3d downloads too, never the shims' Odin) or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
@@ -204,13 +212,13 @@ Odin files are formatted after the name is put in (it changes line lengths).
 - **Downloads:** `curl` (HTTPS, retries, byte ranges: only the needed members of the 1.3 GB templates archive),
   SHA-256 in Odin, our own zip reader and writer (`core:compress`: stored and deflated members, Zip64 sizes, Unix
   modes and symlinks), written to a temp path and renamed into place.
-- **Godot:** the pinned editor in `.out/godot/<version>/`; `UNIFIED_GODOT` may name a local install that reports the
+- **Godot:** the pinned editor in the per-user cache (`godot/<version>-<sha256>/`), shared by every checkout; `UNIFIED_GODOT` may name a local install that reports the
   exact pinned version (anything else is refused; the check is remembered per file). Export templates (`release`
   only) go where Godot looks for them, its user directory (`export_templates/<version>.stable`), checked against
   their pinned hashes.
 - **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library (static Odin-in-Odin linking clashes) with
   upstream's C API, headers and Odin bindings. By default this platform's zip of the pinned release (`[box3d]`: repo,
-  tag, a SHA-256 per platform), checked and unpacked with its top folder flattened into `.out/unified-box3d/`
+  tag, a SHA-256 per platform), checked, kept in the per-user cache and unpacked with its top folder flattened into `.out/unified-box3d/`
   (a stamp of the pin makes the warm check free). `UNIFIED_BOX3D` may name a local unified-box3d checkout instead:
   the `box3d` collection points there, and `setup` runs its `b3 build` and `b3 build --debug` (other commands only
   build a missing library). Programs link `lib/<platform>/` (`--mode debug`: `-define:BOX3D_LIB_DEBUG=true` and

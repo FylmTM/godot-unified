@@ -23,8 +23,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	cli.make_dirs(work)
 	clone := cli.join(work, "unified")
 	game := cli.join(work, "selftest_game")
-	// The game repo uses this checkout's Godot: the pinned version either way, without a second download.
-	env := cli.env_with(cli.tprint("UNIFIED_GODOT=%s", cli.godot()))
+	env := cli.env_with() // the game repo finds the pinned Godot in the per-user cache, as every checkout does
 	shim :: proc(dir: string, args: ..string) -> []string {
 		cmd: [dynamic]string
 		when ODIN_OS == .Windows {

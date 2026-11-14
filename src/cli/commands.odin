@@ -18,8 +18,8 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "clean",
-				usage = "[--check]",
-				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings)",
+				usage = "[--check] [--cache]",
+				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
 				budget = 5,
 				run = cmd_clean,
 			},
