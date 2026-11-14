@@ -7,7 +7,7 @@ import "unified:cli"
 
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped with only Odin (its shim builds its CLI), then `init` a game outside it with the clone as its
-// submodule (checking the commands and links its files name), then build it and run every test suite in that game
+// submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it and run every test suite in that game
 // repo. Only when called (before tooling PRs, after
 // a pin or toolchain change); never by `verify`. It tests the committed HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
@@ -22,6 +22,9 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	work := cli.join(cli.state.project.out, "selftest")
 	cli.remove_tree(work)
 	cli.make_dirs(work)
+	head := strings.trim_space(
+		cli.run_proc({cmd = cli.strs("git", "-C", root, "rev-parse", "HEAD"), capture = true, quiet = true}).stdout,
+	)
 	clone := cli.join(work, "unified")
 	game := cli.join(work, "selftest_game")
 	// The game repo uses this checkout's Godot: the pinned version either way, without a second download.
@@ -40,14 +43,14 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		what:  string,
 		cmd:   []string,
 		dir:   string,
-		check: proc(game: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
+		check: proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
 	}
 	steps := []Step {
 		{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone)},
 		{what = "bootstrap (the shim builds the CLI with only Odin)", cmd = shim(clone, "version"), dir = clone},
 		{
 			what = "init a game outside the repo",
-			cmd = shim(clone, "init", game, "--unified", clone),
+			cmd = shim(clone, "init", game, "--unified", clone, "--ref", head),
 			dir = work,
 			check = check_init,
 		},
@@ -72,7 +75,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			}
 		}
 		if s.check != nil {
-			if problem := s.check(game); problem != "" {
+			if problem := s.check(game, head); problem != "" {
 				return {
 					ok = false,
 					summary = cli.tprint("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
@@ -84,9 +87,15 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	return {ok = true, summary = cli.tprint("selftest passed in %.0fs (%s)", cli.seconds_since(start), cli.rel(work))}
 }
 
-// What `init` wrote: the commands and links a new game repo's files name are the current ones (the shims are
-// `uni` and `uni.cmd`, the repo is godot-unified).
-check_init :: proc(game: string) -> string {
+// What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files
+// name are the current ones (the shims are `uni` and `uni.cmd`, the repo is godot-unified).
+check_init :: proc(game, head: string) -> string {
+	pinned := cli.run_proc(
+		{cmd = cli.strs("git", "-C", game, "ls-files", "--stage", "unified"), capture = true, quiet = true},
+	)
+	if !strings.contains(pinned.stdout, head) {
+		return cli.tprint("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
+	}
 	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
 	for file in cli.find_files(game, "") {
 		in_repo := file[len(game) + 1:]

@@ -6,11 +6,13 @@ import "core:strings"
 // `init <dir>`: a new game repo. The template (template/, every file a .tmpl with __GAME__ for the game's name, the
 // directory's) is a complete small game, each player moving a dot: its sim, headless binary, extension, Godot
 // scenes and tests. Plus the shims, tools/ (the game's CLI), .gitignore, and unified as a git submodule at unified/.
+// The template and the shims come from the submodule, so they always match the library they build against.
 @(private)
 cmd_init :: proc(args: []string) -> Result {
 	Opts :: struct {
 		dir:     string `args:"pos=0,required" usage:"the new game repo; its name is the game's"`,
-		unified: string `usage:"where to clone unified from (default: this checkout's origin)"`,
+		unified: string `usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
+		ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
 	}
 	opts: Opts
 	parse(&opts, args)
@@ -39,7 +41,7 @@ cmd_init :: proc(args: []string) -> Result {
 				quiet = true,
 			},
 		)
-		source = strings.trim_space(result.stdout)
+		source = public_url(strings.trim_space(result.stdout))
 		if source == "" {
 			usage("this checkout has no origin: pass --unified <url or path>")
 		}
@@ -65,7 +67,39 @@ cmd_init :: proc(args: []string) -> Result {
 		},
 		tprint("adding %s as the unified submodule", source),
 	)
-	template := join(state.project.unified, "src", "cli", "template")
+	submodule := join(dir, "unified")
+	if opts.ref != "" {
+		// a commit, tag or branch, also one the default branch doesn't reach
+		must_run(
+			{
+				cmd = strs(
+					git(),
+					"-C",
+					submodule,
+					"-c",
+					"protocol.file.allow=always",
+					"fetch",
+					"-q",
+					"origin",
+					opts.ref,
+				),
+				capture = true,
+			},
+			tprint("fetching %s from %s", opts.ref, source),
+		)
+		must_run(
+			{cmd = strs(git(), "-C", submodule, "checkout", "-q", "--detach", "FETCH_HEAD"), capture = true},
+			tprint("checking out %s", opts.ref),
+		)
+		must_run({cmd = strs(git(), "-C", dir, "add", "unified")}, "staging the pinned submodule")
+	}
+	pinned := strings.trim_space(
+		must_run({cmd = strs(git(), "-C", submodule, "rev-parse", "HEAD"), capture = true, quiet = true}, "git rev-parse").stdout,
+	)
+	template := join(submodule, "src", "cli", "template")
+	if !os.is_directory(template) {
+		fatal("unified at %s has no src/cli/template: too old for this CLI's init", pinned)
+	}
 	count := 0
 	for file in find_files(template, ".tmpl") {
 		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
@@ -84,20 +118,38 @@ cmd_init :: proc(args: []string) -> Result {
 	append(&generated, ..find_files(join(dir, "tools"), ".odin"))
 	fmt_files(ensure_odinfmt(), generated[:], false)
 	for shim in ([]string{"uni", "uni.cmd"}) {
-		copy_file(join(dir, shim), join(state.project.unified, shim))
+		copy_file(join(dir, shim), join(submodule, shim))
 	}
 	os.change_mode(join(dir, "uni"), os.perm_number(0o755))
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok = true,
 		summary = tprint(
-			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && %s run",
+			"init: %s, a new game repo (%d files from the template; unified at unified/: %s at %s); next: cd %s && %s run",
 			name,
 			count,
+			source,
+			pinned[:min(len(pinned), 12)],
 			opts.dir,
 			shim,
 		),
 	}
+}
+
+// A GitHub SSH URL as HTTPS, which anyone (and any CI) can clone without keys: unified is public. Other URLs and
+// local paths stay as they are.
+public_url :: proc(url: string) -> string {
+	path: string
+	switch {
+	case strings.has_prefix(url, "git@github.com:"):
+		path = url[len("git@github.com:"):]
+	case strings.has_prefix(url, "ssh://git@github.com/"):
+		path = url[len("ssh://git@github.com/"):]
+	case:
+		return url
+	}
+	path = strings.trim_suffix(strings.trim_right(path, "/"), ".git")
+	return tprint("https://github.com/%s.git", path)
 }
 
 valid_game_name :: proc(name: string) -> bool {

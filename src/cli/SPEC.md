@@ -113,7 +113,7 @@ Public (`unified:cli`, every project):
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |
-| `init <dir> [--unified <url>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, the submodule |
+| `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, the submodule (below) |
 | `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
@@ -183,6 +183,12 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   of a sparse 65,536-slot table against a dense one, reported in `.out/bench.json` (`table`) without a target.
 
 ## The template game
+
+`init` adds unified as a git submodule at `unified/`, from `--unified` or this checkout's `origin`, a GitHub SSH
+URL rewritten to HTTPS (unified is public: anyone and any CI clones it without keys). It pins the source's default
+branch at its current commit (`main`, which CI proves), or `--ref` (a commit, tag or branch, fetched by name); a
+pushed commit, never a local one, so the game repo clones anywhere. Then it writes the template and the shims from
+that submodule, never from this checkout, so they always match the library they build against.
 
 `init` writes `template/`: every file a `.tmpl` with `__GAME__` for the game's name (the directory's: lowercase
 letters, digits and `_`). It is a complete small game, each player moving a dot: its sim package, headless binary

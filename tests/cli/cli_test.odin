@@ -144,6 +144,19 @@ small_parsers :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.join("a/", "b", "", "c"), "a/b/c")
 }
 
+// `init`'s default submodule URL: a GitHub SSH origin becomes HTTPS (no keys needed); anything else stays.
+@(test)
+init_public_url :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	HTTPS :: "https://github.com/FylmTM/godot-unified.git"
+	testing.expect_value(t, cli.public_url("git@github.com:FylmTM/godot-unified.git"), HTTPS)
+	testing.expect_value(t, cli.public_url("git@github.com:FylmTM/godot-unified"), HTTPS)
+	testing.expect_value(t, cli.public_url("ssh://git@github.com/FylmTM/godot-unified.git"), HTTPS)
+	testing.expect_value(t, cli.public_url(HTTPS), HTTPS)
+	testing.expect_value(t, cli.public_url("git@gitlab.com:someone/unified.git"), "git@gitlab.com:someone/unified.git")
+	testing.expect_value(t, cli.public_url("C:/work/unified"), "C:/work/unified")
+}
+
 // The test runner's output (-define:ODIN_TEST_LOG_STATE_CHANGES=true) as the test watchdog reads it.
 @(test)
 test_watch_follows_the_runner :: proc(t: ^testing.T) {

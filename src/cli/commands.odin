@@ -101,8 +101,8 @@ public_commands :: proc() -> []Command {
 			},
 			{
 				name = "init",
-				usage = "<dir>",
-				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, the unified submodule",
+				usage = "<dir> [--unified <url>] [--ref <ref>]",
+				summary = "a new game repo: the template game, shims, tools/main.odin, .gitignore, the unified submodule (pinned to main's commit, or --ref)",
 				no_budget = "clones unified",
 				run = cmd_init,
 			},
