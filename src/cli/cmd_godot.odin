@@ -17,9 +17,9 @@ SESSION_TICKS_LONG :: 256
 
 // Each game under headless Godot (SPEC.md, Test suites); several games run in parallel.
 suite_godot :: proc(games: []Game, only: []string) -> bool {
-	for o in only {
-		if !slice.contains(GODOT_STEPS, o) {
-			usage("no godot step %q (%s)", o, strings.join(GODOT_STEPS, ", "))
+	for step_name in only {
+		if !slice.contains(GODOT_STEPS, step_name) {
+			usage("no godot step %q (%s)", step_name, strings.join(GODOT_STEPS, ", "))
 		}
 	}
 	if len(games) > 1 {
@@ -29,45 +29,45 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 		return len(only) == 0 || slice.contains(only, step)
 	}
 	ok := true
-	for g in games {
-		skip :: proc(g: Game, step, why: string) {
-			log("uni: %s %s: skipped: %s", g.name, step, why)
+	for game in games {
+		skip :: proc(game: Game, step, why: string) {
+			log("uni: %s %s: skipped: %s", game.name, step, why)
 		}
-		pass :: proc(g: Game, step: string, passed: bool, secs: f64) -> bool {
-			log("uni: %s %s: %s (%.1fs)", g.name, step, passed ? "ok" : "FAILED", secs)
+		pass :: proc(game: Game, step: string, passed: bool, secs: f64) -> bool {
+			log("uni: %s %s: %s (%.1fs)", game.name, step, passed ? "ok" : "FAILED", secs)
 			return passed
 		}
-		if has_extension(g) {
-			ensure_extension(g, .dev)
+		if has_extension(game) {
+			ensure_extension(game, .dev)
 		}
 		if want(only, "import") {
 			start := time.tick_now()
-			ensure_imported(g.dir)
-			pass(g, "import", true, seconds_since(start))
+			ensure_imported(game.dir)
+			pass(game, "import", true, seconds_since(start))
 		}
 		if want(only, "editor") {
-			if has_extension(g) {
+			if has_extension(game) {
 				start := time.tick_now()
-				ok = pass(g, "editor", editor_check(g), seconds_since(start)) && ok
+				ok = pass(game, "editor", editor_check(game), seconds_since(start)) && ok
 			} else {
-				skip(g, "editor", "no extension")
+				skip(game, "editor", "no extension")
 			}
 		}
 		if want(only, "session") {
-			if has_extension(g) && os.is_directory(join(g.dir, "simulation", "headless")) {
+			if has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless")) {
 				start := time.tick_now()
 				ticks := state.long ? SESSION_TICKS_LONG : SESSION_TICKS
-				ok = pass(g, "session", session_vs_offline(g, ticks, 1), seconds_since(start)) && ok
+				ok = pass(game, "session", session_vs_offline(game, ticks, 1), seconds_since(start)) && ok
 			} else {
-				skip(g, "session", "no extension or no headless binary")
+				skip(game, "session", "no extension or no headless binary")
 			}
 		}
 		if want(only, "bake") {
-			if os.is_directory(join(g.dir, "game", "levels")) {
-				r := bake(g, check = true)
-				ok = pass(g, "bake", r.ok, r.seconds) && ok
+			if os.is_directory(join(game.dir, "game", "levels")) {
+				result := bake(game, check = true)
+				ok = pass(game, "bake", result.ok, result.seconds) && ok
 			} else {
-				skip(g, "bake", "no game/levels")
+				skip(game, "bake", "no game/levels")
 			}
 		}
 		Script_Step :: struct {
@@ -75,21 +75,29 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			args:         []string,
 			timeout:      f64,
 		}
-		for s in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
-			if !want(only, s.step) {
+		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
+			if !want(only, script_step.step) {
 				continue
 			}
-			script := tool_script(g, s.script)
+			script := tool_script(game, script_step.script)
 			if script == "" {
-				skip(g, s.step, tprint("no %s tool script", s.script))
+				skip(game, script_step.step, tprint("no %s tool script", script_step.script))
 				continue
 			}
-			if s.step == "tour" && !has_extension(g) {
-				skip(g, s.step, "the tour needs the game's extension")
+			if script_step.step == "tour" && !has_extension(game) {
+				skip(game, script_step.step, "the tour needs the game's extension")
 				continue
 			}
-			r := run_tool({dir = g.dir, script = script, args = s.args, timeout = s.timeout, quiet = true})
-			ok = pass(g, s.step, r.ok, r.seconds) && ok
+			result := run_tool(
+				{
+					dir = game.dir,
+					script = script,
+					args = script_step.args,
+					timeout = script_step.timeout,
+					quiet = true,
+				},
+			)
+			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
 	}
 	return ok
@@ -102,8 +110,8 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 	godot()
 	ensure_bindings()
-	for g in games {
-		if game_uses_box3d(g) {
+	for game in games {
+		if game_uses_box3d(game) {
 			ensure_box3d()
 			break
 		}
@@ -111,9 +119,9 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 	exe, _ := os.get_executable_path(context.allocator)
 	env := env_with(tprint("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))
-	for g, i in games {
+	for game, i in games {
 		cmd: [dynamic]string
-		append(&cmd, exe, "test", g.name, "--suite", "godot", "--json")
+		append(&cmd, exe, "test", game.name, "--suite", "godot", "--json")
 		if len(only) > 0 {
 			append(&cmd, "--only", strings.join(only, ","))
 		}
@@ -131,21 +139,21 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 	}
 	log("uni: godot: %d games in parallel", len(games))
 	ok := true
-	for r, i in run_all(runs) {
-		if text := strings.trim_right_space(r.stderr); text != "" {
+	for result, i in run_all(runs) {
+		if text := strings.trim_right_space(result.stderr); text != "" {
 			log("%s", text)
 		}
-		if res, found := last_json_object(r.stdout); found {
-			if list, is_list := res["cold"].(json.Array); is_list {
-				for c in list {
-					if what, is_str := c.(json.String); is_str {
+		if report, found := last_json_object(result.stdout); found {
+			if list, is_list := report["cold"].(json.Array); is_list {
+				for item in list {
+					if what, is_str := item.(json.String); is_str {
 						cold(string(what))
 					}
 				}
 			}
 		}
-		if !r.ok {
-			log("uni: %s: the godot suite FAILED%s", games[i].name, r.timed_out ? " (timed out)" : "")
+		if !result.ok {
+			log("uni: %s: the godot suite FAILED%s", games[i].name, result.timed_out ? " (timed out)" : "")
 			ok = false
 		}
 	}
@@ -154,31 +162,31 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 
 // The headless editor loads the game's extension, with no error lines.
 @(private)
-editor_check :: proc(g: Game) -> bool {
-	write_extension_list(g)
-	r := run_godot({"--headless", "--editor", "--path", g.dir, "--quit-after", "60"}, 120)
-	out := strings.concatenate({r.stdout, r.stderr})
+editor_check :: proc(game: Game) -> bool {
+	write_extension_list(game)
+	result := run_godot({"--headless", "--editor", "--path", game.dir, "--quit-after", "60"}, 120)
+	out := strings.concatenate({result.stdout, result.stderr})
 	errs := godot_errors(out)
 	loaded := strings.contains(out, "unified: extension initialized (editor)")
-	for e in errs {
-		log("uni: %s editor: %s", g.name, e)
+	for line in errs {
+		log("uni: %s editor: %s", game.name, line)
 	}
 	if !loaded {
-		log("uni: %s editor: the extension did not load", g.name)
+		log("uni: %s editor: the extension did not load", game.name)
 	}
-	return r.ok && len(errs) == 0 && loaded
+	return result.ok && len(errs) == 0 && loaded
 }
 
 // A headless Godot session (one player, scripted input) for `ticks`: it must end cleanly, and its checksums must equal
 // the offline headless binary's for the same seed and inputs.
 @(private)
-session_vs_offline :: proc(g: Game, ticks, seed: int) -> bool {
-	ensure_imported(g.dir)
-	r := run_godot(
+session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
+	ensure_imported(game.dir)
+	result := run_godot(
 		{
 			"--headless",
 			"--path",
-			g.dir,
+			game.dir,
 			"--",
 			"--autostart",
 			"--scripted",
@@ -190,32 +198,38 @@ session_vs_offline :: proc(g: Game, ticks, seed: int) -> bool {
 		},
 		f64(ticks) / 64 + 30,
 	)
-	errs := godot_errors(strings.concatenate({r.stdout, r.stderr}))
-	res := last_json_after(r.stdout, "unified: result ")
-	obj, has := res.(json.Object)
+	errs := godot_errors(strings.concatenate({result.stdout, result.stderr}))
+	report := last_json_after(result.stdout, "unified: result ")
+	obj, has := report.(json.Object)
 	if !has {
-		log("%s", tail(strings.concatenate({r.stdout, r.stderr}), 4000))
-		log("uni: %s session: no result line", g.name)
+		log("%s", tail(strings.concatenate({result.stdout, result.stderr}), 4000))
+		log("uni: %s session: no result line", game.name)
 		return false
 	}
-	ok := r.ok && len(errs) == 0 && json_int(obj["final_tick"]) == ticks
-	for e in errs {
-		log("uni: %s session: %s", g.name, e)
+	ok := result.ok && len(errs) == 0 && json_int(obj["final_tick"]) == ticks
+	for line in errs {
+		log("uni: %s session: %s", game.name, line)
 	}
 	mine := checksums(obj["checksums"])
-	ref := offline_checksums(g, ticks, seed)
+	ref := offline_checksums(game, ticks, seed)
 	compared := 0
-	for t, c in ref {
-		if m, found := mine[t]; found {
+	for tick, expected in ref {
+		if actual, found := mine[tick]; found {
 			compared += 1
-			if m != c {
-				log("uni: %s session: checksum at tick %d is %s, the offline binary's %s", g.name, t, m, c)
+			if actual != expected {
+				log(
+					"uni: %s session: checksum at tick %d is %s, the offline binary's %s",
+					game.name,
+					tick,
+					actual,
+					expected,
+				)
 				ok = false
 			}
 		}
 	}
 	if compared == 0 {
-		log("uni: %s session: no checksum to compare with the offline binary", g.name)
+		log("uni: %s session: no checksum to compare with the offline binary", game.name)
 		ok = false
 	}
 	return ok
@@ -224,20 +238,20 @@ session_vs_offline :: proc(g: Game, ticks, seed: int) -> bool {
 // The checksums the offline headless binary reports for one scripted player (`sim --game <name>`: the variant the
 // game itself runs), as {tick: checksum}.
 @(private)
-offline_checksums :: proc(g: Game, ticks, seed: int) -> map[int]string {
-	h := Headless{g.name, join(g.dir, "simulation", "headless"), game_uses_box3d(g)}
-	b := headless_build(h, .release)
-	if h.box3d {
+offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
+	headless := Headless{game.name, join(game.dir, "simulation", "headless"), game_uses_box3d(game)}
+	build := headless_build(headless, .release)
+	if headless.box3d {
 		ensure_box3d()
-		stage_box3d(os.dir(b.out))
+		stage_box3d(os.dir(build.out))
 	}
-	if stale(b) {
-		odin_build(b, tprint("building %s's headless binary", g.name))
+	if stale(build) {
+		odin_build(build, tprint("building %s's headless binary", game.name))
 	}
-	r := run_proc(
+	result := run_proc(
 		{
 			cmd = strs(
-				b.out,
+				build.out,
 				"sim",
 				"--ticks",
 				tprint("%d", ticks),
@@ -246,44 +260,47 @@ offline_checksums :: proc(g: Game, ticks, seed: int) -> map[int]string {
 				"--seed",
 				tprint("%d", seed),
 				"--game",
-				g.name,
+				game.name,
 			),
 			capture = true,
 			quiet = true,
 			timeout = 120 * time.Second,
 		},
 	)
-	lines := strings.split_lines(r.stdout)
+	lines := strings.split_lines(result.stdout)
 	#reverse for line in lines {
-		l := strings.trim_space(line)
-		if !strings.has_prefix(l, "{") {
+		trimmed := strings.trim_space(line)
+		if !strings.has_prefix(trimmed, "{") {
 			continue
 		}
-		v, err := json.parse_string(l)
+		value, err := json.parse_string(trimmed)
 		if err != nil {
 			continue
 		}
-		if obj, ok := v.(json.Object); ok {
-			if cs := checksums(obj["checksums"]); len(cs) > 0 {
-				return cs
+		if obj, ok := value.(json.Object); ok {
+			if found_sums := checksums(obj["checksums"]); len(found_sums) > 0 {
+				return found_sums
 			}
-			if fc, has := obj["final_checksum"]; has {
+			if final_sum, has := obj["final_checksum"]; has {
 				out := make(map[int]string)
-				out[ticks] = json_string(fc)
+				out[ticks] = json_string(final_sum)
 				return out
 			}
 		}
 	}
-	log("uni: the offline binary printed no checksums:\n%s", tail(strings.concatenate({r.stdout, r.stderr}), 2000))
+	log(
+		"uni: the offline binary printed no checksums:\n%s",
+		tail(strings.concatenate({result.stdout, result.stderr}), 2000),
+	)
 	return nil
 }
 
 // [[tick, checksum], ...] -> {tick: checksum}
-checksums :: proc(v: json.Value) -> map[int]string {
+checksums :: proc(value: json.Value) -> map[int]string {
 	out := make(map[int]string)
-	if arr, ok := v.(json.Array); ok {
-		for e in arr {
-			if pair, isp := e.(json.Array); isp && len(pair) == 2 {
+	if array, ok := value.(json.Array); ok {
+		for entry in array {
+			if pair, isp := entry.(json.Array); isp && len(pair) == 2 {
 				out[json_int(pair[0])] = json_string(pair[1])
 			}
 		}
@@ -291,24 +308,24 @@ checksums :: proc(v: json.Value) -> map[int]string {
 	return out
 }
 
-json_int :: proc(v: json.Value) -> int {
-	#partial switch x in v {
+json_int :: proc(value: json.Value) -> int {
+	#partial switch number in value {
 	case json.Integer:
-		return int(x)
+		return int(number)
 	case json.Float:
-		return int(x)
+		return int(number)
 	}
 	return -1
 }
 
-json_string :: proc(v: json.Value) -> string {
-	#partial switch x in v {
+json_string :: proc(value: json.Value) -> string {
+	#partial switch inner in value {
 	case json.String:
-		return x
+		return inner
 	case json.Integer:
-		return tprint("%d", x)
+		return tprint("%d", inner)
 	case json.Float:
-		return tprint("%v", x)
+		return tprint("%v", inner)
 	}
 	return ""
 }
@@ -318,8 +335,8 @@ last_json_after :: proc(text, prefix: string) -> json.Value {
 	lines := strings.split_lines(text)
 	#reverse for line in lines {
 		if strings.has_prefix(line, prefix) {
-			v, err := json.parse_string(strings.trim_space(line[len(prefix):]))
-			return err == nil ? v : nil
+			value, err := json.parse_string(strings.trim_space(line[len(prefix):]))
+			return err == nil ? value : nil
 		}
 	}
 	return nil
@@ -355,17 +372,17 @@ cmd_editor :: proc(args: []string) -> Result {
 }
 
 @(private)
-play :: proc(g: Game, editor: bool, extra: []string, place: Window_Opts) -> Result {
-	if has_extension(g) {
-		ensure_extension(g, .dev)
+play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> Result {
+	if has_extension(game) {
+		ensure_extension(game, .dev)
 	}
-	write_extension_list(g)
-	cleanup := with_window(g.dir, place)
-	defer cleanup(g.dir)
+	write_extension_list(game)
+	cleanup := with_window(game.dir, place)
+	defer cleanup(game.dir)
 	cmd: [dynamic]string
 	append(&cmd, godot())
 	append(&cmd, ..window_args(place))
-	append(&cmd, "--path", g.dir)
+	append(&cmd, "--path", game.dir)
 	if editor {
 		append(&cmd, "--editor")
 	}
@@ -373,8 +390,8 @@ play :: proc(g: Game, editor: bool, extra: []string, place: Window_Opts) -> Resu
 		append(&cmd, "--")
 		append(&cmd, ..extra)
 	}
-	r := run_proc({cmd = cmd[:], interactive = true})
-	return {ok = r.ok, summary = tprint("%s exited with %d", editor ? "the editor" : g.name, r.exit_code)}
+	result := run_proc({cmd = cmd[:], interactive = true})
+	return {ok = result.ok, summary = tprint("%s exited with %d", editor ? "the editor" : game.name, result.exit_code)}
 }
 
 // --- tool -------------------------------------------------------------------------------------------------------
@@ -392,27 +409,27 @@ cmd_tool :: proc(args: []string) -> Result {
 	opts: Opts
 	// [game] <script> [-- args]: positionals before --, the script's arguments after it.
 	split := len(args)
-	for a, i in args {
-		if a == "--" {
+	for arg, i in args {
+		if arg == "--" {
 			split = i
 			break
 		}
 	}
 	parse(&opts, args[:split])
 	pos := opts.overflow[:]
-	g: Game
+	selected: Game
 	name: string
 	switch len(pos) {
 	case 1:
-		g, name = game(""), pos[0]
+		selected, name = game(""), pos[0]
 	case 2:
-		g, name = game(pos[0]), pos[1]
+		selected, name = game(pos[0]), pos[1]
 	case:
 		usage("name the script: uni tool [game] <script>")
 	}
-	script := tool_script(g, name)
+	script := tool_script(selected, name)
 	if script == "" {
-		usage("%s has no tool script %s (game/tools/ or games/shared/tools/)", g.name, name)
+		usage("%s has no tool script %s (game/tools/ or games/shared/tools/)", selected.name, name)
 	}
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
@@ -420,16 +437,16 @@ cmd_tool :: proc(args: []string) -> Result {
 	if (opts.mute || opts.screen != "") && !opts.window {
 		usage("--mute and --screen need --window")
 	}
-	if has_extension(g) {
-		ensure_extension(g, .dev)
+	if has_extension(selected) {
+		ensure_extension(selected, .dev)
 	}
-	ensure_imported(g.dir)
+	ensure_imported(selected.dir)
 	if opts.cold {
-		clear_shader_cache(g)
+		clear_shader_cache(selected)
 	}
-	r := run_tool(
+	result := run_tool(
 		{
-			dir = g.dir,
+			dir = selected.dir,
 			script = script,
 			args = split < len(args) ? args[split + 1:] : nil,
 			window = opts.window,
@@ -439,23 +456,23 @@ cmd_tool :: proc(args: []string) -> Result {
 		},
 	)
 	return {
-		ok = r.ok,
-		summary = tprint("%s %s: %s in %.1fs", g.name, name, r.ok ? "ok" : "FAILED", r.seconds),
-		data = box(r.result),
+		ok = result.ok,
+		summary = tprint("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds),
+		data = box(result.result),
 	}
 }
 
 // Deletes the project's compiled-shader caches, so the next run compiles like a player's first launch: the editor's
 // in .godot/ and the one in its Godot user directory (runs read both).
 @(private)
-clear_shader_cache :: proc(g: Game) {
-	remove_tree(join(g.dir, ".godot", "shader_cache"))
-	c, _ := config_load(join(g.dir, "project.godot"))
-	name, ok := config_get(c, "application", "config/name")
+clear_shader_cache :: proc(game: Game) {
+	remove_tree(join(game.dir, ".godot", "shader_cache"))
+	config, _ := config_load(join(game.dir, "project.godot"))
+	name, ok := config_get(config, "application", "config/name")
 	if ok {
 		dir := join(godot_user_dir(), "app_userdata", name, "shader_cache")
 		remove_tree(dir)
-		log("uni: cleared the shader caches of %s", g.name)
+		log("uni: cleared the shader caches of %s", game.name)
 	}
 }
 
@@ -495,16 +512,16 @@ cmd_coop :: proc(args: []string) -> Result {
 	if (opts.mute || opts.screen != "") && !opts.window {
 		usage("--mute and --screen need --window")
 	}
-	g := game(opts.game)
-	script := tool_script(g, "coop")
+	selected := game(opts.game)
+	script := tool_script(selected, "coop")
 	if script == "" {
-		usage("%s has no coop tool script", g.name)
+		usage("%s has no coop tool script", selected.name)
 	}
-	if !has_extension(g) {
-		usage("%s has no extension", g.name)
+	if !has_extension(selected) {
+		usage("%s has no extension", selected.name)
 	}
-	ensure_extension(g, .dev)
-	ensure_imported(g.dir)
+	ensure_extension(selected, .dev)
+	ensure_imported(selected.dir)
 	extra: [dynamic]string
 	if opts.rejoin {
 		append(&extra, "--rejoin")
@@ -515,13 +532,13 @@ cmd_coop :: proc(args: []string) -> Result {
 	if opts.lan {
 		append(&extra, "--lan")
 	}
-	code := join(g.dir, ".out", "coop_code.txt")
+	code := join(selected.dir, ".out", "coop_code.txt")
 	os.remove(code)
 	join_args: [dynamic]string
 	append(&join_args, "--role=join", "--code-file=res://.out/coop_code.txt")
 	append(&join_args, ..extra[:])
 	joiner_run := Tool_Run {
-		dir     = g.dir,
+		dir     = selected.dir,
 		script  = script,
 		args    = join_args[:],
 		timeout = 210,
@@ -533,18 +550,18 @@ cmd_coop :: proc(args: []string) -> Result {
 			capture = true,
 			timeout = 210 * time.Second,
 			env = joiner_run.env,
-			log_to = join(g.dir, ".out", "coop_join"),
+			log_to = join(selected.dir, ".out", "coop_join"),
 		},
 	)
 	host_args: [dynamic]string
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
 	if opts.crash {
-		return coop_crash(g, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen, true})
+		return coop_crash(selected, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen, true})
 	}
 	host := run_tool(
 		{
-			dir = g.dir,
+			dir = selected.dir,
 			script = script,
 			args = host_args[:],
 			window = opts.window,
@@ -553,13 +570,18 @@ cmd_coop :: proc(args: []string) -> Result {
 			timeout = 180,
 		},
 	)
-	jr := wait(&joiner)
+	joiner_result := wait(&joiner)
 	log("uni: the joiner:")
-	join := judge_tool(jr, true)
+	join := judge_tool(joiner_result, true)
 	ok := host.ok && join.ok
 	return {
 		ok = ok,
-		summary = tprint("coop %s: host %s, joiner %s", g.name, host.ok ? "ok" : "FAILED", join.ok ? "ok" : "FAILED"),
+		summary = tprint(
+			"coop %s: host %s, joiner %s",
+			selected.name,
+			host.ok ? "ok" : "FAILED",
+			join.ok ? "ok" : "FAILED",
+		),
 	}
 }
 
@@ -574,62 +596,65 @@ cmd_bake :: proc(args: []string) -> Result {
 	opts: Opts
 	parse(&opts, args)
 	ok := true
-	n := 0
-	for g in games_or_all(opts.game) {
-		if !os.is_directory(join(g.dir, "game", "levels")) {
+	count := 0
+	for game in games_or_all(opts.game) {
+		if !os.is_directory(join(game.dir, "game", "levels")) {
 			if opts.game != "" {
-				usage("%s has no game/levels", g.name)
+				usage("%s has no game/levels", game.name)
 			}
 			continue
 		}
-		r := bake(g, opts.check)
-		ok = ok && r.ok
-		n += 1
+		result := bake(game, opts.check)
+		ok = ok && result.ok
+		count += 1
 	}
-	return {ok = ok, summary = tprint("bake%s: %d game(s) %s", opts.check ? " --check" : "", n, ok ? "ok" : "FAILED")}
+	return {
+		ok = ok,
+		summary = tprint("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
+	}
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
 // level scenes (src/level/SPEC.md).
-bake :: proc(g: Game, check: bool) -> Tool_Result {
-	ensure_imported(g.dir)
+bake :: proc(game: Game, check: bool) -> Tool_Result {
+	ensure_imported(game.dir)
 	copy_file(
-		join(g.dir, ".out", "tools", "level_export.gd"),
+		join(game.dir, ".out", "tools", "level_export.gd"),
 		join(state.project.unified, "src", "level", "godot", "level_export.gd"),
 	)
-	r := run_tool(
+	result := run_tool(
 		{
-			dir = g.dir,
+			dir = game.dir,
 			script = "res://.out/tools/level_export.gd",
 			args = check ? strs("--check") : nil,
 			timeout = 60,
 			quiet = true,
 		},
 	)
-	if obj, ok := r.result.(json.Object); ok {
+	if obj, ok := result.result.(json.Object); ok {
 		if levels, isa := obj["levels"].(json.Array); isa {
-			for lv in levels {
-				if l, iso := lv.(json.Object); iso {
-					changed, _ := l["changed"].(json.Boolean)
+			for level_value in levels {
+				if level, iso := level_value.(json.Object); iso {
+					changed, _ := level["changed"].(json.Boolean)
 					log(
 						"uni: %s -> %s (%d bytes%s)",
-						json_string(l["scene"]),
-						json_string(l["level"]),
-						json_int(l["bytes"]),
+						json_string(level["scene"]),
+						json_string(level["level"]),
+						json_int(level["bytes"]),
 						changed ? ", changed" : "",
 					)
 				}
 			}
 		}
 	}
-	return r
+	return result
 }
 
 // `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
 // same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
 @(private)
 coop_crash :: proc(
-	g: Game,
+	game: Game,
 	script: string,
 	joiner: ^Proc,
 	host_args: []string,
@@ -637,21 +662,21 @@ coop_crash :: proc(
 	place: Window_Opts,
 ) -> Result {
 	host_run := Tool_Run {
-		dir    = g.dir,
+		dir    = game.dir,
 		script = script,
 		args   = host_args,
 		window = window,
 		shots  = window ? "coop" : "",
 		place  = place,
 	}
-	cleanup := window ? with_window(g.dir, place) : no_cleanup
-	defer cleanup(g.dir)
+	cleanup := window ? with_window(game.dir, place) : no_cleanup
+	defer cleanup(game.dir)
 	host := start(
 		{
 			cmd = tool_cmd(host_run),
 			capture = true,
 			timeout = 300 * time.Second,
-			log_to = join(g.dir, ".out", "coop_host"),
+			log_to = join(game.dir, ".out", "coop_host"),
 		},
 	)
 	first := wait(joiner)
@@ -660,7 +685,7 @@ coop_crash :: proc(
 	for line in strings.split_lines(out) do if strings.contains(line, " ok ") || strings.contains(line, "FAIL") do log("%s", line)
 	crashed := strings.contains(out, "crashing (the process kills itself")
 	second_run := Tool_Run {
-		dir    = g.dir,
+		dir    = game.dir,
 		script = script,
 		args   = {"--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash"},
 		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
@@ -671,22 +696,22 @@ coop_crash :: proc(
 			capture = true,
 			timeout = 240 * time.Second,
 			env = second_run.env,
-			log_to = join(g.dir, ".out", "coop_rejoin"),
+			log_to = join(game.dir, ".out", "coop_rejoin"),
 		},
 	)
 	log("uni: the host:")
-	h := judge_tool(wait(&host), true)
+	host_result := judge_tool(wait(&host), true)
 	log("uni: the same player again:")
-	j := judge_tool(wait(&second), true)
-	ok := crashed && h.ok && j.ok
+	rejoin_result := judge_tool(wait(&second), true)
+	ok := crashed && host_result.ok && rejoin_result.ok
 	return {
 		ok = ok,
 		summary = tprint(
 			"coop %s --crash: host %s, first joiner %s, the same player again %s",
-			g.name,
-			h.ok ? "ok" : "FAILED",
+			game.name,
+			host_result.ok ? "ok" : "FAILED",
 			crashed ? "crashed as planned" : "DID NOT CRASH",
-			j.ok ? "ok" : "FAILED",
+			rejoin_result.ok ? "ok" : "FAILED",
 		),
 	}
 }

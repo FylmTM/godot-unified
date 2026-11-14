@@ -11,7 +11,7 @@ import "unified:cli"
 @(test)
 config_sections_keys_quotes_comments :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
-	c := cli.config_parse(
+	config := cli.config_parse(
 		`; a comment
 top = "level"
 [odin]
@@ -21,16 +21,16 @@ commit = 9a6991685
 version.txt = "abc"
 `,
 	)
-	v, ok := cli.config_get(c, "odin", "tag")
+	value, ok := cli.config_get(config, "odin", "tag")
 	testing.expect(t, ok)
-	testing.expect_value(t, v, "dev-2026-11a")
-	v, ok = cli.config_get(c, "odin", "commit")
-	testing.expect_value(t, v, "9a6991685")
-	v, ok = cli.config_get(c, "", "top")
-	testing.expect_value(t, v, "level")
-	v, ok = cli.config_get(c, "godot_templates", "version.txt")
-	testing.expect_value(t, v, "abc")
-	_, ok = cli.config_get(c, "odin", "missing")
+	testing.expect_value(t, value, "dev-2026-11a")
+	value, ok = cli.config_get(config, "odin", "commit")
+	testing.expect_value(t, value, "9a6991685")
+	value, ok = cli.config_get(config, "", "top")
+	testing.expect_value(t, value, "level")
+	value, ok = cli.config_get(config, "godot_templates", "version.txt")
+	testing.expect_value(t, value, "abc")
+	_, ok = cli.config_get(config, "odin", "missing")
 	testing.expect(t, !ok)
 }
 
@@ -53,44 +53,44 @@ env_takes_unified_keys_only :: proc(t: ^testing.T) {
 @(test)
 zip_round_trip :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
-	dir, derr := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
-	testing.expect(t, derr == nil)
+	dir, temp_err := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
 	defer os.remove_all(dir)
 	big := make([]byte, 200_000)
-	for &b, i in big {
-		b = byte(i * 7 % 251)
+	for &element, i in big {
+		element = byte(i * 7 % 251)
 	}
-	w: cli.Zip_Writer
-	cli.zip_add(&w, "VERSION", transmute([]byte)string("1.2.3\n"))
-	cli.zip_add(&w, "SDK/Bin/lib.so", big, 0o755)
+	writer: cli.Zip_Writer
+	cli.zip_add(&writer, "VERSION", transmute([]byte)string("1.2.3\n"))
+	cli.zip_add(&writer, "SDK/Bin/lib.so", big, 0o755)
 	path := cli.join(dir, "a.zip")
-	testing.expect(t, cli.write_file(path, cli.zip_finish(&w)))
-	z := cli.zip_open_file(path)
-	entries := cli.zip_entries(&z)
+	testing.expect(t, cli.write_file(path, cli.zip_finish(&writer)))
+	reader := cli.zip_open_file(path)
+	entries := cli.zip_entries(&reader)
 	testing.expect_value(t, len(entries), 2)
 	testing.expect_value(t, entries[1].name, "SDK/Bin/lib.so")
 	testing.expect_value(t, entries[1].mode & 0o777, 0o755)
-	testing.expect_value(t, string(cli.zip_read(&z, entries[0])), "1.2.3\n")
-	got := cli.zip_read(&z, entries[1])
+	testing.expect_value(t, string(cli.zip_read(&reader, entries[0])), "1.2.3\n")
+	got := cli.zip_read(&reader, entries[1])
 	testing.expect_value(t, len(got), len(big))
 	testing.expect(t, string(got) == string(big))
 	// Writing the same files again gives the same bytes (fixed timestamps): the packed SDK's hashes are pinned.
-	w2: cli.Zip_Writer
-	cli.zip_add(&w2, "VERSION", transmute([]byte)string("1.2.3\n"))
-	cli.zip_add(&w2, "SDK/Bin/lib.so", big, 0o755)
-	again := cli.zip_finish(&w2)
+	second_writer: cli.Zip_Writer
+	cli.zip_add(&second_writer, "VERSION", transmute([]byte)string("1.2.3\n"))
+	cli.zip_add(&second_writer, "SDK/Bin/lib.so", big, 0o755)
+	again := cli.zip_finish(&second_writer)
 	first, _ := os.read_entire_file(path, context.allocator)
 	testing.expect(t, string(again) == string(first))
 	// A release zip of one top folder unpacks flattened (the unified-box3d release).
-	w3: cli.Zip_Writer
-	cli.zip_add(&w3, "pkg-1.0/", nil)
-	cli.zip_add(&w3, "pkg-1.0/lib/x/lib.so", big, 0o755)
-	cli.zip_add(&w3, "pkg-1.0/README.md", transmute([]byte)string("hi\n"))
+	flat_writer: cli.Zip_Writer
+	cli.zip_add(&flat_writer, "pkg-1.0/", nil)
+	cli.zip_add(&flat_writer, "pkg-1.0/lib/x/lib.so", big, 0o755)
+	cli.zip_add(&flat_writer, "pkg-1.0/README.md", transmute([]byte)string("hi\n"))
 	top := cli.join(dir, "top.zip")
-	testing.expect(t, cli.write_file(top, cli.zip_finish(&w3)))
-	z3 := cli.zip_open_file(top)
+	testing.expect(t, cli.write_file(top, cli.zip_finish(&flat_writer)))
+	flat_reader := cli.zip_open_file(top)
 	flat := cli.join(dir, "flat")
-	cli.zip_extract_all(&z3, flat, strip_top = true)
+	cli.zip_extract_all(&flat_reader, flat, strip_top = true)
 	readme, _ := os.read_entire_file(cli.join(flat, "README.md"), context.allocator)
 	testing.expect_value(t, string(readme), "hi\n")
 	lib, _ := os.read_entire_file(cli.join(flat, "lib", "x", "lib.so"), context.allocator)
@@ -106,17 +106,17 @@ manifest_notices_changes :: proc(t: ^testing.T) {
 	pkg := cli.join(dir, "pkg")
 	src := cli.join(pkg, "a.odin")
 	testing.expect(t, cli.write_file(src, transmute([]byte)string("package a\n")))
-	m := cli.join(dir, "out", "out.manifest") // apart from the sources, like .out/ (writing it changes its directory)
-	cli.write_manifest(m, "key-1", {src}, "")
-	entries, key, ok := cli.read_manifest(m)
+	manifest_path := cli.join(dir, "out", "out.manifest") // apart from the sources, like .out/ (writing it changes its directory)
+	cli.write_manifest(manifest_path, "key-1", {src}, "")
+	entries, key, ok := cli.read_manifest(manifest_path)
 	testing.expect(t, ok)
 	testing.expect_value(t, key, "key-1")
 	testing.expect(t, cli.entries_current(entries), "nothing changed")
 	time.sleep(20 * time.Millisecond) // a new modification time
 	testing.expect(t, cli.write_file(src, transmute([]byte)string("package a // edited\n")))
 	testing.expect(t, !cli.entries_current(entries), "an edited source is noticed")
-	cli.write_manifest(m, "key-1", {src}, "")
-	entries, _, _ = cli.read_manifest(m)
+	cli.write_manifest(manifest_path, "key-1", {src}, "")
+	entries, _, _ = cli.read_manifest(manifest_path)
 	time.sleep(20 * time.Millisecond)
 	testing.expect(t, cli.write_file(cli.join(pkg, "b.odin"), transmute([]byte)string("package a\n")))
 	testing.expect(t, !cli.entries_current(entries), "a new file in a source directory is noticed")
@@ -148,7 +148,7 @@ small_parsers :: proc(t: ^testing.T) {
 @(test)
 test_watch_follows_the_runner :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
-	w: cli.Test_Watch
+	watch: cli.Test_Watch
 	lines := []string {
 		"[INFO ] --- [2026-11-14 10:44:53] Test #0 test_b3.crashes changed state to Running.\n",
 		"[INFO ] --- [2026-11-14 10:44:53] Test #1 test_b3.waits changed state to Running.\r\n",
@@ -158,14 +158,14 @@ test_watch_follows_the_runner :: proc(t: ^testing.T) {
 		"[INFO ] --- [2026-11-14 10:44:53] [x.odin:1:p()] a test's own line: Test #9 a.b changed state to Running.\n",
 	}
 	echoed := 0
-	for l in lines {
-		if !cli.test_watch_line(&w, l) {
+	for line in lines {
+		if !cli.test_watch_line(&watch, line) {
 			echoed += 1
 		}
 	}
 	testing.expect_value(t, echoed, 2) // the crash and the test's own line
-	testing.expect_value(t, len(w.crashed), 1)
-	testing.expect_value(t, w.crashed[0], "test_b3.crashes")
-	testing.expect_value(t, len(w.running), 1)
-	testing.expect_value(t, w.running[0], "test_b3.waits")
+	testing.expect_value(t, len(watch.crashed), 1)
+	testing.expect_value(t, watch.crashed[0], "test_b3.crashes")
+	testing.expect_value(t, len(watch.running), 1)
+	testing.expect_value(t, watch.running[0], "test_b3.waits")
 }

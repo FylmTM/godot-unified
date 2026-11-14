@@ -13,14 +13,14 @@ ensure_bindings :: proc(force := false) {
 	append(&inputs, ..find_files(join(gdext, "api"), ".json"))
 	append(&inputs, join(gdext, "bindings.txt"))
 	append(&inputs, ..find_files(join(gdext, "gen"), ".odin"))
-	b := strings.builder_make()
-	for f in inputs {
-		strings.write_string(&b, rel(f))
-		strings.write_byte(&b, 0)
-		strings.write_string(&b, sha256_hex(transmute([]byte)must_read(f)))
-		strings.write_byte(&b, '\n')
+	builder := strings.builder_make()
+	for file in inputs {
+		strings.write_string(&builder, rel(file))
+		strings.write_byte(&builder, 0)
+		strings.write_string(&builder, sha256_hex(transmute([]byte)must_read(file)))
+		strings.write_byte(&builder, '\n')
 	}
-	key := sha256_hex(transmute([]byte)strings.to_string(b))
+	key := sha256_hex(transmute([]byte)strings.to_string(builder))
 	out := join(state.project.out, "gen")
 	stamp := join(out, "gdext.stamp")
 	outputs := []string{join(gdext, "api.gen.odin"), join(gdext, "gdi", "gdi.gen.odin")}
@@ -43,35 +43,35 @@ ensure_bindings :: proc(force := false) {
 // --- a game's GDExtension -----------------------------------------------------------------------------------------
 
 // The game's library: <game>/.out/bin/lib<game>.dylib (.so, .dll), where its .gdextension points.
-extension_lib :: proc(g: Game) -> string {
-	return join(g.dir, ".out", "bin", lib_name(g.name))
+extension_lib :: proc(game: Game) -> string {
+	return join(game.dir, ".out", "bin", lib_name(game.name))
 }
 
-extension_build :: proc(g: Game, m: Mode) -> Build {
+extension_build :: proc(game: Game, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
-	append(&flags, ..mode_flags(m))
-	append(&flags, ..box3d_defines(m, game_uses_box3d(g)))
-	append(&flags, ..eos_defines(g))
-	return {pkg = join(g.dir, "simulation", "extension"), out = extension_lib(g), flags = flags[:]}
+	append(&flags, ..mode_flags(mode))
+	append(&flags, ..box3d_defines(mode, game_uses_box3d(game)))
+	append(&flags, ..eos_defines(game))
+	return {pkg = join(game.dir, "simulation", "extension"), out = extension_lib(game), flags = flags[:]}
 }
 
-has_extension :: proc(g: Game) -> bool {
-	return os.is_directory(join(g.dir, "simulation", "extension"))
+has_extension :: proc(game: Game) -> bool {
+	return os.is_directory(join(game.dir, "simulation", "extension"))
 }
 
 // Builds the game's extension when stale (always with `force`). The build tag
 // (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale. The
 // Box3D library goes next to it (the .gdextension's [dependencies] ship it from there): the debug build for --mode
 // debug.
-ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
-	if !has_extension(g) {
-		fatal("%s has no simulation/extension to build", g.name)
+ensure_extension :: proc(game: Game, mode: Mode, force := false) -> string {
+	if !has_extension(game) {
+		fatal("%s has no simulation/extension to build", game.name)
 	}
-	if game_uses_box3d(g) {
+	if game_uses_box3d(game) {
 		ensure_box3d()
-		stage_box3d(os.dir(extension_lib(g)), debug = m == .debug)
-		for ext in gdextensions(g.dir) {
+		stage_box3d(os.dir(extension_lib(game)), debug = mode == .debug)
+		for ext in gdextensions(game.dir) {
 			if text, _ := read_text(ext); !strings.contains(text, tprint("res://.out/bin/%s", lib_name("box3d"))) {
 				log(
 					"uni: warning: %s's [dependencies] don't list %s: an export won't load",
@@ -82,41 +82,41 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 		}
 	}
 	ensure_bindings()
-	stage_eos(g)
-	b := extension_build(g, m)
-	if !force && !stale(b) {
-		write_extension_list(g)
-		return b.out
+	stage_eos(game)
+	build := extension_build(game, mode)
+	if !force && !stale(build) {
+		write_extension_list(game)
+		return build.out
 	}
 	start := time.tick_now()
-	lib := b.out
+	lib := build.out
 	make_dirs(os.dir(lib))
 	// macOS dev builds get a new file each time and lib<game>.dylib becomes a symlink to it: dyld never unloads an
 	// image with thread-locals (Odin's runtime has some), so the editor would keep running the old code.
-	versioned := ODIN_OS == .Darwin && m != .release
+	versioned := ODIN_OS == .Darwin && mode != .release
 	now := time.now()
 	stamp := timestamp(now)
 	tmp :=
-		versioned ? join(os.dir(lib), tprint("lib%s-%s.dylib", g.name, stamp)) : tprint("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
-	built := b
+		versioned ? join(os.dir(lib), tprint("lib%s-%s.dylib", game.name, stamp)) : tprint("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
+	built := build
 	built.out = tmp
 	flags: [dynamic]string
-	append(&flags, ..b.flags)
-	append(&flags, tprint("-define:UNIFIED_BUILD_TAG=%v-%s", m, stamp[:15]))
+	append(&flags, ..build.flags)
+	append(&flags, tprint("-define:UNIFIED_BUILD_TAG=%v-%s", mode, stamp[:15]))
 	built.flags = flags[:]
-	secs := odin_build(built, tprint("building %s's extension", g.name), tprint("%s.inputs", lib))
+	secs := odin_build(built, tprint("building %s's extension", game.name), tprint("%s.inputs", lib))
 	// The manifest's key is the build without the tag (see above).
 	if entries, _, ok := read_manifest(tprint("%s.inputs", lib)); ok {
 		files: [dynamic]string
 		odin_path := ""
-		for e in entries {
-			if e.kind == "file" {
-				append(&files, e.path)
-			} else if e.kind == "odin" {
-				odin_path = e.path
+		for entry in entries {
+			if entry.kind == "file" {
+				append(&files, entry.path)
+			} else if entry.kind == "odin" {
+				odin_path = entry.path
 			}
 		}
-		write_manifest(tprint("%s.inputs", lib), build_key(b), files[:], odin_path)
+		write_manifest(tprint("%s.inputs", lib), build_key(build), files[:], odin_path)
 	}
 	if versioned {
 		link := tprint("%s.new", lib)
@@ -125,14 +125,14 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
 			fatal("cannot point %s at %s", lib, os.base(tmp))
 		}
-		prune_versions(g)
+		prune_versions(game)
 	} else {
 		os.remove(lib)
 		when ODIN_OS == .Windows {
 			// A running game (or editor) holds the library: it can't be removed, but it can be renamed. The game keeps
 			// running on the old file; the next start gets the new one. Old ones go once nothing holds them.
 			infos, _ := os.read_all_directory_by_path(os.dir(lib), context.temp_allocator)
-			for fi in infos do if strings.contains(fi.name, ".old-") do os.remove(fi.fullpath)
+			for info in infos do if strings.contains(info.name, ".old-") do os.remove(info.fullpath)
 			if os.exists(lib) do os.rename(lib, tprint("%s.old-%s", lib, stamp))
 		}
 		if os.rename(tmp, lib) != nil {
@@ -151,39 +151,39 @@ ensure_extension :: proc(g: Game, m: Mode, force := false) -> string {
 			}
 		}
 	}
-	write_extension_list(g)
-	log("uni: %s extension (%v) -> %s in %.2fs (odin %.2fs)", g.name, m, rel(lib), seconds_since(start), secs)
+	write_extension_list(game)
+	log("uni: %s extension (%v) -> %s in %.2fs (odin %.2fs)", game.name, mode, rel(lib), seconds_since(start), secs)
 	return lib
 }
 
 // Keeps the newest four versioned builds: a running editor may still have older ones mapped.
 @(private)
-prune_versions :: proc(g: Game) {
-	dir := join(g.dir, ".out", "bin")
+prune_versions :: proc(game: Game) {
+	dir := join(game.dir, ".out", "bin")
 	infos, _ := os.read_all_directory_by_path(dir, context.allocator)
-	prefix := tprint("lib%s-", g.name)
+	prefix := tprint("lib%s-", game.name)
 	builds: [dynamic]os.File_Info
-	for fi in infos {
-		if strings.has_prefix(fi.name, prefix) && strings.has_suffix(fi.name, ".dylib") && fi.type == .Regular {
-			append(&builds, fi)
+	for info in infos {
+		if strings.has_prefix(info.name, prefix) && strings.has_suffix(info.name, ".dylib") && info.type == .Regular {
+			append(&builds, info)
 		}
 	}
 	// newest first, by time: the names' stamps are labels, not the order
-	slice.sort_by(builds[:], proc(a, b: os.File_Info) -> bool {
-		return time.diff(a.modification_time, b.modification_time) < 0
+	slice.sort_by(builds[:], proc(first, second: os.File_Info) -> bool {
+		return time.diff(first.modification_time, second.modification_time) < 0
 	})
-	for fi in builds[min(4, len(builds)):] {
-		os.remove(fi.fullpath)
-		remove_tree(tprint("%s.dSYM", fi.fullpath))
+	for info in builds[min(4, len(builds)):] {
+		os.remove(info.fullpath)
+		remove_tree(tprint("%s.dSYM", info.fullpath))
 	}
 }
 
 // 20261111-142309-858: sortable, unique per millisecond.
-timestamp :: proc(t: time.Time) -> string {
-	y, mo, d := time.date(t)
-	h, mi, s := time.clock(t)
-	ms := (time.to_unix_nanoseconds(t) / 1_000_000) % 1000
-	return tprint("%04d%02d%02d-%02d%02d%02d-%03d", y, int(mo), d, h, mi, s, ms)
+timestamp :: proc(moment: time.Time) -> string {
+	year, month, day := time.date(moment)
+	hour, minute, second := time.clock(moment)
+	millis := (time.to_unix_nanoseconds(moment) / 1_000_000) % 1000
+	return tprint("%04d%02d%02d-%02d%02d%02d-%03d", year, int(month), day, hour, minute, second, millis)
 }
 
 // --- Godot's extension list ---------------------------------------------------------------------------------------
@@ -204,32 +204,32 @@ when ODIN_OS == .Windows {
 // Godot loads the GDExtensions listed in .godot/extension_list.cfg, which the editor writes on its first scan. This
 // writes it for a fresh checkout, listing only extensions whose library for this host exists: a missing library is
 // an error on every run (a game without its library falls back to its mock session). Returns the list.
-write_extension_list :: proc(g: Game) -> []string {
-	sync_shared(g.dir)
-	return write_extension_list_dir(g.dir)
+write_extension_list :: proc(game: Game) -> []string {
+	sync_shared(game.dir)
+	return write_extension_list_dir(game.dir)
 }
 
 write_extension_list_dir :: proc(dir: string) -> []string {
 	listed: [dynamic]string
 	for ext in gdextensions(dir) {
-		c, _ := config_load(ext)
+		config, _ := config_load(ext)
 		for key in LIB_KEYS {
-			lib, ok := config_get(c, "libraries", key)
+			lib, ok := config_get(config, "libraries", key)
 			if ok && os.exists(join(dir, strings.trim_prefix(lib, "res://"))) {
-				r, _ := strings.replace_all(ext[len(dir) + 1:], "\\", "/")
-				append(&listed, tprint("res://%s", r))
+				relative, _ := strings.replace_all(ext[len(dir) + 1:], "\\", "/")
+				append(&listed, tprint("res://%s", relative))
 				break
 			}
 		}
 	}
-	b := strings.builder_make()
-	for e in listed {
-		strings.write_string(&b, e)
-		strings.write_byte(&b, '\n')
+	builder := strings.builder_make()
+	for entry in listed {
+		strings.write_string(&builder, entry)
+		strings.write_byte(&builder, '\n')
 	}
 	path := join(dir, ".godot", "extension_list.cfg")
-	if have, ok := read_text(path); !ok || have != strings.to_string(b) {
-		write_text(path, strings.to_string(b))
+	if have, ok := read_text(path); !ok || have != strings.to_string(builder) {
+		write_text(path, strings.to_string(builder))
 	}
 	return listed[:]
 }

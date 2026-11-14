@@ -163,26 +163,26 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 	if len(names) == 1 && names[0] == "all" {
 		names = make([]string, len(state.suites))
-		for s, i in state.suites {
-			names[i] = s.name
+		for suite, i in state.suites {
+			names[i] = suite.name
 		}
 	}
 	suites: [dynamic]^Suite
-	for n in names {
+	for name in names {
 		found := false
-		for &s in state.suites {
-			if s.name == n {
-				append(&suites, &s)
-				state.budget += opts.long && s.long_budget > 0 ? s.long_budget : s.budget
+		for &suite in state.suites {
+			if suite.name == name {
+				append(&suites, &suite)
+				state.budget += opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
 				found = true
 			}
 		}
 		if !found {
 			have := make([]string, len(state.suites))
-			for s, i in state.suites {
-				have[i] = s.name
+			for suite, i in state.suites {
+				have[i] = suite.name
 			}
-			usage("no suite %q (have: %s, all)", n, strings.join(have, ", "))
+			usage("no suite %q (have: %s, all)", name, strings.join(have, ", "))
 		}
 	}
 	games := games_or_all(opts.game)
@@ -194,28 +194,31 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 	results: [dynamic]Suite_Result
 	ok := true
-	for s in suites {
+	for suite in suites {
 		start := time.tick_now()
-		log("uni: test --suite %s", s.name)
-		passed := s.run(games, only)
-		append(&results, Suite_Result{s.name, passed, round2(seconds_since(start))})
+		log("uni: test --suite %s", suite.name)
+		passed := suite.run(games, only)
+		append(&results, Suite_Result{suite.name, passed, round2(seconds_since(start))})
 		ok = ok && passed
 	}
-	b := strings.builder_make()
-	for r, i in results {
+	builder := strings.builder_make()
+	for result, i in results {
 		if i > 0 {
-			strings.write_string(&b, ", ")
+			strings.write_string(&builder, ", ")
 		}
-		strings.write_string(&b, tprint("%s %s (%.1fs)", r.suite, r.ok ? "passed" : "FAILED", r.seconds))
+		strings.write_string(
+			&builder,
+			tprint("%s %s (%.1fs)", result.suite, result.ok ? "passed" : "FAILED", result.seconds),
+		)
 	}
-	return {ok = ok, summary = tprint("test: %s", strings.to_string(b)), data = box(results[:])}
+	return {ok = ok, summary = tprint("test: %s", strings.to_string(builder)), data = box(results[:])}
 }
 
-split_list :: proc(s: string) -> []string {
+split_list :: proc(text: string) -> []string {
 	out: [dynamic]string
-	for part in strings.split(s, ",") {
-		if p := strings.trim_space(part); p != "" {
-			append(&out, p)
+	for part in strings.split(text, ",") {
+		if trimmed := strings.trim_space(part); trimmed != "" {
+			append(&out, trimmed)
 		}
 	}
 	return out[:]
@@ -241,24 +244,24 @@ cmd_verify :: proc(args: []string) -> Result {
 	test := opts.long ? []string{"--suite", "all", "--long"} : []string{"--suite", "all"}
 	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}, {"bench", {}}}
 	self := state.command
-	for st in steps {
-		c := find_command(st.name)
-		state.command = c
+	for step in steps {
+		command := find_command(step.name)
+		state.command = command
 		start := time.tick_now()
-		r := c.run(st.args)
+		result := command.run(step.args)
 		state.command = self
 		log(
 			"uni: verify: %s %s: %s (%.1fs)",
-			st.name,
-			strings.join(st.args, " "),
-			r.ok ? "ok" : "FAILED",
+			step.name,
+			strings.join(step.args, " "),
+			result.ok ? "ok" : "FAILED",
 			seconds_since(start),
 		)
-		if r.ok && r.summary != "" {
-			log("  %s", r.summary)
+		if result.ok && result.summary != "" {
+			log("  %s", result.summary)
 		}
-		if !r.ok {
-			return {ok = false, summary = tprint("verify: %s failed: %s", st.name, r.summary)}
+		if !result.ok {
+			return {ok = false, summary = tprint("verify: %s failed: %s", step.name, result.summary)}
 		}
 	}
 	state.budget = opts.long ? VERIFY_LONG_BUDGET : 0
@@ -282,8 +285,8 @@ cmd_version :: proc(args: []string) -> Result {
 		env:      []string,
 		pins:     map[string]map[string]string,
 	}
-	v := new(Version)
-	v^ = {
+	version := new(Version)
+	version^ = {
 		cli      = os.base(exe),
 		odin     = tprint("%s:%s", ODIN_VERSION, ODIN_VERSION_HASH),
 		platform = PLATFORM,
@@ -292,5 +295,9 @@ cmd_version :: proc(args: []string) -> Result {
 		env      = state.env_keys,
 		pins     = state.pins.sections,
 	}
-	return {ok = true, summary = strings.join({v.cli, v.odin, v.platform}, " "), data = box(v^)}
+	return {
+		ok = true,
+		summary = strings.join({version.cli, version.odin, version.platform}, " "),
+		data = box(version^),
+	}
 }

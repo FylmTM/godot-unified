@@ -43,119 +43,119 @@ Proc :: struct {
 tmp_counter: int
 
 // Starts a process (see Run); `wait` collects it.
-start :: proc(r: Run) -> Proc {
-	p := Proc {
-		run = r,
+start :: proc(spec: Run) -> Proc {
+	child := Proc {
+		run = spec,
 	}
-	if !r.quiet {
-		log("+ %s", strings.join(redact(r.cmd), " ", context.temp_allocator))
+	if !spec.quiet {
+		log("+ %s", strings.join(redact(spec.cmd), " ", context.temp_allocator))
 	}
 	desc := os.Process_Desc {
-		command     = r.cmd,
-		working_dir = r.dir,
-		env         = r.env,
+		command     = spec.cmd,
+		working_dir = spec.dir,
+		env         = spec.env,
 	}
-	if r.interactive {
+	if spec.interactive {
 		desc.stdin, desc.stdout, desc.stderr = os.stdin, os.stdout, os.stderr
-	} else if r.capture {
-		base := r.log_to
+	} else if spec.capture {
+		base := spec.log_to
 		if base == "" {
-			n := sync.atomic_add(&tmp_counter, 1)
-			base = join(state.project.out, "tmp", tprint("%d-%d", os.get_pid(), n))
+			index := sync.atomic_add(&tmp_counter, 1)
+			base = join(state.project.out, "tmp", tprint("%d-%d", os.get_pid(), index))
 		}
 		make_dirs(os.dir(base))
-		p.out_path = tprint("%s.stdout", base)
-		p.err_path = tprint("%s.stderr", base)
+		child.out_path = tprint("%s.stdout", base)
+		child.err_path = tprint("%s.stderr", base)
 		// Inheritable: on Windows a child gets only the handles opened so
 		flags := os.File_Flags{.Write, .Create, .Trunc, .Inheritable}
-		out, e1 := os.open(p.out_path, flags)
-		err, e2 := os.open(p.err_path, flags)
-		if e1 != nil || e2 != nil {
-			fatal("cannot create %s", p.out_path)
+		out_file, out_error := os.open(child.out_path, flags)
+		err_file, err_error := os.open(child.err_path, flags)
+		if out_error != nil || err_error != nil {
+			fatal("cannot create %s", child.out_path)
 		}
-		p.files = {out, err}
-		desc.stdout, desc.stderr = out, err
+		child.files = {out_file, err_file}
+		desc.stdout, desc.stderr = out_file, err_file
 	} else {
 		desc.stdout, desc.stderr = os.stderr, os.stderr
 	}
-	p.start = time.tick_now()
-	process, err := os.process_start(desc)
-	if err != nil {
-		fatal("cannot start %s: %v", r.cmd[0], err)
+	child.start = time.tick_now()
+	process, err_file := os.process_start(desc)
+	if err_file != nil {
+		fatal("cannot start %s: %v", spec.cmd[0], err_file)
 	}
-	p.process = process
-	return p
+	child.process = process
+	return child
 }
 
 // Waits for a started process (killing it at its timeout) and collects its output.
-wait :: proc(p: ^Proc) -> Ran {
-	timeout := p.run.timeout > 0 ? p.run.timeout - time.tick_since(p.start) : os.TIMEOUT_INFINITE
-	if p.run.timeout > 0 && timeout < time.Millisecond {
+wait :: proc(child: ^Proc) -> Ran {
+	timeout := child.run.timeout > 0 ? child.run.timeout - time.tick_since(child.start) : os.TIMEOUT_INFINITE
+	if child.run.timeout > 0 && timeout < time.Millisecond {
 		timeout = time.Millisecond
 	}
-	st: os.Process_State
+	exit_state: os.Process_State
 	err: os.Error
-	if r, ok := p.reaped.?; ok {
-		st = r
+	if reaped, ok := child.reaped.?; ok {
+		exit_state = reaped
 	} else {
-		st, err = os.process_wait(p.process, timeout)
+		exit_state, err = os.process_wait(child.process, timeout)
 	}
 	ran: Ran
-	if err != nil || !st.exited {
-		_ = os.process_kill(p.process)
-		st, _ = os.process_wait(p.process)
+	if err != nil || !exit_state.exited {
+		_ = os.process_kill(child.process)
+		exit_state, _ = os.process_wait(child.process)
 		ran.timed_out = err == nil || err == .Timeout
 	}
-	ran.exit_code = st.exit_code
-	ran.ok = st.exited && st.exit_code == 0 && !ran.timed_out
-	ran.seconds = time.duration_seconds(time.tick_since(p.start))
-	return collect(p, ran)
+	ran.exit_code = exit_state.exit_code
+	ran.ok = exit_state.exited && exit_state.exit_code == 0 && !ran.timed_out
+	ran.seconds = time.duration_seconds(time.tick_since(child.start))
+	return collect(child, ran)
 }
 
 // Whether a started process has ended (without blocking).
-done :: proc(p: ^Proc) -> bool {
-	if _, ok := p.reaped.?; ok {
+done :: proc(child: ^Proc) -> bool {
+	if _, ok := child.reaped.?; ok {
 		return true
 	}
-	st, err := os.process_wait(p.process, 0)
-	if err == nil && st.exited {
-		p.reaped = st
+	exit_state, err := os.process_wait(child.process, 0)
+	if err == nil && exit_state.exited {
+		child.reaped = exit_state
 		return true
 	}
 	return false
 }
 
 @(private)
-collect :: proc(p: ^Proc, ran: Ran) -> Ran {
+collect :: proc(child: ^Proc, ran: Ran) -> Ran {
 	ran := ran
-	if p.run.capture {
-		os.close(p.files[0])
-		os.close(p.files[1])
-		ran.stdout, _ = read_text(p.out_path)
-		ran.stderr, _ = read_text(p.err_path)
-		if p.run.log_to == "" {
-			os.remove(p.out_path)
-			os.remove(p.err_path)
+	if child.run.capture {
+		os.close(child.files[0])
+		os.close(child.files[1])
+		ran.stdout, _ = read_text(child.out_path)
+		ran.stderr, _ = read_text(child.err_path)
+		if child.run.log_to == "" {
+			os.remove(child.out_path)
+			os.remove(child.err_path)
 		}
 	}
 	return ran
 }
 
 // Runs a process to the end.
-run_proc :: proc(r: Run) -> Ran {
-	p := start(r)
-	return wait(&p)
+run_proc :: proc(spec: Run) -> Ran {
+	child := start(spec)
+	return wait(&child)
 }
 
 // Runs a process; a failure stops the command with its output.
-must_run :: proc(r: Run, what: string) -> Ran {
-	ran := run_proc(r)
+must_run :: proc(spec: Run, what: string) -> Ran {
+	ran := run_proc(spec)
 	if !ran.ok {
-		if r.capture {
+		if spec.capture {
 			log("%s", tail(strings.concatenate({ran.stdout, ran.stderr}, context.temp_allocator), 4000))
 		}
 		if ran.timed_out {
-			fatal("%s timed out after %.0fs", what, time.duration_seconds(r.timeout))
+			fatal("%s timed out after %.0fs", what, time.duration_seconds(spec.timeout))
 		}
 		fatal("%s failed (exit %d)", what, ran.exit_code)
 	}
@@ -167,22 +167,22 @@ run_all :: proc(runs: []Run, parallel := 0) -> []Ran {
 	results := make([]Ran, len(runs))
 	limit := parallel > 0 ? parallel : len(runs)
 	running: [dynamic]struct {
-		i: int,
-		p: Proc,
+		index: int,
+		child: Proc,
 	}
 	next := 0
 	for next < len(runs) || len(running) > 0 {
 		for next < len(runs) && len(running) < limit {
 			append(&running, struct {
-				i: int,
-				p: Proc,
+				index: int,
+				child: Proc,
 			}{next, start(runs[next])})
 			next += 1
 		}
 		progressed := false
 		for k := 0; k < len(running); {
-			if done(&running[k].p) {
-				results[running[k].i] = wait(&running[k].p)
+			if done(&running[k].child) {
+				results[running[k].index] = wait(&running[k].child)
 				unordered_remove(&running, k)
 				progressed = true
 			} else {
@@ -204,40 +204,40 @@ which :: proc(name: string) -> string {
 		if dir == "" {
 			continue
 		}
-		cand := join(dir, name)
+		candidate := join(dir, name)
 		when ODIN_OS == .Windows {
 			if !strings.has_suffix(name, ".exe") {
-				cand = tprint("%s.exe", cand)
+				candidate = tprint("%s.exe", candidate)
 			}
 		}
-		if os.is_file(cand) {
-			return cand
+		if os.is_file(candidate) {
+			return candidate
 		}
 	}
 	return ""
 }
 
 // The last `n` bytes of a text, for error output.
-tail :: proc(text: string, n: int) -> string {
-	return len(text) > n ? text[len(text) - n:] : text
+tail :: proc(text: string, count: int) -> string {
+	return len(text) > count ? text[len(text) - count:] : text
 }
 
 // A command line for logs, with the values of -define:UNIFIED_EOS_* (credentials) replaced.
 redact :: proc(cmd: []string) -> []string {
 	out := make([]string, len(cmd), context.temp_allocator)
-	for a, i in cmd {
-		out[i] = a
-		if strings.has_prefix(a, "-define:UNIFIED_EOS_") {
-			if eq := strings.index_byte(a, '='); eq >= 0 {
-				out[i] = tprint("%s=***", a[:eq])
+	for arg, i in cmd {
+		out[i] = arg
+		if strings.has_prefix(arg, "-define:UNIFIED_EOS_") {
+			if eq := strings.index_byte(arg, '='); eq >= 0 {
+				out[i] = tprint("%s=***", arg[:eq])
 			}
 		}
 	}
 	return out
 }
 
-sort_strings :: proc(s: []string) {
-	slice.sort(s)
+sort_strings :: proc(values: []string) {
+	slice.sort(values)
 }
 
 // Lines of a text that contain any of the needles.
@@ -245,8 +245,8 @@ lines_with :: proc(text: string, needles: ..string) -> []string {
 	out: [dynamic]string
 	text := text
 	for line in strings.split_lines_iterator(&text) {
-		for n in needles {
-			if strings.contains(line, n) {
+		for needle in needles {
+			if strings.contains(line, needle) {
 				append(&out, line)
 				break
 			}

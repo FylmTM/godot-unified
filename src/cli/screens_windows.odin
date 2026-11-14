@@ -12,13 +12,13 @@ os_screens :: proc() -> []Screen {
 }
 
 @(private)
-on_monitor :: proc "system" (m: win.HMONITOR, _: win.HDC, _: win.LPRECT, data: win.LPARAM) -> win.BOOL {
+on_monitor :: proc "system" (monitor: win.HMONITOR, _: win.HDC, _: win.LPRECT, data: win.LPARAM) -> win.BOOL {
 	context = runtime.default_context()
 	list := (^[dynamic]Screen)(uintptr(data))
 	info := win.MONITORINFO {
 		cbSize = size_of(win.MONITORINFO),
 	}
-	if win.GetMonitorInfoW(m, &info) {
+	if win.GetMonitorInfoW(monitor, &info) {
 		append(list, Screen{info.rcMonitor.left, info.rcMonitor.right, info.dwFlags & 1 != 0}) // MONITORINFOF_PRIMARY
 	}
 	return true

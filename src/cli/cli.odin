@@ -88,19 +88,19 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	state.env_keys = env_load(state.project.root)
 	inject_at(&state.suites, 0, ..public_suites())
 	for set in command_sets {
-		for c in set {
-			if find_command(c.name) != nil {
-				fatal("command %s is defined twice", c.name)
+		for command in set {
+			if find_command(command.name) != nil {
+				fatal("command %s is defined twice", command.name)
 			}
-			append(&state.commands, c)
+			append(&state.commands, command)
 		}
 	}
 	argv := make([dynamic]string)
-	for a in args {
-		if a == "--json" {
+	for arg in args {
+		if arg == "--json" {
 			state.json = true
 		} else {
-			append(&argv, a)
+			append(&argv, arg)
 		}
 	}
 	state.argv = argv[:]
@@ -120,9 +120,9 @@ run :: proc(command_sets: ..[]Command) -> ! {
 }
 
 find_command :: proc(name: string) -> ^Command {
-	for &c in state.commands {
-		if c.name == name {
-			return &c
+	for &command in state.commands {
+		if command.name == name {
+			return &command
 		}
 	}
 	return nil
@@ -132,12 +132,12 @@ print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
 	fmt.println("usage: uni <command> [options] [--json]   (uni <command> -h: its options and budget)\n")
 	width := 0
-	for c in state.commands {
-		width = max(width, len(c.name) + 1 + len(c.usage))
+	for command in state.commands {
+		width = max(width, len(command.name) + 1 + len(command.usage))
 	}
-	for c in state.commands {
-		line := strings.concatenate({c.name, " ", c.usage}, context.temp_allocator)
-		fmt.printf("  %-*s  %s\n", width, line, c.summary)
+	for command in state.commands {
+		line := strings.concatenate({command.name, " ", command.usage}, context.temp_allocator)
+		fmt.printf("  %-*s  %s\n", width, line, command.summary)
 	}
 	fmt.printf(
 		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
@@ -153,20 +153,20 @@ print_help :: proc() {
 @(private)
 ODIN_CACHE :: "%LOCALAPPDATA%\\unified\\odin" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified/odin"
 
-budget_text :: proc(c: ^Command) -> string {
-	if c.budget > 0 {
-		return tprint("budget: %.0fs for a warm run (%dx in CI)", c.budget, CI_BUDGET_SCALE)
+budget_text :: proc(command: ^Command) -> string {
+	if command.budget > 0 {
+		return tprint("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
 	}
-	return tprint("budget: none (%s)", c.no_budget)
+	return tprint("budget: none (%s)", command.no_budget)
 }
 
 // Parses a command's arguments into `opts` (core:flags, Unix style: --name value, --name=value, positionals, and
 // everything after -- into an `overflow` field). -h prints the usage and exits; a bad argument exits 2.
-parse :: proc(opts: ^$T, args: []string) {
+parse :: proc(opts: ^$Options, args: []string) {
 	if slice.contains(args, "-h") || slice.contains(args, "--help") {
-		c := state.command
-		fmt.printf("usage: uni %s %s\n%s\n%s\n\n", c.name, c.usage, c.summary, budget_text(c))
-		flags.write_usage(os.to_stream(os.stdout), T, tprint("uni %s", c.name), .Unix)
+		command := state.command
+		fmt.printf("usage: uni %s %s\n%s\n%s\n\n", command.name, command.usage, command.summary, budget_text(command))
+		flags.write_usage(os.to_stream(os.stdout), Options, tprint("uni %s", command.name), .Unix)
 		os.exit(0)
 	}
 	if err := flags.parse(opts, args, .Unix); err != nil {
@@ -177,13 +177,13 @@ parse :: proc(opts: ^$T, args: []string) {
 @(private)
 usage_error :: proc(err: flags.Error) -> ! {
 	msg := ""
-	switch e in err {
+	switch problem in err {
 	case flags.Parse_Error:
-		msg = e.message
+		msg = problem.message
 	case flags.Validation_Error:
-		msg = e.message
+		msg = problem.message
 	case flags.Open_File_Error:
-		msg = tprint("cannot open %s", e.filename)
+		msg = tprint("cannot open %s", problem.filename)
 	case flags.Help_Request:
 		msg = "-h prints the usage"
 	}
@@ -199,9 +199,9 @@ usage :: proc(format: string, args: ..any) -> ! {
 
 // Ends the run: the result on stdout, the time against the budget on stderr and in .out/timings.json, the exit code.
 @(private)
-finish :: proc(r: Result) -> ! {
+finish :: proc(result: Result) -> ! {
 	secs := time.duration_seconds(time.tick_since(state.start))
-	report_timing(secs, r.ok)
+	report_timing(secs, result.ok)
 	if state.json {
 		Out :: struct {
 			command: string,
@@ -210,10 +210,10 @@ finish :: proc(r: Result) -> ! {
 			seconds: f64,
 			cold:    []string,
 		}
-		head, err := json.marshal(Out{state.command.name, r.ok, r.summary, round2(secs), state.cold[:]})
+		head, err := json.marshal(Out{state.command.name, result.ok, result.summary, round2(secs), state.cold[:]})
 		data := transmute([]byte)string("null")
-		if err == nil && r.data != nil {
-			data, err = json.marshal(r.data)
+		if err == nil && result.data != nil {
+			data, err = json.marshal(result.data)
 		}
 		if err != nil {
 			log("uni: cannot encode the result as JSON: %v", err)
@@ -221,10 +221,10 @@ finish :: proc(r: Result) -> ! {
 		}
 		// {"command":...,"cold":[...],"data":<the command's data>}
 		fmt.printf("%s,\"data\":%s}\n", string(head[:len(head) - 1]), string(data))
-	} else if r.summary != "" {
-		fmt.println(r.summary)
+	} else if result.summary != "" {
+		fmt.println(result.summary)
 	}
-	os.exit(r.ok ? 0 : 1)
+	os.exit(result.ok ? 0 : 1)
 }
 
 // Stops the command as failed: the message on stderr (and in the --json result).
@@ -249,7 +249,7 @@ in_ci :: proc() -> bool {
 
 @(private)
 report_timing :: proc(secs: f64, ok: bool) {
-	c := state.command
+	command := state.command
 	note := ""
 	Entry :: struct {
 		seconds: f64,
@@ -263,7 +263,7 @@ report_timing :: proc(secs: f64, ok: bool) {
 		cold    = state.cold[:],
 		ok      = ok,
 	}
-	budget := state.budget > 0 ? state.budget : c.budget
+	budget := state.budget > 0 ? state.budget : command.budget
 	if budget > 0 {
 		allowed := budget * (in_ci() ? CI_BUDGET_SCALE : 1)
 		entry.budget = allowed
@@ -303,8 +303,8 @@ report_timing :: proc(secs: f64, ok: bool) {
 	}
 }
 
-round2 :: proc(x: f64) -> f64 {
-	return f64(i64(x * 100 + 0.5)) / 100
+round2 :: proc(value: f64) -> f64 {
+	return f64(i64(value * 100 + 0.5)) / 100
 }
 
 // Progress and errors go to stderr; stdout carries only the result.
@@ -314,23 +314,23 @@ log :: proc(format: string, args: ..any) {
 }
 
 // A heap copy of a value, for Result.data (marshalled after the command returns).
-box :: proc(v: $T) -> any {
-	p := new_clone(v)
-	return p^
+box :: proc(value: $Value) -> any {
+	boxed := new_clone(value)
+	return boxed^
 }
 
 // Heap slices of commands and suites, for a project's tools/ to return.
-box_commands :: proc(c: ..Command) -> []Command {
-	return slice.clone(c)
+box_commands :: proc(commands: ..Command) -> []Command {
+	return slice.clone(commands)
 }
 
-box_suites :: proc(s: ..Suite) -> []Suite {
-	return slice.clone(s)
+box_suites :: proc(suites: ..Suite) -> []Suite {
+	return slice.clone(suites)
 }
 
 // A heap slice of strings.
-strs :: proc(s: ..string) -> []string {
-	return slice.clone(s)
+strs :: proc(items: ..string) -> []string {
+	return slice.clone(items)
 }
 
 tprint :: proc(format: string, args: ..any) -> string {
