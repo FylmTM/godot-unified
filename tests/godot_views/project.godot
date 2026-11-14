@@ -10,5 +10,5 @@ config_version=5
 
 [application]
 
-config/name="unified godot_host view tests"
+config/name="unified:godot view tests"
 config/features=PackedStringArray("4.7")

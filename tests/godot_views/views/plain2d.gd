@@ -1,11 +1,10 @@
 extends Node2D
 
-var kind := &""
-var entity := 0
-var player := -1
+@onready var marker: UnifiedView = $UnifiedView
 var updates := 0
-var last_position = null
+var last_position := Vector2.INF
 
-func _sim_update(position: Vector2, rotation: float, alpha: float) -> void:
+
+func _sim_update(position: Vector2, _rotation: float, _alpha: float) -> void:
 	updates += 1
 	last_position = position

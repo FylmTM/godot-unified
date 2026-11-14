@@ -1,222 +1,231 @@
-# godot_host and gdext
+# godot
 
-Decided autonomously 2026-11-09, pending developer review.
+Contract v1, decided in the #9 sitting (2026-11-15, the decisions in that issue). `unified:godot` is everything that
+touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is the raw bindings underneath. Each
+game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.
 
-`src/gdext` holds the Odin bindings for Godot's GDExtension API. `src/godot_host` is everything that touches
-Godot for a game built on `unified`. Each game has a thin extension (`games/<game>/simulation/extension`) that
-installs its sim and its glue.
-
-## gdext
-
-- **Generated code.** `uni godot-gen` (~1 s fresh, cached by input hash) turns the committed
-  `src/gdext/api/{extension_api,gdextension_interface}.json` (dumped from 4.7.2) and `bindings.txt` into
-  git-ignored `gdi/gdi.gen.odin` (the C interface) and `api.gen.odin` (layouts, enums, typed wrappers
-  `Class_method`). No Godot is needed to build.
-- **Wrappers.** They use ptrcall. Strings in and out are Odin `string`s; a method with StringName parameters is
-  a proc group that also takes interned `^StringName`s (`gd.sn("move_left")`, no per-call conversion; hot paths
-  use it). Returns of RefCounted classes are `Ref(T)`, which the caller owns (`unref`). Vararg methods take
-  `..any`. Debug builds check the main thread. `bindings.txt` lists only what Odin code uses (`tests/gdext`
-  fails on an unused entry).
-- **Extension classes.** `Class{name, parent, size, init, fini, notification, ready, process, input,
-  runtime_only}`, then:
-  - `bind_method(cls, name, proc(self: ^T, a: A, b: B) -> R, {"a", "b"})`, with 0–3 arguments and one typed
-    trampoline per signature;
-  - `bind_property(cls, name, get, set, hint)`;
-  - `bind_signal(cls, name, {"arg", type}...)`;
-  - `bind_constant(cls, enum_name, name, value)` (an integer constant, `Class.NAME`; in an enum, `Class.Enum.NAME`);
-  - `bind_script_virtual`, `emit_signal`, `call_script`;
-  - `callable_create(proc, user, owner)`, `connect`;
-  - `sn("name")` returns interned StringNames.
-- **Callbacks.** Every Godot -> Odin callback opens a temp-allocator guard: a nested callback (Odin calls Godot,
-  Godot calls back into Odin) never frees its caller's temp data.
-- **Value conversions.** `to_variant`, `from_variant`, `variant_from_any`, and the `dict_*` / `array_*` helpers.
-- **Tests.** `uni test --suite godot-bindings` runs a test class (`tests/godot`) under headless Godot (`--verbose`; an
-  orphan StringName or a leak at exit fails it) covering every feature above, again through typed calls (checked to
-  take ptrcall), a nested callback, class constants, plus a dev UI smoke test.
-
-## godot_host API
+## A game's extension
 
 ```odin
-godot_host.install(&GAME, glue)            // sim.Game(State, Input, World, PLAYERS) + Glue(State, Input, World)
-godot_host.set_transport(&transport)       // optional: online play (EOS...), never imported by godot_host
-return godot_host.entry(gpa, lib, init)    // the extension's entry symbol
-Glue { scenes: []Scene_Kind{name, data: typeid}, scene_dir, bulk_kinds, smoothing /* view.Smoothing in extract's units; zero: the default (a warning for 2D views) */,
-       actions: {move: [4]string, buttons: []string},
-       extract(current, previous, world, ^Frame), poll_input(Actions, player, tick, ^State) -> Input,
-       scripted_input(seed, player, tick, ^State) -> Input,
-       scripted_commands(seed, player, tick, ^State, ^sim.Command_Out) /* optional: --scripted sends these */,
-       hud(^Frame /* nil: every key empty */, ^Dictionary), constants(^Dictionary), bench,
-       event_key(^sim.Raw_Event) -> view.Key /* optional: overrides the routing by subject */,
-       event_pos(sim.Position, ^World) -> sim.Position /* optional: event positions in extract's units */, compat,
-       level /* res:// path of the level file, read with FileAccess at session start: src/level/SPEC.md */ }
-godot_host.app_version                     // application/config/version, read before the first session
-Frame { tick, verified, due_us, local_player, net, scene: [256]Scene_Item, bulk: [16384]Bulk_Item, dropped, hud: [4096]u8 }
-Scene_Item { key, kind, player, entity: u64, has_prev, pos, rot /* quaternion */, prev_pos, prev_rot, data: [64]u8 }
-Bulk_Item { kind, has_prev, pos, prev_pos, yaw, prev_yaw, scale: [3]f32 /* zero = 1 */, color /* zero = white */, custom }
-push_scene(out, item) / push_scene(out, item, data: T) -> bool    // extract: append; false (and `dropped`) when full
-push_bulk(out, item) -> bool
+import "unified:godot"
+
+View :: enum u8 {Player, Hud}       // scene view kinds: one scene each (found by the view index)
+Multi :: enum u8 {Ball}             // MultiMesh view kinds
+Frame :: godot.Frame(g.State, g.World, View, Multi)
+
+GLUE := godot.Glue(g.State, g.Input, g.World, View, Multi) {
+	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
+	fill_frame   = fill_frame,       // session thread, every published tick: State -> views
+	// optional
+	scripted_input, scripted_commands, constants, bench, event_key, event_pos, compat, level,
+	smoothing,                       // view.Smoothing in fill_frame's units (zero: the default, metres)
+	is_2d,                           // event positions reach GDScript as Vector2 (else Vector3)
+	max_views, max_multi, view_data_bytes, // the Frame's capacities (zero: 256, 16384, 16384)
+}
+
+sample_input :: proc(input: ^g.Input) {
+	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
+	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.jump = godot.action_pressed("jump")
+}
+
+fill_frame :: proc(frame: ^Frame) {
+	for player in 0 ..< g.PLAYERS do if frame.state.joined[player] {
+		godot.push_view(frame, {key = view.Key(player + 1), kind = .Player, player = i8(player), pos = ...})
+	}
+	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, Hud_Data{balls = frame.state.balls})
+	godot.push_multi(frame, {key = ball_key, kind = .Ball, pos = ...})
+}
+
+@(export, link_name = "<game>_init")
+<game>_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+	context = runtime.default_context()
+	godot.install(&g.GAME, GLUE)
+	godot.set_transport(&transport)      // optional: online play (EOS...), never imported by unified:godot
+	return godot.entry(gpa, lib, init)
+}
 ```
 
-GDScript sees contract v0:
+Glue procs are named procs, never inline lambdas.
 
-- **`UnifiedSession`**
-  - methods: `start_single`, `host_online`, `join_online(code)`, `join_direct(addr)`, `leave`,
-    `press_action(name)` (one of `Glue.actions.buttons`, as if pressed), `hud()`, `constants()` (`tick_hz` plus
-    `Glue.constants`: scripts read the sim's constants instead of copying them);
-  - signals: `status_changed`, `lobby_code`, `desync(tick: int, detail: String)` (the relay found the players'
-    checksums differ: who, and in dev builds what, `src/netcode/SPEC.md`; also printed and in the dev UI's log),
-    `sim_event(event: StringName, state: int, data: Dictionary)` (every
-    event in every state: "Events" below); constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED`;
-  - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice),
-    `host_direct(port)` (every interface; 127.0.0.1 only when the process got `--local-net`, which `uni` passes to
-    every tool run and the session test),
-    `set_player_name`, `get_status`,
-    `is_running`, `get_tick`, `toggle_devui`;
-  - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the
-    latest value; the game's `poll_input` reads it as `Actions.vectors[i]` (i < 4); `set_input_vector_2d(i, v)` takes
-    a Vector2 (z = 0), e.g. a 2D aim direction;
-  - `send_command(name: StringName, args: Dictionary) -> bool` (signed off 2026-11-10): sends one of the game's
-    commands (`sim.Game.commands`, src/sim/SPEC.md), delivered to the sim exactly once. The host converts the
-    Dictionary into the command's struct by RTTI, no per-game glue: ints (range-checked), floats, bools, enums (a
-    member's name in any case, or its value), bit_sets (an Array of member names or values), `[2]f32` / `[3]f32`
-    from Vector2 / Vector3; every field must be given (fields named `_...` are padding: never). An unknown
-    command, a missing or unknown field, a wrong type or range, no running session or a full queue (64 waiting)
-    returns false with a `print_error` naming it. Main thread; queued to the session thread, which hands it to the
-    client's `commands` hook (the command's tick is the next one the client samples).
-- **`SimView`** (Node3D: `kind`, `entity`, `player`, script virtuals `_sim_update(position: Vector3, yaw, alpha)`
-  and `_sim_event(event: StringName, state: int, data: Dictionary)`).
-- **`SimView2D`** (Node2D: the same, with `_sim_update(position: Vector2, rotation, alpha)`).
-- **`SimBulkView`** (MultiMeshInstance3D: `kind`), **`SimBulkView2D`** (MultiMeshInstance2D: `kind`); both join
-  the `sim_bulk` group.
+### Input
 
-Plain Node3D / Node2D / MultiMeshInstance3D / MultiMeshInstance2D roots with the same script properties work too
-(a plain bulk node joins `sim_bulk` itself). Scripts run without the extension that way, and the host uses
-`Object.set`/`call`.
+`sample_input` runs on the main thread every frame and fills the local player's `Input` itself, explicitly, through
+these helpers (main thread only; they read Godot's `Input` singleton) or the bindings:
 
-**2D views** (signed off 2026-11-09). A view scene's root class picks the mapping, so one game may mix both:
+- `action_held(action) -> bool`, `action_strength(action) -> f32`,
+  `action_vector(negative_x, positive_x, negative_y, positive_y) -> [2]f32` (`Input.get_vector`: y is "back");
+- `action_pressed(action) -> bool`: true for every press since the session thread last took the input, so a tap
+  shorter than a tick is never lost (the host latches each press per action and clears it once a tick has taken a
+  sample holding it);
+- `input_value(name) -> [3]f32`: the latest value a script set with `UnifiedSession.set_input_value(name, value)`
+  (a Vector3, a Vector2 with z = 0, or a float or bool in x): what only GDScript knows, such as a camera's look
+  direction;
+- `axis_i8(x) -> i8`: −1..1 to −127..127.
 
-- Position: `Vector2(pos.x, pos.y)` in Godot's 2D coordinates (x right, y down), in `view_root`'s units (pixels
-  unless it is scaled); `pos.z` is unused. `extract` writes view units (render side: f32 math is fine there), and
-  a game in pixels sets `Glue.smoothing.teleport_dist` in pixels: a tick-to-tick move or a correction longer
-  than it snaps.
-- Rotation: the angle about Z (`Node2D.rotation`: 0 = +x, positive turns +x toward +y, clockwise on screen):
-  `Scene_Item.rot = view.quat_angle2d(a)`, `Bulk_Item.yaw = a`. The host sets the root's `position` and
-  `rotation`, then calls `_sim_update(Vector2, rotation, alpha)`. Event positions (`sim.Position` fields) are
-  Vector2s when `view_root` is a Node2D, Vector3s otherwise (the last `view_root` set decides: clearing it between
-  scenes keeps the game's shape), in the sim's units unless the game sets
-  `Glue.event_pos` (session thread, with the World) to convert them into the units its `extract` writes, so views
-  and effects never scale them by hand (signed off 2026-11-10).
-- Bulk: the MultiMesh's `transform_format` decides the layout: `TRANSFORM_2D` writes 8 floats per instance
-  (`cs, -sn, 0, x,  sn, cs, 0, y`, uniform scale in cs/sn), `TRANSFORM_3D` 12; then the color (`use_colors`)
-  and the custom data (`use_custom_data`), 4 floats each. A node whose MultiMesh has the other format is
-  warned about once. The host owns `instance_count` and `visible_instance_count`.
-- `Bulk_Item.color` (new, 16 bytes per item): the instance color when the MultiMesh uses colors (it was always
-  white): tints and flashes need no shader, since the default materials multiply by it. Zero means white, so
-  games that never set it are unchanged; an invisible instance is simply not emitted.
+While a dev UI text field has the keyboard the action helpers return nothing pressed. The host hands the newest
+sample to the session thread when a tick takes the local input; `scripted_input` replaces it in `--scripted` runs.
+`Input` is what the player intends: interpreting it against the state is the sim's job.
 
-**Scene view data** (signed off 2026-11-10). A kind may name a data type (`Scene_Kind.data`): a plain struct
-of bools, integers, enums (as int), f32, `[2]f32` (Vector2), `[3]f32` (Vector3) and `[4]f32` (Color), at most 64
-bytes; fields starting with `_` are padding. `extract` writes it with `push_scene(out, item, data)` (asserted to
-be the kind's type). The host sets each field as the view's property of the same name, after the view entered
-the tree (setters may use `@onready` nodes) and then only when that field's bytes change, before
-`_sim_update`. Values are the newest tick's (no interpolation). A view with no such property is warned about
-once. Per-entity values that used to go through the HUD (a player's hp, a gate's charge) go here; the HUD stays
-for the HUD.
+### Filling a frame
 
-**Bulk** (2026-11-10): position and rotation interpolate (`prev_yaw`, along the shorter arc); `scale` is per
-local axis (2D: x, y), zero meaning 1; color and custom are the tick's. One pass over the frame's items fills
-every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames); a full Frame counts
-`dropped` and the host warns once.
+`fill_frame(frame)` runs on the session thread for every published tick. `frame.state` and `frame.world` are the
+tick's; `frame.tick`, `frame.local_player` (-1 until assigned). It pushes:
+
+- `push_view(frame, View_Item{key, kind, player, entity, pos, rot})` and `push_view(frame, item, data)`: a scene
+  view. `key` is the spawn key (non-zero; a new key is a new view), `player` the player it shows (-1: none) and
+  `entity` the u64 its events carry (0: none): both route events to it. `pos` and `rot` (a unit quaternion; zero
+  is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units the views use. `data` is any plain
+  struct (bools, integers, enums, f32, `[2]f32`, `[3]f32`, `[4]f32`; `_` fields are padding): the view gets each
+  field as its script property of the same name, on spawn and whenever its bytes change. One kind always pushes
+  the same data type (asserted).
+- `push_multi(frame, Multi_Item{key, kind, pos, yaw, scale, color, custom})`: one MultiMesh instance. `key`
+  identifies it across ticks (a handle's `sim.handle_key`; 0: never interpolated); keys are per kind. `scale` is
+  per local axis (zero: 1), `color` the instance color (zero: white), `custom` the custom data.
+
+Both return false when the Frame is full (counted; the host warns once). The host remembers every keyed item's
+pose: a view or instance seen at tick − 1 interpolates from it, so games never pass previous poses, and physics
+bodies interpolate like plain state. A re-fill of the same tick (after a rollback) keeps the tick − 1 pose.
+
+The HUD is no special case: a `.Hud` view whose scene root is a Control (or any node that is not a Node2D or
+Node3D: it gets data, no pose), pushed with its data each tick.
+
+## Godot side
+
+**`UnifiedSession`** (Node, one per app):
+
+- methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
+  `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
+  `constants() -> Dictionary` (`tick_hz` plus `Glue.constants`), `set_player_name(name)`, `get_status()`,
+  `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`;
+- properties: `view_root` (where scene views are made), `seed`, `ticks`;
+- signals: `status_changed(status, detail)`, `lobby_code(code)`, `desync(tick, detail)`,
+  `sim_event(event: UnifiedEvent, state: int)`;
+- constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED` (enum `EventState`).
+
+Scripts reach it typed (`@onready var session: UnifiedSession = %UnifiedSession`), never by string.
+
+**`UnifiedView`** (Node): the marker a scene view's scene holds, a direct child of its root. `kind` (the `View`
+member's name, lowercased: set in the scene), `entity`, `player` (set by the host); signals `despawned` (the view's
+key is gone: it lingers 0.25 s, then is freed) and `revived` (a rollback brought it back while lingering). The
+root can be any node: a Node3D gets position and quaternion, a Node2D position and rotation (the angle about Z),
+anything else (a Control HUD) only data. The root's script may define `_sim_update(position, yaw_or_rotation,
+alpha)` (every frame, after the host moved it) and `_sim_event(event: UnifiedEvent, state: int)`.
+
+**`UnifiedMultiView`** (Node): the marker under a MultiMeshInstance3D or MultiMeshInstance2D that the host fills
+with the instances of one `Multi` kind: `kind`, `smooth` (rollback corrections glide like scene views' instead of
+popping; off by default). Registered when it enters the tree. The MultiMesh's `transform_format` decides the
+layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_custom_data` add 4 floats each. The
+host owns `instance_count` and `visible_instance_count`.
+
+**Events and commands as classes.** At load the host registers a class per kind of the game's event union
+(`extends UnifiedEvent`, a RefCounted with `tick`) and command union (`extends UnifiedCommand`), named after the Odin
+type in PascalCase (`Rock_Hit` -> `RockHit`; a command loses its `Cmd_` prefix: `Cmd_Drop` -> `Drop`), with a typed
+property per field: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
+bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
+in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` / `Color`; `_` fields are
+left out; a `player` field holding `sim.NO_PLAYER` is -1. A name that clashes with an existing class stops the
+install with an error. GDScript:
+
+```gdscript
+func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+	if event is RockHit and state == UnifiedSession.EVENT_EMITTED:
+		_spark((event as RockHit).at)
+
+var drop := Drop.new()
+drop.count = 3
+session.send_command(drop)
+```
+
+`send_command` converts the object to the command's struct (enums by member name or value, integers range-checked);
+a wrong value, no running session or a full queue (64 waiting) returns false with a `print_error` naming it.
+The command reaches the sim exactly once, on the next tick the client samples.
+
+The editor's help documents every class above (class reference XML loaded at extension start).
 
 ## Events
 
-Decided in the #6 sitting (D5, D6; `src/sim/SPEC.md` "Events" has the game's side), built with it; #9's sitting
-reviews it. `install` reads the game's event union by RTTI once: each kind's name (its type name, lowercased), its
-`player` field, its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) and its
-`sim.Position` fields.
+`install` reads the game's event union by RTTI once: each kind's name, its `player` field, its subject (the first
+`sim.Handle(T)` field, else a u64 field named `entity`) and its `sim.Position` fields.
 
-- **States** (`UnifiedSession.EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED`, the enum
-  `UnifiedSession.EventState`; decided after #168's review). Every event is **Emitted** exactly once, the first time
-  any simulation of its tick produces it (a prediction, or the verified tick itself), then exactly once either
-  **Confirmed** (its tick is verified) or **Cancelled** (a re-simulation no longer produces it). An event first
-  produced when its tick is verified is Emitted and Confirmed in the same frame. So each handler looks at one
-  state: effects and sounds on EMITTED, what must be final (score, banners, match over) on CONFIRMED, undoing an
-  effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and index among
-  the tick's events of that kind and subject.
-- **Data.** A Dictionary of the event's fields, converted by type: a handle becomes its key (int, `sim.handle_key`),
-  a `sim.Position` a Vector2 (2D) or Vector3 in view units, an enum its member's name lowercased (a String), a
-  bit_set an Array of those, `[2]f32` / `[3]f32` / `[4]f32` a Vector2 / Vector3 / Color, a nested struct a
-  Dictionary, other numbers int or float; fields named `_...` are left out, and a `player` field holding
-  `sim.NO_PLAYER` is -1. Plus `tick`; `install` refuses an event with a field named `tick`.
-- **Where.** Every event, in every state, goes to the `sim_event(event: StringName, state: int, data: Dictionary)`
-  signal and to its subject's view's `_sim_event(event, state, data)`: the view `Glue.event_key` names when the game sets it (0: none); else the view keyed by
-  the event's handle (`view.Key(sim.handle_key(handle))`), else the views whose `Scene_Item.entity` is its `entity`
-  field, else its player's views (`Scene_Item.player`). The view gets it first, then the signal.
-- **Order.** A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order
-  (#152). A view also gets `_sim_event("revived" | "despawned", EVENT_EMITTED, {})` for its own lifetime (a
-  linger).
+- **States.** Every event is **Emitted** exactly once, the first time any simulation of its tick produces it (a
+  prediction, or the verified tick itself), then exactly once either **Confirmed** (its tick is verified) or
+  **Cancelled** (a re-simulation no longer produces it). One first produced when its tick is verified is Emitted and
+  Confirmed in the same frame. Effects and sounds on EMITTED, what must be final (score, banners) on CONFIRMED,
+  undoing an effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and
+  index among the tick's events of that kind and subject.
+- **Where.** Each event, in each state, goes first to its subject's view (`_sim_event(event, state)` on the root's
+  script): the view `Glue.event_key` names when the game sets it (0: none), else the view keyed by its handle
+  (`sim.handle_key`), else the views whose `entity` is its `entity` field, else its player's views. Then to the
+  `sim_event` signal.
+- **Order.** A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order.
+
+## The view index
+
+`uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (a
+Resource whose metadata `views` maps each kind name to its scene's path), committed next to the game; the godot
+suite's `bake` step fails when it is stale. At the first session the host checks that every `View` member has a
+scene and every indexed kind is a `View` member (an error names each one).
 
 ## How it works
 
 - **Threads.** A session (single player = a host with no remote links; host; join) runs netcode's
-  `host_step`/`client_step` on its own thread. On macOS that thread uses the real-time (time-constraint) class
-  and sleeps until the next deadline. While a session runs, the process opts out of background throttling
-  (often a hosting player's game is in the background): on macOS, a user-initiated, latency-critical
-  NSProcessInfo activity (no App Nap, no idle system sleep); on Windows, `timeBeginPeriod(1)` (Sleep rounds
-  up to 15.6 ms without it) plus opting out of power throttling, since Windows 11 ignores a minimised
-  process's timer request. The netcode hooks run there:
-  - `sample` calls `Glue.poll_input` with the input atomics, or `scripted_input` in headless checks;
-  - `frame` feeds the predicted ticks' events to the tracker and publishes a Frame (`extract`);
-  - `verified` feeds the verified tick's events and confirms or cancels events;
-  - `status` posts the status.
+  `host_step` / `client_step` on its own thread (macOS: the real-time time-constraint class; while a session runs
+  the process opts out of background throttling: an NSProcessInfo activity on macOS, `timeBeginPeriod(1)` and no
+  power throttling on Windows). The netcode hooks run there: `sample` takes the main thread's newest Input (or
+  `scripted_input`); `commands` drains the command queue; `frame` feeds the re-simulated and new ticks' events to
+  the tracker and calls `fill_frame`, then publishes the Frame; `verified` confirms or cancels events; `status` and
+  `desync` post. Godot is only called from the main thread.
+- **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins), an SPSC message queue
+  (statuses, events; full: dropped, never blocking the sim), a command queue (64), and the input sample (a short
+  mutex, once a frame and once a tick).
+- **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
+  the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
+  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose, call
+  `_sim_update`), write each MultiMesh's buffer in one `set_buffer`, route events, then the dev UI (`dev.odin`;
+  `-define:UNIFIED_DEVUI=false` compiles it out, `src/devui/SPEC.md`). The screen runs one tick behind the newest
+  prediction and never extrapolates.
+- **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), on spawn and
+  then only for fields whose bytes changed, before `_sim_update`; values are the newest tick's. A view whose root
+  has no property for a data field is an error (reported once per kind and field).
+- **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's netsim is off,
+  through a `netcode.Net_Sim` while on.
+- **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread (a client's Leave is
+  acked within ~0.5 s, a host waits up to 3 s). A start during the goodbye waits and starts as soon as the old
+  session is gone (the goodbye cut to 1 s); a `leave` before that cancels it.
+- **Editor.** Classes register at SCENE level; nothing runs in the editor. Hot reload is editor-only. `deinitialize`
+  stops the session thread, then calls the transport's optional `shutdown`.
 
-  Godot is only called from the main thread.
-- **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node:
-  1. samples the InputMap actions into atomics (button presses accumulate until a tick takes them);
-  2. takes the newest Frame;
-  3. updates the scene views: spawn by key into `view_root`, push the poses of ticks P−1 and P into each view's
-     `view.Track`, sample with alpha and `Glue.smoothing`, set position and quaternion (2D: position and
-     rotation), call `_sim_update`;
-  4. writes each bulk view's MultiMesh buffer in one `set_buffer` (one pass over the items; interpolated, stride
-     from the MultiMesh's transform format and flags);
-  5. routes events (Events, above): each to its subject's view and to the `sim_event` signal;
-  6. draws the dev UI (`dev.odin`; `-define:UNIFIED_DEVUI=false` compiles it out, see `src/devui/SPEC.md`).
-- **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's Netsim panel is
-  off, through a `netcode.Net_Sim` (created on first enable) while on, drained after.
-- **Failures.** A transport's `fail(reason)` is the session's last status: no generic Failed follows it.
-- **Leave, then Host or Join.** `leave` asks the session to end; it says goodbye on its thread (a client's Leave
-  is acked within ~0.5 s, a host waits up to 3 s for its peers' acks). A start during the goodbye is accepted:
-  it waits and starts as soon as the old session is gone. The goodbye is cut to 1 s, and the old session's
-  last statuses and events are dropped. A `leave` before that cancels the waiting start.
-- **Editor.** Classes register at SCENE level and nothing runs in the editor. Hot reload is editor-only.
-  `deinitialize` stops the session thread, then calls the transport's optional `shutdown` (the survivor
-  releases EOS there: left initialized, the SDK crashed in its own threads at exit, ~2 exits in 3). macOS dev builds are versioned files behind a symlink, because dyld
-  never unloads an Odin dylib (thread-locals), so a same-path reload would keep the old code.
-- **Tests.** `tests/godot_host` runs the driver with the toy game, no Godot: single player (frames, one press
-  delivered once, confirmed events, result), transport failure (one Failed, its reason), transport open/stop/close,
-  and the Dev_Link switch. `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session
-  under headless Godot with fixed 2D and 3D items: typed and plain 2D scene views and a 3D one under a Node2D
-  view_root (position, rotation, `_sim_update`, a 2D `_sim_event` with the converted fields and the states), the MultiMesh
-  buffers of a typed 2D bulk view (colors and custom data, rotation on the shorter arc, scale per axis), a plain one
-  (stride 8) and a 3D one, typed scene data set as properties only when it changes, `sim_event` (fields, Vector2
-  positions, each event emitted then confirmed, the state constants), and `send_command`: the toy's commands reach the
-  sim once, in order, every field kind converted (read back through the HUD), and each refusal returns false with its
-  error line (the suite expects those lines and no others). Its extension doesn't link Box3D. Its
-  `session_check.gd`, on the same toy session, checks starting during a goodbye: leave then start single player,
-  leave then host on the same port, and a start cancelled by a second leave.
-- **Commands.** `uni build|run|editor <game>`; `uni test <game> --suite godot` steps `editor` and `session`.
-  `session` runs a scripted single-player session under headless Godot and compares its checksums with the offline
-  headless binary's.
+**Command-line flags** (after `--`): `--autostart` (single player at once), `--host-port N` (host directly on UDP
+port N), `--join host:port`, `--host-online`, `--join-code CODE`, `--local-net` (direct hosting listens on 127.0.0.1
+only), `--scripted` (scripted input and commands), `--ticks N`, `--seed N`, `--quit-at-end` (quit when the session
+ends, printing its result), `--devui` (the dev UI shown at start), `--lag MS` (the dev netsim on remote links: MS
+each way, a quarter of it jitter, 1% loss), `--bench N` (single player holds N entities, `Glue.bench`).
 
-## The demo games' side
+## Library tooling
 
-What this repo's demo games share on the Godot side (the app flow, settings, sounds, menus, HUD panels, their tool
-scripts) is demo-games code, not the library: `games/shared` (its SPEC.md), mirrored by `uni` into each game.
+`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there): `tool.gd`
+(`UnifiedTool`, the base of every tool script `uni tool` runs: the `UNIFIED_RESULT` line, the strict error and
+warning judgement, waits, real input events, screenshots, `--frames`) with `log_capture.gd` and `frame_log.gd`, and
+`validate.gd` (the godot suite's `validate` step: every script compiles with warnings as errors, every scene loads
+and instantiates, unknown `.tscn` properties, no `preload()` in the scripts the play scene loads (Godot 4.7 reports a
+resource first preloaded during a worker-thread load as leaked), the main scene runs; a game adds checks in
+`game/tools/validate.gd`, which extends it).
+
+## Tests
+
+`tests/godot_driver` runs the driver with the toy game and no Godot: frames, previous poses from the host's memory,
+one press delivered once, confirmed events, the result, transport failure, the Dev_Link switch.
+`tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session under headless Godot:
+`UnifiedView` scene views in 2D and 3D and a Control one (pose, `_sim_update`, data as properties only when it
+changes, a missing property's error), MultiMesh views (2D and 3D buffers, colors, custom data, rotation on the
+shorter arc, scale per axis), typed event classes in every state to the views and the signal, typed commands
+reaching the sim once with every field kind, the input sample and a latched press. Its `session_check.gd` checks
+starting during a goodbye. Each game's `godot` suite: `validate`, `walk`, `tour`, `session` (a headless Godot
+session's checksums equal the offline binary's), `editor`, `bake`.
 
 ## Open
 
 - F3 extras: snapshot, input log, net stats.
-- Typed `SimFrame` reads by reflection path for scripts.
-- Pooling scene views.
 - Real-time thread classes on Windows and Linux (to be measured).
-- Running-game hot reload (needs the shim design).
+- Running-game hot reload.

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" format=3]
+
+[resource]
+metadata/views = {
+"hud": "res://views/hud.tscn",
+"plain2d": "res://views/plain2d.tscn",
+"plain3d": "res://views/plain3d.tscn",
+"typed2d": "res://views/typed2d.tscn"
+}

@@ -1,5 +1,6 @@
-// UnifiedSession.send_command(name, args): a GDScript Dictionary becomes the game's command struct by RTTI
-// (no per-game glue), then goes to the session thread, which hands it to the client (driver.odin).
+// UnifiedSession.send_command(command): a command object (a class sim_classes.odin registered from the game's
+// command union) becomes the command's struct, then goes to the session thread, which hands it to the client
+// (driver.odin).
 package godot
 
 import "base:runtime"
@@ -9,74 +10,48 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
 
-// Main thread. False, with print_error naming what is wrong, for an unknown command, a missing or unknown
-// field, a value of the wrong type or out of range, no running session, or a full queue.
-send_command :: proc(name: string, args: ^gd.Dictionary) -> bool {
-	fail :: proc(name, msg: string) -> bool {
-		gd.print_error(fmt.tprintf("unified: send_command(&%q): %s", name, msg))
+// One kind of the game's command union.
+Command_Layout :: struct {
+	name: string, // the type name without `Cmd_`, lowercased ("drop")
+	type: ^runtime.Type_Info,
+}
+
+// The layouts of a game's command union, by kind (allocated for the process's lifetime).
+command_layouts :: proc(commands: typeid) -> []Command_Layout {
+	context.allocator = runtime.heap_allocator()
+	variants := sim.union_variants(commands)
+	layouts := make([]Command_Layout, len(variants))
+	for variant, kind in variants {
+		layouts[kind] = {
+			name = strings.clone(sim.variant_name(variant, sim.COMMAND_PREFIX)),
+			type = variant,
+		}
+	}
+	return layouts
+}
+
+// Main thread. False, with print_error naming what is wrong, for an object that is not one of the game's
+// commands, a property set to a wrong value, no running session, or a full queue.
+send_command :: proc(object: gd.Object) -> bool {
+	fail :: proc(msg: string) -> bool {
+		gd.print_error(fmt.tprintf("unified: send_command: %s", msg))
 		return false
 	}
-	if !api.installed do return fail(name, "no game is installed in this extension")
-	kind := -1
-	for command_name, i in api.command_names do if command_name == name do kind = i
-	if kind < 0 {
-		names := strings.join(api.command_names, ", ", context.temp_allocator)
-		return fail(name, fmt.tprintf("not one of the game's commands (%s)", names))
+	if !api.installed do return fail("no game is installed in this extension")
+	sim_class, instance := sim_class_of(object)
+	if sim_class == nil || sim_class.is_event {
+		return fail("not one of the game's commands (make one with its class: `var drop := Drop.new()`)")
 	}
-	type := sim.union_variants(api.commands)[kind]
-	bytes: [sim.COMMAND_MAX]u8
-	if err := dict_to_struct(type, bytes[:type.size], args); err != "" do return fail(name, err)
-	command, ok := sim.command_from_bytes(api.commands, kind, bytes[:type.size])
+	if instance.bad do return fail(fmt.tprintf("%s has a property set to a wrong value", sim_class.name))
+	command, ok := sim.command_from_bytes(api.commands_type, sim_class.kind, instance.data[:sim_class.type.size])
 	assert(ok)
-	if !api.running() do return fail(name, "no session is running")
-	if !api.send(command) do return fail(name, "too many commands are waiting for the session")
+	if !api.running() do return fail("no session is running")
+	if !api.send(command) do return fail("too many commands are waiting for the session")
 	return true
 }
 
-// Fills a command struct from a Dictionary of its field names. Fields named `_...` are explicit padding:
-// left zero, never given. Returns what is wrong ("" when nothing is).
-@(private)
-dict_to_struct :: proc(type: ^runtime.Type_Info, out: []u8, dict: ^gd.Dictionary) -> string {
-	struct_info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
-	if !is_struct do return fmt.tprintf("%v is not a struct", type.id)
-	fields := make([dynamic]string, 0, struct_info.field_count, context.temp_allocator)
-	for i in 0 ..< int(struct_info.field_count) {
-		if !strings.has_prefix(struct_info.names[i], "_") do append(&fields, struct_info.names[i])
-	}
-	field_list := strings.join(fields[:], ", ", context.temp_allocator)
-	keys := gd.Dictionary_keys(dict)
-	defer gd.Array_destroy(&keys)
-	for i in 0 ..< gd.array_len(&keys) {
-		given, ok := gd.from_variant(string, gd.array_at(&keys, i))
-		known := false
-		if ok do for field in fields do known ||= field == given
-		if !known {
-			return fmt.tprintf(
-				"unknown field %v (fields: %s)",
-				ok ? fmt.tprintf("%q", given) : "(not a name)",
-				field_list,
-			)
-		}
-	}
-	for i in 0 ..< int(struct_info.field_count) {
-		name := struct_info.names[i]
-		if strings.has_prefix(name, "_") do continue
-		key := gd.to_variant(name)
-		defer gdi.variant_destroy(&key)
-		if !gd.Dictionary_has(dict, key) do return fmt.tprintf("missing field %q (fields: %s)", name, field_list)
-		nil_variant := gd.variant_nil()
-		value := gd.Dictionary_get(dict, key, nil_variant)
-		defer gdi.variant_destroy(&value)
-		field_type := struct_info.types[i]
-		if err := write_value(field_type, out[struct_info.offsets[i]:][:field_type.size], &value); err != "" {
-			return fmt.tprintf("field %q: %s", name, err)
-		}
-	}
-	return ""
-}
-
 // One field: ints (range-checked), floats, bools, enums (a member's name, any case, or its value), bit_sets
-// (an Array of member names or values), [2]f32 / [3]f32 (Vector2 / Vector3).
+// (an Array of member names or values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color).
 @(private)
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
@@ -128,18 +103,22 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 		}
 		put_int(out, i64(bits))
 	case runtime.Type_Info_Array:
-		if info.elem.id != f32 || (info.count != 2 && info.count != 3) {
+		if info.elem.id != f32 || info.count < 2 || info.count > 4 {
 			return fmt.tprintf("unsupported field type %v", type.id)
 		}
-		xyz: [3]f32
-		if info.count == 2 {
+		xyz: [4]f32
+		if info.count == 4 {
+			if variant_type != .COLOR do return fmt.tprintf("want a Color, %s", got(variant_type))
+			color, _ := gd.from_variant(gd.Color, variant)
+			xyz = {color.r, color.g, color.b, color.a}
+		} else if info.count == 2 {
 			if variant_type != .VECTOR2 do return fmt.tprintf("want a Vector2, %s", got(variant_type))
 			vector, _ := gd.from_variant(gd.Vector2, variant)
 			xyz.xy = {vector.x, vector.y}
 		} else {
 			if variant_type != .VECTOR3 do return fmt.tprintf("want a Vector3, %s", got(variant_type))
 			vector, _ := gd.from_variant(gd.Vector3, variant)
-			xyz = {vector.x, vector.y, vector.z}
+			xyz.xyz = {vector.x, vector.y, vector.z}
 		}
 		copy(out, ([^]u8)(&xyz)[:4 * info.count])
 	case:

@@ -199,7 +199,8 @@ free_udp_port :: proc() -> int {
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may).
 suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 	Project :: struct {
-		dir, pkg, stem, script, summary, expected: string,
+		dir, pkg, stem, script, summary: string,
+		expected:                        []string,
 	}
 	root := cli.state.project.root
 	views := cli.join(root, "tests", "godot_views")
@@ -210,10 +211,17 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			"gdext_test",
 			"test.gd",
 			"GDEXT TESTS",
-			"",
+			nil,
 		},
-		{views, cli.join(views, "ext"), "views_test", "test.gd", "VIEWS TESTS", "unified: send_command("},
-		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", ""},
+		{
+			views,
+			cli.join(views, "ext"),
+			"views_test",
+			"test.gd",
+			"VIEWS TESTS",
+			{"unified: send_command: ", "unified: Mark.", `has no property "pad_check"`},
+		},
+		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", nil},
 	}
 	cli.ensure_bindings()
 	// The stale extensions build at once, then the three Godot runs go at once (the session check alone takes most
@@ -278,19 +286,21 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 		errs: [dynamic]string
 		append(&errs, ..cli.godot_errors(out))
 		append(&errs, ..cli.lines_with(out, "Orphan StringName", "leaked at exit"))
-		if p.expected != "" {
-			provoked := false
+		if len(p.expected) > 0 {
+			provoked := make([]bool, len(p.expected), context.temp_allocator)
 			kept: [dynamic]string
-			for e in errs {
-				if strings.contains(e, p.expected) {
-					provoked = true
-				} else {
-					append(&kept, e)
+			outer: for e in errs {
+				for expected, k in p.expected {
+					if strings.contains(e, expected) {
+						provoked[k] = true
+						continue outer
+					}
 				}
+				append(&kept, e)
 			}
 			errs = kept
-			if !provoked {
-				append(&errs, cli.tprint("no error line with %q: the test expects some", p.expected))
+			for expected, k in p.expected {
+				if !provoked[k] do append(&errs, cli.tprint("no error line with %q: the test expects some", expected))
 			}
 		}
 		for e in errs {

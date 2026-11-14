@@ -1,4 +1,4 @@
-// UnifiedSession: the GDScript-facing session node (contract v0, src/godot_host/SPEC.md).
+// UnifiedSession: the GDScript-facing session node (src/godot/SPEC.md).
 package godot
 
 import "core:fmt"
@@ -15,7 +15,6 @@ Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
 	view_root:   gd.Node, // a Node3D or Node2D (any Node): views are spawned as its children
 	root_id:     u64,
-	root_2d:     bool, // the last view_root set is a Node2D: event positions are Vector2s
 	seed:        i64,
 	ticks:       i64,
 	name:        string,
@@ -23,7 +22,7 @@ Session_Node :: struct {
 	detail:      string,
 	args:        Args,
 	args_read:   bool,
-	frame:       ^Frame, // newest frame taken this process step (valid until the next one)
+	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one)
 	last_tick:   u32,
 	quit_at_end: bool,
 	sync_us:     f32,
@@ -105,21 +104,14 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return session.ticks},
 		proc(session: ^Session_Node, value: i64) {session.ticks = value},
 	)
-	gd.bind_property(
-		class,
-		"view_root",
-		proc(session: ^Session_Node) -> gd.Node {
+	gd.bind_property(class, "view_root", proc(session: ^Session_Node) -> gd.Node {
 			if !alive(session.root_id) do return {}
 			return session.view_root
-		},
-		proc(session: ^Session_Node, node: gd.Node) {
+		}, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
-			// kept while view_root is cleared: a game's events stay Vector2s (2D) or Vector3s between scenes
-			if node.ptr != nil do session.root_2d = gd.object_cast(gd.Node2D, node, "Node2D").ptr != nil
 			views_root_changed()
-		},
-	)
+		})
 	gd.bind_method(
 		class,
 		"start_single",
@@ -150,34 +142,20 @@ register_session_class :: proc() {
 			if api.installed do api.stop()
 		},
 	)
-	gd.bind_method(class, "press_action", proc(session: ^Session_Node, action: string) {
-		button := button_index(action)
-		if button < 0 {
-			gd.print_warning(fmt.tprintf("unified: press_action(%q): not one of the game's button actions", action))
-			return
-		}
-		press_button(button)
-	}, {"action"})
 	gd.bind_method(
 		class,
 		"send_command",
-		proc(session: ^Session_Node, name: gd.StringName, args: gd.Dictionary) -> bool {
-			name, args := name, args
-			return send_command(gd.string_name_to_odin(&name), &args)
-		},
-		{"name", "args"},
+		proc(session: ^Session_Node, command: gd.Object) -> bool {return send_command(command)},
+		{"command"},
 	)
-	gd.bind_method(class, "set_input_vector", proc(session: ^Session_Node, index: i64, vector: gd.Vector3) {
-		set_input_vector(int(index), {vector.x, vector.y, vector.z})
-	}, {"index", "vector"})
-	gd.bind_method(class, "set_input_vector_2d", proc(session: ^Session_Node, index: i64, vector: gd.Vector2) {
-		set_input_vector(int(index), {vector.x, vector.y, 0})
-	}, {"index", "vector"})
+	gd.bind_method(class, "set_input_value", proc(session: ^Session_Node, name: gd.StringName, value: gd.Variant) {
+		name, value := name, value
+		set_input_value(gd.string_name_to_odin(&name), input_value_of(&value))
+	}, {"name", "value"})
 	gd.bind_method(class, "set_player_name", proc(session: ^Session_Node, name: string) {
 		delete(session.name)
 		session.name = strings.clone(name)
 	}, {"name"})
-	gd.bind_method(class, "hud", session_hud)
 	gd.bind_method(class, "constants", session_constants)
 	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
 	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
@@ -187,7 +165,7 @@ register_session_class :: proc() {
 	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
 	gd.bind_signal(class, "lobby_code", {"code", string})
 	gd.bind_signal(class, "desync", {"tick", i64}, {"detail", string})
-	gd.bind_signal(class, "sim_event", {"event", gd.StringName}, {"state", i64}, {"data", gd.Dictionary})
+	gd.bind_signal(class, "sim_event", {"event", gd.RefCounted}, {"state", i64})
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
 }
 
@@ -288,6 +266,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 		}
 		request.content = level
 	}
+	views_check_index()
 	ok, err := api.start(request)
 	if !ok {
 		emit_status(session, .Failed, err)
@@ -345,7 +324,8 @@ emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string)
 session_process :: proc(session: ^Session_Node, dt: f64) {
 	if is_editor() || active != session do return
 	dev_begin()
-	sample_input(dev_wants_keyboard())
+	input_sample_begin(dev_wants_keyboard())
+	if api.installed do api.sample_input()
 	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
 	started := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
@@ -396,20 +376,23 @@ drain_messages :: proc(session: ^Session_Node) {
 	}
 }
 
-// An event in one of its states (EVENT_EMITTED, then EVENT_CONFIRMED or EVENT_CANCELLED), with its fields as a
-// Dictionary (events.odin) plus `tick`: to the subject's view (_sim_event(event, state, data)), then to the
-// sim_event signal, in the order the ticks emitted them.
+// An event in one of its states (EVENT_EMITTED, then EVENT_CONFIRMED or EVENT_CANCELLED), as an object of its
+// class (sim_classes.odin): to the subject's view (_sim_event(event, state)), then to the sim_event signal, in the
+// order the ticks emitted them.
 @(private)
 route_event :: proc(session: ^Session_Node, message: Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
-	data := event_dictionary(layout, raw.data[:raw.size], session.root_2d)
-	defer gd.Dictionary_destroy(&data)
-	gd.dict_set(&data, "tick", i64(message.tick))
+	event := new_event_object(int(raw.kind), message.tick, raw.data[:raw.size])
+	if event.ptr == nil do return // its class failed to register (an error said why)
+	// the Variant holds a reference and ours goes: the event is freed with the Variant unless a script kept it
+	held := gd.variant_from_any(event)
+	defer gd.variant_destroy(&held)
+	gd.unref(transmute(gd.RefCounted)event)
 	state := i64(message.action)
-	views_event(layout, &raw, state, &data)
-	gd.emit_signal(session.obj, gd.sn("sim_event"), gd.sn(layout.name)^, state, data)
+	views_event(layout, &raw, state, held)
+	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
 	if message.action == .Confirmed {
 		player, entity := event_subject(layout, raw.data[:raw.size])
 		dev_log(
@@ -422,12 +405,25 @@ route_event :: proc(session: ^Session_Node, message: Message) {
 	}
 }
 
+// set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.
 @(private)
-session_hud :: proc(session: ^Session_Node) -> gd.Dictionary {
-	dict := gd.dict_new()
-	// before the first frame the game fills every contract key with its empty value
-	if api.installed && api.hud != nil do api.hud(session.frame, &dict)
-	return dict
+input_value_of :: proc(value: ^gd.Variant) -> [3]f32 {
+	#partial switch gd.variant_type(value) {
+	case .VECTOR3:
+		vector, _ := gd.from_variant(gd.Vector3, value)
+		return {vector.x, vector.y, vector.z}
+	case .VECTOR2:
+		vector, _ := gd.from_variant(gd.Vector2, value)
+		return {vector.x, vector.y, 0}
+	case .FLOAT, .INT:
+		number, _ := gd.from_variant(f64, value)
+		return {f32(number), 0, 0}
+	case .BOOL:
+		flag, _ := gd.from_variant(bool, value)
+		return {flag ? 1 : 0, 0, 0}
+	}
+	gd.print_error("unified: set_input_value: want a Vector3, Vector2, float, int or bool")
+	return {}
 }
 
 // The game's constants for scripts (Glue.constants) plus `tick_hz`.

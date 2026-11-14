@@ -118,8 +118,8 @@ when DEVUI {
 			devui.stat(
 				"views",
 				"%d scene   %d multimesh   sync %.0f µs",
-				frame.n_scene,
-				frame.n_bulk,
+				frame.n_views,
+				frame.n_multis,
 				session.sync_us,
 			)
 			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
@@ -164,7 +164,7 @@ when DEVUI {
 	}
 
 	@(private)
-	dev_sim_graphs :: proc(frame: ^Frame, dt: f64) {
+	dev_sim_graphs :: proc(frame: ^Frame_Data, dt: f64) {
 		net := frame.net
 		prev := dev.net
 		if !dev.have_net || net.steps[0] < prev.steps[0] || net.bytes_in < prev.bytes_in { 	// a new session

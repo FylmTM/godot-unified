@@ -1,13 +1,12 @@
 extends Node3D
 
-var kind := &""
-var entity := 0
-var player := -1
+@onready var marker: UnifiedView = $UnifiedView
 var updates := 0
-var last_position = null
+var last_position := Vector3.INF
 var last_yaw := 0.0
 
-func _sim_update(position: Vector3, yaw: float, alpha: float) -> void:
+
+func _sim_update(position: Vector3, yaw: float, _alpha: float) -> void:
 	updates += 1
 	last_position = position
 	last_yaw = yaw

@@ -187,7 +187,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 	case runtime.Type_Info_Boolean:
 		return gd.to_variant(bytes[0] != 0)
 	case runtime.Type_Info_Enum:
-		return gd.to_variant(enum_name(info, read_uint(bytes), type.size))
+		return gd.variant_string_name(enum_name(info, read_uint(bytes), type.size))
 	case runtime.Type_Info_Bit_Set:
 		bits := read_uint(bytes)
 		array := gd.array_new()

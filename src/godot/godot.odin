@@ -1,22 +1,20 @@
-// godot_host: everything that touches Godot for a game built on unified. A game's GDExtension entry calls
-// `install` with its sim.Game and a Glue (the game-specific mapping from its State to views, HUD and input),
-// and registers these classes:
+// unified:godot: everything that touches Godot for a game built on unified (src/godot/SPEC.md). A game's GDExtension
+// entry calls `install` with its sim.Game and a Glue (how Godot's input becomes its Input, and its State views),
+// then `entry`, which registers:
 //
-//   UnifiedSession (Node)                 one per app (an autoload's child): runs a session (single player,
-//                                         host, join) on our own thread, samples input, syncs the views at
-//                                         process priority -1000, routes events, hosts the dev UI.
-//   SimView (Node3D), SimView2D (Node2D)  optional typed root for a view scene (`<Glue.scene_dir>/<kind>.tscn`);
-//                                         plain Node3D / Node2D roots with script properties kind/entity/slot
-//                                         work too.
-//   SimBulkView (MultiMeshInstance3D),    optional typed bulk views; plain MultiMeshInstance3D / 2D nodes in
-//   SimBulkView2D (MultiMeshInstance2D)   group `sim_bulk` with a script property `kind` work too.
+//   UnifiedSession (Node)       one per app: runs a session (single player, host, join) on its own thread, samples
+//                               input, syncs the views at process priority -1000, routes events, hosts the dev UI.
+//   UnifiedView (Node)          the marker of a scene view's scene (a direct child of its root).
+//   UnifiedMultiView (Node)     the marker under a MultiMeshInstance3D / 2D the host fills.
+//   UnifiedEvent, UnifiedCommand (RefCounted) and a class per kind of the game's event and command unions.
 //
 // Threads: the session thread (macOS: the real-time thread class) is the only one that touches the sim; it
-// publishes Frames through a triple buffer and events/status through SPSC queues. Godot is called only from
-// the main thread. Nothing runs in the editor (extension classes run there like @tool scripts).
+// publishes Frames through a triple buffer and events/status through SPSC queues. Godot is called only from the
+// main thread. Nothing runs in the editor (extension classes run there like @tool scripts).
 //
-// Files: glue.odin (what a game provides, the Frame), driver.odin (the generic session driver), session.odin
-// (UnifiedSession), views.odin (scene and bulk views), input.odin (InputMap sampling), platform.odin.
+// Files: glue.odin (what a game provides, the Frame), driver.odin (the generic session driver), poses.odin (the
+// previous poses), session.odin (UnifiedSession), views.odin (views and markers), sim_classes.odin (event and
+// command classes), command.odin, events.odin, input.odin, docs.odin (the editor's help), platform*.odin.
 package godot
 
 import "base:runtime"
@@ -32,8 +30,8 @@ BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 //   @(export, link_name = "survivor_init")
 //   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
 //       context = runtime.default_context()
-//       godot_host.install(&survivor.GAME, glue())
-//       return godot_host.entry(get_proc_address, library, init)
+//       godot.install(&survivor.GAME, GLUE)
+//       return godot.entry(get_proc_address, library, init)
 //   }
 entry :: proc(
 	get_proc_address: gdi.InterfaceGetProcAddress,
@@ -49,6 +47,12 @@ entry :: proc(
 
 @(private)
 on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
+	if level == .INITIALIZATION_EDITOR {
+		context = runtime.default_context()
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+		load_docs()
+		return
+	}
 	if level != .INITIALIZATION_SCENE do return
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
@@ -74,6 +78,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	app_version = ""
 	if transport != nil && transport.shutdown != nil do transport.shutdown(transport.user)
 	unregister_classes()
+	input_clear()
 	gd.shutdown()
 }
 
