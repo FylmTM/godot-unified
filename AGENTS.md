@@ -49,6 +49,9 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 - CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
+- **Never disturb the developer's main screen.** Any game or editor window an agent opens (to look at it or as a
+  check) starts muted on the leftmost screen: `--mute --screen left` (`run`, `editor`, `tool --window`,
+  `coop --window`; the `godot-game` skill).
 
 ## The board
 
