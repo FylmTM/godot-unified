@@ -5,29 +5,29 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-tick :: proc(game: ^Tick) {
-	state, world := game.state, game.world
-	presence(game)
-	commands(game)
+tick :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
+	presence(tick)
+	commands(tick)
 	for player in 0 ..< PLAYERS {
-		if state.ships[player].active do pilot(game, player)
+		if state.ships[player].active do pilot(tick, player)
 	}
 	physics.set_velocity_2d(world.phys, state.station, {}, state.phase == .Over ? 0 : STATION_SPIN)
 	physics.step(world.phys, DT, 4)
-	move_bullets(game)
-	update_rocks(game)
-	warp_ships(game)
-	update_gems(game)
-	if state.phase == .Match do spawn_waves(game)
-	advance_phase(game)
+	move_bullets(tick)
+	update_rocks(tick)
+	warp_ships(tick)
+	update_gems(tick)
+	if state.phase == .Match do spawn_waves(tick)
+	advance_phase(tick)
 }
 
 // ---- presence and commands
 
-presence :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+presence :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	for player in 0 ..< PLAYERS {
-		here := player in game.inputs.present
+		here := player in tick.inputs.present
 		ship := &state.ships[player]
 		if here == ship.active do continue
 		if here {
@@ -35,33 +35,33 @@ presence :: proc(game: ^Tick) {
 				active = true,
 			}
 			create_ship(state, world, player)
-			sim.emit(game, Joined{position = position_of(world.spawns[player]), player = u8(player)})
+			sim.emit(tick, Joined{position = position_of(world.spawns[player]), player = u8(player)})
 		} else {
 			physics.destroy_body(world.phys, &ship.body)
 			ship^ = {}
-			sim.emit(game, Left{player = u8(player)})
+			sim.emit(tick, Left{player = u8(player)})
 		}
 	}
 }
 
-commands :: proc(game: ^Tick) {
-	state := game.state
+commands :: proc(tick: ^Tick) {
+	state := tick.state
 	for player in 0 ..< PLAYERS {
-		for &raw in sim.commands(game.inputs, player) {
+		for &raw in sim.commands(tick.inputs, player) {
 			switch _ in sim.command_value(&raw, Command) {
 			case Cmd_Start:
 				if state.phase == .Lobby {
 					state.phase = .Match
-					state.match_tick = game.number
-					state.next_wave_tick = game.number
+					state.match_tick = tick.number
+					state.next_wave_tick = tick.number
 					state.waves = 0
 					state.rocks_left = 0
 					state.score = 0
 					state.matches += 1
-					sim.emit(game, Match_Started{player = u8(player)})
+					sim.emit(tick, Match_Started{player = u8(player)})
 				}
 			case Cmd_Restart:
-				if state.phase == .Over do reset(state, game.world)
+				if state.phase == .Over do reset(state, tick.world)
 			}
 		}
 	}
@@ -69,10 +69,10 @@ commands :: proc(game: ^Tick) {
 
 // ---- ships: the player's input flies their ship
 
-pilot :: proc(game: ^Tick, player: int) {
-	state, world := game.state, game.world
+pilot :: proc(tick: ^Tick, player: int) {
+	state, world := tick.state, tick.world
 	ship := &state.ships[player]
-	input := &game.inputs.input[player]
+	input := &tick.inputs.input[player]
 	pos, heading := physics.pose_2d(world.phys, ship.body)
 	vel, _ := physics.velocity_2d(world.phys, ship.body)
 	mass := physics.mass(world.phys, ship.body)
@@ -100,7 +100,7 @@ pilot :: proc(game: ^Tick, player: int) {
 	if input.buttons & BUTTON_BOOST != 0 && ship.boost_cooldown == 0 {
 		physics.apply_impulse_2d(world.phys, ship.body, heading * (BOOST_SPEED * mass))
 		ship.boost_cooldown = BOOST_COOLDOWN_TICKS
-		sim.emit(game, Boosted{position = position_of(pos), player = u8(player)})
+		sim.emit(tick, Boosted{position = position_of(pos), player = u8(player)})
 	}
 	if input.buttons & BUTTON_FIRE != 0 && ship.fire_cooldown == 0 {
 		ship.fire_cooldown = FIRE_EVERY_TICKS
@@ -113,7 +113,7 @@ pilot :: proc(game: ^Tick, player: int) {
 				owner = u8(player),
 			}
 			ship.shots += 1
-			sim.emit(game, Fired{position = position_of(muzzle), player = u8(player)})
+			sim.emit(tick, Fired{position = position_of(muzzle), player = u8(player)})
 		}
 	}
 }
@@ -125,8 +125,8 @@ BULLET_QUERY :: physics.Query {
 	mask     = CAT_STATIC | CAT_ROCK | CAT_STATION,
 }
 
-move_bullets :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+move_bullets :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	bullets := sim.iterate(&state.bullets)
 	for bullet, handle in sim.next(&bullets) {
 		step := bullet.vel * DT
@@ -137,11 +137,11 @@ move_bullets :: proc(game: ^Tick) {
 				rock := &state.rocks.items[rock_index]
 				if sim.alive(&state.rocks, rock_index) && rock.hp > 0 {
 					rock.hp -= 1
-					rock.hit_tick = game.number
+					rock.hit_tick = tick.number
 					direction := dmath.normalize2(bullet.vel)
 					physics.apply_impulse_2d(world.phys, rock.body, direction * BULLET_PUSH)
 					sim.emit(
-						game,
+						tick,
 						Rock_Hit {
 							rock = sim.handle(&state.rocks, rock_index),
 							position = sim.Position(hit.point),
@@ -162,8 +162,8 @@ move_bullets :: proc(game: ^Tick) {
 
 // ---- rocks: splits, the station
 
-update_rocks :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+update_rocks :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	station, _ := physics.pose_2d(world.phys, state.station)
 	// one pass over the slots in use now: a split's rocks that reuse a free slot ahead of the walk are visited
 	// this tick, the ones past the high water mark (where the walk started it) the next
@@ -178,7 +178,7 @@ update_rocks :: proc(game: ^Tick) {
 		   dmath.dist_sq2(pos, station) < (STATION_RADIUS + radius) * (STATION_RADIUS + radius) {
 			damage := ROCK_STATION_DAMAGE[rock.size]
 			if state.phase == .Match do state.station_hp = max(state.station_hp - damage, 0)
-			sim.emit(game, Station_Hit{position = position_of(pos), damage = damage, size = rock.size})
+			sim.emit(tick, Station_Hit{position = position_of(pos), damage = damage, size = rock.size})
 			kill_rock(state, world, handle)
 			continue
 		}
@@ -187,18 +187,18 @@ update_rocks :: proc(game: ^Tick) {
 		vel, spin := physics.velocity_2d(world.phys, rock.body)
 		kill_rock(state, world, handle)
 		if size == .Small {
-			sim.emit(game, Rock_Destroyed{rock = handle, position = position_of(pos), size = size})
+			sim.emit(tick, Rock_Destroyed{rock = handle, position = position_of(pos), size = size})
 			state.gems_dropped += 1
 			if state.gems_dropped % 2 == 1 {
 				if gem, _, ok := sim.spawn(&state.gems); ok do gem^ = {
 					pos        = pos,
 					vel        = vel * 0.3,
-					spawn_tick = game.number,
+					spawn_tick = tick.number,
 				}
 			}
 			continue
 		}
-		sim.emit(game, Rock_Split{rock = handle, position = position_of(pos), size = size})
+		sim.emit(tick, Rock_Split{rock = handle, position = position_of(pos), size = size})
 		child := Rock_Size(u8(size) - 1)
 		direction := dmath.normalize2(vel)
 		if direction == {} do direction = {1, 0}
@@ -224,8 +224,8 @@ kill_rock :: proc(state: ^State, world: ^World, handle: sim.Handle(Rock)) {
 
 // ---- gates
 
-warp_ships :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+warp_ships :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	for gate in 0 ..< world.gate_count {
 		if state.gates[gate].charge > 0 do state.gates[gate].charge -= 1
 	}
@@ -245,7 +245,7 @@ warp_ships :: proc(game: ^Tick) {
 			state.gates[gate_def.pair].charge = GATE_CHARGE_TICKS
 			ship.gate_cooldown = GATE_CHARGE_TICKS
 			sim.emit(
-				game,
+				tick,
 				Warped {
 					position = position_of(to),
 					player = u8(player),
@@ -260,8 +260,8 @@ warp_ships :: proc(game: ^Tick) {
 
 // ---- gems
 
-update_gems :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+update_gems :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	ship_pos: [PLAYERS][2]f32
 	for player in 0 ..< PLAYERS {
 		if state.ships[player].active do ship_pos[player], _ = physics.pose_2d(world.phys, state.ships[player].body)
@@ -276,26 +276,26 @@ update_gems :: proc(game: ^Tick) {
 			state.ships[player].gems += 1
 			state.score += 1
 			state.station_hp = min(state.station_hp + GEM_REPAIR, STATION_HP)
-			sim.emit(game, Gem_Picked{position = position_of(gem.pos), player = u8(player)})
+			sim.emit(tick, Gem_Picked{position = position_of(gem.pos), player = u8(player)})
 			sim.despawn(&state.gems, handle)
 			continue each_gem
 		}
-		if game.number - gem.spawn_tick >= GEM_LIFE_TICKS do sim.despawn(&state.gems, handle)
+		if tick.number - gem.spawn_tick >= GEM_LIFE_TICKS do sim.despawn(&state.gems, handle)
 	}
 }
 
 // ---- waves: one stream of numbers (the state's Rng) generates them in order
 
-spawn_waves :: proc(game: ^Tick) {
-	state, world := game.state, game.world
-	if game.number >= state.next_wave_tick {
+spawn_waves :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
+	if tick.number >= state.next_wave_tick {
 		state.rocks_left += 3 + 2 * u32(state.waves)
 		state.waves += 1
-		state.next_wave_tick = game.number + WAVE_EVERY_TICKS
-		state.next_rock_tick = game.number
-		sim.emit(game, Wave{wave = state.waves})
+		state.next_wave_tick = tick.number + WAVE_EVERY_TICKS
+		state.next_rock_tick = tick.number
+		sim.emit(tick, Wave{wave = state.waves})
 	}
-	if state.rocks_left == 0 || game.number < state.next_rock_tick do return
+	if state.rocks_left == 0 || tick.number < state.next_rock_tick do return
 	spawner := &world.spawners[state.spawner % u32(world.spawner_count)]
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(state.waves - 1)
 	// a little spread: the drift direction turned by up to ±0.25 rad (a small-angle rotation, renormalised)
@@ -307,15 +307,15 @@ spawn_waves :: proc(game: ^Tick) {
 		state.spawner += 1
 		state.rocks_left -= 1
 	}
-	state.next_rock_tick = game.number + ROCK_EVERY_TICKS
+	state.next_rock_tick = tick.number + ROCK_EVERY_TICKS
 }
 
 // ---- phases
 
-advance_phase :: proc(game: ^Tick) {
-	state := game.state
-	if game.inputs.present == {} {
-		if state.phase != .Lobby do reset(state, game.world)
+advance_phase :: proc(tick: ^Tick) {
+	state := tick.state
+	if tick.inputs.present == {} {
+		if state.phase != .Lobby do reset(state, tick.world)
 		return
 	}
 	switch state.phase {
@@ -323,11 +323,11 @@ advance_phase :: proc(game: ^Tick) {
 	case .Match:
 		if state.station_hp <= 0 {
 			state.phase = .Over
-			state.over_tick = game.number
-			sim.emit(game, Match_Over{seconds_survived = f32(game.number - state.match_tick) * DT})
+			state.over_tick = tick.number
+			sim.emit(tick, Match_Over{seconds_survived = f32(tick.number - state.match_tick) * DT})
 		}
 	case .Over:
-		if game.number - state.over_tick >= OVER_HOLD_TICKS do reset(state, game.world)
+		if tick.number - state.over_tick >= OVER_HOLD_TICKS do reset(state, tick.world)
 	}
 }
 

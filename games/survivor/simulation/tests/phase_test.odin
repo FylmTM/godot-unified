@@ -24,7 +24,7 @@ damage_players :: proc(simulation: ^survivor.Sim, amount: i32, players: ..int) {
 		type = survivor.Event,
 	}
 	defer delete(events.list)
-	game := survivor.Tick {
+	tick := survivor.Tick {
 		state  = &simulation.state,
 		world  = simulation.world,
 		number = simulation.tick,
@@ -32,7 +32,7 @@ damage_players :: proc(simulation: ^survivor.Sim, amount: i32, players: ..int) {
 		events = &events,
 	}
 	for player in players {
-		survivor.damage_player(&game, player, amount)
+		survivor.damage_player(&tick, player, amount)
 	}
 }
 

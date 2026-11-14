@@ -117,23 +117,23 @@ GAME := Game {
 	commands = Command,
 }
 
-tick :: proc(game: ^Tick) {
-	state := game.state
-	game.world.ticks_run += 1
+tick :: proc(tick: ^Tick) {
+	state := tick.state
+	tick.world.ticks_run += 1
 	for player in 0 ..< PLAYERS {
-		here := player in game.inputs.present
+		here := player in tick.inputs.present
 		if here != state.joined[player] {
 			state.joined[player] = here
 			if here {
-				sim.emit(game, Joined{player = u8(player)})
+				sim.emit(tick, Joined{player = u8(player)})
 			} else {
-				sim.emit(game, Left{player = u8(player)})
+				sim.emit(tick, Left{player = u8(player)})
 			}
 		}
 		if !here {
 			continue
 		}
-		for &raw in sim.commands(game.inputs, player) {
+		for &raw in sim.commands(tick.inputs, player) {
 			switch command in sim.command_value(&raw, Command) {
 			case Cmd_Bump:
 				state.bumps[player] += 1
@@ -144,7 +144,7 @@ tick :: proc(game: ^Tick) {
 				state.last_mark[player] = command
 			}
 		}
-		input := game.inputs.input[player]
+		input := tick.inputs.input[player]
 		state.pos[player].x += f32(input.dx) / 64
 		state.pos[player].y += f32(input.dy) / 64
 		if input.buttons & 1 != 0 && state.things.count < 32 {
@@ -154,7 +154,7 @@ tick :: proc(game: ^Tick) {
 			thing.owner = i32(player)
 			state.spawned += 1
 			sim.emit(
-				game,
+				tick,
 				Spawned {
 					thing = handle,
 					position = {thing.pos.x, 0, thing.pos.y},
@@ -169,7 +169,7 @@ tick :: proc(game: ^Tick) {
 		thing.life -= 1
 		if thing.life <= 0 {
 			state.score[thing.owner] += 1
-			sim.emit(game, Expired{thing = handle})
+			sim.emit(tick, Expired{thing = handle})
 			sim.despawn(&state.things, handle)
 		}
 	}

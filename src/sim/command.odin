@@ -20,7 +20,7 @@ Raw_Command :: struct {
 
 // The commands `player` sent for this tick, in the order sent. Read inside `tick`:
 //
-//   for &raw in sim.commands(game.inputs, player) {
+//   for &raw in sim.commands(tick.inputs, player) {
 //       switch command in sim.command_value(&raw, Command) {
 //       case Cmd_Set_Map: ...
 //       }

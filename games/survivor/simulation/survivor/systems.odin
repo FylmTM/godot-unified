@@ -35,27 +35,27 @@ ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
 }
 
 // One tick (game.number = the tick being computed): systems 1-12.
-tick :: proc(game: ^Tick) {
-	state, world, now := game.state, game.world, game.number
-	sys_players(game)
-	sys_levelup(state, game.inputs)
+tick :: proc(tick: ^Tick) {
+	state, world, now := tick.state, tick.world, tick.number
+	sys_players(tick)
+	sys_levelup(state, tick.inputs)
 	sys_spawner(state, now)
 	sys_enemies(state, world, now)
-	sys_contact(game)
+	sys_contact(tick)
 	sys_attack(state)
 	sys_projectiles(state, world, now)
-	sys_barrels(game)
-	sys_deaths(game)
+	sys_barrels(tick)
+	sys_deaths(tick)
 	physics.step(world.phys, DT, SUBSTEPS)
 	read_back(state, world)
-	sys_phase(game)
+	sys_phase(tick)
 }
 
 // 12. Phases: lobby -> match when a player leaves the start circle; match -> over when every
 // present player is dead at once (or nobody is present); over -> lobby (world reset) after the hold.
 @(private)
-sys_phase :: proc(game: ^Tick) {
-	state, now := game.state, game.number
+sys_phase :: proc(tick: ^Tick) {
+	state, now := tick.state, tick.number
 	present, alive := 0, 0
 	for &character in state.players {
 		present += int(character.active)
@@ -73,30 +73,30 @@ sys_phase :: proc(game: ^Tick) {
 				state.wave = 0
 				state.circle_radius = 0
 				state.matches += 1
-				sim.emit(game, Match_Started{position = sim.Position(pos), player = u8(player)})
+				sim.emit(tick, Match_Started{position = sim.Position(pos), player = u8(player)})
 				break
 			}
 		}
 	case .Match:
 		state.wave = (now - state.match_tick) / tuning(state).wave_ticks
 		if present == 0 {
-			reset_world(game)
+			reset_world(tick)
 		} else if alive == 0 && !state.endless {
 			state.phase = .Over
 			state.over_tick = now
-			sim.emit(game, Match_Over{duration_s = f32(now - state.match_tick) * DT})
+			sim.emit(tick, Match_Over{duration_s = f32(now - state.match_tick) * DT})
 		}
 	case .Over:
 		if now - state.over_tick >= OVER_HOLD_TICKS {
-			reset_world(game)
+			reset_world(tick)
 		}
 	}
 }
 
 // Back to the lobby: every dynamic body is destroyed and rebuilt in creation order (items, then
 // present players at their start spots with fresh progress); enemies, projectiles and gems go.
-reset_world :: proc(game: ^Tick) {
-	state, world := game.state, game.world
+reset_world :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
 	for &item in state.items {
 		destroy_body(world, &item.body)
 	}
@@ -110,7 +110,7 @@ reset_world :: proc(game: ^Tick) {
 		player_reset_stats(state, player)
 		if state.players[player].active {
 			player_spawn(state, world, player)
-			sim.emit(game, Player_Respawned{position = sim.Position(state.players[player].pos), player = u8(player)})
+			sim.emit(tick, Player_Respawned{position = sim.Position(state.players[player].pos), player = u8(player)})
 		}
 	}
 	state.enemies = {}
@@ -125,8 +125,8 @@ reset_world :: proc(game: ^Tick) {
 
 // 1. Players: join, respawn, movement and dash.
 @(private)
-sys_players :: proc(game: ^Tick) {
-	state, world, inputs := game.state, game.world, game.inputs
+sys_players :: proc(tick: ^Tick) {
+	state, world, inputs := tick.state, tick.world, tick.inputs
 	for player in 0 ..< PLAYERS {
 		character := &state.players[player]
 		input := inputs.input[player]
@@ -134,9 +134,9 @@ sys_players :: proc(game: ^Tick) {
 		if present != character.active {
 			if present {
 				player_activate(state, world, player)
-				sim.emit(game, Player_Joined{position = sim.Position(character.pos), player = u8(player)})
+				sim.emit(tick, Player_Joined{position = sim.Position(character.pos), player = u8(player)})
 			} else {
-				sim.emit(game, Player_Left{position = sim.Position(character.pos), player = u8(player)})
+				sim.emit(tick, Player_Left{position = sim.Position(character.pos), player = u8(player)})
 				player_deactivate(state, world, player)
 			}
 		}
@@ -157,7 +157,7 @@ sys_players :: proc(game: ^Tick) {
 				continue
 			}
 			player_spawn(state, world, player)
-			sim.emit(game, Player_Respawned{position = sim.Position(character.pos), player = u8(player)})
+			sim.emit(tick, Player_Respawned{position = sim.Position(character.pos), player = u8(player)})
 		}
 		if pressed && character.dash_cooldown == 0 {
 			character.dash_ticks = DASH_TICKS
@@ -407,31 +407,31 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 }
 
 // Damages an alive player; at HP <= 0 it dies (body destroyed, respawn timer set).
-damage_player :: proc(game: ^Tick, player: int, amount: i32) {
-	character := &game.state.players[player]
+damage_player :: proc(tick: ^Tick, player: int, amount: i32) {
+	character := &tick.state.players[player]
 	if !character.alive {
 		return
 	}
 	character.hp -= amount
 	if character.hp <= 0 {
-		player_dies(game, player)
+		player_dies(tick, player)
 	}
 }
 
 @(private)
-player_dies :: proc(game: ^Tick, player: int) {
-	character := &game.state.players[player]
-	sim.emit(game, Player_Died{position = sim.Position(character.pos), player = u8(player)})
+player_dies :: proc(tick: ^Tick, player: int) {
+	character := &tick.state.players[player]
+	sim.emit(tick, Player_Died{position = sim.Position(character.pos), player = u8(player)})
 	character.alive = false
 	character.respawn = RESPAWN_TICKS
 	character.dash_ticks = 0
-	destroy_body(game.world, &character.body)
+	destroy_body(tick.world, &character.body)
 }
 
 // 5. Contact damage, one hit per enemy per 30 ticks.
 @(private)
-sys_contact :: proc(game: ^Tick) {
-	state := game.state
+sys_contact :: proc(tick: ^Tick) {
+	state := tick.state
 	enemies := sim.iterate(&state.enemies)
 	for enemy in sim.next(&enemies) {
 		if enemy.contact_cooldown > 0 {
@@ -450,7 +450,7 @@ sys_contact :: proc(game: ^Tick) {
 				character.hp -= enemy.damage
 				enemy.contact_cooldown = CONTACT_COOLDOWN_TICKS
 				if character.hp <= 0 {
-					player_dies(game, player)
+					player_dies(tick, player)
 				}
 				break
 			}
@@ -569,8 +569,8 @@ sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
 
 // 8. Barrels: respawn due barrels, then explode barrels at HP <= 0 in barrel order.
 @(private)
-sys_barrels :: proc(game: ^Tick) {
-	state, world, now := game.state, game.world, game.number
+sys_barrels :: proc(tick: ^Tick) {
+	state, world, now := tick.state, tick.world, tick.number
 	for i in 0 ..< ITEM_COUNT {
 		item := &state.items[i]
 		if item.kind == .Barrel && !item.alive && item.respawn_tick == now {
@@ -618,12 +618,12 @@ sys_barrels :: proc(game: ^Tick) {
 			if dx * dx + dz * dz < 9 {
 				character.hp -= 15
 				if character.hp <= 0 {
-					player_dies(game, player)
+					player_dies(tick, player)
 				}
 			}
 		}
 		destroy_body(world, &item.body)
-		sim.emit(game, Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
+		sim.emit(tick, Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
 		item.alive = false
 		item.respawn_tick = now + BARREL_RESPAWN_TICKS
 		state.explosions += 1
@@ -658,8 +658,8 @@ explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
 
 // 9. Deaths, gems, XP and level thresholds.
 @(private)
-sys_deaths :: proc(game: ^Tick) {
-	state, now := game.state, game.number
+sys_deaths :: proc(tick: ^Tick) {
+	state, now := tick.state, tick.number
 	enemies := sim.iterate(&state.enemies)
 	for enemy, handle in sim.next(&enemies) {
 		if enemy.hp > 0 {
@@ -667,7 +667,7 @@ sys_deaths :: proc(game: ^Tick) {
 		}
 		pos := enemy.pos
 		xp := ENEMY_STATS[enemy.kind].xp
-		sim.emit(game, Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, kind = enemy.kind})
+		sim.emit(tick, Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, kind = enemy.kind})
 		sim.despawn(&state.enemies, handle)
 		state.kills += 1
 		if gem, _, ok := sim.spawn(&state.gems); ok {
@@ -690,7 +690,7 @@ sys_deaths :: proc(game: ^Tick) {
 			if dx * dx + dz * dz < 2.25 {
 				character.xp += gem.value
 				sim.emit(
-					game,
+					tick,
 					Gem_Collected {
 						gem = handle,
 						position = {gem.pos.x, 0, gem.pos.y},
@@ -710,7 +710,7 @@ sys_deaths :: proc(game: ^Tick) {
 			character.level += 1
 			character.pending_levelups += 1
 			sim.emit(
-				game,
+				tick,
 				Level_Up{position = sim.Position(character.pos), level = character.level, player = u8(player)},
 			)
 		}

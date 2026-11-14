@@ -385,11 +385,11 @@ FIELD := Field_Game {
 	tick = field_tick,
 }
 
-field_tick :: proc(game: ^Field_Tick) {
-	state := game.state
-	world := game.world.phys
+field_tick :: proc(tick: ^Field_Tick) {
+	state := tick.state
+	world := tick.world.phys
 	for &ship, player in state.ships {
-		player_input := game.inputs.input[player]
+		player_input := tick.inputs.input[player]
 		pos, rot := physics.pose_2d(world, ship.body)
 		lin, _ := physics.velocity_2d(world, ship.body)
 		turn := f32(player_input.turn) * (4.0 / 127)

@@ -84,8 +84,8 @@ Game :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	extras:        proc(world: ^World) -> []Extra,
 	// Fills the tick-0 state (the block is zeroed before). May create physics bodies.
 	init:          proc(state: ^State, world: ^World, seed: u64),
-	// Advances the state from tick game.number - 1 to game.number.
-	tick:          proc(game: ^Tick(State, Input, World, PLAYERS)),
+	// Advances the state from tick.number - 1 to tick.number.
+	tick:          proc(tick: ^Tick(State, Input, World, PLAYERS)),
 	// The game's event union (event.odin): one plain struct per event (nil: no events).
 	events:        typeid,
 	// The game's command union (command.odin): one plain struct per command (nil: no commands).
@@ -248,7 +248,7 @@ advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inp
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	clear(&slot.events.list)
-	game := Tick(State, Input, World, PLAYERS) {
+	tick := Tick(State, Input, World, PLAYERS) {
 		state  = &simulation.state,
 		world  = simulation.world,
 		number = number,
@@ -256,7 +256,7 @@ advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inp
 		inputs = inputs,
 		events = &slot.events,
 	}
-	simulation.game.tick(&game)
+	simulation.game.tick(&tick)
 	simulation.tick = number
 }
 

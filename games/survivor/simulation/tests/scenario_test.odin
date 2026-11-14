@@ -13,8 +13,8 @@ import "unified:sim"
 BARRELS := [8]int{2, 7, 12, 17, 22, 27, 32, 37}
 
 // survivor.tick with forced events by tick number (deterministic: same ticks on every peer).
-scenario_tick :: proc(game: ^survivor.Tick) {
-	state, now := game.state, game.number
+scenario_tick :: proc(tick: ^survivor.Tick) {
+	state, now := tick.state, tick.number
 	if state.phase == .Match {
 		if now % 23 == 0 {
 			item := &state.items[BARRELS[(now / 23) % 8]]
@@ -23,15 +23,15 @@ scenario_tick :: proc(game: ^survivor.Tick) {
 			}
 		}
 		if now % 37 == 0 {
-			survivor.damage_player(game, int(now / 37) % survivor.PLAYERS, 1000)
+			survivor.damage_player(tick, int(now / 37) % survivor.PLAYERS, 1000)
 		}
 		if now % 500 == 0 {
 			for player in 0 ..< survivor.PLAYERS {
-				survivor.damage_player(game, player, 1000) // everyone: match over, then a reset
+				survivor.damage_player(tick, player, 1000) // everyone: match over, then a reset
 			}
 		}
 	}
-	survivor.tick(game)
+	survivor.tick(tick)
 }
 
 SCENARIO := survivor.Game {

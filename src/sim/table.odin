@@ -114,7 +114,7 @@ prev_item :: proc(previous, current: ^Table($T, $N), index: int) -> (^T, bool) {
 
 // Walks a table's live items in index order (iterate, then next):
 //
-//   coins := sim.iterate(&game.state.coins)
+//   coins := sim.iterate(&tick.state.coins)
 //   for coin, handle in sim.next(&coins) { ... }
 //
 // Despawning the current item is safe. An item spawned during the walk is visited when its slot is

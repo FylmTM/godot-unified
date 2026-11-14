@@ -65,14 +65,14 @@ roll_bits :: proc(seed: u64, tick: u32, purpose, key, index: u64) -> u64 {
 // `key` (an entity's handle_key, a player...) and `index` (in a loop, the loop index: two rolls that
 // should differ must differ in something). Unbiased: a rejected draw re-mixes.
 roll_below :: proc(
-	game: ^Tick($State, $Input, $World, $PLAYERS),
+	tick: ^Tick($State, $Input, $World, $PLAYERS),
 	n: u32,
 	purpose: $Purpose,
 	key: u64 = 0,
 	index: int = 0,
 ) -> u32 where intrinsics.type_is_enum(Purpose) {
 	assert(n > 0)
-	bits := roll_bits(game.seed, game.number, u64(purpose), key, u64(index))
+	bits := roll_bits(tick.seed, tick.number, u64(purpose), key, u64(index))
 	product := (bits >> 32) * u64(n)
 	if u32(product) < n {
 		threshold := (0 - n) % n
@@ -86,11 +86,11 @@ roll_below :: proc(
 
 // A roll uniform in [0, 1) with 24 bits of precision, named like roll_below's.
 roll_f32 :: proc(
-	game: ^Tick($State, $Input, $World, $PLAYERS),
+	tick: ^Tick($State, $Input, $World, $PLAYERS),
 	purpose: $Purpose,
 	key: u64 = 0,
 	index: int = 0,
 ) -> f32 where intrinsics.type_is_enum(Purpose) {
-	bits := roll_bits(game.seed, game.number, u64(purpose), key, u64(index))
+	bits := roll_bits(tick.seed, tick.number, u64(purpose), key, u64(index))
 	return f32(bits >> 40) * (1.0 / 16777216.0)
 }

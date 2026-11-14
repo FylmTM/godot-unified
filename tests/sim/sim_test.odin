@@ -174,42 +174,42 @@ roll_tick :: proc(seed: u64, number: u32) -> toy.Tick {
 // Keyed rolls: deterministic, uniform, and each depends only on what it names (D7).
 @(test)
 keyed_rolls :: proc(t: ^testing.T) {
-	game := roll_tick(42, 100)
+	tick := roll_tick(42, 100)
 	// determinism: the same names give the same roll, whatever was rolled in between
-	first := sim.roll_below(&game, 1000, Purpose.Loot, key = 7, index = 3)
-	sim.roll_below(&game, 1000, Purpose.Spread)
-	testing.expect_value(t, sim.roll_below(&game, 1000, Purpose.Loot, key = 7, index = 3), first)
+	first := sim.roll_below(&tick, 1000, Purpose.Loot, key = 7, index = 3)
+	sim.roll_below(&tick, 1000, Purpose.Spread)
+	testing.expect_value(t, sim.roll_below(&tick, 1000, Purpose.Loot, key = 7, index = 3), first)
 	// each name moves the roll: another seed, tick, purpose, key or index
 	other_seed, other_tick := roll_tick(43, 100), roll_tick(42, 101)
 	differs := 0
 	for i in 0 ..< 64 {
-		base := sim.roll_below(&game, 1 << 30, Purpose.Loot, key = 5, index = i)
+		base := sim.roll_below(&tick, 1 << 30, Purpose.Loot, key = 5, index = i)
 		differs += int(sim.roll_below(&other_seed, 1 << 30, Purpose.Loot, key = 5, index = i) != base)
 		differs += int(sim.roll_below(&other_tick, 1 << 30, Purpose.Loot, key = 5, index = i) != base)
-		differs += int(sim.roll_below(&game, 1 << 30, Purpose.Crit, key = 5, index = i) != base)
-		differs += int(sim.roll_below(&game, 1 << 30, Purpose.Loot, key = 6, index = i) != base)
-		differs += int(sim.roll_below(&game, 1 << 30, Purpose.Loot, key = 5, index = i + 64) != base)
+		differs += int(sim.roll_below(&tick, 1 << 30, Purpose.Crit, key = 5, index = i) != base)
+		differs += int(sim.roll_below(&tick, 1 << 30, Purpose.Loot, key = 6, index = i) != base)
+		differs += int(sim.roll_below(&tick, 1 << 30, Purpose.Loot, key = 5, index = i + 64) != base)
 	}
 	testing.expect_value(t, differs, 5 * 64)
 	// distribution: 6 buckets over 60,000 rolls (keys and ticks varying), each within 4% of 10,000
 	counts: [6]int
 	for number in u32(0) ..< 600 {
-		tick := roll_tick(9, number)
+		later := roll_tick(9, number)
 		for key in u64(0) ..< 100 {
-			counts[sim.roll_below(&tick, 6, Purpose.Spread, key)] += 1
+			counts[sim.roll_below(&later, 6, Purpose.Spread, key)] += 1
 		}
 	}
 	for count in counts do testing.expect(t, count > 9_600 && count < 10_400)
 	// neighbouring keys are independent: the low bit of key k and key k + 1 agree about half the time
 	agree := 0
 	for key in u64(0) ..< 10_000 {
-		agree += int(sim.roll_below(&game, 2, Purpose.Loot, key) == sim.roll_below(&game, 2, Purpose.Loot, key + 1))
+		agree += int(sim.roll_below(&tick, 2, Purpose.Loot, key) == sim.roll_below(&tick, 2, Purpose.Loot, key + 1))
 	}
 	testing.expect(t, agree > 4_800 && agree < 5_200)
 	// f32 rolls: [0, 1), mean about 1/2
 	sum: f64
 	for i in 0 ..< 10_000 {
-		value := sim.roll_f32(&game, Purpose.Spread, index = i)
+		value := sim.roll_f32(&tick, Purpose.Spread, index = i)
 		testing.expect(t, value >= 0 && value < 1)
 		sum += f64(value)
 	}

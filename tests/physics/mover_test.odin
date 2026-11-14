@@ -158,23 +158,23 @@ RIG := Rig_Game {
 	tick = rig_tick,
 }
 
-rig_tick :: proc(game: ^Rig_Tick) {
-	state, rig_world, tick := game.state, game.world, game.number
+rig_tick :: proc(tick: ^Rig_Tick) {
+	state, rig_world, number := tick.state, tick.world, tick.number
 	world := rig_world.phys
-	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, tick, HZ), HZ)
+	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, number, HZ), HZ)
 	for &mover, player in state.movers {
-		player_input := game.inputs.input[player]
+		player_input := tick.inputs.input[player]
 		move := [2]f32{f32(player_input.mx) / 127, f32(player_input.mz) / 127}
 		if physics.mover_update(world, &mover, &MOVER, move, bool(player_input.jump && !state.prev[player]), 1, DT) {
 			state.jumps += 1
 		}
 		state.prev[player] = player_input.jump
 	}
-	// Mover 0 grabs box (tick / 40) % 4 for 25 ticks of every 40: a motor joint created and
+	// Mover 0 grabs box (number / 40) % 4 for 25 ticks of every 40: a motor joint created and
 	// destroyed inside rollback windows.
-	phase := tick % 40
+	phase := number % 40
 	if phase == 5 && state.hold == {} {
-		box_ref := state.boxes[(tick / 40) % 4]
+		box_ref := state.boxes[(number / 40) % 4]
 		joint_def := b3.default_motor_joint_def()
 		joint_def.base.body_id_a = physics.body_id(world, state.movers[0].body)
 		joint_def.base.body_id_b = physics.body_id(world, box_ref)
@@ -186,7 +186,7 @@ rig_tick :: proc(game: ^Rig_Tick) {
 		joint_def.angular_damping_ratio = 1
 		joint_def.max_spring_torque = 50
 		state.hold = physics.joint_ref_of(b3.create_motor_joint(world.id, &joint_def))
-		state.held = (tick / 40) % 4 + 1
+		state.held = (number / 40) % 4 + 1
 	} else if phase == 30 && state.hold != {} {
 		physics.destroy_joint(world, &state.hold)
 		// throw it at mover 1

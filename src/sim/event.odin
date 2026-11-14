@@ -23,9 +23,9 @@ Events :: struct {
 	list: [dynamic]Raw_Event,
 }
 
-// Emits an event from inside `tick`: `sim.emit(game, Coin_Picked{coin = handle, player = u8(player)})`.
-emit :: proc(game: ^Tick($State, $Input, $World, $PLAYERS), event: $E) {
-	emit_to(game.events, event)
+// Emits an event from inside `tick`: `sim.emit(tick, Coin_Picked{coin = handle, player = u8(player)})`.
+emit :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), event: $E) {
+	emit_to(tick.events, event)
 }
 
 // Appends an event to a tick's list; E must be one of the union's structs.
