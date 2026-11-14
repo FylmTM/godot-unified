@@ -15,8 +15,8 @@ SNAP_HEADER :: 48
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
 Snap_Error :: enum u8 {
 	None,
-	Bad_Header, // not a snapshot, another format version, or another block size
-	Layout_Differs, // the state layout differs from this build
+	Bad_Header, // not a snapshot, or another format version
+	Layout_Differs, // another build's state: another layout or block size
 	Content_Differs, // the snapshot was taken with other content (another level)
 	Checksum_Mismatch, // the payload is damaged
 	Extra_Count, // the number of extra states differs from this build
@@ -85,6 +85,10 @@ snap_read :: proc(
 	r = wire.reader_make(data)
 	magic := wire.r_bytes(&r, 4)
 	version := wire.r_u16(&r)
+	if !r.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION {
+		err = .Bad_Header
+		return
+	}
 	h.extras = int(wire.r_u16(&r))
 	h.seed = wire.r_u64(&r)
 	h.content = wire.r_u64(&r)
@@ -93,14 +97,17 @@ snap_read :: proc(
 	h.layout = wire.r_u64(&r)
 	digest := wire.r_u64(&r)
 	header := r.pos
-	block = wire.r_bytes(&r, h.block)
 	switch {
-	case !r.ok || string(magic) != SNAP_MAGIC || version != SNAP_VERSION || h.block != block_size:
+	case !r.ok:
 		err = .Bad_Header
-	case h.layout != layout:
+	case h.block != block_size || h.layout != layout:
 		err = .Layout_Differs
 	case hash_bytes(data[header:]) != digest:
 		err = .Checksum_Mismatch
+	}
+	if err == .None {
+		block = wire.r_bytes(&r, h.block)
+		if !r.ok do err = .Bad_Header // shorter than its block
 	}
 	return
 }

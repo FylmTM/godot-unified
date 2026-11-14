@@ -312,6 +312,16 @@ snapshot_errors_are_values :: proc(t: ^testing.T) {
 	data[sim.SNAP_HEADER - 9] ~= 1 // the layout hash
 	_, err = sim.from_snapshot(&toy.GAME, data)
 	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
+	data[sim.SNAP_HEADER - 9] ~= 1
+	// another block size (a state that grew) is another build's state too, not a bad header
+	data[sim.SNAP_HEADER - 20] ~= 4 // the block size's low byte
+	_, err = sim.from_snapshot(&toy.GAME, data)
+	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
+	data[sim.SNAP_HEADER - 20] ~= 4
+	// magic and version come first: a wrong magic is a bad header whatever follows
+	data[0] = 'X'
+	_, err = sim.from_snapshot(&toy.GAME, data)
+	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
 }
 
 @(test)
