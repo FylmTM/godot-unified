@@ -115,7 +115,7 @@ Public (`unified:cli`, every project):
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
-| `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
+| `vet` | `odin check`, strict flags, every target and define variant, the CLI included; in this repo also the template game's Odin (below) |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
@@ -213,7 +213,9 @@ that submodule, never from this checkout, so they always match the library they 
 letters, digits and `_`). It is a complete small game, each player moving a dot: its sim package, headless binary
 (with a standard benchmark), extension (one scene view), main scene with a `UnifiedSession`, and tests (sync-test
 under rollback, a repeatable run, the determinism lint), so the new repo passes its own `verify` at once. The
-Odin files are formatted after the name is put in (it changes line lengths).
+Odin files are formatted after the name is put in (it changes line lengths). In this repo `vet` writes the template's Odin files
+for a game named `template_game` into `.out/template/` and type-checks its packages (one target), so a library API
+change that breaks a new game fails `verify`.
 
 ## Dependencies
 

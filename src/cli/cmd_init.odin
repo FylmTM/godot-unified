@@ -101,17 +101,7 @@ cmd_init :: proc(args: []string) -> Result {
 	if !os.is_directory(template) {
 		fatal("unified at %s has no src/cli/template: too old for this CLI's init", pinned)
 	}
-	count := 0
-	for file in find_files(template, ".tmpl") {
-		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
-		if rel_path == "gitignore" || rel_path == "gitattributes" {
-			rel_path = tprint(".%s", rel_path)
-		}
-		target, _ := strings.replace_all(rel_path, "__GAME__", name)
-		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
-		write_text(join(dir, target), text)
-		count += 1
-	}
+	count := write_template(template, dir, name)
 	write_text(join(dir, "tools", ".gdignore"), "")
 	// The game's name changes line lengths: format what the template wrote, so the new repo passes fmt --check.
 	generated: [dynamic]string
@@ -151,6 +141,23 @@ public_url :: proc(url: string) -> string {
 	}
 	path = strings.trim_suffix(strings.trim_right(path, "/"), ".git")
 	return tprint("https://github.com/%s.git", path)
+}
+
+// Writes the template's files ending in `suffix` (every file by default) into `dir`, __GAME__ replaced by `name`,
+// and returns how many. `vet` writes only the Odin ones, to type-check them (vet_template).
+write_template :: proc(template, dir, name: string, suffix := ".tmpl") -> int {
+	count := 0
+	for file in find_files(template, suffix) {
+		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
+		if rel_path == "gitignore" || rel_path == "gitattributes" {
+			rel_path = tprint(".%s", rel_path)
+		}
+		target, _ := strings.replace_all(rel_path, "__GAME__", name)
+		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
+		write_text(join(dir, target), text)
+		count += 1
+	}
+	return count
 }
 
 valid_game_name :: proc(name: string) -> bool {
