@@ -10,22 +10,22 @@
 #   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
 #   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
 #
+# Cost: the repo is public, so every runner here (GitHub's standard hosted runners) is free and unlimited; larger
+# runners would be billed.
+#
 # Security: jobs read only (`contents: read`; the nightly check also `actions: read`) and CI holds no secrets:
 # no EOS SDK and no EOS credentials (Epic's licence keeps the SDK out; its tests run where a developer has it).
 # Actions are pinned by commit, runner images by version (an image update can change compilers, so it is a
 # deliberate bump), and every download by its SHA-256 in pins.cfg. Odin comes from .github/actions/odin; each command fetches or builds what else it needs.
 name: ci
 
-# MINIMAL MODE (temporary, to save Actions minutes): only pushes to main run, and only `lint` (format + vet) and `test` on
-# linux-arm64. To re-enable everything, uncomment the triggers below, restore the push platforms in `test`'s matrix, and remove
-# `if: false` from `godot`.
 on:
   push:
     branches: [main]
-  # pull_request:
-  # schedule:
-  #   - cron: "17 3 * * *" # 03:17 UTC
-  # workflow_dispatch:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC
+  workflow_dispatch:
 
 # The nightly has its own group: a push to main must not cancel it.
 concurrency:
@@ -93,11 +93,10 @@ jobs:
       fail-fast: false
       matrix:
         # Per event, see the top of this file.
-        # MINIMAL MODE; push was: '["linux-x64", "linux-arm64", "windows-x64"]'
         platform: >-
           ${{ fromJSON(
           github.event_name == 'pull_request' && '["linux-x64", "linux-arm64"]' ||
-          github.event_name == 'push' && '["linux-arm64"]' ||
+          github.event_name == 'push' && '["linux-x64", "linux-arm64", "windows-x64"]' ||
           github.event_name == 'schedule' && '["macos-arm64"]' ||
           '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
     env:
@@ -133,7 +132,7 @@ jobs:
 
   godot:
     name: godot headless / linux-x64
-    if: false # MINIMAL MODE; was: github.event_name != 'schedule'
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
