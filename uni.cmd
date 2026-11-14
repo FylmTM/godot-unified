@@ -1,6 +1,6 @@
 @echo off
 rem uni, the unified CLI (src/cli/SPEC.md, Bootstrap): runs the binary .out\cli\current names, building one first
-rem when there is none. Odin is the release pins.cfg pins: the odin on PATH when it is that commit, else that
+rem when there is none. Odin is the release pins.cfg pins: the odin on PATH when it reports that commit, else that
 rem release, downloaded once into %LOCALAPPDATA%\unified\odin\<tag> (checked against its SHA-256), first on PATH.
 setlocal
 set "root=%~dp0"
@@ -82,8 +82,14 @@ if /i not "%got%"=="%sha%" (
 rem the system tar (bsdtar) reads zip; Git's GNU tar on PATH does not
 "%SystemRoot%\System32\tar.exe" -xf "%dl%\%asset%" -C "%dl%"
 if errorlevel 1 goto failed
-rem the archive's one top folder
-for /d %%d in ("%dl%\*") do if exist "%%d\odin.exe" if not exist "%odin%" move "%%d" "%odin%" >nul
+rem the archive's one top folder, renamed into place (a virus scanner may still hold a fresh file: one retry)
+set "top="
+for /d %%d in ("%dl%\*") do if exist "%%d\odin.exe" set "top=%%d"
+if defined top if not exist "%odin%" move "%top%" "%odin%" >nul 2>nul
+if defined top if not exist "%odin%" (
+	ping -n 3 127.0.0.1 >nul
+	move "%top%" "%odin%" >nul
+)
 rmdir /s /q "%dl%"
 if not exist "%odin%\odin.exe" (
 	echo uni: %asset% holds no odin.exe 1>&2
