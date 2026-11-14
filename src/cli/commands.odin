@@ -60,7 +60,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "fmt",
 				usage = "[--check] [path...] | --hook",
-				summary = "odinfmt (pinned) over the project's Odin code; --hook: the file a Claude Code edit names",
+				summary = "odinfmt (pinned) over the project's Odin code, and LF line endings in every text file; --hook: the file a Claude Code edit names",
 				budget = 1,
 				run = cmd_fmt,
 			},
@@ -102,7 +102,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "init",
 				usage = "<dir>",
-				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, the unified submodule",
+				summary = "a new game repo: layout, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule",
 				no_budget = "clones unified",
 				run = cmd_init,
 			},

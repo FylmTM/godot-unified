@@ -169,3 +169,48 @@ test_watch_follows_the_runner :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(watch.running), 1)
 	testing.expect_value(t, watch.running[0], "test_b3.waits")
 }
+
+@(test)
+line_endings_lf_except_batch_files :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	Case :: struct {
+		info:    string,
+		problem: bool,
+		crlf:    bool,
+	}
+	cases := []Case {
+		{"i/lf    w/lf    attr/text=auto eol=lf ", false, false},
+		{"i/lf    w/crlf  attr/text=auto eol=lf ", true, false}, // an editor saved CRLF
+		{"i/lf    w/mixed attr/text=auto eol=lf ", true, false},
+		{"i/crlf  w/crlf  attr/                 ", true, false}, // committed CRLF
+		{"i/none  w/none  attr/text=auto eol=lf ", false, false}, // empty, or no line ending
+		{"i/-text w/-text attr/text=auto eol=lf ", false, false}, // git sees binary
+		{"i/-text w/-text attr/-text            ", false, false}, // marked binary
+		{"i/lf    w/crlf  attr/text eol=crlf    ", false, true}, // uni.cmd on any OS
+		{"i/lf    w/lf    attr/text eol=crlf    ", true, true}, // a batch file left LF
+		{"i/lf    w/mixed attr/text eol=crlf    ", true, true},
+		{"i/lf    w/      attr/text=auto eol=lf ", false, false}, // deleted in the working tree
+	}
+	for test_case in cases {
+		problem, crlf := cli.eol_problem(test_case.info)
+		testing.expectf(t, (problem != "") == test_case.problem, "%q: problem %q", test_case.info, problem)
+		testing.expectf(t, crlf == test_case.crlf, "%q: crlf %v", test_case.info, crlf)
+	}
+	listing := "i/lf    w/lf    attr/text=auto eol=lf \tsrc/a.odin\x00i/lf    w/crlf  attr/text=auto eol=lf \tdocs/my file.md\x00i/lf    w/lf    attr/text eol=crlf    \tuni.cmd\x00"
+	files := cli.eol_problems(listing)
+	if testing.expect_value(t, len(files), 2) {
+		testing.expect_value(t, files[0].path, "docs/my file.md")
+		testing.expect(t, !files[0].crlf)
+		testing.expect_value(t, files[1].path, "uni.cmd")
+		testing.expect(t, files[1].crlf)
+	}
+	testing.expect_value(t, cli.eol_convert("a\r\nb\nc\r\n", false), "a\nb\nc\n")
+	testing.expect_value(t, cli.eol_convert("a\r\nb\nc", true), "a\r\nb\r\nc")
+	// the config readers take CRLF files too
+	config := cli.config_parse("[odin]\r\ntag = \"dev-2026-11a\"\r\n")
+	value, _ := cli.config_get(config, "odin", "tag")
+	testing.expect_value(t, value, "dev-2026-11a")
+	pairs, err := cli.env_parse("UNIFIED_GODOT=/opt/godot\r\n")
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, pairs[0], [2]string{"UNIFIED_GODOT", "/opt/godot"})
+}
