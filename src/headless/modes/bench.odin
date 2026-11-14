@@ -4,6 +4,7 @@ package modes
 
 import "core:fmt"
 import "core:slice"
+@(require) import "core:strings"
 import "core:time"
 
 import uheadless "unified:headless"
@@ -30,6 +31,9 @@ stat_of :: proc(samples: []f64) -> Stat {
 
 Bench_Result :: struct {
 	step, save, restore, resim: Stat,
+	// The same re-sim of ticks that are all final (a catch-up burst), saving only the last one (#117: what the
+	// netcode does since the #8 sitting)
+	resim_final:                Stat,
 	snapshot_bytes:             int,
 	block_bytes:                int,
 	entities_mean:              f64,
@@ -38,7 +42,8 @@ Bench_Result :: struct {
 
 // `bench`: prepares `entities` entities (the game holds that population), and every tick measures
 // the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
-// save per tick, which is what a client rollback costs). Re-sim checksums are compared too.
+// save per tick, which is what a client rollback of predicted ticks costs), then the same re-sim of final ticks
+// (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too.
 run_bench :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
 	entities: int,
@@ -60,6 +65,7 @@ run_bench :: proc(
 	save_us := make([]f64, tick_count)
 	restore_us := make([]f64, tick_count)
 	resim_us := make([]f64, tick_count)
+	resim_final_us := make([]f64, tick_count)
 	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	commands: uheadless.Scripted_Commands
@@ -69,6 +75,7 @@ run_bench :: proc(
 		delete(save_us)
 		delete(restore_us)
 		delete(resim_us)
+		delete(resim_final_us)
 		delete(recorded)
 		delete(forward)
 	}
@@ -92,8 +99,21 @@ run_bench :: proc(
 			continue
 		}
 		base := tick - window
-		restore_start := time.tick_now()
+		// The final-tick burst first: it leaves base + 1 ..< tick unsaved, and the saved re-sim after it saves
+		// them again, so the next tick's restore target is in the ring.
 		ok := sim.restore(simulation, base)
+		assert(ok)
+		final_start := time.tick_now()
+		for resim in base + 1 ..< tick {
+			sim.step_unsaved(simulation, &recorded[resim])
+		}
+		sim.step(simulation, &recorded[tick])
+		final_end := time.tick_now()
+		if sim.checksum(simulation) != forward[tick] {
+			result.mismatches += 1
+		}
+		restore_start := time.tick_now()
+		ok = sim.restore(simulation, base)
 		restore_end := time.tick_now()
 		assert(ok)
 		for resim in base + 1 ..= tick {
@@ -105,12 +125,14 @@ run_bench :: proc(
 		}
 		restore_us[rollbacks] = micros(restore_start, restore_end)
 		resim_us[rollbacks] = micros(restore_end, resim_end)
+		resim_final_us[rollbacks] = micros(final_start, final_end)
 		rollbacks += 1
 	}
 	result.step = stat_of(step_us)
 	result.save = stat_of(save_us)
 	result.restore = stat_of(restore_us[:rollbacks])
 	result.resim = stat_of(resim_us[:rollbacks])
+	result.resim_final = stat_of(resim_final_us[:rollbacks])
 	result.block_bytes = size_of(State)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	result.entities_mean = count_sum / f64(max(tick_count, 1))
@@ -192,7 +214,7 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 // CPU time): wall time, rollbacks and what they re-simulated, the time each kind of step took, and the bytes per
 // second on the wire.
 mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
-	check_known(args, "clients", "ticks", "profile", "seed")
+	check_known(args, "clients", "ticks", "profile", "seed", "latency", "jitter", "loss")
 	cfg := uheadless.Session_Config {
 		clients     = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),
 		transport   = "loopback",
@@ -201,6 +223,15 @@ mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PL
 		ticks       = u32(opt_int(args, "ticks", 1200, low = 64, high = 1_000_000)),
 		seed        = seed_opt(args),
 		late_player = -1,
+	}
+	// A profile of its own: --latency and --jitter one way (ms), --loss per mille.
+	if latency := opt_int(args, "latency", -1, low = -1, high = 2000); latency >= 0 {
+		cfg.profile = {
+			name    = "custom",
+			latency = i64(latency) * 1000,
+			jitter  = i64(opt_int(args, "jitter", 0, low = 0, high = 1000)) * 1000,
+			loss    = u32(opt_int(args, "loss", 0, low = 0, high = 1000)),
+		}
 	}
 	start := time.tick_now()
 	result := uheadless.session_run(headless, cfg)
@@ -212,7 +243,9 @@ mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PL
 	client_bytes: int
 	steps: [3]int
 	step_us: [3]i64
+	delays := make([dynamic]string, context.temp_allocator)
 	for client in result.clients {
+		append(&delays, fmt.tprintf("%d", client.delay))
 		rollbacks += client.rollbacks
 		resim_ticks += client.resim_ticks
 		stall_ticks += client.stall_ticks
@@ -226,12 +259,15 @@ mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PL
 	}
 	resends += result.relay_net.resends
 	fmt.printfln(
-		`{{"mode":"net-bench","clients":%d,"profile":"%s","ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"ok":%v}}`,
+		`{{"mode":"net-bench","clients":%d,"profile":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"ok":%v}}`,
 		cfg.clients,
 		cfg.profile.name,
+		cfg.profile.latency / 1000,
+		cfg.profile.jitter / 1000,
 		cfg.ticks,
 		headless.game.tick_hz,
 		wall_ms,
+		strings.join(delays[:], ",", context.temp_allocator),
 		rollbacks,
 		rollbacks > 0 ? depth_sum / f64(rollbacks) : 0,
 		resim_ticks,

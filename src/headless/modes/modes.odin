@@ -222,9 +222,11 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		standard = {
 			what     = "the default benchmark",
 			entities = 1000,
-			window   = 8,
 			ticks    = 600,
 		}
+	}
+	if standard.window == 0 {
+		standard.window = uheadless.prediction_window(headless.game)
 	}
 	entities := opt_int(args, "entities", standard.entities, low = 0, high = 1 << 20)
 	window := window_opt(headless, args, standard.window)
@@ -234,7 +236,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 	}
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
 		standard.what,
 		entities,
 		window,
@@ -243,6 +245,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		stat_json(result.save),
 		stat_json(result.restore),
 		stat_json(result.resim),
+		stat_json(result.resim_final),
 		result.snapshot_bytes,
 		result.block_bytes,
 		result.entities_mean,

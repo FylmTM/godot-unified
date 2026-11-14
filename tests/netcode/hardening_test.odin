@@ -40,7 +40,7 @@ rnet_make :: proc(session: ^Rnet, start_players: int, ticks: u32) {
 }
 
 // A client under the `wan` profile.
-rnet_join :: proc(session: ^Rnet, player := -1) -> ^Client {
+rnet_join :: proc(session: ^Rnet, player := -1, game: ^toy.Game = nil) -> ^Client {
 	endpoint := len(session.clients) + 1
 	link := netcode.netsim_wrap(
 		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
@@ -49,7 +49,7 @@ rnet_join :: proc(session: ^Rnet, player := -1) -> ^Client {
 		&session.clock,
 	)
 	client := netcode.client_create(
-		&toy.GAME,
+		game != nil ? game : &toy.GAME,
 		{player = player, name = "c", quiet = true},
 		link,
 		hooks_for(&session.watch[endpoint]),

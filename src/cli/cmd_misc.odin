@@ -8,7 +8,8 @@ import "core:time"
 
 // bench, record-reference, setup, clean.
 
-// A forward step plus an 8-tick re-sim must fit here (unified's target; each game owns its benchmark's setup).
+// A forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) must fit here (unified's target; each
+// game owns its benchmark's setup).
 BENCH_TARGET_US :: 6000.0
 
 @(private)
@@ -42,10 +43,24 @@ cmd_bench :: proc(args: []string) -> Result {
 		restore_mean_us:    f64,
 		resim_mean_us:      f64,
 		resim_p99_us:       f64,
+		resim_final_us:     f64, // the same re-sim of final ticks, saving only the last (a catch-up burst)
+		window:             int,
 		step_plus_resim_us: f64,
 		snapshot_bytes:     int,
 		within_target:      bool,
 		mismatches:         int,
+	}
+	// The netcode's cost (the headless `net-bench` mode): a game's session on the virtual clock under `bad`, 4 clients.
+	Net_Line :: struct {
+		wall_ms:            f64,
+		rollbacks:          int,
+		rollback_depth_avg: f64,
+		stall_ticks:        int,
+		replaced_inputs:    int,
+		resim_us:           int,
+		relay_bytes_per_s:  f64,
+		client_bytes_per_s: f64,
+		resends:            int,
 	}
 	// The sim's sparse-table walk (the headless `table-bench` mode, game-independent): reported, no target.
 	Table_Line :: struct {
@@ -60,6 +75,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		commit:     string,
 		target_us:  f64,
 		benchmarks: map[string]Bench_Line,
+		net:        map[string]Net_Line,
 		table:      Table_Line,
 	}
 	summary := new(Summary)
@@ -98,6 +114,8 @@ cmd_bench :: proc(args: []string) -> Result {
 			restore_mean_us = stat(obj, "restore_us", "mean"),
 			resim_mean_us   = stat(obj, "resim_us", "mean"),
 			resim_p99_us    = stat(obj, "resim_us", "p99"),
+			resim_final_us  = stat(obj, "resim_final_us", "mean"),
+			window          = json_int(obj["window"]),
 			snapshot_bytes  = json_int(obj["snapshot_bytes"]),
 			mismatches      = json_int(obj["mismatches"]),
 		}
@@ -105,13 +123,15 @@ cmd_bench :: proc(args: []string) -> Result {
 		bench.within_target = bench.step_plus_resim_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); save %.0f us, restore %.0f us, snapshot %d bytes",
+			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us, restore %.0f us, snapshot %d bytes",
 			game.name,
 			bench.step_mean_us,
+			bench.window,
 			bench.resim_mean_us,
 			bench.step_plus_resim_us / 1000,
 			BENCH_TARGET_US / 1000,
 			bench.within_target ? "yes" : "NO",
+			bench.resim_final_us,
 			bench.save_mean_us,
 			bench.restore_mean_us,
 			bench.snapshot_bytes,
@@ -119,6 +139,52 @@ cmd_bench :: proc(args: []string) -> Result {
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}
+		net_result := run_proc(
+			{
+				cmd = strs(headless_path(game.name, .release), "net-bench"),
+				capture = true,
+				quiet = true,
+				timeout = 300 * time.Second,
+				log_to = join(work, tprint("%s-net", game.name)),
+			},
+		)
+		net_obj, net_ok := last_json_object(net_result.stdout)
+		if !net_result.ok || !net_ok {
+			log(
+				"uni: net-bench %s failed (exit %d):\n%s",
+				game.name,
+				net_result.exit_code,
+				tail(net_result.stderr, 2000),
+			)
+			append(&failed, tprint("%s net-bench", game.name))
+			continue
+		}
+		steps_us, _ := net_obj["step_us"].(json.Object)
+		net := Net_Line {
+			wall_ms            = json_f64(net_obj["wall_ms"]),
+			rollbacks          = json_int(net_obj["rollbacks"]),
+			rollback_depth_avg = json_f64(net_obj["rollback_depth_avg"]),
+			stall_ticks        = json_int(net_obj["stall_ticks"]),
+			replaced_inputs    = json_int(net_obj["replaced_inputs"]),
+			resim_us           = json_int(steps_us["resim"]),
+			relay_bytes_per_s  = json_f64(net_obj["relay_bytes_per_s"]),
+			client_bytes_per_s = json_f64(net_obj["client_bytes_per_s"]),
+			resends            = json_int(net_obj["resends"]),
+		}
+		summary.net[game.name] = net
+		log(
+			"%-12s session (4 clients, bad, virtual clock) %.0f ms: %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.0f kB/s, client %.1f kB/s, %d resends",
+			"",
+			net.wall_ms,
+			net.rollbacks,
+			net.rollback_depth_avg,
+			f64(net.resim_us) / 1000,
+			net.stall_ticks,
+			net.replaced_inputs,
+			net.relay_bytes_per_s / 1000,
+			net.client_bytes_per_s / 1000,
+			net.resends,
+		)
 	}
 	if len(games) > 0 {
 		// any game's binary runs it; once is enough
@@ -171,7 +237,7 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	return {
 		ok = true,
-		summary = tprint("bench: %d benchmark(s), reported in .out/bench.json", len(games)),
+		summary = tprint("bench: %d game(s), sim and netcode benchmarks, reported in .out/bench.json", len(games)),
 		data = summary^,
 	}
 }

@@ -36,13 +36,18 @@ Headless :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 Bench :: struct {
 	what:     string,
 	entities: int,
-	window:   int,
+	window:   int, // 0: prediction_window(game), the deepest rollback the netcode makes
 	ticks:    int,
 }
 
 // The longest rollback window a game's ring allows (sim.ring_size(tick_hz) - 1).
 max_window :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS)) -> int {
 	return sim.ring_size(game.tick_hz) - 1
+}
+
+// The deepest rollback the netcode makes: its prediction cap, sim.ring_size(tick_hz) - 2 (14 ticks at 64 Hz).
+prediction_window :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS)) -> int {
+	return sim.ring_size(game.tick_hz) - 2
 }
 
 // A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.

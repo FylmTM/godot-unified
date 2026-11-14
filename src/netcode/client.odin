@@ -152,6 +152,7 @@ Client :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	offset_us:     f64, // relay time - local time
 	have_offset:   bool,
 	rtt_us:        f64,
+	rtt_dev_us:    f64, // the round trip's mean deviation (jitter)
 	rtt_samples:   int,
 	delay:         u32, // k: own inputs are sampled for tick local + delay
 	delay_eval_us: i64,
@@ -349,7 +350,12 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: 
 	if echo > 0 {
 		sample := f64(now - echo - hold)
 		if sample > 0 {
-			client.rtt_us = client.rtt_samples == 0 ? sample : client.rtt_us + (sample - client.rtt_us) * 0.1
+			if client.rtt_samples == 0 {
+				client.rtt_us = sample
+			} else {
+				client.rtt_dev_us += (abs(sample - client.rtt_us) - client.rtt_dev_us) * 0.1
+				client.rtt_us += (sample - client.rtt_us) * 0.1
+			}
 			client.rtt_samples += 1
 		}
 	}
@@ -922,6 +928,13 @@ clock_lead :: proc(client: ^Client($State, $Input, $World, $PLAYERS), delay: u32
 	return f64(stamp_ahead(client.rtt_us, client.tm)) - f64(delay)
 }
 
+// The input delay this round trip wants: the round trip's high end (RTT + 4 × its mean deviation, so jitter
+// doesn't push the prediction past the cap) into want_delay.
+@(private)
+client_want_delay :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> u32 {
+	return want_delay(client.rtt_us + 4 * client.rtt_dev_us, client.tm, client.min_delay)
+}
+
 // One tick of the local clock: own inputs for local + delay go out on it, also while the prediction cap holds the
 // sim back (a stall: the view hitches, the inputs still count).
 @(private)
@@ -942,7 +955,7 @@ schedule :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) ->
 	tick_us := client.tm.tick_us
 	relay_tick := (f64(now) + client.offset_us) / tick_us
 	if !client.started {
-		delay := want_delay(client.rtt_us, client.tm, client.min_delay)
+		delay := client_want_delay(client)
 		if relay_tick + clock_lead(client, delay) < 0 {
 			return // the relay's start lead: wait until the local clock's tick 0 is due
 		}
@@ -954,16 +967,15 @@ schedule :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) ->
 		generate_inputs(client)
 		return true
 	}
-	if now - client.delay_eval_us >= 1_000_000 {
+	// The delay rises at once (a prediction past the cap stalls the view) and falls a tick per second.
+	if want := client_want_delay(client); want > client.delay {
+		client.delay = want
+		client.delay_changes += 1
 		client.delay_eval_us = now
-		want := want_delay(client.rtt_us, client.tm, client.min_delay)
-		if want > client.delay {
-			client.delay += 1
-			client.delay_changes += 1
-		} else if want < client.delay {
-			client.delay -= 1
-			client.delay_changes += 1
-		}
+	} else if want < client.delay && now - client.delay_eval_us >= 1_000_000 {
+		client.delay -= 1
+		client.delay_changes += 1
+		client.delay_eval_us = now
 	}
 	behind := relay_tick + clock_lead(client, client.delay) - f64(client.local) // ticks behind its target
 	period := tick_us
