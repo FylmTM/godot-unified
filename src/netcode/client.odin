@@ -313,7 +313,16 @@ on_finalized :: proc(c: ^Client($S, $I, $W, $P), rd: ^wire.Reader, now: i64) {
 			c.rtt_samples += 1
 		}
 	}
-	if c.rtt_samples > 0 {
+	// Until the first echo of our inputs (they go out from Welcome on, so it takes a round trip), the
+	// channel's latest RTT sample (the acks of the Hello and the datagrams since) stands in, and the first
+	// echo replaces it. Waiting for echoes would start a late joiner's clock a round trip later and land
+	// its inputs for the join tick at the relay about two round trips after its Hello: past J + tolerance
+	// from ~280 ms.
+	rtt_ok := c.rtt_samples > 0
+	if !rtt_ok {
+		c.rtt_us, rtt_ok = channel_rtt(c.ch, c.relay)
+	}
+	if rtt_ok {
 		off := f64(relay_time) + c.rtt_us / 2 - f64(now)
 		c.offset_us = c.have_offset ? c.offset_us + (off - c.offset_us) * 0.05 : off
 		c.have_offset = true
@@ -662,7 +671,7 @@ at_end :: #force_inline proc(c: ^Client($S, $I, $W, $P), t: u32) -> bool {
 // Scheduler: advances the local tick at the tick rate ± 2% towards relay tick + delay.
 @(private)
 schedule :: proc(c: ^Client($S, $I, $W, $P), now: i64) -> (advanced: bool) {
-	if !c.welcomed || !c.have_offset || c.rtt_samples < 3 {
+	if !c.welcomed || !c.have_offset {
 		return
 	}
 	tick_us := c.tm.tick_us

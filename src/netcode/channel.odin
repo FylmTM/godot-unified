@@ -105,6 +105,8 @@ Conn :: struct {
 	next_rel_id: u32,
 	unrel_out:   [dynamic][]u8,
 	srtt_us:     f64,
+	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_seen)
+	rtt_seen:    bool,
 	// receive side
 	have_recv:   bool,
 	recv_max:    u32,
@@ -266,6 +268,15 @@ channel_send :: proc(ch: ^Channel, peer: Peer, data: []u8, d: Delivery, now: i64
 	return true
 }
 
+// The latest round-trip sample to `peer` (a datagram sent until its ack arrived; ok = false before the first ack).
+// Every datagram is acked within a few ms, so from the first answer on it is a fresh measure of the path.
+channel_rtt :: proc(ch: ^Channel, peer: Peer) -> (us: f64, ok: bool) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !ch.conns[peer].active || !ch.conns[peer].rtt_seen {
+		return 0, false
+	}
+	return ch.conns[peer].rtt_last_us, true
+}
+
 // True when every reliable message to `peer` has been acknowledged.
 channel_idle :: proc(ch: ^Channel, peer: Peer) -> bool {
 	return len(ch.conns[peer].rel_out) == 0
@@ -328,6 +339,8 @@ seq_acked :: proc(c: ^Conn, seq: u32, now: i64) {
 	sp.valid = false
 	sample := f64(now - sp.at)
 	c.srtt_us += (sample - c.srtt_us) * 0.125
+	c.rtt_last_us = sample
+	c.rtt_seen = true
 	for k in 0 ..< int(sp.n_ids) {
 		id := sp.ids[k]
 		for &m in c.rel_out {
