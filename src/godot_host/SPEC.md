@@ -174,18 +174,10 @@ every bulk view's buffer. `MAX_BULK_ITEMS` 16384 costs memory only (three Frames
   `session` runs a scripted single-player session under headless Godot and compares its checksums with the offline
   headless binary's.
 
-## The game side (the addon)
+## The demo games' side
 
-What every game's Godot project shares (the app flow, settings, sounds, menus, HUD panels, tool scripts) is the
-unified addon, `addon/` here, mirrored by `uni` into each game as `res://addons/unified/`: `addon/SPEC.md`.
-
-**Play scene** (2026-11-14, #89): the main menu loads the play scene on a worker thread
-(`ResourceLoader.load_threaded_request`) so its shaders compile in the background. In Godot 4.7.2 a resource a
-script first loads with `preload()` on a worker thread is reported as leaked at exit (one object per resource), even
-when the threaded load is collected; the same script with `load()` doesn't leak, nor does a project without the
-threaded load (reproduced without unified: a menu that requests a scene whose script preloads a texture). So the
-scripts the play scene loads use `load()`, never `preload()`; the library's `validate` fails on a `preload(` in any
-script the play scene depends on.
+What this repo's demo games share on the Godot side (the app flow, settings, sounds, menus, HUD panels, their tool
+scripts) is demo-games code, not the library: `games/shared` (its SPEC.md), mirrored by `uni` into each game.
 
 ## Open
 

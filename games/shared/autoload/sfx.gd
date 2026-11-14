@@ -2,7 +2,7 @@ class_name UnifiedSfx
 extends Node
 ## Procedural sound effects, the base of a game's `Sfx` autoload: synthesized once at boot (no audio assets),
 ## played with `Sfx.play(&"pop")` from a small voice pool on the SFX bus. A sound with a minimum gap is rate-limited,
-## so a burst of the same event doesn't clip. The library's UI plays `click` and `gem`; a game adds its own sounds in
+## so a burst of the same event doesn't clip. The shared UI plays `click` and `gem`; a game adds its own sounds in
 ## `_add_sounds()` with `add()`, built with `tone()` and `arpeggio()`.
 
 const RATE := 22050

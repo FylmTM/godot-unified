@@ -2,7 +2,7 @@ extends SimBulkView2D
 ## Gems (`kind` gem): a typed bulk view. A diamond in pixels; the host spins it and squashes and stretches it in
 ## a pulse, and its colour (from extract) fades it out before it expires. The shader adds a glint (custom.x = age).
 
-## Loaded in _ready, not preloaded: the play scene loads on a thread (src/godot_host/SPEC.md, Play scene).
+## Loaded in _ready, not preloaded: the play scene loads on a thread (games/shared/SPEC.md, Play scene).
 const SHADER := "res://game/shaders/gem.gdshader"
 const SIZE := Vector2(7, 10)  ## half width and half height, pixels
 

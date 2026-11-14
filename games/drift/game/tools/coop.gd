@@ -1,5 +1,5 @@
 extends UnifiedCoop
-## drift's co-op play (the flow is the library's, UnifiedCoop): the host starts the match from the lobby (the
+## drift's co-op play (the flow is the shared one, UnifiedCoop): the host starts the match from the lobby (the
 ## `start` command) and both fly in it for a while.
 
 

@@ -1,5 +1,5 @@
 extends UnifiedSfx
-## survivor's sounds, besides the library's `click` and `gem`.
+## survivor's sounds, besides the shared `click` and `gem`.
 
 
 func _add_sounds() -> void:

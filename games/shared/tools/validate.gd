@@ -2,12 +2,12 @@ class_name UnifiedValidate
 extends UnifiedTool
 ## The headless project check, no editor (the godot suite's `validate` step):
 ##   godot --headless -d --path games/<game> -s <this script> -- --no-settings [--frames=N]
-## 1. compiles every script under res://game and res://addons/unified (`-d` makes Godot print GDScript warnings; uni
+## 1. compiles every script under res://game and res://addons/shared (`-d` makes Godot print GDScript warnings; uni
 ## fails on them), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
-const ROOTS: Array[String] = ["res://game", "res://addons/unified"]
+const ROOTS: Array[String] = ["res://game", "res://addons/shared"]
 
 
 func _run() -> void:
@@ -51,7 +51,7 @@ func _run() -> void:
 
 ## The scripts the play scene loads (its scenes' scripts, recursively) use no preload(): the main menu loads the
 ## play scene on a thread, and in Godot 4.7 a resource a script first preloads on a worker thread leaks at exit
-## (src/godot_host/SPEC.md, Play scene). They load() what they need when they need it.
+## (games/shared/SPEC.md, Play scene). They load() what they need when they need it.
 func _check_play_scene_preloads() -> void:
 	var seen := {}
 	var todo: Array[String] = [game.PLAY_SCENE]

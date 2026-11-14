@@ -1,5 +1,5 @@
 extends UnifiedSettings
-## drift's settings: the library's and the best survival time.
+## drift's settings: the shared ones and the best survival time.
 
 
 func _game_keys() -> Dictionary:

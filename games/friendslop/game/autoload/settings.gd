@@ -1,5 +1,5 @@
 extends UnifiedSettings
-## friendslop's settings: the library's, the 3D resolution, mouse look, and the best run time.
+## friendslop's settings: the shared ones, the 3D resolution, mouse look, and the best run time.
 
 
 func _game_keys() -> Dictionary:

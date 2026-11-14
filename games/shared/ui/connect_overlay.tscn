@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://addons/unified/ui/connect_overlay.gd" id="1_overlay"]
+[ext_resource type="Script" path="res://addons/shared/ui/connect_overlay.gd" id="1_overlay"]
 
 [node name="ConnectOverlay" type="Control"]
 layout_mode = 3

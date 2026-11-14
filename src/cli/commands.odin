@@ -67,7 +67,7 @@ public_commands :: proc() -> []Command {
 			{
 				name = "tool",
 				usage = "[game] <script> [--window [--mute] [--screen s]] [--shots] [-- args]",
-				summary = "run a tool script, the game's or the unified addon's (headless unless --window)",
+				summary = "run a tool script, the game's or games/shared's (headless unless --window)",
 				no_budget = "depends on the script",
 				run = cmd_tool,
 			},

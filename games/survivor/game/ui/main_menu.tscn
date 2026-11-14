@@ -3,8 +3,8 @@
 [ext_resource type="Script" path="res://game/ui/main_menu.gd" id="1_backdrop"]
 [ext_resource type="PackedScene" path="res://game/arena/level.tscn" id="2_level"]
 [ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="3_circle"]
-[ext_resource type="Script" path="res://addons/unified/ui/orbit_camera.gd" id="4_orbit"]
-[ext_resource type="PackedScene" path="res://addons/unified/ui/main_menu.tscn" id="5_menu"]
+[ext_resource type="Script" path="res://addons/shared/ui/orbit_camera.gd" id="4_orbit"]
+[ext_resource type="PackedScene" path="res://addons/shared/ui/main_menu.tscn" id="5_menu"]
 
 [node name="MainMenu" type="Node"]
 script = ExtResource("1_backdrop")

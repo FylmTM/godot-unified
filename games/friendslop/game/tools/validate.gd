@@ -1,5 +1,5 @@
 extends UnifiedValidate
-## friendslop's project check (the library's, UnifiedValidate) and its contract: the level's item markers draw
+## friendslop's project check (the shared one, UnifiedValidate) and its contract: the level's item markers draw
 ## items at the sizes the sim simulates them (constants().item_sizes).
 
 const ITEM_SCRIPT := "res://game/levels/markers/item.gd"

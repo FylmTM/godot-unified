@@ -137,12 +137,12 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
 
 ## Test suites and tool scripts
 
-- **The unified addon** (`src/godot_host/addon`, its SPEC.md): the GDScript every game shares, mirrored into a game
-  that uses it (its `project.godot` names `res://addons/unified/`) as `addons/unified/` before every Godot run
-  (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new addon script is copied
-  back).
-- **Tool scripts** are a game's `game/tools/<name>.gd`, else the addon's `tools/<name>.gd` (the library's
-  validate, ui_walk and coop, which a game's own script extends), run with Godot's `-s`. Each prints one
+- **Shared Godot code**: a project's `games/shared` (this repo: the demo games' code, its SPEC.md; not the library)
+  is mirrored into a game that uses it (its `project.godot` names `res://addons/shared/`) as `addons/shared/` before
+  every Godot run (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new shared
+  script is copied back). `games/shared` is no game: a game has `project.godot` and `simulation/`.
+- **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd` (validate, ui_walk and
+  coop, which a game's own script extends), run with Godot's `-s`. Each prints one
   `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data); the CLI passes `--no-settings`,
   `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`. Headless runs have the debugger on
   (`-d`), which prints GDScript warnings. A script quits through the game's own quit (audio stopped first): a live

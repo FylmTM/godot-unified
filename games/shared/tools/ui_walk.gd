@@ -1,6 +1,6 @@
 class_name UnifiedUiWalk
 extends UnifiedTool
-## A scripted walk through the library's UI with real input events (clicks, pad buttons, keys, actions), the godot
+## A scripted walk through the games' shared UI with real input events (clicks, pad buttons, keys, actions), the godot
 ## suite's `walk` step:
 ##   godot --headless --path games/<game> -s <walk script> -- --no-settings [--shots=<dir>]
 ## menu -> settings (Show FPS toggles) -> pad navigation -> single player -> the play scene (`_walk_play()`) -> Esc

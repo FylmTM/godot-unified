@@ -1,5 +1,5 @@
 extends UnifiedCoop
-## friendslop's co-op play (the flow is the library's, UnifiedCoop): the host walks over to the friend and picks
+## friendslop's co-op play (the flow is the shared one, UnifiedCoop): the host walks over to the friend and picks
 ## them up; the friend mashes jump and breaks free.
 
 const Steering := preload("res://game/tools/steering.gd")

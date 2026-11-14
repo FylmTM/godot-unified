@@ -1,5 +1,5 @@
 extends UnifiedGame
-## survivor's flow (the library's, UnifiedGame), with its GDScript stand-in for the game library: in a dev run
+## survivor's flow (the shared one, UnifiedGame), with its GDScript stand-in for the game library: in a dev run
 ## without the library, or with `-- --mock`, the session is the mock (game/session/mock_session.gd, the same API, a
 ## fake sim). Exports never ship the mock (export_presets.cfg excludes game/session/). With the mock, F1 shows a
 ## plain text dump of the sim's state (the native session's dev UI owns F1 otherwise).

@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://addons/unified/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://addons/shared/ui/main_menu.gd" id="1_menu"]
 
 [sub_resource type="Gradient" id="fade_grad"]
 offsets = PackedFloat32Array(0, 0.55, 1)

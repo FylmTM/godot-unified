@@ -2,7 +2,7 @@ extends CanvasLayer
 ## In-game HUD, built in code: the phase and wave, the match time, the station's HP bar, the score; the lobby's
 ## start prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
 ## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
-## controls list (the library's).
+## controls list (games/shared).
 
 ## The prompt's button (Start in the lobby, Restart when over); the tour clicks it.
 var start_button: Button

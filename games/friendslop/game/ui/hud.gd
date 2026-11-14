@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## The in-game HUD, built in code: the run timer and the best time, the checkpoint, a crosshair, the local player's
-## state (holding, charge, held, stunned, fallen), the library's session panel and controls list, and banners for
+## state (holding, charge, held, stunned, fallen), the shared session panel and controls list, and banners for
 ## run events.
 
 const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]

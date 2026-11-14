@@ -4,7 +4,7 @@ extends CanvasLayer
 ## last error once. A game's menu scene (Game.MENU_SCENE) is its backdrop with this scene instanced as `Menu`,
 ## `title` and `tagline` set.
 
-const SETTINGS_PANEL := preload("res://addons/unified/ui/settings_panel.tscn")
+const SETTINGS_PANEL := preload("res://addons/shared/ui/settings_panel.tscn")
 const CODE_CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 const CODE_LENGTH := 6
 

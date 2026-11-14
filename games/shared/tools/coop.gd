@@ -13,7 +13,7 @@ extends UnifiedTool
 ## `uni coop --crash` starts another with --after-crash and the same EOS identity: the host times how long it takes
 ## to have the friend back, the second joiner how long from entering the code to playing again.
 
-## The lobby code's length (the library's MainMenu.CODE_LENGTH).
+## The lobby code's length (the shared MainMenu.CODE_LENGTH).
 const CODE_LENGTH := 6
 
 var role := ""

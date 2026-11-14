@@ -1,5 +1,5 @@
 extends UnifiedCoop
-## survivor's co-op play (the flow is the library's, UnifiedCoop): the host walks out of the start circle, which
+## survivor's co-op play (the flow is the shared one, UnifiedCoop): the host walks out of the start circle, which
 ## starts the match, and both fight for ~8 s; the joiner keeps moving until the host leaves.
 
 const DIRS: Array[StringName] = [&"move_left", &"move_back", &"move_right", &"move_forward"]

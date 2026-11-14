@@ -1,5 +1,5 @@
 extends UnifiedValidate
-## survivor's project check (the library's, UnifiedValidate) and its contract: with the game library loaded, the
+## survivor's project check (the shared one, UnifiedValidate) and its contract: with the game library loaded, the
 ## mock session reports what the native one does (every constants() key, and hud() before any session), so the
 ## mock's copy of the sim's numbers can't drift.
 

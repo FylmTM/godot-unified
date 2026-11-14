@@ -4,7 +4,7 @@ extends CanvasLayer
 ## pause_menu.tscn as `PauseMenu`.
 
 ## Loaded at first use, not preloaded: this scene is part of the play scene, which loads on a thread.
-const SETTINGS_PANEL := "res://addons/unified/ui/settings_panel.tscn"
+const SETTINGS_PANEL := "res://addons/shared/ui/settings_panel.tscn"
 
 var _settings: SettingsPanel
 

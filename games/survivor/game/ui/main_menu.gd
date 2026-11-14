@@ -1,6 +1,6 @@
 extends Node
 ## The main menu's backdrop: the arena with crates and barrels where the sim places them (`Game.constants.items`),
-## resting on the floor (visual only, nothing simulates them here). The menu itself is the library's.
+## resting on the floor (visual only, nothing simulates them here). The menu itself is the games' shared one.
 
 ## A body's centre at rest: a 1 m box, a 0.4 m capsule with a 0.3 m half-height.
 const REST_Y := {"crate": 0.5, "barrel": 0.7}

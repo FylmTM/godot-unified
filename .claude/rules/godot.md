@@ -1,7 +1,6 @@
 ---
 paths:
   - "games/**/*.gd"
-  - "src/godot_host/addon/**"
   - "games/**/*.tscn"
   - "games/**/*.tres"
   - "games/**/*.gdshader"
@@ -19,8 +18,8 @@ paths:
   fails on warnings).
 - Godot writes a `.uid` file next to every new script and shader: commit it with the file.
 - Never edit `.godot/` or `.import` files; they are Godot's cache.
-- A game's `addons/unified/` is a copy of the unified addon (`src/godot_host/addon`, its SPEC.md), refreshed by `uni`
-  before every run: change the addon there, never in a game. Shared GDScript goes in the addon, not into copies.
+- A game's `addons/shared/` is a copy of `games/shared` (the demo games' shared Godot code, its SPEC.md), refreshed
+  by `uni` before every run: change it there, never in a game. GDScript the games share goes there, not into copies.
 - Static typing per Godot's style guide, members in its order (signals, enums, constants, exports, vars,
   `@onready` vars, virtuals, public, private); nodes a script reaches by name are `%Unique` in their scene.
 - A tool script (`-s`) is compiled before the autoloads exist: it never names a script that uses `Game`,

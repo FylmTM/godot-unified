@@ -24,7 +24,7 @@ const LAN_PORT := 7777
 ## The scenes the flow switches between: every game keeps its menu and play scene at these paths.
 const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const PLAY_SCENE := "res://game/arena/arena.tscn"
-const CONNECT_OVERLAY := preload("res://addons/unified/ui/connect_overlay.tscn")
+const CONNECT_OVERLAY := preload("res://addons/shared/ui/connect_overlay.tscn")
 
 var session: Node
 ## The session is the game's GDScript stand-in, not the game library.

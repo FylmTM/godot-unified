@@ -4,7 +4,7 @@ extends SimBulkView2D
 ## hull the sim's bodies have; the host scales it by each rock's radius in pixels (squashed for a moment on a
 ## hit). The shader shades by size (custom.x) and flashes on a hit (custom.y).
 
-## Loaded in _ready, not preloaded: the play scene loads on a thread (src/godot_host/SPEC.md, Play scene).
+## Loaded in _ready, not preloaded: the play scene loads on a thread (games/shared/SPEC.md, Play scene).
 const SHADER := "res://game/shaders/rock.gdshader"
 
 

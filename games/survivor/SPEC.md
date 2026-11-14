@@ -198,20 +198,20 @@ The Godot side of `games/survivor/`: everything except `simulation/`. Hand-writt
 project.godot          Forward+, 1280x720, canvas_items stretch, InputMap, autoloads, audio buses
 export_presets.cfg     "macOS" (universal, thinned by `uni release`) and "Windows Desktop"; library from .out/bin/;
                        the tool scripts and game/session/ are excluded
-addons/unified/        the unified addon, mirrored by uni (git-ignored): flow, settings, menus, HUD panels, tools
+addons/shared/         games/shared, mirrored by uni (git-ignored): flow, settings, menus, HUD panels, tools
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
-game/autoload/         the addon's Settings (+ render scale, best time), Sfx (+ survivor's sounds), Game (+ the mock)
+game/autoload/         the shared Settings (+ render scale, best time), Sfx (+ survivor's sounds), Game (+ the mock)
 game/session/          the mock session: the contract in GDScript with a fake sim (dev only, not exported)
-game/ui/               the HUD; the menu scene (the arena with props behind the addon's menu)
+game/ui/               the HUD; the menu scene (the arena with props behind the shared menu)
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, camera), follow camera
 game/views/            player/crate/barrel scenes (GameView), GameBulkView (MultiMesh)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
-game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the addon's), tour, play_check
+game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the shared ones), tour, play_check
 ```
 
 ### Flow
 
-The flow is the addon's (`src/godot_host/addon/SPEC.md`). Survivor's `Game` adds its session: the native
+The flow is the shared one (`games/shared/SPEC.md`). Survivor's `Game` adds its session: the native
 `UnifiedSession` if `ClassDB.class_exists`, else (dev runs only) the mock, loaded by path (`-- --mock` forces it). An
 export without the library shows the fatal "game library failed to load" screen with Quit, never the mock. The
 sim's own phases (lobby → match → over → lobby) are read from `hud()` every frame (`Game.hud`); the arena never reloads
@@ -249,7 +249,7 @@ and load without the library (Godot replaces unknown native node types with a pl
 ### Checks
 
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` compares the mock session's
-`constants()` and idle `hud()` with the native session's, `walk` adds to the library's walk the lobby, match,
+`constants()` and idle `hud()` with the native session's, `walk` adds to the shared walk the lobby, match,
 level-up, game over and online host flows on the mock,
 and `tour` plays the real game headless: menu → single → lobby → walk out → match with enemies (`uni tool survivor
 tour --window --shots`: a whole match to game over and back to the lobby).
@@ -267,7 +267,7 @@ Godot 4.7). The host's code is copied to the clipboard on arrival; the Join pane
 
 ### HUD baseline (every game)
 
-Every game's HUD has the addon's two panels, `SessionPanel` and `ControlsPanel`. The game passes the content; the
+Every game's HUD has the two shared panels, `SessionPanel` and `ControlsPanel`. The game passes the content; the
 panel owns the look.
 - **Session panel**, top-right. In the lobby (friendslop: the hub): "Lobby", the code (or LAN address) large with
   Copy (offered only while the mouse is free), the players, and a hint (waiting for a friend, or how to start).

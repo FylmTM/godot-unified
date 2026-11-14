@@ -7,8 +7,8 @@ description: Building, running and checking a Godot game under games/<game> (sur
 
 A game is a Godot project in `games/<game>/` (`res://`): Odin in `simulation/` (the sim, its headless binary, its
 GDExtension in `extension/`, its tests), everything Godot in `game/`. What every game shares (the flow, settings,
-sounds, menus, HUD panels, tool scripts) is the unified addon, `src/godot_host/addon` (its SPEC.md), which `uni`
-mirrors into the game's `addons/unified/` before every run: edit it there, never the copy. The view reads the sim
+sounds, menus, HUD panels, tool scripts) is demo-games code in `games/shared` (its SPEC.md; not the library), which
+`uni` mirrors into the game's `addons/shared/` before every run: edit it there, never the copy. The view reads the sim
 and never writes it; player input and commands are the only way in. Every command and its options: `./uni help`, `-h` on a command. Rules
 for editing Godot files load on their own (`.claude/rules/godot.md`).
 
@@ -25,8 +25,8 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
    instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (survivor: the mock
    session's `constants()` and idle `hud()` against the native session's; friendslop: item sizes against the sim;
    drift: the view contract), fails on a `preload(` in a script the play scene loads (it loads on a thread:
-   `src/godot_host/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene change.
-2. `walk` (`ui_walk.gd`): a headless scripted walk through the library's menus and flows with real input events
+   `games/shared/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene change.
+2. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
    (settings, pad navigation, single player, Esc menu, LAN host, a failed join); survivor adds its match flows on
    its mock session.
 3. `tour`: the real game, headless, through lobby and match (quick).

@@ -3,7 +3,7 @@
 [ext_resource type="PackedScene" path="res://game/levels/arena.tscn" id="1_level"]
 [ext_resource type="PackedScene" path="res://game/views/station.tscn" id="2_station"]
 [ext_resource type="Script" path="res://game/ui/menu_camera.gd" id="3_camera"]
-[ext_resource type="PackedScene" path="res://addons/unified/ui/main_menu.tscn" id="4_menu"]
+[ext_resource type="PackedScene" path="res://addons/shared/ui/main_menu.tscn" id="4_menu"]
 
 [node name="MainMenu" type="Node"]
 

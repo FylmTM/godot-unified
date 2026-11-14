@@ -4,7 +4,7 @@ extends Node
 ## once, saved on change. Read with `Settings.get_value(key)`; change with `Settings.set_value(key, v)` (applies
 ## and saves; `persist = false` applies only, e.g. while a slider is dragged, then `save()`).
 ##
-## Every game has the library's keys (DEFAULTS). A game adds its own in `_game_keys()`: a stat it keeps, or one of
+## Every game has the shared keys (DEFAULTS). A game adds its own in `_game_keys()`: a stat it keeps, or one of
 ## the standard optional keys (OPTIONAL), each of which the settings panel shows as a row when the game has it.
 ## Tool scripts run with `--no-settings`: defaults, nothing read or written, no window changes.
 

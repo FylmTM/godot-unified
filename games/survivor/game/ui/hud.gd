@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## The in-game HUD, driven by `Game.hud` every frame: the local player card (HP, XP, level), wave, time and
-## enemies, the library's session panel and controls list, the start hint, banners, the level-up choice and the
+## enemies, the shared session panel and controls list, the start hint, banners, the level-up choice and the
 ## match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 

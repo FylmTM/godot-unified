@@ -259,7 +259,7 @@ func scene_is(scene_name: String) -> bool:
 	return current_scene != null and current_scene.name == scene_name
 
 
-## The main menu's UI (the library's MainMenu), when the menu is the current scene.
+## The main menu's UI (the shared MainMenu), when the menu is the current scene.
 func menu() -> CanvasLayer:
 	return current_scene.get_node_or_null(^"Menu") as CanvasLayer if scene_is("MainMenu") else null
 

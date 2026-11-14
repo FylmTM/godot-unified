@@ -1,5 +1,5 @@
 extends UnifiedValidate
-## drift's project check (the library's, UnifiedValidate) and its view contract (simulation/extension): the
+## drift's project check (the shared one, UnifiedValidate) and its view contract (simulation/extension): the
 ## constants the scripts read, a rock bulk view (rock_<v>) in the arena per rock shape variant, every bulk kind
 ## present once, and the level's scale. The level export being current is the godot suite's `bake` step.
 

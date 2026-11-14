@@ -1,5 +1,5 @@
 extends UnifiedUiWalk
-## The library's UI walk (UnifiedUiWalk) plus survivor's own UI, on the mock session (uni passes `--mock`), whose
+## The shared UI walk (UnifiedUiWalk) plus survivor's own UI, on the mock session (uni passes `--mock`), whose
 ## debug calls force the states a walk can't reach quickly: the lobby -> walk out -> the match -> a level-up (key 1)
 ## -> the match over -> back to the lobby; online: host (a code, a bot friend joins, the session panel) -> a co-op
 ## match -> the connection lost (the reason on the menu).

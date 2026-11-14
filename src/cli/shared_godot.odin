@@ -3,32 +3,34 @@ package cli
 import "core:os"
 import "core:strings"
 
-// The unified addon: the library's GDScript half (src/godot_host/addon, its SPEC.md), mirrored into every Godot
-// project that uses it as res://addons/unified/ (git-ignored there). Godot loads nothing from outside a project, so
-// each game gets a copy, refreshed before every Godot run (ensure_imported, write_extension_list).
+// A project's shared Godot code: what its games' Godot projects share (this repo: the demo games', games/shared and
+// its SPEC.md), mirrored into every Godot project that uses it as res://addons/shared/ (git-ignored there). Godot
+// loads nothing from outside a project, so each game gets a copy, refreshed before every Godot run
+// (ensure_imported, write_extension_list).
 
-ADDON_SOURCE :: "src/godot_host/addon"
-ADDON_DIR :: "addons/unified"
+SHARED_SOURCE :: "games/shared"
+SHARED_DIR :: "addons/shared"
 // What the mirror wrote last (path and SHA-256 per file), to tell an in-place edit from a stale copy.
-ADDON_STAMP :: ".unified_mirror"
+SHARED_STAMP :: ".unified_mirror"
 
-// A Godot project uses the addon when its project.godot names res://addons/unified/ (an autoload, the bus layout).
-uses_addon :: proc(dir: string) -> bool {
+// A Godot project uses the shared code when its project.godot names res://addons/shared/ (an autoload, the bus
+// layout).
+uses_shared :: proc(dir: string) -> bool {
 	text, ok := read_text(join(dir, "project.godot"))
-	return ok && strings.contains(text, "res://addons/unified/")
+	return ok && strings.contains(text, "res://addons/shared/")
 }
 
-// Brings <dir>/addons/unified in line with the library: new and changed files copied, removed ones deleted. A copy
-// edited in place (the Godot editor saves there) stops the run instead of being overwritten: the change belongs in
-// src/godot_host/addon. A .uid file Godot wrote for a new addon script is copied back to the library, so it is
-// committed and every game shares the UID. The library's SPEC.md stays behind.
-sync_addon :: proc(dir: string) {
-	if !uses_addon(dir) {
+// Brings <dir>/addons/shared in line with the project's games/shared: new and changed files copied, removed ones
+// deleted. A copy edited in place (the Godot editor saves there) stops the run instead of being overwritten: the
+// change belongs in games/shared. A .uid file Godot wrote for a new shared script is copied back, so it is committed
+// and every game shares the UID. The SPEC.md stays behind.
+sync_shared :: proc(dir: string) {
+	if !uses_shared(dir) {
 		return
 	}
-	src := join(state.project.unified, ADDON_SOURCE)
-	dst := join(dir, ADDON_DIR)
-	stamp := join(dst, ADDON_STAMP)
+	src := join(state.project.root, SHARED_SOURCE)
+	dst := join(dir, SHARED_DIR)
+	stamp := join(dst, SHARED_STAMP)
 	last := make(map[string]string, context.temp_allocator)
 	if text, ok := read_text(stamp); ok {
 		for line in strings.split_lines(text, context.temp_allocator) {
@@ -52,7 +54,7 @@ sync_addon :: proc(dir: string) {
 				fatal(
 					"%s was edited in place: make the change in %s/%s (uni overwrites the copy), then delete the copy",
 					rel_path(f),
-					ADDON_SOURCE,
+					SHARED_SOURCE,
 					r,
 				)
 			}
@@ -60,7 +62,7 @@ sync_addon :: proc(dir: string) {
 		   os.is_file(join(src, strings.trim_suffix(r, ".uid"))) &&
 		   !os.is_file(join(src, r)) {
 			copy_file(join(src, r), f)
-			log("uni: %s/%s: the UID Godot gave a new addon script (commit it)", ADDON_SOURCE, r)
+			log("uni: %s/%s: the UID Godot gave a new shared script (commit it)", SHARED_SOURCE, r)
 		}
 	}
 	b := strings.builder_make()
@@ -96,7 +98,7 @@ sync_addon :: proc(dir: string) {
 		write_text(stamp, strings.to_string(b))
 	}
 	if changed > 0 {
-		log("uni: %s: the unified addon mirrored (%d file(s) changed)", rel_path(dst), changed)
+		log("uni: %s: the shared Godot code mirrored (%d file(s) changed)", rel_path(dst), changed)
 	}
 }
 

@@ -21,13 +21,13 @@ config/icon="res://game/icon.svg"
 
 [audio]
 
-buses/default_bus_layout="res://addons/unified/audio/bus_layout.tres"
+buses/default_bus_layout="res://addons/shared/audio/bus_layout.tres"
 
 [autoload]
 
 Settings="*res://game/autoload/settings.gd"
 Sfx="*res://game/autoload/sfx.gd"
-Game="*res://addons/unified/autoload/game.gd"
+Game="*res://addons/shared/autoload/game.gd"
 
 [debug]
 

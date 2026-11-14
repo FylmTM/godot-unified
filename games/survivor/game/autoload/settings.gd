@@ -1,5 +1,5 @@
 extends UnifiedSettings
-## survivor's settings: the library's, the 3D resolution, and the best survival time.
+## survivor's settings: the shared ones, the 3D resolution, and the best survival time.
 
 
 func _game_keys() -> Dictionary:
