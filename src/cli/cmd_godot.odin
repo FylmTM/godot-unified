@@ -330,17 +330,19 @@ last_json_after :: proc(text, prefix: string) -> json.Value {
 @(private)
 cmd_run :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
-		mute:     bool `usage:"no sound (Godot's dummy audio driver)"`,
-		screen:   string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
-		overflow: [dynamic]string `usage:"after --: the game's own arguments"`,
+		game:       string `args:"pos=0" usage:"the game (default: the only one)"`,
+		mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
+		screen:     string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
+		background: bool `usage:"the window never takes focus (a window an agent opens)"`,
+		overflow:   [dynamic]string `usage:"after --: the game's own arguments"`,
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen})
+	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen, opts.background})
 }
 
 @(private)
+// The editor takes focus: Godot applies no project override to it, so `--background` has no hook there.
 cmd_editor :: proc(args: []string) -> Result {
 	Opts :: struct {
 		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
@@ -349,7 +351,7 @@ cmd_editor :: proc(args: []string) -> Result {
 	}
 	opts: Opts
 	parse(&opts, args)
-	return play(game(opts.game), true, nil, {opts.mute, opts.screen})
+	return play(game(opts.game), true, nil, {opts.mute, opts.screen, false})
 }
 
 @(private)
@@ -358,6 +360,8 @@ play :: proc(g: Game, editor: bool, extra: []string, place: Window_Opts) -> Resu
 		ensure_extension(g, .dev)
 	}
 	write_extension_list(g)
+	cleanup := with_window(g.dir, place)
+	defer cleanup(g.dir)
 	cmd: [dynamic]string
 	append(&cmd, godot())
 	append(&cmd, ..window_args(place))
@@ -430,7 +434,7 @@ cmd_tool :: proc(args: []string) -> Result {
 			args = split < len(args) ? args[split + 1:] : nil,
 			window = opts.window,
 			shots = opts.shots ? name : "",
-			place = {opts.mute, opts.screen},
+			place = {opts.mute, opts.screen, true},
 			timeout = 1800,
 		},
 	)
@@ -536,7 +540,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
 	if opts.crash {
-		return coop_crash(g, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen})
+		return coop_crash(g, script, &joiner, host_args[:], opts.window, {opts.mute, opts.screen, true})
 	}
 	host := run_tool(
 		{
@@ -545,7 +549,7 @@ cmd_coop :: proc(args: []string) -> Result {
 			args = host_args[:],
 			window = opts.window,
 			shots = opts.window ? "coop" : "",
-			place = {opts.mute, opts.screen},
+			place = {opts.mute, opts.screen, true},
 			timeout = 180,
 		},
 	)
@@ -640,6 +644,8 @@ coop_crash :: proc(
 		shots  = window ? "coop" : "",
 		place  = place,
 	}
+	cleanup := window ? with_window(g.dir, place) : no_cleanup
+	defer cleanup(g.dir)
 	host := start(
 		{
 			cmd = tool_cmd(host_run),

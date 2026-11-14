@@ -48,9 +48,10 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 - CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
-- **Never disturb the developer's main screen.** Any game or editor window an agent opens (to look at it or as a
-  check) starts muted on the leftmost screen: `--mute --screen left` (`run`, `editor`, `tool --window`,
-  `coop --window`; the `godot-game` skill).
+- **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a
+  check) starts muted on the leftmost screen and never takes focus: `--mute --screen left` (`tool --window` and
+  `coop --window` never take focus), plus `--background` on `run`; the `godot-game` skill. The editor always takes
+  focus: open it only when the developer asks.
 
 ## The board
 

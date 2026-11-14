@@ -224,6 +224,8 @@ tool_cmd :: proc(t: Tool_Run) -> []string {
 }
 
 run_tool :: proc(t: Tool_Run) -> Tool_Result {
+	cleanup := t.window ? with_window(t.dir, t.place) : no_cleanup
+	defer cleanup(t.dir)
 	front := t.window ? front_app() : ""
 	r := run_proc(
 		{cmd = tool_cmd(t), capture = true, timeout = time.Duration(t.timeout * f64(time.Second)), env = t.env},
@@ -287,7 +289,8 @@ judge_tool :: proc(r: Ran, echo: bool) -> Tool_Result {
 	return res
 }
 
-// macOS: a windowed Godot steals focus; give it back to the app that was in front.
+// macOS: a windowed Godot may activate itself even with no_focus (not verified there yet); give focus back to the
+// app that was in front.
 front_app :: proc() -> string {
 	when ODIN_OS == .Darwin {
 		asn := run_proc({cmd = strs("lsappinfo", "front"), capture = true, quiet = true})
@@ -347,12 +350,47 @@ env_with :: proc(overrides: ..string) -> []string {
 // --- windows ----------------------------------------------------------------------------------------------------
 
 // Where and how a game window opens (run, editor, tool --window, coop --window): `mute` starts Godot with the dummy
-// audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: Windows only for now).
-// An agent starting a window for the developer passes both, so it doesn't get in the way.
+// audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: Windows only for now);
+// `background`: the window never takes focus (`with_window`). An agent starting a window for the developer passes
+// all three, so it doesn't get in the way; tool and coop windows are always in the background.
 Window_Opts :: struct {
-	mute:   bool,
-	screen: string,
+	mute:       bool,
+	screen:     string,
+	background: bool,
 }
+
+// The project override uni writes for a background window: Godot's no-focus flag, which can only be set before the
+// main window exists. Godot reads <project>/override.cfg at startup (a run, not the editor, which ignores it).
+OVERRIDE_CFG :: "override.cfg"
+BACKGROUND_OVERRIDE :: `; Written by uni for a window that must not take focus; removed when that run ends (safe to delete).
+[display]
+
+window/size/no_focus=true
+`
+
+// Prepares the project for a window opened with `w` and returns the cleanup to run when the Godot process has ended.
+// A background window opens without activation and clicks never activate it (Windows: SW_SHOWNA and
+// WS_EX_NOACTIVATE, kept on top of other windows; it never calls SetForegroundWindow), so the app in front keeps the
+// keyboard, and the game runs on while it isn't frontmost. A window that may take focus removes an override a
+// crashed run left behind.
+with_window :: proc(dir: string, w: Window_Opts) -> (cleanup: proc(dir: string)) {
+	path := join(dir, OVERRIDE_CFG)
+	if w.background {
+		write_text(path, BACKGROUND_OVERRIDE)
+		return proc(dir: string) {
+				path := join(dir, OVERRIDE_CFG)
+				if text, ok := read_text(path); ok && text == BACKGROUND_OVERRIDE {
+					os.remove(path)
+				}
+			}
+	}
+	if text, ok := read_text(path); ok && text == BACKGROUND_OVERRIDE {
+		os.remove(path)
+	}
+	return no_cleanup
+}
+
+no_cleanup :: proc(_: string) {}
 
 @(private)
 Screen :: struct {

@@ -52,11 +52,13 @@ Commit the `.tscn` and the `.level` together; the `bake` step fails when they di
 
 ## Looking at it
 
-These need a display and steal focus (the CLI gives it back on macOS); they don't run in CI. **A window you start for the
-developer (to look at, or as a check) opens with `--mute --screen left`**: they may be using the main screen. `run`,
-`editor`, `tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`).
+These need a display; they don't run in CI. **A window you start for the developer (to look at, or as a check)
+opens with `--mute --screen left` and never takes focus**: they may be typing on the main screen. `run`, `editor`,
+`tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`). `tool`
+and `coop` windows never take focus (and keep running while not frontmost); `run` needs `--background`; the editor
+always takes focus, so open it only when asked.
 
-- `./uni run <game>` (windowed; arguments after `--` go to the game), `./uni editor <game>`.
+- `./uni run <game> --mute --screen left --background` (arguments after `--` go to the game), `./uni editor <game>`.
 - `./uni tool <game> <script> --window [--shots] [-- args]`: any of the game's tool scripts in a window, PNGs in
   `games/<game>/.out/shots/<script>/` with `--shots`. The walk: `tool <game> ui_walk --window --shots` (survivor:
   `-- --mock`). A whole match: `tool <game> tour --window --shots`; `-- --frames` reports frame times and first-use

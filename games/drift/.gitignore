@@ -3,3 +3,5 @@
 /.godot/
 # The unified addon, mirrored from the library (src/godot_host/addon) before every Godot run.
 /addons/unified/
+# A background window's no-focus override, written by uni for the run (safe to delete).
+/override.cfg
