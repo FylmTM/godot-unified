@@ -76,9 +76,9 @@ tick's; `frame.tick`, `frame.local_player` (-1 until assigned). It pushes:
   view. `key` is the spawn key (non-zero; a new key is a new view), `player` the player it shows (-1: none) and
   `entity` the u64 its events carry (0: none): both route events to it. `pos` and `rot` (a unit quaternion; zero
   is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units the views use. `data` is any plain
-  struct (bools, integers, enums, f32, `[2]f32`, `[3]f32`, `[4]f32`; `_` fields are padding): the view gets each
-  field as its script property of the same name, on spawn and whenever its bytes change. One kind always pushes
-  the same data type (asserted).
+  struct, converted like an event field (below: an enum becomes its member name, an array of structs an Array of
+  Dictionaries...; `_` fields are padding): the view gets each field as its script property of the same name, on
+  spawn and whenever its bytes change. One kind always pushes the same data type (asserted).
 - `push_multi(frame, Multi_Item{key, kind, pos, yaw, scale, color, custom})`: one MultiMesh instance. `key`
   identifies it across ticks (a handle's `sim.handle_key`; 0: never interpolated); keys are per kind. `scale` is
   per local axis (zero: 1), `color` the instance color (zero: white), `custom` the custom data.
@@ -97,7 +97,8 @@ Node3D: it gets data, no pose), pushed with its data each tick.
 - methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
   `constants() -> Dictionary` (`tick_hz` plus `Glue.constants`), `set_player_name(name)`, `get_status()`,
-  `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`;
+  `is_running()`, `get_tick()`, `get_local_player()` (-1 until assigned), `get_player_name(player)` (the synced
+  name, "" when unknown), `toggle_devui()`, `is_devui_visible()`;
 - properties: `view_root` (where scene views are made), `seed`, `ticks`;
 - signals: `status_changed(status, detail)`, `lobby_code(code)`, `desync(tick, detail)`,
   `sim_event(event: UnifiedEvent, state: int)`;
@@ -119,7 +120,8 @@ layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_c
 host owns `instance_count` and `visible_instance_count`.
 
 **Events and commands as classes.** At load the host registers a class per kind of the game's event union
-(`extends UnifiedEvent`, a RefCounted with `tick`) and command union (`extends UnifiedCommand`), named after the Odin
+(`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
+(`extends UnifiedCommand`), named after the Odin
 type in PascalCase (`Rock_Hit` -> `RockHit`; a command loses its `Cmd_` prefix: `Cmd_Drop` -> `Drop`), with a typed
 property per field: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
 bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
