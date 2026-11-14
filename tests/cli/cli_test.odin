@@ -214,3 +214,28 @@ line_endings_lf_except_batch_files :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, "")
 	testing.expect_value(t, pairs[0], [2]string{"UNIFIED_GODOT", "/opt/godot"})
 }
+
+@(test)
+import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	dir, temp_err := os.make_directory_temp("", "unified-cli-import-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	write :: proc(dir, name, text: string) {
+		cli.write_text(cli.join(dir, name), text)
+	}
+	write(dir, "project.godot", "[application]\n")
+	write(dir, "game/main.gd", "class_name Main\nextends Node\n")
+	testing.expect(t, !cli.import_current(dir), "a fresh checkout has no import")
+	write(dir, ".godot/global_script_class_cache.cfg", "list=[]\n")
+	cli.import_mark_current(dir)
+	testing.expect(t, cli.import_current(dir), "just imported")
+	write(dir, "game/main.gd", "class_name Main\nextends Node\n\nfunc _ready() -> void:\n\tpass\n")
+	testing.expect(t, cli.import_current(dir), "a script body changed: no import needed")
+	write(dir, "addons/shared/validate.gd", "class_name UnifiedValidate\nextends SceneTree\n")
+	testing.expect(t, !cli.import_current(dir), "the mirrored shared code gained a class")
+	cli.import_mark_current(dir)
+	testing.expect(t, cli.import_current(dir))
+	os.remove(cli.join(dir, ".godot", "global_script_class_cache.cfg"))
+	testing.expect(t, !cli.import_current(dir), "the class cache is gone")
+}

@@ -159,14 +159,13 @@ import_signature :: proc(dir: string) -> string {
 }
 
 // Refreshes Godot's import cache (.godot/) when it is missing or stale, after mirroring the shared Godot code and
-// writing the extension list (so the import sees the extension's classes). Returns the extensions listed.
+// writing the extension list (so the import sees the extension's classes). Returns the extensions listed. Every
+// command that starts Godot on a project calls it first but the editor, which imports by itself: a script that
+// names a class Godot hasn't cached stops at `Could not find base class` and hangs until its timeout.
 ensure_imported :: proc(dir: string) -> []string {
 	sync_shared(dir)
 	exts := write_extension_list_dir(dir)
-	stamp := join(dir, ".godot", "unified_import.sig")
-	sig := import_signature(dir)
-	fresh := os.is_file(join(dir, ".godot", "global_script_class_cache.cfg"))
-	if have, ok := read_text(stamp); fresh && ok && have == sig {
+	if import_current(dir) {
 		return exts
 	}
 	start := time.tick_now()
@@ -175,10 +174,23 @@ ensure_imported :: proc(dir: string) -> []string {
 		log("%s", tail(strings.concatenate({result.stdout, result.stderr}), 4000))
 		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
 	}
-	write_text(stamp, import_signature(dir)) // the import may have added .uid files
+	import_mark_current(dir) // after the import: it may have added .uid files
 	cold(tprint("Godot import of %s", os.base(dir)))
 	log("uni: imported %s in %.1fs", rel(dir), seconds_since(start))
 	return exts
+}
+
+// Whether Godot's import cache of a project is current: its class cache exists (a fresh checkout has none) and the
+// import signature (class names, new scripts, imported assets; the mirrored shared code included) is the one the
+// last import recorded.
+import_current :: proc(dir: string) -> bool {
+	have, ok := read_text(join(dir, ".godot", "unified_import.sig"))
+	return ok && os.is_file(join(dir, ".godot", "global_script_class_cache.cfg")) && have == import_signature(dir)
+}
+
+// Records the project's import signature as imported.
+import_mark_current :: proc(dir: string) {
+	write_text(join(dir, ".godot", "unified_import.sig"), import_signature(dir))
 }
 
 // Runs Godot to the end with a timeout (a headless Godot can hang, e.g. when an extension fails to load), output

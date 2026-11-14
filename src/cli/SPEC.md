@@ -183,7 +183,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     `--crash` (this repo) adds `tests/cli`'s test that crashes while holding a lock another test waits for: the
     run must fail within seconds and name both.
   - `godot`: each game under headless Godot, each step run when the game has what it needs: `import` (stale imports
-    only), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
+    only; every step, `--only` too, first re-imports a missing or stale class cache, as `tool`, `run`, `coop` and
+    `bake` do), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
     `validate`, `walk` (`ui_walk.gd`, with `--mock`: a game with a GDScript stand-in session walks on it), `tour`
     (quick). A step the game can't run prints `skipped: <why>`. Several
