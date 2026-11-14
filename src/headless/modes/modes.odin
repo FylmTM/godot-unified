@@ -213,27 +213,27 @@ mode_resume :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYE
 }
 
 mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
-	check_known(args, "enemies", "window", "ticks", "seed", "players")
+	check_known(args, "entities", "window", "ticks", "seed", "players")
 	standard := headless.bench
 	if standard.ticks == 0 {
 		standard = {
-			what    = "the default benchmark",
-			enemies = 1000,
-			window  = 8,
-			ticks   = 600,
+			what     = "the default benchmark",
+			entities = 1000,
+			window   = 8,
+			ticks    = 600,
 		}
 	}
-	enemies := opt_int(args, "enemies", standard.enemies, low = 0, high = 1 << 20)
+	entities := opt_int(args, "entities", standard.entities, low = 0, high = 1 << 20)
 	window := window_opt(headless, args, standard.window)
 	ticks := u32(opt_int(args, "ticks", standard.ticks, low = 1, high = 1_000_000))
-	result := run_bench(headless, enemies, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
+	result := run_bench(headless, entities, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
 	stat_json :: proc(stat: Stat) -> string {
 		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 	}
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","enemies":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"enemies_mean":%.1f,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
 		standard.what,
-		enemies,
+		entities,
 		window,
 		ticks,
 		stat_json(result.step),
@@ -242,7 +242,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		stat_json(result.resim),
 		result.snapshot_bytes,
 		result.block_bytes,
-		result.enemies_mean,
+		result.entities_mean,
 		result.mismatches,
 	)
 	return result.mismatches == 0

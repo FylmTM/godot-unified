@@ -9,30 +9,32 @@ phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which descr
 ## CLI
 
 The modes come from `unified:headless/modes` (`modes.run(&HEADLESS, variants, online)`: `--game NAME` picks one of the
-variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`.out/<mode>/<game>`). Below,
-`unified <mode>` stands for it. A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
+variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`.out/<mode>/<game>`).
+`uni headless [game] -- <mode> [options]` builds it when stale and runs it with the mode below (`src/cli/SPEC.md`).
+A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
 Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
 
 All modes print a final JSON line on stdout. Non-zero exit = failure.
 
-- `unified sim --ticks N [--seed S] [--players P] [--trace F] [--log F]`: offline run with scripted inputs (`games/survivor/SPEC.md`
+- `sim --ticks N [--seed S] [--players P] [--trace F] [--log F]`: offline run with scripted inputs (`games/survivor/SPEC.md`
   §input script); per-tick `"%06d %016x"` trace; `--log` writes the run's inputs as an input log (nothing replaced).
-- `unified synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`. `W` (here and in
+- `synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`. `W` (here and in
   `bench`) is 1 to `headless.max_window(game)`, the game's ring depth (its tick rate sets it).
-- `unified replay --log F --trace F`: replays an input log.
-- `unified session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
+- `replay --log F --trace F`: replays an input log.
+- `session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
   [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
   the real clock; on the virtual clock, loopback only, one thread steps everything through test time). Writes the
   relay's official input log. JSON includes, per client, the verified checksums for every 16th tick, `desyncs`,
   rollback count and average/max rollback depth, stall ticks, and final ticks.
-- `unified relay --port P --players N --ticks T --log F` and
-  `unified client --connect HOST:PORT --player I --ticks T [--profile ...]`: separate processes over UDP, for the
+- `relay --port P --players N --ticks T --log F` and
+  `client --connect HOST:PORT --player I --ticks T [--profile ...]`: separate processes over UDP, for the
   multi-process test.
-- `unified snapshot --ticks T --out F [--seed S] [--players P]`: run offline to tick T and write a portable snapshot.
-  `unified resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
-- `unified bench [--enemies E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
-  W-tick re-sim, and snapshot bytes. Without arguments it runs the game's standard benchmark (`Headless.bench`).
-- `unified table-bench [--live L --walks W]`: a `sim.iterate`/`sim.next` walk of a 65,536-slot table that once held
+- `snapshot --ticks T --out F [--seed S] [--players P]`: run offline to tick T and write a portable snapshot.
+  `resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
+- `bench [--entities E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
+  W-tick re-sim, and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
+  enemies), `entities_mean` the count it held. Without arguments it runs the game's standard benchmark (`Headless.bench`).
+- `table-bench [--live L --walks W]`: a `sim.iterate`/`sim.next` walk of a 65,536-slot table that once held
   every slot and now holds L (1000) items spread across it, against a dense table holding L items: JSON
   `sparse_us` and `dense_us`, each `{"mean": µs, "p99": µs}` (src/sim/SPEC.md "Tables and handles": an alive bitmask
   comes only if this shows the scan matters). Game-independent; `uni bench` runs it once.

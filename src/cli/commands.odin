@@ -31,6 +31,13 @@ public_commands :: proc() -> []Command {
 				run = cmd_build,
 			},
 			{
+				name = "headless",
+				usage = "[game] [--mode dev|release|debug] -- <mode> [options]",
+				summary = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench; its JSON on stdout",
+				no_budget = "the mode decides",
+				run = cmd_headless,
+			},
+			{
 				name = "run",
 				usage = "[game] [--mute] [--screen s] [--background] [-- args]",
 				summary = "the game in a window (arguments after -- go to the game)",

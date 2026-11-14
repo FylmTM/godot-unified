@@ -103,7 +103,8 @@ Public (`unified:cli`, every project):
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env` or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
-| `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension |
+| `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension (this repo: `toy` builds no extension) |
+| `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast |
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included |
@@ -125,7 +126,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), `test --suite all` and `verify` |
+| `selftest` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped with only Odin, `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
 
 ## Local settings
 

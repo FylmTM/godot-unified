@@ -22,7 +22,7 @@ Headless :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	summary:           proc(state: ^State) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
 	bench_prepare:     proc(state: ^State, world: ^World, count: int),
-	// `bench`: the current entity count, for enemies_mean (optional).
+	// `bench`: the current entity count, for entities_mean (optional).
 	bench_count:       proc(state: ^State) -> int,
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
 	bench:             Bench,
@@ -31,13 +31,13 @@ Headless :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	content:           []u8,
 }
 
-// A benchmark's setup: `enemies` entities held (with bench_prepare), a `window`-tick rollback every tick, for
+// A benchmark's setup: `entities` entities held (with bench_prepare), a `window`-tick rollback every tick, for
 // `ticks` ticks. `what` says what it measures.
 Bench :: struct {
-	what:    string,
-	enemies: int,
-	window:  int,
-	ticks:   int,
+	what:     string,
+	entities: int,
+	window:   int,
+	ticks:    int,
 }
 
 // The longest rollback window a game's ring allows (sim.ring_size(tick_hz) - 1).

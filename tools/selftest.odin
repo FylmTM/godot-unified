@@ -7,8 +7,8 @@ import "unified:cli"
 
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped with only Odin (its shim builds its CLI), then `init` a game outside it with the clone as its
-// submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it and run every test suite in that game
-// repo. Only when called (before tooling PRs, after
+// submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it, run a
+// headless mode and every test suite in that game repo. Only when called (before tooling PRs, after
 // a pin or toolchain change); never by `verify`. It tests the committed HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	Opts :: struct {}
@@ -57,6 +57,12 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		},
 		// the first build generates the Godot bindings: a cold run, not one over its budget
 		{what = "build the game", cmd = shim(game, "build", "--json"), dir = game, expect = `"Godot bindings"`},
+		{
+			what = "the headless binary through uni",
+			cmd = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
+			dir = game,
+			expect = `"mismatches":0`,
+		},
 		{what = "every test suite of the game", cmd = shim(game, "test", "--suite", "all"), dir = game},
 		{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game},
 	}

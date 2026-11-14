@@ -42,7 +42,7 @@ Args :: struct {
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
 	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
-	bench:     int, // single player sessions hold this many enemies (Glue.bench)
+	bench:     int, // single player sessions hold this many entities (Glue.bench)
 	online:    bool, // host_online at once
 	join_code: string, // join_online this code at once
 }

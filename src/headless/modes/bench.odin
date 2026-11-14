@@ -31,16 +31,16 @@ Bench_Result :: struct {
 	step, save, restore, resim: Stat,
 	snapshot_bytes:             int,
 	block_bytes:                int,
-	enemies_mean:               f64,
+	entities_mean:              f64,
 	mismatches:                 int,
 }
 
-// `bench`: prepares `enemies` entities (the game holds that population), and every tick measures
+// `bench`: prepares `entities` entities (the game holds that population), and every tick measures
 // the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
 // save per tick, which is what a client rollback costs). Re-sim checksums are compared too.
 run_bench :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
-	enemies: int,
+	entities: int,
 	window, ticks: u32,
 	seed: u64,
 	players: int,
@@ -51,7 +51,7 @@ run_bench :: proc(
 	simulation := sim.create(headless.game, seed, headless.content)
 	defer sim.destroy(simulation)
 	if headless.bench_prepare != nil {
-		headless.bench_prepare(&simulation.state, simulation.world, enemies)
+		headless.bench_prepare(&simulation.state, simulation.world, entities)
 		sim.save(simulation)
 	}
 	tick_count := int(ticks)
@@ -112,7 +112,7 @@ run_bench :: proc(
 	result.resim = stat_of(resim_us[:rollbacks])
 	result.block_bytes = size_of(State)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
-	result.enemies_mean = count_sum / f64(max(tick_count, 1))
+	result.entities_mean = count_sum / f64(max(tick_count, 1))
 	return
 }
 

@@ -132,7 +132,7 @@ Glue :: struct($State, $Input, $World: typeid) {
 	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
 	constants:         proc(dict: ^gd.Dictionary),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
-	// enemies). Single player only: it changes the initial state, which every peer would have to share.
+	// entities). Single player only: it changes the initial state, which every peer would have to share.
 	bench:             proc(state: ^State, world: ^World, count: int),
 	// Session thread, optional: an event's sim.Position fields in the units `extract` writes (views and the
 	// `sim_event` signal get them), e.g. metres or cells to pixels. `world` is the session's World as of the
