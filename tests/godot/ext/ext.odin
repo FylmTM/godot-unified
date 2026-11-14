@@ -19,12 +19,12 @@ tester: gd.Class
 
 @(export, link_name = "gdext_test_init")
 gdext_test_init :: proc "c" (
-	gpa: gdi.InterfaceGetProcAddress,
-	lib: gdi.ClassLibraryPtr,
+	get_proc_address: gdi.InterfaceGetProcAddress,
+	library: gdi.ClassLibraryPtr,
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	gd.init(gpa, lib)
+	gd.init(get_proc_address, library)
 	init.minimum_initialization_level = .INITIALIZATION_SCENE
 	init.initialize = proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 		if level != .INITIALIZATION_SCENE do return
@@ -48,93 +48,117 @@ register :: proc() {
 		name = "Tester",
 		parent = "Node3D",
 		size = size_of(Tester),
-		ready = proc(i: rawptr) {
-			(^Tester)(i).readied = true
+		ready = proc(instance: rawptr) {
+			(^Tester)(instance).readied = true
 			devui.init({visible = true})
 		},
-		process = proc(i: rawptr, dt: f64) {
-			t := (^Tester)(i)
-			t.processed += 1
-			devui.inspect("tester", t^)
+		process = proc(instance: rawptr, dt: f64) {
+			self := (^Tester)(instance)
+			self.processed += 1
+			devui.inspect("tester", self^)
 			devui.plot("dt ms", f32(dt * 1000))
-			devui.stat("processed", "%d", t.processed)
-			devui.log(u32(t.processed), "frame %d", t.processed)
+			devui.stat("processed", "%d", self.processed)
+			devui.log(u32(self.processed), "frame %d", self.processed)
 			devui.frame(dt)
 		},
 	}
-	c := &tester
-	gd.register_class(c)
-	gd.bind_method(c, "add", proc(t: ^Tester, a: i64, b: i64) -> i64 {return a + b}, {"a", "b"})
-	gd.bind_method(c, "greet", proc(t: ^Tester, who: string) -> string {return fmt.tprintf("hello %s", who)}, {"who"})
-	gd.bind_method(c, "scale", proc(t: ^Tester, v: gd.Vector3, k: f32) -> gd.Vector3 {
-		return {v.x * k, v.y * k, v.z * k}
+	cls := &tester
+	gd.register_class(cls)
+	gd.bind_method(cls, "add", proc(self: ^Tester, left: i64, right: i64) -> i64 {return left + right}, {"a", "b"})
+	gd.bind_method(
+		cls,
+		"greet",
+		proc(self: ^Tester, who: string) -> string {return fmt.tprintf("hello %s", who)},
+		{"who"},
+	)
+	gd.bind_method(cls, "scale", proc(self: ^Tester, vector: gd.Vector3, factor: f32) -> gd.Vector3 {
+		return {vector.x * factor, vector.y * factor, vector.z * factor}
 	}, {"v", "k"})
-	gd.bind_method(c, "make_dict", proc(t: ^Tester) -> gd.Dictionary {
-		d := gd.dict_new()
-		gd.dict_set(&d, "name", "odin")
-		gd.dict_set(&d, "n", 3)
+	gd.bind_method(cls, "make_dict", proc(self: ^Tester) -> gd.Dictionary {
+		dict := gd.dict_new()
+		gd.dict_set(&dict, "name", "odin")
+		gd.dict_set(&dict, "n", 3)
 		list := gd.array_new()
 		gd.array_push(&list, 1)
 		gd.array_push(&list, 2.5)
 		gd.array_push(&list, "x")
-		gd.dict_set_move(&d, "list", &list)
-		return d
+		gd.dict_set_move(&dict, "list", &list)
+		return dict
 	})
-	gd.bind_method(c, "sum_array", proc(t: ^Tester, a: gd.Array) -> f64 {
-		a := a
+	gd.bind_method(cls, "sum_array", proc(self: ^Tester, array: gd.Array) -> f64 {
+		array := array
 		sum := 0.0
-		for i in 0 ..< gd.array_len(&a) {
-			x, _ := gd.from_variant(f64, gd.array_at(&a, i))
-			sum += x
+		for i in 0 ..< gd.array_len(&array) {
+			number, _ := gd.from_variant(f64, gd.array_at(&array, i))
+			sum += number
 		}
 		return sum
 	}, {"a"})
-	gd.bind_method(c, "node_name", proc(t: ^Tester, n: gd.Node) -> string {return gd.Node_get_name(n)}, {"node"})
-	gd.bind_property(c, "value", proc(t: ^Tester) -> i64 {return t.value}, proc(t: ^Tester, v: i64) {t.value = v})
-	gd.bind_signal(c, "fired", {"n", i64}, {"msg", string}, {"pos", gd.Vector3})
-	gd.bind_method(c, "fire", proc(t: ^Tester, n: i64) {
-		gd.emit_signal(t.obj, gd.sn("fired"), n, fmt.tprintf("fired %d", n), gd.Vector3{f32(n), 0, 0})
+	gd.bind_method(
+		cls,
+		"node_name",
+		proc(self: ^Tester, node: gd.Node) -> string {return gd.Node_get_name(node)},
+		{"node"},
+	)
+	gd.bind_property(
+		cls,
+		"value",
+		proc(self: ^Tester) -> i64 {return self.value},
+		proc(self: ^Tester, value: i64) {self.value = value},
+	)
+	gd.bind_signal(cls, "fired", {"n", i64}, {"msg", string}, {"pos", gd.Vector3})
+	gd.bind_constant(cls, "Mode", "MODE_SLOW", 0)
+	gd.bind_constant(cls, "Mode", "MODE_FAST", 7)
+	gd.bind_constant(cls, "", "ANSWER", 42)
+	gd.bind_method(cls, "fire", proc(self: ^Tester, number: i64) {
+		gd.emit_signal(
+			self.obj,
+			gd.sn("fired"),
+			number,
+			fmt.tprintf("fired %d", number),
+			gd.Vector3{f32(number), 0, 0},
+		)
 	}, {"n"})
-	gd.bind_script_virtual(c, "_on_odin", {"x", i64})
-	gd.bind_method(c, "call_back", proc(t: ^Tester, x: i64) {
-		r := gd.call_script(t.obj, gd.sn("_on_odin"), x)
-		gd.variant_destroy(&r)
+	gd.bind_script_virtual(cls, "_on_odin", {"x", i64})
+	gd.bind_method(cls, "call_back", proc(self: ^Tester, value: i64) {
+		result := gd.call_script(self.obj, gd.sn("_on_odin"), value)
+		gd.variant_destroy(&result)
 	}, {"x"})
-	gd.bind_method(c, "callable", proc(t: ^Tester) -> gd.Callable {
+	gd.bind_method(cls, "callable", proc(self: ^Tester) -> gd.Callable {
 		return gd.callable_create(proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
-				a, _ := gd.from_variant(i64, args[0])
-				b, _ := gd.from_variant(i64, args[1])
-				return gd.to_variant(a + b)
-			}, nil, t.obj)
+				left, _ := gd.from_variant(i64, args[0])
+				right, _ := gd.from_variant(i64, args[1])
+				return gd.to_variant(left + right)
+			}, nil, self.obj)
 	})
-	gd.bind_method(c, "call_add_via_vararg", proc(t: ^Tester) -> i64 {
-		r := gd.Object_call(t.obj, "add", i64(3), i64(4))
-		defer gd.variant_destroy(&r)
-		v, _ := gd.from_variant(i64, &r)
-		return v
+	gd.bind_method(cls, "call_add_via_vararg", proc(self: ^Tester) -> i64 {
+		result := gd.Object_call(self.obj, "add", i64(3), i64(4))
+		defer gd.variant_destroy(&result)
+		value, _ := gd.from_variant(i64, &result)
+		return value
 	})
-	gd.bind_method(c, "image_size", proc(t: ^Tester) -> i64 {
+	gd.bind_method(cls, "image_size", proc(self: ^Tester) -> i64 {
 		img := gd.Image_create_empty(3, 4, false, .FORMAT_RGBA8)
 		defer gd.unref(img)
 		return i64(gd.Image_get_width(img) * gd.Image_get_height(img))
 	})
-	gd.bind_method(c, "sn_same", proc(t: ^Tester) -> bool {return gd.sn("abc") == gd.sn("abc")})
-	gd.bind_method(c, "is_readied", proc(t: ^Tester) -> bool {return t.readied})
-	gd.bind_method(c, "processed_count", proc(t: ^Tester) -> i64 {return t.processed})
-	gd.bind_method(c, "devui_items", proc(t: ^Tester) -> i64 {
+	gd.bind_method(cls, "sn_same", proc(self: ^Tester) -> bool {return gd.sn("abc") == gd.sn("abc")})
+	gd.bind_method(cls, "is_readied", proc(self: ^Tester) -> bool {return self.readied})
+	gd.bind_method(cls, "processed_count", proc(self: ^Tester) -> i64 {return self.processed})
+	gd.bind_method(cls, "devui_items", proc(self: ^Tester) -> i64 {
 		items, _ := devui.frame_stats()
 		return i64(items)
 	})
 	// A nested callback (Odin -> Godot -> Odin) must not free or zero the caller's temp data.
-	gd.bind_method(c, "nested_temp", proc(t: ^Tester) -> bool {
+	gd.bind_method(cls, "nested_temp", proc(self: ^Tester) -> bool {
 		mine := fmt.tprintf("outer %d", 12345)
-		r := gd.Object_call(t.obj, "greet", "inner")
-		defer gd.variant_destroy(&r)
-		got, _ := gd.from_variant(string, &r)
+		result := gd.Object_call(self.obj, "greet", "inner")
+		defer gd.variant_destroy(&result)
+		got, _ := gd.from_variant(string, &result)
 		return mine == "outer 12345" && got == "hello inner"
 	})
-	gd.bind_method(c, "call_counts", proc(t: ^Tester) -> gd.Vector2i {
+	gd.bind_method(cls, "call_counts", proc(self: ^Tester) -> gd.Vector2i {
 		return {i32(gd.call_counts.variant), i32(gd.call_counts.ptrcall)}
 	})
-	gd.bind_method(c, "instances", proc(t: ^Tester) -> i64 {return i64(tester.instances)})
+	gd.bind_method(cls, "instances", proc(self: ^Tester) -> i64 {return i64(tester.instances)})
 }

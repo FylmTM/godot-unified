@@ -16,105 +16,106 @@ import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-H :: headless.Headless(toy.State, toy.Input, toy.World, toy.SLOTS)
-
-HEADLESS := H {
+// Read-only: the runs only read it, so the tests share it.
+HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.PLAYERS) {
 	game = &toy.GAME,
-	script = proc(seed: u64, slot: int, t: u32, state: ^toy.State) -> toy.Input {
-		return toy.script(seed, slot, t)
+	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+		return toy.scripted_input(seed, player, tick)
 	},
-	script_commands = proc(seed: u64, slot: int, t: u32, state: ^toy.State, out: ^sim.Command_Out) {
-		toy.script_commands(seed, slot, t, out)
+	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		toy.scripted_commands(seed, player, tick, out)
 	},
 }
 
 // An offline run gives a tick at most four commands of a player and the rest to the next ticks, in order,
-// as the relay does (toy.script_commands sends six bumps, 100 * slot + 0..5, at tick 250).
+// as the relay does (toy.scripted_commands sends six bumps, 100 * player + 0..5, at tick 250).
 @(test)
 offline_runs_hold_commands_over_the_limit_for_the_next_tick :: proc(t: ^testing.T) {
-	h := HEADLESS
-	lg: sim.Input_Log(toy.Input, toy.SLOTS)
-	defer sim.log_destroy(&lg)
-	headless.run_sim(&h, 260, 3, 2, nil, &lg)
-	for slot in 0 ..< 2 {
-		at: [6]u32
+	input_log: sim.Input_Log(toy.Input, toy.PLAYERS)
+	defer sim.log_destroy(&input_log)
+	headless.run_sim(&HEADLESS, 260, 3, 2, nil, &input_log)
+	for player in 0 ..< 2 {
+		applied_at: [6]u32 // the tick each of the six bumps went into
 		for k in 249 ..< 255 {
-			in_ := sim.log_inputs(&lg, k)
-			sim.bind_commands(&in_, toy.GAME.commands)
-			testing.expect(t, len(sim.commands(&in_, slot)) <= sim.COMMANDS_PER_PLAYER)
-			for &c in sim.commands(&in_, slot) {
-				b := sim.command_as(&c, toy.Cmd_Bump) or_continue
-				if i := int(b.amount) - 100 * slot; i >= 0 && i < 6 && at[i] == 0 {
-					at[i] = u32(k + 1)
+			inputs := sim.log_inputs(&input_log, k)
+			testing.expect(t, len(sim.commands(&inputs, player)) <= sim.COMMANDS_PER_PLAYER)
+			for &raw in sim.commands(&inputs, player) {
+				bump := sim.command_value(&raw, toy.Command).(toy.Cmd_Bump) or_continue
+				if i := int(bump.amount) - 100 * player; i >= 0 && i < 6 && applied_at[i] == 0 {
+					applied_at[i] = u32(k + 1)
 				}
 			}
 		}
-		testing.expectf(t, at[0] == 250 && slice.is_sorted(at[:]) && at[4] == 251, "slot %d: ticks %v", slot, at)
+		testing.expectf(
+			t,
+			applied_at[0] == 250 && slice.is_sorted(applied_at[:]) && applied_at[4] == 251,
+			"player %d: ticks %v",
+			player,
+			applied_at,
+		)
 	}
 }
 
 temp_path :: proc(name: string) -> string {
 	dir := os.temp_directory(context.temp_allocator) or_else "."
-	p, _ := filepath.join(
+	path, _ := filepath.join(
 		{dir, fmt.tprintf("unified-headless-test-%d-%s", os.get_pid(), name)},
 		context.temp_allocator,
 	)
-	return p
+	return path
 }
 
 @(test)
 offline_modes_agree :: proc(t: ^testing.T) {
-	h := HEADLESS
 	log_path, trace_path := temp_path("run.log"), temp_path("run.trace")
-	defer for p in ([]string{log_path, trace_path}) {
-		os.remove(p)
+	defer for path in ([]string{log_path, trace_path}) {
+		os.remove(path)
 	}
-	tr, b_tr: headless.Trace
-	defer headless.trace_destroy(&tr)
-	defer headless.trace_destroy(&b_tr)
-	lg: sim.Input_Log(toy.Input, toy.SLOTS)
-	defer sim.log_destroy(&lg)
-	a := headless.run_sim(&h, 300, 7, 3, &tr, &lg)
-	b := headless.run_sim(&h, 300, 7, 3, &b_tr)
-	testing.expect_value(t, a.final_checksum, b.final_checksum) // deterministic
-	testing.expect(t, tr.first == 1 && len(tr.sums) == 300 && tr.sums[299] == a.final_checksum)
-	sync := headless.run_synctest(&h, 300, 8, 7, 3)
-	testing.expect_value(t, sync.mismatches, 0)
-	testing.expect(t, sync.resimulated > 300)
-	testing.expect_value(t, sync.final_checksum, a.final_checksum)
+	trace, second_trace: headless.Trace
+	defer headless.trace_destroy(&trace)
+	defer headless.trace_destroy(&second_trace)
+	input_log: sim.Input_Log(toy.Input, toy.PLAYERS)
+	defer sim.log_destroy(&input_log)
+	run := headless.run_sim(&HEADLESS, 300, 7, 3, &trace, &input_log)
+	second_run := headless.run_sim(&HEADLESS, 300, 7, 3, &second_trace)
+	testing.expect_value(t, run.final_checksum, second_run.final_checksum) // deterministic
+	testing.expect(t, trace.first == 1 && len(trace.sums) == 300 && trace.sums[299] == run.final_checksum)
+	synctest := headless.run_synctest(&HEADLESS, 300, 8, 7, 3)
+	testing.expect_value(t, synctest.mismatches, 0)
+	testing.expect(t, synctest.resimulated > 300)
+	testing.expect_value(t, synctest.final_checksum, run.final_checksum)
 	// Through files: the log and the trace read back as written, and the log replays to the trace.
-	testing.expect(t, sim.log_write(log_path, &lg) && headless.trace_write(&tr, trace_path))
-	lg2, lok := sim.log_read(log_path, toy.Input, toy.SLOTS)
-	defer sim.log_destroy(&lg2)
-	testing.expect(t, lok)
-	tr2, tok := headless.trace_read(trace_path)
-	defer headless.trace_destroy(&tr2)
-	testing.expect(t, tok && tr2.first == 1 && slice.equal(tr2.sums[:], tr.sums[:]))
-	rt: headless.Trace
-	defer headless.trace_destroy(&rt)
-	r, rok := headless.run_replay(&h, &lg2, &rt)
-	testing.expect(t, rok)
-	testing.expect_value(t, r.final_checksum, a.final_checksum)
-	testing.expect(t, slice.equal(rt.sums[:], tr.sums[:]))
+	testing.expect(t, sim.log_write(log_path, &input_log) && headless.trace_write(&trace, trace_path))
+	read_log, log_ok := sim.log_read(log_path, toy.Input, toy.PLAYERS)
+	defer sim.log_destroy(&read_log)
+	testing.expect(t, log_ok)
+	read_trace, trace_ok := headless.trace_read(trace_path)
+	defer headless.trace_destroy(&read_trace)
+	testing.expect(t, trace_ok && read_trace.first == 1 && slice.equal(read_trace.sums[:], trace.sums[:]))
+	replay_trace: headless.Trace
+	defer headless.trace_destroy(&replay_trace)
+	replay, replay_ok := headless.run_replay(&HEADLESS, &read_log, &replay_trace)
+	testing.expect(t, replay_ok)
+	testing.expect_value(t, replay.final_checksum, run.final_checksum)
+	testing.expect(t, slice.equal(replay_trace.sums[:], trace.sums[:]))
 	// Snapshot at 200, resume 100 ticks: the same ticks 201..300 as the straight run.
-	snap, _ := headless.run_snapshot(&h, 200, 7, 3)
-	defer delete(snap)
-	st: headless.Trace
-	defer headless.trace_destroy(&st)
-	res, resok := headless.run_resume(&h, snap, 100, 3, &st)
-	testing.expect(t, resok)
-	testing.expect_value(t, res.final_tick, 300)
-	testing.expect_value(t, res.final_checksum, a.final_checksum)
-	testing.expect(t, st.first == 201 && slice.equal(st.sums[:], tr.sums[200:]))
-	got, has := headless.trace_at(&st, 250)
-	testing.expect(t, has && got == tr.sums[249])
-	_, has = headless.trace_at(&st, 200)
+	snapshot, _ := headless.run_snapshot(&HEADLESS, 200, 7, 3)
+	defer delete(snapshot)
+	resume_trace: headless.Trace
+	defer headless.trace_destroy(&resume_trace)
+	resume, resume_ok := headless.run_resume(&HEADLESS, snapshot, 100, 3, &resume_trace)
+	testing.expect(t, resume_ok)
+	testing.expect_value(t, resume.final_tick, 300)
+	testing.expect_value(t, resume.final_checksum, run.final_checksum)
+	testing.expect(t, resume_trace.first == 201 && slice.equal(resume_trace.sums[:], trace.sums[200:]))
+	checksum, has := headless.trace_at(&resume_trace, 250)
+	testing.expect(t, has && checksum == trace.sums[249])
+	_, has = headless.trace_at(&resume_trace, 200)
 	testing.expect(t, !has)
 }
 
 @(test)
 session_on_the_virtual_clock :: proc(t: ^testing.T) {
-	h := HEADLESS
 	cfg := headless.Session_Config {
 		clients     = 3,
 		transport   = "loopback",
@@ -125,35 +126,34 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 		late_player = 2,
 		late_tick   = 320,
 	}
-	res := headless.session_run(&h, cfg)
-	defer headless.session_result_destroy(&res)
-	testing.expect(t, res.ok)
-	testing.expect_value(t, res.desyncs, 0)
-	testing.expect_value(t, len(res.clients), 3)
-	testing.expect_value(t, len(res.log.ticks), 640)
+	result := headless.session_run(&HEADLESS, cfg)
+	defer headless.session_result_destroy(&result)
+	testing.expect(t, result.ok)
+	testing.expect_value(t, result.desyncs, 0)
+	testing.expect_value(t, len(result.clients), 3)
+	testing.expect_value(t, len(result.log.ticks), 640)
 	// The relay's log replays to every client's last verified checksum (tick 640).
-	s := sim.create(&toy.GAME, 11)
-	defer sim.destroy(s)
-	for k in 0 ..< len(res.log.ticks) {
-		in_ := sim.log_inputs(&res.log, k)
-		sim.step(s, &in_)
+	simulation := sim.create(&toy.GAME, 11)
+	defer sim.destroy(simulation)
+	for k in 0 ..< len(result.log.ticks) {
+		inputs := sim.log_inputs(&result.log, k)
+		sim.step(simulation, &inputs)
 	}
-	for c, i in res.clients {
-		testing.expect_value(t, c.player, i)
-		testing.expect_value(t, c.final_tick, 640)
-		last := c.checksums[len(c.checksums) - 1] if len(c.checksums) > 0 else {}
-		testing.expectf(t, last == {640, sim.checksum(s)}, "client %d's last verified checksum: %v", i, last)
+	for client, i in result.clients {
+		testing.expect_value(t, client.player, i)
+		testing.expect_value(t, client.final_tick, 640)
+		last := client.checksums[len(client.checksums) - 1] if len(client.checksums) > 0 else {}
+		testing.expectf(t, last == {640, sim.checksum(simulation)}, "client %d's last verified checksum: %v", i, last)
 	}
-	testing.expect(t, res.clients[2].join_tick >= 320 && res.clients[2].checksums[0][0] >= 320)
+	testing.expect(t, result.clients[2].join_tick >= 320 && result.clients[2].checksums[0][0] >= 320)
 	// The JSON the CLI prints is built from these results.
-	j := netcode.client_json(res.clients[0])
-	testing.expect(t, strings.has_prefix(j, `{"player":0,"final_tick":640,"checksums":[[16,"`))
+	json := netcode.client_json(result.clients[0])
+	testing.expect(t, strings.has_prefix(json, `{"player":0,"final_tick":640,"checksums":[[16,"`))
 }
 
 // The same session twice on the virtual clock: identical, to the byte.
 @(test)
 virtual_sessions_repeat :: proc(t: ^testing.T) {
-	h := HEADLESS
 	cfg := headless.Session_Config {
 		clients     = 2,
 		transport   = "loopback",
@@ -163,11 +163,11 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 		seed        = 3,
 		late_player = -1,
 	}
-	a := headless.session_run(&h, cfg)
-	defer headless.session_result_destroy(&a)
-	b := headless.session_run(&h, cfg)
-	defer headless.session_result_destroy(&b)
-	testing.expect(t, a.ok && b.ok)
-	testing.expect_value(t, netcode.client_json(a.clients[0]), netcode.client_json(b.clients[0]))
-	testing.expect_value(t, a.relay_net, b.relay_net)
+	first := headless.session_run(&HEADLESS, cfg)
+	defer headless.session_result_destroy(&first)
+	second := headless.session_run(&HEADLESS, cfg)
+	defer headless.session_result_destroy(&second)
+	testing.expect(t, first.ok && second.ok)
+	testing.expect_value(t, netcode.client_json(first.clients[0]), netcode.client_json(second.clients[0]))
+	testing.expect_value(t, first.relay_net, second.relay_net)
 }

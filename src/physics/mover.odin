@@ -100,119 +100,123 @@ SKIRT_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
 SKIRT_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}
 
 // Creates the mover's body and drive joint at `pos` (the capsule's centre). Needs Settings.anchor.
-mover_create :: proc(w: ^World, m: ^Mover, def: ^Mover_Def, pos: [3]f32) {
-	assert(w.anchor.index1 != 0, "physics: movers need Settings.anchor")
-	m^ = {}
-	bd := b3.default_body_def()
-	bd.type = .Dynamic_Body
-	bd.position = pos
-	bd.gravity_scale = def.gravity_scale
-	bd.motion_locks = {
+mover_create :: proc(world: ^World, mover: ^Mover, def: ^Mover_Def, pos: [3]f32) {
+	assert(world.anchor.index1 != 0, "physics: movers need Settings.anchor")
+	mover^ = {}
+	body_def := b3.default_body_def()
+	body_def.type = .Dynamic_Body
+	body_def.position = pos
+	body_def.gravity_scale = def.gravity_scale
+	body_def.motion_locks = {
 		angular_x = true,
 		angular_y = true,
 		angular_z = true,
 	}
-	bd.enable_sleep = false
-	bd.name = "mover"
-	body := b3.create_body(w.id, &bd)
-	sd := b3.default_shape_def()
-	sd.density = def.density
+	body_def.enable_sleep = false
+	body_def.name = "mover"
+	body := b3.create_body(world.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.density = def.density
 	// The joints do all the moving; surface friction would fight them.
-	sd.base_material.friction = 0
-	sd.base_material.restitution = 0
-	sd.base_material.user_material_id = def.material
-	if def.category != 0 do sd.filter.category_bits = def.category
-	if def.mask != 0 do sd.filter.mask_bits = def.mask
-	sd.enable_hit_events = def.hit_events
-	cap := b3.Capsule{{0, -def.half_height, 0}, {0, def.half_height, 0}, def.radius}
-	b3.create_capsule_shape(body, &sd, &cap)
-	m.body = ref_of(body)
-	m.move_joint = create_move_joint(w, m, def, w.anchor)
+	shape_def.base_material.friction = 0
+	shape_def.base_material.restitution = 0
+	shape_def.base_material.user_material_id = def.material
+	if def.category != 0 do shape_def.filter.category_bits = def.category
+	if def.mask != 0 do shape_def.filter.mask_bits = def.mask
+	shape_def.enable_hit_events = def.hit_events
+	capsule := b3.Capsule{{0, -def.half_height, 0}, {0, def.half_height, 0}, def.radius}
+	b3.create_capsule_shape(body, &shape_def, &capsule)
+	mover.body = ref_of(body)
+	mover.move_joint = create_move_joint(world, mover, def, world.anchor)
 }
 
 // Destroys the body (and with it the joints) and clears the mover.
-mover_destroy :: proc(w: ^World, m: ^Mover) {
-	destroy_body(w, &m.body)
-	m^ = {}
+mover_destroy :: proc(world: ^World, mover: ^Mover) {
+	destroy_body(world, &mover.body)
+	mover^ = {}
 }
 
 @(private)
-create_move_joint :: proc(w: ^World, m: ^Mover, def: ^Mover_Def, base: b3.Body_Id) -> Joint_Ref {
-	jd := b3.default_mover_joint_def()
-	jd.linear_velocity = m.velocity
-	jd.max_force = .Limp in m.flags ? 0 : def.max_ground_force
-	jd.base.body_id_a = base
-	jd.base.body_id_b = body_id(w, m.body)
-	jd.base.collide_connected = true
-	return joint_ref_of(b3.create_mover_joint(w.id, &jd))
+create_move_joint :: proc(world: ^World, mover: ^Mover, def: ^Mover_Def, base: b3.Body_Id) -> Joint_Ref {
+	joint_def := b3.default_mover_joint_def()
+	joint_def.linear_velocity = mover.velocity
+	joint_def.max_force = .Limp in mover.flags ? 0 : def.max_ground_force
+	joint_def.base.body_id_a = base
+	joint_def.base.body_id_b = body_id(world, mover.body)
+	joint_def.base.collide_connected = true
+	return joint_ref_of(b3.create_mover_joint(world.id, &joint_def))
 }
 
 @(private)
-mover_weight :: proc(w: ^World, m: ^Mover, def: ^Mover_Def) -> f32 {
-	g := b3.world_get_gravity(w.id)
-	return def.gravity_scale * dmath.sqrt(g.x * g.x + g.y * g.y + g.z * g.z) * b3.body_get_mass(body_id(w, m.body))
+mover_weight :: proc(world: ^World, mover: ^Mover, def: ^Mover_Def) -> f32 {
+	gravity := b3.world_get_gravity(world.id)
+	return(
+		def.gravity_scale *
+		dmath.sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z) *
+		b3.body_get_mass(body_id(world, mover.body)) \
+	)
 }
 
 @(private)
-drop_pogo :: proc(w: ^World, m: ^Mover) {
-	destroy_joint(w, &m.pogo)
-	m.ground = {}
-	m.pogo_impulse = 0
-	m.pogo_velocity = 0
+drop_pogo :: proc(world: ^World, mover: ^Mover) {
+	destroy_joint(world, &mover.pogo)
+	mover.ground = {}
+	mover.pogo_impulse = 0
+	mover.pogo_velocity = 0
 }
 
 // An outside impulse lifts the mover (pads, hits, its own jump): the pogo stops pulling it down
 // until it lands again, from this step on (its joint may already be set up for this tick).
-mover_launch :: proc(w: ^World, m: ^Mover) {
-	m.flags -= {.On_Ground, .Walkable}
-	m.flags += {.Jumping}
-	m.jump_ticks = 0
-	m.coyote = 0
-	if joint_valid(w, m.pogo) do b3.pogo_joint_set_max_tension_force(joint_id(w, m.pogo), 0)
+mover_launch :: proc(world: ^World, mover: ^Mover) {
+	mover.flags -= {.On_Ground, .Walkable}
+	mover.flags += {.Jumping}
+	mover.jump_ticks = 0
+	mover.coyote = 0
+	if joint_valid(world, mover.pogo) do b3.pogo_joint_set_max_tension_force(joint_id(world, mover.pogo), 0)
 }
 
 // Limp: no drive force and no pogo (held, stunned); the body just tumbles along. Leaving limp
 // starts like a launch, so the mover settles back onto the ground through the pogo.
-mover_set_limp :: proc(w: ^World, m: ^Mover, limp: bool) {
-	if limp == (.Limp in m.flags) do return
+mover_set_limp :: proc(world: ^World, mover: ^Mover, limp: bool) {
+	if limp == (.Limp in mover.flags) do return
 	if limp {
-		m.flags += {.Limp}
-		m.flags -= {.On_Ground, .Walkable}
-		m.velocity = {}
-		m.coyote = 0
-		m.jump_buffer = 0
-		drop_pogo(w, m)
-		if joint_valid(w, m.move_joint) {
-			id := joint_id(w, m.move_joint)
+		mover.flags += {.Limp}
+		mover.flags -= {.On_Ground, .Walkable}
+		mover.velocity = {}
+		mover.coyote = 0
+		mover.jump_buffer = 0
+		drop_pogo(world, mover)
+		if joint_valid(world, mover.move_joint) {
+			id := joint_id(world, mover.move_joint)
 			b3.mover_joint_set_max_velocity_force(id, 0)
 			b3.mover_joint_set_linear_velocity(id, {})
 		}
 	} else {
-		m.flags -= {.Limp}
-		mover_launch(w, m)
+		mover.flags -= {.Limp}
+		mover_launch(world, mover)
 	}
 }
 
 // Moves the mover (respawn): velocities zeroed, ground forgotten.
-mover_teleport :: proc(w: ^World, m: ^Mover, pos: [3]f32) {
-	teleport(w, m.body, pos)
-	drop_pogo(w, m)
-	m.velocity = {}
-	m.flags -= {.On_Ground, .Walkable, .Jumping}
-	m.coyote = 0
-	m.jump_buffer = 0
+mover_teleport :: proc(world: ^World, mover: ^Mover, pos: [3]f32) {
+	teleport(world, mover.body, pos)
+	drop_pogo(world, mover)
+	mover.velocity = {}
+	mover.flags -= {.On_Ground, .Walkable, .Jumping}
+	mover.coyote = 0
+	mover.jump_buffer = 0
 }
 
-mover_grounded :: proc(m: ^Mover) -> bool {
-	return .On_Ground in m.flags && .Walkable in m.flags
+mover_grounded :: proc(mover: ^Mover) -> bool {
+	return .On_Ground in mover.flags && .Walkable in mover.flags
 }
 
 // Advances the mover's drive before the world step. `move` is the wanted horizontal direction in
 // world space (x, z), length ≤ 1; `jump` is a fresh press (edge); `speed_scale` scales max_speed.
 // Returns true when it jumped this tick.
 mover_update :: proc(
-	w: ^World,
-	m: ^Mover,
+	world: ^World,
+	mover: ^Mover,
 	def: ^Mover_Def,
 	move: [2]f32,
 	jump: bool,
@@ -221,141 +225,141 @@ mover_update :: proc(
 ) -> (
 	jumped: bool,
 ) {
-	if .Limp in m.flags do return false
-	body := body_id(w, m.body)
+	if .Limp in mover.flags do return false
+	body := body_id(world, mover.body)
 
 	// Jump (from the previous update's ground state), with coyote time and a buffer.
 	if jump {
-		m.jump_buffer = u16(def.jump_buffer_s / dt + 0.5)
+		mover.jump_buffer = u16(def.jump_buffer_s / dt + 0.5)
 	}
-	if m.jump_buffer > 0 && m.coyote > 0 && .Jumping not_in m.flags {
+	if mover.jump_buffer > 0 && mover.coyote > 0 && .Jumping not_in mover.flags {
 		surface_vy: f32 = 0
-		if body_valid(w, m.ground) {
-			surface_vy = b3.body_get_linear_velocity(link_id(w, m.ground)).y
+		if body_valid(world, mover.ground) {
+			surface_vy = b3.body_get_linear_velocity(link_id(world, mover.ground)).y
 		}
 		vy := b3.body_get_linear_velocity(body).y
-		dv := max(0, def.jump_speed - vy) + surface_vy
-		b3.body_apply_linear_impulse_to_center(body, {0, b3.body_get_mass(body) * dv, 0}, true)
-		mover_launch(w, m)
-		m.jump_buffer = 0
+		delta_speed := max(0, def.jump_speed - vy) + surface_vy
+		b3.body_apply_linear_impulse_to_center(body, {0, b3.body_get_mass(body) * delta_speed, 0}, true)
+		mover_launch(world, mover)
+		mover.jump_buffer = 0
 		jumped = true
-	} else if m.jump_buffer > 0 {
-		m.jump_buffer -= 1
+	} else if mover.jump_buffer > 0 {
+		mover.jump_buffer -= 1
 	}
 
 	// Probe for ground: reach further while grounded so the spring finds the ground over a step.
-	ray_len := .On_Ground in m.flags ? 2 * def.pogo_rest : def.pogo_rest
+	ray_len := .On_Ground in mover.flags ? 2 * def.pogo_rest : def.pogo_rest
 	translation := [3]f32{0, -ray_len, 0}
-	p := b3.body_get_position(body)
-	origin := [3]f32{p.x, p.y - def.half_height, p.z}
-	q := Query{def.category, def.mask}
-	self := link(m.body)
-	hit, found := ray_closest(w, origin, translation, q, self)
+	pos := b3.body_get_position(body)
+	origin := [3]f32{pos.x, pos.y - def.half_height, pos.z}
+	query := Query{def.category, def.mask}
+	self := link(mover.body)
+	hit, found := ray_closest(world, origin, translation, query, self)
 	offset: [3]f32
 	if !(found && hit.normal.y >= def.min_ground_normal_y) {
 		// The skirt turns with the direction of travel, so ties go to the leading probe.
-		v := b3.body_get_linear_velocity(body)
-		heading := [2]f32{v.x, v.z}
-		hl := heading.x * heading.x + heading.y * heading.y
-		if hl < 1.1920929e-07 {
+		vel := b3.body_get_linear_velocity(body)
+		heading := [2]f32{vel.x, vel.z}
+		heading_len_sq := heading.x * heading.x + heading.y * heading.y
+		if heading_len_sq < 1.1920929e-07 {
 			heading = {1, 0}
 		} else {
-			l := dmath.sqrt(hl)
-			heading = {heading.x / l, heading.y / l}
+			heading_len := dmath.sqrt(heading_len_sq)
+			heading = {heading.x / heading_len, heading.y / heading_len}
 		}
 		side := [2]f32{-heading.y, heading.x}
 		best := max(f32)
 		for i in 0 ..< 8 {
-			o := [3]f32 {
+			skirt_offset := [3]f32 {
 				def.radius * (SKIRT_C[i] * heading.x + SKIRT_S[i] * side.x),
 				0,
 				def.radius * (SKIRT_C[i] * heading.y + SKIRT_S[i] * side.y),
 			}
-			h, ok := ray_closest(w, origin + o, translation, q, self)
-			if ok && h.normal.y >= def.min_ground_normal_y {
-				d := abs(h.fraction * ray_len - def.pogo_rest)
-				if d < best {
-					best = d
-					hit = h
+			skirt_hit, ok := ray_closest(world, origin + skirt_offset, translation, query, self)
+			if ok && skirt_hit.normal.y >= def.min_ground_normal_y {
+				gap := abs(skirt_hit.fraction * ray_len - def.pogo_rest)
+				if gap < best {
+					best = gap
+					hit = skirt_hit
 					found = true
-					offset = o
+					offset = skirt_offset
 				}
 			}
 		}
 	}
 
 	// Should the jump end?
-	if .Jumping in m.flags {
-		m.jump_ticks += 1
+	if .Jumping in mover.flags {
+		mover.jump_ticks += 1
 		// Give the jump time to leave the ground first.
-		if m.jump_ticks > 2 && found && dot3(m.velocity, hit.normal) <= 0 {
-			m.flags -= {.Jumping}
+		if mover.jump_ticks > 2 && found && dot3(mover.velocity, hit.normal) <= 0 {
+			mover.flags -= {.Jumping}
 		}
 	}
 
 	if found {
-		if hit.normal.y >= def.min_ground_normal_y do m.flags += {.Walkable}
-		else do m.flags -= {.Walkable}
-		if .Jumping in m.flags do m.flags -= {.On_Ground}
-		else do m.flags += {.On_Ground}
-		if .On_Ground in m.flags {
-			if .Walkable in m.flags do m.time_sliding = max(m.time_sliding - dt, 0)
-			else do m.time_sliding = min(m.time_sliding + dt, def.slide_s)
+		if hit.normal.y >= def.min_ground_normal_y do mover.flags += {.Walkable}
+		else do mover.flags -= {.Walkable}
+		if .Jumping in mover.flags do mover.flags -= {.On_Ground}
+		else do mover.flags += {.On_Ground}
+		if .On_Ground in mover.flags {
+			if .Walkable in mover.flags do mover.time_sliding = max(mover.time_sliding - dt, 0)
+			else do mover.time_sliding = min(mover.time_sliding + dt, def.slide_s)
 		}
 	} else {
-		m.flags -= {.On_Ground, .Walkable}
-		m.time_sliding = max(m.time_sliding - dt, 0)
+		mover.flags -= {.On_Ground, .Walkable}
+		mover.time_sliding = max(mover.time_sliding - dt, 0)
 	}
-	if .On_Ground in m.flags && .Walkable in m.flags {
-		m.coyote = u16(def.coyote_s / dt + 0.5)
-	} else if m.coyote > 0 {
-		m.coyote -= 1
+	if .On_Ground in mover.flags && .Walkable in mover.flags {
+		mover.coyote = u16(def.coyote_s / dt + 0.5)
+	} else if mover.coyote > 0 {
+		mover.coyote -= 1
 	}
 
 	// Attach the drive to a kinematic platform under the mover (acts like friction).
-	base := w.anchor
+	base := world.anchor
 	if found {
-		gid := link_id(w, hit.body)
-		if b3.body_get_type(gid) == .Kinematic_Body &&
+		ground_id := link_id(world, hit.body)
+		if b3.body_get_type(ground_id) == .Kinematic_Body &&
 		   (def.platform_material == 0 || hit.material == def.platform_material) {
-			base = gid
+			base = ground_id
 		}
 	}
-	if !joint_valid(w, m.move_joint) || b3.joint_get_body_a(joint_id(w, m.move_joint)) != base {
-		destroy_joint(w, &m.move_joint)
-		m.move_joint = create_move_joint(w, m, def, base)
+	if !joint_valid(world, mover.move_joint) || b3.joint_get_body_a(joint_id(world, mover.move_joint)) != base {
+		destroy_joint(world, &mover.move_joint)
+		mover.move_joint = create_move_joint(world, mover, def, base)
 	}
-	mj := joint_id(w, m.move_joint)
-	bv := b3.body_get_linear_velocity(body)
-	pv := b3.body_get_linear_velocity(base)
-	m.velocity = {bv.x - pv.x, bv.y - pv.y, bv.z - pv.z}
+	move_joint_id := joint_id(world, mover.move_joint)
+	body_vel := b3.body_get_linear_velocity(body)
+	base_vel := b3.body_get_linear_velocity(base)
+	mover.velocity = {body_vel.x - base_vel.x, body_vel.y - base_vel.y, body_vel.z - base_vel.z}
 
 	// Friction in the horizontal plane; the pogo owns the vertical motion.
-	if .On_Ground in m.flags {
-		speed := dmath.sqrt(m.velocity.x * m.velocity.x + m.velocity.z * m.velocity.z)
+	if .On_Ground in mover.flags {
+		speed := dmath.sqrt(mover.velocity.x * mover.velocity.x + mover.velocity.z * mover.velocity.z)
 		if speed < def.min_speed {
-			m.velocity.x = 0
-			m.velocity.z = 0
+			mover.velocity.x = 0
+			mover.velocity.z = 0
 		} else {
 			control := speed < def.stop_speed ? def.stop_speed : speed
 			drop := control * def.friction * dt
 			ratio := max(0, speed - drop) / speed
-			m.velocity.x *= ratio
-			m.velocity.z *= ratio
+			mover.velocity.x *= ratio
+			mover.velocity.z *= ratio
 		}
 	}
 
 	max_force: f32
-	if .On_Ground in m.flags {
+	if .On_Ground in mover.flags {
 		if def.slide_s > 0 {
-			max_force = clamp(1 - m.time_sliding / def.slide_s, 0, 1) * def.max_ground_force
+			max_force = clamp(1 - mover.time_sliding / def.slide_s, 0, 1) * def.max_ground_force
 		} else {
-			max_force = .Walkable in m.flags ? def.max_ground_force : 0
+			max_force = .Walkable in mover.flags ? def.max_ground_force : 0
 		}
 	} else {
 		max_force = def.max_air_force
 	}
-	b3.mover_joint_set_max_velocity_force(mj, max_force)
+	b3.mover_joint_set_max_velocity_force(move_joint_id, max_force)
 
 	// Accelerate towards the wanted velocity.
 	max_speed := speed_scale * def.max_speed
@@ -368,61 +372,61 @@ mover_update :: proc(
 		want_speed = 0
 	}
 	want_speed = min(want_speed, max_speed)
-	add := want_speed - dot3(m.velocity, dir)
+	add := want_speed - dot3(mover.velocity, dir)
 	if add > 0 {
-		steer: f32 = .Walkable in m.flags ? 1 : def.air_steer
+		steer: f32 = .Walkable in mover.flags ? 1 : def.air_steer
 		accel := min(steer * def.accelerate * max_speed * dt, add)
-		m.velocity.x += accel * dir.x
-		m.velocity.z += accel * dir.z
+		mover.velocity.x += accel * dir.x
+		mover.velocity.z += accel * dir.z
 	}
 
 	// The pogo.
-	n := hit.normal
-	if found && abs(1 - dot3(n, n)) < 100 * 1.1920929e-07 {
-		weight := mover_weight(w, m, def)
-		tension := .Jumping in m.flags ? 0 : def.pogo_tension_scale * weight
-		gid := link_id(w, hit.body)
-		lp := b3.body_get_local_point(gid, hit.point)
+	normal := hit.normal
+	if found && abs(1 - dot3(normal, normal)) < 100 * 1.1920929e-07 {
+		weight := mover_weight(world, mover, def)
+		tension := .Jumping in mover.flags ? 0 : def.pogo_tension_scale * weight
+		ground_id := link_id(world, hit.body)
+		local_point := b3.body_get_local_point(ground_id, hit.point)
 		frame_b := b3.Transform{{offset.x, -def.half_height, offset.z}, {0, 0, 0, 1}}
-		if hit.body != m.ground || !joint_valid(w, m.pogo) {
-			if joint_valid(w, m.pogo) {
-				pj := joint_id(w, m.pogo)
-				m.pogo_impulse = b3.pogo_joint_get_impulse(pj)
-				m.pogo_velocity = b3.pogo_joint_get_current_speed(pj)
-				destroy_joint(w, &m.pogo)
+		if hit.body != mover.ground || !joint_valid(world, mover.pogo) {
+			if joint_valid(world, mover.pogo) {
+				pogo_id := joint_id(world, mover.pogo)
+				mover.pogo_impulse = b3.pogo_joint_get_impulse(pogo_id)
+				mover.pogo_velocity = b3.pogo_joint_get_current_speed(pogo_id)
+				destroy_joint(world, &mover.pogo)
 			}
-			m.ground = hit.body
-			pd := b3.default_pogo_joint_def()
-			pd.base.local_frame_a = {lp, {0, 0, 0, 1}}
-			pd.base.local_frame_b = frame_b
-			pd.base.body_id_a = gid
-			pd.base.body_id_b = body
-			pd.base.collide_connected = true
-			pd.normal = n
-			pd.rest_length = def.pogo_rest
-			pd.hertz = def.pogo_hertz
-			pd.damping_ratio = def.pogo_damping
-			pd.max_compression_force = def.pogo_compression_scale * weight
-			pd.max_tension_force = tension
+			mover.ground = hit.body
+			pogo_def := b3.default_pogo_joint_def()
+			pogo_def.base.local_frame_a = {local_point, {0, 0, 0, 1}}
+			pogo_def.base.local_frame_b = frame_b
+			pogo_def.base.body_id_a = ground_id
+			pogo_def.base.body_id_b = body
+			pogo_def.base.collide_connected = true
+			pogo_def.normal = normal
+			pogo_def.rest_length = def.pogo_rest
+			pogo_def.hertz = def.pogo_hertz
+			pogo_def.damping_ratio = def.pogo_damping
+			pogo_def.max_compression_force = def.pogo_compression_scale * weight
+			pogo_def.max_tension_force = tension
 			// Warm start from the joint that was just destroyed.
-			pd.impulse = m.pogo_impulse
-			pd.velocity = m.pogo_velocity
-			m.pogo = joint_ref_of(b3.create_pogo_joint(w.id, &pd))
+			pogo_def.impulse = mover.pogo_impulse
+			pogo_def.velocity = mover.pogo_velocity
+			mover.pogo = joint_ref_of(b3.create_pogo_joint(world.id, &pogo_def))
 		} else {
-			pj := joint_id(w, m.pogo)
-			b3.joint_set_local_frame_a(pj, {lp, {0, 0, 0, 1}})
-			b3.joint_set_local_frame_b(pj, frame_b)
-			b3.pogo_joint_set_normal(pj, n)
-			b3.pogo_joint_set_max_tension_force(pj, tension)
-			b3.pogo_joint_set_max_compression_force(pj, def.pogo_compression_scale * weight)
-			b3.pogo_joint_set_spring_hertz(pj, def.pogo_hertz)
-			b3.pogo_joint_set_spring_damping_ratio(pj, def.pogo_damping)
+			pogo_id := joint_id(world, mover.pogo)
+			b3.joint_set_local_frame_a(pogo_id, {local_point, {0, 0, 0, 1}})
+			b3.joint_set_local_frame_b(pogo_id, frame_b)
+			b3.pogo_joint_set_normal(pogo_id, normal)
+			b3.pogo_joint_set_max_tension_force(pogo_id, tension)
+			b3.pogo_joint_set_max_compression_force(pogo_id, def.pogo_compression_scale * weight)
+			b3.pogo_joint_set_spring_hertz(pogo_id, def.pogo_hertz)
+			b3.pogo_joint_set_spring_damping_ratio(pogo_id, def.pogo_damping)
 		}
 	} else {
-		drop_pogo(w, m)
+		drop_pogo(world, mover)
 	}
 
-	b3.mover_joint_set_linear_velocity(mj, m.velocity)
+	b3.mover_joint_set_linear_velocity(move_joint_id, mover.velocity)
 	return
 }
 

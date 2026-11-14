@@ -25,7 +25,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   except the two spots inside the start circle: crate 19 at (−2, 12) and crate 20 at (2, −12).
   Barrels are the items where `i % 5 == 2`; the rest are crates. Barrels have 30 HP.
 - Players `p = 0..3`: dynamic capsules (r 0.45, center1 (0,−0.45,0), center2 (0,0.45,0)), rotation locked, sleep off,
-  created when the slot becomes present, at their start spot `(±1.5, 1, ±1.5)` in order (+,+) (−,+) (+,−) (−,−),
+  created when the player becomes present, at their start spot `(±1.5, 1, ±1.5)` in order (+,+) (−,+) (+,−) (−,−),
   inside the start circle.
 
 ## Input (per player per tick)
@@ -33,12 +33,13 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - `move_x, move_z`: i8 in −127..127. The movement direction is `(move_x, move_z) / 127` (not normalized; the
   scripted inputs only produce lengths ≤ 1).
 - `buttons`: bit 0 = dash (edge-triggered).
-- Presence is not in the input: the tick's `present` set (from the relay) says who is in the game. A slot that becomes
-  present joins (body at its start spot, fresh progress, `player_joined`); one that stops being present leaves (body
-  destroyed, progress reset, `player_left`).
-- The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}` (kind
-  `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered once. The HUD sends it
-  from GDScript on a key (`levelup_1..3`), pad button or click: `send_command(&"pick", {"upgrade": i})`.
+- Presence is not in the input: the tick's `present` set (from the relay) says who is in the game. A player that
+  becomes present joins (body at its start spot, fresh progress, `player_joined`); one that stops being present
+  leaves (body destroyed, progress reset, `player_left`).
+- The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}`, the only
+  variant of `Command` (name `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered
+  once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click:
+  `send_command(&"pick", {"upgrade": i})`.
 
 ## Phases
 
@@ -106,7 +107,8 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
      - 0..6 → grunt: HP 10, speed 2.0, radius 0.4, contact damage 5
      - 7..8 → runner: HP 6, speed 3.2, radius 0.35, damage 3
      - 9 → brute: HP 40, speed 1.2, radius 0.7, damage 12
-   - The RNG is the state block's `sim.Rng` (xorshift32, seeded from the session seed); `rng_below` is unbiased.
+   - The RNG is the state block's `sim.Rng` stream (SplitMix64, seeded from the session seed); `rng_below` is
+     unbiased. A wave is drawn in sequence, so it stays on the stream; the game has no per-entity rolls.
 4. **Enemies** (kinematic, no physics bodies; same spatial-grid approach as the archived benchmark A: cell 2 m over the 60×60 arena,
    counting sort, items in index order):
    - Target = the nearest alive player (lowest index on ties).
@@ -146,24 +148,35 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
      indices) and drops a gem worth grunt 1 / runner 1 / brute 5 XP.
    - Max 1024 gems; if full, the XP goes straight to the nearest player.
    - Gems within 1.5 m of an alive player are collected by the lowest-index such player.
-   - Level threshold `xp_first + (level − 1)·xp_step` (Tuning; level starts at 1). Reaching it increments `level` and `pending_levelups` (`level_up`, value = the new
-     level). Enemy deaths emit `enemy_died`, collected gems `gem_collected`.
+   - Level threshold `xp_first + (level − 1)·xp_step` (Tuning; level starts at 1). Reaching it increments `level`
+     and `pending_levelups` (`level_up`). Enemy deaths emit `enemy_died`, collected gems `gem_collected`.
 10. **Physics step:** `b3World_Step(DT, 4)`.
 12. **Phases** (above), after the read-back.
 11. Read back player and barrel positions as needed by the next tick.
 
 ## Events (for the view)
 
-`player_died`, `player_respawned`, `enemy_died`, `barrel_exploded`, `gem_collected`, `level_up`, `match_started`,
-`match_over`, `player_joined`, `player_left` (`EVENT_NAMES`, indexed by `Event_Kind`). Player events carry `slot`
-and entity = slot; item events entity = item index + 1; enemy and gem events the table handle key. Enemies keep
-`spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
+One struct per event, in the `Event` union (`src/sim/SPEC.md`, Events; the name is the type name lowercased).
+`position` is a `sim.Position` in metres: the body's centre for players and barrels, the ground (y = 0) for enemies
+and gems.
+
+| Event | Fields |
+|---|---|
+| `player_joined`, `player_left`, `player_died`, `player_respawned` | `position`, `player` |
+| `match_started` | `position`, `player` (who left the start circle) |
+| `match_over` | `duration_s` (the match's length) |
+| `level_up` | `position`, `level` (the new level), `player` |
+| `enemy_died` | `enemy: Handle(Enemy)`, `position`, `kind: Enemy_Kind` |
+| `gem_collected` | `gem: Handle(Gem)`, `position`, `xp`, `player` (who collected it) |
+| `barrel_exploded` | `entity` (the item's view key: item index + 1), `position` |
+
+Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 
 ## HUD
 
 View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: phase and its name, tick, match time (s), wave (1-based in a match), enemies
-alive, circle radius, matches, and per slot: present, alive, hp, hp_max, xp, xp_next, level, pending level-ups,
-respawn seconds. The Godot host adds `local_slot` and player names (from the netcode roster).
+alive, circle radius, matches, and per player (`player`): present, alive, hp, hp_max, xp, xp_next, level, pending
+level-ups, respawn seconds. The Godot host adds `local_player` and player names (from the netcode roster).
 
 ## Scripted inputs (for `sim`, `synctest`, `session`, tests)
 
@@ -171,10 +184,10 @@ Deterministic per player and stateless: `r` = a 64-bit integer hash of (seed, pl
 be asked for in any order:
 - `move` = one of 8 directions from the angle table times 127 (as i8, truncated), or (0,0) when `r % 9 == 8`
 - dash when `r % 13 == 0`
-- commands (`script_commands`): a pick of upgrade `r % 3` on the first tick of every block, pending or not (the sim
+- commands (`scripted_commands`): a pick of upgrade `r % 3` on the first tick of every block, pending or not (the sim
   ignores it then), so the script depends on (seed, player, tick) only
 
-Offline modes make slots `< players` present from tick 1. In `session` mode each client generates its own player's
+Offline modes make players `< players` present from tick 1. In `session` mode each client generates its own player's
 inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
 against `sim`. Barrels sit off the scripted firing lines, so they rarely explode in scripted runs; physics churn
 inside rollback windows comes from deaths and respawns instead (and from the forced-explosion scenario below).
@@ -223,9 +236,12 @@ GDScript drives views through `Object.set/call` only, so the same scenes work wi
 and load without the library (Godot replaces unknown native node types with a placeholder `Node`).
 
 - `view_root: Node3D` property (extension): set by the arena on load, cleared on exit; views spawn under it.
-- Scene views: `res://game/views/<kind>.tscn`, root `Node3D` with script properties `kind`, `entity`, `slot` (-1 if
-  not a player), set before `add_child`. Each frame: `position` = interpolated body centre, then
-  `_sim_update(position, yaw, alpha)`. Entity events: `_sim_event(kind, {tick, position, value})`.
+- Scene views: `res://game/views/<kind>.tscn`, root `Node3D` with script properties `kind`, `entity`, `player` (-1
+  if not a player), set before `add_child`. Each frame: `position` = interpolated body centre, then
+  `_sim_update(position, yaw, alpha)`. Events: `sim_event(event, state, data)` (the signal) and the subject's view's
+  `_sim_event(event, state, data)`, `data` = the event's fields (Events above) plus `tick`, `state` one of
+  `SimEvent.EMITTED`, `CONFIRMED`, `CANCELLED` (`src/godot_host/SPEC.md`). The arena's effects and the HUD's banners
+  play on CONFIRMED only; the mock emits and confirms every event at once.
 - Bulk views: `MultiMeshInstance3D` in group `sim_bulk` under `view_root`, property `kind` (grunt, runner, brute,
   projectile, gem). 3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the
   floor plane (y = 0), the shaders lift the meshes.
@@ -235,7 +251,7 @@ and load without the library (Godot replaces unknown native node types with a pl
   never copies a sim number; the mock's `constants()` must equal the native one (validate checks it).
 - `press_action(action)`: presses one of the game's button actions (`dash`) for one tick; keys and pads reach the
   sim natively. `send_command(&"pick", {"upgrade": i})`: the level-up pick (the HUD sends it for keys, pads and
-  clicks; the mock latches it for its next tick). `hud()` before any session has every key (`local_slot` -1, no
+  clicks; the mock latches it for its next tick). `hud()` before any session has every key (`local_player` -1, no
   players).
 - `set_player_name(name)` and `hud().players[i].name` (extension, optional): names fall back to "P<n>".
 - `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the session panel shows this
@@ -279,7 +295,7 @@ panel owns the look.
 ### Art direction
 
 Stylized low-poly primitives with toon shading on a dark slate arena with a 2 m grid. Players warm and bright
-(orange, gold, pink, violet per slot) with a glowing floor ring; enemies cool per kind (steel-blue hex capsule
+(orange, gold, pink, violet per player) with a glowing floor ring; enemies cool per kind (steel-blue hex capsule
 grunts, teal three-sided runners, violet brute cubes); glowing yellow projectiles and green gems (bloom); wooden
 crates and red barrels. Cyan for the start circle, wall trim and codes. No assets: meshes are primitives, sounds
 are synthesized at boot.

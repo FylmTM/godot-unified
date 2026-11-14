@@ -11,33 +11,33 @@ writer_make :: proc(cap := 256, allocator := context.allocator) -> Writer {
 	return {buf = make([dynamic]u8, 0, cap, allocator)}
 }
 
-w_bytes :: proc(w: ^Writer, b: []u8) {
-	append(&w.buf, ..b)
+w_bytes :: proc(writer: ^Writer, bytes: []u8) {
+	append(&writer.buf, ..bytes)
 }
 
-w_u8 :: proc(w: ^Writer, v: u8) {
-	append(&w.buf, v)
+w_u8 :: proc(writer: ^Writer, value: u8) {
+	append(&writer.buf, value)
 }
 
-w_u16 :: proc(w: ^Writer, v: u16) {
-	b := transmute([2]u8)u16le(v)
-	append(&w.buf, ..b[:])
+w_u16 :: proc(writer: ^Writer, value: u16) {
+	bytes := transmute([2]u8)u16le(value)
+	append(&writer.buf, ..bytes[:])
 }
 
-w_u32 :: proc(w: ^Writer, v: u32) {
-	b := transmute([4]u8)u32le(v)
-	append(&w.buf, ..b[:])
+w_u32 :: proc(writer: ^Writer, value: u32) {
+	bytes := transmute([4]u8)u32le(value)
+	append(&writer.buf, ..bytes[:])
 }
 
-w_u64 :: proc(w: ^Writer, v: u64) {
-	b := transmute([8]u8)u64le(v)
-	append(&w.buf, ..b[:])
+w_u64 :: proc(writer: ^Writer, value: u64) {
+	bytes := transmute([8]u8)u64le(value)
+	append(&writer.buf, ..bytes[:])
 }
 
 // Patches a u32 written earlier at byte offset `at`.
-w_patch_u32 :: proc(w: ^Writer, at: int, v: u32) {
-	b := transmute([4]u8)u32le(v)
-	copy(w.buf[at:at + 4], b[:])
+w_patch_u32 :: proc(writer: ^Writer, at: int, value: u32) {
+	bytes := transmute([4]u8)u32le(value)
+	copy(writer.buf[at:at + 4], bytes[:])
 }
 
 // Bounds-checked reader: a short read sets ok = false and yields zeros, so a decoder can read a
@@ -52,33 +52,33 @@ reader_make :: proc(data: []u8) -> Reader {
 	return {data = data, ok = true}
 }
 
-r_bytes :: proc(r: ^Reader, n: int) -> []u8 {
-	if n < 0 || r.pos + n > len(r.data) {
-		r.ok = false
-		r.pos = len(r.data)
+r_bytes :: proc(reader: ^Reader, count: int) -> []u8 {
+	if count < 0 || reader.pos + count > len(reader.data) {
+		reader.ok = false
+		reader.pos = len(reader.data)
 		return nil
 	}
-	b := r.data[r.pos:r.pos + n]
-	r.pos += n
-	return b
+	bytes := reader.data[reader.pos:reader.pos + count]
+	reader.pos += count
+	return bytes
 }
 
 @(private)
-r_le :: proc(r: ^Reader, $T: typeid) -> T where intrinsics.type_is_integer(T) {
-	b := r_bytes(r, size_of(T))
-	if b == nil {
+r_le :: proc(reader: ^Reader, $T: typeid) -> T where intrinsics.type_is_integer(T) {
+	bytes := r_bytes(reader, size_of(T))
+	if bytes == nil {
 		return 0
 	}
-	v: T
-	intrinsics.mem_copy_non_overlapping(&v, raw_data(b), size_of(T))
+	value: T
+	intrinsics.mem_copy_non_overlapping(&value, raw_data(bytes), size_of(T))
 	when ODIN_ENDIAN != .Little {
 		#panic("big-endian targets are not supported")
 	}
-	return v
+	return value
 }
 
-r_u8 :: proc(r: ^Reader) -> u8 {return r_le(r, u8)}
-r_u16 :: proc(r: ^Reader) -> u16 {return r_le(r, u16)}
-r_u32 :: proc(r: ^Reader) -> u32 {return r_le(r, u32)}
-r_u64 :: proc(r: ^Reader) -> u64 {return r_le(r, u64)}
-r_remaining :: proc(r: ^Reader) -> int {return len(r.data) - r.pos}
+r_u8 :: proc(reader: ^Reader) -> u8 {return r_le(reader, u8)}
+r_u16 :: proc(reader: ^Reader) -> u16 {return r_le(reader, u16)}
+r_u32 :: proc(reader: ^Reader) -> u32 {return r_le(reader, u32)}
+r_u64 :: proc(reader: ^Reader) -> u64 {return r_le(reader, u64)}
+r_remaining :: proc(reader: ^Reader) -> int {return len(reader.data) - reader.pos}

@@ -19,9 +19,9 @@ PROFILES := [?]Profile {
 }
 
 profile_by_name :: proc(name: string) -> (Profile, bool) {
-	for p in PROFILES {
-		if p.name == name {
-			return p, true
+	for profile in PROFILES {
+		if profile.name == name {
+			return profile, true
 		}
 	}
 	return {}, false
@@ -46,18 +46,18 @@ Virtual_Clock :: struct {
 }
 
 @(private)
-clock_now :: proc(c: ^Virtual_Clock) -> i64 {
-	return c.now if c != nil else now_us()
+clock_now :: proc(clock: ^Virtual_Clock) -> i64 {
+	return clock.now if clock != nil else now_us()
 }
 
 @(private)
-xorshift32 :: proc(x: ^u32) -> u32 {
-	v := x^
-	v ~= v << 13
-	v ~= v >> 17
-	v ~= v << 5
-	x^ = v
-	return v
+xorshift32 :: proc(state: ^u32) -> u32 {
+	value := state^
+	value ~= value << 13
+	value ~= value >> 17
+	value ~= value << 5
+	state^ = value
+	return value
 }
 
 Sim_Packet :: struct {
@@ -75,13 +75,13 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 	if profile.latency == 0 && profile.loss == 0 && profile.duplicate == 0 && profile.reorder == 0 {
 		return inner
 	}
-	ns := new(Net_Sim)
-	ns.inner = inner
-	ns.profile = profile
-	ns.rng = seed == 0 ? 0x9E3779B9 : seed
-	ns.clock = clock
+	netsim := new(Net_Sim)
+	netsim.inner = inner
+	netsim.profile = profile
+	netsim.rng = seed == 0 ? 0x9E3779B9 : seed
+	netsim.clock = clock
 	return {
-		data = ns,
+		data = netsim,
 		send = netsim_send,
 		recv = netsim_recv,
 		close = netsim_close,
@@ -90,108 +90,108 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 }
 
 @(private)
-roll :: proc(ns: ^Net_Sim, per_mille: u32) -> bool {
-	return per_mille > 0 && xorshift32(&ns.rng) % 1000 < per_mille
+roll :: proc(netsim: ^Net_Sim, per_mille: u32) -> bool {
+	return per_mille > 0 && xorshift32(&netsim.rng) % 1000 < per_mille
 }
 
 // Queues zero, one or two copies of the datagram with their delivery times.
 @(private)
-impair :: proc(ns: ^Net_Sim, q: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8, incoming: bool) {
-	prof := incoming && ns.split ? &ns.profile_in : &ns.profile
-	ns.stats.sent += 1
-	if roll(ns, prof.loss) {
-		ns.stats.dropped += 1
+impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8, incoming: bool) {
+	profile := incoming && netsim.split ? &netsim.profile_in : &netsim.profile
+	netsim.stats.sent += 1
+	if roll(netsim, profile.loss) {
+		netsim.stats.dropped += 1
 		return
 	}
 	copies := 1
-	if roll(ns, prof.duplicate) {
+	if roll(netsim, profile.duplicate) {
 		copies = 2
-		ns.stats.duplicated += 1
+		netsim.stats.duplicated += 1
 	}
-	now := clock_now(ns.clock)
+	now := clock_now(netsim.clock)
 	for _ in 0 ..< copies {
-		delay := prof.latency
-		if prof.jitter > 0 {
-			delay += i64(xorshift32(&ns.rng) % u32(2 * prof.jitter + 1)) - prof.jitter
+		delay := profile.latency
+		if profile.jitter > 0 {
+			delay += i64(xorshift32(&netsim.rng) % u32(2 * profile.jitter + 1)) - profile.jitter
 		}
-		if roll(ns, prof.reorder) {
-			delay += 16_000 * i64(1 + xorshift32(&ns.rng) % 3)
-			ns.stats.reordered += 1
+		if roll(netsim, profile.reorder) {
+			delay += 16_000 * i64(1 + xorshift32(&netsim.rng) % 3)
+			netsim.stats.reordered += 1
 		}
-		append(q, Sim_Packet{at = now + max(delay, 0), peer = peer, bytes = clone_bytes(bytes)})
+		append(queue, Sim_Packet{at = now + max(delay, 0), peer = peer, bytes = clone_bytes(bytes)})
 	}
 }
 
 // Removes and returns the earliest packet that is due, if any.
 @(private)
-pop_due :: proc(q: ^[dynamic]Sim_Packet, now: i64) -> (p: Sim_Packet, ok: bool) {
+pop_due :: proc(queue: ^[dynamic]Sim_Packet, now: i64) -> (packet: Sim_Packet, ok: bool) {
 	best := -1
-	for &it, i in q {
-		if it.at <= now && (best < 0 || it.at < q[best].at) {
+	for &queued, i in queue {
+		if queued.at <= now && (best < 0 || queued.at < queue[best].at) {
 			best = i
 		}
 	}
 	if best < 0 {
 		return
 	}
-	p = q[best]
-	ordered_remove(q, best)
-	return p, true
+	packet = queue[best]
+	ordered_remove(queue, best)
+	return packet, true
 }
 
 @(private)
-pump :: proc(ns: ^Net_Sim) {
-	now := clock_now(ns.clock)
+pump :: proc(netsim: ^Net_Sim) {
+	now := clock_now(netsim.clock)
 	for {
-		p, ok := pop_due(&ns.outgoing, now)
+		packet, ok := pop_due(&netsim.outgoing, now)
 		if !ok {
 			break
 		}
-		link_send(&ns.inner, p.peer, p.bytes)
-		delete(p.bytes)
+		link_send(&netsim.inner, packet.peer, packet.bytes)
+		delete(packet.bytes)
 	}
 	for {
-		n, from, ok := link_recv(&ns.inner, ns.scratch[:])
+		size, from, ok := link_recv(&netsim.inner, netsim.scratch[:])
 		if !ok {
 			break
 		}
-		impair(ns, &ns.incoming, from, ns.scratch[:n], true)
+		impair(netsim, &netsim.incoming, from, netsim.scratch[:size], true)
 	}
 }
 
 @(private)
 netsim_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
-	ns := (^Net_Sim)(data)
-	impair(ns, &ns.outgoing, to, bytes, false)
-	pump(ns)
+	netsim := (^Net_Sim)(data)
+	impair(netsim, &netsim.outgoing, to, bytes, false)
+	pump(netsim)
 }
 
 @(private)
-netsim_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool) {
-	ns := (^Net_Sim)(data)
-	pump(ns)
-	p := pop_due(&ns.incoming, clock_now(ns.clock)) or_return
-	defer delete(p.bytes)
-	return copy(buf, p.bytes), p.peer, true
+netsim_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool) {
+	netsim := (^Net_Sim)(data)
+	pump(netsim)
+	packet := pop_due(&netsim.incoming, clock_now(netsim.clock)) or_return
+	defer delete(packet.bytes)
+	return copy(buf, packet.bytes), packet.peer, true
 }
 
 @(private)
 netsim_event :: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool) {
-	ns := (^Net_Sim)(data)
-	return ns.inner.event(ns.inner.data)
+	netsim := (^Net_Sim)(data)
+	return netsim.inner.event(netsim.inner.data)
 }
 
 @(private)
 netsim_close :: proc(data: rawptr) {
-	ns := (^Net_Sim)(data)
-	for p in ns.outgoing {
-		delete(p.bytes)
+	netsim := (^Net_Sim)(data)
+	for packet in netsim.outgoing {
+		delete(packet.bytes)
 	}
-	for p in ns.incoming {
-		delete(p.bytes)
+	for packet in netsim.incoming {
+		delete(packet.bytes)
 	}
-	delete(ns.outgoing)
-	delete(ns.incoming)
-	link_close(&ns.inner)
-	free(ns)
+	delete(netsim.outgoing)
+	delete(netsim.incoming)
+	link_close(&netsim.inner)
+	free(netsim)
 }

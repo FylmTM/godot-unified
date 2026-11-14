@@ -25,34 +25,40 @@ Credentials :: struct {
 	product_id, sandbox_id, deployment_id, client_id, client_secret: string,
 }
 
-credentials_complete :: proc(c: Credentials) -> bool {
+credentials_complete :: proc(credentials: Credentials) -> bool {
 	return(
-		c.product_id != "" &&
-		c.sandbox_id != "" &&
-		c.deployment_id != "" &&
-		c.client_id != "" &&
-		c.client_secret != "" \
+		credentials.product_id != "" &&
+		credentials.sandbox_id != "" &&
+		credentials.deployment_id != "" &&
+		credentials.client_id != "" &&
+		credentials.client_secret != "" \
 	)
 }
 
 // Compiled-in values first, then the environment; each field independently. Strings are allocated with `allocator`.
-credentials_load :: proc(allocator := context.allocator) -> (c: Credentials, source: string) {
-	c = {
+credentials_load :: proc(allocator := context.allocator) -> (credentials: Credentials, source: string) {
+	credentials = {
 		product_id    = DEF_PRODUCT_ID,
 		sandbox_id    = DEF_SANDBOX_ID,
 		deployment_id = DEF_DEPLOYMENT_ID,
 		client_id     = DEF_CLIENT_ID,
 		client_secret = DEF_CLIENT_SECRET,
 	}
-	if credentials_complete(c) {
-		return c, "compiled in"
+	if credentials_complete(credentials) {
+		return credentials, "compiled in"
 	}
-	fields := [5]^string{&c.product_id, &c.sandbox_id, &c.deployment_id, &c.client_id, &c.client_secret}
+	fields := [5]^string {
+		&credentials.product_id,
+		&credentials.sandbox_id,
+		&credentials.deployment_id,
+		&credentials.client_id,
+		&credentials.client_secret,
+	}
 	names := CREDENTIAL_NAMES
-	for f, i in fields {
-		if f^ == "" {
-			f^ = os.get_env(names[i], allocator)
+	for field, i in fields {
+		if field^ == "" {
+			field^ = os.get_env(names[i], allocator)
 		}
 	}
-	return c, "environment"
+	return credentials, "environment"
 }

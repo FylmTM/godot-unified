@@ -9,7 +9,7 @@ import "unified:view"
 // Fixed capacities: the Frame lives in a triple buffer, three copies, no allocation per frame.
 MAX_SCENE_ITEMS :: 256
 SCENE_DATA_BYTES :: 64 // a scene item's typed data (Scene_Kind.data)
-MAX_NAMED :: 8 // player slots whose display names travel in the Frame
+MAX_NAMED :: 8 // players whose display names travel in the Frame
 NAME_BYTES :: 32
 MAX_BULK_ITEMS :: 16384 // memory only (three Frames): the per-frame cost follows the items pushed
 HUD_BYTES :: 4096
@@ -29,8 +29,8 @@ Scene_Kind :: struct {
 Scene_Item :: struct {
 	key:      view.Key, // spawn key: a new key = a new view; must be non-zero
 	kind:     u8, // index into Glue.scenes
-	slot:     i8, // player slot, -1 for none
-	entity:   u32, // the entity id the game's events carry (sim.Event.entity), 0 for none
+	player:   i8, // the player it shows, -1 for none: events whose subject is this player come here
+	entity:   u64, // the id the game's events carry in a u64 `entity` field (0 for none): those events come here
 	has_prev: bool,
 	pos:      [3]f32, // at the frame's tick
 	rot:      [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw(yaw) for a heading, view.quat_angle2d(a) in 2D; zero = identity
@@ -71,20 +71,20 @@ Net_Stats :: struct {
 }
 
 Frame :: struct {
-	tick:       u32, // the newest predicted tick
-	verified:   u32,
-	tick_hz:    u32,
-	due_us:     i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
-	local_slot: i32, // -1 until the relay assigns one
-	published:  u64, // publish counter (0: nothing yet)
-	net:        Net_Stats,
-	names:      [MAX_NAMED][NAME_BYTES]u8, // display names from the relay's roster, by slot (NUL-padded)
-	n_scene:    int,
-	n_bulk:     int,
-	dropped:    int, // items push_scene / push_bulk refused (the Frame was full); the host warns once
-	scene:      [MAX_SCENE_ITEMS]Scene_Item,
-	bulk:       [MAX_BULK_ITEMS]Bulk_Item,
-	hud:        [HUD_BYTES]u8, // the game's own HUD data (it decodes it in Glue.hud)
+	tick:         u32, // the newest predicted tick
+	verified:     u32,
+	tick_hz:      u32,
+	due_us:       i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
+	local_player: i32, // -1 until the relay assigns one
+	published:    u64, // publish counter (0: nothing yet)
+	net:          Net_Stats,
+	names:        [MAX_NAMED][NAME_BYTES]u8, // display names from the relay's roster, by player (NUL-padded)
+	n_scene:      int,
+	n_bulk:       int,
+	dropped:      int, // items push_scene / push_bulk refused (the Frame was full); the host warns once
+	scene:        [MAX_SCENE_ITEMS]Scene_Item,
+	bulk:         [MAX_BULK_ITEMS]Bulk_Item,
+	hud:          [HUD_BYTES]u8, // the game's own HUD data (it decodes it in Glue.hud)
 }
 
 // The input actions the host samples on the main thread (Godot InputMap names).
@@ -105,8 +105,8 @@ Actions :: struct {
 
 INPUT_VECTORS :: 4
 
-// What a game provides, typed by its State S, Input I and World W.
-Glue :: struct($S, $I, $W: typeid) {
+// What a game provides, typed by its State, Input and World.
+Glue :: struct($State, $Input, $World: typeid) {
 	scenes:            []Scene_Kind, // e.g. {{"player", Player_View}, {"crate"}}: <scene_dir>/<name>.tscn; index = kind
 	scene_dir:         string, // where the scene views live, e.g. "res://game/views"
 	bulk_kinds:        []string, // e.g. {"grunt", "runner", "brute", "projectile", "gem"}
@@ -116,31 +116,32 @@ Glue :: struct($S, $I, $W: typeid) {
 	smoothing:         view.Smoothing,
 	actions:           Action_Map,
 	// Session thread: fill the scene and bulk items (push_scene, push_bulk) and `out.hud` from the state at the
-	// frame's tick (`cur`), the tick before (`prev`, nil when not in the ring; sim.prev_item finds an item's
+	// frame's tick (`current`), the tick before (`previous`, nil when not in the ring; sim.prev_item finds an item's
 	// previous tick) and the World (physics), which is at the frame's tick.
-	extract:           proc(cur: ^S, prev: ^S, world: ^W, out: ^Frame),
+	extract:           proc(current: ^State, previous: ^State, world: ^World, out: ^Frame),
 	// Session thread: the local player's input from the sampled actions.
-	sample:            proc(a: Actions, slot: int, tick: u32, state: ^S) -> I,
+	poll_input:        proc(actions: Actions, player: int, tick: u32, state: ^State) -> Input,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
-	scripted:          proc(seed: u64, slot: int, tick: u32, state: ^S) -> I,
-	// Session thread, optional: the scripted commands that go with `scripted` (the offline binary's).
-	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out),
-	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(f, slot). `f` is nil
-	// before the first frame: fill every key with its empty value, so scripts never miss one.
-	hud:               proc(f: ^Frame, d: ^gd.Dictionary),
+	scripted_input:    proc(seed: u64, player: int, tick: u32, state: ^State) -> Input,
+	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
+	scripted_commands: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out),
+	// Main thread: the HUD Dictionary (contract v0) from a frame. Names: frame_player_name(frame, player).
+	// `frame` is nil before the first frame: fill every key with its empty value, so scripts never miss one.
+	hud:               proc(frame: ^Frame, dict: ^gd.Dictionary),
 	// Main thread, optional: the game's constants for its scripts (UnifiedSession.constants()), straight from
 	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
-	constants:         proc(d: ^gd.Dictionary),
+	constants:         proc(dict: ^gd.Dictionary),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// enemies). Single player only: it changes the initial state, which every peer would have to share.
-	bench:             proc(s: ^S, w: ^W, n: int),
-	// Session thread, optional: an event's position in the units `extract` writes (views, `_sim_event`,
-	// `sim_event`, `sim_event_2d` all get it), e.g. metres or cells to pixels. `world` is the session's World as of
-	// the newest frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
-	event_pos:         proc(pos: [3]f32, world: ^W) -> [3]f32,
-	// Optional: the scene view an event belongs to (its spawn key; 0 = none). Without it, events go to the
-	// player view of their slot, else to the scene view whose Scene_Item.entity equals theirs.
-	event_key:         proc(e: sim.Event) -> view.Key,
+	bench:             proc(state: ^State, world: ^World, count: int),
+	// Session thread, optional: an event's sim.Position fields in the units `extract` writes (views and the
+	// `sim_event` signal get them), e.g. metres or cells to pixels. `world` is the session's World as of the
+	// newest frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
+	event_pos:         proc(position: sim.Position, world: ^World) -> sim.Position,
+	// Main thread, optional: the scene view an event goes to (its spawn key; 0 = none), overriding the routing
+	// by its subject (a handle field: the view with that key; an `entity` field: the view whose Scene_Item.entity
+	// equals it; else `player`: that player's view). sim.event_value(event, Game_Event) reads it.
+	event_key:         proc(event: ^sim.Raw_Event) -> view.Key,
 	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
@@ -154,12 +155,12 @@ Transport :: struct {
 	name:       string,
 	user:       rawptr,
 	// Host: open the transport and return the link the relay serves remote players on. Report the join
-	// code with ev.code (now or later, from pump).
-	open_host:  proc(user: rawptr, ev: ^Transport_Events) -> (netcode.Link, bool),
+	// code with events.code (now or later, from pump).
+	open_host:  proc(user: rawptr, events: ^Transport_Events) -> (netcode.Link, bool),
 	// Join: return the link to the host's relay (packets may flow only once the transport connects).
-	open_join:  proc(user: rawptr, code: string, ev: ^Transport_Events) -> (netcode.Link, bool),
+	open_join:  proc(user: rawptr, code: string, events: ^Transport_Events) -> (netcode.Link, bool),
 	// Called every loop iteration while a session uses the transport (e.g. EOS_Platform_Tick).
-	pump:       proc(user: rawptr, ev: ^Transport_Events),
+	pump:       proc(user: rawptr, events: ^Transport_Events),
 	// The session ended (its links are already closed).
 	close:      proc(user: rawptr),
 	// Optional, MAIN thread, every frame (e.g. pumping the macOS main run loop for the SDK's HTTP).
@@ -192,7 +193,7 @@ Start :: struct {
 	seed:     u64,
 	ticks:    u32, // 0: endless
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
-	bench:    int, // Single only: Glue.bench(n) after the game's init (dev benchmarks)
+	bench:    int, // Single only: Glue.bench(count) after the game's init (dev benchmarks)
 	content:  []u8, // the level's bytes (Glue.level), copied by start
 }
 
@@ -221,42 +222,42 @@ Message :: struct {
 		Result,
 	},
 	status: Status_Kind,
-	action: view.Event_Action,
+	action: view.Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
-	event:  sim.Event,
+	event:  sim.Raw_Event, // positions already in view units
 	text:   [128]u8,
 	len:    u8,
 }
 
 // A player's display name from the frame's roster ("" when unknown).
-frame_player_name :: proc(f: ^Frame, slot: int) -> string {
-	if slot < 0 || slot >= MAX_NAMED do return ""
-	n := &f.names[slot]
-	l := 0
-	for l < NAME_BYTES && n[l] != 0 do l += 1
-	return string(n[:l])
+frame_player_name :: proc(frame: ^Frame, player: int) -> string {
+	if player < 0 || player >= MAX_NAMED do return ""
+	name := &frame.names[player]
+	length := 0
+	for length < NAME_BYTES && name[length] != 0 do length += 1
+	return string(name[:length])
 }
 
 // Session thread (extract): appends a scene item; false when the Frame is full (counted in `dropped`).
-push_scene_item :: proc(out: ^Frame, it: Scene_Item) -> bool {
+push_scene_item :: proc(out: ^Frame, item: Scene_Item) -> bool {
 	if out.n_scene >= MAX_SCENE_ITEMS {
 		out.dropped += 1
 		return false
 	}
-	out.scene[out.n_scene] = it
+	out.scene[out.n_scene] = item
 	out.n_scene += 1
 	return true
 }
 
 // Session thread (extract): appends a scene item with its kind's data (Scene_Kind.data must be T).
-push_scene_data :: proc(out: ^Frame, it: Scene_Item, data: $T, loc := #caller_location) -> bool {
+push_scene_data :: proc(out: ^Frame, item: Scene_Item, data: $T, loc := #caller_location) -> bool {
 	#assert(size_of(T) <= SCENE_DATA_BYTES, "scene data is at most SCENE_DATA_BYTES")
 	assert(
-		int(it.kind) < len(api.scenes) && api.scenes[it.kind].data == T,
+		int(item.kind) < len(api.scenes) && api.scenes[item.kind].data == T,
 		"push_scene: not the kind's data type",
 		loc,
 	)
-	if !push_scene_item(out, it) do return false
+	if !push_scene_item(out, item) do return false
 	data := data
 	copy(out.scene[out.n_scene - 1].data[:], ([^]u8)(&data)[:size_of(T)])
 	return true
@@ -268,12 +269,12 @@ push_scene :: proc {
 }
 
 // Session thread (extract): appends a bulk item; false when the Frame is full (counted in `dropped`).
-push_bulk :: proc(out: ^Frame, it: Bulk_Item) -> bool {
+push_bulk :: proc(out: ^Frame, item: Bulk_Item) -> bool {
 	if out.n_bulk >= MAX_BULK_ITEMS {
 		out.dropped += 1
 		return false
 	}
-	out.bulk[out.n_bulk] = it
+	out.bulk[out.n_bulk] = item
 	out.n_bulk += 1
 	return true
 }

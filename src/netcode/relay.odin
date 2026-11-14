@@ -1,4 +1,4 @@
-// The input relay (src/netcode/SPEC.md), generic over the game's input type I and slot count P. No game
+// The input relay (src/netcode/SPEC.md), generic over the game's Input type and player count PLAYERS. No game
 // logic: it owns the tick clock, collects inputs stamped with their target tick, finalizes tick T
 // once every present player's input for T is in or the clock reaches T + tolerance (a missing
 // input becomes the player's last finalized one, flagged "replaced"), places each player's commands
@@ -22,7 +22,7 @@ Relay_Config :: struct {
 	tick_hz:       int,
 	seed:          u64,
 	ticks:         u32, // session length; 0: endless
-	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
+	start_players: int, // players 0..start_players-1 must connect before the clock starts (>= 1)
 	compat:        u64, // build/game id (sim.compat_of); a Hello with another value is rejected (0: any)
 	content:       u64, // the content's hash (sim.content_hash), recorded in the input log
 	name:          string, // for log lines
@@ -38,7 +38,7 @@ JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock 
 @(private)
 Wait_Command :: struct {
 	want: u32, // the tick the sender predicted it at
-	cmd:  sim.Command,
+	cmd:  sim.Raw_Command,
 }
 
 @(private)
@@ -48,7 +48,7 @@ Check :: struct {
 	mismatch: bool,
 }
 
-Relay :: struct($I: typeid, $P: int) {
+Relay :: struct($Input: typeid, $PLAYERS: int) {
 	cfg:         Relay_Config,
 	tm:          Timing,
 	ch:          ^Channel,
@@ -58,29 +58,29 @@ Relay :: struct($I: typeid, $P: int) {
 	clock:       u32,
 	clock_pub:   u32, // clock, readable from other threads (atomic)
 	finalized:   u32,
-	peer_of:     [P]Peer,
+	peer_of:     [PLAYERS]Peer,
 	player_of:   [MAX_PEERS]int,
-	welcomed:    [P]bool,
-	names:       [P]Player_Name,
-	connected:   [P]bool,
-	done:        [P]bool,
-	base_known:  [P]bool, // finalized ticks can be streamed to this client
-	active_from: [P]u32, // first tick the player is present (0: not joined)
-	provider:    [P]int, // who sends this joiner its snapshot (-1: none pending)
-	snap_min:    [P]u32, // the oldest tick the joiner's snapshot may be of
-	snap_total:  [P]u32, // bytes of the snapshot being forwarded (from its Snap_Begin)
-	snap_sent:   [P]u32, // bytes forwarded so far
-	inputs:      [P][INPUT_RING]I,
-	input_tick:  [P][INPUT_RING]u32, // which tick inputs[p][k] holds
-	recv_upto:   [P]u32,
-	client_ack:  [P]u32,
-	cmd_recv:    [P]u32, // the command ack: every seq up to this one is received
-	cmd_wait:    [P][dynamic]Wait_Command, // received, not finalized yet, in seq order
-	rotate:      [P]u32, // which window of a long backlog the next broadcast carries
-	echo_time:   [P]i64,
-	echo_recv:   [P]i64,
+	welcomed:    [PLAYERS]bool,
+	names:       [PLAYERS]Player_Name,
+	connected:   [PLAYERS]bool,
+	done:        [PLAYERS]bool,
+	base_known:  [PLAYERS]bool, // finalized ticks can be streamed to this client
+	active_from: [PLAYERS]u32, // first tick the player is present (0: not joined)
+	provider:    [PLAYERS]int, // who sends this joiner its snapshot (-1: none pending)
+	snap_min:    [PLAYERS]u32, // the oldest tick the joiner's snapshot may be of
+	snap_total:  [PLAYERS]u32, // bytes of the snapshot being forwarded (from its Snap_Begin)
+	snap_sent:   [PLAYERS]u32, // bytes forwarded so far
+	inputs:      [PLAYERS][INPUT_RING]Input,
+	input_tick:  [PLAYERS][INPUT_RING]u32, // which tick inputs[player][k] holds
+	recv_upto:   [PLAYERS]u32,
+	client_ack:  [PLAYERS]u32,
+	cmd_recv:    [PLAYERS]u32, // the command ack: every seq up to this one is received
+	cmd_wait:    [PLAYERS][dynamic]Wait_Command, // received, not finalized yet, in seq order
+	rotate:      [PLAYERS]u32, // which window of a long backlog the next broadcast carries
+	echo_time:   [PLAYERS]i64,
+	echo_recv:   [PLAYERS]i64,
 	sent_clock:  u32,
-	log:         sim.Input_Log(I, P),
+	log:         sim.Input_Log(Input, PLAYERS),
 	checks:      [CHECK_RING]Check,
 	desyncs:     int,
 	replaced:    int,
@@ -89,382 +89,410 @@ Relay :: struct($I: typeid, $P: int) {
 	finished:    bool,
 }
 
-relay_create :: proc(cfg: Relay_Config, $I: typeid, $P: int) -> ^Relay(I, P) {
-	sim.check_plain(I)
-	_ = tick_command_budget(I, P) // asserts a tick with a command fits a datagram
-	assert(cfg.start_players >= 1 && cfg.start_players <= P)
-	r := new(Relay(I, P))
-	r.cfg = cfg
-	if r.cfg.poll_us <= 0 {
-		r.cfg.poll_us = DEFAULT_POLL_US
+relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay(Input, PLAYERS) {
+	sim.check_plain(Input)
+	_ = tick_command_budget(Input, PLAYERS) // asserts a tick with a command fits a datagram
+	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
+	relay := new(Relay(Input, PLAYERS))
+	relay.cfg = cfg
+	if relay.cfg.poll_us <= 0 {
+		relay.cfg.poll_us = DEFAULT_POLL_US
 	}
-	r.tm = timing_of(cfg.tick_hz)
-	r.ch = channel_make()
-	r.w = wire.writer_make(MAX_DATAGRAM)
-	for p in 0 ..< P {
-		r.peer_of[p] = -1
-		r.provider[p] = -1
+	relay.tm = timing_of(cfg.tick_hz)
+	relay.ch = channel_make()
+	relay.w = wire.writer_make(MAX_DATAGRAM)
+	for player in 0 ..< PLAYERS {
+		relay.peer_of[player] = -1
+		relay.provider[player] = -1
 	}
-	for &p in r.player_of {
-		p = -1
+	for &player in relay.player_of {
+		player = -1
 	}
-	r.log.seed = cfg.seed
-	r.log.content = cfg.content
-	return r
+	relay.log.seed = cfg.seed
+	relay.log.content = cfg.content
+	return relay
 }
 
-relay_destroy :: proc(r: ^Relay($I, $P)) {
-	channel_destroy(r.ch)
-	delete(r.w.buf)
-	sim.log_destroy(&r.log)
-	for &q in r.cmd_wait {
-		delete(q)
+relay_destroy :: proc(relay: ^Relay($Input, $PLAYERS)) {
+	channel_destroy(relay.ch)
+	delete(relay.w.buf)
+	sim.log_destroy(&relay.log)
+	for &waiting in relay.cmd_wait {
+		delete(waiting)
 	}
-	free(r)
+	free(relay)
 }
 
 // Adds a transport; the relay owns it from now on. Peers on every link are served alike.
-relay_add_link :: proc(r: ^Relay($I, $P), link: Link) -> int {
-	return channel_add_link(r.ch, link)
+relay_add_link :: proc(relay: ^Relay($Input, $PLAYERS), link: Link) -> int {
+	return channel_add_link(relay.ch, link)
 }
 
 // The relay's tick clock, readable from any thread.
-relay_clock :: proc(r: ^Relay($I, $P)) -> u32 {
-	return sync.atomic_load(&r.clock_pub)
+relay_clock :: proc(relay: ^Relay($Input, $PLAYERS)) -> u32 {
+	return sync.atomic_load(&relay.clock_pub)
 }
 
 // Ends the session: every connected client gets End; the relay is finished once they acked it
 // (or after 3 s). Keep stepping until relay_finished.
-relay_stop :: proc(r: ^Relay($I, $P), now: i64) {
-	if r.ending {
+relay_stop :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
+	if relay.ending {
 		return
 	}
-	for p in 0 ..< P {
-		if r.connected[p] {
-			relay_send(r, p, msg_begin(&r.w, .End), .Reliable, now)
+	for player in 0 ..< PLAYERS {
+		if relay.connected[player] {
+			relay_send(relay, player, msg_begin(&relay.w, .End), .Reliable, now)
 		}
 	}
-	r.ending = true
-	r.end_us = now
+	relay.ending = true
+	relay.end_us = now
 }
 
-relay_finished :: proc(r: ^Relay($I, $P)) -> bool {
-	return r.finished
+relay_finished :: proc(relay: ^Relay($Input, $PLAYERS)) -> bool {
+	return relay.finished
 }
 
 @(private)
-relay_log :: proc(r: ^Relay($I, $P), format: string, args: ..any) {
-	if !r.cfg.quiet {
-		fmt.eprintf("%s: ", r.cfg.name)
+relay_log :: proc(relay: ^Relay($Input, $PLAYERS), format: string, args: ..any) {
+	if !relay.cfg.quiet {
+		fmt.eprintf("%s: ", relay.cfg.name)
 		fmt.eprintfln(format, ..args)
 	}
 }
 
 @(private)
-relay_send :: proc(r: ^Relay($I, $P), p: int, w: ^wire.Writer, d: Delivery, now: i64) {
-	if r.peer_of[p] >= 0 {
-		channel_send(r.ch, r.peer_of[p], w.buf[:], d, now)
+relay_send :: proc(relay: ^Relay($Input, $PLAYERS), player: int, writer: ^wire.Writer, delivery: Delivery, now: i64) {
+	if relay.peer_of[player] >= 0 {
+		channel_send(relay.ch, relay.peer_of[player], writer.buf[:], delivery, now)
 	}
 }
 
 @(private)
-send_welcome :: proc(r: ^Relay($I, $P), p: int, from_start: bool, now: i64) {
-	w := msg_begin(&r.w, .Welcome)
-	wire.w_u8(w, u8(p))
-	wire.w_u64(w, r.cfg.seed)
-	wire.w_u16(w, u16(r.cfg.tick_hz))
-	wire.w_u32(w, r.cfg.ticks)
-	wire.w_u32(w, r.active_from[p])
-	wire.w_u8(w, u8(from_start))
-	relay_send(r, p, w, .Reliable, now)
-	r.welcomed[p] = true
+send_welcome :: proc(relay: ^Relay($Input, $PLAYERS), player: int, from_start: bool, now: i64) {
+	writer := msg_begin(&relay.w, .Welcome)
+	wire.w_u8(writer, u8(player))
+	wire.w_u64(writer, relay.cfg.seed)
+	wire.w_u16(writer, u16(relay.cfg.tick_hz))
+	wire.w_u32(writer, relay.cfg.ticks)
+	wire.w_u32(writer, relay.active_from[player])
+	wire.w_u8(writer, u8(from_start))
+	relay_send(relay, player, writer, .Reliable, now)
+	relay.welcomed[player] = true
 }
 
 @(private)
-reject :: proc(r: ^Relay($I, $P), peer: Peer, why: Reject_Reason, now: i64) {
-	w := msg_begin(&r.w, .Reject)
-	wire.w_u8(w, u8(why))
-	channel_send(r.ch, peer, w.buf[:], .Reliable, now)
+reject :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, why: Reject_Reason, now: i64) {
+	writer := msg_begin(&relay.w, .Reject)
+	wire.w_u8(writer, u8(why))
+	channel_send(relay.ch, peer, writer.buf[:], .Reliable, now)
 }
 
 @(private)
-on_hello :: proc(r: ^Relay($I, $P), peer: Peer, rd: ^wire.Reader, now: i64) {
-	proto := wire.r_u16(rd)
-	want := wire.r_u8(rd)
-	join := wire.r_u32(rd)
-	compat := wire.r_u64(rd)
-	name := r_name(rd)
-	if !rd.ok || r.player_of[peer] >= 0 || r.ending {
+on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Reader, now: i64) {
+	protocol := wire.r_u16(reader)
+	wanted := wire.r_u8(reader)
+	asked_join_tick := wire.r_u32(reader)
+	compat := wire.r_u64(reader)
+	name := r_name(reader)
+	if !reader.ok || relay.player_of[peer] >= 0 || relay.ending {
 		return
 	}
-	if proto != PROTOCOL_VERSION || (r.cfg.compat != 0 && compat != r.cfg.compat) {
-		reject(r, peer, .Incompatible, now)
+	if protocol != PROTOCOL_VERSION || (relay.cfg.compat != 0 && compat != relay.cfg.compat) {
+		reject(relay, peer, .Incompatible, now)
 		return
 	}
-	p := -1
-	if want == ANY_SLOT {
-		limit := r.started ? P : r.cfg.start_players
-		for q in 0 ..< limit {
-			if !r.connected[q] {
-				p = q
+	player := -1
+	if wanted == ANY_PLAYER {
+		limit := relay.started ? PLAYERS : relay.cfg.start_players
+		for other in 0 ..< limit {
+			if !relay.connected[other] {
+				player = other
 				break
 			}
 		}
-		if p < 0 {
-			reject(r, peer, .Full, now)
+		if player < 0 {
+			reject(relay, peer, .Full, now)
 			return
 		}
 	} else {
-		p = int(want)
-		if p >= P {
-			reject(r, peer, .Full, now)
+		player = int(wanted)
+		if player >= PLAYERS {
+			reject(relay, peer, .Full, now)
 			return
 		}
-		if r.connected[p] {
-			reject(r, peer, .Slot_Taken, now)
+		if relay.connected[player] {
+			reject(relay, peer, .Player_Taken, now)
 			return
 		}
-		if !r.started && p >= r.cfg.start_players {
-			reject(r, peer, .Not_Started, now)
+		if !relay.started && player >= relay.cfg.start_players {
+			reject(relay, peer, .Not_Started, now)
 			return
 		}
 	}
-	r.peer_of[p] = peer
-	r.player_of[peer] = p
-	r.connected[p] = true
-	r.done[p] = false
-	r.names[p] = name
-	r.cmd_recv[p] = 0 // a new client numbers its commands from 1
-	clear(&r.cmd_wait[p])
-	send_roster(r, now)
-	if !r.started {
-		r.active_from[p] = 1
-		r.base_known[p] = true
-		for q in 0 ..< r.cfg.start_players {
-			if !r.connected[q] {
+	relay.peer_of[player] = peer
+	relay.player_of[peer] = player
+	relay.connected[player] = true
+	relay.done[player] = false
+	relay.names[player] = name
+	relay.cmd_recv[player] = 0 // a new client numbers its commands from 1
+	clear(&relay.cmd_wait[player])
+	send_roster(relay, now)
+	if !relay.started {
+		relay.active_from[player] = 1
+		relay.base_known[player] = true
+		for other in 0 ..< relay.cfg.start_players {
+			if !relay.connected[other] {
 				return
 			}
 		}
-		r.started = true
-		r.start_us = now
-		for q in 0 ..< r.cfg.start_players {
-			send_welcome(r, q, false, now)
+		relay.started = true
+		relay.start_us = now
+		for other in 0 ..< relay.cfg.start_players {
+			send_welcome(relay, other, false, now)
 		}
-		relay_log(r, "%d players connected, clock started", r.cfg.start_players)
+		relay_log(relay, "%d players connected, clock started", relay.cfg.start_players)
 		return
 	}
-	// Late join or rejoin: the slot becomes present at a future tick J.
-	j := max(join, r.clock + ceil_ticks(JOIN_LEAD_MS * 1000, r.tm.tick_us), r.finalized + 2)
-	r.active_from[p] = j
-	r.recv_upto[p] = j - 1
-	r.base_known[p] = false
-	r.client_ack[p] = 0
-	r.snap_min[p] = j - 1
-	if provider := pick_provider(r, p); provider >= 0 {
-		send_welcome(r, p, false, now)
-		request_snapshot(r, p, provider, now)
-		relay_log(r, "player %d joins at tick %d (clock %d), snapshot from player %d", p, j, r.clock, provider)
+	// Late join or rejoin: the player becomes present at a future tick J.
+	join_tick := max(
+		asked_join_tick,
+		relay.clock + ceil_ticks(JOIN_LEAD_MS * 1000, relay.tm.tick_us),
+		relay.finalized + 2,
+	)
+	relay.active_from[player] = join_tick
+	relay.recv_upto[player] = join_tick - 1
+	relay.base_known[player] = false
+	relay.client_ack[player] = 0
+	relay.snap_min[player] = join_tick - 1
+	if provider := pick_provider(relay, player); provider >= 0 {
+		send_welcome(relay, player, false, now)
+		request_snapshot(relay, player, provider, now)
+		relay_log(
+			relay,
+			"player %d joins at tick %d (clock %d), snapshot from player %d",
+			player,
+			join_tick,
+			relay.clock,
+			provider,
+		)
 	} else {
 		// Nobody can send a snapshot: the joiner starts from tick 0 and replays the whole log.
-		r.base_known[p] = true
-		send_welcome(r, p, true, now)
-		relay_log(r, "player %d joins at tick %d (clock %d), replaying from tick 1", p, j, r.clock)
+		relay.base_known[player] = true
+		send_welcome(relay, player, true, now)
+		relay_log(
+			relay,
+			"player %d joins at tick %d (clock %d), replaying from tick 1",
+			player,
+			join_tick,
+			relay.clock,
+		)
 	}
 }
 
 // The lowest connected player that can send `joiner` a snapshot (-1: none).
 @(private)
-pick_provider :: proc(r: ^Relay($I, $P), joiner: int) -> int {
-	for q in 0 ..< P {
-		if q != joiner && r.connected[q] && r.welcomed[q] && r.base_known[q] && r.provider[q] < 0 {
-			return q
+pick_provider :: proc(relay: ^Relay($Input, $PLAYERS), joiner: int) -> int {
+	for other in 0 ..< PLAYERS {
+		if other != joiner &&
+		   relay.connected[other] &&
+		   relay.welcomed[other] &&
+		   relay.base_known[other] &&
+		   relay.provider[other] < 0 {
+			return other
 		}
 	}
 	return -1
 }
 
 @(private)
-request_snapshot :: proc(r: ^Relay($I, $P), joiner, provider: int, now: i64) {
-	r.provider[joiner] = provider
-	r.snap_total[joiner] = 0
-	r.snap_sent[joiner] = 0
-	w := msg_begin(&r.w, .Snap_Request)
-	wire.w_u8(w, u8(joiner))
-	wire.w_u32(w, r.snap_min[joiner])
-	relay_send(r, provider, w, .Reliable, now)
+request_snapshot :: proc(relay: ^Relay($Input, $PLAYERS), joiner, provider: int, now: i64) {
+	relay.provider[joiner] = provider
+	relay.snap_total[joiner] = 0
+	relay.snap_sent[joiner] = 0
+	writer := msg_begin(&relay.w, .Snap_Request)
+	wire.w_u8(writer, u8(joiner))
+	wire.w_u32(writer, relay.snap_min[joiner])
+	relay_send(relay, provider, writer, .Reliable, now)
 }
 
 // The provider of `joiner`'s snapshot left before the snapshot got through: ask another player, or
 // tell the joiner to start from tick 0 and replay the log (an empty Snap_Begin).
 @(private)
-restart_snapshot :: proc(r: ^Relay($I, $P), joiner: int, now: i64) {
-	r.provider[joiner] = -1
-	r.base_known[joiner] = false
-	r.client_ack[joiner] = 0
-	if provider := pick_provider(r, joiner); provider >= 0 {
-		request_snapshot(r, joiner, provider, now)
-		relay_log(r, "player %d: snapshot provider left, asking player %d", joiner, provider)
+restart_snapshot :: proc(relay: ^Relay($Input, $PLAYERS), joiner: int, now: i64) {
+	relay.provider[joiner] = -1
+	relay.base_known[joiner] = false
+	relay.client_ack[joiner] = 0
+	if provider := pick_provider(relay, joiner); provider >= 0 {
+		request_snapshot(relay, joiner, provider, now)
+		relay_log(relay, "player %d: snapshot provider left, asking player %d", joiner, provider)
 		return
 	}
-	w := msg_begin(&r.w, .Snap_Begin)
-	wire.w_u8(w, u8(joiner))
-	wire.w_u32(w, 0)
-	wire.w_u32(w, 0)
-	relay_send(r, joiner, w, .Reliable, now)
-	r.base_known[joiner] = true
-	relay_log(r, "player %d: snapshot provider left, replaying from tick 1", joiner)
+	writer := msg_begin(&relay.w, .Snap_Begin)
+	wire.w_u8(writer, u8(joiner))
+	wire.w_u32(writer, 0)
+	wire.w_u32(writer, 0)
+	relay_send(relay, joiner, writer, .Reliable, now)
+	relay.base_known[joiner] = true
+	relay_log(relay, "player %d: snapshot provider left, replaying from tick 1", joiner)
 }
 
 @(private)
-have_input :: #force_inline proc(r: ^Relay($I, $P), p: int, t: u32) -> bool {
-	return r.input_tick[p][t % INPUT_RING] == t
+have_input :: #force_inline proc(relay: ^Relay($Input, $PLAYERS), player: int, tick: u32) -> bool {
+	return relay.input_tick[player][tick % INPUT_RING] == tick
 }
 
 @(private)
-on_inputs :: proc(r: ^Relay($I, $P), p: int, rd: ^wire.Reader, now: i64) {
-	ctime := r_i64(rd)
-	fin_ack := wire.r_u32(rd)
-	first := wire.r_u32(rd)
-	count := u32(wire.r_u8(rd))
-	if !rd.ok {
+on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Reader, now: i64) {
+	client_time := r_i64(reader)
+	finalized_ack := wire.r_u32(reader)
+	first := wire.r_u32(reader)
+	count := u32(wire.r_u8(reader))
+	if !reader.ok {
 		return
 	}
-	r.echo_time[p] = ctime
-	r.echo_recv[p] = now
-	if r.base_known[p] {
-		r.client_ack[p] = max(r.client_ack[p], min(fin_ack, r.finalized))
+	relay.echo_time[player] = client_time
+	relay.echo_recv[player] = now
+	if relay.base_known[player] {
+		relay.client_ack[player] = max(relay.client_ack[player], min(finalized_ack, relay.finalized))
 	}
 	for k in 0 ..< count {
-		in_ := r_raw(rd, I)
-		t := first + k
-		if !rd.ok ||
-		   t <= r.finalized ||
-		   t >= r.finalized + INPUT_RING ||
-		   (r.cfg.ticks != 0 && t > r.cfg.ticks) ||
-		   t < r.active_from[p] ||
-		   have_input(r, p, t) {
+		input := r_raw(reader, Input)
+		tick := first + k
+		if !reader.ok ||
+		   tick <= relay.finalized ||
+		   tick >= relay.finalized + INPUT_RING ||
+		   (relay.cfg.ticks != 0 && tick > relay.cfg.ticks) ||
+		   tick < relay.active_from[player] ||
+		   have_input(relay, player, tick) {
 			continue // late inputs for finalized ticks are dropped; the first copy of a tick wins
 		}
-		r.inputs[p][t % INPUT_RING] = in_
-		r.input_tick[p][t % INPUT_RING] = t
+		relay.inputs[player][tick % INPUT_RING] = input
+		relay.input_tick[player][tick % INPUT_RING] = tick
 	}
-	for have_input(r, p, r.recv_upto[p] + 1) {
-		r.recv_upto[p] += 1
+	for have_input(relay, player, relay.recv_upto[player] + 1) {
+		relay.recv_upto[player] += 1
 	}
 	// Commands: the sender's unacked ones, from `first_seq` on. Each seq is taken once, in order; one the
 	// relay already has (a resend, a duplicate) is skipped.
-	first_seq := wire.r_u32(rd)
-	ncmd := u32(wire.r_u8(rd))
-	for k in 0 ..< ncmd {
-		want := wire.r_u32(rd)
-		kind := wire.r_u8(rd)
-		size := int(wire.r_u8(rd))
-		bytes := wire.r_bytes(rd, size)
-		if !rd.ok || size > sim.COMMAND_MAX || size == 0 {
+	first_seq := wire.r_u32(reader)
+	command_count := u32(wire.r_u8(reader))
+	for k in 0 ..< command_count {
+		want := wire.r_u32(reader)
+		kind := wire.r_u8(reader)
+		size := int(wire.r_u8(reader))
+		bytes := wire.r_bytes(reader, size)
+		if !reader.ok || size > sim.COMMAND_MAX || size == 0 {
 			return
 		}
 		seq := first_seq + k
-		if seq <= r.cmd_recv[p] {
+		if seq <= relay.cmd_recv[player] {
 			continue
 		}
-		if seq != r.cmd_recv[p] + 1 || len(r.cmd_wait[p]) >= COMMAND_QUEUE {
+		if seq != relay.cmd_recv[player] + 1 || len(relay.cmd_wait[player]) >= COMMAND_QUEUE {
 			return // a gap (never from an honest client) or a flood: the rest comes again
 		}
-		wc := Wait_Command {
+		waiting := Wait_Command {
 			// a wanted tick far ahead would hold back the sender's later commands: clamp it
-			want = min(want, r.finalized + INPUT_RING),
-			cmd = {kind = kind, slot = u8(p), size = u8(size)},
+			want = min(want, relay.finalized + INPUT_RING),
+			cmd = {kind = kind, player = u8(player), size = u8(size)},
 		}
-		copy(wc.cmd.data[:], bytes)
-		append(&r.cmd_wait[p], wc)
-		r.cmd_recv[p] = seq
+		copy(waiting.cmd.data[:], bytes)
+		append(&relay.cmd_wait[player], waiting)
+		relay.cmd_recv[player] = seq
 	}
 }
 
 @(private)
-on_checksum :: proc(r: ^Relay($I, $P), p: int, rd: ^wire.Reader) {
-	_ = wire.r_u8(rd) // the sender's slot; the relay knows it
-	tick := wire.r_u32(rd)
-	value := wire.r_u64(rd)
-	if !rd.ok || tick % CHECKSUM_EVERY != 0 || tick == 0 {
+on_checksum :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Reader) {
+	_ = wire.r_u8(reader) // the sender's player; the relay knows it
+	tick := wire.r_u32(reader)
+	value := wire.r_u64(reader)
+	if !reader.ok || tick % CHECKSUM_EVERY != 0 || tick == 0 {
 		return
 	}
-	c := &r.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
-	if c.tick != tick {
-		c^ = {
+	check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
+	if check.tick != tick {
+		check^ = {
 			tick  = tick,
 			value = value,
 		}
-	} else if c.value != value && !c.mismatch {
-		c.mismatch = true
-		r.desyncs += 1
-		relay_log(r, "DESYNC at tick %d: player %d has %016x, another player %016x", tick, p, value, c.value)
+	} else if check.value != value && !check.mismatch {
+		check.mismatch = true
+		relay.desyncs += 1
+		relay_log(
+			relay,
+			"DESYNC at tick %d: player %d has %016x, another player %016x",
+			tick,
+			player,
+			value,
+			check.value,
+		)
 	}
 }
 
 @(private)
-active :: proc(r: ^Relay($I, $P), p: int, t: u32) -> bool {
-	return r.active_from[p] != 0 && t >= r.active_from[p] && r.connected[p]
+active :: proc(relay: ^Relay($Input, $PLAYERS), player: int, tick: u32) -> bool {
+	return relay.active_from[player] != 0 && tick >= relay.active_from[player] && relay.connected[player]
 }
 
 @(private)
-finalize :: proc(r: ^Relay($I, $P)) {
-	for r.cfg.ticks == 0 || r.finalized < r.cfg.ticks {
-		t := r.finalized + 1
+finalize :: proc(relay: ^Relay($Input, $PLAYERS)) {
+	for relay.cfg.ticks == 0 || relay.finalized < relay.cfg.ticks {
+		tick := relay.finalized + 1
 		anyone := false
-		for p in 0 ..< P {
-			if !active(r, p, t) {
+		for player in 0 ..< PLAYERS {
+			if !active(relay, player, tick) {
 				continue
 			}
 			anyone = true
-			if !have_input(r, p, t) && r.clock < t + r.tm.tolerance {
+			if !have_input(relay, player, tick) && relay.clock < tick + relay.tm.tolerance {
 				return
 			}
 		}
-		if !anyone && t > r.clock {
+		if !anyone && tick > relay.clock {
 			return // nobody plays: empty ticks keep pace with the clock, never run ahead of it
 		}
-		lt: sim.Inputs(I, P)
-		for p in 0 ..< P {
-			if !active(r, p, t) {
+		tick_inputs: sim.Inputs(Input, PLAYERS)
+		for player in 0 ..< PLAYERS {
+			if !active(relay, player, tick) {
 				continue
 			}
-			lt.present += {p}
-			if have_input(r, p, t) {
-				lt.input[p] = r.inputs[p][t % INPUT_RING]
+			tick_inputs.present += {player}
+			if have_input(relay, player, tick) {
+				tick_inputs.input[player] = relay.inputs[player][tick % INPUT_RING]
 			} else {
-				if t > 1 && p in r.log.ticks[t - 2].present {
-					lt.input[p] = r.log.ticks[t - 2].input[p]
+				if tick > 1 && player in relay.log.ticks[tick - 2].present {
+					tick_inputs.input[player] = relay.log.ticks[tick - 2].input[player]
 				} // else just joined: there is no previous input to repeat
-				lt.replaced += {p}
-				r.replaced += 1
+				tick_inputs.replaced += {player}
+				relay.replaced += 1
 			}
 		}
-		take_commands(r, t, &lt)
-		sim.log_append(&r.log, &lt)
-		r.finalized = t
+		take_commands(relay, tick, &tick_inputs)
+		sim.log_append(&relay.log, &tick_inputs)
+		relay.finalized = tick
 	}
 }
 
-// Puts the waiting commands that are due into tick t: each present player's in seq order, those sent for
-// t or earlier, at most COMMANDS_PER_PLAYER each and TICK_COMMANDS in all, within the bytes a tick may
-// carry (round-robin over the players, so one can't crowd the others out). The rest wait for t + 1.
+// Puts the waiting commands that are due into `tick`: each present player's in seq order, those sent for
+// it or earlier, at most COMMANDS_PER_PLAYER each and TICK_COMMANDS in all, within the bytes a tick may
+// carry (round-robin over the players, so one can't crowd the others out). The rest wait for the next tick.
 @(private)
-take_commands :: proc(r: ^Relay($I, $P), t: u32, lt: ^sim.Inputs(I, P)) {
-	taken: [P]int
+take_commands :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, tick_inputs: ^sim.Inputs(Input, PLAYERS)) {
+	taken: [PLAYERS]int
 	total, bytes := 0, 0
-	budget := tick_command_budget(I, P)
+	budget := tick_command_budget(Input, PLAYERS)
 	for k in 0 ..< sim.COMMANDS_PER_PLAYER {
-		for p in 0 ..< P {
-			q := &r.cmd_wait[p]
-			if taken[p] != k || k >= len(q) || !active(r, p, t) || q[k].want > t {
+		for player in 0 ..< PLAYERS {
+			waiting := &relay.cmd_wait[player]
+			if taken[player] != k || k >= len(waiting) || !active(relay, player, tick) || waiting[k].want > tick {
 				continue
 			}
-			size := sim.COMMAND_HEAD + int(q[k].cmd.size)
+			size := sim.COMMAND_HEAD + int(waiting[k].cmd.size)
 			if total == sim.TICK_COMMANDS || bytes + size > budget {
 				continue
 			}
-			taken[p] += 1
+			taken[player] += 1
 			total += 1
 			bytes += size
 		}
@@ -472,205 +500,220 @@ take_commands :: proc(r: ^Relay($I, $P), t: u32, lt: ^sim.Inputs(I, P)) {
 	if total == 0 {
 		return
 	}
-	for p in 0 ..< P {
-		q := &r.cmd_wait[p]
-		for k in 0 ..< taken[p] {
-			lt.commands[lt.n_commands] = q[k].cmd
-			lt.n_commands += 1
+	for player in 0 ..< PLAYERS {
+		waiting := &relay.cmd_wait[player]
+		for k in 0 ..< taken[player] {
+			tick_inputs.commands[tick_inputs.command_count] = waiting[k].cmd
+			tick_inputs.command_count += 1
 		}
-		remove_range(q, 0, taken[p])
+		remove_range(waiting, 0, taken[player])
 	}
 }
 
 @(private)
-broadcast :: proc(r: ^Relay($I, $P), now: i64) {
-	window := finalized_window(I, P)
-	for p in 0 ..< P {
-		if !r.welcomed[p] || !r.connected[p] {
+broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
+	window := finalized_window(Input, PLAYERS)
+	for player in 0 ..< PLAYERS {
+		if !relay.welcomed[player] || !relay.connected[player] {
 			continue
 		}
-		w := msg_begin(&r.w, .Finalized)
-		w_i64(w, now - r.start_us)
-		w_i64(w, r.echo_time[p])
-		w_i64(w, r.echo_time[p] != 0 ? now - r.echo_recv[p] : 0)
-		wire.w_u32(w, max(r.recv_upto[p], r.finalized))
-		wire.w_u32(w, r.cmd_recv[p])
-		first := r.client_ack[p] + 1
+		writer := msg_begin(&relay.w, .Finalized)
+		w_i64(writer, now - relay.start_us)
+		w_i64(writer, relay.echo_time[player])
+		w_i64(writer, relay.echo_time[player] != 0 ? now - relay.echo_recv[player] : 0)
+		wire.w_u32(writer, max(relay.recv_upto[player], relay.finalized))
+		wire.w_u32(writer, relay.cmd_recv[player])
+		first := relay.client_ack[player] + 1
 		last := first - 1
-		if r.base_known[p] {
+		if relay.base_known[player] {
 			// A backlog longer than a window (catching up after a stall, a late join) goes out one
 			// window per broadcast in turn, so it streams at a window per tick instead of a window
 			// per round trip.
-			backlog := min(r.finalized + 1 - first, CATCHUP_TICKS)
+			backlog := min(relay.finalized + 1 - first, CATCHUP_TICKS)
 			if windows := (backlog + window - 1) / window; windows > 1 {
-				r.rotate[p] = (r.rotate[p] + 1) % windows
-				first += r.rotate[p] * window
+				relay.rotate[player] = (relay.rotate[player] + 1) % windows
+				first += relay.rotate[player] * window
 			}
-			last = min(r.finalized, first + window - 1)
+			last = min(relay.finalized, first + window - 1)
 		}
-		wire.w_u32(w, first)
-		count_at := len(w.buf)
-		wire.w_u8(w, 0)
-		n := 0
-		for t := first; t <= last; t += 1 {
+		wire.w_u32(writer, first)
+		count_at := len(writer.buf)
+		wire.w_u8(writer, 0)
+		written := 0
+		for tick := first; tick <= last; tick += 1 {
 			// Ticks with commands are larger: stop at the message limit (every tick alone fits, see
 			// tick_command_budget), the rest goes in a later packet.
-			if len(w.buf) + sim.tick_bytes(I, P, sim.log_commands(&r.log, int(t - 1))) > MAX_MESSAGE {
+			if len(writer.buf) + sim.tick_bytes(Input, PLAYERS, sim.log_commands(&relay.log, int(tick - 1))) >
+			   MAX_MESSAGE {
 				break
 			}
-			sim.log_write_tick(w, &r.log, int(t - 1))
-			n += 1
+			sim.log_write_tick(writer, &relay.log, int(tick - 1))
+			written += 1
 		}
-		w.buf[count_at] = u8(n)
-		relay_send(r, p, w, .Unreliable, now)
+		writer.buf[count_at] = u8(written)
+		relay_send(relay, player, writer, .Unreliable, now)
 	}
 }
 
-// Tells every connected client who is in which slot, with names.
+// Tells every connected client which players are connected, with names.
 @(private)
-send_roster :: proc(r: ^Relay($I, $P), now: i64) {
-	w := msg_begin(&r.w, .Roster)
-	wire.w_u8(w, u8(P))
-	for p in 0 ..< P {
-		wire.w_u8(w, u8(r.connected[p]))
-		w_name(w, &r.names[p])
+send_roster :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
+	writer := msg_begin(&relay.w, .Roster)
+	wire.w_u8(writer, u8(PLAYERS))
+	for player in 0 ..< PLAYERS {
+		wire.w_u8(writer, u8(relay.connected[player]))
+		w_name(writer, &relay.names[player])
 	}
-	for p in 0 ..< P {
-		if r.connected[p] {
-			relay_send(r, p, w, .Reliable, now)
-		}
-	}
-}
-
-@(private)
-player_gone :: proc(r: ^Relay($I, $P), p: int, why: string, now: i64) {
-	r.connected[p] = false
-	r.welcomed[p] = false
-	r.player_of[r.peer_of[p]] = -1
-	r.peer_of[p] = -1
-	r.names[p] = {}
-	r.provider[p] = -1
-	clear(&r.cmd_wait[p]) // a left player's commands that never reached a tick go with it
-	relay_log(r, "player %d %s", p, why)
-	send_roster(r, now)
-	for q in 0 ..< P {
-		if r.provider[q] == p && r.connected[q] {
-			restart_snapshot(r, q, now)
+	for player in 0 ..< PLAYERS {
+		if relay.connected[player] {
+			relay_send(relay, player, writer, .Reliable, now)
 		}
 	}
 }
 
 @(private)
-handle_relay_msg :: proc(r: ^Relay($I, $P), peer: Peer, data: []u8, now: i64) {
-	rd := wire.reader_make(data)
-	kind := Msg(wire.r_u8(&rd))
+player_gone :: proc(relay: ^Relay($Input, $PLAYERS), player: int, why: string, now: i64) {
+	relay.connected[player] = false
+	relay.welcomed[player] = false
+	relay.player_of[relay.peer_of[player]] = -1
+	relay.peer_of[player] = -1
+	relay.names[player] = {}
+	relay.provider[player] = -1
+	clear(&relay.cmd_wait[player]) // a left player's commands that never reached a tick go with it
+	relay_log(relay, "player %d %s", player, why)
+	send_roster(relay, now)
+	for other in 0 ..< PLAYERS {
+		if relay.provider[other] == player && relay.connected[other] {
+			restart_snapshot(relay, other, now)
+		}
+	}
+}
+
+@(private)
+handle_relay_msg :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, data: []u8, now: i64) {
+	reader := wire.reader_make(data)
+	kind := Msg(wire.r_u8(&reader))
 	if kind == .Hello {
-		on_hello(r, peer, &rd, now)
+		on_hello(relay, peer, &reader, now)
 		return
 	}
-	p := r.player_of[peer]
-	if p < 0 {
+	player := relay.player_of[peer]
+	if player < 0 {
 		return
 	}
 	#partial switch kind {
 	case .Inputs:
-		if int(wire.r_u8(&rd)) == p {
-			on_inputs(r, p, &rd, now)
+		if int(wire.r_u8(&reader)) == player {
+			on_inputs(relay, player, &reader, now)
 		}
 	case .Checksum:
-		on_checksum(r, p, &rd)
+		on_checksum(relay, player, &reader)
 	case .Snap_Begin, .Snap_Chunk:
-		forward_snapshot(r, p, kind, &rd, data, now)
+		forward_snapshot(relay, player, kind, &reader, data, now)
 	case .Done:
-		r.done[p] = true
+		relay.done[player] = true
 	case .Leave:
-		player_gone(r, p, "left", now)
-		channel_drop(r.ch, peer)
+		player_gone(relay, player, "left", now)
+		channel_drop(relay.ch, peer)
 	}
 }
 
 // Forwards a snapshot message from the provider the relay asked (anything else is dropped).
 @(private)
-forward_snapshot :: proc(r: ^Relay($I, $P), p: int, kind: Msg, rd: ^wire.Reader, data: []u8, now: i64) {
-	joiner := int(wire.r_u8(rd))
-	if !rd.ok || joiner >= P || r.peer_of[joiner] < 0 || r.provider[joiner] != p || len(data) > MAX_MESSAGE {
+forward_snapshot :: proc(
+	relay: ^Relay($Input, $PLAYERS),
+	player: int,
+	kind: Msg,
+	reader: ^wire.Reader,
+	data: []u8,
+	now: i64,
+) {
+	joiner := int(wire.r_u8(reader))
+	if !reader.ok ||
+	   joiner >= PLAYERS ||
+	   relay.peer_of[joiner] < 0 ||
+	   relay.provider[joiner] != player ||
+	   len(data) > MAX_MESSAGE {
 		return
 	}
 	if kind == .Snap_Begin {
-		tick := wire.r_u32(rd)
-		total := wire.r_u32(rd)
-		if !rd.ok || tick < r.snap_min[joiner] || tick > r.finalized || total == 0 {
+		tick := wire.r_u32(reader)
+		total := wire.r_u32(reader)
+		if !reader.ok || tick < relay.snap_min[joiner] || tick > relay.finalized || total == 0 {
 			return
 		}
-		r.snap_total[joiner] = total
-		r.snap_sent[joiner] = 0
+		relay.snap_total[joiner] = total
+		relay.snap_sent[joiner] = 0
 		// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the joiner's
 		// prediction of the others).
-		r.client_ack[joiner] = tick - 1
-		r.base_known[joiner] = true
-		relay_log(r, "forwarding player %d's snapshot of tick %d to player %d", p, tick, joiner)
+		relay.client_ack[joiner] = tick - 1
+		relay.base_known[joiner] = true
+		relay_log(relay, "forwarding player %d's snapshot of tick %d to player %d", player, tick, joiner)
 	} else {
-		offset := wire.r_u32(rd)
-		n := u32(len(rd.data) - rd.pos)
-		if !rd.ok || r.snap_total[joiner] == 0 || offset != r.snap_sent[joiner] || n > r.snap_total[joiner] - offset {
+		offset := wire.r_u32(reader)
+		size := u32(len(reader.data) - reader.pos)
+		if !reader.ok ||
+		   relay.snap_total[joiner] == 0 ||
+		   offset != relay.snap_sent[joiner] ||
+		   size > relay.snap_total[joiner] - offset {
 			return
 		}
-		r.snap_sent[joiner] += n
-		if r.snap_sent[joiner] == r.snap_total[joiner] {
-			r.provider[joiner] = -1 // complete: the joiner no longer depends on the provider
+		relay.snap_sent[joiner] += size
+		if relay.snap_sent[joiner] == relay.snap_total[joiner] {
+			relay.provider[joiner] = -1 // complete: the joiner no longer depends on the provider
 		}
 	}
-	channel_send(r.ch, r.peer_of[joiner], data, .Reliable, now)
+	channel_send(relay.ch, relay.peer_of[joiner], data, .Reliable, now)
 }
 
 // One step of the relay: receive, advance the clock, finalize, broadcast, flush. Returns when it
 // wants to run next (a now_us value): the next clock tick, or sooner to poll the links.
-relay_step :: proc(r: ^Relay($I, $P), now: i64) -> (wake_us: i64) {
-	for ev in channel_poll(r.ch, now) {
-		switch ev.kind {
+relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) {
+	for event in channel_poll(relay.ch, now) {
+		switch event.kind {
 		case .Connected:
 		case .Disconnected:
-			if p := r.player_of[ev.peer]; p >= 0 {
-				player_gone(r, p, "disconnected", now)
+			if player := relay.player_of[event.peer]; player >= 0 {
+				player_gone(relay, player, "disconnected", now)
 			}
 		case .Message:
-			handle_relay_msg(r, ev.peer, ev.data, now)
+			handle_relay_msg(relay, event.peer, event.data, now)
 		}
 	}
-	if r.started && !r.finished {
-		r.clock = u32(f64(now - r.start_us) / r.tm.tick_us)
-		sync.atomic_store(&r.clock_pub, r.clock)
-		prev := r.finalized
-		finalize(r)
-		if r.clock != r.sent_clock || r.finalized != prev {
-			broadcast(r, now)
-			r.sent_clock = r.clock
+	if relay.started && !relay.finished {
+		relay.clock = u32(f64(now - relay.start_us) / relay.tm.tick_us)
+		sync.atomic_store(&relay.clock_pub, relay.clock)
+		finalized_before := relay.finalized
+		finalize(relay)
+		if relay.clock != relay.sent_clock || relay.finalized != finalized_before {
+			broadcast(relay, now)
+			relay.sent_clock = relay.clock
 		}
 	}
-	if !r.ending && r.started && r.cfg.ticks != 0 && r.finalized == r.cfg.ticks {
+	if !relay.ending && relay.started && relay.cfg.ticks != 0 && relay.finalized == relay.cfg.ticks {
 		all_done := true
-		for p in 0 ..< P {
-			if r.welcomed[p] && r.connected[p] && !r.done[p] {
+		for player in 0 ..< PLAYERS {
+			if relay.welcomed[player] && relay.connected[player] && !relay.done[player] {
 				all_done = false
 			}
 		}
 		if all_done {
-			relay_stop(r, now)
+			relay_stop(relay, now)
 		}
 	}
-	channel_flush(r.ch, now)
-	if r.ending && !r.finished {
+	channel_flush(relay.ch, now)
+	if relay.ending && !relay.finished {
 		idle := true
-		for p in 0 ..< P {
-			if r.peer_of[p] >= 0 && !channel_idle(r.ch, r.peer_of[p]) {
+		for player in 0 ..< PLAYERS {
+			if relay.peer_of[player] >= 0 && !channel_idle(relay.ch, relay.peer_of[player]) {
 				idle = false
 			}
 		}
-		r.finished = idle || now - r.end_us > 3_000_000
+		relay.finished = idle || now - relay.end_us > 3_000_000
 	}
-	wake_us = now + r.cfg.poll_us
-	if r.started {
-		wake_us = min(wake_us, r.start_us + i64(f64(r.clock + 1) * r.tm.tick_us) + 1)
+	wake_us = now + relay.cfg.poll_us
+	if relay.started {
+		wake_us = min(wake_us, relay.start_us + i64(f64(relay.clock + 1) * relay.tm.tick_us) + 1)
 	}
 	return
 }

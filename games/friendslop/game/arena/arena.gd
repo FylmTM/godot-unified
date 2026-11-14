@@ -28,19 +28,22 @@ func marker(entity: int) -> Node3D:
 	return markers[i] as Node3D if i >= 0 and i < markers.size() else null
 
 
-func player_view(slot: int) -> GameView:
+func player_view(player: int) -> GameView:
 	for v: GameView in _views.get_children():
-		if v.kind == &"player" and v.slot == slot:
+		if v.kind == &"player" and v.player == player:
 			return v
 	return null
 
 
 func local_player_view() -> GameView:
-	return player_view(Game.local_slot())
+	return player_view(Game.local_player())
 
 
-func _on_sim_event(kind: StringName, _tick: int, _entity: int, pos: Vector3, value: float) -> void:
-	match kind:
+## Verified events only (predictions are the views' business).
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
+		return
+	match event:
 		&"run_started":
 			Sfx.play(&"start")
 		&"run_finished":
@@ -54,5 +57,6 @@ func _on_sim_event(kind: StringName, _tick: int, _entity: int, pos: Vector3, val
 		&"plate_off":
 			Sfx.play(&"click", -4.0, 0.5)
 		&"hit":
-			if pos.distance_to(camera_rig.global_position) < 18.0:
-				camera_rig.shake(0.25 if value > 7.0 else 0.15)
+			var at: Vector3 = data.position
+			if at.distance_to(camera_rig.global_position) < 18.0:
+				camera_rig.shake(0.25 if data.speed > 7.0 else 0.15)

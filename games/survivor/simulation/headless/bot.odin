@@ -23,45 +23,54 @@ Bot_Run :: struct {
 	kills:         u32,
 }
 
-bot_run :: proc(game: ^survivor.Game, tune: survivor.Tuning, seed: u64, players: int, limit_s: f32) -> (r: Bot_Run) {
-	s := sim.create(game, seed)
-	defer sim.destroy(s)
-	s.state.tune = tune // --set overrides: the tuning is state, so it goes into the tick-0 state
-	sim.save(s)
-	r.seed = seed
-	r.first_level_s = -1
+bot_run :: proc(
+	game: ^survivor.Game,
+	tune: survivor.Tuning,
+	seed: u64,
+	player_count: int,
+	limit_s: f32,
+) -> (
+	run: Bot_Run,
+) {
+	simulation := sim.create(game, seed)
+	defer sim.destroy(simulation)
+	simulation.state.tune = tune // --set overrides: the tuning is state, so it goes into the tick-0 state
+	sim.save(simulation)
+	run.seed = seed
+	run.first_level_s = -1
 	limit := u32(limit_s * survivor.TICK_HZ)
 	out: sim.Command_Out
 	defer delete(out.list)
 	for {
-		in_ := survivor.bot_tick(&s.state, players, s.tick + 1, &out)
-		sim.step(s, &in_)
-		st := &s.state
-		if st.phase == .Lobby {
-			if s.tick > 10 * survivor.TICK_HZ {
+		inputs := survivor.bot_tick(&simulation.state, player_count, simulation.tick + 1, &out)
+		sim.step(simulation, &inputs)
+		state := &simulation.state
+		if state.phase == .Lobby {
+			if simulation.tick > 10 * survivor.TICK_HZ {
 				break // never left the lobby
 			}
 			continue
 		}
-		elapsed := f32(s.tick - st.match_tick) * survivor.DT
-		for e in sim.events_at(s, s.tick) {
-			if e.kind == u16(survivor.Event_Kind.Level_Up) && r.first_level_s < 0 {
-				r.first_level_s = elapsed
+		elapsed := f32(simulation.tick - state.match_tick) * survivor.DT
+		for &raw in sim.events_at(simulation, simulation.tick) {
+			if _, is_level_up := sim.event_value(&raw, survivor.Event).(survivor.Level_Up);
+			   is_level_up && run.first_level_s < 0 {
+				run.first_level_s = elapsed
 			}
 		}
-		r.max_enemies = max(r.max_enemies, st.enemies.count)
-		for &pl in st.players {
-			r.level = max(r.level, pl.level)
+		run.max_enemies = max(run.max_enemies, state.enemies.count)
+		for &character in state.players {
+			run.level = max(run.level, character.level)
 		}
-		r.wave = st.wave + 1
-		r.kills = st.kills
-		if st.phase == .Over {
-			r.survival_s = f32(st.over_tick - st.match_tick) * survivor.DT
+		run.wave = state.wave + 1
+		run.kills = state.kills
+		if state.phase == .Over {
+			run.survival_s = f32(state.over_tick - state.match_tick) * survivor.DT
 			return
 		}
-		if s.tick - st.match_tick >= limit {
-			r.survival_s = elapsed
-			r.survived = true
+		if simulation.tick - state.match_tick >= limit {
+			run.survival_s = elapsed
+			run.survived = true
 			return
 		}
 	}
@@ -69,24 +78,24 @@ bot_run :: proc(game: ^survivor.Game, tune: survivor.Tuning, seed: u64, players:
 }
 
 mode_bot :: proc(args: []string) -> bool {
-	players, seeds := 1, 8
+	player_count, seeds := 1, 8
 	minutes: f32 = 10
 	tuning := "play"
 	sets: [dynamic]string
 	defer delete(sets)
 	for i := 0; i + 1 < len(args); i += 2 {
-		v := args[i + 1]
+		value := args[i + 1]
 		switch args[i] {
 		case "--players":
-			players, _ = strconv.parse_int(v)
+			player_count, _ = strconv.parse_int(value)
 		case "--seeds":
-			seeds, _ = strconv.parse_int(v)
+			seeds, _ = strconv.parse_int(value)
 		case "--minutes":
-			minutes, _ = strconv.parse_f32(v)
+			minutes, _ = strconv.parse_f32(value)
 		case "--tuning":
-			tuning = v
+			tuning = value
 		case "--set":
-			append(&sets, v) // applied once --tuning is known
+			append(&sets, value) // applied once --tuning is known
 		case:
 			fmt.eprintfln("bot: unknown option %s (--players N --seeds K --minutes M --tuning play|stress)", args[i])
 			return false
@@ -94,79 +103,78 @@ mode_bot :: proc(args: []string) -> bool {
 	}
 	game := tuning == "stress" ? &survivor.GAME_STRESS : &survivor.GAME
 	tune := survivor.TUNINGS[tuning == "stress" ? .Stress : .Play]
-	for v in sets {
+	for set in sets {
 		// --set field=value: override one field of the chosen tuning (exploration only)
-		kv := strings.split(v, "=", context.temp_allocator)
-		n := 0
-		ok := len(kv) == 2
+		field_value := strings.split(set, "=", context.temp_allocator)
+		number := 0
+		ok := len(field_value) == 2
 		if ok {
-			n, ok = strconv.parse_int(kv[1])
+			number, ok = strconv.parse_int(field_value[1])
 		}
-		tn := &tune
-		switch kv[0] {
+		switch field_value[0] {
 		case "every":
-			tn.spawn_every_ticks = u32(n)
+			tune.spawn_every_ticks = u32(number)
 		case "base":
-			tn.spawn_base = u32(n)
+			tune.spawn_base = u32(number)
 		case "per_wave":
-			tn.spawn_per_wave = u32(n)
+			tune.spawn_per_wave = u32(number)
 		case "cap":
-			tn.spawn_cap = u32(n)
+			tune.spawn_cap = u32(number)
 		case "extra":
-			tn.extra_player_pct = u32(n)
+			tune.extra_player_pct = u32(number)
 		case "wave":
-			tn.wave_ticks = u32(n)
+			tune.wave_ticks = u32(number)
 		case "hp":
-			tn.hp_pct_per_wave = i32(n)
+			tune.hp_pct_per_wave = i32(number)
 		case "xp_first":
-			tn.xp_first = i32(n)
+			tune.xp_first = i32(number)
 		case "xp_step":
-			tn.xp_step = i32(n)
+			tune.xp_step = i32(number)
 		case:
 			ok = false
 		}
 		if !ok {
-			fmt.eprintfln("bot: bad --set %s", v)
+			fmt.eprintfln("bot: bad --set %s", set)
 			return false
 		}
 	}
-	players = clamp(players, 1, survivor.MAX_PLAYERS)
+	player_count = clamp(player_count, 1, survivor.PLAYERS)
 	first := make([]f32, seeds)
-	surv := make([]f32, seeds)
+	survival := make([]f32, seeds)
 	defer delete(first)
-	defer delete(surv)
+	defer delete(survival)
 	never := 0
 	for k in 0 ..< seeds {
-		r := bot_run(game, tune, u64(k + 1), players, minutes * 60)
+		run := bot_run(game, tune, u64(k + 1), player_count, minutes * 60)
 		fmt.printfln(
 			`{{"seed":%d,"first_level_s":%.1f,"survival_s":%.1f,"survived":%v,"wave":%d,"level":%d,"max_enemies":%d,"kills":%d}}`,
-			r.seed,
-			r.first_level_s,
-			r.survival_s,
-			r.survived,
-			r.wave,
-			r.level,
-			r.max_enemies,
-			r.kills,
+			run.seed,
+			run.first_level_s,
+			run.survival_s,
+			run.survived,
+			run.wave,
+			run.level,
+			run.max_enemies,
+			run.kills,
 		)
-		first[k] = r.first_level_s
-		surv[k] = r.survival_s
-		never += int(r.first_level_s < 0)
+		first[k] = run.first_level_s
+		survival[k] = run.survival_s
+		never += int(run.first_level_s < 0)
 	}
 	slice.sort(first)
-	slice.sort(surv)
+	slice.sort(survival)
 	fmt.printfln(
 		`{{"mode":"bot","tuning":"%s","players":%d,"seeds":%d,"first_level_s":{{"min":%.1f,"median":%.1f,"max":%.1f}},"never_levelled":%d,"survival_s":{{"min":%.1f,"median":%.1f,"max":%.1f}}}}`,
 		tuning,
-		players,
+		player_count,
 		seeds,
 		first[0],
 		first[seeds / 2],
 		first[seeds - 1],
 		never,
-		surv[0],
-		surv[seeds / 2],
-		surv[seeds - 1],
+		survival[0],
+		survival[seeds / 2],
+		survival[seeds - 1],
 	)
 	return true
 }

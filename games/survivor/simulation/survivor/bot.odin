@@ -10,78 +10,78 @@ BOT_SIGHT :: 9.0 // m: enemies that push the bot away
 BOT_GEM_SIGHT :: 8.0
 BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
-bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
-	pl := &s.players[p]
-	if !pl.active || !pl.alive {
+bot_input :: proc(state: ^State, player: int, tick: u32) -> (input: Input) {
+	character := &state.players[player]
+	if !character.active || !character.alive {
 		return
 	}
-	pos := dmath.Vec2{pl.pos.x, pl.pos.z}
-	if s.phase == .Lobby {
-		k := p * 2 % 8 // walk out of the start circle, each slot its own way
-		in_.move_x = i8(dmath.DIR8_C[k] * 127)
-		in_.move_z = i8(dmath.DIR8_S[k] * 127)
+	pos := dmath.Vec2{character.pos.x, character.pos.z}
+	if state.phase == .Lobby {
+		direction := player * 2 % 8 // walk out of the start circle, each player its own way
+		input.move_x = i8(dmath.DIR8_C[direction] * 127)
+		input.move_z = i8(dmath.DIR8_S[direction] * 127)
 		return
 	}
 	// Flee: the sum of (pos - enemy) / d², for enemies in sight.
 	flee: dmath.Vec2
 	nearest2: f32 = 1e9
-	for i in 0 ..< s.enemies.high_water {
-		e := sim.at(&s.enemies, i) or_continue
-		d := pos - e.pos
-		d2 := d.x * d.x + d.y * d.y
-		if d2 < BOT_SIGHT * BOT_SIGHT {
-			w := 1 / (d2 + 0.25)
-			flee.x += d.x * w
-			flee.y += d.y * w
+	enemies := sim.iterate(&state.enemies)
+	for enemy in sim.next(&enemies) {
+		away := pos - enemy.pos
+		distance2 := away.x * away.x + away.y * away.y
+		if distance2 < BOT_SIGHT * BOT_SIGHT {
+			weight := 1 / (distance2 + 0.25)
+			flee.x += away.x * weight
+			flee.y += away.y * weight
 		}
-		nearest2 = min(nearest2, d2)
+		nearest2 = min(nearest2, distance2)
 	}
 	// Gems: head for the nearest one in sight.
-	gem: dmath.Vec2
+	to_gem: dmath.Vec2
 	best: f32 = BOT_GEM_SIGHT * BOT_GEM_SIGHT
-	for i in 0 ..< s.gems.high_water {
-		g := sim.at(&s.gems, i) or_continue
-		d := g.pos - pos
-		d2 := d.x * d.x + d.y * d.y
-		if d2 < best {
-			best = d2
-			gem = dmath.normalize2(d)
+	gems := sim.iterate(&state.gems)
+	for gem in sim.next(&gems) {
+		toward := gem.pos - pos
+		distance2 := toward.x * toward.x + toward.y * toward.y
+		if distance2 < best {
+			best = distance2
+			to_gem = dmath.normalize2(toward)
 		}
 	}
 	// Orbit the centre at BOT_ORBIT (tangent + radial correction), away from walls and pillars.
-	r := dmath.length2(pos)
+	radius := dmath.length2(pos)
 	radial := dmath.normalize2(pos)
 	tangent := dmath.Vec2{-radial.y, radial.x}
-	if p % 2 == 1 {
+	if player % 2 == 1 {
 		tangent = -tangent
 	}
-	orbit := tangent + radial * ((BOT_ORBIT - r) * 0.15)
+	orbit := tangent + radial * ((BOT_ORBIT - radius) * 0.15)
 	for k in 0 ..< 8 {
-		d := pos - dmath.Vec2{14 * dmath.DIR8_C[k], 14 * dmath.DIR8_S[k]}
-		d2 := d.x * d.x + d.y * d.y
-		if d2 < 9 {
-			orbit += d * (1.5 / (d2 + 0.25))
+		away := pos - dmath.Vec2{14 * dmath.DIR8_C[k], 14 * dmath.DIR8_S[k]}
+		distance2 := away.x * away.x + away.y * away.y
+		if distance2 < 9 {
+			orbit += away * (1.5 / (distance2 + 0.25))
 		}
 	}
 	// Crates and barrels, at their grid spots (the state has no item positions; most barely move).
-	for &it, i in s.items {
-		if !it.alive {
+	for &item, i in state.items {
+		if !item.alive {
 			continue
 		}
-		c := item_position(i)
-		d := pos - dmath.Vec2{c.x, c.z}
-		d2 := d.x * d.x + d.y * d.y
-		if d2 < 2.25 {
-			orbit += d * (1.0 / (d2 + 0.1))
+		spot := item_position(i)
+		away := pos - dmath.Vec2{spot.x, spot.z}
+		distance2 := away.x * away.x + away.y * away.y
+		if distance2 < 2.25 {
+			orbit += away * (1.0 / (distance2 + 0.1))
 		}
 	}
-	dir := orbit * 0.6 + flee * 2.5 + gem * 0.8
-	dir = dmath.normalize2(dir)
-	in_.move_x = i8(dir.x * 127)
-	in_.move_z = i8(dir.y * 127)
+	direction := orbit * 0.6 + flee * 2.5 + to_gem * 0.8
+	direction = dmath.normalize2(direction)
+	input.move_x = i8(direction.x * 127)
+	input.move_z = i8(direction.y * 127)
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
-	if nearest2 < 1.6 * 1.6 && pl.dash_cooldown == 0 && t % 2 == 0 {
-		in_.buttons |= BUTTON_DASH
+	if nearest2 < 1.6 * 1.6 && character.dash_cooldown == 0 && tick % 2 == 0 {
+		input.buttons |= BUTTON_DASH
 	}
 	return
 }
@@ -89,26 +89,26 @@ bot_input :: proc(s: ^State, p: int, t: u32) -> (in_: Input) {
 // The bot's commands: a level-up pick while one is pending, round-robin over the upgrades by level. In a
 // session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
-bot_commands :: proc(s: ^State, p: int, t: u32, out: ^sim.Command_Out) {
-	pl := &s.players[p]
-	if pl.active && pl.alive && pl.pending_levelups > 0 {
-		sim.send_command(out, Cmd_Pick{Upgrade((pl.level + i32(p)) % 3)})
+bot_commands :: proc(state: ^State, player: int, tick: u32, out: ^sim.Command_Out) {
+	character := &state.players[player]
+	if character.active && character.alive && character.pending_levelups > 0 {
+		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(player)) % 3)})
 	}
 }
 
-// One tick of bots in slots 0..<players: their inputs and commands, as the tick's record. `out` is scratch
-// (the caller deletes its list).
-bot_tick :: proc(s: ^State, players: int, t: u32, out: ^sim.Command_Out) -> (in_: Inputs) {
-	for p in 0 ..< players {
-		in_.present += {p}
-		in_.input[p] = bot_input(s, p, t)
-		out.kinds = GAME.commands
-		out.slot = p
+// One tick of bots in players 0 ..< player_count: their inputs and commands, as the tick's record. `out` is
+// scratch (the caller deletes its list).
+bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out) -> (inputs: Inputs) {
+	for player in 0 ..< player_count {
+		inputs.present += {player}
+		inputs.input[player] = bot_input(state, player, tick)
+		out.commands = Command
+		out.player = player
 		out.cap = sim.COMMANDS_PER_PLAYER
 		clear(&out.list)
-		bot_commands(s, p, t, out)
-		for c in out.list {
-			sim.add_command(&in_, c)
+		bot_commands(state, player, tick, out)
+		for raw in out.list {
+			sim.add_command(&inputs, raw)
 		}
 	}
 	return

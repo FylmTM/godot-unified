@@ -72,7 +72,7 @@ func _run() -> void:
 		if not shot_fight and int(game.hud.enemies_alive) > 25:
 			shot_fight = true
 			await shot("r04_fight")
-		if int(game.local_player().get("pending_levelups", 0)) > 0 and not leveled:
+		if int(game.local_player_info().get("pending_levelups", 0)) > 0 and not leveled:
 			leveled = true
 			await seconds(0.3)
 			await shot("r05_levelup")
@@ -80,14 +80,14 @@ func _run() -> void:
 			step("level-up offered and chosen (key 2)")
 		if (leveled and shot_fight and i > 150) or game.hud.get("phase") != "match" or failed():
 			break
-		if not game.local_player().get("alive", true) and not shot_dead:
+		if not game.local_player_info().get("alive", true) and not shot_dead:
 			shot_dead = true
 			await seconds(0.25)
 			await shot("r05b_down")
 	_release_all()
 	await shot("r06_fight_later")
 	step("fight: wave %d, %d enemies, level %d" % [game.hud.wave, game.hud.enemies_alive,
-		game.local_player().get("level", 0)])
+		game.local_player_info().get("level", 0)])
 
 	# Stand still until the horde wins.
 	await wait_for(func() -> bool: return game.hud.get("phase") == "over", 90.0, "the match is lost")
@@ -124,7 +124,7 @@ func _probe_explosion() -> void:
 		return
 	frame_tag("probe: barrel_exploded")
 	var at: Vector3 = (players[0] as Node3D).global_position + Vector3(3, 0, 0)
-	current_scene.get_node(^"Fx").play(&"barrel_exploded", 0, at, 4.0, false)
+	current_scene.get_node(^"Fx").play(&"barrel_exploded", {"position": at, "radius": 4.0}, false)
 
 
 ## Tags the first frame each HUD panel and banner size is shown (a first draw can rasterize glyphs or compile).
@@ -138,7 +138,7 @@ func _watch_hud() -> void:
 	var banner: Label = hud.get_node(^"Banner")
 	if banner.is_visible_in_tree() and banner.modulate.a > 0.0:
 		frame_tag("banner %dpx" % banner.get_theme_font_size(&"font_size"))
-	var hp: float = game.local_player().get("hp", -1.0)
+	var hp: float = game.local_player_info().get("hp", -1.0)
 	if _last_hp >= 0.0 and hp < _last_hp - 0.01:
 		frame_tag("player hit")  # the hit flash
 	_last_hp = hp

@@ -10,13 +10,14 @@ extends UnifiedTool
 
 const ROCK_KINDS: Array[String] = ["rock_0", "rock_1", "rock_2", "rock_3"]
 
-## Sim event kind -> count, from sim_event_2d.
+## Sim event name -> count of confirmed events, from sim_event.
 var _events: Dictionary[String, int] = {}
 
 
 func _run() -> void:
-	game.session.sim_event_2d.connect(func(kind: StringName, _tick: int, _ent: int, _pos: Vector2, _val: float) -> void:
-		_events[String(kind)] = int(_events.get(String(kind), 0)) + 1)
+	game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
+		if state == SimEvent.CONFIRMED:
+			_events[String(event)] = int(_events.get(String(event), 0)) + 1)
 	result["events"] = _events
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
@@ -85,7 +86,7 @@ func _run() -> void:
 	await seconds(0.5)
 	await shot("r03_match")
 	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_bulk_count(["bullet"]),
-		_bulk_count(ROCK_KINDS), _bulk_count(["gem"]), int(game.local_player().get("shots", 0))])
+		_bulk_count(ROCK_KINDS), _bulk_count(["gem"]), int(game.local_player_info().get("shots", 0))])
 
 	if not flag("quick"):
 		# hunt: aim at the nearest rock until one breaks

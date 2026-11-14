@@ -91,14 +91,14 @@ Level :: struct {
 
 // The level's identity (XXH3 of the file), as recorded in logs and snapshots: sim.content_hash.
 
-destroy :: proc(l: ^Level) {
-	delete(l.bodies)
-	delete(l.markers)
-	delete(l.strings)
-	delete(l.shapes)
-	delete(l.props)
-	delete(l.points)
-	l^ = {}
+destroy :: proc(level: ^Level) {
+	delete(level.bodies)
+	delete(level.markers)
+	delete(level.strings)
+	delete(level.shapes)
+	delete(level.props)
+	delete(level.points)
+	level^ = {}
 }
 
 @(private)
@@ -112,28 +112,28 @@ Rd :: struct {
 }
 
 @(private)
-f32_ :: proc(d: ^Rd) -> f32 {
-	return transmute(f32)wire.r_u32(&d.r)
+f32_ :: proc(decoder: ^Rd) -> f32 {
+	return transmute(f32)wire.r_u32(&decoder.r)
 }
 
 @(private)
-v3_ :: proc(d: ^Rd) -> [3]f32 {
-	return {f32_(d), f32_(d), f32_(d)}
+v3_ :: proc(decoder: ^Rd) -> [3]f32 {
+	return {f32_(decoder), f32_(decoder), f32_(decoder)}
 }
 
 @(private)
-q_ :: proc(d: ^Rd) -> [4]f32 {
-	return {f32_(d), f32_(d), f32_(d), f32_(d)}
+q_ :: proc(decoder: ^Rd) -> [4]f32 {
+	return {f32_(decoder), f32_(decoder), f32_(decoder), f32_(decoder)}
 }
 
 @(private)
-str_ :: proc(d: ^Rd) -> string {
-	i := int(wire.r_u32(&d.r))
-	if i >= len(d.strings) {
-		d.ok = false
+str_ :: proc(decoder: ^Rd) -> string {
+	i := int(wire.r_u32(&decoder.r))
+	if i >= len(decoder.strings) {
+		decoder.ok = false
 		return ""
 	}
-	return d.strings[i]
+	return decoder.strings[i]
 }
 
 // Points are read into one array; slices are fixed up at the end (it may grow while reading).
@@ -143,219 +143,219 @@ Span :: struct {
 }
 
 @(private)
-points_ :: proc(d: ^Rd) -> Span {
-	n := int(wire.r_u16(&d.r))
-	s := Span{len(d.points), n}
-	for _ in 0 ..< n {
-		append(&d.points, v3_(d))
+points_ :: proc(decoder: ^Rd) -> Span {
+	count := int(wire.r_u16(&decoder.r))
+	span := Span{len(decoder.points), count}
+	for _ in 0 ..< count {
+		append(&decoder.points, v3_(decoder))
 	}
-	return s
+	return span
 }
 
 // Parses a level file. The strings are views into `data`, which must outlive the Level.
-load :: proc(data: []u8, allocator := context.allocator) -> (l: Level, ok: bool) {
+load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: bool) {
 	context.allocator = allocator
-	d := Rd {
+	decoder := Rd {
 		r  = wire.reader_make(data),
 		ok = true,
 	}
-	magic := wire.r_bytes(&d.r, 4)
-	version := wire.r_u16(&d.r)
-	if !d.r.ok || string(magic) != MAGIC || version < 1 || version > VERSION do return
-	px_per_m := version >= 2 ? f32_(&d) : 0
-	ns := int(wire.r_u32(&d.r))
-	if ns > len(data) do return
-	strs := make([]string, ns)
-	for i in 0 ..< ns {
-		n := int(wire.r_u16(&d.r))
-		strs[i] = string(wire.r_bytes(&d.r, n))
+	magic := wire.r_bytes(&decoder.r, 4)
+	version := wire.r_u16(&decoder.r)
+	if !decoder.r.ok || string(magic) != MAGIC || version < 1 || version > VERSION do return
+	px_per_m := version >= 2 ? f32_(&decoder) : 0
+	string_count := int(wire.r_u32(&decoder.r))
+	if string_count > len(data) do return
+	string_table := make([]string, string_count)
+	for i in 0 ..< string_count {
+		count := int(wire.r_u16(&decoder.r))
+		string_table[i] = string(wire.r_bytes(&decoder.r, count))
 	}
-	d.strings = strs
+	decoder.strings = string_table
 
 	shape_pts: [dynamic]Span
 	defer delete(shape_pts)
 	body_shapes: [dynamic]Span
 	defer delete(body_shapes)
-	nb := int(wire.r_u32(&d.r))
-	if nb > len(data) do nb = 0
-	bodies := make([]Body, nb)
-	for &b in bodies {
-		b.name = str_(&d)
-		b.pos = v3_(&d)
-		b.rot = q_(&d)
-		b.friction = f32_(&d)
-		b.restitution = f32_(&d)
-		b.category = wire.r_u64(&d.r)
-		b.material = wire.r_u64(&d.r)
-		n := int(wire.r_u16(&d.r))
-		append(&body_shapes, Span{len(d.shapes), n})
-		for _ in 0 ..< n {
-			sh := Shape {
-				kind = Shape_Kind(wire.r_u8(&d.r)),
-				pos  = v3_(&d),
-				rot  = q_(&d),
+	body_count := int(wire.r_u32(&decoder.r))
+	if body_count > len(data) do body_count = 0
+	bodies := make([]Body, body_count)
+	for &body in bodies {
+		body.name = str_(&decoder)
+		body.pos = v3_(&decoder)
+		body.rot = q_(&decoder)
+		body.friction = f32_(&decoder)
+		body.restitution = f32_(&decoder)
+		body.category = wire.r_u64(&decoder.r)
+		body.material = wire.r_u64(&decoder.r)
+		count := int(wire.r_u16(&decoder.r))
+		append(&body_shapes, Span{len(decoder.shapes), count})
+		for _ in 0 ..< count {
+			shape := Shape {
+				kind = Shape_Kind(wire.r_u8(&decoder.r)),
+				pos  = v3_(&decoder),
+				rot  = q_(&decoder),
 			}
 			span: Span
-			switch sh.kind {
+			switch shape.kind {
 			case .Box:
-				sh.half = v3_(&d)
+				shape.half = v3_(&decoder)
 			case .Sphere:
-				sh.radius = f32_(&d)
+				shape.radius = f32_(&decoder)
 			case .Capsule:
-				sh.radius = f32_(&d)
-				sh.half_height = f32_(&d)
+				shape.radius = f32_(&decoder)
+				shape.half_height = f32_(&decoder)
 			case .Hull:
-				span = points_(&d)
+				span = points_(&decoder)
 			case:
-				d.ok = false
+				decoder.ok = false
 			}
 			append(&shape_pts, span)
-			append(&d.shapes, sh)
+			append(&decoder.shapes, shape)
 		}
-		if !d.r.ok || !d.ok do break
+		if !decoder.r.ok || !decoder.ok do break
 	}
 
 	marker_props: [dynamic]Span
 	defer delete(marker_props)
 	marker_path: [dynamic]Span
 	defer delete(marker_path)
-	nm := int(wire.r_u32(&d.r))
-	if nm > len(data) do nm = 0
-	markers := make([]Marker, nm)
-	for &m, i in markers {
-		m.index = i
-		m.kind = str_(&d)
-		m.name = str_(&d)
-		m.pos = v3_(&d)
-		m.rot = q_(&d)
-		m.scale = v3_(&d)
-		np := int(wire.r_u16(&d.r))
-		append(&marker_props, Span{len(d.props), np})
-		for _ in 0 ..< np {
-			p := Prop {
-				key  = str_(&d),
-				type = Prop_Type(wire.r_u8(&d.r)),
+	marker_count := int(wire.r_u32(&decoder.r))
+	if marker_count > len(data) do marker_count = 0
+	markers := make([]Marker, marker_count)
+	for &marker, i in markers {
+		marker.index = i
+		marker.kind = str_(&decoder)
+		marker.name = str_(&decoder)
+		marker.pos = v3_(&decoder)
+		marker.rot = q_(&decoder)
+		marker.scale = v3_(&decoder)
+		prop_count := int(wire.r_u16(&decoder.r))
+		append(&marker_props, Span{len(decoder.props), prop_count})
+		for _ in 0 ..< prop_count {
+			property := Prop {
+				key  = str_(&decoder),
+				type = Prop_Type(wire.r_u8(&decoder.r)),
 			}
-			switch p.type {
+			switch property.type {
 			case .Bool:
-				p.b = wire.r_u8(&d.r) != 0
+				property.b = wire.r_u8(&decoder.r) != 0
 			case .Int, .Ref:
-				p.i = i32(wire.r_u32(&d.r))
+				property.i = i32(wire.r_u32(&decoder.r))
 			case .Float:
-				p.f = f32_(&d)
+				property.f = f32_(&decoder)
 			case .Vec3:
-				p.v = v3_(&d)
+				property.v = v3_(&decoder)
 			case .String:
-				p.s = str_(&d)
+				property.s = str_(&decoder)
 			case:
-				d.ok = false
+				decoder.ok = false
 			}
-			append(&d.props, p)
+			append(&decoder.props, property)
 		}
-		append(&marker_path, points_(&d))
-		if !d.r.ok || !d.ok do break
+		append(&marker_path, points_(&decoder))
+		if !decoder.r.ok || !decoder.ok do break
 	}
 
-	l = {
+	level = {
 		px_per_m = px_per_m,
 		bodies   = bodies,
 		markers  = markers,
-		strings  = strs,
-		shapes   = d.shapes[:],
-		props    = d.props[:],
-		points   = d.points[:],
+		strings  = string_table,
+		shapes   = decoder.shapes[:],
+		props    = decoder.props[:],
+		points   = decoder.points[:],
 	}
-	if !d.r.ok || !d.ok || d.r.pos != len(data) {
-		destroy(&l)
+	if !decoder.r.ok || !decoder.ok || decoder.r.pos != len(data) {
+		destroy(&level)
 		return {}, false
 	}
-	for &sh, i in l.shapes {
-		sp := shape_pts[i]
-		sh.points = l.points[sp.start:][:sp.n]
+	for &shape, i in level.shapes {
+		span := shape_pts[i]
+		shape.points = level.points[span.start:][:span.n]
 	}
-	for &b, i in l.bodies {
-		sp := body_shapes[i]
-		b.shapes = l.shapes[sp.start:][:sp.n]
+	for &body, i in level.bodies {
+		span := body_shapes[i]
+		body.shapes = level.shapes[span.start:][:span.n]
 	}
-	for &m, i in l.markers {
-		sp := marker_props[i]
-		m.props = l.props[sp.start:][:sp.n]
-		pp := marker_path[i]
-		m.path = l.points[pp.start:][:pp.n]
+	for &marker, i in level.markers {
+		span := marker_props[i]
+		marker.props = level.props[span.start:][:span.n]
+		path_span := marker_path[i]
+		marker.path = level.points[path_span.start:][:path_span.n]
 	}
-	return l, true
+	return level, true
 }
 
 // The markers of one kind, in file order (temp-allocated by default).
-find_all :: proc(l: ^Level, kind: string, allocator := context.temp_allocator) -> []^Marker {
+find_all :: proc(level: ^Level, kind: string, allocator := context.temp_allocator) -> []^Marker {
 	out := make([dynamic]^Marker, 0, 8, allocator)
-	for &m in l.markers {
-		if m.kind == kind do append(&out, &m)
+	for &marker in level.markers {
+		if marker.kind == kind do append(&out, &marker)
 	}
 	return out[:]
 }
 
 // The first marker with this name (nil: none).
-find_named :: proc(l: ^Level, name: string) -> ^Marker {
-	for &m in l.markers {
-		if m.name == name do return &m
+find_named :: proc(level: ^Level, name: string) -> ^Marker {
+	for &marker in level.markers {
+		if marker.name == name do return &marker
 	}
 	return nil
 }
 
-prop :: proc(m: ^Marker, key: string) -> ^Prop {
-	for &p in m.props {
-		if p.key == key do return &p
+prop :: proc(marker: ^Marker, key: string) -> ^Prop {
+	for &property in marker.props {
+		if property.key == key do return &property
 	}
 	return nil
 }
 
-prop_f32 :: proc(m: ^Marker, key: string, default: f32 = 0) -> f32 {
-	p := prop(m, key)
-	if p == nil do return default
-	#partial switch p.type {
+prop_f32 :: proc(marker: ^Marker, key: string, default: f32 = 0) -> f32 {
+	property := prop(marker, key)
+	if property == nil do return default
+	#partial switch property.type {
 	case .Float:
-		return p.f
+		return property.f
 	case .Int:
-		return f32(p.i)
+		return f32(property.i)
 	}
 	return default
 }
 
-prop_int :: proc(m: ^Marker, key: string, default: int = 0) -> int {
-	p := prop(m, key)
-	if p == nil || p.type != .Int do return default
-	return int(p.i)
+prop_int :: proc(marker: ^Marker, key: string, default: int = 0) -> int {
+	property := prop(marker, key)
+	if property == nil || property.type != .Int do return default
+	return int(property.i)
 }
 
-prop_bool :: proc(m: ^Marker, key: string, default := false) -> bool {
-	p := prop(m, key)
-	if p == nil || p.type != .Bool do return default
-	return p.b
+prop_bool :: proc(marker: ^Marker, key: string, default := false) -> bool {
+	property := prop(marker, key)
+	if property == nil || property.type != .Bool do return default
+	return property.b
 }
 
-prop_vec3 :: proc(m: ^Marker, key: string, default := [3]f32{}) -> [3]f32 {
-	p := prop(m, key)
-	if p == nil || p.type != .Vec3 do return default
-	return p.v
+prop_vec3 :: proc(marker: ^Marker, key: string, default := [3]f32{}) -> [3]f32 {
+	property := prop(marker, key)
+	if property == nil || property.type != .Vec3 do return default
+	return property.v
 }
 
 // A Vector2 property: written as a Vec3 with z = 0, raw (not converted to metres).
-prop_vec2 :: proc(m: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
-	p := prop(m, key)
-	if p == nil || p.type != .Vec3 do return default
-	return p.v.xy
+prop_vec2 :: proc(marker: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
+	property := prop(marker, key)
+	if property == nil || property.type != .Vec3 do return default
+	return property.v.xy
 }
 
-prop_string :: proc(m: ^Marker, key: string, default := "") -> string {
-	p := prop(m, key)
-	if p == nil || p.type != .String do return default
-	return p.s
+prop_string :: proc(marker: ^Marker, key: string, default := "") -> string {
+	property := prop(marker, key)
+	if property == nil || property.type != .String do return default
+	return property.s
 }
 
 // A NodePath property pointing at another marker: its index, or -1.
-prop_ref :: proc(m: ^Marker, key: string) -> int {
-	p := prop(m, key)
-	if p == nil || p.type != .Ref do return -1
-	return int(p.i)
+prop_ref :: proc(marker: ^Marker, key: string) -> int {
+	property := prop(marker, key)
+	if property == nil || property.type != .Ref do return -1
+	return int(property.i)
 }

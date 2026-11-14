@@ -19,29 +19,34 @@ godot :: proc() -> string {
 	}
 	version := pin("godot", "version")
 	want := tprint("%s.stable.official", version)
-	if p := os.get_env("UNIFIED_GODOT", context.allocator); p != "" {
+	if path := os.get_env("UNIFIED_GODOT", context.allocator); path != "" {
 		// `--version` costs a Godot start: remember the answer for this exact file.
 		check := join(state.project.out, "godot", "unified_godot.checked")
-		id := file_identity(p)
+		id := file_identity(path)
 		if !stamp_ok(check, id) {
-			got := godot_version(p)
+			got := godot_version(path)
 			if !strings.has_prefix(got, want) {
-				fatal("UNIFIED_GODOT=%s reports %q; the pin is %s", p, got, want)
+				fatal("UNIFIED_GODOT=%s reports %q; the pin is %s", path, got, want)
 			}
 			write_text(check, tprint("%s\n", id))
 		}
-		cached = p
-		return p
+		cached = path
+		return path
 	}
-	exe, asset, sha := godot_download()
+	exe, asset, sha256 := godot_download()
 	tag := tprint("%s-stable", version)
 	dir := join(state.project.out, "godot", version)
 	if !os.is_file(exe) {
 		cold("Godot download")
 		zip := join(dir, asset)
-		download(tprint("https://github.com/godotengine/godot/releases/download/%s/%s", tag, asset), zip, sha, asset)
-		z := zip_open_file(zip)
-		zip_extract_all(&z, dir)
+		download(
+			tprint("https://github.com/godotengine/godot/releases/download/%s/%s", tag, asset),
+			zip,
+			sha256,
+			asset,
+		)
+		archive := zip_open_file(zip)
+		zip_extract_all(&archive, dir)
 		os.remove(zip)
 		os.change_mode(exe, os.perm_number(0o755))
 		if got := godot_version(exe); !strings.has_prefix(got, want) {
@@ -53,7 +58,7 @@ godot :: proc() -> string {
 }
 
 // Where the pinned download goes (the editor executable), its release asset and pinned hash.
-godot_download :: proc() -> (exe, asset, sha: string) {
+godot_download :: proc() -> (exe, asset, sha256: string) {
 	version := pin("godot", "version")
 	tag := tprint("%s-stable", version)
 	dir := join(state.project.out, "godot", version)
@@ -79,8 +84,8 @@ godot_download :: proc() -> (exe, asset, sha: string) {
 }
 
 godot_version :: proc(exe: string) -> string {
-	r := run_proc({cmd = strs(exe, "--version"), capture = true, quiet = true, timeout = 60 * time.Second})
-	lines := strings.split_lines(strings.trim_space(r.stdout))
+	result := run_proc({cmd = strs(exe, "--version"), capture = true, quiet = true, timeout = 60 * time.Second})
+	lines := strings.split_lines(strings.trim_space(result.stdout))
 	return len(lines) > 0 ? lines[len(lines) - 1] : ""
 }
 
@@ -117,29 +122,29 @@ import_signature :: proc(dir: string) -> string {
 	parts: [dynamic]string
 	walk :: proc(root, dir: string, parts: ^[dynamic]string) {
 		infos, _ := os.read_all_directory_by_path(dir, context.allocator)
-		for fi in infos {
-			if strings.has_prefix(fi.name, ".") {
+		for info in infos {
+			if strings.has_prefix(info.name, ".") {
 				continue
 			}
-			if fi.type == .Directory {
-				if !os.exists(join(fi.fullpath, ".gdignore")) {
-					walk(root, fi.fullpath, parts)
+			if info.type == .Directory {
+				if !os.exists(join(info.fullpath, ".gdignore")) {
+					walk(root, info.fullpath, parts)
 				}
 				continue
 			}
-			r := fi.fullpath[len(root) + 1:]
-			ext := strings.to_lower(os.ext(fi.name), context.temp_allocator)
+			relative := info.fullpath[len(root) + 1:]
+			ext := strings.to_lower(os.ext(info.name), context.temp_allocator)
 			if ext == ".gd" {
-				text, _ := read_text(fi.fullpath)
+				text, _ := read_text(info.fullpath)
 				names: [dynamic]string
 				for line in strings.split_lines(text, context.temp_allocator) {
 					if strings.has_prefix(line, "class_name ") {
 						append(&names, strings.trim_space(line))
 					}
 				}
-				append(parts, tprint("%s %v %v", r, names[:], os.exists(tprint("%s.uid", fi.fullpath))))
+				append(parts, tprint("%s %v %v", relative, names[:], os.exists(tprint("%s.uid", info.fullpath))))
 			} else if slice.contains(IMPORTED, ext) {
-				append(parts, tprint("%s %d", r, time.to_unix_nanoseconds(fi.modification_time)))
+				append(parts, tprint("%s %d", relative, time.to_unix_nanoseconds(info.modification_time)))
 			}
 		}
 	}
@@ -160,10 +165,10 @@ ensure_imported :: proc(dir: string) -> []string {
 		return exts
 	}
 	start := time.tick_now()
-	r := run_godot({"--headless", "--path", dir, "--import"}, 300)
-	if !r.ok {
-		log("%s", tail(strings.concatenate({r.stdout, r.stderr}), 4000))
-		fatal("the Godot import of %s failed (exit %d)", rel(dir), r.exit_code)
+	result := run_godot({"--headless", "--path", dir, "--import"}, 300)
+	if !result.ok {
+		log("%s", tail(strings.concatenate({result.stdout, result.stderr}), 4000))
+		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
 	}
 	write_text(stamp, import_signature(dir)) // the import may have added .uid files
 	cold(tprint("Godot import of %s", os.base(dir)))
@@ -206,50 +211,55 @@ Tool_Result :: struct {
 
 RESULT_MARKER :: "UNIFIED_RESULT "
 
-tool_cmd :: proc(t: Tool_Run) -> []string {
+tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	cmd: [dynamic]string
 	append(&cmd, godot())
-	if t.window {
+	if tool_run.window {
 		append(&cmd, "--resolution", "1280x720")
-		append(&cmd, ..window_args(t.place))
+		append(&cmd, ..window_args(tool_run.place))
 	} else {
 		append(&cmd, "--headless", "-d")
 	}
-	append(&cmd, "--path", t.dir, "-s", t.script, "--", "--no-settings", "--local-net")
-	if t.shots != "" {
-		append(&cmd, tprint("--shots=res://.out/shots/%s", t.shots))
+	append(&cmd, "--path", tool_run.dir, "-s", tool_run.script, "--", "--no-settings", "--local-net")
+	if tool_run.shots != "" {
+		append(&cmd, tprint("--shots=res://.out/shots/%s", tool_run.shots))
 	}
-	append(&cmd, ..t.args)
+	append(&cmd, ..tool_run.args)
 	return cmd[:]
 }
 
-run_tool :: proc(t: Tool_Run) -> Tool_Result {
-	cleanup := t.window ? with_window(t.dir, t.place) : no_cleanup
-	defer cleanup(t.dir)
-	front := t.window ? front_app() : ""
-	r := run_proc(
-		{cmd = tool_cmd(t), capture = true, timeout = time.Duration(t.timeout * f64(time.Second)), env = t.env},
+run_tool :: proc(tool_run: Tool_Run) -> Tool_Result {
+	cleanup := tool_run.window ? with_window(tool_run.dir, tool_run.place) : no_cleanup
+	defer cleanup(tool_run.dir)
+	front := tool_run.window ? front_app() : ""
+	ran := run_proc(
+		{
+			cmd = tool_cmd(tool_run),
+			capture = true,
+			timeout = time.Duration(tool_run.timeout * f64(time.Second)),
+			env = tool_run.env,
+		},
 	)
 	if front != "" {
 		restore_front_app(front)
 	}
-	return judge_tool(r, !t.quiet)
+	return judge_tool(ran, !tool_run.quiet)
 }
 
 // Judges a tool script's run by the strict rules.
-judge_tool :: proc(r: Ran, echo: bool) -> Tool_Result {
-	out := strings.concatenate({r.stdout, r.stderr})
-	res := Tool_Result {
-		seconds = r.seconds,
+judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
+	out := strings.concatenate({ran.stdout, ran.stderr})
+	report := Tool_Result {
+		seconds = ran.seconds,
 		output  = out,
 	}
 	problems: [dynamic]string
 	lines := strings.split_lines(out)
 	for line, i in lines {
 		if strings.has_prefix(line, RESULT_MARKER) {
-			v, err := json.parse_string(line[len(RESULT_MARKER):])
+			value, err := json.parse_string(line[len(RESULT_MARKER):])
 			if err == nil {
-				res.result = v
+				report.result = value
 			}
 		} else if echo && strings.trim_space(line) != "" && !strings.has_prefix(line, "Godot Engine v") {
 			log("%s", line)
@@ -263,30 +273,30 @@ judge_tool :: proc(r: Ran, echo: bool) -> Tool_Result {
 			append(&problems, tprint("GDScript warning: %s", strings.trim_space(line)))
 		}
 	}
-	for e in godot_errors(out) {
-		append(&problems, tprint("error line: %s", strings.trim_space(e)))
+	for error_line in godot_errors(out) {
+		append(&problems, tprint("error line: %s", strings.trim_space(error_line)))
 	}
-	if r.timed_out {
-		append(&problems, tprint("timed out after %.0fs", r.seconds))
-	} else if r.exit_code != 0 {
-		append(&problems, tprint("exit code %d", r.exit_code))
+	if ran.timed_out {
+		append(&problems, tprint("timed out after %.0fs", ran.seconds))
+	} else if ran.exit_code != 0 {
+		append(&problems, tprint("exit code %d", ran.exit_code))
 	}
-	if obj, ok := res.result.(json.Object); !ok {
+	if obj, ok := report.result.(json.Object); !ok {
 		append(&problems, "no UNIFIED_RESULT line")
 	} else if okv, has := obj["ok"]; has {
-		if b, isb := okv.(json.Boolean); isb && !b {
+		if value, isb := okv.(json.Boolean); isb && !value {
 			append(&problems, "the result says ok: false")
 		}
 	}
-	res.problems = problems[:]
-	res.ok = len(problems) == 0
-	if !res.ok && !echo {
+	report.problems = problems[:]
+	report.ok = len(problems) == 0
+	if !report.ok && !echo {
 		log("%s", tail(out, 6000))
 	}
-	for p in problems {
-		log("uni: %s", p)
+	for problem in problems {
+		log("uni: %s", problem)
 	}
-	return res
+	return report
 }
 
 // macOS: a windowed Godot may activate itself even with no_focus (not verified there yet); give focus back to the
@@ -302,8 +312,8 @@ front_app :: proc() -> string {
 			},
 		)
 		if eq := strings.index_byte(info.stdout, '='); eq >= 0 {
-			b := strings.trim(strings.trim_space(info.stdout[eq + 1:]), "\"")
-			return b == "[ NULL ]" ? "" : b
+			bundle_id := strings.trim(strings.trim_space(info.stdout[eq + 1:]), "\"")
+			return bundle_id == "[ NULL ]" ? "" : bundle_id
 		}
 	}
 	return ""
@@ -317,11 +327,11 @@ restore_front_app :: proc(bundle: string) {
 
 // A tool script by name: the game's game/tools/<name>.gd, else the shared code's tools/<name>.gd when the game uses
 // it ("" when neither has it).
-tool_script :: proc(g: Game, name: string) -> string {
-	if os.is_file(join(g.dir, "game", "tools", tprint("%s.gd", name))) {
+tool_script :: proc(game: Game, name: string) -> string {
+	if os.is_file(join(game.dir, "game", "tools", tprint("%s.gd", name))) {
 		return tprint("res://game/tools/%s.gd", name)
 	}
-	if uses_shared(g.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", tprint("%s.gd", name))) {
+	if uses_shared(game.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", tprint("%s.gd", name))) {
 		return tprint("res://%s/tools/%s.gd", SHARED_DIR, name)
 	}
 	return ""
@@ -331,16 +341,16 @@ tool_script :: proc(g: Game, name: string) -> string {
 env_with :: proc(overrides: ..string) -> []string {
 	env, _ := os.environ(context.allocator)
 	out: [dynamic]string
-	for e in env {
-		key := e[:max(0, strings.index_byte(e, '='))]
+	for entry in env {
+		key := entry[:max(0, strings.index_byte(entry, '='))]
 		replaced := false
-		for o in overrides {
-			if strings.has_prefix(o, tprint("%s=", key)) {
+		for override in overrides {
+			if strings.has_prefix(override, tprint("%s=", key)) {
 				replaced = true
 			}
 		}
 		if !replaced {
-			append(&out, e)
+			append(&out, entry)
 		}
 	}
 	append(&out, ..overrides)
@@ -368,14 +378,14 @@ BACKGROUND_OVERRIDE :: `; Written by uni for a window that must not take focus; 
 window/size/no_focus=true
 `
 
-// Prepares the project for a window opened with `w` and returns the cleanup to run when the Godot process has ended.
+// Prepares the project for a window opened with `window` and returns the cleanup to run when the Godot process has ended.
 // A background window opens without activation and clicks never activate it (Windows: SW_SHOWNA and
 // WS_EX_NOACTIVATE, kept on top of other windows; it never calls SetForegroundWindow), so the app in front keeps the
 // keyboard, and the game runs on while it isn't frontmost. A window that may take focus removes an override a
 // crashed run left behind.
-with_window :: proc(dir: string, w: Window_Opts) -> (cleanup: proc(dir: string)) {
+with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: string)) {
 	path := join(dir, OVERRIDE_CFG)
-	if w.background {
+	if window.background {
 		write_text(path, BACKGROUND_OVERRIDE)
 		return proc(dir: string) {
 				path := join(dir, OVERRIDE_CFG)
@@ -398,22 +408,22 @@ Screen :: struct {
 	primary:     bool,
 }
 
-// Godot's arguments for `w` (before --).
-window_args :: proc(w: Window_Opts) -> []string {
+// Godot's arguments for `window` (before --).
+window_args :: proc(window: Window_Opts) -> []string {
 	args: [dynamic]string
-	if w.mute {
+	if window.mute {
 		append(&args, "--audio-driver", "Dummy")
 	}
-	if w.screen != "" {
-		append(&args, "--screen", tprint("%d", screen_index(w.screen)))
+	if window.screen != "" {
+		append(&args, "--screen", tprint("%d", screen_index(window.screen)))
 	}
 	return args[:]
 }
 
 @(private)
 screen_index :: proc(name: string) -> int {
-	if n, ok := strconv.parse_int(name); ok && n >= 0 {
-		return n
+	if index, ok := strconv.parse_int(name); ok && index >= 0 {
+		return index
 	}
 	if name != "left" && name != "right" && name != "primary" {
 		usage("--screen takes Godot's screen index, left, right or primary (got %q)", name)
@@ -423,15 +433,15 @@ screen_index :: proc(name: string) -> int {
 		usage("--screen %s: this OS's screens can't be read yet; pass Godot's screen index", name)
 	}
 	best := 0
-	for sc, i in screens {
-		b := screens[best]
+	for screen, i in screens {
+		best_screen := screens[best]
 		switch name {
 		case "left":
-			if sc.left < b.left do best = i
+			if screen.left < best_screen.left do best = i
 		case "right":
-			if sc.right > b.right do best = i
+			if screen.right > best_screen.right do best = i
 		case "primary":
-			if sc.primary do best = i
+			if screen.primary do best = i
 		}
 	}
 	return best

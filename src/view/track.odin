@@ -39,89 +39,89 @@ Track :: struct {
 	has_out: bool,
 }
 
-track_reset :: proc(t: ^Track) {
-	t^ = {}
+track_reset :: proc(track: ^Track) {
+	track^ = {}
 }
 
 // Records the sim pose at `tick`. Pushing a tick that is already in the history (a re-simulation after a
 // rollback) overwrites it; the difference goes into the error offset, so the display doesn't jump.
-track_push :: proc(t: ^Track, tick: u32, pose: Pose, s := SMOOTHING_DEFAULT) {
+track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_DEFAULT) {
 	pose := pose
 	pose.rot = qnormalize(pose.rot)
-	for i in 0 ..< t.n {
-		smp := &t.hist[(t.head - 1 - u32(i)) & 3]
-		if smp.tick != tick do continue
-		d := smp.pose.pos - pose.pos
-		if s.tau_s > 0 && t.has_out {
-			if length(d) > s.teleport_dist {
-				t.err_pos, t.err_rot = {}, IDENTITY
+	for i in 0 ..< track.n {
+		sample := &track.hist[(track.head - 1 - u32(i)) & 3]
+		if sample.tick != tick do continue
+		correction := sample.pose.pos - pose.pos
+		if smoothing.tau_s > 0 && track.has_out {
+			if length(correction) > smoothing.teleport_dist {
+				track.err_pos, track.err_rot = {}, IDENTITY
 			} else {
-				t.err_pos += d
-				t.err_rot = qnormalize(qmul(err_rot_or_identity(t), qmul(smp.pose.rot, qconj(pose.rot))))
+				track.err_pos += correction
+				track.err_rot = qnormalize(qmul(err_rot_or_identity(track), qmul(sample.pose.rot, qconj(pose.rot))))
 			}
 		}
-		smp.pose = pose
+		sample.pose = pose
 		// Newer samples were predicted from the old one; drop them (the sim republishes them).
-		t.head -= u32(i)
-		t.n -= i
+		track.head -= u32(i)
+		track.n -= i
 		return
 	}
-	if t.n > 0 && tick < t.hist[(t.head - 1) & 3].tick {
+	if track.n > 0 && tick < track.hist[(track.head - 1) & 3].tick {
 		// Older than the newest without being in the history: a rollback past it; start over from here.
-		t.n = 0
+		track.n = 0
 	}
-	t.hist[t.head & 3] = {tick, pose}
-	t.head += 1
-	t.n = min(t.n + 1, len(t.hist))
+	track.hist[track.head & 3] = {tick, pose}
+	track.head += 1
+	track.n = min(track.n + 1, len(track.hist))
 }
 
 @(private)
-err_rot_or_identity :: proc(t: ^Track) -> [4]f32 {
-	return t.err_rot == {} ? IDENTITY : t.err_rot
+err_rot_or_identity :: proc(track: ^Track) -> [4]f32 {
+	return track.err_rot == {} ? IDENTITY : track.err_rot
 }
 
 // The pose of a sample at `tick`, if the history has it.
-track_at :: proc(t: ^Track, tick: u32) -> (Pose, bool) {
-	for i in 0 ..< t.n {
-		smp := &t.hist[(t.head - 1 - u32(i)) & 3]
-		if smp.tick == tick do return smp.pose, true
+track_at :: proc(track: ^Track, tick: u32) -> (Pose, bool) {
+	for i in 0 ..< track.n {
+		sample := &track.hist[(track.head - 1 - u32(i)) & 3]
+		if sample.tick == tick do return sample.pose, true
 	}
 	return {}, false
 }
 
 // The pose to display: between ticks `tick - 1` and `tick` at `alpha`, plus the decaying correction error.
 // `dt_s` is the render frame's duration (drives the decay).
-track_sample :: proc(t: ^Track, tick: u32, alpha: f32, dt_s: f32, s := SMOOTHING_DEFAULT) -> Pose {
-	cur, ok := track_at(t, tick)
+track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> Pose {
+	current, ok := track_at(track, tick)
 	if !ok {
-		if t.n == 0 do return t.out
-		cur = t.hist[(t.head - 1) & 3].pose // newest we have
+		if track.n == 0 do return track.out
+		current = track.hist[(track.head - 1) & 3].pose // newest we have
 	}
-	base := cur
-	if prev, has_prev := track_at(t, tick - 1); has_prev && ok {
-		if length(cur.pos - prev.pos) <= s.teleport_dist {
-			base.pos = prev.pos + (cur.pos - prev.pos) * alpha
-			base.rot = nlerp(prev.rot, cur.rot, alpha)
+	base := current
+	if prev, has_prev := track_at(track, tick - 1); has_prev && ok {
+		if length(current.pos - prev.pos) <= smoothing.teleport_dist {
+			base.pos = prev.pos + (current.pos - prev.pos) * alpha
+			base.rot = nlerp(prev.rot, current.rot, alpha)
 		}
 	}
-	if s.tau_s > 0 {
-		k := math.exp(-max(dt_s, 0) / s.tau_s)
-		t.err_pos *= k
-		t.err_rot = nlerp(IDENTITY, err_rot_or_identity(t), k)
-		if length(t.err_pos) < 1e-4 do t.err_pos = {}
+	if smoothing.tau_s > 0 {
+		decay := math.exp(-max(dt_s, 0) / smoothing.tau_s)
+		track.err_pos *= decay
+		track.err_rot = nlerp(IDENTITY, err_rot_or_identity(track), decay)
+		if length(track.err_pos) < 1e-4 do track.err_pos = {}
 	} else {
-		t.err_pos, t.err_rot = {}, IDENTITY
+		track.err_pos, track.err_rot = {}, IDENTITY
 	}
-	out := Pose{base.pos + t.err_pos, qnormalize(qmul(err_rot_or_identity(t), base.rot))}
-	t.out = out
-	t.has_out = true
+	out := Pose{base.pos + track.err_pos, qnormalize(qmul(err_rot_or_identity(track), base.rot))}
+	track.out = out
+	track.has_out = true
 	return out
 }
 
 // ---- small vector and quaternion helpers (render side)
 
-length :: proc(v: [3]f32) -> f32 {
-	return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+length :: proc(vec: [3]f32) -> f32 {
+	return math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
 
 lerp3 :: #force_inline proc(a, b: [3]f32, t: f32) -> [3]f32 {
@@ -142,9 +142,9 @@ qmul :: proc(a, b: [4]f32) -> [4]f32 {
 }
 
 qnormalize :: proc(q: [4]f32) -> [4]f32 {
-	n := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
-	if n < 1e-12 do return IDENTITY
-	return q * (1 / math.sqrt(n))
+	length_sq := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
+	if length_sq < 1e-12 do return IDENTITY
+	return q * (1 / math.sqrt(length_sq))
 }
 
 // Normalized lerp along the shorter arc.
@@ -164,9 +164,9 @@ yaw_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
 
-// Rotation about +Z by `a` radians: a 2D angle (Godot's Node2D.rotation: 0 = +x, positive turns +x toward +y).
-quat_angle2d :: proc(a: f32) -> [4]f32 {
-	return {0, 0, math.sin(a * 0.5), math.cos(a * 0.5)}
+// Rotation about +Z by `angle` radians: a 2D angle (Godot's Node2D.rotation: 0 = +x, positive turns +x toward +y).
+quat_angle2d :: proc(angle: f32) -> [4]f32 {
+	return {0, 0, math.sin(angle * 0.5), math.cos(angle * 0.5)}
 }
 
 // The 2D angle (radians about +Z) of a rotation.

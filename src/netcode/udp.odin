@@ -23,9 +23,9 @@ Udp_Scope :: enum u8 {
 }
 
 // Relay side: listens on `port` (0: any free port) in `scope`.
-udp_listen :: proc(port: int, scope: Udp_Scope) -> (l: Link, ok: bool) {
-	addr: cnet.Address = scope == .Lan ? cnet.IP4_Any : cnet.IP4_Loopback
-	sock, err := cnet.make_bound_udp_socket(addr, port)
+udp_listen :: proc(port: int, scope: Udp_Scope) -> (link: Link, ok: bool) {
+	address: cnet.Address = scope == .Lan ? cnet.IP4_Any : cnet.IP4_Loopback
+	sock, err := cnet.make_bound_udp_socket(address, port)
 	if err != nil {
 		return
 	}
@@ -33,21 +33,21 @@ udp_listen :: proc(port: int, scope: Udp_Scope) -> (l: Link, ok: bool) {
 		cnet.close(sock)
 		return
 	}
-	ul := new(Udp_Link)
-	ul.sock = sock
-	ul.used[0] = true // peer 0 is unused on the relay side
-	return {data = ul, send = udp_send, recv = udp_recv, close = udp_close, forget = udp_forget}, true
+	udp := new(Udp_Link)
+	udp.sock = sock
+	udp.used[0] = true // peer 0 is unused on the relay side
+	return {data = udp, send = udp_send, recv = udp_recv, close = udp_close, forget = udp_forget}, true
 }
 
 // Client side: an ephemeral local port talking to `remote` (peer 0). A loopback remote gets a loopback socket, so
 // a local client never triggers a firewall prompt either.
-udp_connect :: proc(remote: cnet.Endpoint) -> (l: Link, ok: bool) {
+udp_connect :: proc(remote: cnet.Endpoint) -> (link: Link, ok: bool) {
 	local: cnet.Address = cnet.IP4_Any
-	switch a in remote.address {
+	switch address in remote.address {
 	case cnet.IP4_Address:
-		if a[0] == 127 do local = cnet.IP4_Loopback
+		if address[0] == 127 do local = cnet.IP4_Loopback
 	case cnet.IP6_Address:
-		local = a == cnet.IP6_Loopback ? cnet.IP6_Loopback : cnet.IP6_Any
+		local = address == cnet.IP6_Loopback ? cnet.IP6_Loopback : cnet.IP6_Any
 	}
 	sock, err := cnet.make_bound_udp_socket(local, 0)
 	if err != nil {
@@ -57,18 +57,18 @@ udp_connect :: proc(remote: cnet.Endpoint) -> (l: Link, ok: bool) {
 		cnet.close(sock)
 		return
 	}
-	ul := new(Udp_Link)
-	ul.sock = sock
-	ul.fixed = true
-	ul.endpoints[0] = remote
-	ul.used[0] = true
-	return {data = ul, send = udp_send, recv = udp_recv, close = udp_close}, true
+	udp := new(Udp_Link)
+	udp.sock = sock
+	udp.fixed = true
+	udp.endpoints[0] = remote
+	udp.used[0] = true
+	return {data = udp, send = udp_send, recv = udp_recv, close = udp_close}, true
 }
 
-udp_bound_port :: proc(l: ^Link) -> int {
-	ul := (^Udp_Link)(l.data)
-	ep, err := cnet.bound_endpoint(ul.sock)
-	return err == nil ? ep.port : 0
+udp_bound_port :: proc(link: ^Link) -> int {
+	udp := (^Udp_Link)(link.data)
+	endpoint, err := cnet.bound_endpoint(udp.sock)
+	return err == nil ? endpoint.port : 0
 }
 
 @(private)
@@ -76,35 +76,35 @@ endpoint_eq :: proc(a, b: cnet.Endpoint) -> bool {
 	if a.port != b.port {
 		return false
 	}
-	switch x in a.address {
+	switch address in a.address {
 	case cnet.IP4_Address:
-		y, ok := b.address.(cnet.IP4_Address)
-		return ok && x == y
+		other, ok := b.address.(cnet.IP4_Address)
+		return ok && address == other
 	case cnet.IP6_Address:
-		y, ok := b.address.(cnet.IP6_Address)
-		return ok && x == y
+		other, ok := b.address.(cnet.IP6_Address)
+		return ok && address == other
 	}
 	return false
 }
 
 @(private)
 udp_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
-	ul := (^Udp_Link)(data)
-	if int(to) < 0 || int(to) >= MAX_UDP_PEERS || !ul.used[to] || (!ul.fixed && to == 0) {
+	udp := (^Udp_Link)(data)
+	if int(to) < 0 || int(to) >= MAX_UDP_PEERS || !udp.used[to] || (!udp.fixed && to == 0) {
 		return
 	}
 	// Errors (e.g. a full send buffer, or ICMP-unreachable reported on a later call) are packet
 	// loss as far as the channel is concerned.
-	_, _ = cnet.send_udp(ul.sock, bytes, ul.endpoints[to])
+	_, _ = cnet.send_udp(udp.sock, bytes, udp.endpoints[to])
 }
 
 @(private)
-udp_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool) {
-	ul := (^Udp_Link)(data)
+udp_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool) {
+	udp := (^Udp_Link)(data)
 	// Windows reports an ICMP port-unreachable for an earlier send as WSAECONNRESET on recvfrom of
 	// an unconnected UDP socket; skip such errors instead of treating them as "no data".
 	for _ in 0 ..< 64 {
-		nr, ep, err := cnet.recv_udp(ul.sock, buf)
+		received, endpoint, err := cnet.recv_udp(udp.sock, buf)
 		if err != nil {
 			if err == .Would_Block || err == .Timeout {
 				return
@@ -112,35 +112,35 @@ udp_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool) {
 			continue
 		}
 		free_slot := -1
-		for e, i in ul.endpoints {
-			if !ul.used[i] {
+		for known, i in udp.endpoints {
+			if !udp.used[i] {
 				free_slot = free_slot < 0 ? i : free_slot
-			} else if (ul.fixed || i > 0) && endpoint_eq(e, ep) {
-				return nr, Peer(i), true
+			} else if (udp.fixed || i > 0) && endpoint_eq(known, endpoint) {
+				return received, Peer(i), true
 			}
 		}
-		if ul.fixed || free_slot < 0 {
+		if udp.fixed || free_slot < 0 {
 			continue
 		}
-		ul.endpoints[free_slot] = ep
-		ul.used[free_slot] = true
-		return nr, Peer(free_slot), true
+		udp.endpoints[free_slot] = endpoint
+		udp.used[free_slot] = true
+		return received, Peer(free_slot), true
 	}
 	return
 }
 
 @(private)
 udp_forget :: proc(data: rawptr, peer: Peer) {
-	ul := (^Udp_Link)(data)
-	if !ul.fixed && peer > 0 && int(peer) < MAX_UDP_PEERS {
-		ul.used[peer] = false
-		ul.endpoints[peer] = {}
+	udp := (^Udp_Link)(data)
+	if !udp.fixed && peer > 0 && int(peer) < MAX_UDP_PEERS {
+		udp.used[peer] = false
+		udp.endpoints[peer] = {}
 	}
 }
 
 @(private)
 udp_close :: proc(data: rawptr) {
-	ul := (^Udp_Link)(data)
-	cnet.close(ul.sock)
-	free(ul)
+	udp := (^Udp_Link)(data)
+	cnet.close(udp.sock)
+	free(udp)
 }

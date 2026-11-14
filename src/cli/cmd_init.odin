@@ -32,14 +32,14 @@ cmd_init :: proc(args: []string) -> Result {
 	}
 	source := opts.unified
 	if source == "" {
-		r := run_proc(
+		result := run_proc(
 			{
 				cmd = strs(git(), "-C", state.project.unified, "remote", "get-url", "origin"),
 				capture = true,
 				quiet = true,
 			},
 		)
-		source = strings.trim_space(r.stdout)
+		source = strings.trim_space(result.stdout)
 		if source == "" {
 			usage("this checkout has no origin: pass --unified <url or path>")
 		}
@@ -66,16 +66,16 @@ cmd_init :: proc(args: []string) -> Result {
 		tprint("adding %s as the unified submodule", source),
 	)
 	template := join(state.project.unified, "src", "cli", "template")
-	n := 0
-	for f in find_files(template, ".tmpl") {
-		rel_path := f[len(template) + 1:len(f) - len(".tmpl")]
+	count := 0
+	for file in find_files(template, ".tmpl") {
+		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
 		if rel_path == "gitignore" {
 			rel_path = ".gitignore"
 		}
 		target, _ := strings.replace_all(rel_path, "__GAME__", name)
-		text, _ := strings.replace_all(must_read(f), "__GAME__", name)
+		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
 		write_text(join(dir, target), text)
-		n += 1
+		count += 1
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
 	// The game's name changes line lengths: format what the template wrote, so the new repo passes fmt --check.
@@ -92,7 +92,7 @@ cmd_init :: proc(args: []string) -> Result {
 		summary = tprint(
 			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && ./uni run",
 			name,
-			n,
+			count,
 			opts.dir,
 		),
 	}
@@ -102,8 +102,8 @@ valid_game_name :: proc(name: string) -> bool {
 	if name == "" || name[0] < 'a' || name[0] > 'z' {
 		return false
 	}
-	for c in name {
-		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+	for character in name {
+		if !(character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_') {
 			return false
 		}
 	}

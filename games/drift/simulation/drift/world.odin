@@ -29,115 +29,116 @@ Spawner_Def :: struct {
 }
 
 World :: struct {
-	phys:       ^physics.World,
-	extras:     [1]sim.Extra,
-	lvl:        level.Level,
-	px_per_m:   f32, // the level's (the view's units)
-	spawns:     [MAX_PLAYERS][2]f32,
-	station:    [2]f32,
-	gates:      [MAX_GATES]Gate_Def,
-	n_gates:    int,
-	spawners:   [MAX_SPAWNERS]Spawner_Def,
-	n_spawners: int,
+	phys:          ^physics.World,
+	extras:        [1]sim.Extra,
+	level_data:    level.Level,
+	px_per_m:      f32, // the level's (the view's units)
+	spawns:        [PLAYERS][2]f32,
+	station:       [2]f32,
+	gates:         [MAX_GATES]Gate_Def,
+	gate_count:    int,
+	spawners:      [MAX_SPAWNERS]Spawner_Def,
+	spawner_count: int,
 }
 
-Game :: sim.Game(State, Input, World, MAX_PLAYERS)
-Sim :: sim.Sim(State, Input, World, MAX_PLAYERS)
+Game :: sim.Game(State, Input, World, PLAYERS)
+Sim :: sim.Sim(State, Input, World, PLAYERS)
+Tick :: sim.Tick(State, Input, World, PLAYERS)
 
 @(rodata)
 GAME := Game {
 	name = "drift",
-	version = "1",
+	version = "2",
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(w: ^World) -> []sim.Extra {return w.extras[:]},
+	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	event_names = EVENT_NAMES,
-	commands = COMMANDS,
+	events = Event,
+	commands = Command,
 }
 
 // Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, the rock catalogue, then
 // the markers. Bodies the block owns (the station, ships, rocks) are created by init and the tick.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
-	w := new(World)
-	lvl, ok := level.load(content)
-	assert(ok && lvl.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
-	w.lvl = lvl
-	w.px_per_m = lvl.px_per_m
-	w.phys = physics.create({gravity = [3]f32{0, 0, 0}})
-	w.extras[0] = physics.extra(w.phys, State)
-	physics.create_static(w.phys, &w.lvl, CAT_STATIC)
-	create_catalogue(w)
-	for p in 0 ..< MAX_PLAYERS do w.spawns[p] = {f32(p) * 2 - 3, 6}
-	n_spawn := 0
-	for &m in w.lvl.markers {
-		pos := [2]f32{m.pos.x, m.pos.y}
-		switch m.kind {
+	world := new(World)
+	loaded, ok := level.load(content)
+	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
+	world.level_data = loaded
+	world.px_per_m = loaded.px_per_m
+	world.phys = physics.create({gravity = [3]f32{0, 0, 0}})
+	world.extras[0] = physics.extra(world.phys, State)
+	physics.create_static(world.phys, &world.level_data, CAT_STATIC)
+	create_catalogue(world)
+	for player in 0 ..< PLAYERS do world.spawns[player] = {f32(player) * 2 - 3, 6}
+	spawn_count := 0
+	for &marker in world.level_data.markers {
+		pos := [2]f32{marker.pos.x, marker.pos.y}
+		switch marker.kind {
 		case "spawn":
-			if n_spawn < MAX_PLAYERS {
-				w.spawns[n_spawn] = pos
-				n_spawn += 1
+			if spawn_count < PLAYERS {
+				world.spawns[spawn_count] = pos
+				spawn_count += 1
 			}
 		case "station":
-			w.station = pos
+			world.station = pos
 		case "gate":
-			assert(w.n_gates < MAX_GATES, "drift: too many gates")
-			w.gates[w.n_gates] = {pos, level.prop_ref(&m, "pair")} // a marker index for now
-			w.n_gates += 1
+			assert(world.gate_count < MAX_GATES, "drift: too many gates")
+			world.gates[world.gate_count] = {pos, level.prop_ref(&marker, "pair")} // a marker index for now
+			world.gate_count += 1
 		case "rock_spawn":
-			assert(w.n_spawners < MAX_SPAWNERS, "drift: too many rock spawners")
-			d := dmath.normalize2(level.prop_vec2(&m, "dir", {0, 1}))
-			if d == {} do d = {0, 1}
-			w.spawners[w.n_spawners] = {pos, d}
-			w.n_spawners += 1
+			assert(world.spawner_count < MAX_SPAWNERS, "drift: too many rock spawners")
+			dir := dmath.normalize2(level.prop_vec2(&marker, "dir", {0, 1}))
+			if dir == {} do dir = {0, 1}
+			world.spawners[world.spawner_count] = {pos, dir}
+			world.spawner_count += 1
 		}
 	}
-	assert(w.n_spawners > 0, "drift: the level has no rock_spawn marker")
+	assert(world.spawner_count > 0, "drift: the level has no rock_spawn marker")
 	// gate pairs: marker index -> gate index
-	for i in 0 ..< w.n_gates {
+	for i in 0 ..< world.gate_count {
 		pair := -1
-		k := 0
-		for &m in w.lvl.markers {
-			if m.kind != "gate" do continue
-			if m.index == w.gates[i].pair do pair = k
-			k += 1
+		gate_index := 0
+		for &marker in world.level_data.markers {
+			if marker.kind != "gate" do continue
+			if marker.index == world.gates[i].pair do pair = gate_index
+			gate_index += 1
 		}
-		w.gates[i].pair = pair
+		world.gates[i].pair = pair
 	}
-	return w
+	return world
 }
 
-world_destroy :: proc(w: ^World) {
-	physics.destroy(w.phys)
-	level.destroy(&w.lvl)
-	free(w)
+world_destroy :: proc(world: ^World) {
+	physics.destroy(world.phys)
+	level.destroy(&world.level_data)
+	free(world)
 }
 
 // Every rock hull (each variant at each size) on one static body far outside the arena that collides with
 // nothing, created before tick 0: Box3D's portable image names hull geometry by its index in the registry a
 // fresh world fills from its tick-0 save, so a late joiner can load any rock a split makes later
 // (src/physics/SPEC.md, 2D: generated geometry).
-create_catalogue :: proc(w: ^World) {
-	bd := physics.body_def_2d(.Static_Body, {-1000, -1000})
-	id := b3.create_body(w.phys.id, &bd)
-	sd := b3.default_shape_def()
-	sd.filter.category_bits = CAT_CATALOGUE
-	sd.filter.mask_bits = 0
-	for v in 0 ..< ROCK_VARIANTS {
+create_catalogue :: proc(world: ^World) {
+	body_def := physics.body_def_2d(.Static_Body, {-1000, -1000})
+	body := b3.create_body(world.phys.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.filter.category_bits = CAT_CATALOGUE
+	shape_def.filter.mask_bits = 0
+	for variant in 0 ..< ROCK_VARIANTS {
 		for size in Rock_Size {
-			pts := rock_points(v, size)
-			physics.polygon_2d(id, &sd, pts[:], ROCK_DEPTH)
+			points := rock_points(variant, size)
+			physics.polygon_2d(body, &shape_def, points[:], ROCK_DEPTH)
 		}
 	}
 }
 
-rock_points :: proc(variant: int, size: Rock_Size) -> (pts: [8][2]f32) {
-	r := ROCK_RADIUS[size]
+rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
+	radius := ROCK_RADIUS[size]
 	for k in 0 ..< 8 {
-		f := ROCK_SHAPES[variant][k] * r
-		pts[k] = {dmath.DIR8_C[k] * f, dmath.DIR8_S[k] * f}
+		reach := ROCK_SHAPES[variant][k] * radius
+		points[k] = {dmath.DIR8_C[k] * reach, dmath.DIR8_S[k] * reach}
 	}
 	return
 }
@@ -148,62 +149,66 @@ HEX_C := [6]f32{1, 0.5, -0.5, -1, -0.5, 0.5}
 @(rodata)
 HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 
-init :: proc(s: ^State, w: ^World, seed: u64) {
-	s.rng = sim.rng_seed(seed)
-	s.station_hp = STATION_HP
-	bd := physics.body_def_2d(.Kinematic_Body, w.station)
-	id := b3.create_body(w.phys.id, &bd)
-	sd := b3.default_shape_def()
-	sd.filter.category_bits = CAT_STATION
-	sd.base_material.user_material_id = MAT_STATION
-	pts: [6][2]f32
-	for k in 0 ..< 6 do pts[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
-	physics.polygon_2d(id, &sd, pts[:], ROCK_DEPTH)
-	s.station = physics.ref_of(id)
-	physics.set_velocity_2d(w.phys, s.station, {}, STATION_SPIN)
+init :: proc(state: ^State, world: ^World, seed: u64) {
+	state.rng = sim.rng_seed(seed)
+	state.station_hp = STATION_HP
+	body_def := physics.body_def_2d(.Kinematic_Body, world.station)
+	body := b3.create_body(world.phys.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.filter.category_bits = CAT_STATION
+	shape_def.base_material.user_material_id = MAT_STATION
+	corners: [6][2]f32
+	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
+	physics.polygon_2d(body, &shape_def, corners[:], ROCK_DEPTH)
+	state.station = physics.ref_of(body)
+	physics.set_velocity_2d(world.phys, state.station, {}, STATION_SPIN)
 }
 
-create_ship :: proc(s: ^State, w: ^World, p: int) {
-	bd := physics.body_def_2d(.Dynamic_Body, w.spawns[p], {0, -1})
-	bd.linear_damping = SHIP_DAMPING
-	bd.is_bullet = false
-	id := b3.create_body(w.phys.id, &bd)
-	sd := b3.default_shape_def()
-	sd.density = SHIP_DENSITY
-	sd.base_material.restitution = 0.5
-	sd.base_material.friction = 0.1
-	sd.filter.category_bits = CAT_SHIP
-	physics.circle_2d(id, &sd, SHIP_RADIUS)
-	s.ships[p].body = physics.ref_of(id)
+create_ship :: proc(state: ^State, world: ^World, player: int) {
+	body_def := physics.body_def_2d(.Dynamic_Body, world.spawns[player], {0, -1})
+	body_def.linear_damping = SHIP_DAMPING
+	body_def.is_bullet = false
+	body := b3.create_body(world.phys.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.density = SHIP_DENSITY
+	shape_def.base_material.restitution = 0.5
+	shape_def.base_material.friction = 0.1
+	shape_def.filter.category_bits = CAT_SHIP
+	physics.circle_2d(body, &shape_def, SHIP_RADIUS)
+	state.ships[player].body = physics.ref_of(body)
 }
 
+// A rock in the rocks table and its body (ok = false: the table is full). Its shapes carry its slot index as
+// the user material, so a bullet's ray finds it.
 create_rock :: proc(
-	s: ^State,
-	w: ^World,
+	state: ^State,
+	world: ^World,
 	size: Rock_Size,
 	variant: int,
 	pos, vel: [2]f32,
 	spin: f32,
-	events: Events,
-) -> bool {
-	r, h, ok := sim.spawn(&s.rocks)
-	if !ok do return false
-	bd := physics.body_def_2d(.Dynamic_Body, pos)
-	id := b3.create_body(w.phys.id, &bd)
-	sd := b3.default_shape_def()
-	sd.density = 1
-	sd.base_material.restitution = 0.4
-	sd.base_material.friction = 0.3
-	sd.base_material.user_material_id = MAT_ROCK + u64(h.index)
-	sd.filter.category_bits = CAT_ROCK
-	pts := rock_points(variant, size)
-	physics.polygon_2d(id, &sd, pts[:], ROCK_DEPTH)
-	r^ = {
-		body    = physics.ref_of(id),
+) -> (
+	handle: sim.Handle(Rock),
+	ok: bool,
+) {
+	rock: ^Rock
+	rock, handle = sim.spawn(&state.rocks) or_return
+	body_def := physics.body_def_2d(.Dynamic_Body, pos)
+	body := b3.create_body(world.phys.id, &body_def)
+	shape_def := b3.default_shape_def()
+	shape_def.density = 1
+	shape_def.base_material.restitution = 0.4
+	shape_def.base_material.friction = 0.3
+	shape_def.base_material.user_material_id = MAT_ROCK + u64(handle.index)
+	shape_def.filter.category_bits = CAT_ROCK
+	points := rock_points(variant, size)
+	physics.polygon_2d(body, &shape_def, points[:], ROCK_DEPTH)
+	rock^ = {
+		body    = physics.ref_of(body),
 		size    = size,
 		variant = u8(variant),
 		hp      = ROCK_HP[size],
 	}
-	physics.set_velocity_2d(w.phys, r.body, vel, spin)
-	return true
+	physics.set_velocity_2d(world.phys, rock.body, vel, spin)
+	return handle, true
 }

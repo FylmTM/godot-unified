@@ -18,8 +18,8 @@ Mode :: enum {
 	debug, // unoptimized, for stepping in a debugger
 }
 
-mode_flags :: proc(m: Mode) -> []string {
-	switch m {
+mode_flags :: proc(mode: Mode) -> []string {
+	switch mode {
 	case .dev:
 		return strs("-o:speed", "-use-separate-modules", "-debug")
 	case .release:
@@ -55,9 +55,9 @@ Headless :: struct {
 
 headless_packages :: proc() -> []Headless {
 	out: [dynamic]Headless
-	for g in state.project.games {
-		if pkg := join(g.dir, "simulation", "headless"); os.is_directory(pkg) {
-			append(&out, Headless{g.name, pkg, game_uses_box3d(g)})
+	for game in state.project.games {
+		if pkg := join(game.dir, "simulation", "headless"); os.is_directory(pkg) {
+			append(&out, Headless{game.name, pkg, game_uses_box3d(game)})
 		}
 	}
 	if is_unified_repo() {
@@ -67,8 +67,8 @@ headless_packages :: proc() -> []Headless {
 	return out[:]
 }
 
-headless_path :: proc(name: string, m: Mode) -> string {
-	return join(state.project.out, tprint("%v", m), tprint("%s%s", name, EXE))
+headless_path :: proc(name: string, mode: Mode) -> string {
+	return join(state.project.out, tprint("%v", mode), tprint("%s%s", name, EXE))
 }
 
 // The packages `test` compiles: this repo's tests/ (every package, the games' suites included), or a game repo's
@@ -89,16 +89,16 @@ Vet_Package :: struct {
 
 vet_packages :: proc() -> []Vet_Package {
 	out: [dynamic]Vet_Package
-	for h in headless_packages() {
-		append(&out, Vet_Package{pkg = h.pkg, entry = true})
+	for headless in headless_packages() {
+		append(&out, Vet_Package{pkg = headless.pkg, entry = true})
 	}
 	append(&out, Vet_Package{pkg = test_root()})
 	if is_unified_repo() {
 		append(&out, Vet_Package{pkg = join(state.project.root, "tests", "godot", "ext")})
 		append(&out, Vet_Package{pkg = join(state.project.root, "tests", "godot_views", "ext")})
 	}
-	for g in state.project.games {
-		if ext := join(g.dir, "simulation", "extension"); os.is_directory(ext) {
+	for game in state.project.games {
+		if ext := join(game.dir, "simulation", "extension"); os.is_directory(ext) {
 			append(&out, Vet_Package{pkg = ext, ext = true})
 		}
 	}
@@ -112,8 +112,8 @@ fmt_dirs :: proc() -> []string {
 	if is_unified_repo() {
 		append(&out, join(state.project.root, "src"), join(state.project.root, "tests"))
 	}
-	for g in state.project.games {
-		append(&out, join(g.dir, "simulation"))
+	for game in state.project.games {
+		append(&out, join(game.dir, "simulation"))
 	}
 	append(&out, join(state.project.root, "tools"))
 	return out[:]
@@ -129,11 +129,11 @@ Build :: struct {
 }
 
 // The full odin command line of a build.
-build_cmd :: proc(b: Build, deps_file := "") -> []string {
+build_cmd :: proc(build: Build, deps_file := "") -> []string {
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", b.pkg, tprint("-out:%s", b.out))
+	append(&cmd, odin(), "build", build.pkg, tprint("-out:%s", build.out))
 	append(&cmd, ..collection())
-	append(&cmd, ..b.flags)
+	append(&cmd, ..build.flags)
 	append(&cmd, ..VET)
 	if deps_file != "" {
 		append(&cmd, "-export-dependencies:json", tprint("-export-dependencies-file:%s", deps_file))
@@ -143,76 +143,76 @@ build_cmd :: proc(b: Build, deps_file := "") -> []string {
 
 // The manifest key of a build: its command line (another mode or define is another build).
 @(private)
-build_key :: proc(b: Build) -> string {
-	return sha256_hex(transmute([]byte)strings.join(build_cmd(b), "\x00", context.temp_allocator))
+build_key :: proc(build: Build) -> string {
+	return sha256_hex(transmute([]byte)strings.join(build_cmd(build), "\x00", context.temp_allocator))
 }
 
 // Whether `out` is missing or older than its sources (by its manifest: sizes and times of every source file and
 // directory, the odin executable, the same command line).
-stale :: proc(b: Build, manifest := "") -> bool {
-	m := manifest != "" ? manifest : tprint("%s.inputs", b.out)
-	if !os.exists(b.out) {
+stale :: proc(build: Build, manifest := "") -> bool {
+	path := manifest != "" ? manifest : tprint("%s.inputs", build.out)
+	if !os.exists(build.out) {
 		return true
 	}
-	entries, key, ok := read_manifest(m)
-	return !ok || key != build_key(b) || !entries_current(entries)
+	entries, key, ok := read_manifest(path)
+	return !ok || key != build_key(build) || !entries_current(entries)
 }
 
 // Starts a build that records its manifest when it finishes (`finish_build`).
-start_build :: proc(b: Build) -> Proc {
-	make_dirs(os.dir(b.out))
-	return start({cmd = build_cmd(b, tprint("%s.deps.json", b.out)), dir = b.dir})
+start_build :: proc(build: Build) -> Proc {
+	make_dirs(os.dir(build.out))
+	return start({cmd = build_cmd(build, tprint("%s.deps.json", build.out)), dir = build.dir})
 }
 
-finish_build :: proc(b: Build, p: ^Proc, manifest := "") -> Ran {
-	r := wait(p)
-	deps := tprint("%s.deps.json", b.out)
-	if r.ok {
+finish_build :: proc(build: Build, child: ^Proc, manifest := "") -> Ran {
+	ran := wait(child)
+	deps := tprint("%s.deps.json", build.out)
+	if ran.ok {
 		files, odin_path := read_deps(deps)
-		write_manifest(manifest != "" ? manifest : tprint("%s.inputs", b.out), build_key(b), files, odin_path)
+		write_manifest(manifest != "" ? manifest : tprint("%s.inputs", build.out), build_key(build), files, odin_path)
 	}
 	os.remove(deps)
-	return r
+	return ran
 }
 
 // Builds one package now; a failure stops the command.
-odin_build :: proc(b: Build, what: string, manifest := "") -> f64 {
-	p := start_build(b)
-	r := finish_build(b, &p, manifest)
-	if !r.ok {
-		fatal("%s failed (exit %d)", what, r.exit_code)
+odin_build :: proc(build: Build, what: string, manifest := "") -> f64 {
+	child := start_build(build)
+	ran := finish_build(build, &child, manifest)
+	if !ran.ok {
+		fatal("%s failed (exit %d)", what, ran.exit_code)
 	}
-	return r.seconds
+	return ran.seconds
 }
 
 // --- the headless binaries --------------------------------------------------------------------------------------
 
 // Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
 // library beside them when one links it.
-build_headless :: proc(m: Mode, force := false) -> (built: int) {
+build_headless :: proc(mode: Mode, force := false) -> (built: int) {
 	ensure_deps_for_headless()
-	hs := headless_packages()
-	builds := make([]Build, len(hs))
+	packages := headless_packages()
+	builds := make([]Build, len(packages))
 	procs: [dynamic]struct {
-		i: int,
-		p: Proc,
+		index: int,
+		child: Proc,
 	}
-	for h, i in hs {
-		builds[i] = headless_build(h, m)
-		if h.box3d {
-			stage_box3d(os.dir(builds[i].out), debug = m == .debug)
+	for headless, i in packages {
+		builds[i] = headless_build(headless, mode)
+		if headless.box3d {
+			stage_box3d(os.dir(builds[i].out), debug = mode == .debug)
 		}
 		if force || stale(builds[i]) {
 			append(&procs, struct {
-				i: int,
-				p: Proc,
+				index: int,
+				child: Proc,
 			}{i, start_build(builds[i])})
 		}
 	}
 	failed: [dynamic]string
-	for &p in procs {
-		if r := finish_build(builds[p.i], &p.p); !r.ok {
-			append(&failed, hs[p.i].name)
+	for &entry in procs {
+		if ran := finish_build(builds[entry.index], &entry.child); !ran.ok {
+			append(&failed, packages[entry.index].name)
 		}
 	}
 	if len(failed) > 0 {
@@ -221,11 +221,11 @@ build_headless :: proc(m: Mode, force := false) -> (built: int) {
 	return len(procs)
 }
 
-headless_build :: proc(h: Headless, m: Mode) -> Build {
+headless_build :: proc(headless: Headless, mode: Mode) -> Build {
 	flags: [dynamic]string
-	append(&flags, ..mode_flags(m))
-	append(&flags, ..box3d_defines(m, h.box3d))
-	return {pkg = h.pkg, out = headless_path(h.name, m), flags = flags[:]}
+	append(&flags, ..mode_flags(mode))
+	append(&flags, ..box3d_defines(mode, headless.box3d))
+	return {pkg = headless.pkg, out = headless_path(headless.name, mode), flags = flags[:]}
 }
 
 // Box3D when any headless binary or test may link it (this repo's tests always do).
@@ -238,15 +238,15 @@ ensure_deps_for_headless :: proc() {
 
 // The commit, with +dirty when the tree has changes ("" outside a git checkout).
 git_commit :: proc(dir := "") -> string {
-	d := dir != "" ? dir : state.project.root
-	head := run_proc({cmd = {git(), "-C", d, "rev-parse", "HEAD"}, capture = true, quiet = true})
+	repo_dir := dir != "" ? dir : state.project.root
+	head := run_proc({cmd = {git(), "-C", repo_dir, "rev-parse", "HEAD"}, capture = true, quiet = true})
 	if !head.ok {
 		return ""
 	}
-	status := run_proc({cmd = {git(), "-C", d, "status", "--porcelain"}, capture = true, quiet = true})
+	status := run_proc({cmd = {git(), "-C", repo_dir, "status", "--porcelain"}, capture = true, quiet = true})
 	return tprint("%s%s", strings.trim_space(head.stdout), strings.trim_space(status.stdout) != "" ? "+dirty" : "")
 }
 
-seconds_since :: proc(t: time.Tick) -> f64 {
-	return time.duration_seconds(time.tick_since(t))
+seconds_since :: proc(tick: time.Tick) -> f64 {
+	return time.duration_seconds(time.tick_since(tick))
 }

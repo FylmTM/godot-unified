@@ -63,8 +63,8 @@ copy_file :: proc(dst, src: string) {
 	if !write_file(dst, data) {
 		fatal("cannot write %s", dst)
 	}
-	if fi, serr := os.stat(src, context.temp_allocator); serr == nil {
-		os.change_mode(dst, fi.mode)
+	if info, stat_err := os.stat(src, context.temp_allocator); stat_err == nil {
+		os.change_mode(dst, info.mode)
 	}
 }
 
@@ -96,28 +96,28 @@ check_sha256 :: proc(path, want, what: string) {
 }
 
 mtime :: proc(path: string) -> (time.Time, bool) {
-	fi, err := os.stat(path, context.temp_allocator)
+	info, err := os.stat(path, context.temp_allocator)
 	if err != nil {
 		return {}, false
 	}
-	return fi.modification_time, true
+	return info.modification_time, true
 }
 
 // Every file under `dir` (recursively) whose name ends with `suffix`, skipping hidden entries (.godot, .out, .git);
 // sorted.
 find_files :: proc(dir, suffix: string) -> []string {
 	out: [dynamic]string
-	w := os.walker_create(dir)
-	defer os.walker_destroy(&w)
-	for fi in os.walker_walk(&w) {
-		if strings.has_prefix(fi.name, ".") {
-			if fi.type == .Directory {
-				os.walker_skip_dir(&w)
+	walker := os.walker_create(dir)
+	defer os.walker_destroy(&walker)
+	for info in os.walker_walk(&walker) {
+		if strings.has_prefix(info.name, ".") {
+			if info.type == .Directory {
+				os.walker_skip_dir(&walker)
 			}
 			continue
 		}
-		if fi.type == .Regular && strings.has_suffix(fi.name, suffix) {
-			append(&out, strings.clone(fi.fullpath))
+		if info.type == .Regular && strings.has_suffix(info.name, suffix) {
+			append(&out, strings.clone(info.fullpath))
 		}
 	}
 	sort_strings(out[:])

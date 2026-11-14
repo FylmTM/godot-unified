@@ -1,5 +1,5 @@
 // The physics plug-in: a thin layer over Box3D (unified:b3). A World is one Box3D world set up for
-// determinism (one worker by default, fixed creation order is the game's job) plus RING saved images; it
+// determinism (one worker by default, fixed creation order is the game's job) plus one saved image per ring slot; it
 // plugs into the sim harness as Extra state (save/restore/hash/image/load). Bodies are referenced
 // from the state block by Body_Ref, which leaves out Box3D's world index so the block is identical
 // across the worlds of one process and across machines.
@@ -49,7 +49,7 @@ Settings :: struct {
 World :: struct {
 	id:         b3.World_Id,
 	// In-process snapshots (Box3D's world arena: a memcpy), one per ring slot.
-	ring:       [sim.RING]b3.World_Snapshot,
+	ring:       [sim.MAX_RING_SIZE]b3.World_Snapshot, // slots past the sim's ring_size stay empty
 	scratch:    b3.World_Snapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
 	image:      ^b3.World_State, // the last portable image `image` built
 	// Offsets of every Body_Ref / Joint_Ref in the state block, in memory order (the hash order).
@@ -64,56 +64,56 @@ World :: struct {
 world_mutex: sync.Mutex
 
 create :: proc(settings := Settings{}) -> ^World {
-	w := new(World)
+	world := new(World)
 	sync.guard(&world_mutex)
-	wd := b3.default_world_def()
-	wd.worker_count = u32(max(1, settings.workers))
-	if g, ok := settings.gravity.?; ok {
-		wd.gravity = g
+	world_def := b3.default_world_def()
+	world_def.worker_count = u32(max(1, settings.workers))
+	if gravity, ok := settings.gravity.?; ok {
+		world_def.gravity = gravity
 	}
 	if settings.hit_threshold > 0 {
-		wd.hit_event_threshold = settings.hit_threshold
+		world_def.hit_event_threshold = settings.hit_threshold
 	}
-	w.id = b3.create_world(&wd)
+	world.id = b3.create_world(&world_def)
 	if settings.anchor {
-		bd := b3.default_body_def()
-		bd.name = "anchor"
-		w.anchor = b3.create_body(w.id, &bd)
+		body_def := b3.default_body_def()
+		body_def.name = "anchor"
+		world.anchor = b3.create_body(world.id, &body_def)
 	}
-	w.image = b3.create_world_state()
-	return w
+	world.image = b3.create_world_state()
+	return world
 }
 
-destroy :: proc(w: ^World) {
+destroy :: proc(world: ^World) {
 	sync.guard(&world_mutex)
-	for &r in w.ring {
-		b3.destroy_world_snapshot(&r)
+	for &snapshot in world.ring {
+		b3.destroy_world_snapshot(&snapshot)
 	}
-	b3.destroy_world_snapshot(&w.scratch)
-	b3.destroy_world_state(w.image)
-	b3.destroy_world(w.id)
-	delete(w.refs)
-	delete(w.joint_refs)
-	free(w)
+	b3.destroy_world_snapshot(&world.scratch)
+	b3.destroy_world_state(world.image)
+	b3.destroy_world(world.id)
+	delete(world.refs)
+	delete(world.joint_refs)
+	free(world)
 }
 
 // A zero ref asserts: Box3D (built without its validation) would index body -1 and corrupt memory.
 // Advances the world one tick: `substeps` solver substeps (games go through this, not b3World_Step).
-step :: proc(w: ^World, dt: f32, substeps: int) {
-	b3.world_step(w.id, dt, i32(substeps))
+step :: proc(world: ^World, dt: f32, substeps: int) {
+	b3.world_step(world.id, dt, i32(substeps))
 }
 
-body_id :: proc(w: ^World, r: Body_Ref, loc := #caller_location) -> b3.Body_Id {
-	assert(r.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
-	return {index1 = r.index1, world0 = w.id.index1 - 1, generation = r.generation}
+body_id :: proc(world: ^World, ref: Body_Ref, loc := #caller_location) -> b3.Body_Id {
+	assert(ref.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
+	return {index1 = ref.index1, world0 = world.id.index1 - 1, generation = ref.generation}
 }
 
-link_id :: proc(w: ^World, l: Body_Link) -> b3.Body_Id {
-	return {index1 = l.index1, world0 = w.id.index1 - 1, generation = l.generation}
+link_id :: proc(world: ^World, body_link: Body_Link) -> b3.Body_Id {
+	return {index1 = body_link.index1, world0 = world.id.index1 - 1, generation = body_link.generation}
 }
 
-joint_id :: proc(w: ^World, r: Joint_Ref) -> b3.Joint_Id {
-	return {index1 = r.index1, world0 = w.id.index1 - 1, generation = r.generation}
+joint_id :: proc(world: ^World, joint_ref: Joint_Ref) -> b3.Joint_Id {
+	return {index1 = joint_ref.index1, world0 = world.id.index1 - 1, generation = joint_ref.generation}
 }
 
 ref_of :: proc "contextless" (id: b3.Body_Id) -> Body_Ref {
@@ -125,8 +125,8 @@ link_of :: proc "contextless" (id: b3.Body_Id) -> Body_Link {
 }
 
 // The link to a body the block owns (for queries that skip it, holds, ...).
-link :: proc "contextless" (r: Body_Ref) -> Body_Link {
-	return {index1 = r.index1, generation = r.generation}
+link :: proc "contextless" (ref: Body_Ref) -> Body_Link {
+	return {index1 = ref.index1, generation = ref.generation}
 }
 
 joint_ref_of :: proc "contextless" (id: b3.Joint_Id) -> Joint_Ref {
@@ -134,106 +134,106 @@ joint_ref_of :: proc "contextless" (id: b3.Joint_Id) -> Joint_Ref {
 }
 
 // Whether a (possibly stale) link names a live body. A zero link is not valid.
-body_valid :: proc(w: ^World, l: Body_Link) -> bool {
-	return l.index1 != 0 && b3.body_is_valid(link_id(w, l))
+body_valid :: proc(world: ^World, body_link: Body_Link) -> bool {
+	return body_link.index1 != 0 && b3.body_is_valid(link_id(world, body_link))
 }
 
-joint_valid :: proc(w: ^World, r: Joint_Ref) -> bool {
-	return r.index1 != 0 && b3.joint_is_valid(joint_id(w, r))
+joint_valid :: proc(world: ^World, joint_ref: Joint_Ref) -> bool {
+	return joint_ref.index1 != 0 && b3.joint_is_valid(joint_id(world, joint_ref))
 }
 
 // Destroys the joint (if it is still alive: destroying a body destroys its joints) and clears the ref.
-destroy_joint :: proc(w: ^World, r: ^Joint_Ref) {
-	if joint_valid(w, r^) {
-		b3.destroy_joint(joint_id(w, r^), true)
+destroy_joint :: proc(world: ^World, joint_ref: ^Joint_Ref) {
+	if joint_valid(world, joint_ref^) {
+		b3.destroy_joint(joint_id(world, joint_ref^), true)
 	}
-	r^ = {}
+	joint_ref^ = {}
 }
 
 // Destroys the body and clears the reference.
-destroy_body :: proc(w: ^World, r: ^Body_Ref) {
-	if r.index1 != 0 {
-		b3.destroy_body(body_id(w, r^))
+destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
+	if ref.index1 != 0 {
+		b3.destroy_body(body_id(world, ref^))
 	}
-	r^ = {}
+	ref^ = {}
 }
 
-// The Extra that makes the world part of the rollback state of a block of type S: every Body_Ref
-// in S (fields, arrays, table items) is found once by RTTI; the checksum covers each referenced
+// The Extra that makes the world part of the rollback state of a block of type State: every Body_Ref
+// in State (fields, arrays, table items) is found once by RTTI; the checksum covers each referenced
 // body (position, rotation, linear and angular velocity) in the block's memory order.
-extra :: proc(w: ^World, $S: typeid) -> sim.Extra {
+extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 	refs := make([dynamic]int)
-	collect_refs(type_info_of(S), 0, &refs, Body_Ref)
-	delete(w.refs)
-	w.refs = refs[:]
-	jrefs := make([dynamic]int)
-	collect_refs(type_info_of(S), 0, &jrefs, Joint_Ref)
-	delete(w.joint_refs)
-	w.joint_refs = jrefs[:]
+	collect_refs(type_info_of(State), 0, &refs, Body_Ref)
+	delete(world.refs)
+	world.refs = refs[:]
+	joint_refs := make([dynamic]int)
+	collect_refs(type_info_of(State), 0, &joint_refs, Joint_Ref)
+	delete(world.joint_refs)
+	world.joint_refs = joint_refs[:]
 	return {
 		name = "physics",
-		data = w,
+		data = world,
 		save = proc(data: rawptr, slot: int) {
-			w := (^World)(data)
-			b3.world_save_snapshot(w.id, &w.ring[slot])
+			world := (^World)(data)
+			b3.world_save_snapshot(world.id, &world.ring[slot])
 		},
 		restore = proc(data: rawptr, slot: int) -> bool {
-			w := (^World)(data)
-			return b3.world_restore_snapshot(w.id, &w.ring[slot])
+			world := (^World)(data)
+			return b3.world_restore_snapshot(world.id, &world.ring[slot])
 		},
 		// On the netcode's checksum ticks (sim.DEEP_CHECKSUM_EVERY): the whole world, every body, contact, warm
 		// start, island and tree (the canonical image's hash). On other ticks: the referenced bodies' poses and
 		// velocities, in the block's order (cheap; tests and traces checksum every tick).
 		hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {
-			w := (^World)(data)
+			world := (^World)(data)
 			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
-				h := transmute([8]u8)u64le(b3.world_hash_state(w.id))
-				append(out, ..h[:])
+				hash_bytes := transmute([8]u8)u64le(b3.world_hash_state(world.id))
+				append(out, ..hash_bytes[:])
 				return
 			}
 			base := ([^]u8)(state)
-			for off in w.refs {
-				r := (^Body_Ref)(&base[off])^
-				if r.index1 != 0 {
-					hash_body(w, r, out)
+			for offset in world.refs {
+				ref := (^Body_Ref)(&base[offset])^
+				if ref.index1 != 0 {
+					hash_body(world, ref, out)
 				}
 			}
 		},
 		// A portable image of the slot's tick, with its geometry (late join): the slot is put in the world for
 		// the time it takes, then the live state is put back.
 		image = proc(data: rawptr, slot: int) -> []u8 {
-			w := (^World)(data)
-			b3.world_save_snapshot(w.id, &w.scratch)
-			b3.world_restore_snapshot(w.id, &w.ring[slot])
-			n := b3.world_save_image(w.id, w.image, true)
-			b3.world_restore_snapshot(w.id, &w.scratch)
-			return b3.world_state_get_data(w.image)[:n]
+			world := (^World)(data)
+			b3.world_save_snapshot(world.id, &world.scratch)
+			b3.world_restore_snapshot(world.id, &world.ring[slot])
+			size := b3.world_save_image(world.id, world.image, true)
+			b3.world_restore_snapshot(world.id, &world.scratch)
+			return b3.world_state_get_data(world.image)[:size]
 		},
 		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
 		// saved first and put back on failure. Loads are rare (late join).
 		load = proc(data: rawptr, bytes: []u8) -> bool {
-			w := (^World)(data)
-			b3.world_save_snapshot(w.id, &w.scratch)
-			if b3.world_load_image(w.id, bytes) do return true
-			b3.world_restore_snapshot(w.id, &w.scratch)
+			world := (^World)(data)
+			b3.world_save_snapshot(world.id, &world.scratch)
+			if b3.world_load_image(world.id, bytes) do return true
+			b3.world_restore_snapshot(world.id, &world.scratch)
 			return false
 		},
 	}
 }
 
 // Every Body_Ref and Joint_Ref in the block names a live body or joint (or is zero). Tests run it
-// after every restore. Needs `extra(w, S)` first (it finds the refs).
-check_refs :: proc(w: ^World, state: rawptr) -> bool {
+// after every restore. Needs `extra(world, State)` first (it finds the refs).
+check_refs :: proc(world: ^World, state: rawptr) -> bool {
 	base := ([^]u8)(state)
-	for off in w.refs {
-		r := (^Body_Ref)(&base[off])^
-		if r.index1 != 0 && !b3.body_is_valid(body_id(w, r)) {
+	for offset in world.refs {
+		ref := (^Body_Ref)(&base[offset])^
+		if ref.index1 != 0 && !b3.body_is_valid(body_id(world, ref)) {
 			return false
 		}
 	}
-	for off in w.joint_refs {
-		r := (^Joint_Ref)(&base[off])^
-		if r.index1 != 0 && !b3.joint_is_valid(joint_id(w, r)) {
+	for offset in world.joint_refs {
+		ref := (^Joint_Ref)(&base[offset])^
+		if ref.index1 != 0 && !b3.joint_is_valid(joint_id(world, ref)) {
 			return false
 		}
 	}
@@ -242,71 +242,85 @@ check_refs :: proc(w: ^World, state: rawptr) -> bool {
 
 // The offsets of every field of type `want` (a distinct type: Body_Link is not Body_Ref) in a type.
 @(private)
-collect_refs :: proc(ti: ^runtime.Type_Info, base: int, out: ^[dynamic]int, want: typeid) {
-	if ti.id == want {
+collect_refs :: proc(type_info: ^runtime.Type_Info, base: int, out: ^[dynamic]int, want: typeid) {
+	if type_info.id == want {
 		append(out, base)
 		return
 	}
-	#partial switch v in ti.variant {
+	#partial switch variant in type_info.variant {
 	case runtime.Type_Info_Named:
-		collect_refs(v.base, base, out, want)
+		collect_refs(variant.base, base, out, want)
 	case runtime.Type_Info_Struct:
-		for i in 0 ..< int(v.field_count) {
-			collect_refs(v.types[i], base + int(v.offsets[i]), out, want)
+		for i in 0 ..< int(variant.field_count) {
+			collect_refs(variant.types[i], base + int(variant.offsets[i]), out, want)
 		}
 	case runtime.Type_Info_Array:
-		if !contains_ref(v.elem, want) {
+		if !contains_ref(variant.elem, want) {
 			return
 		}
-		for k in 0 ..< v.count {
-			collect_refs(v.elem, base + k * v.elem_size, out, want)
+		for k in 0 ..< variant.count {
+			collect_refs(variant.elem, base + k * variant.elem_size, out, want)
 		}
 	case runtime.Type_Info_Enumerated_Array:
-		if !contains_ref(v.elem, want) {
+		if !contains_ref(variant.elem, want) {
 			return
 		}
-		for k in 0 ..< v.count {
-			collect_refs(v.elem, base + k * v.elem_size, out, want)
+		for k in 0 ..< variant.count {
+			collect_refs(variant.elem, base + k * variant.elem_size, out, want)
 		}
 	}
 }
 
 @(private)
-contains_ref :: proc(ti: ^runtime.Type_Info, want: typeid) -> bool {
-	if ti.id == want {
+contains_ref :: proc(type_info: ^runtime.Type_Info, want: typeid) -> bool {
+	if type_info.id == want {
 		return true
 	}
-	#partial switch v in ti.variant {
+	#partial switch variant in type_info.variant {
 	case runtime.Type_Info_Named:
-		return contains_ref(v.base, want)
+		return contains_ref(variant.base, want)
 	case runtime.Type_Info_Struct:
-		for i in 0 ..< int(v.field_count) {
-			if contains_ref(v.types[i], want) {
+		for i in 0 ..< int(variant.field_count) {
+			if contains_ref(variant.types[i], want) {
 				return true
 			}
 		}
 	case runtime.Type_Info_Array:
-		return contains_ref(v.elem, want)
+		return contains_ref(variant.elem, want)
 	case runtime.Type_Info_Enumerated_Array:
-		return contains_ref(v.elem, want)
+		return contains_ref(variant.elem, want)
 	}
 	return false
 }
 
 // Appends a body's position, rotation, linear and angular velocity as 13 f32 LE (−0.0 → +0.0).
-hash_body :: proc(w: ^World, r: Body_Ref, out: ^[dynamic]u8) {
-	id := body_id(w, r)
-	p := b3.body_get_position(id)
-	q := b3.body_get_rotation(id)
-	v := b3.body_get_linear_velocity(id)
-	a := b3.body_get_angular_velocity(id)
-	vals := [13]f32{p.x, p.y, p.z, q.x, q.y, q.z, q.w, v.x, v.y, v.z, a.x, a.y, a.z}
-	for f in vals {
-		bits := transmute(u32)f
+hash_body :: proc(world: ^World, ref: Body_Ref, out: ^[dynamic]u8) {
+	id := body_id(world, ref)
+	pos := b3.body_get_position(id)
+	rot := b3.body_get_rotation(id)
+	vel := b3.body_get_linear_velocity(id)
+	ang_vel := b3.body_get_angular_velocity(id)
+	vals := [13]f32 {
+		pos.x,
+		pos.y,
+		pos.z,
+		rot.x,
+		rot.y,
+		rot.z,
+		rot.w,
+		vel.x,
+		vel.y,
+		vel.z,
+		ang_vel.x,
+		ang_vel.y,
+		ang_vel.z,
+	}
+	for value in vals {
+		bits := transmute(u32)value
 		if bits == 0x8000_0000 {
 			bits = 0
 		}
-		b := transmute([4]u8)u32le(bits)
-		append(out, ..b[:])
+		bytes := transmute([4]u8)u32le(bits)
+		append(out, ..bytes[:])
 	}
 }

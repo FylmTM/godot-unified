@@ -25,7 +25,7 @@ func _process(delta: float) -> void:
 		set_process(false)
 
 
-func _sim_event(event: StringName, _data: Dictionary) -> void:
+func _sim_event(event: StringName, _state: int, _data: Dictionary) -> void:
 	if event == &"despawned":
 		set_process(false)
 		_exit = create_tween()

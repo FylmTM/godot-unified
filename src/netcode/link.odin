@@ -26,7 +26,7 @@ Link :: struct {
 	send:   proc(data: rawptr, to: Peer, bytes: []u8),
 	// Returns the next received datagram (copied into buf), or ok = false when there is none.
 	// A datagram from a new remote endpoint gets a new Peer number.
-	recv:   proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool),
+	recv:   proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool),
 	close:  proc(data: rawptr),
 	// Optional: transport-level connection events (nil: the channel's own timeouts only).
 	event:  proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
@@ -35,23 +35,23 @@ Link :: struct {
 	forget: proc(data: rawptr, peer: Peer),
 }
 
-link_send :: proc(l: ^Link, to: Peer, bytes: []u8) {
-	l.send(l.data, to, bytes)
+link_send :: proc(link: ^Link, to: Peer, bytes: []u8) {
+	link.send(link.data, to, bytes)
 }
 
-link_recv :: proc(l: ^Link, buf: []u8) -> (n: int, from: Peer, ok: bool) {
-	return l.recv(l.data, buf)
+link_recv :: proc(link: ^Link, buf: []u8) -> (size: int, from: Peer, ok: bool) {
+	return link.recv(link.data, buf)
 }
 
-link_forget :: proc(l: ^Link, peer: Peer) {
-	if l.forget != nil {
-		l.forget(l.data, peer)
+link_forget :: proc(link: ^Link, peer: Peer) {
+	if link.forget != nil {
+		link.forget(link.data, peer)
 	}
 }
 
-link_close :: proc(l: ^Link) {
-	if l.close != nil {
-		l.close(l.data)
+link_close :: proc(link: ^Link) {
+	if link.close != nil {
+		link.close(link.data)
 	}
 }
 
@@ -62,8 +62,8 @@ now_us :: proc() -> i64 {
 
 // Sleeps until `wake_us` (a now_us value); returns at once if it has passed.
 sleep_until :: proc(wake_us: i64) {
-	if d := wake_us - now_us(); d > 0 {
-		time.sleep(time.Duration(d) * time.Microsecond)
+	if wait_us := wake_us - now_us(); wait_us > 0 {
+		time.sleep(time.Duration(wait_us) * time.Microsecond)
 	}
 }
 
@@ -86,20 +86,20 @@ Inbox :: struct {
 }
 
 hub_create :: proc(endpoints: int) -> ^Hub {
-	h := new(Hub)
-	h.inboxes = make([]Inbox, endpoints)
-	return h
+	hub := new(Hub)
+	hub.inboxes = make([]Inbox, endpoints)
+	return hub
 }
 
-hub_destroy :: proc(h: ^Hub) {
-	for &ib in h.inboxes {
-		for d in ib.queue {
-			delete(d.bytes)
+hub_destroy :: proc(hub: ^Hub) {
+	for &inbox in hub.inboxes {
+		for datagram in inbox.queue {
+			delete(datagram.bytes)
 		}
-		delete(ib.queue)
+		delete(inbox.queue)
 	}
-	delete(h.inboxes)
-	free(h)
+	delete(hub.inboxes)
+	free(hub)
 }
 
 Loop_Link :: struct {
@@ -109,54 +109,54 @@ Loop_Link :: struct {
 	head: int,
 }
 
-loopback_link :: proc(h: ^Hub, self: Peer) -> Link {
-	ll := new(Loop_Link)
-	ll.hub = h
-	ll.self = self
-	return {data = ll, send = loop_send, recv = loop_recv, close = loop_close}
+loopback_link :: proc(hub: ^Hub, self: Peer) -> Link {
+	loop := new(Loop_Link)
+	loop.hub = hub
+	loop.self = self
+	return {data = loop, send = loop_send, recv = loop_recv, close = loop_close}
 }
 
 @(private)
 loop_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
-	ll := (^Loop_Link)(data)
-	if int(to) < 0 || int(to) >= len(ll.hub.inboxes) {
+	loop := (^Loop_Link)(data)
+	if int(to) < 0 || int(to) >= len(loop.hub.inboxes) {
 		return
 	}
-	ib := &ll.hub.inboxes[to]
-	copy_ := make([]u8, len(bytes), context.allocator)
-	mem.copy_non_overlapping(raw_data(copy_), raw_data(bytes), len(bytes))
-	sync.guard(&ib.mu)
-	append(&ib.queue, Datagram{from = ll.self, bytes = copy_})
+	inbox := &loop.hub.inboxes[to]
+	copied := make([]u8, len(bytes), context.allocator)
+	mem.copy_non_overlapping(raw_data(copied), raw_data(bytes), len(bytes))
+	sync.guard(&inbox.mu)
+	append(&inbox.queue, Datagram{from = loop.self, bytes = copied})
 }
 
 @(private)
-loop_recv :: proc(data: rawptr, buf: []u8) -> (n: int, from: Peer, ok: bool) {
-	ll := (^Loop_Link)(data)
-	if ll.head >= len(ll.recv) {
-		for d in ll.recv {
-			delete(d.bytes)
+loop_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool) {
+	loop := (^Loop_Link)(data)
+	if loop.head >= len(loop.recv) {
+		for datagram in loop.recv {
+			delete(datagram.bytes)
 		}
-		clear(&ll.recv)
-		ll.head = 0
-		ib := &ll.hub.inboxes[ll.self]
-		sync.guard(&ib.mu)
-		ll.recv, ib.queue = ib.queue, ll.recv
+		clear(&loop.recv)
+		loop.head = 0
+		inbox := &loop.hub.inboxes[loop.self]
+		sync.guard(&inbox.mu)
+		loop.recv, inbox.queue = inbox.queue, loop.recv
 	}
-	if ll.head >= len(ll.recv) {
+	if loop.head >= len(loop.recv) {
 		return
 	}
-	d := ll.recv[ll.head]
-	ll.head += 1
-	n = copy(buf, d.bytes)
-	return n, d.from, true
+	datagram := loop.recv[loop.head]
+	loop.head += 1
+	size = copy(buf, datagram.bytes)
+	return size, datagram.from, true
 }
 
 @(private)
 loop_close :: proc(data: rawptr) {
-	ll := (^Loop_Link)(data)
-	for d in ll.recv {
-		delete(d.bytes)
+	loop := (^Loop_Link)(data)
+	for datagram in loop.recv {
+		delete(datagram.bytes)
 	}
-	delete(ll.recv)
-	free(ll)
+	delete(loop.recv)
+	free(loop)
 }

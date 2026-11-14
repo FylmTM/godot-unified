@@ -26,38 +26,43 @@ EOS_ONLINE := modes.Online {
 	},
 	open_host = eos.open_host,
 	open_join = eos.open_join,
-	poll = proc() -> (st: modes.Online_Status) {
+	poll = proc() -> modes.Online_Status {
 		eos.poll()
-		s := eos.status()
+		status := eos.status()
 		return {
-			ready = s.stage == .Ready,
-			failed = s.stage == .Failed,
-			detail = s.detail,
-			code = s.code,
-			local = s.local,
-			host = s.host,
-			network = fmt.tprint(s.network),
-			peers = s.peers,
+			ready = status.stage == .Ready,
+			failed = status.stage == .Failed,
+			detail = status.detail,
+			code = status.code,
+			local = status.local,
+			host = status.host,
+			network = fmt.tprint(status.network),
+			peers = status.peers,
 		}
 	},
 }
 
 @(private)
-eos_start :: proc(a: ^modes.Args) -> bool {
-	rc := eos.Relay_Control.Allow_Relays
-	switch modes.opt_str(a, "relays", "allow") {
+eos_start :: proc(args: ^modes.Args) -> bool {
+	relay_control := eos.Relay_Control.Allow_Relays
+	switch modes.opt_str(args, "relays", "allow") {
 	case "allow":
 	case "force":
-		rc = .Force_Relays
+		relay_control = .Force_Relays
 	case "none":
-		rc = .No_Relays
+		relay_control = .No_Relays
 	case:
-		modes.die("%s: --relays must be allow, force or none", a.mode)
+		modes.die("%s: --relays must be allow, force or none", args.mode)
 	}
 	if !eos.init(
-		{product_name = "unified-headless", product_version = "1", relay_control = rc, no_keychain_prompts = true},
+		{
+			product_name = "unified-headless",
+			product_version = "1",
+			relay_control = relay_control,
+			no_keychain_prompts = true,
+		},
 	) {
-		fmt.eprintfln("%s: EOS unavailable: %s", a.mode, eos.status().detail)
+		fmt.eprintfln("%s: EOS unavailable: %s", args.mode, eos.status().detail)
 		return false
 	}
 	return true

@@ -117,41 +117,41 @@ Conn :: struct {
 }
 
 channel_make :: proc() -> ^Channel {
-	ch := new(Channel)
-	ch.tx = wire.writer_make(MAX_DATAGRAM)
+	channel := new(Channel)
+	channel.tx = wire.writer_make(MAX_DATAGRAM)
 	// Distinct per process run and channel, so a restarted program never reuses its old epochs.
-	ch.epochs = u32(now_us()) ~ u32(uintptr(ch) >> 4)
-	return ch
+	channel.epochs = u32(now_us()) ~ u32(uintptr(channel) >> 4)
+	return channel
 }
 
 // Adds a link; the channel owns it from now on (closed by channel_destroy). Returns its index.
-channel_add_link :: proc(ch: ^Channel, link: Link) -> int {
-	append(&ch.links, link)
-	return len(ch.links) - 1
+channel_add_link :: proc(channel: ^Channel, link: Link) -> int {
+	append(&channel.links, link)
+	return len(channel.links) - 1
 }
 
-channel_destroy :: proc(ch: ^Channel) {
-	for &c in ch.conns {
-		conn_reset(&c)
+channel_destroy :: proc(channel: ^Channel) {
+	for &conn in channel.conns {
+		conn_reset(&conn)
 	}
-	delete(ch.events)
-	for &l in ch.links {
-		link_close(&l)
+	delete(channel.events)
+	for &link in channel.links {
+		link_close(&link)
 	}
-	delete(ch.links)
-	delete(ch.tx.buf)
-	runtime.arena_destroy(&ch.arena)
-	free(ch)
+	delete(channel.links)
+	delete(channel.tx.buf)
+	runtime.arena_destroy(&channel.arena)
+	free(channel)
 }
 
 // The channel Peer for a link's peer, assigning one on first use (-1 when all are taken).
-channel_peer :: proc(ch: ^Channel, link: int, lpeer: Peer) -> Peer {
-	if p := channel_find(ch, link, lpeer); p >= 0 {
-		return p
+channel_peer :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
+	if peer := channel_find(channel, link, link_peer); peer >= 0 {
+		return peer
 	}
 	free_slot := -1
-	for &c, i in ch.conns {
-		if !c.used {
+	for &conn, i in channel.conns {
+		if !conn.used {
 			free_slot = i
 			break
 		}
@@ -159,19 +159,19 @@ channel_peer :: proc(ch: ^Channel, link: int, lpeer: Peer) -> Peer {
 	if free_slot < 0 {
 		return -1
 	}
-	c := &ch.conns[free_slot]
-	c^ = {}
-	c.used = true
-	c.link = link
-	c.lpeer = lpeer
+	conn := &channel.conns[free_slot]
+	conn^ = {}
+	conn.used = true
+	conn.link = link
+	conn.lpeer = link_peer
 	return Peer(free_slot)
 }
 
 // The channel Peer already assigned to a link's peer, or -1.
 @(private)
-channel_find :: proc(ch: ^Channel, link: int, lpeer: Peer) -> Peer {
-	for &c, i in ch.conns {
-		if c.used && c.link == link && c.lpeer == lpeer {
+channel_find :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
+	for &conn, i in channel.conns {
+		if conn.used && conn.link == link && conn.lpeer == link_peer {
 			return Peer(i)
 		}
 	}
@@ -179,173 +179,173 @@ channel_find :: proc(ch: ^Channel, link: int, lpeer: Peer) -> Peer {
 }
 
 // Forgets a peer at once (no Disconnected event): after it said goodbye.
-channel_drop :: proc(ch: ^Channel, peer: Peer) {
+channel_drop :: proc(channel: ^Channel, peer: Peer) {
 	if int(peer) >= 0 && int(peer) < MAX_PEERS {
-		conn_release(ch, peer)
+		conn_release(channel, peer)
 	}
 }
 
 // Ends a connection and frees its mapping, telling the link it may reuse the peer number.
 @(private)
-conn_release :: proc(ch: ^Channel, peer: Peer) {
-	c := &ch.conns[peer]
-	used, link, lpeer := c.used, c.link, c.lpeer
-	conn_reset(c)
+conn_release :: proc(channel: ^Channel, peer: Peer) {
+	conn := &channel.conns[peer]
+	used, link, link_peer := conn.used, conn.link, conn.lpeer
+	conn_reset(conn)
 	if used {
-		link_forget(&ch.links[link], lpeer)
+		link_forget(&channel.links[link], link_peer)
 	}
 }
 
 @(private)
-arena_bytes :: proc(ch: ^Channel, b: []u8) -> []u8 {
-	return clone_bytes(b, runtime.arena_allocator(&ch.arena))
+arena_bytes :: proc(channel: ^Channel, bytes: []u8) -> []u8 {
+	return clone_bytes(bytes, runtime.arena_allocator(&channel.arena))
 }
 
 @(private)
-conn_reset :: proc(c: ^Conn) {
-	for m in c.rel_out {
-		delete(m.data)
+conn_reset :: proc(conn: ^Conn) {
+	for message in conn.rel_out {
+		delete(message.data)
 	}
-	delete(c.rel_out)
-	for b in c.unrel_out {
-		delete(b)
+	delete(conn.rel_out)
+	for bytes in conn.unrel_out {
+		delete(bytes)
 	}
-	delete(c.unrel_out)
-	for _, b in c.rel_early {
-		delete(b)
+	delete(conn.unrel_out)
+	for _, bytes in conn.rel_early {
+		delete(bytes)
 	}
-	delete(c.rel_early)
-	delete(c.sent)
-	c^ = {}
+	delete(conn.rel_early)
+	delete(conn.sent)
+	conn^ = {}
 }
 
 @(private)
-conn_open :: proc(ch: ^Channel, peer: Peer, now: i64) -> ^Conn {
-	c := &ch.conns[peer]
-	if !c.active {
-		link, lpeer := c.link, c.lpeer
-		conn_reset(c)
-		c.used = true
-		c.link = link
-		c.lpeer = lpeer
-		c.active = true
-		c.sent = make([]Sent_Packet, SENT_RING)
-		c.last_recv = now
-		c.next_seq = 1
-		c.srtt_us = 100_000
-		ch.epochs += 1
-		c.epoch = max(mix32(ch.epochs), 1)
-		append(&ch.events, Event{kind = .Connected, peer = peer})
+conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
+	conn := &channel.conns[peer]
+	if !conn.active {
+		link, link_peer := conn.link, conn.lpeer
+		conn_reset(conn)
+		conn.used = true
+		conn.link = link
+		conn.lpeer = link_peer
+		conn.active = true
+		conn.sent = make([]Sent_Packet, SENT_RING)
+		conn.last_recv = now
+		conn.next_seq = 1
+		conn.srtt_us = 100_000
+		channel.epochs += 1
+		conn.epoch = max(mix32(channel.epochs), 1)
+		append(&channel.events, Event{kind = .Connected, peer = peer})
 	}
-	return c
+	return conn
 }
 
 // A bijective 32-bit mix (murmur3's finalizer): consecutive counters give unrelated epochs.
 @(private)
 mix32 :: proc(x: u32) -> u32 {
-	h := x
-	h ~= h >> 16
-	h *= 0x85EBCA6B
-	h ~= h >> 13
-	h *= 0xC2B2AE35
-	h ~= h >> 16
-	return h
+	hash := x
+	hash ~= hash >> 16
+	hash *= 0x85EBCA6B
+	hash ~= hash >> 13
+	hash *= 0xC2B2AE35
+	hash ~= hash >> 16
+	return hash
 }
 
 // Queues a message; it goes out on the next flush. A message longer than MAX_MESSAGE, or to a peer
 // without a mapping, is dropped (false): never an assert, the bytes may come from the network.
-channel_send :: proc(ch: ^Channel, peer: Peer, data: []u8, d: Delivery, now: i64) -> bool {
-	if int(peer) < 0 || int(peer) >= MAX_PEERS || !ch.conns[peer].used || len(data) > MAX_MESSAGE {
+channel_send :: proc(channel: ^Channel, peer: Peer, data: []u8, delivery: Delivery, now: i64) -> bool {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].used || len(data) > MAX_MESSAGE {
 		return false
 	}
-	c := conn_open(ch, peer, now)
-	if d == .Reliable {
-		append(&c.rel_out, Rel_Msg{id = c.next_rel_id, data = clone_bytes(data)})
-		c.next_rel_id += 1
+	conn := conn_open(channel, peer, now)
+	if delivery == .Reliable {
+		append(&conn.rel_out, Rel_Msg{id = conn.next_rel_id, data = clone_bytes(data)})
+		conn.next_rel_id += 1
 	} else {
-		append(&c.unrel_out, clone_bytes(data))
+		append(&conn.unrel_out, clone_bytes(data))
 	}
 	return true
 }
 
 // The latest round-trip sample to `peer` (a datagram sent until its ack arrived; ok = false before the first ack).
 // Every datagram is acked within a few ms, so from the first answer on it is a fresh measure of the path.
-channel_rtt :: proc(ch: ^Channel, peer: Peer) -> (us: f64, ok: bool) {
-	if int(peer) < 0 || int(peer) >= MAX_PEERS || !ch.conns[peer].active || !ch.conns[peer].rtt_seen {
+channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, ok: bool) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active || !channel.conns[peer].rtt_seen {
 		return 0, false
 	}
-	return ch.conns[peer].rtt_last_us, true
+	return channel.conns[peer].rtt_last_us, true
 }
 
 // True when every reliable message to `peer` has been acknowledged.
-channel_idle :: proc(ch: ^Channel, peer: Peer) -> bool {
-	return len(ch.conns[peer].rel_out) == 0
+channel_idle :: proc(channel: ^Channel, peer: Peer) -> bool {
+	return len(channel.conns[peer].rel_out) == 0
 }
 
 // Receives everything pending on every link and returns the events (valid until the next poll).
-channel_poll :: proc(ch: ^Channel, now: i64) -> []Event {
-	clear(&ch.events)
-	runtime.arena_free_all(&ch.arena)
-	for &l, li in ch.links {
-		if l.event != nil {
+channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
+	clear(&channel.events)
+	runtime.arena_free_all(&channel.arena)
+	for &link, link_index in channel.links {
+		if link.event != nil {
 			for {
-				lp, kind, ok := l.event(l.data)
+				link_peer, kind, ok := link.event(link.data)
 				if !ok {
 					break
 				}
-				peer := channel_find(ch, li, lp)
-				if kind == .Disconnected && peer >= 0 && ch.conns[peer].active {
-					conn_release(ch, peer)
-					append(&ch.events, Event{kind = .Disconnected, peer = peer})
+				peer := channel_find(channel, link_index, link_peer)
+				if kind == .Disconnected && peer >= 0 && channel.conns[peer].active {
+					conn_release(channel, peer)
+					append(&channel.events, Event{kind = .Disconnected, peer = peer})
 				}
 			}
 		}
 		for {
-			n, from, ok := link_recv(&l, ch.rx[:])
+			size, from, ok := link_recv(&link, channel.rx[:])
 			if !ok {
 				break
 			}
-			h, hok := read_header(ch.rx[:n])
-			if !hok {
+			header, header_ok := read_header(channel.rx[:size])
+			if !header_ok {
 				// Garbage: no connection for it, and an endpoint we don't know yet is forgotten.
-				if channel_find(ch, li, from) < 0 {
-					link_forget(&l, from)
+				if channel_find(channel, link_index, from) < 0 {
+					link_forget(&link, from)
 				}
 				continue
 			}
-			peer := channel_peer(ch, li, from)
+			peer := channel_peer(channel, link_index, from)
 			if peer < 0 {
-				link_forget(&l, from)
+				link_forget(&link, from)
 				continue
 			}
-			handle_datagram(ch, peer, h, ch.rx[:n], now)
+			handle_datagram(channel, peer, header, channel.rx[:size], now)
 		}
 	}
-	for &c, i in ch.conns {
-		if c.active && now - c.last_recv > DISCONNECT_US {
-			conn_release(ch, Peer(i))
-			append(&ch.events, Event{kind = .Disconnected, peer = Peer(i)})
+	for &conn, i in channel.conns {
+		if conn.active && now - conn.last_recv > DISCONNECT_US {
+			conn_release(channel, Peer(i))
+			append(&channel.events, Event{kind = .Disconnected, peer = Peer(i)})
 		}
 	}
-	return ch.events[:]
+	return channel.events[:]
 }
 
 @(private)
-seq_acked :: proc(c: ^Conn, seq: u32, now: i64) {
-	sp := &c.sent[seq % SENT_RING]
-	if !sp.valid || sp.seq != seq {
+seq_acked :: proc(conn: ^Conn, seq: u32, now: i64) {
+	record := &conn.sent[seq % SENT_RING]
+	if !record.valid || record.seq != seq {
 		return
 	}
-	sp.valid = false
-	sample := f64(now - sp.at)
-	c.srtt_us += (sample - c.srtt_us) * 0.125
-	c.rtt_last_us = sample
-	c.rtt_seen = true
-	for k in 0 ..< int(sp.n_ids) {
-		id := sp.ids[k]
-		for &m in c.rel_out {
-			if m.id == id {
-				m.acked = true
+	record.valid = false
+	sample := f64(now - record.at)
+	conn.srtt_us += (sample - conn.srtt_us) * 0.125
+	conn.rtt_last_us = sample
+	conn.rtt_seen = true
+	for k in 0 ..< int(record.n_ids) {
+		id := record.ids[k]
+		for &message in conn.rel_out {
+			if message.id == id {
+				message.acked = true
 				break
 			}
 		}
@@ -361,141 +361,141 @@ Dgram_Header :: struct {
 
 // The datagram header, if it is one of ours.
 @(private)
-read_header :: proc(bytes: []u8) -> (h: Dgram_Header, ok: bool) {
-	r := wire.reader_make(bytes)
-	if wire.r_u8(&r) != DGRAM_MAGIC || wire.r_u8(&r) != DGRAM_VERSION {
+read_header :: proc(bytes: []u8) -> (header: Dgram_Header, ok: bool) {
+	reader := wire.reader_make(bytes)
+	if wire.r_u8(&reader) != DGRAM_MAGIC || wire.r_u8(&reader) != DGRAM_VERSION {
 		return
 	}
-	h.epoch = wire.r_u32(&r)
-	h.echo = wire.r_u32(&r)
-	h.seq = wire.r_u32(&r)
-	h.ack = wire.r_u32(&r)
-	h.ack_bits = wire.r_u32(&r)
-	h.n_chunks = int(wire.r_u16(&r))
-	h.body = r.pos
-	return h, r.ok && h.epoch != 0
+	header.epoch = wire.r_u32(&reader)
+	header.echo = wire.r_u32(&reader)
+	header.seq = wire.r_u32(&reader)
+	header.ack = wire.r_u32(&reader)
+	header.ack_bits = wire.r_u32(&reader)
+	header.n_chunks = int(wire.r_u16(&reader))
+	header.body = reader.pos
+	return header, reader.ok && header.epoch != 0
 }
 
 @(private)
-handle_datagram :: proc(ch: ^Channel, from: Peer, h: Dgram_Header, bytes: []u8, now: i64) {
-	c, read := accept_epoch(ch, from, h, now)
+handle_datagram :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, bytes: []u8, now: i64) {
+	conn, read := accept_epoch(channel, from, header, now)
 	if !read {
 		return
 	}
-	ch.stats.datagrams_recv += 1
-	ch.stats.bytes_recv += len(bytes)
-	if h.ack != 0 {
-		take_acks(c, h.ack, h.ack_bits, now)
+	channel.stats.datagrams_recv += 1
+	channel.stats.bytes_recv += len(bytes)
+	if header.ack != 0 {
+		take_acks(conn, header.ack, header.ack_bits, now)
 	}
-	note_seq(c, h.seq)
-	r := wire.reader_make(bytes)
-	r.pos = h.body
-	read_chunks(ch, c, from, &r, h.n_chunks)
+	note_seq(conn, header.seq)
+	reader := wire.reader_make(bytes)
+	reader.pos = header.body
+	read_chunks(channel, conn, from, &reader, header.n_chunks)
 }
 
 // Matches the datagram's epochs against the connection; returns it when the datagram should be read.
 @(private)
-accept_epoch :: proc(ch: ^Channel, from: Peer, h: Dgram_Header, now: i64) -> (^Conn, bool) {
-	old := &ch.conns[from]
-	if h.echo != 0 && old.active && h.echo != old.epoch {
+accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i64) -> (^Conn, bool) {
+	old := &channel.conns[from]
+	if header.echo != 0 && old.active && header.echo != old.epoch {
 		return nil, false // for an earlier connection of ours
 	}
-	if h.echo != 0 && !old.active {
+	if header.echo != 0 && !old.active {
 		// The peer still talks to a connection we ended (timed out, or dropped after a goodbye).
 		// Open a new one without reading this datagram: our reply carries the new epoch, which
 		// ends the peer's side at once.
-		c := conn_open(ch, from, now)
-		c.peer_epoch = h.epoch
+		conn := conn_open(channel, from, now)
+		conn.peer_epoch = header.epoch
 		return nil, false
 	}
-	if old.active && old.peer_epoch != 0 && old.peer_epoch != h.epoch {
+	if old.active && old.peer_epoch != 0 && old.peer_epoch != header.epoch {
 		// The peer started over: end the old connection; this datagram opens the new one.
-		link, lpeer := old.link, old.lpeer
+		link, link_peer := old.link, old.lpeer
 		conn_reset(old)
-		old.used, old.link, old.lpeer = true, link, lpeer
-		append(&ch.events, Event{kind = .Disconnected, peer = from})
+		old.used, old.link, old.lpeer = true, link, link_peer
+		append(&channel.events, Event{kind = .Disconnected, peer = from})
 	}
-	c := conn_open(ch, from, now)
-	c.last_recv = now
-	c.peer_epoch = h.epoch
-	return c, true
+	conn := conn_open(channel, from, now)
+	conn.last_recv = now
+	conn.peer_epoch = header.epoch
+	return conn, true
 }
 
 // Our sequence numbers that the peer has received: mark their reliable messages acked and drop the
 // acknowledged prefix of the reliable queue.
 @(private)
-take_acks :: proc(c: ^Conn, ack, ack_bits: u32, now: i64) {
-	seq_acked(c, ack, now)
-	for b in 0 ..< u32(32) {
-		if ack_bits & (1 << b) != 0 && ack > b + 1 {
-			seq_acked(c, ack - b - 1, now)
+take_acks :: proc(conn: ^Conn, ack, ack_bits: u32, now: i64) {
+	seq_acked(conn, ack, now)
+	for bit in 0 ..< u32(32) {
+		if ack_bits & (1 << bit) != 0 && ack > bit + 1 {
+			seq_acked(conn, ack - bit - 1, now)
 		}
 	}
 	k := 0
-	for k < len(c.rel_out) && c.rel_out[k].acked {
-		delete(c.rel_out[k].data)
+	for k < len(conn.rel_out) && conn.rel_out[k].acked {
+		delete(conn.rel_out[k].data)
 		k += 1
 	}
 	if k > 0 {
-		remove_range(&c.rel_out, 0, k)
+		remove_range(&conn.rel_out, 0, k)
 	}
 }
 
 // Records the peer's sequence number for our acks.
 @(private)
-note_seq :: proc(c: ^Conn, seq: u32) {
-	if !c.have_recv || seq > c.recv_max {
-		shift := c.have_recv ? seq - c.recv_max : 33
-		c.recv_bits = shift >= 32 ? 0 : (c.recv_bits << shift)
-		if c.have_recv && shift <= 32 {
-			c.recv_bits |= 1 << (shift - 1)
+note_seq :: proc(conn: ^Conn, seq: u32) {
+	if !conn.have_recv || seq > conn.recv_max {
+		shift := conn.have_recv ? seq - conn.recv_max : 33
+		conn.recv_bits = shift >= 32 ? 0 : (conn.recv_bits << shift)
+		if conn.have_recv && shift <= 32 {
+			conn.recv_bits |= 1 << (shift - 1)
 		}
-		c.recv_max = seq
-		c.have_recv = true
-	} else if seq < c.recv_max && c.recv_max - seq <= 32 {
-		c.recv_bits |= 1 << (c.recv_max - seq - 1)
+		conn.recv_max = seq
+		conn.have_recv = true
+	} else if seq < conn.recv_max && conn.recv_max - seq <= 32 {
+		conn.recv_bits |= 1 << (conn.recv_max - seq - 1)
 	}
 }
 
 // Delivers the datagram's chunks: unreliable ones at once, reliable ones in id order (early ones wait
 // within REL_WINDOW; duplicates and ids beyond the window are dropped).
 @(private)
-read_chunks :: proc(ch: ^Channel, c: ^Conn, from: Peer, r: ^wire.Reader, n_chunks: int) {
+read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Reader, n_chunks: int) {
 	for _ in 0 ..< n_chunks {
-		kind := wire.r_u8(r)
+		kind := wire.r_u8(reader)
 		id: u32
 		if kind == 1 {
-			id = wire.r_u32(r)
+			id = wire.r_u32(reader)
 		}
-		data := wire.r_bytes(r, int(wire.r_u16(r)))
-		if !r.ok || kind > 1 {
+		data := wire.r_bytes(reader, int(wire.r_u16(reader)))
+		if !reader.ok || kind > 1 {
 			return
 		}
 		if kind == 0 {
-			append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, data)})
+			append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, data)})
 			continue
 		}
-		c.ack_pending = true
-		if id < c.rel_next || id - c.rel_next >= REL_WINDOW {
+		conn.ack_pending = true
+		if id < conn.rel_next || id - conn.rel_next >= REL_WINDOW {
 			continue // a duplicate, or further ahead than a well-behaved sender goes
 		}
-		if id > c.rel_next {
-			if id not_in c.rel_early {
-				c.rel_early[id] = clone_bytes(data)
+		if id > conn.rel_next {
+			if id not_in conn.rel_early {
+				conn.rel_early[id] = clone_bytes(data)
 			}
 			continue
 		}
-		append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, data)})
-		c.rel_next += 1
+		append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, data)})
+		conn.rel_next += 1
 		for {
-			b, ok := c.rel_early[c.rel_next]
+			early, ok := conn.rel_early[conn.rel_next]
 			if !ok {
 				break
 			}
-			append(&ch.events, Event{kind = .Message, peer = from, data = arena_bytes(ch, b)})
-			delete(b)
-			delete_key(&c.rel_early, c.rel_next)
-			c.rel_next += 1
+			append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, early)})
+			delete(early)
+			delete_key(&conn.rel_early, conn.rel_next)
+			conn.rel_next += 1
 		}
 	}
 }
@@ -508,105 +508,107 @@ Packet_Builder :: struct {
 }
 
 @(private)
-begin_packet :: proc(pb: ^Packet_Builder, c: ^Conn) {
-	clear(&pb.w.buf)
-	pb.count = 0
-	pb.sp = {}
-	wire.w_u8(&pb.w, DGRAM_MAGIC)
-	wire.w_u8(&pb.w, DGRAM_VERSION)
-	wire.w_u32(&pb.w, c.epoch)
-	wire.w_u32(&pb.w, c.peer_epoch)
-	wire.w_u32(&pb.w, c.next_seq)
-	wire.w_u32(&pb.w, c.have_recv ? c.recv_max : 0)
-	wire.w_u32(&pb.w, c.recv_bits)
-	wire.w_u16(&pb.w, 0) // chunk count, patched in end_packet
+begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn) {
+	clear(&builder.w.buf)
+	builder.count = 0
+	builder.sp = {}
+	wire.w_u8(&builder.w, DGRAM_MAGIC)
+	wire.w_u8(&builder.w, DGRAM_VERSION)
+	wire.w_u32(&builder.w, conn.epoch)
+	wire.w_u32(&builder.w, conn.peer_epoch)
+	wire.w_u32(&builder.w, conn.next_seq)
+	wire.w_u32(&builder.w, conn.have_recv ? conn.recv_max : 0)
+	wire.w_u32(&builder.w, conn.recv_bits)
+	wire.w_u16(&builder.w, 0) // chunk count, patched in end_packet
 }
 
 @(private)
-end_packet :: proc(ch: ^Channel, pb: ^Packet_Builder, c: ^Conn, peer: Peer, now: i64) {
-	pb.w.buf[HEADER_BYTES - 2] = u8(pb.count)
-	pb.w.buf[HEADER_BYTES - 1] = u8(pb.count >> 8)
-	sp := &c.sent[c.next_seq % SENT_RING]
-	sp^ = pb.sp
-	sp.seq = c.next_seq
-	sp.valid = true
-	sp.at = now
-	c.next_seq += 1
-	c.last_sent = now
-	c.ack_pending = false
-	link_send(&ch.links[c.link], c.lpeer, pb.w.buf[:])
-	ch.stats.datagrams_sent += 1
-	ch.stats.bytes_sent += len(pb.w.buf)
+end_packet :: proc(channel: ^Channel, builder: ^Packet_Builder, conn: ^Conn, peer: Peer, now: i64) {
+	builder.w.buf[HEADER_BYTES - 2] = u8(builder.count)
+	builder.w.buf[HEADER_BYTES - 1] = u8(builder.count >> 8)
+	record := &conn.sent[conn.next_seq % SENT_RING]
+	record^ = builder.sp
+	record.seq = conn.next_seq
+	record.valid = true
+	record.at = now
+	conn.next_seq += 1
+	conn.last_sent = now
+	conn.ack_pending = false
+	link_send(&channel.links[conn.link], conn.lpeer, builder.w.buf[:])
+	channel.stats.datagrams_sent += 1
+	channel.stats.bytes_sent += len(builder.w.buf)
 }
 
 // Sends everything queued, plus due resends and pending acks, as datagrams.
-channel_flush :: proc(ch: ^Channel, now: i64) {
-	pb := Packet_Builder {
-		w = ch.tx,
+channel_flush :: proc(channel: ^Channel, now: i64) {
+	builder := Packet_Builder {
+		w = channel.tx,
 	}
-	defer ch.tx = pb.w
-	for &c, i in ch.conns {
-		if !c.active {
+	defer channel.tx = builder.w
+	for &conn, i in channel.conns {
+		if !conn.active {
 			continue
 		}
 		peer := Peer(i)
-		rto := i64(clamp(c.srtt_us * 1.5 + 15_000, 30_000, 500_000))
-		begin_packet(&pb, &c)
-		fits :: proc(pb: ^Packet_Builder, n: int) -> bool {
-			return len(pb.w.buf) + n <= MAX_DATAGRAM
+		rto := i64(clamp(conn.srtt_us * 1.5 + 15_000, 30_000, 500_000))
+		begin_packet(&builder, &conn)
+		fits :: proc(builder: ^Packet_Builder, size: int) -> bool {
+			return len(builder.w.buf) + size <= MAX_DATAGRAM
 		}
-		for b in c.unrel_out {
-			if !fits(&pb, 3 + len(b)) {
-				end_packet(ch, &pb, &c, peer, now)
-				begin_packet(&pb, &c)
+		for bytes in conn.unrel_out {
+			if !fits(&builder, 3 + len(bytes)) {
+				end_packet(channel, &builder, &conn, peer, now)
+				begin_packet(&builder, &conn)
 			}
-			wire.w_u8(&pb.w, 0)
-			wire.w_u16(&pb.w, u16(len(b)))
-			wire.w_bytes(&pb.w, b)
-			pb.count += 1
-			delete(b)
+			wire.w_u8(&builder.w, 0)
+			wire.w_u16(&builder.w, u16(len(bytes)))
+			wire.w_bytes(&builder.w, bytes)
+			builder.count += 1
+			delete(bytes)
 		}
-		clear(&c.unrel_out)
+		clear(&conn.unrel_out)
 		budget := FLUSH_BUDGET
-		for &m in c.rel_out {
-			if m.id - c.rel_out[0].id >= REL_WINDOW || budget <= 0 {
+		for &message in conn.rel_out {
+			if message.id - conn.rel_out[0].id >= REL_WINDOW || budget <= 0 {
 				break // the receiver would drop it: wait for acks
 			}
-			if m.acked || (m.last_sent != 0 && now - m.last_sent < rto) {
+			if message.acked || (message.last_sent != 0 && now - message.last_sent < rto) {
 				continue
 			}
-			if !fits(&pb, CHUNK_OVERHEAD + len(m.data)) || pb.sp.n_ids == MAX_IDS_PER_PACKET {
-				end_packet(ch, &pb, &c, peer, now)
-				begin_packet(&pb, &c)
+			if !fits(&builder, CHUNK_OVERHEAD + len(message.data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
+				end_packet(channel, &builder, &conn, peer, now)
+				begin_packet(&builder, &conn)
 			}
-			if m.last_sent != 0 {
-				ch.stats.resends += 1
+			if message.last_sent != 0 {
+				channel.stats.resends += 1
 			}
-			wire.w_u8(&pb.w, 1)
-			wire.w_u32(&pb.w, m.id)
-			wire.w_u16(&pb.w, u16(len(m.data)))
-			wire.w_bytes(&pb.w, m.data)
-			pb.count += 1
-			pb.sp.ids[pb.sp.n_ids] = m.id
-			pb.sp.n_ids += 1
-			m.last_sent = now
-			budget -= len(m.data)
+			wire.w_u8(&builder.w, 1)
+			wire.w_u32(&builder.w, message.id)
+			wire.w_u16(&builder.w, u16(len(message.data)))
+			wire.w_bytes(&builder.w, message.data)
+			builder.count += 1
+			builder.sp.ids[builder.sp.n_ids] = message.id
+			builder.sp.n_ids += 1
+			message.last_sent = now
+			budget -= len(message.data)
 		}
 		// Data, a pending ack, or a keepalive so idle peers (e.g. waiting for the start) stay connected.
-		if pb.count > 0 || (c.ack_pending && now - c.last_sent > 5_000) || now - c.last_sent > KEEPALIVE_US {
-			end_packet(ch, &pb, &c, peer, now)
+		if builder.count > 0 ||
+		   (conn.ack_pending && now - conn.last_sent > 5_000) ||
+		   now - conn.last_sent > KEEPALIVE_US {
+			end_packet(channel, &builder, &conn, peer, now)
 		}
 	}
 }
 
 // A channel's datagram and byte counts, as JSON (temp-allocated).
-channel_stats_json :: proc(s: Channel_Stats) -> string {
+channel_stats_json :: proc(stats: Channel_Stats) -> string {
 	return fmt.tprintf(
 		`{{"datagrams_sent":%d,"datagrams_recv":%d,"bytes_sent":%d,"bytes_recv":%d,"resends":%d}}`,
-		s.datagrams_sent,
-		s.datagrams_recv,
-		s.bytes_sent,
-		s.bytes_recv,
-		s.resends,
+		stats.datagrams_sent,
+		stats.datagrams_recv,
+		stats.bytes_sent,
+		stats.bytes_recv,
+		stats.resends,
 	)
 }

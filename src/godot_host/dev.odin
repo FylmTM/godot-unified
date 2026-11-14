@@ -44,7 +44,7 @@ when DEVUI {
 		}
 		if devui.is_ready() do return
 		devui.init({visible = visible})
-		rs := gd.RenderingServer_singleton()
+		rendering_server := gd.RenderingServer_singleton()
 		dev.draw[0] = gd.callable_create(proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 				dev.pre = time.tick_now()
 				return {}
@@ -53,18 +53,20 @@ when DEVUI {
 				dev.post = time.tick_now()
 				return {}
 			}, nil)
-		gd.connect(rs, "frame_pre_draw", dev.draw[0])
-		gd.connect(rs, "frame_post_draw", dev.draw[1])
+		gd.connect(rendering_server, "frame_pre_draw", dev.draw[0])
+		gd.connect(rendering_server, "frame_post_draw", dev.draw[1])
 	}
 
 	@(private)
 	dev_shutdown :: proc() {
 		if devui.is_ready() {
-			rs := gd.RenderingServer_singleton()
-			for &c, i in dev.draw {
+			rendering_server := gd.RenderingServer_singleton()
+			for &callable, i in dev.draw {
 				name := i == 0 ? "frame_pre_draw" : "frame_post_draw"
-				if gd.Object_is_connected(rs, name, c) do gd.Object_disconnect(rs, name, c)
-				gd.Callable_destroy(&c)
+				if gd.Object_is_connected(rendering_server, name, callable) {
+					gd.Object_disconnect(rendering_server, name, callable)
+				}
+				gd.Callable_destroy(&callable)
 			}
 		}
 		devui.shutdown()
@@ -72,9 +74,9 @@ when DEVUI {
 	}
 
 	@(private)
-	dir_to_ui :: proc(d: Netsim_Dir) -> devui.Netsim_Dir {return {d.latency_ms, d.jitter_ms, d.loss_pct}}
+	dir_to_ui :: proc(dir: Netsim_Dir) -> devui.Netsim_Dir {return {dir.latency_ms, dir.jitter_ms, dir.loss_pct}}
 	@(private)
-	dir_from_ui :: proc(d: devui.Netsim_Dir) -> Netsim_Dir {return {d.latency_ms, d.jitter_ms, d.loss_pct}}
+	dir_from_ui :: proc(dir: devui.Netsim_Dir) -> Netsim_Dir {return {dir.latency_ms, dir.jitter_ms, dir.loss_pct}}
 
 	// Godot routes the dev UI's events itself; only the polled game input needs telling (a dev text field has
 	// the keyboard).
@@ -99,53 +101,59 @@ when DEVUI {
 
 	// Main thread, every frame: the overlay's stats and graphs, the inspector, the Conditions panel.
 	@(private)
-	dev_frame :: proc(s: ^Session_Node, dt: f64) {
+	dev_frame :: proc(session: ^Session_Node, dt: f64) {
 		dev_main_thread()
-		if devui.visible && s.frame != nil {
-			f := s.frame
-			devui.stat("tick", "%d   verified %d   slot %d", f.tick, f.verified, f.local_slot)
+		if devui.visible && session.frame != nil {
+			frame := session.frame
+			devui.stat("tick", "%d   verified %d   player %d", frame.tick, frame.verified, frame.local_player)
 			devui.stat(
 				"net",
 				"rtt %.0f ms   input delay %d   rollbacks %d (%d ticks)",
-				f.net.rtt_ms,
-				f.net.delay,
-				f.net.rollbacks,
-				f.net.resim_ticks,
+				frame.net.rtt_ms,
+				frame.net.delay,
+				frame.net.rollbacks,
+				frame.net.resim_ticks,
 			)
-			devui.stat("views", "%d scene   %d multimesh   sync %.0f µs", f.n_scene, f.n_bulk, s.sync_us)
-			if st := api.state(); st != nil do devui.inspect("predicted state (read-only)", st)
+			devui.stat(
+				"views",
+				"%d scene   %d multimesh   sync %.0f µs",
+				frame.n_scene,
+				frame.n_bulk,
+				session.sync_us,
+			)
+			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
 		} else if devui.visible {
-			devui.stat("session", "%s", STATUS_NAMES[s.status])
+			devui.stat("session", "%s", STATUS_NAMES[session.status])
 		}
 		if devui.visible {
-			p := gd.Performance_singleton()
+			performance := gd.Performance_singleton()
 			devui.stat(
 				"render",
 				"%.0f draw calls   %.0fk triangles   %.0f MB video   %.0f nodes",
-				gd.Performance_get_monitor(p, .RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
-				gd.Performance_get_monitor(p, .RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000,
-				gd.Performance_get_monitor(p, .RENDER_VIDEO_MEM_USED) / (1 << 20),
-				gd.Performance_get_monitor(p, .OBJECT_NODE_COUNT),
+				gd.Performance_get_monitor(performance, .RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+				gd.Performance_get_monitor(performance, .RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000,
+				gd.Performance_get_monitor(performance, .RENDER_VIDEO_MEM_USED) / (1 << 20),
+				gd.Performance_get_monitor(performance, .OBJECT_NODE_COUNT),
 			)
 		}
-		if s.frame != nil do dev_sim_graphs(s.frame, dt)
+		if session.frame != nil do dev_sim_graphs(session.frame, dt)
 		devui.frame(dt)
-		dev.prev_sync_us = s.sync_us
+		dev.prev_sync_us = session.sync_us
 		_, dev.prev_ui_ms = devui.frame_stats()
 		dev.end = time.tick_now()
 		if devui.netsim_changed {
 			devui.netsim_changed = false
-			n := devui.netsim
-			set_netsim({n.enabled, dir_from_ui(n.up), dir_from_ui(n.down)})
+			netsim := devui.netsim
+			set_netsim({netsim.enabled, dir_from_ui(netsim.up), dir_from_ui(netsim.down)})
 		}
 	}
 
 	// The last frame's main thread, now that it is complete (its drawing came after its _process).
 	@(private)
 	dev_main_thread :: proc() {
-		ms :: proc(a, b: time.Tick) -> f32 {
-			if a._nsec == 0 || b._nsec < a._nsec do return 0
-			return f32(time.duration_milliseconds(time.tick_diff(a, b)))
+		ms :: proc(start, end: time.Tick) -> f32 {
+			if start._nsec == 0 || end._nsec < start._nsec do return 0
+			return f32(time.duration_milliseconds(time.tick_diff(start, end)))
 		}
 		host := ms(dev.prev_begin, dev.prev_end)
 		ui := min(dev.prev_ui_ms, host)
@@ -155,32 +163,32 @@ when DEVUI {
 	}
 
 	@(private)
-	dev_sim_graphs :: proc(f: ^Frame, dt: f64) {
-		n := f.net
-		p := dev.net
-		if !dev.have_net || n.steps[0] < p.steps[0] || n.bytes_in < p.bytes_in { 	// a new session
-			p = n
+	dev_sim_graphs :: proc(frame: ^Frame, dt: f64) {
+		net := frame.net
+		prev := dev.net
+		if !dev.have_net || net.steps[0] < prev.steps[0] || net.bytes_in < prev.bytes_in { 	// a new session
+			prev = net
 			dev.have_net = true
 		}
-		dev.net = n
-		d_us: [3]f32
-		d_steps: [3]f32
+		dev.net = net
+		step_ms: [3]f32
+		step_counts: [3]f32
 		for k in 0 ..< 3 {
-			d_us[k] = f32(n.step_us[k] - p.step_us[k]) / 1000
-			d_steps[k] = f32(n.steps[k] - p.steps[k])
+			step_ms[k] = f32(net.step_us[k] - prev.step_us[k]) / 1000
+			step_counts[k] = f32(net.steps[k] - prev.steps[k])
 		}
 		legend := []string{"verified", "rollback", "predicted"}
-		devui.stack("sim thread ms", d_us[:], legend, "sim")
-		devui.stack("ticks stepped", d_steps[:], legend, "sim")
-		devui.plot("ticks ahead", f32(f.tick) - f32(f.verified), 0, 0, "sim")
-		if n.rollbacks > p.rollbacks do devui.mark("sim events", "rollback", "sim")
-		if n.replaced > p.replaced do devui.mark("sim events", "late input", "sim")
-		if n.stalls > p.stalls do devui.mark("sim events", "stall", "sim")
+		devui.stack("sim thread ms", step_ms[:], legend, "sim")
+		devui.stack("ticks stepped", step_counts[:], legend, "sim")
+		devui.plot("ticks ahead", f32(frame.tick) - f32(frame.verified), 0, 0, "sim")
+		if net.rollbacks > prev.rollbacks do devui.mark("sim events", "rollback", "sim")
+		if net.replaced > prev.replaced do devui.mark("sim events", "late input", "sim")
+		if net.stalls > prev.stalls do devui.mark("sim events", "stall", "sim")
 
-		devui.plot("round trip ms", n.rtt_ms, 0, 0, "net")
+		devui.plot("round trip ms", net.rtt_ms, 0, 0, "net")
 		// bandwidth over 250 ms windows
-		dev.bw_bytes[0] += n.bytes_in - p.bytes_in
-		dev.bw_bytes[1] += n.bytes_out - p.bytes_out
+		dev.bw_bytes[0] += net.bytes_in - prev.bytes_in
+		dev.bw_bytes[1] += net.bytes_out - prev.bytes_out
 		dev.bw_us += i64(dt * 1e6)
 		if dev.bw_us >= 250_000 {
 			for k in 0 ..< 2 do dev.bw[k] = f32(dev.bw_bytes[k]) / 1024 / (f32(dev.bw_us) / 1e6)
@@ -188,7 +196,7 @@ when DEVUI {
 		}
 		devui.lines("bandwidth kB/s", dev.bw[:], {"in", "out"}, 0, 0, "net")
 		since: f32
-		if n.last_msg_us != 0 do since = f32(netcode.now_us() - n.last_msg_us) / 1000
+		if net.last_msg_us != 0 do since = f32(netcode.now_us() - net.last_msg_us) / 1000
 		devui.plot("relay silence ms", since, 0, 0, "net")
 	}
 } else {
@@ -212,5 +220,5 @@ when DEVUI {
 	@(private)
 	dev_begin :: proc() {}
 	@(private)
-	dev_frame :: proc(s: ^Session_Node, dt: f64) {}
+	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
 }

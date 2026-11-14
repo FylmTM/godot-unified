@@ -1,5 +1,5 @@
 // Bullets (game/bulk/bullet_view.gd): a soft glowing slug in the owner's colour.
-// INSTANCE_CUSTOM.x: the owner's slot (0..3), an index into `palette` (UiTheme.SLOT_COLORS, set by the view).
+// INSTANCE_CUSTOM.x: the owner (a player, 0..3), an index into `palette` (UiTheme.PLAYER_COLORS, set by the view).
 shader_type canvas_item;
 
 uniform vec4 palette[4] : source_color;

@@ -53,16 +53,16 @@ self_check :: proc(args: []string) {
 	}
 	if ok && !odin_changed(entries) {
 		files: [dynamic]string
-		for e in entries {
-			if e.kind == "file" {
-				append(&files, e.path)
+		for entry in entries {
+			if entry.kind == "file" {
+				append(&files, entry.path)
 			}
 		}
 		if dirs_current(entries) && content_hash(files[:]) == hash {
 			odin := ""
-			for e in entries {
-				if e.kind == "odin" {
-					odin = e.path
+			for entry in entries {
+				if entry.kind == "odin" {
+					odin = entry.path
 				}
 			}
 			write_manifest(tprint("%s.inputs", exe), hash, files[:], odin)
@@ -90,7 +90,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("uni: odin is not on PATH: run uni through its shim (./uni, uni.cmd), which downloads the pinned release")
 		os.exit(1)
 	}
-	p := state.project
+	project := state.project
 	tmp := join(cli_dir, tprint("uni-build-%d%s", os.get_pid(), EXE))
 	deps := tprint("%s.deps.json", tmp)
 	log("uni: the CLI's sources or its odin changed: rebuilding it")
@@ -99,8 +99,8 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 			cmd = {
 				odin,
 				"build",
-				join(p.root, "tools"),
-				tprint("-collection:unified=%s", join(p.unified, "src")),
+				join(project.root, "tools"),
+				tprint("-collection:unified=%s", join(project.unified, "src")),
 				"-o:minimal",
 				tprint("-out:%s", tmp),
 				"-export-dependencies:json",
@@ -119,8 +119,9 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	odin_root := strings.trim_space(root.stdout)
 	version := run_proc({cmd = {odin, "version"}, capture = true, quiet = true})
 	// "<odin path> version <tag>:<commit>": the commit follows the last ':' (a Windows path has one too)
-	v := strings.trim_space(version.stdout)
-	commit := v[strings.last_index_byte(v, ':') + 1:] if version.ok && strings.contains_rune(v, ':') else ""
+	version_text := strings.trim_space(version.stdout)
+	commit :=
+		version_text[strings.last_index_byte(version_text, ':') + 1:] if version.ok && strings.contains_rune(version_text, ':') else ""
 	files, odin_path := read_deps(deps, odin_root if root.ok && odin_root != "" else ODIN_ROOT)
 	os.remove(deps)
 	hash := content_hash(files)
@@ -153,21 +154,21 @@ read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> (files: []string, odi
 		source_files: []string,
 		load_files:   []string,
 	}
-	d: Deps
-	if json.unmarshal(data, &d) != nil {
+	parsed: Deps
+	if json.unmarshal(data, &parsed) != nil {
 		log("uni: cannot parse %s", path)
 		os.exit(1)
 	}
 	odin = which("odin")
 	out: [dynamic]string
-	for f in d.source_files {
-		if !path_under(f, odin_root) {
-			append(&out, f)
+	for file in parsed.source_files {
+		if !path_under(file, odin_root) {
+			append(&out, file)
 		}
 	}
-	for f in d.load_files {
-		if !path_under(f, odin_root) {
-			append(&out, f)
+	for file in parsed.load_files {
+		if !path_under(file, odin_root) {
+			append(&out, file)
 		}
 	}
 	slice.sort(out[:])
@@ -176,57 +177,64 @@ read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> (files: []string, odi
 
 @(private)
 path_under :: proc(path, dir: string) -> bool {
-	norm :: proc(s: string) -> string {
-		slashed, _ := strings.replace_all(s, "\\", "/", context.temp_allocator)
+	norm :: proc(path: string) -> string {
+		slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
 		return strings.to_lower(slashed, context.temp_allocator)
 	}
-	d := strings.trim_right(norm(dir), "/")
-	return d != "" && strings.has_prefix(norm(path), d)
+	trimmed := strings.trim_right(norm(dir), "/")
+	return trimmed != "" && strings.has_prefix(norm(path), trimmed)
 }
 
 // The hash of the sources' contents (with their names relative to the project, so a moved checkout keeps it).
 @(private)
 content_hash :: proc(files: []string) -> string {
-	b := strings.builder_make()
-	for f in files {
-		data, err := os.read_entire_file(f, context.allocator)
+	builder := strings.builder_make()
+	for file in files {
+		data, err := os.read_entire_file(file, context.allocator)
 		if err != nil {
 			return "missing"
 		}
-		strings.write_string(&b, rel(f))
-		strings.write_byte(&b, 0)
-		strings.write_string(&b, sha256_hex(data))
-		strings.write_byte(&b, '\n')
+		strings.write_string(&builder, rel(file))
+		strings.write_byte(&builder, 0)
+		strings.write_string(&builder, sha256_hex(data))
+		strings.write_byte(&builder, '\n')
 		delete(data)
 	}
-	return sha256_hex(transmute([]byte)strings.to_string(b))
+	return sha256_hex(transmute([]byte)strings.to_string(builder))
 }
 
 write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
-	b := strings.builder_make()
-	fmt.sbprintf(&b, "hash\t%s\n", hash)
-	stat_line :: proc(b: ^strings.Builder, kind, path: string) {
-		fi, err := os.stat(path, context.temp_allocator)
+	builder := strings.builder_make()
+	fmt.sbprintf(&builder, "hash\t%s\n", hash)
+	stat_line :: proc(builder: ^strings.Builder, kind, path: string) {
+		info, err := os.stat(path, context.temp_allocator)
 		if err != nil {
 			return
 		}
-		fmt.sbprintf(b, "%s\t%d\t%d\t%s\n", kind, fi.size, time.to_unix_nanoseconds(fi.modification_time), path)
+		fmt.sbprintf(
+			builder,
+			"%s\t%d\t%d\t%s\n",
+			kind,
+			info.size,
+			time.to_unix_nanoseconds(info.modification_time),
+			path,
+		)
 	}
 	if odin != "" {
-		stat_line(&b, "odin", odin)
+		stat_line(&builder, "odin", odin)
 	}
 	dirs: [dynamic]string
-	for f in files {
-		stat_line(&b, "file", f)
-		d := os.dir(f)
-		if !slice.contains(dirs[:], d) {
-			append(&dirs, d)
+	for file in files {
+		stat_line(&builder, "file", file)
+		file_dir := os.dir(file)
+		if !slice.contains(dirs[:], file_dir) {
+			append(&dirs, file_dir)
 		}
 	}
-	for d in dirs {
-		stat_line(&b, "dir", d)
+	for dir in dirs {
+		stat_line(&builder, "dir", dir)
 	}
-	write_text(manifest, strings.to_string(b))
+	write_text(manifest, strings.to_string(builder))
 }
 
 read_manifest :: proc(path: string) -> (entries: []Manifest_Entry, hash: string, ok: bool) {
@@ -238,25 +246,28 @@ read_manifest :: proc(path: string) -> (entries: []Manifest_Entry, hash: string,
 			hash = fields[1]
 		} else if len(fields) == 4 {
 			size, _ := strconv.parse_i64(fields[1])
-			mt, _ := strconv.parse_i64(fields[2])
-			append(&out, Manifest_Entry{fields[0], fields[3], size, mt})
+			mtime, _ := strconv.parse_i64(fields[2])
+			append(&out, Manifest_Entry{fields[0], fields[3], size, mtime})
 		}
 	}
 	return out[:], hash, hash != "" && len(out) > 0
 }
 
 @(private)
-entry_current :: proc(e: Manifest_Entry) -> bool {
-	fi, err := os.stat(e.path, context.temp_allocator)
+entry_current :: proc(entry: Manifest_Entry) -> bool {
+	info, err := os.stat(entry.path, context.temp_allocator)
 	if err != nil {
 		return false
 	}
-	return (e.kind == "dir" || fi.size == e.size) && time.to_unix_nanoseconds(fi.modification_time) == e.mtime
+	return(
+		(entry.kind == "dir" || info.size == entry.size) &&
+		time.to_unix_nanoseconds(info.modification_time) == entry.mtime \
+	)
 }
 
 entries_current :: proc(entries: []Manifest_Entry) -> bool {
-	for e in entries {
-		if !entry_current(e) {
+	for entry in entries {
+		if !entry_current(entry) {
 			return false
 		}
 	}
@@ -265,8 +276,8 @@ entries_current :: proc(entries: []Manifest_Entry) -> bool {
 
 @(private)
 dirs_current :: proc(entries: []Manifest_Entry) -> bool {
-	for e in entries {
-		if e.kind == "dir" && !entry_current(e) {
+	for entry in entries {
+		if entry.kind == "dir" && !entry_current(entry) {
 			return false
 		}
 	}
@@ -275,9 +286,9 @@ dirs_current :: proc(entries: []Manifest_Entry) -> bool {
 
 @(private)
 odin_changed :: proc(entries: []Manifest_Entry) -> bool {
-	for e in entries {
-		if e.kind == "odin" {
-			return !entry_current(e) || which("odin") != e.path
+	for entry in entries {
+		if entry.kind == "odin" {
+			return !entry_current(entry) || which("odin") != entry.path
 		}
 	}
 	return true
@@ -291,21 +302,21 @@ prune_binaries :: proc(cli_dir: string) {
 		return
 	}
 	bins: [dynamic]os.File_Info
-	for fi in infos {
-		if strings.has_prefix(fi.name, "uni-") &&
-		   !strings.has_suffix(fi.name, ".inputs") &&
-		   !strings.has_suffix(fi.name, ".json") &&
-		   !strings.has_prefix(fi.name, "uni-bootstrap") &&
-		   !strings.has_prefix(fi.name, "uni-build-") {
-			append(&bins, fi)
+	for info in infos {
+		if strings.has_prefix(info.name, "uni-") &&
+		   !strings.has_suffix(info.name, ".inputs") &&
+		   !strings.has_suffix(info.name, ".json") &&
+		   !strings.has_prefix(info.name, "uni-bootstrap") &&
+		   !strings.has_prefix(info.name, "uni-build-") {
+			append(&bins, info)
 		}
 	}
-	slice.sort_by(bins[:], proc(a, b: os.File_Info) -> bool {
-		return time.diff(a.modification_time, b.modification_time) < 0
+	slice.sort_by(bins[:], proc(first, second: os.File_Info) -> bool {
+		return time.diff(first.modification_time, second.modification_time) < 0
 	})
-	for fi in bins[min(CLI_KEEP, len(bins)):] {
-		if os.remove(fi.fullpath) == nil {
-			os.remove(tprint("%s.inputs", fi.fullpath))
+	for info in bins[min(CLI_KEEP, len(bins)):] {
+		if os.remove(info.fullpath) == nil {
+			os.remove(tprint("%s.inputs", info.fullpath))
 		}
 	}
 }

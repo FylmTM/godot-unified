@@ -71,9 +71,9 @@ new_instance :: proc(cls: ^Class, obj: rawptr) -> rawptr {
 	mem, err := runtime.mem_alloc(cls.size)
 	assert(err == nil)
 	inst := raw_data(mem)
-	h := (^Instance_Header)(inst)
-	h.obj = Object{obj}
-	h.class = cls
+	header := (^Instance_Header)(inst)
+	header.obj = Object{obj}
+	header.class = cls
 	gdi.object_set_instance(obj, &cls.name_sn, inst)
 	gdi.object_set_instance_binding(obj, library, inst, &binding_callbacks)
 	cls.instances += 1
@@ -114,8 +114,8 @@ cls_notification :: proc "c" (inst: gdi.ClassInstancePtr, what: i32, reversed: g
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	if inst == nil do return
-	h := (^Instance_Header)(inst)
-	if h.class.notification != nil do h.class.notification(inst, what)
+	header := (^Instance_Header)(inst)
+	if header.class.notification != nil do header.class.notification(inst, what)
 }
 
 @(private)
@@ -123,9 +123,9 @@ cls_virtual_data :: proc "c" (userdata: rawptr, name: gdi.ConstStringNamePtr, ha
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	cls := (^Class)(userdata)
-	n := string_name_to_odin(cast(^StringName)name)
-	for vn, which in VIRTUAL_NAMES {
-		if vn != n do continue
+	virtual_name := string_name_to_odin(cast(^StringName)name)
+	for candidate, which in VIRTUAL_NAMES {
+		if candidate != virtual_name do continue
 		set := false
 		switch which {
 		case .Ready:
@@ -150,15 +150,15 @@ cls_virtual_call :: proc "c" (
 ) {
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	vc := (^Virtual_Call)(userdata)
-	c := vc.class
-	switch vc.which {
+	virtual_call := (^Virtual_Call)(userdata)
+	cls := virtual_call.class
+	switch virtual_call.which {
 	case .Ready:
-		c.ready(inst)
+		cls.ready(inst)
 	case .Process:
-		c.process(inst, (^f64)(args[0])^)
+		cls.process(inst, (^f64)(args[0])^)
 	case .Input:
-		c.input(inst, transmute(InputEvent)(^rawptr)(args[0])^)
+		cls.input(inst, transmute(InputEvent)(^rawptr)(args[0])^)
 	}
 }
 
@@ -166,7 +166,7 @@ cls_virtual_call :: proc "c" (
 register_class :: proc(cls: ^Class) {
 	cls.name_sn = string_name_from(cls.name)
 	cls.parent_sn = string_name_from(cls.parent)
-	for &vc, which in cls.vcalls do vc = {cls, which}
+	for &virtual_call, which in cls.vcalls do virtual_call = {cls, which}
 	info := gdi.ClassCreationInfo6 {
 		is_exposed                  = 1,
 		is_runtime                  = cls.runtime_only ? 1 : 0,
@@ -212,15 +212,15 @@ method_call :: proc "c" (
 ) {
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	m := (^Method)(userdata)
+	method := (^Method)(userdata)
 	when ODIN_DEBUG do call_counts.variant += 1
 	err.error = .OK
-	if int(argc) != m.nargs {
-		err.error = int(argc) < m.nargs ? .ERROR_TOO_FEW_ARGUMENTS : .ERROR_TOO_MANY_ARGUMENTS
-		err.expected = i32(m.nargs)
+	if int(argc) != method.nargs {
+		err.error = int(argc) < method.nargs ? .ERROR_TOO_FEW_ARGUMENTS : .ERROR_TOO_MANY_ARGUMENTS
+		err.expected = i32(method.nargs)
 		return
 	}
-	m.call(m, inst, args, ret, err)
+	method.call(method, inst, args, ret, err)
 }
 
 @(private)
@@ -232,9 +232,9 @@ method_ptrcall :: proc "c" (
 ) {
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	m := (^Method)(userdata)
+	method := (^Method)(userdata)
 	when ODIN_DEBUG do call_counts.ptrcall += 1
-	m.ptrcall(m, inst, args, ret)
+	method.ptrcall(method, inst, args, ret)
 }
 
 @(private)
@@ -255,25 +255,25 @@ Arg :: struct {
 
 @(private)
 property_info :: proc(
-	t: typeid,
+	type_id: typeid,
 	name: ^StringName,
 	empty_sn: ^StringName,
 	hint: ^String,
 	usage: u32 = 6,
 ) -> gdi.PropertyInfo {
-	vt := variant_type_of_id(t)
+	kind := variant_type_of_id(type_id)
 	return {
-		type_       = vt,
+		type_       = kind,
 		name        = name,
 		class_name  = empty_sn,
 		hint_string = hint,
-		usage       = vt == .NIL ? usage | 131072 : usage, // PROPERTY_USAGE_NIL_IS_VARIANT
+		usage       = kind == .NIL ? usage | 131072 : usage, // PROPERTY_USAGE_NIL_IS_VARIANT
 	}
 }
 
 @(private)
-arg_metadata :: proc(t: typeid) -> gdi.ClassMethodArgumentMetadata {
-	switch t {
+arg_metadata :: proc(type_id: typeid) -> gdi.ClassMethodArgumentMetadata {
+	switch type_id {
 	case f32:
 		return .REAL_IS_FLOAT
 	case f64:
@@ -291,7 +291,7 @@ arg_metadata :: proc(t: typeid) -> gdi.ClassMethodArgumentMetadata {
 }
 
 @(private)
-register_method :: proc(cls: ^Class, name: string, m: ^Method, names: []string, types: []typeid, ret: typeid) {
+register_method :: proc(cls: ^Class, name: string, method: ^Method, names: []string, types: []typeid, ret: typeid) {
 	assert(len(names) == len(types))
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
@@ -299,184 +299,254 @@ register_method :: proc(cls: ^Class, name: string, m: ^Method, names: []string, 
 	defer StringName_destroy(&empty_sn)
 	empty_s := string_from("")
 	defer String_destroy(&empty_s)
-	n := len(types)
-	sns := make([]StringName, n, context.temp_allocator)
-	infos := make([]gdi.PropertyInfo, n + 1, context.temp_allocator)
-	metas := make([]gdi.ClassMethodArgumentMetadata, n + 1, context.temp_allocator)
-	for t, i in types {
+	count := len(types)
+	sns := make([]StringName, count, context.temp_allocator)
+	infos := make([]gdi.PropertyInfo, count + 1, context.temp_allocator)
+	metas := make([]gdi.ClassMethodArgumentMetadata, count + 1, context.temp_allocator)
+	for type_id, i in types {
 		sns[i] = string_name_from(names[i])
-		infos[i] = property_info(t, &sns[i], &empty_sn, &empty_s)
-		metas[i] = arg_metadata(t)
+		infos[i] = property_info(type_id, &sns[i], &empty_sn, &empty_s)
+		metas[i] = arg_metadata(type_id)
 	}
-	defer for &s in sns do StringName_destroy(&s)
+	defer for &string_name in sns do StringName_destroy(&string_name)
 	ret_info := property_info(ret == nil ? typeid_of(Variant) : ret, &empty_sn, &empty_sn, &empty_s)
-	mi := gdi.ClassMethodInfo {
+	method_info := gdi.ClassMethodInfo {
 		name                  = &name_sn,
-		method_userdata       = m,
+		method_userdata       = method,
 		call_func             = method_call,
 		ptrcall_func          = method_ptrcall,
 		method_flags          = u32(gdi.ClassMethodFlags.FLAGS_DEFAULT),
 		has_return_value      = ret != nil ? 1 : 0,
 		return_value_info     = &ret_info,
 		return_value_metadata = ret != nil ? arg_metadata(ret) : .NONE,
-		argument_count        = u32(n),
-		arguments_info        = n > 0 ? &infos[0] : nil,
-		arguments_metadata    = n > 0 ? &metas[0] : nil,
+		argument_count        = u32(count),
+		arguments_info        = count > 0 ? &infos[0] : nil,
+		arguments_metadata    = count > 0 ? &metas[0] : nil,
 	}
-	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &mi)
+	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
 }
 
 @(private)
 new_method :: proc(fn: rawptr, nargs: int) -> ^Method {
-	m := new(Method)
-	m.fn = fn
-	m.nargs = nargs
-	return m
+	method := new(Method)
+	method.fn = fn
+	method.nargs = nargs
+	return method
 }
 
-method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$T)) {
-	m := new_method(rawptr(f), 0)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		(proc(_: ^T))(m.fn)((^T)(inst))
+method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self)) {
+	method := new_method(rawptr(f), 0)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		(proc(_: ^Self))(method.fn)((^Self)(inst))
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		(proc(_: ^T))(m.fn)((^T)(inst))
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		(proc(_: ^Self))(method.fn)((^Self)(inst))
 	}
-	register_method(cls, name, m, nil, nil, nil)
+	register_method(cls, name, method, nil, nil, nil)
 }
 
-method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$T) -> $R) {
-	m := new_method(rawptr(f), 0)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		r := (proc(_: ^T) -> R)(m.fn)((^T)(inst))
-		to_variant_slot(r, cast(^Variant)ret)
+method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result) {
+	method := new_method(rawptr(f), 0)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		result := (proc(_: ^Self) -> Result)(method.fn)((^Self)(inst))
+		to_variant_slot(result, cast(^Variant)ret)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		to_ptr((proc(_: ^T) -> R)(m.fn)((^T)(inst)), ret)
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		to_ptr((proc(_: ^Self) -> Result)(method.fn)((^Self)(inst)), ret)
 	}
-	register_method(cls, name, m, nil, nil, R)
+	register_method(cls, name, method, nil, nil, Result)
 }
 
-method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A), names: [1]string) {
-	m := new_method(rawptr(f), 1)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		(proc(_: ^T, _: A))(m.fn)((^T)(inst), a)
+method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), names: [1]string) {
+	method := new_method(rawptr(f), 1)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		(proc(_: ^Self, _: Arg0))(method.fn)((^Self)(inst), arg0)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		(proc(_: ^T, _: A))(m.fn)((^T)(inst), from_ptr(A, args[0]))
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		(proc(_: ^Self, _: Arg0))(method.fn)((^Self)(inst), from_ptr(Arg0, args[0]))
 	}
 	names := names
-	register_method(cls, name, m, names[:], {A}, nil)
+	register_method(cls, name, method, names[:], {Arg0}, nil)
 }
 
-method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A) -> $R, names: [1]string) {
-	m := new_method(rawptr(f), 1)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		r := (proc(_: ^T, _: A) -> R)(m.fn)((^T)(inst), a)
-		to_variant_slot(r, cast(^Variant)ret)
+method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0) -> $Result, names: [1]string) {
+	method := new_method(rawptr(f), 1)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		result := (proc(_: ^Self, _: Arg0) -> Result)(method.fn)((^Self)(inst), arg0)
+		to_variant_slot(result, cast(^Variant)ret)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		to_ptr((proc(_: ^T, _: A) -> R)(m.fn)((^T)(inst), from_ptr(A, args[0])), ret)
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		to_ptr((proc(_: ^Self, _: Arg0) -> Result)(method.fn)((^Self)(inst), from_ptr(Arg0, args[0])), ret)
 	}
 	names := names
-	register_method(cls, name, m, names[:], {A}, R)
+	register_method(cls, name, method, names[:], {Arg0}, Result)
 }
 
-method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A, b: $B), names: [2]string) {
-	m := new_method(rawptr(f), 2)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		b, ok_b := arg(B, args, 1, err)
-		if !ok_b do return
-		defer release(&b)
-		(proc(_: ^T, _: A, _: B))(m.fn)((^T)(inst), a, b)
+method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1), names: [2]string) {
+	method := new_method(rawptr(f), 2)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		arg1, ok1 := arg(Arg1, args, 1, err)
+		if !ok1 do return
+		defer release(&arg1)
+		(proc(_: ^Self, _: Arg0, _: Arg1))(method.fn)((^Self)(inst), arg0, arg1)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		(proc(_: ^T, _: A, _: B))(m.fn)((^T)(inst), from_ptr(A, args[0]), from_ptr(B, args[1]))
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		(proc(_: ^Self, _: Arg0, _: Arg1))(method.fn)((^Self)(inst), from_ptr(Arg0, args[0]), from_ptr(Arg1, args[1]))
 	}
 	names := names
-	register_method(cls, name, m, names[:], {A, B}, nil)
+	register_method(cls, name, method, names[:], {Arg0, Arg1}, nil)
 }
 
-method_2r :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A, b: $B) -> $R, names: [2]string) {
-	m := new_method(rawptr(f), 2)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		b, ok_b := arg(B, args, 1, err)
-		if !ok_b do return
-		defer release(&b)
-		r := (proc(_: ^T, _: A, _: B) -> R)(m.fn)((^T)(inst), a, b)
-		to_variant_slot(r, cast(^Variant)ret)
+method_2r :: proc(
+	cls: ^Class,
+	name: string,
+	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1) -> $Result,
+	names: [2]string,
+) {
+	method := new_method(rawptr(f), 2)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		arg1, ok1 := arg(Arg1, args, 1, err)
+		if !ok1 do return
+		defer release(&arg1)
+		result := (proc(_: ^Self, _: Arg0, _: Arg1) -> Result)(method.fn)((^Self)(inst), arg0, arg1)
+		to_variant_slot(result, cast(^Variant)ret)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		to_ptr((proc(_: ^T, _: A, _: B) -> R)(m.fn)((^T)(inst), from_ptr(A, args[0]), from_ptr(B, args[1])), ret)
-	}
-	names := names
-	register_method(cls, name, m, names[:], {A, B}, R)
-}
-
-method_3 :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A, b: $B, c: $C), names: [3]string) {
-	m := new_method(rawptr(f), 3)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		b, ok_b := arg(B, args, 1, err)
-		if !ok_b do return
-		defer release(&b)
-		c, ok_c := arg(C, args, 2, err)
-		if !ok_c do return
-		defer release(&c)
-		(proc(_: ^T, _: A, _: B, _: C))(m.fn)((^T)(inst), a, b, c)
-	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		(proc(_: ^T, _: A, _: B, _: C))(m.fn)(
-			(^T)(inst),
-			from_ptr(A, args[0]),
-			from_ptr(B, args[1]),
-			from_ptr(C, args[2]),
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		to_ptr(
+			(proc(_: ^Self, _: Arg0, _: Arg1) -> Result)(method.fn)(
+				(^Self)(inst),
+				from_ptr(Arg0, args[0]),
+				from_ptr(Arg1, args[1]),
+			),
+			ret,
 		)
 	}
 	names := names
-	register_method(cls, name, m, names[:], {A, B, C}, nil)
+	register_method(cls, name, method, names[:], {Arg0, Arg1}, Result)
 }
 
-method_3r :: proc(cls: ^Class, name: string, f: proc(self: ^$T, a: $A, b: $B, c: $C) -> $R, names: [3]string) {
-	m := new_method(rawptr(f), 3)
-	m.call = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError) {
-		a, ok_a := arg(A, args, 0, err)
-		if !ok_a do return
-		defer release(&a)
-		b, ok_b := arg(B, args, 1, err)
-		if !ok_b do return
-		defer release(&b)
-		c, ok_c := arg(C, args, 2, err)
-		if !ok_c do return
-		defer release(&c)
-		r := (proc(_: ^T, _: A, _: B, _: C) -> R)(m.fn)((^T)(inst), a, b, c)
-		to_variant_slot(r, cast(^Variant)ret)
+method_3 :: proc(
+	cls: ^Class,
+	name: string,
+	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1, arg2: $Arg2),
+	names: [3]string,
+) {
+	method := new_method(rawptr(f), 3)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		arg1, ok1 := arg(Arg1, args, 1, err)
+		if !ok1 do return
+		defer release(&arg1)
+		arg2, ok2 := arg(Arg2, args, 2, err)
+		if !ok2 do return
+		defer release(&arg2)
+		(proc(_: ^Self, _: Arg0, _: Arg1, _: Arg2))(method.fn)((^Self)(inst), arg0, arg1, arg2)
 	}
-	m.ptrcall = proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		r := (proc(_: ^T, _: A, _: B, _: C) -> R)(m.fn)(
-			(^T)(inst),
-			from_ptr(A, args[0]),
-			from_ptr(B, args[1]),
-			from_ptr(C, args[2]),
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		(proc(_: ^Self, _: Arg0, _: Arg1, _: Arg2))(method.fn)(
+			(^Self)(inst),
+			from_ptr(Arg0, args[0]),
+			from_ptr(Arg1, args[1]),
+			from_ptr(Arg2, args[2]),
 		)
-		to_ptr(r, ret)
 	}
 	names := names
-	register_method(cls, name, m, names[:], {A, B, C}, R)
+	register_method(cls, name, method, names[:], {Arg0, Arg1, Arg2}, nil)
+}
+
+method_3r :: proc(
+	cls: ^Class,
+	name: string,
+	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1, arg2: $Arg2) -> $Result,
+	names: [3]string,
+) {
+	method := new_method(rawptr(f), 3)
+	method.call = proc(
+		method: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	) {
+		arg0, ok0 := arg(Arg0, args, 0, err)
+		if !ok0 do return
+		defer release(&arg0)
+		arg1, ok1 := arg(Arg1, args, 1, err)
+		if !ok1 do return
+		defer release(&arg1)
+		arg2, ok2 := arg(Arg2, args, 2, err)
+		if !ok2 do return
+		defer release(&arg2)
+		result := (proc(_: ^Self, _: Arg0, _: Arg1, _: Arg2) -> Result)(method.fn)((^Self)(inst), arg0, arg1, arg2)
+		to_variant_slot(result, cast(^Variant)ret)
+	}
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
+		result := (proc(_: ^Self, _: Arg0, _: Arg1, _: Arg2) -> Result)(method.fn)(
+			(^Self)(inst),
+			from_ptr(Arg0, args[0]),
+			from_ptr(Arg1, args[1]),
+			from_ptr(Arg2, args[2]),
+		)
+		to_ptr(result, ret)
+	}
+	names := names
+	register_method(cls, name, method, names[:], {Arg0, Arg1, Arg2}, Result)
 }
 
 // Binds a method callable from GDScript (and typed calls from other extensions): the Odin proc takes the
@@ -502,8 +572,8 @@ Property_Hint :: enum u32 {
 bind_property :: proc(
 	cls: ^Class,
 	name: string,
-	get: proc(self: ^$T) -> $V,
-	set: proc(self: ^T, v: V),
+	get: proc(self: ^$Self) -> $Value,
+	set: proc(self: ^Self, value: Value),
 	hint := Property_Hint.NONE,
 	hint_string := "",
 ) {
@@ -514,15 +584,15 @@ bind_property :: proc(
 	defer StringName_destroy(&name_sn)
 	empty_sn := string_name_from("")
 	defer StringName_destroy(&empty_sn)
-	hs := string_from(hint_string)
-	defer String_destroy(&hs)
-	g := string_name_from(getter)
-	defer StringName_destroy(&g)
-	s := string_name_from(setter)
-	defer StringName_destroy(&s)
-	info := property_info(V, &name_sn, &empty_sn, &hs)
+	hint_text := string_from(hint_string)
+	defer String_destroy(&hint_text)
+	getter_name := string_name_from(getter)
+	defer StringName_destroy(&getter_name)
+	setter_name := string_name_from(setter)
+	defer StringName_destroy(&setter_name)
+	info := property_info(Value, &name_sn, &empty_sn, &hint_text)
 	info.hint = u32(hint)
-	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &s, &g)
+	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
 }
 
 @(private)
@@ -541,9 +611,9 @@ arg_infos :: proc(
 ) {
 	sns = make([]StringName, len(args), context.temp_allocator)
 	infos = make([]gdi.PropertyInfo, max(len(args), 1), context.temp_allocator)
-	for a, i in args {
-		sns[i] = string_name_from(a.name)
-		infos[i] = property_info(a.type, &sns[i], empty_sn, empty_s)
+	for argument, i in args {
+		sns[i] = string_name_from(argument.name)
+		infos[i] = property_info(argument.type, &sns[i], empty_sn, empty_s)
 	}
 	return
 }
@@ -557,8 +627,18 @@ bind_signal :: proc(cls: ^Class, name: string, args: ..Arg) {
 	empty_s := string_from("")
 	defer String_destroy(&empty_s)
 	sns, infos := arg_infos(args, &empty_sn, &empty_s)
-	defer for &s in sns do StringName_destroy(&s)
+	defer for &string_name in sns do StringName_destroy(&string_name)
 	gdi.classdb_register_extension_class_signal(library, &cls.name_sn, &name_sn, &infos[0], i64(len(args)))
+}
+
+// Declares an integer constant of the class, in the enum `enum_name` ("" for none): scripts read it as
+// `Class.NAME` (and an enum's as `Class.Enum.NAME`, which can type a GDScript variable).
+bind_constant :: proc(cls: ^Class, enum_name, name: string, value: i64) {
+	enum_sn := string_name_from(enum_name)
+	defer StringName_destroy(&enum_sn)
+	name_sn := string_name_from(name)
+	defer StringName_destroy(&name_sn)
+	gdi.classdb_register_extension_class_integer_constant(library, &cls.name_sn, &enum_sn, &name_sn, value, 0)
 }
 
 // Declares a virtual that scripts may implement (docs, autocomplete); Odin calls it with call_script.
@@ -570,9 +650,9 @@ bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
 	empty_s := string_from("")
 	defer String_destroy(&empty_s)
 	sns, infos := arg_infos(args, &empty_sn, &empty_s)
-	defer for &s in sns do StringName_destroy(&s)
+	defer for &string_name in sns do StringName_destroy(&string_name)
 	metas := make([]gdi.ClassMethodArgumentMetadata, max(len(args), 1), context.temp_allocator)
-	vi := gdi.ClassVirtualMethodInfo {
+	virtual_info := gdi.ClassVirtualMethodInfo {
 		name = &name_sn,
 		method_flags = u32(gdi.ClassMethodFlags.FLAG_VIRTUAL),
 		return_value = {type_ = .NIL, name = &empty_sn, class_name = &empty_sn, hint_string = &empty_s},
@@ -580,25 +660,25 @@ bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
 		arguments = &infos[0],
 		arguments_metadata = &metas[0],
 	}
-	gdi.classdb_register_extension_class_virtual_method(library, &cls.name_sn, &vi)
+	gdi.classdb_register_extension_class_virtual_method(library, &cls.name_sn, &virtual_info)
 }
 
 // ---- calling into Godot with Variants
 
 // Emits `signal` on `obj` with Odin values (converted with variant_from_any).
 emit_signal :: proc(obj: Object, signal: ^StringName, args: ..any) {
-	@(static) mb: rawptr
-	if mb == nil do mb = method_bind("Object", "emit_signal", 4047867050)
-	vs := make([]Variant, len(args) + 1, context.temp_allocator)
-	ps := make([]rawptr, len(args) + 1, context.temp_allocator)
-	from_type(.STRING_NAME, &vs[0], signal)
-	for a, i in args do vs[i + 1] = variant_from_any(a)
-	for &v, i in vs do ps[i] = &v
+	@(static) method_bind_ptr: rawptr
+	if method_bind_ptr == nil do method_bind_ptr = method_bind("Object", "emit_signal", 4047867050)
+	variants := make([]Variant, len(args) + 1, context.temp_allocator)
+	ptrs := make([]rawptr, len(args) + 1, context.temp_allocator)
+	from_type(.STRING_NAME, &variants[0], signal)
+	for argument, i in args do variants[i + 1] = variant_from_any(argument)
+	for &variant, i in variants do ptrs[i] = &variant
 	ret: Variant
 	err: gdi.CallError
-	gdi.object_method_bind_call(mb, obj.ptr, raw_data(ps), i64(len(ps)), &ret, &err)
+	gdi.object_method_bind_call(method_bind_ptr, obj.ptr, raw_data(ptrs), i64(len(ptrs)), &ret, &err)
 	gdi.variant_destroy(&ret)
-	for &v in vs do gdi.variant_destroy(&v)
+	for &variant in variants do gdi.variant_destroy(&variant)
 }
 
 has_script_method :: proc(obj: Object, method: ^StringName) -> bool {
@@ -607,16 +687,16 @@ has_script_method :: proc(obj: Object, method: ^StringName) -> bool {
 
 // Calls a method implemented by the object's script (no-op without one); returns an owned Variant.
 call_script :: proc(obj: Object, method: ^StringName, args: ..any) -> Variant {
-	vs := make([]Variant, max(len(args), 1), context.temp_allocator)
-	ps := make([]rawptr, max(len(args), 1), context.temp_allocator)
-	for a, i in args {
-		vs[i] = variant_from_any(a)
-		ps[i] = &vs[i]
+	variants := make([]Variant, max(len(args), 1), context.temp_allocator)
+	ptrs := make([]rawptr, max(len(args), 1), context.temp_allocator)
+	for argument, i in args {
+		variants[i] = variant_from_any(argument)
+		ptrs[i] = &variants[i]
 	}
 	ret: Variant
 	err: gdi.CallError
-	gdi.object_call_script_method(obj.ptr, method, raw_data(ps), i64(len(args)), &ret, &err)
-	for i in 0 ..< len(args) do gdi.variant_destroy(&vs[i])
+	gdi.object_call_script_method(obj.ptr, method, raw_data(ptrs), i64(len(args)), &ret, &err)
+	for i in 0 ..< len(args) do gdi.variant_destroy(&variants[i])
 	return ret
 }
 
@@ -642,10 +722,10 @@ callable_call :: proc "c" (
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	err.error = .OK // Godot doesn't initialise it
-	d := (^Callable_Data)(userdata)
+	data := (^Callable_Data)(userdata)
 	args := ([^]^Variant)(argv)[:argc]
-	r := d.fn(d.user, args)
-	(^Variant)(ret)^ = r
+	result := data.fn(data.user, args)
+	(^Variant)(ret)^ = result
 }
 
 @(private)
@@ -657,21 +737,21 @@ callable_free :: proc "c" (userdata: rawptr) {
 
 // A Callable that calls `fn(user, args)`; pass `owner` so Godot drops it when that object dies.
 callable_create :: proc(fn: Callable_Proc, user: rawptr, owner: Object = {}) -> Callable {
-	d := new(Callable_Data)
-	d^ = {fn, user}
+	data := new(Callable_Data)
+	data^ = {fn, user}
 	info := gdi.CallableCustomInfo2 {
-		callable_userdata = d,
+		callable_userdata = data,
 		token             = library,
 		object_id         = owner.ptr != nil ? gdi.object_get_instance_id(owner.ptr) : 0,
 		call_func         = callable_call,
 		free_func         = callable_free,
 	}
-	c: Callable
-	gdi.callable_custom_create2(&c, &info)
-	return c
+	callable: Callable
+	gdi.callable_custom_create2(&callable, &info)
+	return callable
 }
 
 // Connects `obj.signal` to a Callable (the connection keeps its own copy).
-connect :: proc(obj: Object, signal: string, c: Callable, flags: u32 = 0) {
-	Object_connect(obj, signal, c, int(flags))
+connect :: proc(obj: Object, signal: string, callable: Callable, flags: u32 = 0) {
+	Object_connect(obj, signal, callable, int(flags))
 }

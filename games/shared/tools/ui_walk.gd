@@ -22,7 +22,7 @@ func _run() -> void:
 
 	await click_menu("Single")
 	await wait_for_scene("Arena", 5.0)
-	await wait_for(func() -> bool: return game.local_slot() >= 0 and not game.local_player().is_empty(), 5.0,
+	await wait_for(func() -> bool: return game.local_player() >= 0 and not game.local_player_info().is_empty(), 5.0,
 		"the local player in the HUD")
 	expect(not _session_panel().visible, "no session panel in single player")
 	expect(_controls_panel().visible, "the controls list shows")

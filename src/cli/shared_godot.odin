@@ -34,68 +34,68 @@ sync_shared :: proc(dir: string) {
 	last := make(map[string]string, context.temp_allocator)
 	if text, ok := read_text(stamp); ok {
 		for line in strings.split_lines(text, context.temp_allocator) {
-			if sp := strings.index_byte(line, ' '); sp > 0 {
-				last[line[sp + 1:]] = line[:sp]
+			if space := strings.index_byte(line, ' '); space > 0 {
+				last[line[space + 1:]] = line[:space]
 			}
 		}
 	}
 	rel :: proc(root, path: string) -> string {
-		r, _ := strings.replace_all(path[len(root) + 1:], "\\", "/", context.temp_allocator)
-		return r
+		relative, _ := strings.replace_all(path[len(root) + 1:], "\\", "/", context.temp_allocator)
+		return relative
 	}
-	mirrored :: proc(r: string) -> bool {
-		return r != "SPEC.md"
+	mirrored :: proc(relative: string) -> bool {
+		return relative != "SPEC.md"
 	}
-	for f in find_files(dst, "") {
-		r := rel(dst, f)
-		have, _ := sha256_file(f)
-		if want, known := last[r]; known {
+	for file in find_files(dst, "") {
+		relative := rel(dst, file)
+		have, _ := sha256_file(file)
+		if want, known := last[relative]; known {
 			if have != want {
 				fatal(
 					"%s was edited in place: make the change in %s/%s (uni overwrites the copy), then delete the copy",
-					rel_path(f),
+					rel_path(file),
 					SHARED_SOURCE,
-					r,
+					relative,
 				)
 			}
-		} else if strings.has_suffix(r, ".uid") &&
-		   os.is_file(join(src, strings.trim_suffix(r, ".uid"))) &&
-		   !os.is_file(join(src, r)) {
-			copy_file(join(src, r), f)
-			log("uni: %s/%s: the UID Godot gave a new shared script (commit it)", SHARED_SOURCE, r)
+		} else if strings.has_suffix(relative, ".uid") &&
+		   os.is_file(join(src, strings.trim_suffix(relative, ".uid"))) &&
+		   !os.is_file(join(src, relative)) {
+			copy_file(join(src, relative), file)
+			log("uni: %s/%s: the UID Godot gave a new shared script (commit it)", SHARED_SOURCE, relative)
 		}
 	}
-	b := strings.builder_make()
+	builder := strings.builder_make()
 	keep := make(map[string]bool, context.temp_allocator)
 	changed := 0
-	for f in find_files(src, "") {
-		r := rel(src, f)
-		if !mirrored(r) {
+	for file in find_files(src, "") {
+		relative := rel(src, file)
+		if !mirrored(relative) {
 			continue
 		}
-		keep[r] = true
-		data, err := os.read_entire_file(f, context.temp_allocator)
+		keep[relative] = true
+		data, err := os.read_entire_file(file, context.temp_allocator)
 		if err != nil {
-			fatal("cannot read %s", f)
+			fatal("cannot read %s", file)
 		}
-		target := join(dst, r)
-		if old, rerr := os.read_entire_file(target, context.temp_allocator);
-		   rerr != nil || string(old) != string(data) {
+		target := join(dst, relative)
+		if old, read_err := os.read_entire_file(target, context.temp_allocator);
+		   read_err != nil || string(old) != string(data) {
 			if !write_file(target, data) {
 				fatal("cannot write %s", target)
 			}
 			changed += 1
 		}
-		strings.write_string(&b, tprint("%s %s\n", sha256_hex(data), r))
+		strings.write_string(&builder, tprint("%s %s\n", sha256_hex(data), relative))
 	}
-	for r in last {
-		if !keep[r] {
-			os.remove(join(dst, r))
+	for relative in last {
+		if !keep[relative] {
+			os.remove(join(dst, relative))
 			changed += 1
 		}
 	}
-	if have, _ := read_text(stamp); have != strings.to_string(b) {
-		write_text(stamp, strings.to_string(b))
+	if have, _ := read_text(stamp); have != strings.to_string(builder) {
+		write_text(stamp, strings.to_string(builder))
 	}
 	if changed > 0 {
 		log("uni: %s: the shared Godot code mirrored (%d file(s) changed)", rel_path(dst), changed)

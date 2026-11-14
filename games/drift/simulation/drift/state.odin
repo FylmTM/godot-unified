@@ -9,7 +9,7 @@ import "unified:sim"
 TICK_HZ :: 64
 DT :: f32(1) / TICK_HZ
 
-MAX_PLAYERS :: 4
+PLAYERS :: 4
 MAX_ROCKS :: 128
 MAX_BULLETS :: 256
 MAX_GEMS :: 64
@@ -115,17 +115,22 @@ Input :: struct {
 BUTTON_FIRE :: u8(1 << 0) // held: fires every FIRE_EVERY_S
 BUTTON_BOOST :: u8(1 << 1) // held: boosts whenever the cooldown allows
 
-Inputs :: sim.Inputs(Input, MAX_PLAYERS)
+Inputs :: sim.Inputs(Input, PLAYERS)
 
-// Commands (src/sim/SPEC.md): one-shot actions, each delivered exactly once.
+// Commands (src/sim/SPEC.md): one-shot actions, each delivered exactly once. A command's name is its type's
+// without `Cmd_`, lowercased ("start", "restart"): what GDScript's send_command uses.
 Cmd_Start :: struct {
-	_: u8,
-}
-Cmd_Restart :: struct {
-	_: u8,
+	_pad: u8,
 }
 
-COMMANDS :: []sim.Command_Kind{{"start", Cmd_Start}, {"restart", Cmd_Restart}}
+Cmd_Restart :: struct {
+	_pad: u8,
+}
+
+Command :: union {
+	Cmd_Start,
+	Cmd_Restart,
+}
 
 // ---- state
 
@@ -136,14 +141,14 @@ Phase :: enum u8 {
 }
 
 Ship :: struct {
-	body:     physics.Body_Ref,
-	fire_cd:  u16, // ticks until the next shot
-	boost_cd: u16,
-	gate_cd:  u16, // ticks before this ship may warp again
-	active:   bool,
-	thrust:   bool, // thrusting this tick (the view's flame)
-	shots:    u32,
-	gems:     u32,
+	body:           physics.Body_Ref,
+	fire_cooldown:  u16, // ticks until the next shot
+	boost_cooldown: u16,
+	gate_cooldown:  u16, // ticks before this ship may warp again
+	active:         bool,
+	thrust:         bool, // thrusting this tick (the view's flame)
+	shots:          u32,
+	gems:           u32,
 }
 
 Rock :: struct {
@@ -189,8 +194,9 @@ State :: struct {
 	score:          u32,
 	matches:        u32,
 	gems_dropped:   u32, // every other small rock drops a gem
-	rng:            sim.Rng,
-	ships:          [MAX_PLAYERS]Ship,
+	_pad1:          u32, // the Rng's u64 is 8-byte aligned
+	rng:            sim.Rng, // the waves' stream
+	ships:          [PLAYERS]Ship,
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),
 	bullets:        sim.Table(Bullet, MAX_BULLETS),
@@ -199,36 +205,108 @@ State :: struct {
 
 // ---- events
 
-Event_Kind :: enum u16 {
+// What a tick tells the view (src/sim/SPEC.md "Events"): one plain struct per event, named like the event
+// (type name lowercased: "rock_hit"). Positions are in metres on the plane (z = 0). Subjects: `player`, and the
+// first handle (a rock's).
+
+// A ship appeared at its spawn.
+Joined :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Left :: struct {
+	player: u8,
+}
+
+// A bullet left the ship's nose (`position`: the muzzle).
+Fired :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+Boosted :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// A ship warped from gate `from_gate` to `to_gate` (`position`: where it came out).
+Warped :: struct {
+	position:  sim.Position,
+	player:    u8,
+	from_gate: u8,
+	to_gate:   u8,
+	_pad:      u8,
+}
+
+// A bullet of `player` hit `rock` at `position` (the hit point).
+Rock_Hit :: struct {
+	rock:     sim.Handle(Rock),
+	position: sim.Position,
+	player:   u8,
+	size:     Rock_Size,
+	_pad:     [2]u8,
+}
+
+// `rock` (of `size`, gone now) broke into two of the next size.
+Rock_Split :: struct {
+	rock:     sim.Handle(Rock),
+	position: sim.Position,
+	size:     Rock_Size,
+	_pad:     [3]u8,
+}
+
+// `rock` (a small one, gone now) was shot to pieces.
+Rock_Destroyed :: struct {
+	rock:     sim.Handle(Rock),
+	position: sim.Position,
+	size:     Rock_Size,
+	_pad:     [3]u8,
+}
+
+// A rock of `size` hit the station at `position`: `damage` is what it costs the station's HP during a match.
+Station_Hit :: struct {
+	position: sim.Position,
+	damage:   i32,
+	size:     Rock_Size,
+	_pad:     [3]u8,
+}
+
+Gem_Picked :: struct {
+	position: sim.Position,
+	player:   u8,
+	_pad:     [3]u8,
+}
+
+// Wave `wave` (1..) started.
+Wave :: struct {
+	wave: u16,
+}
+
+// `player` sent the `start` that began the match.
+Match_Started :: struct {
+	player: u8,
+}
+
+Match_Over :: struct {
+	seconds_survived: f32,
+}
+
+Event :: union {
 	Joined,
 	Left,
-	Fired, // slot; pos: muzzle
-	Boosted, // slot
-	Warped, // slot; pos: where to; value: the gate it came from
-	Rock_Hit, // entity: rock key; pos: hit point
-	Rock_Split, // pos; value: the parent's size
-	Rock_Destroyed, // pos; value: size
-	Station_Hit, // pos: where; value: damage
-	Gem_Picked, // slot; pos
-	Wave, // value: the wave number (1..)
+	Fired,
+	Boosted,
+	Warped,
+	Rock_Hit,
+	Rock_Split,
+	Rock_Destroyed,
+	Station_Hit,
+	Gem_Picked,
+	Wave,
 	Match_Started,
-	Match_Over, // value: seconds survived
+	Match_Over,
 }
-
-EVENT_NAMES :: []string {
-	"joined",
-	"left",
-	"fired",
-	"boosted",
-	"warped",
-	"rock_hit",
-	"rock_split",
-	"rock_destroyed",
-	"station_hit",
-	"gem_picked",
-	"wave",
-	"match_started",
-	"match_over",
-}
-
-Events :: ^[dynamic]sim.Event

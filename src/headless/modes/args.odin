@@ -28,6 +28,7 @@ usage :: proc() -> ! {
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --enemies E --window W --ticks N [--seed S] [--players P]
+  table-bench [--live L] [--walks W]  (a sparse 65,536-slot table walk vs a dense one; game-independent)
   any mode: [--game NAME] picks a variant of the game (e.g. its play tuning)`,
 	)
 	os.exit(2)
@@ -38,55 +39,55 @@ die :: proc(format: string, args: ..any) -> ! {
 	os.exit(2)
 }
 
-parse_args :: proc() -> (a: Args) {
+parse_args :: proc() -> (args: Args) {
 	argv := os.args[1:]
 	if len(argv) < 1 {
 		usage()
 	}
-	a.mode = argv[0]
+	args.mode = argv[0]
 	for i := 1; i < len(argv); i += 2 {
-		k := argv[i]
-		if !strings.has_prefix(k, "--") || i + 1 >= len(argv) {
-			die("bad argument %q", k)
+		key := argv[i]
+		if !strings.has_prefix(key, "--") || i + 1 >= len(argv) {
+			die("bad argument %q", key)
 		}
-		a.opts[k[2:]] = argv[i + 1]
+		args.opts[key[2:]] = argv[i + 1]
 	}
 	return
 }
 
-opt_str :: proc(a: ^Args, key: string, def := "", required := false) -> string {
-	if v, ok := a.opts[key]; ok {
-		return v
+opt_str :: proc(args: ^Args, key: string, fallback := "", required := false) -> string {
+	if value, ok := args.opts[key]; ok {
+		return value
 	}
 	if required {
-		die("%s: --%s is required", a.mode, key)
+		die("%s: --%s is required", args.mode, key)
 	}
-	return def
+	return fallback
 }
 
-opt_int :: proc(a: ^Args, key: string, def := 0, required := false, lo := 0, hi := max(int)) -> int {
-	v, ok := a.opts[key]
+opt_int :: proc(args: ^Args, key: string, fallback := 0, required := false, low := 0, high := max(int)) -> int {
+	text, ok := args.opts[key]
 	if !ok {
 		if required {
-			die("%s: --%s is required", a.mode, key)
+			die("%s: --%s is required", args.mode, key)
 		}
-		return def
+		return fallback
 	}
-	n, nok := strconv.parse_int(v)
-	if !nok || n < lo || n > hi {
-		die("%s: --%s must be an integer in [%d, %d], got %q", a.mode, key, lo, hi, v)
+	value, value_ok := strconv.parse_int(text)
+	if !value_ok || value < low || value > high {
+		die("%s: --%s must be an integer in [%d, %d], got %q", args.mode, key, low, high, text)
 	}
-	return n
+	return value
 }
 
 // Fails on options the mode doesn't know, so typos don't silently fall back to defaults.
-check_known :: proc(a: ^Args, known: ..string) {
-	outer: for k in a.opts {
-		for kk in known {
-			if k == kk {
+check_known :: proc(args: ^Args, known: ..string) {
+	outer: for key in args.opts {
+		for known_key in known {
+			if key == known_key {
 				continue outer
 			}
 		}
-		die("%s: unknown option --%s", a.mode, k)
+		die("%s: unknown option --%s", args.mode, key)
 	}
 }

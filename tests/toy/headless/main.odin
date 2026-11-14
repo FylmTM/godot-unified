@@ -8,13 +8,13 @@ import "unified:headless"
 import "unified:headless/modes"
 import "unified:sim"
 
-HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.SLOTS) {
+HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.PLAYERS) {
 	game = &toy.GAME,
-	script = proc(seed: u64, slot: int, t: u32, state: ^toy.State) -> toy.Input {
-		return toy.script(seed, slot, t)
+	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+		return toy.scripted_input(seed, player, tick)
 	},
-	script_commands = proc(seed: u64, slot: int, t: u32, state: ^toy.State, out: ^sim.Command_Out) {
-		toy.script_commands(seed, slot, t, out)
+	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		toy.scripted_commands(seed, player, tick, out)
 	},
 }
 

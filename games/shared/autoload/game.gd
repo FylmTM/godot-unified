@@ -40,7 +40,7 @@ var lan_port := LAN_PORT
 var lan_address := ""
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
-## The sim's HUD dictionary (the game's contract plus `local_slot`, -1 until the session assigns one).
+## The sim's HUD dictionary (the game's contract plus `local_player`, -1 until the session assigns one).
 var hud: Dictionary = {}
 ## The sim's fixed numbers (the game's contract plus `tick_hz`).
 var constants: Dictionary = {}
@@ -66,11 +66,10 @@ func _ready() -> void:
 		return
 	session.name = &"Session"
 	add_child(session)
+	if not is_mock:
+		_check_event_states()
 	# Connected before any view or HUD: a handler of the frame's first event reads this frame's hud.
-	session.sim_event.connect(func(_k: StringName, _t: int, _e: int, _p: Vector3, _v: float) -> void: _refresh_hud())
-	if session.has_signal(&"sim_event_2d"):
-		session.sim_event_2d.connect(func(_k: StringName, _t: int, _e: int, _p: Vector2, _v: float) -> void:
-			_refresh_hud())
+	session.sim_event.connect(func(_event: StringName, _state: int, _data: Dictionary) -> void: _refresh_hud())
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
 	hud = session.hud()
@@ -197,24 +196,25 @@ func is_online() -> bool:
 	return mode != Mode.SINGLE
 
 
-## The local player's slot, -1 until the session assigns one.
-func local_slot() -> int:
-	return int(hud.get("local_slot", -1))
+## The local player (its index, 0..), -1 until the session assigns one.
+func local_player() -> int:
+	return int(hud.get("local_player", -1))
 
 
-## A slot's entry in the HUD's `players` ({} when there is none).
-func player(slot: int) -> Dictionary:
-	for p: Dictionary in hud.get("players", []):
-		if int(p.get("slot", -1)) == slot:
-			return p
+## A player's entry in the HUD's `players` ({} when there is none).
+func player_info(player: int) -> Dictionary:
+	for info: Dictionary in hud.get("players", []):
+		if int(info.get("player", -1)) == player:
+			return info
 	return {}
 
 
-func local_player() -> Dictionary:
-	return player(local_slot())
+## The local player's entry in the HUD's `players` ({} until the session assigns one).
+func local_player_info() -> Dictionary:
+	return player_info(local_player())
 
 
-## The HUD's players that are present, in slot order.
+## The HUD's players that are present, in player order.
 func present_players() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for p: Dictionary in hud.get("players", []):
@@ -224,9 +224,9 @@ func present_players() -> Array[Dictionary]:
 
 
 ## A HUD player's display name: the synced name when the session has one, else "P<n>".
-func player_name(p: Dictionary) -> String:
-	var n := String(p.get("name", ""))
-	return n if n != "" else "P%d" % (int(p.get("slot", 0)) + 1)
+func player_name(info: Dictionary) -> String:
+	var name := String(info.get("name", ""))
+	return name if name != "" else "P%d" % (int(info.get("player", 0)) + 1)
 
 
 ## "keyboard text" or "pad text", whichever device the player uses.
@@ -264,6 +264,16 @@ func copy_with_feedback(button: Button, text: String) -> void:
 
 
 ## Once per frame, from the session's first event or this node's _process, whichever comes first.
+## SimEvent's values are the native session's (scripts use SimEvent so they also run on a GDScript stand-in).
+func _check_event_states() -> void:
+	var native := {&"EVENT_EMITTED": SimEvent.EMITTED, &"EVENT_CONFIRMED": SimEvent.CONFIRMED,
+		&"EVENT_CANCELLED": SimEvent.CANCELLED}
+	for name: StringName in native:
+		var value := ClassDB.class_get_integer_constant(&"UnifiedSession", name)
+		if value != native[name]:
+			push_error("SimEvent and UnifiedSession.%s differ (%d, native %d)" % [name, native[name], value])
+
+
 func _refresh_hud() -> void:
 	var frame := Engine.get_process_frames()
 	if frame != _hud_frame:

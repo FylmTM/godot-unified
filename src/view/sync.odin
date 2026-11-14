@@ -14,28 +14,28 @@ Triple :: struct($T: typeid) {
 	read:   u32, // reader-owned
 }
 
-triple_init :: proc(t: ^Triple($T)) {
-	t.write, t.latest, t.read = 0, 1, 2
+triple_init :: proc(triple: ^Triple($T)) {
+	triple.write, triple.latest, triple.read = 0, 1, 2
 }
 
 // The slot the writer fills next (its previous contents are a frame two publishes old).
-triple_back :: proc(t: ^Triple($T)) -> ^T {
-	return &t.slots[t.write]
+triple_back :: proc(triple: ^Triple($T)) -> ^T {
+	return &triple.slots[triple.write]
 }
 
-triple_publish :: proc(t: ^Triple($T)) {
-	old := sync.atomic_exchange(&t.latest, t.write | FRESH)
-	t.write = old & 3
+triple_publish :: proc(triple: ^Triple($T)) {
+	old := sync.atomic_exchange(&triple.latest, triple.write | FRESH)
+	triple.write = old & 3
 }
 
 // The newest published frame; `fresh` when it wasn't returned before. Valid until the next call.
-triple_front :: proc(t: ^Triple($T)) -> (frame: ^T, fresh: bool) {
-	if sync.atomic_load(&t.latest) & FRESH != 0 {
-		old := sync.atomic_exchange(&t.latest, t.read)
-		t.read = old & 3
+triple_front :: proc(triple: ^Triple($T)) -> (frame: ^T, fresh: bool) {
+	if sync.atomic_load(&triple.latest) & FRESH != 0 {
+		old := sync.atomic_exchange(&triple.latest, triple.read)
+		triple.read = old & 3
 		fresh = true
 	}
-	return &t.slots[t.read], fresh
+	return &triple.slots[triple.read], fresh
 }
 
 // ---- single-producer single-consumer queue (bounded; push fails when full)
@@ -46,24 +46,24 @@ Queue :: struct($T: typeid, $N: int) where (N & (N - 1)) == 0 {
 	tail:  u32, // producer
 }
 
-queue_push :: proc(q: ^Queue($T, $N), v: T) -> bool {
-	tail := sync.atomic_load_explicit(&q.tail, .Relaxed)
-	if tail - sync.atomic_load_explicit(&q.head, .Acquire) >= u32(N) do return false
-	q.items[tail % u32(N)] = v
-	sync.atomic_store_explicit(&q.tail, tail + 1, .Release)
+queue_push :: proc(queue: ^Queue($T, $N), item: T) -> bool {
+	tail := sync.atomic_load_explicit(&queue.tail, .Relaxed)
+	if tail - sync.atomic_load_explicit(&queue.head, .Acquire) >= u32(N) do return false
+	queue.items[tail % u32(N)] = item
+	sync.atomic_store_explicit(&queue.tail, tail + 1, .Release)
 	return true
 }
 
-queue_pop :: proc(q: ^Queue($T, $N)) -> (v: T, ok: bool) {
-	head := sync.atomic_load_explicit(&q.head, .Relaxed)
-	if head == sync.atomic_load_explicit(&q.tail, .Acquire) do return
-	v = q.items[head % u32(N)]
-	sync.atomic_store_explicit(&q.head, head + 1, .Release)
-	return v, true
+queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
+	head := sync.atomic_load_explicit(&queue.head, .Relaxed)
+	if head == sync.atomic_load_explicit(&queue.tail, .Acquire) do return
+	item = queue.items[head % u32(N)]
+	sync.atomic_store_explicit(&queue.head, head + 1, .Release)
+	return item, true
 }
 
-queue_len :: proc(q: ^Queue($T, $N)) -> int {
-	return int(sync.atomic_load(&q.tail) - sync.atomic_load(&q.head))
+queue_len :: proc(queue: ^Queue($T, $N)) -> int {
+	return int(sync.atomic_load(&queue.tail) - sync.atomic_load(&queue.head))
 }
 
 // ---- interpolation factor

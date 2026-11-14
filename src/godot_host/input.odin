@@ -21,30 +21,30 @@ action_sn: struct {
 	ready:   bool,
 	move:    [4]^gd.StringName,
 	buttons: [32]^gd.StringName,
-	n:       int,
+	count:   int, // of buttons
 }
 
 // Main thread: sample the actions (no-op before install).
 sample_input :: proc(block: bool) {
 	if !api.installed do return
-	inp := gd.Input_singleton()
-	a := &api.actions
-	sn := &action_sn
-	if !sn.ready {
-		sn.ready = true
-		if a.move[0] != "" do for m, i in a.move do sn.move[i] = gd.sn(m)
-		sn.n = min(len(a.buttons), 32)
-		for i in 0 ..< sn.n do sn.buttons[i] = gd.sn(a.buttons[i])
+	input := gd.Input_singleton()
+	actions := &api.actions
+	names := &action_sn
+	if !names.ready {
+		names.ready = true
+		if actions.move[0] != "" do for action, i in actions.move do names.move[i] = gd.sn(action)
+		names.count = min(len(actions.buttons), 32)
+		for i in 0 ..< names.count do names.buttons[i] = gd.sn(actions.buttons[i])
 	}
 	move: [2]f32
 	held: u32
 	if !block {
-		if sn.move[0] != nil {
-			v := gd.Input_get_vector(inp, sn.move[0], sn.move[1], sn.move[2], sn.move[3], -1)
-			move = {v.x, v.y}
+		if names.move[0] != nil {
+			vector := gd.Input_get_vector(input, names.move[0], names.move[1], names.move[2], names.move[3], -1)
+			move = {vector.x, vector.y}
 		}
-		for i in 0 ..< sn.n {
-			if gd.Input_is_action_pressed(inp, sn.buttons[i], false) do held |= 1 << u32(i)
+		for i in 0 ..< names.count {
+			if gd.Input_is_action_pressed(input, names.buttons[i], false) do held |= 1 << u32(i)
 		}
 	}
 	sync.atomic_store(&input_state.move, transmute(u64)move)
@@ -53,31 +53,31 @@ sample_input :: proc(block: bool) {
 }
 
 // Main thread: press a button from code (a UI button doing what a key does).
-press_button :: proc(i: int) {
-	if i < 0 || i >= 32 do return
-	sync.atomic_or(&input_state.pressed, 1 << u32(i))
+press_button :: proc(button: int) {
+	if button < 0 || button >= 32 do return
+	sync.atomic_or(&input_state.pressed, 1 << u32(button))
 }
 
 // Main thread: a view-dependent input vector (Actions.vectors[i]).
-set_input_vector :: proc(i: int, v: [3]f32) {
-	if i < 0 || i >= INPUT_VECTORS do return
+set_input_vector :: proc(index: int, vector: [3]f32) {
+	if index < 0 || index >= INPUT_VECTORS do return
 	sync.guard(&input_state.mu)
-	input_state.vectors[i] = v
+	input_state.vectors[index] = vector
 }
 
 // Session thread: the current actions, consuming the accumulated presses.
 take_actions :: proc() -> Actions {
-	a := Actions {
+	actions := Actions {
 		move    = transmute([2]f32)sync.atomic_load(&input_state.move),
 		held    = sync.atomic_load(&input_state.held),
 		pressed = sync.atomic_exchange(&input_state.pressed, 0),
 	}
 	sync.guard(&input_state.mu)
-	a.vectors = input_state.vectors
-	return a
+	actions.vectors = input_state.vectors
+	return actions
 }
 
 button_index :: proc(name: string) -> int {
-	for b, i in api.actions.buttons do if b == name do return i
+	for button, i in api.actions.buttons do if button == name do return i
 	return -1
 }

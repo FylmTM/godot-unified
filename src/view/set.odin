@@ -27,49 +27,49 @@ View_Set :: struct($V: typeid) {
 	removed:   [dynamic]V, // this frame: lingered out; the caller destroys or pools these
 }
 
-set_destroy :: proc(s: ^View_Set($V)) {
-	delete(s.entries)
-	delete(s.despawned)
-	delete(s.removed)
+set_destroy :: proc(view_set: ^View_Set($V)) {
+	delete(view_set.entries)
+	delete(view_set.despawned)
+	delete(view_set.removed)
 }
 
-set_begin :: proc(s: ^View_Set($V)) {
-	s.frame += 1
-	clear(&s.despawned)
-	clear(&s.removed)
+set_begin :: proc(view_set: ^View_Set($V)) {
+	view_set.frame += 1
+	clear(&view_set.despawned)
+	clear(&view_set.removed)
 }
 
-// Marks `key` present this frame. `spawned`: the key is new (fill e.view now). A lingering key that shows up
+// Marks `key` present this frame. `spawned`: the key is new (fill entry.view now). A lingering key that shows up
 // again is revived (spawned = false, phase back to Alive).
-set_see :: proc(s: ^View_Set($V), key: Key) -> (e: ^Entry(V), spawned: bool) {
-	_, e, spawned, _ = map_entry(&s.entries, key)
-	if spawned do e^ = {}
-	e.seen = s.frame
-	e.phase = .Alive
+set_see :: proc(view_set: ^View_Set($V), key: Key) -> (entry: ^Entry(V), spawned: bool) {
+	_, entry, spawned, _ = map_entry(&view_set.entries, key)
+	if spawned do entry^ = {}
+	entry.seen = view_set.frame
+	entry.phase = .Alive
 	return
 }
 
 // Keys not seen this frame start lingering (listed in `despawned`); lingerers older than `linger_s` are
 // removed (their views listed in `removed`). linger_s = 0 removes at once.
-set_end :: proc(s: ^View_Set($V), now_s: f64, linger_s: f64) {
-	for key, &e in s.entries {
-		if e.seen == s.frame do continue
-		if e.phase == .Alive {
-			e.phase = .Lingering
-			e.gone_at = now_s
-			append(&s.despawned, key)
+set_end :: proc(view_set: ^View_Set($V), now_s: f64, linger_s: f64) {
+	for key, &entry in view_set.entries {
+		if entry.seen == view_set.frame do continue
+		if entry.phase == .Alive {
+			entry.phase = .Lingering
+			entry.gone_at = now_s
+			append(&view_set.despawned, key)
 		}
 	}
-	for key, e in s.entries {
-		if e.phase == .Lingering && now_s - e.gone_at >= linger_s {
-			append(&s.removed, e.view)
-			delete_key(&s.entries, key)
+	for key, entry in view_set.entries {
+		if entry.phase == .Lingering && now_s - entry.gone_at >= linger_s {
+			append(&view_set.removed, entry.view)
+			delete_key(&view_set.entries, key)
 		}
 	}
 }
 
-set_get :: proc(s: ^View_Set($V), key: Key) -> ^Entry(V) {
-	return &s.entries[key] or_else nil
+set_get :: proc(view_set: ^View_Set($V), key: Key) -> ^Entry(V) {
+	return &view_set.entries[key] or_else nil
 }
 
 // ---- pool of reusable views (scene instances, buffers...)
@@ -78,14 +78,14 @@ Pool :: struct($V: typeid) {
 	free: [dynamic]V,
 }
 
-pool_get :: proc(p: ^Pool($V)) -> (v: V, ok: bool) {
-	return pop_safe(&p.free)
+pool_get :: proc(pool: ^Pool($V)) -> (view: V, ok: bool) {
+	return pop_safe(&pool.free)
 }
 
-pool_put :: proc(p: ^Pool($V), v: V) {
-	append(&p.free, v)
+pool_put :: proc(pool: ^Pool($V), view: V) {
+	append(&pool.free, view)
 }
 
-pool_destroy :: proc(p: ^Pool($V)) {
-	delete(p.free)
+pool_destroy :: proc(pool: ^Pool($V)) {
+	delete(pool.free)
 }

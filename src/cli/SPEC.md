@@ -111,7 +111,7 @@ Public (`unified:cli`, every project):
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed) |
 | `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
-| `bench [game...]` | each game's standard benchmark, alone, on a release build (`.out/bench.json`) |
+| `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays) |
 | `init <dir> [--unified <url>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, the submodule |
 | `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
@@ -179,7 +179,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     also runs `session_check.gd`, godot_host's session lifecycle.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window, ticks), which its `bench` mode runs with no arguments; the target, a forward step plus an 8-tick
-  re-sim within 6 ms, is unified's.
+  re-sim within 6 ms, is unified's. `bench` also runs the headless `table-bench` mode once (any game's binary): a walk
+  of a sparse 65,536-slot table against a dense one, reported in `.out/bench.json` (`table`) without a target.
 
 ## The template game
 

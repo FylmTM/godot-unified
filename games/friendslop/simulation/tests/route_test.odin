@@ -10,233 +10,258 @@ import "unified:physics"
 import "unified:sim"
 
 // Applies a setup to the current tick and makes it the tick's saved state.
-setup :: proc(r: ^Run, f: proc(r: ^Run)) {
-	f(r)
-	sim.save(r.s)
-	r.forward[r.s.tick] = sim.checksum(r.s)
-	r.floor = r.s.tick
+setup :: proc(run: ^Run, apply: proc(run: ^Run)) {
+	apply(run)
+	sim.save(run.simulation)
+	run.forward[run.simulation.tick] = sim.checksum(run.simulation)
+	run.floor = run.simulation.tick
 }
 
-marker_named :: proc(r: ^Run, name: string) -> ^level.Marker {
-	return level.find_named(&r.s.world.lvl, name)
+marker_named :: proc(run: ^Run, name: string) -> ^level.Marker {
+	return level.find_named(&run.simulation.world.level, name)
 }
 
-item_at_marker :: proc(r: ^Run, name: string) -> int {
-	m := marker_named(r, name)
-	if m == nil do return -1
-	for i in 0 ..< r.s.world.n_items {
-		if r.s.world.items[i].marker == m.index do return i
+item_at_marker :: proc(run: ^Run, name: string) -> int {
+	marker := marker_named(run, name)
+	if marker == nil do return -1
+	for i in 0 ..< run.simulation.world.item_count {
+		if run.simulation.world.items[i].marker == marker.index do return i
 	}
 	return -1
 }
 
-platform_at_marker :: proc(r: ^Run, name: string) -> int {
-	m := marker_named(r, name)
-	if m == nil do return -1
-	for i in 0 ..< r.s.world.n_platforms {
-		if r.s.world.platforms[i].marker == m.index do return i
+platform_at_marker :: proc(run: ^Run, name: string) -> int {
+	marker := marker_named(run, name)
+	if marker == nil do return -1
+	for i in 0 ..< run.simulation.world.platform_count {
+		if run.simulation.world.platforms[i].marker == marker.index do return i
 	}
 	return -1
 }
 
-trigger_at_marker :: proc(r: ^Run, name: string) -> int {
-	m := marker_named(r, name)
-	if m == nil do return -1
-	for i in 0 ..< r.s.world.n_triggers {
-		if r.s.world.triggers[i].marker == m.index do return i
+trigger_at_marker :: proc(run: ^Run, name: string) -> int {
+	marker := marker_named(run, name)
+	if marker == nil do return -1
+	for i in 0 ..< run.simulation.world.trigger_count {
+		if run.simulation.world.triggers[i].marker == marker.index do return i
 	}
 	return -1
 }
 
-put_item :: proc(r: ^Run, i: int, p: [3]f32) {
-	r.arg_i, r.arg_v = i, p
-	setup(r, proc(r: ^Run) {physics.teleport(r.s.world.phys, r.s.state.items[r.arg_i].body, r.arg_v)})
-}
-
-put_player :: proc(r: ^Run, p: int, at: [3]f32) {
-	r.arg_i, r.arg_v = p, at
-	setup(r, proc(r: ^Run) {
-		physics.mover_teleport(r.s.world.phys, &r.s.state.players[r.arg_i].mover, r.arg_v)
+put_item :: proc(run: ^Run, item: int, at: [3]f32) {
+	run.setup_index, run.setup_pos = item, at
+	setup(run, proc(run: ^Run) {
+		physics.teleport(run.simulation.world.phys, run.simulation.state.items[run.setup_index].body, run.setup_pos)
 	})
 }
 
-plat_y :: proc(r: ^Run, i: int) -> f32 {
-	return physics.position(r.s.world.phys, r.s.state.platforms[i].body).y
+put_player :: proc(run: ^Run, player: int, at: [3]f32) {
+	run.setup_index, run.setup_pos = player, at
+	setup(run, proc(run: ^Run) {
+		physics.mover_teleport(
+			run.simulation.world.phys,
+			&run.simulation.state.players[run.setup_index].mover,
+			run.setup_pos,
+		)
+	})
+}
+
+platform_y :: proc(run: ^Run, platform: int) -> f32 {
+	return physics.position(run.simulation.world.phys, run.simulation.state.platforms[platform].body).y
 }
 
 @(test)
 route_start_checkpoint_respawn :: proc(t: ^testing.T) {
-	r := start(1)
-	defer finish(&r)
-	idle(&r, 16)
+	run := start(1)
+	defer finish(&run)
+	idle(&run, 16)
 	// Walk north out of the hub through the start gate.
 	for _ in 0 ..< 400 {
-		step(&r, {walk(&r, 0, {0, 0, -20}, 0.3), {}, {}, {}})
-		if r.s.state.phase == .Run do break
+		step(&run, {walk(&run, 0, {0, 0, -20}, 0.3), {}, {}, {}})
+		if run.simulation.state.phase == .Run do break
 	}
-	testing.expect_value(t, r.s.state.phase, fs.Phase.Run)
-	testing.expect_value(t, r.counts[.Run_Started], 1)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Run)
+	testing.expect_value(t, event_count(&run, fs.Run_Started), 1)
 	// Teleport to checkpoint 3's landing and fall off the side: respawn there.
-	c3 := marker_named(&r, "Check3")
-	put_player(&r, 0, c3.pos)
-	idle(&r, 8)
-	testing.expect_value(t, r.s.state.checkpoint, 3)
+	check3 := marker_named(&run, "Check3")
+	put_player(&run, 0, check3.pos)
+	idle(&run, 8)
+	testing.expect_value(t, run.simulation.state.checkpoint, 3)
 	for _ in 0 ..< 200 {
-		step(&r, {walk(&r, 0, c3.pos + {10, 0, 0}, 0.1), {}, {}, {}})
-		if r.counts[.Fell] > 0 do break
+		step(&run, {walk(&run, 0, check3.pos + {10, 0, 0}, 0.1), {}, {}, {}})
+		if event_count(&run, fs.Fell) > 0 do break
 	}
-	testing.expect_value(t, r.counts[.Fell], 1)
-	idle(&r, 120)
-	testing.expect_value(t, r.counts[.Respawned], 1)
-	p := pos(&r, 0)
+	testing.expect_value(t, event_count(&run, fs.Fell), 1)
+	idle(&run, 120)
+	testing.expect_value(t, event_count(&run, fs.Respawned), 1)
+	at := player_pos(&run, 0)
 	testing.expectf(
 		t,
-		abs(p.z - c3.pos.z) < 1.5 && abs(p.y - c3.pos.y) < 1.5,
+		abs(at.z - check3.pos.z) < 1.5 && abs(at.y - check3.pos.y) < 1.5,
 		"respawned at %v, checkpoint %v",
-		p,
-		c3.pos,
+		at,
+		check3.pos,
 	)
-	expect_clean(t, &r)
+	expect_clean(t, &run)
 }
 
 @(test)
 route_plate_holds_gate :: proc(t: ^testing.T) {
-	r := start(1)
-	defer finish(&r)
-	gate := platform_at_marker(&r, "PlateGate")
-	plate := marker_named(&r, "Plate")
-	cube := item_at_marker(&r, "WeightCube")
+	run := start(1)
+	defer finish(&run)
+	gate := platform_at_marker(&run, "PlateGate")
+	plate := marker_named(&run, "Plate")
+	cube := item_at_marker(&run, "WeightCube")
 	testing.expect(t, gate >= 0 && plate != nil && cube >= 0)
 	if gate < 0 || plate == nil || cube < 0 do return
-	closed := plat_y(&r, gate)
-	put_item(&r, cube, plate.pos + {0, 0.6, 0})
-	idle(&r, 96)
-	testing.expect(t, r.counts[.Plate_On] >= 1)
-	testing.expectf(t, plat_y(&r, gate) < closed - 4, "gate at %v (closed %v)", plat_y(&r, gate), closed)
+	closed := platform_y(&run, gate)
+	put_item(&run, cube, plate.pos + {0, 0.6, 0})
+	idle(&run, 96)
+	testing.expect(t, event_count(&run, fs.Plate_On) >= 1)
+	testing.expectf(t, platform_y(&run, gate) < closed - 4, "gate at %v (closed %v)", platform_y(&run, gate), closed)
 	// Take the cube away: the gate closes again.
-	put_item(&r, cube, plate.pos + {3, 0.6, 0})
-	idle(&r, 96)
-	testing.expect(t, r.counts[.Plate_Off] >= 1)
-	testing.expectf(t, abs(plat_y(&r, gate) - closed) < 0.01, "gate didn't close: %v", plat_y(&r, gate))
-	expect_clean(t, &r)
+	put_item(&run, cube, plate.pos + {3, 0.6, 0})
+	idle(&run, 96)
+	testing.expect(t, event_count(&run, fs.Plate_Off) >= 1)
+	testing.expectf(t, abs(platform_y(&run, gate) - closed) < 0.01, "gate didn't close: %v", platform_y(&run, gate))
+	expect_clean(t, &run)
 }
 
 @(test)
 route_bell_bridge :: proc(t: ^testing.T) {
-	r := start(1)
-	defer finish(&r)
-	bridge := platform_at_marker(&r, "Bridge")
-	bell := marker_named(&r, "Bell")
-	ball := item_at_marker(&r, "Ball1")
+	run := start(1)
+	defer finish(&run)
+	bridge := platform_at_marker(&run, "Bridge")
+	bell := marker_named(&run, "Bell")
+	ball := item_at_marker(&run, "Ball1")
 	testing.expect(t, bridge >= 0 && bell != nil && ball >= 0)
 	if bridge < 0 || bell == nil || ball < 0 do return
-	x0 := physics.position(r.s.world.phys, r.s.state.platforms[bridge].body).x
+	bridge_x_before := physics.position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
 	// A ball flying at the bell.
-	r.arg_i, r.arg_v = ball, bell.pos
-	setup(&r, proc(r: ^Run) {
-		b := r.s.state.items[r.arg_i].body
-		physics.teleport(r.s.world.phys, b, r.arg_v + {0, 0, 3})
-		physics.set_velocity(r.s.world.phys, b, {0, 0, -9})
+	run.setup_index, run.setup_pos = ball, bell.pos
+	setup(&run, proc(run: ^Run) {
+		body := run.simulation.state.items[run.setup_index].body
+		physics.teleport(run.simulation.world.phys, body, run.setup_pos + {0, 0, 3})
+		physics.set_velocity(run.simulation.world.phys, body, {0, 0, -9})
 	})
-	idle(&r, 32)
-	testing.expect_value(t, r.counts[.Bell_Rung], 1)
-	idle(&r, 160)
-	x1 := physics.position(r.s.world.phys, r.s.state.platforms[bridge].body).x
-	testing.expectf(t, abs(x1) < 0.01 && x0 > 7, "the bridge went from x %v to %v", x0, x1)
-	expect_clean(t, &r)
+	idle(&run, 32)
+	testing.expect_value(t, event_count(&run, fs.Bell_Rung), 1)
+	idle(&run, 160)
+	bridge_x_after := physics.position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
+	testing.expectf(
+		t,
+		abs(bridge_x_after) < 0.01 && bridge_x_before > 7,
+		"the bridge went from x %v to %v",
+		bridge_x_before,
+		bridge_x_after,
+	)
+	expect_clean(t, &run)
 }
 
 @(test)
 route_key_lock_and_scale :: proc(t: ^testing.T) {
-	r := start(1)
-	defer finish(&r)
-	key := item_at_marker(&r, "Key")
-	lock := marker_named(&r, "Lock")
-	lock_gate := platform_at_marker(&r, "LockGate")
-	heavy := item_at_marker(&r, "HeavyCrate")
-	scale := marker_named(&r, "Scale")
-	scale_gate := platform_at_marker(&r, "ScaleGate")
+	run := start(1)
+	defer finish(&run)
+	key := item_at_marker(&run, "Key")
+	lock := marker_named(&run, "Lock")
+	lock_gate := platform_at_marker(&run, "LockGate")
+	heavy := item_at_marker(&run, "HeavyCrate")
+	scale := marker_named(&run, "Scale")
+	scale_gate := platform_at_marker(&run, "ScaleGate")
 	testing.expect(t, key >= 0 && lock != nil && lock_gate >= 0 && heavy >= 0 && scale != nil && scale_gate >= 0)
 	if key < 0 || lock == nil || lock_gate < 0 || heavy < 0 || scale == nil || scale_gate < 0 do return
-	closed := plat_y(&r, scale_gate)
-	idle(&r, 2) // players join on the first tick
+	closed := platform_y(&run, scale_gate)
+	idle(&run, 2) // players join on the first tick
 	// A player on the scale doesn't count (items only).
-	put_player(&r, 0, scale.pos + {0, fs.FEET, 0})
-	idle(&r, 96)
-	testing.expectf(t, abs(plat_y(&r, scale_gate) - closed) < 0.01, "a player opened the scale's gate")
-	put_player(&r, 0, scale.pos + {4, fs.FEET, 2})
-	put_item(&r, heavy, scale.pos + {0, 0.6, 0})
-	idle(&r, 96)
-	testing.expectf(t, plat_y(&r, scale_gate) < closed - 4, "the heavy crate didn't open the scale's gate")
+	put_player(&run, 0, scale.pos + {0, fs.FEET, 0})
+	idle(&run, 96)
+	testing.expectf(t, abs(platform_y(&run, scale_gate) - closed) < 0.01, "a player opened the scale's gate")
+	put_player(&run, 0, scale.pos + {4, fs.FEET, 2})
+	put_item(&run, heavy, scale.pos + {0, 0.6, 0})
+	idle(&run, 96)
+	testing.expectf(t, platform_y(&run, scale_gate) < closed - 4, "the heavy crate didn't open the scale's gate")
 	// The key in the lock opens its gate for good.
-	lock_closed := plat_y(&r, lock_gate)
-	put_item(&r, key, lock.pos)
-	idle(&r, 8)
-	put_item(&r, key, lock.pos + {2, 0, 0})
-	idle(&r, 96)
-	testing.expectf(t, plat_y(&r, lock_gate) < lock_closed - 4, "the lock's gate didn't stay open")
-	expect_clean(t, &r)
+	lock_closed := platform_y(&run, lock_gate)
+	put_item(&run, key, lock.pos)
+	idle(&run, 8)
+	put_item(&run, key, lock.pos + {2, 0, 0})
+	idle(&run, 96)
+	testing.expectf(t, platform_y(&run, lock_gate) < lock_closed - 4, "the lock's gate didn't stay open")
+	expect_clean(t, &run)
 }
 
 // Toss: a friend thrown up onto the perch touches the switch, which lowers the gate.
 @(test)
 route_toss_friend_to_switch :: proc(t: ^testing.T) {
-	r := start(2)
-	defer finish(&r)
-	gate := platform_at_marker(&r, "TossGate")
-	sw := marker_named(&r, "TossSwitch")
-	testing.expect(t, gate >= 0 && sw != nil)
-	if gate < 0 || sw == nil do return
-	closed := plat_y(&r, gate)
-	idle(&r, 2) // players join on the first tick
+	run := start(2)
+	defer finish(&run)
+	gate := platform_at_marker(&run, "TossGate")
+	toss_switch := marker_named(&run, "TossSwitch")
+	testing.expect(t, gate >= 0 && toss_switch != nil)
+	if gate < 0 || toss_switch == nil do return
+	closed := platform_y(&run, gate)
+	idle(&run, 2) // players join on the first tick
 	// Both on F, under the perch (x 3..7, 3 m up), the thrower facing it.
-	base := [3]f32{1.0, 14.5 + fs.FEET, sw.pos.z}
-	put_player(&r, 0, base)
-	put_player(&r, 1, base + {1.2, 0, 0})
-	idle(&r, 32)
-	step(&r, {aim_at(&r, 0, pos(&r, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
-	testing.expect_value(t, r.s.state.players[0].held_kind, fs.Held_Kind.Player)
-	for _ in 0 ..< 24 do step(&r, {aim_at(&r, 0, pos(&r, 0) + {1, 0.2, 0}, {}), {}, {}, {}})
+	base := [3]f32{1.0, 14.5 + fs.FEET, toss_switch.pos.z}
+	put_player(&run, 0, base)
+	put_player(&run, 1, base + {1.2, 0, 0})
+	idle(&run, 32)
+	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	testing.expect_value(t, run.simulation.state.players[0].held_kind, fs.Held_Kind.Player)
+	for _ in 0 ..< 24 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 0.2, 0}, {}), {}, {}, {}})
 	// Full charge, aimed up and over the perch's edge.
-	for _ in 0 ..< 40 do step(&r, {aim_at(&r, 0, pos(&r, 0) + {1, 1.3, 0}, {buttons = fs.BUTTON_THROW}), {}, {}, {}})
-	step(&r, {aim_at(&r, 0, pos(&r, 0) + {1, 1.3, 0}, {}), {}, {}, {}})
-	testing.expect_value(t, r.counts[.Thrown], 1)
-	idle(&r, 96)
-	if r.counts[.Switch_On] == 0 {
+	for _ in 0 ..< 40 {
+		step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {buttons = fs.BUTTON_THROW}), {}, {}, {}})
+	}
+	step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {}), {}, {}, {}})
+	testing.expect_value(t, event_count(&run, fs.Thrown), 1)
+	idle(&run, 96)
+	if event_count(&run, fs.Switch_On) == 0 {
 		// Landed on the perch but short of the switch: walk to it.
 		for _ in 0 ..< 160 {
-			step(&r, {{}, walk(&r, 1, sw.pos, 0.1), {}, {}})
-			if r.counts[.Switch_On] > 0 do break
+			step(&run, {{}, walk(&run, 1, toss_switch.pos, 0.1), {}, {}})
+			if event_count(&run, fs.Switch_On) > 0 do break
 		}
 	}
-	testing.expectf(t, r.counts[.Switch_On] == 1, "the friend never reached the switch (at %v)", pos(&r, 1))
-	idle(&r, 96)
-	testing.expectf(t, plat_y(&r, gate) < closed - 4, "the toss gate didn't open")
-	expect_clean(t, &r)
+	testing.expectf(
+		t,
+		event_count(&run, fs.Switch_On) == 1,
+		"the friend never reached the switch (at %v)",
+		player_pos(&run, 1),
+	)
+	idle(&run, 96)
+	testing.expectf(t, platform_y(&run, gate) < closed - 4, "the toss gate didn't open")
+	expect_clean(t, &run)
 }
 
 @(test)
 route_finish_and_reset :: proc(t: ^testing.T) {
-	r := start(1)
-	defer finish(&r)
+	run := start(1)
+	defer finish(&run)
 	for _ in 0 ..< 400 {
-		step(&r, {walk(&r, 0, {0, 0, -20}, 0.3), {}, {}, {}})
-		if r.s.state.phase == .Run do break
+		step(&run, {walk(&run, 0, {0, 0, -20}, 0.3), {}, {}, {}})
+		if run.simulation.state.phase == .Run do break
 	}
-	testing.expect_value(t, r.s.state.phase, fs.Phase.Run)
-	trophy := item_at_marker(&r, "Trophy")
-	fin := marker_named(&r, "Finish")
-	put_item(&r, trophy, fin.pos)
-	idle(&r, 4)
-	testing.expect_value(t, r.s.state.phase, fs.Phase.Finished)
-	testing.expect_value(t, r.counts[.Run_Finished], 1)
-	testing.expect(t, r.s.state.best_ticks > 0)
-	idle(&r, int(fs.FINISH_HOLD_TICKS) + 8)
-	testing.expect_value(t, r.s.state.phase, fs.Phase.Hub)
-	testing.expect_value(t, r.s.state.checkpoint, -1)
-	home := r.s.world.items[trophy].pos
-	tp := item_pos(&r, trophy)
-	testing.expectf(t, abs(tp.x - home.x) + abs(tp.z - home.z) < 0.1, "the trophy is at %v, home %v", tp, home)
-	testing.expectf(t, abs(pos(&r, 0).z) < 2, "the player is back in the hub? %v", pos(&r, 0))
-	expect_clean(t, &r)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Run)
+	trophy := item_at_marker(&run, "Trophy")
+	finish_marker := marker_named(&run, "Finish")
+	put_item(&run, trophy, finish_marker.pos)
+	idle(&run, 4)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Finished)
+	testing.expect_value(t, event_count(&run, fs.Run_Finished), 1)
+	testing.expect(t, run.simulation.state.best_ticks > 0)
+	idle(&run, int(fs.FINISH_HOLD_TICKS) + 8)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Hub)
+	testing.expect_value(t, run.simulation.state.checkpoint, -1)
+	home := run.simulation.world.items[trophy].pos
+	trophy_pos := item_pos(&run, trophy)
+	testing.expectf(
+		t,
+		abs(trophy_pos.x - home.x) + abs(trophy_pos.z - home.z) < 0.1,
+		"the trophy is at %v, home %v",
+		trophy_pos,
+		home,
+	)
+	testing.expectf(t, abs(player_pos(&run, 0).z) < 2, "the player is back in the hub? %v", player_pos(&run, 0))
+	expect_clean(t, &run)
 }

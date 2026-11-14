@@ -1,7 +1,7 @@
 class_name UiTheme
 ## The UI theme every game shares, built in code (readable, diffable, no editor needed) and merged into Godot's
 ## default theme at boot (`install`), so every Control uses it, including those under CanvasLayers.
-## Palette: deep slate panels, a warm orange accent, cyan secondary (codes, highlights); one colour per player slot.
+## Palette: deep slate panels, a warm orange accent, cyan secondary (codes, highlights); one colour per player.
 
 const BG := Color("151821")
 const PANEL := Color("1d2230f0")
@@ -16,7 +16,7 @@ const GOOD := Color("5dffb1")
 const BAD := Color("ff5d6c")
 const XP := Color("7ad7ff")
 const GOLD := Color("ffd23f")
-const SLOT_COLORS: Array[Color] = [ACCENT, GOLD, Color("ff5d8f"), Color("b98cff")]
+const PLAYER_COLORS: Array[Color] = [ACCENT, GOLD, Color("ff5d8f"), Color("b98cff")]
 
 
 static func install() -> void:
@@ -155,8 +155,8 @@ static func box(fill: Color, radius: int, margin: int, border := Color(0, 0, 0, 
 	return s
 
 
-static func slot_color(slot: int) -> Color:
-	return SLOT_COLORS[clampi(slot, 0, SLOT_COLORS.size() - 1)]
+static func player_color(player: int) -> Color:
+	return PLAYER_COLORS[clampi(player, 0, PLAYER_COLORS.size() - 1)]
 
 
 static func _dot(size: int, color: Color) -> ImageTexture:

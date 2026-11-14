@@ -27,5 +27,5 @@ func _sim_update(position: Vector2, rotation: float, alpha: float) -> void:
 	last_position = position
 	last_rotation = rotation
 
-func _sim_event(kind: StringName, data: Dictionary) -> void:
-	events.append([kind, data])
+func _sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	events.append([event, state, data])

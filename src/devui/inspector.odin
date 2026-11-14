@@ -77,176 +77,184 @@ Inspector :: struct {
 
 @(private)
 build_inspector :: proc() {
-	n := &s.insp
-	n.tree = gd.Tree_new()
-	gd.Control_set_focus_mode(n.tree, .FOCUS_NONE)
-	gd.Tree_set_columns(n.tree, 2)
-	gd.Tree_set_hide_root(n.tree, true)
-	gd.Tree_set_column_expand_ratio(n.tree, 0, 3)
-	gd.Tree_set_column_expand_ratio(n.tree, 1, 2)
-	gd.Tree_set_column_clip_content(n.tree, 0, true)
-	gd.Tree_set_column_clip_content(n.tree, 1, true)
-	n.top = gd.Tree_create_item(n.tree)
-	n.empty = gd.Tree_create_item(n.tree, n.top)
-	gd.TreeItem_set_text(n.empty, 0, "nothing to inspect")
-	on(n.tree, "item_collapsed", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+	inspector := &s.insp
+	inspector.tree = gd.Tree_new()
+	gd.Control_set_focus_mode(inspector.tree, .FOCUS_NONE)
+	gd.Tree_set_columns(inspector.tree, 2)
+	gd.Tree_set_hide_root(inspector.tree, true)
+	gd.Tree_set_column_expand_ratio(inspector.tree, 0, 3)
+	gd.Tree_set_column_expand_ratio(inspector.tree, 1, 2)
+	gd.Tree_set_column_clip_content(inspector.tree, 0, true)
+	gd.Tree_set_column_clip_content(inspector.tree, 1, true)
+	inspector.top = gd.Tree_create_item(inspector.tree)
+	inspector.empty = gd.Tree_create_item(inspector.tree, inspector.top)
+	gd.TreeItem_set_text(inspector.empty, 0, "nothing to inspect")
+	on(inspector.tree, "item_collapsed", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		obj, _ := gd.from_variant(gd.Object, args[0])
 		if i, ok := s.insp.by_item[obj.ptr]; ok && !gd.TreeItem_is_collapsed(s.insp.nodes[i].item) {
 			append(&s.insp.pending, i)
 		}
 		return {}
 	})
-	panel_make(.Inspector, "Inspector", {8, 8, 330, 420}, n.tree)
+	panel_make(.Inspector, "Inspector", {8, 8, 330, 420}, inspector.tree)
 }
 
 @(private)
 inspector_shutdown :: proc() {
-	n := &s.insp
-	for r in n.roots do delete(r.name)
-	for &node in n.nodes do delete(node.children)
-	delete(n.roots)
-	delete(n.nodes)
-	delete(n.by_item)
-	delete(n.pending)
+	inspector := &s.insp
+	for root in inspector.roots do delete(root.name)
+	for &node in inspector.nodes do delete(node.children)
+	delete(inspector.roots)
+	delete(inspector.nodes)
+	delete(inspector.by_item)
+	delete(inspector.pending)
 }
 
 @(private)
 inspector_set :: proc(name: string, data: any) {
-	n := &s.insp
-	for &r in n.roots {
-		if r.name == name && r.type == data.id {
-			r.data = data.data
-			r.seen = true
+	inspector := &s.insp
+	for &root in inspector.roots {
+		if root.name == name && root.type == data.id {
+			root.data = data.data
+			root.seen = true
 			return
 		}
 	}
-	if n.empty.ptr != nil {
-		gdi.object_destroy(n.empty.ptr)
-		n.empty = {}
+	if inspector.empty.ptr != nil {
+		gdi.object_destroy(inspector.empty.ptr)
+		inspector.empty = {}
 	}
-	root := len(n.roots)
-	append(&n.roots, Insp_Root{name = fmt.aprint(name), data = data.data, type = data.id, seen = true})
-	i := new_node(n.top, 0, data.id, name)
-	n.roots[root].node = i
-	gd.TreeItem_set_collapsed(n.nodes[i].item, false)
-	build_children(i)
+	root := len(inspector.roots)
+	append(&inspector.roots, Insp_Root{name = fmt.aprint(name), data = data.data, type = data.id, seen = true})
+	node_index := new_node(inspector.top, 0, data.id, name)
+	inspector.roots[root].node = node_index
+	gd.TreeItem_set_collapsed(inspector.nodes[node_index].item, false)
+	build_children(node_index)
 }
 
 @(private)
 inspector_end_frame :: proc() {
-	for &r in s.insp.roots {
-		if !r.seen do r.data = nil
-		r.seen = false
+	for &root in s.insp.roots {
+		if !root.seen do root.data = nil
+		root.seen = false
 	}
 }
 
 // Builds the rows of the items expanded since the last frame.
 @(private)
 inspector_build_pending :: proc() {
-	n := &s.insp
-	for i in n.pending do if n.nodes[i].kind != .Dead && !gd.TreeItem_is_collapsed(n.nodes[i].item) do build_children(i)
-	clear(&n.pending)
+	inspector := &s.insp
+	for i in inspector.pending do if inspector.nodes[i].kind != .Dead && !gd.TreeItem_is_collapsed(inspector.nodes[i].item) do build_children(i)
+	clear(&inspector.pending)
 }
 
 @(private)
 inspector_refresh :: proc() {
-	n := &s.insp
-	n.dirty = false
-	for r in n.roots do if r.data != nil do refresh(r.node, uintptr(r.data))
+	inspector := &s.insp
+	inspector.dirty = false
+	for root in inspector.roots do if root.data != nil do refresh(root.node, uintptr(root.data))
 }
 
 @(private)
-refresh :: proc(i: int, base: uintptr) {
-	n := &s.insp.nodes[i]
-	addr := base + n.rel
-	switch n.kind {
+refresh :: proc(node_index: int, base: uintptr) {
+	node := &s.insp.nodes[node_index]
+	addr := base + node.rel
+	switch node.kind {
 	case .Dead:
 	case .Leaf:
 		buf: [64]u8
-		set_value(i, format_value(buf[:], any{rawptr(addr), n.type}))
+		set_value(node_index, format_value(buf[:], any{rawptr(addr), node.type}))
 	case .Group:
-		if !n.built || gd.TreeItem_is_collapsed(n.item) do return
-		for k in 0 ..< len(n.children) do refresh(s.insp.nodes[i].children[k], addr)
+		if !node.built || gd.TreeItem_is_collapsed(node.item) do return
+		for k in 0 ..< len(node.children) do refresh(s.insp.nodes[node_index].children[k], addr)
 	case .List:
-		live := list_live(n.list, addr)
-		set_value(i, fmt.tprintf("%d of %d", live, n.list.count))
-		if !n.built || gd.TreeItem_is_collapsed(n.item) do return
-		list_sync(i, addr)
-		items := addr + s.insp.nodes[i].list.items
-		for k in 0 ..< len(s.insp.nodes[i].children) do refresh(s.insp.nodes[i].children[k], items)
+		live := list_live(node.list, addr)
+		set_value(node_index, fmt.tprintf("%d of %d", live, node.list.count))
+		if !node.built || gd.TreeItem_is_collapsed(node.item) do return
+		list_sync(node_index, addr)
+		items := addr + s.insp.nodes[node_index].list.items
+		for k in 0 ..< len(s.insp.nodes[node_index].children) do refresh(s.insp.nodes[node_index].children[k], items)
 	}
 }
 
 // The value column, set only when it changed.
 @(private)
-set_value :: proc(i: int, text: string) {
-	n := &s.insp.nodes[i]
-	if text == string(n.text[:n.text_len]) do return
-	n.text_len = u8(copy(n.text[:], text))
-	gd.TreeItem_set_text(n.item, 1, text)
+set_value :: proc(node_index: int, text: string) {
+	node := &s.insp.nodes[node_index]
+	if text == string(node.text[:node.text_len]) do return
+	node.text_len = u8(copy(node.text[:], text))
+	gd.TreeItem_set_text(node.item, 1, text)
 }
 
 @(private)
-is_live :: proc(l: List_Info, addr: uintptr, idx: int) -> bool {
-	if l.table do return (^bool)(addr + l.slots + uintptr(idx * l.slot_size) + l.alive)^
-	bytes := ([^]u8)(rawptr(addr + l.items + uintptr(idx * l.elem_size)))[:l.elem_size]
-	for b in bytes do if b != 0 do return true
+is_live :: proc(list: List_Info, addr: uintptr, index: int) -> bool {
+	if list.table do return (^bool)(addr + list.slots + uintptr(index * list.slot_size) + list.alive)^
+	bytes := ([^]u8)(rawptr(addr + list.items + uintptr(index * list.elem_size)))[:list.elem_size]
+	for byte in bytes do if byte != 0 do return true
 	return false
 }
 
 @(private)
-list_live :: proc(l: List_Info, addr: uintptr) -> (n: int) {
-	for idx in 0 ..< l.count do if is_live(l, addr, idx) do n += 1
+list_live :: proc(list: List_Info, addr: uintptr) -> (live: int) {
+	for index in 0 ..< list.count do if is_live(list, addr, index) do live += 1
 	return
 }
 
 // The list's rows follow its live elements (the first LIST_MAX): rows of elements that died go, new ones are
 // inserted in index order, the others stay (and keep their expanded rows).
 @(private)
-list_sync :: proc(i: int, addr: uintptr) {
-	n := &s.insp
-	l := n.nodes[i].list
-	r := 0 // the next existing row
+list_sync :: proc(node_index: int, addr: uintptr) {
+	inspector := &s.insp
+	list := inspector.nodes[node_index].list
+	row := 0 // the next existing row
 	shown := 0
-	for idx in 0 ..< l.count {
+	for index in 0 ..< list.count {
 		if shown == LIST_MAX do break
-		if !is_live(l, addr, idx) do continue
-		for r < len(n.nodes[i].children) && n.nodes[n.nodes[i].children[r]].idx < idx {
-			row_remove(i, r)
+		if !is_live(list, addr, index) do continue
+		for row < len(inspector.nodes[node_index].children) &&
+		    inspector.nodes[inspector.nodes[node_index].children[row]].idx < index {
+			row_remove(node_index, row)
 		}
-		if r < len(n.nodes[i].children) && n.nodes[n.nodes[i].children[r]].idx == idx {
-			r += 1
+		if row < len(inspector.nodes[node_index].children) &&
+		   inspector.nodes[inspector.nodes[node_index].children[row]].idx == index {
+			row += 1
 			shown += 1
 			continue
 		}
-		c := new_node(n.nodes[i].item, uintptr(idx * l.elem_size), l.elem, fmt.tprintf("[%d]", idx), r)
-		if c < 0 do return // the tree refused (inside its mouse handling): next refresh
-		n.nodes[c].idx = idx
-		inject_at(&n.nodes[i].children, r, c)
-		r += 1
+		child := new_node(
+			inspector.nodes[node_index].item,
+			uintptr(index * list.elem_size),
+			list.elem,
+			fmt.tprintf("[%d]", index),
+			row,
+		)
+		if child < 0 do return // the tree refused (inside its mouse handling): next refresh
+		inspector.nodes[child].idx = index
+		inject_at(&inspector.nodes[node_index].children, row, child)
+		row += 1
 		shown += 1
 	}
-	for r < len(n.nodes[i].children) do row_remove(i, r)
+	for row < len(inspector.nodes[node_index].children) do row_remove(node_index, row)
 }
 
 @(private)
-row_remove :: proc(i, r: int) {
-	n := &s.insp
-	c := n.nodes[i].children[r]
-	item := n.nodes[c].item
-	forget(c)
+row_remove :: proc(node_index, row: int) {
+	inspector := &s.insp
+	child := inspector.nodes[node_index].children[row]
+	item := inspector.nodes[child].item
+	forget(child)
 	gdi.object_destroy(item.ptr) // its child rows with it
-	ordered_remove(&n.nodes[i].children, r)
+	ordered_remove(&inspector.nodes[node_index].children, row)
 }
 
 // A removed row and everything under it: out of the item map, marked dead.
 @(private)
-forget :: proc(i: int) {
-	n := &s.insp
-	for c in n.nodes[i].children do forget(c)
-	delete_key(&n.by_item, n.nodes[i].item.ptr)
-	delete(n.nodes[i].children)
-	n.nodes[i] = {
+forget :: proc(node_index: int) {
+	inspector := &s.insp
+	for child in inspector.nodes[node_index].children do forget(child)
+	delete_key(&inspector.by_item, inspector.nodes[node_index].item.ptr)
+	delete(inspector.nodes[node_index].children)
+	inspector.nodes[node_index] = {
 		kind = .Dead,
 	}
 }
@@ -255,33 +263,33 @@ forget :: proc(i: int) {
 // so it shows the expand arrow. -1 when the tree refuses the row.
 @(private)
 new_node :: proc(parent: gd.TreeItem, rel: uintptr, type: typeid, label: string, position := -1) -> int {
-	n := &s.insp
+	inspector := &s.insp
 	kind, list := classify(type)
-	item := gd.Tree_create_item(n.tree, parent, position)
+	item := gd.Tree_create_item(inspector.tree, parent, position)
 	if item.ptr == nil do return -1
 	gd.TreeItem_set_text(item, 0, label)
 	gd.TreeItem_set_selectable(item, 0, false)
 	gd.TreeItem_set_selectable(item, 1, false)
 	if kind != .Leaf {
-		gd.Tree_create_item(n.tree, item)
+		gd.Tree_create_item(inspector.tree, item)
 		gd.TreeItem_set_collapsed(item, true)
 		gd.TreeItem_set_custom_color(item, 1, DIM)
 	} else {
 		gd.TreeItem_set_custom_color(item, 0, DIM)
 		gd.TreeItem_set_custom_font(item, 1, s.mono)
 	}
-	i := len(n.nodes)
-	append(&n.nodes, Insp_Node{item = item, rel = rel, type = type, kind = kind, list = list})
-	n.by_item[item.ptr] = i
-	return i
+	node_index := len(inspector.nodes)
+	append(&inspector.nodes, Insp_Node{item = item, rel = rel, type = type, kind = kind, list = list})
+	inspector.by_item[item.ptr] = node_index
+	return node_index
 }
 
 @(private)
 classify :: proc(type: typeid) -> (kind: Insp_Kind, list: List_Info) {
-	ti := runtime.type_info_base(type_info_of(type))
-	#partial switch info in ti.variant {
+	base := runtime.type_info_base(type_info_of(type))
+	#partial switch info in base.variant {
 	case runtime.Type_Info_Struct:
-		if l, ok := table_info(type); ok do return .List, l
+		if table, ok := table_info(type); ok do return .List, table
 		return .Group, {}
 	case runtime.Type_Info_Array:
 		if small_vector(info.elem, info.count) do return .Leaf, {}
@@ -296,24 +304,24 @@ classify :: proc(type: typeid) -> (kind: Insp_Kind, list: List_Info) {
 // A sim.Table: `items: [N]T` and `slots: [N]sim.Slot` (matched by name: importing sim here would make vet flag sim's
 // imports that only its generics use).
 @(private)
-table_info :: proc(type: typeid) -> (l: List_Info, ok: bool) {
+table_info :: proc(type: typeid) -> (list: List_Info, ok: bool) {
 	items := reflect.struct_field_by_name(type, "items")
 	slots := reflect.struct_field_by_name(type, "slots")
 	if items.type == nil || slots.type == nil do return
-	it, ok1 := runtime.type_info_base(items.type).variant.(runtime.Type_Info_Array)
-	st, ok2 := runtime.type_info_base(slots.type).variant.(runtime.Type_Info_Array)
-	named, ok3 := st.elem.variant.(runtime.Type_Info_Named)
-	if !ok1 || !ok2 || !ok3 || named.name != "Slot" || named.pkg != "sim" || st.count != it.count do return
-	alive := reflect.struct_field_by_name(st.elem.id, "alive")
+	items_array, items_ok := runtime.type_info_base(items.type).variant.(runtime.Type_Info_Array)
+	slots_array, slots_ok := runtime.type_info_base(slots.type).variant.(runtime.Type_Info_Array)
+	named, named_ok := slots_array.elem.variant.(runtime.Type_Info_Named)
+	if !items_ok || !slots_ok || !named_ok || named.name != "Slot" || named.pkg != "sim" || slots_array.count != items_array.count do return
+	alive := reflect.struct_field_by_name(slots_array.elem.id, "alive")
 	if alive.type == nil do return
 	return {
 			items = items.offset,
-			elem = it.elem.id,
-			elem_size = it.elem_size,
-			count = it.count,
+			elem = items_array.elem.id,
+			elem_size = items_array.elem_size,
+			count = items_array.count,
 			table = true,
 			slots = slots.offset,
-			slot_size = st.elem_size,
+			slot_size = slots_array.elem_size,
 			alive = alive.offset,
 		},
 		true
@@ -331,45 +339,45 @@ small_vector :: proc(elem: ^runtime.Type_Info, count: int) -> bool {
 }
 
 @(private)
-build_children :: proc(i: int) {
-	n := &s.insp
-	if n.nodes[i].built || n.nodes[i].kind == .Dead do return
-	node := n.nodes[i]
+build_children :: proc(node_index: int) {
+	inspector := &s.insp
+	if inspector.nodes[node_index].built || inspector.nodes[node_index].kind == .Dead do return
+	node := inspector.nodes[node_index]
 	// drop the placeholder row
-	if ph := gd.TreeItem_get_first_child(node.item); ph.ptr != nil do gdi.object_destroy(ph.ptr)
-	n.nodes[i].built = true
-	n.dirty = true
+	if placeholder := gd.TreeItem_get_first_child(node.item); placeholder.ptr != nil do gdi.object_destroy(placeholder.ptr)
+	inspector.nodes[node_index].built = true
+	inspector.dirty = true
 	if node.kind != .Group do return // a list's rows come with the next refresh
-	ti := runtime.type_info_base(type_info_of(node.type))
-	#partial switch info in ti.variant {
+	base := runtime.type_info_base(type_info_of(node.type))
+	#partial switch info in base.variant {
 	case runtime.Type_Info_Struct:
-		for f in reflect.struct_fields_zipped(node.type) {
-			c := new_node(node.item, f.offset, f.type.id, f.name)
-			if c >= 0 do append(&n.nodes[i].children, c)
+		for field in reflect.struct_fields_zipped(node.type) {
+			child := new_node(node.item, field.offset, field.type.id, field.name)
+			if child >= 0 do append(&inspector.nodes[node_index].children, child)
 		}
 	case runtime.Type_Info_Enumerated_Array:
-		for e in 0 ..< info.count {
-			name := fmt.tprintf("[%d]", e)
-			if en, ok := runtime.type_info_base(info.index).variant.(runtime.Type_Info_Enum); ok && e < len(en.names) do name = en.names[e]
-			c := new_node(node.item, uintptr(e * info.elem_size), info.elem.id, name)
-			if c >= 0 do append(&n.nodes[i].children, c)
+		for index in 0 ..< info.count {
+			name := fmt.tprintf("[%d]", index)
+			if enum_info, ok := runtime.type_info_base(info.index).variant.(runtime.Type_Info_Enum); ok && index < len(enum_info.names) do name = enum_info.names[index]
+			child := new_node(node.item, uintptr(index * info.elem_size), info.elem.id, name)
+			if child >= 0 do append(&inspector.nodes[node_index].children, child)
 		}
 	}
 }
 
 @(private)
-format_value :: proc(buf: []u8, v: any) -> string {
-	ti := runtime.type_info_base(type_info_of(v.id))
-	#partial switch info in ti.variant {
+format_value :: proc(buf: []u8, value: any) -> string {
+	base := runtime.type_info_base(type_info_of(value.id))
+	#partial switch info in base.variant {
 	case runtime.Type_Info_Float:
-		return fmt.bprintf(buf, "%.3f", v)
+		return fmt.bprintf(buf, "%.3f", value)
 	case runtime.Type_Info_Enum:
-		if name, ok := reflect.enum_name_from_value_any(v); ok do return fmt.bprint(buf, name)
+		if name, ok := reflect.enum_name_from_value_any(value); ok do return fmt.bprint(buf, name)
 	case runtime.Type_Info_Array:
 		if _, is_float := runtime.type_info_base(info.elem).variant.(runtime.Type_Info_Float);
 		   is_float && info.elem.size == 4 {
-			return fmt.bprintf(buf, "%.3f", ([^]f32)(v.data)[:info.count])
+			return fmt.bprintf(buf, "%.3f", ([^]f32)(value.data)[:info.count])
 		}
 	}
-	return fmt.bprint(buf, v)
+	return fmt.bprint(buf, value)
 }

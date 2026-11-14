@@ -10,13 +10,13 @@ import "../survivor"
 import "unified:headless"
 import "unified:headless/modes"
 
-HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.MAX_PLAYERS) {
+HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
 	game = &survivor.GAME_STRESS,
-	script = survivor.script,
-	script_commands = survivor.script_commands,
+	scripted_input = survivor.scripted_input,
+	scripted_commands = survivor.scripted_commands,
 	summary = summary,
 	bench_prepare = survivor.bench_prepare,
-	bench_count = proc(s: ^survivor.State) -> int {return int(s.enemies.count)},
+	bench_count = proc(state: ^survivor.State) -> int {return int(state.enemies.count)},
 	bench = {
 		what = "survivor (stress tuning) holding 1000 enemies, 8-tick rollback every tick",
 		enemies = 1000,
@@ -32,25 +32,23 @@ main :: proc() {
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
-summary :: proc(s: ^survivor.State) -> string {
-	levels: [survivor.MAX_PLAYERS]i32
+summary :: proc(state: ^survivor.State) -> string {
+	levels: [survivor.PLAYERS]i32
 	alive := 0
-	for p in 0 ..< survivor.MAX_PLAYERS {
-		levels[p] = s.players[p].level
-		if s.players[p].alive {
-			alive += 1
-		}
+	for &character, player in state.players {
+		levels[player] = character.level
+		alive += int(character.alive)
 	}
 	return fmt.tprintf(
 		`"phase":"%v","matches":%d,"wave":%d,"enemies":%d,"projectiles":%d,"gems":%d,"kills":%d,"explosions":%d,"players_alive":%d,"levels":%v`,
-		s.phase,
-		s.matches,
-		s.wave,
-		s.enemies.count,
-		s.projectiles.count,
-		s.gems.count,
-		s.kills,
-		s.explosions,
+		state.phase,
+		state.matches,
+		state.wave,
+		state.enemies.count,
+		state.projectiles.count,
+		state.gems.count,
+		state.kills,
+		state.explosions,
 		alive,
 		levels,
 	)

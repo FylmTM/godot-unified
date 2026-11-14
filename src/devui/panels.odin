@@ -32,24 +32,29 @@ NET_FIELDS := [3]struct {
 
 @(private)
 build_conditions :: proc() {
-	n := &s.cond
+	conditions := &s.cond
 	box := gd.VBoxContainer_new()
 	row := add(box, gd.HBoxContainer_new())
-	l := label(row, "fps cap")
-	gd.Control_set_custom_minimum_size(l, {52, 0})
-	for cap, i in FPS_CAPS {
-		b := button(row, cap == 0 ? "none" : fmt.tprint(cap), proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+	caption := label(row, "fps cap")
+	gd.Control_set_custom_minimum_size(caption, {52, 0})
+	for fps_cap, i in FPS_CAPS {
+		fps_button := button(
+			row,
+			fps_cap == 0 ? "none" : fmt.tprint(fps_cap),
+			proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
 				s.cond.cap = FPS_CAPS[int(uintptr(user))]
 				gd.Engine_set_max_fps(gd.Engine_singleton(), s.cond.cap)
 				conditions_sync()
 				return {}
-			}, rawptr(uintptr(i)))
-		gd.BaseButton_set_toggle_mode(b, true)
-		n.fps[i] = b
+			},
+			rawptr(uintptr(i)),
+		)
+		gd.BaseButton_set_toggle_mode(fps_button, true)
+		conditions.fps[i] = fps_button
 	}
 	row = add(box, gd.HBoxContainer_new())
-	n.enabled = check(row, "netsim")
-	on(n.enabled, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+	conditions.enabled = check(row, "netsim")
+	on(conditions.enabled, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		netsim.enabled, _ = gd.from_variant(bool, args[0])
 		netsim_changed = true
 		return {}
@@ -57,58 +62,58 @@ build_conditions :: proc() {
 	PRESETS := [4]string{"LAN", "WAN", "bad Wi-Fi", "off"}
 	for name, i in PRESETS {
 		button(row, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
-				d: Netsim_Dir
+				preset: Netsim_Dir
 				switch int(uintptr(user)) {
 				case 0:
-					d = {2, 1, 0}
+					preset = {2, 1, 0}
 				case 1:
-					d = {60, 10, 1}
+					preset = {60, 10, 1}
 				case 2:
-					d = {140, 40, 6}
+					preset = {140, 40, 6}
 				case:
 					netsim.enabled = false
 					netsim_changed = true
 					conditions_sync()
 					return {}
 				}
-				netsim = {true, d, d}
+				netsim = {true, preset, preset}
 				netsim_changed = true
 				conditions_sync()
 				return {}
 			}, rawptr(uintptr(i)))
 	}
-	n.both = check(row, "both ways")
-	gd.BaseButton_set_pressed_no_signal(n.both, true)
+	conditions.both = check(row, "both ways")
+	gd.BaseButton_set_pressed_no_signal(conditions.both, true)
 	head := add(box, gd.HBoxContainer_new())
 	gd.Control_set_custom_minimum_size(label(head, ""), {52, 0})
 	for name in ([]string{"up (to the relay)", "down"}) {
-		h := label(head, name)
-		gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
-		gd.Control_set_theme_type_variation(h, "DevTitleLabel")
+		header := label(head, name)
+		gd.Control_set_h_size_flags(header, .SIZE_EXPAND_FILL)
+		gd.Control_set_theme_type_variation(header, "DevTitleLabel")
 	}
-	for f, k in NET_FIELDS {
+	for field, field_index in NET_FIELDS {
 		line := add(box, gd.HBoxContainer_new())
-		name := label(line, f.name)
+		name := label(line, field.name)
 		gd.Control_set_custom_minimum_size(name, {52, 0})
-		for d in 0 ..< 2 {
-			h := add(line, gd.HSlider_new())
-			gd.Control_set_h_size_flags(h, .SIZE_EXPAND_FILL)
-			gd.Control_set_v_size_flags(h, .SIZE_SHRINK_CENTER)
-			gd.Control_set_focus_mode(h, .FOCUS_NONE)
-			gd.Range_set_max(h, f.max)
-			gd.Range_set_step(h, f.step)
-			on(h, "value_changed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
-					v, _ := gd.from_variant(f64, args[0])
-					d, k := int(uintptr(user)) / 3, int(uintptr(user)) % 3
-					net_field(d, k)^ = f32(v)
-					if gd.BaseButton_is_pressed(s.cond.both) do net_field(1 - d, k)^ = f32(v)
+		for direction in 0 ..< 2 {
+			slider := add(line, gd.HSlider_new())
+			gd.Control_set_h_size_flags(slider, .SIZE_EXPAND_FILL)
+			gd.Control_set_v_size_flags(slider, .SIZE_SHRINK_CENTER)
+			gd.Control_set_focus_mode(slider, .FOCUS_NONE)
+			gd.Range_set_max(slider, field.max)
+			gd.Range_set_step(slider, field.step)
+			on(slider, "value_changed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
+					value, _ := gd.from_variant(f64, args[0])
+					direction, field_index := int(uintptr(user)) / 3, int(uintptr(user)) % 3
+					net_field(direction, field_index)^ = f32(value)
+					if gd.BaseButton_is_pressed(s.cond.both) do net_field(1 - direction, field_index)^ = f32(value)
 					netsim_changed = true
 					conditions_sync()
 					return {}
-				}, rawptr(uintptr(d * 3 + k)))
-			n.sliders[d][k] = h
-			n.values[d][k] = label(line, "")
-			gd.Control_set_custom_minimum_size(n.values[d][k], {46, 0})
+				}, rawptr(uintptr(direction * 3 + field_index)))
+			conditions.sliders[direction][field_index] = slider
+			conditions.values[direction][field_index] = label(line, "")
+			gd.Control_set_custom_minimum_size(conditions.values[direction][field_index], {46, 0})
 		}
 	}
 	panel_make(.Conditions, "Conditions", {350, 40, 470, 140}, box)
@@ -116,9 +121,9 @@ build_conditions :: proc() {
 
 // Direction d (0 up, 1 down), field k (latency, jitter, loss) of `netsim`.
 @(private)
-net_field :: proc(d, k: int) -> ^f32 {
-	dir := d == 0 ? &netsim.up : &netsim.down
-	switch k {
+net_field :: proc(direction, field_index: int) -> ^f32 {
+	dir := direction == 0 ? &netsim.up : &netsim.down
+	switch field_index {
 	case 0:
 		return &dir.latency_ms
 	case 1:
@@ -130,13 +135,19 @@ net_field :: proc(d, k: int) -> ^f32 {
 // The widgets from the current values (the host, a preset or a slider changed them).
 @(private)
 conditions_sync :: proc() {
-	n := &s.cond
-	for cap, i in FPS_CAPS do gd.BaseButton_set_pressed_no_signal(n.fps[i], cap == n.cap)
-	gd.BaseButton_set_pressed_no_signal(n.enabled, netsim.enabled)
-	for d in 0 ..< 2 {
-		for f, k in NET_FIELDS {
-			gd.Range_set_value_no_signal(n.sliders[d][k], f64(net_field(d, k)^))
-			gd.Label_set_text(n.values[d][k], fmt.tprintf(f.format, net_field(d, k)^))
+	conditions := &s.cond
+	for fps_cap, i in FPS_CAPS do gd.BaseButton_set_pressed_no_signal(conditions.fps[i], fps_cap == conditions.cap)
+	gd.BaseButton_set_pressed_no_signal(conditions.enabled, netsim.enabled)
+	for direction in 0 ..< 2 {
+		for field, field_index in NET_FIELDS {
+			gd.Range_set_value_no_signal(
+				conditions.sliders[direction][field_index],
+				f64(net_field(direction, field_index)^),
+			)
+			gd.Label_set_text(
+				conditions.values[direction][field_index],
+				fmt.tprintf(field.format, net_field(direction, field_index)^),
+			)
 		}
 	}
 }
@@ -155,48 +166,48 @@ Events_Panel :: struct {
 
 @(private)
 build_events :: proc() {
-	e := &s.events
-	e.tree = gd.Tree_new()
-	gd.Tree_set_columns(e.tree, 2)
-	gd.Tree_set_column_expand(e.tree, 0, false)
-	gd.Tree_set_column_custom_minimum_width(e.tree, 0, 48)
-	gd.Tree_set_hide_root(e.tree, true)
-	gd.Control_set_focus_mode(e.tree, .FOCUS_NONE)
-	e.root = gd.Tree_create_item(e.tree)
-	panel_make(.Events, "Events", {8, 520, 480, 170}, e.tree)
+	events := &s.events
+	events.tree = gd.Tree_new()
+	gd.Tree_set_columns(events.tree, 2)
+	gd.Tree_set_column_expand(events.tree, 0, false)
+	gd.Tree_set_column_custom_minimum_width(events.tree, 0, 48)
+	gd.Tree_set_hide_root(events.tree, true)
+	gd.Control_set_focus_mode(events.tree, .FOCUS_NONE)
+	events.root = gd.Tree_create_item(events.tree)
+	panel_make(.Events, "Events", {8, 520, 480, 170}, events.tree)
 	// in the title bar: the count and "follow"
 	bar := s.panels[.Events].extras
-	e.count = label(bar, "")
-	e.follow = check(bar, "follow")
-	gd.BaseButton_set_pressed_no_signal(e.follow, true)
+	events.count = label(bar, "")
+	events.follow = check(bar, "follow")
+	gd.BaseButton_set_pressed_no_signal(events.follow, true)
 }
 
 @(private)
 events_update :: proc() {
-	e := &s.events
-	if e.shown == s.log_n do return
-	first := max(e.shown, s.log_n - LOG_ROWS)
-	if s.log_n - e.shown > LOG_ROWS {
-		gd.Tree_clear(e.tree)
-		e.root = gd.Tree_create_item(e.tree)
-		e.rows = 0
+	events := &s.events
+	if events.shown == s.log_n do return
+	first := max(events.shown, s.log_n - LOG_ROWS)
+	if s.log_n - events.shown > LOG_ROWS {
+		gd.Tree_clear(events.tree)
+		events.root = gd.Tree_create_item(events.tree)
+		events.rows = 0
 	}
 	last: gd.TreeItem
 	for i in first ..< s.log_n {
-		r := &s.logs[i % LOG_ROWS]
-		last = gd.Tree_create_item(e.tree, e.root)
+		log_row := &s.logs[i % LOG_ROWS]
+		last = gd.Tree_create_item(events.tree, events.root)
 		if last.ptr == nil do return // the tree refuses rows inside its own mouse handling: next frame
-		gd.TreeItem_set_text(last, 0, fmt.tprint(r.tick))
-		gd.TreeItem_set_text(last, 1, string(r.msg[:r.len]))
-		e.rows += 1
-		e.shown = i + 1
+		gd.TreeItem_set_text(last, 0, fmt.tprint(log_row.tick))
+		gd.TreeItem_set_text(last, 1, string(log_row.msg[:log_row.len]))
+		events.rows += 1
+		events.shown = i + 1
 	}
-	for e.rows > LOG_ROWS {
-		gdi.object_destroy(gd.TreeItem_get_first_child(e.root).ptr)
-		e.rows -= 1
+	for events.rows > LOG_ROWS {
+		gdi.object_destroy(gd.TreeItem_get_first_child(events.root).ptr)
+		events.rows -= 1
 	}
-	gd.Label_set_text(e.count, fmt.tprint(s.log_n))
-	if gd.BaseButton_is_pressed(e.follow) && last.ptr != nil do gd.Tree_scroll_to_item(e.tree, last)
+	gd.Label_set_text(events.count, fmt.tprint(s.log_n))
+	if gd.BaseButton_is_pressed(events.follow) && last.ptr != nil do gd.Tree_scroll_to_item(events.tree, last)
 }
 
 // ---- F3 feedback note
@@ -217,61 +228,61 @@ NOTE_THUMB_W :: 640 // the screenshot kept for the note (it scales with the pane
 
 @(private)
 build_note :: proc() {
-	n := &s.note
+	note := &s.note
 	box := gd.VBoxContainer_new()
-	n.thumb = add(box, gd.TextureRect_new())
-	gd.TextureRect_set_expand_mode(n.thumb, .EXPAND_IGNORE_SIZE)
-	gd.TextureRect_set_stretch_mode(n.thumb, .STRETCH_KEEP_ASPECT_CENTERED)
-	gd.Control_set_custom_minimum_size(n.thumb, {160, 90})
-	gd.Control_set_v_size_flags(n.thumb, .SIZE_EXPAND_FILL)
-	gd.Control_set_stretch_ratio(n.thumb, 3)
-	n.text = add(box, gd.TextEdit_new())
-	gd.TextEdit_set_placeholder(n.text, "what happened?")
-	gd.Control_set_custom_minimum_size(n.text, {160, 54})
-	gd.Control_set_v_size_flags(n.text, .SIZE_EXPAND_FILL)
+	note.thumb = add(box, gd.TextureRect_new())
+	gd.TextureRect_set_expand_mode(note.thumb, .EXPAND_IGNORE_SIZE)
+	gd.TextureRect_set_stretch_mode(note.thumb, .STRETCH_KEEP_ASPECT_CENTERED)
+	gd.Control_set_custom_minimum_size(note.thumb, {160, 90})
+	gd.Control_set_v_size_flags(note.thumb, .SIZE_EXPAND_FILL)
+	gd.Control_set_stretch_ratio(note.thumb, 3)
+	note.text = add(box, gd.TextEdit_new())
+	gd.TextEdit_set_placeholder(note.text, "what happened?")
+	gd.Control_set_custom_minimum_size(note.text, {160, 54})
+	gd.Control_set_v_size_flags(note.text, .SIZE_EXPAND_FILL)
 	// Enter sends, Ctrl+Enter is TextEdit's own new line. The signal comes before TextEdit handles the key.
-	on(n.text, "gui_input", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
-		k := event_arg(gd.InputEventKey, args, "InputEventKey")
-		if k.ptr == nil || !gd.InputEvent_is_pressed(k) do return {}
-		key := gd.InputEventKey_get_keycode(k)
-		if (key == .KEY_ENTER || key == .KEY_KP_ENTER) && !gd.InputEventWithModifiers_is_command_or_control_pressed(k) {
+	on(note.text, "gui_input", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+		key_event := event_arg(gd.InputEventKey, args, "InputEventKey")
+		if key_event.ptr == nil || !gd.InputEvent_is_pressed(key_event) do return {}
+		key := gd.InputEventKey_get_keycode(key_event)
+		if (key == .KEY_ENTER || key == .KEY_KP_ENTER) && !gd.InputEventWithModifiers_is_command_or_control_pressed(key_event) {
 			gd.Control_accept_event(s.note.text)
 			note_send()
 		}
 		return {}
 	})
 	row := add(box, gd.HBoxContainer_new())
-	n.tag_bug = check(row, "bug")
-	n.sent_l = label(row, "")
-	gd.Control_set_h_size_flags(n.sent_l, .SIZE_EXPAND_FILL)
+	note.tag_bug = check(row, "bug")
+	note.sent_l = label(row, "")
+	gd.Control_set_h_size_flags(note.sent_l, .SIZE_EXPAND_FILL)
 	button(row, "send", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {note_send(); return {}})
 	panel_make(.Note, "Feedback", {300, 40, 560, 440}, box)
 }
 
 @(private)
 note_open :: proc() {
-	n := &s.note
+	note := &s.note
 	// Capture before the note covers the frame.
 	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
 	defer gd.unref(tex)
 	img := gd.Texture2D_get_image(tex)
 	defer gd.unref(img)
 	if img.ptr == nil do return
-	delete(n.png)
-	n.png = fmt.aprintf("%s/devui-f3-%d.png", gd.OS_get_cache_dir(gd.OS_singleton()), time.now()._nsec)
-	gd.Image_save_png(img, n.png)
-	w := gd.Image_get_width(img)
-	h := gd.Image_get_height(img)
-	gd.Image_resize(img, NOTE_THUMB_W, NOTE_THUMB_W * h / max(w, 1))
-	if n.tex.ptr == nil {
-		n.tex = gd.ImageTexture_create_from_image(img)
+	delete(note.png)
+	note.png = fmt.aprintf("%s/devui-f3-%d.png", gd.OS_get_cache_dir(gd.OS_singleton()), time.now()._nsec)
+	gd.Image_save_png(img, note.png)
+	width := gd.Image_get_width(img)
+	height := gd.Image_get_height(img)
+	gd.Image_resize(img, NOTE_THUMB_W, NOTE_THUMB_W * height / max(width, 1))
+	if note.tex.ptr == nil {
+		note.tex = gd.ImageTexture_create_from_image(img)
 	} else {
-		gd.ImageTexture_set_image(n.tex, img)
+		gd.ImageTexture_set_image(note.tex, img)
 	}
-	gd.TextureRect_set_texture(n.thumb, n.tex)
+	gd.TextureRect_set_texture(note.thumb, note.tex)
 	update_metrics() // the note may open with the rest of the dev UI hidden
 	panel_open(.Note, true)
-	gd.Object_call_deferred(n.text, "grab_focus")
+	gd.Object_call_deferred(note.text, "grab_focus")
 }
 
 @(private)
@@ -282,26 +293,26 @@ note_shutdown :: proc() {
 
 @(private)
 note_send :: proc() {
-	n := &s.note
-	text := gd.TextEdit_get_text(n.text)
-	tag_bug := gd.BaseButton_is_pressed(n.tag_bug)
+	note := &s.note
+	text := gd.TextEdit_get_text(note.text)
+	tag_bug := gd.BaseButton_is_pressed(note.tag_bug)
 	stamp := time.now()
-	y, mo, d := time.date(stamp)
-	hh, mm, ss := time.clock(stamp)
-	dir := fmt.tprintf("%s/%04d%02d%02d-%02d%02d%02d", s.cfg.feedback_dir, y, int(mo), d, hh, mm, ss)
+	year, month, day := time.date(stamp)
+	hour, minute, second := time.clock(stamp)
+	dir := fmt.tprintf("%s/%04d%02d%02d-%02d%02d%02d", s.cfg.feedback_dir, year, int(month), day, hour, minute, second)
 	if err := os.make_directory_all(dir); err != nil {
 		gd.print_error(fmt.tprintf("devui: cannot create %s: %v", dir, err))
 		return
 	}
-	if n.png != "" do os.rename(n.png, fmt.tprintf("%s/screenshot.png", dir))
+	if note.png != "" do os.rename(note.png, fmt.tprintf("%s/screenshot.png", dir))
 	body := fmt.tprintf("%s\n%s", tag_bug ? "[bug]" : "[note]", text)
 	_ = os.write_entire_file(fmt.tprintf("%s/note.txt", dir), transmute([]u8)body)
 	if s.cfg.on_feedback != nil do s.cfg.on_feedback(dir, text, tag_bug, s.cfg.user)
 	gd.print(fmt.tprintf("devui: feedback saved to %s", dir))
-	n.sent += 1
-	gd.Label_set_text(n.sent_l, fmt.tprintf("sent %d", n.sent))
-	gd.TextEdit_set_text(n.text, "")
+	note.sent += 1
+	gd.Label_set_text(note.sent_l, fmt.tprintf("sent %d", note.sent))
+	gd.TextEdit_set_text(note.text, "")
 	panel_open(.Note, false)
-	delete(n.png)
-	n.png = ""
+	delete(note.png)
+	note.png = ""
 }

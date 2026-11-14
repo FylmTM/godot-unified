@@ -34,265 +34,279 @@ ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
 	.Brute  = {40, 1.2, 0.7, 12, 5},
 }
 
-// One tick (t = the tick being computed): systems 1-11.
-tick :: proc(s: ^State, w: ^World, t: u32, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
-	sys_players(s, w, inputs, ev)
-	sys_levelup(s, inputs, ev)
-	sys_spawner(s, t)
-	sys_enemies(s, w, t)
-	sys_contact(s, w, ev)
-	sys_attack(s)
-	sys_projectiles(s, w, t)
-	sys_barrels(s, w, t, ev)
-	sys_deaths(s, t, ev)
-	physics.step(w.phys, DT, SUBSTEPS)
-	read_back(s, w)
-	sys_phase(s, w, t, ev)
+// One tick (game.number = the tick being computed): systems 1-12.
+tick :: proc(tick: ^Tick) {
+	state, world, now := tick.state, tick.world, tick.number
+	sys_players(tick)
+	sys_levelup(state, tick.inputs)
+	sys_spawner(state, now)
+	sys_enemies(state, world, now)
+	sys_contact(tick)
+	sys_attack(state)
+	sys_projectiles(state, world, now)
+	sys_barrels(tick)
+	sys_deaths(tick)
+	physics.step(world.phys, DT, SUBSTEPS)
+	read_back(state, world)
+	sys_phase(tick)
 }
 
 // 12. Phases: lobby -> match when a player leaves the start circle; match -> over when every
 // present player is dead at once (or nobody is present); over -> lobby (world reset) after the hold.
 @(private)
-sys_phase :: proc(s: ^State, w: ^World, t: u32, ev: ^[dynamic]sim.Event) {
+sys_phase :: proc(tick: ^Tick) {
+	state, now := tick.state, tick.number
 	present, alive := 0, 0
-	for &pl in s.players {
-		present += int(pl.active)
-		alive += int(pl.active && pl.alive)
+	for &character in state.players {
+		present += int(character.active)
+		alive += int(character.active && character.alive)
 	}
-	switch s.phase {
+	switch state.phase {
 	case .Lobby:
-		r2 := s.circle_radius * s.circle_radius
-		for &pl, p in s.players {
-			if pl.active && pl.alive && pl.pos.x * pl.pos.x + pl.pos.z * pl.pos.z > r2 {
-				s.phase = .Match
-				s.match_tick = t
-				s.over_tick = 0
-				s.wave = 0
-				s.circle_radius = 0
-				s.matches += 1
-				sim.emit(ev, Event_Kind.Match_Started, u32(p), pl.pos, slot = p)
+		radius2 := state.circle_radius * state.circle_radius
+		for &character, player in state.players {
+			pos := character.pos
+			if character.active && character.alive && pos.x * pos.x + pos.z * pos.z > radius2 {
+				state.phase = .Match
+				state.match_tick = now
+				state.over_tick = 0
+				state.wave = 0
+				state.circle_radius = 0
+				state.matches += 1
+				sim.emit(tick, Match_Started{position = sim.Position(pos), player = u8(player)})
 				break
 			}
 		}
 	case .Match:
-		s.wave = (t - s.match_tick) / tuning(s).wave_ticks
+		state.wave = (now - state.match_tick) / tuning(state).wave_ticks
 		if present == 0 {
-			reset_world(s, w, ev)
-		} else if alive == 0 && !s.endless {
-			s.phase = .Over
-			s.over_tick = t
-			sim.emit(ev, Event_Kind.Match_Over, value = f32(t - s.match_tick) * DT)
+			reset_world(tick)
+		} else if alive == 0 && !state.endless {
+			state.phase = .Over
+			state.over_tick = now
+			sim.emit(tick, Match_Over{duration_s = f32(now - state.match_tick) * DT})
 		}
 	case .Over:
-		if t - s.over_tick >= OVER_HOLD_TICKS {
-			reset_world(s, w, ev)
+		if now - state.over_tick >= OVER_HOLD_TICKS {
+			reset_world(tick)
 		}
 	}
 }
 
 // Back to the lobby: every dynamic body is destroyed and rebuilt in creation order (items, then
 // present players at their start spots with fresh progress); enemies, projectiles and gems go.
-reset_world :: proc(s: ^State, w: ^World, ev: ^[dynamic]sim.Event) {
-	for &it in s.items {
-		destroy_body(w, &it.body)
+reset_world :: proc(tick: ^Tick) {
+	state, world := tick.state, tick.world
+	for &item in state.items {
+		destroy_body(world, &item.body)
 	}
-	for &pl in s.players {
-		destroy_body(w, &pl.body)
+	for &character in state.players {
+		destroy_body(world, &character.body)
 	}
 	for i in 0 ..< ITEM_COUNT {
-		item_reset(s, w, i)
+		item_reset(state, world, i)
 	}
-	for p in 0 ..< MAX_PLAYERS {
-		player_reset_stats(s, p)
-		if s.players[p].active {
-			player_spawn(s, w, p)
-			sim.emit(ev, Event_Kind.Player_Respawned, u32(p), s.players[p].pos, slot = p)
+	for player in 0 ..< PLAYERS {
+		player_reset_stats(state, player)
+		if state.players[player].active {
+			player_spawn(state, world, player)
+			sim.emit(tick, Player_Respawned{position = sim.Position(state.players[player].pos), player = u8(player)})
 		}
 	}
-	s.enemies = {}
-	s.projectiles = {}
-	s.gems = {}
-	s.phase = .Lobby
-	s.circle_radius = START_RADIUS
-	s.match_tick = 0
-	s.over_tick = 0
-	s.wave = 0
+	state.enemies = {}
+	state.projectiles = {}
+	state.gems = {}
+	state.phase = .Lobby
+	state.circle_radius = START_RADIUS
+	state.match_tick = 0
+	state.over_tick = 0
+	state.wave = 0
 }
 
 // 1. Players: join, respawn, movement and dash.
 @(private)
-sys_players :: proc(s: ^State, w: ^World, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		in_ := inputs.input[p]
-		present := p in inputs.present
-		if present != pl.active {
+sys_players :: proc(tick: ^Tick) {
+	state, world, inputs := tick.state, tick.world, tick.inputs
+	for player in 0 ..< PLAYERS {
+		character := &state.players[player]
+		input := inputs.input[player]
+		present := player in inputs.present
+		if present != character.active {
 			if present {
-				player_activate(s, w, p)
-				sim.emit(ev, Event_Kind.Player_Joined, u32(p), pl.pos, slot = p)
+				player_activate(state, world, player)
+				sim.emit(tick, Player_Joined{position = sim.Position(character.pos), player = u8(player)})
 			} else {
-				sim.emit(ev, Event_Kind.Player_Left, u32(p), pl.pos, slot = p)
-				player_deactivate(s, w, p)
+				sim.emit(tick, Player_Left{position = sim.Position(character.pos), player = u8(player)})
+				player_deactivate(state, world, player)
 			}
 		}
 		if !present {
 			continue
 		}
-		if pl.dash_cooldown > 0 {
-			pl.dash_cooldown -= 1
+		if character.dash_cooldown > 0 {
+			character.dash_cooldown -= 1
 		}
-		pressed := in_.buttons & BUTTON_DASH != 0 && pl.prev_buttons & BUTTON_DASH == 0
-		pl.prev_buttons = in_.buttons
-		if !pl.alive {
-			if s.phase == .Over {
+		pressed := input.buttons & BUTTON_DASH != 0 && character.prev_buttons & BUTTON_DASH == 0
+		character.prev_buttons = input.buttons
+		if !character.alive {
+			if state.phase == .Over {
 				continue // nobody respawns until the reset
 			}
-			pl.respawn -= 1
-			if pl.respawn > 0 {
+			character.respawn -= 1
+			if character.respawn > 0 {
 				continue
 			}
-			player_spawn(s, w, p)
-			sim.emit(ev, Event_Kind.Player_Respawned, u32(p), pl.pos, slot = p)
+			player_spawn(state, world, player)
+			sim.emit(tick, Player_Respawned{position = sim.Position(character.pos), player = u8(player)})
 		}
-		if pressed && pl.dash_cooldown == 0 {
-			pl.dash_ticks = DASH_TICKS
-			pl.dash_cooldown = DASH_COOLDOWN_TICKS
+		if pressed && character.dash_cooldown == 0 {
+			character.dash_ticks = DASH_TICKS
+			character.dash_cooldown = DASH_COOLDOWN_TICKS
 		}
-		dx := f32(in_.move_x) / 127
-		dz := f32(in_.move_z) / 127
-		vx := dx * pl.speed
-		vz := dz * pl.speed
-		if pl.dash_ticks > 0 {
+		dx := f32(input.move_x) / 127
+		dz := f32(input.move_z) / 127
+		vx := dx * character.speed
+		vz := dz * character.speed
+		if character.dash_ticks > 0 {
 			vx = vx * 3
 			vz = vz * 3
-			pl.dash_ticks -= 1
+			character.dash_ticks -= 1
 		}
-		body := body_id(w, pl.body)
-		v := b3.body_get_linear_velocity(body)
-		b3.body_set_linear_velocity(body, {vx, v.y, vz})
+		body := body_id(world, character.body)
+		velocity := b3.body_get_linear_velocity(body)
+		b3.body_set_linear_velocity(body, {vx, velocity.y, vz})
 	}
 }
 
 // 2. Level-up picks (Cmd_Pick commands, each delivered once): each takes one pending level-up.
 @(private)
-sys_levelup :: proc(s: ^State, inputs: ^Inputs, ev: ^[dynamic]sim.Event) {
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		for &c in sim.commands(inputs, p) {
-			pick := sim.command_as(&c, Cmd_Pick) or_continue
-			if !pl.active || pl.pending_levelups <= 0 {
-				continue // nothing to pick
+sys_levelup :: proc(state: ^State, inputs: ^Inputs) {
+	for player in 0 ..< PLAYERS {
+		character := &state.players[player]
+		for &raw in sim.commands(inputs, player) {
+			switch command in sim.command_value(&raw, Command) {
+			case Cmd_Pick:
+				if !character.active || character.pending_levelups <= 0 {
+					continue // nothing to pick
+				}
+				switch command.upgrade {
+				case .Fire_Rate:
+					character.fire_interval = max(
+						character.fire_interval - FIRE_LEVELUP_TICKS,
+						FIRE_INTERVAL_MIN_TICKS,
+					)
+				case .Damage:
+					character.damage_bonus += DAMAGE_LEVELUP
+				case .Move_Speed:
+					character.speed = character.speed + SPEED_LEVELUP
+				case:
+					continue // not an option
+				}
+				character.pending_levelups -= 1
 			}
-			switch pick.upgrade {
-			case .Fire_Rate:
-				pl.fire_interval = max(pl.fire_interval - FIRE_LEVELUP_TICKS, FIRE_INTERVAL_MIN_TICKS)
-			case .Damage:
-				pl.damage_bonus += DAMAGE_LEVELUP
-			case .Move_Speed:
-				pl.speed = pl.speed + SPEED_LEVELUP
-			case:
-				continue // not an option
-			}
-			pl.pending_levelups -= 1
 		}
 	}
 }
 
-// 3. Spawner: n enemies every 20 ticks while below the cap.
+// 3. Spawner: a burst of enemies every `spawn_every_ticks` while below the cap. The positions and kinds of a
+// wave are drawn in sequence from the state's stream.
 @(private)
-sys_spawner :: proc(s: ^State, t: u32) {
-	tn := tuning(s)
-	if s.phase != .Match || (t - s.match_tick) % tn.spawn_every_ticks != 0 {
+sys_spawner :: proc(state: ^State, tick: u32) {
+	tune := tuning(state)
+	if state.phase != .Match || (tick - state.match_tick) % tune.spawn_every_ticks != 0 {
 		return
 	}
 	present: u32 = 0
-	for &pl in s.players {
-		present += u32(pl.active)
+	for &character in state.players {
+		present += u32(character.active)
 	}
-	n := min(tn.spawn_base + s.wave * tn.spawn_per_wave, tn.spawn_cap)
-	n = n * (100 + tn.extra_player_pct * (max(present, 1) - 1)) / 100
-	for _ in 0 ..< n {
-		if u32(s.enemies.count) >= s.enemy_cap {
+	count := min(tune.spawn_base + state.wave * tune.spawn_per_wave, tune.spawn_cap)
+	count = count * (100 + tune.extra_player_pct * (max(present, 1) - 1)) / 100
+	for _ in 0 ..< count {
+		if u32(state.enemies.count) >= state.enemy_cap {
 			break
 		}
-		k := sim.rng_below(&s.rng, 8)
-		jitter := f32(sim.rng_below(&s.rng, 1000)) / 1000 * 2 - 1
-		x := 27 * dmath.DIR8_C[k] + jitter
-		z := 27 * dmath.DIR8_S[k] + jitter
-		r := sim.rng_below(&s.rng, 10)
-		kind: Enemy_Kind = r <= 6 ? .Grunt : (r <= 8 ? .Runner : .Brute)
-		spawn_enemy(s, kind, {x, z}, t)
+		direction := sim.rng_below(&state.rng, 8)
+		jitter := f32(sim.rng_below(&state.rng, 1000)) / 1000 * 2 - 1
+		x := 27 * dmath.DIR8_C[direction] + jitter
+		z := 27 * dmath.DIR8_S[direction] + jitter
+		spawn_enemy(state, kind_of_roll(sim.rng_below(&state.rng, 10)), {x, z}, tick)
 	}
 }
 
-spawn_enemy :: proc(s: ^State, kind: Enemy_Kind, pos: [2]f32, t: u32) -> bool {
-	e, _ := sim.spawn(&s.enemies) or_return
-	st := ENEMY_STATS[kind]
-	e.spawn_tick = t
-	e.kind = kind
-	e.pos = pos
-	e.hp = st.hp * (100 + tuning(s).hp_pct_per_wave * i32(s.wave)) / 100
-	e.speed = st.speed
-	e.radius = st.radius
-	e.damage = st.damage
+// The enemy kind for a roll in 0 ..< 10.
+@(private)
+kind_of_roll :: proc(roll: u32) -> Enemy_Kind {
+	return roll <= 6 ? .Grunt : (roll <= 8 ? .Runner : .Brute)
+}
+
+spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> bool {
+	enemy, _ := sim.spawn(&state.enemies) or_return
+	stats := ENEMY_STATS[kind]
+	enemy.spawn_tick = tick
+	enemy.kind = kind
+	enemy.pos = pos
+	enemy.hp = stats.hp * (100 + tuning(state).hp_pct_per_wave * i32(state.wave)) / 100
+	enemy.speed = stats.speed
+	enemy.radius = stats.radius
+	enemy.damage = stats.damage
 	return true
 }
 
 @(private)
-cell_of :: #force_inline proc(pos: [2]f32) -> (cx, cz: i32) {
-	cx = dmath.to_i32_clamped((pos.x + 30) * 0.5, 0, GRID_N - 1)
-	cz = dmath.to_i32_clamped((pos.y + 30) * 0.5, 0, GRID_N - 1)
+cell_of :: #force_inline proc(pos: [2]f32) -> (cell_x, cell_z: i32) {
+	cell_x = dmath.to_i32_clamped((pos.x + 30) * 0.5, 0, GRID_N - 1)
+	cell_z = dmath.to_i32_clamped((pos.y + 30) * 0.5, 0, GRID_N - 1)
 	return
 }
 
 // Counting sort of alive enemies into 2 m cells; items within a cell are in index order.
 @(private)
-build_grid :: proc(s: ^State, sc: ^Scratch) {
-	sc.cell_count = {}
-	hw := s.enemies.high_water
-	for i in 0 ..< hw {
-		e, ok := sim.at(&s.enemies, i)
-		if !ok {
-			sc.enemy_cell[i] = -1
-			continue
-		}
-		cx, cz := cell_of(e.pos)
-		c := cz * GRID_N + cx
-		sc.enemy_cell[i] = c
-		sc.cell_count[c] += 1
+build_grid :: proc(state: ^State, scratch: ^Scratch) {
+	scratch.cell_count = {}
+	high_water := state.enemies.high_water
+	for i in 0 ..< high_water {
+		scratch.enemy_cell[i] = -1
+	}
+	enemies := sim.iterate(&state.enemies)
+	for enemy, handle in sim.next(&enemies) {
+		cell_x, cell_z := cell_of(enemy.pos)
+		cell := cell_z * GRID_N + cell_x
+		scratch.enemy_cell[handle.index] = cell
+		scratch.cell_count[cell] += 1
 	}
 	sum: i32 = 0
-	for c in 0 ..< GRID_CELLS {
-		sc.cell_start[c] = sum
-		sum += sc.cell_count[c]
+	for cell in 0 ..< GRID_CELLS {
+		scratch.cell_start[cell] = sum
+		sum += scratch.cell_count[cell]
 	}
-	sc.cell_start[GRID_CELLS] = sum
-	sc.cell_count = {} // reused as the fill cursor
-	for i in 0 ..< hw {
-		c := sc.enemy_cell[i]
-		if c < 0 {
+	scratch.cell_start[GRID_CELLS] = sum
+	scratch.cell_count = {} // reused as the fill cursor
+	for i in 0 ..< high_water {
+		cell := scratch.enemy_cell[i]
+		if cell < 0 {
 			continue
 		}
-		sc.cell_items[sc.cell_start[c] + sc.cell_count[c]] = i
-		sc.cell_count[c] += 1
+		scratch.cell_items[scratch.cell_start[cell] + scratch.cell_count[cell]] = i
+		scratch.cell_count[cell] += 1
 	}
 }
 
 // Nearest alive player to pos in XZ (lowest index on ties); -1 if none.
 @(private)
-nearest_player :: proc(s: ^State, pos: [2]f32) -> (best: int, best_d2: f32) {
+nearest_player :: proc(state: ^State, pos: [2]f32) -> (best: int, best_distance2: f32) {
 	best = -1
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		if !pl.alive {
+	for player in 0 ..< PLAYERS {
+		character := &state.players[player]
+		if !character.alive {
 			continue
 		}
-		dx := pl.pos.x - pos.x
-		dz := pl.pos.z - pos.y
-		d2 := dx * dx + dz * dz
-		if best < 0 || d2 < best_d2 {
-			best = p
-			best_d2 = d2
+		dx := character.pos.x - pos.x
+		dz := character.pos.z - pos.y
+		distance2 := dx * dx + dz * dz
+		if best < 0 || distance2 < best_distance2 {
+			best = player
+			best_distance2 = distance2
 		}
 	}
 	return
@@ -300,142 +314,143 @@ nearest_player :: proc(s: ^State, pos: [2]f32) -> (best: int, best_d2: f32) {
 
 // 4. Enemies: seek + separation (phase 1, old positions), integrate + push-out (phase 2).
 @(private)
-sys_enemies :: proc(s: ^State, w: ^World, t: u32) {
-	sc := &w.scratch
-	build_grid(s, sc)
+sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
+	scratch := &world.scratch
+	build_grid(state, scratch)
 	ray_filter := physics.Query {
 		mask = CAT_CRATE | CAT_BARREL,
 	}
-	hw := s.enemies.high_water
-	for i in 0 ..< hw {
-		e := sim.at(&s.enemies, i) or_continue
-		if (u32(i) + t) % CLIMB_CHECK_TICKS == 0 {
-			r, hit := physics.ray_first(w.phys, {e.pos.x, 3, e.pos.y}, {0, -3, 0}, ray_filter)
-			e.climbing = hit && r.point.y > 0.8
+	enemies := sim.iterate(&state.enemies)
+	for enemy, handle in sim.next(&enemies) {
+		index := i32(handle.index)
+		if (handle.index + tick) % CLIMB_CHECK_TICKS == 0 {
+			ray, hit := physics.ray_first(world.phys, {enemy.pos.x, 3, enemy.pos.y}, {0, -3, 0}, ray_filter)
+			enemy.climbing = hit && ray.point.y > 0.8
 		}
-		speed := e.climbing ? e.speed * 0.5 : e.speed
+		speed := enemy.climbing ? enemy.speed * 0.5 : enemy.speed
 		desired: [2]f32
-		if p, _ := nearest_player(s, e.pos); p >= 0 {
-			dx := s.players[p].pos.x - e.pos.x
-			dz := s.players[p].pos.z - e.pos.y
-			l := dmath.sqrt(dx * dx + dz * dz)
-			if l > 0.0001 {
-				desired = {dx / l * speed, dz / l * speed}
+		if target, _ := nearest_player(state, enemy.pos); target >= 0 {
+			dx := state.players[target].pos.x - enemy.pos.x
+			dz := state.players[target].pos.z - enemy.pos.y
+			length := dmath.sqrt(dx * dx + dz * dz)
+			if length > 0.0001 {
+				desired = {dx / length * speed, dz / length * speed}
 			}
 		}
-		sep: [2]f32
-		cx, cz := cell_of(e.pos)
-		for nz in cz - 1 ..= cz + 1 {
-			if nz < 0 || nz >= GRID_N {
+		separation: [2]f32
+		cell_x, cell_z := cell_of(enemy.pos)
+		for near_z in cell_z - 1 ..= cell_z + 1 {
+			if near_z < 0 || near_z >= GRID_N {
 				continue
 			}
-			for nx in cx - 1 ..= cx + 1 {
-				if nx < 0 || nx >= GRID_N {
+			for near_x in cell_x - 1 ..= cell_x + 1 {
+				if near_x < 0 || near_x >= GRID_N {
 					continue
 				}
-				c := nz * GRID_N + nx
-				for k in sc.cell_start[c] ..< sc.cell_start[c + 1] {
-					j := sc.cell_items[k]
-					if j == i {
+				cell := near_z * GRID_N + near_x
+				for k in scratch.cell_start[cell] ..< scratch.cell_start[cell + 1] {
+					other_index := scratch.cell_items[k]
+					if other_index == index {
 						continue
 					}
-					o := &s.enemies.items[j]
-					ox := e.pos.x - o.pos.x
-					oz := e.pos.y - o.pos.y
-					d2 := ox * ox + oz * oz
-					rr := e.radius + o.radius
-					if d2 < rr * rr && d2 > 0.00000001 {
-						f := 0.5 / d2
-						sep.x = sep.x + ox * f
-						sep.y = sep.y + oz * f
+					other := &state.enemies.items[other_index]
+					away_x := enemy.pos.x - other.pos.x
+					away_z := enemy.pos.y - other.pos.y
+					distance2 := away_x * away_x + away_z * away_z
+					reach := enemy.radius + other.radius
+					if distance2 < reach * reach && distance2 > 0.00000001 {
+						push := 0.5 / distance2
+						separation.x = separation.x + away_x * push
+						separation.y = separation.y + away_z * push
 					}
 				}
 			}
 		}
-		desired.x = desired.x + sep.x
-		desired.y = desired.y + sep.y
-		vx := e.vel.x * 0.8 + desired.x * 0.2
-		vz := e.vel.y * 0.8 + desired.y * 0.2
-		vmax := speed * 1.5
-		s2 := vx * vx + vz * vz
-		if s2 > vmax * vmax {
-			k := vmax / dmath.sqrt(s2)
-			vx = vx * k
-			vz = vz * k
+		desired.x = desired.x + separation.x
+		desired.y = desired.y + separation.y
+		vx := enemy.vel.x * 0.8 + desired.x * 0.2
+		vz := enemy.vel.y * 0.8 + desired.y * 0.2
+		max_speed := speed * 1.5
+		speed2 := vx * vx + vz * vz
+		if speed2 > max_speed * max_speed {
+			scale := max_speed / dmath.sqrt(speed2)
+			vx = vx * scale
+			vz = vz * scale
 		}
-		sc.new_vel[i] = {vx, vz}
+		scratch.new_vel[index] = {vx, vz}
 	}
-	for i in 0 ..< hw {
-		e := sim.at(&s.enemies, i) or_continue
-		e.vel = sc.new_vel[i]
-		x := e.pos.x + e.vel.x * DT
-		z := e.pos.y + e.vel.y * DT
-		r := e.radius
+	enemies = sim.iterate(&state.enemies)
+	for enemy, handle in sim.next(&enemies) {
+		enemy.vel = scratch.new_vel[handle.index]
+		x := enemy.pos.x + enemy.vel.x * DT
+		z := enemy.pos.y + enemy.vel.y * DT
+		radius := enemy.radius
 		for k in 0 ..< 8 {
-			px := 14 * dmath.DIR8_C[k]
-			pz := 14 * dmath.DIR8_S[k]
-			ext := 1 + r
-			dx := x - px
-			dz := z - pz
-			adx := abs(dx)
-			adz := abs(dz)
-			if adx < ext && adz < ext {
-				if ext - adx < ext - adz {
-					x = dx >= 0 ? px + ext : px - ext
+			pillar_x := 14 * dmath.DIR8_C[k]
+			pillar_z := 14 * dmath.DIR8_S[k]
+			extent := 1 + radius
+			dx := x - pillar_x
+			dz := z - pillar_z
+			abs_dx := abs(dx)
+			abs_dz := abs(dz)
+			if abs_dx < extent && abs_dz < extent {
+				if extent - abs_dx < extent - abs_dz {
+					x = dx >= 0 ? pillar_x + extent : pillar_x - extent
 				} else {
-					z = dz >= 0 ? pz + ext : pz - ext
+					z = dz >= 0 ? pillar_z + extent : pillar_z - extent
 				}
 			}
 		}
-		lim := 30 - r
-		e.pos = {clamp(x, -lim, lim), clamp(z, -lim, lim)}
+		limit := 30 - radius
+		enemy.pos = {clamp(x, -limit, limit), clamp(z, -limit, limit)}
 	}
 }
 
 // Damages an alive player; at HP <= 0 it dies (body destroyed, respawn timer set).
-damage_player :: proc(s: ^State, w: ^World, p: int, amount: i32, ev: ^[dynamic]sim.Event) {
-	pl := &s.players[p]
-	if !pl.alive {
+damage_player :: proc(tick: ^Tick, player: int, amount: i32) {
+	character := &tick.state.players[player]
+	if !character.alive {
 		return
 	}
-	pl.hp -= amount
-	if pl.hp <= 0 {
-		player_dies(s, w, p, ev)
+	character.hp -= amount
+	if character.hp <= 0 {
+		player_dies(tick, player)
 	}
 }
 
 @(private)
-player_dies :: proc(s: ^State, w: ^World, p: int, ev: ^[dynamic]sim.Event) {
-	pl := &s.players[p]
-	sim.emit(ev, Event_Kind.Player_Died, u32(p), pl.pos, slot = p)
-	pl.alive = false
-	pl.respawn = RESPAWN_TICKS
-	pl.dash_ticks = 0
-	destroy_body(w, &pl.body)
+player_dies :: proc(tick: ^Tick, player: int) {
+	character := &tick.state.players[player]
+	sim.emit(tick, Player_Died{position = sim.Position(character.pos), player = u8(player)})
+	character.alive = false
+	character.respawn = RESPAWN_TICKS
+	character.dash_ticks = 0
+	destroy_body(tick.world, &character.body)
 }
 
 // 5. Contact damage, one hit per enemy per 30 ticks.
 @(private)
-sys_contact :: proc(s: ^State, w: ^World, ev: ^[dynamic]sim.Event) {
-	for i in 0 ..< s.enemies.high_water {
-		e := sim.at(&s.enemies, i) or_continue
-		if e.contact_cooldown > 0 {
-			e.contact_cooldown -= 1
+sys_contact :: proc(tick: ^Tick) {
+	state := tick.state
+	enemies := sim.iterate(&state.enemies)
+	for enemy in sim.next(&enemies) {
+		if enemy.contact_cooldown > 0 {
+			enemy.contact_cooldown -= 1
 			continue
 		}
-		for p in 0 ..< MAX_PLAYERS {
-			pl := &s.players[p]
-			if !pl.alive {
+		for player in 0 ..< PLAYERS {
+			character := &state.players[player]
+			if !character.alive {
 				continue
 			}
-			dx := pl.pos.x - e.pos.x
-			dz := pl.pos.z - e.pos.y
-			rr := e.radius + 0.45
-			if dx * dx + dz * dz < rr * rr {
-				pl.hp -= e.damage
-				e.contact_cooldown = CONTACT_COOLDOWN_TICKS
-				if pl.hp <= 0 {
-					player_dies(s, w, p, ev)
+			dx := character.pos.x - enemy.pos.x
+			dz := character.pos.z - enemy.pos.y
+			reach := enemy.radius + 0.45
+			if dx * dx + dz * dz < reach * reach {
+				character.hp -= enemy.damage
+				enemy.contact_cooldown = CONTACT_COOLDOWN_TICKS
+				if character.hp <= 0 {
+					player_dies(tick, player)
 				}
 				break
 			}
@@ -445,290 +460,296 @@ sys_contact :: proc(s: ^State, w: ^World, ev: ^[dynamic]sim.Event) {
 
 // 6. Auto-attack: fire at the nearest enemy within 14 m.
 @(private)
-sys_attack :: proc(s: ^State) {
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		if !pl.alive {
+sys_attack :: proc(state: ^State) {
+	for player in 0 ..< PLAYERS {
+		character := &state.players[player]
+		if !character.alive {
 			continue
 		}
-		if pl.fire_cooldown > 0 {
-			pl.fire_cooldown -= 1
-			if pl.fire_cooldown > 0 {
+		if character.fire_cooldown > 0 {
+			character.fire_cooldown -= 1
+			if character.fire_cooldown > 0 {
 				continue
 			}
 		}
-		best: i32 = -1
-		best_d2: f32 = 14 * 14
-		for i in 0 ..< s.enemies.high_water {
-			e := sim.at(&s.enemies, i) or_continue
-			dx := e.pos.x - pl.pos.x
-			dz := e.pos.y - pl.pos.z
-			d2 := dx * dx + dz * dz
-			if d2 < best_d2 {
-				best = i
-				best_d2 = d2
+		target: ^Enemy
+		best_distance2: f32 = 14 * 14
+		enemies := sim.iterate(&state.enemies)
+		for enemy in sim.next(&enemies) {
+			dx := enemy.pos.x - character.pos.x
+			dz := enemy.pos.y - character.pos.z
+			distance2 := dx * dx + dz * dz
+			if distance2 < best_distance2 {
+				target = enemy
+				best_distance2 = distance2
 			}
 		}
-		if best < 0 {
+		if target == nil {
 			continue
 		}
-		e := &s.enemies.items[best]
-		dx := e.pos.x - pl.pos.x
-		dz := e.pos.y - pl.pos.z
-		l := dmath.sqrt(dx * dx + dz * dz)
-		if l <= 0.0001 {
+		dx := target.pos.x - character.pos.x
+		dz := target.pos.y - character.pos.z
+		length := dmath.sqrt(dx * dx + dz * dz)
+		if length <= 0.0001 {
 			continue
 		}
-		pr, _ := sim.spawn(&s.projectiles) or_continue
-		pr.pos = pl.pos
-		pr.vel = {dx / l * 16, 0, dz / l * 16}
-		pr.life = PROJECTILE_LIFE_TICKS
-		pr.damage = 5 + pl.damage_bonus
-		pl.fire_cooldown = pl.fire_interval
+		projectile, _ := sim.spawn(&state.projectiles) or_continue
+		projectile.pos = character.pos
+		projectile.vel = {dx / length * 16, 0, dz / length * 16}
+		projectile.life = PROJECTILE_LIFE_TICKS
+		projectile.damage = 5 + character.damage_bonus
+		character.fire_cooldown = character.fire_interval
 	}
 }
 
 // 7. Projectiles: move, hit enemies (grid, first index wins), else ray-cast the segment.
 @(private)
-sys_projectiles :: proc(s: ^State, w: ^World, t: u32) {
-	sc := &w.scratch
-	build_grid(s, sc)
+sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
+	scratch := &world.scratch
+	build_grid(state, scratch)
 	ray_filter := physics.Query {
 		mask = CAT_STATIC | CAT_CRATE | CAT_BARREL,
 	}
-	for pi in 0 ..< s.projectiles.high_water {
-		pr := sim.at(&s.projectiles, pi) or_continue
-		step := [3]f32{pr.vel.x * DT, pr.vel.y * DT, pr.vel.z * DT}
-		np := [3]f32{pr.pos.x + step.x, pr.pos.y + step.y, pr.pos.z + step.z}
+	projectiles := sim.iterate(&state.projectiles)
+	for projectile, handle in sim.next(&projectiles) {
+		step := [3]f32{projectile.vel.x * DT, projectile.vel.y * DT, projectile.vel.z * DT}
+		next_pos := [3]f32{projectile.pos.x + step.x, projectile.pos.y + step.y, projectile.pos.z + step.z}
 		hit: i32 = -1
-		cx, cz := cell_of({np.x, np.z})
-		for nz in cz - 1 ..= cz + 1 {
-			if nz < 0 || nz >= GRID_N {
+		cell_x, cell_z := cell_of({next_pos.x, next_pos.z})
+		for near_z in cell_z - 1 ..= cell_z + 1 {
+			if near_z < 0 || near_z >= GRID_N {
 				continue
 			}
-			for nx in cx - 1 ..= cx + 1 {
-				if nx < 0 || nx >= GRID_N {
+			for near_x in cell_x - 1 ..= cell_x + 1 {
+				if near_x < 0 || near_x >= GRID_N {
 					continue
 				}
-				c := nz * GRID_N + nx
-				for k in sc.cell_start[c] ..< sc.cell_start[c + 1] {
-					j := sc.cell_items[k]
-					if hit >= 0 && j >= hit {
+				cell := near_z * GRID_N + near_x
+				for k in scratch.cell_start[cell] ..< scratch.cell_start[cell + 1] {
+					enemy_index := scratch.cell_items[k]
+					if hit >= 0 && enemy_index >= hit {
 						break // cells are index-ordered: nothing lower left here
 					}
-					e := &s.enemies.items[j]
-					if e.hp <= 0 {
+					enemy := &state.enemies.items[enemy_index]
+					if enemy.hp <= 0 {
 						continue
 					}
-					dx := np.x - e.pos.x
-					dz := np.z - e.pos.y
-					rr := e.radius + 0.15
-					if dx * dx + dz * dz < rr * rr {
-						hit = j
+					dx := next_pos.x - enemy.pos.x
+					dz := next_pos.z - enemy.pos.y
+					reach := enemy.radius + 0.15
+					if dx * dx + dz * dz < reach * reach {
+						hit = enemy_index
 					}
 				}
 			}
 		}
 		if hit >= 0 {
-			s.enemies.items[hit].hp -= pr.damage
-			s.enemies.items[hit].hit_tick = t
-			sim.despawn(&s.projectiles, int(pi))
+			state.enemies.items[hit].hp -= projectile.damage
+			state.enemies.items[hit].hit_tick = tick
+			sim.despawn(&state.projectiles, handle)
 			continue
 		}
-		if r, hit := physics.ray_first(w.phys, pr.pos, step, ray_filter); hit {
-			if r.material >= MAT_ITEM_BASE && r.material < MAT_ITEM_BASE + ITEM_COUNT {
-				it := &s.items[r.material - MAT_ITEM_BASE]
-				if it.kind == .Barrel && it.alive {
-					it.hp -= pr.damage
+		if ray, ray_hit := physics.ray_first(world.phys, projectile.pos, step, ray_filter); ray_hit {
+			if ray.material >= MAT_ITEM_BASE && ray.material < MAT_ITEM_BASE + ITEM_COUNT {
+				item := &state.items[ray.material - MAT_ITEM_BASE]
+				if item.kind == .Barrel && item.alive {
+					item.hp -= projectile.damage
 				}
 			}
-			sim.despawn(&s.projectiles, int(pi))
+			sim.despawn(&state.projectiles, handle)
 			continue
 		}
-		pr.pos = np
-		pr.life -= 1
-		if pr.life <= 0 {
-			sim.despawn(&s.projectiles, int(pi))
+		projectile.pos = next_pos
+		projectile.life -= 1
+		if projectile.life <= 0 {
+			sim.despawn(&state.projectiles, handle)
 		}
 	}
 }
 
 // 8. Barrels: respawn due barrels, then explode barrels at HP <= 0 in barrel order.
 @(private)
-sys_barrels :: proc(s: ^State, w: ^World, t: u32, ev: ^[dynamic]sim.Event) {
+sys_barrels :: proc(tick: ^Tick) {
+	state, world, now := tick.state, tick.world, tick.number
 	for i in 0 ..< ITEM_COUNT {
-		it := &s.items[i]
-		if it.kind == .Barrel && !it.alive && it.respawn_tick == t {
-			it.alive = true
-			it.hp = BARREL_HP
-			it.respawn_tick = 0
-			it.body = create_item_body(w, i)
+		item := &state.items[i]
+		if item.kind == .Barrel && !item.alive && item.respawn_tick == now {
+			item.alive = true
+			item.hp = BARREL_HP
+			item.respawn_tick = 0
+			item.body = create_item_body(world, i)
 		}
 	}
 	for i in 0 ..< ITEM_COUNT {
-		it := &s.items[i]
-		if it.kind != .Barrel || !it.alive || it.hp > 0 {
+		item := &state.items[i]
+		if item.kind != .Barrel || !item.alive || item.hp > 0 {
 			continue
 		}
-		c := b3.body_get_position(body_id(w, it.body))
-		center := [3]f32{c.x, c.y, c.z}
+		body_pos := b3.body_get_position(body_id(world, item.body))
+		center := [3]f32{body_pos.x, body_pos.y, body_pos.z}
 		for j in 0 ..< ITEM_COUNT {
-			o := &s.items[j]
-			if j == i || !o.alive {
+			other := &state.items[j]
+			if j == i || !other.alive {
 				continue
 			}
-			explosion_impulse(w, center, body_id(w, o.body))
+			explosion_impulse(world, center, body_id(world, other.body))
 		}
-		for p in 0 ..< MAX_PLAYERS {
-			if s.players[p].alive {
-				explosion_impulse(w, center, body_id(w, s.players[p].body))
+		for player in 0 ..< PLAYERS {
+			if state.players[player].alive {
+				explosion_impulse(world, center, body_id(world, state.players[player].body))
 			}
 		}
-		for k in 0 ..< s.enemies.high_water {
-			e := sim.at(&s.enemies, k) or_continue
-			dx := e.pos.x - center.x
-			dz := e.pos.y - center.z
+		enemies := sim.iterate(&state.enemies)
+		for enemy in sim.next(&enemies) {
+			dx := enemy.pos.x - center.x
+			dz := enemy.pos.y - center.z
 			if dx * dx + dz * dz < 25 {
-				e.hp -= 25
-				e.hit_tick = t
+				enemy.hp -= 25
+				enemy.hit_tick = now
 			}
 		}
-		for p in 0 ..< MAX_PLAYERS {
-			pl := &s.players[p]
-			if !pl.alive {
+		for player in 0 ..< PLAYERS {
+			character := &state.players[player]
+			if !character.alive {
 				continue
 			}
-			dx := pl.pos.x - center.x
-			dz := pl.pos.z - center.z
+			dx := character.pos.x - center.x
+			dz := character.pos.z - center.z
 			if dx * dx + dz * dz < 9 {
-				pl.hp -= 15
-				if pl.hp <= 0 {
-					player_dies(s, w, p, ev)
+				character.hp -= 15
+				if character.hp <= 0 {
+					player_dies(tick, player)
 				}
 			}
 		}
-		destroy_body(w, &it.body)
-		sim.emit(ev, Event_Kind.Barrel_Exploded, entity = u32(i + 1), pos = center) // item keys are index + 1
-		it.alive = false
-		it.respawn_tick = t + BARREL_RESPAWN_TICKS
-		s.explosions += 1
+		destroy_body(world, &item.body)
+		sim.emit(tick, Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
+		item.alive = false
+		item.respawn_tick = now + BARREL_RESPAWN_TICKS
+		state.explosions += 1
 	}
 }
 
 @(private)
-explosion_impulse :: proc(w: ^World, center: [3]f32, body: b3.Body_Id) {
-	q := b3.body_get_position(body)
-	dx := q.x - center.x
-	dy := q.y - center.y
-	dz := q.z - center.z
-	d := dmath.sqrt(dx * dx + dy * dy + dz * dz)
-	if d >= 5 {
+explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
+	body_pos := b3.body_get_position(body)
+	dx := body_pos.x - center.x
+	dy := body_pos.y - center.y
+	dz := body_pos.z - center.z
+	distance := dmath.sqrt(dx * dx + dy * dy + dz * dz)
+	if distance >= 5 {
 		return
 	}
-	hx, hz: f32
-	hl := dmath.sqrt(dx * dx + dz * dz)
-	if hl > 0.0001 {
-		hx = dx / hl
-		hz = dz / hl
+	dir_x, dir_z: f32
+	horizontal := dmath.sqrt(dx * dx + dz * dz)
+	if horizontal > 0.0001 {
+		dir_x = dx / horizontal
+		dir_z = dz / horizontal
 	}
-	uy: f32 = 0.5
-	ul := dmath.sqrt(hx * hx + uy * uy + hz * hz)
-	k := 12 * (1 - d / 5)
-	b3.body_apply_linear_impulse_to_center(body, {hx / ul * k, uy / ul * k, hz / ul * k}, true)
+	up: f32 = 0.5
+	length := dmath.sqrt(dir_x * dir_x + up * up + dir_z * dir_z)
+	strength := 12 * (1 - distance / 5)
+	b3.body_apply_linear_impulse_to_center(
+		body,
+		{dir_x / length * strength, up / length * strength, dir_z / length * strength},
+		true,
+	)
 }
 
 // 9. Deaths, gems, XP and level thresholds.
 @(private)
-sys_deaths :: proc(s: ^State, t: u32, ev: ^[dynamic]sim.Event) {
-	for i in 0 ..< s.enemies.high_water {
-		e := sim.at(&s.enemies, i) or_continue
-		if e.hp > 0 {
+sys_deaths :: proc(tick: ^Tick) {
+	state, now := tick.state, tick.number
+	enemies := sim.iterate(&state.enemies)
+	for enemy, handle in sim.next(&enemies) {
+		if enemy.hp > 0 {
 			continue
 		}
-		pos := e.pos
-		value := ENEMY_STATS[e.kind].xp
-		sim.emit(ev, Event_Kind.Enemy_Died, sim.handle_key(sim.handle(&s.enemies, i)), {pos.x, 0, pos.y}, f32(e.kind))
-		sim.despawn(&s.enemies, int(i))
-		s.kills += 1
-		if g, _, ok := sim.spawn(&s.gems); ok {
-			g.pos = pos
-			g.value = value
-			g.spawn_tick = t
-		} else if p, _ := nearest_player(s, pos); p >= 0 {
-			s.players[p].xp += value
+		pos := enemy.pos
+		xp := ENEMY_STATS[enemy.kind].xp
+		sim.emit(tick, Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, kind = enemy.kind})
+		sim.despawn(&state.enemies, handle)
+		state.kills += 1
+		if gem, _, ok := sim.spawn(&state.gems); ok {
+			gem.pos = pos
+			gem.value = xp
+			gem.spawn_tick = now
+		} else if player, _ := nearest_player(state, pos); player >= 0 {
+			state.players[player].xp += xp
 		}
 	}
-	for gi in 0 ..< s.gems.high_water {
-		g := sim.at(&s.gems, gi) or_continue
-		for p in 0 ..< MAX_PLAYERS {
-			pl := &s.players[p]
-			if !pl.alive {
+	gems := sim.iterate(&state.gems)
+	for gem, handle in sim.next(&gems) {
+		for player in 0 ..< PLAYERS {
+			character := &state.players[player]
+			if !character.alive {
 				continue
 			}
-			dx := pl.pos.x - g.pos.x
-			dz := pl.pos.z - g.pos.y
+			dx := character.pos.x - gem.pos.x
+			dz := character.pos.z - gem.pos.y
 			if dx * dx + dz * dz < 2.25 {
-				pl.xp += g.value
+				character.xp += gem.value
 				sim.emit(
-					ev,
-					Event_Kind.Gem_Collected,
-					sim.handle_key(sim.handle(&s.gems, gi)),
-					{g.pos.x, 0, g.pos.y},
-					f32(g.value),
-					p,
+					tick,
+					Gem_Collected {
+						gem = handle,
+						position = {gem.pos.x, 0, gem.pos.y},
+						xp = gem.value,
+						player = u8(player),
+					},
 				)
-				sim.despawn(&s.gems, int(gi))
+				sim.despawn(&state.gems, handle)
 				break
 			}
 		}
 	}
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		for pl.xp >= xp_next(s, pl.level) {
-			pl.xp -= xp_next(s, pl.level)
-			pl.level += 1
-			pl.pending_levelups += 1
-			sim.emit(ev, Event_Kind.Level_Up, u32(p), pl.pos, f32(pl.level), p)
+	for player in 0 ..< PLAYERS {
+		character := &state.players[player]
+		for character.xp >= xp_next(state, character.level) {
+			character.xp -= xp_next(state, character.level)
+			character.level += 1
+			character.pending_levelups += 1
+			sim.emit(
+				tick,
+				Level_Up{position = sim.Position(character.pos), level = character.level, player = u8(player)},
+			)
 		}
 	}
 }
 
 // 11. Read back player positions for the next tick.
 @(private)
-read_back :: proc(s: ^State, w: ^World) {
-	for p in 0 ..< MAX_PLAYERS {
-		pl := &s.players[p]
-		if pl.alive {
-			q := b3.body_get_position(body_id(w, pl.body))
-			pl.pos = {q.x, q.y, q.z}
+read_back :: proc(state: ^State, world: ^World) {
+	for &character in state.players {
+		if character.alive {
+			body_pos := b3.body_get_position(body_id(world, character.body))
+			character.pos = {body_pos.x, body_pos.y, body_pos.z}
 		}
 	}
 }
 
-// Bench helper: hold the enemy population at n, pre-spawned at RNG positions over the arena.
-bench_prepare :: proc(s: ^State, w: ^World, n: int) {
-	s.enemy_cap = u32(n)
-	s.phase = .Match // the spawner refills to n from tick 1 on
-	s.endless = true
-	set_tuning(s, .Stress)
-	s.circle_radius = 0
-	prespawn_enemies(s, n)
+// Bench helper: hold the enemy population at `count`, pre-spawned at RNG positions over the arena.
+bench_prepare :: proc(state: ^State, world: ^World, count: int) {
+	state.enemy_cap = u32(count)
+	state.phase = .Match // the spawner refills to `count` from tick 1 on
+	state.endless = true
+	set_tuning(state, .Stress)
+	state.circle_radius = 0
+	prespawn_enemies(state, count)
 }
 
-prespawn_enemies :: proc(s: ^State, n: int) {
-	for _ in 0 ..< n {
-		x := f32(sim.rng_below(&s.rng, 5600)) / 100 - 28
-		z := f32(sim.rng_below(&s.rng, 5600)) / 100 - 28
-		r := sim.rng_below(&s.rng, 10)
-		kind: Enemy_Kind = r <= 6 ? .Grunt : (r <= 8 ? .Runner : .Brute)
-		if !spawn_enemy(s, kind, {x, z}, 0) {
+prespawn_enemies :: proc(state: ^State, count: int) {
+	for _ in 0 ..< count {
+		x := f32(sim.rng_below(&state.rng, 5600)) / 100 - 28
+		z := f32(sim.rng_below(&state.rng, 5600)) / 100 - 28
+		if !spawn_enemy(state, kind_of_roll(sim.rng_below(&state.rng, 10)), {x, z}, 0) {
 			break
 		}
 	}
 }
 
 // XP needed for the next level from `level` (levels start at 1).
-xp_next :: proc(s: ^State, level: i32) -> i32 {
-	tn := tuning(s)
-	return tn.xp_first + (max(level, 1) - 1) * tn.xp_step
+xp_next :: proc(state: ^State, level: i32) -> i32 {
+	tune := tuning(state)
+	return tune.xp_first + (max(level, 1) - 1) * tune.xp_step
 }

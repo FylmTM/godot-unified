@@ -46,9 +46,9 @@ func _process(delta: float) -> void:
 
 
 func local_player_view() -> Node3D:
-	var slot := Game.local_slot()
+	var player := Game.local_player()
 	for v in _views.get_children():
-		if v is GameView and v.kind == &"player" and v.slot == slot:
+		if v is GameView and v.kind == &"player" and v.player == player:
 			return v
 	return null
 
@@ -60,8 +60,11 @@ func any_player_view() -> Node3D:
 	return null
 
 
-func _on_sim_event(kind: StringName, _tick: int, entity: int, pos: Vector3, value: float) -> void:
-	var local := entity == Game.local_slot()
-	if kind == &"match_started":
+## Effects play when an event is confirmed (its tick verified), never on a prediction.
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
+		return
+	var local: bool = data.has("player") and int(data.player) == Game.local_player()
+	if event == &"match_started":
 		$Fx.shockwave(_radius)
-	$Fx.play(kind, entity, pos, value, local)
+	$Fx.play(event, data, local)

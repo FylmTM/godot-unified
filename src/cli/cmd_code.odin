@@ -18,9 +18,9 @@ cmd_build :: proc(args: []string) -> Result {
 	start := time.tick_now()
 	built := build_headless(opts.mode, force = true)
 	libs: [dynamic]string
-	for g in games_or_all(opts.game) {
-		if has_extension(g) {
-			append(&libs, rel(ensure_extension(g, opts.mode, force = true)))
+	for game in games_or_all(opts.game) {
+		if has_extension(game) {
+			append(&libs, rel(ensure_extension(game, opts.mode, force = true)))
 		}
 	}
 	return {
@@ -53,15 +53,15 @@ cmd_vet :: proc(args: []string) -> Result {
 	}
 	jobs: [dynamic]Job
 	pkgs := vet_packages()
-	for t in VET_TARGETS {
-		for p in pkgs {
-			append(&jobs, Job{p, t, ""})
+	for target in VET_TARGETS {
+		for vet_pkg in pkgs {
+			append(&jobs, Job{vet_pkg, target, ""})
 		}
 	}
-	for p in pkgs {
-		if p.ext {
+	for vet_pkg in pkgs {
+		if vet_pkg.ext {
 			// godot_host without the dev UI must keep compiling
-			append(&jobs, Job{p, VET_TARGETS[0], "-define:UNIFIED_DEVUI=false"})
+			append(&jobs, Job{vet_pkg, VET_TARGETS[0], "-define:UNIFIED_DEVUI=false"})
 		}
 	}
 	// the suites as record-reference builds them (unified:headless/scenarios writes reference runs)
@@ -71,15 +71,15 @@ cmd_vet :: proc(args: []string) -> Result {
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_LONG_TESTS=true"})
 	}
 	runs := make([]Run, len(jobs))
-	for j, i in jobs {
+	for job, i in jobs {
 		cmd: [dynamic]string
-		append(&cmd, odin(), "check", j.pkg.pkg, tprint("-target:%s", j.target))
+		append(&cmd, odin(), "check", job.pkg.pkg, tprint("-target:%s", job.target))
 		append(&cmd, ..collection())
-		if !j.pkg.entry {
+		if !job.pkg.entry {
 			append(&cmd, "-no-entry-point")
 		}
-		if j.define != "" {
-			append(&cmd, j.define)
+		if job.define != "" {
+			append(&cmd, job.define)
 		}
 		append(&cmd, ..VET)
 		runs[i] = {
@@ -89,19 +89,26 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	failed: [dynamic]string
-	for r, i in run_all(runs) {
-		if !r.ok {
-			j := jobs[i]
-			append(&failed, tprint("%s %s %s", rel(j.pkg.pkg), j.target, j.define))
-			log("vet: %s -target:%s %s FAILED\n%s%s", rel(j.pkg.pkg), j.target, j.define, r.stdout, r.stderr)
+	for result, i in run_all(runs) {
+		if !result.ok {
+			job := jobs[i]
+			append(&failed, tprint("%s %s %s", rel(job.pkg.pkg), job.target, job.define))
+			log(
+				"vet: %s -target:%s %s FAILED\n%s%s",
+				rel(job.pkg.pkg),
+				job.target,
+				job.define,
+				result.stdout,
+				result.stderr,
+			)
 		}
 	}
 	if len(failed) > 0 {
 		return {ok = false, summary = tprint("vet failed: %s", strings.join(failed[:], ", ")), data = box(failed[:])}
 	}
 	names := make([]string, len(pkgs))
-	for p, i in pkgs {
-		names[i] = rel(p.pkg)
+	for vet_pkg, i in pkgs {
+		names[i] = rel(vet_pkg.pkg)
 	}
 	return {
 		ok = true,
@@ -136,22 +143,22 @@ cmd_fmt :: proc(args: []string) -> Result {
 	start := time.tick_now()
 	srcs: [dynamic]string
 	roots := len(opts.overflow) > 0 ? opts.overflow[:] : fmt_dirs()
-	for r in roots {
-		abs, _ := os.get_absolute_path(r, context.allocator)
+	for root in roots {
+		abs, _ := os.get_absolute_path(root, context.allocator)
 		if os.is_file(abs) {
 			append(&srcs, abs)
 			continue
 		}
-		for f in find_files(abs, ".odin") {
-			if !strings.has_suffix(f, ".gen.odin") {
-				append(&srcs, f)
+		for file in find_files(abs, ".odin") {
+			if !strings.has_suffix(file, ".gen.odin") {
+				append(&srcs, file)
 			}
 		}
 	}
 	changed := fmt_files(exe, srcs[:], opts.check)
 	if opts.check && len(changed) > 0 {
-		for c in changed {
-			log("fmt: needs formatting: %s", c)
+		for path in changed {
+			log("fmt: needs formatting: %s", path)
 		}
 		return {
 			ok = false,
@@ -188,9 +195,9 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 	scratch := make([]string, len(srcs))
 	sizes := make([]i64, len(srcs))
 	order := make([]int, len(srcs))
-	for s, i in srcs {
-		fi, _ := os.stat(s, context.temp_allocator)
-		sizes[i] = fi.size
+	for src, i in srcs {
+		info, _ := os.stat(src, context.temp_allocator)
+		sizes[i] = info.size
 		order[i] = i
 	}
 	sort_by_size :: proc(order: []int, sizes: []i64) {
@@ -203,9 +210,9 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 	sort_by_size(order, sizes)
 	for i in order {
 		k := 0
-		for l, n in load {
-			if l < load[k] {
-				k = n
+		for bucket, index in load {
+			if bucket < load[k] {
+				k = index
 			}
 		}
 		load[k] += sizes[i]
@@ -222,19 +229,19 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 			)
 		}
 	}
-	for r in run_all(fmt_runs[:]) {
-		if !r.ok {
-			fatal("odinfmt failed:\n%s%s", r.stdout, r.stderr)
+	for result in run_all(fmt_runs[:]) {
+		if !result.ok {
+			fatal("odinfmt failed:\n%s%s", result.stdout, result.stderr)
 		}
 	}
 	changed: [dynamic]string
-	for s, i in srcs {
-		a, _ := read_text(s)
-		b, _ := read_text(scratch[i])
-		if a != b {
-			append(&changed, rel(s))
+	for src, i in srcs {
+		old_text, _ := read_text(src)
+		new_text, _ := read_text(scratch[i])
+		if old_text != new_text {
+			append(&changed, rel(src))
 			if !check {
-				write_text(s, b)
+				write_text(src, new_text)
 			}
 		}
 	}
@@ -255,16 +262,16 @@ fmt_hook :: proc() -> ! {
 			file_path: string,
 		},
 	}
-	h: Hook
-	if json.unmarshal(data, &h) != nil ||
-	   !strings.has_suffix(h.tool_input.file_path, ".odin") ||
-	   strings.has_suffix(h.tool_input.file_path, ".gen.odin") {
+	hook: Hook
+	if json.unmarshal(data, &hook) != nil ||
+	   !strings.has_suffix(hook.tool_input.file_path, ".odin") ||
+	   strings.has_suffix(hook.tool_input.file_path, ".gen.odin") {
 		os.exit(0)
 	}
-	path, _ := os.get_absolute_path(h.tool_input.file_path, context.allocator)
+	path, _ := os.get_absolute_path(hook.tool_input.file_path, context.allocator)
 	inside := false
-	for d in fmt_dirs() {
-		if strings.has_prefix(path, tprint("%s/", d)) {
+	for dir in fmt_dirs() {
+		if strings.has_prefix(path, tprint("%s/", dir)) {
 			inside = true
 		}
 	}
@@ -277,18 +284,18 @@ fmt_hook :: proc() -> ! {
 	}
 	tmp := join(state.project.out, "tmp", tprint("hook-%d", os.get_pid()), os.base(path))
 	copy_file(tmp, path)
-	r := run_proc(
+	result := run_proc(
 		{
 			cmd = {exe, tprint("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
 			capture = true,
 			quiet = true,
 		},
 	)
-	if r.ok {
-		a, _ := read_text(path)
-		b, _ := read_text(tmp)
-		if a != b {
-			write_text(path, b)
+	if result.ok {
+		old_text, _ := read_text(path)
+		new_text, _ := read_text(tmp)
+		if old_text != new_text {
+			write_text(path, new_text)
 		}
 	}
 	remove_tree(os.dir(tmp))

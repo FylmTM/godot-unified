@@ -28,16 +28,16 @@ import "core:strings"
 
 J :: json.Value
 
-jobj :: proc(v: J) -> json.Object {o, _ := v.(json.Object); return o}
-jarr :: proc(v: J) -> json.Array {a, _ := v.(json.Array); return a}
-jstr :: proc(o: json.Object, k: string) -> string {s, _ := o[k].(json.String); return s}
-jbool :: proc(o: json.Object, k: string) -> bool {b, _ := o[k].(json.Boolean); return b}
-jint :: proc(o: json.Object, k: string) -> i64 {
-	#partial switch v in o[k] {
+jobj :: proc(value: J) -> json.Object {result, _ := value.(json.Object); return result}
+jarr :: proc(value: J) -> json.Array {result, _ := value.(json.Array); return result}
+jstr :: proc(object: json.Object, key: string) -> string {result, _ := object[key].(json.String); return result}
+jbool :: proc(object: json.Object, key: string) -> bool {result, _ := object[key].(json.Boolean); return result}
+jint :: proc(object: json.Object, key: string) -> i64 {
+	#partial switch number in object[key] {
 	case json.Integer:
-		return v
+		return number
 	case json.Float:
-		return i64(v)
+		return i64(number)
 	}
 	return 0
 }
@@ -48,12 +48,12 @@ load_json :: proc(path: string) -> json.Object {
 		fmt.eprintln("cannot read", path, err)
 		os.exit(1)
 	}
-	v, perr := json.parse(data, parse_integers = true)
+	root, perr := json.parse(data, parse_integers = true)
 	if perr != nil {
 		fmt.eprintln("cannot parse", path, perr)
 		os.exit(1)
 	}
-	return jobj(v)
+	return jobj(root)
 }
 
 ODIN_RESERVED :: []string {
@@ -134,15 +134,15 @@ ODIN_RESERVED :: []string {
 	"expand_values",
 }
 
-safe_name :: proc(n: string) -> string {
-	if slice.contains(ODIN_RESERVED, n) do return fmt.aprintf("%s_", n)
-	return n
+safe_name :: proc(name: string) -> string {
+	if slice.contains(ODIN_RESERVED, name) do return fmt.aprintf("%s_", name)
+	return name
 }
 
 // ------------------------------------------------------------------------------------------ part 1: interface
 
-c_scalar :: proc(s: string) -> (string, bool) {
-	switch s {
+c_scalar :: proc(c_type: string) -> (string, bool) {
+	switch c_type {
 	case "void":
 		return "", true
 	case "int8_t":
@@ -181,135 +181,145 @@ c_scalar :: proc(s: string) -> (string, bool) {
 
 iface_kinds: map[string]string // type name -> kind
 
-strip_gd :: proc(n: string) -> string {
-	if strings.has_prefix(n, "GDExtension") && len(n) > len("GDExtension") do return n[len("GDExtension"):]
-	return n
+strip_gd :: proc(name: string) -> string {
+	if strings.has_prefix(name, "GDExtension") && len(name) > len("GDExtension") do return name[len("GDExtension"):]
+	return name
 }
 
 // C type string from gdextension_interface.json -> Odin type.
-ctype :: proc(t: string) -> string {
-	s := strings.trim_space(t)
-	is_const := strings.has_prefix(s, "const ")
-	if is_const do s = s[6:]
+ctype :: proc(c_type: string) -> string {
+	stripped := strings.trim_space(c_type)
+	is_const := strings.has_prefix(stripped, "const ")
+	if is_const do stripped = stripped[6:]
 	stars := 0
-	for strings.has_suffix(s, "*") {
+	for strings.has_suffix(stripped, "*") {
 		stars += 1
-		s = strings.trim_space(s[:len(s) - 1])
+		stripped = strings.trim_space(stripped[:len(stripped) - 1])
 	}
 	base: string
-	if sc, ok := c_scalar(s); ok {
-		base = sc
-	} else if s == "GDExtensionInterfaceFunctionPtr" {
+	if scalar, ok := c_scalar(stripped); ok {
+		base = scalar
+	} else if stripped == "GDExtensionInterfaceFunctionPtr" {
 		base = "rawptr"
 	} else {
-		base = strip_gd(s)
+		base = strip_gd(stripped)
 	}
 	if stars == 0 do return base
 	if stars == 1 {
 		if base == "" do return "rawptr"
-		if s == "char" do return is_const ? "cstring" : "[^]u8"
-		if iface_kinds[s] == "struct" do return fmt.aprintf("^%s", base)
+		if stripped == "char" do return is_const ? "cstring" : "[^]u8"
+		if iface_kinds[stripped] == "struct" do return fmt.aprintf("^%s", base)
 		return fmt.aprintf("[^]%s", base)
 	}
 	return "rawptr"
 }
 
 proc_sig :: proc(args: json.Array, ret: json.Object, has_ret: bool) -> string {
-	b := strings.builder_make()
-	strings.write_string(&b, "proc \"c\" (")
-	for a, i in args {
-		ao := jobj(a)
-		if i > 0 do strings.write_string(&b, ", ")
-		name := jstr(ao, "name")
+	builder := strings.builder_make()
+	strings.write_string(&builder, "proc \"c\" (")
+	for arg, i in args {
+		arg_object := jobj(arg)
+		if i > 0 do strings.write_string(&builder, ", ")
+		name := jstr(arg_object, "name")
 		if name == "" do name = fmt.aprintf("p%d", i)
-		fmt.sbprintf(&b, "%s: %s", safe_name(name), ctype(jstr(ao, "type")))
+		fmt.sbprintf(&builder, "%s: %s", safe_name(name), ctype(jstr(arg_object, "type")))
 	}
-	strings.write_string(&b, ")")
+	strings.write_string(&builder, ")")
 	if has_ret {
-		rt := ctype(jstr(ret, "type"))
-		if rt != "" do fmt.sbprintf(&b, " -> %s", rt)
+		return_type := ctype(jstr(ret, "type"))
+		if return_type != "" do fmt.sbprintf(&builder, " -> %s", return_type)
 	}
-	return strings.to_string(b)
+	return strings.to_string(builder)
 }
 
 common_prefix :: proc(names: []string) -> string {
 	if len(names) < 2 do return ""
-	p := names[0]
-	for n in names[1:] {
+	prefix := names[0]
+	for name in names[1:] {
 		i := 0
-		for i < len(p) && i < len(n) && p[i] == n[i] do i += 1
-		p = p[:i]
+		for i < len(prefix) && i < len(name) && prefix[i] == name[i] do i += 1
+		prefix = prefix[:i]
 	}
 	// cut back to the last '_'
-	idx := strings.last_index_byte(p, '_')
+	idx := strings.last_index_byte(prefix, '_')
 	if idx < 0 do return ""
-	return p[:idx + 1]
+	return prefix[:idx + 1]
 }
 
-first_line :: proc(o: json.Object) -> string {
-	d := jarr(o["description"])
-	if len(d) == 0 do return ""
-	s, _ := d[0].(json.String)
-	return s
+first_line :: proc(object: json.Object) -> string {
+	lines := jarr(object["description"])
+	if len(lines) == 0 do return ""
+	text, _ := lines[0].(json.String)
+	return text
 }
 
 gen_interface :: proc(iface: json.Object) -> string {
-	b := strings.builder_make()
-	strings.write_string(&b, "// GENERATED by src/gdext/gen from gdextension_interface.json. Do not edit.\n")
-	strings.write_string(&b, "package gdi\n\n")
+	builder := strings.builder_make()
+	strings.write_string(&builder, "// GENERATED by src/gdext/gen from gdextension_interface.json. Do not edit.\n")
+	strings.write_string(&builder, "package gdi\n\n")
 	types := jarr(iface["types"])
-	for t in types {
-		to := jobj(t)
-		iface_kinds[jstr(to, "name")] = jstr(to, "kind")
+	for type_value in types {
+		type_object := jobj(type_value)
+		iface_kinds[jstr(type_object, "name")] = jstr(type_object, "kind")
 	}
-	for t in types {
-		to := jobj(t)
-		name := strip_gd(jstr(to, "name"))
-		switch jstr(to, "kind") {
+	for type_value in types {
+		type_object := jobj(type_value)
+		name := strip_gd(jstr(type_object, "name"))
+		switch jstr(type_object, "kind") {
 		case "handle":
-			fmt.sbprintf(&b, "%s :: rawptr\n", name)
+			fmt.sbprintf(&builder, "%s :: rawptr\n", name)
 		case "alias":
-			fmt.sbprintf(&b, "%s :: %s\n", name, ctype(jstr(to, "type")))
+			fmt.sbprintf(&builder, "%s :: %s\n", name, ctype(jstr(type_object, "type")))
 		case "enum":
-			vals := jarr(to["values"])
+			vals := jarr(type_object["values"])
 			names := make([]string, len(vals))
-			for v, i in vals do names[i] = jstr(jobj(v), "name")
-			pre := common_prefix(names)
-			fmt.sbprintf(&b, "%s :: enum i32 {{\n", name)
-			for v in vals {
-				vo := jobj(v)
-				vn := jstr(vo, "name")[len(pre):]
-				if len(vn) > 0 && vn[0] >= '0' && vn[0] <= '9' do vn = fmt.aprintf("_%s", vn)
-				fmt.sbprintf(&b, "\t%s = %d,\n", vn, jint(vo, "value"))
+			for value, i in vals do names[i] = jstr(jobj(value), "name")
+			prefix := common_prefix(names)
+			fmt.sbprintf(&builder, "%s :: enum i32 {{\n", name)
+			for value in vals {
+				value_object := jobj(value)
+				value_name := jstr(value_object, "name")[len(prefix):]
+				if len(value_name) > 0 && value_name[0] >= '0' && value_name[0] <= '9' do value_name = fmt.aprintf("_%s", value_name)
+				fmt.sbprintf(&builder, "\t%s = %d,\n", value_name, jint(value_object, "value"))
 			}
-			strings.write_string(&b, "}\n")
+			strings.write_string(&builder, "}\n")
 		case "struct":
-			fmt.sbprintf(&b, "%s :: struct {{\n", name)
-			for m in jarr(to["members"]) {
-				mo := jobj(m)
-				fmt.sbprintf(&b, "\t%s: %s,\n", safe_name(jstr(mo, "name")), ctype(jstr(mo, "type")))
+			fmt.sbprintf(&builder, "%s :: struct {{\n", name)
+			for member in jarr(type_object["members"]) {
+				member_object := jobj(member)
+				fmt.sbprintf(
+					&builder,
+					"\t%s: %s,\n",
+					safe_name(jstr(member_object, "name")),
+					ctype(jstr(member_object, "type")),
+				)
 			}
-			strings.write_string(&b, "}\n")
+			strings.write_string(&builder, "}\n")
 		case "function":
-			ret := jobj(to["return_value"])
-			fmt.sbprintf(&b, "%s :: #type %s\n", name, proc_sig(jarr(to["arguments"]), ret, ret != nil))
+			ret := jobj(type_object["return_value"])
+			fmt.sbprintf(&builder, "%s :: #type %s\n", name, proc_sig(jarr(type_object["arguments"]), ret, ret != nil))
 		}
 	}
-	strings.write_string(&b, "\n// Interface functions, filled by load().\n")
+	strings.write_string(&builder, "\n// Interface functions, filled by load().\n")
 	funcs := jarr(iface["interface"])
-	for f in funcs {
-		fo := jobj(f)
-		ret := jobj(fo["return_value"])
-		if d := first_line(fo); d != "" do fmt.sbprintf(&b, "// %s\n", d)
-		fmt.sbprintf(&b, "%s: %s\n", jstr(fo, "name"), proc_sig(jarr(fo["arguments"]), ret, ret != nil))
+	for function in funcs {
+		function_object := jobj(function)
+		ret := jobj(function_object["return_value"])
+		if description := first_line(function_object); description != "" do fmt.sbprintf(&builder, "// %s\n", description)
+		fmt.sbprintf(
+			&builder,
+			"%s: %s\n",
+			jstr(function_object, "name"),
+			proc_sig(jarr(function_object["arguments"]), ret, ret != nil),
+		)
 	}
-	strings.write_string(&b, "\nload :: proc(gpa: InterfaceGetProcAddress) {\n")
-	for f in funcs {
-		n := jstr(jobj(f), "name")
-		fmt.sbprintf(&b, "\t%s = auto_cast gpa(\"%s\")\n", n, n)
+	strings.write_string(&builder, "\nload :: proc(gpa: InterfaceGetProcAddress) {\n")
+	for function in funcs {
+		name := jstr(jobj(function), "name")
+		fmt.sbprintf(&builder, "\t%s = auto_cast gpa(\"%s\")\n", name, name)
 	}
-	strings.write_string(&b, "}\n")
-	return strings.to_string(b)
+	strings.write_string(&builder, "}\n")
+	return strings.to_string(builder)
 }
 
 // ------------------------------------------------------------------------------------------------ part 2: api
@@ -346,93 +356,95 @@ is_refcounted :: proc(name: string) -> bool {
 	cur := name
 	for cur != "" {
 		if cur == "RefCounted" do return true
-		co, ok := classes[cur]
+		class_object, ok := classes[cur]
 		if !ok do return false
-		cur = jstr(co, "inherits")
+		cur = jstr(class_object, "inherits")
 	}
 	return false
 }
 
 // The type of a returned value: RefCounted classes come back as an owned Ref(T).
-ret_type :: proc(t: string, meta: string) -> Type_Info {
-	ti := map_type(t, meta)
-	if ti.kind == .Object && ti.refc do ti.param = fmt.aprintf("Ref(%s)", ti.param)
-	return ti
+ret_type :: proc(type_name: string, meta: string) -> Type_Info {
+	type_info := map_type(type_name, meta)
+	if type_info.kind == .Object && type_info.refc do type_info.param = fmt.aprintf("Ref(%s)", type_info.param)
+	return type_info
 }
 
-builtin_name :: proc(t: string) -> string {
-	if strings.has_prefix(t, "typedarray::") do return "Array"
-	if strings.has_prefix(t, "typeddictionary::") do return "Dictionary"
-	return t
+builtin_name :: proc(type_name: string) -> string {
+	if strings.has_prefix(type_name, "typedarray::") do return "Array"
+	if strings.has_prefix(type_name, "typeddictionary::") do return "Dictionary"
+	return type_name
 }
 
-map_type :: proc(t: string, meta: string) -> Type_Info {
+map_type :: proc(type_name: string, meta: string) -> Type_Info {
 	switch {
-	case t == "bool":
+	case type_name == "bool":
 		return {.Bool, "bool", "bool", false}
-	case t == "int":
+	case type_name == "int":
 		return {.Int, "int", "i64", false}
-	case t == "float":
+	case type_name == "float":
 		return {.Float, meta == "double" ? "f64" : "f32", "f64", false}
-	case t == "String":
+	case type_name == "String":
 		return {.String, "string", "String", false}
-	case t == "StringName":
+	case type_name == "StringName":
 		return {.StringName, "string", "StringName", false}
-	case t == "NodePath":
+	case type_name == "NodePath":
 		return {.NodePath, "string", "NodePath", false}
-	case strings.has_prefix(t, "enum::") || strings.has_prefix(t, "bitfield::"):
-		key := t[strings.index(t, "::") + 2:]
-		if et, ok := enum_types[key]; ok do return {.Enum, et, "i64", false}
+	case strings.has_prefix(type_name, "enum::") || strings.has_prefix(type_name, "bitfield::"):
+		key := type_name[strings.index(type_name, "::") + 2:]
+		if enum_type, ok := enum_types[key]; ok do return {.Enum, enum_type, "i64", false}
 		return {.Int, "int", "i64", false}
-	case strings.contains(t, "*"):
+	case strings.contains(type_name, "*"):
 		return {.Pointer, "rawptr", "rawptr", false}
-	case t == "Variant":
+	case type_name == "Variant":
 		return {.Builtin, "Variant", "Variant", false}
 	}
-	bn := builtin_name(t)
-	if bn in builtin_layout || bn in builtin_opaque do return {.Builtin, bn, bn, false}
-	if t in classes {
-		rc := is_refcounted(t)
-		if wanted[t] do return {.Object, t, "rawptr", rc}
-		return {.Object, rc ? "RefCounted" : "Object", "rawptr", rc}
+	base_name := builtin_name(type_name)
+	if base_name in builtin_layout || base_name in builtin_opaque do return {.Builtin, base_name, base_name, false}
+	if type_name in classes {
+		refcounted := is_refcounted(type_name)
+		if wanted[type_name] do return {.Object, type_name, "rawptr", refcounted}
+		return {.Object, refcounted ? "RefCounted" : "Object", "rawptr", refcounted}
 	}
 	// native structures by value never appear as method args; fall back to an opaque pointer
 	return {.Pointer, "rawptr", "rawptr", false}
 }
 
-is_number :: proc(s: string) -> bool {
-	_, ok := strconv.parse_f64(s)
+is_number :: proc(text: string) -> bool {
+	_, ok := strconv.parse_f64(text)
 	return ok
 }
 
 // Godot default value -> Odin default expression, or "" if not expressible.
-map_default :: proc(ti: Type_Info, raw_type: string, d: string) -> string {
-	switch ti.kind {
+map_default :: proc(type_info: Type_Info, raw_type: string, default_text: string) -> string {
+	switch type_info.kind {
 	case .Bool:
-		if d == "true" || d == "false" do return d
+		if default_text == "true" || default_text == "false" do return default_text
 	case .Int:
-		if is_number(d) do return d
+		if is_number(default_text) do return default_text
 	case .Float:
-		if d == "inf" do return ""
-		if is_number(d) do return d
+		if default_text == "inf" do return ""
+		if is_number(default_text) do return default_text
 	case .Enum:
-		if is_number(d) do return fmt.aprintf("%s(%s)", ti.param, d)
+		if is_number(default_text) do return fmt.aprintf("%s(%s)", type_info.param, default_text)
 	case .String, .StringName, .NodePath:
-		s := d
-		if strings.has_prefix(s, "&") do s = s[1:]
-		if strings.has_prefix(s, "NodePath(") && strings.has_suffix(s, ")") do s = s[len("NodePath("):len(s) - 1]
-		if len(s) >= 2 && s[0] == '"' && s[len(s) - 1] == '"' do return s
+		text := default_text
+		if strings.has_prefix(text, "&") do text = text[1:]
+		if strings.has_prefix(text, "NodePath(") && strings.has_suffix(text, ")") do text = text[len("NodePath("):len(text) - 1]
+		if len(text) >= 2 && text[0] == '"' && text[len(text) - 1] == '"' do return text
 	case .Object:
-		if d == "null" do return "{}"
+		if default_text == "null" do return "{}"
 	case .Builtin:
 		// simple numeric constructors: Vector3(0, 1, 0), Color(1, 1, 1, 1)
-		if builtin_flat[ti.param] && strings.has_prefix(d, ti.param) && strings.has_suffix(d, ")") {
-			inner := d[len(ti.param):]
+		if builtin_flat[type_info.param] &&
+		   strings.has_prefix(default_text, type_info.param) &&
+		   strings.has_suffix(default_text, ")") {
+			inner := default_text[len(type_info.param):]
 			if !strings.has_prefix(inner, "(") do return ""
 			inner = inner[1:len(inner) - 1]
 			parts := strings.split(inner, ",")
-			for p in parts do if !is_number(strings.trim_space(p)) do return ""
-			return fmt.aprintf("%s{{%s}}", ti.param, inner)
+			for part in parts do if !is_number(strings.trim_space(part)) do return ""
+			return fmt.aprintf("%s{{%s}}", type_info.param, inner)
 		}
 	case .Pointer:
 	}
@@ -440,95 +452,111 @@ map_default :: proc(ti: Type_Info, raw_type: string, d: string) -> string {
 }
 
 // Emits the conversion of parameter `name` into ptrcall slot `_aN`.
-emit_arg_in :: proc(b: ^strings.Builder, ti: Type_Info, name: string, i: int) {
-	switch ti.kind {
+emit_arg_in :: proc(builder: ^strings.Builder, type_info: Type_Info, name: string, index: int) {
+	switch type_info.kind {
 	case .Bool, .Builtin, .Pointer:
-		fmt.sbprintf(b, "\t_a%d := %s\n", i, name)
+		fmt.sbprintf(builder, "\t_a%d := %s\n", index, name)
 	case .Int, .Enum:
-		fmt.sbprintf(b, "\t_a%d := i64(%s)\n", i, name)
+		fmt.sbprintf(builder, "\t_a%d := i64(%s)\n", index, name)
 	case .Float:
-		fmt.sbprintf(b, "\t_a%d := f64(%s)\n", i, name)
+		fmt.sbprintf(builder, "\t_a%d := f64(%s)\n", index, name)
 	case .String:
-		fmt.sbprintf(b, "\t_a%d := string_from(%s); defer String_destroy(&_a%d)\n", i, name, i)
+		fmt.sbprintf(builder, "\t_a%d := string_from(%s); defer String_destroy(&_a%d)\n", index, name, index)
 	case .StringName:
-		if ti.param == "^StringName" {
-			fmt.sbprintf(b, "\t_a%d := %s^ // borrowed: the caller keeps it alive\n", i, name)
+		if type_info.param == "^StringName" {
+			fmt.sbprintf(builder, "\t_a%d := %s^ // borrowed: the caller keeps it alive\n", index, name)
 		} else {
-			fmt.sbprintf(b, "\t_a%d := string_name_from(%s); defer StringName_destroy(&_a%d)\n", i, name, i)
+			fmt.sbprintf(
+				builder,
+				"\t_a%d := string_name_from(%s); defer StringName_destroy(&_a%d)\n",
+				index,
+				name,
+				index,
+			)
 		}
 	case .NodePath:
-		fmt.sbprintf(b, "\t_a%d := node_path_from(%s); defer NodePath_destroy(&_a%d)\n", i, name, i)
+		fmt.sbprintf(builder, "\t_a%d := node_path_from(%s); defer NodePath_destroy(&_a%d)\n", index, name, index)
 	case .Object:
-		fmt.sbprintf(b, "\t_a%d := %s.ptr\n", i, name)
+		fmt.sbprintf(builder, "\t_a%d := %s.ptr\n", index, name)
 	}
 }
 
 // Declares `_ret` for the return slot.
-emit_ret_decl :: proc(b: ^strings.Builder, ti: Type_Info) {
-	if ti.kind == .Builtin && ti.param in builtin_opaque && ti.param != "Variant" {
-		fmt.sbprintf(b, "\t_ret := %s_new0()\n", ti.param) // default-construct (Array etc. aren't valid when zeroed)
+emit_ret_decl :: proc(builder: ^strings.Builder, type_info: Type_Info) {
+	if type_info.kind == .Builtin && type_info.param in builtin_opaque && type_info.param != "Variant" {
+		fmt.sbprintf(builder, "\t_ret := %s_new0()\n", type_info.param) // default-construct (Array etc. aren't valid when zeroed)
 	} else {
-		fmt.sbprintf(b, "\t_ret: %s\n", ti.slot)
+		fmt.sbprintf(builder, "\t_ret: %s\n", type_info.slot)
 	}
 }
 
-emit_ret_out :: proc(b: ^strings.Builder, ti: Type_Info) {
-	switch ti.kind {
+emit_ret_out :: proc(builder: ^strings.Builder, type_info: Type_Info) {
+	switch type_info.kind {
 	case .Bool, .Builtin, .Pointer:
-		strings.write_string(b, "\treturn _ret\n")
+		strings.write_string(builder, "\treturn _ret\n")
 	case .Int:
-		strings.write_string(b, "\treturn int(_ret)\n")
+		strings.write_string(builder, "\treturn int(_ret)\n")
 	case .Enum:
-		fmt.sbprintf(b, "\treturn %s(_ret)\n", ti.param)
+		fmt.sbprintf(builder, "\treturn %s(_ret)\n", type_info.param)
 	case .Float:
-		fmt.sbprintf(b, "\treturn %s(_ret)\n", ti.param)
+		fmt.sbprintf(builder, "\treturn %s(_ret)\n", type_info.param)
 	case .String:
 		strings.write_string(
-			b,
+			builder,
 			"\tdefer String_destroy(&_ret)\n\treturn string_to_odin(&_ret, context.temp_allocator)\n",
 		)
 	case .StringName:
 		strings.write_string(
-			b,
+			builder,
 			"\tdefer StringName_destroy(&_ret)\n\treturn string_name_to_odin(&_ret, context.temp_allocator)\n",
 		)
 	case .NodePath:
 		strings.write_string(
-			b,
+			builder,
 			"\tdefer NodePath_destroy(&_ret)\n\treturn node_path_to_odin(&_ret, context.temp_allocator)\n",
 		)
 	case .Object:
-		fmt.sbprintf(b, "\treturn transmute(%s)_ret\n", ti.param)
+		fmt.sbprintf(builder, "\treturn transmute(%s)_ret\n", type_info.param)
 	}
 }
 
 // Vararg methods: fixed arguments and `rest` become Variants, then a Variant call.
-emit_vararg_body :: proc(b: ^strings.Builder, ps: []Param, self_ptr: string, has_ret: bool, rti: Type_Info) {
-	fmt.sbprintf(b, "\t_vs := make([]Variant, %d + len(rest), context.temp_allocator)\n", len(ps))
-	fmt.sbprintf(b, "\t_ps := make([]rawptr, %d + len(rest), context.temp_allocator)\n", len(ps))
-	for p, i in ps {
-		switch p.ti.kind {
+emit_vararg_body :: proc(
+	builder: ^strings.Builder,
+	params: []Param,
+	self_ptr: string,
+	has_ret: bool,
+	return_info: Type_Info,
+) {
+	fmt.sbprintf(builder, "\t_vs := make([]Variant, %d + len(rest), context.temp_allocator)\n", len(params))
+	fmt.sbprintf(builder, "\t_ps := make([]rawptr, %d + len(rest), context.temp_allocator)\n", len(params))
+	for param, i in params {
+		switch param.ti.kind {
 		case .StringName:
-			fmt.sbprintf(b, "\t_vs[%d] = variant_string_name(%s)\n", i, p.name)
+			fmt.sbprintf(builder, "\t_vs[%d] = variant_string_name(%s)\n", i, param.name)
 		case .NodePath:
-			fmt.sbprintf(b, "\t_vs[%d] = variant_node_path(%s)\n", i, p.name)
+			fmt.sbprintf(builder, "\t_vs[%d] = variant_node_path(%s)\n", i, param.name)
 		case .Bool, .Int, .Float, .Enum, .String, .Builtin, .Object, .Pointer:
-			fmt.sbprintf(b, "\t_vs[%d] = to_variant(%s)\n", i, p.name)
+			fmt.sbprintf(builder, "\t_vs[%d] = to_variant(%s)\n", i, param.name)
 		}
 	}
-	fmt.sbprintf(b, "\tfor a, i in rest do _vs[%d + i] = variant_from_any(a)\n", len(ps))
-	strings.write_string(b, "\tfor &v, i in _vs do _ps[i] = &v\n")
-	strings.write_string(b, "\t_ret: Variant\n\t_err: gdi.CallError\n")
-	fmt.sbprintf(b, "\tgdi.object_method_bind_call(_mb, %s, raw_data(_ps), i64(len(_ps)), &_ret, &_err)\n", self_ptr)
-	strings.write_string(b, "\tfor &v in _vs do variant_destroy(&v)\n")
-	strings.write_string(b, "\tif _err.error != .OK do call_error(_err, #procedure)\n")
+	fmt.sbprintf(builder, "\tfor a, i in rest do _vs[%d + i] = variant_from_any(a)\n", len(params))
+	strings.write_string(builder, "\tfor &v, i in _vs do _ps[i] = &v\n")
+	strings.write_string(builder, "\t_ret: Variant\n\t_err: gdi.CallError\n")
+	fmt.sbprintf(
+		builder,
+		"\tgdi.object_method_bind_call(_mb, %s, raw_data(_ps), i64(len(_ps)), &_ret, &_err)\n",
+		self_ptr,
+	)
+	strings.write_string(builder, "\tfor &v in _vs do variant_destroy(&v)\n")
+	strings.write_string(builder, "\tif _err.error != .OK do call_error(_err, #procedure)\n")
 	if !has_ret {
-		strings.write_string(b, "\tvariant_destroy(&_ret)\n")
-	} else if rti.param == "Variant" {
-		strings.write_string(b, "\treturn _ret\n")
+		strings.write_string(builder, "\tvariant_destroy(&_ret)\n")
+	} else if return_info.param == "Variant" {
+		strings.write_string(builder, "\treturn _ret\n")
 	} else {
-		strings.write_string(b, "\tdefer variant_destroy(&_ret)\n")
-		fmt.sbprintf(b, "\t_r, _ := from_variant(%s, &_ret)\n\treturn _r\n", rti.param)
+		strings.write_string(builder, "\tdefer variant_destroy(&_ret)\n")
+		fmt.sbprintf(builder, "\t_r, _ := from_variant(%s, &_ret)\n\treturn _r\n", return_info.param)
 	}
 }
 
@@ -539,42 +567,42 @@ Param :: struct {
 }
 
 collect_params :: proc(args: json.Array, raw_strings := false) -> []Param {
-	ps := make([]Param, len(args))
-	for a, i in args {
-		ao := jobj(a)
-		t := jstr(ao, "type")
-		ti := map_type(t, jstr(ao, "meta"))
-		if raw_strings && (ti.kind == .String || ti.kind == .StringName || ti.kind == .NodePath) do ti = {.Builtin, t, t, false}
-		d := ""
-		if dv, ok := ao["default_value"].(json.String); ok do d = map_default(ti, t, dv)
-		ps[i] = {safe_name(jstr(ao, "name")), ti, d}
+	params := make([]Param, len(args))
+	for arg, i in args {
+		arg_object := jobj(arg)
+		type_name := jstr(arg_object, "type")
+		type_info := map_type(type_name, jstr(arg_object, "meta"))
+		if raw_strings && (type_info.kind == .String || type_info.kind == .StringName || type_info.kind == .NodePath) do type_info = {.Builtin, type_name, type_name, false}
+		default_text := ""
+		if default_value, ok := arg_object["default_value"].(json.String); ok do default_text = map_default(type_info, type_name, default_value)
+		params[i] = {safe_name(jstr(arg_object, "name")), type_info, default_text}
 	}
 	// Odin allows defaults anywhere, but keep them trailing so positional calls stay unambiguous.
 	seen_required := false
-	#reverse for &p in ps {
-		if p.def == "" do seen_required = true
-		else if seen_required do p.def = ""
+	#reverse for &param in params {
+		if param.def == "" do seen_required = true
+		else if seen_required do param.def = ""
 	}
-	return ps
+	return params
 }
 
-write_params :: proc(b: ^strings.Builder, self_decl: string, ps: []Param) {
-	strings.write_string(b, self_decl)
-	for p, i in ps {
-		if i > 0 || self_decl != "" do strings.write_string(b, ", ")
-		fmt.sbprintf(b, "%s: %s", p.name, p.ti.param)
-		if p.def != "" do fmt.sbprintf(b, " = %s", p.def)
+write_params :: proc(builder: ^strings.Builder, self_decl: string, params: []Param) {
+	strings.write_string(builder, self_decl)
+	for param, i in params {
+		if i > 0 || self_decl != "" do strings.write_string(builder, ", ")
+		fmt.sbprintf(builder, "%s: %s", param.name, param.ti.param)
+		if param.def != "" do fmt.sbprintf(builder, " = %s", param.def)
 	}
 }
 
-write_args_array :: proc(b: ^strings.Builder, ps: []Param) -> string {
-	if len(ps) == 0 do return "nil"
-	strings.write_string(b, "\t_args := [?]rawptr{")
-	for _, i in ps {
-		if i > 0 do strings.write_string(b, ", ")
-		fmt.sbprintf(b, "&_a%d", i)
+write_args_array :: proc(builder: ^strings.Builder, params: []Param) -> string {
+	if len(params) == 0 do return "nil"
+	strings.write_string(builder, "\t_args := [?]rawptr{")
+	for _, i in params {
+		if i > 0 do strings.write_string(builder, ", ")
+		fmt.sbprintf(builder, "&_a%d", i)
 	}
-	strings.write_string(b, "}\n")
+	strings.write_string(builder, "}\n")
 	return "&_args[0]"
 }
 
@@ -583,353 +611,415 @@ Stats :: struct {
 }
 stats: Stats
 
-gen_class_method :: proc(b: ^strings.Builder, cname: string, m: json.Object) {
-	if jbool(m, "is_virtual") {
+gen_class_method :: proc(builder: ^strings.Builder, class_name: string, method: json.Object) {
+	if jbool(method, "is_virtual") {
 		stats.skipped_virtual += 1
 		return
 	}
 	stats.methods += 1
-	vararg := jbool(m, "is_vararg")
-	mname := jstr(m, "name")
-	ps := collect_params(jarr(m["arguments"]))
+	vararg := jbool(method, "is_vararg")
+	method_name := jstr(method, "name")
+	params := collect_params(jarr(method["arguments"]))
 	if vararg {
 		stats.vararg += 1
-		for &p in ps do p.def = "" // defaults before a variadic tail are not allowed
+		for &param in params do param.def = "" // defaults before a variadic tail are not allowed
 	}
 	has_sn := false
-	for p in ps do if p.ti.kind == .StringName do has_sn = true
+	for param in params do if param.ti.kind == .StringName do has_sn = true
 	if vararg || !has_sn {
-		gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s", cname, mname), m, ps, vararg)
+		gen_class_method_proc(
+			builder,
+			class_name,
+			method_name,
+			fmt.aprintf("%s_%s", class_name, method_name),
+			method,
+			params,
+			vararg,
+		)
 		return
 	}
 	// StringName parameters: a group of two, Odin strings (`_str`, converted per call) or interned
 	// `^StringName`s (`_sn`, e.g. gd.sn("move_left"), no conversion): hot paths pass cached names.
 	stats.sn_overloads += 1
-	gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s_str", cname, mname), m, ps, false)
-	sn_ps := slice.clone(ps)
-	for &p in sn_ps {
-		if p.ti.kind != .StringName do continue
-		p.ti = {.StringName, "^StringName", "StringName", false}
-		p.def = ""
+	gen_class_method_proc(
+		builder,
+		class_name,
+		method_name,
+		fmt.aprintf("%s_%s_str", class_name, method_name),
+		method,
+		params,
+		false,
+	)
+	sn_params := slice.clone(params)
+	for &param in sn_params {
+		if param.ti.kind != .StringName do continue
+		param.ti = {.StringName, "^StringName", "StringName", false}
+		param.def = ""
 	}
 	seen_required := false
-	#reverse for &p in sn_ps {
-		if p.def == "" do seen_required = true
-		else if seen_required do p.def = ""
+	#reverse for &param in sn_params {
+		if param.def == "" do seen_required = true
+		else if seen_required do param.def = ""
 	}
-	gen_class_method_proc(b, cname, mname, fmt.aprintf("%s_%s_sn", cname, mname), m, sn_ps, false)
-	fmt.sbprintf(b, "%s_%s :: proc {{%s_%s_str, %s_%s_sn}}\n", cname, mname, cname, mname, cname, mname)
+	gen_class_method_proc(
+		builder,
+		class_name,
+		method_name,
+		fmt.aprintf("%s_%s_sn", class_name, method_name),
+		method,
+		sn_params,
+		false,
+	)
+	fmt.sbprintf(
+		builder,
+		"%s_%s :: proc {{%s_%s_str, %s_%s_sn}}\n",
+		class_name,
+		method_name,
+		class_name,
+		method_name,
+		class_name,
+		method_name,
+	)
 }
 
 gen_class_method_proc :: proc(
-	b: ^strings.Builder,
-	cname, mname, pname: string,
-	m: json.Object,
-	ps: []Param,
+	builder: ^strings.Builder,
+	class_name, method_name, proc_name: string,
+	method: json.Object,
+	params: []Param,
 	vararg: bool,
 ) {
-	rv := jobj(m["return_value"])
-	has_ret := rv != nil
-	rti: Type_Info
-	if has_ret do rti = ret_type(jstr(rv, "type"), jstr(rv, "meta"))
-	is_static := jbool(m, "is_static")
-	fmt.sbprintf(b, "%s :: proc(", pname)
-	write_params(b, is_static ? "" : fmt.aprintf("self: %s", cname), ps)
-	if vararg do strings.write_string(b, len(ps) > 0 || !is_static ? ", rest: ..any" : "rest: ..any")
-	strings.write_string(b, ")")
-	if has_ret do fmt.sbprintf(b, " -> %s", rti.param)
-	strings.write_string(b, " {\n")
-	strings.write_string(b, "\twhen ODIN_DEBUG do check_main_thread()\n")
-	strings.write_string(b, "\t@(static) _mb: rawptr\n")
-	fmt.sbprintf(b, "\tif _mb == nil do _mb = method_bind(\"%s\", \"%s\", %d)\n", cname, mname, jint(m, "hash"))
+	return_value := jobj(method["return_value"])
+	has_ret := return_value != nil
+	return_info: Type_Info
+	if has_ret do return_info = ret_type(jstr(return_value, "type"), jstr(return_value, "meta"))
+	is_static := jbool(method, "is_static")
+	fmt.sbprintf(builder, "%s :: proc(", proc_name)
+	write_params(builder, is_static ? "" : fmt.aprintf("self: %s", class_name), params)
+	if vararg do strings.write_string(builder, len(params) > 0 || !is_static ? ", rest: ..any" : "rest: ..any")
+	strings.write_string(builder, ")")
+	if has_ret do fmt.sbprintf(builder, " -> %s", return_info.param)
+	strings.write_string(builder, " {\n")
+	strings.write_string(builder, "\twhen ODIN_DEBUG do check_main_thread()\n")
+	strings.write_string(builder, "\t@(static) _mb: rawptr\n")
+	fmt.sbprintf(
+		builder,
+		"\tif _mb == nil do _mb = method_bind(\"%s\", \"%s\", %d)\n",
+		class_name,
+		method_name,
+		jint(method, "hash"),
+	)
 	if vararg {
-		emit_vararg_body(b, ps, is_static ? "nil" : "self.ptr", has_ret, rti)
-		strings.write_string(b, "}\n")
+		emit_vararg_body(builder, params, is_static ? "nil" : "self.ptr", has_ret, return_info)
+		strings.write_string(builder, "}\n")
 		return
 	}
-	for p, i in ps do emit_arg_in(b, p.ti, p.name, i)
-	args := write_args_array(b, ps)
-	if has_ret do emit_ret_decl(b, rti)
+	for param, i in params do emit_arg_in(builder, param.ti, param.name, i)
+	args := write_args_array(builder, params)
+	if has_ret do emit_ret_decl(builder, return_info)
 	fmt.sbprintf(
-		b,
+		builder,
 		"\tgdi.object_method_bind_ptrcall(_mb, %s, %s, %s)\n",
 		is_static ? "nil" : "self.ptr",
 		args,
 		has_ret ? "&_ret" : "nil",
 	)
-	if has_ret do emit_ret_out(b, rti)
-	strings.write_string(b, "}\n")
+	if has_ret do emit_ret_out(builder, return_info)
+	strings.write_string(builder, "}\n")
 }
 
-gen_builtin_method :: proc(b: ^strings.Builder, bname: string, vt: int, m: json.Object) {
-	if jbool(m, "is_vararg") {
+gen_builtin_method :: proc(builder: ^strings.Builder, type_name: string, variant_index: int, method: json.Object) {
+	if jbool(method, "is_vararg") {
 		stats.skipped_vararg += 1
 		return
 	}
 	stats.builtin_methods += 1
-	mname := jstr(m, "name")
-	ps := collect_params(jarr(m["arguments"]))
-	rt := jstr(m, "return_type")
-	has_ret := rt != ""
-	rti: Type_Info
-	if has_ret do rti = ret_type(rt, "")
-	is_static := jbool(m, "is_static")
-	fmt.sbprintf(b, "%s_%s :: proc(", bname, mname)
-	write_params(b, is_static ? "" : fmt.aprintf("self: ^%s", bname), ps)
-	strings.write_string(b, ")")
-	if has_ret do fmt.sbprintf(b, " -> %s", rti.param)
-	strings.write_string(b, " {\n")
-	strings.write_string(b, "\t@(static) _fp: gdi.PtrBuiltInMethod\n")
+	method_name := jstr(method, "name")
+	params := collect_params(jarr(method["arguments"]))
+	return_type := jstr(method, "return_type")
+	has_ret := return_type != ""
+	return_info: Type_Info
+	if has_ret do return_info = ret_type(return_type, "")
+	is_static := jbool(method, "is_static")
+	fmt.sbprintf(builder, "%s_%s :: proc(", type_name, method_name)
+	write_params(builder, is_static ? "" : fmt.aprintf("self: ^%s", type_name), params)
+	strings.write_string(builder, ")")
+	if has_ret do fmt.sbprintf(builder, " -> %s", return_info.param)
+	strings.write_string(builder, " {\n")
+	strings.write_string(builder, "\t@(static) _fp: gdi.PtrBuiltInMethod\n")
 	fmt.sbprintf(
-		b,
+		builder,
 		"\tif _fp == nil do _fp = builtin_method(gdi.VariantType(%d), \"%s\", %d)\n",
-		vt,
-		mname,
-		jint(m, "hash"),
+		variant_index,
+		method_name,
+		jint(method, "hash"),
 	)
-	for p, i in ps do emit_arg_in(b, p.ti, p.name, i)
-	args := write_args_array(b, ps)
-	if has_ret do emit_ret_decl(b, rti)
+	for param, i in params do emit_arg_in(builder, param.ti, param.name, i)
+	args := write_args_array(builder, params)
+	if has_ret do emit_ret_decl(builder, return_info)
 	fmt.sbprintf(
-		b,
+		builder,
 		"\t_fp(%s, %s, %s, %d)\n",
 		is_static ? "nil" : "self",
 		args == "nil" ? "nil" : args,
 		has_ret ? "&_ret" : "nil",
-		len(ps),
+		len(params),
 	)
-	if has_ret do emit_ret_out(b, rti)
-	strings.write_string(b, "}\n")
+	if has_ret do emit_ret_out(builder, return_info)
+	strings.write_string(builder, "}\n")
 }
 
-enum_name :: proc(scope: string, n: string) -> string {
-	s, _ := strings.replace_all(n, ".", "_")
-	if scope == "" do return s
-	return fmt.aprintf("%s_%s", scope, s)
+enum_name :: proc(scope: string, name: string) -> string {
+	text, _ := strings.replace_all(name, ".", "_")
+	if scope == "" do return text
+	return fmt.aprintf("%s_%s", scope, text)
 }
 
-emit_enum :: proc(b: ^strings.Builder, tname: string, e: json.Object) {
-	fmt.sbprintf(b, "%s :: enum i64 {{\n", tname)
-	for v in jarr(e["values"]) {
-		vo := jobj(v)
-		fmt.sbprintf(b, "\t%s = %d,\n", jstr(vo, "name"), jint(vo, "value"))
+emit_enum :: proc(builder: ^strings.Builder, type_name: string, enum_object: json.Object) {
+	fmt.sbprintf(builder, "%s :: enum i64 {{\n", type_name)
+	for value in jarr(enum_object["values"]) {
+		value_object := jobj(value)
+		fmt.sbprintf(builder, "\t%s = %d,\n", jstr(value_object, "name"), jint(value_object, "value"))
 	}
-	strings.write_string(b, "}\n")
+	strings.write_string(builder, "}\n")
 }
 
-snake_field :: proc(n: string) -> string {
-	return fmt.aprintf("base_%s", n)
+snake_field :: proc(name: string) -> string {
+	return fmt.aprintf("base_%s", name)
 }
 
-variant_key :: proc(n: string) -> string {
-	s, _ := strings.replace_all(strings.to_upper(n), "_", "")
-	return s
+variant_key :: proc(name: string) -> string {
+	key, _ := strings.replace_all(strings.to_upper(name), "_", "")
+	return key
 }
 
-gen_api :: proc(api: json.Object, cls_list, bi_list: []string) -> string {
-	b := strings.builder_make()
-	strings.write_string(&b, "// GENERATED by src/gdext/gen from extension_api.json. Do not edit.\n")
-	strings.write_string(&b, "package gdext\n\nimport \"gdi\"\n\n")
-	h := jobj(api["header"])
-	fmt.sbprintf(&b, "API_VERSION :: \"%s\"\n\n", jstr(h, "version_full_name"))
+gen_api :: proc(api: json.Object, class_list, builtin_list: []string) -> string {
+	builder := strings.builder_make()
+	strings.write_string(&builder, "// GENERATED by src/gdext/gen from extension_api.json. Do not edit.\n")
+	strings.write_string(&builder, "package gdext\n\nimport \"gdi\"\n\n")
+	header := jobj(api["header"])
+	fmt.sbprintf(&builder, "API_VERSION :: \"%s\"\n\n", jstr(header, "version_full_name"))
 
-	for c in jarr(api["classes"]) {
-		co := jobj(c)
-		classes[jstr(co, "name")] = co
+	for class_value in jarr(api["classes"]) {
+		class_object := jobj(class_value)
+		classes[jstr(class_object, "name")] = class_object
 	}
-	for n in ([]string{"Object", "RefCounted"}) do wanted[n] = true
-	for n in cls_list {
-		cur := n
+	for class_name in ([]string{"Object", "RefCounted"}) do wanted[class_name] = true
+	for class_name in class_list {
+		cur := class_name
 		for cur != "" {
-			co, ok := classes[cur]
+			class_object, ok := classes[cur]
 			if !ok {
 				fmt.eprintln("unknown class", cur)
 				os.exit(1)
 			}
 			wanted[cur] = true
-			cur = jstr(co, "inherits")
+			cur = jstr(class_object, "inherits")
 		}
 	}
 
 	// Variant::Type indices from the global enum.
-	for e in jarr(api["global_enums"]) {
-		eo := jobj(e)
-		if jstr(eo, "name") != "Variant.Type" do continue
-		for v in jarr(eo["values"]) {
-			vo := jobj(v)
-			vn := jstr(vo, "name")
-			if strings.has_prefix(vn, "TYPE_") do variant_type_index[variant_key(vn[5:])] = int(jint(vo, "value"))
+	for enum_value in jarr(api["global_enums"]) {
+		enum_object := jobj(enum_value)
+		if jstr(enum_object, "name") != "Variant.Type" do continue
+		for value in jarr(enum_object["values"]) {
+			value_object := jobj(value)
+			value_name := jstr(value_object, "name")
+			if strings.has_prefix(value_name, "TYPE_") do variant_type_index[variant_key(value_name[5:])] = int(jint(value_object, "value"))
 		}
 	}
 
 	// Builtin layouts (float_64 = single-precision real_t, 64-bit pointers).
-	strings.write_string(&b, "// ---- builtin types (build configuration float_64)\n\n")
+	strings.write_string(&builder, "// ---- builtin types (build configuration float_64)\n\n")
 	sizes: map[string]int
-	for cfg in jarr(api["builtin_class_sizes"]) {
-		co := jobj(cfg)
-		if jstr(co, "build_configuration") != "float_64" do continue
-		for s in jarr(co["sizes"]) {
-			so := jobj(s)
-			sizes[jstr(so, "name")] = int(jint(so, "size"))
+	for config in jarr(api["builtin_class_sizes"]) {
+		class_object := jobj(config)
+		if jstr(class_object, "build_configuration") != "float_64" do continue
+		for size_value in jarr(class_object["sizes"]) {
+			size_object := jobj(size_value)
+			sizes[jstr(size_object, "name")] = int(jint(size_object, "size"))
 		}
 	}
-	for cfg in jarr(api["builtin_class_member_offsets"]) {
-		co := jobj(cfg)
-		if jstr(co, "build_configuration") != "float_64" do continue
-		for c in jarr(co["classes"]) {
-			cl := jobj(c)
-			name := jstr(cl, "name")
+	for config in jarr(api["builtin_class_member_offsets"]) {
+		class_object := jobj(config)
+		if jstr(class_object, "build_configuration") != "float_64" do continue
+		for class_value in jarr(class_object["classes"]) {
+			class_layout := jobj(class_value)
+			name := jstr(class_layout, "name")
 			builtin_layout[name] = true
 			builtin_flat[name] = true
-			fmt.sbprintf(&b, "%s :: struct {{\n", name)
-			for m in jarr(cl["members"]) {
-				mo := jobj(m)
-				meta := jstr(mo, "meta")
-				t := meta == "float" ? "f32" : meta == "int32" ? "i32" : meta
-				if t == meta do builtin_flat[name] = false
-				fmt.sbprintf(&b, "\t%s: %s, // offset %d\n", jstr(mo, "member"), t, jint(mo, "offset"))
+			fmt.sbprintf(&builder, "%s :: struct {{\n", name)
+			for member in jarr(class_layout["members"]) {
+				member_object := jobj(member)
+				meta := jstr(member_object, "meta")
+				type_name := meta == "float" ? "f32" : meta == "int32" ? "i32" : meta
+				if type_name == meta do builtin_flat[name] = false
+				fmt.sbprintf(
+					&builder,
+					"\t%s: %s, // offset %d\n",
+					jstr(member_object, "member"),
+					type_name,
+					jint(member_object, "offset"),
+				)
 			}
-			fmt.sbprintf(&b, "}\n#assert(size_of(%s) == %d)\n", name, sizes[name])
+			fmt.sbprintf(&builder, "}\n#assert(size_of(%s) == %d)\n", name, sizes[name])
 		}
 	}
 	SKIP :: []string{"Nil", "bool", "int", "float", "Object"}
-	for c in jarr(api["builtin_classes"]) {
-		name := jstr(jobj(c), "name")
+	for class_value in jarr(api["builtin_classes"]) {
+		name := jstr(jobj(class_value), "name")
 		if slice.contains(SKIP, name) || name in builtin_layout do continue
 		builtin_opaque[name] = sizes[name]
-		fmt.sbprintf(&b, "%s :: struct #align(8) {{ _opaque: [%d]u8 }}\n", name, sizes[name])
+		fmt.sbprintf(&builder, "%s :: struct #align(8) {{ _opaque: [%d]u8 }}\n", name, sizes[name])
 	}
 	builtin_opaque["Variant"] = sizes["Variant"]
-	fmt.sbprintf(&b, "Variant :: struct #align(8) {{ _opaque: [%d]u8 }}\n\n", sizes["Variant"])
+	fmt.sbprintf(&builder, "Variant :: struct #align(8) {{ _opaque: [%d]u8 }}\n\n", sizes["Variant"])
 
 	// Enums: global + wanted classes. Register names first so method signatures can use them.
-	for e in jarr(api["global_enums"]) {
-		eo := jobj(e)
-		n := jstr(eo, "name")
-		enum_types[n] = enum_name("", n)
+	for enum_value in jarr(api["global_enums"]) {
+		enum_object := jobj(enum_value)
+		global_enum_name := jstr(enum_object, "name")
+		enum_types[global_enum_name] = enum_name("", global_enum_name)
 	}
-	for n in wanted {
-		co := classes[n]
-		for e in jarr(co["enums"]) {
-			en := jstr(jobj(e), "name")
-			enum_types[fmt.aprintf("%s.%s", n, en)] = enum_name(n, en)
+	for class_name in wanted {
+		class_object := classes[class_name]
+		for enum_value in jarr(class_object["enums"]) {
+			enum_local_name := jstr(jobj(enum_value), "name")
+			enum_types[fmt.aprintf("%s.%s", class_name, enum_local_name)] = enum_name(class_name, enum_local_name)
 		}
 	}
-	strings.write_string(&b, "// ---- global enums\n\n")
-	for e in jarr(api["global_enums"]) {
-		eo := jobj(e)
-		emit_enum(&b, enum_name("", jstr(eo, "name")), eo)
+	strings.write_string(&builder, "// ---- global enums\n\n")
+	for enum_value in jarr(api["global_enums"]) {
+		enum_object := jobj(enum_value)
+		emit_enum(&builder, enum_name("", jstr(enum_object, "name")), enum_object)
 	}
 
 	// Opaque builtin constructors / destructors.
-	strings.write_string(&b, "\n// ---- builtin constructors and destructors\n\n")
-	for c in jarr(api["builtin_classes"]) {
-		co := jobj(c)
-		name := jstr(co, "name")
+	strings.write_string(&builder, "\n// ---- builtin constructors and destructors\n\n")
+	for class_value in jarr(api["builtin_classes"]) {
+		class_object := jobj(class_value)
+		name := jstr(class_object, "name")
 		if !(name in builtin_opaque) do continue
-		vt := variant_type_index[variant_key(name)]
-		for ctor in jarr(co["constructors"]) {
-			cto := jobj(ctor)
-			idx := jint(cto, "index")
-			ps := collect_params(jarr(cto["arguments"]), raw_strings = true)
-			for &p in ps do p.def = ""
-			fmt.sbprintf(&b, "%s_new%d :: proc(", name, idx)
-			write_params(&b, "", ps)
-			fmt.sbprintf(&b, ") -> %s {{\n", name)
-			strings.write_string(&b, "\t@(static) _fp: gdi.PtrConstructor\n")
+		variant_index := variant_type_index[variant_key(name)]
+		for ctor in jarr(class_object["constructors"]) {
+			ctor_object := jobj(ctor)
+			idx := jint(ctor_object, "index")
+			params := collect_params(jarr(ctor_object["arguments"]), raw_strings = true)
+			for &param in params do param.def = ""
+			fmt.sbprintf(&builder, "%s_new%d :: proc(", name, idx)
+			write_params(&builder, "", params)
+			fmt.sbprintf(&builder, ") -> %s {{\n", name)
+			strings.write_string(&builder, "\t@(static) _fp: gdi.PtrConstructor\n")
 			fmt.sbprintf(
-				&b,
+				&builder,
 				"\tif _fp == nil do _fp = gdi.variant_get_ptr_constructor(gdi.VariantType(%d), %d)\n",
-				vt,
+				variant_index,
 				idx,
 			)
-			for p, i in ps do emit_arg_in(&b, p.ti, p.name, i)
-			args := write_args_array(&b, ps)
-			fmt.sbprintf(&b, "\t_ret: %s\n\t_fp(&_ret, %s)\n\treturn _ret\n}}\n", name, args)
+			for param, i in params do emit_arg_in(&builder, param.ti, param.name, i)
+			args := write_args_array(&builder, params)
+			fmt.sbprintf(&builder, "\t_ret: %s\n\t_fp(&_ret, %s)\n\treturn _ret\n}}\n", name, args)
 		}
-		if jbool(co, "has_destructor") {
-			fmt.sbprintf(&b, "%s_destroy :: proc(self: ^%s) {{\n", name, name)
-			strings.write_string(&b, "\t@(static) _fp: gdi.PtrDestructor\n")
-			fmt.sbprintf(&b, "\tif _fp == nil do _fp = gdi.variant_get_ptr_destructor(gdi.VariantType(%d))\n", vt)
-			strings.write_string(&b, "\t_fp(self)\n}\n")
+		if jbool(class_object, "has_destructor") {
+			fmt.sbprintf(&builder, "%s_destroy :: proc(self: ^%s) {{\n", name, name)
+			strings.write_string(&builder, "\t@(static) _fp: gdi.PtrDestructor\n")
+			fmt.sbprintf(
+				&builder,
+				"\tif _fp == nil do _fp = gdi.variant_get_ptr_destructor(gdi.VariantType(%d))\n",
+				variant_index,
+			)
+			strings.write_string(&builder, "\t_fp(self)\n}\n")
 		}
 	}
 
 	// Builtin methods for the whitelisted builtins.
-	strings.write_string(&b, "\n// ---- builtin methods\n\n")
-	for c in jarr(api["builtin_classes"]) {
-		co := jobj(c)
-		name := jstr(co, "name")
-		if !slice.contains(bi_list, name) do continue
-		vt := variant_type_index[variant_key(name)]
-		for m in jarr(co["methods"]) do gen_builtin_method(&b, name, vt, jobj(m))
+	strings.write_string(&builder, "\n// ---- builtin methods\n\n")
+	for class_value in jarr(api["builtin_classes"]) {
+		class_object := jobj(class_value)
+		name := jstr(class_object, "name")
+		if !slice.contains(builtin_list, name) do continue
+		variant_index := variant_type_index[variant_key(name)]
+		for method in jarr(class_object["methods"]) do gen_builtin_method(&builder, name, variant_index, jobj(method))
 	}
 
 	// Classes.
 	names := make([dynamic]string)
-	for n in wanted do append(&names, n)
+	for class_name in wanted do append(&names, class_name)
 	slice.sort(names[:])
 	singletons: map[string]bool
-	for s in jarr(api["singletons"]) do singletons[jstr(jobj(s), "name")] = true
+	for singleton in jarr(api["singletons"]) do singletons[jstr(jobj(singleton), "name")] = true
 
-	for n in names {
+	for class_name in names {
 		stats.classes += 1
-		co := classes[n]
-		fmt.sbprintf(&b, "\n// ---- class %s\n\n", n)
-		parent := jstr(co, "inherits")
+		class_object := classes[class_name]
+		fmt.sbprintf(&builder, "\n// ---- class %s\n\n", class_name)
+		parent := jstr(class_object, "inherits")
 		if parent == "" {
-			fmt.sbprintf(&b, "%s :: struct {{ ptr: rawptr }}\n", n)
+			fmt.sbprintf(&builder, "%s :: struct {{ ptr: rawptr }}\n", class_name)
 		} else {
-			fmt.sbprintf(&b, "%s :: struct {{ using %s: %s }}\n", n, snake_field(parent), parent)
+			fmt.sbprintf(&builder, "%s :: struct {{ using %s: %s }}\n", class_name, snake_field(parent), parent)
 		}
-		fmt.sbprintf(&b, "%s_CLASS :: \"%s\"\n", n, n)
-		if jbool(co, "is_instantiable") && !singletons[n] {
-			t := is_refcounted(n) ? fmt.aprintf("Ref(%s)", n) : n
-			fmt.sbprintf(&b, "%s_new :: proc() -> %s {{ return transmute(%s)construct_object(\"%s\") }}\n", n, t, t, n)
+		fmt.sbprintf(&builder, "%s_CLASS :: \"%s\"\n", class_name, class_name)
+		if jbool(class_object, "is_instantiable") && !singletons[class_name] {
+			type_name := is_refcounted(class_name) ? fmt.aprintf("Ref(%s)", class_name) : class_name
+			fmt.sbprintf(
+				&builder,
+				"%s_new :: proc() -> %s {{ return transmute(%s)construct_object(\"%s\") }}\n",
+				class_name,
+				type_name,
+				type_name,
+				class_name,
+			)
 		}
-		if singletons[n] {
-			fmt.sbprintf(&b, "%s_singleton :: proc() -> %s {{\n", n, n)
-			strings.write_string(&b, "\t@(static) _s: rawptr\n")
-			fmt.sbprintf(&b, "\tif _s == nil do _s = get_singleton(\"%s\")\n", n)
-			fmt.sbprintf(&b, "\treturn transmute(%s)_s\n}}\n", n)
+		if singletons[class_name] {
+			fmt.sbprintf(&builder, "%s_singleton :: proc() -> %s {{\n", class_name, class_name)
+			strings.write_string(&builder, "\t@(static) _s: rawptr\n")
+			fmt.sbprintf(&builder, "\tif _s == nil do _s = get_singleton(\"%s\")\n", class_name)
+			fmt.sbprintf(&builder, "\treturn transmute(%s)_s\n}}\n", class_name)
 		}
-		for c in jarr(co["constants"]) {
-			cco := jobj(c)
-			fmt.sbprintf(&b, "%s_%s :: %d\n", n, jstr(cco, "name"), jint(cco, "value"))
+		for constant in jarr(class_object["constants"]) {
+			constant_object := jobj(constant)
+			fmt.sbprintf(
+				&builder,
+				"%s_%s :: %d\n",
+				class_name,
+				jstr(constant_object, "name"),
+				jint(constant_object, "value"),
+			)
 		}
-		for e in jarr(co["enums"]) {
-			eo := jobj(e)
-			emit_enum(&b, enum_name(n, jstr(eo, "name")), eo)
+		for enum_value in jarr(class_object["enums"]) {
+			enum_object := jobj(enum_value)
+			emit_enum(&builder, enum_name(class_name, jstr(enum_object, "name")), enum_object)
 		}
-		for m in jarr(co["methods"]) do gen_class_method(&b, n, jobj(m))
+		for method in jarr(class_object["methods"]) do gen_class_method(&builder, class_name, jobj(method))
 	}
-	return strings.to_string(b)
+	return strings.to_string(builder)
 }
 
-read_list :: proc(path: string) -> (cls, bi: []string) {
+read_list :: proc(path: string) -> (class_names, builtin_names: []string) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		fmt.eprintln("cannot read", path)
 		os.exit(1)
 	}
-	c := make([dynamic]string)
-	bl := make([dynamic]string)
+	class_list := make([dynamic]string)
+	builtin_list := make([dynamic]string)
 	section := ""
 	for line in strings.split_lines(string(data)) {
-		l := strings.trim_space(line)
-		if l == "" || l[0] == '#' do continue
-		if l[0] == '[' {
-			section = l
+		trimmed := strings.trim_space(line)
+		if trimmed == "" || trimmed[0] == '#' do continue
+		if trimmed[0] == '[' {
+			section = trimmed
 			continue
 		}
-		if section == "[classes]" do append(&c, l)
-		else if section == "[builtins]" do append(&bl, l)
+		if section == "[classes]" do append(&class_list, trimmed)
+		else if section == "[builtins]" do append(&builtin_list, trimmed)
 	}
-	return c[:], bl[:]
+	return class_list[:], builtin_list[:]
 }
 
-write_file :: proc(path: string, s: string) {
-	if err := os.write_entire_file(path, transmute([]u8)s); err != nil {
+write_file :: proc(path: string, text: string) {
+	if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
 		fmt.eprintln("cannot write", path, err)
 		os.exit(1)
 	}
@@ -943,10 +1033,10 @@ main :: proc() {
 	api_dir, list_path, out_dir := os.args[1], os.args[2], os.args[3]
 	iface := load_json(fmt.aprintf("%s/gdextension_interface.json", api_dir))
 	api := load_json(fmt.aprintf("%s/extension_api.json", api_dir))
-	cls, bi := read_list(list_path)
+	class_names, builtin_names := read_list(list_path)
 
 	write_file(fmt.aprintf("%s/gdi/gdi.gen.odin", out_dir), gen_interface(iface))
-	write_file(fmt.aprintf("%s/api.gen.odin", out_dir), gen_api(api, cls, bi))
+	write_file(fmt.aprintf("%s/api.gen.odin", out_dir), gen_api(api, class_names, builtin_names))
 	fmt.printf(
 		"gen: %d classes (incl. ancestors), %d methods (%d vararg, %d with ^StringName overloads), %d builtin methods; skipped %d vararg, %d virtual\n",
 		stats.classes,

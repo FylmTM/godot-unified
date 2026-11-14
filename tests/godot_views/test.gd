@@ -1,7 +1,7 @@
 # godot_host view tests: run headless by `uni test --suite godot-bindings`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that 2D and 3D scene views spawn, get their pose and
 # _sim_update and their typed data as properties, that 2D and 3D bulk views get their MultiMesh buffers, that
-# verified events also come as sim_event_2d, and that send_command converts a Dictionary into the toy's commands
+# events reach the sim_event signal and the views with their fields converted and their states, and that send_command converts a Dictionary into the toy's commands
 # (and refuses what doesn't fit, with an error line the suite expects). Prints one line per check and
 # "VIEWS TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
@@ -62,8 +62,9 @@ func _initialize() -> void:
 	world.add_child(views)
 	var session = ClassDB.instantiate("UnifiedSession")
 	root.add_child(session)
-	var events_2d := []
-	session.sim_event_2d.connect(func(kind, _tick, _entity, position, _value): events_2d.append([kind, position]))
+	var events := []
+	session.sim_event.connect(func(event: StringName, state: int, data: Dictionary) -> void:
+		events.append([event, state, data]))
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("send_command without a session: false", not session.send_command(&"bump", {"amount": 1}))
@@ -75,7 +76,7 @@ func _initialize() -> void:
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
 		if typed != null and typed.updates > 1 and typed.ticks_sets > 2 and typed_bulk.multimesh.visible_instance_count == 2 \
-				and events_2d.size() > 0:
+				and events.any(func(e: Array) -> bool: return e[0] == &"expired" and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned", typed != null and typed is SimView2D, typed)
 	if typed == null:
@@ -86,7 +87,7 @@ func _initialize() -> void:
 	check("_sim_update(Vector2, rotation, alpha)", typed.last_position is Vector2 \
 		and typed.last_position.is_equal_approx(POS_2D) and near(typed.last_rotation, ANGLE_2D),
 		[typed.last_position, typed.last_rotation])
-	check("typed 2D view properties", typed.slot == 0 and typed.kind == &"typed2d", [typed.slot, typed.kind])
+	check("typed 2D view properties", typed.player == 0 and typed.kind == &"typed2d", [typed.player, typed.kind])
 	var plain := child_of_kind(views, "plain2d")
 	check("plain Node2D view", plain != null and plain.entity == 7 and plain.updates > 0 \
 		and plain.position.is_equal_approx(POS_2D + Vector2(10, 0)), plain)
@@ -94,10 +95,7 @@ func _initialize() -> void:
 	check("3D view under a 2D root", p3 is Node3D and p3.position.is_equal_approx(POS_3D) \
 		and near(p3.rotation.y, YAW_3D) and p3.last_position is Vector3 and near(p3.last_yaw, YAW_3D),
 		[p3.position, p3.rotation] if p3 else null)
-	var joined: Array = typed.events.filter(func(e): return e[0] == &"joined")
-	check("_sim_event on the 2D view, position a Vector2", joined.size() > 0 \
-		and joined[0][1].get("position") is Vector2, typed.events)
-	check("sim_event_2d with a Vector2 position", events_2d.size() > 0 and events_2d[0][1] is Vector2, events_2d)
+	check_events(events, typed)
 	check("scene data as properties", typed.shown and typed.mode == 1 and typed.hp == -3 and near(typed.charge, 0.5) \
 		and typed.dir.is_equal_approx(Vector2(0.6, -0.8)) and typed.tint.is_equal_approx(Color(1, 0.5, 0.25, 1)),
 		[typed.shown, typed.mode, typed.hp, typed.charge, typed.dir, typed.tint])
@@ -131,6 +129,34 @@ func _initialize() -> void:
 		and near_all(b3.slice(12, 16), [0, 1, 0, 1]), [m3.visible_instance_count, t3])
 	await check_commands(session)
 	finish(session)
+
+# The events: every one on the sim_event signal, EMITTED once and then CONFIRMED or CANCELLED once; its fields
+# converted by type; the subject's view gets them too (the player's view: the toy's things have no scene view, so
+# `spawned` falls back to its player).
+func check_events(events: Array, typed: Node) -> void:
+	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
+		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
+		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
+	var joined: Array = events.filter(func(e: Array) -> bool: return e[0] == &"joined")
+	check("sim_event: joined, player 0, tick 1", joined.size() > 0 and joined[0][2].player == 0 \
+		and joined[0][2].tick == 1, joined)
+	check("joined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
+		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
+	var spawned: Array = events.filter(func(e: Array) -> bool: return e[0] == &"spawned")
+	var data: Dictionary = spawned[0][2] if spawned.size() > 0 else {}
+	check("spawned: a handle as its key, the position a Vector2 in view units, the enum by name",
+		data.get("thing", 0) is int and data.get("thing", 0) > 0 and data.get("position") is Vector2 \
+		and data.position.x > 1 and data.get("shape") in ["dot", "ring", "star"] and data.get("player") == 0 \
+		and not data.has("_pad") and data.get("tick") == 5 and data.keys().size() == 5, data)
+	check("spawned: emitted, then confirmed (first seen at verification too)",
+		spawned.map(func(e: Array) -> int: return e[1]) \
+		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
+	var expired: Array = events.filter(func(e: Array) -> bool: return e[0] == &"expired")
+	check("expired: the same thing's key, confirmed last", expired.size() > 0 \
+		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and expired[-1][2].thing == data.get("thing"), expired)
+	var on_view: Array = typed.events.filter(func(e: Array) -> bool: return e[0] in [&"joined", &"spawned"])
+	check("the player's view gets its events in both states, position a Vector2", on_view.size() >= 4 \
+		and on_view.any(func(e: Array) -> bool: return e[0] == &"spawned" and e[2].position is Vector2), typed.events)
 
 const MARK := {"at": Vector2(1.5, -2), "normal": Vector3(0, 1, 0), "weight": 0.25, "count": -300,
 	"shape": "star", "shapes": ["Dot", 2], "loud": true}

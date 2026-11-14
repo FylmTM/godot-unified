@@ -1,12 +1,12 @@
 // What a UI shows, derived from the state on the session thread: the data behind the GDScript
-// `UnifiedSession.hud()` contract (the host adds local_slot and converts to a Dictionary, see
+// `UnifiedSession.hud()` contract (the host adds local_player and converts to a Dictionary, see
 // extension.odin). View code, not simulation code: f32 for display only.
 package survivor_extension
 
 import "../survivor"
 
 Hud_Player :: struct {
-	slot:             int,
+	player:           int,
 	present:          bool,
 	alive:            bool,
 	hp:               i32,
@@ -27,7 +27,7 @@ Hud :: struct {
 	enemies_alive: i32,
 	circle_radius: f32, // the start circle (lobby), 0 otherwise
 	matches:       u32,
-	players:       [survivor.MAX_PLAYERS]Hud_Player,
+	players:       [survivor.PLAYERS]Hud_Player,
 }
 
 @(rodata)
@@ -37,34 +37,34 @@ PHASE_NAMES := [survivor.Phase]string {
 	.Over  = "over",
 }
 
-hud_of :: proc(s: ^survivor.State, tick: u32) -> (h: Hud) {
-	h.phase = s.phase
-	h.phase_name = PHASE_NAMES[s.phase]
-	h.tick = tick
-	switch s.phase {
+hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Hud) {
+	hud.phase = state.phase
+	hud.phase_name = PHASE_NAMES[state.phase]
+	hud.tick = tick
+	switch state.phase {
 	case .Lobby:
 	case .Match:
-		h.time_s = f32(tick - s.match_tick) * survivor.DT
-		h.wave = s.wave + 1
+		hud.time_s = f32(tick - state.match_tick) * survivor.DT
+		hud.wave = state.wave + 1
 	case .Over:
-		h.time_s = f32(s.over_tick - s.match_tick) * survivor.DT
-		h.wave = s.wave + 1
+		hud.time_s = f32(state.over_tick - state.match_tick) * survivor.DT
+		hud.wave = state.wave + 1
 	}
-	h.enemies_alive = s.enemies.count
-	h.circle_radius = s.circle_radius
-	h.matches = s.matches
-	for &pl, p in s.players {
-		h.players[p] = {
-			slot             = p,
-			present          = pl.active,
-			alive            = pl.alive,
-			hp               = max(pl.hp, 0),
+	hud.enemies_alive = state.enemies.count
+	hud.circle_radius = state.circle_radius
+	hud.matches = state.matches
+	for &character, player in state.players {
+		hud.players[player] = {
+			player           = player,
+			present          = character.active,
+			alive            = character.alive,
+			hp               = max(character.hp, 0),
 			hp_max           = survivor.PLAYER_HP,
-			xp               = pl.xp,
-			xp_next          = survivor.xp_next(s, pl.level),
-			level            = pl.level,
-			pending_levelups = pl.pending_levelups,
-			respawn_s        = pl.alive || !pl.active ? 0 : f32(pl.respawn) * survivor.DT,
+			xp               = character.xp,
+			xp_next          = survivor.xp_next(state, character.level),
+			level            = character.level,
+			pending_levelups = character.pending_levelups,
+			respawn_s        = character.alive || !character.active ? 0 : f32(character.respawn) * survivor.DT,
 		}
 	}
 	return

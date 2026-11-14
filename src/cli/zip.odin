@@ -23,7 +23,7 @@ Zip_Entry :: struct {
 // Reads `n` bytes at `offset` of the archive.
 Zip_Reader :: struct {
 	size:      i64,
-	read_at:   proc(r: ^Zip_Reader, offset, n: i64) -> []byte,
+	read_at:   proc(reader: ^Zip_Reader, offset, count: i64) -> []byte,
 	path:      string, // a local file
 	url:       string, // or a remote one, read with ranged GETs
 	fetched:   i64,
@@ -32,20 +32,20 @@ Zip_Reader :: struct {
 }
 
 zip_open_file :: proc(path: string) -> Zip_Reader {
-	fi, err := os.stat(path, context.temp_allocator)
+	info, err := os.stat(path, context.temp_allocator)
 	if err != nil {
 		fatal("cannot read %s", path)
 	}
-	return {size = fi.size, path = path, read_at = proc(r: ^Zip_Reader, offset, n: i64) -> []byte {
-			f, err := os.open(r.path)
+	return {size = info.size, path = path, read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
+			file, err := os.open(reader.path)
 			if err != nil {
-				fatal("cannot open %s", r.path)
+				fatal("cannot open %s", reader.path)
 			}
-			defer os.close(f)
-			buf := make([]byte, n)
-			got, rerr := os.read_at(f, buf, offset)
-			if rerr != nil || i64(got) != n {
-				fatal("%s: short read at %d", r.path, offset)
+			defer os.close(file)
+			buf := make([]byte, count)
+			got, read_err := os.read_at(file, buf, offset)
+			if read_err != nil || i64(got) != count {
+				fatal("%s: short read at %d", reader.path, offset)
 			}
 			return buf
 		}}
@@ -61,17 +61,19 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 	size: i64 = -1
 	text := head.stdout
 	for line in strings.split_lines_iterator(&text) {
-		l := strings.to_lower(strings.trim_space(line), context.temp_allocator)
-		if strings.has_prefix(l, "content-length:") {
-			size = parse_i64(strings.trim_space(l[len("content-length:"):])) // the last one: after redirects
+		lowered := strings.to_lower(strings.trim_space(line), context.temp_allocator)
+		if strings.has_prefix(lowered, "content-length:") {
+			size = parse_i64(strings.trim_space(lowered[len("content-length:"):])) // the last one: after redirects
 		}
 	}
 	if size <= 0 {
 		fatal("%s: no Content-Length", url)
 	}
-	return {size = size, url = url, read_at = proc(r: ^Zip_Reader, offset, n: i64) -> []byte {
-			if offset >= r.cache_off && offset + n <= r.cache_off + i64(len(r.cache)) && len(r.cache) > 0 {
-				return r.cache[offset - r.cache_off:][:n]
+	return {size = size, url = url, read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
+			if offset >= reader.cache_off &&
+			   offset + count <= reader.cache_off + i64(len(reader.cache)) &&
+			   len(reader.cache) > 0 {
+				return reader.cache[offset - reader.cache_off:][:count]
 			}
 			tmp := join(state.project.out, "tmp", tprint("range-%d", os.get_pid()))
 			make_dirs(os.dir(tmp))
@@ -84,29 +86,29 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 						"5",
 						"--retry-all-errors",
 						"-r",
-						tprint("%d-%d", offset, offset + n - 1),
+						tprint("%d-%d", offset, offset + count - 1),
 						"-o",
 						tmp,
-						r.url,
+						reader.url,
 					},
 					quiet = true,
 				},
-				tprint("range GET %s", r.url),
+				tprint("range GET %s", reader.url),
 			)
 			data, err := os.read_entire_file(tmp, context.allocator)
 			os.remove(tmp)
-			if err != nil || i64(len(data)) != n {
-				fatal("%s: range %d+%d returned %d bytes", r.url, offset, n, len(data))
+			if err != nil || i64(len(data)) != count {
+				fatal("%s: range %d+%d returned %d bytes", reader.url, offset, count, len(data))
 			}
-			r.fetched += n
+			reader.fetched += count
 			return data
 		}}
 }
 
 // The archive's members, from its central directory.
-zip_entries :: proc(r: ^Zip_Reader) -> []Zip_Entry {
-	tail_len := min(r.size, 65536 + 22)
-	tail := r.read_at(r, r.size - tail_len, tail_len)
+zip_entries :: proc(reader: ^Zip_Reader) -> []Zip_Entry {
+	tail_len := min(reader.size, 65536 + 22)
+	tail := reader.read_at(reader, reader.size - tail_len, tail_len)
 	eocd := -1
 	for i := len(tail) - 22; i >= 0; i -= 1 {
 		if le32(tail, i) == 0x06054b50 {
@@ -127,82 +129,82 @@ zip_entries :: proc(r: ^Zip_Reader) -> []Zip_Entry {
 			fatal("zip64 archive without its locator")
 		}
 		rec_off := i64(le64(tail, loc + 8))
-		rec := r.read_at(r, rec_off, 56)
+		rec := reader.read_at(reader, rec_off, 56)
 		count = i64(le64(rec, 32))
 		cd_size = i64(le64(rec, 40))
 		cd_off = i64(le64(rec, 48))
 	}
-	cd := r.read_at(r, cd_off, cd_size)
-	r.cache, r.cache_off = cd, cd_off
+	cd := reader.read_at(reader, cd_off, cd_size)
+	reader.cache, reader.cache_off = cd, cd_off
 	entries := make([]Zip_Entry, count)
-	p := 0
+	cursor := 0
 	for i in 0 ..< count {
-		if le32(cd, p) != 0x02014b50 {
+		if le32(cd, cursor) != 0x02014b50 {
 			fatal("bad central directory entry %d", i)
 		}
-		e := &entries[i]
-		made_by := le16(cd, p + 4)
-		e.method = le16(cd, p + 10)
-		e.crc = le32(cd, p + 16)
-		e.packed_size = i64(le32(cd, p + 20))
-		e.size = i64(le32(cd, p + 24))
-		name_len := int(le16(cd, p + 28))
-		extra_len := int(le16(cd, p + 30))
-		comment_len := int(le16(cd, p + 32))
-		external := le32(cd, p + 38)
-		e.local_offset = i64(le32(cd, p + 42))
-		e.name = strings.clone(string(cd[p + 46:][:name_len]))
+		entry := &entries[i]
+		made_by := le16(cd, cursor + 4)
+		entry.method = le16(cd, cursor + 10)
+		entry.crc = le32(cd, cursor + 16)
+		entry.packed_size = i64(le32(cd, cursor + 20))
+		entry.size = i64(le32(cd, cursor + 24))
+		name_len := int(le16(cd, cursor + 28))
+		extra_len := int(le16(cd, cursor + 30))
+		comment_len := int(le16(cd, cursor + 32))
+		external := le32(cd, cursor + 38)
+		entry.local_offset = i64(le32(cd, cursor + 42))
+		entry.name = strings.clone(string(cd[cursor + 46:][:name_len]))
 		if made_by >> 8 == 3 {
-			e.mode = external >> 16 // made on Unix
+			entry.mode = external >> 16 // made on Unix
 		}
 		// Zip64 extra field: the 0xFFFFFFFF values follow in order.
-		x := p + 46 + name_len
-		for x + 4 <= p + 46 + name_len + extra_len {
-			id, n := le16(cd, x), int(le16(cd, x + 2))
+		extra_pos := cursor + 46 + name_len
+		for extra_pos + 4 <= cursor + 46 + name_len + extra_len {
+			id, field_len := le16(cd, extra_pos), int(le16(cd, extra_pos + 2))
 			if id == 1 {
-				q := x + 4
-				if e.size == 0xFFFFFFFF {
-					e.size = i64(le64(cd, q))
-					q += 8
+				value_pos := extra_pos + 4
+				if entry.size == 0xFFFFFFFF {
+					entry.size = i64(le64(cd, value_pos))
+					value_pos += 8
 				}
-				if e.packed_size == 0xFFFFFFFF {
-					e.packed_size = i64(le64(cd, q))
-					q += 8
+				if entry.packed_size == 0xFFFFFFFF {
+					entry.packed_size = i64(le64(cd, value_pos))
+					value_pos += 8
 				}
-				if e.local_offset == 0xFFFFFFFF {
-					e.local_offset = i64(le64(cd, q))
+				if entry.local_offset == 0xFFFFFFFF {
+					entry.local_offset = i64(le64(cd, value_pos))
 				}
 			}
-			x += 4 + n
+			extra_pos += 4 + field_len
 		}
-		p += 46 + name_len + extra_len + comment_len
+		cursor += 46 + name_len + extra_len + comment_len
 	}
 	return entries
 }
 
 // One member's content, checked against its CRC.
-zip_read :: proc(r: ^Zip_Reader, e: Zip_Entry) -> []byte {
-	local := r.read_at(r, e.local_offset, 30)
+zip_read :: proc(reader: ^Zip_Reader, entry: Zip_Entry) -> []byte {
+	local := reader.read_at(reader, entry.local_offset, 30)
 	if le32(local, 0) != 0x04034b50 {
-		fatal("%s: bad local header", e.name)
+		fatal("%s: bad local header", entry.name)
 	}
-	start := e.local_offset + 30 + i64(le16(local, 26)) + i64(le16(local, 28))
-	packed := r.read_at(r, start, e.packed_size)
+	start := entry.local_offset + 30 + i64(le16(local, 26)) + i64(le16(local, 28))
+	packed := reader.read_at(reader, start, entry.packed_size)
 	data: []byte
-	switch e.method {
+	switch entry.method {
 	case 0:
 		data = packed
 	case 8:
 		out: [dynamic]byte
-		if err := deflate.inflate_raw(&out, packed, int(e.size)); err != nil {
-			fatal("%s: inflate failed: %v", e.name, err)
+		if err := deflate.inflate_raw(&out, packed, int(entry.size)); err != nil {
+			fatal("%s: inflate failed: %v", entry.name, err)
 		}
 		data = out[:]
 	case:
-		fatal("%s: unsupported compression method %d", e.name, e.method)
+		fatal("%s: unsupported compression method %d", entry.name, entry.method)
 	}
-	if i64(len(data)) != e.size || hash.crc32(data) != e.crc {
-		fatal("%s: corrupt (size or CRC mismatch)", e.name)
+	if i64(len(data)) != entry.size || hash.crc32(data) != entry.crc {
+		fatal("%s: corrupt (size or CRC mismatch)", entry.name)
 	}
 	return data
 }
@@ -213,16 +215,16 @@ S_IFDIR :: 0o040000
 
 // Extracts every member under `dest` (refusing names that would escape it), keeping Unix modes and symlinks (a
 // macOS .app has both). `strip_top`: an archive of one top folder, whose contents go straight into `dest`.
-zip_extract_all :: proc(r: ^Zip_Reader, dest: string, strip_top := false) {
-	for e in zip_entries(r) {
-		if strings.has_prefix(e.name, "/") || strings.contains(e.name, "..") {
-			fatal("unexpected path in the archive: %s", e.name)
+zip_extract_all :: proc(reader: ^Zip_Reader, dest: string, strip_top := false) {
+	for entry in zip_entries(reader) {
+		if strings.has_prefix(entry.name, "/") || strings.contains(entry.name, "..") {
+			fatal("unexpected path in the archive: %s", entry.name)
 		}
-		name := e.name
+		name := entry.name
 		if strip_top {
 			slash := strings.index_byte(name, '/')
 			if slash < 0 {
-				fatal("%s is outside the archive's top folder", e.name)
+				fatal("%s is outside the archive's top folder", entry.name)
 			}
 			name = name[slash + 1:]
 			if name == "" {
@@ -230,13 +232,13 @@ zip_extract_all :: proc(r: ^Zip_Reader, dest: string, strip_top := false) {
 			}
 		}
 		path := join(dest, name)
-		if strings.has_suffix(e.name, "/") || e.mode & S_IFMT == S_IFDIR {
+		if strings.has_suffix(entry.name, "/") || entry.mode & S_IFMT == S_IFDIR {
 			make_dirs(path)
 			continue
 		}
-		data := zip_read(r, e)
+		data := zip_read(reader, entry)
 		make_dirs(os.dir(path))
-		if e.mode & S_IFMT == S_IFLNK {
+		if entry.mode & S_IFMT == S_IFLNK {
 			os.remove(path)
 			if os.symlink(string(data), path) != nil {
 				fatal("cannot create the symlink %s", path)
@@ -246,8 +248,8 @@ zip_extract_all :: proc(r: ^Zip_Reader, dest: string, strip_top := false) {
 		if !write_file(path, data) {
 			fatal("cannot write %s", path)
 		}
-		if e.mode & 0o111 != 0 {
-			os.change_mode(path, os.perm_number(int(e.mode & 0o777)))
+		if entry.mode & 0o111 != 0 {
+			os.change_mode(path, os.perm_number(int(entry.mode & 0o777)))
 		}
 		delete(data)
 	}
@@ -263,103 +265,103 @@ Zip_Writer :: struct {
 
 // Adds a file. Fixed timestamps (1980-01-01) make the archive reproducible: packing the same files gives the same
 // bytes.
-zip_add :: proc(w: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o644) {
+zip_add :: proc(writer: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o644) {
 	packed: [dynamic]byte
 	if err := deflate.deflate_raw(&packed, data, .Level_6); err != nil {
 		fatal("deflate failed for %s: %v", name, err)
 	}
 	crc := hash.crc32(data)
-	if len(data) >= 0xFFFFFFFF || len(w.buf) >= 0xFFFFFFFF {
+	if len(data) >= 0xFFFFFFFF || len(writer.buf) >= 0xFFFFFFFF {
 		fatal("%s: archives over 4 GB are not supported", name)
 	}
-	offset := u32(len(w.buf))
+	offset := u32(len(writer.buf))
 	DOS_DATE :: u16((1980 - 1980) << 9 | 1 << 5 | 1)
 	// local header
-	put32(&w.buf, 0x04034b50)
-	put16(&w.buf, 20)
-	put16(&w.buf, 0x0800) // UTF-8 names
-	put16(&w.buf, 8)
-	put16(&w.buf, 0)
-	put16(&w.buf, DOS_DATE)
-	put32(&w.buf, crc)
-	put32(&w.buf, u32(len(packed)))
-	put32(&w.buf, u32(len(data)))
-	put16(&w.buf, u16(len(name)))
-	put16(&w.buf, 0)
-	append(&w.buf, name)
-	append(&w.buf, ..packed[:])
+	put32(&writer.buf, 0x04034b50)
+	put16(&writer.buf, 20)
+	put16(&writer.buf, 0x0800) // UTF-8 names
+	put16(&writer.buf, 8)
+	put16(&writer.buf, 0)
+	put16(&writer.buf, DOS_DATE)
+	put32(&writer.buf, crc)
+	put32(&writer.buf, u32(len(packed)))
+	put32(&writer.buf, u32(len(data)))
+	put16(&writer.buf, u16(len(name)))
+	put16(&writer.buf, 0)
+	append(&writer.buf, name)
+	append(&writer.buf, ..packed[:])
 	// central directory entry
-	put32(&w.central, 0x02014b50)
-	put16(&w.central, 3 << 8 | 20) // made on Unix
-	put16(&w.central, 20)
-	put16(&w.central, 0x0800)
-	put16(&w.central, 8)
-	put16(&w.central, 0)
-	put16(&w.central, DOS_DATE)
-	put32(&w.central, crc)
-	put32(&w.central, u32(len(packed)))
-	put32(&w.central, u32(len(data)))
-	put16(&w.central, u16(len(name)))
-	put16(&w.central, 0)
-	put16(&w.central, 0)
-	put16(&w.central, 0)
-	put16(&w.central, 0)
-	put32(&w.central, (0o100000 | mode) << 16)
-	put32(&w.central, offset)
-	append(&w.central, name)
-	w.count += 1
+	put32(&writer.central, 0x02014b50)
+	put16(&writer.central, 3 << 8 | 20) // made on Unix
+	put16(&writer.central, 20)
+	put16(&writer.central, 0x0800)
+	put16(&writer.central, 8)
+	put16(&writer.central, 0)
+	put16(&writer.central, DOS_DATE)
+	put32(&writer.central, crc)
+	put32(&writer.central, u32(len(packed)))
+	put32(&writer.central, u32(len(data)))
+	put16(&writer.central, u16(len(name)))
+	put16(&writer.central, 0)
+	put16(&writer.central, 0)
+	put16(&writer.central, 0)
+	put16(&writer.central, 0)
+	put32(&writer.central, (0o100000 | mode) << 16)
+	put32(&writer.central, offset)
+	append(&writer.central, name)
+	writer.count += 1
 	delete(packed)
 }
 
-zip_finish :: proc(w: ^Zip_Writer) -> []byte {
-	cd_off := u32(len(w.buf))
-	append(&w.buf, ..w.central[:])
-	put32(&w.buf, 0x06054b50)
-	put16(&w.buf, 0)
-	put16(&w.buf, 0)
-	put16(&w.buf, u16(w.count))
-	put16(&w.buf, u16(w.count))
-	put32(&w.buf, u32(len(w.central)))
-	put32(&w.buf, cd_off)
-	put16(&w.buf, 0)
-	return w.buf[:]
+zip_finish :: proc(writer: ^Zip_Writer) -> []byte {
+	cd_off := u32(len(writer.buf))
+	append(&writer.buf, ..writer.central[:])
+	put32(&writer.buf, 0x06054b50)
+	put16(&writer.buf, 0)
+	put16(&writer.buf, 0)
+	put16(&writer.buf, u16(writer.count))
+	put16(&writer.buf, u16(writer.count))
+	put32(&writer.buf, u32(len(writer.central)))
+	put32(&writer.buf, cd_off)
+	put16(&writer.buf, 0)
+	return writer.buf[:]
 }
 
 @(private)
-le16 :: proc(b: []byte, at: int) -> u16 {
-	v, _ := endian.get_u16(b[at:], .Little)
-	return v
+le16 :: proc(bytes: []byte, at: int) -> u16 {
+	value, _ := endian.get_u16(bytes[at:], .Little)
+	return value
 }
 
 @(private)
-le32 :: proc(b: []byte, at: int) -> u32 {
-	v, _ := endian.get_u32(b[at:], .Little)
-	return v
+le32 :: proc(bytes: []byte, at: int) -> u32 {
+	value, _ := endian.get_u32(bytes[at:], .Little)
+	return value
 }
 
 @(private)
-le64 :: proc(b: []byte, at: int) -> u64 {
-	v, _ := endian.get_u64(b[at:], .Little)
-	return v
+le64 :: proc(bytes: []byte, at: int) -> u64 {
+	value, _ := endian.get_u64(bytes[at:], .Little)
+	return value
 }
 
 @(private)
-put16 :: proc(b: ^[dynamic]byte, v: u16) {
-	append(b, byte(v), byte(v >> 8))
+put16 :: proc(bytes: ^[dynamic]byte, value: u16) {
+	append(bytes, byte(value), byte(value >> 8))
 }
 
 @(private)
-put32 :: proc(b: ^[dynamic]byte, v: u32) {
-	append(b, byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24))
+put32 :: proc(bytes: ^[dynamic]byte, value: u32) {
+	append(bytes, byte(value), byte(value >> 8), byte(value >> 16), byte(value >> 24))
 }
 
-parse_i64 :: proc(s: string) -> i64 {
-	n: i64
-	for c in s {
-		if c < '0' || c > '9' {
+parse_i64 :: proc(text: string) -> i64 {
+	number: i64
+	for character in text {
+		if character < '0' || character > '9' {
 			break
 		}
-		n = n * 10 + i64(c - '0')
+		number = number * 10 + i64(character - '0')
 	}
-	return n
+	return number
 }

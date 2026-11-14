@@ -90,8 +90,10 @@ holding.
 
 **Deterministic sim** (`simulation/friendslop`, block + Box3D): bodies (players, items, platforms, gates), joints
 (mover, pogo, hold), controller state, holds, throws, stuns, pads, plates, triggers, checkpoints, the run timer,
-phases and events (grabbed, dropped, thrown, hit, launched, landed, broke free, checkpoint, run start and finish,
-fell, respawned, plate on/off, bell rung).
+phases and events (`Event` in `state.odin`: player joined and left, jumped, launched, grabbed, dropped, thrown,
+hit, broke free, fell, respawned, checkpoint, run started and finished, plate on and off, bell rung, switch on).
+Each event is its own struct: `player` when it is about a player, `entity` (the level marker index + 1) when it is
+about an item, plate, bell, switch or lock, `position` in metres, and its own values (speed, mass, seconds).
 
 **Godot only:** the camera (orbit, collision, smoothing; it produces the input's aim), character animation
 (procedural squash, lean, wobble, stun tumble, arms), the level scene's own meshes and lights, materials,
@@ -120,7 +122,7 @@ runtime; the default levels are embedded too, so headless runs need no path.
 
 ## Art
 
-Greybox with primitives and toon shading: bright pastel players (one colour per slot, googly eyes), items colour-
+Greybox with primitives and toon shading: bright pastel players (one colour per player, googly eyes), items colour-
 coded by weight (light yellow, medium blue, heavy red with handles), striped platforms, glowing pads, flag
 checkpoints. Sounds synthesized at boot, as in the survivor.
 

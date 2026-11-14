@@ -12,244 +12,244 @@ import "unified:sim"
 import "unified:wire"
 
 Fuzz :: struct {
-	x: u32,
+	state: u32,
 }
 
-fz_next :: proc(f: ^Fuzz) -> u32 {
-	f.x ~= f.x << 13
-	f.x ~= f.x >> 17
-	f.x ~= f.x << 5
-	return f.x
+fuzz_next :: proc(fuzz: ^Fuzz) -> u32 {
+	fuzz.state ~= fuzz.state << 13
+	fuzz.state ~= fuzz.state >> 17
+	fuzz.state ~= fuzz.state << 5
+	return fuzz.state
 }
 
-fz_below :: proc(f: ^Fuzz, n: int) -> int {
-	return int(fz_next(f) % u32(n))
+fuzz_below :: proc(fuzz: ^Fuzz, bound: int) -> int {
+	return int(fuzz_next(fuzz) % u32(bound))
 }
 
 // Random bytes, or a mutation of `valid` (a byte flipped, cut short, a field set to an extreme).
-fz_bytes :: proc(f: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
+fuzz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
 	clear(out)
-	switch fz_below(f, 4) {
+	switch fuzz_below(fuzz, 4) {
 	case 0:
-		for _ in 0 ..< fz_below(f, 64) {
-			append(out, u8(fz_next(f)))
+		for _ in 0 ..< fuzz_below(fuzz, 64) {
+			append(out, u8(fuzz_next(fuzz)))
 		}
 	case 1:
 		append(out, ..valid)
 		if len(out) > 0 {
-			resize(out, fz_below(f, len(out)))
+			resize(out, fuzz_below(fuzz, len(out)))
 		}
 	case:
 		append(out, ..valid)
-		for _ in 0 ..< 1 + fz_below(f, 4) {
+		for _ in 0 ..< 1 + fuzz_below(fuzz, 4) {
 			if len(out) == 0 {
 				break
 			}
-			i := fz_below(f, len(out))
-			switch fz_below(f, 3) {
+			index := fuzz_below(fuzz, len(out))
+			switch fuzz_below(fuzz, 3) {
 			case 0:
-				out[i] ~= u8(1 << u32(fz_below(f, 8)))
+				out[index] ~= u8(1 << u32(fuzz_below(fuzz, 8)))
 			case 1:
-				out[i] = 0xFF
+				out[index] = 0xFF
 			case:
-				out[i] = 0
+				out[index] = 0
 			}
 		}
-		for _ in 0 ..< fz_below(f, 3) * fz_below(f, 400) {
-			append(out, u8(fz_next(f))) // trailing junk, up to oversized chunks
+		for _ in 0 ..< fuzz_below(fuzz, 3) * fuzz_below(fuzz, 400) {
+			append(out, u8(fuzz_next(fuzz))) // trailing junk, up to oversized chunks
 		}
 	}
 }
 
 // A valid client -> relay message of each kind, for mutation.
 @(private = "file")
-relay_samples :: proc(w: ^wire.Writer, k: int, slot: u8) -> []u8 {
-	clear(&w.buf)
-	m := netcode.Msg(1 + k % 13)
-	wire.w_u8(w, u8(m))
-	#partial switch m {
+relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
+	clear(&writer.buf)
+	msg := netcode.Msg(1 + k % 13)
+	wire.w_u8(writer, u8(msg))
+	#partial switch msg {
 	case .Hello:
-		wire.w_u16(w, netcode.PROTOCOL_VERSION)
-		wire.w_u8(w, netcode.ANY_SLOT)
-		wire.w_u32(w, 0)
-		wire.w_u64(w, sim.compat_of(&toy.GAME))
-		wire.w_u8(w, 3)
-		wire.w_bytes(w, {'b', 'o', 't'})
+		wire.w_u16(writer, netcode.PROTOCOL_VERSION)
+		wire.w_u8(writer, netcode.ANY_PLAYER)
+		wire.w_u32(writer, 0)
+		wire.w_u64(writer, sim.compat_of(&toy.GAME))
+		wire.w_u8(writer, 3)
+		wire.w_bytes(writer, {'b', 'o', 't'})
 	case .Inputs:
-		wire.w_u8(w, slot)
-		wire.w_u64(w, 1234)
-		wire.w_u32(w, 10)
-		wire.w_u32(w, 11)
-		wire.w_u8(w, 2)
-		wire.w_bytes(w, {1, 2, 3, 0, 4, 5, 6, 0})
+		wire.w_u8(writer, player)
+		wire.w_u64(writer, 1234)
+		wire.w_u32(writer, 10)
+		wire.w_u32(writer, 11)
+		wire.w_u8(writer, 2)
+		wire.w_bytes(writer, {1, 2, 3, 0, 4, 5, 6, 0})
 		// commands: seq 1, 2 (a bump for tick 11, a mark for tick 12)
-		wire.w_u32(w, 1)
-		wire.w_u8(w, 2)
-		wire.w_u32(w, 11)
-		wire.w_u8(w, 0)
-		wire.w_u8(w, size_of(toy.Cmd_Bump))
-		wire.w_bytes(w, {9, 0, 0, 0})
-		wire.w_u32(w, 12)
-		wire.w_u8(w, 1)
-		wire.w_u8(w, size_of(toy.Cmd_Mark))
-		for b in 0 ..< size_of(toy.Cmd_Mark) {
-			wire.w_u8(w, u8(b))
+		wire.w_u32(writer, 1)
+		wire.w_u8(writer, 2)
+		wire.w_u32(writer, 11)
+		wire.w_u8(writer, 0)
+		wire.w_u8(writer, size_of(toy.Cmd_Bump))
+		wire.w_bytes(writer, {9, 0, 0, 0})
+		wire.w_u32(writer, 12)
+		wire.w_u8(writer, 1)
+		wire.w_u8(writer, size_of(toy.Cmd_Mark))
+		for i in 0 ..< size_of(toy.Cmd_Mark) {
+			wire.w_u8(writer, u8(i))
 		}
 	case .Checksum:
-		wire.w_u8(w, slot)
-		wire.w_u32(w, 32)
-		wire.w_u64(w, 99)
+		wire.w_u8(writer, player)
+		wire.w_u32(writer, 32)
+		wire.w_u64(writer, 99)
 	case .Snap_Begin:
-		wire.w_u8(w, 0)
-		wire.w_u32(w, 40)
-		wire.w_u32(w, 3000)
+		wire.w_u8(writer, 0)
+		wire.w_u32(writer, 40)
+		wire.w_u32(writer, 3000)
 	case .Snap_Chunk:
-		wire.w_u8(w, 0)
-		wire.w_u32(w, 0)
-		wire.w_bytes(w, {1, 2, 3, 4})
+		wire.w_u8(writer, 0)
+		wire.w_u32(writer, 0)
+		wire.w_bytes(writer, {1, 2, 3, 4})
 	case .Done:
-		wire.w_u8(w, slot)
-		wire.w_u32(w, 64)
+		wire.w_u8(writer, player)
+		wire.w_u32(writer, 64)
 	}
-	return w.buf[:]
+	return writer.buf[:]
 }
 
 // A valid relay -> client message of each kind, for mutation.
 @(private = "file")
-client_samples :: proc(w: ^wire.Writer, k: int) -> []u8 {
-	clear(&w.buf)
-	m := netcode.Msg(1 + k % 13)
-	wire.w_u8(w, u8(m))
-	#partial switch m {
+client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
+	clear(&writer.buf)
+	msg := netcode.Msg(1 + k % 13)
+	wire.w_u8(writer, u8(msg))
+	#partial switch msg {
 	case .Welcome:
-		wire.w_u8(w, 0)
-		wire.w_u64(w, SEED)
-		wire.w_u16(w, toy.HZ)
-		wire.w_u32(w, 0)
-		wire.w_u32(w, 1)
-		wire.w_u8(w, 0)
+		wire.w_u8(writer, 0)
+		wire.w_u64(writer, SEED)
+		wire.w_u16(writer, toy.HZ)
+		wire.w_u32(writer, 0)
+		wire.w_u32(writer, 1)
+		wire.w_u8(writer, 0)
 	case .Finalized:
 		for _ in 0 ..< 3 {
-			wire.w_u64(w, 5000)
+			wire.w_u64(writer, 5000)
 		}
-		wire.w_u32(w, 3) // input ack
-		wire.w_u32(w, 1) // command ack
-		wire.w_u32(w, 5)
-		wire.w_u8(w, 2)
-		in_ := finalized_of(5, 1)
-		sim.inputs_write(w, &in_)
-		bump, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Bump{3})
-		sim.add_command(&in_, bump)
-		mark, _ := sim.command_make(toy.GAME.commands, toy.Cmd_Mark{count = 2})
-		mark.slot = 1
-		sim.add_command(&in_, mark)
-		sim.inputs_write(w, &in_)
+		wire.w_u32(writer, 3) // input ack
+		wire.w_u32(writer, 1) // command ack
+		wire.w_u32(writer, 5)
+		wire.w_u8(writer, 2)
+		inputs := finalized_of(5, 1)
+		sim.inputs_write(writer, &inputs)
+		bump, _ := sim.command_make(toy.Command, toy.Cmd_Bump{3})
+		sim.add_command(&inputs, bump)
+		mark, _ := sim.command_make(toy.Command, toy.Cmd_Mark{count = 2})
+		mark.player = 1
+		sim.add_command(&inputs, mark)
+		sim.inputs_write(writer, &inputs)
 	case .Snap_Request:
-		wire.w_u8(w, 1)
-		wire.w_u32(w, 3)
+		wire.w_u8(writer, 1)
+		wire.w_u32(writer, 3)
 	case .Snap_Begin:
-		wire.w_u8(w, 0)
-		wire.w_u32(w, 10)
-		wire.w_u32(w, 9)
+		wire.w_u8(writer, 0)
+		wire.w_u32(writer, 10)
+		wire.w_u32(writer, 9)
 	case .Snap_Chunk:
-		wire.w_u8(w, 0)
-		wire.w_u32(w, 0)
-		wire.w_bytes(w, {'U', 'N', 'I', 'S', 2, 0, 0, 0, 1})
+		wire.w_u8(writer, 0)
+		wire.w_u32(writer, 0)
+		wire.w_bytes(writer, {'U', 'N', 'I', 'S', 2, 0, 0, 0, 1})
 	case .Reject:
-		wire.w_u8(w, 2)
+		wire.w_u8(writer, 2)
 	case .Roster:
-		wire.w_u8(w, toy.SLOTS)
-		for _ in 0 ..< toy.SLOTS {
-			wire.w_u8(w, 1)
-			wire.w_u8(w, 2)
-			wire.w_bytes(w, {'h', 'i'})
+		wire.w_u8(writer, toy.PLAYERS)
+		for _ in 0 ..< toy.PLAYERS {
+			wire.w_u8(writer, 1)
+			wire.w_u8(writer, 2)
+			wire.w_bytes(writer, {'h', 'i'})
 		}
 	}
-	return w.buf[:]
+	return writer.buf[:]
 }
 
 // Raw datagrams (headers and chunk framing) from many link peers into a relay that also serves a
 // real client; then the real session must still verify.
 @(test)
 fuzz_channel_datagrams :: proc(t: ^testing.T) {
-	n: Rnet
-	rnet_make(&n, 1, 0)
-	defer rnet_destroy(&n)
-	c := rnet_join(&n)
-	rnet_run(&n, 1)
-	f := Fuzz{0x1234_5678}
-	w := wire.writer_make(netcode.MAX_DATAGRAM)
-	defer delete(w.buf)
+	session: Rnet
+	rnet_make(&session, 1, 0)
+	defer rnet_destroy(&session)
+	client := rnet_join(&session)
+	rnet_run(&session, 1)
+	fuzz := Fuzz{0x1234_5678}
+	writer := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(writer.buf)
 	buf: [dynamic]u8
 	defer delete(buf)
 	raws: [4]netcode.Link
-	for &r, i in raws {
-		r = netcode.loopback_link(n.hub, netcode.Peer(4 + i))
+	for &raw, i in raws {
+		raw = netcode.loopback_link(session.hub, netcode.Peer(4 + i))
 	}
-	defer for &r in raws {
-		netcode.link_close(&r)
+	defer for &raw in raws {
+		netcode.link_close(&raw)
 	}
 	ids := [3]u32{0, 1, 600}
 	for k in 0 ..< 4000 {
-		reliable_datagram(&w, u32(k % 7 + 1), u32(k), ids[:1 + k % 3])
-		fz_bytes(&f, &buf, w.buf[:])
+		reliable_datagram(&writer, u32(k % 7 + 1), u32(k), ids[:1 + k % 3])
+		fuzz_bytes(&fuzz, &buf, writer.buf[:])
 		if len(buf) > netcode.MAX_DATAGRAM {
 			resize(&buf, netcode.MAX_DATAGRAM)
 		}
 		netcode.link_send(&raws[k % 4], 0, buf[:])
 		if k % 8 == 0 {
-			rnet_run(&n, 0.001)
+			rnet_run(&session, 0.001)
 		}
 	}
-	rnet_run(&n, 2)
-	testing.expect_value(t, c.status, netcode.Status.Connected)
-	testing.expect(t, c.verified > 3 * toy.HZ)
+	rnet_run(&session, 2)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	testing.expect(t, client.verified > 3 * toy.HZ)
 }
 
-// Well-framed channel messages with malformed relay-protocol payloads, from clients that may hold a
-// slot; the relay must neither crash nor stop serving the honest client.
+// Well-framed channel messages with malformed relay-protocol payloads, from clients that may be
+// players; the relay must neither crash nor stop serving the honest client.
 @(test)
 fuzz_relay_messages :: proc(t: ^testing.T) {
-	n: Rnet
-	rnet_make(&n, 1, 0)
-	defer rnet_destroy(&n)
-	honest := rnet_join(&n, 0)
-	rnet_run(&n, 1)
-	f := Fuzz{0x9E37_79B9}
-	w := wire.writer_make(netcode.MAX_DATAGRAM)
-	defer delete(w.buf)
+	session: Rnet
+	rnet_make(&session, 1, 0)
+	defer rnet_destroy(&session)
+	honest := rnet_join(&session, 0)
+	rnet_run(&session, 1)
+	fuzz := Fuzz{0x9E37_79B9}
+	writer := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(writer.buf)
 	buf: [dynamic]u8
 	defer delete(buf)
 	// Two attackers with channels of their own, each on its own hub endpoint.
 	attackers: [2]^netcode.Channel
 	peers: [2]netcode.Peer
-	for &a, i in attackers {
-		a = netcode.channel_make()
-		li := netcode.channel_add_link(a, netcode.loopback_link(n.hub, netcode.Peer(6 + i)))
-		peers[i] = netcode.channel_peer(a, li, 0)
+	for &attacker, i in attackers {
+		attacker = netcode.channel_make()
+		link_index := netcode.channel_add_link(attacker, netcode.loopback_link(session.hub, netcode.Peer(6 + i)))
+		peers[i] = netcode.channel_peer(attacker, link_index, 0)
 	}
-	defer for a in attackers {
-		netcode.channel_destroy(a)
+	defer for attacker in attackers {
+		netcode.channel_destroy(attacker)
 	}
 	for k in 0 ..< 4000 {
-		i := k % 2
-		fz_bytes(&f, &buf, relay_samples(&w, fz_below(&f, 13), u8(1 + i)))
+		attacker_index := k % 2
+		fuzz_bytes(&fuzz, &buf, relay_samples(&writer, fuzz_below(&fuzz, 13), u8(1 + attacker_index)))
 		netcode.channel_send(
-			attackers[i],
-			peers[i],
+			attackers[attacker_index],
+			peers[attacker_index],
 			buf[:],
-			fz_below(&f, 2) == 0 ? .Reliable : .Unreliable,
-			n.clock.now,
+			fuzz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
+			session.clock.now,
 		)
 		if k % 4 == 0 {
-			for a in attackers {
-				netcode.channel_flush(a, n.clock.now)
-				netcode.channel_poll(a, n.clock.now)
+			for attacker in attackers {
+				netcode.channel_flush(attacker, session.clock.now)
+				netcode.channel_poll(attacker, session.clock.now)
 			}
-			rnet_run(&n, 0.002)
+			rnet_run(&session, 0.002)
 		}
 	}
-	rnet_run(&n, 3)
+	rnet_run(&session, 3)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
 	testing.expect(t, honest.verified > 3 * toy.HZ)
 }
@@ -259,36 +259,42 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 fuzz_client_messages :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
-	fr: Fake_Relay
-	fake_make(&fr, hub)
-	defer fake_destroy(&fr)
-	wt: Watch
-	c := netcode.client_create(
+	fake: Fake_Relay
+	fake_make(&fake, hub)
+	defer fake_destroy(&fake)
+	watch: Watch
+	client := netcode.client_create(
 		&toy.GAME,
-		{slot = -1, name = "c", quiet = true},
+		{player = -1, name = "c", quiet = true},
 		netcode.loopback_link(hub, 1),
-		hooks_for(&wt),
+		hooks_for(&watch),
 	)
-	defer netcode.client_destroy(c)
-	defer delete(wt.statuses)
-	fake_welcome(&fr, c)
-	f := Fuzz{0xC0FF_EE11}
-	w := wire.writer_make(netcode.MAX_DATAGRAM)
-	defer delete(w.buf)
+	defer netcode.client_destroy(client)
+	defer delete(watch.statuses)
+	fake_welcome(&fake, client)
+	fuzz := Fuzz{0xC0FF_EE11}
+	writer := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(writer.buf)
 	buf: [dynamic]u8
 	defer delete(buf)
 	for k in 0 ..< 4000 {
-		fz_bytes(&f, &buf, client_samples(&w, fz_below(&f, 13)))
-		if fz_below(&f, 13) == 0 {
+		fuzz_bytes(&fuzz, &buf, client_samples(&writer, fuzz_below(&fuzz, 13)))
+		if fuzz_below(&fuzz, 13) == 0 {
 			continue // keep End and Reject rare: they end the session early
 		}
-		netcode.channel_send(fr.ch, fr.peer, buf[:], fz_below(&f, 2) == 0 ? .Reliable : .Unreliable, fr.now)
+		netcode.channel_send(
+			fake.channel,
+			fake.peer,
+			buf[:],
+			fuzz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
+			fake.now,
+		)
 		if k % 4 == 0 {
-			fake_step(&fr, c)
+			fake_step(&fake, client)
 		}
 	}
 	for _ in 0 ..< 100 {
-		fake_step(&fr, c)
+		fake_step(&fake, client)
 	}
-	testing.expect(t, c.status != .Idle)
+	testing.expect(t, client.status != .Idle)
 }

@@ -10,7 +10,7 @@ Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed tables instead of
 `destroy`, `Body_Ref {index1, generation}` (no world index, so blocks match across worlds and machines), `body_id`,
 `ref_of`, `destroy_body`, `extra(w, State) -> sim.Extra`: finds every `Body_Ref` in the block by RTTI once (fields,
 arrays, table items); its saves are Box3D snapshots (a memcpy of the world's arena), one per ring slot
-(`sim.ring_size(tick_hz)`, so 32 at 128 Hz; today a fixed `[sim.RING]`, #161); the hash is Box3D's whole-world hash
+(`sim.ring_size(tick_hz)`, so 32 at 128 Hz; room for `sim.MAX_RING_SIZE`, the unused ones stay empty); the hash is Box3D's whole-world hash
 on `DEEP_CHECKSUM_EVERY` ticks, otherwise each referenced body (position, rotation, velocities; −0 → +0) in block
 order; images are Box3D's canonical images with their geometry (unified-box3d's SPEC.md).
 

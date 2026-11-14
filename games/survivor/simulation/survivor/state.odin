@@ -7,7 +7,7 @@ import "unified:sim"
 TICK_HZ :: 64
 DT: f32 : 1.0 / TICK_HZ // exact
 SUBSTEPS :: 4
-MAX_PLAYERS :: 4
+PLAYERS :: 4 // player seats
 MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512
 MAX_GEMS :: 1024
@@ -57,7 +57,7 @@ Input :: struct {
 	buttons: u8,
 }
 
-Inputs :: sim.Inputs(Input, MAX_PLAYERS)
+Inputs :: sim.Inputs(Input, PLAYERS)
 
 // The level-up options, in the order the HUD shows them.
 Upgrade :: enum u8 {
@@ -66,10 +66,15 @@ Upgrade :: enum u8 {
 	Move_Speed,
 }
 
-// The level-up pick, a command (sim.Game.commands, "pick"): one pending level-up goes to `upgrade`. A
-// pick with nothing pending is ignored. From GDScript: send_command(&"pick", {"upgrade": i}).
+// The level-up pick, a command (name "pick"): one pending level-up goes to `upgrade`. A pick with nothing
+// pending is ignored. From GDScript: send_command(&"pick", {"upgrade": i}).
 Cmd_Pick :: struct {
 	upgrade: Upgrade,
+}
+
+// The commands players send (sim.Game.commands; kind = variant index, name = type name without Cmd_).
+Command :: union {
+	Cmd_Pick,
 }
 
 Body_Ref :: physics.Body_Ref
@@ -191,13 +196,13 @@ TUNINGS := [Tuning_Kind]Tuning {
 	},
 }
 
-tuning :: #force_inline proc(s: ^State) -> ^Tuning {
-	return &s.tune
+tuning :: #force_inline proc(state: ^State) -> ^Tuning {
+	return &state.tune
 }
 
-set_tuning :: proc(s: ^State, kind: Tuning_Kind) {
-	s.tuning = kind
-	s.tune = TUNINGS[kind]
+set_tuning :: proc(state: ^State, kind: Tuning_Kind) {
+	state.tuning = kind
+	state.tune = TUNINGS[kind]
 }
 
 // lobby: present players gather in the start circle, no enemies; the match starts on the tick a
@@ -226,9 +231,10 @@ State :: struct {
 	tuning:        Tuning_Kind, // the preset `tune` started from
 	_pad:          u8,
 	tune:          Tuning, // the match's tuning values
-	players:       [MAX_PLAYERS]Player,
+	players:       [PLAYERS]Player,
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),
 	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),
 	gems:          sim.Table(Gem, MAX_GEMS),
+	_pad_end:      u32, // the block is 8-aligned (sim.Rng): no implicit padding at the end
 }

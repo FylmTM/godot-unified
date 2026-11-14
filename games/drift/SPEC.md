@@ -22,22 +22,24 @@ pixels, with `px_per_m` from the level (32).
 ## World (created before tick 0, in this order)
 
 - The level (`game/levels/arena.level`): static walls and obstacles (`physics.create_static`), then markers in file
-  order. The marker kinds are `spawn` (×4, one per slot), `station` (×1), `gate` (pairs: `pair` = the other gate),
-  and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
+  order. The marker kinds are `spawn` (×4, one per player), `station` (×1), `gate` (pairs: `pair` = the other
+  gate), and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
 - The station: a kinematic hexagon (radius 2.5 m) at the station marker, turning at 0.25 rad/s, with 100 HP.
-- Ships: dynamic circles (r 0.5 m, density 1, linear damping 0.6) locked to the plane, created when a slot
-  becomes present, at its `spawn` marker.
+- Ships: dynamic circles (r 0.5 m, density 1, linear damping 0.6) locked to the plane, created when a player
+  becomes present, at their `spawn` marker.
 
 ## Input and commands
 
 - Per tick: `move_x, move_y` and `aim_x, aim_y`: i8 −127..127 in world space. Aim is a direction; zero keeps
   the heading.
 - `buttons`: bit 0 = fire (held), bit 1 = boost (held; it fires when ready).
-- Commands: `start` (lobby → match, anyone may send it) and `restart` (over → lobby at once).
+- Commands (`Cmd_Start`, `Cmd_Restart`, both empty): `start` (lobby → match, anyone may send it) and `restart`
+  (over → lobby at once).
 
 ## Rules (each tick, in this order)
 
-1. Presence: a slot that becomes present gets its ship at its spawn marker. One that stops being present loses it.
+1. Presence: a player who becomes present gets their ship at their spawn marker. One who stops being present
+   loses it.
 2. Ships: thrust force = `move × 40 N`. Turning sets the angular velocity toward the aim:
    `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: an impulse of
    `heading × 6 N·s`, with a 1.5 s cooldown.
@@ -63,8 +65,18 @@ pixels, with `px_per_m` from the level (32).
      lobby.
    - With nobody present: reset.
 
-Events: `joined`, `left`, `fired`, `boosted`, `warped`, `rock_hit`, `rock_split`, `rock_destroyed`, `station_hit`,
-`gem_picked`, `wave`, `match_started`, `match_over` (value = seconds survived).
+Events (one struct each, `Event` in `state.odin`; positions in metres, z = 0; `player` is a seat, and a rock event's
+subject is the rock's handle):
+
+- `joined {position, player}` (the spawn), `left {player}`, `fired {position, player}` (the muzzle),
+  `boosted {position, player}`, `warped {position, player, from_gate, to_gate}` (where the ship came out).
+- `rock_hit {rock, position, player, size}` (the hit point; `player` fired the bullet), `rock_split {rock, position,
+  size}` and `rock_destroyed {rock, position, size}` (the rock that is gone), `station_hit {position, damage, size}`
+  (`damage`: what the rock costs the station during a match).
+- `gem_picked {position, player}`, `wave {wave}` (1..), `match_started {player}` (who sent `start`),
+  `match_over {seconds_survived}`.
+
+Random numbers: the waves draw from the state's stream (`rng`), in order; nothing else is random.
 
 ## View (`simulation/extension`, `game/`)
 
@@ -77,6 +89,9 @@ Events: `joined`, `left`, `fired`, `boosted`, `warped`, `rock_hit`, `rock_split`
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the owner's color.
   - `gem`: a pulse that squashes and stretches.
 - Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
+- Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
+  rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
+  banners, once it is confirmed.
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick.
 - HUD: phase, wave, station HP, score, time, the next wave in, and the players.

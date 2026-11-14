@@ -49,9 +49,9 @@ func _toggle_debug() -> void:
 
 func _debug_text() -> String:
 	var lines: Array[String] = ["mock session (F1)  status=%s  flow=%s" % [status, Flow.keys()[flow]]]
-	for key: String in ["phase", "tick", "time_s", "wave", "enemies_alive", "local_slot"]:
+	for key: String in ["phase", "tick", "time_s", "wave", "enemies_alive", "local_player"]:
 		lines.append("%s: %s" % [key, str(hud.get(key))])
 	for p in present_players():
-		lines.append("  slot %d %s hp %d lv %d xp %d/%d pending %d" % [p.slot, player_name(p), p.hp, p.level, p.xp,
+		lines.append("  player %d %s hp %d lv %d xp %d/%d pending %d" % [p.player, player_name(p), p.hp, p.level, p.xp,
 			p.xp_next, p.pending_levelups])
 	return "\n".join(lines)

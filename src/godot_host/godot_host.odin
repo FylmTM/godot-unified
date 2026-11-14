@@ -30,13 +30,17 @@ BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 // The GDExtension entry for a game: call from the exported entry symbol after `install`.
 //
 //   @(export, link_name = "survivor_init")
-//   survivor_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+//   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
 //       context = runtime.default_context()
 //       godot_host.install(&survivor.GAME, glue())
-//       return godot_host.entry(gpa, lib, init)
+//       return godot_host.entry(get_proc_address, library, init)
 //   }
-entry :: proc(gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
-	gd.init(gpa, lib)
+entry :: proc(
+	get_proc_address: gdi.InterfaceGetProcAddress,
+	library: gdi.ClassLibraryPtr,
+	init: ^gdi.Initialization,
+) -> gdi.Bool {
+	gd.init(get_proc_address, library)
 	init.minimum_initialization_level = .INITIALIZATION_SCENE
 	init.initialize = on_initialize
 	init.deinitialize = on_deinitialize
@@ -85,9 +89,13 @@ app_version: string
 @(private)
 read_app_version :: proc() {
 	if app_version != "" do return
-	nil_v := gd.variant_nil()
-	v := gd.ProjectSettings_get_setting(gd.ProjectSettings_singleton(), "application/config/version", nil_v)
-	defer gd.variant_destroy(&v)
-	s, _ := gd.from_variant(string, &v)
-	app_version = strings.clone(s != "" ? s : "0")
+	nil_variant := gd.variant_nil()
+	setting := gd.ProjectSettings_get_setting(
+		gd.ProjectSettings_singleton(),
+		"application/config/version",
+		nil_variant,
+	)
+	defer gd.variant_destroy(&setting)
+	version, _ := gd.from_variant(string, &setting)
+	app_version = strings.clone(version != "" ? version : "0")
 }

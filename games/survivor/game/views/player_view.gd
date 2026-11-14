@@ -1,5 +1,5 @@
 extends GameView
-## A player: slot-coloured capsule with a visor, a floor ring (bright for the local player), a name tag, lean and
+## A player: a capsule in the player's colour with a visor, a floor ring (bright for the local player), a name tag, lean and
 ## bob while moving, a hit flash when HP drops and an after-image trail while dashing.
 
 const DASH_SPEED := 9.0  # m/s; faster than the 6 m/s walk + upgrades means a dash
@@ -34,7 +34,7 @@ var _exit: Tween
 
 
 func _ready() -> void:
-	var color := UiTheme.slot_color(slot)
+	var color := UiTheme.player_color(player)
 	_mat = (_mesh.get_surface_override_material(0) as StandardMaterial3D).duplicate()
 	_mat.albedo_color = color
 	_mesh.set_surface_override_material(0, _mat)
@@ -71,7 +71,7 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-func _sim_event(event: StringName, _data: Dictionary) -> void:
+func _sim_event(event: StringName, _state: int, _data: Dictionary) -> void:
 	if event == &"despawned":  # died or left: shrink away during the host's linger time
 		_leaving = true
 		_exit = create_tween()
@@ -113,8 +113,8 @@ func _spawn_ghost() -> void:
 
 
 func _hud_player() -> Dictionary:
-	return Game.player(slot)
+	return Game.player_info(player)
 
 
 func _is_local() -> bool:
-	return slot == Game.local_slot()
+	return player == Game.local_player()

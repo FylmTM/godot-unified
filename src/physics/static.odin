@@ -6,57 +6,70 @@ import "unified:level"
 
 // Creates every static body of the level, in file order, and returns how many. Shapes without a
 // category in the file get `default_category`.
-create_static :: proc(w: ^World, lvl: ^level.Level, default_category: u64 = 1) -> int {
-	for &b in lvl.bodies {
-		bd := b3.default_body_def()
-		bd.position = b.pos
-		bd.rotation = b.rot
-		id := b3.create_body(w.id, &bd)
-		sd := b3.default_shape_def()
-		sd.base_material.friction = b.friction
-		sd.base_material.restitution = b.restitution
-		sd.base_material.user_material_id = b.material
-		sd.filter.category_bits = b.category if b.category != 0 else default_category
-		for &sh in b.shapes {
-			create_shape(id, &sd, &sh)
+create_static :: proc(world: ^World, level_data: ^level.Level, default_category: u64 = 1) -> int {
+	for &level_body in level_data.bodies {
+		body_def := b3.default_body_def()
+		body_def.position = level_body.pos
+		body_def.rotation = level_body.rot
+		id := b3.create_body(world.id, &body_def)
+		shape_def := b3.default_shape_def()
+		shape_def.base_material.friction = level_body.friction
+		shape_def.base_material.restitution = level_body.restitution
+		shape_def.base_material.user_material_id = level_body.material
+		shape_def.filter.category_bits = level_body.category if level_body.category != 0 else default_category
+		for &shape in level_body.shapes {
+			create_shape(id, &shape_def, &shape)
 		}
 	}
-	return len(lvl.bodies)
+	return len(level_data.bodies)
 }
 
 // Adds one level shape to a body (any type: games use it for their own level bodies too).
-create_shape :: proc(body: b3.Body_Id, sd: ^b3.Shape_Def, sh: ^level.Shape) {
-	identity := sh.rot == {0, 0, 0, 1}
-	switch sh.kind {
+create_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.Shape) {
+	identity := shape.rot == {0, 0, 0, 1}
+	switch shape.kind {
 	case .Box:
-		h := b3.make_box_hull(sh.half.x, sh.half.y, sh.half.z)
-		if identity && sh.pos == {} {
-			b3.create_hull_shape(body, sd, &h.base)
+		hull := b3.make_box_hull(shape.half.x, shape.half.y, shape.half.z)
+		if identity && shape.pos == {} {
+			b3.create_hull_shape(body, shape_def, &hull.base)
 		} else {
-			t := b3.clone_and_transform_hull(&h.base, {sh.pos, sh.rot}, {1, 1, 1})
-			b3.create_hull_shape(body, sd, t)
-			b3.destroy_hull(t)
+			transformed := b3.clone_and_transform_hull(&hull.base, {shape.pos, shape.rot}, {1, 1, 1})
+			b3.create_hull_shape(body, shape_def, transformed)
+			b3.destroy_hull(transformed)
 		}
 	case .Sphere:
-		s := b3.Sphere{sh.pos, sh.radius}
-		b3.create_sphere_shape(body, sd, &s)
+		sphere := b3.Sphere{shape.pos, shape.radius}
+		b3.create_sphere_shape(body, shape_def, &sphere)
 	case .Capsule:
-		axis := rotate(sh.rot, {0, sh.half_height, 0})
-		c := b3.Capsule{sh.pos - axis, sh.pos + axis, sh.radius}
-		b3.create_capsule_shape(body, sd, &c)
+		axis := rotate(shape.rot, {0, shape.half_height, 0})
+		capsule := b3.Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
+		b3.create_capsule_shape(body, shape_def, &capsule)
 	case .Hull:
-		if len(sh.points) < 4 do return
-		h := b3.create_hull(sh.points, 64)
-		if h == nil do return
-		b3.create_hull_shape(body, sd, h)
-		b3.destroy_hull(h)
+		if len(shape.points) < 4 do return
+		hull := b3.create_hull(shape.points, 64)
+		if hull == nil do return
+		b3.create_hull_shape(body, shape_def, hull)
+		b3.destroy_hull(hull)
 	}
 }
 
-// Rotates v by the unit quaternion q (x, y, z, w): v + 2w(u×v) + 2u×(u×v), each term written out.
-rotate :: proc "contextless" (q: [4]f32, v: [3]f32) -> [3]f32 {
-	u := [3]f32{q.x, q.y, q.z}
-	t := [3]f32{2 * (u.y * v.z - u.z * v.y), 2 * (u.z * v.x - u.x * v.z), 2 * (u.x * v.y - u.y * v.x)}
-	c := [3]f32{u.y * t.z - u.z * t.y, u.z * t.x - u.x * t.z, u.x * t.y - u.y * t.x}
-	return {v.x + q.w * t.x + c.x, v.y + q.w * t.y + c.y, v.z + q.w * t.z + c.z}
+// Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
+// written out.
+rotate :: proc "contextless" (quat: [4]f32, vec: [3]f32) -> [3]f32 {
+	quat_vec := [3]f32{quat.x, quat.y, quat.z}
+	cross := [3]f32 {
+		2 * (quat_vec.y * vec.z - quat_vec.z * vec.y),
+		2 * (quat_vec.z * vec.x - quat_vec.x * vec.z),
+		2 * (quat_vec.x * vec.y - quat_vec.y * vec.x),
+	}
+	cross_cross := [3]f32 {
+		quat_vec.y * cross.z - quat_vec.z * cross.y,
+		quat_vec.z * cross.x - quat_vec.x * cross.z,
+		quat_vec.x * cross.y - quat_vec.y * cross.x,
+	}
+	return {
+		vec.x + quat.w * cross.x + cross_cross.x,
+		vec.y + quat.w * cross.y + cross_cross.y,
+		vec.z + quat.w * cross.z + cross_cross.z,
+	}
 }

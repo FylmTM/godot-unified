@@ -20,15 +20,16 @@ Game :: struct {
 
 // The project is two levels above the running binary (<root>/.out/cli/unified-<hash>).
 @(private)
-find_project :: proc() -> (p: Project) {
+find_project :: proc() -> (project: Project) {
 	exe, err := os.get_executable_path(context.allocator)
 	if err != nil {
 		fatal("cannot find the running executable: %v", err)
 	}
-	p.root = os.dir(os.dir(os.dir(exe)))
-	p.out = join(p.root, ".out")
-	p.unified = os.is_directory(join(p.root, "unified", "src", "cli")) ? join(p.root, "unified") : p.root
-	p.games = find_games(p.root)
+	project.root = os.dir(os.dir(os.dir(exe)))
+	project.out = join(project.root, ".out")
+	project.unified =
+		os.is_directory(join(project.root, "unified", "src", "cli")) ? join(project.root, "unified") : project.root
+	project.games = find_games(project.root)
 	return
 }
 
@@ -41,12 +42,12 @@ find_games :: proc(root: string) -> []Game {
 	}
 	games: [dynamic]Game
 	dirs, _ := os.read_all_directory_by_path(join(root, "games"), context.allocator)
-	for d in dirs {
-		if d.type == .Directory && is_game(d.fullpath) {
-			append(&games, Game{strings.clone(d.name), strings.clone(d.fullpath)})
+	for entry in dirs {
+		if entry.type == .Directory && is_game(entry.fullpath) {
+			append(&games, Game{strings.clone(entry.name), strings.clone(entry.fullpath)})
 		}
 	}
-	slice.sort_by(games[:], proc(a, b: Game) -> bool {return a.name < b.name})
+	slice.sort_by(games[:], proc(first, second: Game) -> bool {return first.name < second.name})
 	return games[:]
 }
 
@@ -63,14 +64,14 @@ game :: proc(name: string) -> Game {
 			return games[0]
 		}
 		names := make([]string, len(games))
-		for g, i in games {
-			names[i] = g.name
+		for candidate, i in games {
+			names[i] = candidate.name
 		}
 		usage("name a game: %s", strings.join(names, ", "))
 	}
-	for g in games {
-		if g.name == name {
-			return g
+	for candidate in games {
+		if candidate.name == name {
+			return candidate
 		}
 	}
 	usage("no game %q", name)
@@ -81,8 +82,8 @@ games_or_all :: proc(name: string) -> []Game {
 	if name == "" {
 		return state.project.games
 	}
-	g := new_clone(game(name))
-	return slice.from_ptr(g, 1)
+	selected := new_clone(game(name))
+	return slice.from_ptr(selected, 1)
 }
 
 // --- platforms --------------------------------------------------------------------------------------------------
@@ -120,17 +121,17 @@ lib_name :: proc(stem: string) -> string {
 
 // Joins path elements with /, which every OS we run on accepts.
 join :: proc(elems: ..string) -> string {
-	b := strings.builder_make()
-	for e, i in elems {
-		if e == "" {
+	builder := strings.builder_make()
+	for element, i in elems {
+		if element == "" {
 			continue
 		}
-		if strings.builder_len(b) > 0 && !strings.has_suffix(strings.to_string(b), "/") && i > 0 {
-			strings.write_byte(&b, '/')
+		if strings.builder_len(builder) > 0 && !strings.has_suffix(strings.to_string(builder), "/") && i > 0 {
+			strings.write_byte(&builder, '/')
 		}
-		strings.write_string(&b, e)
+		strings.write_string(&builder, element)
 	}
-	return strings.to_string(b)
+	return strings.to_string(builder)
 }
 
 // `path` relative to the project root when it is inside it, for messages.

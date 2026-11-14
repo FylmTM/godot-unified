@@ -10,7 +10,9 @@ extends Node
 
 signal status_changed(status: String, detail: String)
 signal lobby_code(code: String)
-signal sim_event(kind: StringName, tick: int, entity: int, position: Vector3, value: float)
+## Every event, as the native session sends it: the event struct's fields plus `tick`, `state` and `first`. The
+## fake sim never predicts, so every event arrives once, "confirmed" and first.
+signal sim_event(event: StringName, state: int, data: Dictionary)
 
 # The sim's numbers, reported by constants() exactly as the native session reports them (games/survivor/SPEC.md).
 const TICK_HZ := 64
@@ -66,7 +68,7 @@ var view_root: Node3D:
 
 
 class Player:
-	var slot := 0
+	var player := 0
 	var present := false
 	var bot := false
 	var name := ""
@@ -140,7 +142,7 @@ var _over_t := 0.0
 var _over_time_s := 0.0
 var _spawn_t := 0.0
 var _code := ""
-var _local_slot := 0
+var _local_player := 0
 var _local_name := "Player"
 var _players: Array[Player] = []
 var _enemies: Array[Enemy] = []
@@ -152,7 +154,7 @@ var _rng := RandomNumberGenerator.new()
 var _latched_dash := false  # input edges latched per frame, consumed by the next tick
 var _latched_choice := 0
 var _timers: Array = []  # [seconds_left, Callable]: fake network delays
-var _views := {}  # entity -> Node3D
+var _views := {}  # view key (players: the player, items: 100 + index) -> Node3D
 var _view_scenes := {}  # kind -> PackedScene
 var _bulk := {}  # kind -> MultiMeshInstance3D
 var _bulk_buf := {}  # kind -> PackedFloat32Array
@@ -161,7 +163,7 @@ var _bulk_buf := {}  # kind -> PackedFloat32Array
 func _init() -> void:
 	for i in 4:
 		var p := Player.new()
-		p.slot = i
+		p.player = i
 		_players.append(p)
 	for k in 8:
 		var a := k * PI / 4.0
@@ -280,12 +282,12 @@ func hud() -> Dictionary:
 	if _status == "idle":  # no session: the contract's empty shape
 		return {
 			"phase": "lobby", "tick": 0, "time_s": 0.0, "wave": 0, "enemies_alive": 0, "circle_radius": 0.0,
-			"matches": 0, "local_slot": -1, "players": players,
+			"matches": 0, "local_player": -1, "players": players,
 		}
 	for p in _players:
 		players.append(
 			{
-				"slot": p.slot,
+				"player": p.player,
 				"present": p.present,
 				"alive": p.alive,
 				"hp": p.hp,
@@ -309,7 +311,7 @@ func hud() -> Dictionary:
 		"enemies_alive": _enemies.size(),
 		"circle_radius": START_RADIUS if _phase == "lobby" else 0.0,
 		"matches": _matches,
-		"local_slot": _local_slot,
+		"local_player": _local_player,
 		"players": players,
 	}
 
@@ -319,7 +321,7 @@ func hud() -> Dictionary:
 
 func debug_start_match() -> void:
 	if _running and _phase == "lobby":
-		_start_match()
+		_start_match(_players[_local_player])
 
 
 func debug_end_match() -> void:
@@ -328,7 +330,7 @@ func debug_end_match() -> void:
 
 
 func debug_grant_levelup() -> void:
-	var p := _players[_local_slot]
+	var p := _players[_local_player]
 	p.xp = _xp_next(p.level)
 	_check_level(p)
 
@@ -337,7 +339,7 @@ func debug_grant_levelup() -> void:
 func debug_explode_nearest_barrel() -> void:
 	var best: Item = null
 	for it in _items:
-		var me: Vector3 = _players[_local_slot].pos
+		var me: Vector3 = _players[_local_player].pos
 		if it.alive and it.kind == &"barrel" and (best == null or it.pos.distance_to(me) < best.pos.distance_to(me)):
 			best = it
 	if best != null:
@@ -381,35 +383,35 @@ func _join_as_guest(code: String) -> void:
 	_running = true
 
 
-func _bot_join(slot: int) -> void:
-	if not _running or _players[slot].present:
+func _bot_join(player: int) -> void:
+	if not _running or _players[player].present:
 		return
-	var p := _players[slot]
+	var p := _players[player]
 	_reset_player(p)
 	p.present = true
 	p.bot = true
-	p.name = BOT_NAMES[slot]
-	_emit(&"player_joined", slot, p.pos, 0.0)
-	_spawn_view(&"player", slot, slot)
+	p.name = BOT_NAMES[player]
+	_emit(&"player_joined", {"position": p.pos, "player": player}, player)
+	_spawn_view(&"player", player, player)
 
 
 func _after(seconds: float, fn: Callable) -> void:
 	_timers.append([seconds, fn])
 
 
-func _reset_world(local_slot: int) -> void:
+func _reset_world(local_player: int) -> void:
 	_rng.seed = 12345
 	_tick = 0
 	_acc = 0.0
 	_phase = "lobby"
 	_code = ""
-	_local_slot = local_slot
+	_local_player = local_player
 	_enemies.clear()
 	_shots.clear()
 	_gems.clear()
 	for p in _players:
 		_reset_player(p)
-		p.present = p.slot == local_slot
+		p.present = p.player == local_player
 		p.bot = false
 		p.name = _local_name if p.present else ""
 	_items.clear()
@@ -426,7 +428,7 @@ func _reset_world(local_slot: int) -> void:
 
 func _reset_player(p: Player) -> void:
 	p.alive = true
-	p.pos = START[p.slot]
+	p.pos = START[p.player]
 	p.prev = p.pos
 	p.hp = HP_MAX
 	p.xp = 0
@@ -441,31 +443,32 @@ func _reset_player(p: Player) -> void:
 	p.speed_bonus = 0.0
 
 
-func _start_match() -> void:
+## `p`: the player who left the start circle (the local one for debug_start_match).
+func _start_match(p: Player) -> void:
 	_phase = "match"
 	_match_start_tick = _tick
 	_matches += 1
 	_spawn_t = 0.0
-	_emit(&"match_started", -1, Vector3.ZERO, 0.0)
+	_emit(&"match_started", {"position": p.pos, "player": p.player})
 
 
 func _end_match() -> void:
 	_phase = "over"
 	_over_t = over_seconds
 	_over_time_s = (_tick - _match_start_tick) * DT
-	_emit(&"match_over", -1, Vector3.ZERO, _over_time_s)
+	_emit(&"match_over", {"duration_s": _over_time_s})
 
 
 func _back_to_lobby() -> void:
-	var local := _local_slot
+	var local := _local_player
 	var present := []
 	for p in _players:
 		present.append([p.present, p.bot, p.name])
 	_reset_world(local)
 	for p in _players:
-		p.present = present[p.slot][0]
-		p.bot = present[p.slot][1]
-		p.name = present[p.slot][2]
+		p.present = present[p.player][0]
+		p.bot = present[p.player][1]
+		p.name = present[p.player][2]
 	_respawn_all_views()
 
 
@@ -538,7 +541,7 @@ func _step() -> void:
 		"lobby":
 			for p in _players:
 				if p.present and p.alive and Vector2(p.pos.x, p.pos.z).length() > START_RADIUS:
-					_start_match()
+					_start_match(p)
 					break
 		"match":
 			_step_spawner()
@@ -567,10 +570,10 @@ func _step_players() -> void:
 				if p.respawn <= 0.0:
 					p.alive = true
 					p.hp = HP_MAX
-					p.pos = START[p.slot]
+					p.pos = START[p.player]
 					p.prev = p.pos
-					_emit(&"player_respawned", p.slot, p.pos, 0.0)
-					_spawn_view(&"player", p.slot, p.slot)
+					_emit(&"player_respawned", {"position": p.pos, "player": p.player}, p.player)
+					_spawn_view(&"player", p.player, p.player)
 			continue
 		var dir := Vector3.ZERO
 		var dash := false
@@ -580,7 +583,7 @@ func _step_players() -> void:
 			dash = _rng.randf() < 0.004
 			if p.pending > 0:
 				choice = _rng.randi_range(1, 3)
-		elif p.slot == _local_slot:
+		elif p.player == _local_player:
 			var v := Input.get_vector(&"move_left", &"move_right", &"move_forward", &"move_back")
 			dir = Vector3(v.x, 0, v.y)
 			dash = _latched_dash
@@ -739,8 +742,8 @@ func _damage_player(p: Player, amount: float) -> void:
 		p.hp = 0.0
 		p.alive = false
 		p.respawn = RESPAWN_TIME
-		_emit(&"player_died", p.slot, p.pos, 0.0)
-		_despawn_view(p.slot)
+		_emit(&"player_died", {"position": p.pos, "player": p.player}, p.player)
+		_despawn_view(p.player)
 
 
 func _step_shots() -> void:
@@ -784,7 +787,7 @@ func _step_shots() -> void:
 	while i < _enemies.size():
 		var e := _enemies[i]
 		if e.hp <= 0.0:
-			_emit(&"enemy_died", 1000 + i, e.pos, float(BULK_KINDS.find(e.kind)))
+			_emit(&"enemy_died", {"enemy": 1000 + i, "position": e.pos, "kind": String(e.kind)})
 			var g := Gem.new()
 			g.pos = e.pos
 			g.xp = e.xp
@@ -797,7 +800,7 @@ func _step_shots() -> void:
 func _explode(it: Item) -> void:
 	it.alive = false
 	it.respawn = 10.0
-	_emit(&"barrel_exploded", it.entity, it.pos, 5.0)
+	_emit(&"barrel_exploded", {"entity": it.entity - 99, "position": it.pos}, it.entity)
 	_despawn_view(it.entity)
 	for e in _enemies:
 		if e.pos.distance_to(it.pos) < 5.0:
@@ -824,7 +827,7 @@ func _step_gems() -> void:
 				var d := Vector2(p.pos.x - g.pos.x, p.pos.z - g.pos.z).length()
 				if d < 1.5:
 					p.xp += g.xp
-					_emit(&"gem_collected", p.slot, g.pos, float(g.xp))
+					_emit(&"gem_collected", {"gem": 2000 + i, "position": g.pos, "xp": g.xp, "player": p.player})
 					_check_level(p)
 					taken = true
 					break
@@ -841,7 +844,7 @@ func _check_level(p: Player) -> void:
 		p.xp -= _xp_next(p.level)
 		p.level += 1
 		p.pending += 1
-		_emit(&"level_up", p.slot, p.pos, float(p.level))
+		_emit(&"level_up", {"position": p.pos, "level": p.level, "player": p.player}, p.player)
 
 
 func _apply_levelup(p: Player, option: int) -> void:
@@ -900,13 +903,16 @@ func _nearest_player(pos: Vector3) -> Player:
 	return best
 
 
-func _emit(kind: StringName, entity: int, pos: Vector3, value: float) -> void:
-	sim_event.emit(kind, _tick, entity, pos, value)
-	var view: Node3D = _views.get(entity)
-	if view != null and view.has_method(&"_sim_event"):
-		var slot := entity if entity < 4 else -1
-		view._sim_event(kind, {"tick": _tick, "entity": entity, "slot": slot, "position": pos, "value": value,
-			"predicted": false, "cancelled": false})
+## Like the native session: the event's view (`view_key`, -1 for none) gets it first, then the signal. Nothing is
+## predicted here, so every event is emitted and confirmed at once.
+func _emit(event: StringName, fields: Dictionary, view_key := -1) -> void:
+	var data := fields.duplicate()
+	data.tick = _tick
+	var view: Node3D = _views.get(view_key)
+	for state: int in [SimEvent.EMITTED, SimEvent.CONFIRMED]:
+		if view != null and view.has_method(&"_sim_event"):
+			view._sim_event(event, state, data)
+		sim_event.emit(event, state, data)
 
 
 func _make_code() -> String:
@@ -948,13 +954,13 @@ func _respawn_all_views() -> void:
 		return
 	for p in _players:
 		if p.present and p.alive:
-			_spawn_view(&"player", p.slot, p.slot)
+			_spawn_view(&"player", p.player, p.player)
 	for it in _items:
 		if it.alive:
 			_spawn_view(it.kind, it.entity, -1)
 
 
-func _spawn_view(kind: StringName, entity: int, slot: int) -> void:
+func _spawn_view(kind: StringName, entity: int, player: int) -> void:
 	if view_root == null or _views.has(entity):
 		return
 	if not _view_scenes.has(kind):
@@ -962,7 +968,7 @@ func _spawn_view(kind: StringName, entity: int, slot: int) -> void:
 	var node: Node3D = _view_scenes[kind].instantiate()
 	node.set(&"kind", kind)
 	node.set(&"entity", entity)
-	node.set(&"slot", slot)
+	node.set(&"player", player)
 	node.position = _entity_pos(entity)
 	view_root.add_child(node)
 	_views[entity] = node
@@ -978,7 +984,7 @@ func _despawn_view(entity: int, linger := true) -> void:
 		node.queue_free()
 		return
 	if node.has_method(&"_sim_event"):
-		node._sim_event(&"despawned", {})
+		node._sim_event(&"despawned", SimEvent.EMITTED, {})
 	get_tree().create_timer(LINGER).timeout.connect(node.queue_free)
 
 

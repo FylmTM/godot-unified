@@ -12,12 +12,12 @@ sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return intrinsics.sqrt(x)
 }
 
-length2 :: #force_inline proc "contextless" (v: Vec2) -> f32 {
-	return sqrt(v.x * v.x + v.y * v.y)
+length2 :: #force_inline proc "contextless" (vec: Vec2) -> f32 {
+	return sqrt(vec.x * vec.x + vec.y * vec.y)
 }
 
-length3 :: #force_inline proc "contextless" (v: Vec3) -> f32 {
-	return sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+length3 :: #force_inline proc "contextless" (vec: Vec3) -> f32 {
+	return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
 
 dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
@@ -27,30 +27,30 @@ dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
 }
 
 // v / |v|, or zero when |v| <= eps.
-normalize2 :: proc "contextless" (v: Vec2, eps: f32 = 0.0001) -> Vec2 {
-	l := length2(v)
-	if l <= eps {
+normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
+	length := length2(vec)
+	if length <= eps {
 		return {}
 	}
-	return {v.x / l, v.y / l}
+	return {vec.x / length, vec.y / length}
 }
 
-normalize3 :: proc "contextless" (v: Vec3, eps: f32 = 0.0001) -> Vec3 {
-	l := length3(v)
-	if l <= eps {
+normalize3 :: proc "contextless" (vec: Vec3, eps: f32 = 0.0001) -> Vec3 {
+	length := length3(vec)
+	if length <= eps {
 		return {}
 	}
-	return {v.x / l, v.y / l, v.z / l}
+	return {vec.x / length, vec.y / length, vec.z / length}
 }
 
 // v scaled down to length `max_len` when it is longer.
-clamp_length2 :: proc "contextless" (v: Vec2, max_len: f32) -> Vec2 {
-	s2 := v.x * v.x + v.y * v.y
-	if s2 <= max_len * max_len {
-		return v
+clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
+	length_sq := vec.x * vec.x + vec.y * vec.y
+	if length_sq <= max_len * max_len {
+		return vec
 	}
-	k := max_len / sqrt(s2)
-	return {v.x * k, v.y * k}
+	scale := max_len / sqrt(length_sq)
+	return {vec.x * scale, vec.y * scale}
 }
 
 lerp :: #force_inline proc "contextless" (a, b, t: f32) -> f32 {

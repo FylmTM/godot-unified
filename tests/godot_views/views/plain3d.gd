@@ -2,7 +2,7 @@ extends Node3D
 
 var kind := &""
 var entity := 0
-var slot := -1
+var player := -1
 var updates := 0
 var last_position = null
 var last_yaw := 0.0

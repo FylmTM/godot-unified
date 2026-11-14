@@ -7,58 +7,58 @@ import "core:testing"
 import "../survivor"
 import "unified:sim"
 
-pick_inputs :: proc(upgrades: ..survivor.Upgrade) -> (in_: survivor.Inputs) {
-	in_.present = {0}
-	for u in upgrades {
-		c, ok := sim.command_make(survivor.GAME.commands, survivor.Cmd_Pick{u})
+pick_inputs :: proc(upgrades: ..survivor.Upgrade) -> (inputs: survivor.Inputs) {
+	inputs.present = {0}
+	for upgrade in upgrades {
+		raw, ok := sim.command_make(survivor.Command, survivor.Cmd_Pick{upgrade})
 		assert(ok)
-		sim.add_command(&in_, c)
+		sim.add_command(&inputs, raw)
 	}
 	return
 }
 
 @(test)
 a_pick_applies_once :: proc(t: ^testing.T) {
-	s := sim.create(&survivor.GAME, 5)
-	defer sim.destroy(s)
-	step_with(s, {0}, {})
-	s.state.players[0].pending_levelups = 3
-	pl := &s.state.players[0]
+	simulation := sim.create(&survivor.GAME, 5)
+	defer sim.destroy(simulation)
+	step_with(simulation, {0}, {})
+	simulation.state.players[0].pending_levelups = 3
+	character := &simulation.state.players[0]
 
-	in_ := pick_inputs(.Damage)
-	sim.step(s, &in_)
-	testing.expect_value(t, pl.damage_bonus, 3)
-	testing.expect_value(t, pl.pending_levelups, 2)
+	inputs := pick_inputs(.Damage)
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, character.damage_bonus, 3)
+	testing.expect_value(t, character.pending_levelups, 2)
 
 	// The tick's input repeated (the client filling skipped ticks, the relay substituting a late input)
 	// carries no command: commands are never repeated.
-	in_.n_commands = 0
-	in_.replaced = {0}
+	inputs.command_count = 0
+	inputs.replaced = {0}
 	for _ in 0 ..< 5 {
-		sim.step(s, &in_)
+		sim.step(simulation, &inputs)
 	}
-	testing.expect_value(t, pl.damage_bonus, 3)
-	testing.expect_value(t, pl.pending_levelups, 2)
+	testing.expect_value(t, character.damage_bonus, 3)
+	testing.expect_value(t, character.pending_levelups, 2)
 
 	// Two picks in one tick take two level-ups, in order; a third with nothing left is ignored.
-	in_ = pick_inputs(.Move_Speed, .Damage, .Fire_Rate)
-	speed := pl.speed
-	interval := pl.fire_interval
-	sim.step(s, &in_)
-	testing.expect_value(t, pl.pending_levelups, 0)
-	testing.expect_value(t, pl.speed, speed + survivor.SPEED_LEVELUP)
-	testing.expect_value(t, pl.damage_bonus, 6)
-	testing.expect_value(t, pl.fire_interval, interval)
+	inputs = pick_inputs(.Move_Speed, .Damage, .Fire_Rate)
+	speed := character.speed
+	interval := character.fire_interval
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, character.pending_levelups, 0)
+	testing.expect_value(t, character.speed, speed + survivor.SPEED_LEVELUP)
+	testing.expect_value(t, character.damage_bonus, 6)
+	testing.expect_value(t, character.fire_interval, interval)
 }
 
 @(test)
 a_pick_that_is_not_an_option_is_ignored :: proc(t: ^testing.T) {
-	s := sim.create(&survivor.GAME, 5)
-	defer sim.destroy(s)
-	step_with(s, {0}, {})
-	s.state.players[0].pending_levelups = 1
-	in_ := pick_inputs(.Damage)
-	in_.commands[0].data[0] = 7 // not an Upgrade (bytes from the network)
-	sim.step(s, &in_)
-	testing.expect_value(t, s.state.players[0].pending_levelups, 1)
+	simulation := sim.create(&survivor.GAME, 5)
+	defer sim.destroy(simulation)
+	step_with(simulation, {0}, {})
+	simulation.state.players[0].pending_levelups = 1
+	inputs := pick_inputs(.Damage)
+	inputs.commands[0].data[0] = 7 // not an Upgrade (bytes from the network)
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, simulation.state.players[0].pending_levelups, 1)
 }

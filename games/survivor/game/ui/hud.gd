@@ -77,13 +77,13 @@ func _process(delta: float) -> void:
 func _refresh(delta: float) -> void:
 	var h := Game.hud
 	var phase: String = h.get("phase", "lobby")
-	var me := Game.local_player()
+	var me := Game.local_player_info()
 	var lobby := phase == "lobby"
 
 	# Local player card.
 	if not me.is_empty():
 		_card_name.text = Game.player_name(me)
-		_card_name.add_theme_color_override(&"font_color", UiTheme.slot_color(me.slot))
+		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(me.player))
 		_card_level.text = "LV %d" % me.level
 		_hp.max_value = me.hp_max
 		_hp.value = me.hp
@@ -227,26 +227,30 @@ func _session_rows(lobby: bool) -> Array[Dictionary]:
 		if not lobby:
 			status = "down %.0fs" % ceilf(p.respawn_s) if not p.alive else "LV %d" % p.level
 		var bar: float = -1.0 if lobby else p.hp / maxf(p.hp_max, 1.0)
-		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": status, "bar": bar})
+		rows.append({"player": p.player, "name": Game.player_name(p), "status": status, "bar": bar})
 	return rows
 
 
-func _on_sim_event(kind: StringName, _tick: int, entity: int, _pos: Vector3, value: float) -> void:
-	match kind:
+## Banners show when an event is confirmed (its tick verified), never on a prediction.
+func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+	if state != SimEvent.CONFIRMED:
+		return
+	var local := Game.local_player()
+	match event:
 		&"match_started":
 			_show_banner("SURVIVE!", UiTheme.ACCENT)
 			_flash.color.a = 0.12
 			_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
 		&"level_up":
-			if entity == Game.local_slot():
-				_show_banner("LEVEL %d" % int(value), UiTheme.GOLD)
+			if int(data.player) == local:
+				_show_banner("LEVEL %d" % int(data.level), UiTheme.GOLD)
 		&"player_joined":
-			# Your own join is not news; nor is a join before the session knows your slot (yours, or one before you).
-			if Game.local_slot() >= 0 and entity != Game.local_slot():
-				_show_banner("%s JOINED" % _name_of(entity).to_upper(), UiTheme.GOOD, 32)
+			# Your own join is not news; nor is a join before the session knows your player (yours, or one before you).
+			if local >= 0 and int(data.player) != local:
+				_show_banner("%s JOINED" % _name_of(int(data.player)).to_upper(), UiTheme.GOOD, 32)
 		&"player_left":
-			if Game.local_slot() >= 0 and entity != Game.local_slot():
-				_show_banner("%s LEFT" % _name_of(entity).to_upper(), UiTheme.TEXT_DIM, 32)
+			if local >= 0 and int(data.player) != local:
+				_show_banner("%s LEFT" % _name_of(int(data.player)).to_upper(), UiTheme.TEXT_DIM, 32)
 
 
 func _show_banner(text: String, color: Color, size := 60) -> void:
@@ -270,9 +274,9 @@ func _choose(option: int) -> void:
 	Game.session.send_command(&"pick", {"upgrade": option - 1})
 
 
-func _name_of(slot: int) -> String:
-	var p := Game.player(slot)
-	return Game.player_name(p) if not p.is_empty() else "P%d" % (slot + 1)
+func _name_of(player: int) -> String:
+	var info := Game.player_info(player)
+	return Game.player_name(info) if not info.is_empty() else "P%d" % (player + 1)
 
 
 static func _clock(seconds: float) -> String:

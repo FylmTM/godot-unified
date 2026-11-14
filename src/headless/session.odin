@@ -27,85 +27,99 @@ Session_Config :: struct {
 	late_tick:   u32,
 }
 
-Session_Result :: struct($I: typeid, $P: int) {
+Session_Result :: struct($Input: typeid, $PLAYERS: int) {
 	ok:        bool, // every client verified every tick and disconnected cleanly
 	desyncs:   int, // checksum mismatches the relay detected
 	replaced:  int, // inputs the relay replaced (late or missing)
-	clients:   []netcode.Client_Result, // one per slot, in slot order
-	log:       sim.Input_Log(I, P), // the relay's official input log
+	clients:   []netcode.Client_Result, // one per player, in player order
+	log:       sim.Input_Log(Input, PLAYERS), // the relay's official input log
 	relay_net: netcode.Channel_Stats,
 }
 
-session_result_destroy :: proc(res: ^Session_Result($I, $P)) {
-	for c in res.clients {
-		delete(c.checksums)
+session_result_destroy :: proc(result: ^Session_Result($Input, $PLAYERS)) {
+	for client in result.clients {
+		delete(client.checksums)
 	}
-	delete(res.clients)
-	sim.log_destroy(&res.log)
-	res^ = {}
+	delete(result.clients)
+	sim.log_destroy(&result.log)
+	result^ = {}
 }
 
-// Script hooks: every client samples the game's scripted input for its slot.
-Script_User :: struct($S, $I, $W: typeid, $P: int) {
-	h:    ^Headless(S, I, W, P),
-	seed: u64,
+// Scripted hooks: every client samples the game's scripted input (and commands) for its player.
+Scripted_User :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	headless: ^Headless(State, Input, World, PLAYERS),
+	seed:     u64,
 }
 
-script_hooks :: proc(u: ^Script_User($S, $I, $W, $P)) -> netcode.Hooks(S, I, W, P) {
-	hooks := netcode.Hooks(S, I, W, P) {
-		user = u,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^S) -> I {
-			u := (^Script_User(S, I, W, P))(user)
-			return u.h.script(u.seed, slot, tick, state)
+scripted_hooks :: proc(
+	scripted: ^Scripted_User($State, $Input, $World, $PLAYERS),
+) -> netcode.Hooks(State, Input, World, PLAYERS) {
+	hooks := netcode.Hooks(State, Input, World, PLAYERS) {
+		user = scripted,
+		sample = proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input {
+			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
+			return scripted.headless.scripted_input(scripted.seed, player, tick, state)
 		},
 	}
-	if u.h.script_commands != nil {
-		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^S, out: ^sim.Command_Out) {
-			u := (^Script_User(S, I, W, P))(user)
-			u.h.script_commands(u.seed, slot, tick, state, out)
+	if scripted.headless.scripted_commands != nil {
+		hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
+			scripted.headless.scripted_commands(scripted.seed, player, tick, state, out)
 		}
 	}
 	return hooks
 }
 
 // A client stepped by run_client until `deadline` (µs); `ok` once it verified every tick.
-Client_Task :: struct($S, $I, $W: typeid, $P: int) {
-	c:        ^netcode.Client(S, I, W, P),
+Client_Task :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	client:   ^netcode.Client(State, Input, World, PLAYERS),
 	deadline: i64,
 	ok:       bool,
 }
 
 // Steps a client on this thread until the session ends for it (or the deadline).
-run_client :: proc(t: ^Client_Task($S, $I, $W, $P)) {
-	c := t.c
+run_client :: proc(task: ^Client_Task($State, $Input, $World, $PLAYERS)) {
+	client := task.client
 	for {
 		now := netcode.now_us()
-		wake := netcode.client_step(c, now)
-		if c.status == .Disconnected || c.status == .Failed {
+		wake := netcode.client_step(client, now)
+		if client.status == .Disconnected || client.status == .Failed {
 			break
 		}
-		if now > t.deadline {
+		if now > task.deadline {
 			fmt.eprintfln(
 				"%s: timeout (verified %d, predicted %d, local %d)",
-				c.cfg.name,
-				c.verified,
-				c.predicted,
-				c.local,
+				client.cfg.name,
+				client.verified,
+				client.predicted,
+				client.local,
 			)
 			break
 		}
 		netcode.sleep_until(wake)
 	}
-	t.ok = c.ticks != 0 && c.verified == c.ticks && c.status == .Disconnected
+	task.ok = client_done(client)
+}
+
+// The client verified every tick of its session and disconnected cleanly.
+@(private)
+client_done :: proc(client: ^netcode.Client($State, $Input, $World, $PLAYERS)) -> bool {
+	return client.ticks != 0 && client.verified == client.ticks && client.status == .Disconnected
 }
 
 // Steps a relay on this thread until it is finished (or the deadline).
-run_relay :: proc(r: ^netcode.Relay($I, $P), deadline: i64) -> bool {
-	for !netcode.relay_finished(r) {
+run_relay :: proc(relay: ^netcode.Relay($Input, $PLAYERS), deadline: i64) -> bool {
+	for !netcode.relay_finished(relay) {
 		now := netcode.now_us()
-		wake := netcode.relay_step(r, now)
+		wake := netcode.relay_step(relay, now)
 		if now > deadline {
-			fmt.eprintfln("%s: timeout (clock %d, finalized %d, done %v)", r.cfg.name, r.clock, r.finalized, r.done)
+			fmt.eprintfln(
+				"%s: timeout (clock %d, finalized %d, done %v)",
+				relay.cfg.name,
+				relay.clock,
+				relay.finalized,
+				relay.done,
+			)
 			return false
 		}
 		netcode.sleep_until(wake)
@@ -113,195 +127,210 @@ run_relay :: proc(r: ^netcode.Relay($I, $P), deadline: i64) -> bool {
 	return true
 }
 
-session_timeout_s :: proc(ticks: u32, hz: int) -> f64 {
-	return f64(ticks) / f64(hz) * 3 + 60
+session_timeout_s :: proc(ticks: u32, tick_hz: int) -> f64 {
+	return f64(ticks) / f64(tick_hz) * 3 + 60
 }
 
 // A session's relay, transport and clients, before they run.
 @(private)
-Session :: struct($S, $I, $W: typeid, $P: int) {
-	h:        ^Headless(S, I, W, P),
+Session :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
+	headless: ^Headless(State, Input, World, PLAYERS),
 	cfg:      Session_Config,
-	relay:    ^netcode.Relay(I, P),
+	relay:    ^netcode.Relay(Input, PLAYERS),
 	hub:      ^netcode.Hub,
 	port:     int,
 	clock:    ^netcode.Virtual_Clock, // nil: real time
-	user:     Script_User(S, I, W, P),
-	tasks:    []Client_Task(S, I, W, P),
+	scripted: Scripted_User(State, Input, World, PLAYERS),
+	tasks:    []Client_Task(State, Input, World, PLAYERS),
 	deadline: i64,
 }
 
-session_run :: proc(h: ^Headless($S, $I, $W, $P), cfg: Session_Config) -> (res: Session_Result(I, P)) {
-	vc := netcode.Virtual_Clock {
+session_run :: proc(
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
+	cfg: Session_Config,
+) -> (
+	result: Session_Result(Input, PLAYERS),
+) {
+	clock := netcode.Virtual_Clock {
 		now = 1_000_000,
 	}
-	ss := Session(S, I, W, P) {
-		h     = h,
-		cfg   = cfg,
-		clock = cfg.virtual ? &vc : nil,
-		user  = {h, cfg.seed},
+	session := Session(State, Input, World, PLAYERS) {
+		headless = headless,
+		cfg      = cfg,
+		clock    = cfg.virtual ? &clock : nil,
+		scripted = {headless, cfg.seed},
 	}
-	timeout := session_timeout_s(cfg.ticks, h.game.tick_hz)
-	ss.deadline = session_now(&ss) + i64(timeout * 1e6)
-	rcfg := netcode.Relay_Config {
-		tick_hz       = h.game.tick_hz,
+	timeout := session_timeout_s(cfg.ticks, headless.game.tick_hz)
+	session.deadline = session_now(&session) + i64(timeout * 1e6)
+	relay_cfg := netcode.Relay_Config {
+		tick_hz       = headless.game.tick_hz,
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = cfg.clients - (cfg.late_player >= 0 ? 1 : 0),
-		compat        = sim.compat_of(h.game, h.content),
-		content       = sim.content_hash(h.content),
+		compat        = sim.compat_of(headless.game, headless.content),
+		content       = sim.content_hash(headless.content),
 		name          = "relay",
 		quiet         = cfg.virtual, // test time: wall-clock log lines would only be noise
 	}
-	ss.relay = netcode.relay_create(rcfg, I, P)
+	session.relay = netcode.relay_create(relay_cfg, Input, PLAYERS)
 	if cfg.transport == "udp" {
 		link, ok := netcode.udp_listen(0, .Local)
 		if !ok {
 			fmt.eprintln("session: cannot bind a UDP port")
-			netcode.relay_destroy(ss.relay)
+			netcode.relay_destroy(session.relay)
 			return
 		}
-		ss.port = netcode.udp_bound_port(&link)
-		netcode.relay_add_link(ss.relay, link)
+		session.port = netcode.udp_bound_port(&link)
+		netcode.relay_add_link(session.relay, link)
 	} else {
-		ss.hub = netcode.hub_create(cfg.clients + 1)
-		netcode.relay_add_link(ss.relay, netcode.loopback_link(ss.hub, 0))
+		session.hub = netcode.hub_create(cfg.clients + 1)
+		netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 	}
-	ss.tasks = make([]Client_Task(S, I, W, P), cfg.clients)
-	defer delete(ss.tasks)
-	res.ok = session_run_virtual(&ss) if cfg.virtual else session_run_threads(&ss)
+	session.tasks = make([]Client_Task(State, Input, World, PLAYERS), cfg.clients)
+	defer delete(session.tasks)
+	result.ok = session_run_virtual(&session) if cfg.virtual else session_run_threads(&session)
 
-	relay := ss.relay
-	res.desyncs = relay.desyncs
-	res.replaced = relay.replaced
-	res.log = relay.log
+	relay := session.relay
+	result.desyncs = relay.desyncs
+	result.replaced = relay.replaced
+	result.log = relay.log
 	relay.log = {}
-	res.relay_net = relay.ch.stats
-	res.clients = make([]netcode.Client_Result, cfg.clients)
-	for &t, p in ss.tasks {
-		if t.c == nil {
-			res.clients[p].player = p
-			res.ok = false
+	result.relay_net = relay.ch.stats
+	result.clients = make([]netcode.Client_Result, cfg.clients)
+	for &task, player in session.tasks {
+		if task.client == nil {
+			result.clients[player].player = player
+			result.ok = false
 			continue
 		}
-		res.clients[p] = netcode.client_result(t.c)
-		res.ok &&= t.ok
-		delete(t.c.cfg.name)
-		netcode.client_destroy(t.c)
+		result.clients[player] = netcode.client_result(task.client)
+		result.ok &&= task.ok
+		delete(task.client.cfg.name)
+		netcode.client_destroy(task.client)
 	}
 	netcode.relay_destroy(relay)
-	if ss.hub != nil {
-		netcode.hub_destroy(ss.hub)
+	if session.hub != nil {
+		netcode.hub_destroy(session.hub)
 	}
 	return
 }
 
 @(private)
-session_now :: proc(ss: ^Session($S, $I, $W, $P)) -> i64 {
-	return ss.clock.now if ss.clock != nil else netcode.now_us()
+session_now :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> i64 {
+	return session.clock.now if session.clock != nil else netcode.now_us()
 }
 
-// The client of slot p (`join`: its join tick, 0 for a starting player).
+// The client of `player` (`join`: its join tick, 0 for a starting player).
 @(private)
-session_client :: proc(ss: ^Session($S, $I, $W, $P), p: int, join: u32) -> ^netcode.Client(S, I, W, P) {
-	cfg := ss.cfg
+session_client :: proc(
+	session: ^Session($State, $Input, $World, $PLAYERS),
+	player: int,
+	join: u32,
+) -> ^netcode.Client(State, Input, World, PLAYERS) {
+	cfg := session.cfg
 	link: netcode.Link
 	if cfg.transport == "udp" {
 		ok: bool
-		link, ok = netcode.udp_connect({cnet.IP4_Loopback, ss.port})
+		link, ok = netcode.udp_connect({cnet.IP4_Loopback, session.port})
 		assert(ok, "udp_connect failed")
 	} else {
-		link = netcode.loopback_link(ss.hub, netcode.Peer(p + 1))
+		link = netcode.loopback_link(session.hub, netcode.Peer(player + 1))
 	}
-	link = netcode.netsim_wrap(link, cfg.profile, u32(cfg.seed) * 7919 + u32(p) * 104729 + 17, ss.clock)
-	ccfg := netcode.Client_Config {
-		slot      = p,
+	link_seed := u32(cfg.seed) * 7919 + u32(player) * 104729 + 17
+	link = netcode.netsim_wrap(link, cfg.profile, link_seed, session.clock)
+	client_cfg := netcode.Client_Config {
+		player    = player,
 		join_tick = join,
-		content   = ss.h.content,
-		name      = fmt.aprintf("client%d", p),
-		quiet     = ss.clock != nil,
+		content   = session.headless.content,
+		name      = fmt.aprintf("client%d", player),
+		quiet     = session.clock != nil,
 	}
-	return netcode.client_create(ss.h.game, ccfg, link, script_hooks(&ss.user))
+	return netcode.client_create(session.headless.game, client_cfg, link, scripted_hooks(&session.scripted))
 }
 
 // Real time: the relay and each client on a thread of its own.
 @(private)
-session_run_threads :: proc(ss: ^Session($S, $I, $W, $P)) -> bool {
+session_run_threads :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> bool {
 	Relay_Task :: struct {
-		r:        ^netcode.Relay(I, P),
+		relay:    ^netcode.Relay(Input, PLAYERS),
 		deadline: i64,
 		ok:       bool,
 	}
-	rt := Relay_Task{ss.relay, ss.deadline, false}
-	relay_thread := thread.create_and_start_with_poly_data(&rt, proc(t: ^Relay_Task) {
-		t.ok = run_relay(t.r, t.deadline)
+	relay_task := Relay_Task{session.relay, session.deadline, false}
+	relay_thread := thread.create_and_start_with_poly_data(&relay_task, proc(task: ^Relay_Task) {
+		task.ok = run_relay(task.relay, task.deadline)
 	})
-	cfg := ss.cfg
+	cfg := session.cfg
 	threads := make([]^thread.Thread, cfg.clients)
 	defer delete(threads)
-	for p in 0 ..< cfg.clients {
-		if p == cfg.late_player {
+	for player in 0 ..< cfg.clients {
+		if player == cfg.late_player {
 			continue
 		}
-		ss.tasks[p] = {session_client(ss, p, 0), ss.deadline, false}
-		threads[p] = thread.create_and_start_with_poly_data(&ss.tasks[p], run_client)
+		session.tasks[player] = {session_client(session, player, 0), session.deadline, false}
+		threads[player] = thread.create_and_start_with_poly_data(&session.tasks[player], run_client)
 	}
 	if cfg.late_player >= 0 {
-		// Connect the joiner ~1.5 s before its join tick, so the slot is assigned in time.
-		lead := u32(ss.h.game.tick_hz * 3 / 2)
-		for netcode.relay_clock(ss.relay) + lead < cfg.late_tick && netcode.now_us() < ss.deadline {
+		// Connect the joiner ~1.5 s before its join tick, so the relay seats it in time.
+		lead := u32(session.headless.game.tick_hz * 3 / 2)
+		for netcode.relay_clock(session.relay) + lead < cfg.late_tick && netcode.now_us() < session.deadline {
 			time.sleep(5 * time.Millisecond)
 		}
-		p := cfg.late_player
-		ss.tasks[p] = {session_client(ss, p, cfg.late_tick), ss.deadline, false}
+		player := cfg.late_player
+		session.tasks[player] = {session_client(session, player, cfg.late_tick), session.deadline, false}
 		sync.atomic_thread_fence(.Seq_Cst)
-		threads[p] = thread.create_and_start_with_poly_data(&ss.tasks[p], run_client)
+		threads[player] = thread.create_and_start_with_poly_data(&session.tasks[player], run_client)
 	}
-	for p in 0 ..< cfg.clients {
-		thread.join(threads[p])
-		thread.destroy(threads[p])
+	for player in 0 ..< cfg.clients {
+		thread.join(threads[player])
+		thread.destroy(threads[player])
 	}
 	thread.join(relay_thread)
 	thread.destroy(relay_thread)
-	return rt.ok
+	return relay_task.ok
 }
 
 // Virtual time: one thread steps the relay and every client, jumping to the earliest wake time.
 @(private)
-session_run_virtual :: proc(ss: ^Session($S, $I, $W, $P)) -> bool {
-	cfg := ss.cfg
-	vc := ss.clock
-	for p in 0 ..< cfg.clients {
-		if p != cfg.late_player {
-			ss.tasks[p] = {session_client(ss, p, 0), ss.deadline, false}
+session_run_virtual :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> bool {
+	cfg := session.cfg
+	clock := session.clock
+	for player in 0 ..< cfg.clients {
+		if player != cfg.late_player {
+			session.tasks[player] = {session_client(session, player, 0), session.deadline, false}
 		}
 	}
-	lead := u32(ss.h.game.tick_hz * 3 / 2)
+	lead := u32(session.headless.game.tick_hz * 3 / 2)
 	for {
-		if cfg.late_player >= 0 && ss.tasks[cfg.late_player].c == nil && ss.relay.clock + lead >= cfg.late_tick {
-			ss.tasks[cfg.late_player] = {session_client(ss, cfg.late_player, cfg.late_tick), ss.deadline, false}
+		late := cfg.late_player
+		if late >= 0 && session.tasks[late].client == nil && session.relay.clock + lead >= cfg.late_tick {
+			session.tasks[late] = {session_client(session, late, cfg.late_tick), session.deadline, false}
 		}
-		wake := netcode.relay_step(ss.relay, vc.now)
-		running := !netcode.relay_finished(ss.relay)
-		for &t in ss.tasks {
-			if t.c == nil || t.c.status == .Disconnected || t.c.status == .Failed {
+		wake := netcode.relay_step(session.relay, clock.now)
+		running := !netcode.relay_finished(session.relay)
+		for &task in session.tasks {
+			if task.client == nil || task.client.status == .Disconnected || task.client.status == .Failed {
 				continue
 			}
-			wake = min(wake, netcode.client_step(t.c, vc.now))
+			wake = min(wake, netcode.client_step(task.client, clock.now))
 			running = true
 		}
 		if !running {
 			break
 		}
-		if vc.now > ss.deadline {
-			fmt.eprintfln("session: timeout at relay clock %d (finalized %d)", ss.relay.clock, ss.relay.finalized)
+		if clock.now > session.deadline {
+			fmt.eprintfln(
+				"session: timeout at relay clock %d (finalized %d)",
+				session.relay.clock,
+				session.relay.finalized,
+			)
 			return false
 		}
-		vc.now = max(wake, vc.now + 1)
+		clock.now = max(wake, clock.now + 1)
 	}
-	for &t in ss.tasks {
-		if t.c != nil {
-			t.ok = t.c.ticks != 0 && t.c.verified == t.c.ticks && t.c.status == .Disconnected
+	for &task in session.tasks {
+		if task.client != nil {
+			task.ok = client_done(task.client)
 		}
 	}
 	return true

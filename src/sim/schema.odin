@@ -16,7 +16,7 @@ Table_Info :: struct {
 
 Global_Info :: struct {
 	name: string,
-	ti:   ^runtime.Type_Info,
+	type: ^runtime.Type_Info,
 	off:  int,
 }
 
@@ -26,35 +26,35 @@ Schema :: struct {
 }
 
 // Built once per state type and kept for the program's lifetime (not thread-safe on first call).
-schema_of :: proc($S: typeid) -> ^Schema {
+schema_of :: proc($State: typeid) -> ^Schema {
 	@(static) cached: Schema
 	@(static) built: bool
 	if !built {
-		build_schema(&cached, type_info_of(S))
+		build_schema(&cached, type_info_of(State))
 		built = true
 	}
 	return &cached
 }
 
-build_schema :: proc(out: ^Schema, ti: ^runtime.Type_Info) {
+build_schema :: proc(out: ^Schema, type: ^runtime.Type_Info) {
 	context.allocator = runtime.heap_allocator()
-	st, is_struct := runtime.type_info_base(ti).variant.(runtime.Type_Info_Struct)
+	struct_info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	if !is_struct {
 		return
 	}
-	for i in 0 ..< int(st.field_count) {
-		name, fti, off := st.names[i], st.types[i], int(st.offsets[i])
-		if items, slots, ok := table_fields(fti); ok {
-			arr := runtime.type_info_base(items.type).variant.(runtime.Type_Info_Array)
-			append(&out.tables, Table_Info{name, arr.elem, arr.count, off + items.off, off + slots.off})
-		} else if arr, is_arr := runtime.type_info_base(fti).variant.(runtime.Type_Info_Array); is_arr {
-			if _, elem_struct := runtime.type_info_base(arr.elem).variant.(runtime.Type_Info_Struct); elem_struct {
-				append(&out.tables, Table_Info{name, arr.elem, arr.count, off, -1})
+	for i in 0 ..< int(struct_info.field_count) {
+		name, field_type, offset := struct_info.names[i], struct_info.types[i], int(struct_info.offsets[i])
+		if items, slots, ok := table_fields(field_type); ok {
+			array := runtime.type_info_base(items.type).variant.(runtime.Type_Info_Array)
+			append(&out.tables, Table_Info{name, array.elem, array.count, offset + items.off, offset + slots.off})
+		} else if array, is_array := runtime.type_info_base(field_type).variant.(runtime.Type_Info_Array); is_array {
+			if _, elem_struct := runtime.type_info_base(array.elem).variant.(runtime.Type_Info_Struct); elem_struct {
+				append(&out.tables, Table_Info{name, array.elem, array.count, offset, -1})
 				continue
 			}
-			append(&out.globals, Global_Info{name, fti, off})
+			append(&out.globals, Global_Info{name, field_type, offset})
 		} else {
-			append(&out.globals, Global_Info{name, fti, off})
+			append(&out.globals, Global_Info{name, field_type, offset})
 		}
 	}
 }
@@ -66,18 +66,18 @@ Field :: struct {
 }
 
 @(private)
-table_fields :: proc(ti: ^runtime.Type_Info) -> (items, slots: Field, ok: bool) {
-	st := runtime.type_info_base(ti).variant.(runtime.Type_Info_Struct) or_return
-	for i in 0 ..< int(st.field_count) {
-		switch st.names[i] {
+table_fields :: proc(type: ^runtime.Type_Info) -> (items, slots: Field, ok: bool) {
+	struct_info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct) or_return
+	for i in 0 ..< int(struct_info.field_count) {
+		switch struct_info.names[i] {
 		case "items":
-			items = {st.types[i], int(st.offsets[i])}
+			items = {struct_info.types[i], int(struct_info.offsets[i])}
 		case "slots":
-			arr := runtime.type_info_base(st.types[i]).variant.(runtime.Type_Info_Array) or_return
-			if arr.elem.id != Slot {
+			array := runtime.type_info_base(struct_info.types[i]).variant.(runtime.Type_Info_Array) or_return
+			if array.elem.id != Slot {
 				return
 			}
-			slots = {st.types[i], int(st.offsets[i])}
+			slots = {struct_info.types[i], int(struct_info.offsets[i])}
 		}
 	}
 	return items, slots, items.type != nil && slots.type != nil

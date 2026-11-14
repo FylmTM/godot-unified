@@ -5,34 +5,34 @@ import cnet "core:net"
 import "core:strconv"
 import "core:strings"
 
-import "unified:headless"
+import uheadless "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
 
-profile_opt :: proc(a: ^Args) -> netcode.Profile {
-	name := opt_str(a, "profile", "ideal")
-	p, ok := netcode.profile_by_name(name)
+profile_opt :: proc(args: ^Args) -> netcode.Profile {
+	name := opt_str(args, "profile", "ideal")
+	profile, ok := netcode.profile_by_name(name)
 	if !ok {
-		die("%s: unknown profile %q (ideal, wan, bad)", a.mode, name)
+		die("%s: unknown profile %q (ideal, wan, bad)", args.mode, name)
 	}
-	return p
+	return profile
 }
 
-mode_session :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
-	cfg := headless.Session_Config {
-		clients     = opt_int(a, "clients", required = true, lo = 1, hi = P),
-		transport   = opt_str(a, "transport", "loopback"),
-		profile     = profile_opt(a),
-		ticks       = u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000)),
-		seed        = seed_opt(a),
+mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
+	cfg := uheadless.Session_Config {
+		clients     = opt_int(args, "clients", required = true, low = 1, high = PLAYERS),
+		transport   = opt_str(args, "transport", "loopback"),
+		profile     = profile_opt(args),
+		ticks       = u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000)),
+		seed        = seed_opt(args),
 		late_player = -1,
 	}
 	if cfg.transport != "loopback" && cfg.transport != "udp" {
 		die("session: --transport must be loopback or udp")
 	}
-	switch opt_str(a, "clock", "real") {
+	switch opt_str(args, "clock", "real") {
 	case "real":
 	case "virtual":
 		cfg.virtual = true
@@ -42,124 +42,124 @@ mode_session :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
 	case:
 		die("session: --clock must be real or virtual")
 	}
-	if lj := opt_str(a, "late-join"); lj != "" {
-		parts := strings.split(lj, "@", context.temp_allocator)
-		p, t: int
-		pok, tok: bool
+	if late_join := opt_str(args, "late-join"); late_join != "" {
+		parts := strings.split(late_join, "@", context.temp_allocator)
+		player, tick: int
+		player_ok, tick_ok: bool
 		if len(parts) == 2 {
-			p, pok = strconv.parse_int(parts[0])
-			t, tok = strconv.parse_int(parts[1])
+			player, player_ok = strconv.parse_int(parts[0])
+			tick, tick_ok = strconv.parse_int(parts[1])
 		}
-		if !pok || !tok || p < 1 || p >= cfg.clients || t < 2 || u32(t) > cfg.ticks {
+		if !player_ok || !tick_ok || player < 1 || player >= cfg.clients || tick < 2 || u32(tick) > cfg.ticks {
 			die("session: --late-join must be P@T with 1 <= P < clients and 2 <= T <= ticks")
 		}
-		cfg.late_player = p
-		cfg.late_tick = u32(t)
+		cfg.late_player = player
+		cfg.late_tick = u32(tick)
 	}
-	res := headless.session_run(h, cfg)
-	defer headless.session_result_destroy(&res)
-	ok := res.ok && res.desyncs == 0
-	if path := opt_str(a, "log"); path != "" {
-		ok &&= sim.log_write(path, &res.log)
+	result := uheadless.session_run(headless, cfg)
+	defer uheadless.session_result_destroy(&result)
+	ok := result.ok && result.desyncs == 0
+	if path := opt_str(args, "log"); path != "" {
+		ok &&= sim.log_write(path, &result.log)
 	}
-	clients := make([]string, len(res.clients), context.temp_allocator)
-	for c, i in res.clients {
-		clients[i] = netcode.client_json(c)
+	clients := make([]string, len(result.clients), context.temp_allocator)
+	for client, i in result.clients {
+		clients[i] = netcode.client_json(client)
 	}
 	fmt.printfln(
 		`{{"mode":"session","clients":[%s],"desyncs":%d,"replaced_inputs":%d,"profile":"%s","transport":"%s","clock":"%s","ticks":%d,"relay_net":%s,"ok":%v}}`,
 		strings.join(clients, ",", context.temp_allocator),
-		res.desyncs,
-		res.replaced,
+		result.desyncs,
+		result.replaced,
 		cfg.profile.name,
 		cfg.transport,
 		cfg.virtual ? "virtual" : "real",
 		cfg.ticks,
-		netcode.channel_stats_json(res.relay_net),
+		netcode.channel_stats_json(result.relay_net),
 		ok,
 	)
 	return ok
 }
 
-mode_relay :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "port", "players", "ticks", "log", "bind")
-	port := opt_int(a, "port", required = true, lo = 1, hi = 65535)
+mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "port", "players", "ticks", "log", "bind")
+	port := opt_int(args, "port", required = true, low = 1, high = 65535)
 	scope: netcode.Udp_Scope
-	switch b := opt_str(a, "bind", "local"); b {
+	switch bind := opt_str(args, "bind", "local"); bind {
 	case "local":
 		scope = .Local
 	case "lan":
 		scope = .Lan
 	case:
-		die("relay: --bind must be local or lan, got %q", b)
+		die("relay: --bind must be local or lan, got %q", bind)
 	}
-	players := opt_int(a, "players", required = true, lo = 1, hi = P)
-	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
-	link, lok := netcode.udp_listen(port, scope)
-	if !lok {
+	players := opt_int(args, "players", required = true, low = 1, high = PLAYERS)
+	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	link, link_ok := netcode.udp_listen(port, scope)
+	if !link_ok {
 		die("relay: cannot bind UDP port %d", port)
 	}
 	cfg := netcode.Relay_Config {
-		tick_hz       = h.game.tick_hz,
+		tick_hz       = headless.game.tick_hz,
 		seed          = 1,
 		ticks         = ticks,
 		start_players = players,
-		compat        = sim.compat_of(h.game, h.content),
-		content       = sim.content_hash(h.content),
+		compat        = sim.compat_of(headless.game, headless.content),
+		content       = sim.content_hash(headless.content),
 		name          = "relay",
 	}
-	r := netcode.relay_create(cfg, I, P)
-	defer netcode.relay_destroy(r)
-	netcode.relay_add_link(r, link)
-	deadline := netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6)
-	ok := headless.run_relay(r, deadline)
-	if path := opt_str(a, "log"); path != "" {
-		ok &&= sim.log_write(path, &r.log)
+	relay := netcode.relay_create(cfg, Input, PLAYERS)
+	defer netcode.relay_destroy(relay)
+	netcode.relay_add_link(relay, link)
+	deadline := netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6)
+	ok := uheadless.run_relay(relay, deadline)
+	if path := opt_str(args, "log"); path != "" {
+		ok &&= sim.log_write(path, &relay.log)
 	}
 	fmt.printfln(
 		`{{"mode":"relay","desyncs":%d,"replaced_inputs":%d,"finalized":%d,"net":%s,"ok":%v}}`,
-		r.desyncs,
-		r.replaced,
-		r.finalized,
-		netcode.channel_stats_json(r.ch.stats),
+		relay.desyncs,
+		relay.replaced,
+		relay.finalized,
+		netcode.channel_stats_json(relay.ch.stats),
 		ok,
 	)
-	return ok && r.desyncs == 0
+	return ok && relay.desyncs == 0
 }
 
-mode_client :: proc(h: ^headless.Headless($S, $I, $W, $P), a: ^Args) -> bool {
-	check_known(a, "connect", "player", "ticks", "profile")
-	addr := opt_str(a, "connect", required = true)
-	ep, eok := cnet.parse_endpoint(addr)
-	if !eok || ep.port == 0 {
-		die("client: --connect must be HOST:PORT (numeric address), got %q", addr)
+mode_client :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+	check_known(args, "connect", "player", "ticks", "profile")
+	address := opt_str(args, "connect", required = true)
+	endpoint, endpoint_ok := cnet.parse_endpoint(address)
+	if !endpoint_ok || endpoint.port == 0 {
+		die("client: --connect must be HOST:PORT (numeric address), got %q", address)
 	}
-	player := opt_int(a, "player", required = true, lo = 0, hi = P - 1)
-	ticks := u32(opt_int(a, "ticks", required = true, lo = 1, hi = 1_000_000))
-	link, lok := netcode.udp_connect(ep)
-	if !lok {
+	player := opt_int(args, "player", required = true, low = 0, high = PLAYERS - 1)
+	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	link, link_ok := netcode.udp_connect(endpoint)
+	if !link_ok {
 		die("client: cannot open a UDP socket")
 	}
-	link = netcode.netsim_wrap(link, profile_opt(a), u32(player) * 104729 + 17)
+	link = netcode.netsim_wrap(link, profile_opt(args), u32(player) * 104729 + 17)
 	cfg := netcode.Client_Config {
-		slot    = player,
-		content = h.content,
+		player  = player,
+		content = headless.content,
 		name    = fmt.tprintf("client%d", player),
 	}
-	user := headless.Script_User(S, I, W, P){h, 1}
-	c := netcode.client_create(h.game, cfg, link, headless.script_hooks(&user))
-	defer netcode.client_destroy(c)
-	task := headless.Client_Task(S, I, W, P) {
-		c,
-		netcode.now_us() + i64((headless.session_timeout_s(ticks, h.game.tick_hz) + 60) * 1e6),
+	scripted := uheadless.Scripted_User(State, Input, World, PLAYERS){headless, 1}
+	client := netcode.client_create(headless.game, cfg, link, uheadless.scripted_hooks(&scripted))
+	defer netcode.client_destroy(client)
+	task := uheadless.Client_Task(State, Input, World, PLAYERS) {
+		client,
+		netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6),
 		false,
 	}
-	headless.run_client(&task)
+	uheadless.run_client(&task)
 	ok := task.ok
-	if c.ticks != 0 && c.ticks != ticks {
-		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", c.ticks, ticks)
+	if client.ticks != 0 && client.ticks != ticks {
+		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", client.ticks, ticks)
 		ok = false
 	}
-	fmt.println(netcode.client_json(netcode.client_result(c, context.temp_allocator)))
+	fmt.println(netcode.client_json(netcode.client_result(client, context.temp_allocator)))
 	return ok
 }

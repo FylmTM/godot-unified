@@ -20,9 +20,9 @@ cmd_bench :: proc(args: []string) -> Result {
 	parse(&opts, args)
 	games: [dynamic]Game
 	if len(opts.overflow) == 0 {
-		for g in state.project.games {
-			if os.is_directory(join(g.dir, "simulation", "headless")) {
-				append(&games, g)
+		for game in state.project.games {
+			if os.is_directory(join(game.dir, "simulation", "headless")) {
+				append(&games, game)
 			}
 		}
 	} else {
@@ -47,11 +47,20 @@ cmd_bench :: proc(args: []string) -> Result {
 		within_target:      bool,
 		mismatches:         int,
 	}
+	// The sim's sparse-table walk (the headless `table-bench` mode, game-independent): reported, no target.
+	Table_Line :: struct {
+		capacity:       int,
+		live:           int,
+		sparse_mean_us: f64,
+		sparse_p99_us:  f64,
+		dense_mean_us:  f64,
+	}
 	Summary :: struct {
 		platform:   string,
 		commit:     string,
 		target_us:  f64,
 		benchmarks: map[string]Bench_Line,
+		table:      Table_Line,
 	}
 	summary := new(Summary)
 	summary^ = {
@@ -60,28 +69,28 @@ cmd_bench :: proc(args: []string) -> Result {
 		target_us = BENCH_TARGET_US,
 	}
 	failed: [dynamic]string
-	for g in games {
+	for game in games {
 		// alone: nothing else runs meanwhile, so the timings are clean
-		r := run_proc(
+		result := run_proc(
 			{
-				cmd = strs(headless_path(g.name, .release), "bench"),
+				cmd = strs(headless_path(game.name, .release), "bench"),
 				capture = true,
 				quiet = true,
 				timeout = 900 * time.Second,
-				log_to = join(work, g.name),
+				log_to = join(work, game.name),
 			},
 		)
-		obj, ok := last_json_object(r.stdout)
-		if !r.ok || !ok {
-			log("uni: bench %s failed (exit %d):\n%s", g.name, r.exit_code, tail(r.stderr, 2000))
-			append(&failed, g.name)
+		obj, ok := last_json_object(result.stdout)
+		if !result.ok || !ok {
+			log("uni: bench %s failed (exit %d):\n%s", game.name, result.exit_code, tail(result.stderr, 2000))
+			append(&failed, game.name)
 			continue
 		}
-		stat :: proc(o: json.Object, key, field: string) -> f64 {
-			s, _ := o[key].(json.Object)
-			return json_f64(s[field])
+		stat :: proc(object: json.Object, key, field: string) -> f64 {
+			section, _ := object[key].(json.Object)
+			return json_f64(section[field])
 		}
-		b := Bench_Line {
+		bench := Bench_Line {
 			what            = json_string(obj["what"]),
 			step_mean_us    = stat(obj, "step_us", "mean"),
 			step_p99_us     = stat(obj, "step_us", "p99"),
@@ -92,23 +101,62 @@ cmd_bench :: proc(args: []string) -> Result {
 			snapshot_bytes  = json_int(obj["snapshot_bytes"]),
 			mismatches      = json_int(obj["mismatches"]),
 		}
-		b.step_plus_resim_us = b.step_mean_us + b.resim_mean_us
-		b.within_target = b.step_plus_resim_us <= BENCH_TARGET_US
-		summary.benchmarks[g.name] = b
+		bench.step_plus_resim_us = bench.step_mean_us + bench.resim_mean_us
+		bench.within_target = bench.step_plus_resim_us <= BENCH_TARGET_US
+		summary.benchmarks[game.name] = bench
 		log(
 			"%-12s step %5.0f us + re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); save %.0f us, restore %.0f us, snapshot %d bytes",
-			g.name,
-			b.step_mean_us,
-			b.resim_mean_us,
-			b.step_plus_resim_us / 1000,
+			game.name,
+			bench.step_mean_us,
+			bench.resim_mean_us,
+			bench.step_plus_resim_us / 1000,
 			BENCH_TARGET_US / 1000,
-			b.within_target ? "yes" : "NO",
-			b.save_mean_us,
-			b.restore_mean_us,
-			b.snapshot_bytes,
+			bench.within_target ? "yes" : "NO",
+			bench.save_mean_us,
+			bench.restore_mean_us,
+			bench.snapshot_bytes,
 		)
-		if b.mismatches > 0 {
-			append(&failed, g.name) // a re-sim that disagrees is a bug, whatever the timing
+		if bench.mismatches > 0 {
+			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
+		}
+	}
+	if len(games) > 0 {
+		// any game's binary runs it; once is enough
+		result := run_proc(
+			{
+				cmd = strs(headless_path(games[0].name, .release), "table-bench"),
+				capture = true,
+				quiet = true,
+				timeout = 120 * time.Second,
+				log_to = join(work, "table"),
+			},
+		)
+		obj, ok := last_json_object(result.stdout)
+		if result.ok && ok {
+			section :: proc(object: json.Object, key, field: string) -> f64 {
+				inner, _ := object[key].(json.Object)
+				return json_f64(inner[field])
+			}
+			summary.table = {
+				capacity       = json_int(obj["capacity"]),
+				live           = json_int(obj["live"]),
+				sparse_mean_us = section(obj, "sparse_us", "mean"),
+				sparse_p99_us  = section(obj, "sparse_us", "p99"),
+				dense_mean_us  = section(obj, "dense_us", "mean"),
+			}
+			log(
+				"%-12s walk of a %d-slot table holding %d: %.1f us (p99 %.1f); the same %d dense: %.1f us",
+				"sim.table",
+				summary.table.capacity,
+				summary.table.live,
+				summary.table.sparse_mean_us,
+				summary.table.sparse_p99_us,
+				summary.table.live,
+				summary.table.dense_mean_us,
+			)
+		} else {
+			log("uni: table-bench failed (exit %d):\n%s", result.exit_code, tail(result.stderr, 2000))
+			append(&failed, "table-bench")
 		}
 	}
 	if data, err := json.marshal(summary^, {pretty = true}); err == nil {
@@ -128,12 +176,12 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 }
 
-json_f64 :: proc(v: json.Value) -> f64 {
-	#partial switch x in v {
+json_f64 :: proc(value: json.Value) -> f64 {
+	#partial switch number in value {
 	case json.Float:
-		return f64(x)
+		return f64(number)
 	case json.Integer:
-		return f64(x)
+		return f64(number)
 	}
 	return 0
 }
@@ -142,11 +190,11 @@ json_f64 :: proc(v: json.Value) -> f64 {
 last_json_object :: proc(text: string) -> (json.Object, bool) {
 	lines := strings.split_lines(text)
 	#reverse for line in lines {
-		l := strings.trim_space(line)
-		if strings.has_prefix(l, "{") {
-			if v, err := json.parse_string(l); err == nil {
-				if o, ok := v.(json.Object); ok {
-					return o, true
+		trimmed := strings.trim_space(line)
+		if strings.has_prefix(trimmed, "{") {
+			if value, err := json.parse_string(trimmed); err == nil {
+				if object, ok := value.(json.Object); ok {
+					return object, true
 				}
 			}
 		}
@@ -172,9 +220,9 @@ cmd_record_reference :: proc(args: []string) -> Result {
 		pkg = join(state.project.root, "tests", "scenarios")
 		needs_box3d = true
 	} else {
-		g := game(opts.game)
-		pkg = join(g.dir, "simulation", "tests")
-		needs_box3d = game_uses_box3d(g)
+		selected := game(opts.game)
+		pkg = join(selected.dir, "simulation", "tests")
+		needs_box3d = game_uses_box3d(selected)
 	}
 	if !os.is_file(join(pkg, "suite_test.odin")) {
 		usage("%s has no end-to-end suite (suite_test.odin)", rel(pkg))
@@ -198,10 +246,10 @@ cmd_record_reference :: proc(args: []string) -> Result {
 		fatal("record-reference %s: the suite failed", opts.game)
 	}
 	data := join(pkg, "testdata")
-	st := run_proc(
+	status := run_proc(
 		{cmd = strs(git(), "-C", state.project.root, "status", "--short", "--", data), capture = true, quiet = true},
 	)
-	changed := strings.trim_space(st.stdout)
+	changed := strings.trim_space(status.stdout)
 	if changed == "" {
 		return {
 			ok = true,
@@ -233,9 +281,9 @@ cmd_setup :: proc(args: []string) -> Result {
 	}
 	deps: [dynamic]Dep
 	uses_box3d, uses_eos := is_unified_repo(), is_unified_repo()
-	for g in state.project.games {
-		uses_box3d = uses_box3d || game_uses_box3d(g)
-		uses_eos = uses_eos || extension_uses_eos(g)
+	for game in state.project.games {
+		uses_box3d = uses_box3d || game_uses_box3d(game)
+		uses_eos = uses_eos || extension_uses_eos(game)
 	}
 	append(&deps, Dep{"odin", tprint("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
 	if !opts.check {
@@ -259,15 +307,15 @@ cmd_setup :: proc(args: []string) -> Result {
 		}
 		append(&deps, Dep{"box3d", version, src, box3d_ready()})
 	}
-	gsrc := "pinned download (.out/godot)"
+	godot_source := "pinned download (.out/godot)"
 	if os.get_env("UNIFIED_GODOT", context.temp_allocator) != "" {
-		gsrc = tprint("UNIFIED_GODOT (%s)", env_source("UNIFIED_GODOT"))
+		godot_source = tprint("UNIFIED_GODOT (%s)", env_source("UNIFIED_GODOT"))
 	}
-	gexe, _, _ := godot_download()
+	godot_exe, _, _ := godot_download()
 	if env := os.get_env("UNIFIED_GODOT", context.temp_allocator); env != "" {
-		gexe = env
+		godot_exe = env
 	}
-	append(&deps, Dep{"godot", pin("godot", "version"), gsrc, os.is_file(gexe)})
+	append(&deps, Dep{"godot", pin("godot", "version"), godot_source, os.is_file(godot_exe)})
 	if uses_eos {
 		// never fetched (Epic's licence): online play only, so a missing SDK is reported, not a failure
 		src := tprint("UNIFIED_EOS_SDK (%s)", env_source("UNIFIED_EOS_SDK"))
@@ -277,9 +325,9 @@ cmd_setup :: proc(args: []string) -> Result {
 		append(&deps, Dep{"eos_sdk", pin("eos_sdk", "version"), src, true})
 	}
 	all_ready := true
-	for d in deps {
-		log("  %-8s %-24s %s%s", d.name, d.version, d.source, d.ready ? "" : "  (missing)")
-		all_ready = all_ready && d.ready
+	for dep in deps {
+		log("  %-8s %-24s %s%s", dep.name, dep.version, dep.source, dep.ready ? "" : "  (missing)")
+		all_ready = all_ready && dep.ready
 	}
 	return {
 		ok = opts.check || all_ready,
@@ -291,8 +339,8 @@ cmd_setup :: proc(args: []string) -> Result {
 // Where a variable's value comes from: .env or the environment.
 @(private)
 env_source :: proc(key: string) -> string {
-	for k in state.env_keys {
-		if k == key {
+	for env_key in state.env_keys {
+		if env_key == key {
 			return ".env"
 		}
 	}
@@ -312,51 +360,51 @@ cmd_clean :: proc(args: []string) -> Result {
 	}
 	opts: Opts
 	parse(&opts, args)
-	p := state.project
-	gdext := join(p.unified, "src", "gdext")
+	project := state.project
+	gdext := join(project.unified, "src", "gdext")
 	targets: [dynamic]string
 	append(&targets, join(gdext, "api.gen.odin"), join(gdext, "gdi"))
 	// The root's .out/ but the running CLI.
 	exe, _ := os.get_executable_path(context.allocator)
-	cli_dir := join(p.out, "cli")
+	cli_dir := join(project.out, "cli")
 	keep := []string{os.base(exe), tprint("%s.inputs", os.base(exe)), "current"}
-	if entries, err := os.read_all_directory_by_path(p.out, context.allocator); err == nil {
-		for e in entries {
-			if e.name != "cli" {
-				append(&targets, e.fullpath)
+	if entries, err := os.read_all_directory_by_path(project.out, context.allocator); err == nil {
+		for entry in entries {
+			if entry.name != "cli" {
+				append(&targets, entry.fullpath)
 			}
 		}
 	}
 	if entries, err := os.read_all_directory_by_path(cli_dir, context.allocator); err == nil {
-		for e in entries {
-			if !slice.contains(keep, e.name) {
-				append(&targets, e.fullpath)
+		for entry in entries {
+			if !slice.contains(keep, entry.name) {
+				append(&targets, entry.fullpath)
 			}
 		}
 	}
 	// Every other .out/ and .godot/: a game's, a Godot test project's.
-	w := os.walker_create(p.root)
-	defer os.walker_destroy(&w)
-	for fi in os.walker_walk(&w) {
-		if fi.type != .Directory {
+	walker := os.walker_create(project.root)
+	defer os.walker_destroy(&walker)
+	for info in os.walker_walk(&walker) {
+		if info.type != .Directory {
 			continue
 		}
-		if fi.name == ".out" || fi.name == ".godot" {
-			if !same_path(fi.fullpath, p.out) {
-				append(&targets, strings.clone(fi.fullpath))
+		if info.name == ".out" || info.name == ".godot" {
+			if !same_path(info.fullpath, project.out) {
+				append(&targets, strings.clone(info.fullpath))
 			}
-			os.walker_skip_dir(&w)
-		} else if strings.has_prefix(fi.name, ".") {
-			os.walker_skip_dir(&w) // .git, .claude (other checkouts), .toolchains
+			os.walker_skip_dir(&walker)
+		} else if strings.has_prefix(info.name, ".") {
+			os.walker_skip_dir(&walker) // .git, .claude (other checkouts), .toolchains
 		}
 	}
 	removed: [dynamic]string
 	failed := 0
-	for t in targets {
-		if !os.exists(t) {
+	for target in targets {
+		if !os.exists(target) {
 			continue
 		}
-		name, _ := strings.replace_all(rel(t), "\\", "/")
+		name, _ := strings.replace_all(rel(target), "\\", "/")
 		append(&removed, name)
 		if opts.check {
 			log("  %s", name)
@@ -364,8 +412,8 @@ cmd_clean :: proc(args: []string) -> Result {
 		}
 		// remove_all can return no error and leave files a running process holds (Windows: a Godot this project
 		// started, its loaded extension, an older uni still running), so what is left decides.
-		err := os.remove_all(t)
-		if os.exists(t) {
+		err := os.remove_all(target)
+		if os.exists(target) {
 			log(
 				"  %s: not removed%s: in use? (close Godot and other uni commands, then run clean again)",
 				name,
@@ -392,11 +440,11 @@ cmd_clean :: proc(args: []string) -> Result {
 
 // Whether two paths name the same place (slashes and, on Windows, case aside).
 @(private)
-same_path :: proc(a, b: string) -> bool {
-	norm :: proc(s: string) -> string {
-		slashed, _ := strings.replace_all(s, "\\", "/", context.temp_allocator)
+same_path :: proc(first, second: string) -> bool {
+	norm :: proc(path: string) -> string {
+		slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
 		slashed = strings.trim_right(slashed, "/")
 		return ODIN_OS == .Windows ? strings.to_lower(slashed, context.temp_allocator) : slashed
 	}
-	return norm(a) == norm(b)
+	return norm(first) == norm(second)
 }

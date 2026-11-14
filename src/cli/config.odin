@@ -10,38 +10,38 @@ Config :: struct {
 	sections: map[string]map[string]string,
 }
 
-config_parse :: proc(text: string) -> (c: Config) {
+config_parse :: proc(text: string) -> (config: Config) {
 	section := ""
 	text := text
 	for line in strings.split_lines_iterator(&text) {
-		s := strings.trim_space(line)
-		if s == "" || s[0] == ';' || s[0] == '#' {
+		trimmed := strings.trim_space(line)
+		if trimmed == "" || trimmed[0] == ';' || trimmed[0] == '#' {
 			continue
 		}
-		if s[0] == '[' && s[len(s) - 1] == ']' {
-			section = s[1:len(s) - 1]
-			if section not_in c.sections {
-				c.sections[section] = {}
+		if trimmed[0] == '[' && trimmed[len(trimmed) - 1] == ']' {
+			section = trimmed[1:len(trimmed) - 1]
+			if section not_in config.sections {
+				config.sections[section] = {}
 			}
 			continue
 		}
-		eq := strings.index_byte(s, '=')
+		eq := strings.index_byte(trimmed, '=')
 		if eq < 0 {
 			continue
 		}
-		key := strings.trim_space(s[:eq])
-		value := strings.trim_space(s[eq + 1:])
+		key := strings.trim_space(trimmed[:eq])
+		value := strings.trim_space(trimmed[eq + 1:])
 		if len(value) >= 2 && value[0] == '"' && value[len(value) - 1] == '"' {
 			value = value[1:len(value) - 1]
 		}
-		m := c.sections[section]
-		m[key] = value
-		c.sections[section] = m
+		entries := config.sections[section]
+		entries[key] = value
+		config.sections[section] = entries
 	}
 	return
 }
 
-config_load :: proc(path: string) -> (c: Config, ok: bool) {
+config_load :: proc(path: string) -> (config: Config, ok: bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		return {}, false
@@ -49,49 +49,49 @@ config_load :: proc(path: string) -> (c: Config, ok: bool) {
 	return config_parse(string(data)), true
 }
 
-config_get :: proc(c: Config, section, key: string) -> (string, bool) {
-	m, has := c.sections[section]
+config_get :: proc(config: Config, section, key: string) -> (string, bool) {
+	entries, has := config.sections[section]
 	if !has {
 		return "", false
 	}
-	v, found := m[key]
-	return v, found
+	value, found := entries[key]
+	return value, found
 }
 
 // A pin from <unified>/pins.cfg; a missing one is a broken checkout, so it stops the command.
 pin :: proc(section, key: string) -> string {
-	v, ok := config_get(state.pins, section, key)
+	value, ok := config_get(state.pins, section, key)
 	if !ok {
 		fatal("pins.cfg has no [%s] %s", section, key)
 	}
-	return v
+	return value
 }
 
 // The project's .env (SPEC.md, Local settings): `KEY=value` lines of UNIFIED_* variables, `#` comments. Returns the
 // pairs in file order, or an error message naming the bad line.
 env_parse :: proc(text: string) -> (pairs: [dynamic][2]string, err: string) {
 	text := text
-	n := 0
+	line_number := 0
 	for line in strings.split_lines_iterator(&text) {
-		n += 1
-		s := strings.trim_space(line)
-		if s == "" || s[0] == '#' {
+		line_number += 1
+		trimmed := strings.trim_space(line)
+		if trimmed == "" || trimmed[0] == '#' {
 			continue
 		}
-		eq := strings.index_byte(s, '=')
+		eq := strings.index_byte(trimmed, '=')
 		if eq <= 0 {
-			return pairs, tprint("line %d: not KEY=value", n)
+			return pairs, tprint("line %d: not KEY=value", line_number)
 		}
-		key := strings.trim_space(s[:eq])
+		key := strings.trim_space(trimmed[:eq])
 		if !strings.has_prefix(key, "UNIFIED_") {
-			return pairs, tprint("line %d: %s: only UNIFIED_* variables belong here", n, key)
+			return pairs, tprint("line %d: %s: only UNIFIED_* variables belong here", line_number, key)
 		}
 		for ch in key {
 			if !(ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_') {
-				return pairs, tprint("line %d: %s: a key is A-Z, 0-9 and _", n, key)
+				return pairs, tprint("line %d: %s: a key is A-Z, 0-9 and _", line_number, key)
 			}
 		}
-		append(&pairs, [2]string{key, strings.trim_space(s[eq + 1:])})
+		append(&pairs, [2]string{key, strings.trim_space(trimmed[eq + 1:])})
 	}
 	return pairs, ""
 }
@@ -104,16 +104,16 @@ env_load :: proc(root: string) -> []string {
 	if err != nil {
 		return nil
 	}
-	pairs, perr := env_parse(string(data))
-	if perr != "" {
-		fatal("%s: %s", path, perr)
+	pairs, parse_err := env_parse(string(data))
+	if parse_err != "" {
+		fatal("%s: %s", path, parse_err)
 	}
 	keys := make([]string, len(pairs))
-	for p, i in pairs {
-		if os.set_env(p[0], p[1]) != nil {
-			fatal("%s: cannot set %s", path, p[0])
+	for pair, i in pairs {
+		if os.set_env(pair[0], pair[1]) != nil {
+			fatal("%s: cannot set %s", path, pair[0])
 		}
-		keys[i] = p[0]
+		keys[i] = pair[0]
 	}
 	return keys
 }

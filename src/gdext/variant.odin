@@ -28,9 +28,9 @@ variant_type_of :: proc($T: typeid) -> gdi.VariantType {
 	} else when intrinsics.type_is_subtype_of(T, Object) {
 		return .OBJECT
 	} else {
-		vt, ok := builtin_variant_type(T)
+		kind, ok := builtin_variant_type(T)
 		assert(ok, "type has no Variant equivalent")
-		return vt
+		return kind
 	}
 }
 
@@ -110,20 +110,20 @@ builtin_variant_type :: proc(id: typeid) -> (gdi.VariantType, bool) {
 }
 
 // Builtins that own memory (need a destructor); the rest are plain values.
-is_opaque_builtin :: proc(vt: gdi.VariantType) -> bool {
-	#partial switch vt {
+is_opaque_builtin :: proc(kind: gdi.VariantType) -> bool {
+	#partial switch kind {
 	case .STRING, .STRING_NAME, .NODE_PATH, .CALLABLE, .SIGNAL, .DICTIONARY, .ARRAY:
 		return true
 	}
-	return vt >= .PACKED_BYTE_ARRAY && vt <= .PACKED_VECTOR4_ARRAY
+	return kind >= .PACKED_BYTE_ARRAY && kind <= .PACKED_VECTOR4_ARRAY
 }
 
 // Runtime version of variant_type_of (for signal and script-virtual signatures given as typeids).
 variant_type_of_id :: proc(id: typeid) -> gdi.VariantType {
 	if id == Variant do return .NIL
-	if vt, ok := builtin_variant_type(id); ok do return vt
-	ti := runtime.type_info_base(type_info_of(id))
-	#partial switch _ in ti.variant {
+	if kind, ok := builtin_variant_type(id); ok do return kind
+	info := runtime.type_info_base(type_info_of(id))
+	#partial switch _ in info.variant {
 	case runtime.Type_Info_Boolean:
 		return .BOOL
 	case runtime.Type_Info_Integer, runtime.Type_Info_Enum:
@@ -142,284 +142,284 @@ is_object_type :: proc(id: typeid) -> bool {
 	cur := id
 	for {
 		if cur == Object do return true
-		ti := runtime.type_info_base(type_info_of(cur))
-		s, ok := ti.variant.(runtime.Type_Info_Struct)
-		if !ok || s.field_count == 0 || !s.usings[0] do return false
-		cur = s.types[0].id
+		info := runtime.type_info_base(type_info_of(cur))
+		struct_info, ok := info.variant.(runtime.Type_Info_Struct)
+		if !ok || struct_info.field_count == 0 || !struct_info.usings[0] do return false
+		cur = struct_info.types[0].id
 	}
 }
 
-variant_type :: proc(v: ^Variant) -> gdi.VariantType {
-	return gdi.variant_get_type(v)
+variant_type :: proc(variant: ^Variant) -> gdi.VariantType {
+	return gdi.variant_get_type(variant)
 }
 
 variant_nil :: proc() -> Variant {
-	r: Variant
-	gdi.variant_new_nil(&r)
-	return r
+	result: Variant
+	gdi.variant_new_nil(&result)
+	return result
 }
 
-variant_destroy :: proc(v: ^Variant) {
-	gdi.variant_destroy(v)
+variant_destroy :: proc(variant: ^Variant) {
+	gdi.variant_destroy(variant)
 }
 
-variant_copy :: proc(v: ^Variant) -> Variant {
-	r: Variant
-	gdi.variant_new_copy(&r, v)
-	return r
+variant_copy :: proc(variant: ^Variant) -> Variant {
+	result: Variant
+	gdi.variant_new_copy(&result, variant)
+	return result
 }
 
 @(private)
-from_type :: proc(vt: gdi.VariantType, dst: ^Variant, src: rawptr) {
+from_type :: proc(kind: gdi.VariantType, dst: ^Variant, src: rawptr) {
 	@(static) ctors: [gdi.VariantType]gdi.VariantFromTypeConstructorFunc
-	if ctors[vt] == nil do ctors[vt] = gdi.get_variant_from_type_constructor(vt)
-	ctors[vt](dst, src)
+	if ctors[kind] == nil do ctors[kind] = gdi.get_variant_from_type_constructor(kind)
+	ctors[kind](dst, src)
 }
 
 @(private)
-to_type :: proc(vt: gdi.VariantType, dst: rawptr, src: ^Variant) {
+to_type :: proc(kind: gdi.VariantType, dst: rawptr, src: ^Variant) {
 	@(static) ctors: [gdi.VariantType]gdi.TypeFromVariantConstructorFunc
-	if ctors[vt] == nil do ctors[vt] = gdi.get_variant_to_type_constructor(vt)
-	ctors[vt](dst, src)
+	if ctors[kind] == nil do ctors[kind] = gdi.get_variant_to_type_constructor(kind)
+	ctors[kind](dst, src)
 }
 
 // Destroys an opaque builtin value of type vt in place.
-builtin_destroy :: proc(vt: gdi.VariantType, p: rawptr) {
+builtin_destroy :: proc(kind: gdi.VariantType, ptr: rawptr) {
 	@(static) dtors: [gdi.VariantType]gdi.PtrDestructor
-	if dtors[vt] == nil do dtors[vt] = gdi.variant_get_ptr_destructor(vt)
-	if dtors[vt] != nil do dtors[vt](p)
+	if dtors[kind] == nil do dtors[kind] = gdi.variant_get_ptr_destructor(kind)
+	if dtors[kind] != nil do dtors[kind](ptr)
 }
 
 // ---- Odin value -> owned Variant
 
-to_variant :: proc(v: $T) -> Variant {
-	r: Variant
+to_variant :: proc(value: $T) -> Variant {
+	result: Variant
 	when T == Variant {
-		v := v
-		gdi.variant_new_copy(&r, &v)
+		value := value
+		gdi.variant_new_copy(&result, &value)
 	} else when intrinsics.type_is_boolean(T) {
-		b := u8(v)
-		from_type(.BOOL, &r, &b)
+		as_bool := u8(value)
+		from_type(.BOOL, &result, &as_bool)
 	} else when intrinsics.type_is_integer(T) || intrinsics.type_is_enum(T) {
-		i := i64(v)
-		from_type(.INT, &r, &i)
+		as_int := i64(value)
+		from_type(.INT, &result, &as_int)
 	} else when intrinsics.type_is_float(T) {
-		f := f64(v)
-		from_type(.FLOAT, &r, &f)
+		as_float := f64(value)
+		from_type(.FLOAT, &result, &as_float)
 	} else when T == string {
-		s := string_from(v)
-		from_type(.STRING, &r, &s)
-		String_destroy(&s)
+		text := string_from(value)
+		from_type(.STRING, &result, &text)
+		String_destroy(&text)
 	} else when intrinsics.type_is_subtype_of(T, Object) {
-		p := v.ptr
-		from_type(.OBJECT, &r, &p)
+		ptr := value.ptr
+		from_type(.OBJECT, &result, &ptr)
 	} else {
-		v := v
-		from_type(variant_type_of(T), &r, &v)
+		value := value
+		from_type(variant_type_of(T), &result, &value)
 	}
-	return r
+	return result
 }
 
-variant_string_name :: proc(s: string) -> Variant {
-	r: Variant
-	n := string_name_from(s)
-	from_type(.STRING_NAME, &r, &n)
-	StringName_destroy(&n)
-	return r
+variant_string_name :: proc(text: string) -> Variant {
+	result: Variant
+	name := string_name_from(text)
+	from_type(.STRING_NAME, &result, &name)
+	StringName_destroy(&name)
+	return result
 }
 
-variant_node_path :: proc(s: string) -> Variant {
-	r: Variant
-	n := node_path_from(s)
-	from_type(.NODE_PATH, &r, &n)
-	NodePath_destroy(&n)
-	return r
+variant_node_path :: proc(text: string) -> Variant {
+	result: Variant
+	path := node_path_from(text)
+	from_type(.NODE_PATH, &result, &path)
+	NodePath_destroy(&path)
+	return result
 }
 
 // Dynamic version of to_variant (vararg calls, signals).
-variant_from_any :: proc(a: any) -> Variant {
-	r: Variant
-	if a.data == nil {
-		gdi.variant_new_nil(&r)
-		return r
+variant_from_any :: proc(value: any) -> Variant {
+	result: Variant
+	if value.data == nil {
+		gdi.variant_new_nil(&result)
+		return result
 	}
-	if vt, ok := builtin_variant_type(a.id); ok {
-		from_type(vt, &r, a.data)
-		return r
+	if kind, ok := builtin_variant_type(value.id); ok {
+		from_type(kind, &result, value.data)
+		return result
 	}
-	id := runtime.typeid_base(a.id)
+	id := runtime.typeid_base(value.id)
 	switch id {
 	case Variant:
-		gdi.variant_new_copy(&r, (^Variant)(a.data))
-		return r
+		gdi.variant_new_copy(&result, (^Variant)(value.data))
+		return result
 	case string:
-		return to_variant((^string)(a.data)^)
+		return to_variant((^string)(value.data)^)
 	case cstring:
-		return to_variant(string((^cstring)(a.data)^))
+		return to_variant(string((^cstring)(value.data)^))
 	}
-	if vt, ok := builtin_variant_type(id); ok {
-		from_type(vt, &r, a.data)
-		return r
+	if kind, ok := builtin_variant_type(id); ok {
+		from_type(kind, &result, value.data)
+		return result
 	}
-	ti := runtime.type_info_base(type_info_of(id))
-	#partial switch _ in ti.variant {
+	info := runtime.type_info_base(type_info_of(id))
+	#partial switch _ in info.variant {
 	case runtime.Type_Info_Boolean:
-		b := u8(reflect.as_bool(a) or_else false)
-		from_type(.BOOL, &r, &b)
-		return r
+		as_bool := u8(reflect.as_bool(value) or_else false)
+		from_type(.BOOL, &result, &as_bool)
+		return result
 	case runtime.Type_Info_Integer, runtime.Type_Info_Enum:
-		i := reflect.as_i64(a) or_else 0
-		from_type(.INT, &r, &i)
-		return r
+		as_int := reflect.as_i64(value) or_else 0
+		from_type(.INT, &result, &as_int)
+		return result
 	case runtime.Type_Info_Float:
-		f := reflect.as_f64(a) or_else 0
-		from_type(.FLOAT, &r, &f)
-		return r
+		as_float := reflect.as_f64(value) or_else 0
+		from_type(.FLOAT, &result, &as_float)
+		return result
 	}
 	if is_object_type(id) {
-		from_type(.OBJECT, &r, a.data) // the struct is exactly the Object* field
-		return r
+		from_type(.OBJECT, &result, value.data) // the struct is exactly the Object* field
+		return result
 	}
 	print_error("variant_from_any: unsupported type")
-	gdi.variant_new_nil(&r)
-	return r
+	gdi.variant_new_nil(&result)
+	return result
 }
 
 // ---- Variant -> Odin value (ints and floats convert into each other; ok = false on a mismatch)
 
-from_variant :: proc($T: typeid, v: ^Variant) -> (r: T, ok: bool) {
-	vt := gdi.variant_get_type(v)
+from_variant :: proc($T: typeid, variant: ^Variant) -> (result: T, ok: bool) {
+	kind := gdi.variant_get_type(variant)
 	when T == Variant {
-		return v^, true // borrowed
+		return variant^, true // borrowed
 	} else when intrinsics.type_is_boolean(T) {
-		if vt != .BOOL do return
-		b: u8
-		to_type(.BOOL, &b, v)
-		return b != 0, true
+		if kind != .BOOL do return
+		flag: u8
+		to_type(.BOOL, &flag, variant)
+		return flag != 0, true
 	} else when intrinsics.type_is_integer(T) || intrinsics.type_is_enum(T) || intrinsics.type_is_float(T) {
-		i: i64
-		f: f64
-		#partial switch vt {
+		as_int: i64
+		as_float: f64
+		#partial switch kind {
 		case .INT:
-			to_type(.INT, &i, v)
-			f = f64(i)
+			to_type(.INT, &as_int, variant)
+			as_float = f64(as_int)
 		case .FLOAT:
-			to_type(.FLOAT, &f, v)
-			i = i64(f)
+			to_type(.FLOAT, &as_float, variant)
+			as_int = i64(as_float)
 		case .BOOL:
-			b: u8
-			to_type(.BOOL, &b, v)
-			i, f = i64(b), f64(b)
+			flag: u8
+			to_type(.BOOL, &flag, variant)
+			as_int, as_float = i64(flag), f64(flag)
 		case:
 			return
 		}
 		when intrinsics.type_is_float(T) {
-			return T(f), true
+			return T(as_float), true
 		} else {
-			return T(i), true
+			return T(as_int), true
 		}
 	} else when T == string {
-		#partial switch vt {
+		#partial switch kind {
 		case .STRING:
-			s: String
-			to_type(.STRING, &s, v)
-			defer String_destroy(&s)
-			return string_to_odin(&s), true
+			text: String
+			to_type(.STRING, &text, variant)
+			defer String_destroy(&text)
+			return string_to_odin(&text), true
 		case .STRING_NAME:
-			s: StringName
-			to_type(.STRING_NAME, &s, v)
-			defer StringName_destroy(&s)
-			return string_name_to_odin(&s), true
+			text: StringName
+			to_type(.STRING_NAME, &text, variant)
+			defer StringName_destroy(&text)
+			return string_name_to_odin(&text), true
 		case .NODE_PATH:
-			s: NodePath
-			to_type(.NODE_PATH, &s, v)
-			defer NodePath_destroy(&s)
-			return node_path_to_odin(&s), true
+			text: NodePath
+			to_type(.NODE_PATH, &text, variant)
+			defer NodePath_destroy(&text)
+			return node_path_to_odin(&text), true
 		}
 		return
 	} else when intrinsics.type_is_subtype_of(T, Object) {
-		if vt == .NIL do return {}, true
-		if vt != .OBJECT do return
-		p: rawptr
-		to_type(.OBJECT, &p, v)
-		return transmute(T)p, true
+		if kind == .NIL do return {}, true
+		if kind != .OBJECT do return
+		ptr: rawptr
+		to_type(.OBJECT, &ptr, variant)
+		return transmute(T)ptr, true
 	} else {
 		want := variant_type_of(T)
-		if vt != want do return
-		to_type(want, &r, v)
-		return r, true
+		if kind != want do return
+		to_type(want, &result, variant)
+		return result, true
 	}
 }
 
 // ---- ptrcall slots (arguments are borrowed for the duration of the call)
 
-from_ptr :: proc($T: typeid, p: rawptr) -> T {
+from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 	when intrinsics.type_is_boolean(T) {
-		return (^u8)(p)^ != 0
+		return (^u8)(ptr)^ != 0
 	} else when intrinsics.type_is_integer(T) || intrinsics.type_is_enum(T) {
-		return T((^i64)(p)^)
+		return T((^i64)(ptr)^)
 	} else when intrinsics.type_is_float(T) {
-		return T((^f64)(p)^)
+		return T((^f64)(ptr)^)
 	} else when T == string {
-		return string_to_odin((^String)(p))
+		return string_to_odin((^String)(ptr))
 	} else when intrinsics.type_is_subtype_of(T, Object) {
-		return transmute(T)(^rawptr)(p)^
+		return transmute(T)(^rawptr)(ptr)^
 	} else {
-		return (^T)(p)^ // Variant and builtins: a borrowed bitwise view
+		return (^T)(ptr)^ // Variant and builtins: a borrowed bitwise view
 	}
 }
 
 // Writes a return value into a ptrcall slot. Opaque builtins move into the (constructed) slot.
-to_ptr :: proc(v: $T, p: rawptr) {
+to_ptr :: proc(value: $T, ptr: rawptr) {
 	when intrinsics.type_is_boolean(T) {
-		(^u8)(p)^ = u8(v)
+		(^u8)(ptr)^ = u8(value)
 	} else when intrinsics.type_is_integer(T) || intrinsics.type_is_enum(T) {
-		(^i64)(p)^ = i64(v)
+		(^i64)(ptr)^ = i64(value)
 	} else when intrinsics.type_is_float(T) {
-		(^f64)(p)^ = f64(v)
+		(^f64)(ptr)^ = f64(value)
 	} else when T == string {
-		String_destroy((^String)(p))
-		(^String)(p)^ = string_from(v)
+		String_destroy((^String)(ptr))
+		(^String)(ptr)^ = string_from(value)
 	} else when intrinsics.type_is_subtype_of(T, Object) {
-		(^rawptr)(p)^ = v.ptr
+		(^rawptr)(ptr)^ = value.ptr
 	} else when T == Variant {
-		gdi.variant_destroy((^Variant)(p))
-		(^Variant)(p)^ = v
+		gdi.variant_destroy((^Variant)(ptr))
+		(^Variant)(ptr)^ = value
 	} else {
-		vt := variant_type_of(T)
-		if is_opaque_builtin(vt) do builtin_destroy(vt, p)
-		(^T)(p)^ = v
+		kind := variant_type_of(T)
+		if is_opaque_builtin(kind) do builtin_destroy(kind, ptr)
+		(^T)(ptr)^ = value
 	}
 }
 
 // Writes an owned return value into a Variant slot (moves opaque builtins).
-to_variant_slot :: proc(v: $T, slot: ^Variant) {
+to_variant_slot :: proc(value: $T, slot: ^Variant) {
 	gdi.variant_destroy(slot)
-	slot^ = to_variant(v)
+	slot^ = to_variant(value)
 	when T != Variant && !intrinsics.type_is_subtype_of(T, Object) && T != string {
 		when !intrinsics.type_is_boolean(
 			T,
 		) && !intrinsics.type_is_integer(T) && !intrinsics.type_is_enum(T) && !intrinsics.type_is_float(T) {
-			vt := variant_type_of(T)
-			if is_opaque_builtin(vt) {
-				v := v
-				builtin_destroy(vt, &v)
+			kind := variant_type_of(T)
+			if is_opaque_builtin(kind) {
+				value := value
+				builtin_destroy(kind, &value)
 			}
 		}
 	} else when T == Variant {
-		v := v
-		gdi.variant_destroy(&v)
+		value := value
+		gdi.variant_destroy(&value)
 	}
 }
 
 // Releases a value produced by from_variant (opaque builtins only).
-release :: proc(v: ^$T) {
+release :: proc(value: ^$T) {
 	when T != Variant && T != string && !intrinsics.type_is_subtype_of(T, Object) {
 		when !intrinsics.type_is_boolean(
 			T,
 		) && !intrinsics.type_is_integer(T) && !intrinsics.type_is_enum(T) && !intrinsics.type_is_float(T) {
-			vt := variant_type_of(T)
-			if is_opaque_builtin(vt) do builtin_destroy(vt, v)
+			kind := variant_type_of(T)
+			if is_opaque_builtin(kind) do builtin_destroy(kind, value)
 		}
 	}
 }
@@ -430,24 +430,24 @@ dict_new :: proc() -> Dictionary {
 	return Dictionary_new0()
 }
 
-dict_set :: proc(d: ^Dictionary, key: string, value: $T) {
-	k := to_variant(key)
-	defer gdi.variant_destroy(&k)
-	slot := (^Variant)(gdi.dictionary_operator_index(d, &k))
+dict_set :: proc(dict: ^Dictionary, key: string, value: $T) {
+	key_variant := to_variant(key)
+	defer gdi.variant_destroy(&key_variant)
+	slot := (^Variant)(gdi.dictionary_operator_index(dict, &key_variant))
 	gdi.variant_destroy(slot)
 	slot^ = to_variant(value)
 }
 
 // Moves an owned Dictionary/Array value into d[key].
-dict_set_move :: proc(d: ^Dictionary, key: string, value: ^$T) {
-	dict_set(d, key, value^)
+dict_set_move :: proc(dict: ^Dictionary, key: string, value: ^$T) {
+	dict_set(dict, key, value^)
 	release(value)
 }
 
-dict_get :: proc(d: ^Dictionary, $T: typeid, key: string) -> (T, bool) {
-	k := to_variant(key)
-	defer gdi.variant_destroy(&k)
-	slot := (^Variant)(gdi.dictionary_operator_index_const(d, &k))
+dict_get :: proc(dict: ^Dictionary, $T: typeid, key: string) -> (T, bool) {
+	key_variant := to_variant(key)
+	defer gdi.variant_destroy(&key_variant)
+	slot := (^Variant)(gdi.dictionary_operator_index_const(dict, &key_variant))
 	if slot == nil do return {}, false
 	return from_variant(T, slot)
 }
@@ -456,22 +456,22 @@ array_new :: proc() -> Array {
 	return Array_new0()
 }
 
-array_push :: proc(a: ^Array, value: $T) {
-	v := to_variant(value)
-	defer gdi.variant_destroy(&v)
-	Array_push_back(a, v)
+array_push :: proc(array: ^Array, value: $T) {
+	variant := to_variant(value)
+	defer gdi.variant_destroy(&variant)
+	Array_push_back(array, variant)
 }
 
 // Moves an owned Dictionary/Array value onto the end of a.
-array_push_move :: proc(a: ^Array, value: ^$T) {
-	array_push(a, value^)
+array_push_move :: proc(array: ^Array, value: ^$T) {
+	array_push(array, value^)
 	release(value)
 }
 
-array_len :: proc(a: ^Array) -> int {
-	return int(Array_size(a))
+array_len :: proc(array: ^Array) -> int {
+	return int(Array_size(array))
 }
 
-array_at :: proc(a: ^Array, i: int) -> ^Variant {
-	return (^Variant)(gdi.array_operator_index(a, i64(i)))
+array_at :: proc(array: ^Array, index: int) -> ^Variant {
+	return (^Variant)(gdi.array_operator_index(array, i64(index)))
 }

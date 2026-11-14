@@ -32,28 +32,28 @@ download :: proc(url, dest, sha256, what: string) {
 }
 
 curl :: proc() -> string {
-	c := which("curl")
-	if c == "" {
+	path := which("curl")
+	if path == "" {
 		fatal("curl is not on PATH (macOS, Windows 10+ and Linux ship it)")
 	}
-	return c
+	return path
 }
 
 git :: proc() -> string {
-	g := which("git")
-	if g == "" {
+	git_exe := which("git")
+	if git_exe == "" {
 		fatal("git is not on PATH")
 	}
-	return g
+	return git_exe
 }
 
 // A file's identity without reading it: path, size and time (a compiler upgrade changes it).
 file_identity :: proc(path: string) -> string {
-	fi, err := os.stat(path, context.temp_allocator)
+	info, err := os.stat(path, context.temp_allocator)
 	if err != nil {
 		return path
 	}
-	return tprint("%s %d %d", path, fi.size, time.to_unix_nanoseconds(fi.modification_time))
+	return tprint("%s %d %d", path, info.size, time.to_unix_nanoseconds(info.modification_time))
 }
 
 stamp_ok :: proc(path, key: string) -> bool {
@@ -65,10 +65,10 @@ stamp_ok :: proc(path, key: string) -> bool {
 
 // A shallow checkout of one pinned commit in `dir` (git init + fetch of that commit; reset to it, cleaned).
 git_checkout :: proc(dir, url, commit: string) {
-	g := git()
-	gitc :: proc(g, dir: string, args: ..string) -> Ran {
+	git_exe := git()
+	gitc :: proc(git_exe, dir: string, args: ..string) -> Ran {
 		cmd: [dynamic]string
-		append(&cmd, g, "-c", "core.autocrlf=false", "-c", "advice.detachedHead=false", "-C", dir)
+		append(&cmd, git_exe, "-c", "core.autocrlf=false", "-c", "advice.detachedHead=false", "-C", dir)
 		append(&cmd, ..args)
 		return run_proc({cmd = cmd[:], capture = true, quiet = true})
 	}
@@ -76,20 +76,20 @@ git_checkout :: proc(dir, url, commit: string) {
 		remove_tree(dir)
 		make_dirs(dir)
 		for args in ([][]string{{"init", "-q"}, {"config", "core.autocrlf", "false"}, {"remote", "add", "origin", url}}) {
-			if r := gitc(g, dir, ..args); !r.ok {
-				fatal("git %s in %s failed: %s", args[0], dir, r.stderr)
+			if result := gitc(git_exe, dir, ..args); !result.ok {
+				fatal("git %s in %s failed: %s", args[0], dir, result.stderr)
 			}
 		}
 	}
-	if !gitc(g, dir, "cat-file", "-e", tprint("%s^{commit}", commit)).ok {
+	if !gitc(git_exe, dir, "cat-file", "-e", tprint("%s^{commit}", commit)).ok {
 		log("uni: fetching %s @ %s", url, commit[:10])
-		if r := gitc(g, dir, "fetch", "-q", "--depth", "1", "origin", commit); !r.ok {
-			fatal("fetching %s failed: %s", url, r.stderr)
+		if result := gitc(git_exe, dir, "fetch", "-q", "--depth", "1", "origin", commit); !result.ok {
+			fatal("fetching %s failed: %s", url, result.stderr)
 		}
 	}
 	for args in ([][]string{{"checkout", "-q", "--force", "--detach", commit}, {"clean", "-q", "-fdx"}}) {
-		if r := gitc(g, dir, ..args); !r.ok {
-			fatal("git %s in %s failed: %s", args[0], dir, r.stderr)
+		if result := gitc(git_exe, dir, ..args); !result.ok {
+			fatal("git %s in %s failed: %s", args[0], dir, result.stderr)
 		}
 	}
 }
@@ -112,15 +112,15 @@ box3d_dir :: proc() -> string {
 
 // The unified-box3d checkout UNIFIED_BOX3D names, or "".
 box3d_local :: proc() -> string {
-	p := os.get_env("UNIFIED_BOX3D", context.allocator)
-	if p == "" {
+	path := os.get_env("UNIFIED_BOX3D", context.allocator)
+	if path == "" {
 		return ""
 	}
-	p = strings.trim_right(p, `/\`)
-	if !os.is_file(join(p, "bindings", "library.odin")) {
-		fatal("UNIFIED_BOX3D=%s is not a unified-box3d checkout (no bindings/library.odin)", p)
+	path = strings.trim_right(path, `/\`)
+	if !os.is_file(join(path, "bindings", "library.odin")) {
+		fatal("UNIFIED_BOX3D=%s is not a unified-box3d checkout (no bindings/library.odin)", path)
 	}
-	return p
+	return path
 }
 
 // The library for this platform: the release build, or the debug one (-define:BOX3D_LIB_DEBUG=true links it).
@@ -145,15 +145,15 @@ ensure_box3d :: proc(build := false) {
 	start := time.tick_now()
 	cold("unified-box3d download")
 	name := tprint("unified-box3d-%s-%s.zip", tag, PLATFORM)
-	sha := pin("box3d", PLATFORM)
+	sha256 := pin("box3d", PLATFORM)
 	zip := join(state.project.out, "downloads", name)
-	download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha, name)
+	download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
 	remove_tree(dir)
 	if os.exists(dir) {
 		fatal("cannot replace %s: in use? (close Godot and other uni commands)", dir)
 	}
-	z := zip_open_file(zip)
-	zip_extract_all(&z, dir, strip_top = true)
+	archive := zip_open_file(zip)
+	zip_extract_all(&archive, dir, strip_top = true)
 	os.remove(zip)
 	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
 		fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
@@ -209,39 +209,39 @@ stage_box3d :: proc(dir: string, debug := false) {
 			os.remove(join(dir, "box3d.pdb")) // the debug build's, from an earlier --mode debug
 		}
 	}
-	for f in files {
-		dst := join(dir, os.base(f))
-		sfi, e1 := os.stat(f, context.temp_allocator)
-		if e1 != nil {
-			fatal("%s is missing (uni setup)", f)
+	for file in files {
+		dst := join(dir, os.base(file))
+		source_info, source_err := os.stat(file, context.temp_allocator)
+		if source_err != nil {
+			fatal("%s is missing (uni setup)", file)
 		}
-		dfi, e2 := os.stat(dst, context.temp_allocator)
-		if e2 == nil && sfi.size == dfi.size {
-			if time.diff(dfi.modification_time, sfi.modification_time) <= 0 {
+		dest_info, dest_err := os.stat(dst, context.temp_allocator)
+		if dest_err == nil && source_info.size == dest_info.size {
+			if time.diff(dest_info.modification_time, source_info.modification_time) <= 0 {
 				continue
 			}
 			// a newer source (a fresh download, a local rebuild) may hold the same bytes; a running program holds
 			// the copy on Windows
-			a, _ := sha256_file(f)
-			b, _ := sha256_file(dst)
-			if a == b {
+			source_hash, _ := sha256_file(file)
+			dest_hash, _ := sha256_file(dst)
+			if source_hash == dest_hash {
 				continue
 			}
 		}
 		make_dirs(dir)
-		copy_file(dst, f)
+		copy_file(dst, file)
 	}
 }
 
 // The defines of a build in mode `m` that links Box3D (`uses`): --mode debug links the library's debug build. Odin
 // rejects a -define nothing declares, so a build without Box3D gets none.
-box3d_defines :: proc(m: Mode, uses: bool) -> []string {
-	return uses && m == .debug ? strs("-define:BOX3D_LIB_DEBUG=true") : nil
+box3d_defines :: proc(mode: Mode, uses: bool) -> []string {
+	return uses && mode == .debug ? strs("-define:BOX3D_LIB_DEBUG=true") : nil
 }
 
 // Whether a game's Odin code uses Box3D (through unified's physics, or directly): only then is it fetched for it.
-game_uses_box3d :: proc(g: Game) -> bool {
-	return sources_import(join(g.dir, "simulation"), `"unified:physics"`, `"unified:b3"`, `"box3d:`)
+game_uses_box3d :: proc(game: Game) -> bool {
+	return sources_import(join(game.dir, "simulation"), `"unified:physics"`, `"unified:b3"`, `"box3d:`)
 }
 
 // Whether anything this project builds links Box3D (this repo's tests always do).
@@ -249,8 +249,8 @@ project_uses_box3d :: proc() -> bool {
 	if is_unified_repo() {
 		return true
 	}
-	for g in state.project.games {
-		if game_uses_box3d(g) {
+	for game in state.project.games {
+		if game_uses_box3d(game) {
 			return true
 		}
 	}
@@ -258,10 +258,10 @@ project_uses_box3d :: proc() -> bool {
 }
 
 sources_import :: proc(dir: string, imports: ..string) -> bool {
-	for f in find_files(dir, ".odin") {
-		text, _ := read_text(f)
-		for i in imports {
-			if strings.contains(text, i) {
+	for file in find_files(dir, ".odin") {
+		text, _ := read_text(file)
+		for pattern in imports {
+			if strings.contains(text, pattern) {
 				return true
 			}
 		}
@@ -306,9 +306,9 @@ ensure_odinfmt :: proc() -> string {
 }
 
 odin :: proc() -> string {
-	o := which("odin")
-	if o == "" {
+	path := which("odin")
+	if path == "" {
 		fatal("odin is not on PATH")
 	}
-	return o
+	return path
 }
