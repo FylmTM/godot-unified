@@ -86,7 +86,7 @@ func _ready() -> void:
 	root.add_child(_session)
 	_controls = ControlsPanel.new()
 	root.add_child(_controls)
-	Game.session.sim_event_2d.connect(_on_sim_event)
+	Game.session.sim_event.connect(_on_sim_event)
 
 
 func _process(delta: float) -> void:
@@ -129,8 +129,9 @@ func _process(delta: float) -> void:
 		start_button.text = "Restart"
 
 	var rows: Array[Dictionary] = []
-	for p in Game.present_players():
-		rows.append({"slot": p.slot, "name": Game.player_name(p), "status": "%d gems" % int(p.get("gems", 0))})
+	for info in Game.present_players():
+		rows.append({"player": info.player, "name": Game.player_name(info),
+			"status": "%d gems" % int(info.get("gems", 0))})
 	_session.refresh(rows, phase == "lobby", "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
 	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
@@ -170,18 +171,23 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 	_banner_t = seconds
 
 
-func _on_sim_event(kind: StringName, _tick: int, _entity: int, _pos: Vector2, value: float) -> void:
-	match kind:
+## Banners and the best time, once an event's tick is confirmed.
+func _on_sim_event(event: StringName, data: Dictionary) -> void:
+	if data.state != "confirmed":
+		return
+	match event:
 		&"match_started":
 			_show_banner("Defend the station!", 2.0)
 		&"wave":
-			if int(value) > 1:
-				_show_banner("Wave %d" % int(value), 2.0)
+			var wave := int(data.wave)
+			if wave > 1:
+				_show_banner("Wave %d" % wave, 2.0)
 		&"match_over":
 			_show_banner("Station lost", 3.0)
+			var survived := float(data.seconds_survived)
 			var best: float = Settings.get_value(&"best_time")
-			if value > best:
-				Settings.set_value(&"best_time", value)
+			if survived > best:
+				Settings.set_value(&"best_time", survived)
 
 
 static func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:

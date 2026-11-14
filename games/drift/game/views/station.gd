@@ -7,7 +7,7 @@ extends Node2D
 ## Set by the host on a plain view root (SimView2D has these natively).
 var kind: StringName
 var entity := -1
-var slot := -1
+var player := -1
 
 ## Station_View (simulation/extension), set by the host when it changes: 0..1.
 var hp_frac := 1.0:
@@ -65,5 +65,5 @@ func _draw() -> void:
 
 
 func _sim_event(event: StringName, data: Dictionary) -> void:
-	if event == &"station_hit" and not data.get("cancelled", false):
+	if event == &"station_hit" and data.first:
 		_flash = 1.0

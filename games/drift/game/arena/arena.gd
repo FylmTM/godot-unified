@@ -2,7 +2,8 @@ extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
 ## handed to the session (ships, the station, gates), the bulk views (rocks, bullets, gems), the camera following the
 ## local ship, effects and the HUD. Turns the mouse or the right stick into the aim every frame, and routes the
-## sim's verified events (sim_event_2d) to effects, sounds and camera shake.
+## sim's events (sim_event) to effects, sounds and camera shake: rock effects as soon as an event is first shown
+## (predicted), the rest once its tick is confirmed.
 
 ## The arena's extent in pixels (the level's art), the camera's limits.
 var bounds := Rect2()
@@ -23,14 +24,18 @@ func _ready() -> void:
 	bounds = level_bounds(_level)
 	camera.set_bounds(bounds)
 	Game.session.view_root = _views
-	Game.session.sim_event_2d.connect(_on_sim_event)
+	Game.session.sim_event.connect(_on_sim_event)
 	Input.set_default_cursor_shape(Input.CURSOR_CROSS)
 
 
 func _exit_tree() -> void:
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
-	if Game.session != null and Game.session.view_root == _views:
-		Game.session.view_root = null
+	if Game.session != null:
+		# positions come as Vector2s only while a Node2D is the view root: not after it is gone
+		if Game.session.sim_event.is_connected(_on_sim_event):
+			Game.session.sim_event.disconnect(_on_sim_event)
+		if Game.session.view_root == _views:
+			Game.session.view_root = null
 
 
 func _input(event: InputEvent) -> void:
@@ -60,15 +65,15 @@ func views_of(kind: String) -> Array[Node2D]:
 	return out
 
 
-func ship_view(slot: int) -> Node2D:
+func ship_view(player: int) -> Node2D:
 	for v in views_of("ship"):
-		if int(v.get(&"slot")) == slot:
+		if int(v.get(&"player")) == player:
 			return v
 	return null
 
 
 func local_ship_view() -> Node2D:
-	return ship_view(Game.local_slot())
+	return ship_view(Game.local_player())
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.
@@ -95,17 +100,22 @@ static func level_bounds(level: Node) -> Rect2:
 	return r
 
 
-func _on_sim_event(kind: StringName, _tick: int, _entity: int, at: Vector2, value: float) -> void:
-	# `at` is in pixels, like the views (the extension's Glue.event_pos)
+func _on_sim_event(event: StringName, data: Dictionary) -> void:
+	# rock effects play when the event is first shown (a cancelled one has already played: left as is); the rest
+	# wait for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
+	var rock_effect := event in [&"rock_hit", &"rock_split", &"rock_destroyed"]
+	if not (data.first if rock_effect else data.state == "confirmed"):
+		return
+	var at: Vector2 = data.get("position", Vector2.ZERO)
 	var near := at.distance_to(camera.get_screen_center_position()) < 900.0
-	match kind:
+	match event:
 		&"rock_hit":
 			effects.sparks(at, 4, Color(1, 0.9, 0.7))
 			if near:
 				Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
 		&"rock_split":
 			effects.debris(at, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
-			Sfx.play(&"pop", -6.0, 0.7 if value >= 2.0 else 0.9)
+			Sfx.play(&"pop", -6.0, 0.7 if data.size == "large" else 0.9)
 		&"rock_destroyed":
 			effects.debris(at, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
 			effects.ring(at, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)
@@ -113,7 +123,7 @@ func _on_sim_event(kind: StringName, _tick: int, _entity: int, at: Vector2, valu
 		&"station_hit":
 			effects.debris(at, 14, UiTheme.BAD, 200.0, 4.0)
 			effects.ring(at, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
-			camera.shake(0.5 if value >= 10.0 else 0.3)
+			camera.shake(0.5 if int(data.damage) >= 10 else 0.3)
 			Sfx.play(&"boom", -4.0)
 			Game.rumble(0.5, 0.7, 0.3)
 		&"gem_picked":
