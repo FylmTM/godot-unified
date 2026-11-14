@@ -148,9 +148,10 @@ public_suites :: proc() -> []Suite {
 
 // --- test -------------------------------------------------------------------------------------------------------
 
-// What `test --box3d-debug` adds to the odin suite's budget: the debug library's physics is unoptimised (the run takes
-// about three times as long; the compile is the same).
-BOX3D_DEBUG_EXTRA_BUDGET :: 3
+// What `test --box3d-debug` adds to the odin suite's budget: the debug library's physics is unoptimised, so the run
+// takes 3-4 times as long (3.4x here on 28 threads, 4x on CI's 4-core linux-x64: 17 s against 4 s); the compile is the
+// same, into a folder of its own.
+BOX3D_DEBUG_EXTRA_BUDGET :: 6
 
 @(private)
 cmd_test :: proc(args: []string) -> Result {
