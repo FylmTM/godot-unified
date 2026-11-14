@@ -226,7 +226,7 @@ g_driver: rawptr
 @(private)
 g_bench_count: int
 
-// Installs the game: call once, before godot_host.entry.
+// Installs the game: call once, before godot.entry.
 install :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS), glue: Glue(State, Input, World, $View, $Multi)) {
 	This_Driver :: Driver(State, Input, World, PLAYERS, View, Multi)
 	This_Glue :: Glue(State, Input, World, View, Multi)

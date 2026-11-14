@@ -1,8 +1,9 @@
-// Sim events on the Godot side (src/godot_host/SPEC.md "Events"): the game's event union, read by RTTI once at
-// install. The session thread feeds every simulated tick's events to the view's tracker (each identified by its
-// tick, kind, subject and index among equal ones), converts their sim.Position fields into view units
-// (Glue.event_pos) and posts them as kind + bytes; the main thread turns each into a Dictionary of its fields
-// and hands it to the subject's view and to the `sim_event` signal, as Predicted, Confirmed or Cancelled.
+// Sim events on the Godot side (src/godot/SPEC.md "Events"): the game's event union, read by RTTI once at install.
+// The session thread feeds every simulated tick's events to the view's tracker (each identified by its tick, kind,
+// subject and index among equal ones), converts their sim.Position fields into view units (Glue.event_pos) and
+// posts them as kind + bytes; the main thread makes each an object of its class (sim_classes.odin) and hands it to
+// the subject's view and to the `sim_event` signal, as Emitted, Confirmed or Cancelled. field_variant converts a
+// field by type for the event classes and for the views' data.
 package godot
 
 import "base:runtime"
@@ -118,18 +119,10 @@ event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u32, entity
 	return
 }
 
-// ---- the main thread: an event's Dictionary
+// ---- the main thread: fields converted by type (field_variant, below)
 
-// The event's fields as a Dictionary, converted by type: a handle becomes its key (int), a sim.Position a
-// Vector2 (2D) or Vector3 (in view units already), an enum its member's name lowercased (a String), a bit_set an
-// Array of those, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, a nested struct a Dictionary; fields
-// named `_...` are padding and left out; a `player` field holding sim.NO_PLAYER becomes -1.
-event_dictionary :: proc(layout: ^Event_Layout, data: []u8, is_2d: bool) -> gd.Dictionary {
-	dict := gd.dict_new()
-	struct_fields(&dict, layout.type, data, is_2d, true)
-	return dict
-}
-
+// A nested struct's fields into a Dictionary (fields named `_...` are padding, left out; at the top, a `player`
+// field holding sim.NO_PLAYER is -1).
 @(private)
 struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, is_2d, top: bool) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
@@ -164,6 +157,10 @@ f32_at :: proc(bytes: []u8, i: int) -> f32 {
 	return transmute(f32)u32(read_uint(bytes[i * 4:][:4]))
 }
 
+// A field's value: a handle becomes its key (int), a sim.Position a Vector2 (2D) or Vector3 (in view units already),
+// an enum its member's name lowercased (a StringName; in a bit_set's Array a String), a bit_set an Array of those,
+// [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary, other
+// numbers int or float.
 @(private)
 field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.Variant {
 	if type.id == sim.Position {
