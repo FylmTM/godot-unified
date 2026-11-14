@@ -8,7 +8,9 @@
 #   pull request         linux-x64, linux-arm64
 #   push to main         linux-x64, linux-arm64, windows-x64
 #   nightly (schedule)   macos-arm64 only, and only if main moved since the last nightly (the `nightly` job)
-#   manual dispatch      all four, on any branch (`gh workflow run ci.yml --ref <branch>`)
+#                        (macOS runs only on main: its runners are often out of capacity)
+#   manual dispatch      all four on main; elsewhere linux-x64, linux-arm64, windows-x64, plus macos-arm64 with
+#                        `-f macos=true` (sim changes and dependency upgrades)
 #
 # Cost: the repo is public, so every runner here (GitHub's standard hosted runners) is free and unlimited; larger
 # runners would be billed.
@@ -26,6 +28,11 @@ on:
   schedule:
     - cron: "17 3 * * *" # 03:17 UTC
   workflow_dispatch:
+    inputs:
+      macos:
+        description: "Also test macos-arm64 (always on for main; agents pass it for sim changes and upgrades)"
+        type: boolean
+        default: false
 
 # The nightly has its own group: a push to main must not cancel it.
 concurrency:
@@ -98,6 +105,7 @@ jobs:
           github.event_name == 'pull_request' && '["linux-x64", "linux-arm64"]' ||
           github.event_name == 'push' && '["linux-x64", "linux-arm64", "windows-x64"]' ||
           github.event_name == 'schedule' && '["macos-arm64"]' ||
+          github.ref != 'refs/heads/main' && !inputs.macos && '["linux-x64", "linux-arm64", "windows-x64"]' ||
           '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]') }}
     env:
       # Windows runs the cmd shim (it proves uni.cmd too); elsewhere the sh one.
