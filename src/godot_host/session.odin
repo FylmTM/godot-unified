@@ -35,6 +35,7 @@ Args :: struct {
 	autostart: bool, // start single player at once (headless checks)
 	join:      string, // join_direct this address at once
 	host_port: int, // host_direct on this port at once
+	local_net: bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
 	scripted:  bool, // scripted input (the offline binary's), for hash checks
 	ticks:     int, // session length (0: endless)
 	seed:      i64,
@@ -268,6 +269,7 @@ session_launch :: proc(s: ^Session_Node, req: Start) -> bool {
 	api.wait() // a finished session's thread
 	req := req
 	if req.mode == .Single do req.bench = s.args.bench
+	req.local = s.args.local_net
 	req.seed = u64(s.seed)
 	req.ticks = u32(max(s.ticks, 0))
 	req.name = s.name
@@ -478,6 +480,8 @@ parse_args :: proc() -> (a: Args) {
 			a.lag_ms, _ = strconv.parse_int(next(strs, &i))
 		case "--host-port":
 			a.host_port, _ = strconv.parse_int(next(strs, &i))
+		case "--local-net":
+			a.local_net = true
 		}
 	}
 	return

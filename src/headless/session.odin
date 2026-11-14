@@ -155,7 +155,7 @@ session_run :: proc(h: ^Headless($S, $I, $W, $P), cfg: Session_Config) -> (res: 
 	}
 	ss.relay = netcode.relay_create(rcfg, I, P)
 	if cfg.transport == "udp" {
-		link, ok := netcode.udp_listen(0)
+		link, ok := netcode.udp_listen(0, .Local)
 		if !ok {
 			fmt.eprintln("session: cannot bind a UDP port")
 			netcode.relay_destroy(ss.relay)

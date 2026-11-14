@@ -187,6 +187,7 @@ Start :: struct {
 	mode:     Mode,
 	arg:      string, // join code or host:port
 	port:     int, // Host_Direct
+	local:    bool, // Host_Direct: listen on 127.0.0.1 only (--local-net), else on every interface
 	name:     string,
 	seed:     u64,
 	ticks:    u32, // 0: endless

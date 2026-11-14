@@ -62,7 +62,9 @@ GDScript sees contract v0:
     `Glue.constants`: scripts read the sim's constants instead of copying them);
   - signals: `status_changed`, `lobby_code`, `sim_event`, and `sim_event_2d` (the same, position a Vector2) when
     `view_root` is a Node2D;
-  - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice), `host_direct(port)`,
+  - added for the game client: `view_root` (any Node, a Node3D or Node2D in practice),
+    `host_direct(port)` (every interface; 127.0.0.1 only when the process got `--local-net`, which `uni` passes to
+    every tool run and the session test),
     `set_player_name`, `get_status`,
     `is_running`, `get_tick`, `toggle_devui`;
   - `set_input_vector(i, v)`: view-dependent input (a third-person camera's look direction and right), the

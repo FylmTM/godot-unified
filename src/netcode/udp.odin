@@ -14,9 +14,18 @@ Udp_Link :: struct {
 	fixed:     bool, // client: a single peer (0), packets from elsewhere are dropped
 }
 
-// Relay side: listens on `port` on all interfaces.
-udp_listen :: proc(port: int) -> (l: Link, ok: bool) {
-	sock, err := cnet.make_bound_udp_socket(cnet.IP4_Any, port)
+// Who can reach a listening socket. `.Local` (127.0.0.1) is for everything on one machine (tests, headless
+// sessions, tool runs): the OS firewall never asks about it. `.Lan` (all interfaces) is for hosting players on other
+// machines; on Windows the first such listen of each executable shows a firewall prompt.
+Udp_Scope :: enum u8 {
+	Local,
+	Lan,
+}
+
+// Relay side: listens on `port` (0: any free port) in `scope`.
+udp_listen :: proc(port: int, scope: Udp_Scope) -> (l: Link, ok: bool) {
+	addr: cnet.Address = scope == .Lan ? cnet.IP4_Any : cnet.IP4_Loopback
+	sock, err := cnet.make_bound_udp_socket(addr, port)
 	if err != nil {
 		return
 	}
@@ -30,13 +39,17 @@ udp_listen :: proc(port: int) -> (l: Link, ok: bool) {
 	return {data = ul, send = udp_send, recv = udp_recv, close = udp_close, forget = udp_forget}, true
 }
 
-// Client side: an ephemeral local port talking to `remote` (peer 0).
+// Client side: an ephemeral local port talking to `remote` (peer 0). A loopback remote gets a loopback socket, so
+// a local client never triggers a firewall prompt either.
 udp_connect :: proc(remote: cnet.Endpoint) -> (l: Link, ok: bool) {
-	any_addr: cnet.Address = cnet.IP4_Any
-	if _, is6 := remote.address.(cnet.IP6_Address); is6 {
-		any_addr = cnet.IP6_Any
+	local: cnet.Address = cnet.IP4_Any
+	switch a in remote.address {
+	case cnet.IP4_Address:
+		if a[0] == 127 do local = cnet.IP4_Loopback
+	case cnet.IP6_Address:
+		local = a == cnet.IP6_Loopback ? cnet.IP6_Loopback : cnet.IP6_Any
 	}
-	sock, err := cnet.make_bound_udp_socket(any_addr, 0)
+	sock, err := cnet.make_bound_udp_socket(local, 0)
 	if err != nil {
 		return
 	}
