@@ -87,13 +87,15 @@ cmd_init :: proc(args: []string) -> Result {
 		copy_file(join(dir, shim), join(state.project.unified, shim))
 	}
 	os.change_mode(join(dir, "uni"), os.perm_number(0o755))
+	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok = true,
 		summary = tprint(
-			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && ./uni run",
+			"init: %s, a new game repo (%d files from the template, unified at unified/); next: cd %s && %s run",
 			name,
 			count,
 			opts.dir,
+			shim,
 		),
 	}
 }
