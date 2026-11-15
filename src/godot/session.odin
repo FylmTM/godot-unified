@@ -564,13 +564,12 @@ TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their o
 // game restarted after a crash takes its own token back, while a second window takes another.
 @(private)
 client_token :: proc() -> (token: netcode.Token) {
-	os := gd.OS_singleton()
-	pid := gd.OS_get_process_id(os)
+	pid := gd.OS_get_process_id(gd.OS_singleton())
 	instance := 0
 	for k in 0 ..< TOKEN_INSTANCES {
 		owner, _ := strconv.parse_int(gd.FileAccess_get_file_as_string(fmt.tprintf("user://unified_token_%d.pid", k)))
 		instance = k
-		if owner == 0 || owner == pid || !gd.OS_is_process_running(os, owner) do break
+		if owner == 0 || owner == pid || !process_alive(owner) do break
 	}
 	path := fmt.tprintf("user://unified_token_%d", instance)
 	write_user_file(fmt.tprintf("%s.pid", path), fmt.tprintf("%d", pid))

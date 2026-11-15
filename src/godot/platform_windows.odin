@@ -49,3 +49,13 @@ session_power_end :: proc() {
 	set_power_throttling(0)
 	win.timeEndPeriod(1)
 }
+
+// Whether a process with this id runs (any process, not only a child).
+process_alive :: proc(pid: int) -> bool {
+	if pid <= 0 do return false
+	SYNCHRONIZE :: 0x0010_0000
+	handle := win.OpenProcess(SYNCHRONIZE, false, win.DWORD(pid))
+	if handle == nil do return false
+	defer win.CloseHandle(handle)
+	return win.WaitForSingleObject(handle, 0) == win.WAIT_TIMEOUT
+}
