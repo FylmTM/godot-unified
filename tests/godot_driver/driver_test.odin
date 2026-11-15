@@ -353,3 +353,26 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	testing.expect_value(t, inbox(hub, 1), 3) // direct again
 	netcode.link_close(&link)
 }
+
+// The host's pose memory (#284): tick - 1 as remembered, and its estimate after a rollback or skipped ticks.
+@(test)
+pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	remember :: proc(memory: ^godot.Pose_Memory, tick: u32, x: f32, rollback := false) -> (f32, bool) {
+		godot.pose_memory_begin(memory, rollback)
+		previous, found := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, view.IDENTITY)
+		return previous.pos.x, found
+	}
+	_, found := remember(&memory, 10, 10)
+	testing.expect(t, !found, "nothing before the first fill")
+	x, _ := remember(&memory, 11, 11)
+	testing.expect_value(t, x, 10) // the pose at tick - 1, as remembered
+	x, _ = remember(&memory, 11, 13) // tick 11 again (a rollback moved it by 2): tick 10 moves with it
+	testing.expect_value(t, x, 12)
+	x, _ = remember(&memory, 12, 20, rollback = true) // a rollback with a new tick: 20 minus the last motion (1)
+	testing.expect_value(t, x, 19)
+	x, _ = remember(&memory, 15, 23) // ticks skipped: 23 minus the last motion (1)
+	testing.expect_value(t, x, 22)
+}

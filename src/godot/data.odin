@@ -281,6 +281,9 @@ enum_types_of :: proc(types: []^runtime.Type_Info, out: ^[dynamic]^runtime.Type_
 			walk(info.elem, out)
 		case runtime.Type_Info_Array:
 			walk(info.elem, out)
+		case runtime.Type_Info_Enumerated_Array:
+			walk(info.index, out)
+			walk(info.elem, out)
 		case runtime.Type_Info_Struct:
 			if type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
 			for i in 0 ..< int(info.field_count) do walk(info.types[i], out)

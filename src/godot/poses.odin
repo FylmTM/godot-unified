@@ -1,10 +1,14 @@
 // The host's memory of every keyed item's pose (session thread), so fill_frame never passes previous poses: an
-// item seen at tick - 1 interpolates from that pose; one re-filled at the same tick (a rollback re-published it)
-// keeps the pose it had at tick - 1. Two open-addressed tables, the last fill's and this one's, told apart by a
-// stamp, so nothing is cleared per tick.
+// item seen at tick - 1 interpolates from that pose. After a rollback the tick - 1 pose it remembers is the old
+// prediction, so it sends an estimate of the corrected one instead (#284, measured under --lag): a tick re-filled
+// (the same tick again) moves its tick - 1 pose by the same correction; a rollback with a new tick, or a fill after
+// skipped ticks, takes the new pose minus the last known one-tick motion. The main thread feeds it into the view's
+// error term (view.track_push_prev), so a correction glides instead of popping. Two open-addressed tables, the last
+// fill's and this one's, told apart by a stamp, so nothing is cleared per tick.
 package godot
 
 import "core:fmt"
+import "unified:view"
 
 Pose_Domain :: enum u8 {
 	View, // keys are unique among scene views
@@ -34,8 +38,9 @@ Pose_Table :: struct {
 }
 
 Pose_Memory :: struct {
-	tables: [Pose_Domain]Pose_Table,
-	fill:   u32, // the current fill (starts at 1)
+	tables:   [Pose_Domain]Pose_Table,
+	fill:     u32, // the current fill (starts at 1)
+	rollback: bool, // this fill's tick - 1 was re-simulated (a rollback landed with it)
 }
 
 // Room for `views` scene views and `multis` MultiMesh instances per fill.
@@ -59,9 +64,28 @@ pose_memory_destroy :: proc(memory: ^Pose_Memory) {
 	memory^ = {}
 }
 
-// Starts a fill (before fill_frame).
-pose_memory_begin :: proc(memory: ^Pose_Memory) {
+// Starts a fill (before fill_frame); `rollback`: the fill's tick - 1 was re-simulated.
+pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false) {
 	memory.fill += 1
+	memory.rollback = rollback
+}
+
+// The pose one tick before `pose`, moved by the motion from `prev` to `last` (rotations: the same turn).
+@(private)
+step_back :: proc(pose: Remembered_Pose, last, prev: Remembered_Pose) -> Remembered_Pose {
+	return {
+		pos = pose.pos - (last.pos - prev.pos),
+		rot = view.qmul(view.qmul(prev.rot, view.qconj(last.rot)), pose.rot),
+	}
+}
+
+// The tick - 1 pose `pose_prev` moved by the correction from `old` to `pose` (a re-filled tick).
+@(private)
+shift :: proc(pose_prev, old, pose: Remembered_Pose) -> Remembered_Pose {
+	return {
+		pos = pose_prev.pos + (pose.pos - old.pos),
+		rot = view.qmul(view.qmul(pose.rot, view.qconj(old.rot)), pose_prev.rot),
+	}
 }
 
 @(private)
@@ -91,11 +115,18 @@ pose_remember :: proc(
 	for i := slot; last[i].stamp == memory.fill - 1; i = (i + 1) & table.mask {
 		entry := &last[i]
 		if entry.key != key || entry.kind != kind do continue
+		current := Remembered_Pose{pos, rot}
 		switch {
+		case entry.tick + 1 == tick && !(memory.rollback && entry.has_prev):
+			previous, found = entry.pose, true
+		case entry.tick == tick && entry.has_prev:
+			// re-filled: tick - 1 moved by the same correction
+			previous, found = shift(entry.prev, entry.pose, current), true
+		case entry.tick < tick && entry.has_prev:
+			// a rollback with a new tick, or skipped ticks
+			previous, found = step_back(current, entry.pose, entry.prev), true
 		case entry.tick + 1 == tick:
 			previous, found = entry.pose, true
-		case entry.tick == tick:
-			previous, found = entry.prev, entry.has_prev
 		}
 		break
 	}

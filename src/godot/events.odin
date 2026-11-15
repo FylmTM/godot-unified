@@ -254,6 +254,17 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		value := gd.to_variant(array)
 		gd.Array_destroy(&array)
 		return value
+	case runtime.Type_Info_Enumerated_Array:
+		// [Enum]T: an Array by the enum's order
+		array := gd.array_new()
+		for i in 0 ..< info.count {
+			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
+			gd.Array_push_back(&array, element)
+			gdi.variant_destroy(&element)
+		}
+		value := gd.to_variant(array)
+		gd.Array_destroy(&array)
+		return value
 	case runtime.Type_Info_Struct:
 		dict := gd.dict_new()
 		struct_fields(&dict, type, bytes, is_2d)

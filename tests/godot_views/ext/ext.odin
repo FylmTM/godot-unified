@@ -78,6 +78,7 @@ Data_Constants :: struct {
 	favorite: toy.Shape,
 	sizes:    [3]i32,
 	limits:   Limits, // a nested struct: a Dictionary
+	by_shape: [toy.Shape]f32, // an enumerated array: an Array in the enum's order
 }
 
 Limits :: struct {
@@ -90,6 +91,7 @@ CONSTANTS := Data_Constants {
 	favorite = .Ring,
 	sizes = {1, 2, 3},
 	limits = {low = -1, high = 9},
+	by_shape = {.Dot = 0.5, .Ring = 1, .Star = 2},
 }
 
 // Fixed poses: every tick the same, so the interpolated pose is exact at any alpha.

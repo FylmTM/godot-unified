@@ -627,7 +627,7 @@ driver_hooks :: proc(
 				bytes_out   = i64(client.ch.stats.bytes_sent),
 				desyncs     = i32(client.desyncs),
 			}
-			pose_memory_begin(&driver.poses)
+			pose_memory_begin(&driver.poses, info.resim_from < info.tick)
 			frame := Frame(State, World, View, MultiView) {
 				state        = current,
 				world        = simulation.world,

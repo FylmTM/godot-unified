@@ -112,6 +112,8 @@ field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
 			}
 		}
 		return .ARRAY
+	case runtime.Type_Info_Enumerated_Array:
+		return .ARRAY
 	case runtime.Type_Info_Struct:
 		return .DICTIONARY
 	}

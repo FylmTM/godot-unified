@@ -207,7 +207,7 @@ func check_constants() -> void:
 	var constants: DataConstants = Unified.constants
 	check("constants: typed, strings and nested values", near(constants.speed, 4.5) and constants.name == "toy" \
 		and constants.favorite == EnumShape.RING and constants.sizes == [1, 2, 3] \
-		and constants.limits == {"low": -1, "high": 9},
+		and constants.limits == {"low": -1, "high": 9} and constants.by_shape == [0.5, 1.0, 2.0],
 		[constants.speed, constants.name, constants.favorite, constants.sizes, constants.limits])
 	check("Unified.tick_hz", Unified.tick_hz == 64, Unified.tick_hz)
 	check("an enum class: members as constants, name()", EnumShape.DOT == 0 and EnumShape.STAR == 2 \

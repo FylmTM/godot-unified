@@ -586,7 +586,13 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				)
 			}
 			if scene_view.mode == .Other do continue
-			if item.has_prev do view.track_push(&scene_view.track, frame.tick - 1, {item.prev_pos, item.prev_rot}, api.smoothing)
+			view.track_push_prev(
+				&scene_view.track,
+				frame.tick,
+				{item.prev_pos, item.prev_rot},
+				item.has_prev,
+				api.smoothing,
+			)
 			view.track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, api.smoothing)
 		}
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
@@ -901,7 +907,7 @@ multi_smooth :: proc(
 	}
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
-		if item.has_prev do view.track_push(&entry.track, tick - 1, {item.prev_pos, item.prev_rot}, api.smoothing)
+		view.track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, api.smoothing)
 		view.track_push(&entry.track, tick, {item.pos, item.rot}, api.smoothing)
 	}
 	pose := view.track_sample(&entry.track, tick, alpha, dt, api.smoothing)
