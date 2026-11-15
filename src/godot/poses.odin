@@ -53,6 +53,7 @@ pose_memory_init :: proc(memory: ^Pose_Memory, views, multis: int) {
 	memory.fill = 1
 }
 
+// Frees the pose tables when the session's driver is torn down.
 pose_memory_destroy :: proc(memory: ^Pose_Memory) {
 	for &table in memory.tables do for entries in table.entries do delete(entries)
 	memory^ = {}

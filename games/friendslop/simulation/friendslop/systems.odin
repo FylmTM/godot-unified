@@ -8,6 +8,7 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
+// Advances the game one tick (GAME.tick): runs the systems in the order above around the physics step.
 tick :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	presence(tick)
@@ -32,10 +33,12 @@ tick :: proc(tick: ^Tick) {
 
 // ---- helpers
 
+// The centre of a player's character body.
 player_pos :: proc(state: ^State, world: ^World, player: int) -> [3]f32 {
 	return physics.position(world.phys, state.players[player].controller.body)
 }
 
+// Whether the player holds something (an item or another player).
 holding :: proc(character: ^Player) -> bool {
 	return character.held_kind != .None
 }
@@ -53,6 +56,7 @@ marker_entity :: proc(marker: int) -> u64 {
 	return u64(marker + 1)
 }
 
+// An event's `entity` for an item: its level marker's.
 item_entity :: proc(world: ^World, item: int) -> u64 {
 	return marker_entity(world.items[item].marker)
 }
@@ -68,12 +72,15 @@ entity_of :: proc(material: u64) -> (Held_Kind, int) {
 	return .None, -1
 }
 
+// Makes the player's character limp (no drive force, pogo released) while held, stunned or waiting to respawn.
 limp :: proc(state: ^State, world: ^World, player: int) {
 	physics.character_set_limp(world.phys, &state.players[player].controller, true)
 }
 
 // ---- presence
 
+// Creates the character of a player who became present this tick at their respawn point, and releases what a player
+// who left held (or who held them) before destroying their character.
 presence :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	for player in 0 ..< PLAYERS {
@@ -104,6 +111,7 @@ presence :: proc(tick: ^Tick) {
 	}
 }
 
+// Where the player (re)appears: their place at the team's last checkpoint during a run, else their hub spawn.
 respawn_point :: proc(state: ^State, world: ^World, player: int) -> [3]f32 {
 	if state.checkpoint >= 0 {
 		for i in 0 ..< world.checkpoint_count {
@@ -304,6 +312,8 @@ hold_frame :: proc(character: ^Player, target: Held_Kind) -> b3.Transform {
 	return {offset, yaw_quat(character.facing)}
 }
 
+// Starts a hold: a motor joint from the player's hold point to the target's grab point, its force capped by what
+// the target weighs. A grabbed player drops what they held and goes limp.
 grab :: proc(tick: ^Tick, player: int, target: Target) {
 	state, world := tick.state, tick.world
 	character := &state.players[player]
@@ -399,6 +409,8 @@ drop :: proc(tick: ^Tick, player: int) {
 	})
 }
 
+// Throws what the player holds along their aim, faster the longer throw was charged, and tags a thrown item with
+// its thrower for hit attribution. A heavy item is dropped instead.
 throw :: proc(tick: ^Tick, player: int) {
 	state, world := tick.state, tick.world
 	character := &state.players[player]
@@ -455,6 +467,8 @@ update_holds :: proc(state: ^State, world: ^World) {
 
 // ---- movement
 
+// Drives a free player's character from their move input and jump: facing follows the move (the aim while holding),
+// and holding slows them down. A held, stunned or fallen player doesn't move themselves.
 player_move :: proc(tick: ^Tick, player: int, input: Input, jump: bool) {
 	state, world := tick.state, tick.world
 	character := &state.players[player]
@@ -485,6 +499,8 @@ player_move :: proc(tick: ^Tick, player: int, input: Input, jump: bool) {
 	}
 }
 
+// Advances each platform along its path (by its mode, and while its trigger is active when it has one) and drives its
+// kinematic body to the pose for its phase, a pure function of the platform's state.
 platforms :: proc(state: ^State, world: ^World) {
 	for i in 0 ..< world.platform_count {
 		def := &world.platforms[i]
@@ -514,6 +530,8 @@ pad_velocity :: proc(pad: ^Pad_Def, velocity: [3]f32) -> [3]f32 {
 	return pad.launch
 }
 
+// Launches players whose feet and items whose bottom are inside a jump pad's volume, with a per-body cooldown. The
+// sim checks the volumes itself rather than using Box3D sensors.
 pads :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	for player in 0 ..< PLAYERS {
@@ -581,6 +599,7 @@ knock :: proc(tick: ^Tick, player: int, direction: [2]f32, speed: f32) {
 	})
 }
 
+// Knocks a player whose centre is inside a bumper's volume away from the bumper's centre at its strength.
 bumpers :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	for player in 0 ..< PLAYERS {
@@ -600,6 +619,8 @@ bumpers :: proc(tick: ^Tick) {
 
 // ---- after the step
 
+// Handles the step's Box3D hit events: a thrown or fast item knocks back a player it hits (not its holder, nor its
+// thrower just after the throw), and a hard enough hit rings a bell. Then counts down the items' thrown tags.
 hits :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	clear(&world.hits)
@@ -643,6 +664,8 @@ hits :: proc(tick: ^Tick) {
 	}
 }
 
+// Updates the triggers after the step: a pressure plate is pressed while the mass over it reaches its threshold, and
+// a switch (a player inside) or a lock (the key inside) latches on.
 plates_and_switches :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	for i in 0 ..< world.trigger_count {
@@ -725,6 +748,7 @@ plates_and_switches :: proc(tick: ^Tick) {
 	}
 }
 
+// Counts down stuns; a thrown player gets up as soon as they land. A player whose stun ends stops being limp.
 stuns :: proc(state: ^State, world: ^World) {
 	for player in 0 ..< PLAYERS {
 		character := &state.players[player]
@@ -750,6 +774,8 @@ stuns :: proc(state: ^State, world: ^World) {
 	}
 }
 
+// Takes a player who fell below KILL_Y out for RESPAWN_TICKS (holds released, body parked far below), then brings
+// them back at their respawn point; puts an item that fell back where the level placed it.
 falls :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	for player in 0 ..< PLAYERS {
@@ -796,6 +822,8 @@ item_home :: proc(tick: ^Tick, index: int) {
 
 // ---- the run
 
+// Moves the run on: a player in the start gate starts the run timer, players reaching checkpoints advance the team's
+// checkpoint, the trophy on the finish ends the run (keeping the best time), and the route resets after the hold.
 run :: proc(tick: ^Tick) {
 	state, world := tick.state, tick.world
 	switch state.phase {

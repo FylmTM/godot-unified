@@ -24,6 +24,8 @@ mix64 :: proc "contextless" (value: u64) -> u64 {
 	return z ~ (z >> 31)
 }
 
+// A stream that starts from `seed`; a game seeds its state's Rng with the session seed in init, so every peer
+// draws the same numbers.
 rng_seed :: proc(seed: u64) -> Rng {
 	return {seed}
 }

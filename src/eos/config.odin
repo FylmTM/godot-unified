@@ -25,6 +25,7 @@ Credentials :: struct {
 	product_id, sandbox_id, deployment_id, client_id, client_secret: string,
 }
 
+// Whether every credential field is set; the SDK cannot start without all five, so online mode stays off.
 credentials_complete :: proc(credentials: Credentials) -> bool {
 	return(
 		credentials.product_id != "" &&

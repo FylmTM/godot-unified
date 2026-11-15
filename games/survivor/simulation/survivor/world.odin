@@ -145,6 +145,7 @@ GAME_STRESS := Game {
 @(rodata)
 PLAYER_START := [PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
+// The spawn spot of item i on the 5×8 grid. The GDExtension and the tests read it too.
 item_position :: proc(i: int) -> [3]f32 {
 	// The two grid spots inside the start circle move to free lanes north and south.
 	switch i {
@@ -156,10 +157,12 @@ item_position :: proc(i: int) -> [3]f32 {
 	return {f32(i % 8) * 4 - 14, 1, f32(i / 8) * 4 - 8}
 }
 
+// Whether item i is a barrel or a crate (every fifth item from index 2 is a barrel).
 item_kind :: proc(i: int) -> Item_Kind {
 	return i % 5 == 2 ? .Barrel : .Crate
 }
 
+// The Box3D id of a body stored in the block, for calling Box3D directly.
 body_id :: proc(world: ^World, ref: Body_Ref) -> b3.Body_Id {
 	return physics.body_id(world.phys, ref)
 }
@@ -197,6 +200,7 @@ create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 	return ref
 }
 
+// Creates a player's body at their start spot: a dynamic capsule with rotation locked and sleep off.
 create_player_body :: proc(world: ^World, player: int) -> Body_Ref {
 	body_def := b3.default_body_def()
 	body_def.type = .Dynamic_Body
@@ -214,6 +218,7 @@ create_player_body :: proc(world: ^World, player: int) -> Body_Ref {
 	return ref
 }
 
+// Destroys a body stored in the block and clears its reference.
 destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 	physics.destroy_body(world.phys, ref)
 }
@@ -234,6 +239,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	return world
 }
 
+// Frees what world_create made: the physics world and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
 	free(world)
@@ -255,6 +261,8 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	}
 }
 
+// Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its grid spot. The
+// caller destroys any old body first.
 item_reset :: proc(state: ^State, world: ^World, i: int) {
 	item := &state.items[i]
 	item.kind = item_kind(i)
@@ -277,11 +285,13 @@ player_reset_stats :: proc(state: ^State, player: int) {
 	}
 }
 
+// Joins the player when they become present: marks them active and spawns them at their start spot.
 player_activate :: proc(state: ^State, world: ^World, player: int) {
 	state.players[player].active = true
 	player_spawn(state, world, player)
 }
 
+// Brings the player to life at their start spot with full HP and a new body (joining, respawning, a world reset).
 player_spawn :: proc(state: ^State, world: ^World, player: int) {
 	character := &state.players[player]
 	character.alive = true

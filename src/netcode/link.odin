@@ -35,20 +35,24 @@ Link :: struct {
 	forget: proc(data: rawptr, peer: Peer),
 }
 
+// Hands one datagram to the link's transport; the channel calls it and owns resending what is lost.
 link_send :: proc(link: ^Link, to: Peer, bytes: []u8) {
 	link.send(link.data, to, bytes)
 }
 
+// Takes the next datagram the link received, if any, without blocking; the channel drains it on every poll.
 link_recv :: proc(link: ^Link, buf: []u8) -> (size: int, from: Peer, ok: bool) {
 	return link.recv(link.data, buf)
 }
 
+// Tells the link the channel is done with `peer`, so a link that numbers endpoints can reuse it (a no-op if not).
 link_forget :: proc(link: ^Link, peer: Peer) {
 	if link.forget != nil {
 		link.forget(link.data, peer)
 	}
 }
 
+// Closes the link and frees its transport state; channel_destroy calls it for every link the channel owns.
 link_close :: proc(link: ^Link) {
 	if link.close != nil {
 		link.close(link.data)
@@ -85,12 +89,15 @@ Inbox :: struct {
 	queue: [dynamic]Datagram,
 }
 
+// Creates an in-process hub with `endpoints` inboxes for loopback links: the host's own client, headless sessions
+// and tests run a relay and its clients in one process over it. Outlives every link made on it.
 hub_create :: proc(endpoints: int) -> ^Hub {
 	hub := new(Hub)
 	hub.inboxes = make([]Inbox, endpoints)
 	return hub
 }
 
+// Frees the hub and any datagrams still queued; call it after every loopback link on it is closed.
 hub_destroy :: proc(hub: ^Hub) {
 	for &inbox in hub.inboxes {
 		for datagram in inbox.queue {
@@ -109,6 +116,8 @@ Loop_Link :: struct {
 	head: int,
 }
 
+// A link for endpoint `self` of the hub: a send to Peer i lands in endpoint i's inbox, with no loss or delay
+// (wrap it with netsim_wrap for those). Links on different threads may share one hub.
 loopback_link :: proc(hub: ^Hub, self: Peer) -> Link {
 	loop := new(Loop_Link)
 	loop.hub = hub

@@ -54,7 +54,10 @@ MAX_IDS_PER_PACKET :: 64
 REL_WINDOW :: 512 // reliable messages in flight past the oldest unacked one
 REL_IN_FLIGHT :: 32 // datagrams with reliable messages past the newest seq the peer acked (one ack covers 33 seqs)
 FLUSH_BUDGET :: 96 * 1024 // reliable bytes per peer per flush
-DISCONNECT_US :: 10_000_000
+DISCONNECT_US :: 10_000_000 // silence from a peer that has answered before
+// Silence from a peer that never answered. A transport may need seconds to set up the path first (EOS: login, lobby
+// search, the P2P connection and its retries), and the client's first hello goes out before that.
+FIRST_ANSWER_US :: 30_000_000
 KEEPALIVE_US :: 250_000
 DGRAM_MAGIC :: 0xA7
 DGRAM_VERSION :: 2
@@ -123,6 +126,7 @@ Conn :: struct {
 	rel_early:   map[u32][]u8, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
 }
 
+// Creates an empty channel with no links; the relay and each client own one. Free it with channel_destroy.
 channel_make :: proc() -> ^Channel {
 	channel := new(Channel)
 	channel.tx = wire.writer_make(MAX_DATAGRAM)
@@ -137,6 +141,7 @@ channel_add_link :: proc(channel: ^Channel, link: Link) -> int {
 	return len(channel.links) - 1
 }
 
+// Frees every connection, closes every link the channel owns, and frees the channel.
 channel_destroy :: proc(channel: ^Channel) {
 	for &conn in channel.conns {
 		conn_reset(&conn)
@@ -329,7 +334,8 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 		}
 	}
 	for &conn, i in channel.conns {
-		if conn.active && now - conn.last_recv > DISCONNECT_US {
+		timeout: i64 = conn.peer_epoch != 0 ? DISCONNECT_US : FIRST_ANSWER_US
+		if conn.active && now - conn.last_recv > timeout {
 			conn_release(channel, Peer(i))
 			append(&channel.events, Event{kind = .Disconnected, peer = Peer(i)})
 		}

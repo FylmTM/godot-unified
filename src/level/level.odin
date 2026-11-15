@@ -91,6 +91,8 @@ Level :: struct {
 
 // The level's identity (XXH3 of the file), as recorded in logs and snapshots: sim.content_hash.
 
+// Frees the slices load allocated, through the context allocator (so under the one load was given), and zeroes
+// the Level. Its strings point into the file bytes, which the caller owns.
 destroy :: proc(level: ^Level) {
 	delete(level.bodies)
 	delete(level.markers)
@@ -303,6 +305,7 @@ find_named :: proc(level: ^Level, name: string) -> ^Marker {
 	return nil
 }
 
+// The marker's property with this key (nil: none); the typed prop_* getters below read through it.
 prop :: proc(marker: ^Marker, key: string) -> ^Prop {
 	for &property in marker.props {
 		if property.key == key do return &property
@@ -310,6 +313,8 @@ prop :: proc(marker: ^Marker, key: string) -> ^Prop {
 	return nil
 }
 
+// A Float property, or an Int one converted, so an exported float that holds a whole number reads the same;
+// `default` when it is missing or of another type.
 prop_f32 :: proc(marker: ^Marker, key: string, default: f32 = 0) -> f32 {
 	property := prop(marker, key)
 	if property == nil do return default
@@ -322,18 +327,21 @@ prop_f32 :: proc(marker: ^Marker, key: string, default: f32 = 0) -> f32 {
 	return default
 }
 
+// An Int property, or `default` when it is missing or of another type.
 prop_int :: proc(marker: ^Marker, key: string, default: int = 0) -> int {
 	property := prop(marker, key)
 	if property == nil || property.type != .Int do return default
 	return int(property.i)
 }
 
+// A Bool property, or `default` when it is missing or of another type.
 prop_bool :: proc(marker: ^Marker, key: string, default := false) -> bool {
 	property := prop(marker, key)
 	if property == nil || property.type != .Bool do return default
 	return property.b
 }
 
+// A Vector3 property, or `default` when it is missing or of another type.
 prop_vec3 :: proc(marker: ^Marker, key: string, default := [3]f32{}) -> [3]f32 {
 	property := prop(marker, key)
 	if property == nil || property.type != .Vec3 do return default
@@ -347,6 +355,7 @@ prop_vec2 :: proc(marker: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
 	return property.v.xy
 }
 
+// A String property (pointing into the file bytes), or `default` when it is missing or of another type.
 prop_string :: proc(marker: ^Marker, key: string, default := "") -> string {
 	property := prop(marker, key)
 	if property == nil || property.type != .String do return default
