@@ -30,7 +30,9 @@ paths:
   short forms (`pos`, `vel`, `dt`, `id`, `ok`, `err`, `count`, `index`), not private abbreviations (`sh`, `tk`,
   `cnt`).
 - No one-letter locals or parameters, except loop indices (`i`, `j`, `k`) and the letters of a formula
-  (`x`, `y`, `z` components, `a`, `b`, `t` in `lerp(a, b, t)`), and a test's `t: ^testing.T` (Odin's convention).
+  (`x`, `y`, `z` components, `a`, `b`, `t` in `lerp(a, b, t)`), a test's `t: ^testing.T` (Odin's convention), and
+  a sim's `t: ^Tick` and a glue's `f: ^Frame`: read their fields in place (`t.state.balls`), no local copies
+  (`state := t.state`). Library code takes the style when it is touched.
 - Type parameters name their role: `$State, $Input, $World, $PLAYERS`. One letter only for a container's element
   and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
 - The player index (a seat, `0 ..< PLAYERS`) is `player` everywhere: fields, parameters, `NO_PLAYER`. `slot` means

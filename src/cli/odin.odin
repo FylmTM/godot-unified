@@ -244,35 +244,50 @@ odin_build :: proc(build: Build, what: string, manifest := "") -> f64 {
 // Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
 // library beside them when one links it.
 build_headless :: proc(mode: Mode, force := false) -> (built: int) {
+	builds := start_headless(mode, force = force)
+	return finish_headless(&builds)
+}
+
+Headless_Builds :: struct {
+	running: [dynamic]Headless_Build,
+}
+
+Headless_Build :: struct {
+	headless: Headless,
+	build:    Build,
+	child:    Proc,
+}
+
+// Starts building the headless binaries (`only`: the one of that name; "": every one) without waiting, so other
+// builds can run beside them; `finish_headless` waits for them. Only the stale ones unless `force`.
+start_headless :: proc(mode: Mode, only := "", force := false) -> Headless_Builds {
 	ensure_deps_for_headless()
-	packages := headless_packages()
-	builds := make([]Build, len(packages))
-	procs: [dynamic]struct {
-		index: int,
-		child: Proc,
-	}
-	for headless, i in packages {
-		builds[i] = headless_build(headless, mode)
+	builds: Headless_Builds
+	for headless in headless_packages() {
+		if only != "" && headless.name != only do continue
+		build := headless_build(headless, mode)
 		if headless.box3d {
-			stage_box3d(os.dir(builds[i].out), debug = mode == .debug)
+			stage_box3d(os.dir(build.out), debug = mode == .debug)
 		}
-		if force || stale(builds[i]) {
-			append(&procs, struct {
-				index: int,
-				child: Proc,
-			}{i, start_build(builds[i])})
+		if force || stale(build) {
+			append(&builds.running, Headless_Build{headless, build, start_build(build)})
 		}
 	}
+	return builds
+}
+
+// Waits for the builds `start_headless` started; a failure stops the command. How many were built.
+finish_headless :: proc(builds: ^Headless_Builds) -> (built: int) {
 	failed: [dynamic]string
-	for &entry in procs {
-		if ran := finish_build(builds[entry.index], &entry.child); !ran.ok {
-			append(&failed, packages[entry.index].name)
+	for &running in builds.running {
+		if ran := finish_build(running.build, &running.child); !ran.ok {
+			append(&failed, running.headless.name)
 		}
 	}
 	if len(failed) > 0 {
 		fatal("building %s failed", strings.join(failed[:], ", "))
 	}
-	return len(procs)
+	return len(builds.running)
 }
 
 headless_build :: proc(headless: Headless, mode: Mode) -> Build {

@@ -77,8 +77,9 @@ tick's; `frame.tick`, `frame.local_player` (-1 until assigned). It pushes:
   `entity` the u64 its events carry (0: none): both route events to it. `pos` and `rot` (a unit quaternion; zero
   is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units the views use. `data` is any plain
   struct, converted like an event field (below: an enum becomes its member name, an array of structs an Array of
-  Dictionaries...; `_` fields are padding): the view gets each field as its script property of the same name, on
-  spawn and whenever its bytes change. One kind always pushes the same data type (asserted).
+  Dictionaries...; `_` fields are padding), and a field of Godot's own math types (`gd.Color`, `gd.Vector4`,
+  `gd.Quaternion`, ...) as itself: the view gets each field as its script property of the same name, on spawn and
+  whenever its bytes change. One kind always pushes the same data type (asserted).
 - `push_multi(frame, Multi_Item{key, kind, pos, yaw, scale, color, custom})`: one MultiMesh instance. `key`
   identifies it across ticks (a handle's `sim.handle_key`; 0: never interpolated); keys are per kind. `scale` is
   per local axis (zero: 1), `color` the instance color (zero: white), `custom` the custom data.

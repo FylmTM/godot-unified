@@ -7,6 +7,7 @@ package views_test_ext
 
 import "base:runtime"
 import "core:math"
+import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:sim"
@@ -61,6 +62,8 @@ Hud_Data :: struct {
 	y:           f32,
 	spawned:     u32,
 	pad_check:   [4]f32,
+	tint:        gd.Vector4, // Godot's own types: as they are (a plain [4]f32 is a Color)
+	turn:        gd.Quaternion,
 }
 
 HUD_KEY :: view.Key(100)
@@ -136,6 +139,8 @@ fill_frame :: proc(frame: ^Frame) {
 		y           = state.pos[0].y,
 		spawned     = state.spawned,
 		pad_check   = {1, 2, 3, 4},
+		tint        = {1, 2, 3, 4},
+		turn        = {0, 0, 0, 1},
 	})
 	// the yaw a full turn away every other tick: the shorter arc is no turn at all, so the rotation is exact at any
 	// alpha

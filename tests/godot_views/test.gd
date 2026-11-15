@@ -234,6 +234,8 @@ func check_commands(session: UnifiedSession, hud: Control) -> void:
 	# shape "star"; shapes [Dot, 2 (Star)] = bits 0 and 2
 	check("enum by name, bit_set by names and values", hud.get("mark_shape") == &"star" and hud.get("mark_shapes") == 5,
 		[hud.get("mark_shape"), hud.get("mark_shapes")])
+	check("Godot's own types as they are", hud.get("tint") == Vector4(1, 2, 3, 4) \
+		and hud.get("turn") == Quaternion.IDENTITY, [hud.get("tint"), hud.get("turn")])
 
 
 func finish(session: UnifiedSession) -> void:

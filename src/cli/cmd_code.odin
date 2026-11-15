@@ -20,19 +20,23 @@ cmd_build :: proc(args: []string) -> Result {
 	if opts.game != "toy" || !is_unified_repo() {
 		games = games_or_all(opts.game) // the name is checked before anything builds
 	}
-	built := build_headless(opts.mode, force = true)
+	// the headless binaries build beside the extensions (each extension's build waits for the one before)
+	headless := start_headless(opts.mode, only = opts.game, force = true)
 	libs: [dynamic]string
 	for game in games {
 		if has_extension(game) {
 			append(&libs, rel(ensure_extension(game, opts.mode, force = true)))
 		}
 	}
+	built := finish_headless(&headless)
 	return {
 		ok      = true,
 		summary = tprint(
-			"built %d headless binaries and %d extensions (%v) in %.1fs",
+			"built %d headless %s and %d %s (%v) in %.1fs",
 			built,
+			built == 1 ? "binary" : "binaries",
 			len(libs),
+			len(libs) == 1 ? "extension" : "extensions",
 			opts.mode,
 			seconds_since(start),
 		),
