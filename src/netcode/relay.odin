@@ -332,7 +332,7 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	if vouched {
 		key = fmt.tprintf("%s:%s", account.platform, account.id)
 	} else if token != {} {
-		key = fmt.tprintf("token:%x", token[:])
+		key = fmt.tprintf("token:%s", token_text(token))
 	}
 	known := find_member(relay, key)
 	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection.
