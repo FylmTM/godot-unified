@@ -559,32 +559,30 @@ parse_args :: proc() -> (args: Args) {
 TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their own
 
 // What the relay knows this player by when they come back to a LAN session (netcode.Token): 16 random bytes kept in
-// user:// as hex, made on first use. Never sent past the relay. Each running copy of the game on a machine (they share
-// user://) is someone else: a copy claims the first token whose `.pid` file names no other running process, so a
-// game restarted after a crash takes its own token back, while a second window takes another.
+// user:// as hex (netcode.token_text), made on first use. Never sent past the relay. Each running copy of the game on
+// a machine (they share user://) is someone else: a copy keeps the token it claimed for all its sessions, and first
+// claims the first one whose `.pid` file names no running process, so a game restarted after a crash takes its own
+// token back, while a second window takes another.
 @(private)
 client_token :: proc() -> (token: netcode.Token) {
 	pid := gd.OS_get_process_id(gd.OS_singleton())
-	instance := 0
+	instance, free := -1, -1
 	for k in 0 ..< TOKEN_INSTANCES {
 		owner, _ := strconv.parse_int(gd.FileAccess_get_file_as_string(fmt.tprintf("user://unified_token_%d.pid", k)))
-		instance = k
-		if owner == 0 || owner == pid || !process_alive(owner) do break
+		if owner == pid {
+			instance = k
+			break
+		}
+		if free < 0 && (owner == 0 || !process_alive(owner)) do free = k
 	}
+	if instance < 0 do instance = free if free >= 0 else TOKEN_INSTANCES - 1
 	path := fmt.tprintf("user://unified_token_%d", instance)
 	write_user_file(fmt.tprintf("%s.pid", path), fmt.tprintf("%d", pid))
-	text := gd.FileAccess_get_file_as_string(path)
-	if len(text) == 2 * netcode.TOKEN_SIZE {
-		ok := true
-		for &value, i in token {
-			byte_value, byte_ok := strconv.parse_u64_of_base(text[2 * i:][:2], 16)
-			value = u8(byte_value)
-			ok &&= byte_ok
-		}
-		if ok && token != {} do return token
+	if kept, ok := netcode.token_parse(strings.trim_space(gd.FileAccess_get_file_as_string(path))); ok {
+		return kept
 	}
 	crypto.rand_bytes(token[:])
-	write_user_file(path, fmt.tprintf("%x", token[:]))
+	write_user_file(path, netcode.token_text(token))
 	return
 }
 

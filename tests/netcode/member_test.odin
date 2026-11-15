@@ -189,3 +189,39 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	testing.expect_value(t, connected, 2) // the host and Cy's new connection
 	expect_agree(t, &session)
 }
+
+// A token's text (the Godot host keeps it in user://) reads back as the same token: written any other way, every
+// restart of the game was someone new to the relay.
+@(test)
+token_text_round_trips :: proc(t: ^testing.T) {
+	token := netcode.Token {
+		0x60,
+		0x01,
+		0x65,
+		0x43,
+		0x51,
+		0x83,
+		0x93,
+		0x1d,
+		0x04,
+		0xc6,
+		0xa3,
+		0xb7,
+		0x92,
+		0xc1,
+		0x14,
+		0x60,
+	}
+	text := netcode.token_text(token)
+	testing.expect_value(t, text, "600165435183931d04c6a3b792c11460")
+	back, ok := netcode.token_parse(text)
+	testing.expect(t, ok && back == token, "the text reads back as the token")
+	upper, upper_ok := netcode.token_parse("600165435183931D04C6A3B792C11460")
+	testing.expect(t, upper_ok && upper == token, "upper-case digits read too")
+	_, ok = netcode.token_parse("[60, 1, 65, 43, 51, 83, 93, 1d, 4, c6, a3, b7, 92, c1, 14, 60]")
+	testing.expect(t, !ok, "a slice's %x text is not a token")
+	_, ok = netcode.token_parse("600165435183931d04c6a3b792c1146g")
+	testing.expect(t, !ok, "a non-hex digit is not a token")
+	_, ok = netcode.token_parse(netcode.token_text({}))
+	testing.expect(t, !ok, "all zero is no token")
+}

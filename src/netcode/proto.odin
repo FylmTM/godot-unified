@@ -39,6 +39,40 @@ NO_SLOT :: sim.NO_SLOT // a roster entry of a member not seated
 // random bytes it keeps (the Godot host in user://). All zero: none. Sent in Hello, never forwarded.
 Token :: [TOKEN_SIZE]u8
 
+// A token as text: 32 lowercase hex digits (how the Godot host keeps it in user://, and the relay's key for it).
+token_text :: proc(token: Token, allocator := context.temp_allocator) -> string {
+	digits := "0123456789abcdef"
+	text := make([]u8, 2 * TOKEN_SIZE, allocator)
+	for value, i in token {
+		text[2 * i] = digits[value >> 4]
+		text[2 * i + 1] = digits[value & 0xF]
+	}
+	return string(text)
+}
+
+// A token from its text (token_text): false for anything but 32 hex digits, or all zero (none).
+token_parse :: proc(text: string) -> (token: Token, ok: bool) {
+	digit :: proc(char: u8) -> (value: u8, ok: bool) {
+		switch char {
+		case '0' ..= '9':
+			return char - '0', true
+		case 'a' ..= 'f':
+			return char - 'a' + 10, true
+		case 'A' ..= 'F':
+			return char - 'A' + 10, true
+		}
+		return 0, false
+	}
+	if len(text) != 2 * TOKEN_SIZE do return {}, false
+	for &value, i in token {
+		high, high_ok := digit(text[2 * i])
+		low, low_ok := digit(text[2 * i + 1])
+		if !high_ok || !low_ok do return {}, false
+		value = high << 4 | low
+	}
+	return token, token != {}
+}
+
 // Tick timing derived from the game's tick rate.
 Timing :: struct {
 	tick_hz:        int,
