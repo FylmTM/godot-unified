@@ -1,6 +1,7 @@
 # godot
 
-Contract v1, decided in the #9 sitting (2026-11-15, the decisions in that issue), with its follow-ups #273-#287. `unified:godot` is everything that
+Contract v1, decided in the #9 sitting (2026-11-15, the decisions in that issue), with its follow-ups #273-#287; signed
+off by the developer as written (D1, 2026-11-15). `unified:godot` is everything that
 touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is the raw bindings underneath. Each
 game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.
 
