@@ -21,7 +21,8 @@ The library ships the exporter only, not scripts that scenes depend on. The tool
 
 ## 2D levels
 
-Decided with the developer 2026-11-10 (2D levels in unified:level); mapping pending review.
+Decided with the developer 2026-11-10 (2D levels in unified:level); the mapping signed off in the #9 sitting
+(2026-11-15: D3 accepted its choices, D1 the mapping as written).
 
 A level whose root is a `Node2D` is a 2D level. The sim's plane is XY with Godot's 2D axes (x right, y down, z into
 the screen) at z = 0; a rotation is about +Z (positive turns +x toward +y, as `Node2D.rotation`). Pixels are divided

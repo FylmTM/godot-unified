@@ -261,17 +261,6 @@ set_wider_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, view.set_get(&view_set, Id{1, 7}).view, 2)
 }
 
-@(test)
-pool_reuses :: proc(t: ^testing.T) {
-	pool: view.Pool(int)
-	defer view.pool_destroy(&pool)
-	_, ok := view.pool_get(&pool)
-	testing.expect(t, !ok)
-	view.pool_put(&pool, 7)
-	item, ok2 := view.pool_get(&pool)
-	testing.expect(t, ok2 && item == 7)
-}
-
 // ---- predicted events
 
 Ev :: struct {

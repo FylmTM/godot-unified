@@ -22,12 +22,12 @@ Entry :: struct($V: typeid) {
 // The views of one frame's entities, keyed by spawn key (`K`: a Key, or a wider key such as kind and key). Per
 // render frame:
 //   set_begin; for each entity in the frame: set_see (spawned = create the view, set its linger_s); set_end ->
-//   despawned and removed lists (start the exit animation / destroy or pool the view).
+//   despawned and removed lists (start the exit animation / destroy the view).
 View_Set :: struct($K, $V: typeid) {
 	entries:   map[K]Entry(V),
 	frame:     u64,
 	despawned: [dynamic]K, // this frame: started lingering
-	removed:   [dynamic]V, // this frame: lingered out; the caller destroys or pools these
+	removed:   [dynamic]V, // this frame: lingered out; the caller destroys these
 }
 
 // Frees the set's map and lists; the views still in it are the caller's to free first.
@@ -85,25 +85,4 @@ set_remove :: proc(view_set: ^View_Set($K, $V), key: K) -> (view: V, ok: bool) {
 	entry := view_set.entries[key] or_return
 	delete_key(&view_set.entries, key)
 	return entry.view, true
-}
-
-// ---- pool of reusable views (scene instances, buffers...)
-
-Pool :: struct($V: typeid) {
-	free: [dynamic]V,
-}
-
-// Takes a pooled view to reuse instead of creating one; `ok` is false when the pool is empty.
-pool_get :: proc(pool: ^Pool($V)) -> (view: V, ok: bool) {
-	return pop_safe(&pool.free)
-}
-
-// Returns a view (one set_end removed) to the pool for a later spawn.
-pool_put :: proc(pool: ^Pool($V), view: V) {
-	append(&pool.free, view)
-}
-
-// Frees the pool's list; the pooled views are the caller's to free first.
-pool_destroy :: proc(pool: ^Pool($V)) {
-	delete(pool.free)
 }

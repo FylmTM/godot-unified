@@ -1,6 +1,6 @@
 # view
 
-Decided autonomously 2026-11-09, pending developer review.
+Decided autonomously 2026-11-09; signed off by the developer in the #9 sitting (2026-11-15, D1).
 
 Host-agnostic view logic between the rollback sim and any renderer (`src/view`, no Godot; tests in `tests/view`).
 Render-side code: f32 and transcendentals are fine, nothing feeds back into the sim.
@@ -23,9 +23,8 @@ quat_angle2d(a) / angle2d_of(q)              // 2D: rotation about +Z (Godot's N
 
 // views keyed by deterministic spawn keys (K: a Key, or a wider key: unified:godot uses kind and key)
 View_Set($K, $V)  set_begin / set_see(key) -> (^Entry, spawned; set entry.linger_s) / set_end(now_s)
-                  -> despawned (started lingering) and removed (views to destroy or pool)
+                  -> despawned (started lingering) and removed (views to destroy)
                   set_get(key) / set_remove(key) -> (view, ok)  // removed at once, no linger (a cancelled spawn)
-Pool($V)      pool_get / pool_put
 
 // predicted events
 Event_Tracker($E)  tracker_init(id_of) / tracker_begin_tick / tracker_event / tracker_end_tick / tracker_verified
