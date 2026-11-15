@@ -1,0 +1,50 @@
+package __GAME___extension
+
+import "unified:godot"
+import "unified:sim"
+import "unified:view"
+
+import g "../__GAME__"
+
+Frame :: godot.Frame(g.State, g.World, View, MultiView)
+
+// The scene view kinds: each has a scene with a UnifiedView marker of that kind (game/views/).
+View :: enum u8 {
+	Player,
+}
+
+// The MultiMesh view kinds (a UnifiedMultiView marker each): none yet.
+MultiView :: enum u8 {}
+
+PLAYER_COLORS := [g.PLAYERS][4]f32 {
+	{1, 0.4, 0.4, 1},
+	{0.7, 1, 0.4, 1},
+	{0.4, 1, 1, 1},
+	{0.7, 0.4, 1, 1},
+}
+
+// What a player view gets besides its pose: each field sets the view script's property of the same name.
+Player_View_Data :: struct {
+	color: [4]f32,
+}
+
+// Session thread, every published tick: the views of the tick's state. The host interpolates between ticks.
+fill_frame :: proc(f: ^Frame) {
+	fill_frame_players(f)
+}
+
+// A view per present player, keyed by the player (who comes back in another slot keeps their view), coloured by
+// the slot they hold.
+fill_frame_players :: proc(f: ^Frame) {
+	players := sim.iterate_present(&f.state.players)
+	for data, player in sim.next(&players) {
+		slot, _ := sim.player_slot(&f.state.players, player)
+		item := godot.View_Item(View) {
+			key    = view.Key(sim.player_key(player)),
+			kind   = .Player,
+			player = player,
+			pos    = {data.position.x, 0, data.position.y},
+		}
+		godot.push_view(f, item, Player_View_Data{color = PLAYER_COLORS[slot]})
+	}
+}

@@ -1,52 +1,18 @@
 // __GAME__'s GDExtension (game/__GAME__.gdextension -> .out/bin/): the sim run by unified's Godot integration
-// (unified/src/godot/SPEC.md), and the glue: how Godot's input becomes an Input, and how the state becomes views.
+// (unified's src/godot/SPEC.md), with the glue: input.odin turns Godot's input into an Input, frame.odin the
+// state into views.
 package __GAME___extension
 
 import "base:runtime"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:sim"
-import "unified:view"
 
 import g "../__GAME__"
 
-PX_PER_M :: 64 // the views are in pixels
-
-// The scene view kinds: each has a scene with a UnifiedView marker of that kind (`uni bake` indexes them).
-View :: enum u8 {
-	Player,
-}
-
-// The MultiMesh view kinds: none yet.
-Multi :: enum u8 {}
-
-Frame :: godot.Frame(g.State, g.World, View, Multi)
-
-GLUE := godot.Glue(g.State, g.Input, g.World, View, Multi) {
+GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
 	scripted_input = scripted_input,
-	smoothing      = {tau_s = 0.1, teleport_dist = 64}, // pixels
-	is_2d          = true,
-}
-
-// Main thread, every frame: the local player's Input from Godot's InputMap (the arrow keys).
-sample_input :: proc(input: ^g.Input) {
-	move := godot.action_vector("ui_left", "ui_right", "ui_up", "ui_down")
-	input.dx = godot.axis_i8(move.x)
-	input.dy = godot.axis_i8(move.y)
-}
-
-// Session thread, every published tick: a dot per present player, in pixels, keyed by the player (a player who
-// comes back in another slot keeps their view). The host remembers each view's pose at the tick before and
-// interpolates between them.
-fill_frame :: proc(frame: ^Frame) {
-	players := sim.iterate_present(&frame.state.players)
-	for dot, player in sim.next(&players) {
-		pos := dot.pos * PX_PER_M
-		key := view.Key(sim.player_key(player))
-		godot.push_view(frame, {key = key, kind = .Player, player = player, pos = {pos.x, pos.y, 0}})
-	}
 }
 
 // Headless checks (--scripted): the sim's own scripted input.

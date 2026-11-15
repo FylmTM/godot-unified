@@ -46,6 +46,11 @@ SOCKET_PREFIX :: "unified-"
 MAX_MEMBERS :: 4
 SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in searches
 SEARCH_RETRY_US :: 1_200_000
+// A joiner whose P2P connection to the host isn't up this long after joining (or after its last
+// try) closes it and asks again; after CONNECT_TRIES it fails. EOS's signalling sometimes delivers
+// the host's offer to the joiner only after ~30 s (#142): a fresh request gets a fresh offer.
+CONNECT_WAIT_US :: 5_000_000
+CONNECT_TRIES :: 4
 
 Remote :: struct {
 	used:      bool,
@@ -69,6 +74,8 @@ Init_Options :: struct {
 	no_keychain_prompts: bool,
 	// Tests: use these entry points instead of loading the SDK library (no credentials needed).
 	sdk:                 ^Api,
+	// Tests: how long a joiner waits for its P2P connection before asking again (0: CONNECT_WAIT_US).
+	connect_wait_us:     i64,
 }
 
 Online :: struct {
@@ -111,6 +118,10 @@ Online :: struct {
 	searches:       int, // lobby searches made for this join (a new lobby takes a moment to be found)
 	search_at_us:   i64, // when to search again (0: not scheduled)
 	relogin_at_us:  i64, // when to retry a failed token refresh (0: not scheduled)
+	connect_wait:   i64, // CONNECT_WAIT_US, or the test's
+	connect_at_us:  i64, // joiner: when to give up on this P2P connection try (0: connected or not joined)
+	connect_tries:  int, // joiner: P2P connection tries to the host in this session
+	joined_us:      i64, // joiner: when it joined the lobby
 	reported_code:  bool,
 	reported_fail:  bool,
 	events:         [32]Link_Event,
@@ -163,6 +174,7 @@ init :: proc(opts: Init_Options) -> bool {
 		return false // a previous init failed
 	}
 	online.relay_control = opts.relay_control.? or_else .Allow_Relays
+	online.connect_wait = opts.connect_wait_us > 0 ? opts.connect_wait_us : CONNECT_WAIT_US
 	// $UNIFIED_EOS_RELAYS=force|none overrides the default (testing relays from a game build).
 	switch os.get_env("UNIFIED_EOS_RELAYS", context.temp_allocator) {
 	case "force":
@@ -505,6 +517,8 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	online.reported_fail = false
 	online.searches = 0
 	online.search_at_us = 0
+	online.connect_at_us = 0
+	online.connect_tries = 0
 	online.n_events = 0
 	online.bucket = {}
 	copy(online.bucket[:len(online.bucket) - 1], bucket)
@@ -539,6 +553,46 @@ tick :: proc(online: ^Online) {
 		online.relogin_at_us = 0
 		start_login(online)
 	}
+	if online.connect_at_us != 0 && online.last_tick_us >= online.connect_at_us {
+		connect_again(online)
+	}
+}
+
+// Joiner: the P2P connection to the host didn't come up in time. Close it, so the netcode's next
+// packet makes a new connection request (and the host a new offer); after CONNECT_TRIES, fail.
+@(private)
+connect_again :: proc(online: ^Online) {
+	online.connect_at_us = 0
+	if online.stage != .Ready || online.role != .Join || online.remotes[0].connected {
+		return
+	}
+	waited_s := f64(online.connect_tries) * f64(online.connect_wait) / 1e6
+	if online.connect_tries >= CONNECT_TRIES {
+		fail(
+			online,
+			"no connection to the host after %.0f s (%d tries): EOS's signalling didn't get through; join again",
+			waited_s,
+			online.connect_tries,
+		)
+		return
+	}
+	close_options := P2P_Accept_Connection_Options {
+		api_version    = P2P_CLOSECONNECTION_API_LATEST,
+		local_user_id  = online.local,
+		remote_user_id = online.remotes[0].id,
+		socket_id      = &online.socket,
+	}
+	if result := online.api.P2P_CloseConnection(online.p2p, &close_options); result != .Success {
+		log_line("closing the P2P connection to the host: %s", online.api.EResult_ToString(result))
+	}
+	online.connect_tries += 1
+	online.connect_at_us = online.last_tick_us + online.connect_wait
+	log_line(
+		"no P2P connection to the host after %.0f s: asking again (try %d of %d)",
+		waited_s,
+		online.connect_tries,
+		CONNECT_TRIES,
+	)
 }
 
 RELOGIN_RETRY_US :: 15_000_000
@@ -987,6 +1041,9 @@ on_lobby_joined :: proc "c" (info: ^Lobby_Callback_Info) {
 	}
 	id_to_string(online, online.host, remote.id_str[:])
 	online.stage = .Ready
+	online.connect_tries = 1 // the netcode's first packet makes the connection request
+	online.joined_us = netcode.now_us()
+	online.connect_at_us = online.joined_us + online.connect_wait
 	set_detail(online, "joined game %s", string(online.code[:]))
 	log_line("joined game %s, host %s", string(online.code[:]), cstr(remote.id_str[:]))
 }
@@ -1107,7 +1164,18 @@ on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established
 	remote.connected = true
 	remote.network = info.network_type
 	push_event(online, netcode.Peer(i), true)
-	log_line("P2P connected to %s (%v)", cstr(remote.id_str[:]), info.network_type)
+	if online.role == .Join && online.connect_at_us != 0 {
+		online.connect_at_us = 0
+		log_line(
+			"P2P connected to the host %s (%v), %.1f s after joining, try %d",
+			cstr(remote.id_str[:]),
+			info.network_type,
+			f64(netcode.now_us() - online.joined_us) / 1e6,
+			online.connect_tries,
+		)
+	} else {
+		log_line("P2P connected to %s (%v)", cstr(remote.id_str[:]), info.network_type)
+	}
 }
 
 @(private)
@@ -1119,7 +1187,13 @@ on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 	if i < 0 {
 		return
 	}
+	was_connected := online.remotes[i].connected
 	online.remotes[i].connected = false
+	if online.role == .Join && !was_connected {
+		// A try that never connected, closed by connect_again: the netcode keeps waiting for the host.
+		log_line("P2P connection to the host closed before it came up (reason %d)", info.reason)
+		return
+	}
 	push_event(online, netcode.Peer(i), false)
 	log_line("P2P connection to %s closed (reason %d)", cstr(online.remotes[i].id_str[:]), info.reason)
 }
@@ -1156,6 +1230,7 @@ end_session :: proc(online: ^Online) {
 	}
 	online.gen += 1
 	online.remotes = {}
+	online.connect_at_us = 0
 	online.host = nil
 	online.role = .None
 	online.code = {}

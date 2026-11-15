@@ -1,13 +1,10 @@
-extends Node2D
-## One player's dot: a scene view (kind `player`, its UnifiedView marker). The host sets its position every frame,
-## interpolated between ticks; the marker says which player it shows (its key: the same while they are in the session).
+extends Node3D
+## One player's capsule: a scene view (kind `player`, its UnifiedView marker). The host sets its pose every frame,
+## interpolated between ticks, and `color` from the sim's Player_View_Data (simulation/extension/frame.odin).
 
-@onready var view: UnifiedView = %UnifiedView
+@onready var body: MeshInstance3D = %Body
 
-
-func _ready() -> void:
-	queue_redraw()
-
-
-func _draw() -> void:
-	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(view.player % 8) / 8.0, 0.6, 1.0))
+var color: Color:
+	set(value):
+		color = value
+		(body.material_override as StandardMaterial3D).albedo_color = value

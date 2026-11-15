@@ -19,6 +19,8 @@ Pending_Kind :: enum {
 	Login,
 	Lobby, // Lobby_Callback_Info: create, update, join, leave, destroy
 	Result, // Result_Callback_Info: search
+	Established, // the P2P connection to the lobby owner came up
+	Closed, // the P2P connection to the lobby owner closed
 }
 
 @(private = "file")
@@ -45,6 +47,10 @@ fake: struct {
 	released:           int,
 	product_version:    string,
 	last_code:          string, // the code attribute the host published
+	closed_to_owner:    int, // P2P_CloseConnection calls for the lobby owner
+	on_established:     rawptr, // the session's P2P notifications and their client data
+	on_closed:          rawptr,
+	p2p_data:           rawptr,
 	users:              [2]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner
 }
 
@@ -89,6 +95,19 @@ fire_all :: proc() {
 				client_data = pending.client_data,
 			}
 			(proc "c" (_: ^eos.Result_Callback_Info))(pending.callback)(&info)
+		case .Established:
+			info := eos.P2P_On_Peer_Connection_Established_Info {
+				client_data    = pending.client_data,
+				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+				network_type   = .Direct,
+			}
+			(proc "c" (_: ^eos.P2P_On_Peer_Connection_Established_Info))(pending.callback)(&info)
+		case .Closed:
+			info := eos.P2P_On_Remote_Connection_Closed_Info {
+				client_data    = pending.client_data,
+				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+			}
+			(proc "c" (_: ^eos.P2P_On_Remote_Connection_Closed_Info))(pending.callback)(&info)
 		}
 	}
 }
@@ -186,19 +205,34 @@ FAKE := eos.Api {
 		options: ^eos.P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.P2P_On_Peer_Connection_Established_Info),
-	) -> eos.Notification_Id {return 3},
+	) -> eos.Notification_Id {
+		fake.on_established = rawptr(callback)
+		fake.p2p_data = client_data
+		return 3
+	},
 	P2P_RemoveNotifyPeerConnectionEstablished = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
 	P2P_AddNotifyPeerConnectionClosed = proc "c" (
 		handle: eos.H_P2P,
 		options: ^eos.P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.P2P_On_Remote_Connection_Closed_Info),
-	) -> eos.Notification_Id {return 4},
+	) -> eos.Notification_Id {
+		fake.on_closed = rawptr(callback)
+		return 4
+	},
 	P2P_RemoveNotifyPeerConnectionClosed = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
 	P2P_AcceptConnection = proc "c" (
 		handle: eos.H_P2P,
 		options: ^eos.P2P_Accept_Connection_Options,
 	) -> eos.Result {return .Success},
+	P2P_CloseConnection = proc "c" (handle: eos.H_P2P, options: ^eos.P2P_Accept_Connection_Options) -> eos.Result {
+		context = runtime.default_context()
+		if (^u8)(options.remote_user_id) == &fake.users[1] && options.socket_id != nil {
+			fake.closed_to_owner += 1
+			enqueue(.Closed, fake.on_closed, fake.p2p_data, .Success) // EOS reports a local close too
+		}
+		return .Success
+	},
 	P2P_CloseConnections = proc "c" (
 		handle: eos.H_P2P,
 		options: ^eos.P2P_Socket_Options,
@@ -343,6 +377,16 @@ fake_lobby_name :: proc(index: int) -> string {
 	return fmt.tprintf("lobby-%d", index)
 }
 
+// Pumps for `ms` milliseconds or until the stage leaves Ready.
+@(private = "file")
+pump_for :: proc(ms: int) {
+	deadline := time.tick_now()
+	for time.duration_milliseconds(time.tick_since(deadline)) < f64(ms) && eos.status().stage == .Ready {
+		eos.pump()
+		time.sleep(2 * time.Millisecond)
+	}
+}
+
 // Pumps until the stage is `want` (or 2 s pass); returns the codes and failures pump reported.
 @(private = "file")
 pump_until :: proc(want: eos.Stage) -> (stage: eos.Stage, code, failed: string) {
@@ -374,6 +418,7 @@ host_session :: proc(run: ^Host_Run) {
 			product_name    = "fake",
 			product_version = "1.2.3",
 			sdk             = &FAKE,
+			connect_wait_us = CONNECT_WAIT_MS * 1000,
 		})
 		testing.expect(run.t, ok, "init with the fake SDK")
 	}
@@ -385,8 +430,12 @@ host_session :: proc(run: ^Host_Run) {
 	run.stage_2 = eos.status().stage
 }
 
+@(private = "file")
+CONNECT_WAIT_MS :: 20 // the joiner's P2P wait, shortened
+
+// The whole session state machine in one test: EOS is per process and can't be initialized again.
 @(test)
-host_leave_host_on_fresh_threads :: proc(t: ^testing.T) {
+session_state_machine :: proc(t: ^testing.T) {
 	// the fake allocates in its callbacks' fresh contexts: the heap, not the test's tracking allocator
 	heap := runtime.heap_allocator()
 	defer {
@@ -448,6 +497,47 @@ host_leave_host_on_fresh_threads :: proc(t: ^testing.T) {
 	testing.expect_value(t, eos.status().host, "fakeowner")
 	eos.leave()
 	testing.expect_value(t, fake.left, 1)
+
+	// #142: the joiner's P2P connection never comes up. Each wait it closes the connection (so the
+	// netcode's next packet asks again), and the closes it causes don't reach the netcode as a lost
+	// host; after eos.CONNECT_TRIES tries it fails with a clear reason.
+	link_events :: proc() -> (count: int) {
+		net_link, ok := eos.link()
+		if !ok do return
+		for {
+			if _, _, has := net_link.event(net_link.data); !has do return
+			count += 1
+		}
+	}
+	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	stage, _, failed = pump_until(.Failed)
+	testing.expect_value(t, stage, eos.Stage.Failed)
+	testing.expect(t, strings.contains(failed, "no connection to the host"), failed)
+	testing.expect_value(t, fake.closed_to_owner, eos.CONNECT_TRIES - 1)
+	testing.expect_value(t, link_events(), 0)
+	eos.leave()
+
+	// A retry that works: the connection comes up after the first close; no more closes, the
+	// session stays Ready and the netcode hears the host connect.
+	fake.closed_to_owner = 0
+	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	for _ in 0 ..< 400 {
+		if fake.closed_to_owner > 0 do break
+		eos.pump()
+		time.sleep(2 * time.Millisecond)
+	}
+	testing.expect_value(t, fake.closed_to_owner, 1)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success)
+	pump_for(CONNECT_WAIT_MS * (eos.CONNECT_TRIES + 1))
+	testing.expect_value(t, eos.status().stage, eos.Stage.Ready)
+	testing.expect_value(t, eos.status().peers, 1)
+	testing.expect_value(t, fake.closed_to_owner, 1)
+	testing.expect_value(t, link_events(), 1)
+	eos.leave()
 
 	eos.shutdown()
 	testing.expect_value(t, fake.released, 1)

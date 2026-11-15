@@ -282,6 +282,8 @@ P2P_On_Remote_Connection_Closed_Info :: struct {
 }
 
 P2P_ACCEPTCONNECTION_API_LATEST :: 1
+P2P_CLOSECONNECTION_API_LATEST :: 1
+// AcceptConnection and CloseConnection (one peer) take this shape.
 P2P_Accept_Connection_Options :: struct {
 	api_version:    i32,
 	local_user_id:  Product_User_Id,
@@ -537,6 +539,10 @@ Api :: struct {
 	) -> Notification_Id,
 	P2P_RemoveNotifyPeerConnectionClosed:        proc "c" (handle: H_P2P, id: Notification_Id),
 	P2P_AcceptConnection:                        proc "c" (
+		handle: H_P2P,
+		opts: ^P2P_Accept_Connection_Options,
+	) -> Result,
+	P2P_CloseConnection:                         proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Accept_Connection_Options,
 	) -> Result,

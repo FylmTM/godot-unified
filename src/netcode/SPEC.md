@@ -31,9 +31,11 @@ through `headless.session_run`).
   order; unreliable ones as they come. At most `REL_IN_FLIGHT` (32) datagrams carrying reliable messages are in
   flight past the peer's newest ack, so one ack covers a whole burst (a snapshot is never resent though it
   arrived); at most `REL_WINDOW` (512) reliable messages past the oldest unacked one; messages over `MAX_MESSAGE` are
-  refused (`channel_send` false). Keepalive 250 ms, timeout 10 s. Each side's connection has an epoch, sent (and the
-  peer's echoed) in every datagram: a restarted peer on the same address replaces its old connection at once, and a
-  side still talking to a connection the other ended is told so at once instead of sitting half-open.
+  refused (`channel_send` false). Keepalive 250 ms, timeout 10 s, or 30 s for a peer that has never answered
+  (`FIRST_ANSWER_US`: a transport like EOS sets up its path after the first hello). Each side's connection has an
+  epoch, sent (and the peer's echoed) in every datagram: a restarted peer on the same address replaces its old
+  connection at once, and a side still talking to a connection the other ended is told so at once instead of sitting
+  half-open.
 - **Relay** (`relay_create(cfg, Input, PLAYERS)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
   `relay_clock`, `relay_tick`, `relay_end_recording`): owns the clock; finalizes ticks, broadcasts them, routes and
   checks late-join snapshots, judges checksums. Keeps the last `RELAY_RING` (512) finalized ticks; the whole

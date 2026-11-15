@@ -10,7 +10,8 @@ code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode'
 
 ```odin
 eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_control, no_keychain_prompts,
-                      sdk /* tests: a fake ^Api instead of the library */}) -> bool
+                      sdk /* tests: a fake ^Api instead of the library */,
+                      connect_wait_us /* tests: a shorter CONNECT_WAIT_US */}) -> bool
 eos.open_host(bucket) -> (netcode.Link, bool)        // login if needed, create the lobby; link usable at once
 eos.open_join(bucket, code) -> (netcode.Link, bool)  // login, search by code, join; a malformed code fails here
 eos.pump() -> Pump_Result{code, failed}              // tick EOS; the code (host) and a failure are reported once
@@ -56,7 +57,13 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   the death, so the host may wait out the SDK's 30 s reconnect window first; not measured yet (#32).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
-  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. EOS packets carry 1170 bytes,
+  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The joiner's first packet
+  makes the connection request. If the connection isn't up 5 s (`CONNECT_WAIT_US`) after joining, the joiner closes
+  it (`P2P_CloseConnection`), so its next packet asks again and the host makes a fresh offer; after 4 tries
+  (`CONNECT_TRIES`, ~20 s) it fails: "no connection to the host after 20 s". EOS's signalling sometimes delivers
+  the host's offer late (#142); a fresh request connects in about a second. Closing a try that never connected is
+  not a lost host to the netcode (no link event), and the netcode waits 30 s for the host's first answer, which
+  covers the login, the lobby search and join (2–7 s) and every try. EOS packets carry 1170 bytes,
   so datagrams carry a 1-byte frame header (larger ones are split and reassembled; netcode's 1152-byte
   datagrams never are). Relays are allowed by default (`relay_control = .Force_Relays` to test them).
 - **Threading.** One process-wide session behind a mutex; every EOS call happens under it. The link's `recv`
@@ -82,7 +89,8 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
 - `tests/eos` (no network): codes (alphabet, unbiased, parsing), framing (every size, loss, reordering,
   garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
   load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
-  lobby that arrives after leave is destroyed, a failed request reports its reason once, join, shutdown.
+  lobby that arrives after leave is destroyed, a failed request reports its reason once, join, a joiner's P2P
+  connection that never comes up (closed and asked again, then a failure) or comes up on a retry, shutdown.
 - Two processes on one machine through EOS (the `.env`'s `UNIFIED_EOS_*` IDs and SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
   --ticks 1920` (`--relays force` to go through Epic's relays). The fresh device gives the second process its own

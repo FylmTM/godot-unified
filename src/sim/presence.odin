@@ -128,7 +128,13 @@ iterate_known :: #force_inline proc(
 	return {presence = presence, known = true}
 }
 
-presence_next :: #force_inline proc(iterator: ^Presence_Iterator($T, $PLAYERS, $MEMBERS)) -> (data: ^T, player: Player, ok: bool) {
+presence_next :: #force_inline proc(
+	iterator: ^Presence_Iterator($T, $PLAYERS, $MEMBERS),
+) -> (
+	data: ^T,
+	player: Player,
+	ok: bool,
+) {
 	presence := iterator.presence
 	if iterator.known {
 		for iterator.index < MEMBERS {

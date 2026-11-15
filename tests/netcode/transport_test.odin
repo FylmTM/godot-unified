@@ -56,3 +56,46 @@ a_jitter_only_profile_is_simulated :: proc(t: ^testing.T) {
 	testing.expect(t, netcode.profile_is_ideal({name = "ideal"}))
 	testing.expect(t, !netcode.profile_is_ideal({jitter = 1}))
 }
+
+// A peer that never answered gets FIRST_ANSWER_US (a transport like EOS sets up its path after the first hello);
+// one that answered and then went silent gets DISCONNECT_US.
+@(test)
+a_silent_peer_times_out_by_whether_it_ever_answered :: proc(t: ^testing.T) {
+	disconnected :: proc(channel: ^netcode.Channel, now: i64) -> bool {
+		for event in netcode.channel_poll(channel, now) {
+			if event.kind == .Disconnected do return true
+		}
+		return false
+	}
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	to_peer := netcode.channel_peer(sender, netcode.channel_add_link(sender, netcode.loopback_link(hub, 0)), 1)
+	hello := [1]u8{7}
+	start: i64 = 1_000_000
+	netcode.channel_send(sender, to_peer, hello[:], .Reliable, start)
+	netcode.channel_flush(sender, start)
+	testing.expect(
+		t,
+		!disconnected(sender, start + netcode.DISCONNECT_US + 1),
+		"a peer that never answered waits longer",
+	)
+	testing.expect(t, disconnected(sender, start + netcode.FIRST_ANSWER_US + 1), "until FIRST_ANSWER_US")
+
+	// The peer answers once, then goes silent: DISCONNECT_US.
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	netcode.channel_add_link(receiver, netcode.loopback_link(hub, 1))
+	now := start + netcode.FIRST_ANSWER_US + 2
+	netcode.channel_send(sender, to_peer, hello[:], .Reliable, now)
+	netcode.channel_flush(sender, now)
+	netcode.channel_poll(receiver, now)
+	netcode.channel_flush(receiver, now)
+	testing.expect(t, !disconnected(sender, now), "the answer arrives")
+	testing.expect(
+		t,
+		disconnected(sender, now + netcode.DISCONNECT_US + 1),
+		"an answered peer's silence: DISCONNECT_US",
+	)
+}
