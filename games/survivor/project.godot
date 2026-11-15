@@ -28,7 +28,7 @@ buses/default_bus_layout="res://addons/shared/audio/bus_layout.tres"
 LibraryCheck="*res://addons/shared/autoload/library_check.gd"
 Settings="*res://game/autoload/settings.gd"
 Sfx="*res://game/autoload/sfx.gd"
-Game="*res://game/autoload/game.gd"
+Game="*res://addons/shared/autoload/game.gd"
 
 [debug]
 

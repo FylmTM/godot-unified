@@ -1,3 +1,4 @@
+class_name SurvivorCamera
 extends Camera3D
 ## Top-down follow camera: tracks the local player (a teammate while dead) with exponential smoothing and a
 ## look-ahead in the direction of travel (more of the arena ahead, where enemies come from), pulls in a little in
@@ -25,14 +26,14 @@ func add_trauma(amount: float) -> void:
 
 
 func _process(delta: float) -> void:
-	var arena := get_parent()
-	var v: Node3D = arena.local_player_view()
-	if v == null:
+	var arena := get_parent() as SurvivorArena
+	var v: SurvivorPlayerView = arena.local_player_view() if arena != null else null
+	if v == null and arena != null:
 		v = arena.any_player_view()
 	var goal := Vector3(v.position.x, 0, v.position.z) if v != null else _target
-	var v_vel: Variant = v.get(&"velocity") if v != null else null
-	var vel: Vector3 = v_vel if v_vel != null else Vector3.ZERO
-	var lobby: bool = Game.hud.get("phase", "lobby") == "lobby"
+	var vel := v.velocity if v != null else Vector3.ZERO
+	var phase: String = Game.hud.get("phase", "lobby")
+	var lobby := phase == "lobby"
 	var want_lead := Vector3(vel.x, 0, vel.z) * lead if not lobby else Vector3.ZERO
 	_lead = _lead.lerp(want_lead.limit_length(max_lead), 1.0 - exp(-delta * 1.5))
 	goal += _lead
