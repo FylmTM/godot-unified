@@ -236,12 +236,14 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, frame != nil && frame.tick >= held)
 		late := make([dynamic]godot.Event_Message, context.temp_allocator)
 		if frame != nil do take_events(&late, frame.tick)
-		joined := false
-		for &event in late {
-			if _, is_join := sim.event_value(&event.event, toy.Event).(sim.Event_Player_Joined); is_join {
-				joined ||= event.tick == held
-			}
+		// the join's tick is after the shown frame and at most the held one (a catch-up may step several ticks at once)
+		is_join :: proc(event: ^godot.Event_Message) -> bool {
+			_, join := sim.event_value(&event.event, toy.Event).(sim.Event_Player_Joined)
+			return join
 		}
+		for &event in early do testing.expect(t, !is_join(&event), "no join before its frame is shown")
+		joined := false
+		for &event in late do joined ||= is_join(&event) && event.tick > shown && event.tick <= held
 		testing.expect(t, joined, "the join tick's events come once its frame is shown")
 		godot.api.wait()
 		sync.atomic_store(&seen.hold, 0)
