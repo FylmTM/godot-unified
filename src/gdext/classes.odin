@@ -580,10 +580,11 @@ bind_method :: proc {
 }
 
 Property_Hint :: enum u32 {
-	NONE      = 0,
-	RANGE     = 1,
-	ENUM      = 2,
-	NODE_TYPE = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
+	NONE       = 0,
+	RANGE      = 1,
+	ENUM       = 2,
+	ARRAY_TYPE = 31, // a typed Array (hint_string: the element type, "int", "Vector2", a class): Array[int] in GDScript
+	NODE_TYPE  = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
 }
 
 // An inspector-visible, saved property backed by get_<name>/set_<name> methods. An Object property's class is its
@@ -928,7 +929,8 @@ dynamic_property_info :: proc(
 }
 
 // A property over methods already bound (`setter` "" for a read-only one), of Variant type `kind` (an OBJECT one of
-// class `class_name`, typed in GDScript).
+// class `class_name`, typed in GDScript; a typed ARRAY: hint .ARRAY_TYPE and the element type). A read-only one is
+// neither saved nor shown in the inspector, so the editor's help computes no default value for it.
 bind_property_by_name :: proc(
 	cls: ^Class,
 	name: string,
@@ -936,20 +938,29 @@ bind_property_by_name :: proc(
 	getter: string,
 	setter := "",
 	class_name := "",
+	hint := Property_Hint.NONE,
+	hint_string := "",
 ) {
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
 	class_sn := string_name_from(class_name)
 	defer StringName_destroy(&class_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
+	hint_text := string_from(hint_string)
+	defer String_destroy(&hint_text)
 	getter_name := string_name_from(getter)
 	defer StringName_destroy(&getter_name)
 	setter_name := string_name_from(setter)
 	defer StringName_destroy(&setter_name)
-	info := dynamic_property_info(kind, &name_sn, &class_sn, &empty_s)
-	if setter == "" do info.usage = 4 | 8192 // PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY: not saved
+	info := dynamic_property_info(kind, &name_sn, &class_sn, &hint_text)
+	info.hint = u32(hint)
+	if setter == "" do info.usage = 8192 // PROPERTY_USAGE_READ_ONLY: not saved, not in the inspector, no doc default
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
+}
+
+// Makes an empty Array typed: only elements of Variant type `kind` (Array[int]...).
+array_set_typed :: proc(array: ^Array, kind: gdi.VariantType) {
+	nil_variant := variant_nil()
+	gdi.array_set_typed(array, kind, sn(""), &nil_variant)
 }
 
 // The Odin instance behind an object of `cls` (one of this extension's classes) or a class extending it; nil for

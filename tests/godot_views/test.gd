@@ -1,7 +1,7 @@
 # unified:godot view tests: run headless by `uni test --suite godot-bindings`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that scene views with a UnifiedView marker spawn from
 # the view index (2D and 3D, identified by kind and key), get their pose, _sim_update and typed data as properties,
-# and their lifecycle callbacks; that MultiMesh views get their buffers; that session data reaches Unified.toy and
+# and their lifecycle callbacks; that MultiMesh views get their buffers; that session data reaches Unified.data.toy and
 # the constants Unified.constants; that enums are ints with Enum* classes; that events reach the views and the
 # sim_event signal as objects of their classes in each state; that commands made from their classes reach the sim
 # once (and wrong values are refused with an error line the suite expects); and that the input sample latches a
@@ -88,7 +88,7 @@ func _initialize() -> void:
 	var events: Array[Array] = []  # [event, state]
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void: events.append([event, state]))
 	check_constants()
-	var toy: DataToy = Unified.toy
+	var toy: DataToy = Unified.data.toy
 	var toy_changes := [0]
 	toy.changed.connect(func() -> void: toy_changes[0] += 1)
 	var roster_changes := [0]
@@ -204,11 +204,17 @@ func _initialize() -> void:
 
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.
 func check_constants() -> void:
-	var constants: DataConstants = Unified.constants
+	var constants: UnifiedConstants = Unified.constants
 	check("constants: typed, strings and nested values", near(constants.speed, 4.5) and constants.name == "toy" \
 		and constants.favorite == EnumShape.RING and constants.sizes == [1, 2, 3] \
 		and constants.limits == {"low": -1, "high": 9} and constants.by_shape == [0.5, 1.0, 2.0],
 		[constants.speed, constants.name, constants.favorite, constants.sizes, constants.limits])
+	var sizes: Array[int] = constants.sizes  # a typed Array: assigning it to Array[int] would fail otherwise
+	var by_shape: Array[float] = constants.by_shape
+	check("constants: arrays typed by their elements", sizes.get_typed_builtin() == TYPE_INT 		and by_shape.get_typed_builtin() == TYPE_FLOAT, [sizes.get_typed_builtin(), by_shape.get_typed_builtin()])
+	check("read-only properties have no default for the editor's help",
+		ClassDB.class_get_property_default_value(&"UnifiedConstants", &"sizes") == null,
+		ClassDB.class_get_property_default_value(&"UnifiedConstants", &"sizes"))
 	check("Unified.tick_hz", Unified.tick_hz == 64, Unified.tick_hz)
 	check("an enum class: members as constants, name()", EnumShape.DOT == 0 and EnumShape.STAR == 2 \
 		and EnumShape.name(EnumShape.STAR) == "star", [EnumShape.DOT, EnumShape.STAR, EnumShape.name(2)])
@@ -294,8 +300,9 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 		[toy.mark_at, toy.mark_normal])
 	check("float, int and bool fields", near(toy.mark_weight, 0.25) and toy.mark_count == -300 and toy.mark_loud,
 		[toy.mark_weight, toy.mark_count, toy.mark_loud])
-	check("an enum as its int, a bit_set as an Array of ints", toy.mark_shape == EnumShape.STAR \
-		and toy.mark_shapes == [EnumShape.DOT, EnumShape.STAR], [toy.mark_shape, toy.mark_shapes])
+	var shapes: Array[int] = toy.mark_shapes
+	check("an enum as its int, a bit_set as an Array[int]", toy.mark_shape == EnumShape.STAR \
+		and shapes == [EnumShape.DOT, EnumShape.STAR], [toy.mark_shape, toy.mark_shapes])
 	check("Godot's own types as they are", toy.tint == Vector4(1, 2, 3, 4) and toy.turn == Quaternion.IDENTITY,
 		[toy.tint, toy.turn])
 

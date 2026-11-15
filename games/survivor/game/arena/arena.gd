@@ -26,10 +26,10 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	var lobby := Unified.hud.phase == EnumPhase.LOBBY
+	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
 	_circle_fade = move_toward(_circle_fade, 1.0 if lobby else 0.0, delta * 2.0)
 	_circle.visible = _circle_fade > 0.001
-	var r := Unified.hud.circle_radius
+	var r := Unified.data.hud.circle_radius
 	if r > 0.0:
 		_radius = r  # the sim reports 0 outside the lobby; keep the ring's size while it fades
 	var furthest := 0.0

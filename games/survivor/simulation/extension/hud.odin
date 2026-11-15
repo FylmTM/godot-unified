@@ -1,5 +1,5 @@
 // The HUD's session data (Data_Hud, pushed every frame by fill_frame with godot.push_data): what a UI shows,
-// derived from the state on the session thread. GDScript reads it as `Unified.hud` (class DataHud, typed
+// derived from the state on the session thread. GDScript reads it as `Unified.data.hud` (class DataHud, typed
 // properties, `changed` when it changes): `phase` is an EnumPhase value, `players` an Array of Dictionaries (by slot;
 // `player` is the player's key, 0 for an empty slot). Player names and the local player come from the session
 // (Game.player_name, Game.local_player). View code, not simulation code: f32 for display only. Plain and

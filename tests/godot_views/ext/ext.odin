@@ -1,6 +1,6 @@
 // The unified:godot view test extension: the toy game (no physics: it also proves unified:godot links without
 // Box3D) with a Glue that shows fixed 2D and 3D scene views and MultiMesh items, the toy's command counters as
-// session data (Unified.toy) and a few constants (Unified.constants). tests/godot_views/test.gd starts a single
+// session data (Unified.data.toy) and a few constants (Unified.constants). tests/godot_views/test.gd starts a single
 // player session under headless Godot (`uni test --suite godot-bindings`) and checks where the views end up, the
 // data, constants, enum, event and command classes, the view lifecycle and the input sample.
 package views_test_ext
@@ -51,7 +51,7 @@ Data :: union {
 	Data_Toy,
 }
 
-// The session data (Unified.toy): the local player's command counters and position.
+// The session data (Unified.data.toy): the local player's command counters and position.
 Data_Toy :: struct {
 	bumps:       u32,
 	bump_sum:    i32,

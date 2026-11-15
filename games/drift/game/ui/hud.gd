@@ -90,7 +90,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	var h: DataHud = Unified.hud
+	var h: DataHud = Unified.data.hud
 	var phase := h.phase
 	var wave := h.wave
 	match phase:
@@ -157,7 +157,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## The lobby's `start` or the over screen's `restart` command (anyone may send either).
 func _start_or_restart() -> void:
-	match Unified.hud.phase:
+	match Unified.data.hud.phase:
 		EnumPhase.LOBBY:
 			Sfx.play(&"click")
 			Game.send_command(CommandStart.new())

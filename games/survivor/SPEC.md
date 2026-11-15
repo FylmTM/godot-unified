@@ -183,7 +183,7 @@ Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 ## HUD
 
 View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Data_Hud`), not in the sim package: the
-session data `Data_Hud` (`Unified.hud`), pushed every frame: phase, tick, match time (s), wave (1-based in a match),
+session data `Data_Hud` (`Unified.data.hud`), pushed every frame: phase, tick, match time (s), wave (1-based in a match),
 enemies alive, circle radius, matches, and per slot (`player`: who holds it, a `sim.Player`, GDScript's key; 0 and
 not present for an empty slot): present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds.
 Player names and the local player come from the session, not the HUD.
@@ -239,7 +239,7 @@ game/tools/            survivor's own tool steps (validate, ui_walk, coop extend
 
 The flow is the shared one (`games/shared/SPEC.md`), on the game library's `UnifiedSession` (without the library the
 shared LibraryCheck autoload shows "game library failed to load" with Quit). The sim's own phases (lobby → match →
-over → lobby) are read from the HUD's session data (`Unified.hud.phase`, an `EnumPhase` value); the arena never
+over → lobby) are read from the HUD's session data (`Unified.data.hud.phase`, an `EnumPhase` value); the arena never
 reloads between matches.
 
 ### View contract (`src/godot/SPEC.md`; `simulation/extension`)
@@ -254,7 +254,7 @@ reloads between matches.
   which player views reset) and calls `_sim_update(position, yaw, alpha)`; `_sim_despawned()` plays the exit
   animation during the linger (the host no longer moves the view) and `_sim_revived()` undoes it.
 - View data: the player view's `hp` (`Player_View`; a drop flashes it).
-- Session data: `Data_Hud` (HUD above) as `Unified.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
+- Session data: `Data_Hud` (HUD above) as `Unified.data.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
   `OVER`), `players` an Array of Dictionaries. The HUD reads it every frame.
 - MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.

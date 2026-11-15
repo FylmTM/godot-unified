@@ -99,7 +99,7 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the colour of its owner's slot
     (custom.x; -1, a pale grey, once the owner has left). A bullet is owned by its player, not the slot.
   - `gem`: a spin and a pulse that squashes and stretches.
-- Session data `Data_Hud` (`Unified.hud`, pushed every frame): `tick`, `players` by slot (`player`: their key,
+- Session data `Data_Hud` (`Unified.data.hud`, pushed every frame): `tick`, `players` by slot (`player`: their key,
   `present`, `shots`, `gems`), `phase` (`EnumPhase`), `wave`, `station_hp`, `station_max`, `score`, `matches`,
   `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
 - Constants `Data_Constants` (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`,
@@ -113,7 +113,7 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
   the movement, fire and boost actions.
-- HUD (`game/ui/hud.gd`, reading `Unified.hud`): phase, wave, station HP, score, time, the next wave in, and the
+- HUD (`game/ui/hud.gd`, reading `Unified.data.hud`): phase, wave, station HP, score, time, the next wave in, and the
   players by slot.
 
 ## Tests (`simulation/tests`)

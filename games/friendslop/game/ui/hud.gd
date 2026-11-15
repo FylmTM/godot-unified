@@ -1,7 +1,7 @@
 extends CanvasLayer
 ## The in-game HUD, built in code: the run timer and the best time, the checkpoint, a crosshair, the local player's
 ## state (holding, charge, held, stunned, fallen), the shared session panel and controls list, and banners for
-## run events. Redrawn when the session data (Unified.hud) changes.
+## run events. Redrawn when the session data (Unified.data.hud) changes.
 
 const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]
 const PAD_HELD := [["A (mash)", "Break free"], ["Start", "Menu"]]
@@ -58,7 +58,7 @@ func _ready() -> void:
 	_controls = ControlsPanel.new()
 	root.add_child(_controls)
 	Game.session.sim_event.connect(_on_sim_event)
-	Unified.hud.changed.connect(_on_hud_changed)
+	Unified.data.hud.changed.connect(_on_hud_changed)
 	_on_hud_changed()
 
 
@@ -69,7 +69,7 @@ func _process(delta: float) -> void:
 
 
 func _on_hud_changed() -> void:
-	var h := Unified.hud
+	var h := Unified.data.hud
 	if h.phase == EnumPhase.RUN:
 		_phase.text = "RUN  ·  checkpoint %d" % maxi(h.checkpoint, 0)
 		_timer.text = _time(h.run_s)

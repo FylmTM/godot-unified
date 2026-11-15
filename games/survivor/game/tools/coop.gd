@@ -13,7 +13,7 @@ func _host_play() -> void:
 	for i in 32:
 		await hold(DIRS[floori(i / 8.0) % DIRS.size()], 0.25)
 	await shot("c03_coop_match")
-	step("co-op match: %d enemies" % Unified.hud.enemies_alive)
+	step("co-op match: %d enemies" % Unified.data.hud.enemies_alive)
 
 
 func _join_play() -> void:
@@ -23,4 +23,4 @@ func _join_play() -> void:
 
 
 func _playing() -> bool:
-	return Unified.hud.phase == EnumPhase.MATCH
+	return Unified.data.hud.phase == EnumPhase.MATCH

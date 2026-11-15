@@ -11,7 +11,7 @@ import "unified:godot"
 
 View :: enum u8 {Player}            // scene view kinds: one scene each (found by the view index)
 MultiView :: enum u8 {Ball}         // MultiMesh view kinds
-Data :: union {Data_Hud}            // session data types: Unified.hud
+Data :: union {Data_Hud}            // session data types: Unified.data.hud
 Frame :: godot.Frame(g.State, g.World, View, MultiView)
 
 CONSTANTS := Data_Constants{speed = g.SPEED, ...} // Unified.constants: a package variable, copied at install
@@ -58,8 +58,8 @@ binds what the library uses: src/gdext/SPEC.md).
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
 0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`
-or `kind`), the State's players field, plain State and Input, a data type that isn't a plain struct or would clash
-with a `Unified` property) and registers nothing of the game. They are printed with `print_error` when the
+or `kind`), the State's players field, plain State and Input, a data type that isn't a plain, padding-free
+struct) and registers nothing of the game. They are printed with `print_error` when the
 extension loads (the editor opens and shows why), and starting a session fails with the first one as its status.
 
 ### Input
@@ -125,20 +125,22 @@ once; the objects live on, so connections survive. Nested structs and arrays ins
 
 **Constants** are the game's fixed values for its scripts: `Glue.constants` holds a package variable of a plain
 `Data_*` struct (strings allowed: constants never cross threads; not a literal, which an `any` can't keep), copied at
-install and converted once at load into its class through the same mechanism.
+install and converted once at load into the class `UnifiedConstants` through the same mechanism (registered with no
+properties when the game has none).
 
 **`Unified`** is an engine singleton (class and singleton, like Godot's `Input`), registered at load in the game and
-the editor: a typed property per data type named from it (`Data_Hud` -> `Unified.hud: DataHud`),
-`Unified.constants` (the constants' class), `Unified.session` (the active `UnifiedSession`, null when none) and
-`Unified.tick_hz`. Typed in GDScript with editor completion, nothing looked up by string:
+the editor: `Unified.data` (a `UnifiedData`, with a typed property per data type named from it: `Data_Hud` ->
+`Unified.data.hud: DataHud`), `Unified.constants` (`UnifiedConstants`), `Unified.session` (the active
+`UnifiedSession`, null when none) and `Unified.tick_hz`. Typed in GDScript with editor completion, nothing looked up
+by string:
 
 ```gdscript
 func _ready() -> void:
-	Unified.hud.changed.connect(_redraw)
+	Unified.data.hud.changed.connect(_redraw)
 
 func _redraw() -> void:
-	balls_label.text = "Balls: %d" % Unified.hud.balls
-	phase_label.text = EnumPhase.name(Unified.hud.phase)
+	balls_label.text = "Balls: %d" % Unified.data.hud.balls
+	phase_label.text = EnumPhase.name(Unified.data.hud.phase)
 ```
 
 Its objects are freed at Godot's shutdown callback, while scripting still runs, so a lambda connected to `changed`
@@ -196,10 +198,11 @@ host owns `instance_count` and `visible_instance_count`.
 is named the same way), with a typed property per field. The
 prefix groups them: Godot classes have no namespaces (an extension class can't nest, and GDScript can't alias a
 native class as a constant), and no GDScript is generated. Field types (events, commands, view and session data,
-constants): integers `int`, f32 `float`, bools, enums an `int` (below), bit_sets an `Array` of ints, a handle its key
+constants): integers `int`, f32 `float`, bools, enums an `int` (below), bit_sets an `Array[int]`, a handle its key
 (`int`), a `sim.Player` its key (`int`, 0: nobody; a command's from one), a `sim.Position` a `Vector2`
 (`Glue.is_2d`) or `Vector3` in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` /
-`Color`, Godot's own math types as themselves, other arrays and enumerated arrays an `Array`, a nested struct a
+`Color`, Godot's own math types as themselves, other arrays and enumerated arrays a typed `Array` (`Array[int]`,
+`Array[Vector2]`, `Array[Dictionary]` for structs; an array of arrays stays untyped), a nested struct a
 `Dictionary`, a string (constants) a `String`; `_` fields are left out. The library's `sim.Event_Player_Joined` and
 `Event_Player_Left`, in every game's union, are `EventPlayerJoined` (`player`, `slot`, `returning`) and
 `EventPlayerLeft` (`player`, `slot`). A name that clashes with an existing class is an error, and that class is not

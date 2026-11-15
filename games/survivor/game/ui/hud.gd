@@ -1,5 +1,5 @@
 extends CanvasLayer
-## The in-game HUD, driven by `Unified.hud` (the session data, simulation/extension/hud.odin) every frame: the local
+## The in-game HUD, driven by `Unified.data.hud` (the session data, simulation/extension/hud.odin) every frame: the local
 ## player card (HP, XP, level), wave, time and enemies, the shared session panel and controls list, the start hint,
 ## banners, the level-up choice and the match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
@@ -84,7 +84,7 @@ func _process(delta: float) -> void:
 
 
 func _refresh(delta: float) -> void:
-	var hud := Unified.hud
+	var hud := Unified.data.hud
 	var phase := hud.phase
 	var me := Game.local_player_info()
 	var lobby := phase == EnumPhase.LOBBY

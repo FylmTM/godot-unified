@@ -31,11 +31,11 @@ func _run() -> void:
 
 	await click_menu("Single")
 	await wait_for_scene("Arena", 5.0)
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.LOBBY and views(&"player").size() >= 1, 8.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(&"player").size() >= 1, 8.0,
 		"the lobby with the player")
 	await seconds(1.0)
 	await shot("r02_lobby")
-	step("lobby: circle %.1f m, %d views" % [Unified.hud.circle_radius,
+	step("lobby: circle %.1f m, %d views" % [Unified.data.hud.circle_radius,
 		current_scene.get_node(^"Views").get_child_count()])
 
 	# Walk out of the circle (diagonally, between the crates).
@@ -43,13 +43,13 @@ func _run() -> void:
 	Input.action_press(&"move_back")
 	await seconds(0.25)
 	await shot("r02b_leaving")  # the ring heats up near the edge
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.MATCH, 6.0, "walking out starts the match")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH, 6.0, "walking out starts the match")
 	step("match started")
 	await seconds(0.15)
 	_release_all()
 	await shot("r03_match_start")  # shockwave + flash
-	await wait_for(func() -> bool: return Unified.hud.enemies_alive > 0, 8.0, "enemies spawn")
-	step("enemies: %d" % Unified.hud.enemies_alive)
+	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive > 0, 8.0, "enemies spawn")
+	step("enemies: %d" % Unified.data.hud.enemies_alive)
 	if flag("quick"):
 		return
 
@@ -66,7 +66,7 @@ func _run() -> void:
 		if frame_log != null and i == 60:
 			_probe_explosion()
 		await seconds(0.1)
-		if not shot_fight and Unified.hud.enemies_alive > 25:
+		if not shot_fight and Unified.data.hud.enemies_alive > 25:
 			shot_fight = true
 			await shot("r04_fight")
 		if int(game.local_player_info().get("pending_levelups", 0)) > 0 and not leveled:
@@ -75,7 +75,7 @@ func _run() -> void:
 			await shot("r05_levelup")
 			_tap(&"levelup_2")
 			step("level-up offered and chosen (key 2)")
-		if (leveled and shot_fight and i > 150) or Unified.hud.phase != EnumPhase.MATCH or failed():
+		if (leveled and shot_fight and i > 150) or Unified.data.hud.phase != EnumPhase.MATCH or failed():
 			break
 		if not game.local_player_info().get("alive", true) and not shot_dead:
 			shot_dead = true
@@ -83,15 +83,15 @@ func _run() -> void:
 			await shot("r05b_down")
 	_release_all()
 	await shot("r06_fight_later")
-	step("fight: wave %d, %d enemies, level %d" % [Unified.hud.wave, Unified.hud.enemies_alive,
+	step("fight: wave %d, %d enemies, level %d" % [Unified.data.hud.wave, Unified.data.hud.enemies_alive,
 		game.local_player_info().get("level", 0)])
 
 	# Stand still until the horde wins.
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.OVER, 90.0, "the match is lost")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.OVER, 90.0, "the match is lost")
 	await seconds(0.8)
 	await shot("r07_over")
-	step("match over after %.0f s" % Unified.hud.time_s)
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.LOBBY, 10.0, "back to the lobby")
+	step("match over after %.0f s" % Unified.data.hud.time_s)
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 10.0, "back to the lobby")
 	await seconds(0.8)
 	await shot("r08_back_in_lobby")
 	step("back in the lobby")

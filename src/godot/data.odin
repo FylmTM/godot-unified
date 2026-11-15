@@ -3,10 +3,11 @@
 //
 //   - a class per type of the game's data union (Glue.data: `Data_Hud` -> DataHud, extends Object), one live
 //     instance each, its typed properties read from the newest frame's bytes, a `changed` signal when they change
-//     (fill_frame: push_data);
-//   - the constants' class (Glue.constants: `Data_Constants` -> DataConstants), one instance filled at load;
-//   - the engine singleton `Unified` (class and singleton, like Godot's Input): a property per data type named
-//     from it (`Data_Hud` -> Unified.hud), `Unified.constants`, `Unified.session` and `Unified.tick_hz`;
+//     (fill_frame: push_data), held by `UnifiedData` with a property per type named from it (`Data_Hud` -> hud);
+//   - `UnifiedConstants`: the constants' fields (Glue.constants), one instance filled at load (no fields when the
+//     game has none);
+//   - the engine singleton `Unified` (class and singleton, like Godot's Input): `Unified.data`, `Unified.constants`,
+//     `Unified.session` and `Unified.tick_hz`;
 //   - a class per enum type the event, command, data and constants types use (`Phase` -> EnumPhase) with its members
 //     as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
 package godot
@@ -26,7 +27,7 @@ MAX_DATA_TYPES :: 64 // types in a game's data union
 Data_Layout :: struct {
 	type:     ^runtime.Type_Info,
 	class:    string, // DataHud
-	property: string, // Unified.hud
+	property: string, // Unified.data.hud
 }
 
 // A data or constants class and its one live instance.
@@ -54,13 +55,17 @@ Enum_Class :: struct {
 	info:        runtime.Type_Info_Enum,
 }
 
+CONSTANTS_CLASS :: "UnifiedConstants"
+
 @(private)
 D: struct {
-	data:      [dynamic]^Data_Class, // by data kind (the union's order)
-	constants: ^Data_Class, // nil: the game has none
-	enums:     [dynamic]^Enum_Class,
-	unified:   gd.Class,
-	singleton: gd.Object,
+	data:          [dynamic]^Data_Class, // by data kind (the union's order)
+	constants:     ^Data_Class, // UnifiedConstants (nil before registration, or on a clash)
+	enums:         [dynamic]^Enum_Class,
+	unified:       gd.Class,
+	holder:        gd.Class, // UnifiedData
+	holder_object: gd.Object,
+	singleton:     gd.Object,
 }
 
 // The layout of a data or constants type: the class `Data` + the type name in PascalCase without `Data_`, the
@@ -91,7 +96,6 @@ pascal_name :: proc(prefix, name: string) -> string {
 // The problems of a game's data union and constants type (install collects them: data_problems).
 data_problems :: proc(data: typeid, constants: typeid, problems: ^[dynamic]string) {
 	context.allocator = runtime.heap_allocator()
-	reserved := []string{"session", "constants", "tick_hz"}
 	if data != nil {
 		info, is_union := runtime.type_info_base(type_info_of(data)).variant.(runtime.Type_Info_Union)
 		if !is_union {
@@ -108,19 +112,6 @@ data_problems :: proc(data: typeid, constants: typeid, problems: ^[dynamic]strin
 			}
 			if reason := sim.plain_violation(variant, fmt.tprint(variant.id)); reason != "" {
 				append(problems, fmt.aprintf("data type %v: %s", variant.id, reason))
-			}
-			layout := data_layout(variant)
-			for name in reserved {
-				if layout.property == name {
-					append(
-						problems,
-						fmt.aprintf(
-							"data type %v would be Unified.%s, which the library has: rename it",
-							variant.id,
-							name,
-						),
-					)
-				}
 			}
 		}
 	}
@@ -142,13 +133,36 @@ register_data_classes :: proc() {
 	if api.installed {
 		for type in api.enum_types do register_enum_class(type)
 		for layout in api.data do append(&D.data, register_data_class(layout))
-		if api.constants.type != nil {
-			D.constants = register_data_class(api.constants)
-			if D.constants != nil {
-				copy(D.constants.instance.bytes, api.constants_bytes)
-			}
-		}
 	}
+	// the constants' class always exists (no fields without constants), so scripts can name it
+	constants := api.constants
+	constants.class, constants.property = CONSTANTS_CLASS, "constants"
+	D.constants = register_data_class(constants, is_constants = true)
+	if D.constants != nil do copy(D.constants.instance.bytes, api.constants_bytes)
+	object_getter :: proc(user: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+		data_class := (^Data_Class)(user)
+		return gd.variant_from_any(data_class.object)
+	}
+	D.holder = {
+		name   = "UnifiedData",
+		parent = "Object",
+		size   = size_of(gd.Instance_Header),
+	}
+	gd.register_class(&D.holder)
+	for data_class in D.data {
+		if data_class == nil do continue
+		getter := fmt.tprintf("get_%s", data_class.layout.property)
+		gd.bind_dynamic_method(
+			&D.holder,
+			getter,
+			object_getter,
+			data_class,
+			nil,
+			gd.Dynamic_Arg{"", .OBJECT, data_class.name},
+		)
+		gd.bind_property_by_name(&D.holder, data_class.layout.property, .OBJECT, getter, "", data_class.name)
+	}
+	D.holder_object = {gd.construct_object("UnifiedData")}
 	D.unified = {
 		name   = "Unified",
 		parent = "Object",
@@ -164,10 +178,10 @@ register_data_classes :: proc() {
 		return gd.to_variant(i64(api.tick_hz))
 	}, nil, nil, gd.Dynamic_Arg{"", .INT, ""})
 	gd.bind_property_by_name(&D.unified, "tick_hz", .INT, "get_tick_hz")
-	object_getter :: proc(user: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
-		data_class := (^Data_Class)(user)
-		return gd.variant_from_any(data_class.object)
-	}
+	gd.bind_dynamic_method(&D.unified, "get_data", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+		return gd.variant_from_any(D.holder_object)
+	}, nil, nil, gd.Dynamic_Arg{"", .OBJECT, "UnifiedData"})
+	gd.bind_property_by_name(&D.unified, "data", .OBJECT, "get_data", "", "UnifiedData")
 	if D.constants != nil {
 		gd.bind_dynamic_method(
 			&D.unified,
@@ -175,34 +189,21 @@ register_data_classes :: proc() {
 			object_getter,
 			D.constants,
 			nil,
-			gd.Dynamic_Arg{"", .OBJECT, D.constants.name},
+			gd.Dynamic_Arg{"", .OBJECT, CONSTANTS_CLASS},
 		)
-		gd.bind_property_by_name(&D.unified, "constants", .OBJECT, "get_constants", "", D.constants.name)
-	}
-	for data_class in D.data {
-		if data_class == nil do continue
-		getter := fmt.tprintf("get_%s", data_class.layout.property)
-		gd.bind_dynamic_method(
-			&D.unified,
-			getter,
-			object_getter,
-			data_class,
-			nil,
-			gd.Dynamic_Arg{"", .OBJECT, data_class.name},
-		)
-		gd.bind_property_by_name(&D.unified, data_class.layout.property, .OBJECT, getter, "", data_class.name)
+		gd.bind_property_by_name(&D.unified, "constants", .OBJECT, "get_constants", "", CONSTANTS_CLASS)
 	}
 	D.singleton = {gd.construct_object("Unified")}
 	gd.Engine_register_singleton(gd.Engine_singleton(), "Unified", D.singleton)
 }
 
 @(private)
-register_data_class :: proc(layout: Data_Layout) -> ^Data_Class {
+register_data_class :: proc(layout: Data_Layout, is_constants := false) -> ^Data_Class {
 	if gdi.classdb_get_class_tag(gd.sn(layout.class)) != nil {
 		gd.print_error(
 			fmt.tprintf(
 				"unified: the data type %v would be the class %s, which exists already: rename it",
-				layout.type.id,
+				layout.type.id if layout.type != nil else nil,
 				layout.class,
 			),
 		)
@@ -216,14 +217,15 @@ register_data_class :: proc(layout: Data_Layout) -> ^Data_Class {
 			size = size_of(Data_Object),
 			init = proc(instance: rawptr) {
 				object := (^Data_Object)(instance)
-				object.bytes = make([]u8, (^Data_Class)(object.class).layout.type.size, runtime.heap_allocator())
+				type := (^Data_Class)(object.class).layout.type
+				object.bytes = make([]u8, type.size if type != nil else 0, runtime.heap_allocator())
 			},
 			fini = proc(instance: rawptr) {delete((^Data_Object)(instance).bytes, runtime.heap_allocator())},
 		},
 		layout = layout,
 	}
 	gd.register_class(&data_class.class)
-	data_class.fields = struct_sim_fields(layout.type)
+	if layout.type != nil do data_class.fields = struct_sim_fields(layout.type)
 	for &field in data_class.fields {
 		getter := fmt.tprintf("get_%s", field.name)
 		gd.bind_dynamic_method(
@@ -234,9 +236,10 @@ register_data_class :: proc(layout: Data_Layout) -> ^Data_Class {
 			nil,
 			gd.Dynamic_Arg{"", field.kind, ""},
 		)
-		gd.bind_property_by_name(&data_class.class, field.name, field.kind, getter)
+		hint, hint_string := field_hint(field.type)
+		gd.bind_property_by_name(&data_class.class, field.name, field.kind, getter, "", "", hint, hint_string)
 	}
-	gd.bind_signal(&data_class.class, "changed")
+	if !is_constants do gd.bind_signal(&data_class.class, "changed")
 	data_class.object = {gd.construct_object(layout.class)}
 	data_class.instance = (^Data_Object)(gd.instance_of(data_class.object, &data_class.class))
 	return data_class
@@ -369,6 +372,10 @@ data_objects_free :: proc() {
 		gdi.object_destroy(D.singleton.ptr)
 		D.singleton = {}
 	}
+	if D.holder_object.ptr != nil {
+		gdi.object_destroy(D.holder_object.ptr)
+		D.holder_object = {}
+	}
 	for data_class in data_classes() {
 		if data_class.object.ptr == nil do continue
 		gdi.object_destroy(data_class.object.ptr)
@@ -389,6 +396,7 @@ data_classes :: proc() -> []^Data_Class {
 unregister_data_classes :: proc() {
 	data_objects_free()
 	gd.unregister_class(&D.unified)
+	gd.unregister_class(&D.holder)
 	for data_class in data_classes() do gd.unregister_class(&data_class.class)
 	#reverse for enum_class in D.enums do gd.unregister_class(&enum_class.class)
 	clear(&D.data)

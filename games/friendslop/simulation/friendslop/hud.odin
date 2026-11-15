@@ -1,5 +1,5 @@
 // What the HUD shows (games/friendslop/SPEC.md), from the state alone: the run, and per player what they
-// are doing. The extension pushes it as the game's session data (Unified.hud).
+// are doing. The extension pushes it as the game's session data (Unified.data.hud).
 package friendslop
 
 import "unified:sim"

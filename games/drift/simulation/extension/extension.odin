@@ -1,6 +1,6 @@
 // drift's GDExtension (game/drift.gdextension -> .out/bin/libdrift.*): the drift sim run by unified:godot,
 // plus the game's glue (the view contract, games/drift/SPEC.md "View"): 2D scene and MultiMesh views in pixels,
-// typed view data, the HUD's session data (Unified.hud), the constants (Unified.constants), and how the InputMap
+// typed view data, the HUD's session data (Unified.data.hud), the constants (Unified.constants), and how the InputMap
 // and the aim become an Input. Built by `uni build drift`.
 package drift_extension
 
@@ -260,7 +260,7 @@ fill_frame :: proc(f: ^Frame) {
 	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
-// ---- the session data: the HUD (Unified.hud; games/shared reads its `tick` and `players`)
+// ---- the session data: the HUD (Unified.data.hud; games/shared reads its `tick` and `players`)
 
 Data :: union {
 	Data_Hud,

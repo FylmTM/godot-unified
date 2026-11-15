@@ -167,11 +167,19 @@ LIBRARY_DOCS := []Doc_Class {
 		name     = "Unified",
 		inherits = "Object",
 		brief    = "The engine singleton for the game's session data, its constants and the session.",
-		text     = "A typed property per type of the game's session data ([code]Data_Hud[/code]: [code]Unified.hud[/code], a [code]DataHud[/code] with a [code]changed[/code] signal), set from the newest tick and back to zero when a session ends; [member constants]; the active [UnifiedSession].",
+		text     = "[member data] holds the game's session data, [member constants] its constants, [member session] the active [UnifiedSession].",
 		members  = {
+			{"data", "UnifiedData", "The game's session data, one typed object per type."},
+			{"constants", "UnifiedConstants", "The game's constants."},
 			{"session", "UnifiedSession", "The active session node (null: none)."},
 			{"tick_hz", "int", "The sim's ticks per second."},
 		},
+	},
+	{
+		name     = "UnifiedData",
+		inherits = "Object",
+		brief    = "The game's session data: [code]Unified.data[/code].",
+		text     = "A typed property per type of the game's session data ([code]Data_Hud[/code]: [code]Unified.data.hud[/code], a [code]DataHud[/code] with a [code]changed[/code] signal), set from the newest tick and back to zero when a session ends.",
 	},
 	{
 		name     = "UnifiedMultiView",
@@ -342,12 +350,8 @@ load_docs :: proc() {
 		gd.load_class_docs(doc_xml({
 				name     = data_class.name,
 				inherits = "Object",
-				brief    = fmt.tprintf(
-					"The game's %s %v.",
-					is_constants ? "constants" : "session data",
-					data_class.layout.type.id,
-				),
-				text     = is_constants ? "[code]Unified.constants[/code]: set once at load." : fmt.tprintf("[code]Unified.%s[/code]: the newest tick's values (fill_frame: push_data), zero outside a session.", data_class.layout.property),
+				brief    = is_constants ? "The game's constants (Glue.constants): [code]Unified.constants[/code]." : fmt.tprintf("The game's session data %v.", data_class.layout.type.id),
+				text     = is_constants ? "The game's fixed values for its scripts, set once at load (no members when the game has none)." : fmt.tprintf("[code]Unified.data.%s[/code]: the newest tick's values (fill_frame: push_data), zero outside a session.", data_class.layout.property),
 				members  = doc_members(data_class.fields),
 				signals  = is_constants ? nil : []Doc_Method{{"changed", "", "", "A value changed (a new tick's, or the reset when a session ends)."}},
 			}))

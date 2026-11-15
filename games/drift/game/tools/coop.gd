@@ -4,13 +4,13 @@ extends UnifiedCoop
 
 
 func _host_play() -> void:
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.LOBBY, 10.0, "the lobby")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 10.0, "the lobby")
 	await click(current_scene.get_node(^"HUD").start_button)
 	await wait_for(_playing, 5.0, "the match after Start")
 	step("match started")
 	await seconds(4.0)
 	await shot("c03_coop_match")
-	step("co-op match: wave %d" % Unified.hud.wave)
+	step("co-op match: wave %d" % Unified.data.hud.wave)
 
 
 func _join_play() -> void:
@@ -19,4 +19,4 @@ func _join_play() -> void:
 
 
 func _playing() -> bool:
-	return Unified.hud.phase == EnumPhase.MATCH
+	return Unified.data.hud.phase == EnumPhase.MATCH

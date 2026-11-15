@@ -95,7 +95,7 @@ GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, MultiView) {
 	level          = "res://game/levels/park.level",
 }
 
-// The session data (Unified.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
+// The session data (Unified.data.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
 Data :: union {
 	fs.Data_Hud,
 }

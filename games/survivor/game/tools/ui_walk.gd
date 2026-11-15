@@ -6,7 +6,7 @@ extends UnifiedUiWalk
 
 
 func _walk_play() -> void:
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.LOBBY and views(&"player").size() == 1, 5.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(&"player").size() == 1, 5.0,
 		"the lobby with one player view")
 	expect(_hud(^"Hint").visible, "the start hint shows in the lobby")
 	expect((find(current_scene, ^"StartCircle") as Node3D).visible, "the start circle shows in the lobby")
@@ -15,10 +15,10 @@ func _walk_play() -> void:
 	step("single player lobby")
 
 	Input.action_press(&"move_right")
-	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.MATCH, 6.0, "walking out starts the match")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH, 6.0, "walking out starts the match")
 	Input.action_release(&"move_right")
 	step("walked out: the match started")
-	await wait_for(func() -> bool: return Unified.hud.enemies_alive > 0 and _enemies_drawn() > 0, 8.0,
+	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive > 0 and _enemies_drawn() > 0, 8.0,
 		"enemies spawn and render")
 	expect(_hud(^"Top").visible, "the wave and time show in the match")
 	# The enemies spawn 27 m out and the auto-attack reaches 14 m: walk towards the nearest one rather than wait.

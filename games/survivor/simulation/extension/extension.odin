@@ -213,7 +213,7 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
 }
 
-// ---- constants for the scripts (Unified.constants, class DataConstants), from the sim's own definitions
+// ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions
 
 // What the scripts read: the "over" hold, the arena and start circle sizes, the level-up cards and the item grid.
 Data_Constants :: struct {

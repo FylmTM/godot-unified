@@ -21,7 +21,7 @@ game's extension call Godot through.
     class (`EnumPhase.name(value)`);
   - `bind_property(cls, name, get, set, hint, hint_string)` (`.NODE_TYPE` with `"Node"`: a Node property the
     inspector picks and a scene saves as a path), and `bind_property_by_name` for a property over methods already
-    bound (an OBJECT one names its class: `Unified.hud: DataHud`);
+    bound (an OBJECT one names its class: `Unified.data.hud: DataHud`);
   - `bind_signal(cls, name, {"arg", type}...)`;
   - `bind_constant(cls, enum_name, name, value)` (an integer constant, `Class.NAME`; in an enum, `Class.Enum.NAME`);
   - `bind_script_virtual`, `emit_signal`, `call_script`, `instance_of(obj)` (the Odin instance behind an object of

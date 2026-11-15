@@ -6,11 +6,11 @@ extends Control
 
 
 func _ready() -> void:
-	Unified.hud.changed.connect(_on_hud_changed)
+	Unified.data.hud.changed.connect(_on_hud_changed)
 	_on_hud_changed()
 
 
 func _on_hud_changed() -> void:
-	swatch.color = Unified.hud.color
-	players_label.text = "Players: %d" % Unified.hud.players
-	balls_label.text = "Balls: %d" % Unified.hud.balls
+	swatch.color = Unified.data.hud.color
+	players_label.text = "Players: %d" % Unified.data.hud.players
+	balls_label.text = "Balls: %d" % Unified.data.hud.balls

@@ -226,7 +226,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		return gd.to_variant(text)
 	case runtime.Type_Info_Bit_Set:
 		bits := read_uint(bytes)
-		array := gd.array_new()
+		array := typed_array(type)
 		for bit in 0 ..< type.size * 8 {
 			if bits & (1 << uint(bit)) == 0 do continue
 			gd.array_push(&array, i64(bit) + info.lower)
@@ -245,7 +245,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 				return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 			}
 		}
-		array := gd.array_new()
+		array := typed_array(type)
 		for i in 0 ..< info.count {
 			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
 			gd.Array_push_back(&array, element)
@@ -256,7 +256,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		return value
 	case runtime.Type_Info_Enumerated_Array:
 		// [Enum]T: an Array by the enum's order
-		array := gd.array_new()
+		array := typed_array(type)
 		for i in 0 ..< info.count {
 			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
 			gd.Array_push_back(&array, element)
@@ -273,6 +273,91 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		return value
 	}
 	return gd.variant_nil()
+}
+
+// The element type of an array field as GDScript types it (Array[int], Array[Vector2], Array[Dictionary] for
+// structs...); NIL: untyped (an array of arrays: GDScript has no nested typed arrays).
+array_element_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
+	element: gdi.VariantType
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Bit_Set:
+		return .INT
+	case runtime.Type_Info_Array:
+		element = field_kind(info.elem)
+	case runtime.Type_Info_Enumerated_Array:
+		element = field_kind(info.elem)
+	case:
+		return .NIL
+	}
+	return element == .ARRAY ? .NIL : element
+}
+
+// A new Array for an array field, typed by its elements when it can be.
+@(private)
+typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
+	array := gd.array_new()
+	if element := array_element_kind(type); element != .NIL do gd.array_set_typed(&array, element)
+	return array
+}
+
+// The property hint of a field: a typed Array names its element type.
+field_hint :: proc(type: ^runtime.Type_Info) -> (gd.Property_Hint, string) {
+	if field_kind(type) != .ARRAY do return .NONE, ""
+	element := array_element_kind(type)
+	if element == .NIL do return .NONE, ""
+	return .ARRAY_TYPE, variant_type_name(element)
+}
+
+// A Variant type's name in GDScript ("int", "Vector2"...).
+@(private)
+variant_type_name :: proc(kind: gdi.VariantType) -> string {
+	#partial switch kind {
+	case .BOOL:
+		return "bool"
+	case .INT:
+		return "int"
+	case .FLOAT:
+		return "float"
+	case .STRING:
+		return "String"
+	case .STRING_NAME:
+		return "StringName"
+	case .DICTIONARY:
+		return "Dictionary"
+	case .COLOR:
+		return "Color"
+	case .VECTOR2:
+		return "Vector2"
+	case .VECTOR2I:
+		return "Vector2i"
+	case .VECTOR3:
+		return "Vector3"
+	case .VECTOR3I:
+		return "Vector3i"
+	case .VECTOR4:
+		return "Vector4"
+	case .VECTOR4I:
+		return "Vector4i"
+	case .RECT2:
+		return "Rect2"
+	case .RECT2I:
+		return "Rect2i"
+	case .TRANSFORM2D:
+		return "Transform2D"
+	case .TRANSFORM3D:
+		return "Transform3D"
+	case .PLANE:
+		return "Plane"
+	case .QUATERNION:
+		return "Quaternion"
+	case .AABB:
+		return "AABB"
+	case .BASIS:
+		return "Basis"
+	case .PROJECTION:
+		return "Projection"
+	}
+	return "Variant"
 }
 
 // An integer field's value (little-endian bytes), sign-extended when signed.

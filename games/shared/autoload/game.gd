@@ -7,7 +7,7 @@ extends Node
 ##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
 ##
 ## The session is the native `UnifiedSession` from the game library (without the library the LibraryCheck autoload
-## shows a fatal screen instead). The sim's game-wide values are the game's session data, `Unified.hud` (every demo
+## shows a fatal screen instead). The sim's game-wide values are the game's session data, `Unified.data.hud` (every demo
 ## game's `Data_Hud` has `tick` and `players`), and its fixed numbers `Unified.constants`.
 
 signal flow_changed(flow: Flow)
@@ -184,7 +184,7 @@ func player_slot(player: int) -> int:
 func player_info(player: int) -> Dictionary:
 	if player == 0:
 		return {}
-	for info: Dictionary in Unified.hud.players:
+	for info: Dictionary in Unified.data.hud.players:
 		if int(info.get("player", 0)) == player:
 			return info
 	return {}
@@ -198,7 +198,7 @@ func local_player_info() -> Dictionary:
 ## The HUD's players that are present, in slot order.
 func present_players() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for p: Dictionary in Unified.hud.players:
+	for p: Dictionary in Unified.data.hud.players:
 		if p.get("present", false):
 			out.append(p)
 	return out

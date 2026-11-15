@@ -195,7 +195,8 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 			setter = fmt.tprintf("set_%s", field.name)
 			gd.bind_dynamic_method(&sim_class.class, setter, field_set, &field, {{"value", field.kind, ""}})
 		}
-		gd.bind_property_by_name(&sim_class.class, field.name, field.kind, getter, setter)
+		hint, hint_string := field_hint(field.type)
+		gd.bind_property_by_name(&sim_class.class, field.name, field.kind, getter, setter, "", hint, hint_string)
 	}
 	append(&sim_classes, sim_class)
 }
