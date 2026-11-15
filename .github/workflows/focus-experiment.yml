@@ -30,66 +30,51 @@ jobs:
           ./uni build survivor
           ./uni build friendslop
           ./uni test drift --suite godot --only validate
-      - name: The focus checks
+      - name: Why a window that isn't frontmost stalls
         run: |
           set +e
-          mkdir -p "$RUNNER_TEMP/focus"
-          F="$RUNNER_TEMP/focus"
+          system_profiler SPDisplaysDataType | grep -i -E "resolution|display type|ui looks" || true
+          F="$RUNNER_TEMP/focus"; mkdir -p "$F"
           GODOT=$(find ~/.cache/unified/godot -path '*Godot.app/Contents/MacOS/Godot' | head -1)
-          echo "godot: $GODOT"
           now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
-          # Every change of the front app, with a timestamp, until $F/stop exists.
-          watch_front() {
-            prev=""
+          front_name() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*=//; s/"//g'; }
+          # A guard in bash: TextEdit back in front whenever Godot comes in front, until $F/stop.
+          bash_guard() {
             while [ ! -f "$F/stop" ]; do
-              asn=$(lsappinfo front)
-              if [ "$asn" != "$prev" ]; then
-                echo "$(now) $(lsappinfo info -only name "$asn" | sed 's/.*=//; s/"//g') $asn"
-                prev=$asn
-              fi
+              case "$(front_name)" in *odot*) open -b com.apple.TextEdit ;; esac
+              sleep 0.025
             done
           }
-          front_name() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*=//; s/"//g'; }
-          # Runs one check with TextEdit in front; prints how long a Godot held the front.
-          check() {
-            label=$1; shift
-            open -a TextEdit; sleep 3
-            osascript -e 'tell application "TextEdit" to activate' || true; sleep 1
-            echo "::group::$label (front before: $(front_name))"
+          variant() {
+            label=$1; override=$2; guard=$3; hide=$4; game=$5; script=$6; shift 6
+            open -a TextEdit; sleep 2; osascript -e 'tell application "TextEdit" to activate'; sleep 1
+            if [ "$hide" = hide ]; then osascript -e 'tell application "TextEdit" to set miniaturized of every window to true'; sleep 1; fi
+            rm -f games/*/override.cfg
+            [ -n "$override" ] && printf "[display]
+
+$override
+" > games/$game/override.cfg
             rm -f "$F/stop"
-            watch_front > "$F/$label.log" &
-            watcher=$!
-            sleep 0.5
+            [ "$guard" = guard ] && { bash_guard & g=$!; }
             start=$(now)
-            "$@"; code=$?
-            end=$(now)
-            touch "$F/stop"; wait $watcher
-            echo "::endgroup::"
-            cat "$F/$label.log"
-            perl -e '
-              my ($label, $code, $start, $end) = @ARGV; my @rows;
-              open my $fh, "<", "'"$F"'/$label.log"; while (<$fh>) { my ($t, $name) = split / /; push @rows, [$t, $name]; }
-              my ($total, $max, $times) = (0, 0, 0);
-              for my $i (0..$#rows) {
-                my $until = $i < $#rows ? $rows[$i+1][0] : $end;
-                if ($rows[$i][1] =~ /godot/i) { my $d = $until - $rows[$i][0]; $total += $d; $max = $d if $d > $max; $times++; }
-              }
-              printf "RESULT %-28s exit %d, %.1f s, Godot in front %d time(s), %.3f s in all, longest %.3f s, front at the end: %s\n",
-                $label, $code, $end - $start, $times, $total, $max, $rows[-1][1];
-            ' "$label" "$code" "$start" "$end" | tee -a "$F/results.txt"
+            "$GODOT" --resolution 1280x720 --audio-driver Dummy --path games/$game -s res://game/tools/$script.gd -- --no-settings --local-net "$@" > "$F/$label.out" 2>&1
+            code=$?
+            touch "$F/stop"; [ "$guard" = guard ] && wait $g
+            fences=$(grep -c "timeout waiting for fence" "$F/$label.out")
+            res=$(grep -E "steps, (ok|FAILED)" "$F/$label.out" | tail -1)
+            printf "RESULT %-40s exit %d, %5.1f s, fence timeouts %s, front at the end %s: %s
+" "$label" $code "$(perl -e "print $(now) - $start")" "$fences" "$(front_name)" "$res" | tee -a "$F/results.txt"
+            rm -f games/$game/override.cfg
           }
-          # Baseline: Godot with the no-focus override and no guard (what the flag alone does on macOS).
-          printf '[display]\n\nwindow/size/no_focus=true\n' > games/drift/override.cfg
-          check baseline-no-guard "$GODOT" --audio-driver Dummy --resolution 640x360 --path games/drift --quit-after 600
-          rm -f games/drift/override.cfg
-          check tool-drift-tour ./uni --verbose tool drift tour --window --mute --shots
-          check tool-friendslop-tour ./uni --verbose tool friendslop tour --window --mute
-          check tool-survivor-ui_walk ./uni --verbose tool survivor ui_walk --window --mute --shots -- --mock
-          check tool-survivor-play_check ./uni --verbose tool survivor play_check --window --mute
-          check coop-drift-lan ./uni --verbose coop drift --window --mute --lan
-          check run-drift-background bash -c '(sleep 20; pkill -f "Godot.app/Contents/MacOS/Godot") & ./uni --verbose run drift --mute --background; echo "run ended"; test ! -f games/drift/override.cfg'
+          for run in drift:tour survivor:ui_walk; do
+            game=${run%%:*}; script=${run##*:}; extra=""; [ $script = ui_walk ] && extra=--mock
+            variant "$game-$script control-in-front"            ""                                             none show $game $script $extra
+            variant "$game-$script no_focus+guard"               "window/size/no_focus=true"                    guard show $game $script $extra
+            variant "$game-$script no_focus+guard,textedit-mini" "window/size/no_focus=true"                    guard hide $game $script $extra
+            variant "$game-$script no_focus+on_top+guard"        "window/size/no_focus=true
+window/size/always_on_top=true" guard show $game $script $extra
+          done
           echo; cat "$F/results.txt" | tee -a "$GITHUB_STEP_SUMMARY"
-          ls games/*/override.cfg 2>/dev/null && echo "override.cfg left behind" || true
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
