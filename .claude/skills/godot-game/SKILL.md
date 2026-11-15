@@ -21,7 +21,12 @@ it is stale and re-imports the project when an imported file changed, so there i
 `./uni test <game> --suite godot` runs these steps in order, each when the game has what it needs; `--only` picks
 steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at exit or a GDScript warning fails it.
 
-1. `validate` (the library's `UnifiedValidate`, `src/godot/tools`): compiles every script with warnings as errors
+1. `editor`: the extension loads in a headless editor with no `ERROR` lines.
+2. `session`: a headless Godot session's checksums must equal the offline binary's. Run it after a change to the
+   extension, `src/godot` or anything between input and the sim.
+3. `bake`: the view index (`unified_index.tres`, every scene with a UnifiedView marker by kind) and each level's
+   `.level` file are current (`./uni bake <game>` writes them; every build refreshes the index too; commit both).
+4. `validate` (the library's `UnifiedValidate`, `src/godot/tools`): compiles every script with warnings as errors
    (the strict typing in each `project.godot`: untyped or unsafe code is an error outside the tool scripts), loads
    and instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (friendslop: item
    sizes against the sim; drift: the view contract), fails on a `preload(` in a script the play scene loads (it
@@ -29,14 +34,9 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
    change. A `-d` run stops at the first strict error and waits in the debugger: to list them all at once, run the
    validate script without `-d` (`godot --headless --path games/<game> -s res://addons/unified/validate.gd --
    --no-settings --frames=5`) and read its `Parse Error` lines.
-2. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
+5. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
    (settings, pad navigation, single player, Esc menu, LAN host, a failed join); survivor adds its match flows.
-3. `tour`: the real game, headless, through lobby and match (quick).
-4. `session`: a headless Godot session's checksums must equal the offline binary's. Run it after a change to the
-   extension, `src/godot` or anything between input and the sim.
-5. `editor`: the extension loads in a headless editor with no `ERROR` lines.
-6. `bake`: the view index (`unified_index.tres`, every scene with a UnifiedView marker by kind) and each level's
-   `.level` file are current (`./uni bake <game>` writes them; every build refreshes the index too; commit both).
+6. `tour`: the real game, headless, through lobby and match (quick).
 
 `./uni test --suite godot,godot-bindings` runs every game's steps (the games in parallel) plus the binding,
 host-view and session-lifecycle tests (`tests/godot_views/session_check.gd`: leave, then host or join at once; it
