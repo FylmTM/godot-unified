@@ -46,7 +46,13 @@ send_command :: proc(object: gd.Object) -> bool {
 	command, ok := sim.command_from_bytes(api.commands_type, sim_class.kind, instance.data[:sim_class.type.size])
 	assert(ok)
 	if !api.running() do return fail("no session is running")
-	if !api.send(command) do return fail("too many commands are waiting for the session")
+	tick, player: u64 = 0, 0
+	if active != nil && active.frame != nil do tick, player = u64(active.frame.tick), active.frame.local_player
+	if !api.send(command) {
+		dev_command(u32(tick), .Refused, player, &command)
+		return fail("too many commands are waiting for the session")
+	}
+	dev_command(u32(tick), .Sent, player, &command)
 	return true
 }
 

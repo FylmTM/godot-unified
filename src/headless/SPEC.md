@@ -20,7 +20,9 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   §input script); per-tick `"%06d %016x"` trace; `--log` writes the run's inputs as an input log (nothing replaced).
 - `synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`. `W` (here and in
   `bench`) is 1 to `headless.max_window(game)`, the game's ring depth (its tick rate sets it).
-- `replay --log F --trace F`: replays an input log (refused when another level or build recorded it).
+- `replay --log F [--snapshot F] --trace F`: replays an input log (refused when another level or build recorded it);
+  with `--snapshot` from that portable snapshot's tick, the log holding the ticks after it (an F3 note's recording,
+  `src/godot/SPEC.md`).
 - `session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
   [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
   the real clock; on the virtual clock, loopback only, one thread steps everything through test time). Writes the

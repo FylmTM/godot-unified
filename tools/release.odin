@@ -13,7 +13,9 @@ import "unified:cli"
 // .github/workflows/release.yml (tag builds). Steps, each failing loudly:
 //   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK (UNIFIED_EOS_SDK) and the EOS
 //      IDs (UNIFIED_EOS_*, the environment or .env) must be there, and their values must end up in the library;
-//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library,
+//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library;
+//      with --no-devui the extension is built without the dev UI (-define:UNIFIED_DEVUI=false: no overlay, F1 or F3
+//      notes), for public builds; the zip's name says -nodevui,
 //   2. the pinned Godot and this host's export templates (pulled out of the official archive with HTTP range reads,
 //      each file checked against its pin) in Godot's own folder,
 //   3. the version stamped into project.godot and the export preset's version keys for the export (the files are
@@ -21,7 +23,7 @@ import "unified:cli"
 //   4. headless import, then --export-release with the game's preset; any error line fails,
 //   5. macOS: arm64 only (lipo), ad-hoc codesign, verify, ditto zip; Windows: our zip, the same folder layout,
 //   6. smoke test: the unpacked zip runs headless for ~5 s (`-- --smoke-test`): exit 0, no error line, and the
-//      extension's `unified: extension initialized` line.
+//      extension's `unified: extension initialized` line, which says whether the dev UI is in (`dev ui on|off`).
 
 Release_Host :: struct {
 	preset:       string,
@@ -62,6 +64,7 @@ cmd_release :: proc(args: []string) -> cli.Result {
 		version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
 		tag:      string `usage:"a release tag, <game>-v<version>: the game and version come from it"`,
 		no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
+		no_devui: bool `usage:"no dev UI (overlay, panels, F3 notes): the build for the public; playtest builds keep it"`,
 		no_smoke: bool `usage:"skip the smoke test"`,
 	}
 	opts: Opts
@@ -90,7 +93,7 @@ cmd_release :: proc(args: []string) -> cli.Result {
 	if !valid_version(version) {
 		cli.usage("bad version %q (letters, digits, . + - only)", version)
 	}
-	return release_build(g, version, !opts.no_smoke, opts.no_eos)
+	return release_build(g, version, !opts.no_smoke, opts.no_eos, opts.no_devui)
 }
 
 // <game>-v<version> -> game, version
@@ -157,7 +160,7 @@ step :: proc(name: string) -> time.Tick {
 	return time.tick_now()
 }
 
-release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bool) -> cli.Result {
+release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bool, no_devui := false) -> cli.Result {
 	start := time.tick_now()
 	if !os.is_file(cli.join(g.dir, "export_presets.cfg")) {
 		cli.fatal("%s has no export_presets.cfg", g.name)
@@ -187,7 +190,8 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bo
 	}
 	t := step("game extension (release)")
 	libs := release_libraries(g)
-	cli.ensure_extension(g, .release, force = true)
+	if no_devui do cli.log("release: --no-devui: the extension without the dev UI")
+	cli.ensure_extension(g, .release, force = true, defines = no_devui ? cli.strs("-define:UNIFIED_DEVUI=false") : nil)
 	for l in libs {
 		if !os.is_file(l) {
 			cli.fatal("the .gdextension names %s, which the build did not produce", l)
@@ -220,11 +224,11 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bo
 		g.dir,
 		".out",
 		"release",
-		cli.tprint("%s-%s-%s.zip", g.name, release_label(version), HOST.platform),
+		cli.tprint("%s-%s-%s%s.zip", g.name, release_label(version), HOST.platform, no_devui ? "-nodevui" : ""),
 	)
 	sign_and_zip(target, zip)
 	if smoke_test {
-		smoke(zip, g.name)
+		smoke(zip, g.name, no_devui)
 	}
 	cli.log("release: done in %.1fs", cli.seconds_since(start))
 	return {
@@ -640,7 +644,7 @@ sign_and_zip :: proc(target, zip: string) {
 }
 
 // Unpacks the zip (what a tester gets) and runs the game headless for a few seconds.
-smoke :: proc(zip, name: string) {
+smoke :: proc(zip, name: string, no_devui: bool) {
 	t := step("smoke test")
 	tmp := cli.join(cli.state.project.out, "tmp", cli.tprint("smoke-%d", os.get_pid()))
 	cli.remove_tree(tmp)
@@ -694,6 +698,8 @@ smoke :: proc(zip, name: string) {
 	}
 	if !strings.contains(out, SMOKE_MARKER) {
 		append(&problems, cli.tprint("no %q line (the extension did not load)", SMOKE_MARKER))
+	} else if devui := no_devui ? "dev ui off" : "dev ui on"; !strings.contains(out, devui) {
+		append(&problems, cli.tprint("the extension did not say %q", devui))
 	}
 	if len(problems) > 0 {
 		cli.log("%s", cli.tail(out, 20000))

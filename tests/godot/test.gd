@@ -61,11 +61,51 @@ func _initialize() -> void:
 	check("_process virtual", t.processed_count() > 0, t.processed_count())
 	await process_frame
 	check("dev UI builds its controls", t.devui_items() > 0, t.devui_items())
+	check_devui_click()
 	check("one live instance", t.instances() == 1, t.instances())
 	t.queue_free()
 	check_level_export()
 	print("GDEXT TESTS: %d failed" % failed)
 	quit(failed)
+
+
+## A press on a dev UI button never reaches the game's polled input (the dev UI releases the actions it triggered:
+## src/devui/SPEC.md, Input); a press elsewhere does.
+func check_devui_click() -> void:
+	InputMap.add_action(&"test_fire")
+	var bind := InputEventMouseButton.new()
+	bind.button_index = MOUSE_BUTTON_LEFT
+	InputMap.action_add_event(&"test_fire", bind)
+	var layer := root.get_node_or_null(^"DevUI") as CanvasLayer
+	var target: Button = null
+	if layer != null:
+		for node: Node in layer.find_children("*", "Button", true, false):
+			var candidate := node as Button
+			if candidate.is_visible_in_tree() and candidate.text == "inspect":
+				target = candidate
+	check("dev UI: an overlay button to click", target != null)
+	if target != null:
+		var on_ui := layer.transform * target.get_global_rect().get_center()
+		check("dev UI: a click on it doesn't reach the game", not press_fires(on_ui), on_ui)
+		check("dev UI: a click elsewhere does", press_fires(Vector2(4, root.size.y - 4)), root.size)
+	InputMap.erase_action(&"test_fire")
+
+
+## Presses and releases the left mouse button at `at`; whether the press left `test_fire` pressed.
+func press_fires(at: Vector2) -> bool:
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = at
+	press.global_position = at
+	Input.parse_input_event(press)
+	Input.flush_buffered_events()
+	var fired := Input.is_action_pressed(&"test_fire")
+	var release := press.duplicate() as InputEventMouseButton
+	release.pressed = false
+	Input.parse_input_event(release)
+	Input.flush_buffered_events()
+	return fired
 
 
 ## The level exporter, installed as the tools install it into a game and run in its own Godot process: the 2D

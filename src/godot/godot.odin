@@ -70,10 +70,11 @@ on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	editor := gd.Engine_is_editor_hint(gd.Engine_singleton())
 	// release CI's smoke test looks for this line
 	fmt.printfln(
-		"unified: extension initialized (%s), %s build %s",
+		"unified: extension initialized (%s), %s build %s, dev ui %s",
 		editor ? "editor" : "game",
 		api.game_name,
 		BUILD_TAG,
+		DEVUI ? "on" : "off",
 	)
 }
 

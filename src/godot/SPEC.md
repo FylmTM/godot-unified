@@ -78,7 +78,8 @@ these helpers (main thread only; they read Godot's `Input` singleton) or the bin
   direction;
 - `axis_i8(x) -> i8`: −1..1 to −127..127.
 
-While a dev UI text field has the keyboard the action helpers return nothing pressed. The host hands the newest
+While a dev UI text field has the keyboard the action helpers return nothing pressed, and a press on the dev UI never
+reaches them (it releases the actions it triggered: `src/devui/SPEC.md`, Input). The host hands the newest
 sample to the session thread when a tick takes the local input; `scripted_input` replaces it in `--scripted` runs.
 `Input` is what the player intends: interpreting it against the state is the sim's job.
 
@@ -270,7 +271,9 @@ scene and every indexed kind is a `View` member (an error names each one).
 - **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins), an SPSC event queue (4096;
   full: the event is dropped, never blocking the sim, and counted: the dev UI's `views` line shows it and the host
   warns once), a small SPSC queue of its own for what must never be lost (statuses, the lobby code, desync reports,
-  the result), a command queue (64), and the input sample (a short mutex, once a frame and once a tick).
+  the result), a command queue (64), and the input sample (a short mutex, once a frame and once a tick). Dev UI
+  builds add the Input panel's view (a triple buffer, while the dev UI is shown), the commands verified ticks
+  carried (an SPSC queue, 256; full: dropped) and the recording (below, a mutex per verified tick).
 - **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
   the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
   view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose, call
@@ -283,6 +286,25 @@ scene and every indexed kind is a `View` member (an error names each one).
   has no property for a data field is an error (reported once per kind and field).
 - **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's netsim is off,
   through a `netcode.Net_Sim` while on.
+- **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`). Graph groups: `frame` (frame time; the
+  main thread split views / dev ui / game / render), `sim` (sim thread ms by step kind, ticks ahead, the marks
+  rollback, late input, stall, desync; the `ticks/s` line: `new` (each tick's first step: the tick rate while the
+  session keeps pace), `re-run` (rollbacks) and, on a joiner, `catch-up` (new ticks stepped late, every input known:
+  it fell behind; a host or single player steps most ticks that way, so it isn't shown there)), `net` (round trip,
+  bandwidth, relay silence). Panels: the Inspector (the newest predicted State, `constants`, each session data type
+  as `data.<name>`, all read-only), Input (the local player's input in the newest predicted tick; the newest
+  verified tick's inputs by slot: player, present, replaced), Events (every event in each state), Commands (sent
+  from `send_command`, confirmed when a verified tick carries it, refused when the queue is full), Conditions (its
+  network part greyed in single player: there are no remote links to impair). A session start restarts the
+  frames line.
+- **Recording** (dev UI builds). The session thread records the session as it is verified: a portable snapshot of
+  the first verified tick whose state the ring saved (a host's tick 1, a joiner's first after its join), then every
+  verified tick's inputs as an input log (`UNIL`, from the snapshot's tick on), in memory, and the newest checksum
+  the client computed past the snapshot. An F3 note gets it (`on_feedback`): `snapshot.unis`, `inputs.unil` and
+  `note.json` (game, version, bug, the session's status, local player, shown and verified tick, the recording's
+  ticks, a tick with the session's checksum of it, the net stats) next to the screenshot and `note.txt`.
+  `uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil --trace F` replays it; the trace's line
+  for the checked tick must hold that checksum. A build without the dev UI records nothing.
 - **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread (a client's Leave is
   acked within ~0.5 s, a host waits up to 3 s). A start during the goodbye waits and starts as soon as the old
   session is gone (the goodbye cut to 1 s); a `leave` before that cancels it.
@@ -295,6 +317,24 @@ port N), `--join host:port`, `--host-online`, `--join-code CODE`, `--local-net` 
 only), `--scripted` (scripted input and commands), `--ticks N`, `--seed N`, `--quit-at-end` (quit when the session
 ends, printing its result), `--devui` (the dev UI shown at start), `--lag MS` (the dev netsim on remote links: MS
 each way, a quarter of it jitter, 1% loss), `--bench N` (single player holds N entities, `Glue.bench`).
+
+## Replay sessions (specified; built after the foundations review, #124)
+
+Signed off in the #10 sitting (D9). Built in this order: F3 notes that replay (done), the op log, the replay session.
+
+- **Recordings.** While the dev UI is in the build every session is recorded as above and written when it ends to
+  `<user data>/recordings/<local time>/` (`snapshot.unis`, `inputs.unil`, `session.json`), the last 10 kept. One
+  mechanism for every session kind: a host's recording starts at its tick 1, a joiner's at its join. An online
+  session is never paused or rewound live: it is recorded, then replayed.
+- **A replay session.** `UnifiedSession.replay(folder)` (a recording or an F3 note) starts a session that feeds the
+  sim from the file instead of the network: no input, no commands, every tick final, so events arrive emitted and
+  confirmed together. Views, events and session data work as live. Controls: pause and play, step one tick forward
+  or back, speed (¼× to 4×), loop a tick range. A step back within the sim's ring restores; further back re-runs
+  from the file's snapshot. It shows the verified timeline: what a client predicted at the time is not in a
+  recording (the live dev UI's rollback marks and event states show that).
+- **The dev UI.** A Timeline panel while a replay session runs (the tick, play/pause, step, speed, loop range); the
+  op log: what the shown tick changed, a field-by-field diff of the State against the tick before (by RTTI, as
+  `sim.snapshot_diff` reads two blocks), as an Inspector root `changes` (`rocks[3].pos: (1, 2) -> (1, 3)`).
 
 ## Library tooling
 
@@ -311,8 +351,10 @@ resource first preloaded during a worker-thread load as leaked), the main scene 
 `tests/godot_driver` runs the driver with the toy game and no Godot: frames (the local player, the slots and the
 remembered players by key, the roster), previous poses from the host's memory and their estimates after a rollback
 or skipped ticks, one press delivered once, confirmed events, a tick's events held until its Frame is shown (a
-`fill_frame` held to force the race), the result, transport failure, a game with problems installing nothing, the
-Dev_Link switch.
+`fill_frame` held to force the race), the result, the commands verified ticks carried, the session's recording
+replaying offline to the session's own checksum, transport failure, a game with problems installing nothing, the
+Dev_Link switch. `tests/godot` (the bindings suite) also checks that a press on a dev UI button leaves the action it
+is bound to released, and a press elsewhere doesn't.
 `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session under headless Godot:
 `UnifiedView` scene views in 2D and 3D (pose, `_sim_update`, data as properties only when it changes, a missing
 property's error, the same key in two kinds, entity defaulting to the key, `_sim_despawned` once and no pose while it
@@ -327,6 +369,6 @@ session's checksums equal the offline binary's), `editor`, `bake`.
 
 ## Open
 
-- F3 extras: snapshot, input log, net stats.
+- Replay sessions, recordings on disk and the op log (above, #124).
 - Real-time thread classes on Windows and Linux (to be measured).
 - Running-game hot reload.

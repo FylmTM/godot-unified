@@ -1,9 +1,9 @@
-// The Conditions, Events and F3 note panels.
+// The Conditions panel, the log panels (Events, Commands) and the F3 note.
 package devui
 
 import "core:fmt"
 import "core:os"
-import "core:time"
+import "core:strings"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 
@@ -13,10 +13,13 @@ import "unified:gdext/gdi"
 Conditions_Panel :: struct {
 	fps:     [len(FPS_CAPS)]gd.Button,
 	cap:     int, // the current cap (0: none)
+	net:     gd.VBoxContainer, // the network simulation's rows (greyed while it can't apply)
 	enabled: gd.CheckBox,
+	presets: [4]gd.Button,
 	both:    gd.CheckBox, // the sliders move both directions together
 	sliders: [2][3]gd.HSlider, // [up, down][latency, jitter, loss]
 	values:  [2][3]gd.Label,
+	applies: bool, // netsim_applies as the controls show it
 }
 
 @(private)
@@ -52,7 +55,8 @@ build_conditions :: proc() {
 		gd.BaseButton_set_toggle_mode(fps_button, true)
 		conditions.fps[i] = fps_button
 	}
-	row = add(box, gd.HBoxContainer_new())
+	conditions.net = add(box, gd.VBoxContainer_new())
+	row = add(conditions.net, gd.HBoxContainer_new())
 	conditions.enabled = check(row, "netsim")
 	on(conditions.enabled, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 		netsim.enabled, _ = gd.from_variant(bool, args[0])
@@ -61,7 +65,7 @@ build_conditions :: proc() {
 	})
 	PRESETS := [4]string{"LAN", "WAN", "bad Wi-Fi", "off"}
 	for name, i in PRESETS {
-		button(row, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+		conditions.presets[i] = button(row, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
 				preset: Netsim_Dir
 				switch int(uintptr(user)) {
 				case 0:
@@ -84,7 +88,7 @@ build_conditions :: proc() {
 	}
 	conditions.both = check(row, "both ways")
 	gd.BaseButton_set_pressed_no_signal(conditions.both, true)
-	head := add(box, gd.HBoxContainer_new())
+	head := add(conditions.net, gd.HBoxContainer_new())
 	gd.Control_set_custom_minimum_size(label(head, ""), {52, 0})
 	for name in ([]string{"up (to the relay)", "down"}) {
 		header := label(head, name)
@@ -92,7 +96,7 @@ build_conditions :: proc() {
 		gd.Control_set_theme_type_variation(header, "DevTitleLabel")
 	}
 	for field, field_index in NET_FIELDS {
-		line := add(box, gd.HBoxContainer_new())
+		line := add(conditions.net, gd.HBoxContainer_new())
 		name := label(line, field.name)
 		gd.Control_set_custom_minimum_size(name, {52, 0})
 		for direction in 0 ..< 2 {
@@ -116,6 +120,7 @@ build_conditions :: proc() {
 			gd.Control_set_custom_minimum_size(conditions.values[direction][field_index], {46, 0})
 		}
 	}
+	conditions.applies = true
 	panel_make(.Conditions, "Conditions", {350, 40, 470, 140}, box)
 }
 
@@ -152,62 +157,144 @@ conditions_sync :: proc() {
 	}
 }
 
-// ---- event log: a two-column Tree, rows appended as they come (the newest LOG_ROWS kept)
-
+// The network rows follow netsim_applies: greyed and inert while the session has no remote links (the netsim
+// wraps remote links only); the settings stay for the next session that has them.
 @(private)
-Events_Panel :: struct {
-	follow: gd.CheckBox,
-	count:  gd.Label,
-	tree:   gd.Tree,
-	root:   gd.TreeItem,
-	rows:   int, // rows in the tree
-	shown:  int, // log_n when last synced
+conditions_enable :: proc() {
+	conditions := &s.cond
+	conditions.applies = netsim_applies
+	off := !netsim_applies
+	gd.BaseButton_set_disabled(conditions.enabled, off)
+	gd.BaseButton_set_disabled(conditions.both, off)
+	for preset in conditions.presets do gd.BaseButton_set_disabled(preset, off)
+	for direction in conditions.sliders do for slider in direction do gd.Slider_set_editable(slider, !off)
+	gd.CanvasItem_set_modulate(conditions.net, off ? {1, 1, 1, 0.4} : {1, 1, 1, 1})
+}
+
+// ---- the log panels (Events, Commands): a three-column Tree (tick, state, text), rows appended as they come,
+// the newest LOG_ROWS kept; "confirmed" in the title bar shows only confirmed rows (and notes).
+
+// A log row's state: an event's (emitted, then confirmed or cancelled), a command's (sent, confirmed in a verified
+// tick, or refused), or none (a note: a desync).
+Log_State :: enum u8 {
+	None,
+	Emitted,
+	Confirmed,
+	Cancelled,
+	Sent,
+	Refused,
 }
 
 @(private)
-build_events :: proc() {
-	events := &s.events
-	events.tree = gd.Tree_new()
-	gd.Tree_set_columns(events.tree, 2)
-	gd.Tree_set_column_expand(events.tree, 0, false)
-	gd.Tree_set_column_custom_minimum_width(events.tree, 0, 48)
-	gd.Tree_set_hide_root(events.tree, true)
-	gd.Control_set_focus_mode(events.tree, .FOCUS_NONE)
-	events.root = gd.Tree_create_item(events.tree)
-	panel_make(.Events, "Events", {8, 520, 480, 170}, events.tree)
-	// in the title bar: the count and "follow"
-	bar := s.panels[.Events].extras
-	events.count = label(bar, "")
-	events.follow = check(bar, "follow")
-	gd.BaseButton_set_pressed_no_signal(events.follow, true)
+LOG_STATE_NAMES := [Log_State]string {
+	.None      = "",
+	.Emitted   = "emitted",
+	.Confirmed = "confirmed",
+	.Cancelled = "cancelled",
+	.Sent      = "sent",
+	.Refused   = "refused",
 }
 
 @(private)
-events_update :: proc() {
-	events := &s.events
-	if events.shown == s.log_n do return
-	first := max(events.shown, s.log_n - LOG_ROWS)
-	if s.log_n - events.shown > LOG_ROWS {
-		gd.Tree_clear(events.tree)
-		events.root = gd.Tree_create_item(events.tree)
-		events.rows = 0
+LOG_ROWS :: 1000
+
+@(private)
+Log_Row :: struct {
+	tick:  u32,
+	state: Log_State,
+	len:   u8,
+	msg:   [122]u8,
+}
+
+@(private)
+Log_Panel :: struct {
+	rows:      [LOG_ROWS]Log_Row, // by number % LOG_ROWS
+	count:     int, // rows added so far
+	follow:    gd.CheckBox,
+	confirmed: gd.CheckBox, // show confirmed rows (and notes) only
+	filtered:  bool, // `confirmed` as the tree was built
+	count_l:   gd.Label,
+	tree:      gd.Tree,
+	root:      gd.TreeItem,
+	items:     int, // rows in the tree
+	shown:     int, // count when last synced
+}
+
+@(private)
+build_log :: proc(panel: ^Log_Panel, kind: Panel_Kind, title: string, rect: [4]f32) {
+	panel.tree = gd.Tree_new()
+	gd.Tree_set_columns(panel.tree, 3)
+	for column in 0 ..< 2 do gd.Tree_set_column_expand(panel.tree, column, false)
+	gd.Tree_set_column_custom_minimum_width(panel.tree, 0, 48)
+	gd.Tree_set_column_custom_minimum_width(panel.tree, 1, 62)
+	gd.Tree_set_hide_root(panel.tree, true)
+	gd.Control_set_focus_mode(panel.tree, .FOCUS_NONE)
+	panel.root = gd.Tree_create_item(panel.tree)
+	panel_make(kind, title, rect, panel.tree)
+	// in the title bar: the count, "confirmed" and "follow"
+	bar := s.panels[kind].extras
+	panel.count_l = label(bar, "")
+	panel.confirmed = check(bar, "confirmed")
+	panel.follow = check(bar, "follow")
+	gd.BaseButton_set_pressed_no_signal(panel.follow, true)
+}
+
+@(private)
+log_shutdown :: proc(panel: ^Log_Panel) {
+	panel.count, panel.shown, panel.items = 0, 0, 0
+}
+
+@(private)
+log_add :: proc(panel: ^Log_Panel, tick: u32, state: Log_State, format: string, args: ..any) {
+	row := &panel.rows[panel.count % LOG_ROWS]
+	msg := fmt.bprintf(row.msg[:], format, ..args)
+	row.tick, row.state, row.len = tick, state, u8(len(msg))
+	panel.count += 1
+}
+
+@(private)
+log_shows :: proc(panel: ^Log_Panel, row: ^Log_Row) -> bool {
+	return !panel.filtered || row.state == .Confirmed || row.state == .None
+}
+
+@(private)
+log_update :: proc(panel: ^Log_Panel) {
+	filtered := gd.BaseButton_is_pressed(panel.confirmed)
+	if filtered != panel.filtered || panel.count - panel.shown > LOG_ROWS {
+		// rebuilt from the kept rows: the filter changed, or more rows came than the panel keeps
+		gd.Tree_clear(panel.tree)
+		panel.root = gd.Tree_create_item(panel.tree)
+		panel.items = 0
+		panel.filtered = filtered
+		panel.shown = max(0, panel.count - LOG_ROWS)
 	}
+	if panel.shown == panel.count do return
 	last: gd.TreeItem
-	for i in first ..< s.log_n {
-		log_row := &s.logs[i % LOG_ROWS]
-		last = gd.Tree_create_item(events.tree, events.root)
-		if last.ptr == nil do return // the tree refuses rows inside its own mouse handling: next frame
-		gd.TreeItem_set_text(last, 0, fmt.tprint(log_row.tick))
-		gd.TreeItem_set_text(last, 1, string(log_row.msg[:log_row.len]))
-		events.rows += 1
-		events.shown = i + 1
+	for i in panel.shown ..< panel.count {
+		row := &panel.rows[i % LOG_ROWS]
+		if log_shows(panel, row) {
+			item := gd.Tree_create_item(panel.tree, panel.root)
+			if item.ptr == nil do break // the tree refuses rows inside its own mouse handling: next frame
+			gd.TreeItem_set_text(item, 0, fmt.tprint(row.tick))
+			gd.TreeItem_set_text(item, 1, LOG_STATE_NAMES[row.state])
+			gd.TreeItem_set_text(item, 2, string(row.msg[:row.len]))
+			#partial switch row.state {
+			case .Emitted, .Sent:
+				for column in 0 ..< 3 do gd.TreeItem_set_custom_color(item, column, DIM)
+			case .Cancelled, .Refused:
+				gd.TreeItem_set_custom_color(item, 1, CANCELLED)
+			}
+			panel.items += 1
+			last = item
+		}
+		panel.shown = i + 1
 	}
-	for events.rows > LOG_ROWS {
-		gdi.object_destroy(gd.TreeItem_get_first_child(events.root).ptr)
-		events.rows -= 1
+	for panel.items > LOG_ROWS {
+		gdi.object_destroy(gd.TreeItem_get_first_child(panel.root).ptr)
+		panel.items -= 1
 	}
-	gd.Label_set_text(events.count, fmt.tprint(s.log_n))
-	if gd.BaseButton_is_pressed(events.follow) && last.ptr != nil do gd.Tree_scroll_to_item(events.tree, last)
+	gd.Label_set_text(panel.count_l, fmt.tprint(panel.count))
+	if gd.BaseButton_is_pressed(panel.follow) && last.ptr != nil do gd.Tree_scroll_to_item(panel.tree, last)
 }
 
 // ---- F3 feedback note
@@ -219,12 +306,9 @@ Note :: struct {
 	tag_bug: gd.CheckBox,
 	sent_l:  gd.Label,
 	sent:    int,
-	png:     string, // screenshot of this note, in the temp dir until sent
+	shot:    gd.Ref(gd.Image), // the screenshot of this note, in memory until it is sent (nil: none)
 	tex:     gd.Ref(gd.ImageTexture),
 }
-
-@(private)
-NOTE_THUMB_W :: 640 // the screenshot kept for the note (it scales with the panel, aspect kept)
 
 @(private)
 build_note :: proc() {
@@ -259,21 +343,17 @@ build_note :: proc() {
 	panel_make(.Note, "Feedback", {300, 40, 560, 440}, box)
 }
 
+// F3: the frame as it is (before the note covers it) is kept in memory and shown scaled in the note; nothing is
+// written until the note is sent, so the capture costs only the read back from the GPU.
 @(private)
 note_open :: proc() {
 	note := &s.note
-	// Capture before the note covers the frame.
 	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
 	defer gd.unref(tex)
 	img := gd.Texture2D_get_image(tex)
-	defer gd.unref(img)
 	if img.ptr == nil do return
-	delete(note.png)
-	note.png = fmt.aprintf("%s/devui-f3-%d.png", gd.OS_get_cache_dir(gd.OS_singleton()), time.now()._nsec)
-	gd.Image_save_png(img, note.png)
-	width := gd.Image_get_width(img)
-	height := gd.Image_get_height(img)
-	gd.Image_resize(img, NOTE_THUMB_W, NOTE_THUMB_W * height / max(width, 1))
+	note_discard()
+	note.shot = img
 	if note.tex.ptr == nil {
 		note.tex = gd.ImageTexture_create_from_image(img)
 	} else {
@@ -285,34 +365,53 @@ note_open :: proc() {
 	gd.Object_call_deferred(note.text, "grab_focus")
 }
 
+// The note's screenshot, dropped (the note was closed without sending, or a new one replaces it).
 @(private)
-note_shutdown :: proc() {
-	if s.note.tex.ptr != nil do gd.unref(s.note.tex)
-	delete(s.note.png)
+note_discard :: proc() {
+	if s.note.shot.ptr != nil do gd.unref(s.note.shot)
+	s.note.shot = {}
 }
 
+@(private)
+note_shutdown :: proc() {
+	note_discard()
+	if s.note.tex.ptr != nil do gd.unref(s.note.tex)
+}
+
+// Writes `<feedback dir>/<local time>[-n]/` with screenshot.png and note.txt, then calls on_feedback (the host adds
+// its own files there).
 @(private)
 note_send :: proc() {
 	note := &s.note
 	text := gd.TextEdit_get_text(note.text)
 	tag_bug := gd.BaseButton_is_pressed(note.tag_bug)
-	stamp := time.now()
-	year, month, day := time.date(stamp)
-	hour, minute, second := time.clock(stamp)
-	dir := fmt.tprintf("%s/%04d%02d%02d-%02d%02d%02d", s.cfg.feedback_dir, year, int(month), day, hour, minute, second)
+	// "2026-11-16T15:30:12" (local time) -> 20261116-153012; a second note within the second gets -2, -3, ...
+	stamp, _ := strings.replace_all(
+		gd.Time_get_datetime_string_from_system(gd.Time_singleton()),
+		"-",
+		"",
+		context.temp_allocator,
+	)
+	stamp, _ = strings.replace_all(stamp, ":", "", context.temp_allocator)
+	stamp, _ = strings.replace_all(stamp, "T", "-", context.temp_allocator)
+	dir := fmt.tprintf("%s/%s", s.cfg.feedback_dir, stamp)
+	for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", s.cfg.feedback_dir, stamp, n)
 	if err := os.make_directory_all(dir); err != nil {
 		gd.print_error(fmt.tprintf("devui: cannot create %s: %v", dir, err))
 		return
 	}
-	if note.png != "" do os.rename(note.png, fmt.tprintf("%s/screenshot.png", dir))
 	body := fmt.tprintf("%s\n%s", tag_bug ? "[bug]" : "[note]", text)
+	if note.shot.ptr != nil {
+		if err := gd.Image_save_png(note.shot, fmt.tprintf("%s/screenshot.png", dir)); err != .OK {
+			gd.print_error(fmt.tprintf("devui: the screenshot of %s was not saved: %v", dir, err))
+			body = fmt.tprintf("%s\n[screenshot not saved: %v]", body, err)
+		}
+	}
 	_ = os.write_entire_file(fmt.tprintf("%s/note.txt", dir), transmute([]u8)body)
 	if s.cfg.on_feedback != nil do s.cfg.on_feedback(dir, text, tag_bug, s.cfg.user)
 	gd.print(fmt.tprintf("devui: feedback saved to %s", dir))
 	note.sent += 1
 	gd.Label_set_text(note.sent_l, fmt.tprintf("sent %d", note.sent))
 	gd.TextEdit_set_text(note.text, "")
-	panel_open(.Note, false)
-	delete(note.png)
-	note.png = ""
+	panel_open(.Note, false) // drops the screenshot
 }

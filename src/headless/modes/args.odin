@@ -20,7 +20,7 @@ usage :: proc() -> ! {
 		`
   sim      --ticks N [--seed S] [--players P] [--trace F] [--log F]
   synctest --ticks N --window W [--seed S] [--players P]
-  replay   --log F --trace F
+  replay   --log F [--snapshot F] --trace F  (--snapshot: the log starts after its tick, as in an F3 note)
   session  --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N
            [--late-join P@T] [--log F] [--seed S] [--clock real|virtual]
   relay    --port P --players N --ticks T --log F [--bind local|lan]  (lan: listen on every interface)

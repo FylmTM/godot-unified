@@ -45,6 +45,11 @@ Api :: struct {
 	next_event:      proc(shown: u32) -> (event: Event_Message, ok: bool),
 	events_dropped:  proc() -> int, // events that found their queue full, this session
 	state:           proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	inputs:          proc() -> any, // an Inputs_View of the newest frame, for the Input panel (while want_state)
+	// The oldest command a verified tick carried that the dev UI hasn't logged yet, taken (dev UI builds).
+	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
+	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
+	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
 	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, ok: bool), // Glue.event_key (nil: by subject)
 	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
@@ -63,7 +68,7 @@ set_transport :: proc(new_transport: ^Transport) {
 	transport = new_transport
 }
 
-// Network impairment for remote links (the dev UI's Netsim panel): the main thread publishes settings, the
+// Network impairment for remote links (the dev UI's Conditions panel): the main thread publishes settings, the
 // session thread applies them to every wrapped link.
 // One direction of the dev netsim.
 Netsim_Dir :: struct {
@@ -85,7 +90,7 @@ netsim_req: struct {
 	set: Netsim_Settings,
 }
 
-// Publishes new impairment settings from the main thread (the dev UI's Netsim panel, the --lag argument); the
+// Publishes new impairment settings from the main thread (the dev UI's Conditions panel, the --lag argument); the
 // session thread applies them to every wrapped link on its next loop iteration.
 set_netsim :: proc(settings: Netsim_Settings) {
 	sync.mutex_lock(&netsim_req.mu)
@@ -137,9 +142,52 @@ Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int, $View, $MultiVie
 	net_gen:   u32,
 	roster:    u32, // the client's roster_changes last copied for the main thread
 	account:   [2]string, // the host player's platform account (Transport.account): platform, id
+	inputs:    view.Triple(Inputs_View(Input, PLAYERS)), // for the dev UI's Input panel (while want_state)
+	confirmed: view.Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
+	recording: Recording, // the session so far, for F3 notes (dev UI builds)
 }
 
-// A remote link the dev UI's Netsim panel can impair live. While the netsim is off, datagrams go straight to
+// What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
+Inputs_View :: struct($Input: typeid, $PLAYERS: int) {
+	predicted_tick: u32,
+	own:            Input, // the local player's input in the newest predicted tick (zero: no slot)
+	verified_tick:  u32,
+	slots:          [PLAYERS]Input_Slot(Input), // the verified tick's inputs, by slot (nobody's: all zero)
+}
+
+Input_Slot :: struct($Input: typeid) {
+	player:   u64, // who holds the slot at the predicted tick (sim.player_key; 0: nobody)
+	present:  bool,
+	replaced: bool, // the relay replaced a late input with the slot's last one
+	input:    Input,
+}
+
+// A command a verified tick carried (any player's), for the dev UI's Commands panel.
+Command_Note :: struct {
+	tick:    u32,
+	command: sim.Raw_Command,
+}
+
+// The session recorded for F3 notes (dev UI builds): a portable snapshot of the first verified tick the ring still
+// held, and the input log (UNIL) of every verified tick after it. A host records from its first tick, a joiner from
+// its join. The session thread appends; the main thread copies it under the lock (api.recording).
+Recording :: struct {
+	mu:       sync.Mutex,
+	snapshot: []u8, // nil until the first verified tick whose state was saved
+	from:     u32, // the snapshot's tick
+	last:     u32, // the newest tick in the log
+	check:    [2]u64, // (tick, checksum) of the newest tick the client checksummed after `from` (tick 0: none yet)
+	log:      [dynamic]u8,
+	stream:   sim.Log_Stream,
+}
+
+Recording_Info :: struct {
+	from, to:   u32, // the snapshot's tick, the log's last
+	check_tick: u32, // a tick the log reaches and its checksum, to check a replay against (0: none yet)
+	check:      u64,
+}
+
+// A remote link the dev UI's Conditions panel can impair live. While the netsim is off, datagrams go straight to
 // the inner link (no copies, no queue); the netcode.Net_Sim is created on the first enable, and after a
 // disable it keeps delivering until its queues are empty.
 Dev_Link :: struct {
@@ -149,7 +197,7 @@ Dev_Link :: struct {
 	seed:  u32,
 }
 
-// Wraps a remote link so the Netsim panel can impair it live; returns the Dev_Link to apply settings to and the
+// Wraps a remote link so the Conditions panel can impair it live; returns the Dev_Link to apply settings to and the
 // link to hand the netcode in place of `inner` (closing it frees the Dev_Link).
 dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Link) {
 	dev_link := new(Dev_Link)
@@ -364,6 +412,7 @@ install :: proc(
 		pose_memory_init(&driver.poses, max_views, max_multi)
 		input_sample_reset()
 		view.triple_init(&driver.states)
+		view.triple_init(&driver.inputs)
 		view.tracker_init(&driver.tracker, tick_event_id)
 		driver.tev = {
 			ctx = driver,
@@ -404,6 +453,9 @@ install :: proc(
 			delete(frame.members)
 		}
 		for text in driver.account do delete(text)
+		sim.log_stream_end(&driver.recording.stream)
+		delete(driver.recording.log)
+		delete(driver.recording.snapshot)
 		pose_memory_destroy(&driver.poses)
 		delete(driver.scratch)
 		delete(driver.req.arg)
@@ -450,6 +502,88 @@ install :: proc(
 		driver := (^This_Driver)(g_driver)
 		state, _ := view.triple_front(&driver.states)
 		return state^
+	}
+	api.inputs = proc() -> any {
+		if g_driver == nil do return nil
+		driver := (^This_Driver)(g_driver)
+		inputs, _ := view.triple_front(&driver.inputs)
+		return inputs^
+	}
+	api.next_confirmed = proc() -> (Command_Note, bool) {
+		if g_driver == nil do return {}, false
+		return view.queue_pop(&(^This_Driver)(g_driver).confirmed)
+	}
+	api.recording = proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool) {
+		if g_driver == nil do return
+		recording := &(^This_Driver)(g_driver).recording
+		sync.guard(&recording.mu)
+		if recording.snapshot == nil do return
+		append(snapshot, ..recording.snapshot)
+		append(log, ..recording.log[:])
+		return {recording.from, recording.last, u32(recording.check[0]), recording.check[1]}, true
+	}
+}
+
+// The session thread, a verified tick (dev UI builds): the recording starts at the first verified tick whose
+// state the ring saved (a snapshot of it) and appends every verified tick after it.
+@(private)
+record_tick :: proc(
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
+	simulation: ^sim.Sim(State, Input, World, PLAYERS),
+	tick: u32,
+) {
+	recording := &driver.recording
+	client := driver.client
+	sync.guard(&recording.mu)
+	if recording.snapshot == nil {
+		if sim.state_at(simulation, tick) == nil do return
+		recording.snapshot = sim.snapshot_encode(simulation, tick)
+		recording.from, recording.last = tick, tick
+		compat := driver.glue.compat != 0 ? driver.glue.compat : sim.compat_of(driver.game, driver.req.content)
+		header := sim.Log_Header {
+			seed       = simulation.seed,
+			content    = simulation.content_hash,
+			compat     = compat,
+			players    = PLAYERS,
+			input_size = size_of(Input),
+		}
+		sim.log_stream_begin(&recording.stream, sim.log_sink_memory(&recording.log), header)
+		return
+	}
+	if tick != recording.last + 1 do return // verified ticks come in order
+	sim.log_stream_tick(&recording.stream, &client.fin[tick % netcode.FIN_RING])
+	recording.last = tick
+	if count := len(client.checksums); count > 0 && client.checksums[count - 1][0] > u64(recording.from) {
+		recording.check = client.checksums[count - 1]
+	}
+}
+
+// The Input panel's view of the newest frame (session thread, while want_state).
+@(private)
+fill_inputs_view :: proc(
+	out: ^Inputs_View($Input, $PLAYERS),
+	client: ^netcode.Client($State, Input, $World, PLAYERS),
+	info: netcode.Frame_Info,
+	holders: []sim.Player,
+) {
+	out^ = {}
+	out.predicted_tick, out.verified_tick = info.tick, info.verified
+	if client.slot >= 0 {
+		if info.tick <= info.verified {
+			out.own = client.fin[info.tick % netcode.FIN_RING].input[client.slot]
+		} else {
+			out.own = client.pred_inputs[info.tick % netcode.PRED_RING].input[client.slot]
+		}
+	}
+	if info.verified == 0 do return
+	verified := &client.fin[info.verified % netcode.FIN_RING]
+	for &slot, i in out.slots {
+		slot = {
+			player   = i < len(holders) ? sim.player_key(holders[i]) : 0,
+			present  = i in verified.present,
+			replaced = i in verified.replaced,
+			input    = verified.input[i],
+		}
 	}
 }
 
@@ -642,6 +776,8 @@ driver_hooks :: proc(
 			if sync.atomic_load(&want_state) {
 				view.triple_back(&driver.states)^ = current^
 				view.triple_publish(&driver.states)
+				fill_inputs_view(view.triple_back(&driver.inputs), client, info, slots[:])
+				view.triple_publish(&driver.inputs)
 			}
 		},
 		verified = proc(
@@ -654,6 +790,13 @@ driver_hooks :: proc(
 			track_tick(driver, tick, events)
 			view.tracker_verified(&driver.tracker, tick)
 			flush_events(driver, simulation.world)
+			when DEVUI {
+				inputs := &driver.client.fin[tick % netcode.FIN_RING]
+				for command in inputs.commands[:inputs.command_count] {
+					_ = view.queue_push(&driver.confirmed, Command_Note{tick, command})
+				}
+				record_tick(driver, simulation, tick)
+			}
 		},
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			driver := (^This_Driver)(user)

@@ -377,6 +377,7 @@ run_replay :: proc(
 	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	input_log: ^sim.Input_Log(Input, PLAYERS),
 	trace: ^Trace = nil,
+	snapshot: []u8 = nil,
 ) -> (
 	result: Run_Result,
 	ok: bool,
@@ -397,17 +398,28 @@ run_replay :: proc(
 		)
 		return
 	}
-	simulation := sim.create(headless.game, input_log.seed, headless.content)
+	simulation: ^sim.Sim(State, Input, World, PLAYERS)
+	if snapshot != nil {
+		// the log starts after the snapshot's tick (a session recorded from a joiner's join: an F3 note)
+		err: sim.Snap_Error
+		simulation, err = sim.from_snapshot(headless.game, snapshot, headless.content)
+		if err != .None {
+			fmt.eprintfln("replay: the snapshot does not load: %v", err)
+			return
+		}
+	} else {
+		simulation = sim.create(headless.game, input_log.seed, headless.content)
+	}
 	defer sim.destroy(simulation)
 	for k in 0 ..< len(input_log.ticks) {
 		inputs := sim.log_inputs(input_log, k)
 		sim.step(simulation, &inputs)
 		result.final_checksum = sim.checksum(simulation)
 		if trace != nil {
-			trace_add(trace, u32(k + 1), result.final_checksum)
+			trace_add(trace, simulation.tick, result.final_checksum)
 		}
 	}
-	result.final_tick = u32(len(input_log.ticks))
+	result.final_tick = simulation.tick
 	return result, true
 }
 

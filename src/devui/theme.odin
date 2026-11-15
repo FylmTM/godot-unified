@@ -24,6 +24,8 @@ LINE :: gd.Color{0.28, 0.31, 0.37, 1}
 TEXT :: gd.Color{0.88, 0.9, 0.93, 1}
 @(private)
 DIM :: gd.Color{0.6, 0.63, 0.68, 1}
+@(private)
+CANCELLED :: gd.Color{0.95, 0.45, 0.4, 1}
 
 @(private)
 theme_init :: proc() {

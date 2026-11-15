@@ -1,22 +1,40 @@
 // The dev UI (unified:devui) behind a compile switch: `-define:UNIFIED_DEVUI=false` builds a host without it (these
-// procs become no-ops). On in every build for now, release included.
+// procs become no-ops; `uni release --no-devui`). Player builds keep it while friends playtest.
 //
 // The host feeds the dev UI's graphs, in groups the overlay toggles:
 //   frame  the frame time; the main thread split: views (this session's _process: input and view sync, the dev UI's
 //          own share shown apart), game (every other node's _process up to drawing), render (the RenderingServer's draw)
-//   sim    the sim thread: time and ticks stepped per frame (verified, re-run in a rollback, newly predicted),
-//          ticks ahead (predicted past the verified tick), and marks: rollback, late input (the
-//          relay replaced ours), stall (the prediction cap held the sim back), desync (the relay's report; its
-//          detail goes to the dev UI's log)
+//   sim    the sim thread's time per frame (verified, re-run in a rollback, newly predicted), ticks ahead (predicted
+//          past the verified tick), and marks: rollback, late input (the relay replaced ours), stall (the prediction
+//          cap held the sim back), desync (the relay's report; its detail goes to the Events panel); with it, the
+//          `ticks/s` line: ticks stepped per second, new (each tick's first step: about the tick rate while the
+//          session keeps pace), re-run (rollbacks) and, joining, catch-up (new ticks stepped late, every input
+//          already known: the client fell behind; a host or single player steps most ticks that way, normally)
 //   net    round trip, bandwidth in and out, relay silence (time since the relay's last message)
+// and its panels: the Inspector (the predicted state, the constants, the session data), Input (the local player's
+// newest input and the verified tick's), Events (every event state), Commands (sent, confirmed, refused) and the F3
+// note, which gets the session's recording (driver.odin: a snapshot and the input log after it).
 package godot
 
+import "core:encoding/json"
+import "core:fmt"
+import "core:os"
 import "core:time"
 import "unified:devui"
 import gd "unified:gdext"
 import "unified:netcode"
+import "unified:sim"
+import "unified:view"
 
 DEVUI :: #config(UNIFIED_DEVUI, true)
+
+// How a command fared, for the Commands panel.
+@(private)
+Command_Log :: enum u8 {
+	Sent,
+	Confirmed,
+	Refused,
+}
 
 when DEVUI {
 	@(private)
@@ -33,6 +51,9 @@ when DEVUI {
 		bw_bytes:     [2]i64, // bandwidth window: bytes in, out
 		bw_us:        i64,
 		bw:           [2]f32, // kB/s
+		steps:        [3]i64, // ticks stepped in the current second: verified (catch-up), re-run, predicted (new)
+		steps_us:     i64,
+		per_second:   [3]f32, // the last full second's
 	}
 
 	@(private)
@@ -44,7 +65,7 @@ when DEVUI {
 			devui.netsim = {true, dir_to_ui(lag.up), dir_to_ui(lag.down)}
 		}
 		if devui.is_ready() do return
-		devui.init({visible = visible})
+		devui.init({visible = visible, on_feedback = dev_feedback})
 		rendering_server := gd.RenderingServer_singleton()
 		dev.draw[0] = gd.callable_create(proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 				dev.pre = time.tick_now()
@@ -79,8 +100,8 @@ when DEVUI {
 	@(private)
 	dir_from_ui :: proc(dir: devui.Netsim_Dir) -> Netsim_Dir {return {dir.latency_ms, dir.jitter_ms, dir.loss_pct}}
 
-	// Godot routes the dev UI's events itself; only the polled game input needs telling (a dev text field has
-	// the keyboard).
+	// Godot routes the dev UI's events itself, and a press on the dev UI releases the actions it triggered; only
+	// the polled game input needs telling that a dev text field has the keyboard.
 	@(private)
 	dev_wants_keyboard :: proc() -> bool {return devui.wants_keyboard()}
 	@(private)
@@ -88,9 +109,50 @@ when DEVUI {
 	@(private)
 	dev_toggle :: proc() {devui.visible = !devui.visible}
 
+	// A session starts: the frames line (p50, p99, max) starts over.
 	@(private)
-	dev_log :: proc(tick: u32, format: string, args: ..any) {
-		devui.log(tick, format, ..args)
+	dev_session_started :: proc() {devui.frames_reset()}
+
+	// An event in one of its states, to the Events panel.
+	@(private)
+	dev_event :: proc(tick: u32, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {
+		state: devui.Log_State
+		switch action {
+		case .Emitted:
+			state = .Emitted
+		case .Confirmed:
+			state = .Confirmed
+		case .Cancelled:
+			state = .Cancelled
+		}
+		player, entity := event_subject(layout, data)
+		devui.log(tick, state, "%s player %d entity %d", layout.name, player, entity)
+	}
+
+	// A note in the Events panel (a desync report).
+	@(private)
+	dev_note :: proc(tick: u32, text: string) {
+		devui.log(tick, .None, "%s", text)
+	}
+
+	// A command to the Commands panel: its struct and fields (a command of another build: its kind).
+	@(private)
+	dev_command :: proc(tick: u32, how: Command_Log, player: u64, command: ^sim.Raw_Command) {
+		state: devui.Log_State
+		switch how {
+		case .Sent:
+			state = .Sent
+		case .Confirmed:
+			state = .Confirmed
+		case .Refused:
+			state = .Refused
+		}
+		if int(command.kind) >= len(api.commands) {
+			devui.command(tick, state, "player %d  command kind %d", player, command.kind)
+			return
+		}
+		value := any{&command.data[0], api.commands[command.kind].type.id}
+		devui.command(tick, state, "player %d  %v", player, value)
 	}
 
 	// The start of this session's _process (it runs first: process priority -1000).
@@ -100,10 +162,19 @@ when DEVUI {
 		dev.begin = time.tick_now()
 	}
 
-	// Main thread, every frame: the overlay's stats and graphs, the inspector, the Conditions panel.
+	// Main thread, every frame: the overlay's stats and graphs, the panels' data, the Conditions panel.
 	@(private)
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {
 		dev_main_thread()
+		devui.netsim_applies = !(session.mode == .Single && api.installed && api.running())
+		for api.installed {
+			note := api.next_confirmed() or_break
+			player: u64
+			if session.frame != nil && int(note.command.slot) < len(session.frame.slots) {
+				player = session.frame.slots[note.command.slot]
+			}
+			dev_command(note.tick, .Confirmed, player, &note.command)
+		}
 		if devui.visible && session.frame != nil {
 			frame := session.frame
 			devui.stat("tick", "%d   verified %d   player %d", frame.tick, frame.verified, frame.local_player)
@@ -115,6 +186,21 @@ when DEVUI {
 				frame.net.rollbacks,
 				frame.net.resim_ticks,
 			)
+			if devui.group_shown("sim") {
+				joining := session.mode == .Join_Direct || session.mode == .Join_Online
+				new_ticks, catch_up := dev.per_second[0] + dev.per_second[2], dev.per_second[0]
+				if joining {
+					devui.stat(
+						"ticks/s",
+						"new %.0f   re-run %.0f   catch-up %.0f",
+						new_ticks,
+						dev.per_second[1],
+						catch_up,
+					)
+				} else {
+					devui.stat("ticks/s", "new %.0f   re-run %.0f", new_ticks, dev.per_second[1])
+				}
+			}
 			devui.stat(
 				"views",
 				"%d scene   %d multimesh   sync %.0f µs   events dropped %d",
@@ -124,10 +210,19 @@ when DEVUI {
 				api.events_dropped(),
 			)
 			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
+			if inputs := api.inputs(); inputs != nil do devui.inputs("inputs", inputs)
 		} else if devui.visible {
 			devui.stat("session", "%s", STATUS_NAMES[session.status])
 		}
 		if devui.visible {
+			if api.installed && api.constants.type != nil {
+				devui.inspect("constants", any{raw_data(api.constants_bytes), api.constants.type.id})
+			}
+			for data_class in D.data {
+				if data_class == nil || data_class.instance == nil do continue
+				value := any{raw_data(data_class.instance.bytes), data_class.layout.type.id}
+				devui.inspect(fmt.tprintf("data.%s", data_class.layout.property), value)
+			}
 			performance := gd.Performance_singleton()
 			devui.stat(
 				"render",
@@ -171,17 +266,21 @@ when DEVUI {
 		if !dev.have_net || net.steps[0] < prev.steps[0] || net.bytes_in < prev.bytes_in { 	// a new session
 			prev = net
 			dev.have_net = true
+			dev.steps, dev.steps_us, dev.per_second = {}, 0, {}
 		}
 		dev.net = net
 		step_ms: [3]f32
-		step_counts: [3]f32
 		for k in 0 ..< 3 {
 			step_ms[k] = f32(net.step_us[k] - prev.step_us[k]) / 1000
-			step_counts[k] = f32(net.steps[k] - prev.steps[k])
+			dev.steps[k] += i64(net.steps[k] - prev.steps[k])
 		}
-		legend := []string{"verified", "rollback", "predicted"}
-		devui.stack("sim thread ms", step_ms[:], legend, "sim")
-		devui.stack("ticks stepped", step_counts[:], legend, "sim")
+		// ticks stepped per second, over whole seconds
+		dev.steps_us += i64(dt * 1e6)
+		if dev.steps_us >= 1_000_000 {
+			for k in 0 ..< 3 do dev.per_second[k] = f32(dev.steps[k]) / (f32(dev.steps_us) / 1e6)
+			dev.steps, dev.steps_us = {}, 0
+		}
+		devui.stack("sim thread ms", step_ms[:], {"verified", "rollback", "predicted"}, "sim")
 		devui.plot("ticks ahead", f32(frame.tick) - f32(frame.verified), 0, 0, "sim")
 		if net.rollbacks > prev.rollbacks do devui.mark("sim events", "rollback", "sim")
 		if net.replaced > prev.replaced do devui.mark("sim events", "late input", "sim")
@@ -202,11 +301,63 @@ when DEVUI {
 		if net.last_msg_us != 0 do since = f32(netcode.now_us() - net.last_msg_us) / 1000
 		devui.plot("relay silence ms", since, 0, 0, "net")
 	}
+
+	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
+	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json.
+	@(private)
+	dev_feedback :: proc(dir: string, note: string, tag_bug: bool, user: rawptr) {
+		snapshot, input_log: [dynamic]u8
+		defer delete(snapshot)
+		defer delete(input_log)
+		info: Recording_Info
+		recorded := false
+		if api.installed do info, recorded = api.recording(&snapshot, &input_log)
+		Note_Json :: struct {
+			game:       string,
+			version:    string,
+			bug:        bool,
+			session:    string,
+			player:     u64,
+			tick:       u32, // the newest predicted tick shown
+			verified:   u32,
+			recording:  bool, // snapshot.unis and inputs.unil are there
+			from_tick:  u32, // the snapshot's tick
+			to_tick:    u32, // the log's last
+			check_tick: u32, // a tick the replay reaches, and the session's checksum of it (hex; check_tick 0: none)
+			checksum:   string,
+			net:        Net_Stats,
+		}
+		out := Note_Json {
+			game      = api.game_name,
+			version   = app_version,
+			bug       = tag_bug,
+			recording = recorded,
+		}
+		if active != nil {
+			out.session = STATUS_NAMES[active.status]
+			if frame := active.frame; frame != nil {
+				out.player, out.tick, out.verified, out.net = frame.local_player, frame.tick, frame.verified, frame.net
+			}
+		}
+		if recorded {
+			out.from_tick, out.to_tick, out.check_tick = info.from, info.to, info.check_tick
+			if info.check_tick != 0 do out.checksum = fmt.tprintf("%016x", info.check)
+			ok := os.write_entire_file(fmt.tprintf("%s/snapshot.unis", dir), snapshot[:]) == nil
+			ok &&= os.write_entire_file(fmt.tprintf("%s/inputs.unil", dir), input_log[:]) == nil
+			if !ok do gd.print_error(fmt.tprintf("unified: the recording of %s was not saved", dir))
+		}
+		text, err := json.marshal(out, {pretty = true}, context.temp_allocator)
+		if err == nil do _ = os.write_entire_file(fmt.tprintf("%s/note.json", dir), text)
+	}
 } else {
 	_ :: devui
 	_ :: time
 	_ :: gd
 	_ :: netcode
+	_ :: view
+	_ :: json
+	_ :: os
+	_ :: fmt
 
 	@(private)
 	dev_init :: proc(visible: bool, lag: Netsim_Settings) {}
@@ -219,7 +370,13 @@ when DEVUI {
 	@(private)
 	dev_toggle :: proc() {}
 	@(private)
-	dev_log :: proc(tick: u32, format: string, args: ..any) {}
+	dev_session_started :: proc() {}
+	@(private)
+	dev_event :: proc(tick: u32, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {}
+	@(private)
+	dev_note :: proc(tick: u32, text: string) {}
+	@(private)
+	dev_command :: proc(tick: u32, how: Command_Log, player: u64, command: ^sim.Raw_Command) {}
 	@(private)
 	dev_begin :: proc() {}
 	@(private)

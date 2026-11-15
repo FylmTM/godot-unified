@@ -58,7 +58,7 @@ register :: proc() {
 			devui.inspect("tester", self^)
 			devui.plot("dt ms", f32(dt * 1000))
 			devui.stat("processed", "%d", self.processed)
-			devui.log(u32(self.processed), "frame %d", self.processed)
+			devui.log(u32(self.processed), .None, "frame %d", self.processed)
 			devui.frame(dt)
 		},
 	}
