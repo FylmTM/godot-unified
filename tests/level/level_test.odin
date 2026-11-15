@@ -10,46 +10,111 @@ import "unified:physics"
 fixture :: proc() -> []u8 {
 	hull := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}}
 	shapes := []level.Shape {
-		{kind = .Box, half = {10, 0.5, 10}, rot = {0, 0, 0, 1}},
-		{kind = .Box, pos = {0, 1, 0}, half = {1, 0.5, 1}, rot = {0, 0.38268343, 0, 0.9238795}},
-		{kind = .Sphere, pos = {3, 1, 0}, radius = 0.5, rot = {0, 0, 0, 1}},
-		{kind = .Capsule, pos = {-3, 1, 0}, radius = 0.25, half_height = 0.5, rot = {0, 0, 0.70710677, 0.70710677}},
-		{kind = .Hull, points = hull, rot = {0, 0, 0, 1}},
+		{
+			kind = .Box,
+			half = {10, 0.5, 10},
+			rot  = {0, 0, 0, 1},
+		},
+		{
+			kind = .Box,
+			pos  = {0, 1, 0},
+			half = {1, 0.5, 1},
+			rot  = {0, 0.38268343, 0, 0.9238795},
+		},
+		{
+			kind   = .Sphere,
+			pos    = {3, 1, 0},
+			radius = 0.5,
+			rot    = {0, 0, 0, 1},
+		},
+		{
+			kind        = .Capsule,
+			pos         = {-3, 1, 0},
+			radius      = 0.25,
+			half_height = 0.5,
+			rot         = {0, 0, 0.70710677, 0.70710677},
+		},
+		{
+			kind   = .Hull,
+			points = hull,
+			rot    = {0, 0, 0, 1},
+		},
 	}
 	bodies := []level.Body {
-		{name = "floor", pos = {0, -0.5, 0}, rot = {0, 0, 0, 1}, friction = 0.6, shapes = shapes[:1]},
 		{
-			name = "props",
-			pos = {0, 0, 5},
-			rot = {0, 0, 0, 1},
-			friction = 0.4,
+			name     = "floor",
+			pos      = {0, -0.5, 0},
+			rot      = {0, 0, 0, 1},
+			friction = 0.6,
+			shapes   = shapes[:1],
+		},
+		{
+			name        = "props",
+			pos         = {0, 0, 5},
+			rot         = {0, 0, 0, 1},
+			friction    = 0.4,
 			restitution = 0.2,
-			category = 4,
-			material = 77,
-			shapes = shapes[1:],
+			category    = 4,
+			material    = 77,
+			shapes      = shapes[1:],
 		},
 	}
 	props := []level.Prop {
-		{key = "running", type = .Bool, b = true},
-		{key = "count", type = .Int, i = -3},
-		{key = "speed", type = .Float, f = 2.5},
-		{key = "push", type = .Vec3, v = {1, 2, 3}},
-		{key = "label", type = .String, s = "lift"},
-		{key = "gate", type = .Ref, i = 1},
+		{
+			key  = "running",
+			type = .Bool,
+			b    = true,
+		},
+		{
+			key  = "count",
+			type = .Int,
+			i    = -3,
+		},
+		{
+			key  = "speed",
+			type = .Float,
+			f    = 2.5,
+		},
+		{
+			key  = "push",
+			type = .Vec3,
+			v    = {1, 2, 3},
+		},
+		{
+			key  = "label",
+			type = .String,
+			s    = "lift",
+		},
+		{
+			key  = "gate",
+			type = .Ref,
+			i    = 1,
+		},
 	}
 	path := [][3]f32{{0, 0, 0}, {0, 3, 0}}
 	markers := []level.Marker {
 		{
-			kind = "platform",
-			name = "Lift",
-			pos = {1, 2, 3},
-			rot = {0, 0, 0, 1},
+			kind  = "platform",
+			name  = "Lift",
+			pos   = {1, 2, 3},
+			rot   = {0, 0, 0, 1},
 			scale = {1, 1, 1},
 			props = props,
-			path = path,
+			path  = path,
 		},
-		{kind = "gate", name = "Gate", pos = {4, 0, 0}, rot = {0, 0, 0, 1}, scale = {2, 2, 2}},
-		{kind = "platform", name = "Ferry", rot = {0, 0, 0, 1}, scale = {1, 1, 1}},
+		{
+			kind  = "gate",
+			name  = "Gate",
+			pos   = {4, 0, 0},
+			rot   = {0, 0, 0, 1},
+			scale = {2, 2, 2},
+		},
+		{
+			kind  = "platform",
+			name  = "Ferry",
+			rot   = {0, 0, 0, 1},
+			scale = {1, 1, 1},
+		},
 	}
 	return level.encode(bodies, markers)
 }

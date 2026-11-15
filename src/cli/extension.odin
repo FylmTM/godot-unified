@@ -55,7 +55,11 @@ extension_build :: proc(game: Game, mode: Mode) -> Build {
 	append(&flags, ..mode_flags(mode))
 	append(&flags, ..box3d_defines(mode, game_uses_box3d(game)))
 	append(&flags, ..eos_defines(game))
-	return {pkg = join(game.dir, "simulation", "extension"), out = extension_lib(game), flags = flags[:]}
+	return {
+		pkg   = join(game.dir, "simulation", "extension"),
+		out   = extension_lib(game),
+		flags = flags[:],
+	}
 }
 
 // Rewrites the game's view index when a view scene was added, moved or renamed, so that needs no separate

@@ -94,30 +94,36 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	tmp := join(cli_dir, tprint("uni-build-%d%s", os.get_pid(), EXE))
 	deps := tprint("%s.deps.json", tmp)
 	log("uni: the CLI's sources or its odin changed: rebuilding it")
-	ran := run_proc(
-		{
-			cmd = {
-				odin,
-				"build",
-				join(project.root, "tools"),
-				tprint("-collection:unified=%s", join(project.unified, "src")),
-				"-o:minimal",
-				tprint("-out:%s", tmp),
-				"-export-dependencies:json",
-				tprint("-export-dependencies-file:%s", deps),
-			},
-			quiet = true,
+	ran := run_proc({
+		cmd   = {
+			odin,
+			"build",
+			join(project.root, "tools"),
+			tprint("-collection:unified=%s", join(project.unified, "src")),
+			"-o:minimal",
+			tprint("-out:%s", tmp),
+			"-export-dependencies:json",
+			tprint("-export-dependencies-file:%s", deps),
 		},
-	)
+		quiet = true,
+	})
 	if !ran.ok {
 		log("uni: the CLI does not build (above)")
 		os.exit(1)
 	}
 	// The odin that built it may not be ours (the shims switched to the pinned one): its own install's files are
 	// left out of the manifest, and its commit names the binary.
-	root := run_proc({cmd = {odin, "root"}, capture = true, quiet = true})
+	root := run_proc({
+		cmd     = {odin, "root"},
+		capture = true,
+		quiet   = true,
+	})
 	odin_root := strings.trim_space(root.stdout)
-	version := run_proc({cmd = {odin, "version"}, capture = true, quiet = true})
+	version := run_proc({
+		cmd     = {odin, "version"},
+		capture = true,
+		quiet   = true,
+	})
 	// "<odin path> version <tag>:<commit>": the commit follows the last ':' (a Windows path has one too)
 	version_text := strings.trim_space(version.stdout)
 	commit :=
@@ -138,7 +144,11 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	cmd := make([dynamic]string)
 	append(&cmd, target)
 	append(&cmd, ..args)
-	child := run_proc({cmd = cmd[:], interactive = true, quiet = true})
+	child := run_proc({
+		cmd         = cmd[:],
+		interactive = true,
+		quiet       = true,
+	})
 	os.exit(child.exit_code)
 }
 

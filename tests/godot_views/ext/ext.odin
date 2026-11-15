@@ -21,12 +21,12 @@ View :: enum u8 {
 	Hud,
 }
 
-Multi :: enum u8 {
+MultiView :: enum u8 {
 	Multi2D,
 	Multi3D,
 }
 
-Frame :: godot.Frame(toy.State, toy.World, View, Multi)
+Frame :: godot.Frame(toy.State, toy.World, View, MultiView)
 
 // The typed2d view's data: set as its properties, each when its bytes change.
 Typed2D_Data :: struct {
@@ -71,7 +71,7 @@ ANGLE_2D :: 0.5
 POS_3D :: [3]f32{1, 2, 3}
 YAW_3D :: 0.75
 
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, Multi) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	smoothing = {tau_s = 0.1, teleport_dist = 64},
@@ -91,61 +91,72 @@ fill_frame :: proc(frame: ^Frame) {
 	state := frame.state
 	q2 := view.quat_angle2d(ANGLE_2D)
 	q3 := view.quat_yaw(YAW_3D)
-	godot.push_view(
-		frame,
-		{key = 1, kind = .Typed2D, player = 0, pos = POS_2D, rot = q2},
-		Typed2D_Data {
-			shown = true,
-			mode = .Open,
-			hp = -3,
-			ticks = frame.tick,
-			charge = 0.5,
-			dir = {0.6, -0.8},
-			tint = {1, 0.5, 0.25, 1},
-		},
-	)
-	godot.push_view(frame, {key = 2, kind = .Plain2D, entity = 7, pos = POS_2D + {10, 0, 0}, rot = q2})
-	godot.push_view(frame, {key = 3, kind = .Plain3D, entity = 8, pos = POS_3D, rot = q3})
+	godot.push_view(frame, {
+		key    = 1,
+		kind   = .Typed2D,
+		player = 0,
+		pos    = POS_2D,
+		rot    = q2,
+	}, Typed2D_Data {
+		shown  = true,
+		mode   = .Open,
+		hp     = -3,
+		ticks  = frame.tick,
+		charge = 0.5,
+		dir    = {0.6, -0.8},
+		tint   = {1, 0.5, 0.25, 1},
+	})
+	godot.push_view(frame, {
+		key    = 2,
+		kind   = .Plain2D,
+		entity = 7,
+		pos    = POS_2D + {10, 0, 0},
+		rot    = q2,
+	})
+	godot.push_view(frame, {
+		key    = 3,
+		kind   = .Plain3D,
+		entity = 8,
+		pos    = POS_3D,
+		rot    = q3,
+	})
 	mark := &state.last_mark[0]
-	godot.push_view(
-		frame,
-		{key = HUD_KEY, kind = .Hud},
-		Hud_Data {
-			bumps = state.bumps[0],
-			bump_sum = state.bump_sum[0],
-			marks = state.marks[0],
-			mark_at = mark.at,
-			mark_normal = mark.normal,
-			mark_weight = mark.weight,
-			mark_count = mark.count,
-			mark_shape = mark.shape,
-			mark_shapes = transmute(u8)mark.shapes,
-			mark_loud = mark.loud,
-			x = state.pos[0].x,
-			y = state.pos[0].y,
-			spawned = state.spawned,
-			pad_check = {1, 2, 3, 4},
-		},
-	)
+	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, Hud_Data {
+		bumps       = state.bumps[0],
+		bump_sum    = state.bump_sum[0],
+		marks       = state.marks[0],
+		mark_at     = mark.at,
+		mark_normal = mark.normal,
+		mark_weight = mark.weight,
+		mark_count  = mark.count,
+		mark_shape  = mark.shape,
+		mark_shapes = transmute(u8)mark.shapes,
+		mark_loud   = mark.loud,
+		x           = state.pos[0].x,
+		y           = state.pos[0].y,
+		spawned     = state.spawned,
+		pad_check   = {1, 2, 3, 4},
+	})
 	// the yaw a full turn away every other tick: the shorter arc is no turn at all, so the rotation is exact at any
 	// alpha
-	godot.push_multi(
-		frame,
-		{
-			key = 1,
-			kind = .Multi2D,
-			pos = {30, 40, 0},
-			yaw = 0.25 + (frame.tick % 2 == 0 ? math.TAU : 0),
-			scale = {2, 3, 0},
-			color = {1, 0.5, 0.25, 1},
-			custom = {1, 2, 3, 4},
-		},
-	)
+	godot.push_multi(frame, {
+		key    = 1,
+		kind   = .Multi2D,
+		pos    = {30, 40, 0},
+		yaw    = 0.25 + (frame.tick % 2 == 0 ? math.TAU : 0),
+		scale  = {2, 3, 0},
+		color  = {1, 0.5, 0.25, 1},
+		custom = {1, 2, 3, 4},
+	})
 	godot.push_multi(frame, {kind = .Multi2D, pos = {-5, 6, 0}}) // no key; color zero: white; scale zero: 1
-	godot.push_multi(
-		frame,
-		{key = 2, kind = .Multi3D, pos = POS_3D, yaw = YAW_3D, scale = {1, 2, 1}, color = {0, 1, 0, 1}},
-	)
+	godot.push_multi(frame, {
+		key   = 2,
+		kind  = .Multi3D,
+		pos   = POS_3D,
+		yaw   = YAW_3D,
+		scale = {1, 2, 1},
+		color = {0, 1, 0, 1},
+	})
 }
 
 // The toy's {x, 0, y} (sim units) to the view's pixels: ×10 on the plane.

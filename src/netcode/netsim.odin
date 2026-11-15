@@ -14,8 +14,22 @@ Profile :: struct {
 
 PROFILES := [?]Profile {
 	{name = "ideal"},
-	{name = "wan", latency = 50_000, jitter = 15_000, loss = 20, duplicate = 10, reorder = 10},
-	{name = "bad", latency = 120_000, jitter = 40_000, loss = 80, duplicate = 30, reorder = 50},
+	{
+		name      = "wan",
+		latency   = 50_000,
+		jitter    = 15_000,
+		loss      = 20,
+		duplicate = 10,
+		reorder   = 10,
+	},
+	{
+		name      = "bad",
+		latency   = 120_000,
+		jitter    = 40_000,
+		loss      = 80,
+		duplicate = 30,
+		reorder   = 50,
+	},
 }
 
 // A profile that changes nothing (netsim_wrap returns the link it is given).
@@ -92,9 +106,9 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 	netsim.rng = seed == 0 ? 0x9E3779B9 : seed
 	netsim.clock = clock
 	return {
-		data = netsim,
-		send = netsim_send,
-		recv = netsim_recv,
+		data  = netsim,
+		send  = netsim_send,
+		recv  = netsim_recv,
 		close = netsim_close,
 		event = inner.event == nil ? nil : netsim_event,
 	}
@@ -129,7 +143,11 @@ impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes:
 			delay += 16_000 * i64(1 + xorshift32(&netsim.rng) % 3)
 			netsim.stats.reordered += 1
 		}
-		append(queue, Sim_Packet{at = now + max(delay, 0), peer = peer, bytes = clone_bytes(bytes)})
+		append(queue, Sim_Packet {
+			at    = now + max(delay, 0),
+			peer  = peer,
+			bytes = clone_bytes(bytes),
+		})
 	}
 }
 

@@ -241,7 +241,7 @@ init :: proc(opts: Init_Options) -> bool {
 		sandbox_id = strings.clone_to_cstring(creds.sandbox_id, context.temp_allocator),
 		deployment_id = strings.clone_to_cstring(creds.deployment_id, context.temp_allocator),
 		client_credentials = {
-			client_id = strings.clone_to_cstring(creds.client_id, context.temp_allocator),
+			client_id     = strings.clone_to_cstring(creds.client_id, context.temp_allocator),
 			client_secret = strings.clone_to_cstring(creds.client_secret, context.temp_allocator),
 		},
 		flags = PF_DISABLE_OVERLAY | PF_DISABLE_SOCIAL_OVERLAY,
@@ -341,7 +341,13 @@ link :: proc() -> (net_link: netcode.Link, ok: bool) {
 	if online.stage == .Off || online.role == .None {
 		return
 	}
-	return {data = online, send = link_send, recv = link_recv, close = link_close, event = link_event}, true
+	return {
+			data  = online,
+			send  = link_send,
+			recv  = link_recv,
+			close = link_close,
+			event = link_event,
+		}, true
 }
 
 // --- transport shape (godot_host.Transport) -----------------------------------------------------

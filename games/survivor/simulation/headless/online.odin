@@ -30,14 +30,14 @@ EOS_ONLINE := modes.Online {
 		eos.poll()
 		status := eos.status()
 		return {
-			ready = status.stage == .Ready,
-			failed = status.stage == .Failed,
-			detail = status.detail,
-			code = status.code,
-			local = status.local,
-			host = status.host,
+			ready   = status.stage == .Ready,
+			failed  = status.stage == .Failed,
+			detail  = status.detail,
+			code    = status.code,
+			local   = status.local,
+			host    = status.host,
 			network = fmt.tprint(status.network),
-			peers = status.peers,
+			peers   = status.peers,
 		}
 	},
 }
@@ -54,14 +54,12 @@ eos_start :: proc(args: ^modes.Args) -> bool {
 	case:
 		modes.die("%s: --relays must be allow, force or none", args.mode)
 	}
-	if !eos.init(
-		{
-			product_name = "unified-headless",
-			product_version = "1",
-			relay_control = relay_control,
-			no_keychain_prompts = true,
-		},
-	) {
+	if !eos.init({
+		product_name        = "unified-headless",
+		product_version     = "1",
+		relay_control       = relay_control,
+		no_keychain_prompts = true,
+	}) {
 		fmt.eprintfln("%s: EOS unavailable: %s", args.mode, eos.status().detail)
 		return false
 	}

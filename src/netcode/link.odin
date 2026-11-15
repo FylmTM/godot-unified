@@ -113,7 +113,12 @@ loopback_link :: proc(hub: ^Hub, self: Peer) -> Link {
 	loop := new(Loop_Link)
 	loop.hub = hub
 	loop.self = self
-	return {data = loop, send = loop_send, recv = loop_recv, close = loop_close}
+	return {
+		data  = loop,
+		send  = loop_send,
+		recv  = loop_recv,
+		close = loop_close,
+	}
 }
 
 @(private)

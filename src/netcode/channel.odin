@@ -480,7 +480,11 @@ read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Re
 			return
 		}
 		if kind == 0 {
-			append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, data)})
+			append(&channel.events, Event {
+				kind = .Message,
+				peer = from,
+				data = arena_bytes(channel, data),
+			})
 			continue
 		}
 		conn.ack_pending = true
@@ -493,14 +497,22 @@ read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Re
 			}
 			continue
 		}
-		append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, data)})
+		append(&channel.events, Event {
+			kind = .Message,
+			peer = from,
+			data = arena_bytes(channel, data),
+		})
 		conn.rel_next += 1
 		for {
 			early, ok := conn.rel_early[conn.rel_next]
 			if !ok {
 				break
 			}
-			append(&channel.events, Event{kind = .Message, peer = from, data = arena_bytes(channel, early)})
+			append(&channel.events, Event {
+				kind = .Message,
+				peer = from,
+				data = arena_bytes(channel, early),
+			})
 			delete(early)
 			delete_key(&conn.rel_early, conn.rel_next)
 			conn.rel_next += 1

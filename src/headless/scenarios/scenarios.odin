@@ -384,19 +384,16 @@ session :: proc(
 ) -> headless.Session_Result(Input, PLAYERS) {
 	network, ok := netcode.profile_by_name(PROFILE_NAMES[profile])
 	assert(ok)
-	return headless.session_run(
-		suite.game,
-		{
-			clients = clients,
-			transport = "loopback",
-			virtual = true,
-			profile = network,
-			ticks = suite.ticks,
-			seed = suite.seed,
-			late_player = late_player,
-			late_tick = late_tick,
-		},
-	)
+	return headless.session_run(suite.game, {
+		clients     = clients,
+		transport   = "loopback",
+		virtual     = true,
+		profile     = network,
+		ticks       = suite.ticks,
+		seed        = suite.seed,
+		late_player = late_player,
+		late_tick   = late_tick,
+	})
 }
 
 // A session's results agree: no desyncs; every client verified every tick; the starting clients'

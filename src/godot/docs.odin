@@ -29,11 +29,11 @@ Doc_Class :: struct {
 @(private)
 LIBRARY_DOCS := []Doc_Class {
 	{
-		name = "UnifiedSession",
-		inherits = "Node",
-		brief = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
-		text = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code].",
-		methods = {
+		name      = "UnifiedSession",
+		inherits  = "Node",
+		brief     = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
+		text      = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code].",
+		methods   = {
 			{"start_single", "bool", "", "Starts a single player session."},
 			{
 				"host_online",
@@ -75,12 +75,16 @@ LIBRARY_DOCS := []Doc_Class {
 			{"toggle_devui", "void", "", "Shows or hides the dev UI (F1)."},
 			{"is_devui_visible", "bool", "", "The dev UI is shown."},
 		},
-		members = {
-			{"view_root", "Node", "Where scene views are made, as its children."},
+		members   = {
+			{
+				"view_root",
+				"Node",
+				"Where scene views are made, as its children: set in the inspector or from a script; until it is set, the session's parent. Set it to null for no scene views.",
+			},
 			{"seed", "int", "The next session's seed."},
 			{"ticks", "int", "The next session's length in ticks (0: endless)."},
 		},
-		signals = {
+		signals   = {
 			{
 				"status_changed",
 				"",
@@ -107,16 +111,16 @@ LIBRARY_DOCS := []Doc_Class {
 		},
 	},
 	{
-		name = "UnifiedView",
+		name     = "UnifiedView",
 		inherits = "Node",
-		brief = "Marks a scene as the view of one kind of the game's scene views.",
-		text = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member entity] and [member player] when it makes the view. The root may be a Node3D (position and rotation), a Node2D (position and rotation) or anything else (a Control HUD: data only); its script may define [code]_sim_update(position, yaw_or_rotation, alpha)[/code] and [code]_sim_event(event: UnifiedEvent, state: int)[/code], and properties named after the fields of the view's data.",
-		members = {
+		brief    = "Marks a scene as the view of one kind of the game's scene views.",
+		text     = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member entity] and [member player] when it makes the view. The root may be a Node3D (position and rotation), a Node2D (position and rotation) or anything else (a Control HUD: data only); its script may define [code]_sim_update(position, yaw_or_rotation, alpha)[/code] and [code]_sim_event(event: UnifiedEvent, state: int)[/code], and properties named after the fields of the view's data.",
+		members  = {
 			{"kind", "String", "The view kind (the game's View enum member, lowercased), set in the scene."},
 			{"entity", "int", "The id the game's events carry for this view (0: none)."},
 			{"player", "int", "The player this view shows (-1: none)."},
 		},
-		signals = {
+		signals  = {
 			{
 				"despawned",
 				"",
@@ -127,12 +131,12 @@ LIBRARY_DOCS := []Doc_Class {
 		},
 	},
 	{
-		name = "UnifiedMultiView",
+		name     = "UnifiedMultiView",
 		inherits = "Node",
-		brief = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
-		text = "The host owns the MultiMesh's instance count and buffer: position and rotation interpolated between ticks, scale, color ([code]use_colors[/code]) and custom data ([code]use_custom_data[/code]).",
-		members = {
-			{"kind", "String", "The kind (the game's Multi enum member, lowercased)."},
+		brief    = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
+		text     = "The host owns the MultiMesh's instance count and buffer: position and rotation interpolated between ticks, scale, color ([code]use_colors[/code]) and custom data ([code]use_custom_data[/code]).",
+		members  = {
+			{"kind", "String", "The kind (the game's MultiView enum member, lowercased)."},
 			{
 				"smooth",
 				"bool",
@@ -141,17 +145,17 @@ LIBRARY_DOCS := []Doc_Class {
 		},
 	},
 	{
-		name = "UnifiedEvent",
+		name     = "UnifiedEvent",
 		inherits = "RefCounted",
-		brief = "One of the game's sim events: the base of its event classes.",
-		text = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field.",
-		members = {{"tick", "int", "The tick that produced it."}},
+		brief    = "One of the game's sim events: the base of its event classes.",
+		text     = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field.",
+		members  = {{"tick", "int", "The tick that produced it."}},
 	},
 	{
-		name = "UnifiedCommand",
+		name     = "UnifiedCommand",
 		inherits = "RefCounted",
-		brief = "One of the game's commands: the base of its command classes.",
-		text = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
+		brief    = "One of the game's commands: the base of its command classes.",
+		text     = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
 	},
 }
 
@@ -268,16 +272,12 @@ load_docs :: proc() {
 			}
 		}
 		what := sim_class.is_event ? "event" : "command"
-		gd.load_class_docs(
-			doc_xml(
-				{
-					name = sim_class.name,
-					inherits = sim_class.parent,
-					brief = fmt.tprintf("The game's %s %v.", what, sim_class.type.id),
-					text = sim_class.is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
-					members = members,
-				},
-			),
-		)
+		gd.load_class_docs(doc_xml({
+				name     = sim_class.name,
+				inherits = sim_class.parent,
+				brief    = fmt.tprintf("The game's %s %v.", what, sim_class.type.id),
+				text     = sim_class.is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
+				members  = members,
+			}))
 	}
 }

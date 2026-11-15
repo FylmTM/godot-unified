@@ -40,7 +40,7 @@ offline_runs_hold_commands_over_the_limit_for_the_next_tick :: proc(t: ^testing.
 			inputs := sim.log_inputs(&input_log, k)
 			testing.expect(t, len(sim.commands(&inputs, player)) <= sim.COMMANDS_PER_PLAYER)
 			for &raw in sim.commands(&inputs, player) {
-				bump := sim.command_value(&raw, toy.Command).(toy.Cmd_Bump) or_continue
+				bump := sim.command_value(&raw, toy.Cmd).(toy.Cmd_Bump) or_continue
 				if i := int(bump.amount) - 100 * player; i >= 0 && i < 6 && applied_at[i] == 0 {
 					applied_at[i] = u32(k + 1)
 				}
@@ -179,8 +179,17 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 @(test)
 far_start_players_keep_their_first_inputs :: proc(t: ^testing.T) {
 	profiles := [?]netcode.Profile {
-		{name = "far", latency = 150_000, jitter = 10_000},
-		{name = "far-lossy", latency = 140_000, jitter = 10_000, loss = 20},
+		{
+			name    = "far",
+			latency = 150_000,
+			jitter  = 10_000,
+		},
+		{
+			name    = "far-lossy",
+			latency = 140_000,
+			jitter  = 10_000,
+			loss    = 20,
+		},
 		netcode.PROFILES[2], // bad: 120 ± 40 ms each way, loss, reordering
 	}
 	for profile in profiles {

@@ -27,7 +27,11 @@ eol_start :: proc(paths: []string) -> Proc {
 		append(&cmd, "--")
 		append(&cmd, ..paths)
 	}
-	return start({cmd = cmd[:], capture = true, quiet = true})
+	return start({
+		cmd     = cmd[:],
+		capture = true,
+		quiet   = true,
+	})
 }
 
 Eol_File :: struct {
@@ -63,7 +67,11 @@ eol_problems :: proc(listing: string) -> []Eol_File {
 		}
 		info, path := entry[:tab], entry[tab + 1:]
 		if problem, crlf := eol_problem(info); problem != "" {
-			append(&out, Eol_File{path = path, problem = problem, crlf = crlf})
+			append(&out, Eol_File {
+				path    = path,
+				problem = problem,
+				crlf    = crlf,
+			})
 		}
 	}
 	return out[:]

@@ -13,7 +13,7 @@ import "unified:sim"
 // What toy.scripted_commands sends from `player` over ticks first..last, in order.
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
 	out := sim.Command_Out {
-		commands = toy.Command,
+		commands = toy.Cmd,
 		player   = player,
 		cap      = 1 << 20,
 	}
@@ -124,7 +124,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		sum: i32
 		bumps: u32
 		for &command in got {
-			if bump, ok := sim.command_value(&command, toy.Command).(toy.Cmd_Bump); ok {
+			if bump, ok := sim.command_value(&command, toy.Cmd).(toy.Cmd_Bump); ok {
 				bumps += 1
 				sum += bump.amount
 				fold = toy.bump_fold(fold, bump.amount)
@@ -169,21 +169,22 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	session: Net
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(
-		&toy.GAME,
-		{seed = SEED, ticks = 0, name = "host", quiet = true, recording = sim.log_sink_memory(&session.recording)},
-		quiet_hooks(&session.watch[0]),
-	)
+	session.host = netcode.host_create(&toy.GAME, {
+			seed      = SEED,
+			ticks     = 0,
+			name      = "host",
+			quiet     = true,
+			recording = sim.log_sink_memory(&session.recording),
+		}, quiet_hooks(&session.watch[0]))
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	defer net_destroy(&session)
 	link, gate := gate_wrap(netcode.loopback_link(session.hub, 1))
 	sender: Sender
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = -1, name = "sender", quiet = true},
-		link,
-		sender_hooks(&sender, &session.watch[1]),
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player = -1,
+			name   = "sender",
+			quiet  = true,
+		}, link, sender_hooks(&sender, &session.watch[1]))
 	append(&session.clients, client)
 	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)

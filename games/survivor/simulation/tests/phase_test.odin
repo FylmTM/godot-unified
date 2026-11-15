@@ -69,7 +69,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	testing.expect(t, pos.x * pos.x + pos.z * pos.z > survivor.START_RADIUS * survivor.START_RADIUS)
 	found := false
 	for &raw in sim.events_at(simulation, started) {
-		if event, ok := sim.event_value(&raw, survivor.Event).(survivor.Match_Started); ok {
+		if event, ok := sim.event_value(&raw, survivor.Event).(survivor.Event_Match_Started); ok {
 			found ||= event.player == 0
 		}
 	}

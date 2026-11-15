@@ -20,7 +20,7 @@ Api :: struct {
 	game_name:     string,
 	tick_hz:       int,
 	view_names:    []string, // the View enum's members, lowercased, by kind
-	multi_names:   []string, // the Multi enum's members, lowercased, by kind
+	multi_names:   []string, // the MultiView enum's members, lowercased, by kind
 	smoothing:     view.Smoothing,
 	is_2d:         bool, // event positions are Vector2s
 	events:        []Event_Layout, // the game's event union, by kind (events.odin)
@@ -86,16 +86,16 @@ set_netsim :: proc(settings: Netsim_Settings) {
 netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile {
 	if !enabled do return {name = "devui"}
 	return {
-		name = "devui",
+		name    = "devui",
 		latency = i64(direction.latency_ms * 1000),
-		jitter = i64(direction.jitter_ms * 1000),
-		loss = u32(direction.loss_pct * 10),
+		jitter  = i64(direction.jitter_ms * 1000),
+		loss    = u32(direction.loss_pct * 10),
 	}
 }
 
-Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int, $View, $Multi: typeid) {
+Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int, $View, $MultiView: typeid) {
 	game:      ^sim.Game(State, Input, World, PLAYERS),
-	glue:      ^Glue(State, Input, World, View, Multi),
+	glue:      ^Glue(State, Input, World, View, MultiView),
 	req:       Start,
 	host:      ^netcode.Host(State, Input, World, PLAYERS),
 	client:    ^netcode.Client(State, Input, World, PLAYERS), // the local player's client (the host's own in host modes)
@@ -140,9 +140,9 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 		seed  = seed | 1,
 	}
 	return dev_link, {
-		data = dev_link,
-		send = dev_link_send,
-		recv = dev_link_recv,
+		data  = dev_link,
+		send  = dev_link_send,
+		recv  = dev_link_recv,
 		close = dev_link_close,
 		event = inner.event == nil ? nil : dev_link_event,
 	}
@@ -205,7 +205,7 @@ dev_link_close :: proc(data: rawptr) {
 
 @(private)
 wrap_link :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi),
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
 	link: netcode.Link,
 ) -> netcode.Link {
 	dev_link, wrapped := dev_link_wrap(link, u32(driver.req.seed))
@@ -227,9 +227,12 @@ g_driver: rawptr
 g_bench_count: int
 
 // Installs the game: call once, before godot.entry.
-install :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS), glue: Glue(State, Input, World, $View, $Multi)) {
-	This_Driver :: Driver(State, Input, World, PLAYERS, View, Multi)
-	This_Glue :: Glue(State, Input, World, View, Multi)
+install :: proc(
+	game: ^sim.Game($State, $Input, $World, $PLAYERS),
+	glue: Glue(State, Input, World, $View, $MultiView),
+) {
+	This_Driver :: Driver(State, Input, World, PLAYERS, View, MultiView)
+	This_Glue :: Glue(State, Input, World, View, MultiView)
 	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
 	assert(
 		glue.sample_input != nil && glue.fill_frame != nil,
@@ -244,7 +247,7 @@ install :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS), glue: Glue(St
 		game_name     = game.name,
 		tick_hz       = game.tick_hz,
 		view_names    = enum_names(View),
-		multi_names   = enum_names(Multi),
+		multi_names   = enum_names(MultiView),
 		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
 		events        = event_layouts(game.events),
@@ -369,27 +372,27 @@ install :: proc(game: ^sim.Game($State, $Input, $World, $PLAYERS), glue: Glue(St
 	}
 }
 
-// An enum's member names, lowercased, by value (allocated for the process's lifetime): View and Multi kinds.
+// An enum's member names, lowercased, by value (allocated for the process's lifetime): View and MultiView kinds.
 @(private)
 enum_names :: proc($E: typeid) -> []string {
 	context.allocator = runtime.heap_allocator()
 	info := runtime.type_info_base(type_info_of(E)).variant.(runtime.Type_Info_Enum)
 	names := make([]string, len(info.names))
 	for name, i in info.names {
-		assert(int(info.values[i]) == i, "unified:godot: View and Multi members must count up from 0")
+		assert(int(info.values[i]) == i, "unified:godot: View and MultiView members must count up from 0")
 		names[i] = strings.to_lower(name)
 	}
 	return names
 }
 
 @(private)
-post :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi), message: Message) {
+post :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView), message: Message) {
 	_ = view.queue_push(&driver.queue, message) // full: the main thread is stalled; dropping beats blocking the sim
 }
 
 @(private)
 post_text :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi),
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
 	kind: type_of(Message{}.kind),
 	text: string,
 ) {
@@ -402,7 +405,7 @@ post_text :: proc(
 
 @(private)
 post_status :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi),
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
 	status: Status_Kind,
 	detail: string,
 ) {
@@ -416,7 +419,7 @@ post_status :: proc(
 
 // Posts the tracker's output: each event's sim.Position fields converted into view units first (Glue.event_pos).
 @(private)
-flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi), world: ^World) {
+flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView), world: ^World) {
 	for tracked in driver.tracker.out {
 		raw := tracked.event.raw
 		if driver.glue.event_pos != nil && int(raw.kind) < len(api.events) {
@@ -425,7 +428,12 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $M
 				position^ = driver.glue.event_pos(position^, world)
 			}
 		}
-		post(driver, Message{kind = .Event, action = tracked.action, tick = tracked.event.tick, event = raw})
+		post(driver, Message {
+			kind   = .Event,
+			action = tracked.action,
+			tick   = tracked.event.tick,
+			event  = raw,
+		})
 	}
 	clear(&driver.tracker.out)
 }
@@ -433,7 +441,7 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $M
 // Feeds one simulated tick's events to the tracker, numbering repeats of a kind and subject within the tick.
 @(private)
 track_tick :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi),
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
 	tick: u32,
 	events: []sim.Raw_Event,
 ) {
@@ -460,9 +468,9 @@ track_tick :: proc(
 
 @(private)
 driver_hooks :: proc(
-	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi),
+	driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView),
 ) -> netcode.Hooks(State, Input, World, PLAYERS) {
-	This_Driver :: Driver(State, Input, World, PLAYERS, View, Multi)
+	This_Driver :: Driver(State, Input, World, PLAYERS, View, MultiView)
 	return {
 		user = driver,
 		sample = proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input {
@@ -524,7 +532,7 @@ driver_hooks :: proc(
 				copy(out.names[player][:NAME_BYTES - 1], netcode.client_player_name(client, player))
 			}
 			pose_memory_begin(&driver.poses)
-			frame := Frame(State, World, View, Multi) {
+			frame := Frame(State, World, View, MultiView) {
 				state        = current,
 				world        = simulation.world,
 				tick         = info.tick,
@@ -579,7 +587,7 @@ GOODBYE_US :: 3_000_000
 HURRY_US :: 1_000_000
 
 @(private)
-driver_run :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi)) {
+driver_run :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) {
 	context.allocator = driver.alloc // (the temp allocator stays this thread's own)
 	set_realtime_thread(driver.game.tick_hz)
 	session_power_begin()
@@ -626,7 +634,7 @@ driver_run :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mul
 }
 
 @(private)
-driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi)) -> bool {
+driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) -> bool {
 	request := &driver.req
 	game := driver.game
 	hooks := driver_hooks(driver)
@@ -656,7 +664,7 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 			driver.bench = game^
 			driver.bench.init = proc(state: ^State, world: ^World, seed: u64) {
 				game := (^sim.Game(State, Input, World, PLAYERS))(g_game)
-				glue := (^Glue(State, Input, World, View, Multi))(g_glue)
+				glue := (^Glue(State, Input, World, View, MultiView))(g_glue)
 				game.init(state, world, seed)
 				glue.bench(state, world, g_bench_count)
 			}
@@ -718,7 +726,7 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 }
 
 @(private)
-driver_close :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Multi)) {
+driver_close :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) {
 	if driver.host != nil {
 		netcode.host_destroy(driver.host)
 	} else if driver.client != nil {

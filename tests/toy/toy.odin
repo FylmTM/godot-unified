@@ -47,7 +47,7 @@ Cmd_Mark :: struct {
 	_pad:   [3]u8,
 }
 
-Command :: union {
+Cmd :: union {
 	Cmd_Bump,
 	Cmd_Mark,
 }
@@ -70,16 +70,16 @@ World :: struct {
 	ticks_run: int, // outside the block: not rolled back, not hashed
 }
 
-// Events: a player's (Joined, Left), a thing's (Expired) and one with both subjects and a position (Spawned).
-Joined :: struct {
+// Events: a player's (Event_Joined, Event_Left), a thing's (Event_Expired) and one with both subjects and a position (Event_Spawned).
+Event_Joined :: struct {
 	player: u8,
 }
 
-Left :: struct {
+Event_Left :: struct {
 	player: u8,
 }
 
-Spawned :: struct {
+Event_Spawned :: struct {
 	thing:    sim.Handle(Thing),
 	position: sim.Position,
 	player:   u8,
@@ -87,15 +87,15 @@ Spawned :: struct {
 	_pad:     [2]u8,
 }
 
-Expired :: struct {
+Event_Expired :: struct {
 	thing: sim.Handle(Thing),
 }
 
 Event :: union {
-	Joined,
-	Left,
-	Spawned,
-	Expired,
+	Event_Joined,
+	Event_Left,
+	Event_Spawned,
+	Event_Expired,
 }
 
 Game :: sim.Game(State, Input, World, PLAYERS)
@@ -114,7 +114,7 @@ GAME := Game {
 	},
 	tick = tick,
 	events = Event,
-	commands = Command,
+	commands = Cmd,
 }
 
 tick :: proc(tick: ^Tick) {
@@ -125,16 +125,16 @@ tick :: proc(tick: ^Tick) {
 		if here != state.joined[player] {
 			state.joined[player] = here
 			if here {
-				sim.emit(tick, Joined{player = u8(player)})
+				sim.emit(tick, Event_Joined{player = u8(player)})
 			} else {
-				sim.emit(tick, Left{player = u8(player)})
+				sim.emit(tick, Event_Left{player = u8(player)})
 			}
 		}
 		if !here {
 			continue
 		}
 		for &raw in sim.commands(tick.inputs, player) {
-			switch command in sim.command_value(&raw, Command) {
+			switch command in sim.command_value(&raw, Cmd) {
 			case Cmd_Bump:
 				state.bumps[player] += 1
 				state.bump_sum[player] += command.amount
@@ -153,15 +153,12 @@ tick :: proc(tick: ^Tick) {
 			thing.life = i32(4 + sim.rng_below(&state.rng, 60))
 			thing.owner = i32(player)
 			state.spawned += 1
-			sim.emit(
-				tick,
-				Spawned {
-					thing = handle,
-					position = {thing.pos.x, 0, thing.pos.y},
-					player = u8(player),
-					shape = Shape(thing.life % 3),
-				},
-			)
+			sim.emit(tick, Event_Spawned {
+				thing    = handle,
+				position = {thing.pos.x, 0, thing.pos.y},
+				player   = u8(player),
+				shape    = Shape(thing.life % 3),
+			})
 		}
 	}
 	things := sim.iterate(&state.things)
@@ -169,7 +166,7 @@ tick :: proc(tick: ^Tick) {
 		thing.life -= 1
 		if thing.life <= 0 {
 			state.score[thing.owner] += 1
-			sim.emit(tick, Expired{thing = handle})
+			sim.emit(tick, Event_Expired{thing = handle})
 			sim.despawn(&state.things, handle)
 		}
 	}
@@ -181,7 +178,11 @@ scripted_input :: proc(seed: u64, player: int, tick: u32) -> Input {
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
 	x ~= x >> 12
-	return {dx = i8(x % 7) - 3, dy = i8((x >> 8) % 7) - 3, buttons = u8((x >> 16) % 5 == 0)}
+	return {
+		dx      = i8(x % 7) - 3,
+		dy      = i8((x >> 8) % 7) - 3,
+		buttons = u8((x >> 16) % 5 == 0),
+	}
 }
 
 // Order-sensitive: the same bumps in another order fold differently.
@@ -206,9 +207,11 @@ scripted_commands :: proc(seed: u64, player: int, tick: u32, out: ^sim.Command_O
 		}
 	}
 	if tick % 64 == 7 {
-		sim.send_command(
-			out,
-			Cmd_Mark{at = {f32(player), f32(tick % 7)}, count = i16(tick % 100), shape = .Ring, loud = true},
-		)
+		sim.send_command(out, Cmd_Mark {
+			at    = {f32(player), f32(tick % 7)},
+			count = i16(tick % 100),
+			shape = .Ring,
+			loud  = true,
+		})
 	}
 }

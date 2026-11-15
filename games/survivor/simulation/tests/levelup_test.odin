@@ -10,7 +10,7 @@ import "unified:sim"
 pick_inputs :: proc(upgrades: ..survivor.Upgrade) -> (inputs: survivor.Inputs) {
 	inputs.present = {0}
 	for upgrade in upgrades {
-		raw, ok := sim.command_make(survivor.Command, survivor.Cmd_Pick{upgrade})
+		raw, ok := sim.command_make(survivor.Cmd, survivor.Cmd_Pick{upgrade})
 		assert(ok)
 		sim.add_command(&inputs, raw)
 	}

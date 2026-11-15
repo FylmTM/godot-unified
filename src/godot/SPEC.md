@@ -10,10 +10,10 @@ game has a thin extension (`games/<game>/simulation/extension`) that installs it
 import "unified:godot"
 
 View :: enum u8 {Player, Hud}       // scene view kinds: one scene each (found by the view index)
-Multi :: enum u8 {Ball}             // MultiMesh view kinds
-Frame :: godot.Frame(g.State, g.World, View, Multi)
+MultiView :: enum u8 {Ball}         // MultiMesh view kinds
+Frame :: godot.Frame(g.State, g.World, View, MultiView)
 
-GLUE := godot.Glue(g.State, g.Input, g.World, View, Multi) {
+GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views
 	// optional
@@ -99,7 +99,8 @@ Node3D: it gets data, no pose), pushed with its data each tick.
   `constants() -> Dictionary` (`tick_hz` plus `Glue.constants`), `set_player_name(name)`, `get_status()`,
   `is_running()`, `get_tick()`, `get_local_player()` (-1 until assigned), `get_player_name(player)` (the synced
   name, "" when unknown), `toggle_devui()`, `is_devui_visible()`;
-- properties: `view_root` (where scene views are made), `seed`, `ticks`;
+- properties: `view_root` (where scene views are made, as its children: a node picked in the inspector or set from
+  a script; until it is set, the session's parent; null: no scene views), `seed`, `ticks`;
 - signals: `status_changed(status, detail)`, `lobby_code(code)`, `desync(tick, detail)`,
   `sim_event(event: UnifiedEvent, state: int)`;
 - constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED` (enum `EventState`).
@@ -114,16 +115,16 @@ anything else (a Control HUD) only data. The root's script may define `_sim_upda
 alpha)` (every frame, after the host moved it) and `_sim_event(event: UnifiedEvent, state: int)`.
 
 **`UnifiedMultiView`** (Node): the marker under a MultiMeshInstance3D or MultiMeshInstance2D that the host fills
-with the instances of one `Multi` kind: `kind`, `smooth` (rollback corrections glide like scene views' instead of
+with the instances of one `MultiView` kind: `kind`, `smooth` (rollback corrections glide like scene views' instead of
 popping; off by default). Registered when it enters the tree. The MultiMesh's `transform_format` decides the
 layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_custom_data` add 4 floats each. The
 host owns `instance_count` and `visible_instance_count`.
 
 **Events and commands as classes.** At load the host registers a class per kind of the game's event union
 (`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
-(`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase (`Rock_Hit` ->
-`EventRockHit`; an event's optional `Event_` prefix and a command's `Cmd_` are dropped first: `Event_Rock_Hit` ->
-`EventRockHit`, kind `rock_hit`; `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The
+(`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase without its prefix
+(`Event_Rock_Hit` -> `EventRockHit`, kind `rock_hit`; `Cmd_Drop` -> `CommandDrop`; an event type without `Event_`
+is named the same way), with a typed property per field. The
 prefix groups them: Godot classes have no namespaces (an extension class can't nest, and GDScript can't alias a
 native class as a constant), and no GDScript is generated. Field types: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
 bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`

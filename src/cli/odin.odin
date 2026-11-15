@@ -279,7 +279,11 @@ headless_build :: proc(headless: Headless, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, ..mode_flags(mode))
 	append(&flags, ..box3d_defines(mode, headless.box3d))
-	return {pkg = headless.pkg, out = headless_path(headless.name, mode), flags = flags[:]}
+	return {
+		pkg   = headless.pkg,
+		out   = headless_path(headless.name, mode),
+		flags = flags[:],
+	}
 }
 
 // Box3D when any headless binary or test may link it (this repo's tests always do).
@@ -293,11 +297,19 @@ ensure_deps_for_headless :: proc() {
 // The commit, with +dirty when the tree has changes ("" outside a git checkout).
 git_commit :: proc(dir := "") -> string {
 	repo_dir := dir != "" ? dir : state.project.root
-	head := run_proc({cmd = {git(), "-C", repo_dir, "rev-parse", "HEAD"}, capture = true, quiet = true})
+	head := run_proc({
+		cmd     = {git(), "-C", repo_dir, "rev-parse", "HEAD"},
+		capture = true,
+		quiet   = true,
+	})
 	if !head.ok {
 		return ""
 	}
-	status := run_proc({cmd = {git(), "-C", repo_dir, "status", "--porcelain"}, capture = true, quiet = true})
+	status := run_proc({
+		cmd     = {git(), "-C", repo_dir, "status", "--porcelain"},
+		capture = true,
+		quiet   = true,
+	})
 	return tprint("%s%s", strings.trim_space(head.stdout), strings.trim_space(status.stdout) != "" ? "+dirty" : "")
 }
 

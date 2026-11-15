@@ -128,7 +128,7 @@ Cmd_Restart :: struct {
 	_pad: u8,
 }
 
-Command :: union {
+Cmd :: union {
 	Cmd_Start,
 	Cmd_Restart,
 }
@@ -211,31 +211,31 @@ State :: struct {
 // first handle (a rock's).
 
 // A ship appeared at its spawn.
-Joined :: struct {
+Event_Joined :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Left :: struct {
+Event_Left :: struct {
 	player: u8,
 }
 
 // A bullet left the ship's nose (`position`: the muzzle).
-Fired :: struct {
+Event_Fired :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Boosted :: struct {
+Event_Boosted :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
 // A ship warped from gate `from_gate` to `to_gate` (`position`: where it came out).
-Warped :: struct {
+Event_Warped :: struct {
 	position:  sim.Position,
 	player:    u8,
 	from_gate: u8,
@@ -244,7 +244,7 @@ Warped :: struct {
 }
 
 // A bullet of `player` hit `rock` at `position` (the hit point).
-Rock_Hit :: struct {
+Event_Rock_Hit :: struct {
 	rock:     sim.Handle(Rock),
 	position: sim.Position,
 	player:   u8,
@@ -253,7 +253,7 @@ Rock_Hit :: struct {
 }
 
 // `rock` (of `size`, gone now) broke into two of the next size.
-Rock_Split :: struct {
+Event_Rock_Split :: struct {
 	rock:     sim.Handle(Rock),
 	position: sim.Position,
 	size:     Rock_Size,
@@ -261,7 +261,7 @@ Rock_Split :: struct {
 }
 
 // `rock` (a small one, gone now) was shot to pieces.
-Rock_Destroyed :: struct {
+Event_Rock_Destroyed :: struct {
 	rock:     sim.Handle(Rock),
 	position: sim.Position,
 	size:     Rock_Size,
@@ -269,45 +269,45 @@ Rock_Destroyed :: struct {
 }
 
 // A rock of `size` hit the station at `position`: `damage` is what it costs the station's HP during a match.
-Station_Hit :: struct {
+Event_Station_Hit :: struct {
 	position: sim.Position,
 	damage:   i32,
 	size:     Rock_Size,
 	_pad:     [3]u8,
 }
 
-Gem_Picked :: struct {
+Event_Gem_Picked :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-// Wave `wave` (1..) started.
-Wave :: struct {
+// Event_Wave `wave` (1..) started.
+Event_Wave :: struct {
 	wave: u16,
 }
 
 // `player` sent the `start` that began the match.
-Match_Started :: struct {
+Event_Match_Started :: struct {
 	player: u8,
 }
 
-Match_Over :: struct {
+Event_Match_Over :: struct {
 	seconds_survived: f32,
 }
 
 Event :: union {
-	Joined,
-	Left,
-	Fired,
-	Boosted,
-	Warped,
-	Rock_Hit,
-	Rock_Split,
-	Rock_Destroyed,
-	Station_Hit,
-	Gem_Picked,
-	Wave,
-	Match_Started,
-	Match_Over,
+	Event_Joined,
+	Event_Left,
+	Event_Fired,
+	Event_Boosted,
+	Event_Warped,
+	Event_Rock_Hit,
+	Event_Rock_Split,
+	Event_Rock_Destroyed,
+	Event_Station_Hit,
+	Event_Gem_Picked,
+	Event_Wave,
+	Event_Match_Started,
+	Event_Match_Over,
 }

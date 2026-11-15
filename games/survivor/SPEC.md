@@ -247,7 +247,7 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
 - View data: the player view's `hp` (`Player_View`; a drop flashes it), and the HUD view's `Hud` (HUD above):
   `game/views/hud.tscn` (a Node with the shared `hud_view.gd`) keeps its fields in `Game.hud`, `phase` as
   `&"lobby"` / `&"match"` / `&"over"`, `players` as an Array of Dictionaries.
-- MultiMesh views (`Multi`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
+- MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
   3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the floor plane (y = 0),
   the shaders lift the meshes. The host sizes the MultiMeshes.
@@ -269,7 +269,7 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
 
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
 scripts read (the cards' ids, a view scene and a rest height per item kind) and that the arena has one MultiMesh
-view per `Multi` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
+view per `MultiView` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
 drawn, the auto-attack firing) and a `CommandPick` the session accepts; `tour` plays the real game headless: menu → single
 → lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to
 the lobby; `play_check`: minutes of play with frame times by enemy count).

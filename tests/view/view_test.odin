@@ -249,7 +249,11 @@ Ev :: struct {
 }
 
 event_id :: proc(event: Ev) -> view.Event_Id {
-	return {tick = event.tick, kind = event.kind, entity = event.entity}
+	return {
+		tick   = event.tick,
+		kind   = event.kind,
+		entity = event.entity,
+	}
 }
 
 sim_tick :: proc(tracker: ^view.Event_Tracker(Ev), tick: u32, events: ..Ev) {

@@ -21,7 +21,13 @@ SUITE := scenarios.Suite(fs.State, fs.Input, fs.World, fs.PLAYERS) {
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
-	ref = {dir = #directory + "/testdata", ticks = 1800, snapshot_tick = 900, seed = 7, players = 4},
+	ref = {
+		dir           = #directory + "/testdata",
+		ticks         = 1800,
+		snapshot_tick = 900,
+		seed          = 7,
+		players       = 4,
+	},
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the

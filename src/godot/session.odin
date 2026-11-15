@@ -13,8 +13,10 @@ import "unified:view"
 
 Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
-	view_root:   gd.Node, // a Node3D or Node2D (any Node): views are spawned as its children
+	view_root:   gd.Node, // where scene views are spawned, as its children (once root_set; before: the session's parent)
 	root_id:     u64,
+	root_set:    bool, // view_root was assigned (null included: no scene views)
+	synced_root: u64, // the instance id of the root the scene views live under (views_root_changed when it changes)
 	seed:        i64,
 	ticks:       i64,
 	name:        string,
@@ -104,14 +106,11 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return session.ticks},
 		proc(session: ^Session_Node, value: i64) {session.ticks = value},
 	)
-	gd.bind_property(class, "view_root", proc(session: ^Session_Node) -> gd.Node {
-			if !alive(session.root_id) do return {}
-			return session.view_root
-		}, proc(session: ^Session_Node, node: gd.Node) {
+	gd.bind_property(class, "view_root", effective_root, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
-			views_root_changed()
-		})
+			session.root_set = true
+		}, .NODE_TYPE, "Node")
 	gd.bind_method(
 		class,
 		"start_single",
@@ -180,6 +179,13 @@ node_of :: proc(session: ^Session_Node) -> gd.Node {
 	return gd.cast_to(gd.Node, session.obj)
 }
 
+// Where scene views go: view_root once assigned (null, or a freed node: none), before that the session's parent.
+@(private)
+effective_root :: proc(session: ^Session_Node) -> gd.Node {
+	if session.root_set do return alive(session.root_id) ? session.view_root : {}
+	return gd.Node_get_parent(node_of(session))
+}
+
 @(private)
 alive :: proc(id: u64) -> bool {
 	return id != 0 && gdi.object_get_instance_from_id(id) != nil
@@ -217,13 +223,25 @@ session_ready :: proc(session: ^Session_Node) {
 	case session.args.autostart:
 		session_start(session, {mode = .Single, scripted = session.args.scripted})
 	case session.args.host_port != 0:
-		session_start(session, {mode = .Host_Direct, port = session.args.host_port, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Host_Direct,
+			port     = session.args.host_port,
+			scripted = session.args.scripted,
+		})
 	case session.args.join != "":
-		session_start(session, {mode = .Join_Direct, arg = session.args.join, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Join_Direct,
+			arg      = session.args.join,
+			scripted = session.args.scripted,
+		})
 	case session.args.online:
 		session_start(session, {mode = .Host_Online, scripted = session.args.scripted})
 	case session.args.join_code != "":
-		session_start(session, {mode = .Join_Online, arg = session.args.join_code, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Join_Online,
+			arg      = session.args.join_code,
+			scripted = session.args.scripted,
+		})
 	}
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
@@ -345,7 +363,12 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		session.last_tick = frame.tick
 		tick_us := i64(1_000_000 / max(frame.tick_hz, 1))
 		alpha := view.alpha(now._nsec / 1000, frame.due_us, tick_us)
-		root := alive(session.root_id) ? session.view_root : {}
+		root := effective_root(session)
+		root_id := root.ptr != nil ? gdi.object_get_instance_id(root.ptr) : 0
+		if root_id != session.synced_root {
+			views_root_changed() // the views lived under the old root
+			session.synced_root = root_id
+		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
 	}
 	drain_messages(session)

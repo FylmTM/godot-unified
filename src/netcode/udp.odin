@@ -36,7 +36,13 @@ udp_listen :: proc(port: int, scope: Udp_Scope) -> (link: Link, ok: bool) {
 	udp := new(Udp_Link)
 	udp.sock = sock
 	udp.used[0] = true // peer 0 is unused on the relay side
-	return {data = udp, send = udp_send, recv = udp_recv, close = udp_close, forget = udp_forget}, true
+	return {
+			data   = udp,
+			send   = udp_send,
+			recv   = udp_recv,
+			close  = udp_close,
+			forget = udp_forget,
+		}, true
 }
 
 // Client side: an ephemeral local port talking to `remote` (peer 0). A loopback remote gets a loopback socket, so
@@ -62,7 +68,12 @@ udp_connect :: proc(remote: cnet.Endpoint) -> (link: Link, ok: bool) {
 	udp.fixed = true
 	udp.endpoints[0] = remote
 	udp.used[0] = true
-	return {data = udp, send = udp_send, recv = udp_recv, close = udp_close}, true
+	return {
+			data  = udp,
+			send  = udp_send,
+			recv  = udp_recv,
+			close = udp_close,
+		}, true
 }
 
 udp_bound_port :: proc(link: ^Link) -> int {

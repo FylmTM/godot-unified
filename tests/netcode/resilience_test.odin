@@ -61,12 +61,12 @@ gated_join :: proc(
 		&session.clock,
 	)
 	link, gate := gate_wrap(inner)
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = -1, name = "remote", player_name = "Grace", quiet = true},
-		link,
-		hooks_for(watch),
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player      = -1,
+			name        = "remote",
+			player_name = "Grace",
+			quiet       = true,
+		}, link, hooks_for(watch))
 	append(&session.clients, client)
 	return client, gate
 }
@@ -123,12 +123,12 @@ long_round_trip_keeps_up :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	client, _ := gated_join(
-		&session,
-		1,
-		{name = "far", latency = 140_000, jitter = 10_000, loss = 10},
-		&session.watch[1],
-	)
+	client, _ := gated_join(&session, 1, {
+			name    = "far",
+			latency = 140_000,
+			jitter  = 10_000,
+			loss    = 10,
+		}, &session.watch[1])
 	net_run(&session, 20)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	ticks := int(client.verified - client.first_tick)
@@ -179,12 +179,12 @@ catch_up_after_an_outage :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	client, gate := gated_join(
-		&session,
-		1,
-		{name = "far", latency = 100_000, jitter = 10_000, loss = 10},
-		&session.watch[1],
-	)
+	client, gate := gated_join(&session, 1, {
+			name    = "far",
+			latency = 100_000,
+			jitter  = 10_000,
+			loss    = 10,
+		}, &session.watch[1])
 	net_run(&session, 3)
 	gate.block_out, gate.block_in = true, true
 	net_run(&session, 5)

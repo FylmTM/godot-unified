@@ -36,7 +36,10 @@ zip_open_file :: proc(path: string) -> Zip_Reader {
 	if err != nil {
 		fatal("cannot read %s", path)
 	}
-	return {size = info.size, path = path, read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
+	return {
+		size = info.size,
+		path = path,
+		read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
 			file, err := os.open(reader.path)
 			if err != nil {
 				fatal("cannot open %s", reader.path)
@@ -48,16 +51,18 @@ zip_open_file :: proc(path: string) -> Zip_Reader {
 				fatal("%s: short read at %d", reader.path, offset)
 			}
 			return buf
-		}}
+		},
+	}
 }
 
 // A remote archive read in pieces with HTTP range requests (curl -r): pulling a few members out of a large archive
 // costs a few requests, not the whole download.
 zip_open_url :: proc(url: string) -> Zip_Reader {
-	head := must_run(
-		{cmd = {curl(), "-sSIL", "--retry", "5", url}, capture = true, quiet = true},
-		tprint("HEAD %s", url),
-	)
+	head := must_run({
+			cmd     = {curl(), "-sSIL", "--retry", "5", url},
+			capture = true,
+			quiet   = true,
+		}, tprint("HEAD %s", url))
 	size: i64 = -1
 	text := head.stdout
 	for line in strings.split_lines_iterator(&text) {
@@ -69,7 +74,10 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 	if size <= 0 {
 		fatal("%s: no Content-Length", url)
 	}
-	return {size = size, url = url, read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
+	return {
+		size = size,
+		url = url,
+		read_at = proc(reader: ^Zip_Reader, offset, count: i64) -> []byte {
 			if offset >= reader.cache_off &&
 			   offset + count <= reader.cache_off + i64(len(reader.cache)) &&
 			   len(reader.cache) > 0 {
@@ -77,9 +85,8 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 			}
 			tmp := join(state.project.out, "tmp", tprint("range-%d", os.get_pid()))
 			make_dirs(os.dir(tmp))
-			must_run(
-				{
-					cmd = {
+			must_run({
+					cmd   = {
 						curl(),
 						"-fsSL",
 						"--retry",
@@ -92,9 +99,7 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 						reader.url,
 					},
 					quiet = true,
-				},
-				tprint("range GET %s", reader.url),
-			)
+				}, tprint("range GET %s", reader.url))
 			data, err := os.read_entire_file(tmp, context.allocator)
 			os.remove(tmp)
 			if err != nil || i64(len(data)) != count {
@@ -102,7 +107,8 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 			}
 			reader.fetched += count
 			return data
-		}}
+		},
+	}
 }
 
 // The archive's members, from its central directory.

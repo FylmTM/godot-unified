@@ -74,7 +74,7 @@ Cmd_Pick :: struct {
 }
 
 // The commands players send (sim.Game.commands; kind = variant index, name = type name without Cmd_).
-Command :: union {
+Cmd :: union {
 	Cmd_Pick,
 }
 
@@ -175,25 +175,25 @@ TUNINGS := [Tuning_Kind]Tuning {
 	// a median 28 s (17-40 s) and survives a median 273 s (110-361 s); 2 players: 25 s and 240 s.
 	.Play = {
 		spawn_every_ticks = u32(2.0 * TICK_HZ),
-		spawn_base = 2,
-		spawn_per_wave = 1,
-		spawn_cap = 20,
-		extra_player_pct = 50,
-		wave_ticks = u32(30.0 * TICK_HZ),
-		hp_pct_per_wave = 10,
-		xp_first = 8,
-		xp_step = 4,
+		spawn_base        = 2,
+		spawn_per_wave    = 1,
+		spawn_cap         = 20,
+		extra_player_pct  = 50,
+		wave_ticks        = u32(30.0 * TICK_HZ),
+		hp_pct_per_wave   = 10,
+		xp_first          = 8,
+		xp_step           = 4,
 	},
 	.Stress = {
 		spawn_every_ticks = u32(0.3125 * TICK_HZ),
-		spawn_base = 4,
-		spawn_per_wave = 3,
-		spawn_cap = 40,
-		extra_player_pct = 0,
-		wave_ticks = u32(10.0 * TICK_HZ),
-		hp_pct_per_wave = 0,
-		xp_first = 10,
-		xp_step = 5,
+		spawn_base        = 4,
+		spawn_per_wave    = 3,
+		spawn_cap         = 40,
+		extra_player_pct  = 0,
+		wave_ticks        = u32(10.0 * TICK_HZ),
+		hp_pct_per_wave   = 0,
+		xp_first          = 10,
+		xp_step           = 5,
 	},
 }
 

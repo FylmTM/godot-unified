@@ -27,7 +27,13 @@ SUITE := scenarios.Suite(toy.State, toy.Input, toy.World, toy.PLAYERS) {
 	players = 4,
 	seed = 42,
 	ticks = 3600,
-	ref = {dir = #directory + "/testdata", ticks = 1800, snapshot_tick = 900, seed = 7, players = 4},
+	ref = {
+		dir           = #directory + "/testdata",
+		ticks         = 1800,
+		snapshot_tick = 900,
+		seed          = 7,
+		players       = 4,
+	},
 }
 
 @(test)

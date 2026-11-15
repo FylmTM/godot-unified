@@ -394,15 +394,12 @@ data_fields :: proc(data_type: typeid) -> []Data_Field {
 		for i in 0 ..< int(struct_info.field_count) {
 			name := struct_info.names[i]
 			if strings.has_prefix(name, "_") do continue // padding
-			append(
-				&out,
-				Data_Field {
-					name = gd.sn(name),
-					text = name,
-					type = struct_info.types[i],
-					offset = int(struct_info.offsets[i]),
-				},
-			)
+			append(&out, Data_Field {
+				name   = gd.sn(name),
+				text   = name,
+				type   = struct_info.types[i],
+				offset = int(struct_info.offsets[i]),
+			})
 		}
 	}
 	V.fields[data_type] = out[:]
@@ -616,23 +613,20 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 		report_once(
 			fmt.tprintf("multi-kind:%s", node.kind),
 			fmt.tprintf(
-				"unified: a UnifiedMultiView has kind %q, which is not a member of the game's Multi enum",
+				"unified: a UnifiedMultiView has kind %q, which is not a member of the game's MultiView enum",
 				node.kind,
 			),
 		)
 	}
-	append(
-		&V.multis,
-		Multi_View {
-			marker = marker,
-			marker_id = marker_id,
-			node = instance,
-			id = gdi.object_get_instance_id(instance.ptr),
-			kind = kind,
-			smooth = node.smooth,
-			is_2d = is_2d,
-		},
-	)
+	append(&V.multis, Multi_View {
+		marker    = marker,
+		marker_id = marker_id,
+		node      = instance,
+		id        = gdi.object_get_instance_id(instance.ptr),
+		kind      = kind,
+		smooth    = node.smooth,
+		is_2d     = is_2d,
+	})
 }
 
 @(private)

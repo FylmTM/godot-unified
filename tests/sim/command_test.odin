@@ -60,7 +60,7 @@ command_unions_are_checked :: proc(t: ^testing.T) {
 		Bump,
 		Cmd_Bump,
 	} // "bump" twice: the prefix goes
-	testing.expect_value(t, sim.union_violation(toy.Command, sim.COMMAND_MAX, sim.COMMAND_PREFIX), "")
+	testing.expect_value(t, sim.union_violation(toy.Cmd, sim.COMMAND_MAX, sim.COMMAND_PREFIX), "")
 	testing.expect_value(t, sim.union_violation(Max, sim.COMMAND_MAX, sim.COMMAND_PREFIX), "")
 	refused := []typeid{Padded, Pointer, Empty, Too_Big, Not_A_Struct, Same_Name, Cmd_Bump}
 	for type in refused {
@@ -69,7 +69,7 @@ command_unions_are_checked :: proc(t: ^testing.T) {
 }
 
 bump :: proc(player: int, amount: i32) -> sim.Raw_Command {
-	raw, ok := sim.command_make(toy.Command, toy.Cmd_Bump{amount})
+	raw, ok := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 	assert(ok)
 	raw.player = u8(player)
 	return raw
@@ -91,7 +91,7 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	want := [?][2]i32{{0, 10}, {0, 11}, {2, 0}, {2, 1}, {2, 2}, {2, 3}, {3, 30}}
 	for expected, i in want {
 		raw := &inputs.commands[i]
-		value, is_bump := sim.command_value(raw, toy.Command).(toy.Cmd_Bump)
+		value, is_bump := sim.command_value(raw, toy.Cmd).(toy.Cmd_Bump)
 		testing.expect(t, is_bump && i32(raw.player) == expected[0] && value.amount == expected[1])
 	}
 	testing.expect_value(t, len(sim.commands(&inputs, 0)), 2)
@@ -114,7 +114,11 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	inputs.present = {0, 1}
 	sim.add_command(&inputs, bump(1, 5))
 	sim.add_command(&inputs, bump(1, -2))
-	mark, ok := sim.command_make(toy.Command, toy.Cmd_Mark{at = {1, 2}, count = 3, shapes = {.Ring}})
+	mark, ok := sim.command_make(toy.Cmd, toy.Cmd_Mark {
+		at     = {1, 2},
+		count  = 3,
+		shapes = {.Ring},
+	})
 	testing.expect(t, ok)
 	sim.add_command(&inputs, mark) // player 0
 	stray := bump(3, 100) // player 3 is not present: ignored by the toy
@@ -139,14 +143,14 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	sim.add_command(&inputs, short)
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, state.bumps[0], 0)
-	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Command) == nil)
-	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Command) == nil)
+	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Cmd) == nil)
+	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Cmd) == nil)
 	// command_from_bytes and command_make refuse what isn't one of the game's
-	_, made := sim.command_make(toy.Command, Cmd_Bump{1}) // the same layout, not the toy's type
+	_, made := sim.command_make(toy.Cmd, Cmd_Bump{1}) // the same layout, not the toy's type
 	testing.expect(t, !made)
-	_, made = sim.command_from_bytes(toy.Command, 0, {1, 2, 3})
+	_, made = sim.command_from_bytes(toy.Cmd, 0, {1, 2, 3})
 	testing.expect(t, !made)
-	_, made = sim.command_from_bytes(toy.Command, 2, {1, 2, 3, 4})
+	_, made = sim.command_from_bytes(toy.Cmd, 2, {1, 2, 3, 4})
 	testing.expect(t, !made)
 }
 

@@ -110,17 +110,29 @@ step :: proc(world: ^World, dt: f32, substeps: int) {
 // validate ids, so it would index body -1 and corrupt memory.
 body_id :: proc(world: ^World, ref: Body_Ref, loc := #caller_location) -> b3.Body_Id {
 	assert(ref.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
-	return {index1 = ref.index1, world0 = world.id.index1 - 1, generation = ref.generation}
+	return {
+		index1     = ref.index1,
+		world0     = world.id.index1 - 1,
+		generation = ref.generation,
+	}
 }
 
 // The Box3D id of a linked body, in this world. Unchecked: the body may be gone (body_valid first).
 link_id :: proc(world: ^World, body_link: Body_Link) -> b3.Body_Id {
-	return {index1 = body_link.index1, world0 = world.id.index1 - 1, generation = body_link.generation}
+	return {
+		index1     = body_link.index1,
+		world0     = world.id.index1 - 1,
+		generation = body_link.generation,
+	}
 }
 
 // The Box3D id of a joint the block holds, in this world.
 joint_id :: proc(world: ^World, joint_ref: Joint_Ref) -> b3.Joint_Id {
-	return {index1 = joint_ref.index1, world0 = world.id.index1 - 1, generation = joint_ref.generation}
+	return {
+		index1     = joint_ref.index1,
+		world0     = world.id.index1 - 1,
+		generation = joint_ref.generation,
+	}
 }
 
 // The block's reference to a body Box3D made (the world index dropped, so blocks match across worlds).

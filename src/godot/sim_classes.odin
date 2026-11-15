@@ -159,10 +159,10 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	sim_class := new(Sim_Class)
 	sim_class^ = {
 		class = {
-			name = strings.clone(name),
+			name   = strings.clone(name),
 			parent = is_event ? "UnifiedEvent" : "UnifiedCommand",
 			native = "RefCounted",
-			size = size_of(Sim_Object),
+			size   = size_of(Sim_Object),
 		},
 		type = variant,
 		kind = kind,
@@ -175,16 +175,13 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 		field_name := info.names[i]
 		if strings.has_prefix(field_name, "_") do continue
 		field_type := info.types[i]
-		append(
-			&fields,
-			Sim_Field {
-				name = field_name,
-				type = field_type,
-				offset = int(info.offsets[i]),
-				kind = field_kind(field_type),
-				is_player = field_name == "player" && is_integer(field_type),
-			},
-		)
+		append(&fields, Sim_Field {
+			name      = field_name,
+			type      = field_type,
+			offset    = int(info.offsets[i]),
+			kind      = field_kind(field_type),
+			is_player = field_name == "player" && is_integer(field_type),
+		})
 	}
 	sim_class.fields = fields[:]
 	for &field in sim_class.fields {

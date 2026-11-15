@@ -27,9 +27,9 @@ View_Item :: struct($View: typeid) {
 
 // One MultiMesh instance this tick (fill_frame: push_multi). Position and rotation interpolate from the instance
 // with the same key at tick - 1 (the host remembers it); scale, color and custom are the tick's.
-Multi_Item :: struct($Multi: typeid) {
+Multi_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
-	kind:   Multi,
+	kind:   MultiView,
 	pos:    [3]f32,
 	yaw:    f32, // 3D: about +Y; 2D: the angle about Z (Node2D.rotation)
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
@@ -38,7 +38,7 @@ Multi_Item :: struct($Multi: typeid) {
 }
 
 // What fill_frame gets (session thread): the tick's state and world, and where the items go.
-Frame :: struct($State, $World, $View, $Multi: typeid) {
+Frame :: struct($State, $World, $View, $MultiView: typeid) {
 	state:        ^State,
 	world:        ^World, // at the frame's tick
 	tick:         u32,
@@ -114,11 +114,11 @@ Frame_Data :: struct {
 }
 
 // What a game provides, typed by its State, Input and World and its view kinds (enums).
-Glue :: struct($State, $Input, $World, $View, $Multi: typeid) {
+Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
 	sample_input:      proc(input: ^Input),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi).
-	fill_frame:        proc(frame: ^Frame(State, World, View, Multi)),
+	fill_frame:        proc(frame: ^Frame(State, World, View, MultiView)),
 	// Optional: the views' smoothing, in the units fill_frame writes (zero: view.SMOOTHING_DEFAULT, metres). A 2D
 	// game in pixels sets it, e.g. {tau_s = 0.1, teleport_dist = 64}; the host warns when 2D views run with the
 	// default.
@@ -246,7 +246,7 @@ frame_player_name :: proc(frame: ^Frame_Data, player: int) -> string {
 
 // Session thread (fill_frame): a scene view; false when the Frame is full (counted in `dropped`).
 push_view_item :: proc(
-	frame: ^Frame($State, $World, $View, $Multi),
+	frame: ^Frame($State, $World, $View, $MultiView),
 	item: View_Item(View),
 	loc := #caller_location,
 ) -> bool {
@@ -256,7 +256,7 @@ push_view_item :: proc(
 // Session thread (fill_frame): a scene view with its data, set as the view's properties (a kind always pushes the
 // same data type).
 push_view_data :: proc(
-	frame: ^Frame($State, $World, $View, $Multi),
+	frame: ^Frame($State, $World, $View, $MultiView),
 	item: View_Item(View),
 	data: $T,
 	loc := #caller_location,
@@ -272,7 +272,7 @@ push_view :: proc {
 
 @(private)
 push_view_out :: proc(
-	frame: ^Frame($State, $World, $View, $Multi),
+	frame: ^Frame($State, $World, $View, $MultiView),
 	item: View_Item(View),
 	data_type: typeid,
 	data: []u8,
@@ -308,7 +308,7 @@ push_view_out :: proc(
 }
 
 // Session thread (fill_frame): one MultiMesh instance; false when the Frame is full (counted in `dropped`).
-push_multi :: proc(frame: ^Frame($State, $World, $View, $Multi), item: Multi_Item(Multi)) -> bool {
+push_multi :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: Multi_Item(MultiView)) -> bool {
 	out := frame.data
 	if out.n_multis >= len(out.multis) {
 		out.dropped += 1

@@ -87,15 +87,13 @@ cmd_bench :: proc(args: []string) -> Result {
 	failed: [dynamic]string
 	for game in games {
 		// alone: nothing else runs meanwhile, so the timings are clean
-		result := run_proc(
-			{
-				cmd = strs(headless_path(game.name, .release), "bench"),
-				capture = true,
-				quiet = true,
-				timeout = 900 * time.Second,
-				log_to = join(work, game.name),
-			},
-		)
+		result := run_proc({
+			cmd     = strs(headless_path(game.name, .release), "bench"),
+			capture = true,
+			quiet   = true,
+			timeout = 900 * time.Second,
+			log_to  = join(work, game.name),
+		})
 		obj, ok := last_json_object(result.stdout)
 		if !result.ok || !ok {
 			log("uni: bench %s failed (exit %d):\n%s", game.name, result.exit_code, tail(result.stderr, 2000))
@@ -139,15 +137,13 @@ cmd_bench :: proc(args: []string) -> Result {
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}
-		net_result := run_proc(
-			{
-				cmd = strs(headless_path(game.name, .release), "net-bench"),
-				capture = true,
-				quiet = true,
-				timeout = 300 * time.Second,
-				log_to = join(work, tprint("%s-net", game.name)),
-			},
-		)
+		net_result := run_proc({
+			cmd     = strs(headless_path(game.name, .release), "net-bench"),
+			capture = true,
+			quiet   = true,
+			timeout = 300 * time.Second,
+			log_to  = join(work, tprint("%s-net", game.name)),
+		})
 		net_obj, net_ok := last_json_object(net_result.stdout)
 		if !net_result.ok || !net_ok {
 			log(
@@ -188,15 +184,13 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	if len(games) > 0 {
 		// any game's binary runs it; once is enough
-		result := run_proc(
-			{
-				cmd = strs(headless_path(games[0].name, .release), "table-bench"),
+		result := run_proc({
+				cmd     = strs(headless_path(games[0].name, .release), "table-bench"),
 				capture = true,
-				quiet = true,
+				quiet   = true,
 				timeout = 120 * time.Second,
-				log_to = join(work, "table"),
-			},
-		)
+				log_to  = join(work, "table"),
+			})
 		obj, ok := last_json_object(result.stdout)
 		if result.ok && ok {
 			section :: proc(object: json.Object, key, field: string) -> f64 {
@@ -230,15 +224,15 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	if len(failed) > 0 {
 		return {
-			ok = false,
+			ok      = false,
 			summary = tprint("bench failed: %s (.out/bench/)", strings.join(failed[:], ", ")),
-			data = summary^,
+			data    = summary^,
 		}
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint("bench: %d game(s), sim and netcode benchmarks, reported in .out/bench.json", len(games)),
-		data = summary^,
+		data    = summary^,
 	}
 }
 
@@ -312,19 +306,21 @@ cmd_record_reference :: proc(args: []string) -> Result {
 		fatal("record-reference %s: the suite failed", opts.game)
 	}
 	data := join(pkg, "testdata")
-	status := run_proc(
-		{cmd = strs(git(), "-C", state.project.root, "status", "--short", "--", data), capture = true, quiet = true},
-	)
+	status := run_proc({
+		cmd     = strs(git(), "-C", state.project.root, "status", "--short", "--", data),
+		capture = true,
+		quiet   = true,
+	})
 	changed := strings.trim_space(status.stdout)
 	if changed == "" {
 		return {
-			ok = true,
+			ok      = true,
 			summary = tprint("record-reference %s: reproduced byte for byte, nothing changed", opts.game),
 		}
 	}
 	log("%s", changed)
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint("record-reference %s -> %s (commit the files above with the change)", opts.game, rel(data)),
 	}
 }
@@ -397,9 +393,9 @@ cmd_setup :: proc(args: []string) -> Result {
 		all_ready = all_ready && dep.ready
 	}
 	return {
-		ok = opts.check || all_ready,
+		ok      = opts.check || all_ready,
 		summary = tprint("setup: %s", all_ready ? "everything is in place" : "some dependencies are missing"),
-		data = box(deps[:]),
+		data    = box(deps[:]),
 	}
 }
 
@@ -510,7 +506,11 @@ cmd_clean :: proc(args: []string) -> Result {
 	case:
 		summary = tprint("clean: removed %d paths (uni setup fetches and builds them again)", len(removed))
 	}
-	return {ok = failed == 0, summary = summary, data = box(removed[:])}
+	return {
+		ok      = failed == 0,
+		summary = summary,
+		data    = box(removed[:]),
+	}
 }
 
 // Whether two paths name the same place (slashes and, on Windows, case aside).

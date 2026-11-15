@@ -144,7 +144,11 @@ platform_version :: proc(version: string) -> string {
 }
 
 short_commit :: proc(dir: string) -> string {
-	r := cli.run_proc({cmd = cli.strs("git", "-C", dir, "rev-parse", "--short", "HEAD"), capture = true, quiet = true})
+	r := cli.run_proc({
+		cmd     = cli.strs("git", "-C", dir, "rev-parse", "--short", "HEAD"),
+		capture = true,
+		quiet   = true,
+	})
 	return strings.trim_space(r.stdout)
 }
 
@@ -223,7 +227,11 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bo
 		smoke(zip, g.name)
 	}
 	cli.log("release: done in %.1fs", cli.seconds_since(start))
-	return {ok = true, summary = zip, data = cli.box(zip)}
+	return {
+		ok      = true,
+		summary = zip,
+		data    = cli.box(zip),
+	}
 }
 
 // Every GDExtension library this host's export ships.
@@ -510,7 +518,11 @@ godot_step :: proc(godot: string, g: cli.Game, args: []string, what: string, tim
 	cmd: [dynamic]string
 	append(&cmd, godot, "--headless", "--path", g.dir)
 	append(&cmd, ..args)
-	r := cli.run_proc({cmd = cmd[:], capture = true, timeout = time.Duration(timeout_s * f64(time.Second))})
+	r := cli.run_proc({
+		cmd     = cmd[:],
+		capture = true,
+		timeout = time.Duration(timeout_s * f64(time.Second)),
+	})
 	out := strings.concatenate({r.stdout, r.stderr})
 	errs := release_errors(out)
 	if !r.ok || len(errs) > 0 {
@@ -571,9 +583,11 @@ check_payload :: proc(target: string, files: []string) {
 }
 
 lipo_archs :: proc(path: string) -> string {
-	return strings.trim_space(
-		cli.run_proc({cmd = cli.strs("lipo", "-archs", path), capture = true, quiet = true}).stdout,
-	)
+	return strings.trim_space(cli.run_proc({
+			cmd     = cli.strs("lipo", "-archs", path),
+			capture = true,
+			quiet   = true,
+		}).stdout)
 }
 
 // macOS: the template is universal only; our extension is arm64, so every universal binary is thinned to arm64 (the
@@ -647,25 +661,23 @@ smoke :: proc(zip, name: string) {
 		exe = cli.join(tmp, stem, cli.tprint("%s.exe", name))
 	}
 	log_file := cli.join(tmp, "smoke.log")
-	r := cli.run_proc(
-		{
-			cmd = cli.strs(
-				exe,
-				"--headless",
-				"--log-file",
-				log_file,
-				"--max-fps",
-				"60",
-				"--quit-after",
-				cli.tprint("%d", SMOKE_FRAMES),
-				"--",
-				"--smoke-test",
-			),
-			dir = tmp,
-			capture = true,
-			timeout = 90 * time.Second,
-		},
-	)
+	r := cli.run_proc({
+		cmd     = cli.strs(
+			exe,
+			"--headless",
+			"--log-file",
+			log_file,
+			"--max-fps",
+			"60",
+			"--quit-after",
+			cli.tprint("%d", SMOKE_FRAMES),
+			"--",
+			"--smoke-test",
+		),
+		dir     = tmp,
+		capture = true,
+		timeout = 90 * time.Second,
+	})
 	out := strings.concatenate({r.stdout, r.stderr})
 	if text, ok := cli.read_text(log_file); ok {
 		out = strings.concatenate({out, "\n", text})
