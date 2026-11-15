@@ -1,0 +1,14 @@
+; The game's GDExtension: the sim run by unified's Godot host, built from simulation/extension into the hidden
+; artifacts folder (git-ignored) by `uni build` (and on demand by every command that runs the game).
+[configuration]
+
+entry_symbol = "minimal_3d_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.out/bin/libminimal_3d.dylib"
+macos.release = "res://.out/bin/libminimal_3d.dylib"
+windows.x86_64 = "res://.out/bin/minimal_3d.dll"
+linux.x86_64 = "res://.out/bin/libminimal_3d.so"
