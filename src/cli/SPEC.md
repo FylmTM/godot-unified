@@ -210,9 +210,10 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap, 14 ticks at 64 Hz), ticks), which its `bench` mode runs
   with no arguments; the target, a forward step plus a re-sim at the prediction cap within 6 ms, is unified's (the
-  same re-sim of final ticks, saving only the last, is reported beside it). `bench` also runs each game's
-  `net-bench` (a session of 4 clients under `bad` on the virtual clock: time, rollbacks, stalls, replaced inputs,
-  bytes per second; `net` in `.out/bench.json`, no target) and the headless `table-bench` mode once (any game's
+  same re-sim of final ticks, saving only the last, and a tick's checksum, deep and not, are reported beside it).
+  `bench` also runs each game's `net-bench` (a session of 4 clients under `bad` on the virtual clock: time,
+  rollbacks, stalls, replaced inputs, bytes per second; `net` in `.out/bench.json`, no target) and the headless
+  `table-bench` mode once (any game's
   binary): a walk of a sparse 65,536-slot table against a dense one (`table`), without a target.
 
 ## The template game

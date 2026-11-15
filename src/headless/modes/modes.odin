@@ -236,7 +236,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 	}
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
 		standard.what,
 		entities,
 		window,
@@ -246,6 +246,8 @@ mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 		stat_json(result.restore),
 		stat_json(result.resim),
 		stat_json(result.resim_final),
+		stat_json(result.checksum),
+		stat_json(result.checksum_deep),
 		result.snapshot_bytes,
 		result.block_bytes,
 		result.entities_mean,

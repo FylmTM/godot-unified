@@ -1,5 +1,5 @@
-// `bench` (src/headless/SPEC.md, CLI): the cost of a forward step, a save, a restore and a re-sim,
-// every tick, for `uni bench`.
+// `bench` (src/headless/SPEC.md, CLI): the cost of a forward step, a save, a checksum, a restore and a
+// re-sim, every tick, for `uni bench`.
 package modes
 
 import "core:fmt"
@@ -34,6 +34,9 @@ Bench_Result :: struct {
 	// The same re-sim of ticks that are all final (a catch-up burst), saving only the last one (#117: what the
 	// netcode does since the #8 sitting)
 	resim_final:                Stat,
+	// sim.checksum of the stepped tick: on the ticks peers compare (sim.DEEP_CHECKSUM_EVERY: every extra's whole
+	// state) and on the others (an extra's cheaper summary)
+	checksum_deep, checksum:    Stat,
 	snapshot_bytes:             int,
 	block_bytes:                int,
 	entities_mean:              f64,
@@ -43,7 +46,8 @@ Bench_Result :: struct {
 // `bench`: prepares `entities` entities (the game holds that population), and every tick measures
 // the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
 // save per tick, which is what a client rollback of predicted ticks costs), then the same re-sim of final ticks
-// (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too.
+// (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too, and the forward tick's
+// checksum is timed (deep ticks and the others apart).
 run_bench :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
 	entities: int,
@@ -66,6 +70,8 @@ run_bench :: proc(
 	restore_us := make([]f64, tick_count)
 	resim_us := make([]f64, tick_count)
 	resim_final_us := make([]f64, tick_count)
+	checksum_us := make([]f64, tick_count)
+	checksum_deep_us := make([]f64, tick_count)
 	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	commands: uheadless.Scripted_Commands
@@ -76,12 +82,14 @@ run_bench :: proc(
 		delete(restore_us)
 		delete(resim_us)
 		delete(resim_final_us)
+		delete(checksum_us)
+		delete(checksum_deep_us)
 		delete(recorded)
 		delete(forward)
 	}
 	micros :: proc(from, to: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(from, to))}
 	count_sum := 0.0
-	rollbacks := 0
+	rollbacks, checksums, deep_checksums := 0, 0, 0
 	for tick in 1 ..= ticks {
 		recorded[tick] = uheadless.scripted(headless, simulation, tick, players, &commands)
 		step_start := time.tick_now()
@@ -90,6 +98,14 @@ run_bench :: proc(
 		sim.save(simulation)
 		save_end := time.tick_now()
 		forward[tick] = sim.checksum(simulation)
+		checksum_end := time.tick_now()
+		if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
+			checksum_deep_us[deep_checksums] = micros(save_end, checksum_end)
+			deep_checksums += 1
+		} else {
+			checksum_us[checksums] = micros(save_end, checksum_end)
+			checksums += 1
+		}
 		step_us[tick - 1] = micros(step_start, step_end)
 		save_us[tick - 1] = micros(step_end, save_end)
 		if headless.bench_count != nil {
@@ -133,6 +149,8 @@ run_bench :: proc(
 	result.restore = stat_of(restore_us[:rollbacks])
 	result.resim = stat_of(resim_us[:rollbacks])
 	result.resim_final = stat_of(resim_final_us[:rollbacks])
+	result.checksum = stat_of(checksum_us[:checksums])
+	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
 	result.block_bytes = size_of(State)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	result.entities_mean = count_sum / f64(max(tick_count, 1))
