@@ -136,7 +136,7 @@ LIBRARY_DOCS := []Doc_Class {
 		brief = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
 		text = "The host owns the MultiMesh's instance count and buffer: position and rotation interpolated between ticks, scale, color ([code]use_colors[/code]) and custom data ([code]use_custom_data[/code]).",
 		members = {
-			{"kind", "String", "The kind (the game's Multi enum member, lowercased)."},
+			{"kind", "String", "The kind (the game's MultiView enum member, lowercased)."},
 			{
 				"smooth",
 				"bool",

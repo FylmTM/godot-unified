@@ -217,14 +217,14 @@ throw_hits_friend :: proc(t: ^testing.T) {
 		step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {buttons = fs.BUTTON_THROW}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {}), {}, {}, {}}) // release: throw
-	testing.expect_value(t, event_count(&run, fs.Thrown), 1)
+	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
 	stunned := false
 	for _ in 0 ..< 96 {
 		step(&run, {})
 		stunned ||= players[1].stun > 0
 	}
 	testing.expect(t, stunned)
-	testing.expectf(t, event_count(&run, fs.Hit) >= 1, "no hit (thrown %d)", event_count(&run, fs.Thrown))
+	testing.expectf(t, event_count(&run, fs.Event_Hit) >= 1, "no hit (thrown %d)", event_count(&run, fs.Event_Thrown))
 	idle(&run, 96)
 	testing.expect_value(t, players[1].stun, 0)
 	testing.expect(t, .Limp not_in players[1].controller.flags)
@@ -275,9 +275,9 @@ pad_launches_player :: proc(t: ^testing.T) {
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, pad, 0.05), {}, {}, {}})
 		peak = max(peak, player_pos(&run, 0).y)
-		if event_count(&run, fs.Launched) > 0 do break
+		if event_count(&run, fs.Event_Launched) > 0 do break
 	}
-	testing.expect(t, event_count(&run, fs.Launched) >= 1)
+	testing.expect(t, event_count(&run, fs.Event_Launched) >= 1)
 	for _ in 0 ..< 160 {
 		step(&run, {})
 		peak = max(peak, player_pos(&run, 0).y)
@@ -321,7 +321,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 			},
 		)
 	}
-	testing.expect_value(t, event_count(&run, fs.Broke_Free), 1)
+	testing.expect_value(t, event_count(&run, fs.Event_Broke_Free), 1)
 	testing.expect_value(t, players[1].held_by, 0)
 	idle(&run, 96)
 	// Grab again and throw.
@@ -332,7 +332,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	testing.expect_value(t, players[0].held_kind, fs.Held_Kind.Player)
 	for _ in 0 ..< 8 do step(&run, {{aim_x = 0, aim_y = 40, aim_z = 100, buttons = fs.BUTTON_THROW}, {}, {}, {}})
 	step(&run, {{aim_x = 0, aim_y = 40, aim_z = 100}, {}, {}, {}})
-	testing.expect_value(t, event_count(&run, fs.Thrown), 1)
+	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
 	testing.expect(t, players[1].thrown)
 	idle(&run, 160)
 	testing.expect(t, !players[1].thrown)
@@ -343,7 +343,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		players[1].controller.flags,
 		player_pos(&run, 1),
 	)
-	testing.expect_value(t, event_count(&run, fs.Fell), 0)
+	testing.expect_value(t, event_count(&run, fs.Event_Fell), 0)
 	expect_clean(t, &run)
 }
 
@@ -357,6 +357,6 @@ chaos_synctest :: proc(t: ^testing.T) {
 		for player in 0 ..< 4 do inputs[player] = fs.scripted_input(7, player, tick, nil)
 		step(&run, inputs)
 	}
-	testing.expect(t, event_count(&run, fs.Grabbed) > 0)
+	testing.expect(t, event_count(&run, fs.Event_Grabbed) > 0)
 	expect_clean(t, &run)
 }

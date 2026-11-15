@@ -27,19 +27,19 @@ Tick :: sim.Tick(State, Input, World, PLAYERS)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
 // (y = 0) for enemies and gems, the body's centre for players and barrels.
-Player_Died :: struct {
+Event_Player_Died :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Player_Respawned :: struct {
+Event_Player_Respawned :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Enemy_Died :: struct {
+Event_Enemy_Died :: struct {
 	enemy:      sim.Handle(Enemy),
 	position:   sim.Position,
 	enemy_kind: Enemy_Kind,
@@ -47,13 +47,13 @@ Enemy_Died :: struct {
 }
 
 // Items are a fixed array, not a table: the subject is the item's view key, `entity` = item index + 1.
-Barrel_Exploded :: struct {
+Event_Barrel_Exploded :: struct {
 	entity:   u64,
 	position: sim.Position,
 	_pad:     u32,
 }
 
-Gem_Collected :: struct {
+Event_Gem_Collected :: struct {
 	gem:      sim.Handle(Gem),
 	position: sim.Position,
 	xp:       i32, // the gem's value
@@ -61,7 +61,7 @@ Gem_Collected :: struct {
 	_pad:     [3]u8,
 }
 
-Level_Up :: struct {
+Event_Level_Up :: struct {
 	position: sim.Position,
 	level:    i32, // the new level
 	player:   u8,
@@ -69,39 +69,39 @@ Level_Up :: struct {
 }
 
 // The match starts when `player` leaves the start circle.
-Match_Started :: struct {
+Event_Match_Started :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Match_Over :: struct {
+Event_Match_Over :: struct {
 	duration_s: f32, // the match's length in seconds
 }
 
-Player_Joined :: struct {
+Event_Player_Joined :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Player_Left :: struct {
+Event_Player_Left :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
 Event :: union {
-	Player_Died,
-	Player_Respawned,
-	Enemy_Died,
-	Barrel_Exploded,
-	Gem_Collected,
-	Level_Up,
-	Match_Started,
-	Match_Over,
-	Player_Joined,
-	Player_Left,
+	Event_Player_Died,
+	Event_Player_Respawned,
+	Event_Enemy_Died,
+	Event_Barrel_Exploded,
+	Event_Gem_Collected,
+	Event_Level_Up,
+	Event_Match_Started,
+	Event_Match_Over,
+	Event_Player_Joined,
+	Event_Player_Left,
 }
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
@@ -120,7 +120,7 @@ GAME := Game {
 	init = init,
 	tick = tick,
 	events = Event,
-	commands = Command,
+	commands = Cmd,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -138,7 +138,7 @@ GAME_STRESS := Game {
 	},
 	tick = tick,
 	events = Event,
-	commands = Command,
+	commands = Cmd,
 }
 
 // Start spots, inside the start circle.

@@ -32,14 +32,14 @@ View :: enum u8 {
 }
 
 @(private = "file")
-Multi :: enum u8 {
+MultiView :: enum u8 {
 	Spark,
 }
 
 @(private = "file")
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, Multi) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
-	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, Multi)) {
+	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, MultiView)) {
 		state := frame.state
 		for player in 0 ..< toy.PLAYERS {
 			if !state.joined[player] do continue
@@ -129,7 +129,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, ok, err)
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
-			command, _ := sim.command_make(toy.Command, toy.Cmd_Bump{amount})
+			command, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 			testing.expect(t, godot.api.send(command))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
@@ -139,9 +139,9 @@ driver_sessions :: proc(t: ^testing.T) {
 			if message.kind == .Status && message.status == .Connected do connected = true
 			if message.kind != .Event do continue
 			switch event in sim.event_value(&message.event, toy.Event) {
-			case toy.Joined:
+			case toy.Event_Joined:
 				if message.action == .Confirmed do joined = true
-			case toy.Spawned, toy.Left, toy.Expired:
+			case toy.Event_Spawned, toy.Event_Left, toy.Event_Expired:
 			}
 		}
 		testing.expect(t, connected, "a Connected status")

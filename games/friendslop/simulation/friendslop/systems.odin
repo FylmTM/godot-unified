@@ -93,13 +93,13 @@ presence :: proc(tick: ^Tick) {
 			)
 			sim.emit(
 				tick,
-				Player_Joined{position = sim.Position(respawn_point(state, world, player)), player = u8(player)},
+				Event_Player_Joined{position = sim.Position(respawn_point(state, world, player)), player = u8(player)},
 			)
 		} else if !here && character.active {
 			release_all(tick, player)
 			physics.character_destroy(world.phys, &character.controller)
 			character^ = {}
-			sim.emit(tick, Player_Left{player = u8(player)})
+			sim.emit(tick, Event_Player_Left{player = u8(player)})
 		}
 	}
 }
@@ -156,7 +156,10 @@ player_actions :: proc(tick: ^Tick, player: int, input: Input) -> (jump: bool) {
 				character.controller.body,
 				physics.velocity(world.phys, character.controller.body) + {0, 4, 0},
 			)
-			sim.emit(tick, Broke_Free{position = sim.Position(player_pos(state, world, player)), player = u8(player)})
+			sim.emit(
+				tick,
+				Event_Broke_Free{position = sim.Position(player_pos(state, world, player)), player = u8(player)},
+			)
 		}
 		return false
 	}
@@ -355,7 +358,7 @@ grab :: proc(tick: ^Tick, player: int, target: Target) {
 	state.grabs += 1
 	sim.emit(
 		tick,
-		Grabbed {
+		Event_Grabbed {
 			entity = entity,
 			position = sim.Position(player_pos(state, world, player)),
 			player = u8(player),
@@ -392,7 +395,7 @@ drop :: proc(tick: ^Tick, player: int) {
 	character.charge = 0
 	sim.emit(
 		tick,
-		Dropped {
+		Event_Dropped {
 			entity = entity,
 			position = sim.Position(player_pos(state, world, player)),
 			player = u8(player),
@@ -431,7 +434,7 @@ throw :: proc(tick: ^Tick, player: int) {
 	state.throws += 1
 	sim.emit(
 		tick,
-		Thrown {
+		Event_Thrown {
 			entity = entity,
 			position = sim.Position(player_pos(state, world, player)),
 			speed = speed,
@@ -487,7 +490,7 @@ player_move :: proc(tick: ^Tick, player: int, input: Input, jump: bool) {
 		scale,
 		DT,
 	) {
-		sim.emit(tick, Jumped{position = sim.Position(player_pos(state, world, player)), player = u8(player)})
+		sim.emit(tick, Event_Jumped{position = sim.Position(player_pos(state, world, player)), player = u8(player)})
 	}
 }
 
@@ -538,7 +541,7 @@ pads :: proc(tick: ^Tick) {
 			physics.character_launch(world.phys, &character.controller)
 			character.pad_cooldown = PAD_COOLDOWN_TICKS
 			state.pad_launches += 1
-			sim.emit(tick, Launched{position = sim.Position(pad.volume.pos), player = u8(player)})
+			sim.emit(tick, Event_Launched{position = sim.Position(pad.volume.pos), player = u8(player)})
 			break
 		}
 	}
@@ -556,7 +559,7 @@ pads :: proc(tick: ^Tick) {
 			state.pad_launches += 1
 			sim.emit(
 				tick,
-				Launched {
+				Event_Launched {
 					entity = item_entity(world, i),
 					position = sim.Position(pad.volume.pos),
 					player = sim.NO_PLAYER,
@@ -583,7 +586,10 @@ knock :: proc(tick: ^Tick, player: int, direction: [2]f32, speed: f32) {
 		{direction.x * speed, KNOCKBACK_UP, direction.y * speed},
 	)
 	state.hits += 1
-	sim.emit(tick, Hit{position = sim.Position(player_pos(state, world, player)), speed = speed, player = u8(player)})
+	sim.emit(
+		tick,
+		Event_Hit{position = sim.Position(player_pos(state, world, player)), speed = speed, player = u8(player)},
+	)
 }
 
 bumpers :: proc(tick: ^Tick) {
@@ -638,7 +644,7 @@ hits :: proc(tick: ^Tick) {
 			trigger.cooldown = BELL_COOLDOWN_TICKS
 			sim.emit(
 				tick,
-				Bell_Rung {
+				Event_Bell_Rung {
 					entity = marker_entity(world.triggers[trigger_index].marker),
 					position = sim.Position(hit.point),
 					speed = hit.speed,
@@ -687,9 +693,9 @@ plates_and_switches :: proc(tick: ^Tick) {
 				trigger.active = pressed
 				entity, position := marker_entity(def.marker), sim.Position(def.volume.pos)
 				if pressed {
-					sim.emit(tick, Plate_On{entity = entity, position = position, mass = mass})
+					sim.emit(tick, Event_Plate_On{entity = entity, position = position, mass = mass})
 				} else {
-					sim.emit(tick, Plate_Off{entity = entity, position = position, mass = mass})
+					sim.emit(tick, Event_Plate_Off{entity = entity, position = position, mass = mass})
 				}
 			}
 		case .Switch:
@@ -700,7 +706,7 @@ plates_and_switches :: proc(tick: ^Tick) {
 					trigger.active = true
 					sim.emit(
 						tick,
-						Switch_On {
+						Event_Switch_On {
 							entity = marker_entity(def.marker),
 							position = sim.Position(def.volume.pos),
 							player = u8(player),
@@ -717,7 +723,7 @@ plates_and_switches :: proc(tick: ^Tick) {
 					trigger.active = true
 					sim.emit(
 						tick,
-						Switch_On {
+						Event_Switch_On {
 							entity = marker_entity(def.marker),
 							position = sim.Position(def.volume.pos),
 							player = sim.NO_PLAYER,
@@ -767,7 +773,7 @@ falls :: proc(tick: ^Tick) {
 				pos := respawn_point(state, world, player)
 				physics.character_teleport(world.phys, &character.controller, pos)
 				physics.character_set_limp(world.phys, &character.controller, false)
-				sim.emit(tick, Respawned{position = sim.Position(pos), player = u8(player)})
+				sim.emit(tick, Event_Respawned{position = sim.Position(pos), player = u8(player)})
 			}
 			continue
 		}
@@ -780,7 +786,7 @@ falls :: proc(tick: ^Tick) {
 		limp(state, world, player)
 		// Park the body far below while it waits.
 		physics.teleport(world.phys, character.controller.body, {f32(player) * 4, -60, 0})
-		sim.emit(tick, Fell{position = sim.Position(pos), player = u8(player)})
+		sim.emit(tick, Event_Fell{position = sim.Position(pos), player = u8(player)})
 	}
 	for i in 0 ..< world.item_count {
 		item := &state.items[i]
@@ -812,7 +818,7 @@ run :: proc(tick: ^Tick) {
 			if in_volume(world.start, player_pos(state, world, player)) {
 				state.phase = .Run
 				state.run_tick = tick.number
-				sim.emit(tick, Run_Started{position = sim.Position(world.start.pos), player = u8(player)})
+				sim.emit(tick, Event_Run_Started{position = sim.Position(world.start.pos), player = u8(player)})
 				break
 			}
 		}
@@ -826,7 +832,7 @@ run :: proc(tick: ^Tick) {
 					state.checkpoint = i32(checkpoint.index)
 					sim.emit(
 						tick,
-						Checkpoint {
+						Event_Checkpoint {
 							position = sim.Position(checkpoint.volume.pos),
 							index = i32(checkpoint.index),
 							player = u8(player),
@@ -846,7 +852,7 @@ run :: proc(tick: ^Tick) {
 				if state.best_ticks == 0 || ticks < state.best_ticks do state.best_ticks = ticks
 				sim.emit(
 					tick,
-					Run_Finished {
+					Event_Run_Finished {
 						entity = item_entity(world, i),
 						position = sim.Position(world.finish.pos),
 						seconds = f32(ticks) * DT,
@@ -876,7 +882,7 @@ reset_route :: proc(tick: ^Tick) {
 		character.respawn = 0
 		physics.character_teleport(world.phys, &character.controller, world.spawns[player])
 		physics.character_set_limp(world.phys, &character.controller, false)
-		sim.emit(tick, Respawned{position = sim.Position(world.spawns[player]), player = u8(player)})
+		sim.emit(tick, Event_Respawned{position = sim.Position(world.spawns[player]), player = u8(player)})
 	}
 	for i in 0 ..< world.item_count do item_home(tick, i)
 	for i in 0 ..< world.platform_count {

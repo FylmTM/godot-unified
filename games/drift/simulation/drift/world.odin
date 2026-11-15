@@ -56,7 +56,7 @@ GAME := Game {
 	init = init,
 	tick = tick,
 	events = Event,
-	commands = Command,
+	commands = Cmd,
 }
 
 // Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, the rock catalogue, then

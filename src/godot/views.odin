@@ -616,7 +616,7 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 		report_once(
 			fmt.tprintf("multi-kind:%s", node.kind),
 			fmt.tprintf(
-				"unified: a UnifiedMultiView has kind %q, which is not a member of the game's Multi enum",
+				"unified: a UnifiedMultiView has kind %q, which is not a member of the game's MultiView enum",
 				node.kind,
 			),
 		)

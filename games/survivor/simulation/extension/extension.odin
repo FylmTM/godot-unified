@@ -87,7 +87,7 @@ View :: enum u8 {
 // MultiMesh views (MultiMeshInstance3D, 3D transforms + custom data: r = hit flash 0..1, g = age in s, no
 // colours): one per Enemy_Kind, in its order, then projectiles and gems. Positions are on the floor plane (y = 0):
 // the shaders lift the meshes.
-Multi :: enum u8 {
+MultiView :: enum u8 {
 	Grunt,
 	Runner,
 	Brute,
@@ -95,11 +95,11 @@ Multi :: enum u8 {
 	Gem,
 }
 
-#assert(int(Multi.Grunt) == int(survivor.Enemy_Kind.Grunt))
-#assert(int(Multi.Runner) == int(survivor.Enemy_Kind.Runner))
-#assert(int(Multi.Brute) == int(survivor.Enemy_Kind.Brute))
+#assert(int(MultiView.Grunt) == int(survivor.Enemy_Kind.Grunt))
+#assert(int(MultiView.Runner) == int(survivor.Enemy_Kind.Runner))
+#assert(int(MultiView.Brute) == int(survivor.Enemy_Kind.Brute))
 
-Frame :: godot.Frame(survivor.State, survivor.World, View, Multi)
+Frame :: godot.Frame(survivor.State, survivor.World, View, MultiView)
 
 // Spawn keys: players 1..4 (a player's view lives for the whole session), items 0x100 + index (a destroyed
 // barrel's view goes; the one respawned 10 s later is a new view), the HUD 0x200.
@@ -115,7 +115,7 @@ Player_View :: struct {
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
 // instances, so their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, Multi) {
+GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	scripted_input    = survivor.scripted_input,
@@ -169,7 +169,7 @@ fill_frame :: proc(frame: ^Frame) {
 			frame,
 			{
 				key = sim.handle_key(handle),
-				kind = Multi(enemy.kind),
+				kind = MultiView(enemy.kind),
 				pos = {enemy.pos.x, 0, enemy.pos.y},
 				yaw = enemy_yaw(enemy.vel),
 				custom = {hit_flash(tick, enemy.hit_tick), age_s(tick, enemy.spawn_tick), 0, 0},

@@ -79,7 +79,7 @@ View :: enum u8 {
 
 // MultiMesh views (MultiMeshInstance2D, TRANSFORM_2D, colors + custom data): a rock mesh per variant (a unit-radius
 // polygon, scaled by the rock's radius), bullets, gems.
-Multi :: enum u8 {
+MultiView :: enum u8 {
 	Rock_0,
 	Rock_1,
 	Rock_2,
@@ -88,7 +88,7 @@ Multi :: enum u8 {
 	Gem,
 }
 
-Frame :: godot.Frame(dr.State, dr.World, View, Multi)
+Frame :: godot.Frame(dr.State, dr.World, View, MultiView)
 
 Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
@@ -110,7 +110,7 @@ KEY_STATION :: 100
 KEY_GATE :: 200
 KEY_HUD :: 300
 
-GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, Multi) {
+GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels: a warp snaps
@@ -134,25 +134,25 @@ event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
 event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
 	player := -1
 	switch value in sim.event_value(event, dr.Event) {
-	case dr.Station_Hit:
+	case dr.Event_Station_Hit:
 		return KEY_STATION
-	case dr.Joined:
+	case dr.Event_Joined:
 		player = int(value.player)
-	case dr.Left:
+	case dr.Event_Left:
 		player = int(value.player)
-	case dr.Fired:
+	case dr.Event_Fired:
 		player = int(value.player)
-	case dr.Boosted:
+	case dr.Event_Boosted:
 		player = int(value.player)
-	case dr.Warped:
+	case dr.Event_Warped:
 		player = int(value.player)
-	case dr.Rock_Hit:
+	case dr.Event_Rock_Hit:
 		player = int(value.player)
-	case dr.Gem_Picked:
+	case dr.Event_Gem_Picked:
 		player = int(value.player)
-	case dr.Match_Started:
+	case dr.Event_Match_Started:
 		player = int(value.player)
-	case dr.Rock_Split, dr.Rock_Destroyed, dr.Wave, dr.Match_Over:
+	case dr.Event_Rock_Split, dr.Event_Rock_Destroyed, dr.Event_Wave, dr.Event_Match_Over:
 	}
 	return player >= 0 ? view.Key(KEY_SHIP + player) : 0
 }
@@ -236,7 +236,7 @@ fill_frame :: proc(frame: ^Frame) {
 			frame,
 			{
 				key = sim.handle_key(handle),
-				kind = Multi(int(Multi.Rock_0) + int(rock.variant)),
+				kind = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
 				pos = pixels(pos, px_per_m),
 				yaw = math.atan2(rotation.y, rotation.x),
 				scale = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},

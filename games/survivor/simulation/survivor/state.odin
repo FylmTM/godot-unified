@@ -74,7 +74,7 @@ Cmd_Pick :: struct {
 }
 
 // The commands players send (sim.Game.commands; kind = variant index, name = type name without Cmd_).
-Command :: union {
+Cmd :: union {
 	Cmd_Pick,
 }
 

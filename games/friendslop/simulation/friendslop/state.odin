@@ -167,24 +167,24 @@ State :: struct {
 // sim.NO_PLAYER: none), `entity` the level marker index + 1 of an item, plate, bell, switch or lock (0: none),
 // `position` where it happened (metres).
 
-Player_Joined :: struct {
+Event_Player_Joined :: struct {
 	position: sim.Position, // where the player appears
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Player_Left :: struct {
+Event_Player_Left :: struct {
 	player: u8,
 }
 
-Jumped :: struct {
+Event_Jumped :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
 // A jump pad launched a player (entity 0) or an item (player NO_PLAYER).
-Launched :: struct {
+Event_Launched :: struct {
 	entity:   u64,
 	position: sim.Position, // the pad's
 	player:   u8,
@@ -192,7 +192,7 @@ Launched :: struct {
 }
 
 // `player` grabbed an item (entity) or another player (held_player).
-Grabbed :: struct {
+Event_Grabbed :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the holder's
 	player:      u8, // the holder
@@ -202,7 +202,7 @@ Grabbed :: struct {
 }
 
 // `player` let go of what it held (also before a throw).
-Dropped :: struct {
+Event_Dropped :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the holder's
 	player:      u8, // the holder
@@ -211,7 +211,7 @@ Dropped :: struct {
 	_pad:        u8,
 }
 
-Thrown :: struct {
+Event_Thrown :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the thrower's
 	speed:       f32, // m/s along the aim
@@ -222,33 +222,33 @@ Thrown :: struct {
 }
 
 // A player was hit by an item or a bumper.
-Hit :: struct {
+Event_Hit :: struct {
 	position: sim.Position,
 	speed:    f32, // the knockback's horizontal speed
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Broke_Free :: struct {
+Event_Broke_Free :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Fell :: struct {
+Event_Fell :: struct {
 	position: sim.Position, // where it fell below the kill height
 	player:   u8,
 	_pad:     [3]u8,
 }
 
-Respawned :: struct {
+Event_Respawned :: struct {
 	position: sim.Position,
 	player:   u8,
 	_pad:     [3]u8,
 }
 
 // The team reached a checkpoint (the player who reached it).
-Checkpoint :: struct {
+Event_Checkpoint :: struct {
 	position: sim.Position, // the checkpoint's
 	index:    i32, // the checkpoint's index (State.checkpoint)
 	player:   u8,
@@ -256,39 +256,39 @@ Checkpoint :: struct {
 }
 
 // A player walked through the start gate.
-Run_Started :: struct {
+Event_Run_Started :: struct {
 	position: sim.Position, // the gate's
 	player:   u8,
 	_pad:     [3]u8,
 }
 
 // The trophy (entity) reached the pedestal.
-Run_Finished :: struct {
+Event_Run_Finished :: struct {
 	entity:   u64,
 	position: sim.Position, // the finish volume's
 	seconds:  f32, // the run's time
 }
 
-Plate_On :: struct {
+Event_Plate_On :: struct {
 	entity:   u64,
 	position: sim.Position,
 	mass:     f32, // kg on the plate
 }
 
-Plate_Off :: struct {
+Event_Plate_Off :: struct {
 	entity:   u64,
 	position: sim.Position,
 	mass:     f32,
 }
 
-Bell_Rung :: struct {
+Event_Bell_Rung :: struct {
 	entity:   u64,
 	position: sim.Position, // where it was hit
 	speed:    f32, // the hit's approach speed
 }
 
 // A switch (touched by `player`) or a lock (opened by a key: player NO_PLAYER) fired.
-Switch_On :: struct {
+Event_Switch_On :: struct {
 	entity:   u64,
 	position: sim.Position,
 	player:   u8,
@@ -296,22 +296,22 @@ Switch_On :: struct {
 }
 
 Event :: union {
-	Player_Joined,
-	Player_Left,
-	Jumped,
-	Launched,
-	Grabbed,
-	Dropped,
-	Thrown,
-	Hit,
-	Broke_Free,
-	Fell,
-	Respawned,
-	Checkpoint,
-	Run_Started,
-	Run_Finished,
-	Plate_On,
-	Plate_Off,
-	Bell_Rung,
-	Switch_On,
+	Event_Player_Joined,
+	Event_Player_Left,
+	Event_Jumped,
+	Event_Launched,
+	Event_Grabbed,
+	Event_Dropped,
+	Event_Thrown,
+	Event_Hit,
+	Event_Broke_Free,
+	Event_Fell,
+	Event_Respawned,
+	Event_Checkpoint,
+	Event_Run_Started,
+	Event_Run_Finished,
+	Event_Plate_On,
+	Event_Plate_Off,
+	Event_Bell_Rung,
+	Event_Switch_On,
 }

@@ -19,7 +19,7 @@ state_is_plain_data :: proc(t: ^testing.T) {
 // GDScript sends commands and matches events by these names: renaming a type breaks the game's scripts.
 @(test)
 command_and_event_names :: proc(t: ^testing.T) {
-	commands := sim.command_names(survivor.Command, context.temp_allocator)
+	commands := sim.command_names(survivor.Cmd, context.temp_allocator)
 	testing.expect_value(t, len(commands), 1)
 	testing.expect_value(t, commands[0], "pick")
 	events := sim.event_names(survivor.Event, context.temp_allocator)
@@ -50,7 +50,7 @@ step :: proc(simulation: ^survivor.Sim, present: sim.Players) {
 	sim.step(simulation, &inputs)
 }
 
-// Whether `tick` emitted a presence event (Player_Joined or Player_Left: `Kind`) about `player`.
+// Whether `tick` emitted a presence event (Event_Player_Joined or Event_Player_Left: `Kind`) about `player`.
 has_event :: proc(simulation: ^survivor.Sim, tick: u32, $Kind: typeid, player: int) -> bool {
 	for &raw in sim.events_at(simulation, tick) {
 		if event, ok := sim.event_value(&raw, survivor.Event).(Kind); ok && int(event.player) == player {
@@ -68,13 +68,13 @@ presence_joins_and_leaves :: proc(t: ^testing.T) {
 	step(simulation, {0})
 	testing.expect(t, state.players[0].active && state.players[0].alive)
 	testing.expect(t, !state.players[1].active)
-	testing.expect(t, has_event(simulation, 1, survivor.Player_Joined, 0))
+	testing.expect(t, has_event(simulation, 1, survivor.Event_Player_Joined, 0))
 	step(simulation, {0, 1})
 	testing.expect(t, state.players[1].active)
-	testing.expect(t, has_event(simulation, 2, survivor.Player_Joined, 1))
+	testing.expect(t, has_event(simulation, 2, survivor.Event_Player_Joined, 1))
 	step(simulation, {1})
 	testing.expect(t, !state.players[0].active && state.players[0].body == {})
-	testing.expect(t, has_event(simulation, 3, survivor.Player_Left, 0))
+	testing.expect(t, has_event(simulation, 3, survivor.Event_Player_Left, 0))
 }
 
 @(test)

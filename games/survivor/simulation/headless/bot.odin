@@ -53,7 +53,7 @@ bot_run :: proc(
 		}
 		elapsed := f32(simulation.tick - state.match_tick) * survivor.DT
 		for &raw in sim.events_at(simulation, simulation.tick) {
-			if _, is_level_up := sim.event_value(&raw, survivor.Event).(survivor.Level_Up);
+			if _, is_level_up := sim.event_value(&raw, survivor.Event).(survivor.Event_Level_Up);
 			   is_level_up && run.first_level_s < 0 {
 				run.first_level_s = elapsed
 			}

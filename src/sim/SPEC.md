@@ -63,18 +63,21 @@ an upgrade, set the map, ready up) is delivered exactly once, in order, per play
 ```odin
 Cmd_Drop_Coin :: struct {value: u8}                 // any plain struct, 1..64 bytes
 Cmd_Start :: struct {map_index: u8, _pad: [3]u8}
-Command :: union {Cmd_Drop_Coin, Cmd_Start}         // kind = variant index; name = type name without Cmd_, lowercased
+Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index; name = type name without Cmd_, lowercased
 
-GAME := Game{..., commands = Command}
+GAME := Game{..., commands = Cmd}
 
 for &raw in sim.commands(tick.inputs, player) {     // inside tick: this player's, in order, exactly once each
-	switch command in sim.command_value(&raw, Command) {
+	switch command in sim.command_value(&raw, Cmd) {
 	case Cmd_Drop_Coin: ...
 	case Cmd_Start: ...
 	}
 }
 ```
 
+- Naming (#214): command types `Cmd_<Name>` in a union `Cmd`, event types `Event_<Name>` in a union `Event`. The
+  prefixes are left out of the names (`drop_coin`, `coin_picked`) and of the Godot classes (`CommandDropCoin`,
+  `EventCoinPicked`); an event type without `Event_` still works.
 - A command is **input, not state**: part of the tick's input record, so it is logged, replayed and sent to late
   joiners with the log; never in the block. Only `tick` reads it. The union exists only when `command_value` builds
   it; on the wire and in the log a command is its kind and its struct's bytes.
@@ -87,7 +90,7 @@ for &raw in sim.commands(tick.inputs, player) {     // inside tick: this player'
 - `Raw_Command {kind, player, size, data: [64]u8}`. A kind out of range or a wrong size reads as no variant (bytes
   from the network are dropped the same way on every peer).
 - Sources (a UI, a script, a bot) send into a `Command_Out` (`player`, `cap`): `send_command(out, value) -> bool`
-  (false: not a variant, or `cap` reached). `command_make(Command, value)` builds a raw one for tests and tools.
+  (false: not a variant, or `cap` reached). `command_make(Cmd, value)` builds a raw one for tests and tools.
   Delivery (the client predicts it at the tick it was sent for, or at the first tick not yet finalized when that one
   is; the relay places it): `src/netcode/SPEC.md`.
 
@@ -98,16 +101,16 @@ block, not hashed, not rolled back as such. The game declares one plain struct p
 them; an event carries only its own fields:
 
 ```odin
-Coin_Picked :: struct {
+Event_Coin_Picked :: struct {
 	coin:     sim.Handle(Coin),
 	player:   u8,
 	position: sim.Position, // distinct [3]f32, sim units (2D: z = 0)
 	value:    u32,
 }
-Event :: union {Coin_Spawned, Coin_Picked, Coin_Dropped}  // name = type name without an Event_ prefix, lowercased: "coin_picked"
+Event :: union {Event_Coin_Spawned, Event_Coin_Picked, Event_Coin_Dropped}  // name = type name without Event_, lowercased: "coin_picked"
 
 GAME := Game{..., events = Event}
-sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y, 0}, value = coin.value})
+sim.emit(tick, Event_Coin_Picked{coin = handle, player = u8(player), position = {x, y, 0}, value = coin.value})
 ```
 
 - Stored per tick in the ring as kind + bytes (`Raw_Event {kind, size, data}`), like commands; emitted again when a

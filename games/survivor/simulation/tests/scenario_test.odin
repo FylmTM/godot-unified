@@ -44,7 +44,7 @@ SCENARIO := survivor.Game {
 	init          = survivor.GAME_STRESS.init, // the dense stress spawner
 	tick          = scenario_tick,
 	events        = survivor.Event,
-	commands      = survivor.Command,
+	commands      = survivor.Cmd,
 }
 
 Counts :: struct {
@@ -54,15 +54,15 @@ Counts :: struct {
 count :: proc(counts: ^Counts, events: []sim.Raw_Event) {
 	for &raw in events {
 		#partial switch _ in sim.event_value(&raw, survivor.Event) {
-		case survivor.Barrel_Exploded:
+		case survivor.Event_Barrel_Exploded:
 			counts.explosions += 1
-		case survivor.Player_Died:
+		case survivor.Event_Player_Died:
 			counts.deaths += 1
-		case survivor.Player_Respawned:
+		case survivor.Event_Player_Respawned:
 			counts.respawns += 1
-		case survivor.Match_Over:
+		case survivor.Event_Match_Over:
 			counts.overs += 1
-		case survivor.Match_Started:
+		case survivor.Event_Match_Started:
 			counts.starts += 1
 		}
 	}
@@ -72,7 +72,7 @@ count :: proc(counts: ^Counts, events: []sim.Raw_Event) {
 scripted :: proc(simulation: ^survivor.Sim, tick: u32) -> (inputs: survivor.Inputs) {
 	inputs.present = {0, 1, 2, 3}
 	out := sim.Command_Out {
-		commands = survivor.Command,
+		commands = survivor.Cmd,
 		cap      = sim.COMMANDS_PER_PLAYER,
 	}
 	defer delete(out.list)

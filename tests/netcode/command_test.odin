@@ -13,7 +13,7 @@ import "unified:sim"
 // What toy.scripted_commands sends from `player` over ticks first..last, in order.
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
 	out := sim.Command_Out {
-		commands = toy.Command,
+		commands = toy.Cmd,
 		player   = player,
 		cap      = 1 << 20,
 	}
@@ -124,7 +124,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		sum: i32
 		bumps: u32
 		for &command in got {
-			if bump, ok := sim.command_value(&command, toy.Command).(toy.Cmd_Bump); ok {
+			if bump, ok := sim.command_value(&command, toy.Cmd).(toy.Cmd_Bump); ok {
 				bumps += 1
 				sum += bump.amount
 				fold = toy.bump_fold(fold, bump.amount)

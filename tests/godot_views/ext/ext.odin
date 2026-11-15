@@ -21,12 +21,12 @@ View :: enum u8 {
 	Hud,
 }
 
-Multi :: enum u8 {
+MultiView :: enum u8 {
 	Multi2D,
 	Multi3D,
 }
 
-Frame :: godot.Frame(toy.State, toy.World, View, Multi)
+Frame :: godot.Frame(toy.State, toy.World, View, MultiView)
 
 // The typed2d view's data: set as its properties, each when its bytes change.
 Typed2D_Data :: struct {
@@ -71,7 +71,7 @@ ANGLE_2D :: 0.5
 POS_3D :: [3]f32{1, 2, 3}
 YAW_3D :: 0.75
 
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, Multi) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	smoothing = {tau_s = 0.1, teleport_dist = 64},

@@ -309,10 +309,10 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		Not_Plain,
 	}
 	No_Nil :: union #no_nil {
-		toy.Joined,
-		toy.Left,
+		toy.Event_Joined,
+		toy.Event_Left,
 	}
-	testing.expect_value(t, sim.game_violation("toy", 64, toy.Command, toy.Event), "")
+	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, toy.Event), "")
 	testing.expect(t, sim.game_violation("toy", 64, Big_Union, nil) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
@@ -323,7 +323,7 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 
 @(test)
 names_derive_from_the_types :: proc(t: ^testing.T) {
-	commands := sim.command_names(toy.Command, context.temp_allocator)
+	commands := sim.command_names(toy.Cmd, context.temp_allocator)
 	testing.expect(t, len(commands) == 2 && commands[0] == "bump" && commands[1] == "mark")
 	events := sim.event_names(toy.Event, context.temp_allocator)
 	testing.expect(t, len(events) == 4 && events[0] == "joined" && events[2] == "spawned" && events[3] == "expired")
@@ -356,18 +356,18 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	events := sim.events_at(simulation, 1)
 	testing.expect_value(t, len(events), 3) // joined 0, spawned by 0, joined 2
 	if len(events) != 3 do return
-	joined, is_joined := sim.event_value(&events[0], toy.Event).(toy.Joined)
+	joined, is_joined := sim.event_value(&events[0], toy.Event).(toy.Event_Joined)
 	testing.expect(t, is_joined && joined.player == 0)
-	spawned, is_spawned := sim.event_value(&events[1], toy.Event).(toy.Spawned)
+	spawned, is_spawned := sim.event_value(&events[1], toy.Event).(toy.Event_Spawned)
 	testing.expect(t, is_spawned && spawned.player == 0)
 	thing := sim.get(&simulation.state.things, spawned.thing)
 	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, 0, thing.pos.y})
-	testing.expect_value(t, sim.event_value(&events[2], toy.Event).(toy.Joined).player, 2)
+	testing.expect_value(t, sim.event_value(&events[2], toy.Event).(toy.Event_Joined).player, 2)
 	inputs.present = {0}
 	sim.step(simulation, &inputs)
 	events = sim.events_at(simulation, 2)
 	testing.expect_value(t, len(events), 2) // spawned by 0 (button still down), left 2
-	_, is_left := sim.event_value(&events[1], toy.Event).(toy.Left)
+	_, is_left := sim.event_value(&events[1], toy.Event).(toy.Event_Left)
 	testing.expect(t, is_left)
 	// Re-simulating tick 2 with other inputs replaces its events.
 	testing.expect(t, sim.restore(simulation, 1))
@@ -401,10 +401,10 @@ input_log_round_trip :: proc(t: ^testing.T) {
 		inputs.input[0] = toy.scripted_input(99, 0, u32(k + 1))
 		inputs.input[1] = toy.scripted_input(99, 1, u32(k + 1))
 		if k % 5 == 0 {
-			bump, _ := sim.command_make(toy.Command, toy.Cmd_Bump{i32(k)})
+			bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(k)})
 			bump.player = 1
 			sim.add_command(&inputs, bump)
-			mark, _ := sim.command_make(toy.Command, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
+			mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
 			sim.add_command(&inputs, mark) // player 0: goes before player 1's
 		}
 		sim.log_append(&input_log, &inputs)

@@ -28,7 +28,7 @@ Run :: struct {
 	rock_splits:  int,
 	matches_over: int,
 	warps:        int,
-	last_warp:    dr.Warped,
+	last_warp:    dr.Event_Warped,
 }
 
 start :: proc(players: int) -> Run {
@@ -50,7 +50,7 @@ finish :: proc(run: ^Run) {
 
 // One forward tick with these inputs (and player 0's command, when given), then the sync-test of the last
 // WINDOW ticks and the plane check.
-step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Command = nil) {
+step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Cmd = nil) {
 	inputs := dr.Inputs {
 		present = run.present,
 		input   = input,
@@ -83,17 +83,17 @@ step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Command = nil) 
 
 count_event :: proc(run: ^Run, event: dr.Event) {
 	#partial switch value in event {
-	case dr.Wave:
+	case dr.Event_Wave:
 		run.waves += 1
-	case dr.Fired:
+	case dr.Event_Fired:
 		run.shots += 1
-	case dr.Rock_Hit:
+	case dr.Event_Rock_Hit:
 		run.rock_hits += 1
-	case dr.Rock_Split:
+	case dr.Event_Rock_Split:
 		run.rock_splits += 1
-	case dr.Match_Over:
+	case dr.Event_Match_Over:
 		run.matches_over += 1
-	case dr.Warped:
+	case dr.Event_Warped:
 		run.warps += 1
 		run.last_warp = value
 	}
@@ -108,7 +108,7 @@ setup_done :: proc(run: ^Run) {
 
 // Player 0 sends a command this tick.
 send :: proc(inputs: ^dr.Inputs, value: $T) {
-	raw, ok := sim.command_make(dr.Command, value)
+	raw, ok := sim.command_make(dr.Cmd, value)
 	assert(ok && sim.add_command(inputs, raw))
 }
 

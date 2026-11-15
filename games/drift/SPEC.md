@@ -86,7 +86,7 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   - `station`: Station_View `{hp_frac}`.
   - `gate`: Gate_View `{charge}`.
   - `hud`: the HUD data (games/shared `hud_view.gd`, `Game.hud`).
-- MultiMesh views (`Multi`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
+- MultiMesh views (`MultiView`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
   handles):
   - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with rotation and a hit flash in custom data.
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the owner's color.
