@@ -33,8 +33,8 @@ friendslop_init :: proc "c" (
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "friendslop/5"
-#assert(netcode.PROTOCOL_VERSION == 9, "netcode protocol changed: bump BUCKET with it")
+BUCKET :: "friendslop/6"
+#assert(netcode.PROTOCOL_VERSION == 10, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
 eos_init :: proc(events: ^godot.Transport_Events) -> bool {

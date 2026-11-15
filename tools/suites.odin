@@ -8,18 +8,28 @@ import "unified:cli"
 
 // This repo's own test suites: the netcode over real UDP, and the Godot bindings under headless Godot.
 private_suites :: proc() -> []cli.Suite {
-	return cli.box_suites({
-		name        = "net",
-		summary     = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
-		budget      = 10,
-		long_budget = 25,
-		run         = suite_net,
-	}, {
-		name    = "godot-bindings",
-		summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
-		budget  = 5,
-		run     = suite_godot_bindings,
-	})
+	return cli.box_suites(
+		{
+			name = "net",
+			summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
+			budget = 10,
+			long_budget = 25,
+			run = suite_net,
+			beside = true,
+			prepare = proc() {cli.build_headless(.release)}, 	// .out/release/: the godot suite's binaries are there too
+		},
+		{
+			name = "godot-bindings",
+			summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
+			budget = 5,
+			run = suite_godot_bindings,
+			beside = true,
+			prepare = proc() {
+				cli.godot()
+				cli.ensure_bindings()
+			},
+		},
+	)
 }
 
 // --- net --------------------------------------------------------------------------------------------------------
