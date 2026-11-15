@@ -27,6 +27,8 @@ Focus_Guard :: struct {
 @(private = "file")
 guard: Focus_Guard
 
+// Remembers the app in front and starts the watcher (`with_window`, for a background window); nothing when no app
+// is in front.
 start_focus_guard :: proc() {
 	front := lsappinfo("front")
 	bundle := lsappinfo_value(lsappinfo(fmt.tprintf("info -only bundleid %s", front)))
@@ -40,6 +42,7 @@ start_focus_guard :: proc() {
 	guard.worker = thread.create_and_start(watch_focus)
 }
 
+// Stops the watcher once the window's Godot has ended; with --verbose, says how often it gave the focus back.
 stop_focus_guard :: proc() {
 	if guard.worker == nil {
 		return
