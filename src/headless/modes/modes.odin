@@ -156,9 +156,10 @@ mode_synctest :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLA
 	return result.mismatches == 0
 }
 
-// The `replay` mode: replays an input log file, writing the trace when asked; fails on a log of another build.
+// The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
+// writing the trace when asked; fails on a log of another build.
 mode_replay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
-	check_known(args, "log", "trace")
+	check_known(args, "log", "trace", "snapshot")
 	log_path := opt_str(args, "log", required = true)
 	input_log, log_ok := sim.log_read(log_path, Input, PLAYERS)
 	if !log_ok {
@@ -167,7 +168,14 @@ mode_replay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYE
 	defer sim.log_destroy(&input_log)
 	trace: uheadless.Trace
 	defer uheadless.trace_destroy(&trace)
-	result, ok := uheadless.run_replay(headless, &input_log, &trace)
+	snapshot: []u8
+	defer delete(snapshot)
+	if path := opt_str(args, "snapshot"); path != "" {
+		read_ok: bool
+		snapshot, read_ok = sim.read_file(path)
+		if !read_ok do die("replay: cannot read snapshot %s", path)
+	}
+	result, ok := uheadless.run_replay(headless, &input_log, &trace, snapshot)
 	if path := opt_str(args, "trace"); ok && path != "" {
 		ok = uheadless.trace_write(&trace, path)
 	}
