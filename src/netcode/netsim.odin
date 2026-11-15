@@ -211,10 +211,14 @@ netsim_event :: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bo
 	return netsim.inner.event(netsim.inner.data)
 }
 
+// The datagrams still queued to go out are sent now, not dropped: like datagrams already on the wire, they outlive
+// their sender. A client that leaves just after acking the relay's End would otherwise take the ack with it, and the
+// relay would wait its 3 s for it.
 @(private)
 netsim_close :: proc(data: rawptr) {
 	netsim := (^Net_Sim)(data)
 	for packet in netsim.outgoing {
+		link_send(&netsim.inner, packet.peer, packet.bytes)
 		delete(packet.bytes)
 	}
 	for packet in netsim.incoming {
