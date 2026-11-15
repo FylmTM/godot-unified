@@ -902,9 +902,10 @@ bind_property_by_name :: proc(cls: ^Class, name: string, kind: gdi.VariantType, 
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
 }
 
-// The Odin instance behind an object of one of this extension's classes (nil for any other object).
-instance_of :: proc(obj: Object) -> rawptr {
-	if obj.ptr == nil do return nil
+// The Odin instance behind an object of `cls` (one of this extension's classes) or a class extending it; nil for
+// any other object. (object_cast can't tell: an extension class shares its native ancestor's class tag.)
+instance_of :: proc(obj: Object, cls: ^Class) -> rawptr {
+	if obj.ptr == nil || !Object_is_class(obj, &cls.name_sn) do return nil
 	return gdi.object_get_instance_binding(obj.ptr, library, &binding_callbacks)
 }
 

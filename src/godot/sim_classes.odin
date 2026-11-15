@@ -48,7 +48,8 @@ sim_classes: [dynamic]^Sim_Class
 
 // The class of an object made from one of the game's event or command classes (nil otherwise).
 sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
-	instance := (^Sim_Object)(gd.instance_of(obj))
+	instance := (^Sim_Object)(gd.instance_of(obj, &event_base_class))
+	if instance == nil do instance = (^Sim_Object)(gd.instance_of(obj, &command_base_class))
 	if instance == nil do return nil, nil
 	for sim_class in sim_classes do if &sim_class.class == instance.class do return sim_class, instance
 	return nil, nil
@@ -229,7 +230,7 @@ new_event_object :: proc(kind: int, tick: u32, data: []u8) -> gd.Object {
 	for sim_class in sim_classes {
 		if !sim_class.is_event || sim_class.kind != kind do continue
 		object := gd.Object{gd.construct_object(sim_class.name)}
-		instance := (^Sim_Object)(gd.instance_of(object))
+		instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
 		instance.tick = i64(tick)
 		copy(instance.data[:], data)
 		return object

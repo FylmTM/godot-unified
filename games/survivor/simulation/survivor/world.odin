@@ -40,10 +40,10 @@ Player_Respawned :: struct {
 }
 
 Enemy_Died :: struct {
-	enemy:    sim.Handle(Enemy),
-	position: sim.Position,
-	kind:     Enemy_Kind,
-	_pad:     [3]u8,
+	enemy:      sim.Handle(Enemy),
+	position:   sim.Position,
+	enemy_kind: Enemy_Kind,
+	_pad:       [3]u8,
 }
 
 // Items are a fixed array, not a table: the subject is the item's view key, `entity` = item index + 1.

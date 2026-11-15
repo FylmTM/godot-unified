@@ -280,10 +280,10 @@ scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 
 // The scene root's UnifiedView marker: its first direct child of that class.
 @(private)
-find_marker :: proc(root: gd.Node, class: string) -> gd.Node {
+find_marker :: proc(root: gd.Node) -> gd.Node {
 	for i in 0 ..< gd.Node_get_child_count(root, false) {
 		child := gd.Node_get_child(root, i, false)
-		if marker := gd.object_cast(gd.Node, child, class); marker.ptr != nil do return marker
+		if gd.instance_of(child, &unified_view_class) != nil do return child
 	}
 	return {}
 }
@@ -307,7 +307,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	kind := api.view_names[item.kind]
 	scene_view.id = gdi.object_get_instance_id(node.ptr)
 	scene_view.kind, scene_view.player, scene_view.entity = item.kind, item.player, item.entity
-	scene_view.marker = find_marker(node, "UnifiedView")
+	scene_view.marker = find_marker(node)
 	if scene_view.marker.ptr == nil {
 		report_once(
 			fmt.tprintf("marker:%s", kind),
@@ -318,7 +318,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		)
 	} else {
 		scene_view.marker_id = gdi.object_get_instance_id(scene_view.marker.ptr)
-		marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker))
+		marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
 		if marker.kind != kind {
 			report_once(
 				fmt.tprintf("marker-kind:%s", kind),

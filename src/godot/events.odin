@@ -73,8 +73,14 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 			case name == "player" && is_integer(field):
 				layout.player, layout.player_size = offset, field.size
 			}
-			// the host adds `tick` to every event's data
-			if name == "tick" do fmt.panicf("unified: event %v has a field named `tick`, which the host's event data reserves", variant.id)
+			// every event class has `tick` and `kind` (UnifiedEvent): a field must not hide them
+			if name == "tick" || name == "kind" {
+				fmt.panicf(
+					"unified: event %v has a field named `%s`, which UnifiedEvent reserves: rename it",
+					variant.id,
+					name,
+				)
+			}
 		}
 	}
 	return layouts

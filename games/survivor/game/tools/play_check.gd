@@ -52,8 +52,7 @@ func _run() -> void:
 	bench = int(arg("bench", "0"))
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
 		if state == UnifiedSession.EVENT_CONFIRMED:
-			# by class (EnemyDied -> enemy_died): `kind` is EnemyDied's own field, the enemy's kind
-			var kind := StringName(event.get_class().to_snake_case())
+			var kind := StringName(event.kind)
 			_events[kind] = _events.get(kind, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)

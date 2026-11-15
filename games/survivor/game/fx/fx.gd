@@ -54,7 +54,7 @@ func play(event: UnifiedEvent) -> void:
 	var player: int = event.get(&"player") if &"player" in event else -1
 	var local := player >= 0 and player == Game.local_player()
 	if event is EnemyDied:
-		var kind := clampi(ENEMY_KINDS.find(String((event as EnemyDied).kind)), 0, 2)
+		var kind := clampi(ENEMY_KINDS.find(String((event as EnemyDied).enemy_kind)), 0, 2)
 		var color: Color = ENEMY_COLORS[kind]
 		_burst(pos + Vector3(0, 0.5, 0), color, 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))

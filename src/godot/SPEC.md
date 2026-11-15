@@ -126,8 +126,8 @@ type in PascalCase (`Rock_Hit` -> `RockHit`; a command loses its `Cmd_` prefix: 
 property per field: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
 bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
 in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` / `Color`; `_` fields are
-left out; a `player` field holding `sim.NO_PLAYER` is -1. A name that clashes with an existing class stops the
-install with an error. GDScript:
+left out; a `player` field holding `sim.NO_PLAYER` is -1. An event field named `tick` or `kind` (UnifiedEvent's) and a
+name that clashes with an existing class stop the install with an error. GDScript:
 
 ```gdscript
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
