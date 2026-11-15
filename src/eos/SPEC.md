@@ -59,10 +59,13 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   instead of failing the running session. A crashed player who never returns: the netcode notices first and frees the seat
   (10 s of silence, `DISCONNECT_US`), the lobby reports the member Disconnected after ~15 s, the SDK closes P2P
   after ~37 s (its 30 s reconnect window). A crashed player who restarts and joins again comes back as the same
-  user ID: the host gets no EOS event for the dead process, and the restarted process's packets either arrive on
-  the P2P connection EOS kept (the netcode sees a new epoch, and "newest wins" seats the same member again; back
-  ~6 s after entering the code, 11-14) or never get a connection while the host's SDK still holds the old one
-  as lost (2 of 3 runs on 11-14, before #250's retry). Measured again for #32 (`uni coop survivor --crash`).
+  user ID. The host gets no EOS event for the dead process, and its SDK can hold the old connection (as lost, for
+  its 30 s reconnect window), so the new process's connection may not come up, or come up half-open (nothing gets
+  through). Two rules get it back (#32): when the netcode is done with a peer (`Link.forget`: 10 s of silence, a
+  goodbye), the host closes that P2P connection, so the user's next request opens a fresh one on the same peer
+  number; and a joiner's connection that closes before anything came through it is another try, not a lost host.
+  Then the netcode's new epoch and "newest wins" seat the same member again. `uni coop survivor --crash`, 5 of 5
+  (2026-11-16, one Windows machine): back 0.5–6.2 s after the host dropped the player (10 s after the crash).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
   1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The host accepts P2P only from

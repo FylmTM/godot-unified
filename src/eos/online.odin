@@ -58,6 +58,8 @@ Remote :: struct {
 	id_str:    [PRODUCTUSERID_MAX_LENGTH + 1]u8,
 	network:   Network_Connection_Type,
 	connected: bool,
+	forgotten: bool, // host: closed by link_forget; its close notification is ours, not news for the netcode
+	heard:     bool, // a packet came in on this connection since it came up
 	reasm:     Reasm,
 }
 
@@ -388,6 +390,7 @@ link :: proc() -> (net_link: netcode.Link, ok: bool) {
 			recv    = link_recv,
 			close   = link_close,
 			event   = link_event,
+			forget  = link_forget,
 			account = link_account,
 		}, true
 }
@@ -1283,6 +1286,7 @@ on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established
 	}
 	remote := &online.remotes[i]
 	remote.connected = true
+	remote.heard = false
 	remote.network = info.network_type
 	push_event(online, netcode.Peer(i), true)
 	if online.role == .Join && online.connect_at_us != 0 {
@@ -1310,9 +1314,23 @@ on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 	}
 	was_connected := online.remotes[i].connected
 	online.remotes[i].connected = false
+	if online.remotes[i].forgotten {
+		online.remotes[i].forgotten = false // our own close (link_forget): the netcode already knows
+		return
+	}
 	if online.role == .Join && !was_connected {
 		// A try that never connected, closed by connect_again: the netcode keeps waiting for the host.
 		log_line("P2P connection to the host closed before it came up (reason %d)", info.reason)
+		return
+	}
+	if online.role == .Join && !online.remotes[i].heard && online.stage == .Ready {
+		// Up, but nothing ever came through it, then closed: after a crash the host's SDK can hold the old process's
+		// connection, so the new one is half-open until the host closes it (#32). Not a lost host: try again.
+		online.connect_at_us = online.last_tick_us + online.connect_wait
+		log_line(
+			"P2P connection to the host closed before anything came through (reason %d): trying again",
+			info.reason,
+		)
 		return
 	}
 	push_event(online, netcode.Peer(i), false)
@@ -1459,6 +1477,7 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 				continue
 			}
 			online.received += 1
+			online.remotes[i].heard = true
 			if joined, done := frame_join(&online.remotes[i].reasm, pkt[:written], buf); done {
 				return joined, netcode.Peer(i), true
 			}
@@ -1475,6 +1494,37 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 @(private)
 link_close :: proc(data: rawptr) {
 	// The session outlives the netcode objects; `leave` ends it.
+}
+
+// Host: the netcode is done with a peer (10 s of silence, a goodbye, or garbage). Close our side of its P2P
+// connection: after a crash, EOS would otherwise hold the dead connection for its 30 s reconnect window, and the same
+// user's restarted game couldn't connect until then (#32). The peer number stays the user's; its next connection
+// request (a member's) opens a fresh connection.
+@(private)
+link_forget :: proc(data: rawptr, peer: netcode.Peer) {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if online.role != .Host || online.stage != .Ready || int(peer) < 1 || int(peer) >= MAX_REMOTES {
+		return
+	}
+	remote := &online.remotes[peer]
+	if !remote.used {
+		return
+	}
+	close_options := P2P_Accept_Connection_Options {
+		api_version    = P2P_CLOSECONNECTION_API_LATEST,
+		local_user_id  = online.local,
+		remote_user_id = remote.id,
+		socket_id      = &online.socket,
+	}
+	remote.forgotten = true // before the call: EOS may report the close from inside it
+	if result := online.api.P2P_CloseConnection(online.p2p, &close_options); result != .Success {
+		remote.forgotten = false
+		log_line("closing the P2P connection to %s: %s", cstr(remote.id_str[:]), online.api.EResult_ToString(result))
+		return
+	}
+	remote.connected = false
+	log_line("closed the P2P connection to %s: the session is done with it", cstr(remote.id_str[:]))
 }
 
 @(private)

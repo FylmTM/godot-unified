@@ -211,6 +211,10 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 		recv    = dev_link_recv,
 		close   = dev_link_close,
 		event   = inner.event == nil ? nil : dev_link_event,
+		// the transport's own: it frees the peer (UDP) or closes its connection (EOS), netsim on or off
+		forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: netcode.Peer) {
+			netcode.link_forget(&(^Dev_Link)(data).inner, peer)
+		},
 		account = inner.account == nil ? nil : proc(data: rawptr, peer: netcode.Peer) -> (netcode.Account, bool) {
 			return netcode.link_account(&(^Dev_Link)(data).inner, peer)
 		},

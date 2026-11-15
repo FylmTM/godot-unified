@@ -13,6 +13,7 @@ import "core:thread"
 import "core:time"
 
 import "unified:eos"
+import "unified:netcode"
 
 @(private = "file")
 Pending_Kind :: enum {
@@ -623,6 +624,37 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(fake.accepted), 2)
 	member(lobby, OWNER, .Joined)
 	testing.expect_value(t, len(fake.accepted), 3)
+
+	// #32: the netcode gives up on a member's peer (silence after a crash): the host closes that P2P connection,
+	// tells the netcode nothing more, and the same user's next request gets a fresh connection on the same peer.
+	host_link, _ := eos.link()
+	drain_events :: proc(net_link: netcode.Link) -> (connected, disconnected: int) {
+		for {
+			_, kind, has := net_link.event(net_link.data)
+			if !has do return
+			if kind == .Connected do connected += 1
+			if kind == .Disconnected do disconnected += 1
+		}
+	}
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = OWNER)
+	eos.pump()
+	testing.expect_value(t, eos.status().peers, 1)
+	drain_events(host_link)
+	closes := fake.closed_to_owner
+	host_link.forget(host_link.data, 1)
+	eos.pump() // the close notification
+	testing.expect_value(t, fake.closed_to_owner, closes + 1)
+	testing.expect_value(t, eos.status().peers, 0)
+	connected, disconnected := drain_events(host_link)
+	testing.expect_value(t, disconnected, 0)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 4)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = OWNER)
+	eos.pump()
+	testing.expect_value(t, eos.status().peers, 1)
+	connected, disconnected = drain_events(host_link)
+	testing.expect_value(t, connected, 1)
+	fake.closed_to_owner = 0
 	eos.leave()
 	delete(fake.accepted)
 	fake.accepted = {}
@@ -677,6 +709,31 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, eos.status().peers, 1)
 	testing.expect_value(t, fake.closed_to_owner, 1)
 	testing.expect_value(t, link_events(), 1)
+	eos.leave()
+
+	// #32: a connection that came up but carried nothing, then closed by the host (a host whose SDK still held the
+	// crashed process's connection): not a lost host for the netcode; the joiner tries again and gets through.
+	fake.closed_to_owner = 0
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success)
+	eos.pump()
+	testing.expect_value(t, link_events(), 1) // connected
+	enqueue(.Closed, fake.on_closed, fake.p2p_data, .Success) // the host closed it
+	eos.pump()
+	testing.expect_value(t, link_events(), 0)
+	testing.expect_value(t, eos.status().stage, eos.Stage.Ready)
+	for _ in 0 ..< 400 {
+		if fake.closed_to_owner > 0 do break
+		eos.pump()
+		time.sleep(2 * time.Millisecond)
+	}
+	testing.expect_value(t, fake.closed_to_owner, 1) // the retry asked again
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success)
+	pump_for(CONNECT_WAIT_MS * 2)
+	testing.expect_value(t, eos.status().stage, eos.Stage.Ready)
+	testing.expect_value(t, eos.status().peers, 1)
 	eos.leave()
 
 	// #304: a lobby of another build is not joined; the reason names both versions, or says the build differs

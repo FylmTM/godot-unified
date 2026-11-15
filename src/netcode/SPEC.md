@@ -16,7 +16,8 @@ through `headless.session_run`).
 ## Pieces
 
 - **Link** (the transport interface, stable and small): `send(to, bytes)`, `recv(buf) -> (n, from, ok)`, `close`,
-  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number),
+  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number; EOS
+  closes the P2P connection; wrappers such as the netsim pass it on),
   optional `account(peer) -> (Account{platform, id}, ok)` (the account the transport vouches for behind a peer: EOS
   gives the remote's product user id; LAN and direct UDP none).
   Datagrams ≤ `MAX_DATAGRAM` (1152, fits EOS P2P), may be lost. A link numbers its remote endpoints as `Peer`s (a

@@ -354,12 +354,19 @@ driver_sessions :: proc(t: ^testing.T) {
 	}
 }
 
-// The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after.
+@(private = "file")
+g_forgot: [dynamic]netcode.Peer // the peers the wrapped link was told to forget
+
+// The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after. `forget` reaches
+// the transport either way (EOS closes the peer's connection with it, UDP frees the peer number).
 @(test)
 dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
-	dev_link, link := godot.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
+	inner := netcode.loopback_link(hub, 0)
+	inner.forget = proc(data: rawptr, peer: netcode.Peer) {append(&g_forgot, peer)}
+	defer delete(g_forgot)
+	dev_link, link := godot.dev_link_wrap(inner, 5)
 	other := netcode.loopback_link(hub, 1)
 	defer netcode.link_close(&other)
 	buf: [64]u8
@@ -368,6 +375,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 		return len(hub.inboxes[i].queue)
 	}
 
+	netcode.link_forget(&link, 1)
 	netcode.link_send(&link, 1, {1, 2, 3})
 	testing.expect_value(t, inbox(hub, 1), 1) // delivered at once, no netsim
 	testing.expect(t, dev_link.sim.data == nil, "no netsim created while off")
@@ -380,6 +388,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 		up = {latency_ms = 20},
 		down = {latency_ms = 20},
 	})
+	netcode.link_forget(&link, 1) // with the netsim on
 	netcode.link_send(&link, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)
@@ -395,6 +404,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")
 	netcode.link_send(&link, 1, {5})
 	testing.expect_value(t, inbox(hub, 1), 3) // direct again
+	testing.expect_value(t, len(g_forgot), 2)
 	netcode.link_close(&link)
 }
 
