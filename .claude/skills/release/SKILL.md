@@ -78,10 +78,11 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `uni release`
   fails if one is missing from the export. Box3D (unified-box3d's shared library, `libbox3d.dylib` / `box3d.dll`)
   is linked: an extension that uses physics doesn't load without it, so its `.gdextension` lists it.
-- Online: when the extension imports `unified:eos`, a build needs the five `UNIFIED_EOS_*` IDs and `UNIFIED_EOS_SDK`
+- Online: when the extension imports `unified:eos` (or `unified:godot_eos`), a build needs the five `UNIFIED_EOS_*` IDs and `UNIFIED_EOS_SDK`
   (`docs/EOS.md`) and fails unless the game build compiled each value into the extension (as `-define`s; logs show
   them redacted) and the export ships the EOS SDK library; testers' machines have no EOS config. With `--no-eos`
-  (CI: no SDK, no secrets, Epic's licence) none of that: the package has no online play, and the prerelease notes
+  (CI: no SDK, no secrets, Epic's licence) none of that: the package has no online play (the build fails if the
+  export still holds an EOS SDK library), and the prerelease notes
   (`release notes --no-eos`) say so. Online-capable packages are made locally.
 - Release binaries contain the CI runner's source paths (`/Users/runner/work/...`, from bounds-check and assert
   locations). Accepted: they reveal only the repo's file layout and the runner's work folder (no secrets, no user
