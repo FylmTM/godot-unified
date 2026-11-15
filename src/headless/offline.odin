@@ -57,6 +57,7 @@ Trace :: struct {
 	sums:  [dynamic]u64,
 }
 
+// Appends the checksum of `tick`, which must follow the last one added (the first sets `first`).
 trace_add :: proc(trace: ^Trace, tick: u32, checksum: u64) {
 	if len(trace.sums) == 0 {
 		trace.first = tick
@@ -65,6 +66,7 @@ trace_add :: proc(trace: ^Trace, tick: u32, checksum: u64) {
 	append(&trace.sums, checksum)
 }
 
+// Frees the trace's checksums and empties it.
 trace_destroy :: proc(trace: ^Trace) {
 	delete(trace.sums)
 	trace^ = {}
@@ -78,6 +80,7 @@ trace_at :: proc(trace: ^Trace, tick: u32) -> (checksum: u64, ok: bool) {
 	return trace.sums[tick - trace.first], true
 }
 
+// Writes the trace as its on-disk text (`--trace`, a reference run's ref.trace); false if the write failed.
 trace_write :: proc(trace: ^Trace, path: string) -> bool {
 	builder := strings.builder_make(0, len(trace.sums) * 24)
 	defer strings.builder_destroy(&builder)
@@ -127,6 +130,7 @@ Scripted_Commands :: struct {
 	out:     sim.Command_Out,
 }
 
+// Frees the waiting command queues and the output list of an offline run's scripted commands.
 scripted_commands_destroy :: proc(commands: ^Scripted_Commands) {
 	for &queue in commands.waiting {
 		delete(queue)

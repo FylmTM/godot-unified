@@ -10,6 +10,8 @@ BOT_SIGHT :: 9.0 // m: enemies that push the bot away
 BOT_GEM_SIGHT :: 8.0
 BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
+// The bot's input for one player on a tick, from the state alone: walk out of the start circle in the lobby, then
+// flee, collect gems, orbit and dash. `survivor bot` and the tuning tests play matches with it.
 bot_input :: proc(state: ^State, player: int, tick: u32) -> (input: Input) {
 	character := &state.players[player]
 	if !character.active || !character.alive {

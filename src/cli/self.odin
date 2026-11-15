@@ -213,6 +213,8 @@ content_hash :: proc(files: []string) -> string {
 	return sha256_hex(transmute([]byte)strings.to_string(builder))
 }
 
+// Writes a manifest (the format above): the key, then the size and time of the odin executable, every source
+// file and their directories. For the CLI itself and every build `stale` checks.
 write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
 	builder := strings.builder_make()
 	fmt.sbprintf(&builder, "hash\t%s\n", hash)
@@ -247,6 +249,7 @@ write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
 	write_text(manifest, strings.to_string(builder))
 }
 
+// Reads a manifest write_manifest wrote; ok only when it has a key and at least one entry.
 read_manifest :: proc(path: string) -> (entries: []Manifest_Entry, hash: string, ok: bool) {
 	text := read_text(path) or_return
 	out: [dynamic]Manifest_Entry
@@ -275,6 +278,8 @@ entry_current :: proc(entry: Manifest_Entry) -> bool {
 	)
 }
 
+// Whether every entry of a manifest still has its recorded time (and size, but for a directory): the ~1 ms
+// check that lets a build, or the CLI's self-rebuild, be skipped.
 entries_current :: proc(entries: []Manifest_Entry) -> bool {
 	for entry in entries {
 		if !entry_current(entry) {

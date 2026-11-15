@@ -22,6 +22,8 @@ foreign security {
 
 KEYCHAIN_SERVICE :: "com.epicgames.sdk.connect.access_token"
 
+// Runs one non-blocking pass of the main thread's run loop when called on the main thread (else nothing), so the
+// SDK's HTTP requests complete. The EOS tick calls it, and the game extensions every main-thread frame.
 pump_main_run_loop :: proc() {
 	if pthread_main_np() != 0 {
 		CF.RunLoopRunInMode(CF.kRunLoopDefaultMode, 0, true)

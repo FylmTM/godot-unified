@@ -298,6 +298,8 @@ checksums :: proc(value: json.Value) -> map[int]string {
 	return out
 }
 
+// A JSON number as an int (a float truncated), or -1 when it is missing or not a number: reads the reports Godot
+// scripts and headless binaries print.
 json_int :: proc(value: json.Value) -> int {
 	#partial switch number in value {
 	case json.Integer:
@@ -308,6 +310,8 @@ json_int :: proc(value: json.Value) -> int {
 	return -1
 }
 
+// A JSON value as a string: a string as is, a number formatted, anything else "". Reads report fields (a
+// checksum, a name) that may come as either.
 json_string :: proc(value: json.Value) -> string {
 	#partial switch inner in value {
 	case json.String:

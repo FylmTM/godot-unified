@@ -110,6 +110,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	return world
 }
 
+// Frees what world_create made: the physics world, the loaded level and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
 	level.destroy(&world.level_data)
@@ -134,6 +135,8 @@ create_catalogue :: proc(world: ^World) {
 	}
 }
 
+// The 8 corners of a rock's hull for a shape variant at a size, in metres around its centre. The sim builds rock
+// bodies from them and the GDExtension hands them to the view to draw the rock meshes.
 rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
 	radius := ROCK_RADIUS[size]
 	for k in 0 ..< 8 {
@@ -149,6 +152,8 @@ HEX_C := [6]f32{1, 0.5, -0.5, -1, -0.5, 0.5}
 @(rodata)
 HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 
+// Sets up the tick-0 state (GAME.init): seeds the random stream, gives the station full HP and creates its turning
+// kinematic hexagon at the station marker.
 init :: proc(state: ^State, world: ^World, seed: u64) {
 	state.rng = sim.rng_seed(seed)
 	state.station_hp = STATION_HP
@@ -165,6 +170,8 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	physics.set_velocity_2d(world.phys, state.station, {}, STATION_SPIN)
 }
 
+// Creates a player's ship body (a damped dynamic circle on the plane) at their spawn marker, facing up, and stores it
+// in their ship.
 create_ship :: proc(state: ^State, world: ^World, player: int) {
 	body_def := physics.body_def_2d(.Dynamic_Body, world.spawns[player], {0, -1})
 	body_def.linear_damping = SHIP_DAMPING

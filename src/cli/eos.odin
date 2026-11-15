@@ -79,10 +79,12 @@ eos_problem :: proc() -> string {
 	return ""
 }
 
+// Whether the SDK can be used: set, the pinned version, this host's library present (eos_problem says why not).
 eos_ready :: proc() -> bool {
 	return eos_problem() == ""
 }
 
+// This host's SDK runtime library inside UNIFIED_EOS_SDK: what stage_eos copies next to a game's library.
 eos_lib :: proc() -> string {
 	return join(eos_sdk(), "SDK", "Bin", EOS_LIB)
 }

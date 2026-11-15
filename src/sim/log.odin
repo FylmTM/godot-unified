@@ -33,6 +33,7 @@ Input_Log :: struct($Input: typeid, $PLAYERS: int) {
 	commands: [dynamic]Raw_Command, // every tick's commands, in tick order
 }
 
+// Frees the log's ticks and commands and leaves it empty, ready to append to again.
 log_destroy :: proc(input_log: ^Input_Log($Input, $PLAYERS)) {
 	delete(input_log.ticks)
 	delete(input_log.commands)
@@ -175,6 +176,8 @@ log_encode :: proc(input_log: ^Input_Log($Input, $PLAYERS), allocator := context
 	return writer.buf[:]
 }
 
+// Parses log_encode's bytes into an Input_Log; false when the header does not match this Input and PLAYERS or
+// the bytes are malformed. A recording that never ended (tick count 0) is read to its end.
 log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Input_Log(Input, PLAYERS), ok: bool) {
 	header, body := decode_log(data) or_return
 	if header.players != PLAYERS ||
@@ -203,12 +206,15 @@ log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 	return input_log, true
 }
 
+// Writes the log to a file (log_encode's bytes): the replay a headless run or a recorded session leaves.
 log_write :: proc(path: string, input_log: ^Input_Log($Input, $PLAYERS)) -> bool {
 	data := log_encode(input_log)
 	defer delete(data)
 	return write_file(path, data)
 }
 
+// Reads a log file written by log_write (or a relay's recording) for a replay; false when it is missing or does
+// not decode for this Input and PLAYERS.
 log_read :: proc(path: string, $Input: typeid, $PLAYERS: int) -> (input_log: Input_Log(Input, PLAYERS), ok: bool) {
 	data := read_file(path) or_return
 	defer delete(data)
@@ -301,6 +307,8 @@ Log_Stream :: struct {
 	writer: wire.Writer,
 }
 
+// Starts a recording into `sink` with the header's tick count 0, so a recording cut short still reads to its
+// end. A sink without `write` means no recording: the stream's other procs then do nothing.
 log_stream_begin :: proc(stream: ^Log_Stream, sink: Log_Sink, header: Log_Header) {
 	if sink.write == nil {
 		stream^ = {} // no recording
@@ -324,6 +332,7 @@ log_stream_put :: proc(stream: ^Log_Stream) {
 	clear(&stream.writer.buf)
 }
 
+// Appends one tick's inputs to the recording (the relay calls it for each finalized tick).
 log_stream_tick :: proc(stream: ^Log_Stream, inputs: ^Inputs($Input, $PLAYERS)) {
 	if stream.sink.write == nil {
 		return
@@ -357,6 +366,7 @@ Log_Header :: struct {
 	ticks:      int,
 }
 
+// Writes the log header (LOG_HEADER bytes, the tick count at LOG_TICKS_AT), for log_encode and log streams.
 write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_bytes(writer, transmute([]u8)string(LOG_MAGIC))
 	wire.w_u16(writer, LOG_VERSION)
@@ -383,10 +393,12 @@ decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 	return header, data[reader.pos:], true
 }
 
+// Writes `data` to a file, replacing it; true on success.
 write_file :: proc(path: string, data: []u8) -> bool {
 	return os.write_entire_file(path, data) == nil
 }
 
+// Reads a whole file into memory from `allocator`; ok is false when it cannot be read.
 read_file :: proc(path: string, allocator := context.allocator) -> (data: []u8, ok: bool) {
 	file_data, err := os.read_entire_file(path, allocator)
 	return file_data, err == nil

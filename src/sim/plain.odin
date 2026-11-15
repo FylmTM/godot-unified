@@ -58,6 +58,7 @@ check_plain :: proc($T: typeid) {
 	check_plain_of(type_info_of(T))
 }
 
+// Panics unless the type is plain data, for a type known only at run time (check_plain's RTTI form).
 check_plain_of :: proc(type: ^runtime.Type_Info) {
 	if reason := plain_violation(type, fmt.tprint(type.id)); reason != "" {
 		fmt.panicf("%v is not plain data: %s", type.id, reason)
@@ -70,6 +71,7 @@ layout_hash :: proc($T: typeid) -> u64 {
 	return layout_hash_of(type_info_of(T))
 }
 
+// The layout hash of a type known only at run time (layout_hash's RTTI form); union variants are hashed with it.
 layout_hash_of :: proc(type: ^runtime.Type_Info) -> u64 {
 	builder := strings.builder_make(context.temp_allocator)
 	layout_text(&builder, type)

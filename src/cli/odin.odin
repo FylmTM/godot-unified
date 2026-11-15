@@ -18,6 +18,7 @@ Mode :: enum {
 	debug, // unoptimized, for stepping in a debugger
 }
 
+// The odin flags of a build mode; every headless binary and extension build starts with them.
 mode_flags :: proc(mode: Mode) -> []string {
 	switch mode {
 	case .dev:
@@ -53,6 +54,8 @@ Headless :: struct {
 	box3d: bool, // links Box3D
 }
 
+// Every headless binary this project builds: each game's simulation/headless that exists, in this repo also
+// the toy's, with whether it links Box3D.
 headless_packages :: proc() -> []Headless {
 	out: [dynamic]Headless
 	for game in state.project.games {
@@ -99,6 +102,7 @@ ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
 	return build.out
 }
 
+// Where a headless binary is built: .out/<mode>/<name>[.exe]. `bench` runs the release ones from there.
 headless_path :: proc(name: string, mode: Mode) -> string {
 	return join(state.project.out, tprint("%v", mode), tprint("%s%s", name, EXE))
 }
@@ -119,6 +123,8 @@ Vet_Package :: struct {
 	ext:   bool, // a GDExtension (also checked without the dev UI)
 }
 
+// The packages `vet` type-checks: the headless binaries, the tests, this repo's Godot test extensions, every
+// game's extension and the project's tools/.
 vet_packages :: proc() -> []Vet_Package {
 	out: [dynamic]Vet_Package
 	for headless in headless_packages() {
@@ -218,6 +224,8 @@ start_build :: proc(build: Build) -> Proc {
 	return start({cmd = build_cmd(build, tprint("%s.deps.json", build.out)), dir = build.dir})
 }
 
+// Waits for a build start_build started and, when it succeeded, writes its manifest from odin's dependency list
+// so `stale` can judge it next time. Returns how it ran: the caller decides what a failure means.
 finish_build :: proc(build: Build, child: ^Proc, manifest := "") -> Ran {
 	ran := wait(child)
 	deps := tprint("%s.deps.json", build.out)
@@ -290,6 +298,7 @@ finish_headless :: proc(builds: ^Headless_Builds) -> (built: int) {
 	return len(builds.running)
 }
 
+// The build of one headless binary for `mode`: its package, output path (headless_path) and flags.
 headless_build :: proc(headless: Headless, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, ..mode_flags(mode))
@@ -328,6 +337,7 @@ git_commit :: proc(dir := "") -> string {
 	return tprint("%s%s", strings.trim_space(head.stdout), strings.trim_space(status.stdout) != "" ? "+dirty" : "")
 }
 
+// Seconds since a tick, for the times commands and suites report.
 seconds_since :: proc(tick: time.Tick) -> f64 {
 	return time.duration_seconds(time.tick_since(tick))
 }

@@ -131,6 +131,8 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	finish(result)
 }
 
+// The registered command of that name, or nil: `run` dispatches the command line with it and refuses a name
+// defined twice; `verify` finds its steps with it.
 find_command :: proc(name: string) -> ^Command {
 	for &command in state.commands {
 		if command.name == name {
@@ -140,6 +142,8 @@ find_command :: proc(name: string) -> ^Command {
 	return nil
 }
 
+// Prints `uni help`: every command with its usage and summary, then how budgets, the pinned Odin and the per-user
+// cache work. Shown for `help`, -h, --help and a bare `uni`.
 print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
 	fmt.println("usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options and budget)\n")
@@ -165,6 +169,7 @@ print_help :: proc() {
 @(private)
 USER_CACHE :: "%LOCALAPPDATA%\\unified" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified"
 
+// A command's budget line for its -h: the seconds a warm run may take and the CI allowance, or why it has none.
 budget_text :: proc(command: ^Command) -> string {
 	if command.budget > 0 {
 		return tprint("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
@@ -255,6 +260,8 @@ cold :: proc(what: string) {
 	append(&state.cold, strings.clone(what))
 }
 
+// Whether this runs in CI (CI=true): budgets are scaled by CI_BUDGET_SCALE there, and the view index is checked by
+// the godot suite instead of rewritten.
 in_ci :: proc() -> bool {
 	return os.get_env("CI", context.temp_allocator) == "true"
 }
@@ -315,6 +322,7 @@ report_timing :: proc(secs: f64, ok: bool) {
 	}
 }
 
+// Rounds seconds to two decimals for the reports (--json, .out/timings.json, the suites' results).
 round2 :: proc(value: f64) -> f64 {
 	return f64(i64(value * 100 + 0.5)) / 100
 }
@@ -336,6 +344,7 @@ box_commands :: proc(commands: ..Command) -> []Command {
 	return slice.clone(commands)
 }
 
+// A heap slice of suites, for a project's tools/ to return its own test suites (see box_commands).
 box_suites :: proc(suites: ..Suite) -> []Suite {
 	return slice.clone(suites)
 }
@@ -345,6 +354,8 @@ strs :: proc(items: ..string) -> []string {
 	return slice.clone(items)
 }
 
+// The CLI's formatter: fmt.aprintf, a heap string valid for the whole run (not the temp allocator, despite the
+// name), so it is safe in a Result's summary or data.
 tprint :: proc(format: string, args: ..any) -> string {
 	return fmt.aprintf(format, ..args)
 }
