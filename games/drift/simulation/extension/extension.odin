@@ -31,10 +31,6 @@ drift_init :: proc "c" (
 
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
-// Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "drift/6"
-#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump BUCKET with it")
-
 @(private)
 eos_init :: proc(events: ^godot.Transport_Events) -> bool {
 	if eos.init({product_name = "drift", product_version = godot.app_version}) do return true
@@ -44,15 +40,15 @@ eos_init :: proc(events: ^godot.Transport_Events) -> bool {
 
 EOS_TRANSPORT := godot.Transport {
 	name = "EOS",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
-		link, ok := eos.open_host(BUCKET)
+		link, ok := eos.open_host({game = "drift", compat = compat, version = godot.app_version})
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},
-	open_join = proc(_: rawptr, code: string, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_join = proc(_: rawptr, code: string, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		if !eos_init(events) do return {}, false
-		link, ok := eos.open_join(BUCKET, code)
+		link, ok := eos.open_join({game = "drift", compat = compat, version = godot.app_version}, code)
 		if !ok do events.fail(events.ctx, eos.status().detail)
 		return link, ok
 	},

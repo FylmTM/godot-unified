@@ -26,6 +26,7 @@ seen: struct {
 	hub:       ^netcode.Hub,
 	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
 	held_tick: u32,
+	compat:    u64, // what the transport's open_host got
 }
 
 @(private = "file")
@@ -77,7 +78,7 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 @(private = "file")
 FAILING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		events.fail(events.ctx, "fake: no lobby service")
 		return {}, false
 	},
@@ -87,7 +88,8 @@ FAILING := godot.Transport {
 @(private = "file")
 OPENING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+		seen.compat = compat
 		events.code(events.ctx, "ABC123")
 		return netcode.loopback_link(seen.hub, 0), true
 	},
@@ -313,8 +315,8 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.api.wait()
 	}
 
-	// A transport that opens: the code reaches the main thread, pump runs, stop ends the session
-	// (nobody to say goodbye to) and closes the transport once.
+	// A transport that opens: it gets the session's build id (what the relay checks), the code reaches the main
+	// thread, pump runs, stop ends the session (nobody to say goodbye to) and closes the transport once.
 	{
 		seen.hub = netcode.hub_create(2)
 		defer netcode.hub_destroy(seen.hub)
@@ -335,6 +337,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, seen.pumps > 0, "the transport is pumped")
+		testing.expect_value(t, seen.compat, sim.compat_of(&toy.GAME))
 		testing.expect_value(t, seen.closes, 1)
 	}
 

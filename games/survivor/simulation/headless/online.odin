@@ -11,21 +11,22 @@ import "unified:eos"
 import "unified:headless/modes"
 import "unified:netcode"
 
-// Lobbies only match within a bucket; --bucket survivor/9 meets the game's own builds.
-EOS_BUCKET :: "unified-headless/9"
-#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump EOS_BUCKET (and the game's bucket) with it")
-
+// Lobbies go under the game's name and carry the build (src/eos/SPEC.md): a headless run meets the game's own
+// builds when the two are the same build, and is told otherwise.
 EOS_ONLINE := modes.Online {
 	name = "eos",
-	bucket = EOS_BUCKET,
 	options = {"relays"},
 	start = eos_start,
 	stop = proc() {
 		eos.forget_device() // test runs leave no keychain entry for the next build to trip on
 		eos.shutdown()
 	},
-	open_host = eos.open_host,
-	open_join = eos.open_join,
+	open_host = proc(game: string, compat: u64) -> (netcode.Link, bool) {
+		return eos.open_host({game = game, compat = compat, version = HEADLESS_VERSION})
+	},
+	open_join = proc(game: string, compat: u64, code: string) -> (netcode.Link, bool) {
+		return eos.open_join({game = game, compat = compat, version = HEADLESS_VERSION}, code)
+	},
 	poll = proc() -> modes.Online_Status {
 		eos.poll()
 		status := eos.status()
@@ -41,6 +42,8 @@ EOS_ONLINE := modes.Online {
 		}
 	},
 }
+
+HEADLESS_VERSION :: "headless" // the readable version a joiner on another build is shown
 
 @(private)
 eos_start :: proc(args: ^modes.Args) -> bool {

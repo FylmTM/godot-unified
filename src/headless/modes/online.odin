@@ -12,19 +12,21 @@ import "core:time"
 
 import uheadless "unified:headless"
 import "unified:netcode"
+import "unified:sim"
 
 
 // An online transport (lobby codes + datagrams), as a game's headless binary supplies it.
 Online :: struct {
 	name:      string, // the modes are <name>-host and <name>-client
-	bucket:    string, // the default lobby bucket (lobbies match only within one; --bucket overrides)
 	options:   []string, // extra --options `start` reads (with opt_str / opt_int)
 	// Starts the transport; false (after printing why) when it is unavailable.
 	start:     proc(args: ^Args) -> bool,
 	// Ends it (the links are closed already).
 	stop:      proc(),
-	open_host: proc(bucket: string) -> (netcode.Link, bool),
-	open_join: proc(bucket, code: string) -> (netcode.Link, bool),
+	// `game` names the lobbies (the game's name, or --bucket); `compat` is the session's build id, which a
+	// transport that lists games publishes (host) or compares (join) so another build is told before joining.
+	open_host: proc(game: string, compat: u64) -> (netcode.Link, bool),
+	open_join: proc(game: string, compat: u64, code: string) -> (netcode.Link, bool),
 	// Pumps the transport and reports where it stands (strings temp-allocated).
 	poll:      proc() -> Online_Status,
 }
@@ -82,7 +84,8 @@ mode_online_host :: proc(
 	}
 	defer online.stop()
 	started := time.tick_now()
-	link, link_ok := online.open_host(opt_str(args, "bucket", online.bucket))
+	compat := sim.compat_of(headless.game, headless.content)
+	link, link_ok := online.open_host(opt_str(args, "bucket", headless.game.name), compat)
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, online.poll().detail)
 		return false
@@ -173,7 +176,8 @@ mode_online_client :: proc(
 	}
 	defer online.stop()
 	started := time.tick_now()
-	link, link_ok := online.open_join(opt_str(args, "bucket", online.bucket), code)
+	compat := sim.compat_of(headless.game, headless.content)
+	link, link_ok := online.open_join(opt_str(args, "bucket", headless.game.name), compat, code)
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, online.poll().detail)
 		return false

@@ -13,7 +13,7 @@ Playable builds of a game under `games/<game>/` (a Godot project with `export_pr
 
 1. On `main`, at the commit to release: CI green for that commit, and `./uni verify` passes locally.
 2. A local release build and smoke test pass on this machine (below).
-3. If the netcode protocol or the game's lobby bucket changed since the last release, a crossplay run passes
+3. If the netcode protocol changed since the last release, a crossplay run passes
    (`src/eos/SPEC.md`, Crossplay).
 4. `games/<game>/RELEASE_NOTES.md` is current: the tester notes ship with the build.
 5. Pick the version: `<game>-v<major>.<minor>.<patch>`, after the last tag (`git tag -l '<game>-v*'`).

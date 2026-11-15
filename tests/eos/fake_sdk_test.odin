@@ -50,7 +50,14 @@ fake: struct {
 	shut_down:          int,
 	released:           int,
 	product_version:    string,
-	last_code:          string, // the code attribute the host published
+	last_code:          string, // the attributes the host published
+	last_build:         string,
+	last_version:       string,
+	lobby_build:        cstring, // the attributes a search result has (nil: none)
+	lobby_version:      cstring,
+	attribute_data:     eos.Lobby_Attribute_Data, // what CopyAttributeByKey hands out
+	attribute:          eos.Lobby_Attribute,
+	joins:              int, // Lobby_JoinLobby calls
 	closed_to_owner:    int, // P2P_CloseConnection calls for the lobby owner
 	on_established:     rawptr, // the session's P2P notifications and their client data
 	on_closed:          rawptr,
@@ -337,6 +344,7 @@ FAKE := eos.Api {
 		callback: proc "c" (info: ^eos.Lobby_Callback_Info),
 	) {
 		context = runtime.default_context()
+		fake.joins += 1
 		enqueue(.Lobby, rawptr(callback), client_data, .Success, "joined-lobby")
 	},
 	Lobby_LeaveLobby = proc "c" (
@@ -383,9 +391,17 @@ FAKE := eos.Api {
 		options: ^eos.Lobby_Modification_Add_Attribute_Options,
 	) -> eos.Result {
 		context = runtime.default_context()
-		if string(options.attribute.key) == "code" {
+		value := string(options.attribute.value.as_utf8)
+		switch string(options.attribute.key) {
+		case "code":
 			delete(fake.last_code)
-			fake.last_code = strings.clone(string(options.attribute.value.as_utf8))
+			fake.last_code = strings.clone(value)
+		case "build":
+			delete(fake.last_build)
+			fake.last_build = strings.clone(value)
+		case "version":
+			delete(fake.last_version)
+			fake.last_version = strings.clone(value)
 		}
 		return .Success
 	},
@@ -422,6 +438,31 @@ FAKE := eos.Api {
 	) -> eos.Product_User_Id {
 		return eos.Product_User_Id(&fake.users[1])
 	},
+	LobbyDetails_CopyAttributeByKey = proc "c" (
+		handle: eos.H_Lobby_Details,
+		options: ^eos.LobbyDetails_Copy_Attribute_By_Key_Options,
+		out: ^^eos.Lobby_Attribute,
+	) -> eos.Result {
+		value: cstring
+		switch string(options.attr_key) {
+		case "build":
+			value = fake.lobby_build
+		case "version":
+			value = fake.lobby_version
+		}
+		if value == nil do return .NotFound
+		fake.attribute_data = {
+			key = options.attr_key,
+			value = {as_utf8 = value},
+			value_type = .String,
+		}
+		fake.attribute = {
+			data = &fake.attribute_data,
+		}
+		out^ = &fake.attribute
+		return .Success
+	},
+	Lobby_Attribute_Release = proc "c" (attribute: ^eos.Lobby_Attribute) {},
 	LobbyDetails_Release = proc "c" (handle: eos.H_Lobby_Details) {},
 }
 
@@ -475,7 +516,7 @@ host_session :: proc(run: ^Host_Run) {
 		})
 		testing.expect(run.t, ok, "init with the fake SDK")
 	}
-	testing.expect(run.t, eos.host("fake-bucket"), "host")
+	testing.expect(run.t, eos.host(BUILD), "host")
 	code: string
 	run.stage, code, _ = pump_until(.Ready)
 	run.code = strings.clone(code)
@@ -485,6 +526,9 @@ host_session :: proc(run: ^Host_Run) {
 
 @(private = "file")
 CONNECT_WAIT_MS :: 20 // the joiner's P2P wait, shortened
+
+@(private = "file")
+BUILD :: eos.Build{"fake", 0x1234, "1.2.3"}
 
 // The whole session state machine in one test: EOS is per process and can't be initialized again.
 @(test)
@@ -498,6 +542,8 @@ session_state_machine :: proc(t: ^testing.T) {
 		delete(fake.destroyed)
 		delete(fake.product_version, heap)
 		delete(fake.last_code, heap)
+		delete(fake.last_build, heap)
+		delete(fake.last_version, heap)
 		fake = {}
 	}
 	// Two sessions, each on a thread that exits before the next starts.
@@ -510,6 +556,8 @@ session_state_machine :: proc(t: ^testing.T) {
 		testing.expect_value(t, run.stage_2, eos.Stage.Idle)
 		testing.expect_value(t, len(run.code), eos.CODE_LEN)
 		testing.expect_value(t, run.code, fake.last_code) // the published attribute is the reported code
+		testing.expect_value(t, fake.last_build, eos.build_id(BUILD.compat)) // and the build, and its version
+		testing.expect_value(t, fake.last_version, BUILD.version)
 	}
 	testing.expect(t, runs[0].code != runs[1].code, "a new code per session")
 	for run in runs do delete(run.code, heap) // cloned on the session threads
@@ -521,9 +569,9 @@ session_state_machine :: proc(t: ^testing.T) {
 	// Leave while the lobby request is in flight, host again: the stale lobby is destroyed when it
 	// arrives, the new session is unaffected.
 	fake.hold = true
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	eos.leave()
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	fake.hold = false
 	stage, code, _ := pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
@@ -534,7 +582,7 @@ session_state_machine :: proc(t: ^testing.T) {
 
 	// A failing lobby request: Failed, the reason reported by pump once, then leave returns to Idle.
 	fake.fail_create = true
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	failed: string
 	stage, _, failed = pump_until(.Failed)
 	testing.expect_value(t, stage, eos.Stage.Failed)
@@ -546,7 +594,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	// #300: the host accepts P2P only from its lobby's members. A stranger who asks is never accepted; a
 	// joiner whose request comes before the lobby says it joined is accepted when it does; one who left is
 	// held again until it rejoins.
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	lobby := fake_lobby_name(fake.lobbies)
@@ -579,8 +627,11 @@ session_state_machine :: proc(t: ^testing.T) {
 	delete(fake.accepted)
 	fake.accepted = {}
 
-	// Join: search by code, the lobby owner becomes the host (peer 0).
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	// Join: search by code, the lobby owner becomes the host (peer 0); its lobby is this build.
+	same_build := strings.clone_to_cstring(eos.build_id(BUILD.compat))
+	defer delete(same_build)
+	fake.lobby_build, fake.lobby_version = same_build, "1.2.3"
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	testing.expect_value(t, eos.status().host, "fakeowner")
@@ -598,7 +649,7 @@ session_state_machine :: proc(t: ^testing.T) {
 			count += 1
 		}
 	}
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	stage, _, failed = pump_until(.Failed)
@@ -611,7 +662,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	// A retry that works: the connection comes up after the first close; no more closes, the
 	// session stays Ready and the netcode hears the host connect.
 	fake.closed_to_owner = 0
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	for _ in 0 ..< 400 {
@@ -627,6 +678,31 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.closed_to_owner, 1)
 	testing.expect_value(t, link_events(), 1)
 	eos.leave()
+
+	// #304: a lobby of another build is not joined; the reason names both versions, or says the build differs
+	// when the versions match (or the lobby has no build at all).
+	joins := fake.joins
+	other_build := strings.clone_to_cstring(eos.build_id(BUILD.compat + 1))
+	defer delete(other_build)
+	Case :: struct {
+		build, version: cstring,
+		message:        string,
+	}
+	cases := [?]Case {
+		{other_build, "1.2.4", "that game runs fake 1.2.4; you have 1.2.3"},
+		{other_build, "1.2.3", "that game runs a different build of fake 1.2.3"},
+		{nil, nil, "that game runs a different build of fake"},
+	}
+	for test_case in cases {
+		fake.lobby_build, fake.lobby_version = test_case.build, test_case.version
+		testing.expect(t, eos.join(BUILD, "ABCDEF"))
+		stage, _, failed = pump_until(.Failed)
+		testing.expect_value(t, stage, eos.Stage.Failed)
+		testing.expect_value(t, failed, test_case.message)
+		eos.leave()
+	}
+	testing.expect_value(t, fake.joins, joins) // never joined
+	fake.lobby_build, fake.lobby_version = nil, nil
 
 	eos.shutdown()
 	testing.expect_value(t, fake.released, 1)

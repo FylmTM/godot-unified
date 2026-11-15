@@ -12,7 +12,7 @@
 // the thread that ticks (a session thread may be gone by the next session). The thread running the netcode
 // drives EOS (the link's recv ticks the platform, `pump` too). Status is read with `status`, from any
 // thread. open_host / open_join / pump / close are the transport shape a host program's session
-// loop uses (godot_host.Transport).
+// loop uses (godot.Transport).
 package eos
 
 import "base:runtime"
@@ -59,6 +59,19 @@ Remote :: struct {
 	network:   Network_Connection_Type,
 	connected: bool,
 	reasm:     Reasm,
+}
+
+// What keeps builds apart. Lobbies are found per game (the bucket is the game's name); the host publishes its
+// build and readable version as lobby attributes, and a joiner on another build is told so instead of joining.
+Build :: struct {
+	game:    string, // the lobby bucket: the game's name ("survivor")
+	compat:  u64, // the session's build id (sim.compat_of: what the relay checks), with the netcode protocol
+	version: string, // readable, for the message ("0.1.4": the project's stamped version)
+}
+
+// The `build` attribute of a lobby: the compat and the netcode protocol version.
+build_id :: proc(compat: u64, allocator := context.temp_allocator) -> string {
+	return fmt.aprintf("%016x-p%d", compat, netcode.PROTOCOL_VERSION, allocator = allocator)
 }
 
 // A user the host knows by id: a lobby member it saw join, or a connection request it holds until the user
@@ -110,7 +123,9 @@ Online :: struct {
 	notify_auth:    Notification_Id,
 	notify_member:  Notification_Id,
 	// session
-	bucket:         [64]u8,
+	bucket:         [64]u8, // the game's name
+	build_id:       [40]u8, // build_id(compat)
+	version:        [64]u8,
 	code:           Code,
 	lobby_id:       [128]u8,
 	in_lobby:       bool,
@@ -292,14 +307,15 @@ init :: proc(opts: Init_Options) -> bool {
 	return true
 }
 
-// Starts hosting: login if needed, then a lobby for `bucket` (game + protocol version, so
-// incompatible builds never meet) with a fresh code. Poll until Ready, then read the code.
-host :: proc(bucket: string) -> bool {
-	return begin(.Host, bucket, {})
+// Starts hosting: login if needed, then a lobby of `build.game` with a fresh code and the build's attributes.
+// Poll until Ready, then read the code.
+host :: proc(build: Build) -> bool {
+	return begin(.Host, build, {})
 }
 
-// Starts joining the lobby with `code` (as typed: case and dashes don't matter).
-join :: proc(bucket: string, code: string) -> bool {
+// Starts joining the lobby with `code` (as typed: case and dashes don't matter). A lobby of another build fails
+// the join with a message naming both versions.
+join :: proc(build: Build, code: string) -> bool {
 	game_code, ok := code_parse(code)
 	if !ok {
 		online := &session
@@ -307,7 +323,7 @@ join :: proc(bucket: string, code: string) -> bool {
 		set_detail(online, "%q is not a game code (6 letters and digits)", code)
 		return false
 	}
-	return begin(.Join, bucket, game_code)
+	return begin(.Join, build, game_code)
 }
 
 // Ticks EOS and advances the session. Call it regularly while no link is in use.
@@ -404,19 +420,19 @@ local_account :: proc() -> (account: netcode.Account, ok: bool) {
 	return {platform = PLATFORM, id = cstr(id[:])}, true
 }
 
-// --- transport shape (godot_host.Transport) -----------------------------------------------------
+// --- transport shape (godot.Transport) ----------------------------------------------------------
 
 // Starts hosting and returns the link at once (init must have succeeded).
-open_host :: proc(bucket: string) -> (net_link: netcode.Link, ok: bool) {
-	if !host(bucket) {
+open_host :: proc(build: Build) -> (net_link: netcode.Link, ok: bool) {
+	if !host(build) {
 		return
 	}
 	return link()
 }
 
 // Starts joining `code` and returns the link at once; a bad code fails here.
-open_join :: proc(bucket, code: string) -> (net_link: netcode.Link, ok: bool) {
-	if !join(bucket, code) {
+open_join :: proc(build: Build, code: string) -> (net_link: netcode.Link, ok: bool) {
+	if !join(build, code) {
 		return
 	}
 	return link()
@@ -514,7 +530,7 @@ shutdown :: proc() {
 // --- session state machine ----------------------------------------------------------------------
 
 @(private)
-begin :: proc(role: Role, bucket: string, code: Code) -> bool {
+begin :: proc(role: Role, build: Build, code: Code) -> bool {
 	online := &session
 	sync.guard(&online.mu)
 	if online.stage == .Off {
@@ -537,7 +553,11 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	online.held_next = 0
 	online.n_events = 0
 	online.bucket = {}
-	copy(online.bucket[:len(online.bucket) - 1], bucket)
+	copy(online.bucket[:len(online.bucket) - 1], build.game)
+	online.build_id = {}
+	copy(online.build_id[:len(online.build_id) - 1], build_id(build.compat))
+	online.version = {}
+	copy(online.version[:len(online.version) - 1], build.version)
 	online.detail_len = 0
 	if online.local == nil {
 		online.stage = .Login
@@ -863,6 +883,8 @@ start_lobby :: proc(online: ^Online) {
 }
 
 ATTR_CODE :: "code"
+ATTR_BUILD :: "build" // build_id: a joiner joins only the same build
+ATTR_VERSION :: "version" // the host's readable version, for the message when the builds differ
 
 // What an async lobby request carries to its callback: the session generation it belongs to (a
 // session left or replaced while the request was in flight must not be touched by its result) and
@@ -935,21 +957,27 @@ on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 		return
 	}
 	defer online.api.LobbyModification_Release(mod)
-	code_c := strings.clone_to_cstring(string(online.code[:]), context.temp_allocator)
-	attr := Lobby_Attribute_Data {
-		api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
-		key = ATTR_CODE,
-		value = {as_utf8 = code_c},
-		value_type = .String,
+	attributes := [3][2]string {
+		{ATTR_CODE, string(online.code[:])},
+		{ATTR_BUILD, cstr(online.build_id[:])},
+		{ATTR_VERSION, cstr(online.version[:])},
 	}
-	attribute_options := Lobby_Modification_Add_Attribute_Options {
-		api_version = LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST,
-		attribute   = &attr,
-		visibility  = LA_PUBLIC,
-	}
-	if result := online.api.LobbyModification_AddAttribute(mod, &attribute_options); result != .Success {
-		fail(online, "lobby code attribute: %s", online.api.EResult_ToString(result))
-		return
+	for attribute in attributes {
+		attr := Lobby_Attribute_Data {
+			api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
+			key = strings.clone_to_cstring(attribute[0], context.temp_allocator),
+			value = {as_utf8 = strings.clone_to_cstring(attribute[1], context.temp_allocator)},
+			value_type = .String,
+		}
+		attribute_options := Lobby_Modification_Add_Attribute_Options {
+			api_version = LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST,
+			attribute   = &attr,
+			visibility  = LA_PUBLIC,
+		}
+		if result := online.api.LobbyModification_AddAttribute(mod, &attribute_options); result != .Success {
+			fail(online, "lobby attribute %s: %s", attribute[0], online.api.EResult_ToString(result))
+			return
+		}
 	}
 	update_options := Lobby_Update_Lobby_Options {
 		api_version               = LOBBY_UPDATELOBBY_API_LATEST,
@@ -1020,6 +1048,19 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 		fail(online, "the game has no host")
 		return
 	}
+	// Another build: say which, rather than join a session the relay would refuse.
+	if lobby_attribute(online, details, ATTR_BUILD) != cstr(online.build_id[:]) {
+		game, ours := cstr(online.bucket[:]), cstr(online.version[:])
+		theirs := lobby_attribute(online, details, ATTR_VERSION)
+		if theirs != "" && theirs != ours {
+			fail(online, "that game runs %s %s; you have %s", game, theirs, ours if ours != "" else "another version")
+		} else if theirs != "" {
+			fail(online, "that game runs a different build of %s %s", game, theirs)
+		} else {
+			fail(online, "that game runs a different build of %s", game)
+		}
+		return
+	}
 	join_options := Lobby_Join_Lobby_Options {
 		api_version          = LOBBY_JOINLOBBY_API_LATEST,
 		lobby_details_handle = details,
@@ -1027,6 +1068,24 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 	}
 	online.api.Lobby_JoinLobby(online.lobby, &join_options, call_new(online), on_lobby_joined)
 	set_detail(online, "joining game %s", string(online.code[:]))
+}
+
+// A lobby's string attribute (temp-allocated), or "" when it has none.
+@(private)
+lobby_attribute :: proc(online: ^Online, details: H_Lobby_Details, key: cstring) -> string {
+	options := LobbyDetails_Copy_Attribute_By_Key_Options {
+		api_version = LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST,
+		attr_key    = key,
+	}
+	attribute: ^Lobby_Attribute
+	if online.api.LobbyDetails_CopyAttributeByKey(details, &options, &attribute) != .Success || attribute == nil {
+		return ""
+	}
+	defer online.api.Lobby_Attribute_Release(attribute)
+	if attribute.data == nil || attribute.data.value_type != .String || attribute.data.value.as_utf8 == nil {
+		return ""
+	}
+	return strings.clone(string(attribute.data.value.as_utf8), context.temp_allocator)
 }
 
 @(private)

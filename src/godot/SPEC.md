@@ -56,6 +56,11 @@ Glue procs are named procs, never inline lambdas. A game's extension fills frame
 through `unified:godot` helpers (the input helpers below), so it needs no Godot bindings of its own (`unified:gdext`
 binds what the library uses: src/gdext/SPEC.md).
 
+**Transports.** Online play goes through a `godot.Transport` the game sets (`glue.odin`): `open_host(user, compat,
+events)` and `open_join(user, code, compat, events)` return the link and get the session's build id (`compat`: the
+glue's, else `sim.compat_of(game, level)`), so a transport that lists games can publish it and tell a joiner on
+another build before it joins; `pump`, `close`, and the optional `account`, `main_frame` and `shutdown`.
+
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
 0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`

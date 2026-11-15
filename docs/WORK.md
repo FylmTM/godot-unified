@@ -111,8 +111,8 @@ review ([#22](https://github.com/FylmTM/godot-unified/issues/22)), then this fil
 - **F3 captures everything cheap:** screenshot, snapshot, input log, frame dump, view state (scene tree and
   view-side values), net stats, note, build info. A recording is snapshot plus input log, replayed deterministically.
 - **Release:** the git tag is the only source of a build's version (`uni release` stamps it into the export;
-  the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION` and the game's lobby bucket together
-  (`survivor/4` at protocol 6); `sim.compat_of` refuses a peer with another build.
+  the repo itself says dev/0.0.0). Protocol changes bump `PROTOCOL_VERSION`; an EOS lobby carries the build, and
+  `sim.compat_of` refuses a peer with another build.
 - **Tooling:** `uni verify` is exactly what CI runs; every `uni` command takes the game positionally. CI: no write
   token outside the release publish job, and no secrets: the EOS SDK and IDs stay off CI (Epic's licence; CI's release
   packages are LAN-only, developer, 2026-11-12); runners, actions (by SHA) and downloads (SHA-256) are pinned.

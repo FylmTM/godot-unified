@@ -12,8 +12,8 @@ code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode'
 eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_control, no_keychain_prompts,
                       sdk /* tests: a fake ^Api instead of the library */,
                       connect_wait_us /* tests: a shorter CONNECT_WAIT_US */}) -> bool
-eos.open_host(bucket) -> (netcode.Link, bool)        // login if needed, create the lobby; link usable at once
-eos.open_join(bucket, code) -> (netcode.Link, bool)  // login, search by code, join; a malformed code fails here
+eos.open_host(Build{game, compat, version}) -> (netcode.Link, bool)  // login if needed, create the lobby; link usable at once
+eos.open_join(Build{game, compat, version}, code) -> (netcode.Link, bool)  // login, search by code, check the build, join
 eos.pump() -> Pump_Result{code, failed}              // tick EOS; the code (host) and a failure are reported once
 eos.close()                                          // destroy/leave the lobby (ticks EOS ≤ 0.5 s so it goes out), close P2P
 eos.status() -> Status{stage, role, code, detail, local, host, network, peers, lib}   // any thread
@@ -22,11 +22,13 @@ eos.forget_device()                                  // test tools: delete this 
 eos.local_account() -> (netcode.Account, bool)       // logged in: {"eos", our product user id} (godot.Transport.account)
 ```
 
-`bucket` names the game and its own compatibility counter (e.g. `survivor/4`): the game bumps it by hand when its
-builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
-only match inside one bucket, so
-incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot.Transport`;
-the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). The link vouches
+`Build` says what keeps builds apart. `game` is the lobby bucket (the game's name: lobbies are searched per game).
+`compat` is the session's build id (`sim.compat_of`, what the relay checks; `godot.Transport` hands it over): with
+`netcode.PROTOCOL_VERSION` it becomes the lobby's `build` attribute (`build_id`). `version` is the readable one (the
+project's stamped version), the lobby's `version` attribute. A joiner whose build differs from the lobby's fails
+before joining, with a message: "that game runs survivor 0.1.4; you have 0.1.3", or "that game runs a different
+build of survivor 0.1.4" when the versions match. Nothing is bumped by hand. `open_host`/`open_join`/`pump`/`close`
+are the shape of `godot.Transport`; the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). The link vouches
 for every peer's account (`netcode.Link.account`: "eos" and the remote's product user id, which EOS authenticated):
 the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
@@ -45,10 +47,12 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   `.env`), else the same names from the environment (`uni` fills it from `.env`). CI has none. Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
   login again; first login of that device → `CreateUser`. Auth expiry (~1 h) logs in again.
-- **Lobby.** Host: public lobby, max 4 members, host migration off, attribute `code` = 6 characters from
-  `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/L; crypto random, unbiased). Joiner: search by bucket + code (a
-  new lobby takes ~1–2 s to become searchable: up to 5 searches 1.2 s apart), the lobby owner's Product User ID
-  is the host, join. Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
+- **Lobby.** Host: public lobby in the game's bucket, max 4 members, host migration off, public attributes `code` =
+  6 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/L; crypto random, unbiased), `build` and
+  `version`. Joiner: search by bucket + code (a new lobby takes ~1–2 s to become searchable: up to 5 searches 1.2 s
+  apart), the lobby owner's Product User ID is the host, the lobby's `build` must be ours, join. Any client of the
+  product can list a game's open lobbies with their codes: the code is a convenience for friends, not a secret
+  (#11 D2). Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
   lobby results carry the session generation: a result for a session already left (Leave, then Host/Join again
   quickly) is dropped, and its lobby destroyed or left. A failed token refresh (~1 h in) retries every 15 s
   instead of failing the running session. A crashed player rejoins with the same user ID: on one machine it is back
@@ -92,7 +96,8 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
 - `tests/eos` (no network): codes (alphabet, unbiased, parsing), framing (every size, loss, reordering,
   garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
   load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
-  lobby that arrives after leave is destroyed, a failed request reports its reason once, the host accepting
+  lobby that arrives after leave is destroyed, a failed request reports its reason once, the host publishing the
+  code, build and version, a joiner refusing another build with each message (never calling join), the host accepting
   P2P from lobby members only (a stranger never, an early request on join, a member who left after rejoining),
   join, a joiner's P2P
   connection that never comes up (closed and asked again, then a failure) or comes up on a retry, shutdown.
@@ -107,10 +112,10 @@ By hand, on two machines (no CI job): a Mac hosts, a Windows machine joins by co
 both sides print their verified checksums. Mac side, the game itself:
 `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays). Windows side, the release headless binary:
-`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360 --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
-`games/survivor/simulation/extension/extension.odin`; `--relays force` to force the relays), or the exported game
-from a release zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
-sides' result lines. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` hosts too where the
+`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360` (`--relays force` to force the relays; the
+lobby's build must be the binary's, else it says which version the host runs), or the exported game from a release
+zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
+sides' result lines. The headless `survivor eos-host --wait-s N` hosts too where the
 binary owns the keychain entry (not on a Mac where Godot.app made the device ID).
 
 A run passes when every common verified checksum matches (0 mismatches). The measured runs so far (RTT, input
