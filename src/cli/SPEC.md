@@ -166,13 +166,16 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   unified's `src/godot/tools/<name>.gd` (validate); a game's own script extends them. Run with Godot's `-s`. Each prints one
   `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data); the CLI passes `--no-settings`,
   `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`. Headless runs have the debugger on
-  (`-d`), which prints GDScript warnings. A script quits through the game's own quit (audio stopped first): a live
-  playback at exit is a leak.
+  (`-d`), which prints GDScript warnings; a child's stdin holds one line, `quit`, so a run stopped at the debugger
+  prompt (a script or parse error) quits at once. A script quits through the game's own quit (audio stopped first):
+  a live playback at exit is a leak.
 - **Strict:** in `godot` suite steps, `tool`, `coop` and `bake`, a failing exit, a missing or `ok: false` result, an
   `ERROR` line, a leak at exit or a GDScript warning fails. `run` and `editor` only report. Windowed runs give focus
   back to the frontmost app on macOS.
-- **Test suites**, each with its own budget (`test`'s budget is the sum of its suites'); a project's `tools/` adds
-  its own with `cli.add_suites` (this repo: `net`, `godot-bindings`). By default a suite runs the least that shows
+- **Test suites**, each with its own budget (`test`'s budget is the sum of its suites'; in a run of several, one over
+  its own is reported); a project's `tools/` adds its own with `cli.add_suites` (this repo: `net`, `godot-bindings`).
+  A suite that mostly waits (`Suite.beside`: `net`, `godot-bindings`), run with others, runs beside them in a child
+  `uni test --suite <name>`, once its `prepare` has made current what it shares. By default a suite runs the least that shows
   the library correct and each game working; `test --long` (`Suite.long_budget`, `cli.state.long`) runs the longer
   variant, by hand, never in CI:
   - `odin`: the test packages in one compile (this repo: every package under `tests/`, the games' suites included;
@@ -195,7 +198,8 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
     `validate`, `walk` (`ui_walk.gd`), `tour` (quick). `bake` checks the view index too. A step the game can't run prints `skipped: <why>`. Several
     games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
-    parent first makes current what they share (Godot, the bindings, Box3D).
+    parent first makes current what they share (Godot, the bindings, Box3D, the `session` step's headless binaries
+    in `.out/release/`). The tool scripts run without the EOS SDK, as on CI: they never wait on the lobby service.
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
     desyncs (`.out/net.json`, `.out/net/`).

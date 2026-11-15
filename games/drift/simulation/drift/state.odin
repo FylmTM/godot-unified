@@ -92,8 +92,7 @@ ROCK_STATION_DAMAGE := [Rock_Size]i32 {
 ROCK_VARIANTS :: 4
 
 // The rock shapes: 8 corners at the 8 compass directions (dmath.DIR8), each at this fraction of the rock's
-// radius. The body is their convex hull (the view draws the same hull). Fixed shapes, so every rock hull a
-// late joiner's world may have to load is registered at tick 0 (world.odin: the catalogue).
+// radius. The body is their convex hull (the view draws the same hull).
 @(rodata)
 ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
 	{1.0, 0.82, 0.95, 0.78, 1.0, 0.86, 0.92, 0.8},
