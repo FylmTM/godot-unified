@@ -13,8 +13,7 @@ CAT_STATIC :: u64(1 << 0)
 CAT_SHIP :: u64(1 << 1)
 CAT_ROCK :: u64(1 << 2)
 CAT_STATION :: u64(1 << 3)
-CAT_CATALOGUE :: u64(1 << 4) // collides with nothing
-CAT_BULLET :: u64(1 << 5) // rays only
+CAT_BULLET :: u64(1 << 4) // rays only
 MAT_ROCK :: u64(1000) // + rock index
 MAT_STATION :: u64(2000)
 
@@ -59,8 +58,7 @@ GAME := Game {
 	commands = Cmd,
 }
 
-// Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, the rock catalogue, then
-// the markers. Bodies the block owns (the station, ships, rocks) are created by init and the tick.
+// Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, then the markers. Bodies the block owns (the station, ships, rocks) are created by init and the tick.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world := new(World)
 	loaded, ok := level.load(content)
@@ -70,7 +68,6 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level_data, CAT_STATIC)
-	create_catalogue(world)
 	for player in 0 ..< PLAYERS do world.spawns[player] = {f32(player) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {
@@ -116,24 +113,7 @@ world_destroy :: proc(world: ^World) {
 	free(world)
 }
 
-// Every rock hull (each variant at each size) on one static body far outside the arena that collides with
-// nothing, created before tick 0: Box3D's portable image names hull geometry by its index in the registry a
-// fresh world fills from its tick-0 save, so a late joiner can load any rock a split makes later
-// (src/physics/SPEC.md, 2D: generated geometry).
-create_catalogue :: proc(world: ^World) {
-	body_def := physics.body_def_2d(.Static_Body, {-1000, -1000})
-	body := physics.body_id(world.phys, physics.create_body(world.phys, &body_def))
-	shape_def := b3.default_shape_def()
-	shape_def.filter.category_bits = CAT_CATALOGUE
-	shape_def.filter.mask_bits = 0
-	for variant in 0 ..< ROCK_VARIANTS {
-		for size in Rock_Size {
-			points := rock_points(variant, size)
-			physics.polygon_2d(body, &shape_def, points[:], ROCK_DEPTH)
-		}
-	}
-}
-
+// A rock's 8 corners (its body is their convex hull).
 rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
 	radius := ROCK_RADIUS[size]
 	for k in 0 ..< 8 {
