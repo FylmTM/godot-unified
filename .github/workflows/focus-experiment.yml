@@ -60,13 +60,13 @@ jobs:
             fences=$(grep -c "timeout waiting for fence" "$F/$label.out")
             res=$(grep -E "steps, (ok|FAILED)" "$F/$label.out" | tail -1)
             printf "RESULT %-40s exit %d, %5.1f s, fence timeouts %s, front at the end %s: %s\n" "$label" $code "$(perl -e "print $(now) - $start")" "$fences" "$(front_name)" "$res" | tee -a "$F/results.txt"
+            echo "::group::$label output"; grep -v "marker view" "$F/$label.out" | tail -40; echo "::endgroup::"
             rm -f games/$game/override.cfg
           }
           for run in drift:tour survivor:ui_walk; do
             game=${run%%:*}; script=${run##*:}; extra=""; [ $script = ui_walk ] && extra=--mock
             variant "$game-$script control-in-front"            ""                                             none show $game $script $extra
             variant "$game-$script no_focus+guard"               "window/size/no_focus=true"                    guard show $game $script $extra
-            variant "$game-$script no_focus+guard,textedit-mini" "window/size/no_focus=true"                    guard hide $game $script $extra
             variant "$game-$script no_focus+on_top+guard"        "window/size/no_focus=true\nwindow/size/always_on_top=true" guard show $game $script $extra
           done
           echo; cat "$F/results.txt" | tee -a "$GITHUB_STEP_SUMMARY"
