@@ -3,7 +3,7 @@
 # and the version from the tag, stamps the version into the export (and fails if the export doesn't carry it),
 # builds it without EOS (`--no-eos`: CI has no EOS SDK and no EOS credentials, so these packages play single
 # player and LAN only; online-capable builds are made with `uni release` on a developer's machine), and smoke-tests
-# the export on its runner; then a
+# the export on its runner (the variant without the dev UI too, `--no-devui`, which is not published); then a
 # GitHub prerelease gets both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline:
 # Windows only (macOS runners are often out of capacity), any game, no release.
 # The build jobs have `contents: read` and no secrets; only the publish job writes (the prerelease). Actions, runner
@@ -67,6 +67,19 @@ jobs:
             ~/.cache/unified/godot
             ~/AppData/Local/unified/godot
           key: ${{ steps.keys.outputs.godot }}
+      # The public variant first (#33): built and smoke-tested without the dev UI, then removed, not published (the
+      # prerelease is for playtests, which keep it: F3 notes).
+      - name: uni release --no-devui (checked, not published)
+        env:
+          GAME: ${{ inputs.game }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            ${{ matrix.uni }} release --no-eos --no-devui --tag "$GITHUB_REF_NAME"
+          else
+            [[ "$GAME" =~ ^[a-z0-9_]+$ ]] || { echo "::error::bad game name: $GAME"; exit 1; }
+            ${{ matrix.uni }} release --no-eos --no-devui "$GAME"
+          fi
+          rm -f games/*/.out/release/*-nodevui.zip games/*/.out/release/*-nodevui.zip.sha256
       # Extension, version stamp, import, export, sign, zip, smoke test; no EOS (single player and LAN).
       - name: uni release
         env:

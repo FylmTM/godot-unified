@@ -76,12 +76,13 @@ has_extension :: proc(game: Game) -> bool {
 	return os.is_directory(join(game.dir, "simulation", "extension"))
 }
 
-// Builds the game's extension when stale (always with `force`), and refreshes the game's view index first
+// Builds the game's extension when stale (always with `force`; `defines`: extra -define flags), and refreshes the
+// game's view index first
 // (refresh_view_index): every command that runs the game goes through here. The build tag
 // (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale. The
 // Box3D library goes next to it (the .gdextension's [dependencies] ship it from there): the debug build for --mode
 // debug.
-ensure_extension :: proc(game: Game, mode: Mode, force := false) -> string {
+ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []string = nil) -> string {
 	if !has_extension(game) {
 		fatal("%s has no simulation/extension to build", game.name)
 	}
@@ -102,6 +103,12 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false) -> string {
 	ensure_bindings()
 	stage_eos(game)
 	build := extension_build(game, mode)
+	if len(defines) > 0 { 	// extra -define flags (uni release --no-devui): part of the build's key
+		flags: [dynamic]string
+		append(&flags, ..build.flags)
+		append(&flags, ..defines)
+		build.flags = flags[:]
+	}
 	if !force && !stale(build) {
 		write_extension_list(game)
 		return build.out

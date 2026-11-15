@@ -34,7 +34,12 @@ git tag <game>-v<version> <commit> && git push origin <game>-v<version>
 ./uni release <game>                        # -> games/<game>/.out/release/<game>-dev-<sha>-<platform>.zip
 ./uni release --tag <game>-v<x.y.z>         # the tag build's package, but with online play
 ./uni release --no-eos <game>               # what CI builds: no EOS, single player and LAN
+./uni release --no-devui <game>             # without the dev UI (-nodevui.zip): for the first public build
 ```
+
+Playtest builds keep the dev UI (F3 notes are how a tester reports a problem); the first public build drops it
+(#33). The release workflow builds and smoke-tests the `--no-devui` variant on every run and publishes only the
+other; the smoke test checks the extension's `dev ui on|off`.
 
 A game that imports `unified:eos` needs `UNIFIED_EOS_SDK` and the five `UNIFIED_EOS_*` IDs (`.env`, `docs/EOS.md`),
 or `--no-eos`.
@@ -48,8 +53,8 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
   shows, and the presets' version keys) and fails if the export doesn't carry it.
 - **The build** (`uni release`, `tools/release.odin`, the same on a CI runner and locally): dependencies, the
   release extension (online play needs the `UNIFIED_EOS_*` IDs and SDK, so only a developer's machine builds it; CI
-  passes `--no-eos`: single player and LAN), Godot's headless import and export, ad-hoc codesign on macOS, zip, and a
-  headless smoke test of the unpacked zip.
+  passes `--no-eos`: single player and LAN; `--no-devui` drops the dev UI), Godot's headless import and export,
+  ad-hoc codesign on macOS, zip, and a headless smoke test of the unpacked zip.
 - **The prerelease**, named after the tag: `<game>-v<version>-macos-arm64.zip` and `<game>-v<version>-windows-x64.zip`
   (each unpacks to one folder of its own name with the game inside), `SHA256SUMS.txt` (LF line endings, so
   `shasum -a 256 -c` works on macOS), and tester notes (how to open an unsigned build, plus
