@@ -241,7 +241,7 @@ rot_2d_round_trips :: proc(t: ^testing.T) {
 		quarter,
 	)
 	// The convention: a positive turn takes +x toward +y (Godot's Node2D.rotation).
-	turned := physics.rotate(quarter, {1, 0, 0})
+	turned := dmath.quat_rotate(quarter, {1, 0, 0})
 	testing.expectf(
 		t,
 		abs(turned.x) < 1e-6 && abs(turned.y - 1) < 1e-6 && turned.z == 0,

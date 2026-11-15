@@ -34,7 +34,8 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   `resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
 - `bench [--entities E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
   W-tick re-sim (`resim_us`), the same re-sim of final ticks saving only the last (`resim_final_us`, a catch-up
-  burst), and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
+  burst), the stepped tick's checksum (`checksum_deep_us` on the ticks peers compare, every 16th; `checksum_us` on
+  the others) and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
   enemies), `entities_mean` the count it held. Without arguments it runs the game's standard benchmark
   (`Headless.bench`; W defaults to the prediction cap, `headless.prediction_window(game)`).
 - `net-bench [--clients N --ticks T --profile P | --latency MS [--jitter MS] [--loss PERMILLE]] [--seed S]`: a
@@ -59,8 +60,8 @@ procs in-process):
     `final_tick` (last verified tick, = N on success), `checksums` (`[[tick, "%016x"], ...]` for every verified tick
     divisible by 16; a late joiner starts at its first verified one), `rollbacks`, `rollback_depth_avg`,
     `rollback_depth_max`, `stall_ticks`, and optionally `desyncs`.
-  - `bench`: `step_us`, `save_us`, `restore_us`, `resim_us` (the W-tick re-sim), each `{"mean": µs, "p99": µs}`, and
-    `snapshot_bytes`.
+  - `bench`: `step_us`, `save_us`, `restore_us`, `resim_us` (the W-tick re-sim), `checksum_us`,
+    `checksum_deep_us`, each `{"mean": µs, "p99": µs}`, and `snapshot_bytes`.
 
 Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% duplicates, 1% reordering); `bad`
 (120 ms ± 40 ms, 8% loss, 3% duplicates, 5% reordering).

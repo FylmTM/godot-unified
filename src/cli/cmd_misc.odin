@@ -44,6 +44,8 @@ cmd_bench :: proc(args: []string) -> Result {
 		resim_mean_us:      f64,
 		resim_p99_us:       f64,
 		resim_final_us:     f64, // the same re-sim of final ticks, saving only the last (a catch-up burst)
+		checksum_us:        f64, // sim.checksum of a tick peers don't compare
+		checksum_deep_us:   f64, // ... and of one they do (every 16th: every extra's whole state)
 		window:             int,
 		step_plus_resim_us: f64,
 		snapshot_bytes:     int,
@@ -105,23 +107,25 @@ cmd_bench :: proc(args: []string) -> Result {
 			return json_f64(section[field])
 		}
 		bench := Bench_Line {
-			what            = json_string(obj["what"]),
-			step_mean_us    = stat(obj, "step_us", "mean"),
-			step_p99_us     = stat(obj, "step_us", "p99"),
-			save_mean_us    = stat(obj, "save_us", "mean"),
-			restore_mean_us = stat(obj, "restore_us", "mean"),
-			resim_mean_us   = stat(obj, "resim_us", "mean"),
-			resim_p99_us    = stat(obj, "resim_us", "p99"),
-			resim_final_us  = stat(obj, "resim_final_us", "mean"),
-			window          = json_int(obj["window"]),
-			snapshot_bytes  = json_int(obj["snapshot_bytes"]),
-			mismatches      = json_int(obj["mismatches"]),
+			what             = json_string(obj["what"]),
+			step_mean_us     = stat(obj, "step_us", "mean"),
+			step_p99_us      = stat(obj, "step_us", "p99"),
+			save_mean_us     = stat(obj, "save_us", "mean"),
+			restore_mean_us  = stat(obj, "restore_us", "mean"),
+			resim_mean_us    = stat(obj, "resim_us", "mean"),
+			resim_p99_us     = stat(obj, "resim_us", "p99"),
+			resim_final_us   = stat(obj, "resim_final_us", "mean"),
+			checksum_us      = stat(obj, "checksum_us", "mean"),
+			checksum_deep_us = stat(obj, "checksum_deep_us", "mean"),
+			window           = json_int(obj["window"]),
+			snapshot_bytes   = json_int(obj["snapshot_bytes"]),
+			mismatches       = json_int(obj["mismatches"]),
 		}
 		bench.step_plus_resim_us = bench.step_mean_us + bench.resim_mean_us
 		bench.within_target = bench.step_plus_resim_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us, restore %.0f us, snapshot %d bytes",
+			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us, restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
 			game.name,
 			bench.step_mean_us,
 			bench.window,
@@ -132,6 +136,8 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.resim_final_us,
 			bench.save_mean_us,
 			bench.restore_mean_us,
+			bench.checksum_us,
+			bench.checksum_deep_us,
 			bench.snapshot_bytes,
 		)
 		if bench.mismatches > 0 {

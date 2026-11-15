@@ -93,12 +93,6 @@ CHARACTER_DEFAULT :: Character_Def {
 	jump_buffer_s          = 0.125,
 }
 
-// cos and sin of i·45°, the skirt probe directions.
-@(private, rodata)
-SKIRT_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
-@(private, rodata)
-SKIRT_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}
-
 // Creates the character's body and drive joint at `pos` (the capsule's centre). Needs Settings.anchor.
 character_create :: proc(world: ^World, character: ^Character, def: ^Character_Def, pos: [3]f32) {
 	assert(world.anchor.index1 != 0, "physics: characters need Settings.anchor")
@@ -272,9 +266,9 @@ character_update :: proc(
 		best := max(f32)
 		for i in 0 ..< 8 {
 			skirt_offset := [3]f32 {
-				def.radius * (SKIRT_C[i] * heading.x + SKIRT_S[i] * side.x),
+				def.radius * (dmath.DIR8_C[i] * heading.x + dmath.DIR8_S[i] * side.x),
 				0,
-				def.radius * (SKIRT_C[i] * heading.y + SKIRT_S[i] * side.y),
+				def.radius * (dmath.DIR8_C[i] * heading.y + dmath.DIR8_S[i] * side.y),
 			}
 			skirt_hit, ok := ray_closest(world, origin + skirt_offset, translation, query, self)
 			if ok && skirt_hit.normal.y >= def.min_ground_normal_y {
@@ -293,7 +287,7 @@ character_update :: proc(
 	if .Jumping in character.flags {
 		character.jump_ticks += 1
 		// Give the jump time to leave the ground first.
-		if character.jump_ticks > 2 && found && dot3(character.velocity, hit.normal) <= 0 {
+		if character.jump_ticks > 2 && found && dmath.dot3(character.velocity, hit.normal) <= 0 {
 			character.flags -= {.Jumping}
 		}
 	}
@@ -374,7 +368,7 @@ character_update :: proc(
 		want_speed = 0
 	}
 	want_speed = min(want_speed, max_speed)
-	add := want_speed - dot3(character.velocity, dir)
+	add := want_speed - dmath.dot3(character.velocity, dir)
 	if add > 0 {
 		steer: f32 = .Walkable in character.flags ? 1 : def.air_steer
 		accel := min(steer * def.accelerate * max_speed * dt, add)
@@ -384,7 +378,7 @@ character_update :: proc(
 
 	// The pogo.
 	normal := hit.normal
-	if found && abs(1 - dot3(normal, normal)) < 100 * 1.1920929e-07 {
+	if found && abs(1 - dmath.dot3(normal, normal)) < 100 * 1.1920929e-07 {
 		weight := character_weight(world, character, def)
 		tension := .Jumping in character.flags ? 0 : def.pogo_tension_scale * weight
 		ground_id := link_id(world, hit.body)
@@ -430,11 +424,6 @@ character_update :: proc(
 
 	b3.mover_joint_set_linear_velocity(move_joint_id, character.velocity)
 	return
-}
-
-@(private)
-dot3 :: #force_inline proc "contextless" (a, b: [3]f32) -> f32 {
-	return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
 // Seconds as whole ticks of `dt`, rounded, clamped to u16 (through dmath: a negative, NaN or huge

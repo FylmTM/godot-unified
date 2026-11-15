@@ -289,7 +289,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Entity, chest: [3]f32, o
 			if spec.grab_points == 1 do return 0
 			pos := physics.position(t.world.phys, item.body)
 			point_pos :=
-				pos + physics.rotate(physics.rotation(t.world.phys, item.body), grab_point_offset(kind, point))
+				pos + dmath.quat_rotate(physics.rotation(t.world.phys, item.body), grab_point_offset(kind, point))
 			offset := point_pos - chest
 			distance_sq := offset.x * offset.x + offset.y * offset.y + offset.z * offset.z
 			if distance_sq < best_distance_sq do best, best_distance_sq = point, distance_sq
