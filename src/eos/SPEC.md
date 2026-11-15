@@ -58,8 +58,9 @@ the game's extension wires them (`init` first, with the game library's directory
   makes the connection request. If the connection isn't up 5 s (`CONNECT_WAIT_US`) after joining, the joiner closes
   it (`P2P_CloseConnection`), so its next packet asks again and the host makes a fresh offer; after 4 tries
   (`CONNECT_TRIES`, ~20 s) it fails: "no connection to the host after 20 s". EOS's signalling sometimes delivers
-  the host's offer only ~30 s late (#142). Closing a try that never connected is not a lost host to the netcode
-  (no link event). EOS packets carry 1170 bytes,
+  the host's offer late (#142); a fresh request connects in about a second. Closing a try that never connected is
+  not a lost host to the netcode (no link event), and the netcode waits 30 s for the host's first answer, which
+  covers the login, the lobby search and join (2–7 s) and every try. EOS packets carry 1170 bytes,
   so datagrams carry a 1-byte frame header (larger ones are split and reassembled; netcode's 1152-byte
   datagrams never are). Relays are allowed by default (`relay_control = .Force_Relays` to test them).
 - **Threading.** One process-wide session behind a mutex; every EOS call happens under it. The link's `recv`
