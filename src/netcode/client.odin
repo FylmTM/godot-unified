@@ -224,6 +224,8 @@ client_create :: proc(
 	return client
 }
 
+// Frees the client, its sim and its channel (closing the link it owns). Call client_stop and step until
+// Disconnected first, so the relay hears the Leave.
 client_destroy :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 	channel_destroy(client.ch)
 	if client.sim != nil {
@@ -261,6 +263,7 @@ client_state :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> ^Stat
 	return &client.sim.state if client.sim != nil else nil
 }
 
+// The round trip to the relay in milliseconds, the estimate the clock and input delay use, for the dev UI.
 client_rtt_ms :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) -> f64 {
 	return client.rtt_us / 1000
 }

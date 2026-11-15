@@ -14,6 +14,7 @@ Triple :: struct($T: typeid) {
 	read:   u32, // reader-owned
 }
 
+// Gives the writer, the published frame and the reader one slot each. Call before either thread uses it.
 triple_init :: proc(triple: ^Triple($T)) {
 	triple.write, triple.latest, triple.read = 0, 1, 2
 }
@@ -23,6 +24,8 @@ triple_back :: proc(triple: ^Triple($T)) -> ^T {
 	return &triple.slots[triple.write]
 }
 
+// Publishes the slot the writer just filled as the newest frame (lock-free) and hands the writer the previously
+// published one, so an unread frame is replaced rather than queued.
 triple_publish :: proc(triple: ^Triple($T)) {
 	old := sync.atomic_exchange(&triple.latest, triple.write | FRESH)
 	triple.write = old & 3
@@ -46,6 +49,7 @@ Queue :: struct($T: typeid, $N: int) where (N & (N - 1)) == 0 {
 	tail:  u32, // producer
 }
 
+// Appends an item from the producer thread; false when the queue is full (the caller decides whether to drop it).
 queue_push :: proc(queue: ^Queue($T, $N), item: T) -> bool {
 	tail := sync.atomic_load_explicit(&queue.tail, .Relaxed)
 	if tail - sync.atomic_load_explicit(&queue.head, .Acquire) >= u32(N) do return false
@@ -54,6 +58,7 @@ queue_push :: proc(queue: ^Queue($T, $N), item: T) -> bool {
 	return true
 }
 
+// Takes the oldest item on the consumer thread; `ok` is false when the queue is empty.
 queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 	head := sync.atomic_load_explicit(&queue.head, .Relaxed)
 	if head == sync.atomic_load_explicit(&queue.tail, .Acquire) do return
@@ -62,6 +67,7 @@ queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 	return item, true
 }
 
+// The number of items waiting. Read from either thread it is a snapshot that may already be stale.
 queue_len :: proc(queue: ^Queue($T, $N)) -> int {
 	return int(sync.atomic_load(&queue.tail) - sync.atomic_load(&queue.head))
 }

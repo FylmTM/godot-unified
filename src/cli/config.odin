@@ -10,6 +10,8 @@ Config :: struct {
 	sections: map[string]map[string]string,
 }
 
+// Parses ConfigFile text (pins.cfg, project.godot, a .gdextension) into its sections; keys before the first
+// section go in section "", and lines it doesn't understand are skipped.
 config_parse :: proc(text: string) -> (config: Config) {
 	section := ""
 	text := text
@@ -41,6 +43,7 @@ config_parse :: proc(text: string) -> (config: Config) {
 	return
 }
 
+// Reads and parses a ConfigFile; false when the file can't be read.
 config_load :: proc(path: string) -> (config: Config, ok: bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
@@ -49,6 +52,7 @@ config_load :: proc(path: string) -> (config: Config, ok: bool) {
 	return config_parse(string(data)), true
 }
 
+// A key's value in a section; false when either is missing (`pin` makes that fatal for pins.cfg).
 config_get :: proc(config: Config, section, key: string) -> (string, bool) {
 	entries, has := config.sections[section]
 	if !has {

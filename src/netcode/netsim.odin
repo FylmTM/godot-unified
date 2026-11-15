@@ -43,6 +43,7 @@ profile_is_ideal :: proc(profile: Profile) -> bool {
 	)
 }
 
+// Looks up a built-in profile (ideal, wan, bad) by name, for the headless `--profile` option and scenarios.
 profile_by_name :: proc(name: string) -> (Profile, bool) {
 	for profile in PROFILES {
 		if profile.name == name {

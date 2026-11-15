@@ -38,6 +38,7 @@ Session_Result :: struct($Input: typeid, $PLAYERS: int) {
 	relay_net: netcode.Channel_Stats,
 }
 
+// Frees what a session result owns (each client's checksums, the desync detail, the input log) and empties it.
 session_result_destroy :: proc(result: ^Session_Result($Input, $PLAYERS)) {
 	for client in result.clients {
 		delete(client.checksums)
@@ -54,6 +55,8 @@ Scripted_User :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	seed:     u64,
 }
 
+// Client hooks that sample the game's scripted input and commands for the client's player, so a session's
+// clients, the `client` mode and the online modes play without a human.
 scripted_hooks :: proc(
 	scripted: ^Scripted_User($State, $Input, $World, $PLAYERS),
 ) -> netcode.Hooks(State, Input, World, PLAYERS) {
@@ -130,6 +133,8 @@ run_relay :: proc(relay: ^netcode.Relay($Input, $PLAYERS), deadline: i64) -> boo
 	return true
 }
 
+// How long a session of `ticks` may take on the real clock before it counts as hung: three times its length
+// plus a minute (slow CI runners, a late joiner's catch-up).
 session_timeout_s :: proc(ticks: u32, tick_hz: int) -> f64 {
 	return f64(ticks) / f64(tick_hz) * 3 + 60
 }
@@ -148,6 +153,8 @@ Session :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	deadline: i64,
 }
 
+// Runs a whole session in this process: a relay and `cfg.clients` scripted clients over loopback or local UDP,
+// each behind a netsim profile, on threads or a virtual clock. The `session` mode and the end-to-end scenarios use it.
 session_run :: proc(
 	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	cfg: Session_Config,

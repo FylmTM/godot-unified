@@ -22,6 +22,8 @@ scripted_bits :: proc(seed: u64, player: int, block: u32) -> u32 {
 	return u32(x)
 }
 
+// One player's scripted input for a tick, a pure function of (seed, player, tick): the input the headless modes,
+// the end-to-end suite and a Godot scripted session feed the sim, identical wherever it is asked for.
 scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^State) -> Input {
 	bits := scripted_bits(seed, player, (tick - 1) / SCRIPT_PERIOD)
 	input: Input
@@ -38,6 +40,8 @@ scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^State) -> Inpu
 	return input
 }
 
+// Sends player 0's scripted `start` and `restart` on a fixed beat, so scripted runs go through whole matches and
+// back to the lobby.
 scripted_commands :: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
 	if player != 0 do return
 	switch tick % SCRIPT_COMMAND_EVERY {

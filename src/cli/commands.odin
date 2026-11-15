@@ -129,6 +129,7 @@ public_commands :: proc() -> []Command {
 	})
 }
 
+// The test suites every project has (`odin`, `godot`); `run` puts them before the project's own (`add_suites`).
 public_suites :: proc() -> []Suite {
 	return slice.clone([]Suite {
 		{
@@ -311,6 +312,7 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 }
 
+// A comma-separated option (`test --suite`, `--only`) as its trimmed, non-empty items.
 split_list :: proc(text: string) -> []string {
 	out: [dynamic]string
 	for part in strings.split(text, ",") {

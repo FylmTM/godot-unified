@@ -278,6 +278,8 @@ path_key :: proc(path: string) -> string {
 	return ODIN_OS == .Windows ? strings.to_lower(key) : key
 }
 
+// Whether a name can be a game's (`init` takes it from the directory): lowercase letters, digits and _,
+// starting with a letter, so it can name the game's Odin packages and library.
 valid_game_name :: proc(name: string) -> bool {
 	if name == "" || name[0] < 'a' || name[0] > 'z' {
 		return false

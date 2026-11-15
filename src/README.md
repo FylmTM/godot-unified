@@ -67,8 +67,9 @@ of lengths between 100k and 300k), while `XXH3_64_default` matches the C referen
   non-blocking; EOS in its own package) → optional `netsim` wrapper (seeded xorshift; latency, uniform jitter, loss,
   duplication, extra delay for reordering; real or virtual clock) → `Channel` (any number of links, one peer
   numbering; sequence numbers, ack + 32-bit ack field, reliable messages resent after an RTT-based timeout and
-  delivered in order, keepalives every 250 ms, disconnect after 10 s of silence or a link's own disconnect event;
-  epochs in every datagram end a half-open connection at once, see `channel.odin`).
+  delivered in order, keepalives every 250 ms, disconnect after 10 s of silence (30 s before the peer's first
+  answer) or a link's own disconnect event; epochs in every datagram end a half-open connection at once, see
+  `channel.odin`).
 - **Step API:** `relay_step`, `client_step`, `host_step` take `now_us` and return the next wake time (the next tick
   boundary, or the poll interval, 1 ms by default). No package-level threads; `headless session` runs a thread per
   client on the real clock or steps everything on one thread on the virtual clock (the end-to-end suites), the

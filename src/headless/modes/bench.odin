@@ -16,6 +16,7 @@ Stat :: struct {
 	p99:  f64,
 }
 
+// The mean and nearest-rank p99 of timing samples (zeros for none); sorts `samples` in place.
 stat_of :: proc(samples: []f64) -> Stat {
 	if len(samples) == 0 {
 		return {}
@@ -154,6 +155,8 @@ Table_Bench_Item :: struct {
 
 Table_Bench :: sim.Table(Table_Bench_Item, TABLE_BENCH_CAPACITY)
 
+// The `table-bench` mode: times a walk of a sparse 65,536-slot table against a dense one holding as many items,
+// to show whether the walk's scan of empty slots matters. Game-independent.
 mode_table_bench :: proc(args: ^Args) -> bool {
 	check_known(args, "live", "walks")
 	live := opt_int(args, "live", 1000, low = 1, high = TABLE_BENCH_CAPACITY)

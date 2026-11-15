@@ -32,6 +32,7 @@ download :: proc(url, dest, sha256, what: string) {
 	}
 }
 
+// The curl executable on PATH, for every download (`download`, remote zips); stops the command when there is none.
 curl :: proc() -> string {
 	path := which("curl")
 	if path == "" {
@@ -40,6 +41,7 @@ curl :: proc() -> string {
 	return path
 }
 
+// The git executable on PATH (pinned checkouts, `init`, git_commit); stops the command when there is none.
 git :: proc() -> string {
 	git_exe := which("git")
 	if git_exe == "" {
@@ -57,6 +59,8 @@ file_identity :: proc(path: string) -> string {
 	return tprint("%s %d %d", path, info.size, time.to_unix_nanoseconds(info.modification_time))
 }
 
+// Whether a stamp file holds exactly `key`: the cheap check, with no process started, that something built or
+// fetched earlier (odinfmt, Box3D, an extension, a checked Godot) is still the one wanted.
 stamp_ok :: proc(path, key: string) -> bool {
 	text, ok := read_text(path)
 	return ok && strings.trim_space(text) == key
@@ -109,6 +113,8 @@ git_checkout :: proc(dir, url, commit: string) {
 // links lib/<platform>[-debug]/ and loads the library from its own directory (stage_box3d): Odin's default rpath
 // ($ORIGIN, @loader_path) and Windows' DLL search look there, and so does Godot for an extension's dependencies.
 
+// Where Box3D's library, headers and bindings are (the `box3d:` collection): the UNIFIED_BOX3D checkout, else
+// the project's .out/unified-box3d/.
 box3d_dir :: proc() -> string {
 	if local := box3d_local(); local != "" {
 		return local
@@ -277,6 +283,8 @@ project_uses_box3d :: proc() -> bool {
 	return false
 }
 
+// Whether any .odin file under `dir` contains one of the strings (import paths such as `"unified:physics"`),
+// to tell without compiling what code uses (Box3D, EOS, the scenarios). A text search: a comment counts too.
 sources_import :: proc(dir: string, imports: ..string) -> bool {
 	for file in find_files(dir, ".odin") {
 		text, _ := read_text(file)
@@ -322,6 +330,8 @@ ensure_odinfmt :: proc() -> string {
 	return exe
 }
 
+// The odin executable on PATH (the shims put the pinned one first), for every build and check; stops the command
+// when there is none.
 odin :: proc() -> string {
 	path := which("odin")
 	if path == "" {

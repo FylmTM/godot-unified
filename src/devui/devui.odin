@@ -101,6 +101,8 @@ Log_Row :: struct {
 @(private)
 SLOW_MS :: 100 // text and the inspector update at 10 Hz
 
+// Builds the dev UI's controls on their own CanvasLayer and hooks its hotkeys; call on the main thread once the
+// scene tree exists. A second call does nothing.
 init :: proc(config: Config) {
 	if s.inited do return
 	s.cfg = config
@@ -136,6 +138,7 @@ init :: proc(config: Config) {
 	s.inited = true
 }
 
+// Frees everything init made and resets the state, so init can run again (the extension calls it on unload).
 shutdown :: proc() {
 	if !s.inited do return
 	if alive(s.root_id) && gd.Object_is_connected(s.root, "window_input", s.hotkeys) {
@@ -160,6 +163,7 @@ alive :: proc(id: u64) -> bool {
 	return id != 0 && gdi.object_get_instance_from_id(id) != nil
 }
 
+// Whether init has run (and shutdown has not since), so a host can init the dev UI only once.
 is_ready :: proc() -> bool {
 	return s.inited
 }
