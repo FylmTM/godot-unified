@@ -32,6 +32,9 @@ Game="*res://addons/shared/autoload/game.gd"
 
 [debug]
 
+; Strict typing in every unified game (#9 T5): untyped and unsafe code is an error; tool runs fail on any warning.
+; Tool scripts (game/tools, addons, the level exporter in .out) reach the Game autoload untyped: they compile before
+; autoloads exist.
 gdscript/warnings/directory_rules={
 "res://.out": 0,
 "res://addons": 0,
