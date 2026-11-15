@@ -19,8 +19,10 @@ Pending_Kind :: enum {
 	Login,
 	Lobby, // Lobby_Callback_Info: create, update, join, leave, destroy
 	Result, // Result_Callback_Info: search
-	Established, // the P2P connection to the lobby owner came up
-	Closed, // the P2P connection to the lobby owner closed
+	Established, // a P2P connection came up (with `user`)
+	Closed, // a P2P connection closed (with `user`)
+	Request, // `user` asks the host for a P2P connection
+	Member, // a lobby member status (`user`, `status`)
 }
 
 @(private = "file")
@@ -30,6 +32,8 @@ Pending :: struct {
 	client_data: rawptr,
 	result:      eos.Result,
 	lobby:       [32]u8,
+	user:        int, // Established, Closed, Request, Member: the index into fake.users (0: means the owner)
+	status:      eos.Lobby_Member_Status,
 }
 
 @(private = "file")
@@ -50,17 +54,41 @@ fake: struct {
 	closed_to_owner:    int, // P2P_CloseConnection calls for the lobby owner
 	on_established:     rawptr, // the session's P2P notifications and their client data
 	on_closed:          rawptr,
+	on_request:         rawptr,
 	p2p_data:           rawptr,
-	users:              [2]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner
+	on_member:          rawptr, // the lobby member status notification and its client data
+	member_data:        rawptr,
+	accepted:           [dynamic]int, // the users P2P_AcceptConnection was called for (fake.users indices)
+	users:              [3]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner (or a joiner), [2] = a stranger
 }
 
 @(private = "file")
-enqueue :: proc(kind: Pending_Kind, callback: rawptr, client_data: rawptr, result: eos.Result, lobby := "") {
+OWNER :: 1
+@(private = "file")
+STRANGER :: 2
+
+@(private = "file")
+user_id :: proc(index: int) -> eos.Product_User_Id {
+	return eos.Product_User_Id(&fake.users[index == 0 ? OWNER : index])
+}
+
+@(private = "file")
+enqueue :: proc(
+	kind: Pending_Kind,
+	callback: rawptr,
+	client_data: rawptr,
+	result: eos.Result,
+	lobby := "",
+	user := 0,
+	status := eos.Lobby_Member_Status.Joined,
+) {
 	pending := Pending {
 		kind        = kind,
 		callback    = callback,
 		client_data = client_data,
 		result      = result,
+		user        = user,
+		status      = status,
 	}
 	copy(pending.lobby[:len(pending.lobby) - 1], lobby)
 	fake.queue[fake.queued] = pending
@@ -98,16 +126,30 @@ fire_all :: proc() {
 		case .Established:
 			info := eos.P2P_On_Peer_Connection_Established_Info {
 				client_data    = pending.client_data,
-				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+				remote_user_id = user_id(pending.user),
 				network_type   = .Direct,
 			}
 			(proc "c" (_: ^eos.P2P_On_Peer_Connection_Established_Info))(pending.callback)(&info)
 		case .Closed:
 			info := eos.P2P_On_Remote_Connection_Closed_Info {
 				client_data    = pending.client_data,
-				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+				remote_user_id = user_id(pending.user),
 			}
 			(proc "c" (_: ^eos.P2P_On_Remote_Connection_Closed_Info))(pending.callback)(&info)
+		case .Request:
+			info := eos.P2P_On_Incoming_Connection_Request_Info {
+				client_data    = pending.client_data,
+				remote_user_id = user_id(pending.user),
+			}
+			(proc "c" (_: ^eos.P2P_On_Incoming_Connection_Request_Info))(pending.callback)(&info)
+		case .Member:
+			info := eos.Lobby_Member_Status_Received_Callback_Info {
+				client_data    = pending.client_data,
+				lobby_id       = cstring(&pending.lobby[0]),
+				target_user_id = user_id(pending.user),
+				current_status = pending.status,
+			}
+			(proc "c" (_: ^eos.Lobby_Member_Status_Received_Callback_Info))(pending.callback)(&info)
 		}
 	}
 }
@@ -123,7 +165,8 @@ FAKE := eos.Api {
 	Shutdown = proc "c" () -> eos.Result {fake.shut_down += 1; return .Success},
 	EResult_ToString = proc "c" (result: eos.Result) -> cstring {return result == .Success ? "success" : "fake error"},
 	ProductUserId_ToString = proc "c" (id: eos.Product_User_Id, out: [^]u8, length: ^i32) -> eos.Result {
-		text := (^u8)(id) == &fake.users[0] ? "fakeuser0" : "fakeowner"
+		text :=
+			(^u8)(id) == &fake.users[0] ? "fakeuser0" : (^u8)(id) == &fake.users[STRANGER] ? "fakestranger" : "fakeowner"
 		for i in 0 ..< len(text) do out[i] = text[i]
 		out[len(text)] = 0
 		length^ = i32(len(text) + 1)
@@ -198,7 +241,10 @@ FAKE := eos.Api {
 		options: ^eos.P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.P2P_On_Incoming_Connection_Request_Info),
-	) -> eos.Notification_Id {return 2},
+	) -> eos.Notification_Id {
+		fake.on_request = rawptr(callback)
+		return 2
+	},
 	P2P_RemoveNotifyPeerConnectionRequest = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
 	P2P_AddNotifyPeerConnectionEstablished = proc "c" (
 		handle: eos.H_P2P,
@@ -221,10 +267,13 @@ FAKE := eos.Api {
 		return 4
 	},
 	P2P_RemoveNotifyPeerConnectionClosed = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
-	P2P_AcceptConnection = proc "c" (
-		handle: eos.H_P2P,
-		options: ^eos.P2P_Accept_Connection_Options,
-	) -> eos.Result {return .Success},
+	P2P_AcceptConnection = proc "c" (handle: eos.H_P2P, options: ^eos.P2P_Accept_Connection_Options) -> eos.Result {
+		context = runtime.default_context()
+		for i in 0 ..< len(fake.users) {
+			if (^u8)(options.remote_user_id) == &fake.users[i] do append(&fake.accepted, i)
+		}
+		return .Success
+	},
 	P2P_CloseConnection = proc "c" (handle: eos.H_P2P, options: ^eos.P2P_Accept_Connection_Options) -> eos.Result {
 		context = runtime.default_context()
 		if (^u8)(options.remote_user_id) == &fake.users[1] && options.socket_id != nil {
@@ -323,7 +372,11 @@ FAKE := eos.Api {
 		options: ^eos.Version_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.Lobby_Member_Status_Received_Callback_Info),
-	) -> eos.Notification_Id {return 5},
+	) -> eos.Notification_Id {
+		fake.on_member = rawptr(callback)
+		fake.member_data = client_data
+		return 5
+	},
 	Lobby_RemoveNotifyLobbyMemberStatusReceived = proc "c" (handle: eos.H_Lobby, id: eos.Notification_Id) {},
 	LobbyModification_AddAttribute = proc "c" (
 		handle: eos.H_Lobby_Modification,
@@ -489,6 +542,42 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, eos.pump().failed, "")
 	eos.leave()
 	testing.expect_value(t, eos.status().stage, eos.Stage.Idle)
+
+	// #300: the host accepts P2P only from its lobby's members. A stranger who asks is never accepted; a
+	// joiner whose request comes before the lobby says it joined is accepted when it does; one who left is
+	// held again until it rejoins.
+	testing.expect(t, eos.host("fake-bucket"))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	lobby := fake_lobby_name(fake.lobbies)
+	member :: proc(lobby: string, user: int, status: eos.Lobby_Member_Status) {
+		enqueue(.Member, fake.on_member, fake.member_data, .Success, lobby, user, status)
+		eos.pump()
+	}
+	request :: proc(user: int) {
+		enqueue(.Request, fake.on_request, fake.p2p_data, .Success, user = user)
+		eos.pump()
+	}
+	request(STRANGER)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 0)
+	member(lobby, OWNER, .Joined)
+	testing.expect(t, len(fake.accepted) == 1 && fake.accepted[0] == OWNER, "the held request is accepted on join")
+	request(OWNER) // a member's request: accepted at once
+	testing.expect_value(t, len(fake.accepted), 2)
+	request(STRANGER)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = STRANGER)
+	eos.pump()
+	testing.expect_value(t, len(fake.accepted), 2)
+	testing.expect_value(t, eos.status().peers, 0) // a stranger's connection never becomes a peer
+	member(lobby, OWNER, .Left)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 2)
+	member(lobby, OWNER, .Joined)
+	testing.expect_value(t, len(fake.accepted), 3)
+	eos.leave()
+	delete(fake.accepted)
+	fake.accepted = {}
 
 	// Join: search by code, the lobby owner becomes the host (peer 0).
 	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))

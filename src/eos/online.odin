@@ -61,6 +61,16 @@ Remote :: struct {
 	reasm:     Reasm,
 }
 
+// A user the host knows by id: a lobby member it saw join, or a connection request it holds until the user
+// joins (P2P is accepted from lobby members only).
+User :: struct {
+	used:   bool,
+	id:     Product_User_Id,
+	id_str: [PRODUCTUSERID_MAX_LENGTH + 1]u8,
+}
+
+HELD_REQUESTS :: 8 // connection requests from users not (yet) seen in the lobby; the oldest is dropped
+
 Init_Options :: struct {
 	lib_dirs:            []string, // where to look for the SDK library; empty = default_lib_dirs()
 	product_name:        string,
@@ -110,6 +120,9 @@ Online :: struct {
 	notify_est:     Notification_Id,
 	notify_closed:  Notification_Id,
 	remotes:        [MAX_REMOTES]Remote,
+	members:        [MAX_MEMBERS]User, // host: the lobby's members it saw join (P2P is accepted from them only)
+	held:           [HELD_REQUESTS]User, // host: connection requests waiting for their user to join the lobby
+	held_next:      int, // the held slot the next request takes (a ring: a stranger can't pin a slot)
 	next_frag:      u16,
 	last_tick_us:   i64,
 	sent, received: int,
@@ -519,6 +532,9 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	online.search_at_us = 0
 	online.connect_at_us = 0
 	online.connect_tries = 0
+	online.members = {}
+	online.held = {}
+	online.held_next = 0
 	online.n_events = 0
 	online.bucket = {}
 	copy(online.bucket[:len(online.bucket) - 1], bucket)
@@ -1070,14 +1086,56 @@ on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info)
 			fail(online, "the host closed the game")
 		}
 	}
+	if online.role != .Host {
+		return
+	}
+	if info.current_status == .Joined {
+		member_joined(online, info.target_user_id)
+		return
+	}
 	gone := info.current_status == .Left || info.current_status == .Disconnected || info.current_status == .Kicked
-	if online.role == .Host && gone {
+	if gone {
+		if i := user_index(online, online.members[:], info.target_user_id); i >= 0 {
+			online.members[i] = {}
+		}
 		for &remote, i in online.remotes {
 			if remote.used && cstr(remote.id_str[:]) == cstr(buf[:]) {
 				remote.connected = false
 				push_event(online, netcode.Peer(i), false)
 			}
 		}
+	}
+}
+
+// Host: a user joined the lobby. It may connect from now on; a connection request it made before the
+// lobby told us (the two arrive in either order) is accepted now.
+@(private)
+member_joined :: proc(online: ^Online, id: Product_User_Id) {
+	if user_index(online, online.members[:], id) < 0 {
+		for &member in online.members {
+			if !member.used {
+				user_set(online, &member, id)
+				break
+			}
+		}
+	}
+	if i := user_index(online, online.held[:], id); i >= 0 {
+		log_line("%s joined the lobby: accepting its held connection request", cstr(online.held[i].id_str[:]))
+		online.held[i] = {}
+		accept(online, id)
+	}
+}
+
+@(private)
+accept :: proc(online: ^Online, id: Product_User_Id) {
+	accept_options := P2P_Accept_Connection_Options {
+		api_version    = P2P_ACCEPTCONNECTION_API_LATEST,
+		local_user_id  = online.local,
+		remote_user_id = id,
+		socket_id      = &online.socket,
+	}
+	if result := online.api.P2P_AcceptConnection(online.p2p, &accept_options); result != .Success {
+		log_line("accepting a P2P connection: %s", online.api.EResult_ToString(result))
 	}
 }
 
@@ -1139,16 +1197,20 @@ on_connection_request :: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Inf
 	if online.role == .Join && !same_user(online, info.remote_user_id, &online.remotes[0]) {
 		return
 	}
-	accept_options := P2P_Accept_Connection_Options {
-		api_version    = P2P_ACCEPTCONNECTION_API_LATEST,
-		local_user_id  = online.local,
-		remote_user_id = info.remote_user_id,
-		socket_id      = &online.socket,
+	// The host only accepts its lobby's members. A request can arrive before the lobby tells us the user
+	// joined: hold it, member_joined accepts it then.
+	if online.role == .Host && user_index(online, online.members[:], info.remote_user_id) < 0 {
+		if user_index(online, online.held[:], info.remote_user_id) < 0 {
+			user_set(online, &online.held[online.held_next], info.remote_user_id)
+			log_line(
+				"connection request from %s, not in the lobby: held until it joins",
+				cstr(online.held[online.held_next].id_str[:]),
+			)
+			online.held_next = (online.held_next + 1) % HELD_REQUESTS
+		}
+		return
 	}
-	result := online.api.P2P_AcceptConnection(online.p2p, &accept_options)
-	if result != .Success {
-		log_line("accepting a P2P connection: %s", online.api.EResult_ToString(result))
-	}
+	accept(online, info.remote_user_id)
 }
 
 @(private)
@@ -1230,6 +1292,9 @@ end_session :: proc(online: ^Online) {
 	}
 	online.gen += 1
 	online.remotes = {}
+	online.members = {}
+	online.held = {}
+	online.held_next = 0
 	online.connect_at_us = 0
 	online.host = nil
 	online.role = .None
@@ -1385,7 +1450,8 @@ remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
 			return i
 		}
 	}
-	if !add || online.role != .Host {
+	// Only a lobby member becomes a new peer (its connection was accepted for that reason).
+	if !add || online.role != .Host || user_index(online, online.members[:], id) < 0 {
 		return -1
 	}
 	for i in 1 ..< MAX_REMOTES {
@@ -1401,6 +1467,32 @@ remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
 		}
 	}
 	return -1
+}
+
+// The index of `id` among `users`, or -1.
+@(private)
+user_index :: proc(online: ^Online, users: []User, id: Product_User_Id) -> int {
+	buf: [PRODUCTUSERID_MAX_LENGTH + 1]u8
+	text := ""
+	for &user, i in users {
+		if !user.used do continue
+		if user.id == id do return i
+		if text == "" {
+			id_to_string(online, id, buf[:])
+			text = cstr(buf[:])
+		}
+		if text == cstr(user.id_str[:]) do return i
+	}
+	return -1
+}
+
+@(private)
+user_set :: proc(online: ^Online, user: ^User, id: Product_User_Id) {
+	user^ = {
+		used = true,
+		id   = id,
+	}
+	id_to_string(online, id, user.id_str[:])
 }
 
 @(private)

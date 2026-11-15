@@ -57,7 +57,10 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   the death, so the host may wait out the SDK's 30 s reconnect window first; not measured yet (#32).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
-  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The joiner's first packet
+  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The host accepts P2P only from
+  its lobby's members (the lobby member events): a request that comes before the lobby says its user joined is held
+  and accepted when it does (the last 8 such requests are held), a stranger's never is, and a member who left must
+  join again. The lobby is the only way in; its limit of 4 is the session's. The joiner's first packet
   makes the connection request. If the connection isn't up 5 s (`CONNECT_WAIT_US`) after joining, the joiner closes
   it (`P2P_CloseConnection`), so its next packet asks again and the host makes a fresh offer; after 4 tries
   (`CONNECT_TRIES`, ~20 s) it fails: "no connection to the host after 20 s". EOS's signalling sometimes delivers
@@ -89,7 +92,9 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
 - `tests/eos` (no network): codes (alphabet, unbiased, parsing), framing (every size, loss, reordering,
   garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
   load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
-  lobby that arrives after leave is destroyed, a failed request reports its reason once, join, a joiner's P2P
+  lobby that arrives after leave is destroyed, a failed request reports its reason once, the host accepting
+  P2P from lobby members only (a stranger never, an early request on join, a member who left after rejoining),
+  join, a joiner's P2P
   connection that never comes up (closed and asked again, then a failure) or comes up on a retry, shutdown.
 - Two processes on one machine through EOS (the `.env`'s `UNIFIED_EOS_*` IDs and SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
