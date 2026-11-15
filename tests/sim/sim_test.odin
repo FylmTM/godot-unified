@@ -392,6 +392,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
 		seed    = 99,
 		content = 0xC0FFEE,
+		compat  = 0xB111D,
 	}
 	defer sim.log_destroy(&input_log)
 	for k in 0 ..< 50 {
@@ -420,6 +421,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, back.seed, 99)
 	testing.expect_value(t, back.content, 0xC0FFEE)
+	testing.expect_value(t, back.compat, 0xB111D)
 	testing.expect_value(t, len(back.ticks), 50)
 	for k in 0 ..< 50 {
 		decoded, original := sim.log_inputs(&back, k), sim.log_inputs(&input_log, k)

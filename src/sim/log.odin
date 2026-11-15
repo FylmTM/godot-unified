@@ -1,5 +1,5 @@
-// Input log (the replay file): "UNIL", version u16, seed u64, content hash u64 (the level, 0: none),
-// players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to the
+// Input log (the replay file): "UNIL", version u16, seed u64, content hash u64 (the level, 0: none), compat u64
+// (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to the
 // end), then per tick (write_tick, also the netcode's finalized tick):
 // present u32, replaced u32, players × the input's bytes (plain data, so its memory is its little-endian
 // serialization), command count u8, then per command: player u8, kind u8, size u8, the struct's bytes.
@@ -11,10 +11,10 @@ import "unified:wire"
 
 LOG_MAGIC :: "UNIL"
 // 4: commands per tick; 5: the #6 sitting's sim (u32 handles, SplitMix64, keyed rolls), so a log recorded
-// before replays differently: the bytes are laid out as in 4.
-LOG_VERSION :: 5
-LOG_HEADER :: 29
-LOG_TICKS_AT :: 25 // the header's tick count
+// before replays differently: the bytes are laid out as in 4; 6: the recording build's compat in the header (#123).
+LOG_VERSION :: 6
+LOG_HEADER :: 37
+LOG_TICKS_AT :: 33 // the header's tick count
 COMMAND_HEAD :: 3 // player, kind, size: a command's bytes on the wire and in the log, before its data
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
@@ -29,6 +29,7 @@ Log_Tick :: struct($Input: typeid, $PLAYERS: int) {
 Input_Log :: struct($Input: typeid, $PLAYERS: int) {
 	seed:     u64,
 	content:  u64, // content_hash of the session's content (0: none)
+	compat:   u64, // compat_of of the build that recorded it (0: unknown, e.g. a relay that accepts any build)
 	ticks:    [dynamic]Log_Tick(Input, PLAYERS), // ticks[k] holds tick k + 1
 	commands: [dynamic]Raw_Command, // every tick's commands, in tick order
 }
@@ -167,7 +168,14 @@ log_encode :: proc(input_log: ^Input_Log($Input, $PLAYERS), allocator := context
 		len(input_log.ticks) * tick_bytes(Input, PLAYERS, nil) +
 		len(input_log.commands) * (COMMAND_HEAD + 8)
 	writer := wire.writer_make(size_hint, allocator)
-	header := Log_Header{input_log.seed, input_log.content, PLAYERS, size_of(Input), len(input_log.ticks)}
+	header := Log_Header {
+		seed       = input_log.seed,
+		content    = input_log.content,
+		compat     = input_log.compat,
+		players    = PLAYERS,
+		input_size = size_of(Input),
+		ticks      = len(input_log.ticks),
+	}
 	write_log_header(&writer, header)
 	for k in 0 ..< len(input_log.ticks) {
 		log_write_tick(&writer, input_log, k)
@@ -184,6 +192,7 @@ log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 	}
 	input_log.seed = header.seed
 	input_log.content = header.content
+	input_log.compat = header.compat
 	input_log.ticks = make([dynamic]Log_Tick(Input, PLAYERS), 0, header.ticks)
 	reader := wire.reader_make(body)
 	inputs: Inputs(Input, PLAYERS)
@@ -352,6 +361,7 @@ log_stream_end :: proc(stream: ^Log_Stream) -> bool {
 Log_Header :: struct {
 	seed:       u64,
 	content:    u64,
+	compat:     u64, // compat_of of the recording build (0: unknown)
 	players:    int,
 	input_size: int,
 	ticks:      int,
@@ -362,6 +372,7 @@ write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_u16(writer, LOG_VERSION)
 	wire.w_u64(writer, header.seed)
 	wire.w_u64(writer, header.content)
+	wire.w_u64(writer, header.compat)
 	wire.w_u8(writer, u8(header.players))
 	wire.w_u16(writer, u16(header.input_size))
 	wire.w_u32(writer, u32(header.ticks))
@@ -374,6 +385,7 @@ decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 	version := wire.r_u16(&reader)
 	header.seed = wire.r_u64(&reader)
 	header.content = wire.r_u64(&reader)
+	header.compat = wire.r_u64(&reader)
 	header.players = int(wire.r_u8(&reader))
 	header.input_size = int(wire.r_u16(&reader))
 	header.ticks = int(wire.r_u32(&reader))
