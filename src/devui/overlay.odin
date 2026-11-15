@@ -31,6 +31,10 @@ FRAME_HIST :: 4096 // frames kept (> FRAME_SPAN_MS at 2000 fps)
 MAX_W :: 600 // graph width cap (points)
 @(private)
 MAX_PARTS :: 4
+@(private)
+HIST_STEP_MS :: 0.1 // the frame-time histogram's bucket width
+@(private)
+HIST_BUCKETS :: 2000 // 0 to 200 ms; longer frames count in the last bucket (the max is kept exactly)
 
 @(private)
 PALETTE := [MAX_PARTS]gd.Color{{0.36, 0.62, 0.95, 1}, {0.95, 0.6, 0.25, 1}, {0.45, 0.8, 0.45, 1}, {0.75, 0.5, 0.9, 1}}
@@ -68,31 +72,39 @@ Group :: struct {
 
 @(private)
 Overlay :: struct {
-	panel:   gd.PanelContainer,
-	box:     gd.VBoxContainer,
-	buttons: gd.VBoxContainer, // the toggle rows (the only part of the overlay that takes clicks)
-	toggles: [Panel_Kind]gd.Button,
-	gbar:    gd.HBoxContainer, // the group toggles
-	corner:  int, // where the overlay sits: 0 top right, 1 top left, 2 bottom left, 3 bottom right
-	grid:    gd.GridContainer, // the stat lines: key, value
-	keys:    [dynamic]gd.Label,
-	vals:    [dynamic]gd.Label,
-	frames:  [FRAME_HIST]f32, // ms, by frame index
-	ends:    [FRAME_HIST]f64, // when each frame ended, ms since the first (the time axis)
-	now_ms:  f64,
-	frame_n: int,
-	graphs:  [dynamic]^Graph,
-	groups:  [dynamic]Group,
+	panel:         gd.PanelContainer,
+	box:           gd.VBoxContainer,
+	buttons:       gd.VBoxContainer, // the toggle rows (the only part of the overlay that takes clicks)
+	toggles:       [Panel_Kind]gd.Button,
+	gbar:          gd.HBoxContainer, // the group toggles
+	corner:        int, // where the overlay sits: 0 top right, 1 top left, 2 bottom left, 3 bottom right
+	grid:          gd.GridContainer, // the stat lines: key, value
+	keys:          [dynamic]gd.Label,
+	vals:          [dynamic]gd.Label,
+	// The value column only grows (numbers changing width don't move the overlay), until the set of lines changes.
+	val_w:         f32,
+	keys_id:       u64, // the shown lines' keys, hashed
+	// frame times since the session started (or the frames line was clicked): its first line
+	frames_button: gd.Button,
+	hist:          [HIST_BUCKETS]u32,
+	hist_n:        int,
+	hist_max:      f32,
+	frames:        [FRAME_HIST]f32, // ms, by frame index
+	ends:          [FRAME_HIST]f64, // when each frame ended, ms since the first (the time axis)
+	now_ms:        f64,
+	frame_n:       int,
+	graphs:        [dynamic]^Graph,
+	groups:        [dynamic]Group,
 	// per pixel column, the frames overlapping it (first ..= last, absolute indices; first > last: none)
-	cols:    [MAX_W][2]int,
-	w:       int,
+	cols:          [MAX_W][2]int,
+	w:             int,
 	// scratch arrays (the RenderingServer copies them)
-	points:  gd.PackedVector2Array,
-	colors:  gd.PackedColorArray,
-	indices: gd.PackedInt32Array,
-	empty_v: gd.PackedVector2Array,
-	empty_i: gd.PackedInt32Array,
-	empty_f: gd.PackedFloat32Array,
+	points:        gd.PackedVector2Array,
+	colors:        gd.PackedColorArray,
+	indices:       gd.PackedInt32Array,
+	empty_v:       gd.PackedVector2Array,
+	empty_i:       gd.PackedInt32Array,
+	empty_f:       gd.PackedFloat32Array,
 }
 
 @(private)
@@ -121,8 +133,10 @@ build_overlay :: proc() {
 	gd.Control_set_tooltip_text(corner_button, "move to the next corner")
 	names := [Panel_Kind]string {
 		.Inspector  = "inspect",
+		.Input      = "input",
 		.Conditions = "conditions",
 		.Events     = "events",
+		.Commands   = "commands",
 		.Note       = "note",
 	}
 	for kind in Panel_Kind {
@@ -144,6 +158,17 @@ build_overlay :: proc() {
 	gd.Control_set_mouse_filter(overlay.grid, .MOUSE_FILTER_IGNORE)
 	gd.Control_add_theme_constant_override(overlay.grid, "h_separation", 8)
 	gd.Control_add_theme_constant_override(overlay.grid, "v_separation", 0)
+	frames_key := label(overlay.grid, "frames")
+	gd.Control_set_theme_type_variation(frames_key, "DevKey")
+	gd.Control_add_theme_font_override(frames_key, "font", s.mono)
+	overlay.frames_button = button(overlay.grid, "", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
+		frames_reset()
+		stats_update()
+		return {}
+	})
+	gd.Control_set_theme_type_variation(overlay.frames_button, "DevTitleButton")
+	gd.Control_add_theme_font_override(overlay.frames_button, "font", s.mono)
+	gd.Button_set_text_alignment(overlay.frames_button, .HORIZONTAL_ALIGNMENT_LEFT)
 	overlay.points = gd.PackedVector2Array_new0()
 	overlay.colors = gd.PackedColorArray_new0()
 	overlay.indices = gd.PackedInt32Array_new0()
@@ -185,10 +210,16 @@ overlay_place :: proc() {
 	gd.Control_set_position(s.overlay.panel, {right ? s.view.x - size.x - 4 : 4, bottom ? s.view.y - size.y - 4 : 4})
 }
 
-// The stat lines as a grid: a dim key, a monospace value (rows are kept and reused).
+// The stat lines as a grid: a dim key, a monospace value (rows are kept and reused). The first line is the frame
+// times since the session started.
 @(private)
 stats_update :: proc() {
 	overlay := &s.overlay
+	p50, p99 := frames_percentile(0.5), frames_percentile(0.99)
+	gd.Button_set_text(
+		overlay.frames_button,
+		overlay.hist_n == 0 ? "-" : fmt.tprintf("p50 %s  p99 %s  max %s ms", num(p50), num(p99), num(overlay.hist_max)),
+	)
 	for len(overlay.keys) < len(s.stats) {
 		key_label := label(overlay.grid, "")
 		gd.Control_set_theme_type_variation(key_label, "DevKey")
@@ -207,6 +238,49 @@ stats_update :: proc() {
 			gd.Label_set_text(overlay.vals[i], s.stats[i][1])
 		}
 	}
+	// The value column's width only grows while the same lines are shown (FNV-1a over their keys).
+	keys_id: u64 = 0xcbf29ce484222325
+	for line in s.stats {
+		for byte in transmute([]u8)line[0] do keys_id = (keys_id ~ u64(byte)) * 0x100000001b3
+		keys_id = (keys_id ~ 0xff) * 0x100000001b3
+	}
+	if keys_id != overlay.keys_id {
+		overlay.keys_id = keys_id
+		overlay.val_w = 0
+	}
+	width := gd.Control_get_minimum_size(overlay.frames_button).x
+	for i in 0 ..< len(s.stats) do width = max(width, gd.Control_get_minimum_size(overlay.vals[i]).x)
+	overlay.val_w = max(overlay.val_w, width)
+	gd.Control_set_custom_minimum_size(overlay.frames_button, {overlay.val_w, 0})
+}
+
+// Restarts the frames line (p50, p99, max): the host calls it when a session starts; a click on the line does too.
+frames_reset :: proc() {
+	if !s.inited do return
+	overlay := &s.overlay
+	overlay.hist = {}
+	overlay.hist_n, overlay.hist_max = 0, 0
+}
+
+// The frame time at or below which `fraction` of the frames since the reset were (a bucket's upper edge).
+@(private)
+frames_percentile :: proc(fraction: f32) -> f32 {
+	overlay := &s.overlay
+	if overlay.hist_n == 0 do return 0
+	want := max(int(f32(overlay.hist_n) * fraction + 0.999), 1)
+	seen := 0
+	for count, bucket in overlay.hist {
+		seen += int(count)
+		if seen >= want do return min(f32(bucket + 1) * HIST_STEP_MS, overlay.hist_max)
+	}
+	return overlay.hist_max
+}
+
+// Whether the overlay shows the graph group `name`: a host shows a group's stat lines with its graphs.
+group_shown :: proc(name: string) -> bool {
+	if !s.inited do return false
+	for entry in s.overlay.groups do if entry.name == name do return entry.shown
+	return false
 }
 
 @(private)
@@ -355,6 +429,9 @@ frame_time_add :: proc(ms: f32) {
 	overlay := &s.overlay
 	for graph in overlay.graphs do if graph.kind != .Frame do graph_slot(graph)
 	overlay.frames[overlay.frame_n % FRAME_HIST] = ms
+	overlay.hist[min(int(ms / HIST_STEP_MS), HIST_BUCKETS - 1)] += 1
+	overlay.hist_n += 1
+	overlay.hist_max = max(overlay.hist_max, ms)
 	overlay.now_ms += f64(ms)
 	overlay.ends[overlay.frame_n % FRAME_HIST] = overlay.now_ms
 	overlay.frame_n += 1
@@ -390,10 +467,10 @@ overlay_update :: proc(slow: bool) {
 graph_text :: proc(graph: ^Graph) {
 	switch graph.kind {
 	case .Frame:
-		last, avg, worst := frame_summary()
+		last, avg, worst, fps := frame_summary()
 		gd.Label_set_text(
 			graph.title,
-			fmt.tprintf("frame %.2f ms   avg %.2f   max %.1f   dev ui %.2f", last, avg, worst, s.ui_ms),
+			fmt.tprintf("%.0f fps   frame %.2f ms   avg %.2f   max %.1f", fps, last, avg, worst),
 		)
 	case .Stack:
 		// per-frame averages over the last second (one frame alone may have no tick at all)
@@ -434,9 +511,9 @@ num :: proc(value: f32) -> string {
 	return fmt.tprintf("%.2f", value)
 }
 
-// The last frame, and the average and longest of the last second.
+// The last frame, and the average and longest of the last second, and how many frames it showed (per second).
 @(private)
-frame_summary :: proc() -> (last, avg, worst: f32) {
+frame_summary :: proc() -> (last, avg, worst, fps: f32) {
 	overlay := &s.overlay
 	if overlay.frame_n == 0 do return
 	last = overlay.frames[(overlay.frame_n - 1) % FRAME_HIST]
@@ -449,6 +526,7 @@ frame_summary :: proc() -> (last, avg, worst: f32) {
 		count += 1
 	}
 	avg = sum / f32(max(count, 1))
+	fps = sum > 0 ? f32(count) * 1000 / sum : 0
 	return
 }
 

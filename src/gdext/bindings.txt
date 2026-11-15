@@ -9,6 +9,7 @@
 OS
 Engine
 ProjectSettings
+Time
 FileAccess
 # scene tree
 SceneTree
@@ -34,6 +35,7 @@ InputEvent
 InputEventKey
 InputEventMouseButton
 InputEventMouseMotion
+InputMap
 # dev UI
 Control
 Label

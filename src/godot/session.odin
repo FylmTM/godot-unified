@@ -32,6 +32,7 @@ Session_Node :: struct {
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
 	has_pending: bool,
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
+	mode:        Mode, // the session started last (the dev UI: no netsim in single player; catch-up only joining)
 }
 
 Args :: struct {
@@ -335,6 +336,8 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	}
 	views_check_index()
 	data_reset()
+	session.mode = request.mode
+	dev_session_started()
 	ok, err := api.start(request)
 	if !ok {
 		emit_status(session, .Failed, err)
@@ -468,7 +471,7 @@ drain_messages :: proc(session: ^Session_Node) {
 			gd.emit_signal(session.obj, gd.sn("lobby_code"), text)
 		case .Desync:
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
-			dev_log(message.tick, "desync: %s", text)
+			dev_note(message.tick, fmt.tprintf("desync: %s", text))
 			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
@@ -495,10 +498,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	state := i64(message.action)
 	views_event(layout, &raw, state, held)
 	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
-	if message.action == .Confirmed {
-		player, entity := event_subject(layout, raw.data[:raw.size])
-		dev_log(message.tick, "%s player %d entity %d", layout.name, player, entity)
-	}
+	dev_event(message.tick, message.action, layout, raw.data[:raw.size])
 }
 
 // set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.

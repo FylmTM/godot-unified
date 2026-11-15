@@ -3,12 +3,14 @@
 //   devui.init({feedback_dir = ..., on_feedback = ...})   main thread, once the scene tree exists
 //   every frame, before devui.frame(dt):
 //     devui.inspect("state", &frame_state)     RTTI tree of any value (read-only)
+//     devui.inputs("verified", &inputs)         the Input panel's RTTI tree
 //     devui.plot("ping ms", ping, 0, 300, "net")  a line graph sample (group "net"; groups are toggled in the overlay)
 //     devui.lines("kB/s", {i, o}, {"in", "out"}) several lines in one graph
 //     devui.stack("sim ms", {v, r}, {"verified", "resim"})   stacked bars
 //     devui.mark("events", "rollback")         a mark in a strip (a lane per name)
 //     devui.stat("tick", "%d", tick)            a line in the overlay
-//     devui.log(tick, "barrel exploded")        a row in the event log (kept across frames)
+//     devui.log(tick, .Confirmed, "barrel exploded")   a row in the Events panel (kept across frames)
+//     devui.command(tick, .Sent, "Cmd_Build {...}")   a row in the Commands panel
 //   devui.frame(dt)                            updates the panels (and the frame-time graph from dt)
 //   devui.shutdown()
 //
@@ -17,8 +19,8 @@
 // input: a click on a panel stops there, the overlay lets clicks through, a focused text field takes the keyboard
 // (wants_keyboard tells the host, whose game input is polled).
 //
-// Files: panel.odin (the floating panel), overlay.odin (top right: toggles, stats, graphs), inspector.odin,
-// panels.odin (conditions, events, note), theme.odin.
+// Files: panel.odin (the floating panel), overlay.odin (top right: toggles, stats, graphs), inspector.odin (the
+// Inspector and Input panels' RTTI trees), panels.odin (conditions, the logs, the note), theme.odin.
 package devui
 
 import "core:fmt"
@@ -51,6 +53,7 @@ Netsim :: struct {
 visible: bool
 netsim: Netsim
 netsim_changed: bool // set by the Conditions panel; the host clears it after applying
+netsim_applies := true // false: the session has no remote links (single player); the panel greys its network part
 
 @(private)
 State :: struct {
@@ -70,12 +73,12 @@ State :: struct {
 	panels:    [Panel_Kind]Panel,
 	overlay:   Overlay,
 	insp:      Inspector,
-	events:    Events_Panel,
+	input:     Inspector, // the Input panel
+	events:    Log_Panel,
+	commands:  Log_Panel,
 	cond:      Conditions_Panel,
 	note:      Note,
 	stats:     [dynamic][2]string, // this frame's stat lines: key, value
-	logs:      [LOG_ROWS]Log_Row,
-	log_n:     int,
 	ui_ms:     f32,
 	last_slow: time.Tick,
 	hotkeys:   gd.Callable,
@@ -87,16 +90,6 @@ State :: struct {
 
 @(private)
 s: State
-
-@(private)
-LOG_ROWS :: 1000
-
-@(private)
-Log_Row :: struct {
-	tick: u32,
-	msg:  [96]u8,
-	len:  u8,
-}
 
 @(private)
 SLOW_MS :: 100 // text and the inspector update at 10 Hz
@@ -125,9 +118,11 @@ init :: proc(config: Config) {
 	s.scale, s.stretch = 1, 1
 	theme_init()
 	build_overlay()
-	build_inspector()
+	build_inspector(&s.insp, .Inspector, "Inspector", {8, 8, 330, 420})
+	build_inspector(&s.input, .Input, "Input", {350, 190, 330, 300})
 	build_conditions()
-	build_events()
+	build_log(&s.events, .Events, "Events", {8, 520, 480, 170})
+	build_log(&s.commands, .Commands, "Commands", {496, 520, 480, 170})
 	build_note()
 	// deferred: init usually runs inside a node's _ready, while the root is busy adding children
 	gd.Object_call_deferred(s.root, "add_child", s.layer)
@@ -146,7 +141,10 @@ shutdown :: proc() {
 	}
 	gd.Callable_destroy(&s.hotkeys)
 	overlay_shutdown()
-	inspector_shutdown()
+	inspector_shutdown(&s.insp)
+	inspector_shutdown(&s.input)
+	log_shutdown(&s.events)
+	log_shutdown(&s.commands)
 	note_shutdown()
 	// Everything else is a child of the layer (popped-out windows included); freeing it frees them. At extension
 	// shutdown the tree may already be gone.
@@ -170,10 +168,11 @@ is_ready :: proc() -> bool {
 
 // Controls plus inspector rows the dev UI made, and its own time (frame()) in the last frame.
 frame_stats :: proc() -> (items: int, ui_ms: f32) {
-	return s.nodes + len(s.insp.nodes), s.ui_ms
+	return s.nodes + len(s.insp.nodes) + len(s.input.nodes), s.ui_ms
 }
 
-// True while the cursor is over a panel or the overlay's buttons (Godot already stops those clicks there).
+// True while the cursor is over a panel or the overlay's buttons. Godot stops those clicks there, and the dev UI
+// releases the actions a press on it triggered, so polled game input never sees it (release_actions).
 wants_mouse :: proc() -> bool {
 	return s.inited && (s.shown || s.panels[.Note].open) && over_ui(points(s.mouse))
 }
@@ -183,9 +182,15 @@ wants_mouse :: proc() -> bool {
 wants_keyboard :: proc() -> bool {return s.inited && s.want_key}
 
 // Shows `data` (any value, read by RTTI) in the Inspector this frame.
-inspect :: proc(name: string, data: any, editable := false) {
+inspect :: proc(name: string, data: any) {
 	if !s.inited || !visible do return
-	inspector_set(name, data)
+	inspector_set(&s.insp, name, data)
+}
+
+// Shows `data` (any value, read by RTTI) in the Input panel this frame.
+inputs :: proc(name: string, data: any) {
+	if !s.inited || !visible do return
+	inspector_set(&s.input, name, data)
 }
 
 // This frame's sample of the line graph `name` in `group` (created on first use; lo == hi: from 0 to a round value
@@ -219,14 +224,16 @@ stat :: proc(label: string, format: string, args: ..any) {
 	append(&s.stats, [2]string{fmt.tprint(label), fmt.tprintf(format, ..args)})
 }
 
-// A row in the event log (the newest 1000 are kept).
-log :: proc(tick: u32, format: string, args: ..any) {
+// A row in the Events panel (the newest 1000 are kept): an event in one of its states, or a note (.None: a desync).
+log :: proc(tick: u32, state: Log_State, format: string, args: ..any) {
 	if !s.inited do return
-	row := &s.logs[s.log_n % LOG_ROWS]
-	msg := fmt.bprintf(row.msg[:], format, ..args)
-	row.tick = tick
-	row.len = u8(len(msg))
-	s.log_n += 1
+	log_add(&s.events, tick, state, format, ..args)
+}
+
+// A row in the Commands panel (the newest 1000 are kept): a command sent, confirmed in a verified tick, or refused.
+command :: proc(tick: u32, state: Log_State, format: string, args: ..any) {
+	if !s.inited do return
+	log_add(&s.commands, tick, state, format, ..args)
 }
 
 // Updates the panels. Call once per frame on the main thread (from a node's _process).
@@ -236,7 +243,8 @@ frame :: proc(dt: f64) {
 	frame_time_add(f32(dt * 1000))
 	defer {
 		clear(&s.stats)
-		inspector_end_frame()
+		inspector_end_frame(&s.insp)
+		inspector_end_frame(&s.input)
 	}
 	if s.note_req {
 		s.note_req = false
@@ -256,9 +264,14 @@ frame :: proc(dt: f64) {
 		update_metrics()
 	}
 	overlay_update(slow)
-	if len(s.insp.pending) > 0 do inspector_build_pending()
-	if s.panels[.Inspector].open && (slow || s.insp.dirty) do inspector_refresh()
-	if s.panels[.Events].open do events_update()
+	for kind in ([]Panel_Kind{.Inspector, .Input}) {
+		inspector := kind == .Inspector ? &s.insp : &s.input
+		if len(inspector.pending) > 0 do inspector_build_pending(inspector)
+		if s.panels[kind].open && (slow || inspector.dirty) do inspector_refresh(inspector)
+	}
+	if s.panels[.Events].open do log_update(&s.events)
+	if s.panels[.Commands].open do log_update(&s.commands)
+	if s.panels[.Conditions].open && netsim_applies != s.cond.applies do conditions_enable()
 	update_focus()
 	s.ui_ms = f32(time.duration_milliseconds(time.tick_since(start)))
 }
@@ -316,18 +329,23 @@ ours :: proc(control: gd.Control) -> bool {
 on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	if window == nil {
-		if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton");
-		   mouse_button.ptr != nil {
-			s.mouse = gd.InputEventMouse_get_position(mouse_button)
-			// A click outside the dev UI gives the keyboard back to the game.
-			if (s.shown || s.panels[.Note].open) &&
-			   gd.InputEvent_is_pressed(mouse_button) &&
-			   !over_ui(points(s.mouse)) {
-				if ours(gd.Viewport_gui_get_focus_owner(s.root)) do gd.Viewport_gui_release_focus(s.root)
-			}
+	if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton");
+	   mouse_button.ptr != nil {
+		if window != nil { 	// a popped-out panel: every press there is the dev UI's
+			if gd.InputEvent_is_pressed(mouse_button) do release_actions(mouse_button)
 			return {}
 		}
+		s.mouse = gd.InputEventMouse_get_position(mouse_button)
+		if (s.shown || s.panels[.Note].open) && gd.InputEvent_is_pressed(mouse_button) {
+			if over_ui(points(s.mouse)) {
+				release_actions(mouse_button)
+			} else if ours(gd.Viewport_gui_get_focus_owner(s.root)) {
+				gd.Viewport_gui_release_focus(s.root) // a click outside the dev UI gives the keyboard back to the game
+			}
+		}
+		return {}
+	}
+	if window == nil {
 		if mouse_event := gd.object_cast(gd.InputEventMouse, obj, "InputEventMouse"); mouse_event.ptr != nil {
 			s.mouse = gd.InputEventMouse_get_position(mouse_event)
 			return {}
@@ -347,10 +365,26 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	return {}
 }
 
+// A press on the dev UI never reaches the game. Godot stops the click at the control, but Input's action state
+// already holds it (Input updates before the window sees the event), and polled game input reads that state: the
+// actions the press triggered are released. Godot presses them again only on a new press, so a press that began on
+// the dev UI stays away from the game until the button is let go.
+@(private)
+release_actions :: proc(event: gd.InputEventMouseButton) {
+	input := gd.Input_singleton()
+	actions := gd.InputMap_get_actions(gd.InputMap_singleton())
+	defer gd.Array_destroy(&actions)
+	for i in 0 ..< gd.array_len(&actions) {
+		name, _ := gd.from_variant(string, gd.array_at(&actions, i))
+		if gd.InputEvent_is_action(event, name) do gd.Input_action_release(input, name)
+	}
+}
+
 // The point (in points) is over a panel or the overlay's buttons.
 @(private)
 over_ui :: proc(point: gd.Vector2) -> bool {
 	if s.shown && rect_has(gd.Control_get_global_rect(s.overlay.buttons), point) do return true
+	if s.shown && rect_has(gd.Control_get_global_rect(s.overlay.frames_button), point) do return true
 	for &panel in s.panels {
 		if gd.CanvasItem_is_visible(panel.frame) && rect_has(gd.Control_get_global_rect(panel.frame), point) do return true
 	}

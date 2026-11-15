@@ -1,4 +1,4 @@
-// The inspector: any value as a Godot Tree, walked by Odin RTTI. Built lazily: a struct gets its rows when first
+// The inspector: any value as a Godot Tree, walked by Odin RTTI (the Inspector panel, and the Input panel). Built lazily: a struct gets its rows when first
 // expanded (until then one placeholder row gives it the expand arrow). Values update at 10 Hz, only under expanded
 // rows; a row's text is set only when it changed.
 //
@@ -76,8 +76,7 @@ Inspector :: struct {
 }
 
 @(private)
-build_inspector :: proc() {
-	inspector := &s.insp
+build_inspector :: proc(inspector: ^Inspector, kind: Panel_Kind, title: string, rect: [4]f32) {
 	inspector.tree = gd.Tree_new()
 	gd.Control_set_focus_mode(inspector.tree, .FOCUS_NONE)
 	gd.Tree_set_columns(inspector.tree, 2)
@@ -89,19 +88,19 @@ build_inspector :: proc() {
 	inspector.top = gd.Tree_create_item(inspector.tree)
 	inspector.empty = gd.Tree_create_item(inspector.tree, inspector.top)
 	gd.TreeItem_set_text(inspector.empty, 0, "nothing to inspect")
-	on(inspector.tree, "item_collapsed", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
-		obj, _ := gd.from_variant(gd.Object, args[0])
-		if i, ok := s.insp.by_item[obj.ptr]; ok && !gd.TreeItem_is_collapsed(s.insp.nodes[i].item) {
-			append(&s.insp.pending, i)
-		}
-		return {}
-	})
-	panel_make(.Inspector, "Inspector", {8, 8, 330, 420}, inspector.tree)
+	on(inspector.tree, "item_collapsed", proc(user: rawptr, args: []^gd.Variant) -> gd.Variant {
+			inspector := (^Inspector)(user)
+			obj, _ := gd.from_variant(gd.Object, args[0])
+			if i, ok := inspector.by_item[obj.ptr]; ok && !gd.TreeItem_is_collapsed(inspector.nodes[i].item) {
+				append(&inspector.pending, i)
+			}
+			return {}
+		}, inspector)
+	panel_make(kind, title, rect, inspector.tree)
 }
 
 @(private)
-inspector_shutdown :: proc() {
-	inspector := &s.insp
+inspector_shutdown :: proc(inspector: ^Inspector) {
 	for root in inspector.roots do delete(root.name)
 	for &node in inspector.nodes do delete(node.children)
 	delete(inspector.roots)
@@ -111,8 +110,7 @@ inspector_shutdown :: proc() {
 }
 
 @(private)
-inspector_set :: proc(name: string, data: any) {
-	inspector := &s.insp
+inspector_set :: proc(inspector: ^Inspector, name: string, data: any) {
 	for &root in inspector.roots {
 		if root.name == name && root.type == data.id {
 			root.data = data.data
@@ -131,15 +129,15 @@ inspector_set :: proc(name: string, data: any) {
 		type = data.id,
 		seen = true,
 	})
-	node_index := new_node(inspector.top, 0, data.id, name)
+	node_index := new_node(inspector, inspector.top, 0, data.id, name)
 	inspector.roots[root].node = node_index
 	gd.TreeItem_set_collapsed(inspector.nodes[node_index].item, false)
-	build_children(node_index)
+	build_children(inspector, node_index)
 }
 
 @(private)
-inspector_end_frame :: proc() {
-	for &root in s.insp.roots {
+inspector_end_frame :: proc(inspector: ^Inspector) {
+	for &root in inspector.roots {
 		if !root.seen do root.data = nil
 		root.seen = false
 	}
@@ -147,45 +145,43 @@ inspector_end_frame :: proc() {
 
 // Builds the rows of the items expanded since the last frame.
 @(private)
-inspector_build_pending :: proc() {
-	inspector := &s.insp
-	for i in inspector.pending do if inspector.nodes[i].kind != .Dead && !gd.TreeItem_is_collapsed(inspector.nodes[i].item) do build_children(i)
+inspector_build_pending :: proc(inspector: ^Inspector) {
+	for i in inspector.pending do if inspector.nodes[i].kind != .Dead && !gd.TreeItem_is_collapsed(inspector.nodes[i].item) do build_children(inspector, i)
 	clear(&inspector.pending)
 }
 
 @(private)
-inspector_refresh :: proc() {
-	inspector := &s.insp
+inspector_refresh :: proc(inspector: ^Inspector) {
 	inspector.dirty = false
-	for root in inspector.roots do if root.data != nil do refresh(root.node, uintptr(root.data))
+	for root in inspector.roots do if root.data != nil do refresh(inspector, root.node, uintptr(root.data))
 }
 
 @(private)
-refresh :: proc(node_index: int, base: uintptr) {
-	node := &s.insp.nodes[node_index]
+refresh :: proc(inspector: ^Inspector, node_index: int, base: uintptr) {
+	node := &inspector.nodes[node_index]
 	addr := base + node.rel
 	switch node.kind {
 	case .Dead:
 	case .Leaf:
 		buf: [64]u8
-		set_value(node_index, format_value(buf[:], any{rawptr(addr), node.type}))
+		set_value(inspector, node_index, format_value(buf[:], any{rawptr(addr), node.type}))
 	case .Group:
 		if !node.built || gd.TreeItem_is_collapsed(node.item) do return
-		for k in 0 ..< len(node.children) do refresh(s.insp.nodes[node_index].children[k], addr)
+		for k in 0 ..< len(node.children) do refresh(inspector, inspector.nodes[node_index].children[k], addr)
 	case .List:
 		live := list_live(node.list, addr)
-		set_value(node_index, fmt.tprintf("%d of %d", live, node.list.count))
+		set_value(inspector, node_index, fmt.tprintf("%d of %d", live, node.list.count))
 		if !node.built || gd.TreeItem_is_collapsed(node.item) do return
-		list_sync(node_index, addr)
-		items := addr + s.insp.nodes[node_index].list.items
-		for k in 0 ..< len(s.insp.nodes[node_index].children) do refresh(s.insp.nodes[node_index].children[k], items)
+		list_sync(inspector, node_index, addr)
+		items := addr + inspector.nodes[node_index].list.items
+		for k in 0 ..< len(inspector.nodes[node_index].children) do refresh(inspector, inspector.nodes[node_index].children[k], items)
 	}
 }
 
 // The value column, set only when it changed.
 @(private)
-set_value :: proc(node_index: int, text: string) {
-	node := &s.insp.nodes[node_index]
+set_value :: proc(inspector: ^Inspector, node_index: int, text: string) {
+	node := &inspector.nodes[node_index]
 	if text == string(node.text[:node.text_len]) do return
 	node.text_len = u8(copy(node.text[:], text))
 	gd.TreeItem_set_text(node.item, 1, text)
@@ -208,8 +204,7 @@ list_live :: proc(list: List_Info, addr: uintptr) -> (live: int) {
 // The list's rows follow its live elements (the first LIST_MAX): rows of elements that died go, new ones are
 // inserted in index order, the others stay (and keep their expanded rows).
 @(private)
-list_sync :: proc(node_index: int, addr: uintptr) {
-	inspector := &s.insp
+list_sync :: proc(inspector: ^Inspector, node_index: int, addr: uintptr) {
 	list := inspector.nodes[node_index].list
 	row := 0 // the next existing row
 	shown := 0
@@ -218,7 +213,7 @@ list_sync :: proc(node_index: int, addr: uintptr) {
 		if !is_live(list, addr, index) do continue
 		for row < len(inspector.nodes[node_index].children) &&
 		    inspector.nodes[inspector.nodes[node_index].children[row]].idx < index {
-			row_remove(node_index, row)
+			row_remove(inspector, node_index, row)
 		}
 		if row < len(inspector.nodes[node_index].children) &&
 		   inspector.nodes[inspector.nodes[node_index].children[row]].idx == index {
@@ -227,6 +222,7 @@ list_sync :: proc(node_index: int, addr: uintptr) {
 			continue
 		}
 		child := new_node(
+			inspector,
 			inspector.nodes[node_index].item,
 			uintptr(index * list.elem_size),
 			list.elem,
@@ -239,24 +235,22 @@ list_sync :: proc(node_index: int, addr: uintptr) {
 		row += 1
 		shown += 1
 	}
-	for row < len(inspector.nodes[node_index].children) do row_remove(node_index, row)
+	for row < len(inspector.nodes[node_index].children) do row_remove(inspector, node_index, row)
 }
 
 @(private)
-row_remove :: proc(node_index, row: int) {
-	inspector := &s.insp
+row_remove :: proc(inspector: ^Inspector, node_index, row: int) {
 	child := inspector.nodes[node_index].children[row]
 	item := inspector.nodes[child].item
-	forget(child)
+	forget(inspector, child)
 	gdi.object_destroy(item.ptr) // its child rows with it
 	ordered_remove(&inspector.nodes[node_index].children, row)
 }
 
 // A removed row and everything under it: out of the item map, marked dead.
 @(private)
-forget :: proc(node_index: int) {
-	inspector := &s.insp
-	for child in inspector.nodes[node_index].children do forget(child)
+forget :: proc(inspector: ^Inspector, node_index: int) {
+	for child in inspector.nodes[node_index].children do forget(inspector, child)
 	delete_key(&inspector.by_item, inspector.nodes[node_index].item.ptr)
 	delete(inspector.nodes[node_index].children)
 	inspector.nodes[node_index] = {
@@ -267,8 +261,14 @@ forget :: proc(node_index: int) {
 // A node and its tree row (at `position` among its siblings, -1: last); a group or list gets a placeholder child
 // so it shows the expand arrow. -1 when the tree refuses the row.
 @(private)
-new_node :: proc(parent: gd.TreeItem, rel: uintptr, type: typeid, label: string, position := -1) -> int {
-	inspector := &s.insp
+new_node :: proc(
+	inspector: ^Inspector,
+	parent: gd.TreeItem,
+	rel: uintptr,
+	type: typeid,
+	label: string,
+	position := -1,
+) -> int {
 	kind, list := classify(type)
 	item := gd.Tree_create_item(inspector.tree, parent, position)
 	if item.ptr == nil do return -1
@@ -353,8 +353,7 @@ small_vector :: proc(elem: ^runtime.Type_Info, count: int) -> bool {
 }
 
 @(private)
-build_children :: proc(node_index: int) {
-	inspector := &s.insp
+build_children :: proc(inspector: ^Inspector, node_index: int) {
 	if inspector.nodes[node_index].built || inspector.nodes[node_index].kind == .Dead do return
 	node := inspector.nodes[node_index]
 	// drop the placeholder row
@@ -366,14 +365,14 @@ build_children :: proc(node_index: int) {
 	#partial switch info in base.variant {
 	case runtime.Type_Info_Struct:
 		for field in reflect.struct_fields_zipped(node.type) {
-			child := new_node(node.item, field.offset, field.type.id, field.name)
+			child := new_node(inspector, node.item, field.offset, field.type.id, field.name)
 			if child >= 0 do append(&inspector.nodes[node_index].children, child)
 		}
 	case runtime.Type_Info_Enumerated_Array:
 		for index in 0 ..< info.count {
 			name := fmt.tprintf("[%d]", index)
 			if enum_info, ok := runtime.type_info_base(info.index).variant.(runtime.Type_Info_Enum); ok && index < len(enum_info.names) do name = enum_info.names[index]
-			child := new_node(node.item, uintptr(index * info.elem_size), info.elem.id, name)
+			child := new_node(inspector, node.item, uintptr(index * info.elem_size), info.elem.id, name)
 			if child >= 0 do append(&inspector.nodes[node_index].children, child)
 		}
 	}

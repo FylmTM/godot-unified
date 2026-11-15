@@ -7,8 +7,10 @@ import gd "unified:gdext"
 @(private)
 Panel_Kind :: enum {
 	Inspector,
+	Input,
 	Conditions,
 	Events,
+	Commands,
 	Note,
 }
 
@@ -134,7 +136,9 @@ panel_open :: proc(kind: Panel_Kind, open: bool) {
 	if kind == .Note do layer_sync()
 	overlay_sync_toggles()
 	if kind == .Inspector && open do s.insp.dirty = true
+	if kind == .Input && open do s.input.dirty = true
 	if kind == .Conditions && open do conditions_sync()
+	if kind == .Note && !open do note_discard()
 }
 
 // Shows what should be on screen: the frame, or the native window while popped out.

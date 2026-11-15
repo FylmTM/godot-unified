@@ -129,6 +129,36 @@ take_events :: proc(out: ^[dynamic]godot.Event_Message, shown: u32) {
 	}
 }
 
+// The recording of the session (driver.odin, what an F3 note carries): its snapshot and input log replay offline to
+// the checksum the session computed of a tick the log reaches.
+@(private = "file")
+recording_replays :: proc(t: ^testing.T) {
+	snapshot, log_bytes: [dynamic]u8
+	defer delete(snapshot)
+	defer delete(log_bytes)
+	info, recorded := godot.api.recording(&snapshot, &log_bytes)
+	if !testing.expect(t, recorded, "the session was recorded") do return
+	testing.expectf(t, info.check_tick > info.from && info.check_tick <= info.to, "a tick to check: %v", info)
+	input_log, log_ok := sim.log_decode(log_bytes[:], toy.Input, toy.PLAYERS)
+	defer sim.log_destroy(&input_log)
+	testing.expect(t, log_ok, "the input log decodes")
+	testing.expect_value(t, len(input_log.ticks), int(info.to - info.from))
+	simulation, err := sim.from_snapshot(&toy.GAME, snapshot[:])
+	if !testing.expect_value(t, err, sim.Snap_Error.None) do return
+	defer sim.destroy(simulation)
+	checked := false
+	for k in 0 ..< len(input_log.ticks) {
+		inputs := sim.log_inputs(&input_log, k)
+		sim.step(simulation, &inputs)
+		if simulation.tick == info.check_tick {
+			testing.expect_value(t, sim.checksum(simulation), info.check)
+			checked = true
+		}
+	}
+	testing.expect(t, checked, "the replay reached the checked tick")
+	testing.expect_value(t, simulation.tick, info.to)
+}
+
 @(test)
 driver_sessions :: proc(t: ^testing.T) {
 	godot.install(&toy.GAME, GLUE)
@@ -207,6 +237,15 @@ driver_sessions :: proc(t: ^testing.T) {
 			toy.bump_fold(toy.bump_fold(toy.bump_fold(0, 3), -1), 8),
 		)
 		testing.expect(t, strings.contains(godot.api.result(), "\"checksum"), godot.api.result())
+		// for the dev UI: the three commands, each confirmed in a verified tick; the session's recording (an F3
+		// note's) replays offline to the session's own checksum
+		confirmed := 0
+		for {
+			_ = godot.api.next_confirmed() or_break
+			confirmed += 1
+		}
+		testing.expect_value(t, confirmed, 3)
+		recording_replays(t)
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, !godot.api.running())

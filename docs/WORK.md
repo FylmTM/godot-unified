@@ -27,8 +27,7 @@ review ([#22](https://github.com/FylmTM/godot-unified/issues/22)), then this fil
   - Tools: `headless` (a game's headless binary modes plus test helpers: scenarios, virtual clock, fuzzing),
     `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot`
     (everything that touches Godot), `cli`.
-  - `devui` (the dev UI on Godot controls: RTTI inspector, overlay, panels). **In every build for now** (developer,
-    2026-11-09); `-define:UNIFIED_DEVUI=false` drops it and `vet` checks that build.
+  - `devui` (the dev UI on Godot controls: RTTI inspector, overlay, panels): `src/devui/SPEC.md` (signed off, #10).
   - **Physics is a plug-in:** `sim` knows nothing about Box3D; physics registers save/restore/hash/serialize procs
     as extra state. The game owns a `World` struct (everything outside the block) and its tick takes it.
   - The test game moves out of `src/` to `games/survivor/`, laid out like a real game repo.
