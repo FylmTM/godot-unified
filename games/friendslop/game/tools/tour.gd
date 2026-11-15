@@ -32,13 +32,13 @@ func _run() -> void:
 	await Steering.walk_to(self, func() -> Vector3: return crate.global_position + Vector3(-1.1, 0, 0), 8.0, 0.35)
 	await Steering.face(self, crate.global_position, -0.35)
 	await hold(&"grab", 0.1)
-	await wait_for(func() -> bool: return game.local_player_info().get("holding", &"none") == &"item", 1.0, "holding the crate")
+	await wait_for(func() -> bool: return game.local_player_info().get("holding", EnumHeldKind.NONE) == EnumHeldKind.ITEM, 1.0, "holding the crate")
 	await seconds(0.5)
 	await shot("r03_holding")
 	step("grabbed a crate next to %s" % Steering.fmt(crate.global_position))
 	var before := _marker_positions()
 	await hold(&"throw", 0.4)
-	await wait_for(func() -> bool: return game.local_player_info().get("holding", &"none") == &"none", 1.0, "the throw")
+	await wait_for(func() -> bool: return game.local_player_info().get("holding", EnumHeldKind.NONE) == EnumHeldKind.NONE, 1.0, "the throw")
 	await seconds(0.5)
 	await shot("r04_thrown")
 	var after := _marker_positions()
@@ -65,19 +65,24 @@ func _run() -> void:
 ## Marker views' positions by entity.
 func _marker_positions() -> Dictionary[int, Vector3]:
 	var out: Dictionary[int, Vector3] = {}
-	for v: GameView in views(&"marker"):
-		out[v.entity] = v.global_position
+	for v: Node in views(&"marker"):
+		out[_entity(v)] = (v as Node3D).global_position
 	return out
 
 
 ## The view of a level marker by its node name (a marker view's entity is its marker index + 1).
 func _marker_view(marker_name: String) -> Node3D:
 	var arena: Node3D = current_scene
-	for v: GameView in views(&"marker"):
-		var m: Node3D = arena.marker(v.entity)
+	for v: Node in views(&"marker"):
+		var m: Node3D = arena.marker(_entity(v))
 		if m != null and m.name == marker_name:
-			return v
+			return v as Node3D
 	return null
+
+
+## A view's entity, from its UnifiedView marker.
+static func _entity(v: Node) -> int:
+	return (v.get_node(^"UnifiedView") as UnifiedView).entity
 
 
 ## A level marker's position by its node name.

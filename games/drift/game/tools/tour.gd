@@ -38,7 +38,7 @@ func _run() -> void:
 	await wait_for(func() -> bool: return _me() != null, 8.0, "the local ship's view")
 	await wait_for(func() -> bool: return _views("station") == 1 and _views("gate") == 2, 3.0,
 		"the station and 2 gate views")
-	await wait_for(func() -> bool: return _phase() == "lobby", 3.0, "the lobby")
+	await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.LOBBY, 3.0, "the lobby")
 	if failed():
 		return
 	await seconds(0.8)
@@ -52,10 +52,11 @@ func _run() -> void:
 		fail("the Start button isn't shown in the lobby")
 	else:
 		await click(start)
-		await wait_for(func() -> bool: return _phase() == "match", 3.0, "the match after Start (the start command)")
+		await wait_for(func() -> bool: return Unified.hud.phase == EnumPhase.MATCH, 3.0,
+			"the match after Start (the start command)")
 	if failed():
 		return
-	step("match started (wave %d)" % int(game.hud.get("wave", 0)))
+	step("match started (wave %d)" % Unified.hud.wave)
 
 	# aim: the stick turns the ship (its view's rotation, set by the host from the sim's heading)
 	for aim: Array in [[&"aim_right", 0.0], [&"aim_up", -PI / 2.0], [&"aim_left", PI]]:
@@ -139,7 +140,7 @@ func _hunt(quick: bool) -> void:
 	var broke: int = _events.get("rock_split", 0) + _events.get("rock_destroyed", 0)
 	step("hunt (%s): %d rock hits, %d splits, %d destroyed, %d station hits, score %d" % [
 		"aimed" if not _headless() else "swept", _events.get("rock_hit", 0), _events.get("rock_split", 0),
-		_events.get("rock_destroyed", 0), _events.get("station_hit", 0), int(game.hud.get("score", 0))])
+		_events.get("rock_destroyed", 0), _events.get("station_hit", 0), Unified.hud.score])
 	if _events.get("rock_hit", 0) == 0:
 		fail("no bullet hit a rock in %d s of firing at them" % budget_s)
 	elif not quick and broke == 0:
@@ -191,10 +192,6 @@ func _camera_lag() -> float:
 	var want := Vector2(clampf(p.x, cam.limit_left + half.x, cam.limit_right - half.x),
 		clampf(p.y, cam.limit_top + half.y, cam.limit_bottom - half.y))
 	return cam.get_screen_center_position().distance_to(want)  # shake moves it by 10 px at most
-
-
-func _phase() -> String:
-	return String(root.get_node(^"Game").hud.get("phase", ""))
 
 
 func _me() -> Node2D:

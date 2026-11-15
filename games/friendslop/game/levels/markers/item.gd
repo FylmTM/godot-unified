@@ -4,7 +4,7 @@ extends Node3D
 ## Its visuals move to the item's sim view at runtime.
 
 const UNIFIED_KIND := "item"
-## Must match the sim's ITEM_SPECS (validate compares them with the game library's constants()).
+## Must match the sim's ITEM_SPECS (validate compares them with Unified.constants.item_sizes).
 const SIZES := {
 	"crate": Vector3(0.7, 0.7, 0.7),
 	"ball": Vector3(0.6, 0.6, 0.6),

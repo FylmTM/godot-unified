@@ -84,27 +84,37 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
 
 ## View (`simulation/extension`, `game/`)
 
-- Scene views (`View`, each scene a Node2D with a UnifiedView marker, in the view index):
-  - `ship`: Ship_View `{boost_ready, thrust}`.
-  - `station`: Station_View `{hp_frac}`.
-  - `gate`: Gate_View `{charge}`.
-  - `hud`: the HUD data (games/shared `hud_view.gd`, `Game.hud`).
+- Scene views (`View`, each scene a Node2D with a UnifiedView marker, in the view index; a key is unique within its
+  kind):
+  - `ship`: Ship_View `{boost_ready, thrust}`; key: its player's key (`sim.player_key`), so the view survives a
+    leave and comes back with the player in any slot; its colour and "P<n>" follow the slot they hold
+    (`Game.player_slot`). When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`;
+    `_sim_revived` undoes it).
+  - `station`: Station_View `{hp_frac}`; key 0.
+  - `gate`: Gate_View `{charge}`; key: the gate's index.
 - MultiMesh views (`MultiView`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
-  handles):
-  - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with rotation and a hit flash in custom data.
+  handles; rotations are 2D quaternions):
+  - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with the body's rotation and a hit flash in
+    custom data.
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the colour of its owner's slot
     (custom.x; -1, a pale grey, once the owner has left). A bullet is owned by its player, not the slot.
-  - `gem`: a pulse that squashes and stretches.
+  - `gem`: a spin and a pulse that squashes and stretches.
+- Session data `Data_Hud` (`Unified.hud`, pushed every frame): `tick`, `players` by slot (`player`: their key,
+  `present`, `shots`, `gems`), `phase` (`EnumPhase`), `wave`, `station_hp`, `station_max`, `score`, `matches`,
+  `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
+- Constants `Data_Constants` (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`,
+  `station_hp`, `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, Vector2s:
+  the rock meshes).
+- Enums in GDScript: `EnumPhase` (the HUD's phase) and `EnumRockSize` (the rock events' `size`).
 - Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
-- A ship's view key is its player's key (`sim.player_key`), so the view survives a leave and comes back with the
-  player in any slot; its colour and "P<n>" follow the slot they hold (`Game.player_slot`).
 - Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
   rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
   banners, once it is confirmed.
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
   the movement, fire and boost actions.
-- HUD: phase, wave, station HP, score, time, the next wave in, and the players by slot (`player`: their key).
+- HUD (`game/ui/hud.gd`, reading `Unified.hud`): phase, wave, station HP, score, time, the next wave in, and the
+  players by slot.
 
 ## Tests (`simulation/tests`)
 

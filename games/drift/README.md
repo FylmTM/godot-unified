@@ -19,9 +19,9 @@ There is no GDScript mock session: without the library the game says how to buil
 The view contract is `simulation/extension/extension.odin`; the Godot side follows it:
 
 - Scene views (`game/views/`): `ship.tscn`, `gate.tscn` and `station.tscn` are Node2D roots with a UnifiedView
-  marker (`uni bake drift` indexes them). Each is drawn in code at the sim's sizes (`Game.constants`, metres) times
-  the level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
-  properties. `hud.tscn` is the HUD view (`Game.hud`).
+  marker (`uni bake drift` indexes them). Each is drawn in code at the sim's sizes (`Unified.constants`, metres)
+  times the level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
+  properties. The HUD (`game/ui/hud.gd`) reads the session data `Unified.hud`.
 - MultiMesh views (`game/bulk/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant,
   the sim's own hull), bullets and gems are MultiMeshInstance2D nodes, each with a UnifiedMultiView marker. All use
   `TRANSFORM_2D` MultiMeshes with colours and custom data, read by small shaders (`game/shaders/`).

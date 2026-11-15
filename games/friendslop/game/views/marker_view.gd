@@ -1,14 +1,17 @@
-extends GameView
+extends Node3D
 ## A sim object the level placed (item, platform, bell, plate, switch): the view takes over its level marker's
-## visuals (entity = marker index + 1, LevelMarkers order), so the level scene is the only place they are authored.
-## The sim moves the view; bells and plates also react to their events.
+## visuals (key = marker index, entity = marker index + 1, LevelMarkers order), so the level scene is the only place
+## they are authored. The sim moves the view; bells and plates also react to their events.
 
 var _visuals: Array[Node3D] = []
 var _scales: Array[Vector3] = []
 var _pulse := 0.0
 
+@onready var _view_marker: UnifiedView = %UnifiedView
+
 
 func _ready() -> void:
+	var entity := _view_marker.entity
 	var arena := get_tree().current_scene as Arena
 	var m: Node3D = arena.marker(entity) if arena != null else null
 	if m == null:

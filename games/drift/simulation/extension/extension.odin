@@ -1,13 +1,12 @@
 // drift's GDExtension (game/drift.gdextension -> .out/bin/libdrift.*): the drift sim run by unified:godot,
 // plus the game's glue (the view contract, games/drift/SPEC.md "View"): 2D scene and MultiMesh views in pixels,
-// typed view data, the HUD view, constants, and how the InputMap and the aim become an Input. Built by
-// `uni build drift`.
+// typed view data, the HUD's session data (Unified.hud), the constants (Unified.constants), and how the InputMap
+// and the aim become an Input. Built by `uni build drift`.
 package drift_extension
 
 import "base:runtime"
 import "core:math"
 import "unified:eos"
-import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:netcode"
@@ -24,6 +23,7 @@ drift_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
+	constants_init()
 	godot.install(&dr.GAME, GLUE)
 	godot.set_transport(&EOS_TRANSPORT)
 	return godot.entry(gpa, lib, init)
@@ -70,12 +70,11 @@ EOS_TRANSPORT := godot.Transport {
 /// ---- the view contract
 
 // Scene views (the view index: a scene per kind, with a UnifiedView marker), each with its typed data (set as the
-// view's properties), and the HUD (game/views/hud.tscn: Game.hud).
+// view's properties).
 View :: enum u8 {
 	Ship,
 	Station,
 	Gate,
-	Hud,
 }
 
 // MultiMesh views (MultiMeshInstance2D, TRANSFORM_2D, colors + custom data): a rock mesh per variant (a unit-radius
@@ -104,21 +103,18 @@ Gate_View :: struct {
 	charge: f32, // 0 ready .. 1 just used
 }
 
-// Spawn keys: a ship its player's key (ship_key: sim.player_key, >= 1 << 16 and the same while they are in the
-// session, so their ship's view survives a rejoin), the station 100, gates 200 + index, the HUD 300 (a view lives as
-// long as its entity).
-KEY_STATION :: 100
-KEY_GATE :: 200
-KEY_HUD :: 300
+// Keys (unique within a kind): a ship its player's key (ship_key: sim.player_key, the same while they are in the
+// session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
 GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
+	data = Data,
+	constants = CONSTANTS,
 	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels: a warp snaps
 	is_2d = true,
 	scripted_input = dr.scripted_input,
 	scripted_commands = dr.scripted_commands,
-	constants = constants,
 	event_key = event_key,
 	event_pos = event_pos,
 	level = "res://game/levels/arena.level",
@@ -132,31 +128,31 @@ event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
 // Station hits go to the station's view (they have no subject). Setting event_key replaces the routing by
 // subject, so a player's events go to their ship's view here too (a rock hit: the shooter's), and the rest
 // (the rock events' subject, a rock, has no scene view) to none.
-event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
 	switch value in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
-		return KEY_STATION
+		return .Station, 0, true
 	case sim.Event_Player_Joined:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case sim.Event_Player_Left:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Spawned:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Fired:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Boosted:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Warped:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Rock_Hit:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Gem_Picked:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Match_Started:
-		return ship_key(value.player)
+		return .Ship, ship_key(value.player), true
 	case dr.Event_Rock_Split, dr.Event_Rock_Destroyed, dr.Event_Wave, dr.Event_Match_Over:
 	}
-	return 0
+	return
 }
 
 // A player's ship view's key (0 for nobody: no view).
@@ -204,19 +200,16 @@ fill_frame :: proc(f: ^Frame) {
 	{
 		pos, rotation := physics.pose_2d(f.world.phys, f.state.station)
 		godot.push_view(f, {
-			key    = KEY_STATION,
-			kind   = .Station,
-			entity = 1,
-			pos    = pixels(pos, px_per_m),
-			rot    = physics.quat_2d(rotation),
+			kind = .Station,
+			pos  = pixels(pos, px_per_m),
+			rot  = physics.quat_2d(rotation),
 		}, Station_View{hp_frac = f32(f.state.station_hp) / f32(dr.STATION_HP)})
 	}
 	for gate in 0 ..< f.world.gate_count {
 		godot.push_view(f, {
-			key    = view.Key(KEY_GATE + gate),
-			kind   = .Gate,
-			entity = u64(KEY_GATE + gate),
-			pos    = pixels(f.world.gates[gate].pos, px_per_m),
+			key  = view.Key(gate),
+			kind = .Gate,
+			pos  = pixels(f.world.gates[gate].pos, px_per_m),
 		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
@@ -229,13 +222,13 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
 			pos    = pixels(pos, px_per_m),
-			yaw    = math.atan2(rotation.y, rotation.x),
+			rot    = physics.quat_2d(rotation),
 			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
 		}) or_break
 	}
-	// bullets: stretched along their velocity, tinted with the owner's colour (custom.x: the owner's slot, the
-	// view's colour index; -1 once the owner has left)
+	// bullets: turned to and stretched along their velocity (quat_2d normalises it), tinted with the owner's colour
+	// (custom.x: the owner's slot, the view's colour index; -1 once the owner has left)
 	bullets := sim.iterate(&f.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
 		owner_slot, _ := sim.player_slot(&f.state.players, bullet.owner)
@@ -243,7 +236,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
 			pos    = pixels(bullet.pos, px_per_m),
-			yaw    = math.atan2(bullet.vel.y, bullet.vel.x),
+			rot    = physics.quat_2d(bullet.vel),
 			scale  = {1.6, 0.6, 1},
 			custom = {f32(owner_slot), 0, 0, 0},
 		}) or_break
@@ -258,28 +251,35 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = pixels(gem.pos, px_per_m),
-			yaw    = age * 2,
+			rot    = view.quat_angle2d(age * 2),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},
 		}) or_break
 	}
-	godot.push_view(f, {key = KEY_HUD, kind = .Hud}, hud_of(f.state, f.tick))
+	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
-// ---- HUD: the HUD view's data (Game.hud, through games/shared's hud_view.gd)
+// ---- the session data: the HUD (Unified.hud; games/shared reads its `tick` and `players`)
+
+Data :: union {
+	Data_Hud,
+}
 
 // A slot's player (`player`: their key in GDScript; 0 and not `present` for an empty slot).
 Hud_Player :: struct {
 	player:  sim.Player,
 	present: bool,
+	_pad:    [3]u8,
 	shots:   u32,
 	gems:    u32,
 }
 
-Hud :: struct {
-	phase:       dr.Phase, // lobby, match, over
+Data_Hud :: struct {
 	tick:        u32,
+	players:     [dr.PLAYERS]Hud_Player,
+	phase:       dr.Phase, // EnumPhase in GDScript
+	_pad:        u8,
 	wave:        u16,
 	station_hp:  i32,
 	station_max: i32,
@@ -289,10 +289,9 @@ Hud :: struct {
 	time_s:      f32, // match time (over: survived)
 	next_wave_s: f32, // match: until the next wave
 	reset_in_s:  f32, // over: until back to the lobby
-	players:     [dr.PLAYERS]Hud_Player,
 }
 
-hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Hud) {
+hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	hud.tick = tick
 	hud.wave = state.waves
@@ -325,27 +324,33 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Hud) {
 	return
 }
 
-// ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
+// ---- the constants for the scripts (Unified.constants), from the sim's own definitions
 
-constants :: proc(dict: ^gd.Dictionary) {
-	gd.dict_set(dict, "ship_radius", f64(dr.SHIP_RADIUS))
-	gd.dict_set(dict, "station_radius", f64(dr.STATION_RADIUS))
-	gd.dict_set(dict, "gate_radius", f64(dr.GATE_RADIUS))
-	gd.dict_set(dict, "station_hp", i64(dr.STATION_HP))
-	gd.dict_set(dict, "over_hold_s", f64(dr.OVER_HOLD_S))
-	gd.dict_set(dict, "wave_every_s", f64(dr.WAVE_EVERY_S))
-	radii := gd.array_new()
-	for radius in dr.ROCK_RADIUS do gd.array_push(&radii, f64(radius))
-	gd.dict_set_move(dict, "rock_radius", &radii)
-	// rock_shapes[variant]: the 8 corners at radius 1 (metres); bodies are their convex hull, scaled by the radius
-	shapes := gd.array_new()
+// Sizes in metres (the views draw them at the level's scale, Game.px_per_m).
+Data_Constants :: struct {
+	ship_radius:    f32,
+	station_radius: f32,
+	gate_radius:    f32,
+	station_hp:     i32,
+	over_hold_s:    f32,
+	wave_every_s:   f32,
+	rock_shapes:    [dr.ROCK_VARIANTS][8][2]f32, // per variant the 8 corners at radius 1 (an Array of Vector2s)
+}
+
+// Copied at install; constants_init fills the rock shapes first (dr.rock_points is a proc).
+CONSTANTS := Data_Constants {
+	ship_radius    = dr.SHIP_RADIUS,
+	station_radius = dr.STATION_RADIUS,
+	gate_radius    = dr.GATE_RADIUS,
+	station_hp     = dr.STATION_HP,
+	over_hold_s    = dr.OVER_HOLD_S,
+	wave_every_s   = dr.WAVE_EVERY_S,
+}
+
+// The rock shapes the sim builds its bodies from (their convex hull, scaled by the rock's radius), at radius 1.
+constants_init :: proc() {
 	small := dr.ROCK_RADIUS[.Small]
 	for variant in 0 ..< dr.ROCK_VARIANTS {
-		corners := gd.array_new()
-		for corner in dr.rock_points(variant, .Small) {
-			gd.array_push(&corners, gd.Vector2{corner.x / small, corner.y / small})
-		}
-		gd.array_push_move(&shapes, &corners)
+		for corner, k in dr.rock_points(variant, .Small) do CONSTANTS.rock_shapes[variant][k] = corner / small
 	}
-	gd.dict_set_move(dict, "rock_shapes", &shapes)
 }

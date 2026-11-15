@@ -1,5 +1,6 @@
 // friendslop's GDExtension (game/friendslop.gdextension -> .out/bin/libfriendslop.*): the friendslop sim run by
-// unified:godot, plus the game's glue: views, the HUD view, and how the InputMap and the camera become an Input.
+// unified:godot, plus the game's glue: views, session data, constants, and how the InputMap and the camera become an
+// Input.
 // Built by `uni build friendslop`.
 package friendslop_extension
 
@@ -8,7 +9,6 @@ import "core:math"
 import "core:reflect"
 import "unified:b3"
 import "unified:eos"
-import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:netcode"
@@ -25,6 +25,7 @@ friendslop_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
+	constants_fill()
 	godot.install(&fs.GAME, GLUE)
 	godot.set_transport(&EOS_TRANSPORT)
 	return godot.entry(gpa, lib, init)
@@ -70,13 +71,13 @@ EOS_TRANSPORT := godot.Transport {
 
 /// ---- glue
 
-// Scene views (the view index: a scene per kind, with a UnifiedView marker). Every sim object the level placed
-// (items, platforms, bells, plates, switches) is a `marker` view: entity = its level marker index + 1 (the
-// `entity` of its events), and the view adopts that marker's visuals. The HUD view feeds Game.hud.
+// Scene views (the view index: a scene per kind, with a UnifiedView marker). A player's view is keyed by
+// sim.player_key. Every sim object the level placed (items, platforms, bells, plates, switches) is a `marker` view
+// keyed by its level marker index, entity = that index + 1 (the `entity` of its events); the view adopts that
+// marker's visuals.
 View :: enum u8 {
 	Player,
 	Marker,
-	Hud,
 }
 
 // No MultiMesh views.
@@ -87,15 +88,17 @@ Frame :: godot.Frame(fs.State, fs.World, View, MultiView)
 GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
+	data           = Data,
+	constants      = CONSTANTS,
 	scripted_input = fs.scripted_input,
-	constants      = constants,
 	event_key      = event_key,
 	level          = "res://game/levels/park.level",
 }
 
-// A player's view is keyed by sim.player_key (>= 0x10000: a member id is >= 1), so it never meets these.
-MARKER_KEY :: 0x100 // + marker index
-HUD_KEY :: 0x1000
+// The session data (Unified.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
+Data :: union {
+	fs.Data_Hud,
+}
 
 player_view_key :: proc(player: sim.Player) -> view.Key {
 	return view.Key(sim.player_key(player))
@@ -104,16 +107,17 @@ player_view_key :: proc(player: sim.Player) -> view.Key {
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
 // where the default routing would send them to the item's or the switch's view.
-event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
 	value := sim.event_value(event, fs.Event)
 	fields := any{&value, reflect.union_variant_typeid(value)}
-	if player, ok := reflect.struct_field_value_by_name(fields, "player").(sim.Player); ok && player != {} {
-		return player_view_key(player)
+	if player, is_player := reflect.struct_field_value_by_name(fields, "player").(sim.Player);
+	   is_player && player != {} {
+		return .Player, player_view_key(player), true
 	}
-	if entity, ok := reflect.struct_field_value_by_name(fields, "entity").(u64); ok && entity != 0 {
-		return view.Key(MARKER_KEY + int(entity) - 1)
+	if entity, is_entity := reflect.struct_field_value_by_name(fields, "entity").(u64); is_entity && entity != 0 {
+		return .Marker, view.Key(entity - 1), true // the marker index
 	}
-	return 0
+	return
 }
 
 // ---- input (main thread): move relative to the camera, aim = the camera's look
@@ -181,7 +185,7 @@ fill_frame :: proc(f: ^Frame) {
 		id := physics.body_id(f.world.phys, body)
 		pos := b3.body_get_position(id)
 		godot.push_view(f, {
-			key    = view.Key(MARKER_KEY + marker),
+			key    = view.Key(marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
 			pos    = {pos.x, pos.y, pos.z},
@@ -195,28 +199,49 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< f.world.trigger_count {
 		marker := f.world.triggers[i].marker
 		godot.push_view(f, {
-			key    = view.Key(MARKER_KEY + marker),
+			key    = view.Key(marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
 			pos    = f.world.triggers[i].volume.pos,
 			rot    = f.world.level.markers[marker].rot,
 		})
 	}
-	godot.push_view(f, {key = HUD_KEY, kind = .Hud}, fs.hud(f.state, f.tick))
+	godot.push_data(f, fs.hud(f.state, f.tick))
 }
 
-// ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
+// ---- constants for the scripts (Unified.constants), from the sim's own definitions
 
-constants :: proc(dict: ^gd.Dictionary) {
-	gd.dict_set(dict, "finish_hold_s", f64(fs.FINISH_HOLD_S))
-	gd.dict_set(dict, "respawn_s", f64(fs.RESPAWN_S))
-	gd.dict_set(dict, "feet", f64(fs.FEET))
-	gd.dict_set(dict, "player_radius", f64(fs.PLAYER_RADIUS))
-	gd.dict_set(dict, "player_half_height", f64(fs.PLAYER_HALF_HEIGHT))
-	sizes := gd.dict_new()
+// An item kind's size as the sim simulates it (a sphere: its diameter on every axis).
+Item_Size :: struct {
+	kind: fs.Item_Kind, // EnumItemKind
+	_pad: [3]u8,
+	size: [3]f32,
+}
+
+Data_Constants :: struct {
+	finish_hold_s:      f32,
+	respawn_s:          f32,
+	feet:               f32, // from the capsule centre down to the ground it stands on
+	player_radius:      f32,
+	player_half_height: f32,
+	item_sizes:         [len(fs.Item_Kind)]Item_Size, // by kind
+}
+
+// Filled before install (constants_fill): the item sizes come from fs.ITEM_SPECS.
+CONSTANTS := Data_Constants {
+	finish_hold_s      = fs.FINISH_HOLD_S,
+	respawn_s          = fs.RESPAWN_S,
+	feet               = fs.FEET,
+	player_radius      = fs.PLAYER_RADIUS,
+	player_half_height = fs.PLAYER_HALF_HEIGHT,
+}
+
+constants_fill :: proc() {
 	for spec, kind in fs.ITEM_SPECS {
 		size := spec.half == {} ? [3]f32{spec.radius, spec.radius, spec.radius} * 2 : spec.half * 2
-		gd.dict_set(&sizes, fs.ITEM_KIND_NAMES[kind], gd.Vector3{size.x, size.y, size.z})
+		CONSTANTS.item_sizes[int(kind)] = {
+			kind = kind,
+			size = size,
+		}
 	}
-	gd.dict_set_move(dict, "item_sizes", &sizes)
 }

@@ -1,7 +1,7 @@
 extends CanvasLayer
 ## The in-game HUD, built in code: the run timer and the best time, the checkpoint, a crosshair, the local player's
 ## state (holding, charge, held, stunned, fallen), the shared session panel and controls list, and banners for
-## run events.
+## run events. Redrawn when the session data (Unified.hud) changes.
 
 const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]
 const PAD_HELD := [["A (mash)", "Break free"], ["Start", "Menu"]]
@@ -58,31 +58,33 @@ func _ready() -> void:
 	_controls = ControlsPanel.new()
 	root.add_child(_controls)
 	Game.session.sim_event.connect(_on_sim_event)
+	Unified.hud.changed.connect(_on_hud_changed)
+	_on_hud_changed()
 
 
 func _process(delta: float) -> void:
-	var h := Game.hud
-	var phase: String = h.get("phase", "hub")
-	var checkpoint: int = h.get("checkpoint", -1)
-	var run_s: float = h.get("run_s", 0.0)
-	var reset_in_s: float = h.get("reset_in_s", 0.0)
-	var best_s: float = h.get("best_s", 0.0)
-	match phase:
-		"run":
-			_phase.text = "RUN  ·  checkpoint %d" % maxi(checkpoint, 0)
-			_timer.text = _time(run_s)
-		"finished":
-			_phase.text = "FINISHED  ·  back to the hub in %d" % ceili(reset_in_s)
-			_timer.text = _time(run_s)
-		_:
-			_phase.text = "HUB"
-			_timer.text = ""
-	var best := _best_time(best_s)
+	_banner_t = maxf(_banner_t - delta, 0.0)
+	_banner.visible = _banner_t > 0.0
+	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
+
+
+func _on_hud_changed() -> void:
+	var h := Unified.hud
+	if h.phase == EnumPhase.RUN:
+		_phase.text = "RUN  ·  checkpoint %d" % maxi(h.checkpoint, 0)
+		_timer.text = _time(h.run_s)
+	elif h.phase == EnumPhase.FINISHED:
+		_phase.text = "FINISHED  ·  back to the hub in %d" % ceili(h.reset_in_s)
+		_timer.text = _time(h.run_s)
+	else:
+		_phase.text = "HUB"
+		_timer.text = ""
+	var best := _best_time(h.best_s)
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
-	_session.refresh(_session_rows(), phase == "hub", "Walk through the start gate to start the run.")
+	_session.refresh(_session_rows(), h.phase == EnumPhase.HUB, "Walk through the start gate to start the run.")
 
 	var me := Game.local_player_info()
-	var holding: bool = me.get("holding", &"none") != &"none"
+	var holding: bool = me.get("holding", EnumHeldKind.NONE) != EnumHeldKind.NONE
 	var held: bool = me.get("held", false)
 	_charge.value = me.get("charge", 0.0)
 	_charge.visible = holding and _charge.value > 0.0
@@ -100,10 +102,6 @@ func _process(delta: float) -> void:
 		_controls.refresh(KEYS_HOLDING, PAD_HOLDING)
 	else:
 		_controls.refresh(KEYS, PAD)
-
-	_banner_t = maxf(_banner_t - delta, 0.0)
-	_banner.visible = _banner_t > 0.0
-	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
 
 
 func _session_rows() -> Array[Dictionary]:

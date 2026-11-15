@@ -90,25 +90,21 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	var h := Game.hud
-	var phase: String = h.get("phase", "lobby")
-	var wave: int = h.get("wave", 0)
+	var h: DataHud = Unified.hud
+	var phase := h.phase
+	var wave := h.wave
 	match phase:
-		"match":
-			var next_wave_s: float = h.get("next_wave_s", 0.0)
-			var time_s: float = h.get("time_s", 0.0)
-			_phase.text = "WAVE %d  ·  next wave in %d s" % [wave, ceili(next_wave_s)]
-			_time.text = _time_text(time_s)
-		"over":
+		EnumPhase.MATCH:
+			_phase.text = "WAVE %d  ·  next wave in %d s" % [wave, ceili(h.next_wave_s)]
+			_time.text = _time_text(h.time_s)
+		EnumPhase.OVER:
 			_phase.text = "STATION LOST  ·  wave %d" % wave
-			var held_s: float = h.get("time_s", 0.0)
-			_time.text = _time_text(held_s)
+			_time.text = _time_text(h.time_s)
 		_:
 			_phase.text = "LOBBY"
 			_time.text = ""
-	var hp: int = h.get("station_hp", 100)
-	var station_max: int = h.get("station_max", 100)
-	var hp_max := maxi(station_max, 1)
+	var hp := h.station_hp
+	var hp_max := maxi(h.station_max, 1)
 	var frac := clampf(float(hp) / hp_max, 0.0, 1.0)
 	_hp_shown = lerpf(_hp_shown, frac, 1.0 - exp(-delta * 10.0))
 	_hp.value = _hp_shown
@@ -118,35 +114,31 @@ func _process(delta: float) -> void:
 	if sb != null and sb.bg_color != fill:
 		_hp.add_theme_stylebox_override(&"fill", UiTheme.box(fill, 6, 0))
 	var best: float = Settings.get_value(&"best_time")
-	var score: int = h.get("score", 0)
-	var rocks: int = h.get("rocks", 0)
-	_score.text = "score %d  ·  rocks %d%s" % [score, rocks,
+	_score.text = "score %d  ·  rocks %d%s" % [h.score, h.rocks,
 		("  ·  best %s" % _time_text(best)) if best > 0.0 else ""]
 
-	_prompt.visible = phase == "lobby" or phase == "over"
+	_prompt.visible = phase == EnumPhase.LOBBY or phase == EnumPhase.OVER
 	var keys := Game.hint("Enter", "X")
-	if phase == "lobby":
+	if phase == EnumPhase.LOBBY:
 		_prompt_text.text = "Press %s or click Start to start" % keys
 		_prompt_sub.text = "Rocks drift in from the edges in waves. Keep them off the station."
 		start_button.text = "Start"
-	elif phase == "over":
-		var survived_s: float = h.get("time_s", 0.0)
-		var reset_in_s: float = h.get("reset_in_s", 0.0)
-		_prompt_text.text = "The station is lost: you held out %s" % _time_text(survived_s)
-		_prompt_sub.text = "Back to the lobby in %d s" % ceili(reset_in_s)
+	elif phase == EnumPhase.OVER:
+		_prompt_text.text = "The station is lost: you held out %s" % _time_text(h.time_s)
+		_prompt_sub.text = "Back to the lobby in %d s" % ceili(h.reset_in_s)
 		start_button.text = "Restart"
 
 	var rows: Array[Dictionary] = []
 	for info in Game.present_players():
 		var gems: int = info.get("gems", 0)
 		rows.append({"player": info.player, "name": Game.player_name(info), "status": "%d gems" % gems})
-	_session.refresh(rows, phase == "lobby", "Press %s or click Start when everyone is in." % keys)
+	_session.refresh(rows, phase == EnumPhase.LOBBY, "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
 	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
-	if phase == "lobby":
+	if phase == EnumPhase.LOBBY:
 		kb.append(["Enter", "Start"])
 		pad.append(["X", "Start"])
-	elif phase == "over":
+	elif phase == EnumPhase.OVER:
 		kb.append(["Enter", "Restart"])
 		pad.append(["X", "Restart"])
 	kb.append(["Esc", "Menu"])
@@ -165,12 +157,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## The lobby's `start` or the over screen's `restart` command (anyone may send either).
 func _start_or_restart() -> void:
-	var phase: String = Game.hud.get("phase", "")
-	match phase:
-		"lobby":
+	match Unified.hud.phase:
+		EnumPhase.LOBBY:
 			Sfx.play(&"click")
 			Game.send_command(CommandStart.new())
-		"over":
+		EnumPhase.OVER:
 			Sfx.play(&"click")
 			Game.send_command(CommandRestart.new())
 
