@@ -110,7 +110,7 @@ reset_world :: proc(t: ^Tick) {
 	}
 	for slot in 0 ..< PLAYERS {
 		player := sim.player_in_slot(&t.state.players, slot)
-		if character := sim.player_get(&t.state.players, player); character != nil {
+		if character := sim.player_data(&t.state.players, player); character != nil {
 			character_spawn(t.world, character, slot)
 			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
@@ -125,14 +125,14 @@ reset_world :: proc(t: ^Tick) {
 	t.state.wave = 0
 }
 
-// 1. Players: leaves and joins (the harness's t.left, t.joined, t.returned), respawn, movement and dash.
+// 1. Players: leaves and joins (the harness's t.player_changes.left, t.player_changes.joined, t.player_changes.returned), respawn, movement and dash.
 @(private)
 sys_players :: proc(t: ^Tick) {
-	for player in t.left {
-		character_leave(t.world, sim.player_get(&t.state.players, player))
+	for player in t.player_changes.left {
+		character_leave(t.world, sim.player_data(&t.state.players, player))
 	}
-	for player in t.joined {
-		character_reset(sim.player_get(&t.state.players, player)) // someone new: fresh progress
+	for player in t.player_changes.joined {
+		character_reset(sim.player_data(&t.state.players, player)) // someone new: fresh progress
 	}
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
@@ -179,10 +179,10 @@ sys_players :: proc(t: ^Tick) {
 // Whether `player` joined or returned this tick.
 @(private)
 arrived :: proc(t: ^Tick, player: sim.Player) -> bool {
-	for arrival in t.joined {
+	for arrival in t.player_changes.joined {
 		if arrival == player do return true
 	}
-	for arrival in t.returned {
+	for arrival in t.player_changes.returned {
 		if arrival == player do return true
 	}
 	return false
@@ -449,7 +449,7 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 // Damages an alive player (nobody, absent or dead: nothing); at HP <= 0 they die (body destroyed, respawn timer
 // set).
 damage_player :: proc(t: ^Tick, player: sim.Player, amount: i32) {
-	character := sim.player_get(&t.state.players, player)
+	character := sim.player_data(&t.state.players, player)
 	if character == nil || !character.alive {
 		return
 	}

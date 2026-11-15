@@ -1,5 +1,5 @@
 // What the HUD shows (games/friendslop/SPEC.md), from the state alone: the run, and per player what they
-// are doing. The extension turns it into the HUD Dictionary.
+// are doing. The extension pushes it as the game's session data (Unified.data.hud).
 package friendslop
 
 import "unified:sim"
@@ -12,11 +12,14 @@ Hud_Player :: struct {
 	held:    bool, // someone holds this player
 	stunned: bool,
 	fallen:  bool,
+	_pad:    [3]u8,
 	charge:  f32, // 0..1
 }
 
-Hud :: struct {
+// Plain and padding-free: the extension's session data type (class DataHud).
+Data_Hud :: struct {
 	phase:      Phase,
+	_pad:       [3]u8,
 	tick:       u32,
 	run_s:      f32, // the current run's time (Run), or the finished run's (Finished)
 	best_s:     f32, // 0: none
@@ -27,15 +30,8 @@ Hud :: struct {
 	players:    [PLAYERS]Hud_Player,
 }
 
-@(rodata)
-PHASE_NAMES := [Phase]string {
-	.Hub      = "hub",
-	.Run      = "run",
-	.Finished = "finished",
-}
-
-// The HUD data for a tick, derived from the state alone; the GDExtension pushes it to the HUD view every frame.
-hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
+// The HUD data for a tick, derived from the state alone; the GDExtension pushes it every frame.
+hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 	result.phase = state.phase
 	result.tick = tick
 	result.runs = state.runs
@@ -54,7 +50,7 @@ hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
 	}
 	for slot in 0 ..< PLAYERS {
 		player := sim.player_in_slot(&state.players, slot)
-		character := sim.player_get(&state.players, player)
+		character := sim.player_data(&state.players, player)
 		if character == nil do continue
 		result.players[slot] = {
 			player  = player,

@@ -12,7 +12,7 @@ BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
 // The input of the bot in `slot` (zero when nobody holds it or they are dead).
 bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
-	character := sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+	character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
 	if character == nil || !character.alive {
 		return
 	}
@@ -91,7 +91,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 // session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
 bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out) {
-	character := sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+	character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(slot)) % 3)})
 	}

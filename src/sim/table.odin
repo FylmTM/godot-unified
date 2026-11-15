@@ -144,8 +144,8 @@ table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T
 	return
 }
 
-// The next item of a table walk (iterate) or a player walk (iterate_present, iterate_known: presence.odin).
+// The next item of a table walk (iterate) or a player walk (iterate_present, iterate_known: players.odin).
 next :: proc {
 	table_next,
-	presence_next,
+	players_next,
 }

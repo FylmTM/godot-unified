@@ -15,9 +15,8 @@ var _burst := 0.0
 
 
 func _ready() -> void:
-	var radius: float = Game.constants.get("gate_radius", 0.8)
-	_r = radius * Game.px_per_m
-	_t = float(($UnifiedView as UnifiedView).entity) * 1.7  # gates swirl out of step
+	_r = Unified.constants.gate_radius * Game.px_per_m
+	_t = float(($UnifiedView as UnifiedView).entity) * 1.7  # gates swirl out of step (entity: the gate's index)
 
 
 func _process(delta: float) -> void:

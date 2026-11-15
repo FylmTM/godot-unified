@@ -181,7 +181,7 @@ World :: struct {
 	phys:             ^physics.World,
 	extras:           [1]sim.Extra,
 	level:            level.Level,
-	character_defs:   [MEMBERS]physics.Character_Def, // by member index: each body's material names its player
+	character_defs:   [CHARACTERS]physics.Character_Def, // by member index: each body's material names its player
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
 	platforms:        [MAX_PLATFORMS]Platform_Def,
@@ -259,7 +259,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level, CAT_STATIC)
-	for index in 0 ..< MEMBERS {
+	for index in 0 ..< CHARACTERS {
 		world.character_defs[index] = CHARACTER_DEF
 		world.character_defs[index].material = MAT_PLAYER + u64(index)
 	}

@@ -22,7 +22,7 @@ MAX_PLAYERS :: 32
 
 #assert(ODIN_ENDIAN == .Little) // the block's in-memory bytes are its canonical LE serialization
 
-Players :: bit_set[0 ..< MAX_PLAYERS;u32]
+Slots :: bit_set[0 ..< MAX_PLAYERS;u32]
 
 // What a tick consumes, by slot: every slot's input, which slots are present, the join records and the commands
 // sent for this tick (command.odin). A slot not in `present` has a zero input. `member` is a slot's join record: the
@@ -31,27 +31,32 @@ Players :: bit_set[0 ..< MAX_PLAYERS;u32]
 // one came too late; it is informational, games should not branch on it. Commands are never repeated or
 // substituted: each arrives in one tick only.
 Inputs :: struct($Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
-	present:       Players,
-	replaced:      Players,
+	present:       Slots,
+	replaced:      Slots,
 	input:         [PLAYERS]Input,
 	member:        [PLAYERS]u16,
 	command_count: int,
 	commands:      [TICK_COMMANDS]Raw_Command, // ordered by slot, each slot's in the order sent (sim.commands)
 }
 
-// What `tick` gets: the harness builds one for each step, after it updated the State's Presence (presence.odin).
+// What `tick` gets: the harness builds one for each step, after it updated the State's Players (players.odin).
 // Per-tick helpers that need more than the block take it (emit, roll_below, input, commands).
 Tick :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	state:    ^State,
-	world:    ^World,
-	number:   u32, // the tick being computed: the state goes from tick number - 1 to number
-	seed:     u64, // the session's seed
-	inputs:   ^Inputs(Input, PLAYERS),
-	events:   ^Events, // what this tick emits (event.odin)
+	state:          ^State,
+	world:          ^World,
+	number:         u32, // the tick being computed: the state goes from tick number - 1 to number
+	seed:           u64, // the session's seed
+	inputs:         ^Inputs(Input, PLAYERS),
+	events:         ^Events, // what this tick emits (event.odin)
+	player_changes: Player_Changes, // who joined, came back or left this tick (the State's Players already shows it)
+	players_layout: ^Players_Layout, // where the State's Players is (input, commands)
+}
+
+// The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.joined`.
+Player_Changes :: struct {
 	joined:   []Player, // new members present from this tick (zeroed data), in slot order
 	returned: []Player, // members back from this tick (their data as they left it), in slot order
 	left:     []Player, // members absent from this tick
-	presence: ^Presence_Layout, // where the State's Presence is (input, commands)
 }
 
 // Rollback state that lives outside the block (physics). The harness calls `save`/`restore` with
@@ -119,20 +124,20 @@ Ring_Slot :: struct($State: typeid) {
 }
 
 Sim :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	game:         ^Game(State, Input, World, PLAYERS),
-	seed:         u64,
-	content:      []u8, // borrowed: the caller of create keeps it alive
-	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
-	tick:         u32,
-	state:        State,
-	world:        ^World,
-	extras:       []Extra,
-	ring:         []Ring_Slot(State), // ring_size(game.tick_hz) slots, allocated at create
-	presence:     Presence_Layout, // the State's Presence field
-	changes:      Presence_Changes(PLAYERS), // the step's joins and leaves (Tick.joined, returned, left)
+	game:           ^Game(State, Input, World, PLAYERS),
+	seed:           u64,
+	content:        []u8, // borrowed: the caller of create keeps it alive
+	content_hash:   u64, // content_hash(content): recorded in input logs and snapshots
+	tick:           u32,
+	state:          State,
+	world:          ^World,
+	extras:         []Extra,
+	ring:           []Ring_Slot(State), // ring_size(game.tick_hz) slots, allocated at create
+	players_layout: Players_Layout, // the State's Players field
+	changes:        Changes_Buffer(PLAYERS), // the step's joins and leaves (Tick.player_changes)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
-	hash_buf:     [dynamic]u8,
+	hash_buf:       [dynamic]u8,
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -211,6 +216,19 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	if variant_kind(events, Event_Player_Joined) < 0 || variant_kind(events, Event_Player_Left) < 0 {
 		return fmt.tprintf("%s: events: the union lists sim.Event_Player_Joined and sim.Event_Player_Left", name)
 	}
+	for variant in union_variants(events) {
+		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct) or_continue
+		for i in 0 ..< int(info.field_count) {
+			if field := info.names[i]; field == "tick" || field == "kind" {
+				return fmt.tprintf(
+					"%s: events: %v has a field named `%s`, which every event carries already (its tick and kind): rename it",
+					name,
+					variant.id,
+					field,
+				)
+			}
+		}
+	}
 	return ""
 }
 
@@ -225,12 +243,12 @@ create :: proc(
 	if reason := game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
 		panic(reason)
 	}
-	presence, reason := presence_layout_of(type_info_of(State), PLAYERS)
+	players_layout, reason := players_layout_of(type_info_of(State), PLAYERS)
 	if reason != "" {
 		panic(fmt.tprintf("%s: %s", game.name, reason))
 	}
 	simulation := new(Sim(State, Input, World, PLAYERS))
-	simulation.presence = presence
+	simulation.players_layout = players_layout
 	simulation.game = game
 	simulation.seed = seed
 	simulation.content = content
@@ -266,7 +284,7 @@ ring_slot :: #force_inline proc(simulation: ^Sim($State, $Input, $World, $PLAYER
 
 // One tick without saving it (benchmarks time the two halves apart); step is advance + save. The slot is the
 // new tick's from the start, holding its events and no state: it never answers for the tick it held before. The
-// State's Presence is updated first (presence.odin) and its join and leave events emitted before the game's.
+// State's Players is updated first (players.odin) and its join and leave events emitted before the game's.
 advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
@@ -275,18 +293,20 @@ advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inp
 	slot.saved = false
 	clear(&slot.events.list)
 	changes := &simulation.changes
-	presence_update(presence_view(&simulation.state, &simulation.presence), inputs, number, &slot.events, changes)
+	players_update(players_view(&simulation.state, &simulation.players_layout), inputs, number, &slot.events, changes)
 	tick := Tick(State, Input, World, PLAYERS) {
-		state    = &simulation.state,
-		world    = simulation.world,
-		number   = number,
-		seed     = simulation.seed,
-		inputs   = inputs,
-		events   = &slot.events,
-		joined   = changes.joined[:changes.joined_count],
-		returned = changes.returned[:changes.returned_count],
-		left     = changes.left[:changes.left_count],
-		presence = &simulation.presence,
+		state = &simulation.state,
+		world = simulation.world,
+		number = number,
+		seed = simulation.seed,
+		inputs = inputs,
+		events = &slot.events,
+		player_changes = {
+			joined   = changes.joined[:changes.joined_count],
+			returned = changes.returned[:changes.returned_count],
+			left     = changes.left[:changes.left_count],
+		},
+		players_layout = &simulation.players_layout,
 	}
 	simulation.game.tick(&tick)
 	simulation.tick = number

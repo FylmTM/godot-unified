@@ -157,7 +157,6 @@ register_session_class :: proc() {
 		delete(session.name)
 		session.name = strings.clone(name)
 	}, {"name"})
-	gd.bind_method(class, "constants", session_constants)
 	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
 	// Players by key (sim.player_key), at the shown tick.
 	gd.bind_method(class, "get_local_player", proc(session: ^Session_Node) -> i64 {
@@ -291,7 +290,9 @@ session_ready :: proc(session: ^Session_Node) {
 @(private)
 session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 	if !api.installed {
-		emit_status(session, .Failed, "no game installed in this extension")
+		reason := "no game installed in this extension"
+		if len(api.problems) > 0 do reason = fmt.tprintf("the game %s failed to install: %s", api.game_name, api.problems[0])
+		emit_status(session, .Failed, reason)
 		return false
 	}
 	if api.running() {
@@ -333,6 +334,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 		request.content = level
 	}
 	views_check_index()
+	data_reset()
 	ok, err := api.start(request)
 	if !ok {
 		emit_status(session, .Failed, err)
@@ -367,6 +369,7 @@ session_end :: proc(session: ^Session_Node) {
 		api.wait()
 	}
 	session.frame = nil
+	data_reset()
 }
 
 // Ends the active session, joins its thread and frees every view and the dev UI. Called when the extension
@@ -414,7 +417,9 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 			session.synced_root = root_id
 		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
+		if fresh do data_sync(frame)
 	}
+	drain_events(session)
 	drain_messages(session)
 	if changes := sync.atomic_load(&roster.changes); changes != session.roster_seen {
 		session.roster_seen = changes
@@ -424,6 +429,27 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	session.sync_us = f32(time.duration_microseconds(time.tick_since(started)))
 	sync.atomic_store(&want_state, dev_visible())
 	dev_frame(session, dt)
+}
+
+// Delivers the queued events of the ticks the shown Frame covers (tick <= its tick), in order; newer ones wait for the
+// frame that shows their tick, so an event never reaches a view before the view's tick is on screen.
+@(private)
+drain_events :: proc(session: ^Session_Node) {
+	if !api.installed do return
+	for session.frame != nil {
+		event := api.next_event(session.frame.tick) or_break
+		if !session.has_pending do route_event(session, event) // else: the left session's; the new one is connecting
+	}
+	if dropped := api.events_dropped(); dropped > 0 {
+		report_once(
+			"events-dropped",
+			fmt.tprintf(
+				"unified: %d events were dropped: the main thread stalled while the session thread queued more than it holds",
+				dropped,
+			),
+			false,
+		)
+	}
 }
 
 @(private)
@@ -440,14 +466,13 @@ drain_messages :: proc(session: ^Session_Node) {
 		case .Lobby_Code:
 			fmt.printfln("unified: lobby code %s", text)
 			gd.emit_signal(session.obj, gd.sn("lobby_code"), text)
-		case .Event:
-			route_event(session, message)
 		case .Desync:
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
 			dev_log(message.tick, "desync: %s", text)
 			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
+			if !session.has_pending do data_reset()
 			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)
 		}
 	}
@@ -457,7 +482,7 @@ drain_messages :: proc(session: ^Session_Node) {
 // class (sim_classes.odin): to the subject's view (_sim_event(event, state)), then to the sim_event signal, in the
 // order the ticks emitted them.
 @(private)
-route_event :: proc(session: ^Session_Node, message: Message) {
+route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
@@ -495,16 +520,6 @@ input_value_of :: proc(value: ^gd.Variant) -> [3]f32 {
 	}
 	gd.print_error("unified: set_input_value: want a Vector3, Vector2, float, int or bool")
 	return {}
-}
-
-// The game's constants for scripts (Glue.constants) plus `tick_hz`.
-@(private)
-session_constants :: proc(session: ^Session_Node) -> gd.Dictionary {
-	dict := gd.dict_new()
-	if !api.installed do return dict
-	gd.dict_set(&dict, "tick_hz", i64(api.tick_hz))
-	if api.constants != nil do api.constants(&dict)
-	return dict
 }
 
 // ---- command line (user args after `--`)

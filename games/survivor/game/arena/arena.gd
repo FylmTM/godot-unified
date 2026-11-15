@@ -14,7 +14,7 @@ var start_urgency := 0.0
 
 
 func _ready() -> void:
-	_radius = Game.constants.get("start_radius", 3.5)
+	_radius = Unified.constants.start_radius
 	Game.session.view_root = _views
 	Game.session.sim_event.connect(_on_sim_event)
 	_fx.camera = _camera
@@ -26,10 +26,10 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	var lobby := _phase() == "lobby"
+	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
 	_circle_fade = move_toward(_circle_fade, 1.0 if lobby else 0.0, delta * 2.0)
 	_circle.visible = _circle_fade > 0.001
-	var r: float = Game.hud.get("circle_radius", 0.0)
+	var r := Unified.data.hud.circle_radius
 	if r > 0.0:
 		_radius = r  # the sim reports 0 outside the lobby; keep the ring's size while it fades
 	var furthest := 0.0
@@ -73,8 +73,3 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	if event is EventMatchStarted:
 		_fx.shockwave(_radius)
 	_fx.play(event)
-
-
-static func _phase() -> String:
-	var phase: String = Game.hud.get("phase", "lobby")
-	return phase

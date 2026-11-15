@@ -32,8 +32,7 @@ func _process(delta: float) -> void:
 		v = arena.any_player_view()
 	var goal := Vector3(v.position.x, 0, v.position.z) if v != null else _target
 	var vel := v.velocity if v != null else Vector3.ZERO
-	var phase: String = Game.hud.get("phase", "lobby")
-	var lobby := phase == "lobby"
+	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
 	var want_lead := Vector3(vel.x, 0, vel.z) * lead if not lobby else Vector3.ZERO
 	_lead = _lead.lerp(want_lead.limit_length(max_lead), 1.0 - exp(-delta * 1.5))
 	goal += _lead

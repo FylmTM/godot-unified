@@ -9,7 +9,7 @@ DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4
-MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence)
+CHARACTERS :: PLAYERS * sim.MEMBERS_PER_SLOT // a character body per member the session remembers (sim.Players)
 MAX_ITEMS :: 64
 MAX_PLATFORMS :: 24
 MAX_TRIGGERS :: 16
@@ -95,7 +95,7 @@ Held_Kind :: enum u8 {
 	Player,
 }
 
-// A player's data (sim.Presence, by member): zeroed when someone new joins; a leave releases and destroys what it
+// A player's data (sim.Players, by member): zeroed when someone new joins; a leave releases and destroys what it
 // owns outside the block (the body, the hold) and zeroes it, so a returning player starts fresh too.
 Character :: struct {
 	controller:    physics.Character,
@@ -149,7 +149,7 @@ Phase :: enum u8 {
 }
 
 State :: struct {
-	players:      sim.Presence(Character, PLAYERS, MEMBERS),
+	players:      sim.Players(Character, PLAYERS),
 	items:        [MAX_ITEMS]Item,
 	platforms:    [MAX_PLATFORMS]Platform,
 	bodies:       [MAX_TRIGGERS]Body_Ref, // bells' and switches' bodies (static, owned by the sim)

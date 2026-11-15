@@ -10,7 +10,6 @@ import g "../minimal_3d"
 Frame :: godot.Frame(g.State, g.World, View, MultiView)
 
 View :: enum u8 {
-	Hud,
 	Player,
 }
 
@@ -31,9 +30,11 @@ Player_View_Data :: struct {
 	color: [4]f32,
 }
 
-HUD_KEY :: view.Key(1)
+Data :: union {
+	Data_Hud,
+}
 
-Hud_View_Data :: struct {
+Data_Hud :: struct {
 	players: u32,
 	balls:   u32,
 	color:   gd.Color,
@@ -62,7 +63,7 @@ fill_frame_players :: proc(f: ^Frame) {
 fill_frame_balls :: proc(f: ^Frame) {
 	balls := sim.iterate(&f.state.balls)
 	for ball, handle in sim.next(&balls) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key   = sim.handle_key(handle),
 			kind  = .Ball,
 			pos   = {ball.pos.x, ball.height, ball.pos.y},
@@ -76,7 +77,7 @@ fill_frame_hud :: proc(f: ^Frame) {
 	present := sim.iterate_present(&f.state.players)
 	for _ in sim.next(&present) do players += 1
 
-	godot.push_view(f, {key = HUD_KEY, kind = .Hud}, Hud_View_Data {
+	godot.push_data(f, Data_Hud {
 		players = u32(players),
 		balls   = u32(f.state.balls.count),
 		color   = transmute(gd.Color)player_color(f, f.local_player),

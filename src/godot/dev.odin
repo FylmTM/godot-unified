@@ -117,10 +117,11 @@ when DEVUI {
 			)
 			devui.stat(
 				"views",
-				"%d scene   %d multimesh   sync %.0f µs",
+				"%d scene   %d multimesh   sync %.0f µs   events dropped %d",
 				frame.n_views,
 				frame.n_multis,
 				session.sync_us,
+				api.events_dropped(),
 			)
 			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
 		} else if devui.visible {

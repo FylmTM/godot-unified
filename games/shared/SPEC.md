@@ -22,8 +22,8 @@ a directory with `project.godot` and `simulation/` as one.
 - **Exports** leave `addons/shared/tools/` out (each game's `export_presets.cfg`).
 - **Conventions** the shared code relies on: the menu scene at `res://game/ui/main_menu.tscn` (root `MainMenu`, the
   shared menu instanced as `Menu`), the play scene at `res://game/arena/arena.tscn` (root `Arena`, with `Views`,
-  `HUD` whose `Root` control holds the session panel and controls list, and the shared `PauseMenu`); a `hud` view
-  kind (`game/views/hud.tscn`: a Node with `views/hud_view.gd` and a UnifiedView marker); the input actions `menu`,
+  `HUD` whose `Root` control holds the session panel and controls list, and the shared `PauseMenu`); session data
+  `Data_Hud` (`Unified.data.hud`) with `tick` and `players` (by slot: `player`, a key, and `present`); the input actions `menu`,
   `toggle_devui`, `ui_accept`, `ui_cancel` and the audio buses Master and SFX; the autoloads `LibraryCheck` (first),
   `Settings`, `Sfx`, `Game`.
 
@@ -38,8 +38,8 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   the session. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(command: UnifiedCommand)`. State: `session` (a typed
   `UnifiedSession`), `flow`, `mode`, `status`, `status_detail`, `lobby_code`, `lan_port`, `lan_address`,
-  `last_error`, `hud` (the HUD view fields), `constants`, `using_pad`. Helpers: `local_player()` (the session's: a
-  player key, 0 for none), `player_slot(player)` (-1: absent), `player_info(player)` (an entry of `hud.players`,
+  `last_error`, `using_pad`. Helpers: `local_player()` (the session's: a
+  player key, 0 for none), `player_slot(player)` (-1: absent), `player_info(player)` (an entry of `Unified.data.hud.players`,
   whose `player` is a key), `local_player_info()`, `present_players()`, `player_name(info)`
   (the synced name, else "P<n>"), `hint(keys, pad)`, `rumble`, `clipboard_get/set`, `copy_with_feedback`. Signals:
   `flow_changed`, `status_changed`, `lobby_code_changed`, `input_device_changed`.
@@ -53,10 +53,8 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
 UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (`main_menu.tscn`, exports `title`
 and `tagline`), `pause_menu.tscn`, `connect_overlay.tscn` (shown by `Game` while connecting), `SettingsPanel`,
 `SessionPanel` and `ControlsPanel` (a HUD's top-right session panel and bottom-right controls list: the game passes
-rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). Views (`views/`): `GameView` (a base
-for 3D scene views: `kind`, `entity`, `player` read the scene UnifiedView marker; `_sim_update`, `_sim_event`,
-`_despawned`, `_revived`), `hud_view.gd` (the HUD view root script: the host sets each field of the game HUD data as
-a property, kept in `Game.hud`; any field name reads back, 0 before the first frame). Audio: `audio/bus_layout.tres`.
+rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). The sim's values come from the
+library directly: `Unified.data.hud` (the game's session data) and `Unified.constants`. Audio: `audio/bus_layout.tres`.
 
 Tools (`tools/`, on the library `UnifiedTool`): `UnifiedUiWalk` (`ui_walk`, with `_walk_play()` and
 `_walk_online()`) and `UnifiedCoop` (`coop`, with `_host_play()`, `_join_play()`, `_playing()`; `--lan-port=N`, a
@@ -75,8 +73,8 @@ player at boot; `uni release`), plus the session flags (`--autostart`, `--script
 - **Quitting** goes through `Game.quit_app()` (the menus, the window's close button, every tool): the session ends
   (no event starts a sound any more), every AudioStreamPlayer (2D, 3D) in the tree stops, and the quit waits (at
   most 1 s) until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
-- **`Game.hud` is current for event handlers.** The session sets the HUD view data while it syncs the views,
-  before it routes the frame events, so a handler never reads the previous frame values.
+- **`Unified.data.hud` is current for event handlers.** The session sets the session data after it syncs the views and
+  before it routes the frame's events, so a handler never reads the previous frame's values.
 - **Play scene** (#89): the main menu loads the play scene on a worker thread
   (`ResourceLoader.load_threaded_request`) once it is on screen, so its shaders compile in the background, and
   collects it on leaving. In Godot 4.7.2 a resource a script first loads with `preload()` on a worker thread is

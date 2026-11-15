@@ -5,5 +5,5 @@ extends MultiMeshInstance3D
 
 func _ready() -> void:
 	# The arena bounds: skip per-frame AABB work and never cull a populated MultiMesh by accident.
-	var h: float = Game.constants.get("arena_half", 32.0)
+	var h := Unified.constants.arena_half
 	custom_aabb = AABB(Vector3(-h, -1, -h), Vector3(2 * h, 6, 2 * h))

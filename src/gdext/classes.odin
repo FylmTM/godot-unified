@@ -580,10 +580,11 @@ bind_method :: proc {
 }
 
 Property_Hint :: enum u32 {
-	NONE      = 0,
-	RANGE     = 1,
-	ENUM      = 2,
-	NODE_TYPE = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
+	NONE       = 0,
+	RANGE      = 1,
+	ENUM       = 2,
+	ARRAY_TYPE = 31, // a typed Array (hint_string: the element type, "int", "Vector2", a class): Array[int] in GDScript
+	NODE_TYPE  = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
 }
 
 // An inspector-visible, saved property backed by get_<name>/set_<name> methods. An Object property's class is its
@@ -790,10 +791,12 @@ connect :: proc(obj: Object, signal: string, callable: Callable, flags: u32 = 0)
 // Godot). `user` is the pointer given to bind_dynamic_method; `inst` the class instance.
 Dynamic_Proc :: #type proc(user: rawptr, inst: rawptr, args: []^Variant) -> Variant
 
-// One argument or the result of a dynamic method: its name and Variant type (NIL: any Variant).
+// One argument or the result of a dynamic method: its name and Variant type (NIL: any Variant), and for an OBJECT
+// its class (typed in GDScript; "": any Object).
 Dynamic_Arg :: struct {
-	name: string,
-	type: gdi.VariantType,
+	name:       string,
+	type:       gdi.VariantType,
+	class_name: string,
 }
 
 @(private)
@@ -807,7 +810,8 @@ Dynamic_Method :: struct {
 }
 
 // Binds a method built at run time (e.g. from RTTI): GDScript and typed calls both reach `fn`, ptrcall
-// arguments converted to Variants by their declared types.
+// arguments converted to Variants by their declared types. A `static` method is called on the class
+// (`Class.name(...)`), with a nil instance.
 bind_dynamic_method :: proc(
 	cls: ^Class,
 	name: string,
@@ -815,6 +819,7 @@ bind_dynamic_method :: proc(
 	user: rawptr,
 	args: []Dynamic_Arg,
 	result: Maybe(Dynamic_Arg) = nil,
+	static := false,
 ) {
 	dynamic_method := new(Dynamic_Method)
 	dynamic_method.call_proc = fn
@@ -822,7 +827,11 @@ bind_dynamic_method :: proc(
 	dynamic_method.nargs = len(args)
 	dynamic_method.types = make([]gdi.VariantType, len(args))
 	for argument, i in args do dynamic_method.types[i] = argument.type
-	if declared, ok := result.?; ok do dynamic_method.result, dynamic_method.has_result = declared.type, true
+	result_class := ""
+	if declared, ok := result.?; ok {
+		dynamic_method.result, dynamic_method.has_result = declared.type, true
+		result_class = declared.class_name
+	}
 	dynamic_method.call = proc(
 		method: ^Method,
 		inst: rawptr,
@@ -874,18 +883,24 @@ bind_dynamic_method :: proc(
 	sns := make([]StringName, count, context.temp_allocator)
 	infos := make([]gdi.PropertyInfo, count + 1, context.temp_allocator)
 	metas := make([]gdi.ClassMethodArgumentMetadata, count + 1, context.temp_allocator)
+	classes := make([]StringName, count + 1, context.temp_allocator)
 	for argument, i in args {
 		sns[i] = string_name_from(argument.name)
-		infos[i] = dynamic_property_info(argument.type, &sns[i], &empty_sn, &empty_s)
+		classes[i] = string_name_from(argument.class_name)
+		infos[i] = dynamic_property_info(argument.type, &sns[i], &classes[i], &empty_s)
 	}
+	classes[count] = string_name_from(result_class)
 	defer for &string_name in sns do StringName_destroy(&string_name)
-	ret_info := dynamic_property_info(dynamic_method.result, &empty_sn, &empty_sn, &empty_s)
+	defer for &string_name in classes do StringName_destroy(&string_name)
+	ret_info := dynamic_property_info(dynamic_method.result, &empty_sn, &classes[count], &empty_s)
+	flags := gdi.ClassMethodFlags.FLAGS_DEFAULT
+	if static do flags = .FLAG_STATIC
 	method_info := gdi.ClassMethodInfo {
 		name               = &name_sn,
 		method_userdata    = &dynamic_method.method,
 		call_func          = method_call,
 		ptrcall_func       = method_ptrcall,
-		method_flags       = u32(gdi.ClassMethodFlags.FLAGS_DEFAULT),
+		method_flags       = u32(flags),
 		has_return_value   = dynamic_method.has_result ? 1 : 0,
 		return_value_info  = &ret_info,
 		argument_count     = u32(count),
@@ -899,7 +914,7 @@ bind_dynamic_method :: proc(
 dynamic_property_info :: proc(
 	kind: gdi.VariantType,
 	name: ^StringName,
-	empty_sn: ^StringName,
+	class_name: ^StringName,
 	hint: ^String,
 ) -> gdi.PropertyInfo {
 	usage: u32 = 6 // PROPERTY_USAGE_DEFAULT
@@ -907,27 +922,45 @@ dynamic_property_info :: proc(
 	return {
 		type_       = kind,
 		name        = name,
-		class_name  = empty_sn,
+		class_name  = class_name,
 		hint_string = hint,
 		usage       = usage,
 	}
 }
 
-// A property over methods already bound (`setter` "" for a read-only one), of Variant type `kind`.
-bind_property_by_name :: proc(cls: ^Class, name: string, kind: gdi.VariantType, getter: string, setter := "") {
+// A property over methods already bound (`setter` "" for a read-only one), of Variant type `kind` (an OBJECT one of
+// class `class_name`, typed in GDScript; a typed ARRAY: hint .ARRAY_TYPE and the element type). A read-only one is
+// neither saved nor shown in the inspector, so the editor's help computes no default value for it.
+bind_property_by_name :: proc(
+	cls: ^Class,
+	name: string,
+	kind: gdi.VariantType,
+	getter: string,
+	setter := "",
+	class_name := "",
+	hint := Property_Hint.NONE,
+	hint_string := "",
+) {
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
+	class_sn := string_name_from(class_name)
+	defer StringName_destroy(&class_sn)
+	hint_text := string_from(hint_string)
+	defer String_destroy(&hint_text)
 	getter_name := string_name_from(getter)
 	defer StringName_destroy(&getter_name)
 	setter_name := string_name_from(setter)
 	defer StringName_destroy(&setter_name)
-	info := dynamic_property_info(kind, &name_sn, &empty_sn, &empty_s)
-	if setter == "" do info.usage = 4 | 8192 // PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY: not saved
+	info := dynamic_property_info(kind, &name_sn, &class_sn, &hint_text)
+	info.hint = u32(hint)
+	if setter == "" do info.usage = 8192 // PROPERTY_USAGE_READ_ONLY: not saved, not in the inspector, no doc default
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
+}
+
+// Makes an empty Array typed: only elements of Variant type `kind` (Array[int]...).
+array_set_typed :: proc(array: ^Array, kind: gdi.VariantType) {
+	nil_variant := variant_nil()
+	gdi.array_set_typed(array, kind, sn(""), &nil_variant)
 }
 
 // The Odin instance behind an object of `cls` (one of this extension's classes) or a class extending it; nil for

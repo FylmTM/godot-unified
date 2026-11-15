@@ -7,7 +7,6 @@
 package godot
 
 import "base:runtime"
-import "core:fmt"
 import "core:strings"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -71,14 +70,6 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 				if layout.subject < 0 do layout.subject, layout.subject_is_handle = offset, true
 			case name == "entity" && field.id == u64:
 				if layout.subject < 0 do layout.subject = offset
-			}
-			// every event class has `tick` and `kind` (UnifiedEvent): a field must not hide them
-			if name == "tick" || name == "kind" {
-				fmt.panicf(
-					"unified: event %v has a field named `%s`, which UnifiedEvent reserves: rename it",
-					variant.id,
-					name,
-				)
 			}
 		}
 	}
@@ -171,9 +162,9 @@ f32_at :: proc(bytes: []u8, i: int) -> f32 {
 // A field's value: a handle becomes its key (int), a sim.Player its key (sim.player_key, int: 0 for nobody), a
 // sim.Position a Vector2 (2D) or Vector3 (in view units already),
 // one of Godot's math types (gd.Color, gd.Vector4, gd.Quaternion, ...: a view's data may use them, the extension
-// imports gdext) itself, an enum its member's name lowercased (a StringName; in a bit_set's Array a String), a
-// bit_set an Array of those, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested
-// struct a Dictionary, other numbers int or float.
+// imports gdext) itself, an enum its value (an int: its Enum* class names the members), a bit_set an Array of
+// ints, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary,
+// a string a String (constants), other numbers int or float.
 @(private)
 field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.Variant {
 	if type.id == sim.Position {
@@ -221,29 +212,24 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 	if type.id == sim.Player do return gd.to_variant(i64(player_key_of(bytes)))
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
-		value := read_uint(bytes)
-		if info.signed && type.size < 8 && value >> (uint(type.size) * 8 - 1) != 0 {
-			value |= ~u64(0) << (uint(type.size) * 8) // sign-extend
-		}
-		return gd.to_variant(i64(value))
+		return gd.to_variant(read_int(bytes, info.signed))
 	case runtime.Type_Info_Float:
 		if type.size == 4 do return gd.to_variant(f64(f32_at(bytes, 0)))
 		return gd.to_variant(transmute(f64)read_uint(bytes))
 	case runtime.Type_Info_Boolean:
 		return gd.to_variant(bytes[0] != 0)
 	case runtime.Type_Info_Enum:
-		return gd.variant_string_name(enum_name(info, read_uint(bytes), type.size))
+		backing := runtime.type_info_base(info.base).variant.(runtime.Type_Info_Integer)
+		return gd.to_variant(read_int(bytes, backing.signed))
+	case runtime.Type_Info_String:
+		text := (^string)(raw_data(bytes))^ // constants only: their strings live as long as the process
+		return gd.to_variant(text)
 	case runtime.Type_Info_Bit_Set:
 		bits := read_uint(bytes)
-		array := gd.array_new()
+		array := typed_array(type)
 		for bit in 0 ..< type.size * 8 {
 			if bits & (1 << uint(bit)) == 0 do continue
-			member := u64(i64(bit) + info.lower)
-			if element, is_enum := runtime.type_info_base(info.elem).variant.(runtime.Type_Info_Enum); is_enum {
-				gd.array_push(&array, enum_name(element, member, info.elem.size))
-			} else {
-				gd.array_push(&array, i64(member))
-			}
+			gd.array_push(&array, i64(bit) + info.lower)
 		}
 		value := gd.to_variant(array)
 		gd.Array_destroy(&array)
@@ -259,7 +245,18 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 				return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 			}
 		}
-		array := gd.array_new()
+		array := typed_array(type)
+		for i in 0 ..< info.count {
+			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
+			gd.Array_push_back(&array, element)
+			gdi.variant_destroy(&element)
+		}
+		value := gd.to_variant(array)
+		gd.Array_destroy(&array)
+		return value
+	case runtime.Type_Info_Enumerated_Array:
+		// [Enum]T: an Array by the enum's order
+		array := typed_array(type)
 		for i in 0 ..< info.count {
 			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
 			gd.Array_push_back(&array, element)
@@ -278,15 +275,99 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 	return gd.variant_nil()
 }
 
-// An enum member's name, lowercased ("" plus the value when no member has it).
-@(private)
-enum_name :: proc(info: runtime.Type_Info_Enum, value: u64, size: int) -> string {
-	for member, i in info.values {
-		bits := u64(member)
-		if size < 8 do bits &= (1 << (uint(size) * 8)) - 1
-		if bits == value do return strings.to_lower(info.names[i], context.temp_allocator)
+// The element type of an array field as GDScript types it (Array[int], Array[Vector2], Array[Dictionary] for
+// structs...); NIL: untyped (an array of arrays: GDScript has no nested typed arrays).
+array_element_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
+	element: gdi.VariantType
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Bit_Set:
+		return .INT
+	case runtime.Type_Info_Array:
+		element = field_kind(info.elem)
+	case runtime.Type_Info_Enumerated_Array:
+		element = field_kind(info.elem)
+	case:
+		return .NIL
 	}
-	return fmt.tprintf("%d", value)
+	return element == .ARRAY ? .NIL : element
+}
+
+// A new Array for an array field, typed by its elements when it can be.
+@(private)
+typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
+	array := gd.array_new()
+	if element := array_element_kind(type); element != .NIL do gd.array_set_typed(&array, element)
+	return array
+}
+
+// The property hint of a field: a typed Array names its element type.
+field_hint :: proc(type: ^runtime.Type_Info) -> (gd.Property_Hint, string) {
+	if field_kind(type) != .ARRAY do return .NONE, ""
+	element := array_element_kind(type)
+	if element == .NIL do return .NONE, ""
+	return .ARRAY_TYPE, variant_type_name(element)
+}
+
+// A Variant type's name in GDScript ("int", "Vector2"...).
+@(private)
+variant_type_name :: proc(kind: gdi.VariantType) -> string {
+	#partial switch kind {
+	case .BOOL:
+		return "bool"
+	case .INT:
+		return "int"
+	case .FLOAT:
+		return "float"
+	case .STRING:
+		return "String"
+	case .STRING_NAME:
+		return "StringName"
+	case .DICTIONARY:
+		return "Dictionary"
+	case .COLOR:
+		return "Color"
+	case .VECTOR2:
+		return "Vector2"
+	case .VECTOR2I:
+		return "Vector2i"
+	case .VECTOR3:
+		return "Vector3"
+	case .VECTOR3I:
+		return "Vector3i"
+	case .VECTOR4:
+		return "Vector4"
+	case .VECTOR4I:
+		return "Vector4i"
+	case .RECT2:
+		return "Rect2"
+	case .RECT2I:
+		return "Rect2i"
+	case .TRANSFORM2D:
+		return "Transform2D"
+	case .TRANSFORM3D:
+		return "Transform3D"
+	case .PLANE:
+		return "Plane"
+	case .QUATERNION:
+		return "Quaternion"
+	case .AABB:
+		return "AABB"
+	case .BASIS:
+		return "Basis"
+	case .PROJECTION:
+		return "Projection"
+	}
+	return "Variant"
+}
+
+// An integer field's value (little-endian bytes), sign-extended when signed.
+@(private)
+read_int :: proc(bytes: []u8, signed: bool) -> i64 {
+	value := read_uint(bytes)
+	if signed && len(bytes) < 8 && value >> (uint(len(bytes)) * 8 - 1) != 0 {
+		value |= ~u64(0) << (uint(len(bytes)) * 8)
+	}
+	return i64(value)
 }
 
 // The event states as GDScript sees them: UnifiedSession.EVENT_EMITTED, EVENT_CONFIRMED, EVENT_CANCELLED (in the

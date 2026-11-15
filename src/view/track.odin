@@ -76,6 +76,19 @@ track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_
 	track.n = min(track.n + 1, len(track.hist))
 }
 
+// Records the pose at tick - 1 before a new `tick` (`prev`, has_prev false: unknown). After a rollback it is the
+// corrected one: if the history has tick - 1 the difference goes into the error offset. If the history lacks tick - 1
+// (the renderer skipped a frame, or the sim published several ticks at once), the last shown pose starts it instead,
+// with `prev` as its correction: the display never jumps, it glides.
+track_push_prev :: proc(track: ^Track, tick: u32, prev: Pose, has_prev: bool, smoothing := SMOOTHING_DEFAULT) {
+	if _, known := track_at(track, tick - 1); !known && track.has_out && track.n > 0 {
+		start := track.out // the error offset is in it already
+		track.err_pos, track.err_rot = {}, IDENTITY
+		track_push(track, tick - 1, start, smoothing)
+	}
+	if has_prev do track_push(track, tick - 1, prev, smoothing)
+}
+
 @(private)
 err_rot_or_identity :: proc(track: ^Track) -> [4]f32 {
 	return track.err_rot == {} ? IDENTITY : track.err_rot

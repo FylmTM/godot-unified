@@ -35,7 +35,7 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 	rnet_join(&session, 2)
 	rnet_run(&session, 3)
 	testing.expect(t, session.relay.desyncs > 0) // player 0 parted from the others at tick 100
-	testing.expect(t, sim.Players{0} <= session.relay.first_desync.diverged)
+	testing.expect(t, sim.Slots{0} <= session.relay.first_desync.diverged)
 	joiner := rnet_join(&session, 3)
 	rnet_run(&session, 1, proc(session: ^Rnet) -> bool {return session.relay.provider[3] >= 0})
 	testing.expect_value(t, session.relay.provider[3], 0) // asked first: the lowest that can provide

@@ -44,12 +44,13 @@ Tick :: sim.Tick(State, Input, World, PLAYER_COUNT)
 
 `tick :: proc(tick: ^Tick)` advances the state from tick `number - 1` to `number`. `sim.Tick(State, Input, World,
 PLAYERS)` is built by the harness for each step: `{state: ^State, world: ^World, number: u32, seed: u64, inputs:
-^Inputs, events: ^Events, joined, returned, left: []Player}` (the step's presence changes, Players below). Per-tick
+^Inputs, events: ^Events, player_changes: Player_Changes}` (`Player_Changes{joined, returned, left: []Player}`, the
+step's presence changes, Players below). Per-tick
 helpers that need more than the block take it (`roll_below`, `emit`, `input`, `commands`). Systems
 take `tick` or narrower arguments, as the game prefers. Odin's implicit `context` carries no sim data.
 
-`Inputs(Input, PLAYERS) = {present: Players, replaced: Players, input: [PLAYERS]Input, member: [PLAYERS]u16,
-commands}`, by slot. `present` (a `bit_set[0 ..< 32; u32]`) is which slots are in the game this tick: joining and
+`Inputs(Input, PLAYERS) = {present: Slots, replaced: Slots, input: [PLAYERS]Input, member: [PLAYERS]u16,
+commands}`, by slot. `present` (a `Slots`, `bit_set[0 ..< 32; u32]`) is which slots are in the game this tick: joining and
 leaving are presence changes the relay decides, never flags in `Input`. `member` is a slot's **join record**: the
 relay's member id of who becomes present in it, non-zero only on that tick. `replaced` marks inputs the relay
 substituted (informational). `inputs_same(a, b)`: same presence, join records, input bytes and commands.
@@ -64,20 +65,20 @@ host-side only: never in State, Inputs, logs, snapshots or replays (`src/netcode
 ```odin
 Player :: struct {index: u16, id: u16}            // {} = nobody; index: its entry in members, id: the relay's member id
 Member :: struct {id: u16, slot: u8, _pad: u8, since: u32} // slot NO_SLOT when absent; since: last join or leave tick
-Presence :: struct($T: typeid, $PLAYERS, $MEMBERS: int) { // MEMBERS >= PLAYERS: how many people the session remembers
-	members: [MEMBERS]Member,
+Players :: struct($T: typeid, $PLAYERS: int) {   // remembers 2 x PLAYERS people (MEMBERS_PER_SLOT)
+	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player,                       // who holds each slot
 	_pad:    [PLAYERS % 2 * 4]u8,                   // keeps data 8-aligned
-	data:    [MEMBERS]T,                            // the game's per-player struct
+	data:    [PLAYERS * MEMBERS_PER_SLOT]T,         // the game's per-player struct
 }
 
-State :: struct {..., players: sim.Presence(Player_Data, PLAYERS, MEMBERS), ...}
+State :: struct {..., players: sim.Players(Player_Data, PLAYERS), ...}
 Event :: union {sim.Event_Player_Joined, sim.Event_Player_Left, ...}
 
 tick :: proc(t: ^Tick) {
-	for player in t.joined do spawn_ship(t, player)               // new members: zeroed Player_Data
-	for player in t.returned do spawn_ship(t, player)             // back: their data as they left it
-	for player in t.left do destroy_ship(t, player)
+	for player in t.player_changes.joined do spawn_ship(t, player)   // new members: zeroed Player_Data
+	for player in t.player_changes.returned do spawn_ship(t, player) // back: their data as they left it
+	for player in t.player_changes.left do destroy_ship(t, player)
 	players := sim.iterate_present(&t.state.players)
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
@@ -86,23 +87,24 @@ tick :: proc(t: ^Tick) {
 }
 ```
 
-- State has exactly one `Presence` field, found by type at `create` (none, two, or one for another `PLAYERS`: a
-  panic with the reason). `T` and the block stay padding-free (`_pad` fields where needed).
+- State has exactly one `Players` field, found by type at `create` (none, two, or one for another `PLAYERS`: a
+  panic with the reason). `T` and the block stay padding-free (`_pad` fields where needed). How many people a session
+  remembers is the library's: 2 x PLAYERS (Odin's parametric structs can't default a parameter).
 - **The harness updates it before `tick`** (`advance`, so `step` and `step_unsaved`): first the leaves (a held slot
   that is no longer present, or that has another member's join record), then the joins in slot order (a slot that
   becomes present with a join record; **a slot present without one stays absent**). A known member **returns** with
   its data intact; a new one gets a zeroed `T` in the first free entry, else the entry of the **longest-absent**
-  member (the lowest `since`, then the lowest index), which is forgotten: its handles go stale (`player_get` nil), and
+  member (the lowest `since`, then the lowest index), which is forgotten: its handles go stale (`player_data` nil), and
   if that person comes back they are new. A member who left on this tick is never forgotten on it (its handle in
-  `t.left` still names its data while the game cleans up); a join with no entry left (only a script's leave and join
-  in one tick, with a small table) stays absent. A member already present in another slot moves (the newest connection).
-- It fills `t.joined` (new members), `t.returned` and `t.left` (`[]Player`, slot order) and emits
+  `t.player_changes.left` still names its data while the game cleans up); a join with no entry left stays absent
+  (unreachable with 2 x PLAYERS entries: the leavers hold at most PLAYERS of them). A member already present in another slot moves (the newest connection).
+- It fills `t.player_changes`: `joined` (new members), `returned` and `left` (`[]Player`, slot order) and emits
   `Event_Player_Joined{player, slot, returning}` and `Event_Player_Left{player, slot}` before the game's events. Both
   must be listed in the game's `Event` union (`create` panics otherwise).
 - **The library reports; the game decides** what an absent player's things do (they stay theirs: an owner is a
   `Player`, never a slot). An absent member's `T` owns nothing outside the block, since the table may forget it before
   any `tick` runs (a body is destroyed at the leave and made again on the return).
-- API: `player_get(&players, player) -> ^T` (nil when nobody, stale or forgotten; valid while absent),
+- API: `player_data(&players, player) -> ^T` (nil when nobody, stale or forgotten; valid while absent),
   `player_known`, `player_slot(&players, player) -> (slot, present)` (-1, false when absent),
   `player_in_slot(&players, slot) -> Player`, `player_present`; `input(t, player)` (zero when absent),
   `commands(t, player)`; `iterate_present` (slot order) and `iterate_known` (member order) with `next`;
@@ -156,7 +158,8 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
 
 Decided in #6 (D5). Events tell the view what happened (a shot, a hit, a pickup). They are not state: not in the
 block, not hashed, not rolled back as such. The game declares one plain struct per event (≤ 64 bytes) and a union of
-them; an event carries only its own fields:
+them; an event carries only its own fields, never one named `tick` or `kind` (every event carries its tick and kind
+already: the game check, `game_violation`, refuses them, so a game's own tests catch it before Godot loads anything):
 
 ```odin
 Event_Coin_Picked :: struct {

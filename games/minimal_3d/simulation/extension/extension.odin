@@ -9,6 +9,7 @@ import g "../minimal_3d"
 GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
+	data              = Data,
 	scripted_input    = scripted_input,
 	scripted_commands = g.scripted_commands,
 }

@@ -1,5 +1,5 @@
 class_name SurvivorPropView
-extends GameView
+extends Node3D
 ## Crates and barrels: the host sets position and the full physics rotation (they tumble); pop in when spawned
 ## (barrels respawn after exploding), shrink away when despawned.
 
@@ -26,14 +26,14 @@ func _process(delta: float) -> void:
 		set_process(false)
 
 
-func _despawned() -> void:
+func _sim_despawned() -> void:
 	set_process(false)
 	_exit = create_tween()
 	_exit.tween_property(_body, "scale", Vector3.ONE * 0.01, 0.15)
 
 
 ## A rollback brought it back within the linger time.
-func _revived() -> void:
+func _sim_revived() -> void:
 	if _exit != null:
 		_exit.kill()
 	_body.scale = Vector3.ONE

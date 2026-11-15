@@ -1,13 +1,14 @@
 class_name SurvivorPlayerView
-extends GameView
+extends Node3D
 ## A player: a capsule in the player's colour with a visor, a floor ring (bright for the local player), a name tag, lean and
-## bob while moving, a hit flash when HP drops and an after-image trail while dashing. `player` (GameView) is the
-## player it shows (their key); the view lives while the player is in the session (dead too). The colour is their
-## slot's, so it follows them when they come back in another slot.
+## bob while moving, a hit flash when HP drops and an after-image trail while dashing. `player` (its UnifiedView
+## marker's) is the player it shows (their key); the view lives while the player is in the session (dead too). The
+## colour is their slot's, so it follows them when they come back in another slot.
 
 const DASH_SPEED := 9.0  # m/s; faster than the 6 m/s walk + upgrades means a dash
 const GHOST_EVERY := 0.025
 
+@onready var _marker: UnifiedView = %UnifiedView
 @onready var _body: Node3D = $Body
 @onready var _mesh: MeshInstance3D = $Body/Mesh
 @onready var _ring: MeshInstance3D = $Ring
@@ -17,6 +18,10 @@ var _ring_mat: StandardMaterial3D
 var _slot := -1
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
+## The key of the player it shows (the marker's, set by the host before the view enters the tree).
+var player: int:
+	get:
+		return _marker.player
 ## Smoothed velocity (m/s) from the interpolated positions; the camera leads with it.
 var velocity: Vector3:
 	get:
@@ -56,8 +61,6 @@ func _color_slot(slot: int) -> void:
 
 
 func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
-	if _leaving:
-		return
 	quaternion = Quaternion.IDENTITY  # the host may set the root's rotation; the body turns by yaw below
 	var dt := get_process_delta_time()
 	if _has_pos and dt > 0.0:
@@ -82,15 +85,15 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-## Left the session: shrink away during the host's linger time.
-func _despawned() -> void:
+## Left the session: shrink away during the host's linger time (the host no longer moves it meanwhile).
+func _sim_despawned() -> void:
 	_leaving = true
 	_exit = create_tween()
 	_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 
 
 ## A rollback brought it back within the linger time.
-func _revived() -> void:
+func _sim_revived() -> void:
 	if not _leaving:
 		return
 	_leaving = false

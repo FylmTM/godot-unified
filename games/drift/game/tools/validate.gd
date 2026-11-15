@@ -1,15 +1,11 @@
 extends UnifiedValidate
-## drift's project check (the shared one, UnifiedValidate) and its view contract (simulation/extension): the
-## constants the scripts read, a rock MultiMesh view (rock_<v>) in the arena per rock shape variant, every
+## drift's project check (the shared one, UnifiedValidate) and its view contract (simulation/extension): every
+## rock shape (Unified.constants.rock_shapes) a polygon, a rock MultiMesh view (rock_<v>) in the arena per rock shape variant, every
 ## MultiMesh kind present once, and the level's scale. The level export being current is the godot suite's `bake` step.
 
 
 func _check_contract() -> String:
-	var c: Dictionary = game.constants
-	for key: String in ["ship_radius", "station_radius", "gate_radius", "rock_radius", "rock_shapes", "station_hp"]:
-		if not c.has(key):
-			log_capture.add("constants() has no %s" % key, "res://game/views")
-	var shapes: Array = c.get("rock_shapes", [])
+	var shapes: Array = Unified.constants.rock_shapes
 	var want: Array[String] = ["bullet", "gem"]
 	for v in shapes.size():
 		want.append("rock_%d" % v)

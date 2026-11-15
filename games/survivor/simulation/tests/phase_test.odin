@@ -1,5 +1,5 @@
 // Phases: lobby -> match on leaving the start circle, match -> over when everyone is dead, over ->
-// lobby after the hold with a fresh world; the HUD view of it.
+// lobby after the hold with a fresh world.
 package test_survivor
 
 import "core:testing"
@@ -9,7 +9,7 @@ import "unified:headless/scenarios"
 import "unified:sim"
 
 // Steps with fixed inputs for the present slots (a slot nobody holds joins: join_free).
-step_with :: proc(simulation: ^survivor.Sim, present: sim.Players, input: survivor.Input) {
+step_with :: proc(simulation: ^survivor.Sim, present: sim.Slots, input: survivor.Input) {
 	inputs: survivor.Inputs
 	join_free(simulation, &inputs, present)
 	for slot in present {
@@ -20,7 +20,7 @@ step_with :: proc(simulation: ^survivor.Sim, present: sim.Players, input: surviv
 
 // Makes the slots in `present` present, with a join record for each slot nobody holds yet: the player in slot i
 // is member i + 1, as in scripted runs (so a slot emptied and filled again brings its member back).
-join_free :: proc(simulation: ^survivor.Sim, inputs: ^survivor.Inputs, present: sim.Players) {
+join_free :: proc(simulation: ^survivor.Sim, inputs: ^survivor.Inputs, present: sim.Slots) {
 	inputs.present = present
 	for slot in present {
 		if sim.slot_player(simulation, slot) == {} {
@@ -31,7 +31,7 @@ join_free :: proc(simulation: ^survivor.Sim, inputs: ^survivor.Inputs, present: 
 
 // The character of whoever holds `slot` (nil: nobody).
 in_slot :: proc(simulation: ^survivor.Sim, slot: int) -> ^survivor.Character {
-	return sim.player_get(&simulation.state.players, sim.slot_player(simulation, slot))
+	return sim.player_data(&simulation.state.players, sim.slot_player(simulation, slot))
 }
 
 // Damages the players in `slots` between ticks, as a system would inside one (the events go nowhere).

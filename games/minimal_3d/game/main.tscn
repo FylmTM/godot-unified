@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://byprqi62jjijv"]
 
 [ext_resource type="Script" uid="uid://4aws88bjjqoj" path="res://game/main.gd" id="1"]
+[ext_resource type="PackedScene" path="res://game/hud.tscn" id="2"]
 
 [sub_resource type="Environment" id="environment"]
 background_mode = 1
@@ -54,3 +55,5 @@ multimesh = SubResource("balls")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="Balls" unique_id=1074020740]
 kind = "ball"
+
+[node name="Hud" parent="." instance=ExtResource("2")]

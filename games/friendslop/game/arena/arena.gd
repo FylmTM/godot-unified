@@ -29,14 +29,15 @@ func marker(entity: int) -> Node3D:
 
 
 ## The view of a player (its key: Game.local_player(), an event's `player`), or null.
-func player_view(player: int) -> GameView:
-	for v: GameView in _views.get_children():
-		if v.kind == &"player" and v.player == player:
-			return v
+func player_view(player: int) -> Node3D:
+	for v: Node in _views.get_children():
+		var view_marker := v.get_node_or_null(^"UnifiedView") as UnifiedView
+		if view_marker != null and view_marker.kind == "player" and view_marker.player == player:
+			return v as Node3D
 	return null
 
 
-func local_player_view() -> GameView:
+func local_player_view() -> Node3D:
 	return player_view(Game.local_player())
 
 

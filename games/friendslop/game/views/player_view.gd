@@ -1,4 +1,4 @@
-extends GameView
+extends Node3D
 ## A player: a wobbly capsule with googly eyes, built in code (greybox). The sim gives the capsule's centre and the
 ## facing (the root's rotation); everything else here is view-only: lean into motion, squash on jumps and landings,
 ## tip over while stunned or held, arms out while holding, a name tag and a throw-charge ring.
@@ -23,18 +23,22 @@ var _tip := 0.0
 var _squash := 0.0
 var _t := 0.0
 
+## The view's marker: `player` is the key of the player it shows.
+@onready var _view_marker: UnifiedView = %UnifiedView
+
 
 func _ready() -> void:
+	var player := _view_marker.player
 	var c := COLORS[clampi(Game.player_slot(player), 0, COLORS.size() - 1)]
 	_body = Node3D.new()
 	add_child(_body)
-	var radius: float = Game.constants.get("player_radius", 0.35)
-	var half: float = Game.constants.get("player_half_height", 0.45)
+	var radius := Unified.constants.player_radius
+	var half := Unified.constants.player_half_height
 	var cap := CapsuleMesh.new()
 	cap.radius = radius
 	cap.height = (half + radius) * 2.0
 	Greybox.set_mesh(_body, cap, c)
-	var feet: float = Game.constants.get("feet", 0.95)
+	var feet := Unified.constants.feet
 	for side: int in [-1, 1]:
 		var foot := Greybox.set_mesh(_body, Greybox.sphere(0.13), c.darkened(0.35),
 			Vector3(0.15 * side, -feet + 0.12, 0.05), 0.0, "Foot%d" % (side + 1))
@@ -89,6 +93,7 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_arms.visible = holding
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
+	var player := _view_marker.player
 	var info := Game.player_info(player)
 	var player_name := Game.player_name(info) if not info.is_empty() else "P%d" % (Game.player_slot(player) + 1)
 	if _tag.text != player_name:
@@ -100,7 +105,7 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 func _sim_event(event: UnifiedEvent, state: int) -> void:
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	var local := player == Game.local_player()
+	var local := _view_marker.player == Game.local_player()
 	match event.kind:
 		"jumped":
 			_squash = -0.6

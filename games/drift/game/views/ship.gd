@@ -30,11 +30,8 @@ var _tag: Label
 
 
 func _ready() -> void:
-	view.despawned.connect(func() -> void: _gone = true)
-	view.revived.connect(func() -> void: _gone = false)
 	z_index = 2
-	var radius: float = Game.constants.get("ship_radius", 0.5)
-	_r = radius * Game.px_per_m
+	_r = Unified.constants.ship_radius * Game.px_per_m
 	_tag = Label.new()
 	_tag.top_level = true  # never turns with the ship
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -101,6 +98,16 @@ func _draw() -> void:
 	# warp (and spawn) flash: a ring expanding from the ship
 	if _warp > 0.0:
 		draw_arc(Vector2.ZERO, r * (1.0 + (1.0 - _warp) * 2.5), 0.0, TAU, 32, Color(UiTheme.CYAN, _warp), 3.0, true)
+
+
+## The player left: the view lingers (its marker's linger_s) while the ship shrinks away.
+func _sim_despawned() -> void:
+	_gone = true
+
+
+## A rollback brought the ship back while it lingered.
+func _sim_revived() -> void:
+	_gone = false
 
 
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it); a

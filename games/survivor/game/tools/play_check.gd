@@ -30,9 +30,9 @@ var _plan_frame := 0
 
 func _process(delta: float) -> bool:
 	var now := Time.get_ticks_usec()
-	if _last_us != 0 and not _paused_measure and game != null and game.hud.get("phase", "") == "match":
+	if _last_us != 0 and not _paused_measure and game != null and Unified.data.hud.phase == EnumPhase.MATCH:
 		var ms := (now - _last_us) / 1000.0
-		var n: int = game.hud.get("enemies_alive", 0)
+		var n: int = Unified.data.hud.enemies_alive
 		_max_enemies = maxi(_max_enemies, n)
 		var band := mini(floori(n / 250.0), 4) * 250
 		var b: Array = _frames_by_band.get(band, [0, 0.0, 0.0, 0])
@@ -65,7 +65,7 @@ func _run() -> void:
 	if bench > 0:
 		await _bench_run()
 		return
-	await wait_for(func() -> bool: return game.hud.get("phase", "") == "lobby" and _me() != null, 5.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and _me() != null, 5.0,
 		"lobby with my player view")
 	if coop:
 		_joiner_pid = OS.create_process(OS.get_executable_path(), ["--headless", "--path",
@@ -74,14 +74,15 @@ func _run() -> void:
 		await wait_for(func() -> bool: return game.present_players().size() == 2, 15.0,
 			"the scripted second player joins")
 		step("co-op: second player joined (pid %d)" % _joiner_pid)
-	expect(game.hud.circle_radius > 0.0, "start circle radius in the lobby (%s)" % game.hud.circle_radius)
+	expect(Unified.data.hud.circle_radius > 0.0, "start circle radius in the lobby (%s)" % Unified.data.hud.circle_radius)
 	await seconds(1.0)
 	await _shot_paused("play_01_lobby")
-	step("single player lobby (circle %.1f m)" % game.hud.circle_radius)
+	step("single player lobby (circle %.1f m)" % Unified.data.hud.circle_radius)
 
 	# Walk out of the start circle.
 	Input.action_press(&"move_right")
-	await wait_for(func() -> bool: return game.hud.phase == "match", 6.0, "walking out of the circle starts the match")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH, 6.0,
+		"walking out of the circle starts the match")
 	Input.action_release(&"move_right")
 	expect(_events.get(&"match_started", 0) >= 1, "match_started event")
 	step("walked out: match started")
@@ -92,7 +93,7 @@ func _run() -> void:
 	var shot_levelup := false
 	var shot_crowd := false
 	var held: Array[StringName] = []
-	while not failed() and Time.get_ticks_msec() < end and game.hud.phase == "match":
+	while not failed() and Time.get_ticks_msec() < end and Unified.data.hud.phase == EnumPhase.MATCH:
 		var me := _me()
 		var lp: Dictionary = game.local_player_info()
 		if me != null and lp.get("alive", false):
@@ -107,18 +108,18 @@ func _run() -> void:
 			await wait_for(func() -> bool: return int(game.local_player_info().get("pending_levelups", 0)) < before, 2.0,
 				"a level-up key consumes the level-up")
 			_levelups_chosen += 1
-		if not shot_match and game.hud.time_s > 20.0:
+		if not shot_match and Unified.data.hud.time_s > 20.0:
 			shot_match = true
 			await _shot_paused("play_02_match")
-		if not shot_crowd and game.hud.enemies_alive >= (1000 if coop else 600):
+		if not shot_crowd and Unified.data.hud.enemies_alive >= (1000 if coop else 600):
 			shot_crowd = true
-			await _shot_paused("play_04_crowd_%d%s" % [game.hud.enemies_alive, "_coop" if coop else ""])
+			await _shot_paused("play_04_crowd_%d%s" % [Unified.data.hud.enemies_alive, "_coop" if coop else ""])
 		await process_frame
 	for a in held:
 		Input.action_release(a)
 	Input.action_release(&"dash")
 	step("played %.0f s: wave %d, %d enemies alive (max %d), %d kills, %d gems, %d level-ups chosen" % [
-		game.hud.time_s, game.hud.wave, game.hud.enemies_alive, _max_enemies, _events.get(&"enemy_died", 0),
+		Unified.data.hud.time_s, Unified.data.hud.wave, Unified.data.hud.enemies_alive, _max_enemies, _events.get(&"enemy_died", 0),
 		_events.get(&"gem_collected", 0), _levelups_chosen])
 	expect(_events.get(&"enemy_died", 0) > 0, "auto-attack kills enemies")
 	expect(_events.get(&"gem_collected", 0) > 0, "gems are collected")
@@ -128,19 +129,19 @@ func _run() -> void:
 		_joiner_pid = -1
 		await wait_for(func() -> bool: return game.present_players().size() == 1, 15.0, "the second player leaves")
 	# Stand still until the match is over (single player: the first death ends it).
-	await wait_for(func() -> bool: return game.hud.phase == "over", 240.0, "standing still: the match ends")
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.OVER, 240.0, "standing still: the match ends")
 	expect(_events.get(&"player_died", 0) >= 1, "player_died event")
 	await wait_for(func() -> bool: return _visible("HUD/Root/GameOver"), 3.0, "match-over panel shows")
 	await frames(15)
 	await _shot_paused("play_05_game_over")
-	step("match over after %.0f s, wave %d" % [game.hud.time_s, game.hud.wave])
-	await wait_for(func() -> bool: return game.hud.phase == "lobby", 10.0, "the sim returns to the lobby")
+	step("match over after %.0f s, wave %d" % [Unified.data.hud.time_s, Unified.data.hud.wave])
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 10.0, "the sim returns to the lobby")
 	await wait_for(func() -> bool: return _me() != null and game.local_player_info().get("alive", false), 5.0,
 		"player respawned in the lobby")
 	await seconds(1.0)
 	await _shot_paused("play_06_back_in_lobby")
 	expect(_events.get(&"player_respawned", 0) >= 1, "player_respawned event")
-	step("back in the lobby (matches played: %d)" % game.hud.get("matches", 0))
+	step("back in the lobby (matches played: %d)" % Unified.data.hud.matches)
 	await _devui_check()
 
 
@@ -245,15 +246,15 @@ func _me() -> Node3D:
 
 ## Bench: an endless match holding `bench` enemies; the bot dodges for `minutes`, frames are measured.
 func _bench_run() -> void:
-	await wait_for(func() -> bool: return game.hud.get("phase", "") == "match" and _me() != null, 10.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH and _me() != null, 10.0,
 		"bench match running")
-	await wait_for(func() -> bool: return int(game.hud.enemies_alive) >= bench * 0.9, 20.0,
+	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive >= bench * 0.9, 20.0,
 		"the bench population spawns")
-	step("bench: %d enemies" % game.hud.enemies_alive)
+	step("bench: %d enemies" % Unified.data.hud.enemies_alive)
 	var end := Time.get_ticks_msec() + int(minutes * 60000.0)
 	var shot_taken := false
 	var held: Array[StringName] = []
-	var tick0: int = game.hud.tick
+	var tick0: int = Unified.data.hud.tick
 	var t0 := Time.get_ticks_msec()
 	while not failed() and Time.get_ticks_msec() < end:
 		var me := _me()
@@ -261,13 +262,13 @@ func _bench_run() -> void:
 			held = _steer(me.global_position, held)
 		if not shot_taken and Time.get_ticks_msec() - t0 > 10000:
 			shot_taken = true
-			await _shot_paused("play_07_bench_%d" % game.hud.enemies_alive)
+			await _shot_paused("play_07_bench_%d" % Unified.data.hud.enemies_alive)
 		await process_frame
 	for a in held:
 		Input.action_release(a)
-	var ticks_per_s := (int(game.hud.tick) - tick0) * 1000.0 / maxf(Time.get_ticks_msec() - t0, 1)
+	var ticks_per_s := (Unified.data.hud.tick - tick0) * 1000.0 / maxf(Time.get_ticks_msec() - t0, 1)
 	expect(ticks_per_s > 60.0, "the sim keeps its 64 Hz (%.1f ticks/s)" % ticks_per_s)
-	step("bench: %.0f s at %d enemies, sim %.1f ticks/s, %d kills, %d deaths" % [minutes * 60.0, game.hud.enemies_alive,
+	step("bench: %.0f s at %d enemies, sim %.1f ticks/s, %d kills, %d deaths" % [minutes * 60.0, Unified.data.hud.enemies_alive,
 		ticks_per_s, _events.get(&"enemy_died", 0), _events.get(&"player_died", 0)])
 
 

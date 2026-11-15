@@ -1,7 +1,8 @@
 package view
 
-// A deterministic spawn key from the sim (the game defines the encoding, e.g. kind, spawn tick and slot), so
-// a view survives rollbacks that re-create its entity under the same key, and a re-used slot gets a new view.
+// A deterministic spawn key from the sim (a handle's key, a player's key, an index), so a view survives rollbacks
+// that re-create its entity under the same key, and a re-used slot gets a new view. A host may make a set's key
+// wider (unified:godot keys views by kind and key).
 Key :: distinct u64
 
 Phase :: enum u8 {
@@ -10,25 +11,27 @@ Phase :: enum u8 {
 }
 
 Entry :: struct($V: typeid) {
-	view:    V,
-	phase:   Phase,
-	seen:    u64, // set_begin counter when last seen
-	gone_at: f64, // when it started lingering (seconds, the caller's clock)
-	data:    u64, // free for the caller (e.g. the kind)
+	view:     V,
+	phase:    Phase,
+	seen:     u64, // set_begin counter when last seen
+	gone_at:  f64, // when it started lingering (seconds, the caller's clock)
+	linger_s: f64, // how long it lingers once gone (set by the caller when it spawns; 0: removed at once)
+	data:     u64, // free for the caller
 }
 
-// The views of one frame's entities, keyed by spawn key. Per render frame:
-//   set_begin; for each entity in the frame: set_see (spawned = create the view); set_end -> despawned and
-//   removed lists (start the exit animation / destroy or pool the view).
-View_Set :: struct($V: typeid) {
-	entries:   map[Key]Entry(V),
+// The views of one frame's entities, keyed by spawn key (`K`: a Key, or a wider key such as kind and key). Per
+// render frame:
+//   set_begin; for each entity in the frame: set_see (spawned = create the view, set its linger_s); set_end ->
+//   despawned and removed lists (start the exit animation / destroy or pool the view).
+View_Set :: struct($K, $V: typeid) {
+	entries:   map[K]Entry(V),
 	frame:     u64,
-	despawned: [dynamic]Key, // this frame: started lingering
+	despawned: [dynamic]K, // this frame: started lingering
 	removed:   [dynamic]V, // this frame: lingered out; the caller destroys or pools these
 }
 
 // Frees the set's map and lists; the views still in it are the caller's to free first.
-set_destroy :: proc(view_set: ^View_Set($V)) {
+set_destroy :: proc(view_set: ^View_Set($K, $V)) {
 	delete(view_set.entries)
 	delete(view_set.despawned)
 	delete(view_set.removed)
@@ -36,7 +39,7 @@ set_destroy :: proc(view_set: ^View_Set($V)) {
 
 // Starts a frame: advances the frame counter set_see stamps and clears the previous frame's despawned and removed
 // lists.
-set_begin :: proc(view_set: ^View_Set($V)) {
+set_begin :: proc(view_set: ^View_Set($K, $V)) {
 	view_set.frame += 1
 	clear(&view_set.despawned)
 	clear(&view_set.removed)
@@ -44,7 +47,7 @@ set_begin :: proc(view_set: ^View_Set($V)) {
 
 // Marks `key` present this frame. `spawned`: the key is new (fill entry.view now). A lingering key that shows up
 // again is revived (spawned = false, phase back to Alive).
-set_see :: proc(view_set: ^View_Set($V), key: Key) -> (entry: ^Entry(V), spawned: bool) {
+set_see :: proc(view_set: ^View_Set($K, $V), key: K) -> (entry: ^Entry(V), spawned: bool) {
 	_, entry, spawned, _ = map_entry(&view_set.entries, key)
 	if spawned do entry^ = {}
 	entry.seen = view_set.frame
@@ -52,9 +55,9 @@ set_see :: proc(view_set: ^View_Set($V), key: Key) -> (entry: ^Entry(V), spawned
 	return
 }
 
-// Keys not seen this frame start lingering (listed in `despawned`); lingerers older than `linger_s` are
-// removed (their views listed in `removed`). linger_s = 0 removes at once.
-set_end :: proc(view_set: ^View_Set($V), now_s: f64, linger_s: f64) {
+// Keys not seen this frame start lingering (listed in `despawned`); lingerers older than their entry's `linger_s`
+// are removed (their views listed in `removed`). linger_s = 0 removes at once (still listed in `despawned`).
+set_end :: proc(view_set: ^View_Set($K, $V), now_s: f64) {
 	for key, &entry in view_set.entries {
 		if entry.seen == view_set.frame do continue
 		if entry.phase == .Alive {
@@ -64,7 +67,7 @@ set_end :: proc(view_set: ^View_Set($V), now_s: f64, linger_s: f64) {
 		}
 	}
 	for key, entry in view_set.entries {
-		if entry.phase == .Lingering && now_s - entry.gone_at >= linger_s {
+		if entry.phase == .Lingering && now_s - entry.gone_at >= entry.linger_s {
 			append(&view_set.removed, entry.view)
 			delete_key(&view_set.entries, key)
 		}
@@ -73,8 +76,15 @@ set_end :: proc(view_set: ^View_Set($V), now_s: f64, linger_s: f64) {
 
 // The entry of `key` (alive or lingering) without marking it seen, or nil: for routing an event or a signal to
 // the view of a key.
-set_get :: proc(view_set: ^View_Set($V), key: Key) -> ^Entry(V) {
+set_get :: proc(view_set: ^View_Set($K, $V), key: K) -> ^Entry(V) {
 	return &view_set.entries[key] or_else nil
+}
+
+// Removes `key` at once, without lingering (e.g. a spawn a rollback cancelled), and hands back its view.
+set_remove :: proc(view_set: ^View_Set($K, $V), key: K) -> (view: V, ok: bool) {
+	entry := view_set.entries[key] or_return
+	delete_key(&view_set.entries, key)
+	return entry.view, true
 }
 
 // ---- pool of reusable views (scene instances, buffers...)

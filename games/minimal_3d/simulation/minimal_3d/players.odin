@@ -5,9 +5,9 @@ import "unified:sim"
 MOVE_SPEED :: f32(4) // metres per second at full input
 
 on_player_join :: proc(t: ^Tick) {
-	for player in t.joined {
+	for player in t.player_changes.joined {
 		slot, _ := sim.player_slot(&t.state.players, player)
-		player_data := sim.player_get(&t.state.players, player)
+		player_data := sim.player_data(&t.state.players, player)
 		player_data.position = {f32(slot), 0}
 	}
 }

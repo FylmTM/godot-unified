@@ -1,16 +1,14 @@
 // The survivor's GDExtension (game/survivor.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
 // unified:godot, plus the game's glue (games/survivor/SPEC.md "Client"): 3D scene and MultiMesh views in metres,
-// the player view's data, the HUD view (hud.odin), constants, and how the InputMap becomes an Input. Built by
-// `uni build survivor`.
+// the player view's data, the HUD's session data (hud.odin), the constants, and how the InputMap becomes an Input.
+// Built by `uni build survivor`.
 package survivor_extension
 
 import "base:runtime"
 import "core:fmt"
 import "core:math"
-import "core:strings"
 import "unified:b3"
 import "unified:eos"
-import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:netcode"
@@ -28,6 +26,7 @@ survivor_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
+	constants_fill(&CONSTANTS)
 	godot.install(&survivor.GAME, GLUE)
 	godot.set_transport(&EOS_TRANSPORT)
 	return godot.entry(gpa, lib, init)
@@ -78,12 +77,11 @@ EOS_TRANSPORT := godot.Transport {
 // ---- the view contract
 
 // Scene views (the view index: a scene per kind, with a UnifiedView marker): players, crates and barrels (the
-// player's data: Player_View), and the HUD (game/views/hud.tscn; its data, Hud, is Game.hud).
+// player's data: Player_View).
 View :: enum u8 {
 	Player,
 	Crate,
 	Barrel,
-	Hud,
 }
 
 // MultiMesh views (MultiMeshInstance3D, 3D transforms + custom data: r = hit flash 0..1, g = age in s, no
@@ -103,12 +101,6 @@ MultiView :: enum u8 {
 
 Frame :: godot.Frame(survivor.State, survivor.World, View, MultiView)
 
-// Spawn keys: a player's view is their sim.player_key (>= 0x10000: the member id is >= 1; the view lives while
-// they are present, dead too, whatever slot they hold), items 0x100 + index (a destroyed barrel's view goes; the
-// one respawned 10 s later is a new view), the HUD 0x200.
-ITEM_KEY :: 0x100
-HUD_KEY :: 0x200
-
 // The player view's data: set as its properties when it changes.
 Player_View :: struct {
 	hp: i32,
@@ -120,9 +112,10 @@ Player_View :: struct {
 GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
+	data              = Data,
+	constants         = CONSTANTS,
 	scripted_input    = survivor.scripted_input,
 	scripted_commands = survivor.scripted_commands,
-	constants         = constants,
 	bench             = survivor.bench_prepare,
 }
 
@@ -138,6 +131,9 @@ sample_input :: proc(input: ^survivor.Input) {
 
 // ---- the frame (session thread)
 
+// Keys (unique within a kind): a player's view is their sim.player_key (the view lives while they are present,
+// dead too, whatever slot they hold), an item's its index (a destroyed barrel's view goes; the one respawned 10 s
+// later is a new view).
 fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
@@ -156,9 +152,9 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(
 			f,
 			{
-				key    = view.Key(ITEM_KEY + i),
+				key    = view.Key(i),
 				kind   = item.kind == .Barrel ? .Barrel : .Crate,
-				entity = u64(i + 1), // barrel_exploded's entity: item index + 1
+				entity = u64(i + 1), // barrel_exploded's entity: item index + 1 (an entity of 0 routes nowhere)
 				pos    = {body_pos.x, body_pos.y, body_pos.z},
 				rot    = b3.body_get_rotation(body),
 			},
@@ -166,39 +162,45 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(enemy.kind),
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
-			yaw    = enemy_yaw(enemy.vel),
+			rot    = facing(enemy.vel),
 			custom = {hit_flash(f.tick, enemy.hit_tick), age_s(f.tick, enemy.spawn_tick), 0, 0},
 		}) or_break
 	}
 	projectiles := sim.iterate(&f.state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key  = sim.handle_key(handle),
 			kind = .Projectile,
 			pos  = {projectile.pos.x, 0, projectile.pos.z},
-			yaw  = math.atan2(projectile.vel.x, projectile.vel.z),
+			rot  = facing(projectile.vel.xz),
 		}) or_break
 	}
 	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = {gem.pos.x, 0, gem.pos.y},
 			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
 		}) or_break
 	}
-	godot.push_view(f, {key = HUD_KEY, kind = .Hud}, hud_of(f.state, f.tick))
+	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
 HIT_FLASH_S :: 0.15
 
-enemy_yaw :: proc(vel: [2]f32) -> f32 {
-	return (vel.x != 0 || vel.y != 0) ? math.atan2(vel.x, vel.y) : 0
+// The rotation about +Y that turns +Z towards `dir` (x, z on the floor; zero: the identity): the half-way
+// quaternion (0, sin, 0, 1 + cos) normalized, no trigonometry.
+facing :: proc(dir: [2]f32) -> [4]f32 {
+	length := math.sqrt(dir.x * dir.x + dir.y * dir.y)
+	if length == 0 do return {}
+	cos_yaw, sin_yaw := dir.y / length, dir.x / length
+	if cos_yaw < -0.9999 do return {0, 1, 0, 0} // straight back: half a turn
+	return view.qnormalize({0, sin_yaw, 0, 1 + cos_yaw})
 }
 
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
@@ -211,44 +213,54 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
 }
 
-// ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
+// ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions
 
-UPGRADE_NAMES := [survivor.Upgrade]string {
-	.Fire_Rate  = "Fire rate",
-	.Damage     = "Damage",
-	.Move_Speed = "Move speed",
+// What the scripts read: the "over" hold, the arena and start circle sizes, the level-up cards and the item grid.
+Data_Constants :: struct {
+	over_hold_s:  f32,
+	arena_half:   f32,
+	start_radius: f32,
+	upgrades:     [len(survivor.Upgrade)]Upgrade_Card, // in survivor.Upgrade order: the HUD's cards
+	items:        [survivor.ITEM_COUNT]Item_Spot, // the item grid as the match starts (the menu backdrop shows it)
 }
 
-constants :: proc(dict: ^gd.Dictionary) {
-	gd.dict_set(dict, "over_hold_s", f64(survivor.OVER_HOLD_S))
-	gd.dict_set(dict, "arena_half", f64(survivor.ARENA_HALF))
-	gd.dict_set(dict, "start_radius", f64(survivor.START_RADIUS))
-	gd.dict_set(dict, "dash_cooldown_s", f64(survivor.DASH_COOLDOWN_S))
-	gd.dict_set(dict, "player_respawn_s", f64(survivor.PLAYER_RESPAWN_S))
-	gd.dict_set(dict, "max_enemies", i64(survivor.MAX_ENEMIES))
-	// the level-up cards in survivor.Upgrade order: the HUD's card sends a Pick with `upgrade` = its id
-	upgrades := gd.array_new()
-	details := [survivor.Upgrade]string {
-		.Fire_Rate  = "Shoot more often",
-		.Damage     = fmt.tprintf("+%d damage per shot", survivor.DAMAGE_LEVELUP),
-		.Move_Speed = fmt.tprintf("+%.1f m/s", survivor.SPEED_LEVELUP),
+// A level-up card: its Pick's `upgrade` (an EnumUpgrade value), name and detail.
+Upgrade_Card :: struct {
+	upgrade: survivor.Upgrade,
+	name:    string,
+	detail:  string,
+}
+
+Item_Spot :: struct {
+	position: [3]f32, // the body's centre at spawn
+	kind:     survivor.Item_Kind, // an EnumItemKind value
+}
+
+CONSTANTS := Data_Constants {
+	over_hold_s  = survivor.OVER_HOLD_S,
+	arena_half   = survivor.ARENA_HALF,
+	start_radius = survivor.START_RADIUS,
+	upgrades     = {
+		{upgrade = .Fire_Rate, name = "Fire rate", detail = "Shoot more often"},
+		{upgrade = .Damage, name = "Damage"},
+		{upgrade = .Move_Speed, name = "Move speed"},
+	},
+}
+
+// The constants computed from the sim (the item grid, the details with its numbers), before install copies them.
+// Their strings live as long as the process.
+constants_fill :: proc(constants: ^Data_Constants) {
+	constants.upgrades[survivor.Upgrade.Damage].detail = fmt.aprintf(
+		"+%d damage per shot",
+		survivor.DAMAGE_LEVELUP,
+		allocator = runtime.heap_allocator(),
+	)
+	constants.upgrades[survivor.Upgrade.Move_Speed].detail = fmt.aprintf(
+		"+%.1f m/s",
+		survivor.SPEED_LEVELUP,
+		allocator = runtime.heap_allocator(),
+	)
+	for &spot, i in constants.items {
+		spot = {survivor.item_position(i), survivor.item_kind(i)}
 	}
-	for name, upgrade in UPGRADE_NAMES {
-		entry := gd.dict_new()
-		gd.dict_set(&entry, "id", strings.to_lower(fmt.tprint(upgrade), context.temp_allocator)) // fire_rate, ...
-		gd.dict_set(&entry, "name", name)
-		gd.dict_set(&entry, "detail", details[upgrade])
-		gd.array_push_move(&upgrades, &entry)
-	}
-	gd.dict_set_move(dict, "upgrades", &upgrades)
-	// the item grid as the match starts (crates and barrels; the menu backdrop shows it)
-	items := gd.array_new()
-	for i in 0 ..< survivor.ITEM_COUNT {
-		spot := survivor.item_position(i)
-		item := gd.dict_new()
-		gd.dict_set(&item, "position", gd.Vector3{spot.x, spot.y, spot.z})
-		gd.dict_set(&item, "kind", survivor.item_kind(i) == .Barrel ? "barrel" : "crate")
-		gd.array_push_move(&items, &item)
-	}
-	gd.dict_set_move(dict, "items", &items)
 }

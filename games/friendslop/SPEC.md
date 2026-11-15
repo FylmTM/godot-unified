@@ -26,7 +26,7 @@ rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`),
 
 No health, no fail state: getting hit or dropped costs time, not a life.
 
-**Players** (`src/sim/SPEC.md` "Players"): the State's `players` is a `sim.Presence` of `Character` (8 remembered
+**Players** (`src/sim/SPEC.md` "Players"): the State's `players` is a `sim.Players` of `Character` (8 remembered
 members for 4 slots). A player who joins, or comes back, gets a fresh body at their slot's spawn (or the team's
 checkpoint, spread by slot); one who leaves lets go of what they hold and is let go of, and their body goes. Whatever
 names a player names the person (`sim.Player`), never the slot: who holds a grab point or a friend, an item's
@@ -102,6 +102,21 @@ grabbed, dropped, thrown, hit, broke free, fell, respawned, checkpoint, run star
 bell rung, switch on). Each event is its own struct: `player` (a `sim.Player`, GDScript gets its key) when it is
 about a player, `entity` (the level marker index + 1) when it is
 about an item, plate, bell, switch or lock, `position` in metres, and its own values (speed, mass, seconds).
+
+**What the view gets** (`simulation/extension`):
+
+- Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
+  the level placed (items, platforms, bells, plates, switches), keyed by its level marker index with `entity` = that
+  index + 1 (its events' `entity`); the view adopts its marker's visuals. An event about a player goes to that
+  player's view, else one with an `entity` to that marker's view (`event_key`): grabbed, dropped and thrown stay with
+  the holder.
+- Session data `Data_Hud` (`Unified.data.hud`, `hud.odin`, from the state alone): `phase`, `tick`, the run's and best
+  times, `runs`, `checkpoint`, the reset countdown, the active triggers (a bit each), and per slot `player`,
+  `present`, `holding`, `held`, `stunned`, `fallen`, `charge`.
+- Constants `Data_Constants` (`Unified.constants`): the finish hold and respawn seconds, the player capsule (radius,
+  half height, feet) and each item kind's size (`item_sizes`: `kind`, `size`; `validate` checks the level's item
+  markers draw them so).
+- Enums as classes: `EnumPhase`, `EnumHeldKind`, `EnumItemKind`.
 
 **Godot only:** the camera (orbit, collision, smoothing; it produces the input's aim), character animation
 (procedural squash, lean, wobble, stun tumble, arms), the level scene's own meshes and lights, materials,

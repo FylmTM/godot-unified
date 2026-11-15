@@ -7,7 +7,6 @@ package toy
 import "unified:sim"
 
 PLAYERS :: 4
-MEMBERS :: 8 // the people a session remembers (sim.Presence)
 HZ :: 64
 
 Input :: struct {
@@ -53,7 +52,7 @@ Cmd :: union {
 	Cmd_Mark,
 }
 
-// A player's data (sim.Presence): zeroed when someone new joins, kept while they are away.
+// A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
 Player_Data :: struct {
 	pos:       [2]f32,
 	score:     i32,
@@ -68,7 +67,7 @@ State :: struct {
 	rng:     sim.Rng,
 	spawned: u32,
 	_pad:    u32,
-	players: sim.Presence(Player_Data, PLAYERS, MEMBERS),
+	players: sim.Players(Player_Data, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
 
@@ -152,7 +151,7 @@ tick :: proc(t: ^Tick) {
 	for thing, handle in sim.next(&things) {
 		thing.life -= 1
 		if thing.life <= 0 {
-			if owner := sim.player_get(&t.state.players, thing.owner); owner != nil {
+			if owner := sim.player_data(&t.state.players, thing.owner); owner != nil {
 				owner.score += 1
 			}
 			sim.emit(t, Event_Expired{thing = handle})
@@ -163,7 +162,7 @@ tick :: proc(t: ^Tick) {
 
 // The data of whoever holds `slot` (nil: nobody), for tests that look at a client's own player.
 in_slot :: proc(state: ^State, slot: int) -> ^Player_Data {
-	return sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+	return sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
 }
 
 // Scripted input: a hash of (seed, slot, tick / 8), so any tick can be asked for in any order.

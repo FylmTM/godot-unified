@@ -11,7 +11,7 @@ throw_ball :: proc(t: ^Tick, player: sim.Player, speed: u8) {
 	ball, _, ok := sim.spawn(&t.state.balls)
 	if !ok do return
 	ball^ = {
-		pos            = sim.player_get(&t.state.players, player).position,
+		pos            = sim.player_data(&t.state.players, player).position,
 		height         = HAND_HEIGHT,
 		vertical_speed = f32(speed),
 		thrower        = player,

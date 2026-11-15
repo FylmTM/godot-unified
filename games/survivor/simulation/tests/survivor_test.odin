@@ -41,7 +41,7 @@ command_and_event_names :: proc(t: ^testing.T) {
 	}
 }
 
-step :: proc(simulation: ^survivor.Sim, present: sim.Players) {
+step :: proc(simulation: ^survivor.Sim, present: sim.Slots) {
 	inputs: survivor.Inputs
 	join_free(simulation, &inputs, present)
 	for slot in present {
@@ -85,7 +85,7 @@ presence_joins_and_leaves :: proc(t: ^testing.T) {
 	_, joined = presence_event(simulation, 2, sim.Event_Player_Joined, second)
 	testing.expect(t, joined)
 	step(simulation, {1})
-	character := sim.player_get(&simulation.state.players, first)
+	character := sim.player_data(&simulation.state.players, first)
 	testing.expect(t, !sim.player_present(&simulation.state.players, first))
 	testing.expect(t, character != nil && !character.alive && character.body == {}) // an absent player has no body
 	left, has_left := presence_event(simulation, 3, sim.Event_Player_Left, first)
@@ -104,8 +104,8 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	sim.join(&inputs, 0, 1)
 	sim.step(simulation, &inputs)
 	first := sim.slot_player(simulation, 0)
-	sim.player_get(players, first).level = 4
-	sim.player_get(players, first).damage_bonus = 6
+	sim.player_data(players, first).level = 4
+	sim.player_data(players, first).damage_bonus = 6
 
 	inputs = {} // the first leaves
 	sim.step(simulation, &inputs)
@@ -116,7 +116,7 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	testing.expect(t, second != {} && second != first)
 	testing.expect_value(t, in_slot(simulation, 0).level, 1)
 	testing.expect_value(t, in_slot(simulation, 0).damage_bonus, 0)
-	away := sim.player_get(players, first)
+	away := sim.player_data(players, first)
 	testing.expect(t, !sim.player_present(players, first) && away.level == 4 && away.body == {})
 
 	inputs = {}
@@ -125,7 +125,7 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, sim.slot_player(simulation, 1), first)
 	testing.expect_value(t, sim.slot_player(simulation, 0), second)
-	back := sim.player_get(players, first)
+	back := sim.player_data(players, first)
 	testing.expect_value(t, back.level, 4)
 	testing.expect_value(t, back.damage_bonus, 6)
 	testing.expect(t, back.alive && back.body != {} && back.hp == survivor.PLAYER_HP)

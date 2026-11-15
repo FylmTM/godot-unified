@@ -120,11 +120,11 @@ func _walk_pause_menu() -> void:
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	if failed():
 		return
-	var tick0 := int(game.hud.get("tick", 0))
+	var tick0 := Unified.data.hud.tick
 	await press_action(&"menu")
 	expect(pause.visible, "Esc opens the menu")
 	await seconds(0.3)
-	expect(int(game.hud.get("tick", 0)) > tick0, "the sim keeps running under the menu")
+	expect(Unified.data.hud.tick > tick0, "the sim keeps running under the menu")
 	await shot("03_pause_menu")
 	await press_action(&"menu")
 	expect(not pause.visible, "Esc closes the menu")

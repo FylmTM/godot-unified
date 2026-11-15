@@ -119,7 +119,7 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 				Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
 		"rock_split":
 			effects.debris(at, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
-			Sfx.play(&"pop", -6.0, 0.7 if (event as EventRockSplit).size == &"large" else 0.9)
+			Sfx.play(&"pop", -6.0, 0.7 if (event as EventRockSplit).size == EnumRockSize.LARGE else 0.9)
 		"rock_destroyed":
 			effects.debris(at, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
 			effects.ring(at, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)

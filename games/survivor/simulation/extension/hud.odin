@@ -1,18 +1,24 @@
-// The HUD view's data (View.Hud, pushed every tick by fill_frame): what a UI shows, derived from the state on the
-// session thread. The host sets each field as a property of the HUD view (game/views/hud.tscn), which keeps them
-// in `Game.hud`: `phase` reads as &"lobby" / &"match" / &"over", `players` as an Array of Dictionaries (by slot;
+// The HUD's session data (Data_Hud, pushed every frame by fill_frame with godot.push_data): what a UI shows,
+// derived from the state on the session thread. GDScript reads it as `Unified.data.hud` (class DataHud, typed
+// properties, `changed` when it changes): `phase` is an EnumPhase value, `players` an Array of Dictionaries (by slot;
 // `player` is the player's key, 0 for an empty slot). Player names and the local player come from the session
-// (Game.player_name, Game.local_player). View code, not simulation code: f32 for display only.
+// (Game.player_name, Game.local_player). View code, not simulation code: f32 for display only. Plain and
+// padding-free (`_pad`).
 package survivor_extension
 
 import "unified:sim"
 
 import "../survivor"
 
+Data :: union {
+	Data_Hud,
+}
+
 Hud_Player :: struct {
 	player:           sim.Player, // who holds the slot ({}: nobody)
 	present:          bool,
 	alive:            bool,
+	_pad:             [2]u8,
 	hp:               i32,
 	hp_max:           i32,
 	xp:               i32,
@@ -22,8 +28,9 @@ Hud_Player :: struct {
 	respawn_s:        f32, // seconds until respawn (0 when alive)
 }
 
-Hud :: struct {
+Data_Hud :: struct {
 	phase:         survivor.Phase, // lobby, match, over
+	_pad:          [3]u8,
 	tick:          u32,
 	time_s:        f32, // match time: 0 in the lobby, frozen when over
 	wave:          u32, // 1-based during a match, 0 in the lobby
@@ -33,7 +40,7 @@ Hud :: struct {
 	players:       [survivor.PLAYERS]Hud_Player,
 }
 
-hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Hud) {
+hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	hud.tick = tick
 	switch state.phase {
@@ -50,7 +57,7 @@ hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Hud) {
 	hud.matches = state.matches
 	for slot in 0 ..< survivor.PLAYERS {
 		player := sim.player_in_slot(&state.players, slot)
-		character := sim.player_get(&state.players, player)
+		character := sim.player_data(&state.players, player)
 		if character == nil do continue
 		hud.players[slot] = {
 			player           = player,

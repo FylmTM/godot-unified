@@ -20,7 +20,7 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	Seen :: struct {
 		count:    int,
 		tick:     u32,
-		diverged: sim.Players,
+		diverged: sim.Slots,
 		detail:   [64]u8,
 		len:      int,
 	}
@@ -43,7 +43,7 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	fake_welcome(&fake, client)
 	writer := fake_begin(&fake, .Desync)
 	wire.w_u32(writer, 4160)
-	wire.w_u32(writer, transmute(u32)sim.Players{2})
+	wire.w_u32(writer, transmute(u32)sim.Slots{2})
 	detail := "tick 4160: score[2] 3 vs 4"
 	wire.w_u16(writer, u16(len(detail)))
 	wire.w_bytes(writer, transmute([]u8)detail)
@@ -53,7 +53,7 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, seen.count, 1)
 	testing.expect_value(t, seen.tick, 4160)
-	testing.expect_value(t, seen.diverged, sim.Players{2})
+	testing.expect_value(t, seen.diverged, sim.Slots{2})
 	testing.expect_value(t, string(seen.detail[:seen.len]), detail)
 	testing.expect_value(t, client.desyncs, 1)
 	testing.expect(t, !netcode.client_result(client, context.temp_allocator).ok)

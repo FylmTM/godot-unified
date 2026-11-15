@@ -7,11 +7,12 @@ possible. Code: `games/minimal_3d/`.
 1–4 players move capsules on a floor and throw balls straight up; a ball falls back and is gone when it lands. What
 it shows:
 
-- **State and players.** A pointer-free `State`: the players in a `sim.Presence` (per-player data by handle) and the
+- **State and players.** A pointer-free `State`: the players in a `sim.Players` (per-player data by handle) and the
   balls in a `sim.Table`.
 - **Commands and events.** One command (`Cmd_Ball_Drop`) and one game event (`Event_Ball_Dropped`) next to the
   library's join and leave events.
-- **Views.** A scene view per player, a MultiMesh view for the balls, and a data-only Control view for the HUD.
+- **Views and data.** A scene view per player, a MultiMesh view for the balls, and the HUD's session data
+  (`Data_Hud`, read by an ordinary scene as `Unified.data.hud`).
 - **Co-op.** Players are handles, so someone who leaves and comes back (LAN or EOS) gets their capsule and balls
   back in whatever slot is free.
 
@@ -19,7 +20,7 @@ Units: metres, seconds, 64 Hz (`DT = 1/64`). The ground plane is the sim's x, y;
 
 ## Players
 
-- `PLAYERS` 4 input slots; the session remembers `MEMBERS` 8 people.
+- `PLAYERS` 4 input slots; the session remembers 8 people (the library's 2 × `PLAYERS`).
 - Per player (`Player_Data`): `position`. Someone new starts at x = their slot, y = 0; someone who comes back keeps
   theirs.
 - Input per tick: `dx`, `dy` (i8, −127..127); a player moves at up to 4 m/s on each axis.
@@ -33,7 +34,7 @@ Units: metres, seconds, 64 Hz (`DT = 1/64`). The ground plane is the sim's x, y;
 
 ## Rules (each tick, in this order)
 
-1. Joins: place each new player (`t.joined`).
+1. Joins: place each new player (`t.player_changes.joined`).
 2. Move the present players by their input.
 3. Apply the commands: each `Cmd_Ball_Drop` spawns a ball owned by its thrower (`sim.Player`). With 64 balls in the
    air a throw is lost, and no event is emitted.
@@ -47,8 +48,11 @@ Units: metres, seconds, 64 Hz (`DT = 1/64`). The ground plane is the sim's x, y;
   - It squashes on its player's `EventBallDropped` (Emitted: predicted, at once).
 - **`ball`**: a MultiMesh instance per ball (the `Balls` node in `main.tscn`). It is coloured by its thrower's slot,
   or grey once the thrower has left.
-- **`hud`** (`game/views/hud.tscn`): a Control.
-  - Data: `players` present, `balls` in the air, and `color` (a `gd.Color`, the local player's).
+
+## Session data
+
+- **`Data_Hud`** (`Unified.data.hud`): `players` present, `balls` in the air, and `color` (a `gd.Color`, the local
+  player's). `game/hud.tscn`, a Control in the main scene, redraws on its `changed` signal.
 
 ## Scripted runs (headless, tests)
 

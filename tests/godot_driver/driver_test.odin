@@ -24,6 +24,8 @@ seen: struct {
 	pumps:     int,
 	closes:    int,
 	hub:       ^netcode.Hub,
+	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
+	held_tick: u32,
 }
 
 @(private = "file")
@@ -48,15 +50,21 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 				player = player,
 				pos    = {data.pos.x, 0, data.pos.y},
 			})
-			godot.push_multi(frame, {
+			godot.push_multi_view(frame, {
 				key  = sim.player_key(player),
 				kind = .Spark,
 				pos  = {data.pos.x, 1, 0},
 			})
 		}
-		if local := sim.player_get(&frame.state.players, frame.local_player); local != nil {
+		if local := sim.player_data(&frame.state.players, frame.local_player); local != nil {
 			sync.atomic_store(&seen.bumps, local.bumps)
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
+			// the join tick's events are queued, its Frame not published yet: hold here while the test looks
+			if sync.atomic_load(&seen.hold) == 1 {
+				seen.held_tick = frame.tick
+				sync.atomic_store(&seen.hold, 2)
+				for sync.atomic_load(&seen.hold) != 3 do time.sleep(time.Millisecond)
+			}
 		}
 		sync.atomic_add(&seen.extracted, 1)
 	},
@@ -112,6 +120,15 @@ text :: proc(message: godot.Message) -> string {
 @(private = "file")
 is_result :: proc(message: godot.Message) -> bool {return message.kind == .Result}
 
+// Takes every queued event whose tick is at most `shown`.
+@(private = "file")
+take_events :: proc(out: ^[dynamic]godot.Event_Message, shown: u32) {
+	for {
+		event := godot.api.next_event(shown) or_break
+		append(out, event)
+	}
+}
+
 @(test)
 driver_sessions :: proc(t: ^testing.T) {
 	godot.install(&toy.GAME, GLUE)
@@ -142,16 +159,18 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		events := make([dynamic]godot.Event_Message, context.temp_allocator)
+		take_events(&events, max(u32))
 		connected, joined := false, false
-		for &message in messages {
-			if message.kind == .Status && message.status == .Connected do connected = true
-			if message.kind != .Event do continue
+		for message in messages do if message.kind == .Status && message.status == .Connected do connected = true
+		for &message in events {
 			switch event in sim.event_value(&message.event, toy.Event) {
 			case sim.Event_Player_Joined:
 				if message.action == .Confirmed do joined = event.slot == 0 && event.player.id == 1 && !event.returning
 			case toy.Event_Spawned, sim.Event_Player_Left, toy.Event_Expired:
 			}
 		}
+		testing.expect_value(t, godot.api.events_dropped(), 0)
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		frame, _ := godot.api.front()
@@ -191,6 +210,43 @@ driver_sessions :: proc(t: ^testing.T) {
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, !godot.api.running())
+	}
+
+	// A tick's events are queued before its Frame is published: the main thread, showing an older Frame, must not get
+	// them yet (they are about views it doesn't show), and gets them once the Frame of their tick is shown.
+	{
+		sync.atomic_store(&seen.hold, 1)
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 20, name = "solo"})
+		testing.expect(t, ok, err)
+		start := time.tick_now()
+		for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(start)) < 5 {
+			time.sleep(time.Millisecond)
+		}
+		testing.expect_value(t, sync.atomic_load(&seen.hold), 2)
+		held := seen.held_tick
+		shown: u32
+		if frame, _ := godot.api.front(); frame != nil do shown = frame.tick
+		testing.expectf(t, shown < held, "the held tick %d is not shown yet (%d)", held, shown)
+		early := make([dynamic]godot.Event_Message, context.temp_allocator)
+		take_events(&early, shown)
+		for event in early do testing.expectf(t, event.tick <= shown, "event of tick %d before its frame", event.tick)
+		sync.atomic_store(&seen.hold, 3)
+		for godot.api.running() do time.sleep(time.Millisecond)
+		frame, _ := godot.api.front()
+		testing.expect(t, frame != nil && frame.tick >= held)
+		late := make([dynamic]godot.Event_Message, context.temp_allocator)
+		if frame != nil do take_events(&late, frame.tick)
+		// the join's tick is after the shown frame and at most the held one (a catch-up may step several ticks at once)
+		is_join :: proc(event: ^godot.Event_Message) -> bool {
+			_, join := sim.event_value(&event.event, toy.Event).(sim.Event_Player_Joined)
+			return join
+		}
+		for &event in early do testing.expect(t, !is_join(&event), "no join before its frame is shown")
+		joined := false
+		for &event in late do joined ||= is_join(&event) && event.tick > shown && event.tick <= held
+		testing.expect(t, joined, "the join tick's events come once its frame is shown")
+		godot.api.wait()
+		sync.atomic_store(&seen.hold, 0)
 	}
 
 	// Online without a transport: refused before a thread starts.
@@ -242,6 +298,18 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, seen.pumps > 0, "the transport is pumped")
 		testing.expect_value(t, seen.closes, 1)
 	}
+
+	// A game with problems never stops the load: install collects them all and installs nothing (the editor opens; a
+	// session fails with the reason).
+	{
+		Bad_View :: enum u8 {
+			Dot = 1,
+		}
+		bad := godot.Glue(toy.State, toy.Input, toy.World, Bad_View, MultiView){}
+		godot.install(&toy.GAME, bad)
+		testing.expect(t, !godot.api.installed)
+		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)
+	}
 }
 
 // The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after.
@@ -286,4 +354,27 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	netcode.link_send(&link, 1, {5})
 	testing.expect_value(t, inbox(hub, 1), 3) // direct again
 	netcode.link_close(&link)
+}
+
+// The host's pose memory (#284): tick - 1 as remembered, and its estimate after a rollback or skipped ticks.
+@(test)
+pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	remember :: proc(memory: ^godot.Pose_Memory, tick: u32, x: f32, rollback := false) -> (f32, bool) {
+		godot.pose_memory_begin(memory, rollback)
+		previous, found := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, view.IDENTITY)
+		return previous.pos.x, found
+	}
+	_, found := remember(&memory, 10, 10)
+	testing.expect(t, !found, "nothing before the first fill")
+	x, _ := remember(&memory, 11, 11)
+	testing.expect_value(t, x, 10) // the pose at tick - 1, as remembered
+	x, _ = remember(&memory, 11, 13) // tick 11 again (a rollback moved it by 2): tick 10 moves with it
+	testing.expect_value(t, x, 12)
+	x, _ = remember(&memory, 12, 20, rollback = true) // a rollback with a new tick: 20 minus the last motion (1)
+	testing.expect_value(t, x, 19)
+	x, _ = remember(&memory, 15, 23) // ticks skipped: 23 minus the last motion (1)
+	testing.expect_value(t, x, 22)
 }

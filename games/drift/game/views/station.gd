@@ -18,8 +18,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	var radius: float = Game.constants.get("station_radius", 2.5)
-	_r = radius * Game.px_per_m
+	_r = Unified.constants.station_radius * Game.px_per_m
 
 
 func _process(delta: float) -> void:

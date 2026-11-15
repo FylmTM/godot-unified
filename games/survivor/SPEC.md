@@ -34,7 +34,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   scripted inputs only produce lengths ≤ 1).
 - `buttons`: bit 0 = dash (edge-triggered).
 - Presence is not in the input: players are session members (`src/sim/SPEC.md`, Players), held in the state's
-  `players: sim.Presence(Character, PLAYERS, 2 · PLAYERS)`; the library applies joins and leaves before the tick and
+  `players: sim.Players(Character, PLAYERS)` (2 · PLAYERS remembered); the library applies joins and leaves before the tick and
   emits `player_joined` / `player_left`. The game's part (system 1): a player who leaves loses their body (an absent
   player owns nothing outside the block) and keeps their progress (level, XP, upgrades, pending level-ups); someone
   new starts fresh; both new and returning players get a body at their slot's start spot with full HP. Everything
@@ -42,7 +42,8 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}`, the only
   variant of `Command` (name `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered
   once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click: a `CommandPick` object whose
-  `upgrade` is the card's id (`constants().upgrades[i].id`, e.g. `&"damage"`), `Game.send_command(pick)`.
+  `upgrade` is the card's (`Unified.constants.upgrades[i].upgrade`, an `EnumUpgrade` value),
+  `Game.send_command(pick)`.
 
 ## Phases
 
@@ -173,7 +174,7 @@ and gems. `player` is a `sim.Player` (GDScript: the player's key).
 | `match_started` | `position`, `player` (who left the start circle) |
 | `match_over` | `duration_s` (the match's length) |
 | `level_up` | `position`, `level` (the new level), `player` |
-| `enemy_died` | `enemy: Handle(Enemy)`, `position`, `kind: Enemy_Kind` |
+| `enemy_died` | `enemy: Handle(Enemy)`, `position`, `enemy_kind: Enemy_Kind` |
 | `gem_collected` | `gem: Handle(Gem)`, `position`, `xp`, `player` (who collected it) |
 | `barrel_exploded` | `entity` (the item's view key: item index + 1), `position` |
 
@@ -181,11 +182,11 @@ Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 
 ## HUD
 
-View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: the HUD
-view's data, pushed every tick: phase, tick, match time (s), wave (1-based in a match), enemies alive, circle radius,
-matches, and per slot (`player`: who holds it, a `sim.Player`, GDScript's key; 0 and not present for an empty slot):
-present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds. Player names and the local
-player come from the session, not the HUD.
+View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Data_Hud`), not in the sim package: the
+session data `Data_Hud` (`Unified.data.hud`), pushed every frame: phase, tick, match time (s), wave (1-based in a match),
+enemies alive, circle radius, matches, and per slot (`player`: who holds it, a `sim.Player`, GDScript's key; 0 and
+not present for an empty slot): present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds.
+Player names and the local player come from the session, not the HUD.
 
 ## Scripted inputs (for `sim`, `synctest`, `session`, tests)
 
@@ -229,8 +230,7 @@ game/autoload/         the shared Settings (+ render scale, best time) and Sfx (
 game/ui/               the HUD; the menu scene (the arena with props behind the shared menu)
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, MultiMesh views,
                        camera), follow camera
-game/views/            the scene views: player, crate, barrel (GameView), hud (the shared HUD view); bulk_view.gd
-                       (the MultiMesh views' script)
+game/views/            the scene views: player, crate, barrel; bulk_view.gd (the MultiMesh views' script)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
 game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the shared ones), tour, play_check
 ```
@@ -239,35 +239,36 @@ game/tools/            survivor's own tool steps (validate, ui_walk, coop extend
 
 The flow is the shared one (`games/shared/SPEC.md`), on the game library's `UnifiedSession` (without the library the
 shared LibraryCheck autoload shows "game library failed to load" with Quit). The sim's own phases (lobby → match →
-over → lobby) are read from the HUD view's data (`Game.hud`); the arena never reloads between matches.
+over → lobby) are read from the HUD's session data (`Unified.data.hud.phase`, an `EnumPhase` value); the arena never
+reloads between matches.
 
 ### View contract (`src/godot/SPEC.md`; `simulation/extension`)
 
 - `view_root`: the arena's `Views` node, set on load, cleared on exit; scene views spawn under it.
-- Scene views (`View`): `player`, `crate`, `barrel`, `hud`, each a scene with a `UnifiedView` marker as the **first**
-  child of its root (`kind` = the member lowercased, `unique_name_in_owner`), found through the view index. Player,
-  crate and barrel roots are `GameView`s (`addons/shared/views/game_view.gd`: `kind`, `entity`, `player` read the
-  marker). Keys: a player's `sim.player_key` (≥ 0x10000; `player` set; the view lives while the player is present,
-  dead too, and its colour is its slot's), items
-  0x100 + index (`entity` = index + 1; a destroyed barrel's view goes, the respawned one is new), the HUD 0x200.
-  Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation, which player
-  views reset) and calls `_sim_update(position, yaw, alpha)`; the marker's `despawned` / `revived` play the exit
-  animation and undo it (`_despawned()`, `_revived()`).
-- View data: the player view's `hp` (`Player_View`; a drop flashes it), and the HUD view's `Hud` (HUD above):
-  `game/views/hud.tscn` (a Node with the shared `hud_view.gd`) keeps its fields in `Game.hud`, `phase` as
-  `&"lobby"` / `&"match"` / `&"over"`, `players` as an Array of Dictionaries.
+- Scene views (`View`): `player`, `crate`, `barrel`, each a scene with a `UnifiedView` marker as the **first**
+  child of its root (`kind` = the member lowercased, `unique_name_in_owner`), found through the view index. The
+  roots are Node3Ds; the player view reads `player` from its marker. Keys (unique within a kind): a player's
+  `sim.player_key` (`player` set; the view lives while the player is present, dead too, and its colour is its
+  slot's), an item's index (`entity` = index + 1, `barrel_exploded`'s; a destroyed barrel's view goes, the respawned
+  one is new). Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation,
+  which player views reset) and calls `_sim_update(position, yaw, alpha)`; `_sim_despawned()` plays the exit
+  animation during the linger (the host no longer moves the view) and `_sim_revived()` undoes it.
+- View data: the player view's `hp` (`Player_View`; a drop flashes it).
+- Session data: `Data_Hud` (HUD above) as `Unified.data.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
+  `OVER`), `players` an Array of Dictionaries. The HUD reads it every frame.
 - MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
-  3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the floor plane (y = 0),
-  the shaders lift the meshes. The host sizes the MultiMeshes.
-- Events: the classes `PlayerDied`, `EnemyDied`, ... (Events above) on `session.sim_event(event, state)`; positions
-  as Vector3 in metres, `EnemyDied.kind` as `&"grunt"` / `&"runner"` / `&"brute"`. The host routes a player's events
-  to its player view and `barrel_exploded` to its barrel's view; the arena's effects and the HUD's banners play on
-  `UnifiedSession.EVENT_CONFIRMED` only.
-- `constants()`: the sim's fixed numbers, read once into `Game.constants`: `tick_hz`, `over_hold_s`, `arena_half`,
-  `start_radius`, `dash_cooldown_s`, `player_respawn_s`, `max_enemies`, `upgrades` ([{id, name, detail}] ×3 in
-  Upgrade order, the level-up cards; `id` is the Pick's `upgrade`) and `items` ([{position, kind}] ×40, spawn body
-  centres; the menu backdrop uses them). GDScript never copies a sim number (the effects' 5 m blast radius aside).
+  3D transforms (enemies and projectiles face their velocity) + custom data (r = hit flash 0..1, g = age in s), no
+  colours; positions on the floor plane (y = 0), the shaders lift the meshes. The host sizes the MultiMeshes.
+- Events: the classes `EventPlayerDied`, `EventEnemyDied`, ... (Events above) on `session.sim_event(event, state)`;
+  positions as Vector3 in metres, `EventEnemyDied.enemy_kind` an `EnumEnemyKind` value. The host routes a player's
+  events to its player view and `barrel_exploded` to its barrel's view; the arena's effects and the HUD's banners
+  play on `UnifiedSession.EVENT_CONFIRMED` only.
+- Constants: `Data_Constants` (the extension's `CONSTANTS`, its item grid and card details filled from the sim at
+  load) as `Unified.constants`: `over_hold_s`, `arena_half`, `start_radius`, `upgrades` ([{upgrade, name, detail}]
+  ×3 in Upgrade order, the level-up cards; `upgrade` is the Pick's, an `EnumUpgrade` value) and `items`
+  ([{position, kind}] ×40, spawn body centres, `kind` an `EnumItemKind` value; the menu backdrop uses them); the tick
+  rate is `Unified.tick_hz`. GDScript never copies a sim number (the effects' 5 m blast radius aside).
 - Input: `sample_input` reads the InputMap (`move_*`, `dash`, held or pressed since the last tick); GDScript only
   handles `menu` (Esc) and the level-up keys, which send a `CommandPick`.
 - Player names and the local player come from the session (`Game.player_name`, `Game.local_player`);
@@ -277,7 +278,7 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
 ### Checks
 
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
-scripts read (the cards' ids, a view scene and a rest height per item kind) and that the arena has one MultiMesh
+scripts read (the cards, a view scene and a rest height per item kind) and that the arena has one MultiMesh
 view per `MultiView` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
 drawn, the auto-attack firing) and a `CommandPick` the session accepts; `tour` plays the real game headless: menu → single
 → lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to

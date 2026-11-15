@@ -1,15 +1,15 @@
 extends CanvasLayer
-## The in-game HUD, driven by `Game.hud` (the HUD view's data, simulation/extension/hud.odin) every frame: the local
+## The in-game HUD, driven by `Unified.data.hud` (the session data, simulation/extension/hud.odin) every frame: the local
 ## player card (HP, XP, level), wave, time and enemies, the shared session panel and controls list, the start hint,
 ## banners, the level-up choice and the match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
-## Upgrade names, details and ids come from the sim (`Game.constants.upgrades`), as does the "over" hold time.
+## Upgrade names, details and ids come from the sim (`Unified.constants.upgrades`), as does the "over" hold time.
 const KEYS := ["1", "2", "3"]
 const PAD_KEYS := ["X", "Y", "B"]
 
 var _last_wave := 0
-var _last_phase := ""
+var _last_phase := EnumPhase.LOBBY
 var _t := 0.0
 var _last_hp := -1.0
 var _last_xp := -1
@@ -84,11 +84,11 @@ func _process(delta: float) -> void:
 
 
 func _refresh(delta: float) -> void:
-	var h := Game.hud
-	var phase: String = h.get("phase", "lobby")
+	var hud := Unified.data.hud
+	var phase := hud.phase
 	var me := Game.local_player_info()
-	var lobby := phase == "lobby"
-	var wave: int = h.get("wave", 0)
+	var lobby := phase == EnumPhase.LOBBY
+	var wave := hud.wave
 	var alive: bool = me.get("alive", false)
 	var hp: float = me.get("hp", 1)
 	var hp_full: float = me.get("hp_max", 1)
@@ -121,7 +121,7 @@ func _refresh(delta: float) -> void:
 			_xp.create_tween().tween_property(_xp, "modulate", Color.WHITE, 0.3)
 		_last_xp = xp
 	var hp_ratio := hp / hp_max
-	var pulse_low := hp_ratio < 0.3 and alive and phase == "match"
+	var pulse_low := hp_ratio < 0.3 and alive and phase == EnumPhase.MATCH
 	var low := (0.25 + 0.15 * sin(_t * 6.0)) * (1.0 - hp_ratio / 0.3) if pulse_low else 0.0
 	_hurt = maxf(_hurt - delta * 2.5, 0.0) if alive else 0.0
 	_vignette.set_shader_parameter(&"intensity", clampf(maxf(_hurt, low), 0.0, 0.6))
@@ -129,9 +129,9 @@ func _refresh(delta: float) -> void:
 	# Wave, time, enemies.
 	_top.visible = not lobby
 	_wave.text = "WAVE %d" % wave
-	var time_s: float = h.get("time_s", 0.0)
+	var time_s := hud.time_s
 	_time.text = _clock(time_s)
-	var n: int = h.get("enemies_alive", 0)
+	var n := hud.enemies_alive
 	_enemies.text = "%d %s" % [n, "enemy" if n == 1 else "enemies"]
 
 	# Start hint: warms up as a player nears the circle's edge.
@@ -146,7 +146,7 @@ func _refresh(delta: float) -> void:
 	_session.refresh(_session_rows(lobby), lobby, "Anyone walking out of the circle starts the match.")
 
 	# Respawn countdown.
-	var dead_in_match := phase == "match" and not me.is_empty() and not alive
+	var dead_in_match := phase == EnumPhase.MATCH and not me.is_empty() and not alive
 	_respawn.visible = dead_in_match
 	if dead_in_match:
 		var respawn_s: float = me.get("respawn_s", 0.0)
@@ -154,7 +154,7 @@ func _refresh(delta: float) -> void:
 
 	# Level-up choice.
 	var pending: int = me.get("pending_levelups", 0)
-	var show_levelup := pending > 0 and phase == "match" and alive
+	var show_levelup := pending > 0 and phase == EnumPhase.MATCH and alive
 	_levelup_hold = maxf(_levelup_hold - delta, 0.0)
 	if show_levelup and not _levelup.visible:
 		for b: Button in _options.get_children():
@@ -168,20 +168,21 @@ func _refresh(delta: float) -> void:
 	_pending.text = "Choose an upgrade" + ("  ·  %d pending" % pending if pending > 1 else "")
 
 	# Match over.
-	if phase == "over" and _last_phase != "over":
+	var over := phase == EnumPhase.OVER
+	if over and _last_phase != EnumPhase.OVER:
 		_on_match_over(time_s, wave, level, n)
-	_over.visible = phase == "over"
-	_banner.visible = phase != "over"
-	if phase == "over":
-		var hold_s: float = Game.constants.get("over_hold_s", 5.0)
+	_over.visible = over
+	_banner.visible = not over
+	if over:
+		var hold_s := Unified.constants.over_hold_s
 		var left := ceilf(hold_s - (_t - _over_since))
 		_over_back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
 		_over_back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
 		_over_menu_hint.text = Game.hint("Esc: menu", "Start: menu")
 
-	if phase == "match" and wave > _last_wave and _last_wave > 0:
+	if phase == EnumPhase.MATCH and wave > _last_wave and _last_wave > 0:
 		_show_banner("WAVE %d" % wave, UiTheme.CYAN)
-	_last_wave = wave if phase == "match" else 0
+	_last_wave = wave if phase == EnumPhase.MATCH else 0
 	_last_phase = phase
 
 
@@ -206,10 +207,10 @@ func _on_match_over(time_s: float, wave: int, level: int, enemies: int) -> void:
 
 func _label_keys() -> void:
 	var keys: Array = PAD_KEYS if Game.using_pad else KEYS
-	var upgrades: Array = Game.constants.get("upgrades", [])
-	for i in mini(_options.get_child_count(), upgrades.size()):
-		var u: Dictionary = upgrades[i]
-		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [u.get("name", ""), u.get("detail", ""), keys[i]]
+	var cards := Unified.constants.upgrades
+	for i in mini(_options.get_child_count(), cards.size()):
+		var card: Dictionary = cards[i]
+		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, keys[i]]
 
 
 ## Visual feedback for a level-up pick (key, pad button or click): pop the card, hold the panel a moment.
@@ -292,15 +293,15 @@ func _show_banner(text: String, color: Color, size := 60) -> void:
 	tw.chain().tween_property(_banner, "modulate:a", 0.0, 0.4)
 
 
-## A level-up pick (key, pad button or click): the `pick` command, upgrade i in constants().upgrades order.
+## A level-up pick (key, pad button or click): the `pick` command with card i's upgrade (Unified.constants.upgrades).
 func _choose(option: int) -> void:
 	_picked(option - 1)
-	var upgrades: Array = Game.constants.get("upgrades", [])
-	if option - 1 >= upgrades.size():
+	var cards := Unified.constants.upgrades
+	if option - 1 >= cards.size():
 		return
-	var upgrade: Dictionary = upgrades[option - 1]
+	var card: Dictionary = cards[option - 1]
 	var pick := CommandPick.new()
-	pick.upgrade = upgrade.get("id", "")
+	pick.upgrade = card.upgrade
 	Game.send_command(pick)
 
 
