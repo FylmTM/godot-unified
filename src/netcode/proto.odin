@@ -8,8 +8,9 @@ import "unified:wire"
 // 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands;
 // 7: snapshots v4, checksums cover Box3D's whole state; 8: a relay time below 0 (the start lead) before tick 0;
 // 9: the #8 sitting: adaptive input delay, snapshots of checksum ticks checked against the majority (Snap_Ok),
-// desync reports (Desync, Welcome's flags), no replay from tick 0 (new reject reasons).
-PROTOCOL_VERSION :: 9
+// desync reports (Desync, Welcome's flags), no replay from tick 0 (new reject reasons); 10: a Finalized packet's
+// ticks as their changes from the tick before (window.odin, #192).
+PROTOCOL_VERSION :: 10
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
@@ -18,7 +19,7 @@ MAX_DELAY_MS :: 100 // input delay ceiling
 DELAY_MARGIN_US :: 8_000 // how early an input should reach the relay (want_delay, stamp_ahead)
 INPUTS_MAX :: 32 // own inputs resent per client packet
 COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more: the send fails)
-WINDOW_MAX :: 32 // finalized ticks resent per relay packet
+WINDOW_MAX :: 32 // finalized ticks resent per relay packet (fewer when they don't fit)
 CHECKSUM_EVERY :: sim.DEEP_CHECKSUM_EVERY // the ticks whose checksums cover every extra's whole state
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
 SNAP_CHUNK :: 1000
@@ -87,7 +88,7 @@ Msg :: enum u8 {
 	// unacked commands: first seq u32, count u8, per command: wanted tick u32, kind u8, size u8, bytes
 	Inputs,
 	// r->c U: relay time i64, echo i64, hold i64, input ack u32, command ack u32, first u32, count u8, ticks
-	// (sim.write_tick: present, replaced, inputs, commands)
+	// (window_write_tick: each tick's changes from the one before it in the packet)
 	Finalized,
 	Checksum, // c->r R: player u8, tick u32, checksum u64 (a joiner's first: of its restored snapshot)
 	// r->c R: target u8 (a joiner, or RELAY_TARGET), min tick u32: for a joiner, the snapshot of the first checksum
@@ -182,19 +183,11 @@ INPUTS_HEAD :: 19 // type u8, player u8, client time i64, finalized ack u32, fir
 COMMANDS_HEAD :: 5 // first seq u32, count u8
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 
-// Finalized ticks per relay packet: as many empty ticks (no commands) as fit one message, at most
-// WINDOW_MAX. A packet carries fewer when the ticks hold commands.
-@(private)
-finalized_window :: proc($Input: typeid, $PLAYERS: int) -> u32 {
-	ticks := (MAX_MESSAGE - FINALIZED_HEAD) / sim.tick_bytes(Input, PLAYERS, nil)
-	assert(ticks >= 1, "one tick of inputs does not fit a datagram")
-	return u32(min(ticks, WINDOW_MAX))
-}
-
-// The bytes a finalized tick's commands may take, so that the tick alone always fits one message.
+// The bytes a finalized tick's commands may take (their count byte aside), so that the tick alone always fits one
+// message however much it changed (window_tick_max_bytes). A packet holds up to WINDOW_MAX ticks, as many as fit.
 @(private)
 tick_command_budget :: proc($Input: typeid, $PLAYERS: int) -> int {
-	budget := MAX_MESSAGE - FINALIZED_HEAD - sim.tick_bytes(Input, PLAYERS, nil)
+	budget := MAX_MESSAGE - FINALIZED_HEAD - window_tick_max_bytes(Input, PLAYERS, nil) - 1
 	assert(budget >= sim.COMMAND_HEAD + sim.COMMAND_MAX, "a tick with one command does not fit a datagram")
 	return budget
 }

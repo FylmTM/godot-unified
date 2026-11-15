@@ -189,9 +189,9 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 ## Files
 
 - **Input log** `UNIL`: seed, content hash, players, input size, ticks (0 with ticks after it: a recording that
-  never ended, read to its end); per tick (`write_tick`, also the netcode's finalized tick) present, replaced, the
-  players' input bytes, a command count (an empty tick costs one byte) and per command its player, kind, size and
-  struct bytes. Seed + content + log = the whole session (replays, reference runs). `Input_Log` in memory:
+  never ended, read to its end); per tick (`write_tick`) present, replaced, the players' input bytes, a command
+  count and per command its player, kind, size and struct bytes (`write_commands`/`read_commands`, which the
+  netcode's finalized ticks reuse). Seed + content + log = the whole session (replays, reference runs). `Input_Log` in memory:
   `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1), `log_encode / decode / read / write`;
   decoding refuses a malformed tick. Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
