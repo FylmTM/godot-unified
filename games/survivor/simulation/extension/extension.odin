@@ -8,10 +8,9 @@ import "base:runtime"
 import "core:fmt"
 import "core:math"
 import "unified:b3"
-import "unified:eos"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:netcode"
+import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
 import "unified:view"
@@ -28,45 +27,8 @@ survivor_init :: proc "c" (
 	context = runtime.default_context()
 	constants_fill(&CONSTANTS)
 	godot.install(&survivor.GAME, GLUE)
-	godot.set_transport(&EOS_TRANSPORT)
+	godot.set_transport(godot_eos.transport("survivor")) // online play: EOS lobbies and P2P
 	return godot.entry(gpa, lib, init)
-}
-
-// ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
-
-@(private)
-eos_init :: proc(events: ^godot.Transport_Events) -> bool {
-	if eos.init({product_name = "survivor", product_version = godot.app_version}) do return true
-	events.fail(events.ctx, eos.status().detail)
-	return false
-}
-
-EOS_TRANSPORT := godot.Transport {
-	name = "EOS",
-	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		if !eos_init(events) do return {}, false
-		link, ok := eos.open_host({game = "survivor", compat = compat, version = godot.app_version})
-		if !ok do events.fail(events.ctx, eos.status().detail)
-		return link, ok
-	},
-	open_join = proc(_: rawptr, code: string, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		if !eos_init(events) do return {}, false
-		link, ok := eos.open_join({game = "survivor", compat = compat, version = godot.app_version}, code)
-		if !ok do events.fail(events.ctx, eos.status().detail)
-		return link, ok
-	},
-	pump = proc(_: rawptr, events: ^godot.Transport_Events) {
-		result := eos.pump()
-		if result.code != "" do events.code(events.ctx, result.code)
-		if result.failed != "" do events.fail(events.ctx, result.failed)
-	},
-	close = proc(_: rawptr) {eos.close()},
-	// EOS's HTTP completes through the macOS main run loop, which headless Godot doesn't pump.
-	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
-	// EOS left initialized at exit crashed in its own threads during process teardown (macOS, ~1 in 2 exits).
-	shutdown = proc(_: rawptr) {eos.shutdown()},
-	// the host player's product user id (UnifiedSession.get_player_platform_id)
-	account = proc(_: rawptr) -> (netcode.Account, bool) {return eos.local_account()},
 }
 
 // ---- the view contract

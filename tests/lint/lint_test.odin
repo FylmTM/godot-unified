@@ -92,6 +92,7 @@ RULES := []Rule {
 	{pkg = "view"},
 	{pkg = "devui"},
 	{pkg = "godot"},
+	{pkg = "godot_eos"}, // EOS as a godot.Transport: imports eos and godot, so neither imports the other
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
 	{
 		pkg           = "lint",

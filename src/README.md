@@ -2,7 +2,7 @@
 
 The `unified` collection: the deterministic harness (`sim`, with `physics` as a plug-in and `dmath`), the
 input-relay netcode with a step API (`netcode`, `eos`), the generic headless runs and CLI (`headless`) that a game's
-headless binary wires up, the Godot integration (`gdext`, `view`, `devui`, `godot`), and the determinism lint a
+headless binary wires up, the Godot integration (`gdext`, `view`, `devui`, `godot`, and `godot_eos`: EOS as its transport), and the determinism lint a
 game's tests run (`lint`). The test games live in
 `games/survivor/` (3D) and `games/drift/` (2D). Each package's API is in its spec (`src/<package>/SPEC.md`); this file is how the deterministic
 core works inside, across packages. Toolchain: [`../README.md`](../README.md); commands: `uni -h`.

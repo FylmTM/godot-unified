@@ -28,7 +28,8 @@ eos.local_account() -> (netcode.Account, bool)       // logged in: {"eos", our p
 project's stamped version), the lobby's `version` attribute. A joiner whose build differs from the lobby's fails
 before joining, with a message: "that game runs survivor 0.1.4; you have 0.1.3", or "that game runs a different
 build of survivor 0.1.4" when the versions match. Nothing is bumped by hand. `open_host`/`open_join`/`pump`/`close`
-are the shape of `godot.Transport`; the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). The link vouches
+are the shape of `godot.Transport`; a Godot game wires them with `unified:godot_eos` (one line,
+src/godot_eos/SPEC.md), which calls them (`init` first, on the first host or join). The link vouches
 for every peer's account (`netcode.Link.account`: "eos" and the remote's product user id, which EOS authenticated):
 the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
