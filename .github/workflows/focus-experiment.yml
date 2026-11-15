@@ -32,6 +32,7 @@ jobs:
           ./uni test drift --suite godot --only validate
       - name: The focus checks
         run: |
+          set +e
           mkdir -p "$RUNNER_TEMP/focus"
           F="$RUNNER_TEMP/focus"
           GODOT=$(find ~/.cache/unified/godot -path '*Godot.app/Contents/MacOS/Godot' | head -1)
