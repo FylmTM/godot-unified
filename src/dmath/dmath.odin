@@ -1,5 +1,5 @@
 // Deterministic f32 helpers for game code: only `+ − × ÷` and hardware sqrt (IEEE-exact on every
-// platform), each operation written out so nothing depends on vector codegen or FMA contraction.
+// platform). Odin never fuses a multiply and an add (tests/dmath's canary), in scalar or array arithmetic.
 // No transcendentals yet; when a game needs sin/cos/atan2 they land here as fixed polynomials.
 package dmath
 
@@ -14,12 +14,12 @@ sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return intrinsics.sqrt(x)
 }
 
-// The length of a 2D vector, with the sum written out so it rounds the same on every platform.
+// The length of a 2D vector.
 length2 :: #force_inline proc "contextless" (vec: Vec2) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y)
 }
 
-// The length of a 3D vector, with the sum written out so it rounds the same on every platform.
+// The length of a 3D vector.
 length3 :: #force_inline proc "contextless" (vec: Vec3) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
@@ -29,6 +29,11 @@ dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
 	dx := a.x - b.x
 	dy := a.y - b.y
 	return dx * dx + dy * dy
+}
+
+// The dot product a · b.
+dot3 :: #force_inline proc "contextless" (a, b: Vec3) -> f32 {
+	return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
 // v / |v|, or zero when |v| <= eps.
@@ -57,6 +62,27 @@ clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
 	}
 	scale := max_len / sqrt(length_sq)
 	return {vec.x * scale, vec.y * scale}
+}
+
+// Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
+// written out.
+quat_rotate :: proc "contextless" (quat: [4]f32, vec: Vec3) -> Vec3 {
+	quat_vec := [3]f32{quat.x, quat.y, quat.z}
+	cross := [3]f32 {
+		2 * (quat_vec.y * vec.z - quat_vec.z * vec.y),
+		2 * (quat_vec.z * vec.x - quat_vec.x * vec.z),
+		2 * (quat_vec.x * vec.y - quat_vec.y * vec.x),
+	}
+	cross_cross := [3]f32 {
+		quat_vec.y * cross.z - quat_vec.z * cross.y,
+		quat_vec.z * cross.x - quat_vec.x * cross.z,
+		quat_vec.x * cross.y - quat_vec.y * cross.x,
+	}
+	return {
+		vec.x + quat.w * cross.x + cross_cross.x,
+		vec.y + quat.w * cross.y + cross_cross.y,
+		vec.z + quat.w * cross.z + cross_cross.z,
+	}
 }
 
 // Linear interpolation from a (t = 0) to b (t = 1), as a + (b - a) * t with no fused multiply-add.

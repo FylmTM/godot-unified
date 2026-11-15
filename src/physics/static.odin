@@ -2,6 +2,7 @@
 package physics
 
 import "unified:b3"
+import "unified:dmath"
 import "unified:level"
 
 // Creates every static body of the level, in file order, and returns how many. Shapes without a
@@ -41,7 +42,7 @@ create_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.S
 		sphere := b3.Sphere{shape.pos, shape.radius}
 		b3.create_sphere_shape(body, shape_def, &sphere)
 	case .Capsule:
-		axis := rotate(shape.rot, {0, shape.half_height, 0})
+		axis := dmath.quat_rotate(shape.rot, {0, shape.half_height, 0})
 		capsule := b3.Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
 		b3.create_capsule_shape(body, shape_def, &capsule)
 	case .Hull:
@@ -50,26 +51,5 @@ create_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.S
 		if hull == nil do return
 		b3.create_hull_shape(body, shape_def, hull)
 		b3.destroy_hull(hull)
-	}
-}
-
-// Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
-// written out.
-rotate :: proc "contextless" (quat: [4]f32, vec: [3]f32) -> [3]f32 {
-	quat_vec := [3]f32{quat.x, quat.y, quat.z}
-	cross := [3]f32 {
-		2 * (quat_vec.y * vec.z - quat_vec.z * vec.y),
-		2 * (quat_vec.z * vec.x - quat_vec.x * vec.z),
-		2 * (quat_vec.x * vec.y - quat_vec.y * vec.x),
-	}
-	cross_cross := [3]f32 {
-		quat_vec.y * cross.z - quat_vec.z * cross.y,
-		quat_vec.z * cross.x - quat_vec.x * cross.z,
-		quat_vec.x * cross.y - quat_vec.y * cross.x,
-	}
-	return {
-		vec.x + quat.w * cross.x + cross_cross.x,
-		vec.y + quat.w * cross.y + cross_cross.y,
-		vec.z + quat.w * cross.z + cross_cross.z,
 	}
 }
