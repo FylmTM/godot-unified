@@ -172,7 +172,7 @@ compat_of :: proc(game: ^Game($State, $Input, $World, $PLAYERS), content: []u8 =
 		version  = hash_bytes(transmute([]u8)game.version),
 		content  = content_hash(content),
 		commands = union_hash(game.commands, COMMAND_PREFIX),
-		events   = union_hash(game.events, ""),
+		events   = union_hash(game.events, EVENT_PREFIX),
 		players  = u32(PLAYERS),
 		tick_hz  = u32(game.tick_hz),
 	}
@@ -213,7 +213,7 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	if reason := union_violation(commands, COMMAND_MAX, COMMAND_PREFIX); reason != "" {
 		return fmt.tprintf("%s: commands: %s", name, reason)
 	}
-	if reason := union_violation(events, EVENT_MAX, ""); reason != "" {
+	if reason := union_violation(events, EVENT_MAX, EVENT_PREFIX); reason != "" {
 		return fmt.tprintf("%s: events: %s", name, reason)
 	}
 	return ""

@@ -55,14 +55,14 @@ sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
 	return nil, nil
 }
 
-// The class of an event or command kind: `Event` or `Command`, then the Odin type name in PascalCase (a command's
-// `Cmd_` dropped): Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop. Godot has no namespaces for classes (an
+// The class of an event or command kind: `Event` or `Command`, then the Odin type name in PascalCase (an event's
+// `Event_` and a command's `Cmd_` dropped): Rock_Hit and Event_Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop. Godot has no namespaces for classes (an
 // extension class can't nest, nor can GDScript alias one as a constant), so the prefix groups them.
 @(private)
 class_name_of :: proc(variant: ^runtime.Type_Info, is_event: bool) -> string {
 	name := fmt.tprint(variant.id)
 	if named, ok := variant.variant.(runtime.Type_Info_Named); ok do name = named.name
-	if !is_event do name = strings.trim_prefix(name, sim.COMMAND_PREFIX)
+	name = strings.trim_prefix(name, is_event ? sim.EVENT_PREFIX : sim.COMMAND_PREFIX)
 	builder := strings.builder_make(context.temp_allocator)
 	strings.write_string(&builder, is_event ? "Event" : "Command")
 	upper := true

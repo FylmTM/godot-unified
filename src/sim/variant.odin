@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:strings"
 
 COMMAND_PREFIX :: "Cmd_" // a command's name is its type name without it, lowercased
+EVENT_PREFIX :: "Event_" // an event's name is its type name without it (when it has it), lowercased
 
 // The union's variants (nil for a nil typeid).
 union_variants :: proc(type: typeid) -> []^runtime.Type_Info {
@@ -25,7 +26,7 @@ variant_kind :: proc(type: typeid, variant: typeid) -> int {
 }
 
 // A variant's name: its type name without `prefix`, lowercased ("Cmd_Drop_Coin" -> "drop_coin",
-// "Coin_Picked" -> "coin_picked"). Temp-allocated.
+// "Event_Coin_Picked" and "Coin_Picked" -> "coin_picked"). Temp-allocated.
 variant_name :: proc(type: ^runtime.Type_Info, prefix: string) -> string {
 	name := fmt.tprint(type.id)
 	if named, ok := type.variant.(runtime.Type_Info_Named); ok do name = named.name
@@ -49,7 +50,7 @@ command_names :: proc(commands: typeid, allocator := context.allocator) -> []str
 
 // The game's event names, by kind ("coin_picked").
 event_names :: proc(events: typeid, allocator := context.allocator) -> []string {
-	return variant_names(events, "", allocator)
+	return variant_names(events, EVENT_PREFIX, allocator)
 }
 
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union

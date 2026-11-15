@@ -327,6 +327,22 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 	testing.expect(t, len(commands) == 2 && commands[0] == "bump" && commands[1] == "mark")
 	events := sim.event_names(toy.Event, context.temp_allocator)
 	testing.expect(t, len(events) == 4 && events[0] == "joined" && events[2] == "spawned" && events[3] == "expired")
+	// an event type may carry an Event_ prefix: the name leaves it out, like a command's Cmd_
+	prefixed := sim.event_names(Prefixed_Events, context.temp_allocator)
+	testing.expect(t, len(prefixed) == 2 && prefixed[0] == "rock_hit" && prefixed[1] == "plain")
+}
+
+Event_Rock_Hit :: struct {
+	rock: u8,
+}
+
+Plain :: struct {
+	value: u8,
+}
+
+Prefixed_Events :: union {
+	Event_Rock_Hit,
+	Plain,
 }
 
 @(test)

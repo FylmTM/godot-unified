@@ -104,7 +104,7 @@ Coin_Picked :: struct {
 	position: sim.Position, // distinct [3]f32, sim units (2D: z = 0)
 	value:    u32,
 }
-Event :: union {Coin_Spawned, Coin_Picked, Coin_Dropped}  // name = type name, lowercased: "coin_picked"
+Event :: union {Coin_Spawned, Coin_Picked, Coin_Dropped}  // name = type name without an Event_ prefix, lowercased: "coin_picked"
 
 GAME := Game{..., events = Event}
 sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y, 0}, value = coin.value})

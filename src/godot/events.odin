@@ -16,7 +16,7 @@ import "unified:view"
 
 // One event kind (a variant of Game.events), read by RTTI.
 Event_Layout :: struct {
-	name:              string, // the type name, lowercased ("coin_picked")
+	name:              string, // the type name without `Event_`, lowercased ("coin_picked")
 	type:              ^runtime.Type_Info,
 	player:            int, // offset of the `player` field (an integer), -1: none
 	player_size:       int,
@@ -54,7 +54,7 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 	for variant, kind in variants {
 		layout := &layouts[kind]
 		layout^ = {
-			name    = strings.clone(sim.variant_name(variant, "")),
+			name    = strings.clone(sim.variant_name(variant, sim.EVENT_PREFIX)),
 			type    = variant,
 			player  = -1,
 			subject = -1,

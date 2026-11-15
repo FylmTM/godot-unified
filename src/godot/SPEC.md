@@ -122,7 +122,8 @@ host owns `instance_count` and `visible_instance_count`.
 **Events and commands as classes.** At load the host registers a class per kind of the game's event union
 (`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
 (`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase (`Rock_Hit` ->
-`EventRockHit`; a command loses its `Cmd_` prefix: `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The
+`EventRockHit`; an event's optional `Event_` prefix and a command's `Cmd_` are dropped first: `Event_Rock_Hit` ->
+`EventRockHit`, kind `rock_hit`; `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The
 prefix groups them: Godot classes have no namespaces (an extension class can't nest, and GDScript can't alias a
 native class as a constant), and no GDScript is generated. Field types: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
 bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
