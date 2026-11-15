@@ -56,6 +56,14 @@ send_command :: proc(object: gd.Object) -> bool {
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
+	if type.id == sim.Player { 	// a player's key (sim.player_key; 0: nobody)
+		if variant_type != .INT do return fmt.tprintf("want a player (an int), %s", got(variant_type))
+		key, _ := gd.from_variant(i64, variant)
+		player := sim.player_of_key(u64(key))
+		if key != 0 && player == {} do return fmt.tprintf("%d is not a player", key)
+		copy(out, ([^]u8)(&player)[:size_of(sim.Player)])
+		return ""
+	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		if variant_type != .INT do return fmt.tprintf("want an int, %s", got(variant_type))

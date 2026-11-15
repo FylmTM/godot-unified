@@ -155,8 +155,9 @@ static func box(fill: Color, radius: int, margin: int, border := Color(0, 0, 0, 
 	return s
 
 
-static func player_color(player: int) -> Color:
-	return PLAYER_COLORS[clampi(player, 0, PLAYER_COLORS.size() - 1)]
+## A slot's colour (Game.player_slot of a player).
+static func player_color(slot: int) -> Color:
+	return PLAYER_COLORS[clampi(slot, 0, PLAYER_COLORS.size() - 1)]
 
 
 static func _dot(size: int, color: Color) -> ImageTexture:

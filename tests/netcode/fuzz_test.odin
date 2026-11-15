@@ -73,6 +73,7 @@ relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
 		wire.w_u8(writer, netcode.ANY_PLAYER)
 		wire.w_u32(writer, 0)
 		wire.w_u64(writer, sim.compat_of(&toy.GAME))
+		wire.w_bytes(writer, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}) // token
 		wire.w_u8(writer, 3)
 		wire.w_bytes(writer, {'b', 'o', 't'})
 	case .Inputs:
@@ -123,6 +124,7 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	#partial switch msg {
 	case .Welcome:
 		wire.w_u8(writer, 0)
+		wire.w_u16(writer, 1)
 		wire.w_u64(writer, SEED)
 		wire.w_u16(writer, toy.HZ)
 		wire.w_u32(writer, 0)
@@ -143,7 +145,7 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{3})
 		sim.add_command(&inputs, bump)
 		mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = 2})
-		mark.player = 1
+		mark.slot = 1
 		sim.add_command(&inputs, mark)
 		netcode.window_write_tick(writer, &inputs, &first)
 	case .Snap_Request:
@@ -160,12 +162,15 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	case .Reject:
 		wire.w_u8(writer, 2)
 	case .Roster:
-		wire.w_u8(writer, toy.PLAYERS)
-		for _ in 0 ..< toy.PLAYERS {
-			wire.w_u8(writer, 1)
-			wire.w_u8(writer, 2)
-			wire.w_bytes(writer, {'h', 'i'})
-		}
+		wire.w_u16(writer, 2) // member
+		wire.w_u8(writer, 1) // slot
+		wire.w_u8(writer, 1) // connected
+		wire.w_u8(writer, 2)
+		wire.w_bytes(writer, {'h', 'i'})
+		wire.w_u8(writer, 3)
+		wire.w_bytes(writer, {'e', 'o', 's'})
+		wire.w_u8(writer, 2)
+		wire.w_bytes(writer, {'a', 'b'})
 	}
 	return writer.buf[:]
 }
@@ -266,9 +271,9 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	defer fake_destroy(&fake)
 	watch: Watch
 	client := netcode.client_create(&toy.GAME, {
-			player = -1,
-			name   = "c",
-			quiet  = true,
+			slot  = -1,
+			name  = "c",
+			quiet = true,
 		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)

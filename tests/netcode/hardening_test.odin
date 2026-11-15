@@ -49,9 +49,9 @@ rnet_join :: proc(session: ^Rnet, player := -1, game: ^toy.Game = nil) -> ^Clien
 		&session.clock,
 	)
 	client := netcode.client_create(game != nil ? game : &toy.GAME, {
-			player = player,
-			name   = "c",
-			quiet  = true,
+			slot  = player,
+			name  = "c",
+			quiet = true,
 		}, link, hooks_for(&session.watch[endpoint]))
 	append(&session.clients, client)
 	return client
@@ -94,8 +94,8 @@ rnet_agree :: proc(t: ^testing.T, session: ^Rnet) {
 							t,
 							entry[1] == other_entry[1],
 							"players %d and %d disagree at tick %d",
-							client.player,
-							other.player,
+							client.slot,
+							other.slot,
 							entry[0],
 						)
 					}
@@ -151,7 +151,7 @@ snapshot_provider_leaves_another_steps_in :: proc(t: ^testing.T) {
 	netcode.client_stop(provider, session.clock.now)
 	rnet_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
-	testing.expect_value(t, joiner.player, 2)
+	testing.expect_value(t, joiner.slot, 2)
 	testing.expect(t, joiner.verified > joiner.first_tick)
 	testing.expect_value(t, bystander.status, netcode.Status.Connected)
 	rnet_agree(t, &session)
@@ -223,7 +223,8 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 		fake_step(fake, client)
 	}
 	writer := fake_begin(fake, .Welcome)
-	wire.w_u8(writer, 0) // player
+	wire.w_u8(writer, 0) // slot
+	wire.w_u16(writer, 1) // member
 	wire.w_u64(writer, SEED)
 	wire.w_u16(writer, toy.HZ)
 	wire.w_u32(writer, 0) // endless
@@ -236,6 +237,7 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 
 finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
 	inputs.present = {0}
+	if tick == 1 do inputs.member[0] = 1 // the join record
 	inputs.input[0] = {
 		dx = dx,
 	}
@@ -268,9 +270,9 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 	defer fake_destroy(&fake)
 	watch: Watch
 	client := netcode.client_create(&toy.GAME, {
-			player = -1,
-			name   = "c",
-			quiet  = true,
+			slot  = -1,
+			name  = "c",
+			quiet = true,
 		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
@@ -446,6 +448,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	wire.w_u8(&writer, netcode.ANY_PLAYER)
 	wire.w_u32(&writer, 0)
 	wire.w_u64(&writer, sim.compat_of(&toy.GAME))
+	wire.w_bytes(&writer, make([]u8, netcode.TOKEN_SIZE, context.temp_allocator))
 	wire.w_u8(&writer, 0)
 	netcode.channel_send(evil, evil_peer, writer.buf[:], .Reliable, session.clock.now)
 	for _ in 0 ..< 20 {
@@ -492,9 +495,9 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	other.version = "2"
 	link := netcode.loopback_link(session.hub, 6)
 	client := netcode.client_create(&other, {
-			player = -1,
-			name   = "other",
-			quiet  = true,
+			slot  = -1,
+			name  = "other",
+			quiet = true,
 		}, link, hooks_for(&session.watch[6]))
 	append(&session.clients, client)
 	rnet_run(&session, 1)

@@ -37,8 +37,8 @@ survivor_init :: proc "c" (
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
-SURVIVOR_BUCKET :: "survivor/8"
-#assert(netcode.PROTOCOL_VERSION == 10, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
+SURVIVOR_BUCKET :: "survivor/9"
+#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump SURVIVOR_BUCKET with it")
 
 @(private)
 eos_init :: proc(events: ^godot.Transport_Events) -> bool {
@@ -71,6 +71,8 @@ EOS_TRANSPORT := godot.Transport {
 	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
 	// EOS left initialized at exit crashed in its own threads during process teardown (macOS, ~1 in 2 exits).
 	shutdown = proc(_: rawptr) {eos.shutdown()},
+	// the host player's product user id (UnifiedSession.get_player_platform_id)
+	account = proc(_: rawptr) -> (netcode.Account, bool) {return eos.local_account()},
 }
 
 // ---- the view contract
@@ -101,9 +103,9 @@ MultiView :: enum u8 {
 
 Frame :: godot.Frame(survivor.State, survivor.World, View, MultiView)
 
-// Spawn keys: players 1..4 (a player's view lives for the whole session), items 0x100 + index (a destroyed
-// barrel's view goes; the one respawned 10 s later is a new view), the HUD 0x200.
-PLAYER_KEY :: 1
+// Spawn keys: a player's view is their sim.player_key (>= 0x10000: the member id is >= 1; the view lives while
+// they are present, dead too, whatever slot they hold), items 0x100 + index (a destroyed barrel's view goes; the
+// one respawned 10 s later is a new view), the HUD 0x200.
 ITEM_KEY :: 0x100
 HUD_KEY :: 0x200
 
@@ -136,25 +138,23 @@ sample_input :: proc(input: ^survivor.Input) {
 
 // ---- the frame (session thread)
 
-fill_frame :: proc(frame: ^Frame) {
-	state, world, tick := frame.state, frame.world, frame.tick
-	for player in 0 ..< survivor.PLAYERS {
-		character := &state.players[player]
-		if !character.active do continue
-		godot.push_view(frame, {
-			key    = view.Key(PLAYER_KEY + player),
+fill_frame :: proc(f: ^Frame) {
+	players := sim.iterate_present(&f.state.players)
+	for character, player in sim.next(&players) {
+		godot.push_view(f, {
+			key    = view.Key(sim.player_key(player)),
 			kind   = .Player,
 			player = player,
 			pos    = character.pos,
 		}, Player_View{hp = max(character.hp, 0)})
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
-		item := &state.items[i]
+		item := &f.state.items[i]
 		if !item.alive do continue
-		body := physics.body_id(world.phys, item.body)
+		body := physics.body_id(f.world.phys, item.body)
 		body_pos := b3.body_get_position(body)
 		godot.push_view(
-			frame,
+			f,
 			{
 				key    = view.Key(ITEM_KEY + i),
 				kind   = item.kind == .Barrel ? .Barrel : .Crate,
@@ -164,35 +164,35 @@ fill_frame :: proc(frame: ^Frame) {
 			},
 		)
 	}
-	enemies := sim.iterate(&state.enemies)
+	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		godot.push_multi(frame, {
+		godot.push_multi(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(enemy.kind),
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
 			yaw    = enemy_yaw(enemy.vel),
-			custom = {hit_flash(tick, enemy.hit_tick), age_s(tick, enemy.spawn_tick), 0, 0},
+			custom = {hit_flash(f.tick, enemy.hit_tick), age_s(f.tick, enemy.spawn_tick), 0, 0},
 		}) or_break
 	}
-	projectiles := sim.iterate(&state.projectiles)
+	projectiles := sim.iterate(&f.state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		godot.push_multi(frame, {
+		godot.push_multi(f, {
 			key  = sim.handle_key(handle),
 			kind = .Projectile,
 			pos  = {projectile.pos.x, 0, projectile.pos.z},
 			yaw  = math.atan2(projectile.vel.x, projectile.vel.z),
 		}) or_break
 	}
-	gems := sim.iterate(&state.gems)
+	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		godot.push_multi(frame, {
+		godot.push_multi(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = {gem.pos.x, 0, gem.pos.y},
-			custom = {0, age_s(tick, gem.spawn_tick), 0, 0},
+			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
 		}) or_break
 	}
-	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, hud_of(state, tick))
+	godot.push_view(f, {key = HUD_KEY, kind = .Hud}, hud_of(f.state, f.tick))
 }
 
 HIT_FLASH_S :: 0.15

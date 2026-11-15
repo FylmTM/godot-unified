@@ -5,6 +5,7 @@ package __GAME___extension
 import "base:runtime"
 import "unified:gdext/gdi"
 import "unified:godot"
+import "unified:sim"
 import "unified:view"
 
 import g "../__GAME__"
@@ -36,18 +37,21 @@ sample_input :: proc(input: ^g.Input) {
 	input.dy = godot.axis_i8(move.y)
 }
 
-// Session thread, every published tick: a dot per present player, in pixels. The host remembers each view's pose
-// at the tick before and interpolates between them.
+// Session thread, every published tick: a dot per present player, in pixels, keyed by the player (a player who
+// comes back in another slot keeps their view). The host remembers each view's pose at the tick before and
+// interpolates between them.
 fill_frame :: proc(frame: ^Frame) {
-	for player in frame.state.present {
-		pos := frame.state.pos[player] * PX_PER_M
-		godot.push_view(frame, {key = view.Key(player + 1), kind = .Player, player = player, pos = {pos.x, pos.y, 0}})
+	players := sim.iterate_present(&frame.state.players)
+	for dot, player in sim.next(&players) {
+		pos := dot.pos * PX_PER_M
+		key := view.Key(sim.player_key(player))
+		godot.push_view(frame, {key = key, kind = .Player, player = player, pos = {pos.x, pos.y, 0}})
 	}
 }
 
 // Headless checks (--scripted): the sim's own scripted input.
-scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^g.State) -> g.Input {
-	return g.scripted_input(seed, player, tick)
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
+	return g.scripted_input(seed, slot, tick)
 }
 
 @(export, link_name = "__GAME___init")

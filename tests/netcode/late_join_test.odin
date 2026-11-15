@@ -18,7 +18,7 @@ diverging_game :: proc() -> ^toy.Game {
 	GAME_DIVERGES = toy.GAME
 	GAME_DIVERGES.tick = proc(tick: ^toy.Tick) {
 		toy.tick(tick)
-		if tick.number >= 100 do tick.state.score[0] += 1
+		if data := toy.in_slot(tick.state, 0); tick.number >= 100 && data != nil do data.score += 1
 	}
 	return &GAME_DIVERGES
 }
@@ -52,7 +52,7 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 						t,
 						entry[1] == other_entry[1],
 						"joiner and %d differ at tick %d",
-						other.player,
+						other.slot,
 						entry[0],
 					)
 				}

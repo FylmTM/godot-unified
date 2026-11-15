@@ -101,7 +101,7 @@ func _refresh(delta: float) -> void:
 	if not me.is_empty():
 		var player: int = me.get("player", 0)
 		_card_name.text = Game.player_name(me)
-		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(player))
+		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(Game.player_slot(player)))
 		_card_level.text = "LV %d" % level
 		_hp.max_value = hp_max
 		_hp.value = hp
@@ -267,13 +267,14 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 			_show_banner("LEVEL %d" % level_up.level, UiTheme.GOLD)
 	elif event is EventPlayerJoined:
 		# Your own join is not news; nor is a join before the session knows your player (yours, or one before you).
-		var joined := (event as EventPlayerJoined).player
-		if local >= 0 and joined != local:
-			_show_banner("%s JOINED" % _name_of(joined).to_upper(), UiTheme.GOOD, 32)
+		var joined := event as EventPlayerJoined
+		if local != 0 and joined.player != local:
+			var what := "IS BACK" if joined.returning else "JOINED"
+			_show_banner("%s %s" % [_name_of(joined.player, joined.slot).to_upper(), what], UiTheme.GOOD, 32)
 	elif event is EventPlayerLeft:
-		var left := (event as EventPlayerLeft).player
-		if local >= 0 and left != local:
-			_show_banner("%s LEFT" % _name_of(left).to_upper(), UiTheme.TEXT_DIM, 32)
+		var left := event as EventPlayerLeft
+		if local != 0 and left.player != local:
+			_show_banner("%s LEFT" % _name_of(left.player, left.slot).to_upper(), UiTheme.TEXT_DIM, 32)
 
 
 func _show_banner(text: String, color: Color, size := 60) -> void:
@@ -303,9 +304,10 @@ func _choose(option: int) -> void:
 	Game.send_command(pick)
 
 
-func _name_of(player: int) -> String:
-	var info := Game.player_info(player)
-	return Game.player_name(info) if not info.is_empty() else "P%d" % (player + 1)
+## A player's name for a banner: the session's (it still knows a player who left), else "P<slot + 1>".
+func _name_of(player: int, slot: int) -> String:
+	var synced := Game.session.get_player_name(player)
+	return synced if synced != "" else "P%d" % (slot + 1)
 
 
 static func _clock(seconds: float) -> String:

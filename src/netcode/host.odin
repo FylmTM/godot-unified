@@ -12,6 +12,7 @@ Host_Config :: struct {
 	content:       []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
 	name:          string, // for log lines
 	player_name:   string, // the host player's display name
+	account:       Account, // optional: the host player's own platform account (borrowed for the host's lifetime)
 	poll_us:       i64,
 	quiet:         bool,
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
@@ -27,7 +28,7 @@ Host :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 }
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
-// the host's client as player 0.
+// the host's client in slot 0.
 host_create :: proc(
 	game: ^sim.Game($State, $Input, $World, $PLAYERS),
 	cfg: Host_Config,
@@ -51,9 +52,9 @@ host_create :: proc(
 		desync_diff   = cfg.desync_detail ? desync_diff_of(State) : nil,
 	}
 	host.relay = relay_create(relay_config, Input, PLAYERS)
-	relay_add_link(host.relay, loopback_link(host.hub, 0))
+	relay_add_link(host.relay, loopback_link(host.hub, 0, cfg.account))
 	client_config := Client_Config {
-		player      = 0,
+		slot        = 0,
 		compat      = compat,
 		content     = cfg.content,
 		name        = cfg.name,

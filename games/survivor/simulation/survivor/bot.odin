@@ -10,14 +10,15 @@ BOT_SIGHT :: 9.0 // m: enemies that push the bot away
 BOT_GEM_SIGHT :: 8.0
 BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
-bot_input :: proc(state: ^State, player: int, tick: u32) -> (input: Input) {
-	character := &state.players[player]
-	if !character.active || !character.alive {
+// The input of the bot in `slot` (zero when nobody holds it or they are dead).
+bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
+	character := sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+	if character == nil || !character.alive {
 		return
 	}
 	pos := dmath.Vec2{character.pos.x, character.pos.z}
 	if state.phase == .Lobby {
-		direction := player * 2 % 8 // walk out of the start circle, each player its own way
+		direction := slot * 2 % 8 // walk out of the start circle, each slot its own way
 		input.move_x = i8(dmath.DIR8_C[direction] * 127)
 		input.move_z = i8(dmath.DIR8_S[direction] * 127)
 		return
@@ -52,7 +53,7 @@ bot_input :: proc(state: ^State, player: int, tick: u32) -> (input: Input) {
 	radius := dmath.length2(pos)
 	radial := dmath.normalize2(pos)
 	tangent := dmath.Vec2{-radial.y, radial.x}
-	if player % 2 == 1 {
+	if slot % 2 == 1 {
 		tangent = -tangent
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - radius) * 0.15)
@@ -89,24 +90,27 @@ bot_input :: proc(state: ^State, player: int, tick: u32) -> (input: Input) {
 // The bot's commands: a level-up pick while one is pending, round-robin over the upgrades by level. In a
 // session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
-bot_commands :: proc(state: ^State, player: int, tick: u32, out: ^sim.Command_Out) {
-	character := &state.players[player]
-	if character.active && character.alive && character.pending_levelups > 0 {
-		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(player)) % 3)})
+bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out) {
+	character := sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+	if character != nil && character.alive && character.pending_levelups > 0 {
+		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(slot)) % 3)})
 	}
 }
 
-// One tick of bots in players 0 ..< player_count: their inputs and commands, as the tick's record. `out` is
-// scratch (the caller deletes its list).
+// One tick of bots in slots 0 ..< player_count (the bot in slot i is member i + 1, joining when its slot is
+// free): their inputs and commands, as the tick's record. `out` is scratch (the caller deletes its list).
 bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out) -> (inputs: Inputs) {
-	for player in 0 ..< player_count {
-		inputs.present += {player}
-		inputs.input[player] = bot_input(state, player, tick)
+	for slot in 0 ..< player_count {
+		inputs.present += {slot}
+		if sim.player_in_slot(&state.players, slot) == {} {
+			sim.join(&inputs, slot, slot + 1)
+		}
+		inputs.input[slot] = bot_input(state, slot, tick)
 		out.commands = Cmd
-		out.player = player
+		out.slot = slot
 		out.cap = sim.COMMANDS_PER_PLAYER
 		clear(&out.list)
-		bot_commands(state, player, tick, out)
+		bot_commands(state, slot, tick, out)
 		for raw in out.list {
 			sim.add_command(&inputs, raw)
 		}

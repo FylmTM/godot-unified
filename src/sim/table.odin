@@ -128,7 +128,7 @@ iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
 	return {table = table}
 }
 
-next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
+table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
 	table := iterator.table
 	for iterator.index < table.high_water {
 		index := iterator.index
@@ -139,4 +139,10 @@ next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, hand
 		}
 	}
 	return
+}
+
+// The next item of a table walk (iterate) or a player walk (iterate_present, iterate_known: presence.odin).
+next :: proc {
+	table_next,
+	presence_next,
 }

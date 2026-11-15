@@ -185,6 +185,15 @@ channel_find :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
 	return -1
 }
 
+// The account the peer's link vouches for (Link.account; ok = false: none).
+channel_account :: proc(channel: ^Channel, peer: Peer) -> (account: Account, ok: bool) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].used {
+		return
+	}
+	conn := &channel.conns[peer]
+	return link_account(&channel.links[conn.link], conn.lpeer)
+}
+
 // Forgets a peer at once (no Disconnected event): after it said goodbye.
 channel_drop :: proc(channel: ^Channel, peer: Peer) {
 	if int(peer) >= 0 && int(peer) < MAX_PEERS {

@@ -8,6 +8,7 @@ import "core:fmt"
 import "../friendslop"
 import "unified:headless"
 import "unified:headless/modes"
+import "unified:sim"
 
 PARK_LEVEL :: #load("../../game/levels/park.level")
 
@@ -29,9 +30,8 @@ main :: proc() {
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
 summary :: proc(state: ^friendslop.State) -> string {
 	present := 0
-	for character in state.players {
-		if character.active do present += 1
-	}
+	players := sim.iterate_present(&state.players)
+	for _ in sim.next(&players) do present += 1
 	return fmt.tprintf(
 		`"phase":"%v","players_present":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
 		state.phase,

@@ -90,9 +90,9 @@ func _host() -> void:
 	if crash or rejoin:
 		FileAccess.open(_played_file(), FileAccess.WRITE).close()
 	if crash:
-		# The crashed player's seat drops out once the host gives up on it. Through EOS the friend comes back
-		# as the same peer (their Product User ID), which ends the old connection first; over direct UDP the
-		# new process is a new endpoint, so the friend is back in another seat before the old one times out.
+		# The crashed player drops out once the host gives up on its connection, or at once when the friend's
+		# restarted game connects again (the relay knows them by their Product User ID, or their LAN token, and
+		# the newest connection wins); they come back as the same player, in whatever slot is free.
 		var friend := _friend_player()
 		var t := Time.get_ticks_msec()
 		await wait_for(func() -> bool: return not _is_present(friend), 60.0, "the crashed friend drops out")
@@ -185,15 +185,15 @@ func _enter_code(code: String) -> void:
 ## The first present player other than the local one (-1: none).
 func _friend_player() -> int:
 	for info: Dictionary in game.present_players():
-		var player := int(info.get("player", -1))
+		var player := int(info.get("player", 0))
 		if player != game.local_player():
 			return player
-	return -1
+	return 0
 
 
 func _is_present(player: int) -> bool:
 	for info: Dictionary in game.present_players():
-		if int(info.get("player", -1)) == player:
+		if int(info.get("player", 0)) == player:
 			return true
 	return false
 

@@ -9,7 +9,9 @@
 // others' checksum before the joiner plays, and compares the clients' checksums: a tick on which they
 // disagree is a desync, reported to every client (with a typed diff of two snapshots, when configured). It
 // serves any number of links at once (the host's in-process client plus remote peers) and is driven by
-// relay_step from the host's own loop.
+// relay_step from the host's own loop. Every distinct person gets a member id for the session (never reused),
+// recognized when they come back by the account their link vouches for, else by their client's token; a slot's
+// join tick carries that id (the sim's join record).
 package netcode
 
 // Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
@@ -79,6 +81,13 @@ Desync_Report :: struct {
 	detail:   string, // what differs (relay.cfg.desync_diff), or ""
 }
 
+// A person of the session: its member id is its index + 1 (never reused).
+@(private)
+Relay_Member :: struct {
+	key:   string, // what recognizes them: "<platform>:<id>" of a vouched account, "token:<hex>", or "" (nothing)
+	entry: Roster_Entry, // what the clients get (the account its link vouched for, never the token)
+}
+
 // A typed desync report waiting for the snapshots it diffs.
 @(private)
 Pending_Image :: struct {
@@ -105,7 +114,8 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	peer_of:      [PLAYERS]Peer,
 	player_of:    [MAX_PEERS]int,
 	welcomed:     [PLAYERS]bool,
-	names:        [PLAYERS]Player_Name,
+	members:      [dynamic]Relay_Member, // every person of the session, by member id - 1
+	member_of:    [PLAYERS]u16, // the member seated in each slot (NO_MEMBER: none)
 	connected:    [PLAYERS]bool,
 	done:         [PLAYERS]bool,
 	base_known:   [PLAYERS]bool, // finalized ticks can be streamed to this client
@@ -181,6 +191,10 @@ relay_destroy :: proc(relay: ^Relay($Input, $PLAYERS)) {
 	relay_end_recording(relay)
 	channel_destroy(relay.ch)
 	delete(relay.w.buf)
+	for member in relay.members {
+		delete(member.key)
+	}
+	delete(relay.members)
 	for &waiting in relay.cmd_wait {
 		delete(waiting)
 	}
@@ -256,6 +270,7 @@ ms_ticks :: proc(relay: ^Relay($Input, $PLAYERS), ms: int) -> u32 {
 send_welcome :: proc(relay: ^Relay($Input, $PLAYERS), player: int, now: i64) {
 	writer := msg_begin(&relay.w, .Welcome)
 	wire.w_u8(writer, u8(player))
+	wire.w_u16(writer, relay.member_of[player])
 	wire.w_u64(writer, relay.cfg.seed)
 	wire.w_u16(writer, u16(relay.cfg.tick_hz))
 	wire.w_u32(writer, relay.cfg.ticks)
@@ -289,12 +304,35 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	wanted := wire.r_u8(reader)
 	asked_join_tick := wire.r_u32(reader)
 	compat := wire.r_u64(reader)
+	token: Token
+	copy(token[:], wire.r_bytes(reader, TOKEN_SIZE))
 	name := r_name(reader)
 	if !reader.ok || relay.player_of[peer] >= 0 || relay.ending {
 		return
 	}
 	if protocol != PROTOCOL_VERSION || (relay.cfg.compat != 0 && compat != relay.cfg.compat) {
 		reject(relay, peer, .Incompatible, now)
+		return
+	}
+	// Who it is: the account the link vouches for, else the client's token (never what the client says it is).
+	account, vouched := channel_account(relay.ch, peer)
+	vouched &&= account.id != ""
+	key := ""
+	if vouched {
+		key = fmt.tprintf("%s:%s", account.platform, account.id)
+	} else if token != {} {
+		key = fmt.tprintf("token:%x", token[:])
+	}
+	known := find_member(relay, key)
+	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection.
+	if known >= 0 && relay.members[known].entry.connected {
+		old := int(relay.members[known].entry.slot)
+		old_peer := relay.peer_of[old]
+		player_gone(relay, old, "replaced by a new connection", now)
+		channel_drop(relay.ch, old_peer)
+	}
+	if known < 0 && len(relay.members) >= int(max(u16)) {
+		reject(relay, peer, .Full, now) // 65,535 people in one session
 		return
 	}
 	player := -1
@@ -335,15 +373,34 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 			return
 		}
 	}
+	if known < 0 {
+		append(&relay.members, Relay_Member{key = strings.clone(key)})
+		known = len(relay.members) - 1
+		entry := &relay.members[known].entry
+		entry.member = u16(known + 1)
+		if vouched {
+			entry.platform = text_of(PLATFORM_MAX, account.platform)
+			entry.account = text_of(ACCOUNT_MAX, account.id)
+		}
+	}
+	entry := &relay.members[known].entry
+	entry.name = name
+	entry.slot = u8(player)
+	entry.connected = true
+	relay.member_of[player] = entry.member
 	relay.peer_of[player] = peer
 	relay.player_of[peer] = player
 	relay.connected[player] = true
 	relay.done[player] = false
-	relay.names[player] = name
 	relay.cmd_recv[player] = 0 // a new client numbers its commands from 1
 	relay.checking[player] = false
 	clear(&relay.cmd_wait[player])
-	send_roster(relay, now)
+	send_roster_entry(relay, known, now)
+	for k in 0 ..< len(relay.members) {
+		if k != known {
+			send_roster_entry(relay, k, now, player)
+		}
+	}
 	if !relay.started {
 		relay.active_from[player] = 1
 		relay.report_from[player] = 1
@@ -374,12 +431,27 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	request_snapshot(relay, player, provider, now)
 	relay_log(
 		relay,
-		"player %d joins at tick %d (clock %d), snapshot from player %d",
+		"member %d joins slot %d at tick %d (clock %d), snapshot from slot %d",
+		relay.member_of[player],
 		player,
 		join_tick,
 		relay.clock,
 		provider,
 	)
+}
+
+// The member a key recognizes (-1: none, or no key).
+@(private)
+find_member :: proc(relay: ^Relay($Input, $PLAYERS), key: string) -> int {
+	if key == "" {
+		return -1
+	}
+	for member, k in relay.members {
+		if member.key == key {
+			return k
+		}
+	}
+	return -1
 }
 
 // The lowest connected player that can send `joiner` a snapshot and didn't send it a bad one (-1: none).
@@ -487,9 +559,9 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 			// a wanted tick far ahead would hold back the sender's later commands: clamp it
 			want = min(want, relay.finalized + INPUT_RING),
 			cmd = {
-				kind   = kind,
-				player = u8(player),
-				size   = u8(size),
+				kind = kind,
+				slot = u8(player),
+				size = u8(size),
 			},
 		}
 		copy(waiting.cmd.data[:], bytes)
@@ -800,6 +872,9 @@ finalize :: proc(relay: ^Relay($Input, $PLAYERS)) {
 				continue
 			}
 			tick_inputs.present += {player}
+			if tick == relay.active_from[player] {
+				tick_inputs.member[player] = relay.member_of[player] // the join record
+			}
 			if have_input(relay, player, tick) {
 				tick_inputs.input[player] = relay.inputs[player][tick % INPUT_RING]
 			} else {
@@ -906,17 +981,13 @@ broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 	}
 }
 
-// Tells every connected client which players are connected, with names.
+// Sends a member's roster entry to every connected client (or only to slot `to`).
 @(private)
-send_roster :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
+send_roster_entry :: proc(relay: ^Relay($Input, $PLAYERS), member: int, now: i64, to := -1) {
 	writer := msg_begin(&relay.w, .Roster)
-	wire.w_u8(writer, u8(PLAYERS))
+	w_roster_entry(writer, &relay.members[member].entry)
 	for player in 0 ..< PLAYERS {
-		wire.w_u8(writer, u8(relay.connected[player]))
-		w_name(writer, &relay.names[player])
-	}
-	for player in 0 ..< PLAYERS {
-		if relay.connected[player] {
+		if relay.connected[player] && (to < 0 || to == player) {
 			relay_send(relay, player, writer, .Reliable, now)
 		}
 	}
@@ -929,12 +1000,18 @@ player_gone :: proc(relay: ^Relay($Input, $PLAYERS), player: int, why: string, n
 	relay.checking[player] = false
 	relay.player_of[relay.peer_of[player]] = -1
 	relay.peer_of[player] = -1
-	relay.names[player] = {}
 	relay.provider[player] = -1
 	relay.report_from[player] = NO_REPORTS
 	clear(&relay.cmd_wait[player]) // a left player's commands that never reached a tick go with it
-	relay_log(relay, "player %d %s", player, why)
-	send_roster(relay, now)
+	member := int(relay.member_of[player])
+	relay.member_of[player] = NO_MEMBER
+	relay_log(relay, "member %d (slot %d) %s", member, player, why)
+	if member != int(NO_MEMBER) {
+		entry := &relay.members[member - 1].entry
+		entry.slot = NO_SLOT
+		entry.connected = false
+		send_roster_entry(relay, member - 1, now) // the entry stays: a "left" message can still name them
+	}
 	for &pending in relay.pending {
 		if relay.pending_on && pending.player == player {
 			pending.done = true

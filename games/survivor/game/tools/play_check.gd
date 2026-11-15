@@ -235,7 +235,7 @@ func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 
 func _me() -> Node3D:
 	var player: int = game.local_player()
-	if current_scene == null or player < 0:
+	if current_scene == null or player == 0:
 		return null
 	for n in views(&"player"):
 		if (n.get_node(^"UnifiedView") as UnifiedView).player == player:

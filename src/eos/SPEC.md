@@ -18,13 +18,16 @@ eos.close()                                          // destroy/leave the lobby 
 eos.status() -> Status{stage, role, code, detail, local, host, network, peers, lib}   // any thread
 eos.shutdown()                                       // at exit; EOS can't be initialized again in the process
 eos.forget_device()                                  // test tools: delete this machine's device ID
+eos.local_account() -> (netcode.Account, bool)       // logged in: {"eos", our product user id} (godot.Transport.account)
 ```
 
 `bucket` names the game and its own compatibility counter (e.g. `survivor/4`): the game bumps it by hand when its
 builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
 only match inside one bucket, so
 incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot.Transport`;
-the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
+the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). The link vouches
+for every peer's account (`netcode.Link.account`: "eos" and the remote's product user id, which EOS authenticated):
+the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
 
 ## How it works

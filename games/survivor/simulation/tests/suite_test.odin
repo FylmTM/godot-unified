@@ -37,6 +37,8 @@ SUITE := scenarios.Suite(survivor.State, survivor.Input, survivor.World, survivo
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
 @(test)
+presence_churn :: proc(t: ^testing.T) {scenarios.presence_churn(t, &SUITE)}
+@(test)
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
 @(test)
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(

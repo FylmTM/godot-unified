@@ -9,6 +9,7 @@ import "core:fmt"
 import "../survivor"
 import "unified:headless"
 import "unified:headless/modes"
+import "unified:sim"
 
 HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
 	game = &survivor.GAME_STRESS,
@@ -30,12 +31,14 @@ main :: proc() {
 	modes.run(&HEADLESS, variants = {&survivor.GAME}, online = &EOS_ONLINE)
 }
 
-// A JSON fragment describing the state (for the CLI output; temp-allocated).
+// A JSON fragment describing the state (for the CLI output; temp-allocated). `levels` by slot (0: nobody).
 summary :: proc(state: ^survivor.State) -> string {
 	levels: [survivor.PLAYERS]i32
 	alive := 0
-	for &character, player in state.players {
-		levels[player] = character.level
+	for slot in 0 ..< survivor.PLAYERS {
+		character := sim.player_get(&state.players, sim.player_in_slot(&state.players, slot))
+		if character == nil do continue
+		levels[slot] = character.level
 		alive += int(character.alive)
 	}
 	return fmt.tprintf(

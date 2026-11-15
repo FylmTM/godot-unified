@@ -68,10 +68,10 @@ command_unions_are_checked :: proc(t: ^testing.T) {
 	}
 }
 
-bump :: proc(player: int, amount: i32) -> sim.Raw_Command {
+bump :: proc(slot: int, amount: i32) -> sim.Raw_Command {
 	raw, ok := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 	assert(ok)
-	raw.player = u8(player)
+	raw.slot = u8(slot)
 	return raw
 }
 
@@ -85,14 +85,14 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	testing.expect(t, sim.add_command(&inputs, bump(0, 10)))
 	testing.expect(t, sim.add_command(&inputs, bump(3, 30)))
 	testing.expect(t, sim.add_command(&inputs, bump(0, 11)))
-	testing.expect(t, !sim.add_command(&inputs, bump(toy.PLAYERS, 0))) // no such player
+	testing.expect(t, !sim.add_command(&inputs, bump(toy.PLAYERS, 0))) // no such slot
 	testing.expect_value(t, inputs.command_count, 7)
-	// By player, each player's in the order added.
+	// By slot, each slot's in the order added.
 	want := [?][2]i32{{0, 10}, {0, 11}, {2, 0}, {2, 1}, {2, 2}, {2, 3}, {3, 30}}
 	for expected, i in want {
 		raw := &inputs.commands[i]
 		value, is_bump := sim.command_value(raw, toy.Cmd).(toy.Cmd_Bump)
-		testing.expect(t, is_bump && i32(raw.player) == expected[0] && value.amount == expected[1])
+		testing.expect(t, is_bump && i32(raw.slot) == expected[0] && value.amount == expected[1])
 	}
 	testing.expect_value(t, len(sim.commands(&inputs, 0)), 2)
 	testing.expect_value(t, len(sim.commands(&inputs, 1)), 0)
@@ -111,7 +111,8 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 3)
 	defer sim.destroy(simulation)
 	inputs: toy.Inputs
-	inputs.present = {0, 1}
+	sim.join(&inputs, 0, 1)
+	sim.join(&inputs, 1, 2)
 	sim.add_command(&inputs, bump(1, 5))
 	sim.add_command(&inputs, bump(1, -2))
 	mark, ok := sim.command_make(toy.Cmd, toy.Cmd_Mark {
@@ -120,18 +121,18 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 		shapes = {.Ring},
 	})
 	testing.expect(t, ok)
-	sim.add_command(&inputs, mark) // player 0
-	stray := bump(3, 100) // player 3 is not present: ignored by the toy
+	sim.add_command(&inputs, mark) // slot 0
+	stray := bump(3, 100) // slot 3 is not present: nobody's
 	sim.add_command(&inputs, stray)
 	sim.step(simulation, &inputs)
 	state := &simulation.state
-	testing.expect_value(t, state.bumps[1], 2)
-	testing.expect_value(t, state.bump_sum[1], 3)
-	testing.expect_value(t, state.bump_fold[1], toy.bump_fold(toy.bump_fold(0, 5), -2))
-	testing.expect_value(t, state.marks[0], 1)
-	last := state.last_mark[0]
+	testing.expect_value(t, toy.in_slot(state, 1).bumps, 2)
+	testing.expect_value(t, toy.in_slot(state, 1).bump_sum, 3)
+	testing.expect_value(t, toy.in_slot(state, 1).bump_fold, toy.bump_fold(toy.bump_fold(0, 5), -2))
+	testing.expect_value(t, toy.in_slot(state, 0).marks, 1)
+	last := toy.in_slot(state, 0).last_mark
 	testing.expect(t, last.at == {1, 2} && last.count == 3 && last.shapes == {.Ring})
-	testing.expect_value(t, state.bumps[3], 0)
+	testing.expect(t, toy.in_slot(state, 3) == nil)
 	// An unknown kind or a wrong size reads as no command.
 	inputs = {}
 	inputs.present = {0}
@@ -142,7 +143,7 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	short.size = 3
 	sim.add_command(&inputs, short)
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, state.bumps[0], 0)
+	testing.expect_value(t, toy.in_slot(state, 0).bumps, 0)
 	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Cmd) == nil)
 	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Cmd) == nil)
 	// command_from_bytes and command_make refuse what isn't one of the game's

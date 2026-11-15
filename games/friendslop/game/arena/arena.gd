@@ -28,6 +28,7 @@ func marker(entity: int) -> Node3D:
 	return markers[i] as Node3D if i >= 0 and i < markers.size() else null
 
 
+## The view of a player (its key: Game.local_player(), an event's `player`), or null.
 func player_view(player: int) -> GameView:
 	for v: GameView in _views.get_children():
 		if v.kind == &"player" and v.player == player:

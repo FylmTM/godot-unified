@@ -16,7 +16,9 @@ through `headless.session_run`).
 ## Pieces
 
 - **Link** (the transport interface, stable and small): `send(to, bytes)`, `recv(buf) -> (n, from, ok)`, `close`,
-  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number).
+  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number),
+  optional `account(peer) -> (Account{platform, id}, ok)` (the account the transport vouches for behind a peer: EOS
+  gives the remote's product user id; LAN and direct UDP none).
   Datagrams ≤ `MAX_DATAGRAM` (1152, fits EOS P2P), may be lost. A link numbers its remote endpoints as `Peer`s (a
   client-side link: peer 0). Implementations: in-process loopback (`hub_create`, `loopback_link`), UDP
   (`udp_listen(port, .Local | .Lan)`: 127.0.0.1, or every interface for players on other machines; `udp_connect`),
@@ -40,24 +42,28 @@ through `headless.session_run`).
   `client_destroy`, `client_result`): the verified and predicted frames, rollback, the clock and input delay,
   snapshots for joiners.
 - **Host** (`host_create(&GAME, cfg, hooks)`, `host_add_link`, `host_step`, `host_stop`, `host_finished`,
-  `host_destroy`): the relay plus the host's own client (player 0) joined by loopback. Single player is a host with
-  no remote links. The relay serves remote links from when the host's own player is in (a remote Hello already
-  waiting joins as a late joiner, never as player 0), and starts its clock without the start lead.
+  `host_destroy`): the relay plus the host's own client (slot 0) joined by loopback; `Host_Config.account` is the
+  host player's own platform account (the Godot host asks its transport). Single player is a host with no remote
+  links. The relay serves remote links from when the host's own player is in (a remote Hello already waiting joins
+  as a late joiner, never in slot 0), and starts its clock without the start lead.
 
 ## Relay
 
-- **Hello** carries the protocol, the player (or any), a join tick, a `compat` id (default `sim.compat_of(game)`:
+- **Hello** carries the protocol, the slot (or any), a join tick, a `compat` id (default `sim.compat_of(game)`:
   layouts, command and event types, player count, tick rate, game name and version, content; 0 at the relay
-  accepts any) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`, `Not_Started`, `No_Snapshot` (a
-  joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). A game's lobby bucket is its name,
-  `compat` and `PROTOCOL_VERSION` (10); the library forms it from #11 on, until then each game bumps its own.
+  accepts any), the client's token (Members) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`,
+  `Not_Started`, `No_Snapshot` (a joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). A
+  game's lobby bucket is its name, `compat` and `PROTOCOL_VERSION` (11); the library forms it from #11 on, until then
+  each game bumps its own. **Welcome** carries the slot, the joiner's member id, the seed, the tick rate, the length,
+  the first tick it is present and flags.
 - **Start** (#179, D6 of #8): the clock starts once the start players have connected: they get Welcome and tick 0 is
   due `START_LEAD_MS` (500 ms) later, so a far start player's inputs for tick 1 arrive in time (~550 ms RTT); during
   the lead the relay already broadcasts, with a negative relay time. A host's relay skips the lead (`local_start`):
   its only start player is in-process.
 - **Finalizing**: tick T is final once every present player's input for T is in, or the clock reaches T +
   tolerance (100 ms, 7 ticks at 64 Hz), never past the clock while nobody is present. A missing input repeats the
-  player's last one (`replaced`). `present` = connected players from their join tick. A tick can be final before it
+  player's last one (`replaced`). `present` = connected slots from their join tick; a slot's join tick carries its
+  join record (`sim.Inputs.member`: the member seated there). Slots go lowest-free. A tick can be final before it
   is due.
 - **Broadcast**: on every finalize, and a heartbeat when nothing was finalized for a tick (the clients time their
   clocks from it). Each Finalized datagram carries the relay time, an echo of the client's last Inputs time, the
@@ -66,9 +72,9 @@ through `headless.session_run`).
   left the ring is refused (`Too_Far_Behind`).
 - **The window** (#192, `window.odin`): each tick is written as its changes from the tick before it in the same
   packet, the first from the empty tick (nobody present, zero inputs): a flags byte (presence changed, inputs
-  changed, has commands), then only what it says: present and replaced; a bit per player whose input changed and,
-  per such player, a bit per changed byte and those bytes; the commands. A tick like the one before, without
-  commands, is one byte; absent seats cost nothing. Every packet decodes on its own, so acks and loss work as before
+  changed, has commands, has join records), then only what it says: present and replaced; a bit per slot whose input
+  changed and, per such slot, a bit per changed byte and those bytes; the commands; the join records (per tick,
+  never carried over). A tick like the one before, without commands or joins, is one byte; absent seats cost nothing. Every packet decodes on its own, so acks and loss work as before
   (the next packet repeats what wasn't acked). A tick's commands are budgeted so it fits a packet alone however much
   it changed (`window_tick_max_bytes`). Measured (`net-bench`, 2 clients, 140 ms each way): a joiner receives 7.5
   kB/s in drift, 7.8 in friendslop, from 38 and 52 (110 and 115 bytes a packet from 555 and 758); scripted inputs
@@ -79,6 +85,28 @@ through `headless.session_run`).
   that never ended still reads to its last tick. `session_run`, the headless `--log` and the online modes record; a
   shipped game leaves it off, or records to disk as an opt-in for bug reports.
 - **The host leaving ends the session** (#8 D9): the host is the relay. Host migration is #187.
+
+## Members
+
+Signed off 2026-11-15 (#222; the sim's side: `src/sim/SPEC.md`, Players). A player is a session **member**, the
+person, not a slot.
+
+- The relay gives each distinct person a **member id** for the session (1, 2, ...; never reused, at most 65,535) and
+  keeps account-or-token -> member. The **account** comes from the link (`Link.account(peer)`; EOS: the remote's
+  product user id), never from the client. On a link that vouches for none (LAN, direct UDP) the client's **token**
+  is used instead: 16 random bytes in Hello (`Client_Config.token`; the Godot host keeps it in `user://`, a headless
+  client takes `--token`), never forwarded. Neither has one: a new member every time.
+- Accounts and tokens never enter the deterministic stream: a finalized tick (and the log) carries only member ids,
+  in the join record of a slot's join tick. Welcome carries the joiner's member id; the client predicts its own join
+  record on its first tick.
+- **Newest wins**: a Hello from a member who is still seated drops their old connection first (`player_gone`: the
+  slot is absent from the next tick, and the new connection joins in the lowest free slot at a later tick, as the same
+  member). A restarted game is back at once instead of after the old connection's timeout (#173).
+- **The roster** is one reliable `Roster` message per member change: `{member, slot or none, connected, name,
+  account platform and id}` (the vouched account; a token is never in it). Everyone connected gets each change; a
+  joiner gets every entry. Departed members' entries stay (connected false, no slot): a "left" message can name them
+  after they are gone. The client keeps them by member id (`client_member(client, id) -> ^Roster_Entry`,
+  `roster_changes`).
 
 ## Timing
 
@@ -153,7 +181,8 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
   commands. Finalizing T, it puts in each present player's waiting commands with W ≤ T: at most 4 per player and
   16 per tick, within the bytes that keep a tick alone inside one datagram, round-robin; the rest wait for T + 1. A
   left player's waiting commands go with it.
-- **Wire:** a finalized tick carries its commands as `sim.write_commands` does (the window, under Relay). A placement
+- **Wire:** a finalized tick carries its commands as `sim.write_commands` does (the window, under Relay), and its join
+  records as `sim.write_joins` does. A placement
   T ≠ W is a misprediction like any other (the sender rolls back at W).
 
 ## Late join and rejoin
@@ -169,9 +198,10 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
   through is replaced the same way. There is no replay from tick 0 (#8 D12).
 - A crafted snapshot can do no more than fail to load: Box3D images load safely from any bytes (#8 D11 a), and a
   snapshot that loads but differs from the majority fails the check.
-- A rejoin is a late join; a restarted program on the same address is recognized by its new epoch. Over EOS the
-  product user id keeps the player's seat. Over direct UDP a restarted program has a new port, so it joins as a new
-  peer in a free seat while its old one times out (#173; #8 D10: direct UDP is for LAN and tests).
+- A rejoin is a late join, in the lowest free slot; a restarted program on the same address is recognized by its new
+  epoch. Over EOS the product user id keeps the Peer (not the slot) and makes the joiner the same member (Members);
+  over direct UDP a restarted program has a new port and is a new peer, the same member when its token is (#173; #8
+  D10: direct UDP is for LAN and tests).
 
 ## Checksums and desyncs
 
@@ -189,7 +219,7 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
   and carry no detail.
 - **Recovery** (specified here, built in #188):
   1. *Rejoin in place*: a diverged client is resynced from a majority player's snapshot of a checksum tick, checked
-     as a joiner's is; it keeps its seat, clock and input stream. With 2 players the host's state wins.
+     as a joiner's is; it keeps its slot, clock and input stream. With 2 players the host's state wins.
   2. A client whose resync fails (no majority player can provide, or the check fails again) is refused
      (`Desynced`); a desync with no majority (3+ players all differing) ends the session.
   3. *Re-anchor*: a client whose backlog passes `CATCHUP_TICKS` (384) gets a checked snapshot instead of the stream,
@@ -199,14 +229,16 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
 
 `tests/netcode`, on the toy and a virtual clock unless a test says otherwise (every client sends the toy's scripted
 commands): host + remote clients under `wan` (checksums agree, the recording replays to the verified checksum, hooks
-in order), late join + leave + seat reuse, single player, a taken player refused, the delay and stamp formulas at
+in order), late join + leave + slot reuse (the roster by member), single player, a taken player refused, the delay and stamp formulas at
 32/60/64/128 Hz, outages and rejoins, catching up, too far behind, everyone leaving (a returning player refused),
 a snapshot provider leaving (another steps in; with nobody, the joiner is refused), a bad snapshot refused and
 another sent (with nobody else: refused), the `desync` hook, a reliable burst not resent, a jitter-only netsim,
 stale finalized ticks, the window encoding (`window_test.odin`: round trips, sizes, malformed ticks refused),
 reliable floods, UDP endpoint reuse, oversized messages, another build refused, a seeded
 fuzz of the channel, relay and client decoders, and commands (`command_test.odin`): exactly once and in order under
-`bad`, a late input's command moved to a later tick, the 5th command of a tick waiting for the next.
+`bad`, a late input's command moved to a later tick, the 5th command of a tick waiting for the next. Members (`member_test.odin`): a token, and an account a link vouches
+for, bring a member back in another slot with the same handle and data; the newest connection of a member wins; the
+roster keeps a departed member's entry; neither the token nor the account id is in the recording.
 `tests/headless`: a desync made on purpose (a tick that reads the World) is detected, reported to everyone with a
 typed detail, and fails the session; inputs count past the round-trip ceiling (400 ms: 0 of 2,400 replaced, 2,322
 before); the delay stays at the game's floor within the window. The end-to-end suites run the same code through

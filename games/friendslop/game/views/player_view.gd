@@ -25,7 +25,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	var c := COLORS[clampi(player, 0, COLORS.size() - 1)]
+	var c := COLORS[clampi(Game.player_slot(player), 0, COLORS.size() - 1)]
 	_body = Node3D.new()
 	add_child(_body)
 	var radius: float = Game.constants.get("player_radius", 0.35)
@@ -90,7 +90,7 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
 	var info := Game.player_info(player)
-	var player_name := Game.player_name(info) if not info.is_empty() else "P%d" % (player + 1)
+	var player_name := Game.player_name(info) if not info.is_empty() else "P%d" % (Game.player_slot(player) + 1)
 	if _tag.text != player_name:
 		_tag.text = player_name
 	_tag.visible = player != Game.local_player()

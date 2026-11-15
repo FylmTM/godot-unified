@@ -26,17 +26,16 @@ Sim :: sim.Sim(State, Input, World, PLAYERS)
 Tick :: sim.Tick(State, Input, World, PLAYERS)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
-// (y = 0) for enemies and gems, the body's centre for players and barrels.
+// (y = 0) for enemies and gems, the body's centre for players and barrels. A `player` field names the player the
+// event is about (the Godot host routes it to their view). Joins and leaves are the library's events.
 Event_Player_Died :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Player_Respawned :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Enemy_Died :: struct {
@@ -57,38 +56,23 @@ Event_Gem_Collected :: struct {
 	gem:      sim.Handle(Gem),
 	position: sim.Position,
 	xp:       i32, // the gem's value
-	player:   u8, // who collected it
-	_pad:     [3]u8,
+	player:   sim.Player, // who collected it
 }
 
 Event_Level_Up :: struct {
 	position: sim.Position,
 	level:    i32, // the new level
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // The match starts when `player` leaves the start circle.
 Event_Match_Started :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Match_Over :: struct {
 	duration_s: f32, // the match's length in seconds
-}
-
-Event_Player_Joined :: struct {
-	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
-}
-
-Event_Player_Left :: struct {
-	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
 }
 
 Event :: union {
@@ -100,8 +84,8 @@ Event :: union {
 	Event_Level_Up,
 	Event_Match_Started,
 	Event_Match_Over,
-	Event_Player_Joined,
-	Event_Player_Left,
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
 }
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
@@ -141,7 +125,7 @@ GAME_STRESS := Game {
 	commands = Cmd,
 }
 
-// Start spots, inside the start circle.
+// Start spots by slot, inside the start circle.
 @(rodata)
 PLAYER_START := [PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
@@ -197,10 +181,11 @@ create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 	return ref
 }
 
-create_player_body :: proc(world: ^World, player: int) -> Body_Ref {
+// Creates a player's body at the start spot of `slot`.
+create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	body_def := b3.default_body_def()
 	body_def.type = .Dynamic_Body
-	body_def.position = PLAYER_START[player]
+	body_def.position = PLAYER_START[slot]
 	body_def.motion_locks.angular_x = true
 	body_def.motion_locks.angular_y = true
 	body_def.motion_locks.angular_z = true
@@ -239,7 +224,7 @@ world_destroy :: proc(world: ^World) {
 	free(world)
 }
 
-// The tick-0 state: the lobby, items with their bodies; players join when they are first present.
+// The tick-0 state: the lobby, items with their bodies; players join when they are first present (sys_players).
 init :: proc(state: ^State, world: ^World, seed: u64) {
 	state.seed = u32(seed)
 	state.rng = sim.rng_seed(seed)
@@ -249,9 +234,6 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	set_tuning(state, .Play)
 	for i in 0 ..< ITEM_COUNT {
 		item_reset(state, world, i)
-	}
-	for player in 0 ..< PLAYERS {
-		player_reset_stats(state, player)
 	}
 }
 
@@ -264,36 +246,30 @@ item_reset :: proc(state: ^State, world: ^World, i: int) {
 	item.body = create_item_body(world, i)
 }
 
-// Fresh progress for `player` (no body, not alive; `active` is kept).
-player_reset_stats :: proc(state: ^State, player: int) {
-	character := &state.players[player]
-	active := character.active
+// Fresh progress (no body, not alive): a new player's, and everyone's at a reset. The body must be gone.
+character_reset :: proc(character: ^Character) {
 	character^ = {
 		fire_interval = FIRE_INTERVAL_TICKS,
 		level         = 1,
 		speed         = PLAYER_SPEED,
-		pos           = PLAYER_START[player],
-		active        = active,
 	}
 }
 
-player_activate :: proc(state: ^State, world: ^World, player: int) {
-	state.players[player].active = true
-	player_spawn(state, world, player)
-}
-
-player_spawn :: proc(state: ^State, world: ^World, player: int) {
-	character := &state.players[player]
+// A body at the start spot of `slot`, with full HP.
+character_spawn :: proc(world: ^World, character: ^Character, slot: int) {
 	character.alive = true
 	character.hp = PLAYER_HP
 	character.respawn = 0
-	character.pos = PLAYER_START[player]
-	character.body = create_player_body(world, player)
+	character.pos = PLAYER_START[slot]
+	character.body = create_player_body(world, slot)
 }
 
-// The player leaves: body gone, progress reset (a rejoin starts fresh).
-player_deactivate :: proc(state: ^State, world: ^World, player: int) {
-	destroy_body(world, &state.players[player].body)
-	state.players[player].active = false
-	player_reset_stats(state, player)
+// The player left: the body goes (an absent player owns nothing outside the block), the progress stays for their
+// return.
+character_leave :: proc(world: ^World, character: ^Character) {
+	destroy_body(world, &character.body)
+	character.alive = false
+	character.respawn = 0
+	character.dash_ticks = 0
+	character.prev_buttons = 0
 }

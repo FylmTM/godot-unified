@@ -1,10 +1,11 @@
 extends Node2D
 ## A player's ship, drawn in code. The host sets the root's position (pixels) and rotation (the heading: 0 = +x,
-## the nose) and the Ship_View data below; everything else is view-only: the hull in the player's colour, a flame
-## while thrusting, a ring that fills while boost recharges, a squash on shots and boosts, a muzzle flash, a warp
-## flash, a name tag over other players' ships, and a shrink when the ship leaves.
+## the nose) and the Ship_View data below; everything else is view-only: the hull in the colour of the player's slot,
+## a flame while thrusting, a ring that fills while boost recharges, a squash on shots and boosts, a muzzle flash, a
+## warp flash, a name tag over other players' ships, and a shrink when the ship leaves. The view outlives a leave:
+## a player who comes back (in any slot) gets it back, in their new slot's colour.
 
-## The view's marker: `player` is the ship's player (set by the host before _ready).
+## The view's marker: `player` is the ship's player's key (set by the host before _ready).
 @onready var view: UnifiedView = %UnifiedView
 
 ## Ship_View (simulation/extension), set by the host when it changes.
@@ -17,6 +18,7 @@ var thrust := false
 
 var _r := 16.0  ## the sim's ship radius, in pixels
 var _color := Color.WHITE
+var _slot := -1  ## the slot _color is for
 var _squash := 0.0  ## > 0 stretches along the heading, < 0 squashes
 var _muzzle := 0.0
 var _warp := 0.0
@@ -33,15 +35,14 @@ func _ready() -> void:
 	z_index = 2
 	var radius: float = Game.constants.get("ship_radius", 0.5)
 	_r = radius * Game.px_per_m
-	_color = UiTheme.player_color(view.player)
 	_tag = Label.new()
 	_tag.top_level = true  # never turns with the ship
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_tag.custom_minimum_size = Vector2(160, 0)
 	_tag.add_theme_font_size_override(&"font_size", 13)
-	_tag.add_theme_color_override(&"font_color", _color.lightened(0.35))
 	_tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_tag)
+	_follow_slot()
 	_warp = 1.0  # a spawn flash
 
 
@@ -52,11 +53,11 @@ func _process(delta: float) -> void:
 	_warp = maxf(_warp - delta * 2.5, 0.0)
 	_ready_pulse = maxf(_ready_pulse - delta * 3.0, 0.0)
 	_leaving = move_toward(_leaving, 1.0 if _gone else 0.0, delta * 4.0)
+	_follow_slot()
 	var local := view.player == Game.local_player()
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
-		var info := Game.player_info(view.player)
-		var tag := Game.player_name(info) if not info.is_empty() else "P%d" % (view.player + 1)
+		var tag := Game.player_name({"player": view.player})  # the synced name, else "P<slot + 1>"
 		if _tag.text != tag:
 			_tag.text = tag
 		_tag.global_position = global_position + Vector2(-80, -_r - 26)
@@ -123,5 +124,15 @@ func _sim_event(event: UnifiedEvent, state: int) -> void:
 			Sfx.play(&"warp", -4.0)
 		"gem_picked":
 			_ready_pulse = 1.0
-		"joined":
+		"spawned":
 			_warp = 1.0
+
+
+## The hull and tag in the colour of the slot the player holds (kept while they are away: the view lingers).
+func _follow_slot() -> void:
+	var slot := Game.player_slot(view.player)
+	if slot < 0 or slot == _slot:
+		return
+	_slot = slot
+	_color = UiTheme.player_color(slot)
+	_tag.add_theme_color_override(&"font_color", _color.lightened(0.35))

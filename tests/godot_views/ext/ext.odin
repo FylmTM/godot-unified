@@ -46,7 +46,7 @@ Mode :: enum u8 {
 	Open,
 }
 
-// The HUD view's data (player 0's command counters and position): more than 64 bytes.
+// The HUD view's data (the local player's command counters and position): more than 64 bytes.
 Hud_Data :: struct {
 	bumps:       u32,
 	bump_sum:    i32,
@@ -92,12 +92,14 @@ sample_input :: proc(input: ^toy.Input) {
 
 fill_frame :: proc(frame: ^Frame) {
 	state := frame.state
+	local := sim.player_get(&state.players, frame.local_player)
+	if local == nil do return // before the local player's join tick
 	q2 := view.quat_angle2d(ANGLE_2D)
 	q3 := view.quat_yaw(YAW_3D)
 	godot.push_view(frame, {
 		key    = 1,
 		kind   = .Typed2D,
-		player = 0,
+		player = frame.local_player,
 		pos    = POS_2D,
 		rot    = q2,
 	}, Typed2D_Data {
@@ -123,11 +125,11 @@ fill_frame :: proc(frame: ^Frame) {
 		pos    = POS_3D,
 		rot    = q3,
 	})
-	mark := &state.last_mark[0]
+	mark := &local.last_mark
 	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, Hud_Data {
-		bumps       = state.bumps[0],
-		bump_sum    = state.bump_sum[0],
-		marks       = state.marks[0],
+		bumps       = local.bumps,
+		bump_sum    = local.bump_sum,
+		marks       = local.marks,
 		mark_at     = mark.at,
 		mark_normal = mark.normal,
 		mark_weight = mark.weight,
@@ -135,8 +137,8 @@ fill_frame :: proc(frame: ^Frame) {
 		mark_shape  = mark.shape,
 		mark_shapes = transmute(u8)mark.shapes,
 		mark_loud   = mark.loud,
-		x           = state.pos[0].x,
-		y           = state.pos[0].y,
+		x           = local.pos.x,
+		y           = local.pos.y,
 		spawned     = state.spawned,
 		pad_check   = {1, 2, 3, 4},
 		tint        = {1, 2, 3, 4},

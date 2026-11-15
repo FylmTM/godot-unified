@@ -33,8 +33,8 @@ friendslop_init :: proc "c" (
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "friendslop/6"
-#assert(netcode.PROTOCOL_VERSION == 10, "netcode protocol changed: bump BUCKET with it")
+BUCKET :: "friendslop/7"
+#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
 eos_init :: proc(events: ^godot.Transport_Events) -> bool {
@@ -65,6 +65,7 @@ EOS_TRANSPORT := godot.Transport {
 	close = proc(_: rawptr) {eos.close()},
 	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
 	shutdown = proc(_: rawptr) {eos.shutdown()},
+	account = proc(_: rawptr) -> (netcode.Account, bool) {return eos.local_account()},
 }
 
 /// ---- glue
@@ -92,9 +93,13 @@ GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, MultiView) {
 	level          = "res://game/levels/park.level",
 }
 
-PLAYER_KEY :: 1 // + player
+// A player's view is keyed by sim.player_key (>= 0x10000: a member id is >= 1), so it never meets these.
 MARKER_KEY :: 0x100 // + marker index
 HUD_KEY :: 0x1000
+
+player_view_key :: proc(player: sim.Player) -> view.Key {
+	return view.Key(sim.player_key(player))
+}
 
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
@@ -102,8 +107,8 @@ HUD_KEY :: 0x1000
 event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
 	value := sim.event_value(event, fs.Event)
 	fields := any{&value, reflect.union_variant_typeid(value)}
-	if player, ok := reflect.struct_field_value_by_name(fields, "player").(u8); ok && player != sim.NO_PLAYER {
-		return view.Key(PLAYER_KEY + int(player))
+	if player, ok := reflect.struct_field_value_by_name(fields, "player").(sim.Player); ok && player != {} {
+		return player_view_key(player)
 	}
 	if entity, ok := reflect.struct_field_value_by_name(fields, "entity").(u64); ok && entity != 0 {
 		return view.Key(MARKER_KEY + int(entity) - 1)
@@ -156,28 +161,26 @@ Player_View :: struct {
 	charge:  f32, // throw charge 0..1
 }
 
-fill_frame :: proc(frame: ^Frame) {
-	state, world := frame.state, frame.world
-	for player in 0 ..< fs.PLAYERS {
-		character := &state.players[player]
-		if !character.active do continue
-		godot.push_view(frame, {
-			key    = view.Key(PLAYER_KEY + player),
+fill_frame :: proc(f: ^Frame) {
+	players := sim.iterate_present(&f.state.players)
+	for character, player in sim.next(&players) {
+		godot.push_view(f, {
+			key    = player_view_key(player),
 			kind   = .Player,
 			player = player,
-			pos    = physics.position(world.phys, character.controller.body),
+			pos    = physics.position(f.world.phys, character.controller.body),
 			rot    = fs.yaw_quat(character.facing),
 		}, Player_View {
-			limp    = character.stun > 0 || character.held_by != 0,
+			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
 			charge  = f32(character.charge) / f32(fs.THROW_CHARGE_TICKS),
 		})
 	}
-	add_body :: proc(frame: ^Frame, body: physics.Body_Ref, marker: int) {
+	add_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
-		id := physics.body_id(frame.world.phys, body)
+		id := physics.body_id(f.world.phys, body)
 		pos := b3.body_get_position(id)
-		godot.push_view(frame, {
+		godot.push_view(f, {
 			key    = view.Key(MARKER_KEY + marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
@@ -185,21 +188,21 @@ fill_frame :: proc(frame: ^Frame) {
 			rot    = b3.body_get_rotation(id),
 		})
 	}
-	for i in 0 ..< world.item_count {
-		if state.items[i].alive do add_body(frame, state.items[i].body, world.items[i].marker)
+	for i in 0 ..< f.world.item_count {
+		if f.state.items[i].alive do add_body(f, f.state.items[i].body, f.world.items[i].marker)
 	}
-	for i in 0 ..< world.platform_count do add_body(frame, state.platforms[i].body, world.platforms[i].marker)
-	for i in 0 ..< world.trigger_count {
-		marker := world.triggers[i].marker
-		godot.push_view(frame, {
+	for i in 0 ..< f.world.platform_count do add_body(f, f.state.platforms[i].body, f.world.platforms[i].marker)
+	for i in 0 ..< f.world.trigger_count {
+		marker := f.world.triggers[i].marker
+		godot.push_view(f, {
 			key    = view.Key(MARKER_KEY + marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
-			pos    = world.triggers[i].volume.pos,
-			rot    = world.level.markers[marker].rot,
+			pos    = f.world.triggers[i].volume.pos,
+			rot    = f.world.level.markers[marker].rot,
 		})
 	}
-	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, fs.hud(state, frame.tick))
+	godot.push_view(f, {key = HUD_KEY, kind = .Hud}, fs.hud(f.state, f.tick))
 }
 
 // ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions

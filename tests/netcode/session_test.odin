@@ -102,7 +102,7 @@ net_join :: proc(session: ^Net, profile: netcode.Profile, player := -1) -> ^Clie
 		&session.clock,
 	)
 	client := netcode.client_create(&toy.GAME, {
-			player      = player,
+			slot        = player,
 			name        = "remote",
 			player_name = endpoint == 1 ? "Grace" : "Linus",
 			quiet       = true,
@@ -164,7 +164,7 @@ expect_agree :: proc(t: ^testing.T, session: ^Net) {
 						t,
 						host_entry[1] == entry[1],
 						"player %d disagrees at tick %d",
-						client.player,
+						client.slot,
 						entry[0],
 					)
 				}
@@ -224,17 +224,21 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	late := net_join(&session, netcode.PROFILES[1])
 	net_run(&session, 4)
 	testing.expect_value(t, late.status, netcode.Status.Connected)
-	testing.expect_value(t, late.player, 2)
+	testing.expect_value(t, late.slot, 2)
 	testing.expect(t, late.first_tick > 64 * 3)
 	testing.expect(t, late.verified > late.first_tick)
 	testing.expect(t, len(net_log(&session).commands) > 0) // the snapshot's history had commands
 	expect_agree(t, &session)
-	// The roster: every client knows every name.
+	// The roster: every client knows every member, by member id (in the order they came), with its slot.
 	for client in ([]^Client{session.host.client, session.clients[0], late}) {
-		testing.expect_value(t, netcode.client_player_name(client, 0), "Ada")
-		testing.expect_value(t, netcode.client_player_name(client, 1), "Grace")
-		testing.expect_value(t, netcode.client_player_name(client, 2), "Linus")
-		testing.expect(t, client.connected[0] && client.connected[1] && client.connected[2] && !client.connected[3])
+		names := [?]string{"Ada", "Grace", "Linus"}
+		for name, k in names {
+			entry := netcode.client_member(client, u16(k + 1))
+			if !testing.expect(t, entry != nil) do continue
+			testing.expect_value(t, netcode.name_string(&entry.name), name)
+			testing.expect(t, entry.connected && int(entry.slot) == k)
+		}
+		testing.expect(t, netcode.client_member(client, 4) == nil)
 	}
 	// The first remote leaves: it disappears from `present` and the others go on.
 	netcode.client_stop(session.clients[0], session.clock.now)
@@ -247,7 +251,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	// Its player is free again for the next joiner.
 	again := net_join(&session, netcode.PROFILES[0])
 	net_run(&session, 3)
-	testing.expect_value(t, again.player, 1)
+	testing.expect_value(t, again.slot, 1)
 	testing.expect_value(t, again.status, netcode.Status.Connected)
 	expect_agree(t, &session)
 	netcode.host_stop(session.host, session.clock.now)

@@ -89,6 +89,65 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World,
 	)
 }
 
+// Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
+// player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
+// tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.
+presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS), window: u32 = 8) {
+	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
+	if !testing.expectf(
+		t,
+		suite.players >= 2 && suite.ticks >= 64 && int(window) <= headless.max_window(suite.game.game),
+		"%s: needs 2 players, 64 ticks and a window the ring allows",
+		what,
+	) {
+		return
+	}
+	start := suite.ticks / 4
+	back := suite.players < PLAYERS ? suite.players : suite.players - 1 // a free slot, or the last one, emptied
+	NEWCOMER :: 100 // a member id the script gives nobody else
+	seats := []headless.Seat {
+		{tick = start, slot = 0, member = 0}, // member 1 leaves slot 0
+		{tick = start + 8, slot = 0, member = NEWCOMER}, // someone new takes it
+		{tick = start + 12, slot = back, member = 0},
+		{tick = start + 20, slot = back, member = 1}, // member 1 comes back in another slot
+	}
+	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players, seats)
+	testing.expectf(
+		t,
+		result.mismatches == 0,
+		"%s: %d mismatches; first: tick %d re-simulated differently at tick %d",
+		what,
+		result.mismatches,
+		result.first_tick,
+		result.first_at,
+	)
+	// Forward, the handles: the newcomer is someone else, the one who came back is who they were.
+	simulation := sim.create(suite.game.game, suite.seed, suite.game.content)
+	defer sim.destroy(simulation)
+	commands := headless.Scripted_Commands {
+		seats = seats,
+	}
+	defer headless.scripted_commands_destroy(&commands)
+	first: sim.Player
+	for tick in 1 ..= start + 20 {
+		inputs := headless.scripted(suite.game, simulation, tick, suite.players, &commands)
+		sim.step(simulation, &inputs)
+		if tick == 1 do first = sim.slot_player(simulation, 0)
+	}
+	newcomer := sim.slot_player(simulation, 0)
+	testing.expectf(t, newcomer.id == NEWCOMER && newcomer != first, "%s: slot 0 holds %v", what, newcomer)
+	testing.expectf(t, sim.slot_player(simulation, back) == first, "%s: %v did not come back", what, first)
+	returned := false
+	joined_kind := sim.variant_kind(suite.game.game.events, sim.Event_Player_Joined)
+	for &raw in sim.events_at(simulation, start + 20) {
+		if int(raw.kind) == joined_kind {
+			joined := (^sim.Event_Player_Joined)(&raw.data[0])^
+			returned ||= joined.player == first && joined.returning && int(joined.slot) == back
+		}
+	}
+	testing.expectf(t, returned, "%s: no returning join event for %v", what, first)
+}
+
 // Two scripted runs with the same parameters have identical traces.
 runs_match :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
 	first, second: headless.Trace
@@ -164,7 +223,7 @@ session_log_replays :: proc(
 					false,
 					"%s: the replay differs from client %d first at tick %d: %016x vs verified %016x",
 					what,
-					client.player,
+					client.slot,
 					verified[0],
 					got,
 					verified[1],

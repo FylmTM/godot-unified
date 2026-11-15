@@ -68,6 +68,7 @@ func views_of(kind: String) -> Array[Node2D]:
 	return out
 
 
+## A player's ship view (`player`: their key; 0 or no ship: null).
 func ship_view(player: int) -> Node2D:
 	for v in views_of("ship"):
 		if (v.get_node(^"UnifiedView") as UnifiedView).player == player:
@@ -134,7 +135,7 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 			Sfx.play(&"gem", -2.0)
 		"warped":
 			effects.ring(at, 8.0, 70.0, 0.45, UiTheme.CYAN, 3.0)
-		"joined":
+		"spawned":
 			effects.ring(at, 8.0, 50.0, 0.5, Color.WHITE, 2.0)
 			Sfx.play(&"join", -6.0)
 		"wave":

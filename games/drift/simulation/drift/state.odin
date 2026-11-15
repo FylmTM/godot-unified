@@ -11,6 +11,7 @@ DT :: f32(1) / TICK_HZ
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 
 PLAYERS :: 4
+MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence): a returning player keeps their ship's data
 MAX_ROCKS :: 128
 MAX_BULLETS :: 256
 MAX_GEMS :: 64
@@ -104,7 +105,7 @@ ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
 
 // ---- input
 
-// One player's input for one tick. Directions are in world space (the plane's x right, y down), −127..127.
+// One slot's input for one tick. Directions are in world space (the plane's x right, y down), −127..127.
 Input :: struct {
 	move_x:  i8,
 	move_y:  i8,
@@ -141,13 +142,16 @@ Phase :: enum u8 {
 	Over,
 }
 
+// A player's ship (their data in sim.Presence): zeroed when someone new joins, kept while they are away. Its body
+// exists only while the player is present (destroyed when they leave, made again at their slot's spawn when they
+// come back).
 Ship :: struct {
 	body:           physics.Body_Ref,
 	fire_cooldown:  u16, // ticks until the next shot
 	boost_cooldown: u16,
 	gate_cooldown:  u16, // ticks before this ship may warp again
-	active:         bool,
 	thrust:         bool, // thrusting this tick (the view's flame)
+	_pad:           u8,
 	shots:          u32,
 	gems:           u32,
 }
@@ -164,9 +168,9 @@ Rock :: struct {
 Bullet :: struct {
 	pos:   [2]f32,
 	vel:   [2]f32,
+	owner: sim.Player, // who fired it (their colour; whether present or not)
 	ttl:   u16,
-	owner: u8,
-	_pad:  u8,
+	_pad:  u16,
 }
 
 Gem :: struct {
@@ -197,7 +201,7 @@ State :: struct {
 	gems_dropped:   u32, // every other small rock drops a gem
 	_pad1:          u32, // the Rng's u64 is 8-byte aligned
 	rng:            sim.Rng, // the waves' stream
-	ships:          [PLAYERS]Ship,
+	players:        sim.Presence(Ship, PLAYERS, MEMBERS),
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),
 	bullets:        sim.Table(Bullet, MAX_BULLETS),
@@ -207,49 +211,43 @@ State :: struct {
 // ---- events
 
 // What a tick tells the view (src/sim/SPEC.md "Events"): one plain struct per event, named like the event
-// (type name lowercased: "rock_hit"). Positions are in metres on the plane (z = 0). Subjects: `player`, and the
-// first handle (a rock's).
+// (type name lowercased: "rock_hit"). Positions are in metres on the plane (z = 0). Subjects: `player` (a
+// sim.Player), and the first handle (a rock's). A player's joins and leaves are the library's
+// (sim.Event_Player_Joined, sim.Event_Player_Left).
 
-// A ship appeared at its spawn.
-Event_Joined :: struct {
+// A player's ship appeared at their slot's spawn (they joined or came back).
+Event_Spawned :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
-}
-
-Event_Left :: struct {
-	player: u8,
+	player:   sim.Player,
 }
 
 // A bullet left the ship's nose (`position`: the muzzle).
 Event_Fired :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Boosted :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // A ship warped from gate `from_gate` to `to_gate` (`position`: where it came out).
 Event_Warped :: struct {
 	position:  sim.Position,
-	player:    u8,
+	player:    sim.Player,
 	from_gate: u8,
 	to_gate:   u8,
-	_pad:      u8,
+	_pad:      [2]u8,
 }
 
 // A bullet of `player` hit `rock` at `position` (the hit point).
 Event_Rock_Hit :: struct {
 	rock:     sim.Handle(Rock),
 	position: sim.Position,
-	player:   u8,
+	player:   sim.Player,
 	size:     Rock_Size,
-	_pad:     [2]u8,
+	_pad:     [3]u8,
 }
 
 // `rock` (of `size`, gone now) broke into two of the next size.
@@ -278,8 +276,7 @@ Event_Station_Hit :: struct {
 
 Event_Gem_Picked :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // Event_Wave `wave` (1..) started.
@@ -289,7 +286,7 @@ Event_Wave :: struct {
 
 // `player` sent the `start` that began the match.
 Event_Match_Started :: struct {
-	player: u8,
+	player: sim.Player,
 }
 
 Event_Match_Over :: struct {
@@ -297,8 +294,9 @@ Event_Match_Over :: struct {
 }
 
 Event :: union {
-	Event_Joined,
-	Event_Left,
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
+	Event_Spawned,
 	Event_Fired,
 	Event_Boosted,
 	Event_Warped,

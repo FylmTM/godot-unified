@@ -38,8 +38,9 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   the session. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(command: UnifiedCommand)`. State: `session` (a typed
   `UnifiedSession`), `flow`, `mode`, `status`, `status_detail`, `lobby_code`, `lan_port`, `lan_address`,
-  `last_error`, `hud` (the HUD view fields), `constants`, `using_pad`. Helpers: `local_player()` (the session's),
-  `player_info(player)` (an entry of `hud.players`), `local_player_info()`, `present_players()`, `player_name(info)`
+  `last_error`, `hud` (the HUD view fields), `constants`, `using_pad`. Helpers: `local_player()` (the session's: a
+  player key, 0 for none), `player_slot(player)` (-1: absent), `player_info(player)` (an entry of `hud.players`,
+  whose `player` is a key), `local_player_info()`, `present_players()`, `player_name(info)`
   (the synced name, else "P<n>"), `hint(keys, pad)`, `rumble`, `clipboard_get/set`, `copy_with_feedback`. Signals:
   `flow_changed`, `status_changed`, `lobby_code_changed`, `input_device_changed`.
 - **`UnifiedSettings`** (`autoload/settings.gd`, `Settings`): `get_value`, `set_value(key, v, persist)`, `save`,

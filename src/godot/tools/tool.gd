@@ -318,11 +318,11 @@ func setting(key: StringName) -> Variant:
 	return root.get_node(^"Settings").get_value(key)
 
 
-## "player:name, ..." of the present players.
+## "slot:name, ..." of the present players.
 func player_names() -> String:
 	var out: Array[String] = []
 	for p: Dictionary in game.call(&"present_players"):
-		out.append("%d:%s" % [p.player, game.call(&"player_name", p)])
+		out.append("%d:%s" % [game.call(&"player_slot", p.player), game.call(&"player_name", p)])
 	return ", ".join(out)
 
 

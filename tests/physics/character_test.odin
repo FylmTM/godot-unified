@@ -101,6 +101,7 @@ Rig :: struct {
 	jumps:      u32,
 	prev:       [2]b8,
 	_pad:       u16,
+	players:    sim.Presence(u32, 2, 2), // every sim's State has one; the characters read their slot's input directly
 }
 
 Rig_World :: struct {
@@ -126,6 +127,7 @@ RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
+	events = Library_Events,
 	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(1)},
 	world_destroy = proc(rig_world: ^Rig_World) {
 		physics.destroy(rig_world.phys)

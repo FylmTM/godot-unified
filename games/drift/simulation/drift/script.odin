@@ -1,8 +1,8 @@
-// Scripted inputs for the headless modes and test sessions: per player, a value re-drawn every 16 ticks from a
-// hash of (seed, player, block), so any tick can be asked for in any order. The ships wander, turn toward one
-// of 8 directions, fire most of the time and boost now and then. Player 0 sends `start` and `restart` on a
+// Scripted inputs for the headless modes and test sessions: per slot, a value re-drawn every 16 ticks from a
+// hash of (seed, slot, block), so any tick can be asked for in any order. The ships wander, turn toward one
+// of 8 directions, fire most of the time and boost now and then. Slot 0 sends `start` and `restart` on a
 // fixed beat (the sim ignores each outside its phase), so scripted runs play whole matches; commands depend only
-// on (seed, player, tick), so a Godot session's scripted commands match the offline binary's.
+// on (seed, slot, tick), so a Godot session's scripted commands match the offline binary's.
 package drift
 
 import "unified:dmath"
@@ -13,17 +13,17 @@ SCRIPT_COMMAND_EVERY :: 256
 SCRIPT_START_AT :: 32 // in each SCRIPT_COMMAND_EVERY ticks
 SCRIPT_RESTART_AT :: 160
 
-// 32 bits from a hash of (seed, player, block).
-scripted_bits :: proc(seed: u64, player: int, block: u32) -> u32 {
-	x := seed * 0x9E3779B97F4A7C15 ~ u64(player + 1) * 0xBF58476D1CE4E5B9 ~ u64(block + 1) * 0x94D049BB133111EB
+// 32 bits from a hash of (seed, slot, block).
+scripted_bits :: proc(seed: u64, slot: int, block: u32) -> u32 {
+	x := seed * 0x9E3779B97F4A7C15 ~ u64(slot + 1) * 0xBF58476D1CE4E5B9 ~ u64(block + 1) * 0x94D049BB133111EB
 	x ~= x >> 31
 	x *= 0xD6E8FEB86659FD93
 	x ~= x >> 32
 	return u32(x)
 }
 
-scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^State) -> Input {
-	bits := scripted_bits(seed, player, (tick - 1) / SCRIPT_PERIOD)
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+	bits := scripted_bits(seed, slot, (tick - 1) / SCRIPT_PERIOD)
 	input: Input
 	if bits % 5 != 4 {
 		move := bits % 8
@@ -38,8 +38,8 @@ scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^State) -> Inpu
 	return input
 }
 
-scripted_commands :: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
-	if player != 0 do return
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+	if slot != 0 do return
 	switch tick % SCRIPT_COMMAND_EVERY {
 	case SCRIPT_START_AT:
 		sim.send_command(out, Cmd_Start{})

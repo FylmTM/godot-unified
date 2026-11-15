@@ -40,23 +40,24 @@ MultiView :: enum u8 {
 GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
 	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, MultiView)) {
-		state := frame.state
-		for player in 0 ..< toy.PLAYERS {
-			if !state.joined[player] do continue
+		players := sim.iterate_present(&frame.state.players)
+		for data, player in sim.next(&players) {
 			godot.push_view(frame, {
-				key    = view.Key(1 + player),
+				key    = view.Key(sim.player_key(player)),
 				kind   = .Dot,
 				player = player,
-				pos    = {state.pos[player].x, 0, state.pos[player].y},
+				pos    = {data.pos.x, 0, data.pos.y},
 			})
 			godot.push_multi(frame, {
-				key  = u64(1 + player),
+				key  = sim.player_key(player),
 				kind = .Spark,
-				pos  = {state.pos[player].x, 1, 0},
+				pos  = {data.pos.x, 1, 0},
 			})
 		}
-		sync.atomic_store(&seen.bumps, state.bumps[0])
-		sync.atomic_store(&seen.bump_fold, state.bump_fold[0])
+		if local := sim.player_get(&frame.state.players, frame.local_player); local != nil {
+			sync.atomic_store(&seen.bumps, local.bumps)
+			sync.atomic_store(&seen.bump_fold, local.bump_fold)
+		}
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
@@ -146,9 +147,9 @@ driver_sessions :: proc(t: ^testing.T) {
 			if message.kind == .Status && message.status == .Connected do connected = true
 			if message.kind != .Event do continue
 			switch event in sim.event_value(&message.event, toy.Event) {
-			case toy.Event_Joined:
-				if message.action == .Confirmed do joined = true
-			case toy.Event_Spawned, toy.Event_Left, toy.Event_Expired:
+			case sim.Event_Player_Joined:
+				if message.action == .Confirmed do joined = event.slot == 0 && event.player.id == 1 && !event.returning
+			case toy.Event_Spawned, sim.Event_Player_Left, toy.Event_Expired:
 			}
 		}
 		testing.expect(t, connected, "a Connected status")
@@ -156,9 +157,17 @@ driver_sessions :: proc(t: ^testing.T) {
 		frame, _ := godot.api.front()
 		testing.expect(
 			t,
-			frame != nil && frame.n_views == 1 && frame.n_multis == 1 && frame.local_player == 0,
+			frame != nil && frame.n_views == 1 && frame.n_multis == 1 && frame.local_player != 0,
 			"the last frame shows the player",
 		)
+		if frame != nil {
+			// the local player by key: in slot 0, the only one present and remembered, its view's player
+			testing.expect_value(t, frame.slots[0], frame.local_player)
+			testing.expect(t, frame.n_members == 1 && frame.members[0] == frame.local_player)
+			testing.expect(t, frame.n_views == 1 && frame.views[0].player == frame.local_player)
+			entry, known := godot.roster_entry(i64(frame.local_player))
+			testing.expect(t, known && netcode.name_string(&entry.name) == "solo", "the roster names the player")
+		}
 		testing.expect(t, frame != nil && frame.tick >= 39, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
 		if frame != nil && frame.n_views == 1 && frame.n_multis == 1 {

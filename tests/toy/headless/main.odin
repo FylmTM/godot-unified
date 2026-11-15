@@ -10,11 +10,11 @@ import "unified:sim"
 
 HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.PLAYERS) {
 	game = &toy.GAME,
-	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-		return toy.scripted_input(seed, player, tick)
+	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		return toy.scripted_input(seed, slot, tick)
 	},
-	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
-		toy.scripted_commands(seed, player, tick, out)
+	scripted_commands = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		toy.scripted_commands(seed, slot, tick, out)
 	},
 }
 

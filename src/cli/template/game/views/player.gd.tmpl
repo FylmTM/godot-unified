@@ -1,6 +1,6 @@
 extends Node2D
 ## One player's dot: a scene view (kind `player`, its UnifiedView marker). The host sets its position every frame,
-## interpolated between ticks; the marker says which player it shows.
+## interpolated between ticks; the marker says which player it shows (its key: the same while they are in the session).
 
 @onready var view: UnifiedView = %UnifiedView
 
@@ -10,4 +10,4 @@ func _ready() -> void:
 
 
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(maxi(view.player, 0)) / 4.0, 0.6, 1.0))
+	draw_circle(Vector2.ZERO, 12.0, Color.from_hsv(float(view.player % 8) / 8.0, 0.6, 1.0))

@@ -9,30 +9,25 @@ COMMAND_MAX :: 64 // bytes of one command's struct
 COMMANDS_PER_PLAYER :: 4 // per player per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
 
-// One command in a tick's input record: its kind (the variant's index in Game.commands), the player
-// who sent it and its struct's bytes.
+// One command in a tick's input record: its kind (the variant's index in Game.commands), the slot it
+// was sent from and its struct's bytes.
 Raw_Command :: struct {
-	kind:   u8,
-	player: u8,
-	size:   u8, // bytes used in `data` (the struct's size)
-	data:   [COMMAND_MAX]u8,
+	kind: u8,
+	slot: u8,
+	size: u8, // bytes used in `data` (the struct's size)
+	data: [COMMAND_MAX]u8,
 }
 
-// The commands `player` sent for this tick, in the order sent. Read inside `tick`:
-//
-//   for &raw in sim.commands(tick.inputs, player) {
-//       switch command in sim.command_value(&raw, Command) {
-//       case Cmd_Set_Map: ...
-//       }
-//   }
-commands :: proc(inputs: ^Inputs($Input, $PLAYERS), player: int) -> []Raw_Command {
+// The commands sent from `slot` for this tick, in the order sent (inside `tick`, by player: sim.commands(t,
+// player), presence.odin).
+slot_commands :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int) -> []Raw_Command {
 	count := inputs.command_count
 	low := 0
-	for low < count && int(inputs.commands[low].player) < player {
+	for low < count && int(inputs.commands[low].slot) < slot {
 		low += 1
 	}
 	high := low
-	for high < count && int(inputs.commands[high].player) == player {
+	for high < count && int(inputs.commands[high].slot) == slot {
 		high += 1
 	}
 	return inputs.commands[low:high]
@@ -62,17 +57,17 @@ command_make :: proc(commands: typeid, value: $T) -> (raw: Raw_Command, ok: bool
 	return command_from_bytes(commands, variant_kind(commands, T), ([^]u8)(&value)[:size_of(T)])
 }
 
-// Adds a command to a tick's record, after the commands `raw.player` already has there. False at the
-// limits (COMMANDS_PER_PLAYER for the player, TICK_COMMANDS in all).
+// Adds a command to a tick's record, after the commands `raw.slot` already has there. False at the
+// limits (COMMANDS_PER_PLAYER for the slot, TICK_COMMANDS in all).
 add_command :: proc(inputs: ^Inputs($Input, $PLAYERS), raw: Raw_Command) -> bool {
 	count := inputs.command_count
 	if count >= TICK_COMMANDS ||
-	   int(raw.player) >= PLAYERS ||
-	   len(commands(inputs, int(raw.player))) >= COMMANDS_PER_PLAYER {
+	   int(raw.slot) >= PLAYERS ||
+	   len(slot_commands(inputs, int(raw.slot))) >= COMMANDS_PER_PLAYER {
 		return false
 	}
 	at := count
-	for at > 0 && inputs.commands[at - 1].player > raw.player {
+	for at > 0 && inputs.commands[at - 1].slot > raw.slot {
 		inputs.commands[at] = inputs.commands[at - 1]
 		at -= 1
 	}
@@ -84,7 +79,7 @@ add_command :: proc(inputs: ^Inputs($Input, $PLAYERS), raw: Raw_Command) -> bool
 // Where a command source (a UI, a script, a bot) puts the commands it sends for one tick.
 Command_Out :: struct {
 	commands: typeid, // the game's command union
-	player:   int, // the sender
+	slot:     int, // the sender's slot
 	list:     [dynamic]Raw_Command,
 	cap:      int, // the most `list` may hold
 }
@@ -101,7 +96,7 @@ push_command :: proc(out: ^Command_Out, raw: Raw_Command) -> bool {
 		return false
 	}
 	raw := raw
-	raw.player = u8(out.player)
+	raw.slot = u8(out.slot)
 	append(&out.list, raw)
 	return true
 }

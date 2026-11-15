@@ -5,6 +5,8 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
+import "unified:netcode"
+
 // `--key value` options after the mode; flags without a value are not used by this CLI.
 Args :: struct {
 	mode: string,
@@ -21,7 +23,8 @@ usage :: proc() -> ! {
   session  --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N
            [--late-join P@T] [--log F] [--seed S] [--clock real|virtual]
   relay    --port P --players N --ticks T --log F [--bind local|lan]  (lan: listen on every interface)
-  client   --connect HOST:PORT --player I --ticks T [--profile ideal|wan|bad]
+  client   --connect HOST:PORT --slot I --ticks T [--profile ideal|wan|bad] [--token HEX]  (HEX: 32 digits, what
+           the relay knows this person by when they come back over UDP)
   <online>-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--code-file F] [--log F] [transport options]
   <online>-client --code CODE --ticks T [--bucket B] [transport options]
                   (when the game plugs in an online transport, e.g. eos-host / eos-client)
@@ -81,6 +84,24 @@ opt_int :: proc(args: ^Args, key: string, fallback := 0, required := false, low 
 }
 
 // Fails on options the mode doesn't know, so typos don't silently fall back to defaults.
+// A client token (netcode.Token) from 32 hex digits ("": none).
+token_of :: proc(text: string) -> (token: netcode.Token, ok: bool) {
+	if text == "" {
+		return {}, true
+	}
+	if len(text) != 2 * netcode.TOKEN_SIZE {
+		return
+	}
+	for &value, i in token {
+		byte_value, byte_ok := strconv.parse_u64_of_base(text[2 * i:][:2], 16)
+		if !byte_ok {
+			return {}, false
+		}
+		value = u8(byte_value)
+	}
+	return token, true
+}
+
 check_known :: proc(args: ^Args, known: ..string) {
 	outer: for key in args.opts {
 		for known_key in known {

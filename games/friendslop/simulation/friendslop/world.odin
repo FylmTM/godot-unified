@@ -13,7 +13,7 @@ CAT_PLAYER :: u64(1 << 1)
 CAT_ITEM :: u64(1 << 2)
 CAT_PLATFORM :: u64(1 << 3)
 CAT_TRIGGER :: u64(1 << 4)
-MAT_PLAYER :: u64(100) // + player
+MAT_PLAYER :: u64(100) // + the player's member index (Player.index)
 MAT_ITEM :: u64(1000) // + item index
 MAT_TRIGGER :: u64(2000) // + trigger index
 MAT_PLATFORM :: u64(3000) // + platform index
@@ -181,7 +181,7 @@ World :: struct {
 	phys:             ^physics.World,
 	extras:           [1]sim.Extra,
 	level:            level.Level,
-	character_defs:   [PLAYERS]physics.Character_Def,
+	character_defs:   [MEMBERS]physics.Character_Def, // by member index: each body's material names its player
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
 	platforms:        [MAX_PLATFORMS]Platform_Def,
@@ -194,7 +194,7 @@ World :: struct {
 	bumper_count:     int,
 	checkpoints:      [MAX_CHECKPOINTS]Checkpoint_Def,
 	checkpoint_count: int,
-	spawns:           [PLAYERS][3]f32,
+	spawns:           [PLAYERS][3]f32, // by slot
 	start:            Volume, // walking in starts a run (zero: no route)
 	finish:           Volume, // the trophy in it ends the run
 	links:            [dynamic]physics.Body_Link, // scratch
@@ -259,11 +259,11 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level, CAT_STATIC)
-	for player in 0 ..< PLAYERS {
-		world.character_defs[player] = CHARACTER_DEF
-		world.character_defs[player].material = MAT_PLAYER + u64(player)
-		world.spawns[player] = {f32(player) * 1.5 - 2.25, 1.2, 0}
+	for index in 0 ..< MEMBERS {
+		world.character_defs[index] = CHARACTER_DEF
+		world.character_defs[index].material = MAT_PLAYER + u64(index)
 	}
+	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 1.5 - 2.25, 1.2, 0}
 	// Triggers first: platforms refer to them by marker index.
 	trigger_of := make([]int, len(world.level.markers), context.temp_allocator)
 	for &trigger in trigger_of do trigger = -1
@@ -296,8 +296,8 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	for &marker in world.level.markers {
 		switch marker.kind {
 		case "spawn":
-			player := level.prop_int(&marker, "slot") // the level file's name for the player
-			if player >= 0 && player < PLAYERS do world.spawns[player] = marker.pos
+			slot := level.prop_int(&marker, "slot")
+			if slot >= 0 && slot < PLAYERS do world.spawns[slot] = marker.pos
 		case "item":
 			assert(world.item_count < MAX_ITEMS, "friendslop: too many items")
 			kind := Item_Kind.Crate

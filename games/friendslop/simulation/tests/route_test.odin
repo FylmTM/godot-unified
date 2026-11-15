@@ -55,12 +55,12 @@ put_item :: proc(run: ^Run, item: int, at: [3]f32) {
 	})
 }
 
-put_player :: proc(run: ^Run, player: int, at: [3]f32) {
-	run.setup_index, run.setup_pos = player, at
+put_player :: proc(run: ^Run, slot: int, at: [3]f32) {
+	run.setup_index, run.setup_pos = slot, at
 	setup(run, proc(run: ^Run) {
 		physics.character_teleport(
 			run.simulation.world.phys,
-			&run.simulation.state.players[run.setup_index].controller,
+			&character(run, run.setup_index).controller,
 			run.setup_pos,
 		)
 	})
@@ -207,7 +207,7 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 	put_player(&run, 1, base + {1.2, 0, 0})
 	idle(&run, 32)
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
-	testing.expect_value(t, run.simulation.state.players[0].held_kind, fs.Held_Kind.Player)
+	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
 	for _ in 0 ..< 24 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 0.2, 0}, {}), {}, {}, {}})
 	// Full charge, aimed up and over the perch's edge.
 	for _ in 0 ..< 40 {

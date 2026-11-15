@@ -26,6 +26,13 @@ rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`),
 
 No health, no fail state: getting hit or dropped costs time, not a life.
 
+**Players** (`src/sim/SPEC.md` "Players"): the State's `players` is a `sim.Presence` of `Character` (8 remembered
+members for 4 slots). A player who joins, or comes back, gets a fresh body at their slot's spawn (or the team's
+checkpoint, spread by slot); one who leaves lets go of what they hold and is let go of, and their body goes. Whatever
+names a player names the person (`sim.Player`), never the slot: who holds a grab point or a friend, an item's
+thrower (so someone new in the thrower's slot is not its thrower, and the thrower is still it after coming back in
+another slot), events and views. Spawn points and colours are per slot.
+
 ## The route
 
 Solo finishes every beat; co-op is faster or opens a shortcut.
@@ -90,9 +97,10 @@ holding.
 
 **Deterministic sim** (`simulation/friendslop`, block + Box3D): bodies (players, items, platforms, gates), joints
 (character, pogo, hold), controller state, holds, throws, stuns, pads, plates, triggers, checkpoints, the run timer,
-phases and events (`Event` in `state.odin`: player joined and left, jumped, launched, grabbed, dropped, thrown,
-hit, broke free, fell, respawned, checkpoint, run started and finished, plate on and off, bell rung, switch on).
-Each event is its own struct: `player` when it is about a player, `entity` (the level marker index + 1) when it is
+phases and events (`Event` in `state.odin`: the library's player joined and left, spawned, jumped, launched,
+grabbed, dropped, thrown, hit, broke free, fell, respawned, checkpoint, run started and finished, plate on and off,
+bell rung, switch on). Each event is its own struct: `player` (a `sim.Player`, GDScript gets its key) when it is
+about a player, `entity` (the level marker index + 1) when it is
 about an item, plate, bell, switch or lock, `position` in metres, and its own values (speed, mass, seconds).
 
 **Godot only:** the camera (orbit, collision, smoothing; it produces the input's aim), character animation

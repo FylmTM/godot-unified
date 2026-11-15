@@ -8,7 +8,8 @@ TICK_HZ :: 64
 DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
-PLAYERS :: 4 // player seats
+PLAYERS :: 4 // input slots: the most players in the game at once
+MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence): a returning player keeps their progress
 MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512
 MAX_GEMS :: 1024
@@ -51,7 +52,7 @@ SPEED_LEVELUP :: 0.5 // m/s per "move speed" level-up
 BUTTON_DASH :: u8(1 << 0)
 
 // One player's input for one tick (3 bytes on the wire and in the log). Presence (joined or not)
-// comes from the relay in sim.Inputs.present, not from the input.
+// comes from the relay (sim.Inputs.present and its join records), not from the input.
 Input :: struct {
 	move_x:  i8,
 	move_z:  i8,
@@ -80,7 +81,9 @@ Cmd :: union {
 
 Body_Ref :: physics.Body_Ref
 
-Player :: struct {
+// A player's character and progress (the State's sim.Presence data, by player): zeroed for someone new, kept while
+// they are away (a returning player keeps their level and upgrades). An absent player has no body.
+Character :: struct {
 	body:             Body_Ref,
 	pos:              [3]f32, // read back after each physics step
 	hp:               i32,
@@ -94,10 +97,9 @@ Player :: struct {
 	level:            i32,
 	xp:               i32,
 	pending_levelups: i32,
-	active:           bool, // present (joined) in the game
-	alive:            bool,
+	alive:            bool, // has a body (present, not dead)
 	prev_buttons:     u8,
-	_pad:             u8,
+	_pad:             [2]u8,
 }
 
 Item_Kind :: enum u8 {
@@ -232,7 +234,7 @@ State :: struct {
 	tuning:        Tuning_Kind, // the preset `tune` started from
 	_pad:          u8,
 	tune:          Tuning, // the match's tuning values
-	players:       [PLAYERS]Player,
+	players:       sim.Presence(Character, PLAYERS, MEMBERS),
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),
 	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),

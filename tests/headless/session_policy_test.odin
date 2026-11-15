@@ -17,7 +17,7 @@ reads_world_game :: proc() -> toy.Game {
 	game := toy.GAME
 	game.tick = proc(tick: ^toy.Tick) {
 		toy.tick(tick)
-		if tick.world.ticks_run % 50 == 0 do tick.state.score[0] += 1
+		if data := toy.in_slot(tick.state, 0); tick.world.ticks_run % 50 == 0 && data != nil do data.score += 1
 	}
 	return game
 }
@@ -50,12 +50,12 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 	// The typed report: two players' snapshots of that tick, diffed table by table.
 	testing.expectf(
 		t,
-		strings.contains(result.desync.detail, "score[0]"),
+		strings.contains(result.desync.detail, "players.data[0].score"),
 		"the detail names the field: %q",
 		result.desync.detail,
 	)
 	for client in result.clients {
-		testing.expectf(t, client.desyncs > 0, "player %d was not told", client.player)
+		testing.expectf(t, client.desyncs > 0, "player %d was not told", client.slot)
 		testing.expect(t, !client.ok)
 	}
 	// The same rule on an ideal network: nobody rolls back, `tick` runs as often everywhere, no desync.
@@ -85,7 +85,7 @@ inputs_count_past_the_round_trip_ceiling :: proc(t: ^testing.T) {
 	testing.expect(t, result.ok)
 	testing.expectf(t, result.replaced == 0, "%d of %d inputs replaced", result.replaced, 2 * cfg.ticks)
 	for client in result.clients {
-		testing.expectf(t, client.stall_ticks > 0, "player %d never stalled: not past the ceiling", client.player)
+		testing.expectf(t, client.stall_ticks > 0, "player %d never stalled: not past the ceiling", client.slot)
 		testing.expect_value(t, client.delay, 7) // the most: 100 ms
 	}
 }

@@ -514,7 +514,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
 		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
-		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (with --lan, in a new seat): timed"`,
+		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
 		lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 	}
 	opts: Opts

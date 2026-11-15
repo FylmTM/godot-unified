@@ -100,7 +100,7 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 		if not row.box.visible:
 			continue
 		var r: Dictionary = rows[i]
-		row.dot.color = UiTheme.player_color(r.player)
+		row.dot.color = UiTheme.player_color(Game.player_slot(r.player))
 		row.name.text = String(r.name) + (" (you)" if r.player == local_player else "")
 		row.status.text = r.get("status", "")
 		var bar: float = r.get("bar", -1.0)

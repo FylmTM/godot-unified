@@ -13,25 +13,26 @@ import "unified:sim"
 BARRELS := [8]int{2, 7, 12, 17, 22, 27, 32, 37}
 
 // survivor.tick with forced events by tick number (deterministic: same ticks on every peer).
-scenario_tick :: proc(tick: ^survivor.Tick) {
-	state, now := tick.state, tick.number
-	if state.phase == .Match {
-		if now % 23 == 0 {
-			item := &state.items[BARRELS[(now / 23) % 8]]
+scenario_tick :: proc(t: ^survivor.Tick) {
+	if t.state.phase == .Match {
+		if t.number % 23 == 0 {
+			item := &t.state.items[BARRELS[(t.number / 23) % 8]]
 			if item.alive {
 				item.hp = 0 // explodes this tick
 			}
 		}
-		if now % 37 == 0 {
-			survivor.damage_player(tick, int(now / 37) % survivor.PLAYERS, 1000)
+		if t.number % 37 == 0 {
+			slot := int(t.number / 37) % survivor.PLAYERS
+			survivor.damage_player(t, sim.player_in_slot(&t.state.players, slot), 1000)
 		}
-		if now % 500 == 0 {
-			for player in 0 ..< survivor.PLAYERS {
-				survivor.damage_player(tick, player, 1000) // everyone: match over, then a reset
+		if t.number % 500 == 0 {
+			for slot in 0 ..< survivor.PLAYERS {
+				// everyone: match over, then a reset
+				survivor.damage_player(t, sim.player_in_slot(&t.state.players, slot), 1000)
 			}
 		}
 	}
-	survivor.tick(tick)
+	survivor.tick(t)
 }
 
 SCENARIO := survivor.Game {
@@ -68,19 +69,19 @@ count :: proc(counts: ^Counts, events: []sim.Raw_Event) {
 	}
 }
 
-// Scripted inputs and level-up picks of a tick.
+// Scripted inputs and level-up picks of a tick, every slot present (joining on tick 1).
 scripted :: proc(simulation: ^survivor.Sim, tick: u32) -> (inputs: survivor.Inputs) {
-	inputs.present = {0, 1, 2, 3}
+	join_free(simulation, &inputs, {0, 1, 2, 3})
 	out := sim.Command_Out {
 		commands = survivor.Cmd,
 		cap      = sim.COMMANDS_PER_PLAYER,
 	}
 	defer delete(out.list)
-	for player in 0 ..< survivor.PLAYERS {
-		inputs.input[player] = survivor.scripted_input(simulation.seed, player, tick, &simulation.state)
-		out.player = player
+	for slot in 0 ..< survivor.PLAYERS {
+		inputs.input[slot] = survivor.scripted_input(simulation.seed, slot, tick, &simulation.state)
+		out.slot = slot
 		clear(&out.list)
-		survivor.scripted_commands(simulation.seed, player, tick, &simulation.state, &out)
+		survivor.scripted_commands(simulation.seed, slot, tick, &simulation.state, &out)
 		for raw in out.list {
 			sim.add_command(&inputs, raw)
 		}
@@ -138,11 +139,11 @@ Client :: netcode.Client(survivor.State, survivor.Input, survivor.World, survivo
 scenario_networked :: proc(t: ^testing.T) {
 	TICKS :: 900
 	hooks := netcode.Hooks(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
-		sample = proc(user: rawptr, player: int, tick: u32, state: ^survivor.State) -> survivor.Input {
-			return survivor.scripted_input(13, player, tick, state)
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State) -> survivor.Input {
+			return survivor.scripted_input(13, slot, tick, state)
 		},
-		commands = proc(user: rawptr, player: int, tick: u32, state: ^survivor.State, out: ^sim.Command_Out) {
-			survivor.scripted_commands(13, player, tick, state, out)
+		commands = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State, out: ^sim.Command_Out) {
+			survivor.scripted_commands(13, slot, tick, state, out)
 		},
 	}
 	clock := netcode.Virtual_Clock {
@@ -165,7 +166,7 @@ scenario_networked :: proc(t: ^testing.T) {
 			u32(i + 1) * 7919,
 			&clock,
 		)
-		client = netcode.client_create(&SCENARIO, {player = -1, quiet = true}, link, hooks)
+		client = netcode.client_create(&SCENARIO, {slot = -1, quiet = true}, link, hooks)
 	}
 	defer for client in clients {
 		netcode.client_destroy(client)
@@ -194,8 +195,8 @@ scenario_networked :: proc(t: ^testing.T) {
 					testing.expectf(
 						t,
 						host_entry[1] == entry[1],
-						"player %d disagrees at tick %d",
-						client.player,
+						"slot %d disagrees at tick %d",
+						client.slot,
 						entry[0],
 					)
 				}

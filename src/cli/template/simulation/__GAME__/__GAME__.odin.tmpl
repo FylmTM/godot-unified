@@ -4,7 +4,8 @@ package __GAME__
 
 import "unified:sim"
 
-PLAYERS :: 4
+PLAYERS :: 4 // input slots: who is in the session at once
+MEMBERS :: 8 // the people the session remembers (sim.Presence): who leaves gets their dot back when they return
 TICK_HZ :: 64 // a power of two: dt is exact
 DT :: f32(1) / TICK_HZ
 SPEED :: f32(4) // metres per second at full input
@@ -15,9 +16,13 @@ Input :: struct {
 	_pad: [2]u8,
 }
 
+// A player's data (sim.Presence): zeroed when someone new joins, kept while they are away.
+Dot :: struct {
+	pos: [2]f32, // metres
+}
+
 State :: struct {
-	pos:     [PLAYERS][2]f32, // metres
-	present: sim.Players, // who is in the game (sim.presence_changes keeps it)
+	players: sim.Presence(Dot, PLAYERS, MEMBERS), // the session's players: the library keeps who is here
 }
 
 // What lives outside the snapshotted state (physics, a level): nothing yet.
@@ -25,18 +30,11 @@ World :: struct {
 	_unused: u8,
 }
 
-// Events (unified/src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes (EventJoined, EventLeft).
-Joined :: struct {
-	player: u8,
-}
-
-Left :: struct {
-	player: u8,
-}
-
+// Events (unified/src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes. The library's join
+// and leave are always listed (EventPlayerJoined, EventPlayerLeft).
 Event :: union {
-	Joined,
-	Left,
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
 }
 
 Game :: sim.Game(State, Input, World, PLAYERS)
@@ -65,24 +63,24 @@ world_destroy :: proc(world: ^World) {
 // The tick-0 state (the block is zeroed before): nothing more to set.
 init :: proc(state: ^State, world: ^World, seed: u64) {}
 
-tick :: proc(tick: ^Tick) {
-	state := tick.state
-	joined, left := sim.presence_changes(tick, &state.present)
-	for player in joined {
-		state.pos[player] = {f32(player), 0}
-		sim.emit(tick, Joined{player = u8(player)})
+// Players come and go between ticks (the library updates t.state.players first): someone new starts at their slot's
+// spot; who comes back finds their dot where they left it.
+tick :: proc(t: ^Tick) {
+	for player in t.joined {
+		slot, _ := sim.player_slot(&t.state.players, player)
+		sim.player_get(&t.state.players, player).pos = {f32(slot), 0}
 	}
-	for player in left do sim.emit(tick, Left{player = u8(player)})
-	for player in state.present {
-		input := tick.inputs.input[player]
-		state.pos[player].x += f32(input.dx) / 127 * SPEED * DT
-		state.pos[player].y += f32(input.dy) / 127 * SPEED * DT
+	players := sim.iterate_present(&t.state.players)
+	for dot, player in sim.next(&players) {
+		input := sim.input(t, player)
+		dot.pos.x += f32(input.dx) / 127 * SPEED * DT
+		dot.pos.y += f32(input.dy) / 127 * SPEED * DT
 	}
 }
 
-// Scripted input for headless checks: every player steers a random direction that changes every 16 ticks, the
-// same for a seed, player and tick whatever order they are asked in.
-scripted_input :: proc(seed: u64, player: int, tick: u32) -> Input {
-	rng := sim.rng_seed(seed ~ u64(player + 1) << 32 ~ u64(tick / 16))
+// Scripted input for headless checks: the player in `slot` steers a random direction that changes every 16 ticks,
+// the same for a seed, slot and tick whatever order they are asked in.
+scripted_input :: proc(seed: u64, slot: int, tick: u32) -> Input {
+	rng := sim.rng_seed(seed ~ u64(slot + 1) << 32 ~ u64(tick / 16))
 	return {dx = i8(sim.rng_below(&rng, 255)) - 127, dy = i8(sim.rng_below(&rng, 255)) - 127}
 }

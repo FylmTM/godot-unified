@@ -19,11 +19,14 @@ import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
 
 Client_Config :: struct {
-	player:      int, // the player to ask for; -1: any free one
+	slot:        int, // the slot to ask for; -1: any free one
 	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
 	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
 	content:     []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the client's lifetime
 	player_name: string, // the player's display name (sent to the relay, shared with everyone)
+	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
+	// come back (the same member, in any free slot). All zero: none (a new member every time).
+	token:       Token,
 	name:        string, // for log lines
 	poll_us:     i64, // 0: DEFAULT_POLL_US
 	quiet:       bool,
@@ -46,12 +49,12 @@ Frame_Info :: struct {
 
 Hooks :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	user:     rawptr,
-	// The local player's input for `tick`, sampled when the client's clock reaches it. `state` is
+	// The local player's input for `tick` (it holds `slot`), sampled when the client's clock reaches it. `state` is
 	// the latest predicted state (nil before the sim exists).
-	sample:   proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input,
+	sample:   proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input,
 	// Optional: the local player's commands for `tick`, called right after `sample` for every tick the
 	// client generates. usim.send_command(out, command) returns false once COMMAND_QUEUE commands wait.
-	commands: proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^usim.Command_Out),
+	commands: proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^usim.Command_Out),
 	// After a step that computed new predicted ticks: the view reads sim.state_at(simulation, frame.tick)
 	// and frame.tick - 1 for interpolation, and usim.events_at for ticks frame.resim_from..frame.tick.
 	frame:    proc(user: rawptr, simulation: ^usim.Sim(State, Input, World, PLAYERS), frame: Frame_Info),
@@ -104,94 +107,99 @@ Step_Kind :: enum u8 {
 }
 
 Client :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	game:          ^usim.Game(State, Input, World, PLAYERS),
-	cfg:           Client_Config,
-	hooks:         Hooks(State, Input, World, PLAYERS),
-	tm:            Timing,
-	min_delay:     u32, // the game's floor on the input delay (sim.Game.min_input_delay)
-	ch:            ^Channel,
-	relay:         Peer,
-	w:             wire.Writer,
-	sim:           ^usim.Sim(State, Input, World, PLAYERS), // nil until welcomed (a late joiner: until its snapshot lands)
-	status:        Status,
-	detail:        string,
-	hello_sent:    bool,
+	game:           ^usim.Game(State, Input, World, PLAYERS),
+	cfg:            Client_Config,
+	hooks:          Hooks(State, Input, World, PLAYERS),
+	tm:             Timing,
+	min_delay:      u32, // the game's floor on the input delay (sim.Game.min_input_delay)
+	ch:             ^Channel,
+	relay:          Peer,
+	w:              wire.Writer,
+	sim:            ^usim.Sim(State, Input, World, PLAYERS), // nil until welcomed (a late joiner: until its snapshot lands)
+	status:         Status,
+	detail:         string,
+	hello_sent:     bool,
 	// from Welcome
-	welcomed:      bool,
-	player:        int,
-	seed:          u64,
-	ticks:         u32, // session length, 0: endless
-	first_tick:    u32, // J: first tick this player is present
-	keep_images:   bool, // Welcome's Keep_Images
+	welcomed:       bool,
+	slot:           int,
+	member:         u16, // our member id (the relay's): our join record's
+	seed:           u64,
+	ticks:          u32, // session length, 0: endless
+	first_tick:     u32, // J: first tick this player is present
+	keep_images:    bool, // Welcome's Keep_Images
 	// finalized inputs from the relay
-	fin:           [FIN_RING]usim.Inputs(Input, PLAYERS),
-	fin_tick:      [FIN_RING]u32,
-	fin_scratch:   usim.Inputs(Input, PLAYERS), // a finalized tick being decoded
-	fin_upto:      u32, // highest contiguous finalized tick held
+	fin:            [FIN_RING]usim.Inputs(Input, PLAYERS),
+	fin_tick:       [FIN_RING]u32,
+	fin_scratch:    usim.Inputs(Input, PLAYERS), // a finalized tick being decoded
+	fin_upto:       u32, // highest contiguous finalized tick held
 	// frames
-	verified:      u32, // V
-	predicted:     u32, // P (the sim's current tick)
-	local:         u32, // L (scheduler tick)
-	resim_from:    u32,
-	pred_inputs:   [PRED_RING]usim.Inputs(Input, PLAYERS),
-	chk:           [CHK_RING]struct {
+	verified:       u32, // V
+	predicted:      u32, // P (the sim's current tick)
+	local:          u32, // L (scheduler tick)
+	resim_from:     u32,
+	pred_inputs:    [PRED_RING]usim.Inputs(Input, PLAYERS),
+	chk:            [CHK_RING]struct {
 		tick:  u32,
 		value: u64,
 	},
 	// own inputs
-	own:           [OWN_RING]Input,
-	own_last:      u32,
-	own_acked:     u32,
+	own:            [OWN_RING]Input,
+	own_last:       u32,
+	own_acked:      u32,
 	// own commands: sent (until acked) and predicted until a verified tick carries them
-	own_cmds:      [dynamic]Own_Command, // seq order
-	cmd_seq:       u32, // the last seq given
-	cmd_acked:     u32, // the relay has every seq up to this one
-	cmd_out:       usim.Command_Out, // for hooks.commands
+	own_cmds:       [dynamic]Own_Command, // seq order
+	cmd_seq:        u32, // the last seq given
+	cmd_acked:      u32, // the relay has every seq up to this one
+	cmd_out:        usim.Command_Out, // for hooks.commands
 	// time sync
-	started:       bool,
-	offset_us:     f64, // relay time - local time
-	have_offset:   bool,
-	rtt_us:        f64,
-	rtt_dev_us:    f64, // the round trip's mean deviation (jitter)
-	rtt_samples:   int,
-	delay:         u32, // k: own inputs are sampled for tick local + delay
-	delay_eval_us: i64,
-	next_tick_us:  f64,
-	last_send_us:  i64,
+	started:        bool,
+	offset_us:      f64, // relay time - local time
+	have_offset:    bool,
+	rtt_us:         f64,
+	rtt_dev_us:     f64, // the round trip's mean deviation (jitter)
+	rtt_samples:    int,
+	delay:          u32, // k: own inputs are sampled for tick local + delay
+	delay_eval_us:  i64,
+	next_tick_us:   f64,
+	last_send_us:   i64,
 	// late join
-	snap_reqs:     [dynamic]Snap_Req, // joiners waiting for our snapshot
-	snap_buf:      [dynamic]u8,
-	snap_total:    int,
-	snap_tick:     u32,
-	checking:      bool, // our restored snapshot waits for the relay's check (Snap_Ok)
-	images:        [DESYNC_IMAGES]Kept_Image,
+	snap_reqs:      [dynamic]Snap_Req, // joiners waiting for our snapshot
+	snap_buf:       [dynamic]u8,
+	snap_total:     int,
+	snap_tick:      u32,
+	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
+	images:         [DESYNC_IMAGES]Kept_Image,
 	// end
-	done_sent:     bool,
-	end_us:        i64, // when End arrived or stop was called (0: not ending)
-	leaving:       bool, // client_stop was called
+	done_sent:      bool,
+	end_us:         i64, // when End arrived or stop was called (0: not ending)
+	leaving:        bool, // client_stop was called
 	// results
-	checksums:     [dynamic][2]u64, // (tick, checksum) of verified ticks divisible by 16, from J on
-	rollbacks:     int,
-	depth_sum:     int,
-	depth_max:     int,
-	stall_ticks:   int,
-	resim_ticks:   int,
-	delay_changes: int,
-	desyncs:       int, // desync reports from the relay
-	first_desync:  Desync_Report, // the first one (its detail owned by the client)
+	checksums:      [dynamic][2]u64, // (tick, checksum) of verified ticks divisible by 16, from J on
+	rollbacks:      int,
+	depth_sum:      int,
+	depth_max:      int,
+	stall_ticks:    int,
+	resim_ticks:    int,
+	delay_changes:  int,
+	desyncs:        int, // desync reports from the relay
+	first_desync:   Desync_Report, // the first one (its detail owned by the client)
 	// for the dev UI's graphs (cumulative; the host takes differences)
-	own_replaced:  int, // finalized ticks where the relay replaced our input (it arrived too late)
-	steps:         [Step_Kind]int, // ticks stepped, by kind
-	step_us:       [Step_Kind]i64, // time spent stepping them, µs
-	last_msg_us:   i64, // when the relay's last message arrived (now_us; 0: none yet)
-	// roster from the relay
-	connected:     [PLAYERS]bool,
-	names:         [PLAYERS]Player_Name,
+	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
+	steps:          [Step_Kind]int, // ticks stepped, by kind
+	step_us:        [Step_Kind]i64, // time spent stepping them, µs
+	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
+	// the relay's roster: every member of the session, by member id - 1 (departed ones stay)
+	roster:         [dynamic]Roster_Entry,
+	roster_changes: u32, // bumped on every roster entry received
 }
 
-// The display name of `player` ("" if none or unknown).
-client_player_name :: proc(client: ^Client($State, $Input, $World, $PLAYERS), player: int) -> string {
-	return name_string(&client.names[player]) if player >= 0 && player < PLAYERS else ""
+// The roster entry of member `id` (the relay's id, sim.Player.id; nil: not known yet).
+client_member :: proc(client: ^Client($State, $Input, $World, $PLAYERS), id: u16) -> ^Roster_Entry {
+	index := int(id) - 1
+	if index < 0 || index >= len(client.roster) || client.roster[index].member != id {
+		return nil
+	}
+	return &client.roster[index]
 }
 
 // Creates a client talking to a relay over `link` (the client owns it). Nothing is sent until the
@@ -220,7 +228,7 @@ client_create :: proc(
 	client.relay = channel_peer(client.ch, link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
 	client.delay = client.min_delay
-	client.player = -1
+	client.slot = -1
 	return client
 }
 
@@ -239,6 +247,7 @@ client_destroy :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 		delete(image.data)
 	}
 	delete(client.first_desync.detail)
+	delete(client.roster)
 	free(client)
 }
 
@@ -292,7 +301,8 @@ csend :: proc(client: ^Client($State, $Input, $World, $PLAYERS), writer: ^wire.W
 
 @(private)
 on_welcome :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^wire.Reader) {
-	player := int(wire.r_u8(reader))
+	slot := int(wire.r_u8(reader))
+	member := wire.r_u16(reader)
 	seed := wire.r_u64(reader)
 	tick_hz := int(wire.r_u16(reader))
 	ticks := wire.r_u32(reader)
@@ -300,9 +310,10 @@ on_welcome :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^w
 	flags := transmute(Welcome_Flags)wire.r_u8(reader)
 	if !reader.ok ||
 	   client.welcomed ||
-	   player >= PLAYERS ||
+	   slot >= PLAYERS ||
+	   member == NO_MEMBER ||
 	   first == 0 ||
-	   (client.cfg.player >= 0 && player != client.cfg.player) {
+	   (client.cfg.slot >= 0 && slot != client.cfg.slot) {
 		return
 	}
 	if tick_hz != client.game.tick_hz {
@@ -310,7 +321,8 @@ on_welcome :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^w
 		return
 	}
 	client.welcomed = true
-	client.player = player
+	client.slot = slot
+	client.member = member
 	client.seed = seed
 	client.ticks = ticks
 	client.first_tick = first
@@ -522,15 +534,13 @@ handle_client_msg :: proc(client: ^Client($State, $Input, $World, $PLAYERS), dat
 	case .Desync:
 		on_desync(client, &reader)
 	case .Roster:
-		if int(wire.r_u8(&reader)) == PLAYERS {
-			for player in 0 ..< PLAYERS {
-				connected := wire.r_u8(&reader) != 0
-				name := r_name(&reader)
-				if reader.ok {
-					client.connected[player] = connected
-					client.names[player] = name
-				}
+		entry := r_roster_entry(&reader)
+		if reader.ok && entry.member != NO_MEMBER {
+			for len(client.roster) < int(entry.member) {
+				append(&client.roster, Roster_Entry{})
 			}
+			client.roster[entry.member - 1] = entry
+			client.roster_changes += 1
 		}
 	case .End:
 		if client.end_us == 0 {
@@ -562,7 +572,7 @@ load_snapshot :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i6
 	value := usim.checksum(client.sim)
 	client.chk[(tick / CHECKSUM_EVERY) % CHK_RING] = {tick, value}
 	writer := msg_begin(&client.w, .Checksum)
-	wire.w_u8(writer, u8(client.player))
+	wire.w_u8(writer, u8(client.slot))
 	wire.w_u32(writer, tick)
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
@@ -587,8 +597,11 @@ predicted_inputs :: proc(
 		out.input = last.input
 	}
 	if tick >= client.first_tick {
-		out.present += {client.player}
-		out.input[client.player] = client.own[min(tick, client.own_last) % OWN_RING]
+		out.present += {client.slot}
+		out.input[client.slot] = client.own[min(tick, client.own_last) % OWN_RING]
+		if tick == client.first_tick {
+			out.member[client.slot] = client.member // our join record, as the relay will write it
+		}
 	}
 	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
 	// for, or the first tick not finalized yet when that one is (a late command moves on), in order, at
@@ -615,7 +628,7 @@ predicted_inputs :: proc(
 // A verified tick carries the own commands the relay put in it: they are no longer predicted.
 @(private)
 drop_verified_commands :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32) {
-	carried := len(usim.commands(&client.fin[tick % FIN_RING], client.player))
+	carried := len(usim.slot_commands(&client.fin[tick % FIN_RING], client.slot))
 	remove_range(&client.own_cmds, 0, min(carried, len(client.own_cmds)))
 }
 
@@ -786,7 +799,7 @@ advance_verified :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now:
 	}
 	for tick in old_verified + 1 ..= new_verified {
 		drop_verified_commands(client, tick)
-		if client.player >= 0 && client.player in client.fin[tick % FIN_RING].replaced do client.own_replaced += 1
+		if client.slot >= 0 && client.slot in client.fin[tick % FIN_RING].replaced do client.own_replaced += 1
 	}
 	for tick in old_verified + 1 ..= (mispredicted != 0 ? mispredicted - 1 : limit) {
 		on_tick_verified(client, tick) // predicted right: the ring already holds the verified result
@@ -832,7 +845,7 @@ advance_verified :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now:
 		}
 		append(&client.checksums, [2]u64{u64(tick), entry.value})
 		writer := msg_begin(&client.w, .Checksum)
-		wire.w_u8(writer, u8(client.player))
+		wire.w_u8(writer, u8(client.slot))
 		wire.w_u32(writer, tick)
 		wire.w_u64(writer, entry.value)
 		csend(client, writer, .Reliable, now)
@@ -854,7 +867,7 @@ generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 		} else if client.hooks.sample != nil {
 			client.own[tick % OWN_RING] = client.hooks.sample(
 				client.hooks.user,
-				client.player,
+				client.slot,
 				tick,
 				client_state(client),
 			)
@@ -865,10 +878,10 @@ generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 		if client.hooks.commands != nil {
 			out := &client.cmd_out
 			out.commands = client.game.commands
-			out.player = client.player
+			out.slot = client.slot
 			out.cap = COMMAND_QUEUE - len(client.own_cmds)
 			clear(&out.list)
-			client.hooks.commands(client.hooks.user, client.player, tick, client_state(client), out)
+			client.hooks.commands(client.hooks.user, client.slot, tick, client_state(client), out)
 			for command in out.list[:min(len(out.list), max(out.cap, 0))] {
 				client.cmd_seq += 1
 				append(&client.own_cmds, Own_Command {
@@ -884,7 +897,7 @@ generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 @(private)
 send_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64) {
 	writer := msg_begin(&client.w, .Inputs)
-	wire.w_u8(writer, u8(client.player))
+	wire.w_u8(writer, u8(client.slot))
 	w_i64(writer, now)
 	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
 	first := max(client.own_acked + 1, client.first_tick)
@@ -1032,9 +1045,10 @@ client_step :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64)
 	if !client.hello_sent {
 		writer := msg_begin(&client.w, .Hello)
 		wire.w_u16(writer, PROTOCOL_VERSION)
-		wire.w_u8(writer, client.cfg.player < 0 ? ANY_PLAYER : u8(client.cfg.player))
+		wire.w_u8(writer, client.cfg.slot < 0 ? ANY_PLAYER : u8(client.cfg.slot))
 		wire.w_u32(writer, client.cfg.join_tick)
 		wire.w_u64(writer, client.cfg.compat)
+		wire.w_bytes(writer, client.cfg.token[:])
 		name := name_of(client.cfg.player_name)
 		w_name(writer, &name)
 		csend(client, writer, .Reliable, now)
@@ -1076,7 +1090,7 @@ client_step :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64)
 		}
 		if client.welcomed && client.ticks != 0 && client.verified >= client.ticks && !client.done_sent {
 			writer := msg_begin(&client.w, .Done)
-			wire.w_u8(writer, u8(client.player))
+			wire.w_u8(writer, u8(client.slot))
 			wire.w_u32(writer, client.verified)
 			csend(client, writer, .Reliable, now)
 			client.done_sent = true
@@ -1101,7 +1115,8 @@ client_step :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64)
 // What a client reports about its session: the headless CLI's client object (src/headless/SPEC.md,
 // CLI conventions), the Godot host's result line, and the end-to-end scenarios' checks.
 Client_Result :: struct {
-	player:             int,
+	slot:               int,
+	member:             int, // the relay's member id
 	join_tick:          u32, // the first tick the player is present
 	final_tick:         u32, // the last verified tick (= the session's ticks on success)
 	checksums:          [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
@@ -1128,7 +1143,8 @@ client_result :: proc(
 	checksums := make([][2]u64, len(client.checksums), allocator)
 	copy(checksums, client.checksums[:])
 	return {
-		player             = client.player,
+		slot               = client.slot,
+		member             = int(client.member),
 		join_tick          = client.first_tick,
 		final_tick         = client.verified,
 		checksums          = checksums,
@@ -1159,8 +1175,9 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&checksums, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, entry[0], entry[1]))
 	}
 	return fmt.tprintf(
-		`{{"player":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}}}}`,
-		result.player,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}}}}`,
+		result.slot,
+		result.member,
 		result.final_tick,
 		string(checksums[:]),
 		result.rollbacks,

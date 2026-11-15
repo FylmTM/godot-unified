@@ -116,7 +116,7 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 			"client",
 			"--connect",
 			cli.tprint("127.0.0.1:%d", port),
-			"--player",
+			"--slot",
 			cli.tprint("%d", i),
 			"--ticks",
 			cli.tprint("%d", ticks),

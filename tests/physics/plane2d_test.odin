@@ -324,11 +324,18 @@ Rock :: struct {
 }
 
 Field :: struct {
-	ships:  [2]Ship,
-	rocks:  [24]Rock,
-	rng:    sim.Rng,
-	splits: u32,
-	spawns: u32,
+	ships:   [2]Ship,
+	rocks:   [24]Rock,
+	rng:     sim.Rng,
+	splits:  u32,
+	spawns:  u32,
+	players: sim.Presence(u32, 2, 2), // every sim's State has one; the ships read their slot's input directly
+}
+
+// The library's join and leave: listed in every game's event union.
+Library_Events :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
 }
 
 Field_Input :: struct {
@@ -351,6 +358,7 @@ FIELD := Field_Game {
 	name = "field",
 	version = "1",
 	tick_hz = HZ,
+	events = Library_Events,
 	world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(1)},
 	world_destroy = proc(field_world: ^Field_World) {
 		physics.destroy(field_world.phys)
@@ -593,7 +601,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0xf955d18a5e864152, 0x9af275f076bc5f7d, 0xc0e2e275edb3e2e1, 0xb6c5cee7dd2d87fa}
+GOLDEN_FIELD := [4]u64{0x995969aaabb499fc, 0xa164fb14db6cd059, 0x95da1f19a15bf4d1, 0x3213bb85df90574e}
 
 // On 1 and on 4 workers: the same values.
 @(test)

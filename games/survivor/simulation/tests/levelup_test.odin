@@ -22,8 +22,8 @@ a_pick_applies_once :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
-	simulation.state.players[0].pending_levelups = 3
-	character := &simulation.state.players[0]
+	character := in_slot(simulation, 0)
+	character.pending_levelups = 3
 
 	inputs := pick_inputs(.Damage)
 	sim.step(simulation, &inputs)
@@ -56,9 +56,9 @@ a_pick_that_is_not_an_option_is_ignored :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
-	simulation.state.players[0].pending_levelups = 1
+	in_slot(simulation, 0).pending_levelups = 1
 	inputs := pick_inputs(.Damage)
 	inputs.commands[0].data[0] = 7 // not an Upgrade (bytes from the network)
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, simulation.state.players[0].pending_levelups, 1)
+	testing.expect_value(t, in_slot(simulation, 0).pending_levelups, 1)
 }
