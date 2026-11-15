@@ -1,0 +1,19 @@
+package __GAME__
+
+import "unified:sim"
+
+Input :: struct {
+	dx:   i8, // -127 .. 127, right
+	dy:   i8, // -127 .. 127, down
+	_pad: [2]u8,
+}
+
+State :: struct {
+	players:          sim.Players, // who is in the game (sim.presence_changes keeps it)
+	player_positions: [PLAYERS][2]f32, // metres, on the ground plane
+}
+
+// What lives outside the snapshotted state (physics, a level): nothing yet.
+World :: struct {
+	_unused: u8,
+}

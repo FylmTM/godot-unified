@@ -16,6 +16,10 @@ GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk
 SESSION_TICKS :: 64
 SESSION_TICKS_LONG :: 256
 
+// The suite's tool scripts never reach the lobby service, also where .env names the EOS SDK: without the SDK library
+// online play fails at once, as on CI (the walk's bad-code join would wait seconds for EOS). `uni coop` is online.
+SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
+
 // Each game under headless Godot (SPEC.md, Test suites); several games run in parallel.
 suite_godot :: proc(games: []Game, only: []string) -> bool {
 	for step_name in only {
@@ -56,7 +60,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 		}
 		if want(only, "session") {
-			if has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless")) {
+			if has_session_step(game) {
 				start := time.tick_now()
 				ticks := state.long ? SESSION_TICKS_LONG : SESSION_TICKS
 				ok = pass(game, "session", session_vs_offline(game, ticks, 1), seconds_since(start)) && ok
@@ -96,6 +100,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 				args    = script_step.args,
 				timeout = script_step.timeout,
 				quiet   = true,
+				env     = env_with(..SUITE_OFFLINE_ENV),
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
@@ -116,7 +121,17 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 			break
 		}
 	}
-	exe, _ := os.get_executable_path(context.allocator)
+	// The `session` step's offline binaries share .out/release/ and its box3d library: a child writing it while
+	// another's binary holds the library loaded fails on Windows.
+	headless: Headless_Builds
+	for game in games {
+		if has_session_step(game) && (len(only) == 0 || slice.contains(only, "session")) {
+			more := start_headless(.release, only = game.name)
+			append(&headless.running, ..more.running[:])
+		}
+	}
+	finish_headless(&headless)
+	exe := self_exe()
 	env := env_with(tprint("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))
 	for game, i in games {
@@ -158,6 +173,12 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 		}
 	}
 	return ok
+}
+
+// Whether the game runs the `session` step: it has an extension and a headless binary to compare with.
+@(private)
+has_session_step :: proc(game: Game) -> bool {
+	return has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless"))
 }
 
 // The headless editor loads the game's extension, with no error lines.
@@ -626,7 +647,7 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	}
 	found: [dynamic]Found
 	ok := true
-	for file in find_files(game.dir, ".tscn") {
+	for file in godot_scenes(game.dir) {
 		rel_path := strings.trim_prefix(file[len(game.dir):], "/")
 		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
 		if strings.has_prefix(rel_path, "addons/") do continue
@@ -683,6 +704,27 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	write_text(path, want)
 	log("uni: %s view index: %d kind(s) -> %s", game.name, len(found), VIEW_INDEX)
 	return ok
+}
+
+// The .tscn files Godot sees in the project at `dir`, sorted: not under a hidden directory, nor one with a .gdignore
+// (a game repo's unified/ submodule has one).
+godot_scenes :: proc(dir: string) -> []string {
+	out: [dynamic]string
+	walker := os.walker_create(dir)
+	defer os.walker_destroy(&walker)
+	for info in os.walker_walk(&walker) {
+		if info.type == .Directory {
+			if strings.has_prefix(info.name, ".") || os.is_file(join(info.fullpath, ".gdignore")) {
+				os.walker_skip_dir(&walker)
+			}
+			continue
+		}
+		if info.type == .Regular && strings.has_suffix(info.name, ".tscn") {
+			append(&out, strings.clone(info.fullpath))
+		}
+	}
+	sort_strings(out[:])
+	return out[:]
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's

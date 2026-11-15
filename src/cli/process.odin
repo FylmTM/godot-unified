@@ -7,8 +7,9 @@ import "core:sync"
 import "core:time"
 
 // A child process to run. Its stdout and stderr go to our stderr (progress), or with `capture` into `Ran.stdout`
-// and `Ran.stderr`. Its stdin is closed unless `interactive`: a Godot waiting at its debugger prompt must end, not
-// hang.
+// and `Ran.stderr`. Unless `interactive`, its stdin holds one line, `quit`, and then ends: a Godot run with -d that
+// stops at its debugger prompt (a script or parse error) quits at once. A closed stdin is not enough: Godot on Windows
+// never sees it end and waits at the prompt until the timeout.
 Run :: struct {
 	cmd:         []string,
 	dir:         string, // working directory ("": ours)
@@ -55,6 +56,11 @@ start :: proc(spec: Run) -> Proc {
 		working_dir = spec.dir,
 		env         = spec.env,
 	}
+	stdin_read: ^os.File
+	if !spec.interactive {
+		stdin_read = debugger_quit_stdin()
+		desc.stdin = stdin_read
+	}
 	if spec.interactive {
 		desc.stdin, desc.stdout, desc.stderr = os.stdin, os.stdout, os.stderr
 	} else if spec.capture {
@@ -80,6 +86,9 @@ start :: proc(spec: Run) -> Proc {
 	}
 	child.start = time.tick_now()
 	process, err_file := os.process_start(desc)
+	if stdin_read != nil {
+		os.close(stdin_read) // the child holds its own copy
+	}
 	if err_file != nil {
 		fatal("cannot start %s: %v", spec.cmd[0], err_file)
 	}
@@ -263,4 +272,16 @@ lines_with :: proc(text: string, needles: ..string) -> []string {
 		}
 	}
 	return out[:]
+}
+
+// A pipe's read end holding `quit` and then its end (nil when no pipe can be made: the child's stdin is then closed).
+@(private)
+debugger_quit_stdin :: proc() -> ^os.File {
+	read_end, write_end, err := os.pipe()
+	if err != nil {
+		return nil
+	}
+	os.write_string(write_end, "quit\n")
+	os.close(write_end)
+	return read_end
 }

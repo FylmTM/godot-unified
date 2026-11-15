@@ -84,6 +84,11 @@ write_tick :: proc(writer: ^wire.Writer, present, replaced: Players, input: []u8
 	wire.w_u32(writer, transmute(u32)present)
 	wire.w_u32(writer, transmute(u32)replaced)
 	wire.w_bytes(writer, input)
+	write_commands(writer, commands)
+}
+
+// Writes a tick's commands as write_tick does: the count, then per command player, kind, size and its bytes.
+write_commands :: proc(writer: ^wire.Writer, commands: []Raw_Command) {
 	wire.w_u8(writer, u8(len(commands)))
 	for &command in commands {
 		wire.w_u8(writer, command.player)
@@ -93,10 +98,8 @@ write_tick :: proc(writer: ^wire.Writer, present, replaced: Players, input: []u8
 	}
 }
 
-// Reads a tick's record into `input` and `commands`; false when it is malformed: cut short, more than
-// TICK_COMMANDS commands or COMMANDS_PER_PLAYER of one player, a player out of range or out of order, a
-// command over COMMAND_MAX bytes. Command kinds are not checked here (command_value reads an unknown
-// kind as nil).
+// Reads a tick's record into `input` and `commands`; false when it is malformed: cut short, or its commands are
+// (read_commands).
 read_tick :: proc(
 	reader: ^wire.Reader,
 	input: []u8,
@@ -110,6 +113,21 @@ read_tick :: proc(
 	present = transmute(Players)wire.r_u32(reader)
 	replaced = transmute(Players)wire.r_u32(reader)
 	copy(input, wire.r_bytes(reader, len(input)))
+	count, ok = read_commands(reader, players, commands)
+	return present, replaced, count, ok && reader.ok
+}
+
+// Reads a tick's commands written by write_commands; false when they are malformed: cut short, more than
+// TICK_COMMANDS commands or COMMANDS_PER_PLAYER of one player, a player out of range or out of order, a command
+// over COMMAND_MAX bytes. Command kinds are not checked here (command_value reads an unknown kind as nil).
+read_commands :: proc(
+	reader: ^wire.Reader,
+	players: int,
+	commands: ^[TICK_COMMANDS]Raw_Command,
+) -> (
+	count: int,
+	ok: bool,
+) {
 	count = int(wire.r_u8(reader))
 	if !reader.ok || count > TICK_COMMANDS {
 		return
@@ -130,7 +148,7 @@ read_tick :: proc(
 			return
 		}
 	}
-	return present, replaced, count, true
+	return count, true
 }
 
 // Writes a tick's inputs as write_tick does.

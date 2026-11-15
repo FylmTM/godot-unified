@@ -136,14 +136,16 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_u32(writer, 1) // command ack
 		wire.w_u32(writer, 5)
 		wire.w_u8(writer, 2)
-		inputs := finalized_of(5, 1)
-		sim.inputs_write(writer, &inputs)
+		first := finalized_of(5, 1)
+		netcode.window_write_tick(writer, &first, nil)
+		inputs := finalized_of(6, 2)
+		inputs.present = {0, 1}
 		bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{3})
 		sim.add_command(&inputs, bump)
 		mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = 2})
 		mark.player = 1
 		sim.add_command(&inputs, mark)
-		sim.inputs_write(writer, &inputs)
+		netcode.window_write_tick(writer, &inputs, &first)
 	case .Snap_Request:
 		wire.w_u8(writer, 1)
 		wire.w_u32(writer, 3)

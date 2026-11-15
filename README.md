@@ -118,6 +118,7 @@ Then, from the repo root (`uni.cmd` on Windows):
 ./uni run survivor        # play it (builds its extension the first time)
 ./uni verify              # everything CI runs
 ./uni init ../mygame      # a new game repo, with unified as its submodule
+./uni init games/mygame --in-repo # a new game inside this repo
 ```
 
 A step-by-step guide to setting up and making a tiny game is planned

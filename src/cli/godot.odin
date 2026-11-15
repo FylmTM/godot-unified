@@ -199,7 +199,7 @@ import_mark_current :: proc(dir: string) {
 }
 
 // Runs Godot to the end with a timeout (a headless Godot can hang, e.g. when an extension fails to load), output
-// captured, stdin closed (with -d, a script error must end the run, not wait at the debugger prompt).
+// captured, stdin a `quit` line (with -d, a script error must end the run, not wait at the debugger prompt: `start`).
 run_godot :: proc(args: []string, timeout_s: f64, env: []string = nil) -> Ran {
 	cmd: [dynamic]string
 	append(&cmd, godot())

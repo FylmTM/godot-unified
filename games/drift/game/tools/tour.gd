@@ -4,20 +4,26 @@ extends UnifiedTool
 ##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
 ## menu -> single player -> lobby (the ship, the station and both gates are there) -> click Start (the `start`
 ## command) -> match: aim with the stick (the ship turns to it), thrust (it moves, the camera follows), fire
-## (bullets in the bulk view) while the first wave's rocks drift in (rock bulk views) -> leave to the menu.
-## Without `--quick` it also hunts rocks (aims at the nearest, read back from the rock bulk views' MultiMesh) until
-## one splits or is destroyed. The result adds the sim events seen.
+## (bullets in the bulk view) while the first wave's rocks drift in (rock bulk views) -> hunt rocks (_hunt) until
+## one is hit (`--quick`) or splits or is destroyed -> without `--quick`, warp through a gate -> leave to the menu.
+## The result adds the sim events seen.
 
 const ROCK_KINDS: Array[String] = ["rock_0", "rock_1", "rock_2", "rock_3"]
 
 ## Sim event name -> count of confirmed events, from sim_event.
 var _events: Dictionary[String, int] = {}
+## Where a bullet last hit or split a rock (pixels) and when (msec): what a headless hunt aims at.
+var _rock_seen := Vector2.INF
+var _rock_seen_ms := 0
 
 
 func _run() -> void:
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
 		if state == UnifiedSession.EVENT_CONFIRMED:
-			_events[event.kind] = int(_events.get(event.kind, 0)) + 1)
+			_events[event.kind] = int(_events.get(event.kind, 0)) + 1
+		elif state == UnifiedSession.EVENT_EMITTED and event.kind in ["rock_hit", "rock_split"]:
+			_rock_seen = event.get(&"position")
+			_rock_seen_ms = Time.get_ticks_msec())
 	result["events"] = _events
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
@@ -88,34 +94,8 @@ func _run() -> void:
 	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_bulk_count(["bullet"]),
 		_bulk_count(ROCK_KINDS), _bulk_count(["gem"]), int(game.local_player_info().get("shots", 0))])
 
+	await _hunt(flag("quick"))
 	if not flag("quick"):
-		# hunt: aim at the nearest rock until one breaks
-		var end := Time.get_ticks_msec() + 40000
-		var shot_mid := false
-		while not failed() and Time.get_ticks_msec() < end:
-			if _events.get("rock_split", 0) + _events.get("rock_destroyed", 0) > 0 and shot_mid:
-				break
-			var at := _me().global_position
-			var target := _nearest_rock(at)
-			var dir := (target - at).normalized() if target != Vector2.INF else Vector2.ZERO
-			_stick(dir)
-			_move(dir if target != Vector2.INF and at.distance_to(target) > 350.0 else Vector2.ZERO)  # into range
-			if not shot_mid and Time.get_ticks_msec() > end - 34000:
-				shot_mid = true
-				await shot("r04_fight")
-			await process_frame
-		_stick(Vector2.ZERO)
-		_move(Vector2.ZERO)
-		var broke: int = _events.get("rock_split", 0) + _events.get("rock_destroyed", 0)
-		await seconds(0.3)
-		await shot("r05_split")
-		step("hunt: %d rock hits, %d splits, %d destroyed, %d station hits, score %d" % [_events.get("rock_hit", 0),
-			_events.get("rock_split", 0), _events.get("rock_destroyed", 0), _events.get("station_hit", 0),
-			int(game.hud.get("score", 0))])
-		if _events.get("rock_hit", 0) == 0:
-			fail("no bullet hit a rock in 40 s of firing at them")
-		elif broke == 0:
-			fail("no rock split or was destroyed in 40 s of firing at them")
 		await _warp()
 	Input.action_release(&"fire")
 
@@ -125,7 +105,48 @@ func _run() -> void:
 	step("left to the menu")
 
 
-## Flies into the nearest gate: the ship comes out of its pair (a `warped` event, a jump of the ship's view past
+## Fires at rocks: aims at the nearest one (read back from the rock bulk views) and thrusts into range. Headless (no
+## renderer holds the bulk views' transforms to read back) it sweeps the aim around while the rocks drift at the
+## station, and aims at the last rock hit for a second after each hit. Quick: until the first hit, 15 s at most.
+## Otherwise until a rock splits or is destroyed, 40 s at most.
+func _hunt(quick: bool) -> void:
+	var budget_s := 15 if quick else 40
+	var start := Time.get_ticks_msec()
+	var end := start + budget_s * 1000
+	var shot_mid := quick
+	while not failed() and Time.get_ticks_msec() < end:
+		if quick and _events.get("rock_hit", 0) > 0:
+			break
+		if shot_mid and _events.get("rock_split", 0) + _events.get("rock_destroyed", 0) > 0:
+			break
+		var at := _me().global_position
+		var target := _nearest_rock(at)
+		var dir := Vector2.from_angle((Time.get_ticks_msec() - start) * 0.002)  # 2 rad/s, slower than the ship turns
+		if target != Vector2.INF:
+			dir = (target - at).normalized()
+		elif _rock_seen != Vector2.INF and Time.get_ticks_msec() - _rock_seen_ms < 1000:
+			dir = (_rock_seen - at).normalized()
+		_stick(dir)
+		_move(dir if target != Vector2.INF and at.distance_to(target) > 350.0 else Vector2.ZERO)  # into range
+		if not shot_mid and Time.get_ticks_msec() > start + 6000:
+			shot_mid = true
+			await shot("r04_fight")
+		await process_frame
+	_stick(Vector2.ZERO)
+	_move(Vector2.ZERO)
+	await seconds(0.3)
+	await shot("r05_hunt")
+	var broke: int = _events.get("rock_split", 0) + _events.get("rock_destroyed", 0)
+	step("hunt (%s): %d rock hits, %d splits, %d destroyed, %d station hits, score %d" % [
+		"aimed" if not _headless() else "swept", _events.get("rock_hit", 0), _events.get("rock_split", 0),
+		_events.get("rock_destroyed", 0), _events.get("station_hit", 0), int(game.hud.get("score", 0))])
+	if _events.get("rock_hit", 0) == 0:
+		fail("no bullet hit a rock in %d s of firing at them" % budget_s)
+	elif not quick and broke == 0:
+		fail("no rock split or was destroyed in %d s of firing at them" % budget_s)
+
+
+## Flies into the nearest gate:the ship comes out of its pair (a `warped` event, a jump of the ship's view past
 ## teleport_dist, so it snaps) and the camera cuts to it.
 func _warp() -> void:
 	if failed():
@@ -194,18 +215,27 @@ func _bulk_count(kinds: Array) -> int:
 	return n
 
 
-## The nearest rock's position, read back from the rock bulk views' instance transforms (what the host wrote).
+## The nearest rock's position, read back from the rock bulk views' instance transforms (what the host wrote), or
+## Vector2.INF when there is none or nothing to read back: headless, the renderer keeps no MultiMesh buffer and
+## every transform reads as the origin.
 func _nearest_rock(from: Vector2) -> Vector2:
 	var best := Vector2.INF
+	if _headless():
+		return best
 	for b in current_scene.get_node(^"Bulk").get_children():
 		var mmi := b as MultiMeshInstance2D
-		if mmi == null or mmi.multimesh == null or not (String(b.get(&"kind")) in ROCK_KINDS):
+		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
+		if mmi == null or mmi.multimesh == null or marker == null or not (marker.kind in ROCK_KINDS):
 			continue
 		for i in maxi(mmi.multimesh.visible_instance_count, 0):
 			var p := mmi.multimesh.get_instance_transform_2d(i).origin
 			if best == Vector2.INF or from.distance_to(p) < from.distance_to(best):
 				best = p
 	return best
+
+
+static func _headless() -> bool:
+	return DisplayServer.get_name() == "headless"
 
 
 ## The right stick, as Input actions (what Input.get_vector reads).

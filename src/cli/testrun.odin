@@ -164,17 +164,21 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 	return exit_state.exited && exit_state.exit_code == 0
 }
 
-// What CI allows a suite (its budget, CI_BUDGET_SCALE times; `test --long`: its long budget; `--box3d-debug`: plus
-// BOX3D_DEBUG_EXTRA_BUDGET): a test binary still running then has hung.
-suite_timeout :: proc(name: string) -> time.Duration {
+// A suite's budget for a warm run (`test --long`: its long budget; `--box3d-debug`: plus BOX3D_DEBUG_EXTRA_BUDGET).
+suite_budget :: proc(name: string) -> f64 {
 	for suite in state.suites {
 		if suite.name == name {
 			budget := state.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
 			if name == "odin" && state.box3d_debug {
 				budget += BOX3D_DEBUG_EXTRA_BUDGET
 			}
-			return time.Duration(budget * CI_BUDGET_SCALE * f64(time.Second))
+			return budget
 		}
 	}
 	return 0
+}
+
+// What CI allows a suite (its budget, CI_BUDGET_SCALE times): a test binary still running then has hung.
+suite_timeout :: proc(name: string) -> time.Duration {
+	return time.Duration(suite_budget(name) * CI_BUDGET_SCALE * f64(time.Second))
 }

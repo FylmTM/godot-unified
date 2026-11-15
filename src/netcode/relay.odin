@@ -854,7 +854,7 @@ take_commands :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, tick_inputs: ^
 
 @(private)
 broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
-	window := finalized_window(Input, PLAYERS)
+	window := u32(WINDOW_MAX)
 	relay.broadcast_us = now
 	for player in 0 ..< PLAYERS {
 		if !relay.welcomed[player] || !relay.connected[player] {
@@ -884,16 +884,21 @@ broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 		count_at := len(writer.buf)
 		wire.w_u8(writer, 0)
 		written := 0
+		base: ^sim.Inputs(Input, PLAYERS) // the tick before in this packet (nil: the empty tick)
 		for tick := first; tick <= last; tick += 1 {
 			tick_inputs := relay_tick(relay, tick)
-			// Ticks with commands are larger: stop at the message limit (every tick alone fits, see
-			// tick_command_budget), the rest goes in a later packet.
-			if tick_inputs == nil ||
-			   len(writer.buf) + sim.tick_bytes(Input, PLAYERS, tick_inputs.commands[:tick_inputs.command_count]) >
-				   MAX_MESSAGE {
+			if tick_inputs == nil {
 				break
 			}
-			sim.inputs_write(writer, tick_inputs)
+			// Ticks with commands or many changes are larger: stop at the message limit (every tick alone
+			// fits, see tick_command_budget), the rest goes in a later packet.
+			before := len(writer.buf)
+			window_write_tick(writer, tick_inputs, base)
+			if len(writer.buf) > MAX_MESSAGE {
+				resize(&writer.buf, before)
+				break
+			}
+			base = tick_inputs
 			written += 1
 		}
 		writer.buf[count_at] = u8(written)
