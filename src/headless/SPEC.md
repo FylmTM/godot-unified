@@ -20,7 +20,7 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   §input script); per-tick `"%06d %016x"` trace; `--log` writes the run's inputs as an input log (nothing replaced).
 - `synctest --ticks N --window W [--seed S] [--players P]`: JSON includes `mismatches`. `W` (here and in
   `bench`) is 1 to `headless.max_window(game)`, the game's ring depth (its tick rate sets it).
-- `replay --log F --trace F`: replays an input log.
+- `replay --log F --trace F`: replays an input log (refused when another level or build recorded it).
 - `session --clients N --transport loopback|udp --profile ideal|wan|bad --ticks N [--late-join P@T]
   [--log F] [--seed S] [--clock real|virtual]`: an in-process relay plus N clients with scripted inputs (threads on
   the real clock; on the virtual clock, loopback only, one thread steps everything through test time). Writes the
@@ -76,7 +76,7 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 - **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `scripted_input`, optional
   `scripted_commands(seed, player, tick, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
-  (`run_sim`, `run_synctest`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
+  (`run_sim`, `run_synctest`, `run_interleaved`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
   only this. Scripted commands go into offline runs as the relay places them (at most 4 of a player per tick, the
   rest in the next ticks, in order) and every session client sends them through the netcode; a resume starts with
   none waiting.
@@ -88,6 +88,10 @@ calls each one explicitly; tests are named for what they check; no platform assu
   then the game's own scenarios. Its reference run stays in `simulation/tests/testdata/`.
 - **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests, with the toy's reference run in
   `tests/scenarios/testdata/`. It is the template a game's suite copies: the standard part is identical in shape.
+- **The seeded-bug eval** (#123): `tests/scenarios/seeded_bugs_test.odin` plants runtime determinism bugs in the toy
+  (World state not rolled back, state instances share, a value from an address) and checks that the detector meant
+  for each (`rollback_every_tick`, `runs_match`, the netcode's desync detection) catches it. The static traps have
+  planted cases in `tests/lint` and `tests/sim`.
 
 ### API
 
@@ -110,7 +114,7 @@ Reference :: struct {
 | Proc | Passes when |
 |---|---|
 | `rollback_every_tick(t, suite, window = 8)` | restoring `window` (at most `headless.max_window(game)`) ticks back and re-simulating, every tick: 0 mismatches |
-| `runs_match(t, suite)` | two scripted runs: identical traces |
+| `runs_match(t, suite)` | two scripted runs alive at once (`run_interleaved`: the second created halfway through the first, then stepped alongside it and on after it is destroyed): every tick equal. Catches state instances share (a global, a library's static), which back-to-back runs miss |
 | `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
 | `session_log_replays(t, suite, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
 | `late_join_agrees(t, suite, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
