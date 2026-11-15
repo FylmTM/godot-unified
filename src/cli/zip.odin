@@ -31,6 +31,7 @@ Zip_Reader :: struct {
 	cache_off: i64,
 }
 
+// A reader over a local archive: members are read from disk as they are needed, never the whole file at once.
 zip_open_file :: proc(path: string) -> Zip_Reader {
 	info, err := os.stat(path, context.temp_allocator)
 	if err != nil {
@@ -319,6 +320,8 @@ zip_add :: proc(writer: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o6
 	delete(packed)
 }
 
+// Appends the central directory to the members zip_add packed and returns the whole archive, ready for
+// write_file.
 zip_finish :: proc(writer: ^Zip_Writer) -> []byte {
 	cd_off := u32(len(writer.buf))
 	append(&writer.buf, ..writer.central[:])
@@ -361,6 +364,8 @@ put32 :: proc(bytes: ^[dynamic]byte, value: u32) {
 	append(bytes, byte(value), byte(value >> 8), byte(value >> 16), byte(value >> 24))
 }
 
+// The leading decimal digits of a text as a number (0 when there are none), ignoring what follows: reads sizes
+// such as an HTTP Content-Length.
 parse_i64 :: proc(text: string) -> i64 {
 	number: i64
 	for character in text {

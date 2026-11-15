@@ -248,6 +248,7 @@ create :: proc(
 	return simulation
 }
 
+// Frees a Sim made by create or from_snapshot: its ring, its events and the game's World (game.world_destroy).
 destroy :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 	for &slot in simulation.ring {
 		delete(slot.events.list)

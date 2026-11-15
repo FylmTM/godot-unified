@@ -243,6 +243,8 @@ kind_of_roll :: proc(roll: u32) -> Enemy_Kind {
 	return roll <= 6 ? .Grunt : (roll <= 8 ? .Runner : .Brute)
 }
 
+// Spawns an enemy of a kind at a position, its HP scaled by the wave (false: the enemy table is full). The spawner
+// and the bench's prespawn use it.
 spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> bool {
 	enemy, _ := sim.spawn(&state.enemies) or_return
 	stats := ENEMY_STATS[kind]
@@ -743,6 +745,8 @@ bench_prepare :: proc(state: ^State, world: ^World, count: int) {
 	prespawn_enemies(state, count)
 }
 
+// Spawns `count` enemies of random kinds at random positions over the arena, drawn from the state's stream, until
+// the table is full; bench_prepare starts its fixed population with it.
 prespawn_enemies :: proc(state: ^State, count: int) {
 	for _ in 0 ..< count {
 		x := f32(sim.rng_below(&state.rng, 5600)) / 100 - 28

@@ -197,10 +197,12 @@ TUNINGS := [Tuning_Kind]Tuning {
 	},
 }
 
+// The match's tuning, read from the state (not the preset), so a `--set` override or a preset switch is respected.
 tuning :: #force_inline proc(state: ^State) -> ^Tuning {
 	return &state.tune
 }
 
+// Selects a tuning preset and copies it into the state: init picks `play`, the stress game and the bench `stress`.
 set_tuning :: proc(state: ^State, kind: Tuning_Kind) {
 	state.tuning = kind
 	state.tune = TUNINGS[kind]

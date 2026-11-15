@@ -36,6 +36,8 @@ schema_of :: proc($State: typeid) -> ^Schema {
 	return &cached
 }
 
+// Fills `out` with the tables and globals of the state type (heap-allocated, as the schema lives as long as the
+// program); schema_of calls it once per type and caches the result.
 build_schema :: proc(out: ^Schema, type: ^runtime.Type_Info) {
 	context.allocator = runtime.heap_allocator()
 	struct_info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)

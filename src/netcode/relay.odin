@@ -147,6 +147,8 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	finished:     bool,
 }
 
+// Creates a relay for `PLAYERS` players of `Input` with no links yet (relay_add_link), starting its recording
+// if cfg has one. The clock starts once cfg.start_players have connected.
 relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay(Input, PLAYERS) {
 	sim.check_plain(Input)
 	_ = tick_command_budget(Input, PLAYERS) // asserts a tick with a command fits a datagram
@@ -177,6 +179,7 @@ relay_end_recording :: proc(relay: ^Relay($Input, $PLAYERS)) -> bool {
 	return sim.log_stream_end(&relay.recording)
 }
 
+// Ends the recording if still open, closes every link the relay owns and frees it.
 relay_destroy :: proc(relay: ^Relay($Input, $PLAYERS)) {
 	relay_end_recording(relay)
 	channel_destroy(relay.ch)
@@ -228,6 +231,8 @@ relay_stop :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 	relay.end_us = now
 }
 
+// Whether the relay is done: after relay_stop (or the last tick of a fixed-length session), every client acked
+// End or 3 s passed. The loop stepping the relay stops on it.
 relay_finished :: proc(relay: ^Relay($Input, $PLAYERS)) -> bool {
 	return relay.finished
 }

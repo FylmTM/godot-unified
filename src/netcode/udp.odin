@@ -76,6 +76,8 @@ udp_connect :: proc(remote: cnet.Endpoint) -> (link: Link, ok: bool) {
 		}, true
 }
 
+// The local port a UDP link's socket is bound to (0 if unknown): after udp_listen(0, ...) it is the port
+// to tell clients (the lobby code, a headless session's clients).
 udp_bound_port :: proc(link: ^Link) -> int {
 	udp := (^Udp_Link)(link.data)
 	endpoint, err := cnet.bound_endpoint(udp.sock)

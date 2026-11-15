@@ -126,6 +126,7 @@ Conn :: struct {
 	rel_early:   map[u32][]u8, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
 }
 
+// Creates an empty channel with no links; the relay and each client own one. Free it with channel_destroy.
 channel_make :: proc() -> ^Channel {
 	channel := new(Channel)
 	channel.tx = wire.writer_make(MAX_DATAGRAM)
@@ -140,6 +141,7 @@ channel_add_link :: proc(channel: ^Channel, link: Link) -> int {
 	return len(channel.links) - 1
 }
 
+// Frees every connection, closes every link the channel owns, and frees the channel.
 channel_destroy :: proc(channel: ^Channel) {
 	for &conn in channel.conns {
 		conn_reset(&conn)

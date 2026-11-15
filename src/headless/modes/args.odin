@@ -11,6 +11,7 @@ Args :: struct {
 	opts: map[string]string,
 }
 
+// Prints every mode and its options to stderr and exits with code 2: no mode, or an unknown one.
 usage :: proc() -> ! {
 	fmt.eprintf("usage: %s <mode> [options]\n", len(os.args) > 0 ? os.args[0] : "headless")
 	fmt.eprintln(
@@ -34,11 +35,15 @@ usage :: proc() -> ! {
 	os.exit(2)
 }
 
+// Prints a formatted error to stderr and exits with code 2, the way every mode (and a game's own modes)
+// rejects a bad or missing option.
 die :: proc(format: string, args: ..any) -> ! {
 	fmt.eprintfln(format, ..args)
 	os.exit(2)
 }
 
+// Reads the command line as a mode followed by `--key value` pairs; exits through usage or die when it is
+// not one.
 parse_args :: proc() -> (args: Args) {
 	argv := os.args[1:]
 	if len(argv) < 1 {
@@ -55,6 +60,7 @@ parse_args :: proc() -> (args: Args) {
 	return
 }
 
+// The value of `--key`, or `fallback` when it is absent; exits through die when a required option is missing.
 opt_str :: proc(args: ^Args, key: string, fallback := "", required := false) -> string {
 	if value, ok := args.opts[key]; ok {
 		return value
@@ -65,6 +71,8 @@ opt_str :: proc(args: ^Args, key: string, fallback := "", required := false) -> 
 	return fallback
 }
 
+// The value of `--key` as an integer in [low, high], or `fallback` when absent; exits through die when a
+// required option is missing or the value is not such an integer.
 opt_int :: proc(args: ^Args, key: string, fallback := 0, required := false, low := 0, high := max(int)) -> int {
 	text, ok := args.opts[key]
 	if !ok {

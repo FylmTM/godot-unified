@@ -186,6 +186,8 @@ register_class :: proc(cls: ^Class) {
 	gdi.classdb_register_extension_class6(library, &cls.name_sn, &cls.parent_sn, &info)
 }
 
+// Removes `cls` from ClassDB and frees its names. Call at the SCENE deinit level, subclasses before their parent
+// (the reverse of registration).
 unregister_class :: proc(cls: ^Class) {
 	gdi.classdb_unregister_extension_class(library, &cls.name_sn)
 	StringName_destroy(&cls.name_sn)
@@ -340,6 +342,8 @@ new_method :: proc(fn: rawptr, nargs: int) -> ^Method {
 	return method
 }
 
+// bind_method for a proc with no arguments and no result. Each signature gets its own pair of trampolines: a
+// Variant call (GDScript, untyped calls) and a ptrcall (typed calls).
 method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self)) {
 	method := new_method(rawptr(f), 0)
 	method.call = proc(
@@ -357,6 +361,7 @@ method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self)) {
 	register_method(cls, name, method, nil, nil, nil)
 }
 
+// bind_method for a proc with no arguments and a result (bind_property's getter).
 method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result) {
 	method := new_method(rawptr(f), 0)
 	method.call = proc(
@@ -375,6 +380,7 @@ method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result) {
 	register_method(cls, name, method, nil, nil, Result)
 }
 
+// bind_method for a proc with one argument and no result (bind_property's setter).
 method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), names: [1]string) {
 	method := new_method(rawptr(f), 1)
 	method.call = proc(
@@ -396,6 +402,7 @@ method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), 
 	register_method(cls, name, method, names[:], {Arg0}, nil)
 }
 
+// bind_method for a proc with one argument and a result.
 method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0) -> $Result, names: [1]string) {
 	method := new_method(rawptr(f), 1)
 	method.call = proc(
@@ -418,6 +425,7 @@ method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0) 
 	register_method(cls, name, method, names[:], {Arg0}, Result)
 }
 
+// bind_method for a proc with two arguments and no result.
 method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1), names: [2]string) {
 	method := new_method(rawptr(f), 2)
 	method.call = proc(
@@ -442,6 +450,7 @@ method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0, a
 	register_method(cls, name, method, names[:], {Arg0, Arg1}, nil)
 }
 
+// bind_method for a proc with two arguments and a result.
 method_2r :: proc(
 	cls: ^Class,
 	name: string,
@@ -479,6 +488,7 @@ method_2r :: proc(
 	register_method(cls, name, method, names[:], {Arg0, Arg1}, Result)
 }
 
+// bind_method for a proc with three arguments and no result.
 method_3 :: proc(
 	cls: ^Class,
 	name: string,
@@ -516,6 +526,7 @@ method_3 :: proc(
 	register_method(cls, name, method, names[:], {Arg0, Arg1, Arg2}, nil)
 }
 
+// bind_method for a proc with three arguments and a result.
 method_3r :: proc(
 	cls: ^Class,
 	name: string,
@@ -696,6 +707,8 @@ emit_signal :: proc(obj: Object, signal: ^StringName, args: ..any) {
 	for &variant in variants do gdi.variant_destroy(&variant)
 }
 
+// Whether the object's script implements `method`, so Odin can skip call_script for an optional script hook
+// (checked once, not every call).
 has_script_method :: proc(obj: Object, method: ^StringName) -> bool {
 	return gdi.object_has_script_method(obj.ptr, method) != 0
 }

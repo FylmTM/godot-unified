@@ -41,6 +41,8 @@ Timing :: struct {
 	prediction_cap: u32,
 }
 
+// Converts a duration in microseconds to whole ticks, rounding up (0 for none); the timing formulas use it
+// without core:math, which netcode may not import.
 ceil_ticks :: proc(us: f64, tick_us: f64) -> u32 {
 	ticks := us / tick_us
 	if ticks <= 0 {
@@ -53,6 +55,8 @@ ceil_ticks :: proc(us: f64, tick_us: f64) -> u32 {
 	return whole
 }
 
+// Derives a game's tick timing (tick length, tolerance, delay ceiling, prediction cap) from its tick rate;
+// the relay and each client compute it once at creation.
 timing_of :: proc(tick_hz: int) -> Timing {
 	timing := Timing {
 		tick_hz = tick_hz,
@@ -124,11 +128,13 @@ Player_Name :: struct {
 	bytes: [NAME_MAX]u8,
 }
 
+// Packs a display name into a fixed-size Player_Name, cutting it at NAME_MAX bytes, so a Hello stays plain data.
 name_of :: proc(text: string) -> (name: Player_Name) {
 	name.len = u8(copy(name.bytes[:], text)) // a cut may split a UTF-8 sequence; names are display-only
 	return
 }
 
+// The name's text, a view into its bytes (valid while the Player_Name is).
 name_string :: proc(name: ^Player_Name) -> string {
 	return string(name.bytes[:name.len])
 }
@@ -199,6 +205,8 @@ inputs_window :: proc($Input: typeid) -> u32 {
 	return u32(min(room / size_of(Input), INPUTS_MAX))
 }
 
+// Copies a byte slice into a new one from `allocator`: queued messages and delayed datagrams outlive the buffer
+// they came in.
 clone_bytes :: proc(bytes: []u8, allocator := context.allocator) -> []u8 {
 	clone := make([]u8, len(bytes), allocator)
 	copy(clone, bytes)

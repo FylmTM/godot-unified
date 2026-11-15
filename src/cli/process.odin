@@ -255,6 +255,7 @@ redact :: proc(cmd: []string) -> []string {
 	return out
 }
 
+// Sorts strings in place, in byte order, so listings (find_files) come out the same on every OS.
 sort_strings :: proc(values: []string) {
 	slice.sort(values)
 }

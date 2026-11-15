@@ -236,6 +236,8 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 }
 
+// A JSON number as an f64, or 0 when it is missing or not a number: reads the headless binaries' benchmark
+// reports for `bench`.
 json_f64 :: proc(value: json.Value) -> f64 {
 	#partial switch number in value {
 	case json.Float:
