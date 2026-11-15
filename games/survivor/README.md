@@ -10,12 +10,11 @@ Open this folder with Godot 4.7.2 (standard build), or from the repo root:
 
 ```
 uni run survivor                  # the game; builds the game library first
-uni run survivor -- --mock        # force the GDScript mock session
 ```
 
-The game library is built into `.out/bin/` (`libsurvivor.dylib`, `survivor.dll`; `uni build survivor`); without it a
-dev run uses the mock session (`game/session/`), a fake sim with the same API, so every screen works. Exports never
-include the mock: without the library they show a "game library failed to load" screen.
+The game library is built into `.out/bin/` (`libsurvivor.dylib`, `survivor.dll`; `uni build survivor`); nothing
+runs without it: a checkout that never built it, or an export that lost it, shows a "game library failed to load"
+screen.
 
 ## Checks
 

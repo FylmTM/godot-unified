@@ -1,11 +1,13 @@
 // The survivor's GDExtension (game/survivor.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
-// unified:godot_host, plus the game-specific glue: which views exist, how the State maps to them and to the
-// HUD, and how InputMap actions become an Input. Built by `uni build survivor`.
+// unified:godot, plus the game's glue (games/survivor/SPEC.md "Client"): 3D scene and MultiMesh views in metres,
+// the player view's data, the HUD view (hud.odin), constants, and how the InputMap becomes an Input. Built by
+// `uni build survivor`.
 package survivor_extension
 
 import "base:runtime"
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import "unified:b3"
 import "unified:eos"
 import gd "unified:gdext"
@@ -31,7 +33,7 @@ survivor_init :: proc "c" (
 	return godot.entry(gpa, lib, init)
 }
 
-// ---- online play: EOS (lobby codes, P2P with Epic relays), through godot_host's transport interface
+// ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket, so a build with another
 // protocol says "no game with that code" instead of failing to connect.
@@ -71,132 +73,135 @@ EOS_TRANSPORT := godot.Transport {
 	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
 
-// View kinds: <scene_dir>/<kind>.tscn for scene views, `kind` of the bulk views (group sim_bulk).
-SCENE_PLAYER :: 0
-SCENE_CRATE :: 1
-SCENE_BARREL :: 2
-BULK_PROJECTILE :: 3 // after the three enemy kinds (Enemy_Kind order)
-BULK_GEM :: 4
+// ---- the view contract
 
-BUTTON_DASH :: 0
-
-// Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
-// explosion (`entity` = item index + 1) the barrel's view (Scene_Item.entity); enemies and gems are bulk, so
-// their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World) {
-	scenes = {{"player", Player_View}, {name = "crate"}, {name = "barrel"}},
-	scene_dir = "res://game/views",
-	bulk_kinds = {"grunt", "runner", "brute", "projectile", "gem"},
-	actions = {
-		move    = {"move_left", "move_right", "move_forward", "move_back"},
-		buttons = {"dash"}, // level-up picks are a command: the HUD sends them (send_command(&"pick", ...))
-	},
-	extract = extract,
-	poll_input = poll_input,
-	scripted_input = survivor.scripted_input,
-	scripted_commands = survivor.scripted_commands,
-	hud = hud,
-	constants = constants,
-	bench = survivor.bench_prepare,
+// Scene views (the view index: a scene per kind, with a UnifiedView marker): players, crates and barrels (the
+// player's data: Player_View), and the HUD (game/views/hud.tscn; its data, Hud, is Game.hud).
+View :: enum u8 {
+	Player,
+	Crate,
+	Barrel,
+	Hud,
 }
 
-// ---- input
-
-poll_input :: proc(actions: godot.Actions, player: int, tick: u32, state: ^survivor.State) -> (input: survivor.Input) {
-	input.move_x = i8(clamp(actions.move.x, -1, 1) * 127)
-	input.move_z = i8(clamp(actions.move.y, -1, 1) * 127) // Godot's get_vector: +y = move_back = +Z
-	if actions.held & (1 << BUTTON_DASH) != 0 do input.buttons |= survivor.BUTTON_DASH
-	return
+// MultiMesh views (MultiMeshInstance3D, 3D transforms + custom data: r = hit flash 0..1, g = age in s, no
+// colours): one per Enemy_Kind, in its order, then projectiles and gems. Positions are on the floor plane (y = 0):
+// the shaders lift the meshes.
+Multi :: enum u8 {
+	Grunt,
+	Runner,
+	Brute,
+	Projectile,
+	Gem,
 }
 
-// ---- frame extraction (session thread)
+#assert(int(Multi.Grunt) == int(survivor.Enemy_Kind.Grunt))
+#assert(int(Multi.Runner) == int(survivor.Enemy_Kind.Runner))
+#assert(int(Multi.Brute) == int(survivor.Enemy_Kind.Brute))
+
+Frame :: godot.Frame(survivor.State, survivor.World, View, Multi)
 
 // Spawn keys: players 1..4 (a player's view lives for the whole session), items 0x100 + index (a destroyed
-// barrel's view goes; the respawned one is a new view).
+// barrel's view goes; the one respawned 10 s later is a new view), the HUD 0x200.
 PLAYER_KEY :: 1
 ITEM_KEY :: 0x100
+HUD_KEY :: 0x200
 
-// The player view's data (Scene_Kind.data): set as its properties when it changes.
+// The player view's data: set as its properties when it changes.
 Player_View :: struct {
 	hp: i32,
 }
 
-extract :: proc(current, previous: ^survivor.State, world: ^survivor.World, out: ^godot.Frame) {
+// Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
+// explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
+// instances, so their events (by handle) reach no view.
+GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, Multi) {
+	sample_input      = sample_input,
+	fill_frame        = fill_frame,
+	scripted_input    = survivor.scripted_input,
+	scripted_commands = survivor.scripted_commands,
+	constants         = constants,
+	bench             = survivor.bench_prepare,
+}
+
+// ---- input (main thread, the one local player)
+
+// Movement and the dash from the InputMap. The level-up pick is a command: the HUD sends it (a Pick).
+sample_input :: proc(input: ^survivor.Input) {
+	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back") // +y = move_back = +Z
+	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	// the sim dashes on the press edge; a tap shorter than a tick still counts (action_pressed)
+	if godot.action_held("dash") || godot.action_pressed("dash") do input.buttons |= survivor.BUTTON_DASH
+}
+
+// ---- the frame (session thread)
+
+fill_frame :: proc(frame: ^Frame) {
+	state, world, tick := frame.state, frame.world, frame.tick
 	for player in 0 ..< survivor.PLAYERS {
-		character := &current.players[player]
+		character := &state.players[player]
 		if !character.active do continue
-		item := godot.Scene_Item {
-			key    = view.Key(PLAYER_KEY + player),
-			kind   = SCENE_PLAYER,
-			player = i8(player),
-			pos    = character.pos,
-		}
-		if previous != nil && previous.players[player].active && previous.players[player].alive == character.alive {
-			item.has_prev = true
-			item.prev_pos = previous.players[player].pos
-		}
-		godot.push_scene(out, item, Player_View{hp = max(character.hp, 0)})
+		godot.push_view(
+			frame,
+			{key = view.Key(PLAYER_KEY + player), kind = .Player, player = player, pos = character.pos},
+			Player_View{hp = max(character.hp, 0)},
+		)
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
-		item := &current.items[i]
+		item := &state.items[i]
 		if !item.alive do continue
 		body := physics.body_id(world.phys, item.body)
 		body_pos := b3.body_get_position(body)
-		godot.push_scene(
-			out,
+		godot.push_view(
+			frame,
 			{
 				key    = view.Key(ITEM_KEY + i),
-				kind   = item.kind == .Barrel ? SCENE_BARREL : SCENE_CRATE,
-				player = -1,
+				kind   = item.kind == .Barrel ? .Barrel : .Crate,
 				entity = u64(i + 1), // barrel_exploded's entity: item index + 1
 				pos    = {body_pos.x, body_pos.y, body_pos.z},
 				rot    = b3.body_get_rotation(body),
 			},
 		)
 	}
-	// enemies (one bulk kind per Enemy_Kind)
-	enemies := sim.iterate(&current.enemies)
+	enemies := sim.iterate(&state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		bulk := godot.Bulk_Item {
-			kind   = u8(enemy.kind),
-			pos    = {enemy.pos.x, 0, enemy.pos.y},
-			yaw    = enemy_yaw(enemy.vel),
-			custom = {hit_flash(out.tick, enemy.hit_tick), age_s(out.tick, enemy.spawn_tick), 0, 0},
-		}
-		previous_table := previous != nil ? &previous.enemies : nil
-		if before, ok := sim.prev_item(previous_table, &current.enemies, int(handle.index)); ok {
-			bulk.has_prev = true
-			bulk.prev_pos = {before.pos.x, 0, before.pos.y}
-			bulk.prev_yaw = enemy_yaw(before.vel)
-		}
-		if !godot.push_bulk(out, bulk) do break
-	}
-	projectiles := sim.iterate(&current.projectiles)
-	for projectile, handle in sim.next(&projectiles) {
-		bulk := godot.Bulk_Item {
-			kind = BULK_PROJECTILE,
-			pos  = {projectile.pos.x, 0, projectile.pos.z}, // bulk meshes are lifted in the game's shader
-			yaw  = math.atan2(projectile.vel.x, projectile.vel.z),
-		}
-		previous_table := previous != nil ? &previous.projectiles : nil
-		if before, ok := sim.prev_item(previous_table, &current.projectiles, int(handle.index)); ok {
-			bulk.has_prev = true
-			bulk.prev_pos = {before.pos.x, 0, before.pos.z}
-			bulk.prev_yaw = math.atan2(before.vel.x, before.vel.z)
-		}
-		if !godot.push_bulk(out, bulk) do break
-	}
-	gems := sim.iterate(&current.gems)
-	for gem in sim.next(&gems) {
-		godot.push_bulk(
-			out,
-			{kind = BULK_GEM, pos = {gem.pos.x, 0, gem.pos.y}, custom = {0, age_s(out.tick, gem.spawn_tick), 0, 0}},
+		godot.push_multi(
+			frame,
+			{
+				key = sim.handle_key(handle),
+				kind = Multi(enemy.kind),
+				pos = {enemy.pos.x, 0, enemy.pos.y},
+				yaw = enemy_yaw(enemy.vel),
+				custom = {hit_flash(tick, enemy.hit_tick), age_s(tick, enemy.spawn_tick), 0, 0},
+			},
 		) or_break
 	}
-	(^Hud)(&out.hud[0])^ = hud_of(current, out.tick)
+	projectiles := sim.iterate(&state.projectiles)
+	for projectile, handle in sim.next(&projectiles) {
+		godot.push_multi(
+			frame,
+			{
+				key = sim.handle_key(handle),
+				kind = .Projectile,
+				pos = {projectile.pos.x, 0, projectile.pos.z},
+				yaw = math.atan2(projectile.vel.x, projectile.vel.z),
+			},
+		) or_break
+	}
+	gems := sim.iterate(&state.gems)
+	for gem, handle in sim.next(&gems) {
+		godot.push_multi(
+			frame,
+			{
+				key = sim.handle_key(handle),
+				kind = .Gem,
+				pos = {gem.pos.x, 0, gem.pos.y},
+				custom = {0, age_s(tick, gem.spawn_tick), 0, 0},
+			},
+		) or_break
+	}
+	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, hud_of(state, tick))
 }
-
-#assert(size_of(Hud) <= godot.HUD_BYTES)
 
 HIT_FLASH_S :: 0.15
 
@@ -204,7 +209,7 @@ enemy_yaw :: proc(vel: [2]f32) -> f32 {
 	return (vel.x != 0 || vel.y != 0) ? math.atan2(vel.x, vel.y) : 0
 }
 
-// Bulk custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
+// MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
 hit_flash :: proc(tick, hit_tick: u32) -> f32 {
 	if hit_tick == 0 || tick < hit_tick do return 0
 	return max(0, 1 - f32(tick - hit_tick) * survivor.DT / HIT_FLASH_S)
@@ -214,53 +219,13 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
 }
 
-// ---- HUD (contract v0): hud_of (hud.odin) on the session thread, a Dictionary on the main thread
-
-hud :: proc(frame: ^godot.Frame, dict: ^gd.Dictionary) {
-	if frame == nil { 	// no session yet: every key, empty
-		gd.dict_set(dict, "phase", "lobby")
-		gd.dict_set(dict, "tick", 0)
-		gd.dict_set(dict, "time_s", 0.0)
-		gd.dict_set(dict, "wave", 0)
-		gd.dict_set(dict, "enemies_alive", 0)
-		gd.dict_set(dict, "circle_radius", 0.0)
-		gd.dict_set(dict, "matches", 0)
-		gd.dict_set(dict, "local_player", -1)
-		empty := gd.array_new()
-		gd.dict_set_move(dict, "players", &empty)
-		return
-	}
-	data := (^Hud)(&frame.hud[0])
-	gd.dict_set(dict, "phase", data.phase_name)
-	gd.dict_set(dict, "tick", i64(data.tick))
-	gd.dict_set(dict, "time_s", f64(data.time_s))
-	gd.dict_set(dict, "wave", i64(data.wave))
-	gd.dict_set(dict, "enemies_alive", i64(data.enemies_alive))
-	gd.dict_set(dict, "circle_radius", f64(data.circle_radius))
-	gd.dict_set(dict, "matches", i64(data.matches))
-	gd.dict_set(dict, "local_player", i64(frame.local_player))
-	players := gd.array_new()
-	for &player in data.players {
-		info := gd.dict_new()
-		gd.dict_set(&info, "player", i64(player.player))
-		gd.dict_set(&info, "present", player.present)
-		gd.dict_set(&info, "alive", player.alive)
-		gd.dict_set(&info, "hp", i64(player.hp))
-		gd.dict_set(&info, "hp_max", i64(player.hp_max))
-		gd.dict_set(&info, "xp", i64(player.xp))
-		gd.dict_set(&info, "xp_next", i64(player.xp_next))
-		gd.dict_set(&info, "level", i64(player.level))
-		gd.dict_set(&info, "pending_levelups", i64(player.pending_levelups))
-		gd.dict_set(&info, "respawn_s", f64(player.respawn_s))
-		if name := godot.frame_player_name(frame, player.player); name != "" do gd.dict_set(&info, "name", name)
-		gd.array_push_move(&players, &info)
-	}
-	gd.dict_set_move(dict, "players", &players)
-}
-
 // ---- constants for the scripts (UnifiedSession.constants()), from the sim's own definitions
 
-UPGRADE_NAMES := [3]string{"Fire rate", "Damage", "Move speed"}
+UPGRADE_NAMES := [survivor.Upgrade]string {
+	.Fire_Rate  = "Fire rate",
+	.Damage     = "Damage",
+	.Move_Speed = "Move speed",
+}
 
 constants :: proc(dict: ^gd.Dictionary) {
 	gd.dict_set(dict, "over_hold_s", f64(survivor.OVER_HOLD_S))
@@ -269,18 +234,19 @@ constants :: proc(dict: ^gd.Dictionary) {
 	gd.dict_set(dict, "dash_cooldown_s", f64(survivor.DASH_COOLDOWN_S))
 	gd.dict_set(dict, "player_respawn_s", f64(survivor.PLAYER_RESPAWN_S))
 	gd.dict_set(dict, "max_enemies", i64(survivor.MAX_ENEMIES))
-	// level-up options in survivor.Upgrade order: the HUD's card i sends send_command(&"pick", {"upgrade": i})
+	// the level-up cards in survivor.Upgrade order: the HUD's card sends a Pick with `upgrade` = its id
 	upgrades := gd.array_new()
-	details := [3]string {
-		"Shoot more often",
-		fmt.tprintf("+%d damage per shot", survivor.DAMAGE_LEVELUP),
-		fmt.tprintf("+%.1f m/s", survivor.SPEED_LEVELUP),
+	details := [survivor.Upgrade]string {
+		.Fire_Rate  = "Shoot more often",
+		.Damage     = fmt.tprintf("+%d damage per shot", survivor.DAMAGE_LEVELUP),
+		.Move_Speed = fmt.tprintf("+%.1f m/s", survivor.SPEED_LEVELUP),
 	}
-	for name, i in UPGRADE_NAMES {
-		upgrade := gd.dict_new()
-		gd.dict_set(&upgrade, "name", name)
-		gd.dict_set(&upgrade, "detail", details[i])
-		gd.array_push_move(&upgrades, &upgrade)
+	for name, upgrade in UPGRADE_NAMES {
+		entry := gd.dict_new()
+		gd.dict_set(&entry, "id", strings.to_lower(fmt.tprint(upgrade), context.temp_allocator)) // fire_rate, ...
+		gd.dict_set(&entry, "name", name)
+		gd.dict_set(&entry, "detail", details[upgrade])
+		gd.array_push_move(&upgrades, &entry)
 	}
 	gd.dict_set_move(dict, "upgrades", &upgrades)
 	// the item grid as the match starts (crates and barrels; the menu backdrop shows it)

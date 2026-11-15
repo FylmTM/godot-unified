@@ -44,7 +44,10 @@ rings = 1
 
 [node name="Barrel" type="Node3D"]
 script = ExtResource("1_view")
-kind = &"barrel"
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+unique_name_in_owner = true
+kind = "barrel"
 
 [node name="Body" type="Node3D" parent="."]
 

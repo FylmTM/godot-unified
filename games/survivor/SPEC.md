@@ -38,8 +38,8 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   leaves (body destroyed, progress reset, `player_left`).
 - The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}`, the only
   variant of `Command` (name `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered
-  once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click:
-  `send_command(&"pick", {"upgrade": i})`.
+  once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click: a `Pick` object whose
+  `upgrade` is the card's id (`constants().upgrades[i].id`, e.g. `&"damage"`), `Game.send_command(pick)`.
 
 ## Phases
 
@@ -174,9 +174,10 @@ Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 
 ## HUD
 
-View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: phase and its name, tick, match time (s), wave (1-based in a match), enemies
-alive, circle radius, matches, and per player (`player`): present, alive, hp, hp_max, xp, xp_next, level, pending
-level-ups, respawn seconds. The Godot host adds `local_player` and player names (from the netcode roster).
+View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: the HUD
+view's data, pushed every tick: phase, tick, match time (s), wave (1-based in a match), enemies alive, circle radius,
+matches, and per player (`player`): present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn
+seconds. Player names and the local player come from the session, not the HUD.
 
 ## Scripted inputs (for `sim`, `synctest`, `session`, tests)
 
@@ -210,65 +211,68 @@ The Godot side of `games/survivor/`: everything except `simulation/`. Hand-writt
 ```
 project.godot          Forward+, 1280x720, canvas_items stretch, InputMap, autoloads, audio buses
 export_presets.cfg     "macOS" (universal, thinned by `uni release`) and "Windows Desktop"; library from .out/bin/;
-                       the tool scripts and game/session/ are excluded
+                       the tool scripts are excluded
+unified_index.tres     the view index (`uni bake survivor`): each scene view kind's scene
 addons/shared/         games/shared, mirrored by uni (git-ignored): flow, settings, menus, HUD panels, tools
+addons/unified/        src/godot/tools, mirrored by uni (git-ignored): UnifiedTool, UnifiedValidate
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
-game/autoload/         the shared Settings (+ render scale, best time), Sfx (+ survivor's sounds), Game (+ the mock)
-game/session/          the mock session: the contract in GDScript with a fake sim (dev only, not exported)
+game/autoload/         the shared Settings (+ render scale, best time) and Sfx (+ survivor's sounds); Game is the
+                       shared one
 game/ui/               the HUD; the menu scene (the arena with props behind the shared menu)
-game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, camera), follow camera
-game/views/            player/crate/barrel scenes (GameView), GameBulkView (MultiMesh)
+game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, MultiMesh views,
+                       camera), follow camera
+game/views/            the scene views: player, crate, barrel (GameView), hud (the shared HUD view); bulk_view.gd
+                       (the MultiMesh views' script)
 game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
 game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the shared ones), tour, play_check
 ```
 
 ### Flow
 
-The flow is the shared one (`games/shared/SPEC.md`). Survivor's `Game` adds its session: the native
-`UnifiedSession` if `ClassDB.class_exists`, else (dev runs only) the mock, loaded by path (`-- --mock` forces it). An
-export without the library shows the fatal "game library failed to load" screen with Quit, never the mock. The
-sim's own phases (lobby → match → over → lobby) are read from `hud()` every frame (`Game.hud`); the arena never reloads
-between matches.
+The flow is the shared one (`games/shared/SPEC.md`), on the game library's `UnifiedSession` (without the library the
+shared LibraryCheck autoload shows "game library failed to load" with Quit). The sim's own phases (lobby → match →
+over → lobby) are read from the HUD view's data (`Game.hud`); the arena never reloads between matches.
 
-### Session contract (v0 plus these details)
+### View contract (`src/godot/SPEC.md`; `simulation/extension`)
 
-GDScript drives views through `Object.set/call` only, so the same scenes work with the native host and the mock,
-and load without the library (Godot replaces unknown native node types with a placeholder `Node`).
-
-- `view_root: Node3D` property (extension): set by the arena on load, cleared on exit; views spawn under it.
-- Scene views: `res://game/views/<kind>.tscn`, root `Node3D` with script properties `kind`, `entity`, `player` (-1
-  if not a player), set before `add_child`. Each frame: `position` = interpolated body centre, then
-  `_sim_update(position, yaw, alpha)`. Events: `sim_event(event, state, data)` (the signal) and the subject's view's
-  `_sim_event(event, state, data)`, `data` = the event's fields (Events above) plus `tick`, `state` one of
-  `SimEvent.EMITTED`, `CONFIRMED`, `CANCELLED` (`src/godot_host/SPEC.md`). The arena's effects and the HUD's banners
-  play on CONFIRMED only; the mock emits and confirms every event at once.
-- Bulk views: `MultiMeshInstance3D` in group `sim_bulk` under `view_root`, property `kind` (grunt, runner, brute,
-  projectile, gem). 3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the
-  floor plane (y = 0), the shaders lift the meshes.
+- `view_root`: the arena's `Views` node, set on load, cleared on exit; scene views spawn under it.
+- Scene views (`View`): `player`, `crate`, `barrel`, `hud`, each a scene with a `UnifiedView` marker as the **first**
+  child of its root (`kind` = the member lowercased, `unique_name_in_owner`), found through the view index. Player,
+  crate and barrel roots are `GameView`s (`addons/shared/views/game_view.gd`: `kind`, `entity`, `player` read the
+  marker). Keys: players 1..4 (`player` set; the view lives while the player is in the session, dead too), items
+  0x100 + index (`entity` = index + 1; a destroyed barrel's view goes, the respawned one is new), the HUD 0x200.
+  Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation, which player
+  views reset) and calls `_sim_update(position, yaw, alpha)`; the marker's `despawned` / `revived` play the exit
+  animation and undo it (`_despawned()`, `_revived()`).
+- View data: the player view's `hp` (`Player_View`; a drop flashes it), and the HUD view's `Hud` (HUD above):
+  `game/views/hud.tscn` (a Node with the shared `hud_view.gd`) keeps its fields in `Game.hud`, `phase` as
+  `&"lobby"` / `&"match"` / `&"over"`, `players` as an Array of Dictionaries.
+- MultiMesh views (`Multi`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
+  `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
+  3D transforms + custom data (r = hit flash 0..1, g = age in s), no colours; positions on the floor plane (y = 0),
+  the shaders lift the meshes. The host sizes the MultiMeshes.
+- Events: the classes `PlayerDied`, `EnemyDied`, ... (Events above) on `session.sim_event(event, state)`; positions
+  as Vector3 in metres, `EnemyDied.kind` as `&"grunt"` / `&"runner"` / `&"brute"`. The host routes a player's events
+  to its player view and `barrel_exploded` to its barrel's view; the arena's effects and the HUD's banners play on
+  `UnifiedSession.EVENT_CONFIRMED` only.
 - `constants()`: the sim's fixed numbers, read once into `Game.constants`: `tick_hz`, `over_hold_s`, `arena_half`,
-  `start_radius`, `dash_cooldown_s`, `player_respawn_s`, `max_enemies`, `upgrades` ([{name, detail}] ×3, the
-  level-up cards) and `items` ([{position, kind}] ×40, spawn body centres; the menu backdrop uses them). GDScript
-  never copies a sim number; the mock's `constants()` must equal the native one (validate checks it).
-- `press_action(action)`: presses one of the game's button actions (`dash`) for one tick; keys and pads reach the
-  sim natively. `send_command(&"pick", {"upgrade": i})`: the level-up pick (the HUD sends it for keys, pads and
-  clicks; the mock latches it for its next tick). `hud()` before any session has every key (`local_player` -1, no
-  players).
-- `set_player_name(name)` and `hud().players[i].name` (extension, optional): names fall back to "P<n>".
-- `host_direct(port)` (extension): LAN/dev hosting from the address panel (port 7777); the session panel shows this
-  machine's first private IPv4 `host:port` where the code would be.
-- Views may get `_sim_event("despawned", {})` (they linger ~0.25 s; exit animation) and `_sim_event("revived", {})`
-  when a rollback brings one back; the host also sets the root's rotation (player views reset it).
-- Single player emits `status_changed("connected", …)` from `start_single()`; failures carry a readable detail.
-- Input is sampled natively from the InputMap; GDScript only handles `menu` (Esc), the level-up keys (as
-  commands) and, with the mock, `toggle_devui`.
+  `start_radius`, `dash_cooldown_s`, `player_respawn_s`, `max_enemies`, `upgrades` ([{id, name, detail}] ×3 in
+  Upgrade order, the level-up cards; `id` is the Pick's `upgrade`) and `items` ([{position, kind}] ×40, spawn body
+  centres; the menu backdrop uses them). GDScript never copies a sim number (the effects' 5 m blast radius aside).
+- Input: `sample_input` reads the InputMap (`move_*`, `dash`, held or pressed since the last tick); GDScript only
+  handles `menu` (Esc) and the level-up keys, which send a `Pick`.
+- Player names and the local player come from the session (`Game.player_name`, `Game.local_player`);
+  `host_direct(port)`: LAN/dev hosting from the address panel (port 7777), the session panel shows this machine's
+  first private IPv4 `host:port` where the code would be.
 
 ### Checks
 
-Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` compares the mock session's
-`constants()` and idle `hud()` with the native session's, `walk` adds to the shared walk the lobby, match,
-level-up, game over and online host flows on the mock,
-and `tour` plays the real game headless: menu → single → lobby → walk out → match with enemies (`uni tool survivor
-tour --window --shots`: a whole match to game over and back to the lobby).
+Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
+scripts read (the cards' ids, a view scene and a rest height per item kind) and that the arena has one MultiMesh
+view per `Multi` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
+drawn, the auto-attack firing) and a `Pick` the session accepts; `tour` plays the real game headless: menu → single
+→ lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to
+the lobby; `play_check`: minutes of play with frame times by enemy count).
 
 ### Feel
 

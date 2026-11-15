@@ -1,5 +1,5 @@
 extends UnifiedTool
-## Real-play check with the native extension (not the mock), driven like a player: real clicks, InputMap
+## Real-play check with the game library, driven like a player: real clicks, InputMap
 ## actions held and released, the level-up panel answered with its keys.
 ##   godot --path games/survivor --resolution 1280x720 -s res://game/tools/play_check.gd -- [--minutes 3] [--coop]
 ##         [--shots=res://.out/shots]
@@ -50,12 +50,11 @@ func _run() -> void:
 	minutes = float(arg("minutes", "3"))
 	coop = flag("coop")
 	bench = int(arg("bench", "0"))
-	if game.is_mock:
-		fail("the play check needs the native extension (uni build survivor)")
-		return
-	game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
-		if state == SimEvent.CONFIRMED:
-			_events[event] = _events.get(event, 0) + 1)
+	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
+		if state == UnifiedSession.EVENT_CONFIRMED:
+			# by class (EnemyDied -> enemy_died): `kind` is EnemyDied's own field, the enemy's kind
+			var kind := StringName(event.get_class().to_snake_case())
+			_events[kind] = _events.get(kind, 0) + 1)
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
 	await frames(5)
@@ -168,15 +167,16 @@ func _press_key(key: Key) -> void:
 	await process_frame
 
 
-## Dodge: score 16 headings by the enemies near the point 2.5 m ahead (read from the bulk MultiMeshes the
+## Dodge: score 16 headings by the enemies near the point 2.5 m ahead (read from the MultiMesh views the
 ## extension writes), walls and pillars as hard edges, a pull towards nearby gems and a bonus for keeping the last
 ## heading; replanned every 4 frames. Dash when an enemy is close. Strengths go through the InputMap like a stick.
 
 func _bulk_points(kinds: Array, near: Vector2, radius: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	var r2 := radius * radius
-	for mmi in get_nodes_in_group(&"sim_bulk"):
-		if not (mmi.get("kind") in kinds) or mmi.multimesh == null:
+	for marker: Node in root.find_children("*", "UnifiedMultiView", true, false):
+		var mmi := marker.get_parent() as MultiMeshInstance3D
+		if not ((marker as UnifiedMultiView).kind in kinds) or mmi == null or mmi.multimesh == null:
 			continue
 		var mm: MultiMesh = mmi.multimesh
 		for i in mm.visible_instance_count:
@@ -192,8 +192,8 @@ func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 	_plan_frame += 1
 	var nearest := 1e9
 	if _plan_frame % 4 == 0:
-		var enemies := _bulk_points([&"grunt", &"runner", &"brute"], me, 12.0)
-		var gems := _bulk_points([&"gem"], me, 10.0)
+		var enemies := _bulk_points(["grunt", "runner", "brute"], me, 12.0)
+		var gems := _bulk_points(["gem"], me, 10.0)
 		for e in enemies:
 			nearest = minf(nearest, e.distance_to(me))
 		var best := 1e18
@@ -235,12 +235,12 @@ func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 
 
 func _me() -> Node3D:
-	var player: int = game.hud.get("local_player", -1)
+	var player: int = game.local_player()
 	if current_scene == null or player < 0:
 		return null
-	for n: Node in game.session.view_root.get_children() if game.session.view_root != null else []:
-		if n.get("player") == player and n.get("kind") == &"player":
-			return n
+	for n in views(&"player"):
+		if (n.get_node(^"UnifiedView") as UnifiedView).player == player:
+			return n as Node3D
 	return null
 
 

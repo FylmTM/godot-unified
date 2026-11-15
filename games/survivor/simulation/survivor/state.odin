@@ -68,7 +68,7 @@ Upgrade :: enum u8 {
 }
 
 // The level-up pick, a command (name "pick"): one pending level-up goes to `upgrade`. A pick with nothing
-// pending is ignored. From GDScript: send_command(&"pick", {"upgrade": i}).
+// pending is ignored. From GDScript: a `Pick` with `upgrade` = &"fire_rate" / &"damage" / &"move_speed".
 Cmd_Pick :: struct {
 	upgrade: Upgrade,
 }

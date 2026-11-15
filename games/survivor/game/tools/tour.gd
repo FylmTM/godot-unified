@@ -23,9 +23,6 @@ func _process(delta: float) -> bool:
 
 
 func _run() -> void:
-	if game.is_mock:
-		fail("the tour needs the game library (uni build survivor)")
-		return
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
 	await seconds(3.0 if frame_log != null else 0.5)  # --frames: a player's time in the menu, for what loads meanwhile
@@ -124,7 +121,7 @@ func _probe_explosion() -> void:
 		return
 	frame_tag("probe: barrel_exploded")
 	var at: Vector3 = (players[0] as Node3D).global_position + Vector3(3, 0, 0)
-	current_scene.get_node(^"Fx").play(&"barrel_exploded", {"position": at, "radius": 4.0}, false)
+	current_scene.get_node(^"Fx").call(&"explosion", at, 4.0)
 
 
 ## Tags the first frame each HUD panel and banner size is shown (a first draw can rasterize glyphs or compile).
