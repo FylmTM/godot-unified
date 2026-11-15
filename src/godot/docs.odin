@@ -76,7 +76,11 @@ LIBRARY_DOCS := []Doc_Class {
 			{"is_devui_visible", "bool", "", "The dev UI is shown."},
 		},
 		members = {
-			{"view_root", "Node", "Where scene views are made, as its children."},
+			{
+				"view_root",
+				"Node",
+				"Where scene views are made, as its children: set in the inspector or from a script; until it is set, the session's parent. Set it to null for no scene views.",
+			},
 			{"seed", "int", "The next session's seed."},
 			{"ticks", "int", "The next session's length in ticks (0: endless)."},
 		},

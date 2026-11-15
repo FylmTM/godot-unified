@@ -30,6 +30,7 @@ func _initialize() -> void:
 	if i >= 0 and i + 1 < args.size():
 		idle_end = float(args[i + 1])
 	s = ClassDB.instantiate("UnifiedSession")
+	s.view_root = null  # status checks only: no scene views (unset, they would go under the session's parent)
 	root.add_child(s)
 	s.status_changed.connect(func(st: String, detail: String) -> void: _statuses.append(st + (":" + detail if detail != "" else "")))
 

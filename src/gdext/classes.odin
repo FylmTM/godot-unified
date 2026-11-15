@@ -569,12 +569,14 @@ bind_method :: proc {
 }
 
 Property_Hint :: enum u32 {
-	NONE  = 0,
-	RANGE = 1,
-	ENUM  = 2,
+	NONE      = 0,
+	RANGE     = 1,
+	ENUM      = 2,
+	NODE_TYPE = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
 }
 
-// An inspector-visible, saved property backed by get_<name>/set_<name> methods.
+// An inspector-visible, saved property backed by get_<name>/set_<name> methods. An Object property's class is its
+// hint_string (NODE_TYPE: "Node").
 bind_property :: proc(
 	cls: ^Class,
 	name: string,
@@ -596,7 +598,9 @@ bind_property :: proc(
 	defer StringName_destroy(&getter_name)
 	setter_name := string_name_from(setter)
 	defer StringName_destroy(&setter_name)
-	info := property_info(Value, &name_sn, &empty_sn, &hint_text)
+	class_sn := string_name_from(hint_string if variant_type_of_id(Value) == .OBJECT else "")
+	defer StringName_destroy(&class_sn)
+	info := property_info(Value, &name_sn, &class_sn, &hint_text)
 	info.hint = u32(hint)
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
 }

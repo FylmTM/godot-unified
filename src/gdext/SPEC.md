@@ -17,7 +17,8 @@ game's extension call Godot through.
     trampoline per signature;
   - `bind_dynamic_method(cls, name, call, user, args, ret)`: one method whose arguments and result are Variants,
     described at run time (`unified:godot` registers its RTTI-built event and command classes with it);
-  - `bind_property(cls, name, get, set, hint)`, and `bind_property_by_name` for a property over methods already
+  - `bind_property(cls, name, get, set, hint, hint_string)` (`.NODE_TYPE` with `"Node"`: a Node property the
+    inspector picks and a scene saves as a path), and `bind_property_by_name` for a property over methods already
     bound;
   - `bind_signal(cls, name, {"arg", type}...)`;
   - `bind_constant(cls, enum_name, name, value)` (an integer constant, `Class.NAME`; in an enum, `Class.Enum.NAME`);

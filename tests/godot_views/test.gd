@@ -85,6 +85,7 @@ func _initialize() -> void:
 	root.add_child(session)
 	var events: Array[Array] = []  # [event, state]
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void: events.append([event, state]))
+	check("view_root before it is set: the session's parent", session.view_root == root)
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("no session: no local player", session.get_local_player() == -1)

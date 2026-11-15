@@ -99,7 +99,8 @@ Node3D: it gets data, no pose), pushed with its data each tick.
   `constants() -> Dictionary` (`tick_hz` plus `Glue.constants`), `set_player_name(name)`, `get_status()`,
   `is_running()`, `get_tick()`, `get_local_player()` (-1 until assigned), `get_player_name(player)` (the synced
   name, "" when unknown), `toggle_devui()`, `is_devui_visible()`;
-- properties: `view_root` (where scene views are made), `seed`, `ticks`;
+- properties: `view_root` (where scene views are made, as its children: a node picked in the inspector or set from
+  a script; until it is set, the session's parent; null: no scene views), `seed`, `ticks`;
 - signals: `status_changed(status, detail)`, `lobby_code(code)`, `desync(tick, detail)`,
   `sim_event(event: UnifiedEvent, state: int)`;
 - constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED` (enum `EventState`).
