@@ -1,5 +1,5 @@
 // Deterministic f32 helpers for game code: only `+ − × ÷` and hardware sqrt (IEEE-exact on every
-// platform), each operation written out so nothing depends on vector codegen or FMA contraction.
+// platform). Odin never fuses a multiply and an add (tests/dmath's canary), in scalar or array arithmetic.
 // No transcendentals yet; when a game needs sin/cos/atan2 they land here as fixed polynomials.
 package dmath
 

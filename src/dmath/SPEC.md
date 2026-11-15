@@ -3,9 +3,8 @@
 Reviewed with the developer in the #6 sitting (2026-11-14); signed off when this version merges (moved here from
 `src/sim/SPEC.md`).
 
-The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), each
-operation written out per component so nothing depends on vector codegen or fused multiply-add contraction. Tests:
-`tests/dmath`.
+The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), never
+fused into a multiply-add. Tests: `tests/dmath`.
 
 ## API
 
@@ -25,9 +24,13 @@ DIR8_C, DIR8_S                            // the exact 8-direction table (@(roda
 
 ## How it works
 
-- **No vector expressions.** `position += direction * speed * dt` on `[2]f32` may compile to fused multiply-add on
-  one CPU and not another, which rounds differently. Game code writes x and y out (`position.x += direction.x *
-  SPEED * DT`), as `dmath` does internally.
+- **No fused multiply-add, and vector expressions are fine** (decided 2026-11-15). A fused `a * b + c` rounds once
+  instead of twice, so it would differ between CPUs. Odin emits a plain multiply and a plain add and never lets LLVM
+  fuse them, for scalars and for array arithmetic alike, on every target (x64 with and without FMA3, arm64), so
+  `position += direction * (SPEED * DT)` on `[2]f32` computes the same bits as x and y written out. What holds it:
+  the lint bans `fused_mul_add`, `matrix` and `core:math`; `tests/dmath`'s canary fails with the reason if a
+  compiler upgrade or flag starts fusing (scalar, `[2]`, `[3]`, `[4]f32`, vector times scalar); CI's reference runs
+  cross-check every platform.
 - **Float to int:** x86 and ARM convert out-of-range floats differently, so a conversion that can be out of range
   goes through `to_i32_clamped`. The lint can't see types; it is a convention (`src/lint/SPEC.md`).
 - **No transcendentals yet.** When a game needs sin, cos or atan2, they land here as fixed polynomials, with tests
