@@ -72,6 +72,20 @@ self_check :: proc(args: []string) {
 	rebuild(cli_dir, args)
 }
 
+// The binary a child `uni` runs: this one, or when this is a shim's first build (uni-bootstrap), the one it installed
+// (.out/cli/current): a child of uni-bootstrap would take itself for a fresh one and miss the deps file it removed.
+self_exe :: proc() -> string {
+	exe, _ := os.get_executable_path(context.allocator)
+	if !strings.has_prefix(os.base(exe), "uni-bootstrap") {
+		return exe
+	}
+	current, ok := read_text(join(os.dir(exe), "current"))
+	if !ok || strings.trim_space(current) == "" {
+		return exe
+	}
+	return join(os.dir(exe), strings.trim_space(current))
+}
+
 // uni-<source hash>-<odin commit>: the same sources built by another Odin are another binary (the content hash
 // leaves the Odin install out), so switching to the pinned Odin never keeps a binary the old one built.
 @(private)

@@ -60,7 +60,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 		}
 		if want(only, "session") {
-			if has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless")) {
+			if has_session_step(game) {
 				start := time.tick_now()
 				ticks := state.long ? SESSION_TICKS_LONG : SESSION_TICKS
 				ok = pass(game, "session", session_vs_offline(game, ticks, 1), seconds_since(start)) && ok
@@ -121,7 +121,17 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 			break
 		}
 	}
-	exe, _ := os.get_executable_path(context.allocator)
+	// The `session` step's offline binaries share .out/release/ and its box3d library: a child writing it while
+	// another's binary holds the library loaded fails on Windows.
+	headless: Headless_Builds
+	for game in games {
+		if has_session_step(game) && (len(only) == 0 || slice.contains(only, "session")) {
+			more := start_headless(.release, only = game.name)
+			append(&headless.running, ..more.running[:])
+		}
+	}
+	finish_headless(&headless)
+	exe := self_exe()
 	env := env_with(tprint("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))
 	for game, i in games {
@@ -163,6 +173,12 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 		}
 	}
 	return ok
+}
+
+// Whether the game runs the `session` step: it has an extension and a headless binary to compare with.
+@(private)
+has_session_step :: proc(game: Game) -> bool {
+	return has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless"))
 }
 
 // The headless editor loads the game's extension, with no error lines.
