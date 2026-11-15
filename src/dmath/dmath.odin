@@ -26,6 +26,10 @@ dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
 	return dx * dx + dy * dy
 }
 
+dot3 :: #force_inline proc "contextless" (a, b: Vec3) -> f32 {
+	return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
 // v / |v|, or zero when |v| <= eps.
 normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
 	length := length2(vec)
@@ -51,6 +55,27 @@ clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
 	}
 	scale := max_len / sqrt(length_sq)
 	return {vec.x * scale, vec.y * scale}
+}
+
+// Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
+// written out.
+quat_rotate :: proc "contextless" (quat: [4]f32, vec: Vec3) -> Vec3 {
+	quat_vec := [3]f32{quat.x, quat.y, quat.z}
+	cross := [3]f32 {
+		2 * (quat_vec.y * vec.z - quat_vec.z * vec.y),
+		2 * (quat_vec.z * vec.x - quat_vec.x * vec.z),
+		2 * (quat_vec.x * vec.y - quat_vec.y * vec.x),
+	}
+	cross_cross := [3]f32 {
+		quat_vec.y * cross.z - quat_vec.z * cross.y,
+		quat_vec.z * cross.x - quat_vec.x * cross.z,
+		quat_vec.x * cross.y - quat_vec.y * cross.x,
+	}
+	return {
+		vec.x + quat.w * cross.x + cross_cross.x,
+		vec.y + quat.w * cross.y + cross_cross.y,
+		vec.z + quat.w * cross.z + cross_cross.z,
+	}
 }
 
 lerp :: #force_inline proc "contextless" (a, b, t: f32) -> f32 {

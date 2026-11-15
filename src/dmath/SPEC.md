@@ -13,9 +13,11 @@ operation written out per component so nothing depends on vector codegen or fuse
 Vec2 :: [2]f32    Vec3 :: [3]f32
 sqrt(x)                                   // hardware, IEEE-exact
 length2(v) / length3(v)
+dot3(a, b)
 dist_sq2(a, b)                            // squared distance: compare against r * r, no sqrt
 normalize2(v, eps) / normalize3(v, eps)   // zero when |v| <= eps
 clamp_length2(v, max_len)
+quat_rotate(quat, v)                      // v turned by the unit quaternion (x, y, z, w)
 lerp(a, b, t)
 to_i32_clamped(x, lo, hi)                 // clamp the f32, then convert; NaN gives lo
 DIR8_C, DIR8_S                            // the exact 8-direction table (@(rodata))

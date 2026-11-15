@@ -13,6 +13,14 @@ helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.clamp_length2({6, 8}, 5), dmath.Vec2{3, 4})
 	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), dmath.Vec2{0.6, 0.8})
 	testing.expect_value(t, dmath.dist_sq2({1, 1}, {4, 5}), 25)
+	testing.expect_value(t, dmath.dot3({1, 2, 3}, {4, -5, 6}), 12)
+	// quat_rotate: identity; half turns about each axis (exact); a quarter turn about +Z, +x to +y
+	testing.expect_value(t, dmath.quat_rotate({0, 0, 0, 1}, {1, 2, 3}), dmath.Vec3{1, 2, 3})
+	testing.expect_value(t, dmath.quat_rotate({1, 0, 0, 0}, {1, 2, 3}), dmath.Vec3{1, -2, -3})
+	testing.expect_value(t, dmath.quat_rotate({0, 1, 0, 0}, {1, 2, 3}), dmath.Vec3{-1, 2, -3})
+	testing.expect_value(t, dmath.quat_rotate({0, 0, 1, 0}, {1, 2, 3}), dmath.Vec3{-1, -2, 3})
+	turned := dmath.quat_rotate({0, 0, 0.70710677, 0.70710677}, {1, 0, 0})
+	testing.expect(t, abs(turned.x) < 1e-6 && abs(turned.y - 1) < 1e-6 && turned.z == 0)
 	for k in 0 ..< 8 {
 		length := dmath.length2({dmath.DIR8_C[k], dmath.DIR8_S[k]})
 		testing.expect(t, length > 0.99999 && length < 1.00001)

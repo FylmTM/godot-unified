@@ -278,7 +278,7 @@ grabbable :: proc(
 			pos := physics.position(world.phys, item.body)
 			point_pos :=
 				pos +
-				physics.rotate(
+				dmath.quat_rotate(
 					physics.rotation(world.phys, item.body),
 					grab_point_offset(world.items[index].kind, point),
 				)
