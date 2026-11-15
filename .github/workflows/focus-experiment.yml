@@ -50,10 +50,7 @@ jobs:
             open -a TextEdit; sleep 2; osascript -e 'tell application "TextEdit" to activate'; sleep 1
             if [ "$hide" = hide ]; then osascript -e 'tell application "TextEdit" to set miniaturized of every window to true'; sleep 1; fi
             rm -f games/*/override.cfg
-            [ -n "$override" ] && printf "[display]
-
-$override
-" > games/$game/override.cfg
+            [ -n "$override" ] && printf '[display]\n\n%b\n' "$override" > games/$game/override.cfg
             rm -f "$F/stop"
             [ "$guard" = guard ] && { bash_guard & g=$!; }
             start=$(now)
@@ -62,8 +59,7 @@ $override
             touch "$F/stop"; [ "$guard" = guard ] && wait $g
             fences=$(grep -c "timeout waiting for fence" "$F/$label.out")
             res=$(grep -E "steps, (ok|FAILED)" "$F/$label.out" | tail -1)
-            printf "RESULT %-40s exit %d, %5.1f s, fence timeouts %s, front at the end %s: %s
-" "$label" $code "$(perl -e "print $(now) - $start")" "$fences" "$(front_name)" "$res" | tee -a "$F/results.txt"
+            printf "RESULT %-40s exit %d, %5.1f s, fence timeouts %s, front at the end %s: %s\n" "$label" $code "$(perl -e "print $(now) - $start")" "$fences" "$(front_name)" "$res" | tee -a "$F/results.txt"
             rm -f games/$game/override.cfg
           }
           for run in drift:tour survivor:ui_walk; do
@@ -71,8 +67,7 @@ $override
             variant "$game-$script control-in-front"            ""                                             none show $game $script $extra
             variant "$game-$script no_focus+guard"               "window/size/no_focus=true"                    guard show $game $script $extra
             variant "$game-$script no_focus+guard,textedit-mini" "window/size/no_focus=true"                    guard hide $game $script $extra
-            variant "$game-$script no_focus+on_top+guard"        "window/size/no_focus=true
-window/size/always_on_top=true" guard show $game $script $extra
+            variant "$game-$script no_focus+on_top+guard"        "window/size/no_focus=true\nwindow/size/always_on_top=true" guard show $game $script $extra
           done
           echo; cat "$F/results.txt" | tee -a "$GITHUB_STEP_SUMMARY"
       - if: always()
