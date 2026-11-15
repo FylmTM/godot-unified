@@ -36,12 +36,16 @@ shutdown :: proc() {
 	interned = nil
 }
 
+// Traps unless called on the thread that ran init (Godot's main thread). Generated wrappers call it in debug builds:
+// Godot's object API is not thread-safe, so a call from a sim or network thread is a bug.
 check_main_thread :: proc(loc := #caller_location) {
 	if sync.current_thread_id() != main_thread_id {
 		fail("Godot called from a non-main thread", loc)
 	}
 }
 
+// Reports `msg` in Godot's error log with the caller's location, then traps: for an API mismatch or misuse that
+// leaves nothing sensible to continue with.
 fail :: proc(msg: string, loc := #caller_location) -> ! {
 	print_error(msg, loc)
 	runtime.trap()
@@ -49,6 +53,7 @@ fail :: proc(msg: string, loc := #caller_location) -> ! {
 
 // ---- printing into Godot's log (editor Output panel, stdout/stderr)
 
+// Prints an error into Godot's log (the editor's Output panel, stderr), tagged with the caller's file, line and proc.
 print_error :: proc(msg: string, loc := #caller_location) {
 	cmsg := strings.clone_to_cstring(msg, context.temp_allocator)
 	cfile := strings.clone_to_cstring(loc.file_path, context.temp_allocator)
@@ -56,6 +61,7 @@ print_error :: proc(msg: string, loc := #caller_location) {
 	gdi.print_error(cmsg, cproc, cfile, i32(loc.line), 1)
 }
 
+// Like print_error, as a warning: for a misconfiguration the game can run through.
 print_warning :: proc(msg: string, loc := #caller_location) {
 	cmsg := strings.clone_to_cstring(msg, context.temp_allocator)
 	cfile := strings.clone_to_cstring(loc.file_path, context.temp_allocator)
@@ -68,6 +74,7 @@ print :: proc(args: ..any) {
 	utility_print("print", fmt.tprint(..args))
 }
 
+// Godot's `print` with a format string (core:fmt verbs).
 printf :: proc(format: string, args: ..any) {
 	utility_print("print", fmt.tprintf(format, ..args))
 }
@@ -95,12 +102,14 @@ utility_print :: proc(name: string, msg: string) {
 
 // ---- strings
 
+// A new Godot String holding a copy of `text`; the caller owns it (String_destroy).
 string_from :: proc(text: string) -> String {
 	result: String
 	gdi.string_new_with_utf8_chars_and_len2(&result, cstring(raw_data(text)), i64(len(text)))
 	return result
 }
 
+// Copies a Godot String into an Odin UTF-8 string in `allocator` (temp by default); the String stays the caller's.
 string_to_odin :: proc(string_ptr: ^String, allocator := context.temp_allocator) -> string {
 	length := gdi.string_to_utf8_chars(string_ptr, nil, 0)
 	buf := make([]u8, length, allocator)
@@ -108,24 +117,29 @@ string_to_odin :: proc(string_ptr: ^String, allocator := context.temp_allocator)
 	return string(buf)
 }
 
+// A new StringName for `text`; the caller owns it (StringName_destroy). A name passed often is cheaper interned
+// with sn.
 string_name_from :: proc(text: string) -> StringName {
 	result: StringName
 	gdi.string_name_new_with_utf8_chars_and_len(&result, cstring(raw_data(text)), i64(len(text)))
 	return result
 }
 
+// Copies a StringName's text into an Odin string in `allocator` (temp by default).
 string_name_to_odin :: proc(name: ^StringName, allocator := context.temp_allocator) -> string {
 	str := String_new2(name^) // String(StringName)
 	defer String_destroy(&str)
 	return string_to_odin(&str, allocator)
 }
 
+// A new NodePath parsed from `path`; the caller owns it (NodePath_destroy).
 node_path_from :: proc(path: string) -> NodePath {
 	str := string_from(path)
 	defer String_destroy(&str)
 	return NodePath_new2(str) // NodePath(String)
 }
 
+// A NodePath's text as an Odin string in `allocator` (temp by default).
 node_path_to_odin :: proc(path: ^NodePath, allocator := context.temp_allocator) -> string {
 	str := String_new3(path^) // String(NodePath)
 	defer String_destroy(&str)
@@ -149,6 +163,8 @@ sn :: proc(text: string) -> ^StringName {
 
 // ---- lookups (cached by the generated wrappers)
 
+// Looks up an engine method by class, name and hash. Traps when it is missing: the running Godot's API differs from
+// the dump the bindings were generated from. Generated class wrappers cache the result.
 method_bind :: proc(class, method: string, hash: i64) -> rawptr {
 	class_sn := string_name_from(class)
 	defer StringName_destroy(&class_sn)
@@ -159,6 +175,8 @@ method_bind :: proc(class, method: string, hash: i64) -> rawptr {
 	return bind
 }
 
+// Looks up a builtin type's method (Array.push_back...) by name and hash, trapping when it is missing. Generated
+// builtin wrappers cache the result.
 builtin_method :: proc(kind: gdi.VariantType, method: string, hash: i64) -> gdi.PtrBuiltInMethod {
 	method_sn := string_name_from(method)
 	defer StringName_destroy(&method_sn)
@@ -167,12 +185,16 @@ builtin_method :: proc(kind: gdi.VariantType, method: string, hash: i64) -> gdi.
 	return function
 }
 
+// The engine singleton named `name` (Input, Engine...), nil if there is none; generated `<Class>_singleton` procs
+// cache it.
 get_singleton :: proc(name: string) -> rawptr {
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
 	return gdi.global_get_singleton(&name_sn)
 }
 
+// Logs a failed Variant call (wrong argument count or type), `what` naming the call site. Generated vararg wrappers
+// report through it and carry on.
 call_error :: proc(err: gdi.CallError, what: string) {
 	print_error(
 		fmt.tprintf(
@@ -227,6 +249,7 @@ ref :: proc(object: $T) -> Ref(T) {
 	return Ref(T){object}
 }
 
+// Whether the handle points at an object at all. It does not detect an object that was freed since.
 is_valid :: proc(object: Object) -> bool {
 	return object.ptr != nil
 }

@@ -39,6 +39,7 @@ Track :: struct {
 	has_out: bool,
 }
 
+// Clears the history and the correction offset, for a view reused for another entity (the next push starts over).
 track_reset :: proc(track: ^Track) {
 	track^ = {}
 }
@@ -120,18 +121,22 @@ track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing 
 
 // ---- small vector and quaternion helpers (render side)
 
+// The Euclidean length of a vector.
 length :: proc(vec: [3]f32) -> f32 {
 	return math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
 
+// Linear interpolation between two positions (t 0: a, 1: b).
 lerp3 :: #force_inline proc(a, b: [3]f32, t: f32) -> [3]f32 {
 	return a + (b - a) * t
 }
 
+// The conjugate of a quaternion: the inverse rotation of a unit quaternion.
 qconj :: proc(q: [4]f32) -> [4]f32 {
 	return {-q.x, -q.y, -q.z, q.w}
 }
 
+// The Hamilton product: the rotation `b` followed by `a`.
 qmul :: proc(a, b: [4]f32) -> [4]f32 {
 	return {
 		a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
@@ -141,6 +146,7 @@ qmul :: proc(a, b: [4]f32) -> [4]f32 {
 	}
 }
 
+// Scales a quaternion to unit length; a near-zero one becomes the identity (the zero rotation a game leaves unset).
 qnormalize :: proc(q: [4]f32) -> [4]f32 {
 	length_sq := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
 	if length_sq < 1e-12 do return IDENTITY

@@ -56,10 +56,13 @@ Event_Tracker :: struct($E: typeid) {
 	scratch:      [dynamic]Flush_Item,
 }
 
+// Sets how the tracker tells that two events from different simulations of a tick are the same one (the
+// caller's Event_Id convention). Call once before the first tick.
 tracker_init :: proc(tracker: ^Event_Tracker($E), id_of: proc(event: E) -> Event_Id) {
 	tracker.id_of = id_of
 }
 
+// Frees the tracker's pending map and output buffers.
 tracker_destroy :: proc(tracker: ^Event_Tracker($E)) {
 	delete(tracker.pending)
 	delete(tracker.out)
@@ -76,6 +79,8 @@ tracker_begin_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
 	}
 }
 
+// Records one event of the tick being simulated, in emission order. Outputs Emitted only the first time its id is
+// seen; a re-simulation that produces it again just marks it seen, so tracker_end_tick keeps it.
 tracker_event :: proc(tracker: ^Event_Tracker($E), event: E) {
 	id := tracker.id_of(event)
 	if tracker.has_verified && id.tick <= tracker.verified do return
@@ -91,6 +96,8 @@ tracker_event :: proc(tracker: ^Event_Tracker($E), event: E) {
 	append(&tracker.out, Tracked(E){.Emitted, event})
 }
 
+// Ends a simulation of `tick`: its pending events this simulation did not produce again are Cancelled (a
+// rollback changed the outcome). Ignored for ticks already verified.
 tracker_end_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
 	if tracker.has_verified && tick <= tracker.verified do return
 	tracker_flush(tracker, tick, tick, .Cancelled, proc(pending: Pending(E)) -> bool {return !pending.seen})

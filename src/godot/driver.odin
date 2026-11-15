@@ -49,6 +49,8 @@ transport: ^Transport // set by the game's extension (online play); nil: Host_On
 // The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
 
+// Registers the online transport (EOS P2P...) that Host_Online and Join_Online use. A game's extension calls it
+// from its init entry point, so unified:godot never imports a platform SDK.
 set_transport :: proc(new_transport: ^Transport) {
 	transport = new_transport
 }
@@ -75,6 +77,8 @@ netsim_req: struct {
 	set: Netsim_Settings,
 }
 
+// Publishes new impairment settings from the main thread (the dev UI's Netsim panel, the --lag argument); the
+// session thread applies them to every wrapped link on its next loop iteration.
 set_netsim :: proc(settings: Netsim_Settings) {
 	sync.mutex_lock(&netsim_req.mu)
 	netsim_req.set = settings
@@ -133,6 +137,8 @@ Dev_Link :: struct {
 	seed:  u32,
 }
 
+// Wraps a remote link so the Netsim panel can impair it live; returns the Dev_Link to apply settings to and the
+// link to hand the netcode in place of `inner` (closing it frees the Dev_Link).
 dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Link) {
 	dev_link := new(Dev_Link)
 	dev_link^ = {
