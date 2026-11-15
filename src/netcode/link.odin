@@ -20,19 +20,36 @@ Link_Event_Kind :: enum u8 {
 	Disconnected, // the transport knows the peer is gone (the channel then drops it at once)
 }
 
+// A platform account a transport vouches for (EOS: "eos" and the product user id): which person is behind a
+// peer, whatever the client says. Host-side only: it never enters the sim, the log or the wire to the relay.
+Account :: struct {
+	platform: string,
+	id:       string,
+}
+
 Link :: struct {
-	data:   rawptr,
+	data:    rawptr,
 	// Queues one datagram to `to`. Losing it is allowed.
-	send:   proc(data: rawptr, to: Peer, bytes: []u8),
+	send:    proc(data: rawptr, to: Peer, bytes: []u8),
 	// Returns the next received datagram (copied into buf), or ok = false when there is none.
 	// A datagram from a new remote endpoint gets a new Peer number.
-	recv:   proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool),
-	close:  proc(data: rawptr),
+	recv:    proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool),
+	close:   proc(data: rawptr),
 	// Optional: transport-level connection events (nil: the channel's own timeouts only).
-	event:  proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
+	event:   proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
 	// Optional: the channel is done with `peer` (it timed out, left, or sent garbage); a link that
 	// numbers remote endpoints itself (UDP) frees the number for the next endpoint.
-	forget: proc(data: rawptr, peer: Peer),
+	forget:  proc(data: rawptr, peer: Peer),
+	// Optional: the account the transport vouches for behind `peer` (ok = false: none, as on LAN and direct UDP).
+	// The strings are valid until the next call.
+	account: proc(data: rawptr, peer: Peer) -> (account: Account, ok: bool),
+}
+
+link_account :: proc(link: ^Link, peer: Peer) -> (account: Account, ok: bool) {
+	if link.account == nil {
+		return
+	}
+	return link.account(link.data, peer)
 }
 
 // Hands one datagram to the link's transport; the channel calls it and owns resending what is lost.
@@ -110,23 +127,29 @@ hub_destroy :: proc(hub: ^Hub) {
 }
 
 Loop_Link :: struct {
-	hub:  ^Hub,
-	self: Peer,
-	recv: [dynamic]Datagram, // swapped out of the inbox in one lock
-	head: int,
+	hub:     ^Hub,
+	self:    Peer,
+	recv:    [dynamic]Datagram, // swapped out of the inbox in one lock
+	head:    int,
+	account: Account, // what the link vouches for behind every peer (borrowed; empty: none)
 }
 
 // A link for endpoint `self` of the hub: a send to Peer i lands in endpoint i's inbox, with no loss or delay
-// (wrap it with netsim_wrap for those). Links on different threads may share one hub.
-loopback_link :: proc(hub: ^Hub, self: Peer) -> Link {
+// (wrap it with netsim_wrap for those). Links on different threads may share one hub. `account` (optional, borrowed
+// for the link's life): the account it vouches for behind its peers (a host's relay end, for the host's own player).
+loopback_link :: proc(hub: ^Hub, self: Peer, account := Account{}) -> Link {
 	loop := new(Loop_Link)
 	loop.hub = hub
 	loop.self = self
+	loop.account = account
 	return {
-		data  = loop,
-		send  = loop_send,
-		recv  = loop_recv,
-		close = loop_close,
+		data    = loop,
+		send    = loop_send,
+		recv    = loop_recv,
+		close   = loop_close,
+		account = account.id == "" ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
+			return (^Loop_Link)(data).account, true
+		},
 	}
 }
 

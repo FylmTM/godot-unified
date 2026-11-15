@@ -35,7 +35,7 @@ expect_round_trip :: proc(t: ^testing.T, ticks: []toy.Inputs, loc := #caller_loc
 	return len(writer.buf)
 }
 
-// A session's worth of ticks: players joining and leaving, replaced inputs, inputs held for a while and changed
+// A session's worth of ticks: players joining (with join records) and leaving, replaced inputs, inputs held for a while and changed
 // byte by byte, commands now and then.
 @(private = "file")
 varied_ticks :: proc(ticks: []toy.Inputs) {
@@ -44,18 +44,21 @@ varied_ticks :: proc(ticks: []toy.Inputs) {
 		if i > 0 {
 			tick_inputs = ticks[i - 1]
 			tick_inputs.command_count = 0
+			tick_inputs.member = {} // join records are per tick
 		}
 		state ~= state << 13
 		state ~= state >> 17
 		state ~= state << 5
 		switch i % 11 {
 		case 0:
-			tick_inputs.present ~= {int(state % toy.PLAYERS)}
+			slot := int(state % toy.PLAYERS)
+			tick_inputs.present ~= {slot}
+			if slot in tick_inputs.present do tick_inputs.member[slot] = u16(i + 1) // a join record
 		case 3:
 			tick_inputs.replaced = state % 2 == 0 ? {} : tick_inputs.present
 		case 5:
 			bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(i)})
-			bump.player = u8(state % toy.PLAYERS)
+			bump.slot = u8(state % toy.PLAYERS)
 			sim.add_command(&tick_inputs, bump)
 		}
 		if i % 3 != 0 {
@@ -98,9 +101,10 @@ window_sizes :: proc(t: ^testing.T) {
 	// 1 flag + 1 player mask + (1 byte mask + 1 byte) for player 1
 	testing.expect_value(t, expect_round_trip(t, ticks[:3]), 13 + 1 + 4)
 
-	// Everything changed: presence, every byte of every input, commands.
+	// Everything changed: presence, every byte of every input, commands, every slot joining.
 	full: [2]toy.Inputs
 	full[1].present = {0, 1, 2, 3}
+	full[1].member = {1, 2, 3, 4}
 	full[1].replaced = {2}
 	for &input in full[1].input {
 		input = {
@@ -112,7 +116,7 @@ window_sizes :: proc(t: ^testing.T) {
 	}
 	for player in 0 ..< toy.PLAYERS {
 		bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{7})
-		bump.player = u8(player)
+		bump.slot = u8(player)
 		sim.add_command(&full[1], bump)
 	}
 	commands := full[1].commands[:full[1].command_count]
@@ -124,7 +128,7 @@ window_sizes :: proc(t: ^testing.T) {
 }
 
 // Malformed ticks are refused, never read past: unknown flags, a player past PLAYERS, a byte past the input's
-// size, bad commands, and every cut-short prefix of a valid window.
+// size, bad commands, bad join records, and every cut-short prefix of a valid window.
 @(test)
 window_refuses_malformed :: proc(t: ^testing.T) {
 	expect_refused :: proc(t: ^testing.T, bytes: []u8, what: string, loc := #caller_location) {
@@ -132,12 +136,14 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 		back: toy.Inputs
 		testing.expectf(t, !netcode.window_read_tick(&reader, &back), "%s: read", what, loc = loc)
 	}
-	expect_refused(t, {0x08}, "an unknown flag")
+	expect_refused(t, {0x10}, "an unknown flag")
 	expect_refused(t, {0x80}, "an unknown flag")
 	expect_refused(t, {0x02, 0x10, 0x01, 7}, "player 4 of 4") // .Inputs, players {4}
 	expect_refused(t, {0x02, 0x01, 0x10, 7}, "byte 4 of a 4-byte input") // .Inputs, players {0}, bytes {4}
 	expect_refused(t, {0x04, 17}, "17 commands")
 	expect_refused(t, {0x04, 1, 4, 0, 4, 1, 2, 3, 4}, "a command of player 4")
+	expect_refused(t, {0x08, 1, 0, 1, 0}, "a join record for a slot not present") // .Joins, slot 0, member 1
+	expect_refused(t, {0x09, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}, "a join record of member 0") // .Presence {0}
 
 	ticks: [12]toy.Inputs
 	varied_ticks(ticks[:])

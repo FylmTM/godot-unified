@@ -62,7 +62,7 @@ gated_join :: proc(
 	)
 	link, gate := gate_wrap(inner)
 	client := netcode.client_create(&toy.GAME, {
-			player      = -1,
+			slot        = -1,
 			name        = "remote",
 			player_name = "Grace",
 			quiet       = true,
@@ -85,7 +85,7 @@ one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	gate.block_out = true
 	net_run(&session, 12) // the relay times the player out after 10 s
-	testing.expect(t, !session.host.relay.connected[client.player])
+	testing.expect(t, !session.host.relay.connected[client.slot])
 	gate.block_out = false
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
@@ -103,7 +103,7 @@ rejoin_on_the_same_link_peer :: proc(t: ^testing.T) {
 	crashed, _ := gated_join(&session, 1, netcode.PROFILES[1], &session.watch[1])
 	net_run(&session, 3)
 	testing.expect_value(t, crashed.status, netcode.Status.Connected)
-	player := crashed.player
+	player := crashed.slot
 	// Crash: no Leave, the client and its link are gone.
 	netcode.client_destroy(crashed)
 	ordered_remove(&session.clients, 0)
@@ -111,7 +111,7 @@ rejoin_on_the_same_link_peer :: proc(t: ^testing.T) {
 	rejoined, _ := gated_join(&session, 1, netcode.PROFILES[1], &session.watch[2])
 	net_run(&session, 4)
 	testing.expect_value(t, rejoined.status, netcode.Status.Connected)
-	testing.expect_value(t, rejoined.player, player)
+	testing.expect_value(t, rejoined.slot, player)
 	testing.expect(t, rejoined.verified > rejoined.first_tick)
 	expect_agree(t, &session)
 }

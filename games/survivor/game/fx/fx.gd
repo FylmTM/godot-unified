@@ -48,11 +48,11 @@ func _warm_up() -> void:
 
 
 ## Plays the effect of a sim event (the session's `sim_event`, an object of the event's class). Sounds and rumble
-## for the local player's own pickups, level-ups and death.
+## for the local player's own pickups, level-ups and death. `player` is the player's key (0: none).
 func play(event: UnifiedEvent) -> void:
 	var pos: Vector3 = event.get(&"position") if &"position" in event else Vector3.ZERO
-	var player: int = event.get(&"player") if &"player" in event else -1
-	var local := player >= 0 and player == Game.local_player()
+	var player: int = event.get(&"player") if &"player" in event else 0
+	var local := player != 0 and player == Game.local_player()
 	if event is EventEnemyDied:
 		var kind := clampi(ENEMY_KINDS.find(String((event as EventEnemyDied).enemy_kind)), 0, 2)
 		var color: Color = ENEMY_COLORS[kind]
@@ -70,7 +70,7 @@ func play(event: UnifiedEvent) -> void:
 		if local:
 			Sfx.play(&"level")
 	elif event is EventPlayerDied:
-		var c := UiTheme.player_color(player)
+		var c := UiTheme.player_color(Game.player_slot(player))
 		_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
 		_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 		_shake(0.45 if local else 0.2)

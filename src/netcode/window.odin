@@ -8,6 +8,8 @@
 //              in order, the bytes of its input that changed (a bit per byte, ceil(size_of(Input) / 8) bytes) and
 //              their new values
 //   .Commands: the tick's commands (sim.write_commands); without the flag the tick has none
+//   .Joins:    the tick's join records (sim.write_joins); without the flag it has none (they are per tick, never
+//              carried over from the tick before)
 //
 // A tick like the one before it, without commands, is one byte. The input log keeps sim.write_tick's format.
 package netcode
@@ -19,12 +21,14 @@ Window_Flag :: enum u8 {
 	Presence, // present and replaced differ from the tick before
 	Inputs, // some player's input bytes differ from the tick before
 	Commands, // the tick has commands
+	Joins, // the tick has join records
 }
 Window_Flags :: bit_set[Window_Flag;u8]
 
-// The most bytes window_write_tick writes for a tick with `commands`: every field changed.
+// The most bytes window_write_tick writes for a tick with `commands`: every field changed, every slot joining.
 window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw_Command) -> int {
 	size := 1 + 8 + mask_bytes(PLAYERS) + PLAYERS * (mask_bytes(size_of(Input)) + size_of(Input))
+	size += 1 + PLAYERS * sim.JOIN_BYTES
 	if len(commands) > 0 {
 		size += 1
 		for &command in commands {
@@ -62,6 +66,9 @@ window_write_tick :: proc(
 	if tick.command_count > 0 {
 		flags += {.Commands}
 	}
+	if sim.join_count(tick.member[:]) > 0 {
+		flags += {.Joins}
+	}
 	wire.w_u8(writer, transmute(u8)flags)
 	if .Presence in flags {
 		wire.w_u32(writer, transmute(u32)tick.present)
@@ -90,13 +97,16 @@ window_write_tick :: proc(
 	if .Commands in flags {
 		sim.write_commands(writer, tick.commands[:tick.command_count])
 	}
+	if .Joins in flags {
+		sim.write_joins(writer, tick.member[:])
+	}
 }
 
 // Reads the next tick of a packet into `tick`, which holds the tick before it (zeroed for the first): its changes
 // are applied in place. False when it is malformed: unknown flags, a player past PLAYERS or a byte past the input's
-// size, bad commands (sim.read_commands), or cut short; the ticks after it can't be found.
+// size, bad commands (sim.read_commands) or join records (sim.read_joins), or cut short; the ticks after it can't be found.
 window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYERS)) -> bool {
-	KNOWN :: Window_Flags{.Presence, .Inputs, .Commands}
+	KNOWN :: Window_Flags{.Presence, .Inputs, .Commands, .Joins}
 	flags := transmute(Window_Flags)wire.r_u8(reader)
 	if !reader.ok || flags - KNOWN != {} {
 		return false
@@ -141,6 +151,10 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYER
 			return false
 		}
 		tick.command_count = count
+	}
+	tick.member = {}
+	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.member[:]) {
+		return false
 	}
 	return reader.ok
 }

@@ -9,9 +9,15 @@ import "unified:wire"
 // 7: snapshots v4, checksums cover Box3D's whole state; 8: a relay time below 0 (the start lead) before tick 0;
 // 9: the #8 sitting: adaptive input delay, snapshots of checksum ticks checked against the majority (Snap_Ok),
 // desync reports (Desync, Welcome's flags), no replay from tick 0 (new reject reasons); 10: a Finalized packet's
-// ticks as their changes from the tick before (window.odin, #192).
-PROTOCOL_VERSION :: 10
+// ticks as their changes from the tick before (window.odin, #192);
+// 11: players are session members (#222): Hello's token, Welcome's member id, join records in finalized ticks, a
+// roster entry per member.
+PROTOCOL_VERSION :: 11
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
+PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
+ACCOUNT_MAX :: 63 // bytes of an account id (an EOS product user id: 32)
+TOKEN_SIZE :: 16
+NO_MEMBER :: u16(0)
 
 // Real-time constants are in milliseconds and converted with the game's tick length.
 TOLERANCE_MS :: 100 // relay hard tolerance: a tick is finalized at the latest this long after it is due
@@ -26,7 +32,12 @@ SNAP_CHUNK :: 1000
 RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay itself (a desync report's snapshot)
 DESYNC_IMAGES :: 8 // checksum-tick snapshots a client keeps for desync reports (Welcome's Keep_Images)
 DEFAULT_POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets
-ANY_PLAYER :: u8(0xFF)
+ANY_PLAYER :: u8(0xFF) // Hello: any free slot
+NO_SLOT :: sim.NO_SLOT // a roster entry of a member not seated
+
+// What a client on a link that vouches for no account (LAN, direct UDP) is recognized by when it comes back: 16
+// random bytes it keeps (the Godot host in user://). All zero: none. Sent in Hello, never forwarded.
+Token :: [TOKEN_SIZE]u8
 
 // Tick timing derived from the game's tick rate.
 Timing :: struct {
@@ -85,14 +96,18 @@ want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 }
 
 Msg :: enum u8 {
-	Hello = 1, // c->r R: protocol u16, player u8 (ANY_PLAYER: any), join tick u32 (0: at start), compat u64, name len u8 + bytes
-	Welcome, // r->c R: player u8, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32, flags u8 (Welcome_Flags)
+	// c->r R: protocol u16, slot u8 (ANY_PLAYER: any), join tick u32 (0: at start), compat u64, token [16]u8, name len
+	// u8 + bytes
+	Hello = 1,
+	// r->c R: slot u8, member u16, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32, flags u8
+	// (Welcome_Flags)
+	Welcome,
 	Reject, // r->c R: reason u8
 	// c->r U: player u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs; then the
 	// unacked commands: first seq u32, count u8, per command: wanted tick u32, kind u8, size u8, bytes
 	Inputs,
 	// r->c U: relay time i64, echo i64, hold i64, input ack u32, command ack u32, first u32, count u8, ticks
-	// (window_write_tick: each tick's changes from the one before it in the packet)
+	// (window_write_tick: each tick's changes from the one before it in the packet, and its join records)
 	Finalized,
 	Checksum, // c->r R: player u8, tick u32, checksum u64 (a joiner's first: of its restored snapshot)
 	// r->c R: target u8 (a joiner, or RELAY_TARGET), min tick u32: for a joiner, the snapshot of the first checksum
@@ -103,7 +118,9 @@ Msg :: enum u8 {
 	Done, // c->r R: player u8, final tick u32 (fixed-length sessions)
 	End, // r->c R: the session is over (or the host left)
 	Leave, // c->r R: the client leaves its player
-	Roster, // r->c R: players u8, then per player: connected u8, name len u8 + bytes
+	// r->c R: one member's entry: member u16, slot u8 (NO_SLOT: none), connected u8, name, platform, account id (each
+	// len u8 + bytes). Sent on every change to everyone connected, and every entry to a newcomer.
+	Roster,
 	Snap_Ok, // r->c R: tick u32: the joiner's restored snapshot matches the others' checksum of that tick
 	Desync, // r->c R: tick u32, diverged u32 (sim.Players), detail len u16 + bytes ("" unless typed reports are on)
 }
@@ -139,6 +156,31 @@ name_string :: proc(name: ^Player_Name) -> string {
 	return string(name.bytes[:name.len])
 }
 
+// Short text as fixed bytes: an account's platform and id in a roster entry.
+Text :: struct($N: int) {
+	len:   u8,
+	bytes: [N]u8,
+}
+
+text_of :: proc($N: int, text: string) -> (out: Text(N)) {
+	out.len = u8(copy(out.bytes[:], text))
+	return
+}
+
+text_string :: proc(text: ^Text($N)) -> string {
+	return string(text.bytes[:text.len])
+}
+
+// A member's entry in the relay's roster, as clients get it.
+Roster_Entry :: struct {
+	member:    u16,
+	slot:      u8, // NO_SLOT: not seated
+	connected: bool,
+	name:      Player_Name,
+	platform:  Text(PLATFORM_MAX), // the account its link vouched for ("": none, as on LAN)
+	account:   Text(ACCOUNT_MAX),
+}
+
 @(private)
 w_name :: proc(writer: ^wire.Writer, name: ^Player_Name) {
 	wire.w_u8(writer, name.len)
@@ -150,6 +192,41 @@ r_name :: proc(reader: ^wire.Reader) -> (name: Player_Name) {
 	size := min(int(wire.r_u8(reader)), NAME_MAX)
 	copy(name.bytes[:], wire.r_bytes(reader, size))
 	name.len = u8(size)
+	return
+}
+
+@(private)
+w_text :: proc(writer: ^wire.Writer, text: ^Text($N)) {
+	wire.w_u8(writer, text.len)
+	wire.w_bytes(writer, text.bytes[:text.len])
+}
+
+@(private)
+r_text :: proc(reader: ^wire.Reader, $N: int) -> (text: Text(N)) {
+	size := min(int(wire.r_u8(reader)), N)
+	copy(text.bytes[:], wire.r_bytes(reader, size))
+	text.len = u8(size)
+	return
+}
+
+@(private)
+w_roster_entry :: proc(writer: ^wire.Writer, entry: ^Roster_Entry) {
+	wire.w_u16(writer, entry.member)
+	wire.w_u8(writer, entry.slot)
+	wire.w_u8(writer, u8(entry.connected))
+	w_name(writer, &entry.name)
+	w_text(writer, &entry.platform)
+	w_text(writer, &entry.account)
+}
+
+@(private)
+r_roster_entry :: proc(reader: ^wire.Reader) -> (entry: Roster_Entry) {
+	entry.member = wire.r_u16(reader)
+	entry.slot = wire.r_u8(reader)
+	entry.connected = wire.r_u8(reader) != 0
+	entry.name = r_name(reader)
+	entry.platform = r_text(reader, PLATFORM_MAX)
+	entry.account = r_text(reader, ACCOUNT_MAX)
 	return
 }
 

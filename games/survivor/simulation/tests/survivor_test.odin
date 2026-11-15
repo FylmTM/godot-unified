@@ -1,5 +1,5 @@
-// The survivor game on the harness: plain-data state and input, presence-driven join and leave,
-// events, and a short sync-test.
+// The survivor game on the harness: plain-data state and input, joins and leaves (players are session members:
+// their progress follows them), events, and a short sync-test.
 package test_survivor
 
 import "core:testing"
@@ -43,38 +43,97 @@ command_and_event_names :: proc(t: ^testing.T) {
 
 step :: proc(simulation: ^survivor.Sim, present: sim.Players) {
 	inputs: survivor.Inputs
-	inputs.present = present
-	for player in present {
-		inputs.input[player] = survivor.scripted_input(simulation.seed, player, simulation.tick + 1, &simulation.state)
+	join_free(simulation, &inputs, present)
+	for slot in present {
+		inputs.input[slot] = survivor.scripted_input(simulation.seed, slot, simulation.tick + 1, &simulation.state)
 	}
 	sim.step(simulation, &inputs)
 }
 
-// Whether `tick` emitted a presence event (Event_Player_Joined or Event_Player_Left: `Kind`) about `player`.
-has_event :: proc(simulation: ^survivor.Sim, tick: u32, $Kind: typeid, player: int) -> bool {
+// The library's join or leave event (`Kind`: sim.Event_Player_Joined or sim.Event_Player_Left) about `player` that
+// `tick` emitted, if any.
+presence_event :: proc(
+	simulation: ^survivor.Sim,
+	tick: u32,
+	$Kind: typeid,
+	player: sim.Player,
+) -> (
+	event: Kind,
+	found: bool,
+) {
 	for &raw in sim.events_at(simulation, tick) {
-		if event, ok := sim.event_value(&raw, survivor.Event).(Kind); ok && int(event.player) == player {
-			return true
+		if event, found = sim.event_value(&raw, survivor.Event).(Kind); found && event.player == player {
+			return
 		}
 	}
-	return false
+	return {}, false
 }
 
 @(test)
 presence_joins_and_leaves :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 3)
 	defer sim.destroy(simulation)
-	state := &simulation.state
 	step(simulation, {0})
-	testing.expect(t, state.players[0].active && state.players[0].alive)
-	testing.expect(t, !state.players[1].active)
-	testing.expect(t, has_event(simulation, 1, survivor.Event_Player_Joined, 0))
+	first := sim.slot_player(simulation, 0)
+	testing.expect(t, first != {} && in_slot(simulation, 0).alive)
+	testing.expect(t, in_slot(simulation, 1) == nil)
+	_, joined := presence_event(simulation, 1, sim.Event_Player_Joined, first)
+	testing.expect(t, joined)
 	step(simulation, {0, 1})
-	testing.expect(t, state.players[1].active)
-	testing.expect(t, has_event(simulation, 2, survivor.Event_Player_Joined, 1))
+	second := sim.slot_player(simulation, 1)
+	testing.expect(t, second != {} && second != first)
+	_, joined = presence_event(simulation, 2, sim.Event_Player_Joined, second)
+	testing.expect(t, joined)
 	step(simulation, {1})
-	testing.expect(t, !state.players[0].active && state.players[0].body == {})
-	testing.expect(t, has_event(simulation, 3, survivor.Event_Player_Left, 0))
+	character := sim.player_get(&simulation.state.players, first)
+	testing.expect(t, !sim.player_present(&simulation.state.players, first))
+	testing.expect(t, character != nil && !character.alive && character.body == {}) // an absent player has no body
+	left, has_left := presence_event(simulation, 3, sim.Event_Player_Left, first)
+	testing.expect(t, has_left && left.slot == 0)
+}
+
+// Progress belongs to the person, not the slot: the first player levels up and leaves; someone new takes their
+// slot with fresh progress and a new handle; the first comes back in another slot as the same player, with their
+// progress and a new body at that slot's start spot.
+@(test)
+progress_follows_the_player :: proc(t: ^testing.T) {
+	simulation := sim.create(&survivor.GAME, 3)
+	defer sim.destroy(simulation)
+	players := &simulation.state.players
+	inputs: survivor.Inputs
+	sim.join(&inputs, 0, 1)
+	sim.step(simulation, &inputs)
+	first := sim.slot_player(simulation, 0)
+	sim.player_get(players, first).level = 4
+	sim.player_get(players, first).damage_bonus = 6
+
+	inputs = {} // the first leaves
+	sim.step(simulation, &inputs)
+	inputs = {}
+	sim.join(&inputs, 0, 2) // someone new takes slot 0
+	sim.step(simulation, &inputs)
+	second := sim.slot_player(simulation, 0)
+	testing.expect(t, second != {} && second != first)
+	testing.expect_value(t, in_slot(simulation, 0).level, 1)
+	testing.expect_value(t, in_slot(simulation, 0).damage_bonus, 0)
+	away := sim.player_get(players, first)
+	testing.expect(t, !sim.player_present(players, first) && away.level == 4 && away.body == {})
+
+	inputs = {}
+	inputs.present = {0}
+	sim.join(&inputs, 1, 1) // the first comes back, in slot 1
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, sim.slot_player(simulation, 1), first)
+	testing.expect_value(t, sim.slot_player(simulation, 0), second)
+	back := sim.player_get(players, first)
+	testing.expect_value(t, back.level, 4)
+	testing.expect_value(t, back.damage_bonus, 6)
+	testing.expect(t, back.alive && back.body != {} && back.hp == survivor.PLAYER_HP)
+	testing.expect_value(t, back.pos.x, survivor.PLAYER_START[1].x)
+	testing.expect_value(t, back.pos.z, survivor.PLAYER_START[1].z)
+	joined, found := presence_event(simulation, simulation.tick, sim.Event_Player_Joined, first)
+	testing.expect(t, found && joined.returning && joined.slot == 1)
+	testing.expect_value(t, in_slot(simulation, 0).level, 1)
 }
 
 @(test)

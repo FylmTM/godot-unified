@@ -1,6 +1,7 @@
 // UnifiedSession: the GDScript-facing session node (src/godot/SPEC.md).
 package godot
 
+import "core:crypto"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
@@ -8,7 +9,7 @@ import "core:sync"
 import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
-import "unified:sim"
+import "unified:netcode"
 import "unified:view"
 
 Session_Node :: struct {
@@ -30,6 +31,7 @@ Session_Node :: struct {
 	sync_us:     f32,
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
 	has_pending: bool,
+	roster_seen: u32, // roster.changes when roster_changed was last emitted
 }
 
 Args :: struct {
@@ -157,11 +159,41 @@ register_session_class :: proc() {
 	}, {"name"})
 	gd.bind_method(class, "constants", session_constants)
 	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
+	// Players by key (sim.player_key), at the shown tick.
 	gd.bind_method(class, "get_local_player", proc(session: ^Session_Node) -> i64 {
-		return session.frame != nil ? i64(session.frame.local_player) : -1
+		return session.frame != nil ? i64(session.frame.local_player) : 0
 	})
+	gd.bind_method(class, "get_players", proc(session: ^Session_Node) -> gd.Array {
+		players := gd.array_new()
+		if session.frame != nil {
+			for key in session.frame.slots do if key != 0 do gd.array_push(&players, i64(key))
+		}
+		return players
+	})
+	gd.bind_method(class, "get_known_players", proc(session: ^Session_Node) -> gd.Array {
+		players := gd.array_new()
+		if session.frame != nil {
+			for key in session.frame.members[:session.frame.n_members] do gd.array_push(&players, i64(key))
+		}
+		return players
+	})
+	gd.bind_method(class, "get_player_slot", proc(session: ^Session_Node, player: i64) -> i64 {
+		return i64(shown_slot(session, player))
+	}, {"player"})
+	gd.bind_method(class, "is_player_present", proc(session: ^Session_Node, player: i64) -> bool {
+		return shown_slot(session, player) >= 0
+	}, {"player"})
 	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
-		return session.frame != nil ? frame_player_name(session.frame, int(player)) : ""
+		entry, ok := roster_entry(player)
+		return ok ? strings.clone(netcode.name_string(&entry.name), context.temp_allocator) : ""
+	}, {"player"})
+	gd.bind_method(class, "get_player_platform", proc(session: ^Session_Node, player: i64) -> string {
+		entry, ok := roster_entry(player)
+		return ok ? strings.clone(netcode.text_string(&entry.platform), context.temp_allocator) : ""
+	}, {"player"})
+	gd.bind_method(class, "get_player_platform_id", proc(session: ^Session_Node, player: i64) -> string {
+		entry, ok := roster_entry(player)
+		return ok ? strings.clone(netcode.text_string(&entry.account), context.temp_allocator) : ""
 	}, {"player"})
 	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
 	gd.bind_method(class, "get_tick", proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)})
@@ -171,7 +203,16 @@ register_session_class :: proc() {
 	gd.bind_signal(class, "lobby_code", {"code", string})
 	gd.bind_signal(class, "desync", {"tick", i64}, {"detail", string})
 	gd.bind_signal(class, "sim_event", {"event", gd.RefCounted}, {"state", i64})
+	gd.bind_signal(class, "roster_changed")
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
+}
+
+// The slot a player (by key) holds at the shown tick (-1: absent, unknown, or no frame yet).
+@(private)
+shown_slot :: proc(session: ^Session_Node, player: i64) -> int {
+	if session.frame == nil || player == 0 do return -1
+	for key, slot in session.frame.slots do if key == u64(player) do return slot
+	return -1
 }
 
 @(private)
@@ -280,6 +321,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.seed = u64(session.seed)
 	request.ticks = u32(max(session.ticks, 0))
 	request.name = session.name
+	request.token = client_token()
 	level: []u8
 	defer delete(level)
 	if api.level != "" {
@@ -374,6 +416,10 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		views_sync(root, frame, fresh, alpha, f32(dt))
 	}
 	drain_messages(session)
+	if changes := sync.atomic_load(&roster.changes); changes != session.roster_seen {
+		session.roster_seen = changes
+		gd.emit_signal(session.obj, gd.sn("roster_changed"))
+	}
 	start_pending(session)
 	session.sync_us = f32(time.duration_microseconds(time.tick_since(started)))
 	sync.atomic_store(&want_state, dev_visible())
@@ -426,13 +472,7 @@ route_event :: proc(session: ^Session_Node, message: Message) {
 	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
 	if message.action == .Confirmed {
 		player, entity := event_subject(layout, raw.data[:raw.size])
-		dev_log(
-			message.tick,
-			"%s player %d entity %d",
-			layout.name,
-			i32(player) if player != u32(sim.NO_PLAYER) else -1,
-			entity,
-		)
+		dev_log(message.tick, "%s player %d entity %d", layout.name, player, entity)
 	}
 }
 
@@ -514,6 +554,47 @@ parse_args :: proc() -> (args: Args) {
 		}
 	}
 	return
+}
+
+TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their own
+
+// What the relay knows this player by when they come back to a LAN session (netcode.Token): 16 random bytes kept in
+// user:// as hex, made on first use. Never sent past the relay. Each running copy of the game on a machine (they share
+// user://) is someone else: a copy claims the first token whose `.pid` file names no other running process, so a
+// game restarted after a crash takes its own token back, while a second window takes another.
+@(private)
+client_token :: proc() -> (token: netcode.Token) {
+	pid := gd.OS_get_process_id(gd.OS_singleton())
+	instance := 0
+	for k in 0 ..< TOKEN_INSTANCES {
+		owner, _ := strconv.parse_int(gd.FileAccess_get_file_as_string(fmt.tprintf("user://unified_token_%d.pid", k)))
+		instance = k
+		if owner == 0 || owner == pid || !process_alive(owner) do break
+	}
+	path := fmt.tprintf("user://unified_token_%d", instance)
+	write_user_file(fmt.tprintf("%s.pid", path), fmt.tprintf("%d", pid))
+	text := gd.FileAccess_get_file_as_string(path)
+	if len(text) == 2 * netcode.TOKEN_SIZE {
+		ok := true
+		for &value, i in token {
+			byte_value, byte_ok := strconv.parse_u64_of_base(text[2 * i:][:2], 16)
+			value = u8(byte_value)
+			ok &&= byte_ok
+		}
+		if ok && token != {} do return token
+	}
+	crypto.rand_bytes(token[:])
+	write_user_file(path, fmt.tprintf("%x", token[:]))
+	return
+}
+
+@(private)
+write_user_file :: proc(path, text: string) {
+	file := gd.FileAccess_open(path, .WRITE)
+	if file.ptr == nil do return
+	gd.FileAccess_store_string(file, text)
+	gd.FileAccess_close(file)
+	gd.unref(file)
 }
 
 // A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.

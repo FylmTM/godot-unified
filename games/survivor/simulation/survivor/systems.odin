@@ -34,133 +34,128 @@ ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
 	.Brute  = {40, 1.2, 0.7, 12, 5},
 }
 
-// One tick (game.number = the tick being computed): systems 1-12.
-tick :: proc(tick: ^Tick) {
-	state, world, now := tick.state, tick.world, tick.number
-	sys_players(tick)
-	sys_levelup(state, tick.inputs)
-	sys_spawner(state, now)
-	sys_enemies(state, world, now)
-	sys_contact(tick)
-	sys_attack(state)
-	sys_projectiles(state, world, now)
-	sys_barrels(tick)
-	sys_deaths(tick)
-	physics.step(world.phys, DT, SUBSTEPS)
-	read_back(state, world)
-	sys_phase(tick)
+// One tick (t.number = the tick being computed): systems 1-12.
+tick :: proc(t: ^Tick) {
+	sys_players(t)
+	sys_levelup(t)
+	sys_spawner(t.state, t.number)
+	sys_enemies(t.state, t.world, t.number)
+	sys_contact(t)
+	sys_attack(t.state)
+	sys_projectiles(t.state, t.world, t.number)
+	sys_barrels(t)
+	sys_deaths(t)
+	physics.step(t.world.phys, DT, SUBSTEPS)
+	read_back(t.state, t.world)
+	sys_phase(t)
 }
 
 // 12. Phases: lobby -> match when a player leaves the start circle; match -> over when every
 // present player is dead at once (or nobody is present); over -> lobby (world reset) after the hold.
 @(private)
-sys_phase :: proc(tick: ^Tick) {
-	state, now := tick.state, tick.number
+sys_phase :: proc(t: ^Tick) {
 	present, alive := 0, 0
-	for &character in state.players {
-		present += int(character.active)
-		alive += int(character.active && character.alive)
+	players := sim.iterate_present(&t.state.players)
+	for character in sim.next(&players) {
+		present += 1
+		alive += int(character.alive)
 	}
-	switch state.phase {
+	switch t.state.phase {
 	case .Lobby:
-		radius2 := state.circle_radius * state.circle_radius
-		for &character, player in state.players {
+		radius2 := t.state.circle_radius * t.state.circle_radius
+		players = sim.iterate_present(&t.state.players)
+		for character, player in sim.next(&players) {
 			pos := character.pos
-			if character.active && character.alive && pos.x * pos.x + pos.z * pos.z > radius2 {
-				state.phase = .Match
-				state.match_tick = now
-				state.over_tick = 0
-				state.wave = 0
-				state.circle_radius = 0
-				state.matches += 1
-				sim.emit(tick, Event_Match_Started{position = sim.Position(pos), player = u8(player)})
+			if character.alive && pos.x * pos.x + pos.z * pos.z > radius2 {
+				t.state.phase = .Match
+				t.state.match_tick = t.number
+				t.state.over_tick = 0
+				t.state.wave = 0
+				t.state.circle_radius = 0
+				t.state.matches += 1
+				sim.emit(t, Event_Match_Started{position = sim.Position(pos), player = player})
 				break
 			}
 		}
 	case .Match:
-		state.wave = (now - state.match_tick) / tuning(state).wave_ticks
+		t.state.wave = (t.number - t.state.match_tick) / tuning(t.state).wave_ticks
 		if present == 0 {
-			reset_world(tick)
-		} else if alive == 0 && !state.endless {
-			state.phase = .Over
-			state.over_tick = now
-			sim.emit(tick, Event_Match_Over{duration_s = f32(now - state.match_tick) * DT})
+			reset_world(t)
+		} else if alive == 0 && !t.state.endless {
+			t.state.phase = .Over
+			t.state.over_tick = t.number
+			sim.emit(t, Event_Match_Over{duration_s = f32(t.number - t.state.match_tick) * DT})
 		}
 	case .Over:
-		if now - state.over_tick >= OVER_HOLD_TICKS {
-			reset_world(tick)
+		if t.number - t.state.over_tick >= OVER_HOLD_TICKS {
+			reset_world(t)
 		}
 	}
 }
 
 // Back to the lobby: every dynamic body is destroyed and rebuilt in creation order (items, then
-// present players at their start spots with fresh progress); enemies, projectiles and gems go.
-reset_world :: proc(tick: ^Tick) {
-	state, world := tick.state, tick.world
-	for &item in state.items {
-		destroy_body(world, &item.body)
+// present players at their start spots, in slot order); everyone's progress starts fresh, absent players' too;
+// enemies, projectiles and gems go.
+reset_world :: proc(t: ^Tick) {
+	for &item in t.state.items {
+		destroy_body(t.world, &item.body)
 	}
-	for &character in state.players {
-		destroy_body(world, &character.body)
+	known := sim.iterate_known(&t.state.players)
+	for character in sim.next(&known) {
+		destroy_body(t.world, &character.body)
+		character_reset(character)
 	}
 	for i in 0 ..< ITEM_COUNT {
-		item_reset(state, world, i)
+		item_reset(t.state, t.world, i)
 	}
-	for player in 0 ..< PLAYERS {
-		player_reset_stats(state, player)
-		if state.players[player].active {
-			player_spawn(state, world, player)
-			sim.emit(
-				tick,
-				Event_Player_Respawned{position = sim.Position(state.players[player].pos), player = u8(player)},
-			)
+	for slot in 0 ..< PLAYERS {
+		player := sim.player_in_slot(&t.state.players, slot)
+		if character := sim.player_get(&t.state.players, player); character != nil {
+			character_spawn(t.world, character, slot)
+			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
 	}
-	state.enemies = {}
-	state.projectiles = {}
-	state.gems = {}
-	state.phase = .Lobby
-	state.circle_radius = START_RADIUS
-	state.match_tick = 0
-	state.over_tick = 0
-	state.wave = 0
+	t.state.enemies = {}
+	t.state.projectiles = {}
+	t.state.gems = {}
+	t.state.phase = .Lobby
+	t.state.circle_radius = START_RADIUS
+	t.state.match_tick = 0
+	t.state.over_tick = 0
+	t.state.wave = 0
 }
 
-// 1. Players: join, respawn, movement and dash.
+// 1. Players: leaves and joins (the harness's t.left, t.joined, t.returned), respawn, movement and dash.
 @(private)
-sys_players :: proc(tick: ^Tick) {
-	state, world, inputs := tick.state, tick.world, tick.inputs
-	for player in 0 ..< PLAYERS {
-		character := &state.players[player]
-		input := inputs.input[player]
-		present := player in inputs.present
-		if present != character.active {
-			if present {
-				player_activate(state, world, player)
-				sim.emit(tick, Event_Player_Joined{position = sim.Position(character.pos), player = u8(player)})
-			} else {
-				sim.emit(tick, Event_Player_Left{position = sim.Position(character.pos), player = u8(player)})
-				player_deactivate(state, world, player)
-			}
+sys_players :: proc(t: ^Tick) {
+	for player in t.left {
+		character_leave(t.world, sim.player_get(&t.state.players, player))
+	}
+	for player in t.joined {
+		character_reset(sim.player_get(&t.state.players, player)) // someone new: fresh progress
+	}
+	players := sim.iterate_present(&t.state.players)
+	for character, player in sim.next(&players) {
+		slot, _ := sim.player_slot(&t.state.players, player)
+		if arrived(t, player) {
+			character_spawn(t.world, character, slot) // a returning player keeps their progress
 		}
-		if !present {
-			continue
-		}
+		input := sim.input(t, player)
 		if character.dash_cooldown > 0 {
 			character.dash_cooldown -= 1
 		}
 		pressed := input.buttons & BUTTON_DASH != 0 && character.prev_buttons & BUTTON_DASH == 0
 		character.prev_buttons = input.buttons
 		if !character.alive {
-			if state.phase == .Over {
+			if t.state.phase == .Over {
 				continue // nobody respawns until the reset
 			}
 			character.respawn -= 1
 			if character.respawn > 0 {
 				continue
 			}
-			player_spawn(state, world, player)
-			sim.emit(tick, Event_Player_Respawned{position = sim.Position(character.pos), player = u8(player)})
+			character_spawn(t.world, character, slot)
+			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
 		if pressed && character.dash_cooldown == 0 {
 			character.dash_ticks = DASH_TICKS
@@ -175,21 +170,33 @@ sys_players :: proc(tick: ^Tick) {
 			vz = vz * 3
 			character.dash_ticks -= 1
 		}
-		body := body_id(world, character.body)
+		body := body_id(t.world, character.body)
 		velocity := b3.body_get_linear_velocity(body)
 		b3.body_set_linear_velocity(body, {vx, velocity.y, vz})
 	}
 }
 
+// Whether `player` joined or returned this tick.
+@(private)
+arrived :: proc(t: ^Tick, player: sim.Player) -> bool {
+	for arrival in t.joined {
+		if arrival == player do return true
+	}
+	for arrival in t.returned {
+		if arrival == player do return true
+	}
+	return false
+}
+
 // 2. Level-up picks (Cmd_Pick commands, each delivered once): each takes one pending level-up.
 @(private)
-sys_levelup :: proc(state: ^State, inputs: ^Inputs) {
-	for player in 0 ..< PLAYERS {
-		character := &state.players[player]
-		for &raw in sim.commands(inputs, player) {
+sys_levelup :: proc(t: ^Tick) {
+	players := sim.iterate_present(&t.state.players)
+	for character, player in sim.next(&players) {
+		for &raw in sim.commands(t, player) {
 			switch command in sim.command_value(&raw, Cmd) {
 			case Cmd_Pick:
-				if !character.active || character.pending_levelups <= 0 {
+				if character.pending_levelups <= 0 {
 					continue // nothing to pick
 				}
 				switch command.upgrade {
@@ -220,8 +227,9 @@ sys_spawner :: proc(state: ^State, tick: u32) {
 		return
 	}
 	present: u32 = 0
-	for &character in state.players {
-		present += u32(character.active)
+	players := sim.iterate_present(&state.players)
+	for _ in sim.next(&players) {
+		present += 1
 	}
 	count := min(tune.spawn_base + state.wave * tune.spawn_per_wave, tune.spawn_cap)
 	count = count * (100 + tune.extra_player_pct * (max(present, 1) - 1)) / 100
@@ -297,20 +305,46 @@ build_grid :: proc(state: ^State, scratch: ^Scratch) {
 	}
 }
 
-// Nearest alive player to pos in XZ (lowest index on ties); -1 if none.
+// The alive present players, in slot order, taken once for a pass over many enemies or gems instead of walking the
+// presence for each (a pass that can kill checks `alive` again).
 @(private)
-nearest_player :: proc(state: ^State, pos: [2]f32) -> (best: int, best_distance2: f32) {
-	best = -1
-	for player in 0 ..< PLAYERS {
-		character := &state.players[player]
+Targets :: struct {
+	characters: [PLAYERS]^Character,
+	players:    [PLAYERS]sim.Player,
+	count:      int,
+}
+
+@(private)
+targets_of :: proc(state: ^State) -> (targets: Targets) {
+	players := sim.iterate_present(&state.players)
+	for character, player in sim.next(&players) {
+		if character.alive {
+			targets.characters[targets.count] = character
+			targets.players[targets.count] = player
+			targets.count += 1
+		}
+	}
+	return
+}
+
+// Nearest alive player to pos in XZ (lowest slot on ties); nil if none.
+@(private)
+nearest_player :: proc(state: ^State, pos: [2]f32) -> (best: ^Character, best_distance2: f32) {
+	targets := targets_of(state)
+	return nearest_target(&targets, pos)
+}
+
+@(private)
+nearest_target :: proc(targets: ^Targets, pos: [2]f32) -> (best: ^Character, best_distance2: f32) {
+	for character in targets.characters[:targets.count] {
 		if !character.alive {
 			continue
 		}
 		dx := character.pos.x - pos.x
 		dz := character.pos.z - pos.y
 		distance2 := dx * dx + dz * dz
-		if best < 0 || distance2 < best_distance2 {
-			best = player
+		if best == nil || distance2 < best_distance2 {
+			best = character
 			best_distance2 = distance2
 		}
 	}
@@ -322,6 +356,7 @@ nearest_player :: proc(state: ^State, pos: [2]f32) -> (best: int, best_distance2
 sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 	scratch := &world.scratch
 	build_grid(state, scratch)
+	targets := targets_of(state)
 	ray_filter := physics.Query {
 		mask = CAT_CRATE | CAT_BARREL,
 	}
@@ -334,9 +369,9 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 		}
 		speed := enemy.climbing ? enemy.speed * 0.5 : enemy.speed
 		desired: [2]f32
-		if target, _ := nearest_player(state, enemy.pos); target >= 0 {
-			dx := state.players[target].pos.x - enemy.pos.x
-			dz := state.players[target].pos.z - enemy.pos.y
+		if target, _ := nearest_target(&targets, enemy.pos); target != nil {
+			dx := target.pos.x - enemy.pos.x
+			dz := target.pos.z - enemy.pos.y
 			length := dmath.sqrt(dx * dx + dz * dz)
 			if length > 0.0001 {
 				desired = {dx / length * speed, dz / length * speed}
@@ -411,40 +446,40 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 	}
 }
 
-// Damages an alive player; at HP <= 0 it dies (body destroyed, respawn timer set).
-damage_player :: proc(tick: ^Tick, player: int, amount: i32) {
-	character := &tick.state.players[player]
-	if !character.alive {
+// Damages an alive player (nobody, absent or dead: nothing); at HP <= 0 they die (body destroyed, respawn timer
+// set).
+damage_player :: proc(t: ^Tick, player: sim.Player, amount: i32) {
+	character := sim.player_get(&t.state.players, player)
+	if character == nil || !character.alive {
 		return
 	}
 	character.hp -= amount
 	if character.hp <= 0 {
-		player_dies(tick, player)
+		player_dies(t, character, player)
 	}
 }
 
 @(private)
-player_dies :: proc(tick: ^Tick, player: int) {
-	character := &tick.state.players[player]
-	sim.emit(tick, Event_Player_Died{position = sim.Position(character.pos), player = u8(player)})
+player_dies :: proc(t: ^Tick, character: ^Character, player: sim.Player) {
+	sim.emit(t, Event_Player_Died{position = sim.Position(character.pos), player = player})
 	character.alive = false
 	character.respawn = RESPAWN_TICKS
 	character.dash_ticks = 0
-	destroy_body(tick.world, &character.body)
+	destroy_body(t.world, &character.body)
 }
 
 // 5. Contact damage, one hit per enemy per 30 ticks.
 @(private)
-sys_contact :: proc(tick: ^Tick) {
-	state := tick.state
-	enemies := sim.iterate(&state.enemies)
+sys_contact :: proc(t: ^Tick) {
+	targets := targets_of(t.state)
+	enemies := sim.iterate(&t.state.enemies)
 	for enemy in sim.next(&enemies) {
 		if enemy.contact_cooldown > 0 {
 			enemy.contact_cooldown -= 1
 			continue
 		}
-		for player in 0 ..< PLAYERS {
-			character := &state.players[player]
+		for character, k in targets.characters[:targets.count] {
+			player := targets.players[k]
 			if !character.alive {
 				continue
 			}
@@ -455,7 +490,7 @@ sys_contact :: proc(tick: ^Tick) {
 				character.hp -= enemy.damage
 				enemy.contact_cooldown = CONTACT_COOLDOWN_TICKS
 				if character.hp <= 0 {
-					player_dies(tick, player)
+					player_dies(t, character, player)
 				}
 				break
 			}
@@ -466,8 +501,8 @@ sys_contact :: proc(tick: ^Tick) {
 // 6. Auto-attack: fire at the nearest enemy within 14 m.
 @(private)
 sys_attack :: proc(state: ^State) {
-	for player in 0 ..< PLAYERS {
-		character := &state.players[player]
+	players := sim.iterate_present(&state.players)
+	for character in sim.next(&players) {
 		if !character.alive {
 			continue
 		}
@@ -574,47 +609,47 @@ sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
 
 // 8. Barrels: respawn due barrels, then explode barrels at HP <= 0 in barrel order.
 @(private)
-sys_barrels :: proc(tick: ^Tick) {
-	state, world, now := tick.state, tick.world, tick.number
+sys_barrels :: proc(t: ^Tick) {
 	for i in 0 ..< ITEM_COUNT {
-		item := &state.items[i]
-		if item.kind == .Barrel && !item.alive && item.respawn_tick == now {
+		item := &t.state.items[i]
+		if item.kind == .Barrel && !item.alive && item.respawn_tick == t.number {
 			item.alive = true
 			item.hp = BARREL_HP
 			item.respawn_tick = 0
-			item.body = create_item_body(world, i)
+			item.body = create_item_body(t.world, i)
 		}
 	}
 	for i in 0 ..< ITEM_COUNT {
-		item := &state.items[i]
+		item := &t.state.items[i]
 		if item.kind != .Barrel || !item.alive || item.hp > 0 {
 			continue
 		}
-		body_pos := b3.body_get_position(body_id(world, item.body))
+		body_pos := b3.body_get_position(body_id(t.world, item.body))
 		center := [3]f32{body_pos.x, body_pos.y, body_pos.z}
 		for j in 0 ..< ITEM_COUNT {
-			other := &state.items[j]
+			other := &t.state.items[j]
 			if j == i || !other.alive {
 				continue
 			}
-			explosion_impulse(world, center, body_id(world, other.body))
+			explosion_impulse(t.world, center, body_id(t.world, other.body))
 		}
-		for player in 0 ..< PLAYERS {
-			if state.players[player].alive {
-				explosion_impulse(world, center, body_id(world, state.players[player].body))
+		players := sim.iterate_present(&t.state.players)
+		for character in sim.next(&players) {
+			if character.alive {
+				explosion_impulse(t.world, center, body_id(t.world, character.body))
 			}
 		}
-		enemies := sim.iterate(&state.enemies)
+		enemies := sim.iterate(&t.state.enemies)
 		for enemy in sim.next(&enemies) {
 			dx := enemy.pos.x - center.x
 			dz := enemy.pos.y - center.z
 			if dx * dx + dz * dz < 25 {
 				enemy.hp -= 25
-				enemy.hit_tick = now
+				enemy.hit_tick = t.number
 			}
 		}
-		for player in 0 ..< PLAYERS {
-			character := &state.players[player]
+		players = sim.iterate_present(&t.state.players)
+		for character, player in sim.next(&players) {
 			if !character.alive {
 				continue
 			}
@@ -623,15 +658,15 @@ sys_barrels :: proc(tick: ^Tick) {
 			if dx * dx + dz * dz < 9 {
 				character.hp -= 15
 				if character.hp <= 0 {
-					player_dies(tick, player)
+					player_dies(t, character, player)
 				}
 			}
 		}
-		destroy_body(world, &item.body)
-		sim.emit(tick, Event_Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
+		destroy_body(t.world, &item.body)
+		sim.emit(t, Event_Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
 		item.alive = false
-		item.respawn_tick = now + BARREL_RESPAWN_TICKS
-		state.explosions += 1
+		item.respawn_tick = t.number + BARREL_RESPAWN_TICKS
+		t.state.explosions += 1
 	}
 }
 
@@ -663,34 +698,34 @@ explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
 
 // 9. Deaths, gems, XP and level thresholds.
 @(private)
-sys_deaths :: proc(tick: ^Tick) {
-	state, now := tick.state, tick.number
-	enemies := sim.iterate(&state.enemies)
+sys_deaths :: proc(t: ^Tick) {
+	enemies := sim.iterate(&t.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
 		if enemy.hp > 0 {
 			continue
 		}
 		pos := enemy.pos
 		xp := ENEMY_STATS[enemy.kind].xp
-		sim.emit(tick, Event_Enemy_Died {
+		sim.emit(t, Event_Enemy_Died {
 			enemy      = handle,
 			position   = {pos.x, 0, pos.y},
 			enemy_kind = enemy.kind,
 		})
-		sim.despawn(&state.enemies, handle)
-		state.kills += 1
-		if gem, _, ok := sim.spawn(&state.gems); ok {
+		sim.despawn(&t.state.enemies, handle)
+		t.state.kills += 1
+		if gem, _, ok := sim.spawn(&t.state.gems); ok {
 			gem.pos = pos
 			gem.value = xp
-			gem.spawn_tick = now
-		} else if player, _ := nearest_player(state, pos); player >= 0 {
-			state.players[player].xp += xp
+			gem.spawn_tick = t.number
+		} else if nearest, _ := nearest_player(t.state, pos); nearest != nil {
+			nearest.xp += xp
 		}
 	}
-	gems := sim.iterate(&state.gems)
+	targets := targets_of(t.state)
+	gems := sim.iterate(&t.state.gems)
 	for gem, handle in sim.next(&gems) {
-		for player in 0 ..< PLAYERS {
-			character := &state.players[player]
+		for character, k in targets.characters[:targets.count] {
+			player := targets.players[k]
 			if !character.alive {
 				continue
 			}
@@ -698,27 +733,27 @@ sys_deaths :: proc(tick: ^Tick) {
 			dz := character.pos.z - gem.pos.y
 			if dx * dx + dz * dz < 2.25 {
 				character.xp += gem.value
-				sim.emit(tick, Event_Gem_Collected {
+				sim.emit(t, Event_Gem_Collected {
 					gem      = handle,
 					position = {gem.pos.x, 0, gem.pos.y},
 					xp       = gem.value,
-					player   = u8(player),
+					player   = player,
 				})
-				sim.despawn(&state.gems, handle)
+				sim.despawn(&t.state.gems, handle)
 				break
 			}
 		}
 	}
-	for player in 0 ..< PLAYERS {
-		character := &state.players[player]
-		for character.xp >= xp_next(state, character.level) {
-			character.xp -= xp_next(state, character.level)
+	players := sim.iterate_present(&t.state.players)
+	for character, player in sim.next(&players) {
+		for character.xp >= xp_next(t.state, character.level) {
+			character.xp -= xp_next(t.state, character.level)
 			character.level += 1
 			character.pending_levelups += 1
-			sim.emit(tick, Event_Level_Up {
+			sim.emit(t, Event_Level_Up {
 				position = sim.Position(character.pos),
 				level    = character.level,
-				player   = u8(player),
+				player   = player,
 			})
 		}
 	}
@@ -727,7 +762,8 @@ sys_deaths :: proc(tick: ^Tick) {
 // 11. Read back player positions for the next tick.
 @(private)
 read_back :: proc(state: ^State, world: ^World) {
-	for &character in state.players {
+	players := sim.iterate_present(&state.players)
+	for character in sim.next(&players) {
 		if character.alive {
 			body_pos := b3.body_get_position(body_id(world, character.body))
 			character.pos = {body_pos.x, body_pos.y, body_pos.z}

@@ -107,11 +107,14 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 	netsim.rng = seed == 0 ? 0x9E3779B9 : seed
 	netsim.clock = clock
 	return {
-		data  = netsim,
-		send  = netsim_send,
-		recv  = netsim_recv,
-		close = netsim_close,
-		event = inner.event == nil ? nil : netsim_event,
+		data    = netsim,
+		send    = netsim_send,
+		recv    = netsim_recv,
+		close   = netsim_close,
+		event   = inner.event == nil ? nil : netsim_event,
+		account = inner.account == nil ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
+			return link_account(&(^Net_Sim)(data).inner, peer)
+		},
 	}
 }
 

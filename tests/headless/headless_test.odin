@@ -148,7 +148,7 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 		sim.step(simulation, &inputs)
 	}
 	for client, i in result.clients {
-		testing.expect_value(t, client.player, i)
+		testing.expect_value(t, client.slot, i)
 		testing.expect_value(t, client.final_tick, 640)
 		last := client.checksums[len(client.checksums) - 1] if len(client.checksums) > 0 else {}
 		testing.expectf(t, last == {640, sim.checksum(simulation)}, "client %d's last verified checksum: %v", i, last)
@@ -156,7 +156,11 @@ session_on_the_virtual_clock :: proc(t: ^testing.T) {
 	testing.expect(t, result.clients[2].join_tick >= 320 && result.clients[2].checksums[0][0] >= 320)
 	// The JSON the CLI prints is built from these results.
 	json := netcode.client_json(result.clients[0])
-	testing.expect(t, strings.has_prefix(json, `{"player":0,"final_tick":640,"checksums":[[16,"`))
+	testing.expect(
+		t,
+		strings.has_prefix(json, `{"slot":0,"member":`) &&
+		strings.contains(json, `,"final_tick":640,"checksums":[[16,"`),
+	)
 }
 
 // The same session twice on the virtual clock: identical, to the byte.

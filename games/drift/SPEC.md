@@ -23,15 +23,15 @@ pixels, with `px_per_m` from the level (32).
 ## World (created before tick 0, in this order)
 
 - The level (`game/levels/arena.level`): static walls and obstacles (`physics.create_static`), then markers in file
-  order. The marker kinds are `spawn` (×4, one per player), `station` (×1), `gate` (pairs: `pair` = the other
+  order. The marker kinds are `spawn` (×4, one per slot), `station` (×1), `gate` (pairs: `pair` = the other
   gate), and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
 - The station: a kinematic hexagon (radius 2.5 m) at the station marker, turning at 0.25 rad/s, with 100 HP.
 - Ships: dynamic circles (r 0.5 m, density 1, linear damping 0.6) locked to the plane, created when a player
-  becomes present, at their `spawn` marker.
+  joins or comes back, at the `spawn` marker of the slot they hold.
 
 ## Input and commands
 
-- Per tick: `move_x, move_y` and `aim_x, aim_y`: i8 −127..127 in world space. Aim is a direction; zero keeps
+- Per tick, per slot: `move_x, move_y` and `aim_x, aim_y`: i8 −127..127 in world space. Aim is a direction; zero keeps
   the heading.
 - `buttons`: bit 0 = fire (held), bit 1 = boost (held; it fires when ready).
 - Commands (`Cmd_Start`, `Cmd_Restart`, both empty): `start` (lobby → match, anyone may send it) and `restart`
@@ -39,8 +39,10 @@ pixels, with `px_per_m` from the level (32).
 
 ## Rules (each tick, in this order)
 
-1. Presence: a player who becomes present gets their ship at their spawn marker. One who stops being present
-   loses it.
+1. Presence (src/sim/SPEC.md, Players): a player is a session member (a `sim.Player`), and a ship is their data
+   in the State's `sim.Presence` (`players`, remembering `MEMBERS = 2 × PLAYERS` people). A player who joins (a
+   zeroed ship) or comes back (their ship as they left it: shots, gems, cooldowns) gets a body at their slot's spawn
+   marker (`spawned`). One who leaves loses the body, and keeps the rest until the session forgets them.
 2. Ships: thrust force = `move × 40 N`. Turning sets the angular velocity toward the aim:
    `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: an impulse of
    `heading × 6 N·s`, with a 1.5 s cooldown.
@@ -62,14 +64,15 @@ pixels, with `px_per_m` from the level (32).
      wave, from the `rock_spawn` markers in turn. Each rock's velocity is `dir × (2 + 0.2k)`, its spin comes from the
      state RNG, and so does its variant.
    - **over** (the station's HP is 0): the station stops turning. After 5 s, or on `restart`, the world resets:
-     rocks, bullets and gems are cleared, ships go back to their spawns, the station is repaired, and the phase is
+     rocks, bullets and gems are cleared, the present ships go back to their slots' spawns, the station is repaired, and the phase is
      lobby.
    - With nobody present: reset.
 
-Events (one struct each, `Event` in `state.odin`; positions in metres, z = 0; `player` is a seat, and a rock event's
-subject is the rock's handle):
+Events (one struct each, `Event` in `state.odin`; positions in metres, z = 0; `player` is a `sim.Player`, and a
+rock event's subject is the rock's handle):
 
-- `joined {position, player}` (the spawn), `left {player}`, `fired {position, player}` (the muzzle),
+- The library's `player_joined {player, slot, returning}` and `player_left {player, slot}`.
+- `spawned {position, player}` (the slot's spawn), `fired {position, player}` (the muzzle),
   `boosted {position, player}`, `warped {position, player, from_gate, to_gate}` (where the ship came out).
 - `rock_hit {rock, position, player, size}` (the hit point; `player` fired the bullet), `rock_split {rock, position,
   size}` and `rock_destroyed {rock, position, size}` (the rock that is gone), `station_hit {position, damage, size}`
@@ -89,20 +92,26 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
 - MultiMesh views (`MultiView`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
   handles):
   - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with rotation and a hit flash in custom data.
-  - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the owner's color.
+  - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the colour of its owner's slot
+    (custom.x; -1, a pale grey, once the owner has left). A bullet is owned by its player, not the slot.
   - `gem`: a pulse that squashes and stretches.
 - Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
+- A ship's view key is its player's key (`sim.player_key`), so the view survives a leave and comes back with the
+  player in any slot; its colour and "P<n>" follow the slot they hold (`Game.player_slot`).
 - Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
   rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
   banners, once it is confirmed.
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
   the movement, fire and boost actions.
-- HUD: phase, wave, station HP, score, time, the next wave in, and the players.
+- HUD: phase, wave, station HP, score, time, the next wave in, and the players by slot (`player`: their key).
 
 ## Tests (`simulation/tests`)
 
 The standard end-to-end suite with a reference run (scripted input: orbit the station, aim at the nearest rock,
 fire, and `start` at tick 32). The plane invariants hold exactly for every ship and rock over a whole match. A
-split inside a rollback window, a warp, and the station destroyed then reset are each covered. The determinism
+split inside a rollback window, a warp, and the station destroyed then reset are each covered, and so are
+owners following the person: a bullet stays its player's while they are away, someone new takes their slot with a
+zeroed ship, and they come back in another slot with their ship as they left it (`presence_churn` runs the same
+churn on scripted play under rollback). The determinism
 lint runs by layout.

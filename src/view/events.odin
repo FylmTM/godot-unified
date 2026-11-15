@@ -23,7 +23,7 @@ Event_Id :: struct {
 	tick:   u32,
 	kind:   u32,
 	entity: u64, // the subject's key (a handle's key, an entity), 0 if none
-	player: u32, // the subject player, sim.NO_PLAYER if none
+	player: u64, // the subject player's key (sim.player_key), 0 if none
 	nth:    u32, // among the tick's events of the same kind and subject
 }
 

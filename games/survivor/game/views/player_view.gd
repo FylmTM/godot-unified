@@ -2,7 +2,8 @@ class_name SurvivorPlayerView
 extends GameView
 ## A player: a capsule in the player's colour with a visor, a floor ring (bright for the local player), a name tag, lean and
 ## bob while moving, a hit flash when HP drops and an after-image trail while dashing. `player` (GameView) is the
-## player it shows; the view lives while the player is in the session (dead too).
+## player it shows (their key); the view lives while the player is in the session (dead too). The colour is their
+## slot's, so it follows them when they come back in another slot.
 
 const DASH_SPEED := 9.0  # m/s; faster than the 6 m/s walk + upgrades means a dash
 const GHOST_EVERY := 0.025
@@ -12,6 +13,8 @@ const GHOST_EVERY := 0.025
 @onready var _ring: MeshInstance3D = $Ring
 @onready var _label: Label3D = $Name
 var _mat: StandardMaterial3D
+var _ring_mat: StandardMaterial3D
+var _slot := -1
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
 ## Smoothed velocity (m/s) from the interpolated positions; the camera leads with it.
@@ -36,13 +39,19 @@ var _exit: Tween
 
 
 func _ready() -> void:
-	var color := UiTheme.player_color(player)
 	_mat = _mesh.get_surface_override_material(0).duplicate() as StandardMaterial3D
-	_mat.albedo_color = color
 	_mesh.set_surface_override_material(0, _mat)
-	var ring_mat := _ring.get_surface_override_material(0).duplicate() as StandardMaterial3D
-	ring_mat.albedo_color = Color(color * (2.2 if _is_local() else 0.8), 1.0)
-	_ring.set_surface_override_material(0, ring_mat)
+	_ring_mat = _ring.get_surface_override_material(0).duplicate() as StandardMaterial3D
+	_ring.set_surface_override_material(0, _ring_mat)
+	_color_slot(maxi(Game.player_slot(player), 0))
+
+
+## Colours the player as `slot`'s.
+func _color_slot(slot: int) -> void:
+	_slot = slot
+	var color := UiTheme.player_color(slot)
+	_mat.albedo_color = color
+	_ring_mat.albedo_color = Color(color * (2.2 if _is_local() else 0.8), 1.0)
 	_label.modulate = color.lightened(0.35)
 
 
@@ -94,6 +103,9 @@ func _update_hud_state(dt: float) -> void:
 	var p := _hud_player()
 	if not p.is_empty():
 		_label.text = Game.player_name(p)
+	var slot := Game.player_slot(player)
+	if slot >= 0 and slot != _slot:
+		_color_slot(slot)
 	if _flash > 0.0:
 		# Emission stays enabled in the scene's material and only its colour changes: toggling
 		# `emission_enabled` switches the shader variant and compiled a new shader on the first hit.

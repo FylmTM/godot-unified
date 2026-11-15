@@ -125,6 +125,8 @@ Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int, $View, $MultiVie
 	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
 	nets:      [dynamic]^Dev_Link, // wrapped remote links (owned by the channel)
 	net_gen:   u32,
+	roster:    u32, // the client's roster_changes last copied for the main thread
+	account:   [2]string, // the host player's platform account (Transport.account): platform, id
 }
 
 // A remote link the dev UI's Netsim panel can impair live. While the netsim is off, datagrams go straight to
@@ -146,11 +148,14 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 		seed  = seed | 1,
 	}
 	return dev_link, {
-		data  = dev_link,
-		send  = dev_link_send,
-		recv  = dev_link_recv,
-		close = dev_link_close,
-		event = inner.event == nil ? nil : dev_link_event,
+		data    = dev_link,
+		send    = dev_link_send,
+		recv    = dev_link_recv,
+		close   = dev_link_close,
+		event   = inner.event == nil ? nil : dev_link_event,
+		account = inner.account == nil ? nil : proc(data: rawptr, peer: netcode.Peer) -> (netcode.Account, bool) {
+			return netcode.link_account(&(^Dev_Link)(data).inner, peer)
+		},
 	}
 }
 
@@ -290,11 +295,14 @@ install :: proc(
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
+		presence, _ := sim.presence_layout_of(type_info_of(State), PLAYERS)
 		for &frame in driver.frames.slots {
 			frame.views = make([]View_Out, max_views)
 			frame.multis = make([]Multi_Out, max_multi)
 			frame.data = make([]u8, data_bytes)
+			frame.members = make([]u64, presence.members)
 		}
+		roster_reset()
 		pose_memory_init(&driver.poses, max_views, max_multi)
 		input_sample_reset()
 		view.triple_init(&driver.states)
@@ -335,7 +343,9 @@ install :: proc(
 			delete(frame.views)
 			delete(frame.multis)
 			delete(frame.data)
+			delete(frame.members)
 		}
+		for text in driver.account do delete(text)
 		pose_memory_destroy(&driver.poses)
 		delete(driver.scratch)
 		delete(driver.req.arg)
@@ -455,9 +465,8 @@ track_tick :: proc(
 	clear(&driver.scratch)
 	for &raw in events {
 		event := Tick_Event {
-			tick   = tick,
-			raw    = raw,
-			player = u32(sim.NO_PLAYER),
+			tick = tick,
+			raw  = raw,
 		}
 		if int(raw.kind) < len(api.events) {
 			event.player, event.entity = event_subject(&api.events[raw.kind], raw.data[:raw.size])
@@ -479,21 +488,21 @@ driver_hooks :: proc(
 	This_Driver :: Driver(State, Input, World, PLAYERS, View, MultiView)
 	return {
 		user = driver,
-		sample = proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input {
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.glue.scripted_input != nil {
-				return driver.glue.scripted_input(driver.req.seed, player, tick, state)
+				return driver.glue.scripted_input(driver.req.seed, slot, tick, state)
 			}
 			input: Input
 			input_sample_take(([^]u8)(&input)[:size_of(Input)])
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
-		commands = proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+		commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted {
 				if driver.glue.scripted_commands != nil {
-					driver.glue.scripted_commands(driver.req.seed, player, tick, state, out)
+					driver.glue.scripted_commands(driver.req.seed, slot, tick, state, out)
 				}
 				return
 			}
@@ -517,7 +526,19 @@ driver_hooks :: proc(
 			out.verified = info.verified
 			out.tick_hz = u32(driver.game.tick_hz)
 			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
-			out.local_player = i32(client.player)
+			members, slots := sim.players_of(simulation, current)
+			local := client.slot >= 0 ? slots[client.slot] : {}
+			out.local_player = sim.player_key(local)
+			out.slots = {}
+			for holder, slot in slots do out.slots[slot] = sim.player_key(holder)
+			out.n_members = 0
+			for member, index in members {
+				if member.id != 0 && out.n_members < len(out.members) {
+					out.members[out.n_members] = sim.player_key({u16(index), member.id})
+					out.n_members += 1
+				}
+			}
+			roster_copy(client.roster[:], &driver.roster, client.roster_changes)
 			out.net = {
 				rtt_ms      = f32(netcode.client_rtt_ms(client)),
 				delay       = client.delay,
@@ -533,16 +554,13 @@ driver_hooks :: proc(
 				bytes_out   = i64(client.ch.stats.bytes_sent),
 				desyncs     = i32(client.desyncs),
 			}
-			for player in 0 ..< min(PLAYERS, MAX_NAMED) {
-				out.names[player] = {}
-				copy(out.names[player][:NAME_BYTES - 1], netcode.client_player_name(client, player))
-			}
 			pose_memory_begin(&driver.poses)
 			frame := Frame(State, World, View, MultiView) {
 				state        = current,
 				world        = simulation.world,
 				tick         = info.tick,
-				local_player = client.player,
+				local_player = local,
+				local_slot   = client.slot,
 				data         = out,
 				poses        = &driver.poses,
 			}
@@ -656,7 +674,8 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,
-		player      = -1,
+		slot        = -1,
+		token       = request.token,
 		compat      = driver.glue.compat,
 		content     = request.content,
 		name        = "client",
@@ -694,6 +713,12 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 			// the transport's fail hook may have posted the real reason already
 			if !driver.failed do post_status(driver, .Failed, fmt.tprintf("%s: cannot host", transport.name))
 			return false
+		}
+		if transport.account != nil {
+			if account, has := transport.account(transport.user); has {
+				driver.account = {strings.clone(account.platform), strings.clone(account.id)}
+				host_config.account = {driver.account[0], driver.account[1]}
+			}
 		}
 		driver.host = netcode.host_create(game, host_config, hooks)
 		netcode.host_add_link(driver.host, wrap_link(driver, link))

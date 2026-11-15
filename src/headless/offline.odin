@@ -13,11 +13,11 @@ import "unified:sim"
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	game:              ^sim.Game(State, Input, World, PLAYERS),
-	// Scripted input of `player` for a tick; `state` is the caller's current state (nil if none).
-	scripted_input:    proc(seed: u64, player: int, tick: u32, state: ^State) -> Input,
-	// Optional: the scripted commands of `player` for a tick (sim.send_command(out, command)); called right
-	// after `scripted_input` for the same tick, in offline runs and by every client of a session.
-	scripted_commands: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out),
+	// Scripted input of the player in `slot` for a tick; `state` is the caller's current state (nil if none).
+	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
+	// Optional: the scripted commands of the player in `slot` for a tick (sim.send_command(out, command)); called
+	// right after `scripted_input` for the same tick, in offline runs and by every client of a session.
+	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out),
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
 	summary:           proc(state: ^State) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
@@ -122,12 +122,23 @@ Run_Result :: struct {
 	summary:        string,
 }
 
-// The scripted commands of an offline run that wait for a tick: as in a session, at most
-// sim.COMMANDS_PER_PLAYER of a player go in one tick and the rest follow in order, and a script's send
-// fails once netcode.COMMAND_QUEUE of its commands wait.
+// A change of who holds a slot in a scripted run: from `tick` on, member `member` (the relay's id; 0: nobody).
+Seat :: struct {
+	tick:   u32,
+	slot:   int,
+	member: int,
+}
+
+// The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats`
+// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_PLAYER of a
+// slot go in one tick and the rest follow in order, a script's send fails once netcode.COMMAND_QUEUE of its
+// commands wait, and a player's waiting commands go when they leave.
 Scripted_Commands :: struct {
 	waiting: [sim.MAX_PLAYERS][dynamic]sim.Raw_Command,
 	out:     sim.Command_Out,
+	seats:   []Seat, // borrowed
+	holder:  [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
+	seated:  bool, // holder is set
 }
 
 // Frees the waiting command queues and the output list of an offline run's scripted commands.
@@ -138,7 +149,8 @@ scripted_commands_destroy :: proc(commands: ^Scripted_Commands) {
 	delete(commands.out.list)
 }
 
-// Scripted inputs and commands of a tick: players < `players` present.
+// Scripted inputs and commands of a tick: slots < `players` present (slot i is member i + 1), then as
+// `commands.seats` say. A slot whose member the sim doesn't have there yet gets its join record.
 scripted :: proc(
 	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	simulation: ^sim.Sim(State, Input, World, PLAYERS),
@@ -148,19 +160,36 @@ scripted :: proc(
 ) -> (
 	inputs: sim.Inputs(Input, PLAYERS),
 ) {
-	for player in 0 ..< players {
-		inputs.present += {player}
-		inputs.input[player] = headless.scripted_input(simulation.seed, player, tick, &simulation.state)
+	if !commands.seated {
+		for slot in 0 ..< players do commands.holder[slot] = slot + 1
+		commands.seated = true
+	}
+	for seat in commands.seats {
+		if seat.tick == tick && seat.slot >= 0 && seat.slot < PLAYERS {
+			commands.holder[seat.slot] = seat.member
+			clear(&commands.waiting[seat.slot]) // the last holder's commands that never reached a tick go with them
+		}
+	}
+	for slot in 0 ..< PLAYERS {
+		member := commands.holder[slot]
+		if member == 0 {
+			continue
+		}
+		inputs.present += {slot}
+		if int(sim.slot_player(simulation, slot).id) != member {
+			sim.join(&inputs, slot, member)
+		}
+		inputs.input[slot] = headless.scripted_input(simulation.seed, slot, tick, &simulation.state)
 		if headless.scripted_commands == nil {
 			continue
 		}
-		queue := &commands.waiting[player]
+		queue := &commands.waiting[slot]
 		out := &commands.out
 		out.commands = headless.game.commands
-		out.player = player
+		out.slot = slot
 		out.cap = netcode.COMMAND_QUEUE - len(queue)
 		clear(&out.list)
-		headless.scripted_commands(simulation.seed, player, tick, &simulation.state, out)
+		headless.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
 		append(queue, ..out.list[:])
 		added := 0
 		for added < len(queue) && sim.add_command(&inputs, queue[added]) {
@@ -291,19 +320,22 @@ Synctest_Result :: struct {
 
 // `synctest`: every tick, once `window` ticks exist, restore `window` ticks back, re-simulate with
 // the recorded inputs and compare each tick's checksum with the forward one. `window` is at most
-// max_window(game) (the ring's depth).
+// max_window(game) (the ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
 run_synctest :: proc(
 	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	ticks, window: u32,
 	seed: u64,
 	players: int,
+	seats: []Seat = nil,
 ) -> (
 	result: Synctest_Result,
 ) {
 	assert(window >= 1 && int(window) <= max_window(headless.game))
 	simulation := sim.create(headless.game, seed, headless.content)
 	defer sim.destroy(simulation)
-	commands: Scripted_Commands
+	commands := Scripted_Commands {
+		seats = seats,
+	}
 	defer scripted_commands_destroy(&commands)
 	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
 	forward := make([]u64, ticks + 1)

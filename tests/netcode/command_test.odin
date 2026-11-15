@@ -14,7 +14,7 @@ import "unified:sim"
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
 	out := sim.Command_Out {
 		commands = toy.Cmd,
-		player   = player,
+		slot     = player,
 		cap      = 1 << 20,
 	}
 	for tick in first ..= last {
@@ -64,7 +64,7 @@ placed_ticks :: proc(player: int, first, last: u32) -> (ticks: [dynamic]u32) {
 }
 
 same_command :: proc(got, want: sim.Raw_Command) -> bool {
-	return got.kind == want.kind && got.player == want.player && got.size == want.size && got.data == want.data
+	return got.kind == want.kind && got.slot == want.slot && got.size == want.size && got.data == want.data
 }
 
 @(test)
@@ -85,24 +85,24 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		testing.expect_value(t, client.verified, TICKS)
 		// Every command sent for a tick up to the end, once, in the order sent (one sent in the last
 		// ticks may arrive after the session ended).
-		want := sent_commands(client.player, client.first_tick, TICKS)
+		want := sent_commands(client.slot, client.first_tick, TICKS)
 		defer delete(want)
-		got, at := logged_commands(log, client.player)
+		got, at := logged_commands(log, client.slot)
 		defer delete(got)
 		defer delete(at)
-		late := sent_commands(client.player, TICKS - 64, TICKS)
+		late := sent_commands(client.slot, TICKS - 64, TICKS)
 		defer delete(late)
 		testing.expectf(
 			t,
 			len(got) <= len(want) && len(got) >= len(want) - len(late),
 			"player %d: %d commands logged, %d sent",
-			client.player,
+			client.slot,
 			len(got),
 			len(want),
 		)
 		for command, i in got {
 			if i >= len(want) || !same_command(command, want[i]) {
-				testing.expectf(t, false, "player %d: logged command %d is not the %d-th sent", client.player, i, i)
+				testing.expectf(t, false, "player %d: logged command %d is not the %d-th sent", client.slot, i, i)
 				break
 			}
 		}
@@ -112,7 +112,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 					t,
 					false,
 					"player %d: more than %d commands in tick %d",
-					client.player,
+					client.slot,
 					sim.COMMANDS_PER_PLAYER,
 					at[k],
 				)
@@ -131,9 +131,9 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 			}
 		}
 		state := &client.sim.state
-		testing.expect_value(t, state.bumps[client.player], bumps)
-		testing.expect_value(t, state.bump_sum[client.player], sum)
-		testing.expect_value(t, state.bump_fold[client.player], fold)
+		testing.expect_value(t, toy.in_slot(state, client.slot).bumps, bumps)
+		testing.expect_value(t, toy.in_slot(state, client.slot).bump_sum, sum)
+		testing.expect_value(t, toy.in_slot(state, client.slot).bump_fold, fold)
 	}
 }
 
@@ -181,9 +181,9 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	link, gate := gate_wrap(netcode.loopback_link(session.hub, 1))
 	sender: Sender
 	client := netcode.client_create(&toy.GAME, {
-			player = -1,
-			name   = "sender",
-			quiet  = true,
+			slot  = -1,
+			name  = "sender",
+			quiet = true,
 		}, link, sender_hooks(&sender, &session.watch[1]))
 	append(&session.clients, client)
 	net_run(&session, 2)
@@ -199,7 +199,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 		return session.clients[0].predicted >= (^Sender)(session.clients[0].hooks.user).sent
 	})
 	predicted := &client.pred_inputs[sent_for % netcode.PRED_RING]
-	testing.expect_value(t, len(sim.commands(predicted, client.player)), 1) // predicted at W
+	testing.expect_value(t, len(sim.slot_commands(predicted, client.slot)), 1) // predicted at W
 	rollbacks := client.rollbacks
 	net_run(&session, 0.3)
 	gate.block_out = false
@@ -208,7 +208,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	testing.expect(t, client.rollbacks > rollbacks)
 	// The log: W replaced the sender's input and holds no command; the bump is in one later tick T, once.
 	log := net_log(&session)
-	testing.expect(t, client.player in log.ticks[sent_for - 1].replaced)
+	testing.expect(t, client.slot in log.ticks[sent_for - 1].replaced)
 	testing.expect_value(t, len(sim.log_commands(log, int(sent_for - 1))), 0)
 	bump_tick: u32
 	count := 0
@@ -229,7 +229,9 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 		}
 		inputs := sim.log_inputs(log, k)
 		sim.step(simulation, &inputs)
-		testing.expect_value(t, simulation.state.bumps[client.player], u32(simulation.tick >= bump_tick))
+		bumps := u32(0) // nobody holds the sender's slot before its join tick
+		if sender_data := toy.in_slot(&simulation.state, client.slot); sender_data != nil do bumps = sender_data.bumps
+		testing.expect_value(t, bumps, u32(simulation.tick >= bump_tick))
 		for verifier in ([]^Client{client, session.host.client}) {
 			for entry in verifier.checksums {
 				if entry[0] == u64(simulation.tick) {
@@ -237,15 +239,15 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 						t,
 						entry[1] == sim.checksum(simulation),
 						"player %d differs from the log at tick %d",
-						verifier.player,
+						verifier.slot,
 						simulation.tick,
 					)
 				}
 			}
 		}
 	}
-	testing.expect_value(t, client.sim.state.bump_sum[client.player], 777)
-	testing.expect_value(t, session.host.client.sim.state.bump_sum[client.player], 777)
+	testing.expect_value(t, toy.in_slot(&client.sim.state, client.slot).bump_sum, 777)
+	testing.expect_value(t, toy.in_slot(&session.host.client.sim.state, client.slot).bump_sum, 777)
 	expect_agree(t, &session)
 }
 

@@ -149,23 +149,28 @@ mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 // The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
 // prints its result as the JSON line.
 mode_client :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
-	check_known(args, "connect", "player", "ticks", "profile")
+	check_known(args, "connect", "slot", "ticks", "profile", "token")
 	address := opt_str(args, "connect", required = true)
 	endpoint, endpoint_ok := cnet.parse_endpoint(address)
 	if !endpoint_ok || endpoint.port == 0 {
 		die("client: --connect must be HOST:PORT (numeric address), got %q", address)
 	}
-	player := opt_int(args, "player", required = true, low = 0, high = PLAYERS - 1)
+	slot := opt_int(args, "slot", required = true, low = 0, high = PLAYERS - 1)
 	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	token, token_ok := token_of(opt_str(args, "token"))
+	if !token_ok {
+		die("client: --token must be 32 hex digits")
+	}
 	link, link_ok := netcode.udp_connect(endpoint)
 	if !link_ok {
 		die("client: cannot open a UDP socket")
 	}
-	link = netcode.netsim_wrap(link, profile_opt(args), u32(player) * 104729 + 17)
+	link = netcode.netsim_wrap(link, profile_opt(args), u32(slot) * 104729 + 17)
 	cfg := netcode.Client_Config {
-		player  = player,
+		slot    = slot,
 		content = headless.content,
-		name    = fmt.tprintf("client%d", player),
+		name    = fmt.tprintf("client%d", slot),
+		token   = token,
 	}
 	scripted := uheadless.Scripted_User(State, Input, World, PLAYERS){headless, 1}
 	client := netcode.client_create(headless.game, cfg, link, uheadless.scripted_hooks(&scripted))

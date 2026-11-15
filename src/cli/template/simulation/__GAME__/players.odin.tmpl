@@ -4,17 +4,20 @@ import "unified:sim"
 
 MOVE_SPEED :: f32(4) // metres per second at full input
 
+// Players come and go between ticks (the library updates t.state.players first): someone new starts at their slot's
+// spot; who comes back finds their player where they left it.
 update_players_presence :: proc(t: ^Tick) {
-	joined, _ := sim.presence_changes(t, &t.state.players)
-	for player in joined {
-		t.state.player_positions[player] = {f32(player), 0}
+	for player in t.joined {
+		slot, _ := sim.player_slot(&t.state.players, player)
+		sim.player_get(&t.state.players, player).position = {f32(slot), 0}
 	}
 }
 
 move_players :: proc(t: ^Tick) {
-	for player in t.state.players {
-		input := t.inputs.input[player]
-		t.state.player_positions[player].x += f32(input.dx) / 127 * MOVE_SPEED * DT
-		t.state.player_positions[player].y += f32(input.dy) / 127 * MOVE_SPEED * DT
+	players := sim.iterate_present(&t.state.players)
+	for data, player in sim.next(&players) {
+		input := sim.input(t, player)
+		data.position.x += f32(input.dx) / 127 * MOVE_SPEED * DT
+		data.position.y += f32(input.dy) / 127 * MOVE_SPEED * DT
 	}
 }

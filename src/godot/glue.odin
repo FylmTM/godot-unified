@@ -2,6 +2,8 @@
 // src/godot/SPEC.md.
 package godot
 
+import "base:runtime"
+import "core:sync"
 import gd "unified:gdext"
 import "unified:netcode"
 import "unified:sim"
@@ -12,14 +14,12 @@ import "unified:view"
 DEFAULT_MAX_VIEWS :: 256
 DEFAULT_MAX_MULTI :: 16384
 DEFAULT_VIEW_DATA_BYTES :: 16384
-MAX_NAMED :: 8 // players whose display names travel in the Frame
-NAME_BYTES :: 32
 
 // A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to.
 View_Item :: struct($View: typeid) {
 	key:    view.Key, // spawn key: a new key = a new view; must be non-zero
 	kind:   View,
-	player: Maybe(int), // the player it shows (nil: none): events whose subject is this player come here
+	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
 	entity: u64, // the id the game's events carry in a u64 `entity` field (0: none): those events come here
 	pos:    [3]f32, // in the views' units; 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw, view.quat_angle2d (2D); zero = identity
@@ -42,7 +42,8 @@ Frame :: struct($State, $World, $View, $MultiView: typeid) {
 	state:        ^State,
 	world:        ^World, // at the frame's tick
 	tick:         u32,
-	local_player: int, // -1 until the relay assigns one
+	local_player: sim.Player, // who this client plays at this tick ({}: nobody yet, e.g. before its join tick)
+	local_slot:   int, // the slot the relay gave this client (-1: none yet)
 	data:         ^Frame_Data, // what the main thread gets
 	poses:        ^Pose_Memory, // every keyed item's pose at the fill before
 }
@@ -68,8 +69,8 @@ Net_Stats :: struct {
 View_Out :: struct {
 	key:         view.Key,
 	kind:        u8,
-	player:      i8, // -1: none
 	has_prev:    bool,
+	player:      u64, // the player's key (sim.player_key; 0: none)
 	entity:      u64,
 	pos:         [3]f32,
 	rot:         [4]f32,
@@ -100,10 +101,12 @@ Frame_Data :: struct {
 	verified:     u32,
 	tick_hz:      u32,
 	due_us:       i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
-	local_player: i32, // -1 until the relay assigns one
+	local_player: u64, // the local player's key at `tick` (0: nobody yet)
 	published:    u64, // publish counter (0: nothing yet)
 	net:          Net_Stats,
-	names:        [MAX_NAMED][NAME_BYTES]u8, // display names from the relay's roster, by player (NUL-padded)
+	slots:        [sim.MAX_PLAYERS]u64, // who holds each slot at `tick` (keys; 0: nobody)
+	members:      []u64, // every player the state remembers at `tick` (keys, member order): members[:n_members]
+	n_members:    int,
 	views:        []View_Out,
 	multis:       []Multi_Out,
 	data:         []u8, // the views' data, packed
@@ -130,9 +133,9 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	max_multi:         int,
 	view_data_bytes:   int,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
-	scripted_input:    proc(seed: u64, player: int, tick: u32, state: ^State) -> Input,
+	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
-	scripted_commands: proc(seed: u64, player: int, tick: u32, state: ^State, out: ^sim.Command_Out),
+	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out),
 	// Main thread, optional: the game's constants for its scripts (UnifiedSession.constants()), straight from
 	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
 	constants:         proc(dict: ^gd.Dictionary),
@@ -145,7 +148,7 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	event_pos:         proc(position: sim.Position, world: ^World) -> sim.Position,
 	// Main thread, optional: the scene view an event goes to (its spawn key; 0 = none), overriding the routing
 	// by its subject (a handle field: the view with that key; an `entity` field: the view whose item's entity
-	// equals it; else `player`: that player's view). sim.event_value(event, Game_Event) reads it.
+	// equals it; else its first sim.Player field: that player's views). sim.event_value(event, Game_Event) reads it.
 	event_key:         proc(event: ^sim.Raw_Event) -> view.Key,
 	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
@@ -173,6 +176,9 @@ Transport :: struct {
 	// Optional, MAIN thread, once when the extension unloads (game exit), after the session thread is gone:
 	// release the transport (an SDK left running at exit can crash in its own threads).
 	shutdown:   proc(user: rawptr),
+	// Optional: the local user's platform account (EOS: its product user id), once open_host succeeded: the host's
+	// own player's (UnifiedSession.get_player_platform_id). The strings are copied at once.
+	account:    proc(user: rawptr) -> (netcode.Account, bool),
 }
 
 Transport_Events :: struct {
@@ -200,6 +206,7 @@ Start :: struct {
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
 	bench:    int, // Single only: Glue.bench(count) after the game's init (dev benchmarks)
 	content:  []u8, // the level's bytes (Glue.level), copied by start
+	token:    netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
 }
 
 Status_Kind :: enum u8 {
@@ -235,13 +242,43 @@ Message :: struct {
 	len:    u8,
 }
 
-// A player's display name from the frame's roster ("" when unknown).
-frame_player_name :: proc(frame: ^Frame_Data, player: int) -> string {
-	if player < 0 || player >= MAX_NAMED do return ""
-	name := &frame.names[player]
-	length := 0
-	for length < NAME_BYTES && name[length] != 0 do length += 1
-	return string(name[:length])
+// The relay's roster as the client last got it, for the main thread (UnifiedSession's name and platform getters):
+// every member of the session, by member id - 1, kept after the session ends until the next one starts.
+@(private)
+roster: struct {
+	mu:      sync.Mutex,
+	entries: [dynamic]netcode.Roster_Entry,
+	changes: u32, // bumped on every copy (atomic): roster_changed
+}
+
+// Main thread: a player's roster entry by key (false: not known).
+roster_entry :: proc(key: i64) -> (entry: netcode.Roster_Entry, ok: bool) {
+	player := sim.player_of_key(u64(key))
+	sync.guard(&roster.mu)
+	index := int(player.id) - 1
+	if player.id == 0 || index >= len(roster.entries) || roster.entries[index].member != player.id do return
+	return roster.entries[index], true
+}
+
+// Session thread: the client's roster, when it changed since the last copy.
+@(private)
+roster_copy :: proc(entries: []netcode.Roster_Entry, seen: ^u32, changes: u32) {
+	if seen^ == changes do return
+	seen^ = changes
+	sync.guard(&roster.mu)
+	if roster.entries.allocator.procedure == nil {
+		roster.entries.allocator = runtime.heap_allocator() // lives as long as the process
+	}
+	resize(&roster.entries, len(entries))
+	copy(roster.entries[:], entries)
+	sync.atomic_add(&roster.changes, 1)
+}
+
+@(private)
+roster_reset :: proc() {
+	sync.guard(&roster.mu)
+	clear(&roster.entries)
+	sync.atomic_add(&roster.changes, 1)
 }
 
 // Session thread (fill_frame): a scene view; false when the Frame is full (counted in `dropped`).
@@ -287,13 +324,12 @@ push_view_out :: proc(
 	}
 	kind := u8(item.kind)
 	view_data_type(kind, data_type, loc)
-	player, has_player := item.player.?
 	view_out := &out.views[out.n_views]
 	out.n_views += 1
 	view_out^ = {
 		key         = item.key,
 		kind        = kind,
-		player      = has_player ? i8(player) : -1,
+		player      = sim.player_key(item.player),
 		entity      = item.entity,
 		pos         = item.pos,
 		rot         = item.rot == {} ? view.IDENTITY : item.rot,

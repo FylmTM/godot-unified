@@ -33,7 +33,7 @@ Scene_View :: struct {
 	marker:     gd.Node, // its UnifiedView (nil: the scene has none)
 	marker_id:  u64,
 	kind:       u8,
-	player:     i8,
+	player:     u64, // the player's key (sim.player_key; 0: none)
 	entity:     u64,
 	track:      view.Track,
 	has_update: bool,
@@ -119,7 +119,6 @@ register_classes :: proc() {
 		name = "UnifiedView",
 		parent = "Node",
 		size = size_of(Unified_View_Node),
-		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).player = -1},
 		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
 	}
 	class := &unified_view_class
@@ -332,7 +331,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 				),
 			)
 		}
-		marker.entity, marker.player = i64(item.entity), i64(item.player)
+		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
 	}
 	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, gd.sn("_sim_update"))
 	scene_view.has_event = gd.has_script_method(node, gd.sn("_sim_event"))
@@ -579,8 +578,8 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 			match = entry_key == key
 		case by_entity:
 			match = scene_view.entity == entity
-		case player != u32(sim.NO_PLAYER):
-			match = scene_view.player >= 0 && u32(scene_view.player) == player
+		case player != 0:
+			match = scene_view.player == player
 		}
 		if !match do continue
 		result := gd.call_script(scene_view.node, gd.sn("_sim_event"), event, state)

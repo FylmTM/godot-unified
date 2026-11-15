@@ -32,7 +32,7 @@ World :: struct {
 	extras:        [1]sim.Extra,
 	level_data:    level.Level,
 	px_per_m:      f32, // the level's (the view's units)
-	spawns:        [PLAYERS][2]f32,
+	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
 	gates:         [MAX_GATES]Gate_Def,
 	gate_count:    int,
@@ -68,7 +68,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level_data, CAT_STATIC)
-	for player in 0 ..< PLAYERS do world.spawns[player] = {f32(player) * 2 - 3, 6}
+	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {
 		pos := [2]f32{marker.pos.x, marker.pos.y}
@@ -149,10 +149,9 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	physics.set_velocity_2d(world.phys, state.station, {}, STATION_SPIN)
 }
 
-// Creates a player's ship body (a damped dynamic circle on the plane) at their spawn marker, facing up, and stores it
-// in their ship.
-create_ship :: proc(state: ^State, world: ^World, player: int) {
-	body_def := physics.body_def_2d(.Dynamic_Body, world.spawns[player], {0, -1})
+// A ship's body at `at`, nose up.
+create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
+	body_def := physics.body_def_2d(.Dynamic_Body, at, {0, -1})
 	body_def.linear_damping = SHIP_DAMPING
 	body_def.is_bullet = false
 	ref := physics.create_body(world.phys, &body_def)
@@ -163,7 +162,7 @@ create_ship :: proc(state: ^State, world: ^World, player: int) {
 	shape_def.base_material.friction = 0.1
 	shape_def.filter.category_bits = CAT_SHIP
 	physics.circle_2d(body, &shape_def, SHIP_RADIUS)
-	state.ships[player].body = ref
+	ship.body = ref
 }
 
 // A rock in the rocks table and its body (ok = false: the table is full). Its shapes carry its slot index as

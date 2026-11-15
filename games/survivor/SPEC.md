@@ -24,18 +24,21 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   center2 (0,0.3,0), density 1), on a 5×8 grid. Item `i = 0..39`: `x = (i % 8)·4 − 14`, `z = (i / 8)·4 − 8`, y = 1,
   except the two spots inside the start circle: crate 19 at (−2, 12) and crate 20 at (2, −12).
   Barrels are the items where `i % 5 == 2`; the rest are crates. Barrels have 30 HP.
-- Players `p = 0..3`: dynamic capsules (r 0.45, center1 (0,−0.45,0), center2 (0,0.45,0)), rotation locked, sleep off,
-  created when the player becomes present, at their start spot `(±1.5, 1, ±1.5)` in order (+,+) (−,+) (+,−) (−,−),
-  inside the start circle.
+- Players: dynamic capsules (r 0.45, center1 (0,−0.45,0), center2 (0,0.45,0)), rotation locked, sleep off,
+  created when the player becomes present, at the start spot of their slot `s = 0..3`, `(±1.5, 1, ±1.5)` in order
+  (+,+) (−,+) (+,−) (−,−), inside the start circle.
 
 ## Input (per player per tick)
 
 - `move_x, move_z`: i8 in −127..127. The movement direction is `(move_x, move_z) / 127` (not normalized; the
   scripted inputs only produce lengths ≤ 1).
 - `buttons`: bit 0 = dash (edge-triggered).
-- Presence is not in the input: the tick's `present` set (from the relay) says who is in the game. A player that
-  becomes present joins (body at its start spot, fresh progress, `player_joined`); one that stops being present
-  leaves (body destroyed, progress reset, `player_left`).
+- Presence is not in the input: players are session members (`src/sim/SPEC.md`, Players), held in the state's
+  `players: sim.Presence(Character, PLAYERS, 2 · PLAYERS)`; the library applies joins and leaves before the tick and
+  emits `player_joined` / `player_left`. The game's part (system 1): a player who leaves loses their body (an absent
+  player owns nothing outside the block) and keeps their progress (level, XP, upgrades, pending level-ups); someone
+  new starts fresh; both new and returning players get a body at their slot's start spot with full HP. Everything
+  per player is by player, not slot: a player who comes back in another slot is the same player.
 - The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}`, the only
   variant of `Command` (name `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered
   once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click: a `CommandPick` object whose
@@ -51,8 +54,9 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 - **match**: waves as below, `wave = (t − match_tick) / wave` (Tuning). When every present player is dead at the same
   time: `phase = over`, `over_tick = t`, `match_over` (value = seconds survived). When nobody is present: reset.
 - **over**: dead players don't count down their respawn; after `OVER_HOLD_S = 5` s the world resets: every dynamic
-  body is destroyed, then items (in index order) and present players (at their start spots, fresh progress,
-  `player_respawned`) are recreated; enemies, projectiles and gems are cleared; `phase = lobby`.
+  body is destroyed, every known player's progress starts fresh (absent ones too), then items (in index order) and
+  present players (in slot order, at their slots' start spots, `player_respawned`) are recreated; enemies,
+  projectiles and gems are cleared; `phase = lobby`.
 
 ## Constants (seconds)
 
@@ -90,12 +94,14 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
 
 ## Systems (run in this order every tick)
 
-1. **Players:**
+1. **Players** (present players in slot order):
+   - Leaves (body destroyed), then joins and returns (a body at the slot's start spot, full HP; a new player's
+     progress is fresh, a returning player's is kept).
    - Velocity = `dir · 6.0` (m/s, y kept from physics).
    - Dash: on the press edge, if the dash cooldown is 0, multiply velocity by 3 for 0.125 s; cooldown 1.5 s.
    - Set the body's linear velocity.
-   - Dead players have no body and count down `respawn` = 3 s (not while `over`), then respawn at their start spot
-     with full HP (`player_respawned`). HP max 100.
+   - Dead players have no body and count down `respawn` = 3 s (not while `over`), then respawn at their slot's
+     start spot with full HP (`player_respawned`). HP max 100.
 2. **Level-up:** each of the player's picks this tick, in order (see Input): if `pending_levelups > 0`, apply fire
    rate (interval −0.03125 s, min 0.09375 s), damage +3 or move speed +0.5, then `pending_levelups −= 1`; else (or a
    value that is no Upgrade) ignore it.
@@ -111,7 +117,7 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
      unbiased. A wave is drawn in sequence, so it stays on the stream; the game has no per-entity rolls.
 4. **Enemies** (kinematic, no physics bodies; same spatial-grid approach as the archived benchmark A: cell 2 m over the 60×60 arena,
    counting sort, items in index order):
-   - Target = the nearest alive player (lowest index on ties).
+   - Target = the nearest alive player (lowest slot on ties).
    - Desired = `normalize(target − pos) · speed`, then add separation from neighbours in the 3×3 cells within
      `r_i + r_j`: `push · 0.5 / d2` per neighbour.
    - Blend `v = v·0.8 + desired·0.2`, clamp the speed to `speed·1.5`, then `pos += v·DT`.
@@ -147,7 +153,7 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
    - An enemy at HP ≤ 0 is removed (swap-remove is **not** allowed, because it reorders; use a free list with stable
      indices) and drops a gem worth grunt 1 / runner 1 / brute 5 XP.
    - Max 1024 gems; if full, the XP goes straight to the nearest player.
-   - Gems within 1.5 m of an alive player are collected by the lowest-index such player.
+   - Gems within 1.5 m of an alive player are collected by the lowest-slot such player.
    - Level threshold `xp_first + (level − 1)·xp_step` (Tuning; level starts at 1). Reaching it increments `level`
      and `pending_levelups` (`level_up`). Enemy deaths emit `enemy_died`, collected gems `gem_collected`.
 10. **Physics step:** `b3World_Step(DT, 4)`.
@@ -158,11 +164,12 @@ guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave �
 
 One struct per event, in the `Event` union (`src/sim/SPEC.md`, Events; the name is the type name lowercased).
 `position` is a `sim.Position` in metres: the body's centre for players and barrels, the ground (y = 0) for enemies
-and gems.
+and gems. `player` is a `sim.Player` (GDScript: the player's key).
 
 | Event | Fields |
 |---|---|
-| `player_joined`, `player_left`, `player_died`, `player_respawned` | `position`, `player` |
+| `player_joined`, `player_left` (the library's) | `player`, `slot`, `returning` (joined) |
+| `player_died`, `player_respawned` | `position`, `player` |
 | `match_started` | `position`, `player` (who left the start circle) |
 | `match_over` | `duration_s` (the match's length) |
 | `level_up` | `position`, `level` (the new level), `player` |
@@ -176,19 +183,20 @@ Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 
 View code in the extension (`extension/hud.odin`, `hud_of(state, tick) -> Hud`), not in the sim package: the HUD
 view's data, pushed every tick: phase, tick, match time (s), wave (1-based in a match), enemies alive, circle radius,
-matches, and per player (`player`): present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn
-seconds. Player names and the local player come from the session, not the HUD.
+matches, and per slot (`player`: who holds it, a `sim.Player`, GDScript's key; 0 and not present for an empty slot):
+present, alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds. Player names and the local
+player come from the session, not the HUD.
 
 ## Scripted inputs (for `sim`, `synctest`, `session`, tests)
 
-Deterministic per player and stateless: `r` = a 64-bit integer hash of (seed, player, 24-tick block), so any tick can
+Deterministic per slot and stateless: `r` = a 64-bit integer hash of (seed, slot, 24-tick block), so any tick can
 be asked for in any order:
 - `move` = one of 8 directions from the angle table times 127 (as i8, truncated), or (0,0) when `r % 9 == 8`
 - dash when `r % 13 == 0`
 - commands (`scripted_commands`): a pick of upgrade `r % 3` on the first tick of every block, pending or not (the sim
-  ignores it then), so the script depends on (seed, player, tick) only
+  ignores it then), so the script depends on (seed, slot, tick) only
 
-Offline modes make players `< players` present from tick 1. In `session` mode each client generates its own player's
+Offline modes make slots `< players` present from tick 1 (slot i is member i + 1). In `session` mode each client generates its own player's
 inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
 against `sim`. Barrels sit off the scripted firing lines, so they rarely explode in scripted runs; physics churn
 inside rollback windows comes from deaths and respawns instead (and from the forced-explosion scenario below).
@@ -239,7 +247,8 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
 - Scene views (`View`): `player`, `crate`, `barrel`, `hud`, each a scene with a `UnifiedView` marker as the **first**
   child of its root (`kind` = the member lowercased, `unique_name_in_owner`), found through the view index. Player,
   crate and barrel roots are `GameView`s (`addons/shared/views/game_view.gd`: `kind`, `entity`, `player` read the
-  marker). Keys: players 1..4 (`player` set; the view lives while the player is in the session, dead too), items
+  marker). Keys: a player's `sim.player_key` (≥ 0x10000; `player` set; the view lives while the player is present,
+  dead too, and its colour is its slot's), items
   0x100 + index (`entity` = index + 1; a destroyed barrel's view goes, the respawned one is new), the HUD 0x200.
   Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation, which player
   views reset) and calls `_sim_update(position, yaw, alpha)`; the marker's `despawned` / `revived` play the exit

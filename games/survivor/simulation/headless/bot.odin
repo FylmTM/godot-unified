@@ -59,7 +59,8 @@ bot_run :: proc(
 			}
 		}
 		run.max_enemies = max(run.max_enemies, state.enemies.count)
-		for &character in state.players {
+		known := sim.iterate_known(&state.players)
+		for character in sim.next(&known) {
 			run.level = max(run.level, character.level)
 		}
 		run.wave = state.wave + 1

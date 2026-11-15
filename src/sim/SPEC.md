@@ -22,8 +22,7 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   `world_create` builds and what an `Extra` rolls back.** Anything else in it that affects `tick` diverges after a
   rollback, unhashed. Every game's suite runs `scenarios.rollback_every_tick` (restore 8 ticks back on every tick,
   re-simulate, compare each checksum with the forward run), which fails offline on the tick such state shows.
-- `PLAYERS` the number of player seats, 1..32. A **player** is a seat index `0 ..< PLAYERS`; people join and leave,
-  the seat stays.
+- `PLAYERS` the number of input **slots**, 1..32: how many players are in the session at once (Players, below).
 - `Game`: `name`, `version` (bump when `tick` computes differently without a layout change: a rule, a constant),
   `tick_hz` (a power of two, 32..128; `dt = 1/tick_hz` exactly), `world_create(seed, content)` (`content`: the
   level file's bytes, `src/level/SPEC.md`; empty when the game has none), `world_destroy`, `extras(world)`,
@@ -45,15 +44,73 @@ Tick :: sim.Tick(State, Input, World, PLAYER_COUNT)
 
 `tick :: proc(tick: ^Tick)` advances the state from tick `number - 1` to `number`. `sim.Tick(State, Input, World,
 PLAYERS)` is built by the harness for each step: `{state: ^State, world: ^World, number: u32, seed: u64, inputs:
-^Inputs, events: ^Events}`. Per-tick helpers that need more than the block take it (`roll_below`, `emit`). Systems
+^Inputs, events: ^Events, joined, returned, left: []Player}` (the step's presence changes, Players below). Per-tick
+helpers that need more than the block take it (`roll_below`, `emit`, `input`, `commands`). Systems
 take `tick` or narrower arguments, as the game prefers. Odin's implicit `context` carries no sim data.
 
-`Inputs(Input, PLAYERS) = {present: Players, replaced: Players, input: [PLAYERS]Input, commands}`. `present` (a
-`bit_set[0 ..< 32; u32]`) is who is in the game this tick: joining and leaving are presence changes the relay
-decides, never flags in `Input`. `replaced` marks inputs the relay substituted (informational). `inputs_same(a, b)`:
-same presence, input bytes and commands. `joined, left := presence_changes(tick, &state.present)` (#9's T6) compares this
-tick's presence with a `Players` field the game keeps in its State and updates it: the game emits its own join and
-leave events from the two sets.
+`Inputs(Input, PLAYERS) = {present: Players, replaced: Players, input: [PLAYERS]Input, member: [PLAYERS]u16,
+commands}`, by slot. `present` (a `bit_set[0 ..< 32; u32]`) is which slots are in the game this tick: joining and
+leaving are presence changes the relay decides, never flags in `Input`. `member` is a slot's **join record**: the
+relay's member id of who becomes present in it, non-zero only on that tick. `replaced` marks inputs the relay
+substituted (informational). `inputs_same(a, b)`: same presence, join records, input bytes and commands.
+
+## Players
+
+Signed off 2026-11-15 (#222). A **slot** is an input index `0 ..< PLAYERS`: implementation, queryable. A **player**
+is a `Player` handle naming a session **member**, the person: who leaves and comes back gets the same handle back in
+whatever slot is free, with everything keyed by it. An **account** (EOS product user id, Steam id, or a LAN token) is
+host-side only: never in State, Inputs, logs, snapshots or replays (`src/netcode/SPEC.md`, Members).
+
+```odin
+Player :: struct {index: u16, id: u16}            // {} = nobody; index: its entry in members, id: the relay's member id
+Member :: struct {id: u16, slot: u8, _pad: u8, since: u32} // slot NO_SLOT when absent; since: last join or leave tick
+Presence :: struct($T: typeid, $PLAYERS, $MEMBERS: int) { // MEMBERS >= PLAYERS: how many people the session remembers
+	members: [MEMBERS]Member,
+	slots:   [PLAYERS]Player,                       // who holds each slot
+	_pad:    [PLAYERS % 2 * 4]u8,                   // keeps data 8-aligned
+	data:    [MEMBERS]T,                            // the game's per-player struct
+}
+
+State :: struct {..., players: sim.Presence(Player_Data, PLAYERS, MEMBERS), ...}
+Event :: union {sim.Event_Player_Joined, sim.Event_Player_Left, ...}
+
+tick :: proc(t: ^Tick) {
+	for player in t.joined do spawn_ship(t, player)               // new members: zeroed Player_Data
+	for player in t.returned do spawn_ship(t, player)             // back: their data as they left it
+	for player in t.left do destroy_ship(t, player)
+	players := sim.iterate_present(&t.state.players)
+	for data, player in sim.next(&players) {
+		input := sim.input(t, player)
+		for &raw in sim.commands(t, player) {...}
+	}
+}
+```
+
+- State has exactly one `Presence` field, found by type at `create` (none, two, or one for another `PLAYERS`: a
+  panic with the reason). `T` and the block stay padding-free (`_pad` fields where needed).
+- **The harness updates it before `tick`** (`advance`, so `step` and `step_unsaved`): first the leaves (a held slot
+  that is no longer present, or that has another member's join record), then the joins in slot order (a slot that
+  becomes present with a join record; **a slot present without one stays absent**). A known member **returns** with
+  its data intact; a new one gets a zeroed `T` in the first free entry, else the entry of the **longest-absent**
+  member (the lowest `since`, then the lowest index), which is forgotten: its handles go stale (`player_get` nil), and
+  if that person comes back they are new. A member who left on this tick is never forgotten on it (its handle in
+  `t.left` still names its data while the game cleans up); a join with no entry left (only a script's leave and join
+  in one tick, with a small table) stays absent. A member already present in another slot moves (the newest connection).
+- It fills `t.joined` (new members), `t.returned` and `t.left` (`[]Player`, slot order) and emits
+  `Event_Player_Joined{player, slot, returning}` and `Event_Player_Left{player, slot}` before the game's events. Both
+  must be listed in the game's `Event` union (`create` panics otherwise).
+- **The library reports; the game decides** what an absent player's things do (they stay theirs: an owner is a
+  `Player`, never a slot). An absent member's `T` owns nothing outside the block, since the table may forget it before
+  any `tick` runs (a body is destroyed at the leave and made again on the return).
+- API: `player_get(&players, player) -> ^T` (nil when nobody, stale or forgotten; valid while absent),
+  `player_known`, `player_slot(&players, player) -> (slot, present)` (-1, false when absent),
+  `player_in_slot(&players, slot) -> Player`, `player_present`; `input(t, player)` (zero when absent),
+  `commands(t, player)`; `iterate_present` (slot order) and `iterate_known` (member order) with `next`;
+  `player_key(player) -> u64` (`id << 16 | index`, 0 for nobody: views and GDScript name a player by it) and
+  `player_of_key`. Outside `tick` (drivers, tools): `slot_player(simulation, slot)`, `players_of(simulation, state)`.
+- **Join records** come from the relay (`src/netcode/SPEC.md`, Members). Tests and scripts join with
+  `join(&inputs, slot, member)`; scripted headless runs give slot i member i + 1 (`src/headless/SPEC.md`); replays
+  read them from the log.
 
 ## Commands
 
@@ -67,7 +124,7 @@ Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index; nam
 
 GAME := Game{..., commands = Cmd}
 
-for &raw in sim.commands(tick.inputs, player) {     // inside tick: this player's, in order, exactly once each
+for &raw in sim.commands(t, player) {               // inside tick: this player's, in order, exactly once each
 	switch command in sim.command_value(&raw, Cmd) {
 	case Cmd_Drop_Coin: ...
 	case Cmd_Start: ...
@@ -84,12 +141,13 @@ for &raw in sim.commands(tick.inputs, player) {     // inside tick: this player'
 - `create` checks the union: a plain union (not `#no_nil` or `#shared_nil`), plain variants with no padding, 1..64
   bytes (`COMMAND_MAX`), at most 255 variants, names unique. GDScript sends one as an object of its class
   (`CommandDropCoin`: `src/godot/SPEC.md`).
-- A tick holds at most `COMMANDS_PER_PLAYER` (4) of one player and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
+- A tick holds at most `COMMANDS_PER_PLAYER` (4) of one slot and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
   so a tick's record has a fixed size and fits one datagram. More wait for the next tick, in order:
-  `add_command(&inputs, raw) -> bool`. Ordered by player, each player's in the order sent.
-- `Raw_Command {kind, player, size, data: [64]u8}`. A kind out of range or a wrong size reads as no variant (bytes
+  `add_command(&inputs, raw) -> bool`. Ordered by slot, each slot's in the order sent (`slot_commands(&inputs,
+  slot)`; inside `tick`, `commands(t, player)`).
+- `Raw_Command {kind, slot, size, data: [64]u8}`. A kind out of range or a wrong size reads as no variant (bytes
   from the network are dropped the same way on every peer).
-- Sources (a UI, a script, a bot) send into a `Command_Out` (`player`, `cap`): `send_command(out, value) -> bool`
+- Sources (a UI, a script, a bot) send into a `Command_Out` (`slot`, `cap`): `send_command(out, value) -> bool`
   (false: not a variant, or `cap` reached). `command_make(Cmd, value)` builds a raw one for tests and tools.
   Delivery (the client predicts it at the tick it was sent for, or at the first tick not yet finalized when that one
   is; the relay places it): `src/netcode/SPEC.md`.
@@ -103,14 +161,14 @@ them; an event carries only its own fields:
 ```odin
 Event_Coin_Picked :: struct {
 	coin:     sim.Handle(Coin),
-	player:   u8,
+	player:   sim.Player,
 	position: sim.Position, // distinct [3]f32, sim units (2D: z = 0)
 	value:    u32,
 }
 Event :: union {Event_Coin_Spawned, Event_Coin_Picked, Event_Coin_Dropped}  // name = type name without Event_, lowercased: "coin_picked"
 
 GAME := Game{..., events = Event}
-sim.emit(tick, Event_Coin_Picked{coin = handle, player = u8(player), position = {x, y, 0}, value = coin.value})
+sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 0}, value = coin.value})
 ```
 
 - Stored per tick in the ring as kind + bytes (`Raw_Event {kind, size, data}`), like commands; emitted again when a
@@ -118,7 +176,8 @@ sim.emit(tick, Event_Coin_Picked{coin = handle, player = u8(player), position = 
   Event)` makes one the union again (nil for a kind out of range or a wrong size), `event_names(Event)` names them.
   `create` checks the union as it checks commands (`EVENT_MAX` 64).
 - **The subject convention** (how the view matches an event across re-simulations and routes it): an event's
-  subject is its `player` field and its first `Handle(T)` field (or a `u64` field named `entity`), when it has them.
+  subject is its first `Player` field and its first `Handle(T)` field (or a `u64` field named `entity`), when it has
+  them.
   The view's tracker identifies an event by (tick, type, subject, its index among events of that type and subject
   in the tick).
 - How GDScript receives them (an object of a class per event kind, a typed property per field: a handle becomes its key, `sim.Position` is converted to
@@ -188,12 +247,14 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 ## Files
 
-- **Input log** `UNIL`: seed, content hash, compat (`compat_of` of the build that recorded it, 0: unknown; #123),
-  players, input size, ticks (0 with ticks after it: a recording that never ended, read to its end); per tick
-  (`write_tick`) present, replaced, the players' input bytes, a command count and per command its player, kind,
-  size and struct bytes (`write_commands`/`read_commands`, which the netcode's finalized ticks reuse). Seed +
-  content + log = the whole session (replays, reference runs). A replay refuses a log of another level or another
-  build (`headless.run_replay`), saying which: a known compat that differs. `Input_Log` in memory:
+- **Input log** `UNIL` (`LOG_VERSION` 7): seed, content hash, compat (`compat_of` of the build that recorded it, 0:
+  unknown; #123), players, input size, ticks (0 with ticks after it: a recording that never ended, read to its end);
+  per tick (`write_tick`) present, replaced, the slots' input bytes, a command count and per command its slot, kind,
+  size and struct bytes (`write_commands`/`read_commands`), then a join record count and per record its slot (u8)
+  and member (u16) (`write_joins`/`read_joins`; the netcode's finalized ticks reuse both): an ordinary tick costs two
+  bytes past its inputs. Seed + content + log = the whole session (replays, reference runs). A replay refuses a log
+  of another level or another build (`headless.run_replay`), saying which: a known compat that differs.
+  `Input_Log` in memory:
   `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1), `log_encode / decode / read / write`;
   decoding refuses a malformed tick. Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`

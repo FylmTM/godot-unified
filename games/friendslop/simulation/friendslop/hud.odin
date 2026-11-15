@@ -2,8 +2,11 @@
 // are doing. The extension turns it into the HUD Dictionary.
 package friendslop
 
+import "unified:sim"
+
+// A slot's player (players[slot]; present false: the slot is empty).
 Hud_Player :: struct {
-	player:  u8,
+	player:  sim.Player, // GDScript gets its key
 	present: bool,
 	holding: Held_Kind,
 	held:    bool, // someone holds this player
@@ -49,12 +52,15 @@ hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
 	for trigger, i in state.triggers {
 		if trigger.active do result.triggers |= 1 << u32(i)
 	}
-	for &character, player in state.players {
-		result.players[player] = {
-			player  = u8(player),
-			present = character.active,
+	for slot in 0 ..< PLAYERS {
+		player := sim.player_in_slot(&state.players, slot)
+		character := sim.player_get(&state.players, player)
+		if character == nil do continue
+		result.players[slot] = {
+			player  = player,
+			present = true,
 			holding = character.held_kind,
-			held    = character.held_by != 0,
+			held    = character.held_by != {},
 			stunned = character.stun > 0,
 			fallen  = character.respawn > 0,
 			charge  = f32(character.charge) / f32(THROW_CHARGE_TICKS),

@@ -39,6 +39,8 @@ SUITE := scenarios.Suite(toy.State, toy.Input, toy.World, toy.PLAYERS) {
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
 @(test)
+presence_churn :: proc(t: ^testing.T) {scenarios.presence_churn(t, &SUITE)}
+@(test)
 two_runs_match :: proc(t: ^testing.T) {scenarios.runs_match(t, &SUITE)}
 
 @(test)

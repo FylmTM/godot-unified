@@ -32,8 +32,8 @@ drift_init :: proc "c" (
 // ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
 
 // Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "drift/5"
-#assert(netcode.PROTOCOL_VERSION == 10, "netcode protocol changed: bump BUCKET with it")
+BUCKET :: "drift/6"
+#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump BUCKET with it")
 
 @(private)
 eos_init :: proc(events: ^godot.Transport_Events) -> bool {
@@ -62,6 +62,7 @@ EOS_TRANSPORT := godot.Transport {
 		if result.failed != "" do events.fail(events.ctx, result.failed)
 	},
 	close = proc(_: rawptr) {eos.close()},
+	account = proc(_: rawptr) -> (netcode.Account, bool) {return eos.local_account()},
 	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
 	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
@@ -103,9 +104,9 @@ Gate_View :: struct {
 	charge: f32, // 0 ready .. 1 just used
 }
 
-// Spawn keys: ships 1 + player, the station 100, gates 200 + index, the HUD 300 (a view lives as long as its
-// entity).
-KEY_SHIP :: 1
+// Spawn keys: a ship its player's key (ship_key: sim.player_key, >= 1 << 16 and the same while they are in the
+// session, so their ship's view survives a rejoin), the station 100, gates 200 + index, the HUD 300 (a view lives as
+// long as its entity).
 KEY_STATION :: 100
 KEY_GATE :: 200
 KEY_HUD :: 300
@@ -132,29 +133,35 @@ event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
 // subject, so a player's events go to their ship's view here too (a rock hit: the shooter's), and the rest
 // (the rock events' subject, a rock, has no scene view) to none.
 event_key :: proc(event: ^sim.Raw_Event) -> view.Key {
-	player := -1
 	switch value in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
 		return KEY_STATION
-	case dr.Event_Joined:
-		player = int(value.player)
-	case dr.Event_Left:
-		player = int(value.player)
+	case sim.Event_Player_Joined:
+		return ship_key(value.player)
+	case sim.Event_Player_Left:
+		return ship_key(value.player)
+	case dr.Event_Spawned:
+		return ship_key(value.player)
 	case dr.Event_Fired:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Boosted:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Warped:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Rock_Hit:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Gem_Picked:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Match_Started:
-		player = int(value.player)
+		return ship_key(value.player)
 	case dr.Event_Rock_Split, dr.Event_Rock_Destroyed, dr.Event_Wave, dr.Event_Match_Over:
 	}
-	return player >= 0 ? view.Key(KEY_SHIP + player) : 0
+	return 0
+}
+
+// A player's ship view's key (0 for nobody: no view).
+ship_key :: proc(player: sim.Player) -> view.Key {
+	return view.Key(sim.player_key(player))
 }
 
 // ---- input (main thread, the one local player)
@@ -181,15 +188,13 @@ pixels :: proc(point: [2]f32, px_per_m: f32) -> [3]f32 {
 	return {point.x * px_per_m, point.y * px_per_m, 0}
 }
 
-fill_frame :: proc(frame: ^Frame) {
-	state, world, tick := frame.state, frame.world, frame.tick
-	px_per_m := world.px_per_m
-	for player in 0 ..< dr.PLAYERS {
-		ship := &state.ships[player]
-		if !ship.active do continue
-		pos, rotation := physics.pose_2d(world.phys, ship.body)
-		godot.push_view(frame, {
-			key    = view.Key(KEY_SHIP + player),
+fill_frame :: proc(f: ^Frame) {
+	px_per_m := f.world.px_per_m
+	ships := sim.iterate_present(&f.state.players)
+	for ship, player in sim.next(&ships) {
+		pos, rotation := physics.pose_2d(f.world.phys, ship.body)
+		godot.push_view(f, {
+			key    = ship_key(player),
 			kind   = .Ship,
 			player = player,
 			pos    = pixels(pos, px_per_m),
@@ -197,30 +202,30 @@ fill_frame :: proc(frame: ^Frame) {
 		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
 	{
-		pos, rotation := physics.pose_2d(world.phys, state.station)
-		godot.push_view(frame, {
+		pos, rotation := physics.pose_2d(f.world.phys, f.state.station)
+		godot.push_view(f, {
 			key    = KEY_STATION,
 			kind   = .Station,
 			entity = 1,
 			pos    = pixels(pos, px_per_m),
 			rot    = physics.quat_2d(rotation),
-		}, Station_View{hp_frac = f32(state.station_hp) / f32(dr.STATION_HP)})
+		}, Station_View{hp_frac = f32(f.state.station_hp) / f32(dr.STATION_HP)})
 	}
-	for gate in 0 ..< world.gate_count {
-		godot.push_view(frame, {
+	for gate in 0 ..< f.world.gate_count {
+		godot.push_view(f, {
 			key    = view.Key(KEY_GATE + gate),
 			kind   = .Gate,
 			entity = u64(KEY_GATE + gate),
-			pos    = pixels(world.gates[gate].pos, px_per_m),
-		}, Gate_View{charge = f32(state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
+			pos    = pixels(f.world.gates[gate].pos, px_per_m),
+		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
-	rocks := sim.iterate(&state.rocks)
+	rocks := sim.iterate(&f.state.rocks)
 	for rock, handle in sim.next(&rocks) {
-		pos, rotation := physics.pose_2d(world.phys, rock.body)
+		pos, rotation := physics.pose_2d(f.world.phys, rock.body)
 		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
-		flash := rock.hit_tick > 0 && tick >= rock.hit_tick ? max(0, 1 - f32(tick - rock.hit_tick) / 8) : 0
-		godot.push_multi(frame, {
+		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
+		godot.push_multi(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
 			pos    = pixels(pos, px_per_m),
@@ -229,25 +234,27 @@ fill_frame :: proc(frame: ^Frame) {
 			custom = {f32(rock.size), flash, 0, 0},
 		}) or_break
 	}
-	// bullets: stretched along their velocity, tinted with the owner's colour (the view's colour index)
-	bullets := sim.iterate(&state.bullets)
+	// bullets: stretched along their velocity, tinted with the owner's colour (custom.x: the owner's slot, the
+	// view's colour index; -1 once the owner has left)
+	bullets := sim.iterate(&f.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		godot.push_multi(frame, {
+		owner_slot, _ := sim.player_slot(&f.state.players, bullet.owner)
+		godot.push_multi(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
 			pos    = pixels(bullet.pos, px_per_m),
 			yaw    = math.atan2(bullet.vel.y, bullet.vel.x),
 			scale  = {1.6, 0.6, 1},
-			custom = {f32(bullet.owner), 0, 0, 0},
+			custom = {f32(owner_slot), 0, 0, 0},
 		}) or_break
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
-	gems := sim.iterate(&state.gems)
+	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		age := f32(tick - gem.spawn_tick) / dr.TICK_HZ
+		age := f32(f.tick - gem.spawn_tick) / dr.TICK_HZ
 		pulse := math.sin(age * 6) * 0.18
 		fade := clamp((f32(dr.GEM_LIFE_S) - age) / 2, 0, 1)
-		godot.push_multi(frame, {
+		godot.push_multi(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = pixels(gem.pos, px_per_m),
@@ -257,13 +264,14 @@ fill_frame :: proc(frame: ^Frame) {
 			custom = {age, 0, 0, 0},
 		}) or_break
 	}
-	godot.push_view(frame, {key = KEY_HUD, kind = .Hud}, hud_of(state, tick))
+	godot.push_view(f, {key = KEY_HUD, kind = .Hud}, hud_of(f.state, f.tick))
 }
 
 // ---- HUD: the HUD view's data (Game.hud, through games/shared's hud_view.gd)
 
+// A slot's player (`player`: their key in GDScript; 0 and not `present` for an empty slot).
 Hud_Player :: struct {
-	player:  u8,
+	player:  sim.Player,
 	present: bool,
 	shots:   u32,
 	gems:    u32,
@@ -303,10 +311,13 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Hud) {
 		end := state.over_tick + dr.OVER_HOLD_TICKS
 		hud.reset_in_s = end > tick ? f32(end - tick) / dr.TICK_HZ : 0
 	}
-	for &ship, player in state.ships {
-		hud.players[player] = {
-			player  = u8(player),
-			present = ship.active,
+	for slot in 0 ..< dr.PLAYERS {
+		player := sim.player_in_slot(&state.players, slot)
+		ship := sim.player_get(&state.players, player)
+		if ship == nil do continue
+		hud.players[slot] = {
+			player  = player,
+			present = true,
 			shots   = ship.shots,
 			gems    = ship.gems,
 		}

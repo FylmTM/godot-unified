@@ -187,7 +187,7 @@ mode_online_client :: proc(
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", args.mode, status.code, status.local, status.host, join_ms)
 	scripted := uheadless.Scripted_User(State, Input, World, PLAYERS){headless, 1}
 	client := netcode.client_create(headless.game, netcode.Client_Config {
-			player  = -1,
+			slot    = -1,
 			name    = "client",
 			content = headless.content,
 		}, link, uheadless.scripted_hooks(&scripted))

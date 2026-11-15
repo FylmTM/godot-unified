@@ -16,8 +16,8 @@ GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 }
 
 // Headless checks (--scripted): the sim's own scripted input.
-scripted_input :: proc(seed: u64, player: int, tick: u32, state: ^g.State) -> g.Input {
-	return g.scripted_input(seed, player, tick)
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
+	return g.scripted_input(seed, slot, tick)
 }
 
 @(export, link_name = "__GAME___init")

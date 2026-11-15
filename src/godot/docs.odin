@@ -72,6 +72,44 @@ LIBRARY_DOCS := []Doc_Class {
 			{"get_status", "String", "", "idle, connecting, connected, failed or disconnected."},
 			{"is_running", "bool", "", "A session is running."},
 			{"get_tick", "int", "", "The newest tick shown."},
+			{
+				"get_local_player",
+				"int",
+				"",
+				"The local player's key at the shown tick (0 until it joins). A player's key is the same while they are in the session, whatever slot they hold.",
+			},
+			{"get_players", "Array", "", "The keys of the players present at the shown tick, in slot order."},
+			{
+				"get_known_players",
+				"Array",
+				"",
+				"The keys of every player the session remembers at the shown tick, present or not.",
+			},
+			{
+				"get_player_slot",
+				"int",
+				"player:int",
+				"The slot (input index) [param player] holds at the shown tick; -1 when absent.",
+			},
+			{"is_player_present", "bool", "player:int", "[param player] holds a slot at the shown tick."},
+			{
+				"get_player_name",
+				"String",
+				"player:int",
+				"The name [param player] goes by in the session (\"\" when unknown); still answers after they left.",
+			},
+			{
+				"get_player_platform",
+				"String",
+				"player:int",
+				"The platform of the account the transport vouched for (\"eos\"); empty on LAN, in single player and in replays.",
+			},
+			{
+				"get_player_platform_id",
+				"String",
+				"player:int",
+				"The account id the transport vouched for (EOS: the product user id); empty on LAN, in single player and in replays.",
+			},
 			{"toggle_devui", "void", "", "Shows or hides the dev UI (F1)."},
 			{"is_devui_visible", "bool", "", "The dev UI is shown."},
 		},
@@ -93,6 +131,7 @@ LIBRARY_DOCS := []Doc_Class {
 			},
 			{"lobby_code", "", "code:String", "The code other players join with."},
 			{"desync", "", "tick:int, detail:String", "The players' checksums of [param tick] differ."},
+			{"roster_changed", "", "", "A player's name, connection or account changed (the get_player_* getters)."},
 			{
 				"sim_event",
 				"",
@@ -118,7 +157,7 @@ LIBRARY_DOCS := []Doc_Class {
 		members  = {
 			{"kind", "String", "The view kind (the game's View enum member, lowercased), set in the scene."},
 			{"entity", "int", "The id the game's events carry for this view (0: none)."},
-			{"player", "int", "The player this view shows (-1: none)."},
+			{"player", "int", "The key of the player this view shows (0: none)."},
 		},
 		signals  = {
 			{

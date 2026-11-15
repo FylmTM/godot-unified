@@ -2,7 +2,8 @@
 // (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to the
 // end), then per tick (write_tick, also the netcode's finalized tick):
 // present u32, replaced u32, players × the input's bytes (plain data, so its memory is its little-endian
-// serialization), command count u8, then per command: player u8, kind u8, size u8, the struct's bytes.
+// serialization), command count u8, then per command: slot u8, kind u8, size u8, the struct's bytes; then the join
+// record count u8, then per record (in slot order): slot u8, member u16.
 package sim
 
 import "core:os"
@@ -11,17 +12,20 @@ import "unified:wire"
 
 LOG_MAGIC :: "UNIL"
 // 4: commands per tick; 5: the #6 sitting's sim (u32 handles, SplitMix64, keyed rolls), so a log recorded
-// before replays differently: the bytes are laid out as in 4; 6: the recording build's compat in the header (#123).
-LOG_VERSION :: 6
+// before replays differently: the bytes are laid out as in 4; 6: the recording build's compat in the header (#123);
+// 7: join records (players are session members, #222).
+LOG_VERSION :: 7
 LOG_HEADER :: 37
 LOG_TICKS_AT :: 33 // the header's tick count
-COMMAND_HEAD :: 3 // player, kind, size: a command's bytes on the wire and in the log, before its data
+COMMAND_HEAD :: 3 // slot, kind, size: a command's bytes on the wire and in the log, before its data
+JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in the log
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
 Log_Tick :: struct($Input: typeid, $PLAYERS: int) {
 	present:       Players,
 	replaced:      Players,
 	input:         [PLAYERS]Input,
+	member:        [PLAYERS]u16, // join records
 	first_command: u32, // index into Input_Log.commands
 	command_count: u32,
 }
@@ -48,6 +52,7 @@ log_append :: proc(input_log: ^Input_Log($Input, $PLAYERS), inputs: ^Inputs(Inpu
 		present       = inputs.present,
 		replaced      = inputs.replaced,
 		input         = inputs.input,
+		member        = inputs.member,
 		first_command = u32(len(input_log.commands)),
 		command_count = u32(inputs.command_count),
 	})
@@ -66,47 +71,73 @@ log_inputs :: proc(input_log: ^Input_Log($Input, $PLAYERS), k: int) -> (inputs: 
 	inputs.present = log_tick.present
 	inputs.replaced = log_tick.replaced
 	inputs.input = log_tick.input
+	inputs.member = log_tick.member
 	commands := log_commands(input_log, k)
 	inputs.command_count = len(commands)
 	copy(inputs.commands[:], commands)
 	return
 }
 
-// The bytes of a tick's record (write_tick), for sizing datagrams.
-tick_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []Raw_Command) -> int {
-	size := 9 + PLAYERS * size_of(Input)
+// The bytes of a tick's record (write_tick) with these commands and `joins` join records, for sizing datagrams.
+tick_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []Raw_Command, joins := 0) -> int {
+	size := 10 + PLAYERS * size_of(Input) + joins * JOIN_BYTES
 	for &command in commands {
 		size += COMMAND_HEAD + int(command.size)
 	}
 	return size
 }
 
-// Writes a tick's record: present, replaced, the inputs, then the commands.
-write_tick :: proc(writer: ^wire.Writer, present, replaced: Players, input: []u8, commands: []Raw_Command) {
+// The join records of a tick: its slots with a non-zero member.
+join_count :: proc(member: []u16) -> (count: int) {
+	for id in member do count += int(id != 0)
+	return
+}
+
+// Writes a tick's record: present, replaced, the inputs, the commands, then the join records (`member`, by slot:
+// the non-zero ones).
+write_tick :: proc(
+	writer: ^wire.Writer,
+	present, replaced: Players,
+	input: []u8,
+	commands: []Raw_Command,
+	member: []u16,
+) {
 	wire.w_u32(writer, transmute(u32)present)
 	wire.w_u32(writer, transmute(u32)replaced)
 	wire.w_bytes(writer, input)
 	write_commands(writer, commands)
+	write_joins(writer, member)
 }
 
-// Writes a tick's commands as write_tick does: the count, then per command player, kind, size and its bytes.
+// Writes a tick's commands as write_tick does: the count, then per command slot, kind, size and its bytes.
 write_commands :: proc(writer: ^wire.Writer, commands: []Raw_Command) {
 	wire.w_u8(writer, u8(len(commands)))
 	for &command in commands {
-		wire.w_u8(writer, command.player)
+		wire.w_u8(writer, command.slot)
 		wire.w_u8(writer, command.kind)
 		wire.w_u8(writer, command.size)
 		wire.w_bytes(writer, command.data[:command.size])
 	}
 }
 
-// Reads a tick's record into `input` and `commands`; false when it is malformed: cut short, or its commands are
-// (read_commands).
+// Writes a tick's join records as write_tick does: the count, then per record (in slot order) slot u8, member u16.
+write_joins :: proc(writer: ^wire.Writer, member: []u16) {
+	wire.w_u8(writer, u8(join_count(member)))
+	for id, slot in member {
+		if id != 0 {
+			wire.w_u8(writer, u8(slot))
+			wire.w_u16(writer, id)
+		}
+	}
+}
+
+// Reads a tick's record into `input`, `commands` and `member`; false when it is malformed: cut short, or its
+// commands (read_commands) or join records (read_joins) are.
 read_tick :: proc(
 	reader: ^wire.Reader,
 	input: []u8,
-	players: int,
 	commands: ^[TICK_COMMANDS]Raw_Command,
+	member: []u16,
 ) -> (
 	present, replaced: Players,
 	count: int,
@@ -115,13 +146,14 @@ read_tick :: proc(
 	present = transmute(Players)wire.r_u32(reader)
 	replaced = transmute(Players)wire.r_u32(reader)
 	copy(input, wire.r_bytes(reader, len(input)))
-	count, ok = read_commands(reader, players, commands)
+	count, ok = read_commands(reader, len(member), commands)
+	ok = ok && read_joins(reader, present, member)
 	return present, replaced, count, ok && reader.ok
 }
 
 // Reads a tick's commands written by write_commands; false when they are malformed: cut short, more than
-// TICK_COMMANDS commands or COMMANDS_PER_PLAYER of one player, a player out of range or out of order, a command
-// over COMMAND_MAX bytes. Command kinds are not checked here (command_value reads an unknown kind as nil).
+// TICK_COMMANDS commands or COMMANDS_PER_PLAYER of one slot, a slot out of range or out of order, a command over
+// COMMAND_MAX bytes. Command kinds are not checked here (command_value reads an unknown kind as nil).
 read_commands :: proc(
 	reader: ^wire.Reader,
 	players: int,
@@ -134,23 +166,41 @@ read_commands :: proc(
 	if !reader.ok || count > TICK_COMMANDS {
 		return
 	}
-	per_player := 0
+	per_slot := 0
 	for i in 0 ..< count {
 		command := &commands[i]
 		command^ = {}
-		command.player = wire.r_u8(reader)
+		command.slot = wire.r_u8(reader)
 		command.kind = wire.r_u8(reader)
 		command.size = wire.r_u8(reader)
-		if int(command.player) >= players || int(command.size) > COMMAND_MAX {
+		if int(command.slot) >= players || int(command.size) > COMMAND_MAX {
 			return
 		}
 		copy(command.data[:], wire.r_bytes(reader, int(command.size)))
-		per_player = i > 0 && commands[i - 1].player == command.player ? per_player + 1 : 1
-		if !reader.ok || (i > 0 && commands[i - 1].player > command.player) || per_player > COMMANDS_PER_PLAYER {
+		per_slot = i > 0 && commands[i - 1].slot == command.slot ? per_slot + 1 : 1
+		if !reader.ok || (i > 0 && commands[i - 1].slot > command.slot) || per_slot > COMMANDS_PER_PLAYER {
 			return
 		}
 	}
 	return count, true
+}
+
+// Reads a tick's join records written by write_joins into `member` (by slot, zeroed first); false when they are
+// malformed: cut short, a slot out of range, out of order or not present, or member 0.
+read_joins :: proc(reader: ^wire.Reader, present: Players, member: []u16) -> bool {
+	for &id in member do id = 0
+	joins := int(wire.r_u8(reader))
+	last := -1
+	for _ in 0 ..< joins {
+		slot := int(wire.r_u8(reader))
+		id := wire.r_u16(reader)
+		if !reader.ok || slot <= last || slot >= len(member) || slot not_in present || id == 0 {
+			return false
+		}
+		member[slot] = id
+		last = slot
+	}
+	return reader.ok
 }
 
 // Writes a tick's inputs as write_tick does.
@@ -161,6 +211,7 @@ inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($Input, $PLAYERS)) {
 		inputs.replaced,
 		([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)],
 		inputs.commands[:inputs.command_count],
+		inputs.member[:],
 	)
 }
 
@@ -168,7 +219,7 @@ inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($Input, $PLAYERS)) {
 inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($Input, $PLAYERS)) -> bool {
 	inputs^ = {}
 	input := ([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)]
-	present, replaced, count, ok := read_tick(reader, input, PLAYERS, &inputs.commands)
+	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.member[:])
 	inputs.present, inputs.replaced, inputs.command_count = present, replaced, count
 	return ok
 }
@@ -177,7 +228,7 @@ inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($Input, $PLAYERS)) -> 
 log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($Input, $PLAYERS), k: int) {
 	log_tick := &input_log.ticks[k]
 	input := ([^]u8)(&log_tick.input)[:size_of([PLAYERS]Input)]
-	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k))
+	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k), log_tick.member[:])
 }
 
 // The log's bytes: the header, then the ticks.

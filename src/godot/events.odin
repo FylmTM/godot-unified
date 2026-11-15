@@ -18,8 +18,7 @@ import "unified:view"
 Event_Layout :: struct {
 	name:              string, // the type name without `Event_`, lowercased ("coin_picked")
 	type:              ^runtime.Type_Info,
-	player:            int, // offset of the `player` field (an integer), -1: none
-	player_size:       int,
+	player:            int, // offset of the first sim.Player field, -1: none
 	subject:           int, // offset of the first sim.Handle(T) field, or of a u64 field named `entity`; -1: none
 	subject_is_handle: bool,
 	positions:         [dynamic]int, // offsets of the sim.Position fields
@@ -30,7 +29,7 @@ Event_Layout :: struct {
 Tick_Event :: struct {
 	tick:   u32,
 	nth:    u32, // among the tick's events of the same kind and subject
-	player: u32, // the subject player (sim.NO_PLAYER: none)
+	player: u64, // the subject player's key (sim.player_key; 0: none)
 	entity: u64, // the subject key (a handle's key, or the `entity` field), 0: none
 	raw:    sim.Raw_Event,
 }
@@ -66,12 +65,12 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 			switch {
 			case field.id == sim.Position:
 				append(&layout.positions, offset)
+			case field.id == sim.Player:
+				if layout.player < 0 do layout.player = offset
 			case is_handle(field):
 				if layout.subject < 0 do layout.subject, layout.subject_is_handle = offset, true
 			case name == "entity" && field.id == u64:
 				if layout.subject < 0 do layout.subject = offset
-			case name == "player" && is_integer(field):
-				layout.player, layout.player_size = offset, field.size
 			}
 			// every event class has `tick` and `kind` (UnifiedEvent): a field must not hide them
 			if name == "tick" || name == "kind" {
@@ -106,12 +105,11 @@ read_uint :: proc(bytes: []u8) -> u64 {
 	return value
 }
 
-// The event's subject: its player (sim.NO_PLAYER: none) and its key (a handle's key or the `entity` field, 0: none).
-event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u32, entity: u64) {
-	player = u32(sim.NO_PLAYER)
+// The event's subject: its player's key (its first sim.Player field; 0: none) and its key (a handle's key or the
+// `entity` field, 0: none).
+event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u64, entity: u64) {
 	if layout.player >= 0 {
-		value := read_uint(data[layout.player:][:layout.player_size])
-		if value < u64(sim.MAX_PLAYERS) do player = u32(value)
+		player = player_key_of(data[layout.player:][:size_of(sim.Player)])
 	}
 	if layout.subject >= 0 {
 		bytes := data[layout.subject:][:8]
@@ -127,22 +125,21 @@ event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u32, entity
 
 // ---- the main thread: fields converted by type (field_variant, below)
 
-// A nested struct's fields into a Dictionary (fields named `_...` are padding, left out; at the top, a `player`
-// field holding sim.NO_PLAYER is -1).
+// The key of a sim.Player's bytes (sim.player_key: 0 for nobody).
 @(private)
-struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, is_2d, top: bool) {
+player_key_of :: proc(bytes: []u8) -> u64 {
+	return sim.player_key({index = u16(read_uint(bytes[:2])), id = u16(read_uint(bytes[2:4]))})
+}
+
+// A nested struct's fields into a Dictionary (fields named `_...` are padding, left out).
+@(private)
+struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, is_2d: bool) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	for i in 0 ..< int(info.field_count) {
 		name := info.names[i]
 		if strings.has_prefix(name, "_") do continue
 		field := info.types[i]
-		bytes := data[info.offsets[i]:][:field.size]
-		value: gd.Variant
-		if top && name == "player" && is_integer(field) && read_uint(bytes) == u64(sim.NO_PLAYER) {
-			value = gd.to_variant(i64(-1))
-		} else {
-			value = field_variant(field, bytes, is_2d)
-		}
+		value := field_variant(field, data[info.offsets[i]:][:field.size], is_2d)
 		dict_put(dict, name, &value)
 	}
 }
@@ -171,7 +168,8 @@ f32_at :: proc(bytes: []u8, i: int) -> f32 {
 	return transmute(f32)u32(read_uint(bytes[i * 4:][:4]))
 }
 
-// A field's value: a handle becomes its key (int), a sim.Position a Vector2 (2D) or Vector3 (in view units already),
+// A field's value: a handle becomes its key (int), a sim.Player its key (sim.player_key, int: 0 for nobody), a
+// sim.Position a Vector2 (2D) or Vector3 (in view units already),
 // one of Godot's math types (gd.Color, gd.Vector4, gd.Quaternion, ...: a view's data may use them, the extension
 // imports gdext) itself, an enum its member's name lowercased (a StringName; in a bit_set's Array a String), a
 // bit_set an Array of those, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested
@@ -220,6 +218,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		index, generation := read_uint(bytes[:4]), read_uint(bytes[4:])
 		return gd.to_variant(i64(generation << 32 | index))
 	}
+	if type.id == sim.Player do return gd.to_variant(i64(player_key_of(bytes)))
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		value := read_uint(bytes)
@@ -271,7 +270,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		return value
 	case runtime.Type_Info_Struct:
 		dict := gd.dict_new()
-		struct_fields(&dict, type, bytes, is_2d, false)
+		struct_fields(&dict, type, bytes, is_2d)
 		value := gd.to_variant(dict)
 		gd.Dictionary_destroy(&dict)
 		return value

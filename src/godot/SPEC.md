@@ -30,8 +30,9 @@ sample_input :: proc(input: ^g.Input) {
 }
 
 fill_frame :: proc(frame: ^Frame) {
-	for player in 0 ..< g.PLAYERS do if frame.state.joined[player] {
-		godot.push_view(frame, {key = view.Key(player + 1), kind = .Player, player = i8(player), pos = ...})
+	players := sim.iterate_present(&frame.state.players)
+	for data, player in sim.next(&players) {
+		godot.push_view(frame, {key = view.Key(sim.player_key(player)), kind = .Player, player = player, pos = ...})
 	}
 	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, Hud_Data{balls = frame.state.balls})
 	godot.push_multi(frame, {key = ball_key, kind = .Ball, pos = ...})
@@ -70,10 +71,12 @@ sample to the session thread when a tick takes the local input; `scripted_input`
 ### Filling a frame
 
 `fill_frame(frame)` runs on the session thread for every published tick. `frame.state` and `frame.world` are the
-tick's; `frame.tick`, `frame.local_player` (-1 until assigned). It pushes:
+tick's; `frame.tick`, `frame.local_player` (the `sim.Player` this client plays at that tick; `{}` before its join
+tick) and `frame.local_slot` (the slot the relay gave it; -1 before). It pushes:
 
 - `push_view(frame, View_Item{key, kind, player, entity, pos, rot})` and `push_view(frame, item, data)`: a scene
-  view. `key` is the spawn key (non-zero; a new key is a new view), `player` the player it shows (-1: none) and
+  view. `key` is the spawn key (non-zero; a new key is a new view: a player's view keyed by `sim.player_key`
+  survives a slot change and a rejoin), `player` the `sim.Player` it shows (`{}`: none) and
   `entity` the u64 its events carry (0: none): both route events to it. `pos` and `rot` (a unit quaternion; zero
   is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units the views use. `data` is any plain
   struct, converted like an event field (below: an enum becomes its member name, an array of structs an Array of
@@ -98,18 +101,27 @@ Node3D: it gets data, no pose), pushed with its data each tick.
 - methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
   `constants() -> Dictionary` (`tick_hz` plus `Glue.constants`), `set_player_name(name)`, `get_status()`,
-  `is_running()`, `get_tick()`, `get_local_player()` (-1 until assigned), `get_player_name(player)` (the synced
-  name, "" when unknown), `toggle_devui()`, `is_devui_visible()`;
+  `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`;
+- players, by handle: a player reaches GDScript as its key (`sim.player_key`, an int; 0 is nobody), the same while
+  they are in the session, whatever slot they hold. At the shown tick: `get_players()` (the present ones, slot
+  order), `get_known_players()` (every one the state remembers, present or not), `get_local_player()` (0 until this
+  client's join tick), `get_player_slot(player)` (-1 when absent), `is_player_present(player)`. From the relay's
+  roster, still answering after the player left: `get_player_name(player)`, `get_player_platform(player)` and
+  `get_player_platform_id(player)` (the account the transport vouched for: "eos" and the product user id; empty on
+  LAN, in single player and in replays; a LAN token is never shown). A client's LAN token is kept in
+  `user://unified_token_<n>` (each running copy of the game on a machine claims its own; a restarted one takes its
+  token back);
 - properties: `view_root` (where scene views are made, as its children: a node picked in the inspector or set from
   a script; until it is set, the session's parent; null: no scene views), `seed`, `ticks`;
 - signals: `status_changed(status, detail)`, `lobby_code(code)`, `desync(tick, detail)`,
-  `sim_event(event: UnifiedEvent, state: int)`;
+  `sim_event(event: UnifiedEvent, state: int)`, `roster_changed()` (a name, a connection or an account changed);
 - constants `EVENT_EMITTED`, `EVENT_CONFIRMED`, `EVENT_CANCELLED` (enum `EventState`).
 
 Scripts reach it typed (`@onready var session: UnifiedSession = %UnifiedSession`), never by string.
 
 **`UnifiedView`** (Node): the marker a scene view's scene holds, a direct child of its root. `kind` (the `View`
-member's name, lowercased: set in the scene), `entity`, `player` (set by the host); signals `despawned` (the view's
+member's name, lowercased: set in the scene), `entity`, `player` (the player's key, 0: none; set by the host);
+signals `despawned` (the view's
 key is gone: it lingers 0.25 s, then is freed) and `revived` (a rollback brought it back while lingering). The
 root can be any node: a Node3D gets position and quaternion, a Node2D position and rotation (the angle about Z),
 anything else (a Control HUD) only data. The root's script may define `_sim_update(position, yaw_or_rotation,
@@ -128,9 +140,11 @@ host owns `instance_count` and `visible_instance_count`.
 is named the same way), with a typed property per field. The
 prefix groups them: Godot classes have no namespaces (an extension class can't nest, and GDScript can't alias a
 native class as a constant), and no GDScript is generated. Field types: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
-bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
-in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` / `Color`; `_` fields are
-left out; a `player` field holding `sim.NO_PLAYER` is -1. An event field named `tick` or `kind` (UnifiedEvent's) and a
+bit_sets an `Array` of those, a handle its key (`int`), a `sim.Player` its key (`int`, 0: nobody; a command's from
+one), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3` in view units (`Glue.event_pos`), `[2]f32` / `[3]f32`
+/ `[4]f32` a `Vector2` / `Vector3` / `Color`; `_` fields are left out. The library's `sim.Event_Player_Joined` and
+`Event_Player_Left`, in every game's union, are `EventPlayerJoined` (`player`, `slot`, `returning`) and
+`EventPlayerLeft` (`player`, `slot`). An event field named `tick` or `kind` (UnifiedEvent's) and a
 name that clashes with an existing class stop the install with an error. GDScript:
 
 ```gdscript
@@ -151,8 +165,8 @@ The editor's help documents every class above (class reference XML loaded at ext
 
 ## Events
 
-`install` reads the game's event union by RTTI once: each kind's name, its `player` field, its subject (the first
-`sim.Handle(T)` field, else a u64 field named `entity`) and its `sim.Position` fields.
+`install` reads the game's event union by RTTI once: each kind's name, its player (the first `sim.Player` field),
+its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) and its `sim.Position` fields.
 
 - **States.** Every event is **Emitted** exactly once, the first time any simulation of its tick produces it (a
   prediction, or the verified tick itself), then exactly once either **Confirmed** (its tick is verified) or
@@ -162,7 +176,7 @@ The editor's help documents every class above (class reference XML loaded at ext
   index among the tick's events of that kind and subject.
 - **Where.** Each event, in each state, goes first to its subject's view (`_sim_event(event, state)` on the root's
   script): the view `Glue.event_key` names when the game sets it (0: none), else the view keyed by its handle
-  (`sim.handle_key`), else the views whose `entity` is its `entity` field, else its player's views. Then to the
+  (`sim.handle_key`), else the views whose `entity` is its `entity` field, else its player's views (by key). Then to the
   `sim_event` signal.
 - **Order.** A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order.
 
@@ -222,12 +236,15 @@ resource first preloaded during a worker-thread load as leaked), the main scene 
 
 ## Tests
 
-`tests/godot_driver` runs the driver with the toy game and no Godot: frames, previous poses from the host's memory,
-one press delivered once, confirmed events, the result, transport failure, the Dev_Link switch.
+`tests/godot_driver` runs the driver with the toy game and no Godot: frames (the local player, the slots and the
+remembered players by key, the roster), previous poses from the host's memory, one press delivered once, confirmed
+events, the result, transport failure, the Dev_Link switch.
 `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session under headless Godot:
 `UnifiedView` scene views in 2D and 3D and a Control one (pose, `_sim_update`, data as properties only when it
 changes, a missing property's error), MultiMesh views (2D and 3D buffers, colors, custom data, rotation on the
-shorter arc, scale per axis), typed event classes in every state to the views and the signal, typed commands
+shorter arc, scale per axis), typed event classes in every state to the views and the signal (`EventPlayerJoined`
+with the local player's key), the session's players by key (slot, presence, name, no platform, `roster_changed`),
+typed commands
 reaching the sim once with every field kind, the input sample and a latched press. Its `session_check.gd` checks
 starting during a goodbye. Each game's `godot` suite: `validate`, `walk`, `tour`, `session` (a headless Godot
 session's checksums equal the offline binary's), `editor`, `bake`.

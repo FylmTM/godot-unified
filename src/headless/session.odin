@@ -49,7 +49,7 @@ session_result_destroy :: proc(result: ^Session_Result($Input, $PLAYERS)) {
 	result^ = {}
 }
 
-// Scripted hooks: every client samples the game's scripted input (and commands) for its player.
+// Scripted hooks: every client samples the game's scripted input (and commands) for its slot.
 Scripted_User :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	headless: ^Headless(State, Input, World, PLAYERS),
 	seed:     u64,
@@ -62,15 +62,15 @@ scripted_hooks :: proc(
 ) -> netcode.Hooks(State, Input, World, PLAYERS) {
 	hooks := netcode.Hooks(State, Input, World, PLAYERS) {
 		user = scripted,
-		sample = proc(user: rawptr, player: int, tick: u32, state: ^State) -> Input {
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
-			return scripted.headless.scripted_input(scripted.seed, player, tick, state)
+			return scripted.headless.scripted_input(scripted.seed, slot, tick, state)
 		},
 	}
 	if scripted.headless.scripted_commands != nil {
-		hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
 			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
-			scripted.headless.scripted_commands(scripted.seed, player, tick, state, out)
+			scripted.headless.scripted_commands(scripted.seed, slot, tick, state, out)
 		}
 	}
 	return hooks
@@ -217,7 +217,7 @@ session_run :: proc(
 	result.clients = make([]netcode.Client_Result, cfg.clients)
 	for &task, player in session.tasks {
 		if task.client == nil {
-			result.clients[player].player = player
+			result.clients[player].slot = player
 			result.ok = false
 			continue
 		}
@@ -257,7 +257,7 @@ session_client :: proc(
 	link_seed := u32(cfg.seed) * 7919 + u32(player) * 104729 + 17
 	link = netcode.netsim_wrap(link, cfg.profile, link_seed, session.clock)
 	client_cfg := netcode.Client_Config {
-		player    = player,
+		slot      = player,
 		join_tick = join,
 		content   = session.headless.content,
 		name      = fmt.aprintf("client%d", player),

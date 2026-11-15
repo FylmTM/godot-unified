@@ -9,6 +9,7 @@ DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4
+MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence)
 MAX_ITEMS :: 64
 MAX_PLATFORMS :: 24
 MAX_TRIGGERS :: 16
@@ -94,34 +95,38 @@ Held_Kind :: enum u8 {
 	Player,
 }
 
-Player :: struct {
+// A player's data (sim.Presence, by member): zeroed when someone new joins; a leave releases and destroys what it
+// owns outside the block (the body, the hold) and zeroes it, so a returning player starts fresh too.
+Character :: struct {
 	controller:    physics.Character,
 	hold:          physics.Joint_Ref, // the joint to what this player holds
 	facing:        [2]f32, // unit (x, z)
 	aim:           [3]f32, // unit look direction from the last input
-	held_kind:     Held_Kind,
-	held_index:    u8, // item index or player
-	grab_point:    u8, // which grab point of the held item
-	held_by:       u8, // player + 1 of the player holding this one (0: free)
+	held_player:   sim.Player, // the player this one holds (held_kind .Player)
+	held_by:       sim.Player, // the player holding this one ({}: free)
 	stun:          u16, // ticks left limp (hit, thrown)
 	charge:        u16, // ticks the throw button has been held while holding something
 	held_ticks:    u16, // ticks this player has been held
 	break_window:  u16, // ticks left to finish a break-free (3 presses)
 	respawn:       u16, // ticks until a fallen player respawns (0: not fallen)
 	pad_cooldown:  u16,
+	held_kind:     Held_Kind,
+	held_item:     u8, // the item index (held_kind .Item)
+	grab_point:    u8, // which grab point of the held item
 	thrown:        bool, // stunned by a throw: ends on landing
-	active:        bool, // present (joined)
 	prev_buttons:  u8,
 	break_presses: u8,
+	_pad:          [2]u8,
 }
 
 Item :: struct {
 	body:         Body_Ref,
-	holders:      [2]u8, // player + 1 holding each grab point (0: free)
-	thrown_by:    u8, // player + 1 of the last thrower (while thrown_ticks > 0)
-	alive:        bool,
+	holders:      [2]sim.Player, // the player holding each grab point ({}: free)
+	thrown_by:    sim.Player, // the last thrower (while thrown_ticks > 0), whether still here or not
 	thrown_ticks: u16,
 	pad_cooldown: u16,
+	alive:        bool,
+	_pad:         [3]u8,
 }
 
 Platform :: struct {
@@ -144,7 +149,7 @@ Phase :: enum u8 {
 }
 
 State :: struct {
-	players:      [PLAYERS]Player,
+	players:      sim.Presence(Character, PLAYERS, MEMBERS),
 	items:        [MAX_ITEMS]Item,
 	platforms:    [MAX_PLATFORMS]Platform,
 	bodies:       [MAX_TRIGGERS]Body_Ref, // bells' and switches' bodies (static, owned by the sim)
@@ -163,103 +168,91 @@ State :: struct {
 }
 
 // Events (src/sim/SPEC.md "Events"): one plain struct per event, named as GDScript matches them (the type
-// name lowercased). `player` is the player the event is about (only events about a player have it;
-// sim.NO_PLAYER: none), `entity` the level marker index + 1 of an item, plate, bell, switch or lock (0: none),
-// `position` where it happened (metres).
+// name lowercased). `player` is the player the event is about (only events about a player have it; sim.Player{}:
+// none), `entity` the level marker index + 1 of an item, plate, bell, switch or lock (0: none), `position` where it
+// happened (metres). Joins and leaves are the library's (sim.Event_Player_Joined, sim.Event_Player_Left).
 
-Event_Player_Joined :: struct {
+// A player's body appeared (they joined or came back).
+Event_Spawned :: struct {
 	position: sim.Position, // where the player appears
-	player:   u8,
-	_pad:     [3]u8,
-}
-
-Event_Player_Left :: struct {
-	player: u8,
+	player:   sim.Player,
 }
 
 Event_Jumped :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
-// A jump pad launched a player (entity 0) or an item (player NO_PLAYER).
+// A jump pad launched a player (entity 0) or an item (player {}).
 Event_Launched :: struct {
 	entity:   u64,
 	position: sim.Position, // the pad's
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // `player` grabbed an item (entity) or another player (held_player).
 Event_Grabbed :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the holder's
-	player:      u8, // the holder
+	player:      sim.Player, // the holder
+	held_player: sim.Player, // the held player ({}: an item)
 	held_kind:   Held_Kind,
-	held_player: u8, // the held player (NO_PLAYER: an item)
-	_pad:        u8,
+	_pad:        [3]u8,
 }
 
 // `player` let go of what it held (also before a throw).
 Event_Dropped :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the holder's
-	player:      u8, // the holder
+	player:      sim.Player, // the holder
+	held_player: sim.Player, // the dropped player ({}: an item)
 	held_kind:   Held_Kind,
-	held_player: u8, // the dropped player (NO_PLAYER: an item)
-	_pad:        u8,
+	_pad:        [3]u8,
 }
 
 Event_Thrown :: struct {
 	entity:      u64, // the item (0: a player)
 	position:    sim.Position, // the thrower's
 	speed:       f32, // m/s along the aim
-	player:      u8, // the thrower
+	player:      sim.Player, // the thrower
+	held_player: sim.Player, // the thrown player ({}: an item)
 	held_kind:   Held_Kind,
-	held_player: u8, // the thrown player (NO_PLAYER: an item)
-	_pad:        [5]u8,
+	_pad:        [7]u8,
 }
 
 // A player was hit by an item or a bumper.
 Event_Hit :: struct {
 	position: sim.Position,
 	speed:    f32, // the knockback's horizontal speed
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Broke_Free :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Fell :: struct {
 	position: sim.Position, // where it fell below the kill height
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event_Respawned :: struct {
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // The team reached a checkpoint (the player who reached it).
 Event_Checkpoint :: struct {
 	position: sim.Position, // the checkpoint's
 	index:    i32, // the checkpoint's index (State.checkpoint)
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // A player walked through the start gate.
 Event_Run_Started :: struct {
 	position: sim.Position, // the gate's
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 // The trophy (entity) reached the pedestal.
@@ -287,17 +280,17 @@ Event_Bell_Rung :: struct {
 	speed:    f32, // the hit's approach speed
 }
 
-// A switch (touched by `player`) or a lock (opened by a key: player NO_PLAYER) fired.
+// A switch (touched by `player`) or a lock (opened by a key: player {}) fired.
 Event_Switch_On :: struct {
 	entity:   u64,
 	position: sim.Position,
-	player:   u8,
-	_pad:     [3]u8,
+	player:   sim.Player,
 }
 
 Event :: union {
-	Event_Player_Joined,
-	Event_Player_Left,
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
+	Event_Spawned,
 	Event_Jumped,
 	Event_Launched,
 	Event_Grabbed,

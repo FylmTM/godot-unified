@@ -175,15 +175,23 @@ func is_online() -> bool:
 	return mode != Mode.SINGLE
 
 
-## The local player (its index, 0..), -1 until the session assigns one.
+## The local player (its key: the same while they are in the session, whatever slot they hold), 0 until the session
+## has one.
 func local_player() -> int:
 	return session.get_local_player()
 
 
+## The slot (0..) a player holds at the shown tick, -1 when absent: what per-slot looks (colours, "P<n>") follow.
+func player_slot(player: int) -> int:
+	return session.get_player_slot(player)
+
+
 ## A player's entry in the HUD's `players` ({} when there is none).
 func player_info(player: int) -> Dictionary:
+	if player == 0:
+		return {}
 	for info: Dictionary in hud.get("players", []):
-		if int(info.get("player", -1)) == player:
+		if int(info.get("player", 0)) == player:
 			return info
 	return {}
 
@@ -193,7 +201,7 @@ func local_player_info() -> Dictionary:
 	return player_info(local_player())
 
 
-## The HUD's players that are present, in player order.
+## The HUD's players that are present, in slot order.
 func present_players() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for p: Dictionary in hud.get("players", []):
@@ -202,11 +210,11 @@ func present_players() -> Array[Dictionary]:
 	return out
 
 
-## A HUD player's display name: the synced name when the session has one, else "P<n>".
+## A HUD player's display name: the synced name when the session has one, else "P<slot + 1>".
 func player_name(info: Dictionary) -> String:
 	var player := int(info.get("player", 0))
 	var name := session.get_player_name(player)
-	return name if name != "" else "P%d" % (player + 1)
+	return name if name != "" else "P%d" % (player_slot(player) + 1)
 
 
 ## "keyboard text" or "pad text", whichever device the player uses.

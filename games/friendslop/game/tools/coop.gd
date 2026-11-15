@@ -6,7 +6,7 @@ const Steering := preload("res://game/tools/steering.gd")
 
 
 func _host_play() -> void:
-	var friend: int = 1 - game.local_player()
+	var friend := _friend_player()
 	var arena: Node3D = current_scene
 	await Steering.walk_to(self, func() -> Vector3: return arena.player_view(friend).global_position, 15.0, 1.4)
 	await Steering.face(self, arena.player_view(friend).global_position, -0.1)

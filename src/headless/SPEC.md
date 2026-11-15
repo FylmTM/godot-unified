@@ -28,7 +28,7 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
   checksums for every 16th tick, `desyncs`, rollback count and average/max rollback depth, stall ticks, and final
   ticks. A desync fails it.
 - `relay --port P --players N --ticks T --log F` and
-  `client --connect HOST:PORT --player I --ticks T [--profile ...]`: separate processes over UDP, for the
+  `client --connect HOST:PORT --slot I --ticks T [--profile ...] [--token HEX]`: separate processes over UDP, for the
   multi-process test.
 - `snapshot --ticks T --out F [--seed S] [--players P]`: run offline to tick T and write a portable snapshot.
   `resume --in F --ticks N --trace F`: restore from that snapshot and continue, tracing.
@@ -56,7 +56,7 @@ procs in-process):
 - JSON fields (extra fields are fine):
   - `synctest`: `mismatches`.
   - `session`: `desyncs` (relay-detected mismatches) and `clients`, a list with one object per client. `client`
-    prints that same object as its whole JSON line, and `relay` prints `desyncs`. A client object has `player`,
+    prints that same object as its whole JSON line, and `relay` prints `desyncs`. A client object has `slot`, `member`,
     `final_tick` (last verified tick, = N on success), `checksums` (`[[tick, "%016x"], ...]` for every verified tick
     divisible by 16; a late joiner starts at its first verified one), `rollbacks`, `rollback_depth_avg`,
     `rollback_depth_max`, `stall_ticks`, and optionally `desyncs`.
@@ -75,11 +75,13 @@ calls each one explicitly; tests are named for what they check; no platform assu
 ### Where things are
 
 - **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `scripted_input`, optional
-  `scripted_commands(seed, player, tick, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
+  `scripted_commands(seed, slot, tick, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
   (`run_sim`, `run_synctest`, `run_interleaved`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
-  only this. Scripted commands go into offline runs as the relay places them (at most 4 of a player per tick, the
-  rest in the next ticks, in order) and every session client sends them through the netcode; a resume starts with
-  none waiting.
+  only this. In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/SPEC.md`,
+  Players); `run_synctest`'s `seats` (`Seat{tick, slot, member}`, member 0: nobody) change who holds a slot.
+  Scripted commands go into offline runs as the relay places them (at most 4 of a slot per tick, the rest in the
+  next ticks, in order; a leaver's waiting ones go) and every session client sends them through the netcode; a
+  resume starts with none waiting.
 - **`unified:headless/modes`** (`src/headless/modes/`): argument parsing, the modes, the file I/O, the bench and the
   online modes; only headless binaries import it.
 - **`unified:headless/scenarios`** (`src/headless/scenarios/`): the standard scenarios, one proc each. A test-only
@@ -114,6 +116,7 @@ Reference :: struct {
 | Proc | Passes when |
 |---|---|
 | `rollback_every_tick(t, suite, window = 8)` | restoring `window` (at most `headless.max_window(game)`) ticks back and re-simulating, every tick: 0 mismatches |
+| `presence_churn(t, suite, window = 8)` | players come and go under `rollback_every_tick` (slot 0's player leaves, someone new takes slot 0, a slot empties and the first player comes back there): 0 mismatches, the newcomer is someone else, the one who came back has their handle and a returning join event |
 | `runs_match(t, suite)` | two scripted runs alive at once (`run_interleaved`: the second created halfway through the first, then stepped alongside it and on after it is destroyed): every tick equal. Catches state instances share (a global, a library's static), which back-to-back runs miss |
 | `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
 | `session_log_replays(t, suite, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
@@ -136,7 +139,8 @@ four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_ag
 
 The toy's suite calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc
 once: it proves the library. A game's suite runs the minimal set that proves the game (`rollback_every_tick`, 4
-clients under `bad`, a late joiner, the reference run's replay and resume) and puts the rest in `when scenarios.LONG`.
+clients under `bad`, a late joiner, `presence_churn`, the reference run's replay and resume) and puts the rest in
+`when scenarios.LONG`.
 
 ### Running
 

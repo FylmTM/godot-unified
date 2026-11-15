@@ -85,10 +85,12 @@ func _initialize() -> void:
 	root.add_child(session)
 	var events: Array[Array] = []  # [event, state]
 	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void: events.append([event, state]))
+	var roster_changes := [0]
+	session.roster_changed.connect(func() -> void: roster_changes[0] += 1)
 	check("view_root before it is set: the session's parent", session.view_root == root)
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
-	check("no session: no local player", session.get_local_player() == -1)
+	check("no session: no local player", session.get_local_player() == 0 and session.get_players().is_empty())
 	var early := CommandBump.new()
 	early.amount = 1
 	check("send_command without a session: false", not session.send_command(early))
@@ -115,8 +117,10 @@ func _initialize() -> void:
 	check("2D rotation = angle about Z", near((typed as Node2D).rotation, ANGLE_2D), (typed as Node2D).rotation)
 	check("_sim_update(Vector2, rotation, alpha)", typed.get("last_position").is_equal_approx(POS_2D) \
 		and near(typed.get("last_rotation"), ANGLE_2D), [typed.get("last_position"), typed.get("last_rotation")])
-	check("the marker: kind from the scene, player and entity from the host", marker.player == 0 \
-		and marker.kind == "typed2d" and marker.entity == 0, [marker.player, marker.kind, marker.entity])
+	var me := session.get_local_player()
+	check("the marker: kind from the scene, player (its key) and entity from the host", me != 0 \
+		and marker.player == me and marker.kind == "typed2d" and marker.entity == 0,
+		[me, marker.player, marker.kind, marker.entity])
 	var plain := child_of_kind(views, "plain2d")
 	check("plain Node2D view", plain != null and (plain.get("marker") as UnifiedView).entity == 7 \
 		and plain.get("updates") > 0 and (plain as Node2D).position.is_equal_approx(POS_2D + Vector2(10, 0)), plain)
@@ -125,7 +129,7 @@ func _initialize() -> void:
 		and near(p3.rotation.y, YAW_3D) and near(p3.get("last_yaw"), YAW_3D), [p3.position, p3.rotation] if p3 else null)
 	var hud := child_of_kind(views, "hud") as Control
 	check("Control view: data only, no pose", hud != null and hud.position == Vector2.ZERO and hud.get("x") > 0, hud)
-	check_events(events, typed)
+	check_events(events, typed, me)
 	check("scene data as properties (an enum by name)", typed.get("shown") and typed.get("mode") == &"open" and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
@@ -133,8 +137,7 @@ func _initialize() -> void:
 	check("scene data set only when it changes", typed.get("hp_sets") == 1 and typed.get("ticks_sets") > 2,
 		[typed.get("hp_sets"), typed.get("ticks_sets")])
 	check("one latched press spawned one thing", hud.get("spawned") == 1, hud.get("spawned"))
-	check("the local player and its name", session.get_local_player() == 0 and session.get_player_name(0) == "player",
-		[session.get_local_player(), session.get_player_name(0)])
+	check_players(session, me, roster_changes[0])
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -169,23 +172,41 @@ func _initialize() -> void:
 	finish(session)
 
 
+# The session's players, by key: the local one in slot 0, present and remembered, named from the roster; no platform
+# account in single player; an unknown key answers nothing.
+func check_players(session: UnifiedSession, me: int, roster_changes: int) -> void:
+	check("get_players / get_known_players: the local player", session.get_players() == [me] \
+		and session.get_known_players() == [me], [session.get_players(), session.get_known_players()])
+	check("get_player_slot / is_player_present", session.get_player_slot(me) == 0 and session.is_player_present(me) \
+		and session.get_player_slot(me + 1) == -1 and not session.is_player_present(0),
+		[session.get_player_slot(me), session.get_player_slot(me + 1)])
+	var nobody := me + 0x10000  # another member id: nobody the session knows
+	check("the local player's name from the roster", session.get_player_name(me) == "player" \
+		and session.get_player_name(nobody) == "", [session.get_player_name(me), session.get_player_name(nobody)])
+	check("no platform account in single player", session.get_player_platform(me) == "" \
+		and session.get_player_platform_id(me) == "", [session.get_player_platform(me), session.get_player_platform_id(me)])
+	check("roster_changed when the roster came", roster_changes > 0, roster_changes)
+
+
 # The events: every one on the sim_event signal as an object of its class, EMITTED once and then CONFIRMED or
 # CANCELLED once, its fields typed properties; the subject's view gets them too (the player's view: the toy's
 # things have no scene view, so `Spawned` falls back to its player).
-func check_events(events: Array[Array], typed: Node) -> void:
+func check_events(events: Array[Array], typed: Node, me: int) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
-	var joined := events.filter(func(e: Array) -> bool: return e[0] is EventJoined)
-	check("sim_event: EventJoined, player 0, tick 1", joined.size() > 0 and (joined[0][0] as EventJoined).player == 0 \
-		and (joined[0][0] as EventJoined).tick == 1, joined)
-	check("Joined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
+	var joined := events.filter(func(e: Array) -> bool: return e[0] is EventPlayerJoined)
+	var join := joined[0][0] as EventPlayerJoined if joined.size() > 0 else null
+	check("sim_event: EventPlayerJoined, the local player in slot 0 at tick 1, new", join != null \
+		and join.player == me and join.slot == 0 and not join.returning and join.tick == 1,
+		[join.player, join.slot, join.returning, join.tick] if join else joined)
+	check("PlayerJoined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
 	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned)
 	var first := spawned[0][0] as EventSpawned if spawned.size() > 0 else null
 	check("Spawned: a handle as its key, the position a Vector2 in view units, the enum by name",
 		first != null and first.thing > 0 and first.position.x > 1 and first.shape in [&"dot", &"ring", &"star"] \
-		and first.player == 0, [first.thing, first.position, first.shape, first.player] if first else null)
+		and first.player == me, [first.thing, first.position, first.shape, first.player] if first else null)
 	check("Spawned: emitted, then confirmed", spawned.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
 	var expired := events.filter(func(e: Array) -> bool: return e[0] is EventExpired)
@@ -193,7 +214,7 @@ func check_events(events: Array[Array], typed: Node) -> void:
 		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as EventExpired).thing == first.thing,
 		expired)
 	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool:
-		return e[0] is EventJoined or e[0] is EventSpawned)
+		return e[0] is EventPlayerJoined or e[0] is EventSpawned)
 	check("the player's view gets its events in both states", on_view.size() >= 4, typed.get("events"))
 
 
@@ -220,7 +241,7 @@ func check_commands(session: UnifiedSession, hud: Control) -> void:
 	var bad_shape := CommandMark.new()
 	bad_shape.shape = &"hexagon"
 	check("not an enum member: refused", not session.send_command(bad_shape))
-	check("an event is not a command", not session.send_command(EventJoined.new()))
+	check("an event is not a command", not session.send_command(EventPlayerJoined.new()))
 	for i in 100:
 		await create_timer(0.02).timeout
 		if hud.get("bumps") >= 2 and hud.get("marks") >= 1:

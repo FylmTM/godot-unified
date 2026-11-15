@@ -4,7 +4,8 @@ package __GAME__
 
 import "unified:sim"
 
-PLAYERS :: 4
+PLAYERS :: 4 // input slots: who is in the session at once
+MEMBERS :: 8 // the people the session remembers (sim.Presence): who leaves gets their spot back when they return
 TICK_HZ :: 64 // a power of two: dt is exact
 DT :: f32(1) / TICK_HZ
 
@@ -20,6 +21,14 @@ GAME := Game {
 	world_destroy = world_destroy,
 	init          = init,
 	tick          = tick,
+	events        = Event,
+}
+
+// Events (unified's src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes. The library's
+// join and leave are always listed (EventPlayerJoined, EventPlayerLeft).
+Event :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
 }
 
 world_create :: proc(seed: u64, content: []u8) -> ^World {

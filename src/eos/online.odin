@@ -354,12 +354,41 @@ link :: proc() -> (net_link: netcode.Link, ok: bool) {
 		return
 	}
 	return {
-			data  = online,
-			send  = link_send,
-			recv  = link_recv,
-			close = link_close,
-			event = link_event,
+			data    = online,
+			send    = link_send,
+			recv    = link_recv,
+			close   = link_close,
+			event   = link_event,
+			account = link_account,
 		}, true
+}
+
+// The account behind a peer: the remote's product user id, which EOS authenticated (what the relay knows a person
+// by, src/netcode/SPEC.md).
+@(private)
+link_account :: proc(data: rawptr, peer: netcode.Peer) -> (account: netcode.Account, ok: bool) {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if int(peer) < 0 || int(peer) >= MAX_REMOTES || !online.remotes[peer].used {
+		return
+	}
+	@(static) id: [PRODUCTUSERID_MAX_LENGTH + 1]u8
+	id = online.remotes[peer].id_str
+	return {platform = PLATFORM, id = cstr(id[:])}, true
+}
+
+PLATFORM :: "eos" // the platform name of EOS accounts (netcode.Account)
+
+// The local user's account (logged in: its product user id; ok = false before): the host's own player's.
+local_account :: proc() -> (account: netcode.Account, ok: bool) {
+	online := &session
+	sync.guard(&online.mu)
+	if online.local == nil {
+		return
+	}
+	@(static) id: [PRODUCTUSERID_MAX_LENGTH + 1]u8
+	id_to_string(online, online.local, id[:])
+	return {platform = PLATFORM, id = cstr(id[:])}, true
 }
 
 // --- transport shape (godot_host.Transport) -----------------------------------------------------

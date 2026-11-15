@@ -26,11 +26,10 @@ Sim_Class :: struct {
 // One property of a Sim_Class: a field of the struct.
 @(private)
 Sim_Field :: struct {
-	name:      string,
-	type:      ^runtime.Type_Info,
-	offset:    int,
-	kind:      gdi.VariantType,
-	is_player: bool, // an integer field named `player`: sim.NO_PLAYER reads as -1
+	name:   string,
+	type:   ^runtime.Type_Info,
+	offset: int,
+	kind:   gdi.VariantType,
 }
 
 // An instance: the event's or command's struct bytes.
@@ -86,7 +85,7 @@ rune_upper :: proc(r: rune) -> rune {
 @(private)
 field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
 	if type.id == sim.Position do return api.is_2d ? .VECTOR2 : .VECTOR3
-	if is_handle(type) do return .INT
+	if is_handle(type) || type.id == sim.Player do return .INT
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		return .INT
@@ -176,11 +175,10 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 		if strings.has_prefix(field_name, "_") do continue
 		field_type := info.types[i]
 		append(&fields, Sim_Field {
-			name      = field_name,
-			type      = field_type,
-			offset    = int(info.offsets[i]),
-			kind      = field_kind(field_type),
-			is_player = field_name == "player" && is_integer(field_type),
+			name   = field_name,
+			type   = field_type,
+			offset = int(info.offsets[i]),
+			kind   = field_kind(field_type),
 		})
 	}
 	sim_class.fields = fields[:]
@@ -201,9 +199,7 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Sim_Object)(instance)
-	bytes := object.data[field.offset:][:field.type.size]
-	if field.is_player && read_uint(bytes) == u64(sim.NO_PLAYER) do return gd.to_variant(i64(-1))
-	return field_variant(field.type, bytes, api.is_2d)
+	return field_variant(field.type, object.data[field.offset:][:field.type.size], api.is_2d)
 }
 
 @(private)

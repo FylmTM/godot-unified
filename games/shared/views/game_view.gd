@@ -18,10 +18,10 @@ var kind: String:
 var entity: int:
 	get:
 		return marker.entity if marker != null else 0
-## The player it shows (0..); -1 for an entity that isn't a player.
+## The key of the player it shows (the same while they are in the session); 0 for an entity that isn't a player.
 var player: int:
 	get:
-		return marker.player if marker != null else -1
+		return marker.player if marker != null else 0
 
 
 func _notification(what: int) -> void:

@@ -32,7 +32,7 @@ seeded_world_state_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) {
 	game := bug_game("world_not_rolled_back", tick = proc(tick: ^Bug_Tick) {
 			toy_tick(tick)
 			tick.world.ticks_run += 1
-			tick.state.score[0] += i32(tick.world.ticks_run % 3)
+			if data := toy.in_slot(tick.state, 0); data != nil do data.score += i32(tick.world.ticks_run % 3)
 		})
 	bugged := bug_headless(&game)
 	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
@@ -50,7 +50,7 @@ seeded_shared_state_is_caught_by_runs_match :: proc(t: ^testing.T) {
 	game := bug_game("shared_between_instances", tick = proc(tick: ^Bug_Tick) {
 			toy_tick(tick)
 			shared_ticks += 1
-			tick.state.score[0] += i32(shared_ticks % 3)
+			if data := toy.in_slot(tick.state, 0); data != nil do data.score += i32(shared_ticks % 3)
 		}, world_create = proc(seed: u64, _: []u8) -> ^Bug_World {
 			shared_ticks = 0
 			return new(Bug_World)
@@ -91,12 +91,16 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 // The toy's tick on the toy's part of the World.
 toy_tick :: proc(tick: ^Bug_Tick) {
 	inner := toy.Tick {
-		state  = tick.state,
-		world  = &tick.world.toy,
-		number = tick.number,
-		seed   = tick.seed,
-		inputs = tick.inputs,
-		events = tick.events,
+		state    = tick.state,
+		world    = &tick.world.toy,
+		number   = tick.number,
+		seed     = tick.seed,
+		inputs   = tick.inputs,
+		events   = tick.events,
+		joined   = tick.joined,
+		returned = tick.returned,
+		left     = tick.left,
+		presence = tick.presence,
 	}
 	toy.tick(&inner)
 }
@@ -132,8 +136,8 @@ bug_init :: proc(state: ^toy.State, world: ^Bug_World, seed: u64) {
 bug_headless :: proc(game: ^Bug_Game) -> Bug_Headless {
 	return Bug_Headless {
 		game = game,
-		scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-			return toy.scripted_input(seed, player, tick)
+		scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+			return toy.scripted_input(seed, slot, tick)
 		},
 	}
 }

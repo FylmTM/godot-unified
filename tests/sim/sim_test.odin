@@ -235,13 +235,15 @@ plain_data_check :: proc(t: ^testing.T) {
 	testing.expect(t, sim.layout_hash(toy.State) != sim.layout_hash(Padded))
 }
 
+// Steps with slots 0 ..< players present (slot i is member i + 1, joining when nobody holds the slot).
 run :: proc(simulation: ^toy.Sim, ticks: u32, players := 4) {
 	for _ in 0 ..< ticks {
 		number := simulation.tick + 1
 		inputs: toy.Inputs
-		for player in 0 ..< players {
-			inputs.present += {player}
-			inputs.input[player] = toy.scripted_input(simulation.seed, player, number)
+		for slot in 0 ..< players {
+			inputs.present += {slot}
+			if sim.slot_player(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
+			inputs.input[slot] = toy.scripted_input(simulation.seed, slot, number)
 		}
 		sim.step(simulation, &inputs)
 	}
@@ -304,7 +306,7 @@ restore_drops_the_later_ticks :: proc(t: ^testing.T) {
 // How many players the step to `tick` saw leave.
 left_events :: proc(simulation: ^toy.Sim, tick: u32) -> (count: int) {
 	for &raw in sim.events_at(simulation, tick) {
-		_, is_left := sim.event_value(&raw, toy.Event).(toy.Event_Left)
+		_, is_left := sim.event_value(&raw, toy.Event).(sim.Event_Player_Left)
 		count += int(is_left)
 	}
 	return
@@ -376,16 +378,22 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		Not_Plain,
 	}
 	No_Nil :: union #no_nil {
-		toy.Event_Joined,
-		toy.Event_Left,
+		sim.Event_Player_Joined,
+		sim.Event_Player_Left,
+	}
+	No_Leave :: union {
+		sim.Event_Player_Joined,
+		toy.Event_Expired,
 	}
 	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, toy.Event), "")
-	testing.expect(t, sim.game_violation("toy", 64, Big_Union, nil) != "")
+	testing.expect(t, sim.game_violation("toy", 64, Big_Union, toy.Event) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
-	testing.expect(t, sim.game_violation("toy", 60, nil, nil) != "") // not a power of two
-	testing.expect(t, sim.game_violation("toy", 256, nil, nil) != "") // above 128
-	testing.expect(t, sim.game_violation("toy", 16, nil, nil) != "") // below 32
+	testing.expect(t, sim.game_violation("toy", 64, nil, No_Leave) != "") // the library's join and leave are listed
+	testing.expect(t, sim.game_violation("toy", 64, nil, nil) != "")
+	testing.expect(t, sim.game_violation("toy", 60, nil, toy.Event) != "") // not a power of two
+	testing.expect(t, sim.game_violation("toy", 256, nil, toy.Event) != "") // above 128
+	testing.expect(t, sim.game_violation("toy", 16, nil, toy.Event) != "") // below 32
 }
 
 @(test)
@@ -393,7 +401,10 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 	commands := sim.command_names(toy.Cmd, context.temp_allocator)
 	testing.expect(t, len(commands) == 2 && commands[0] == "bump" && commands[1] == "mark")
 	events := sim.event_names(toy.Event, context.temp_allocator)
-	testing.expect(t, len(events) == 4 && events[0] == "joined" && events[2] == "spawned" && events[3] == "expired")
+	testing.expect(
+		t,
+		len(events) == 4 && events[0] == "player_joined" && events[1] == "player_left" && events[3] == "expired",
+	)
 	// an event type may carry an Event_ prefix: the name leaves it out, like a command's Cmd_
 	prefixed := sim.event_names(Prefixed_Events, context.temp_allocator)
 	testing.expect(t, len(prefixed) == 2 && prefixed[0] == "rock_hit" && prefixed[1] == "plain")
@@ -417,25 +428,29 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 1)
 	defer sim.destroy(simulation)
 	inputs: toy.Inputs
-	inputs.present = {0, 2}
+	sim.join(&inputs, 0, 1)
+	sim.join(&inputs, 2, 7)
 	inputs.input[0].buttons = 1
 	sim.step(simulation, &inputs)
 	events := sim.events_at(simulation, 1)
-	testing.expect_value(t, len(events), 3) // joined 0, spawned by 0, joined 2
+	testing.expect_value(t, len(events), 3) // joined 0, joined 2 (the library's, first), spawned by 0
 	if len(events) != 3 do return
-	joined, is_joined := sim.event_value(&events[0], toy.Event).(toy.Event_Joined)
-	testing.expect(t, is_joined && joined.player == 0)
-	spawned, is_spawned := sim.event_value(&events[1], toy.Event).(toy.Event_Spawned)
-	testing.expect(t, is_spawned && spawned.player == 0)
+	joined, is_joined := sim.event_value(&events[0], toy.Event).(sim.Event_Player_Joined)
+	testing.expect(t, is_joined && joined.slot == 0 && joined.player.id == 1 && !joined.returning)
+	second := sim.event_value(&events[1], toy.Event).(sim.Event_Player_Joined)
+	testing.expect(t, second.slot == 2 && second.player.id == 7)
+	spawned, is_spawned := sim.event_value(&events[2], toy.Event).(toy.Event_Spawned)
+	testing.expect(t, is_spawned && spawned.player == joined.player)
 	thing := sim.get(&simulation.state.things, spawned.thing)
 	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, 0, thing.pos.y})
-	testing.expect_value(t, sim.event_value(&events[2], toy.Event).(toy.Event_Joined).player, 2)
+	inputs = {}
 	inputs.present = {0}
+	inputs.input[0].buttons = 1
 	sim.step(simulation, &inputs)
 	events = sim.events_at(simulation, 2)
-	testing.expect_value(t, len(events), 2) // spawned by 0 (button still down), left 2
-	_, is_left := sim.event_value(&events[1], toy.Event).(toy.Event_Left)
-	testing.expect(t, is_left)
+	testing.expect_value(t, len(events), 2) // left 2, spawned by 0 (button still down)
+	left, is_left := sim.event_value(&events[0], toy.Event).(sim.Event_Player_Left)
+	testing.expect(t, is_left && left.player == second.player && left.slot == 2)
 	// Re-simulating tick 2 with other inputs replaces its events.
 	testing.expect(t, sim.restore(simulation, 1))
 	inputs.present = {0, 2}
@@ -465,24 +480,26 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 50 {
 		inputs: toy.Inputs
 		inputs.present = {0, 1}
+		if k == 0 || k == 30 do sim.join(&inputs, 1, k + 2) // a join record, and another member later
 		inputs.replaced = {1} if k % 7 == 0 else {}
 		inputs.input[0] = toy.scripted_input(99, 0, u32(k + 1))
 		inputs.input[1] = toy.scripted_input(99, 1, u32(k + 1))
 		if k % 5 == 0 {
 			bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(k)})
-			bump.player = 1
+			bump.slot = 1
 			sim.add_command(&inputs, bump)
 			mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
-			sim.add_command(&inputs, mark) // player 0: goes before player 1's
+			sim.add_command(&inputs, mark) // slot 0: goes before slot 1's
 		}
 		sim.log_append(&input_log, &inputs)
 	}
 	data := sim.log_encode(&input_log)
 	defer delete(data)
-	// an empty tick costs one byte for its command count; a command, 3 bytes plus its struct
+	// an empty tick costs one byte for its command count and one for its join count; a command, 3 bytes plus its
+	// struct; a join record 3
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
-	tick_bytes := 9 + size_of([toy.PLAYERS]toy.Input)
-	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes)
+	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
+	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES)
 	back, ok := sim.log_decode(data, toy.Input, toy.PLAYERS)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
@@ -493,9 +510,10 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 50 {
 		decoded, original := sim.log_inputs(&back, k), sim.log_inputs(&input_log, k)
 		testing.expect(t, sim.inputs_same(&decoded, &original) && decoded.replaced == original.replaced)
+		testing.expect_value(t, decoded.member[1], u16(k + 2) if k == 0 || k == 30 else 0)
 		if k % 5 == 0 {
 			commands := decoded.commands
-			testing.expect(t, decoded.command_count == 2 && commands[0].player == 0 && commands[1].player == 1)
+			testing.expect(t, decoded.command_count == 2 && commands[0].slot == 0 && commands[1].slot == 1)
 		}
 	}
 	_, bad := sim.log_decode(data[:len(data) - 1], toy.Input, toy.PLAYERS)
@@ -690,7 +708,7 @@ content_identity :: proc(t: ^testing.T) {
 	defer sim.destroy(simulation)
 	testing.expect_value(t, simulation.content_hash, sim.content_hash(level_a))
 	inputs: toy.Inputs
-	inputs.present = {0}
+	sim.join(&inputs, 0, 1)
 	sim.step(simulation, &inputs)
 	snap := sim.snapshot_encode(simulation, 1)
 	defer delete(snap)
@@ -720,24 +738,4 @@ content_identity :: proc(t: ^testing.T) {
 	snap[4] = u8(sim.SNAP_VERSION - 1)
 	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)
 	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
-}
-
-@(test)
-presence_changes_reports_joins_and_leaves :: proc(t: ^testing.T) {
-	inputs: sim.Inputs(toy.Input, toy.PLAYERS)
-	tick := toy.Tick {
-		inputs = &inputs,
-	}
-	present: sim.Players
-	inputs.present = {0, 2}
-	joined, left := sim.presence_changes(&tick, &present)
-	testing.expect_value(t, joined, sim.Players{0, 2})
-	testing.expect_value(t, left, sim.Players{})
-	testing.expect_value(t, present, sim.Players{0, 2})
-	inputs.present = {2, 3}
-	joined, left = sim.presence_changes(&tick, &present)
-	testing.expect_value(t, joined, sim.Players{3})
-	testing.expect_value(t, left, sim.Players{0})
-	joined, left = sim.presence_changes(&tick, &present)
-	testing.expect_value(t, joined | left, sim.Players{})
 }
