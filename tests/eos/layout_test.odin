@@ -103,6 +103,11 @@ LAYOUTS := []Layout {
 		"EOS_P2P_AcceptConnectionOptions",
 		"ApiVersion LocalUserId RemoteUserId SocketId",
 	},
+	{
+		eos.P2P_Accept_Connection_Options,
+		"EOS_P2P_CloseConnectionOptions",
+		"ApiVersion LocalUserId RemoteUserId SocketId",
+	},
 	{eos.P2P_Set_Relay_Control_Options, "EOS_P2P_SetRelayControlOptions", "ApiVersion RelayControl"},
 	{
 		eos.P2P_Set_Packet_Queue_Size_Options,
@@ -189,6 +194,7 @@ CONSTANTS := []Constant {
 	{"EOS_P2P_ADDNOTIFYPEERCONNECTIONCLOSED_API_LATEST", eos.P2P_ADDNOTIFYPEERCONNECTIONCLOSED_API_LATEST},
 	{"EOS_P2P_CLOSECONNECTIONS_API_LATEST", eos.P2P_CLOSECONNECTIONS_API_LATEST},
 	{"EOS_P2P_ACCEPTCONNECTION_API_LATEST", eos.P2P_ACCEPTCONNECTION_API_LATEST},
+	{"EOS_P2P_CLOSECONNECTION_API_LATEST", eos.P2P_CLOSECONNECTION_API_LATEST},
 	{"EOS_P2P_SETRELAYCONTROL_API_LATEST", eos.P2P_SETRELAYCONTROL_API_LATEST},
 	{"EOS_P2P_SETPACKETQUEUESIZE_API_LATEST", eos.P2P_SETPACKETQUEUESIZE_API_LATEST},
 	{"EOS_PR_UnreliableUnordered", i64(eos.Packet_Reliability.Unreliable_Unordered)},
