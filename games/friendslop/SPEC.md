@@ -26,7 +26,7 @@ rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`),
 
 No health, no fail state: getting hit or dropped costs time, not a life.
 
-**Players** (`src/sim/SPEC.md` "Players"): the State's `players` is a `sim.Presence` of `Character` (8 remembered
+**Players** (`src/sim/SPEC.md` "Players"): the State's `players` is a `sim.Players` of `Character` (8 remembered
 members for 4 slots). A player who joins, or comes back, gets a fresh body at their slot's spawn (or the team's
 checkpoint, spread by slot); one who leaves lets go of what they hold and is let go of, and their body goes. Whatever
 names a player names the person (`sim.Player`), never the slot: who holds a grab point or a friend, an item's

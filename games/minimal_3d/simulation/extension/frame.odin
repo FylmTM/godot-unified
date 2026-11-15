@@ -62,7 +62,7 @@ fill_frame_players :: proc(f: ^Frame) {
 fill_frame_balls :: proc(f: ^Frame) {
 	balls := sim.iterate(&f.state.balls)
 	for ball, handle in sim.next(&balls) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key   = sim.handle_key(handle),
 			kind  = .Ball,
 			pos   = {ball.pos.x, ball.height, ball.pos.y},

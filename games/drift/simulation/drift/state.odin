@@ -11,7 +11,6 @@ DT :: f32(1) / TICK_HZ
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 
 PLAYERS :: 4
-MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence): a returning player keeps their ship's data
 MAX_ROCKS :: 128
 MAX_BULLETS :: 256
 MAX_GEMS :: 64
@@ -141,7 +140,7 @@ Phase :: enum u8 {
 	Over,
 }
 
-// A player's ship (their data in sim.Presence): zeroed when someone new joins, kept while they are away. Its body
+// A player's ship (their data in sim.Players): zeroed when someone new joins, kept while they are away. Its body
 // exists only while the player is present (destroyed when they leave, made again at their slot's spawn when they
 // come back).
 Ship :: struct {
@@ -200,7 +199,7 @@ State :: struct {
 	gems_dropped:   u32, // every other small rock drops a gem
 	_pad1:          u32, // the Rng's u64 is 8-byte aligned
 	rng:            sim.Rng, // the waves' stream
-	players:        sim.Presence(Ship, PLAYERS, MEMBERS),
+	players:        sim.Players(Ship, PLAYERS),
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),
 	bullets:        sim.Table(Bullet, MAX_BULLETS),

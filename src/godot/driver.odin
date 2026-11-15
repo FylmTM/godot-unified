@@ -295,12 +295,12 @@ install :: proc(
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
-		presence, _ := sim.presence_layout_of(type_info_of(State), PLAYERS)
+		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS)
 		for &frame in driver.frames.slots {
 			frame.views = make([]View_Out, max_views)
 			frame.multis = make([]Multi_Out, max_multi)
 			frame.data = make([]u8, data_bytes)
-			frame.members = make([]u64, presence.members)
+			frame.members = make([]u64, players_layout.members)
 		}
 		roster_reset()
 		pose_memory_init(&driver.poses, max_views, max_multi)

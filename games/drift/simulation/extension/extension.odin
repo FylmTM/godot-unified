@@ -225,7 +225,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos, rotation := physics.pose_2d(f.world.phys, rock.body)
 		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
 		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
 			pos    = pixels(pos, px_per_m),
@@ -239,7 +239,7 @@ fill_frame :: proc(f: ^Frame) {
 	bullets := sim.iterate(&f.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
 		owner_slot, _ := sim.player_slot(&f.state.players, bullet.owner)
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
 			pos    = pixels(bullet.pos, px_per_m),
@@ -254,7 +254,7 @@ fill_frame :: proc(f: ^Frame) {
 		age := f32(f.tick - gem.spawn_tick) / dr.TICK_HZ
 		pulse := math.sin(age * 6) * 0.18
 		fade := clamp((f32(dr.GEM_LIFE_S) - age) / 2, 0, 1)
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = pixels(gem.pos, px_per_m),
@@ -313,7 +313,7 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Hud) {
 	}
 	for slot in 0 ..< dr.PLAYERS {
 		player := sim.player_in_slot(&state.players, slot)
-		ship := sim.player_get(&state.players, player)
+		ship := sim.player_data(&state.players, player)
 		if ship == nil do continue
 		hud.players[slot] = {
 			player  = player,

@@ -150,7 +150,7 @@ scripted :: proc(run: ^Run) -> (input: [dr.PLAYERS]dr.Input) {
 // The ship of whoever holds `slot` (nil: nobody).
 ship_in_slot :: proc(run: ^Run, slot: int) -> ^dr.Ship {
 	players := &run.simulation.state.players
-	return sim.player_get(players, sim.player_in_slot(players, slot))
+	return sim.player_data(players, sim.player_in_slot(players, slot))
 }
 
 @(test)
@@ -247,25 +247,25 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 		if each.owner == first do bullet = handle
 	}
 	testing.expect(t, sim.get(&state.bullets, bullet) != nil, "slot 0 fired")
-	testing.expect_value(t, sim.player_get(&state.players, first).shots, 1)
+	testing.expect_value(t, sim.player_data(&state.players, first).shots, 1)
 
 	run.seated[0] = 0 // A leaves
 	step(&run, {})
 	testing.expect(t, !sim.player_present(&state.players, first), "A is away")
-	testing.expect_value(t, sim.player_get(&state.players, first).body, physics.Body_Ref{}) // no body while away
+	testing.expect_value(t, sim.player_data(&state.players, first).body, physics.Body_Ref{}) // no body while away
 	testing.expect_value(t, sim.get(&state.bullets, bullet).owner, first)
 
 	run.seated[0] = 100 // someone new in A's slot
 	step(&run, {})
 	newcomer := sim.slot_player(run.simulation, 0)
 	testing.expect(t, newcomer != {} && newcomer != first, "a new player in slot 0")
-	testing.expect_value(t, sim.player_get(&state.players, newcomer).shots, 0)
+	testing.expect_value(t, sim.player_data(&state.players, newcomer).shots, 0)
 	testing.expect_value(t, sim.get(&state.bullets, bullet).owner, first)
 
 	run.seated[2] = 1 // A comes back in another slot
 	step(&run, {})
 	testing.expect_value(t, sim.slot_player(run.simulation, 2), first)
-	ship := sim.player_get(&state.players, first)
+	ship := sim.player_data(&state.players, first)
 	testing.expect_value(t, ship.shots, 1)
 	testing.expect(t, ship.body != {}, "A's ship has a body again")
 	pos, _ := physics.pose_2d(run.simulation.world.phys, ship.body)

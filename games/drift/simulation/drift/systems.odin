@@ -23,24 +23,24 @@ tick :: proc(t: ^Tick) {
 
 // ---- presence and commands
 
-// The library has applied the tick's joins and leaves (sim.Presence): a player who left loses their ship's body, one
+// The library has applied the tick's joins and leaves (sim.Players): a player who left loses their ship's body, one
 // who joined (a zeroed ship) or came back (their ship as they left it) gets one at their slot's spawn.
 presence :: proc(t: ^Tick) {
-	for player in t.left {
+	for player in t.player_changes.left {
 		// still known: the library never forgets a member on the tick it leaves
-		ship := sim.player_get(&t.state.players, player)
+		ship := sim.player_data(&t.state.players, player)
 		physics.destroy_body(t.world.phys, &ship.body)
 		ship.thrust = false
 	}
-	for player in t.joined do spawn_ship(t, player)
-	for player in t.returned do spawn_ship(t, player)
+	for player in t.player_changes.joined do spawn_ship(t, player)
+	for player in t.player_changes.returned do spawn_ship(t, player)
 }
 
 // Applies this tick's commands: `start` begins a match from the lobby, `restart` resets an over match at once.
 // Either is ignored outside its phase.
 spawn_ship :: proc(t: ^Tick, player: sim.Player) {
 	slot, _ := sim.player_slot(&t.state.players, player)
-	create_ship(t.world, sim.player_get(&t.state.players, player), t.world.spawns[slot])
+	create_ship(t.world, sim.player_data(&t.state.players, player), t.world.spawns[slot])
 	sim.emit(t, Event_Spawned{position = position_of(t.world.spawns[slot]), player = player})
 }
 

@@ -20,7 +20,7 @@ Run :: struct {
 	forward:     [dynamic]u64,
 	mismatches:  int,
 	counts:      [256]int, // events of the forward ticks, by kind (event_count)
-	present:     sim.Players,
+	present:     sim.Slots,
 	joins:       [fs.PLAYERS]u16, // join records for the next step (a member id per slot; 0: none)
 	floor:       u32, // the sync-test never restores before this tick (a setup changed it)
 	setup_index: int, // a setup's arguments (tests run on several threads: no globals)
@@ -99,7 +99,7 @@ player_in :: proc(run: ^Run, slot: int) -> sim.Player {
 
 // The data of whoever holds `slot` (nil: nobody).
 character :: proc(run: ^Run, slot: int) -> ^fs.Character {
-	return sim.player_get(&run.simulation.state.players, player_in(run, slot))
+	return sim.player_data(&run.simulation.state.players, player_in(run, slot))
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {

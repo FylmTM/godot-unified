@@ -48,13 +48,13 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 				player = player,
 				pos    = {data.pos.x, 0, data.pos.y},
 			})
-			godot.push_multi(frame, {
+			godot.push_multi_view(frame, {
 				key  = sim.player_key(player),
 				kind = .Spark,
 				pos  = {data.pos.x, 1, 0},
 			})
 		}
-		if local := sim.player_get(&frame.state.players, frame.local_player); local != nil {
+		if local := sim.player_data(&frame.state.players, frame.local_player); local != nil {
 			sync.atomic_store(&seen.bumps, local.bumps)
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
 		}

@@ -8,13 +8,13 @@ Input :: struct {
 	_pad: [2]u8,
 }
 
-// A player's data (sim.Presence): zeroed when someone new joins, kept while they are away.
+// A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
 Player_Data :: struct {
 	position: [2]f32, // metres, on the ground plane
 }
 
 State :: struct {
-	players: sim.Presence(Player_Data, PLAYERS, MEMBERS), // the session's players: the library keeps who is here
+	players: sim.Players(Player_Data, PLAYERS), // the session's players: the library keeps who is here
 }
 
 // What lives outside the snapshotted state (physics, a level): nothing yet.

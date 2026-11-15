@@ -19,7 +19,7 @@ Raw_Command :: struct {
 }
 
 // The commands sent from `slot` for this tick, in the order sent (inside `tick`, by player: sim.commands(t,
-// player), presence.odin).
+// player), players.odin).
 slot_commands :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int) -> []Raw_Command {
 	count := inputs.command_count
 	low := 0

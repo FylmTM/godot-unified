@@ -36,6 +36,6 @@ paths:
 - Type parameters name their role: `$State, $Input, $World, $PLAYERS`. One letter only for a container's element
   and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
 - `player` is a `sim.Player` handle (a session member, the person) everywhere: fields, parameters, events, views;
-  `players` the State's `sim.Presence`. `slot` is the input index `0 ..< PLAYERS` a player holds while present
+  `players` the State's `sim.Players`. `slot` is the input index `0 ..< PLAYERS` a player holds while present
   (`Inputs`, commands, scripted input, the relay's seats). A ring's or a table's own slot is a `ring_slot` or a
   table index.

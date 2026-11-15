@@ -39,8 +39,8 @@ pixels, with `px_per_m` from the level (32).
 
 ## Rules (each tick, in this order)
 
-1. Presence (src/sim/SPEC.md, Players): a player is a session member (a `sim.Player`), and a ship is their data
-   in the State's `sim.Presence` (`players`, remembering `MEMBERS = 2 × PLAYERS` people). A player who joins (a
+1. Players (src/sim/SPEC.md, Players): a player is a session member (a `sim.Player`), and a ship is their data
+   in the State's `sim.Players` (`players`, remembering 2 × PLAYERS people). A player who joins (a
    zeroed ship) or comes back (their ship as they left it: shots, gems, cooldowns) gets a body at their slot's spawn
    marker (`spawned`). One who leaves loses the body, and keeps the rest until the session forgets them.
 2. Ships: thrust force = `move × 40 N`. Turning sets the angular velocity toward the aim:

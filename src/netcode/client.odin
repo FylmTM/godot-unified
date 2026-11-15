@@ -445,7 +445,7 @@ on_snap_begin :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader:
 on_desync :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^wire.Reader) {
 	report := Desync_Report {
 		tick     = wire.r_u32(reader),
-		diverged = transmute(usim.Players)wire.r_u32(reader),
+		diverged = transmute(usim.Slots)wire.r_u32(reader),
 	}
 	report.detail = string(wire.r_bytes(reader, int(wire.r_u16(reader))))
 	if !reader.ok {

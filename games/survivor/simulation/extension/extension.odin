@@ -166,7 +166,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(enemy.kind),
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
@@ -176,7 +176,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	projectiles := sim.iterate(&f.state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key  = sim.handle_key(handle),
 			kind = .Projectile,
 			pos  = {projectile.pos.x, 0, projectile.pos.z},
@@ -185,7 +185,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		godot.push_multi(f, {
+		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = {gem.pos.x, 0, gem.pos.y},

@@ -22,8 +22,8 @@ JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
 Log_Tick :: struct($Input: typeid, $PLAYERS: int) {
-	present:       Players,
-	replaced:      Players,
+	present:       Slots,
+	replaced:      Slots,
 	input:         [PLAYERS]Input,
 	member:        [PLAYERS]u16, // join records
 	first_command: u32, // index into Input_Log.commands
@@ -97,7 +97,7 @@ join_count :: proc(member: []u16) -> (count: int) {
 // the non-zero ones).
 write_tick :: proc(
 	writer: ^wire.Writer,
-	present, replaced: Players,
+	present, replaced: Slots,
 	input: []u8,
 	commands: []Raw_Command,
 	member: []u16,
@@ -139,12 +139,12 @@ read_tick :: proc(
 	commands: ^[TICK_COMMANDS]Raw_Command,
 	member: []u16,
 ) -> (
-	present, replaced: Players,
+	present, replaced: Slots,
 	count: int,
 	ok: bool,
 ) {
-	present = transmute(Players)wire.r_u32(reader)
-	replaced = transmute(Players)wire.r_u32(reader)
+	present = transmute(Slots)wire.r_u32(reader)
+	replaced = transmute(Slots)wire.r_u32(reader)
 	copy(input, wire.r_bytes(reader, len(input)))
 	count, ok = read_commands(reader, len(member), commands)
 	ok = ok && read_joins(reader, present, member)
@@ -187,7 +187,7 @@ read_commands :: proc(
 
 // Reads a tick's join records written by write_joins into `member` (by slot, zeroed first); false when they are
 // malformed: cut short, a slot out of range, out of order or not present, or member 0.
-read_joins :: proc(reader: ^wire.Reader, present: Players, member: []u16) -> bool {
+read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16) -> bool {
 	for &id in member do id = 0
 	joins := int(wire.r_u8(reader))
 	last := -1

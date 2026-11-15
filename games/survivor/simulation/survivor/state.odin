@@ -9,7 +9,6 @@ DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4 // input slots: the most players in the game at once
-MEMBERS :: 2 * PLAYERS // the people a session remembers (sim.Presence): a returning player keeps their progress
 MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512
 MAX_GEMS :: 1024
@@ -81,7 +80,7 @@ Cmd :: union {
 
 Body_Ref :: physics.Body_Ref
 
-// A player's character and progress (the State's sim.Presence data, by player): zeroed for someone new, kept while
+// A player's character and progress (the State's sim.Players data, by player): zeroed for someone new, kept while
 // they are away (a returning player keeps their level and upgrades). An absent player has no body.
 Character :: struct {
 	body:             Body_Ref,
@@ -236,7 +235,7 @@ State :: struct {
 	tuning:        Tuning_Kind, // the preset `tune` started from
 	_pad:          u8,
 	tune:          Tuning, // the match's tuning values
-	players:       sim.Presence(Character, PLAYERS, MEMBERS),
+	players:       sim.Players(Character, PLAYERS),
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),
 	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),

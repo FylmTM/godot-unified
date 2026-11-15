@@ -7,9 +7,9 @@ MOVE_SPEED :: f32(4) // metres per second at full input
 // Players come and go between ticks (the library updates t.state.players first): someone new starts at their slot's
 // spot; who comes back finds their player where they left it.
 update_players_presence :: proc(t: ^Tick) {
-	for player in t.joined {
+	for player in t.player_changes.joined {
 		slot, _ := sim.player_slot(&t.state.players, player)
-		sim.player_get(&t.state.players, player).position = {f32(slot), 0}
+		sim.player_data(&t.state.players, player).position = {f32(slot), 0}
 	}
 }
 

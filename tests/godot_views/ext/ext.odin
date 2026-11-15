@@ -92,7 +92,7 @@ sample_input :: proc(input: ^toy.Input) {
 
 fill_frame :: proc(frame: ^Frame) {
 	state := frame.state
-	local := sim.player_get(&state.players, frame.local_player)
+	local := sim.player_data(&state.players, frame.local_player)
 	if local == nil do return // before the local player's join tick
 	q2 := view.quat_angle2d(ANGLE_2D)
 	q3 := view.quat_yaw(YAW_3D)
@@ -146,7 +146,7 @@ fill_frame :: proc(frame: ^Frame) {
 	})
 	// the yaw a full turn away every other tick: the shorter arc is no turn at all, so the rotation is exact at any
 	// alpha
-	godot.push_multi(frame, {
+	godot.push_multi_view(frame, {
 		key    = 1,
 		kind   = .Multi2D,
 		pos    = {30, 40, 0},
@@ -155,8 +155,8 @@ fill_frame :: proc(frame: ^Frame) {
 		color  = {1, 0.5, 0.25, 1},
 		custom = {1, 2, 3, 4},
 	})
-	godot.push_multi(frame, {kind = .Multi2D, pos = {-5, 6, 0}}) // no key; color zero: white; scale zero: 1
-	godot.push_multi(frame, {
+	godot.push_multi_view(frame, {kind = .Multi2D, pos = {-5, 6, 0}}) // no key; color zero: white; scale zero: 1
+	godot.push_multi_view(frame, {
 		key   = 2,
 		kind  = .Multi3D,
 		pos   = POS_3D,

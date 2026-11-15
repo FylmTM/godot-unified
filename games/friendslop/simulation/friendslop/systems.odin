@@ -38,7 +38,7 @@ tick :: proc(t: ^Tick) {
 
 // The player's data (nil: nobody, or a member the session forgot).
 character_of :: proc(t: ^Tick, player: sim.Player) -> ^Character {
-	return sim.player_get(&t.state.players, player)
+	return sim.player_data(&t.state.players, player)
 }
 
 // The slot a present player holds (spawn points and parking spots are per slot).
@@ -85,7 +85,7 @@ entity_of :: proc(t: ^Tick, material: u64) -> (entity: Entity) {
 	switch {
 	case material >= MAT_ITEM && material < MAT_ITEM + MAX_ITEMS:
 		return {kind = .Item, item = int(material - MAT_ITEM)}
-	case material >= MAT_PLAYER && material < MAT_PLAYER + MEMBERS:
+	case material >= MAT_PLAYER && material < MAT_PLAYER + CHARACTERS:
 		// A player's body exists only while they are present: the member at that index is its owner.
 		index := int(material - MAT_PLAYER)
 		return {kind = .Player, player = {u16(index), t.state.players.members[index].id}}
@@ -102,14 +102,14 @@ limp :: proc(t: ^Tick, player: sim.Player) {
 // The harness has applied the tick's leaves and joins: a player who left lets go of everything (and is let go
 // of), and their body goes; a player who joined or came back gets a fresh body at their slot's spawn.
 presence :: proc(t: ^Tick) {
-	for player in t.left {
+	for player in t.player_changes.left {
 		release_all(t, player)
 		character := character_of(t, player)
 		physics.character_destroy(t.world.phys, &character.controller)
 		character^ = {}
 	}
-	for player in t.joined do appear(t, player)
-	for player in t.returned do appear(t, player)
+	for player in t.player_changes.joined do appear(t, player)
+	for player in t.player_changes.returned do appear(t, player)
 }
 
 // Where the player (re)appears: their place at the team's last checkpoint during a run, else their hub spawn.

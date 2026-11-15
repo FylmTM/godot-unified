@@ -91,16 +91,14 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 // The toy's tick on the toy's part of the World.
 toy_tick :: proc(tick: ^Bug_Tick) {
 	inner := toy.Tick {
-		state    = tick.state,
-		world    = &tick.world.toy,
-		number   = tick.number,
-		seed     = tick.seed,
-		inputs   = tick.inputs,
-		events   = tick.events,
-		joined   = tick.joined,
-		returned = tick.returned,
-		left     = tick.left,
-		presence = tick.presence,
+		state          = tick.state,
+		world          = &tick.world.toy,
+		number         = tick.number,
+		seed           = tick.seed,
+		inputs         = tick.inputs,
+		events         = tick.events,
+		player_changes = tick.player_changes,
+		players_layout = tick.players_layout,
 	}
 	toy.tick(&inner)
 }

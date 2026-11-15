@@ -3,7 +3,6 @@ package minimal_3d
 import "unified:sim"
 
 PLAYERS :: 4
-MEMBERS :: 8
 TICK_HZ :: 64
 DT :: f32(1) / TICK_HZ
 

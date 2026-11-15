@@ -68,7 +68,7 @@ Wait_Command :: struct {
 @(private)
 Check :: struct($PLAYERS: int) {
 	tick:     u32,
-	have:     sim.Players,
+	have:     sim.Slots,
 	values:   [PLAYERS]u64,
 	judged:   bool, // the majority is known (every expected report came in, or CHECK_WAIT_MS passed)
 	majority: u64,
@@ -77,7 +77,7 @@ Check :: struct($PLAYERS: int) {
 // A desync, as the relay tells the clients and a client's `desync` hook gets it.
 Desync_Report :: struct {
 	tick:     u32, // the checksum tick on which the players disagree
-	diverged: sim.Players, // the players whose checksum differs from the majority's (with 2 players: from player 0's)
+	diverged: sim.Slots, // the players whose checksum differs from the majority's (with 2 players: from player 0's)
 	detail:   string, // what differs (relay.cfg.desync_diff), or ""
 }
 
@@ -131,7 +131,7 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	checking:     [PLAYERS]bool, // the joiner restores it and sends its checksum; the relay compares
 	snap_value:   [PLAYERS]u64, // the joiner's checksum of its restored snapshot
 	snap_have:    [PLAYERS]bool,
-	refused:      [PLAYERS]sim.Players, // providers whose snapshot for this joiner failed the check
+	refused:      [PLAYERS]sim.Slots, // providers whose snapshot for this joiner failed the check
 	inputs:       [PLAYERS][INPUT_RING]Input,
 	input_tick:   [PLAYERS][INPUT_RING]u32, // which tick inputs[player][k] holds
 	recv_upto:    [PLAYERS]u32,
@@ -623,7 +623,7 @@ on_checksum :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.
 // The players expected to report `tick`'s checksum: connected, streamed to, past their snapshot check, and
 // reporting from that tick on.
 @(private)
-expected_reports :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32) -> (expected: sim.Players) {
+expected_reports :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32) -> (expected: sim.Slots) {
 	for player in 0 ..< PLAYERS {
 		if relay.connected[player] &&
 		   relay.welcomed[player] &&
@@ -665,7 +665,7 @@ judge_checks :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 				check.majority = check.values[player]
 			}
 		}
-		diverged: sim.Players
+		diverged: sim.Slots
 		for player in 0 ..< PLAYERS {
 			if player in check.have && check.values[player] != check.majority {
 				diverged += {player}
@@ -732,7 +732,7 @@ judge_snapshots :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 // A desync on `tick`: counted and logged; told to every client, after the typed report's snapshots (when the
 // relay has a desync_diff and this is the session's first desync) or at once.
 @(private)
-report_desync :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, diverged: sim.Players, now: i64) {
+report_desync :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, diverged: sim.Slots, now: i64) {
 	relay.desyncs += 1
 	relay_log(relay, "DESYNC at tick %d: players %v differ from the majority", tick, diverged)
 	report := Desync_Report {

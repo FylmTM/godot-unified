@@ -156,7 +156,7 @@ Msg :: enum u8 {
 	// len u8 + bytes). Sent on every change to everyone connected, and every entry to a newcomer.
 	Roster,
 	Snap_Ok, // r->c R: tick u32: the joiner's restored snapshot matches the others' checksum of that tick
-	Desync, // r->c R: tick u32, diverged u32 (sim.Players), detail len u16 + bytes ("" unless typed reports are on)
+	Desync, // r->c R: tick u32, diverged u32 (sim.Slots), detail len u16 + bytes ("" unless typed reports are on)
 }
 
 Welcome_Flags :: bit_set[enum u8 {

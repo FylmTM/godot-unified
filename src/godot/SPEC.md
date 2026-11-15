@@ -35,7 +35,7 @@ fill_frame :: proc(frame: ^Frame) {
 		godot.push_view(frame, {key = view.Key(sim.player_key(player)), kind = .Player, player = player, pos = ...})
 	}
 	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, Hud_Data{balls = frame.state.balls})
-	godot.push_multi(frame, {key = ball_key, kind = .Ball, pos = ...})
+	godot.push_multi_view(frame, {key = ball_key, kind = .Ball, pos = ...})
 }
 
 @(export, link_name = "<game>_init")
@@ -83,7 +83,7 @@ tick) and `frame.local_slot` (the slot the relay gave it; -1 before). It pushes:
   Dictionaries...; `_` fields are padding), and a field of Godot's own math types (`gd.Color`, `gd.Vector4`,
   `gd.Quaternion`, ...) as itself: the view gets each field as its script property of the same name, on spawn and
   whenever its bytes change. One kind always pushes the same data type (asserted).
-- `push_multi(frame, Multi_Item{key, kind, pos, yaw, scale, color, custom})`: one MultiMesh instance. `key`
+- `push_multi_view(frame, Multi_View_Item{key, kind, pos, yaw, scale, color, custom})`: one MultiMesh instance. `key`
   identifies it across ticks (a handle's `sim.handle_key`; 0: never interpolated); keys are per kind. `scale` is
   per local axis (zero: 1), `color` the instance color (zero: white), `custom` the custom data.
 

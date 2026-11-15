@@ -34,7 +34,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   scripted inputs only produce lengths ≤ 1).
 - `buttons`: bit 0 = dash (edge-triggered).
 - Presence is not in the input: players are session members (`src/sim/SPEC.md`, Players), held in the state's
-  `players: sim.Presence(Character, PLAYERS, 2 · PLAYERS)`; the library applies joins and leaves before the tick and
+  `players: sim.Players(Character, PLAYERS)` (2 · PLAYERS remembered); the library applies joins and leaves before the tick and
   emits `player_joined` / `player_left`. The game's part (system 1): a player who leaves loses their body (an absent
   player owns nothing outside the block) and keeps their progress (level, XP, upgrades, pending level-ups); someone
   new starts fresh; both new and returning players get a body at their slot's start spot with full HP. Everything

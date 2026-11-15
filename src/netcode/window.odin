@@ -45,7 +45,7 @@ window_write_tick :: proc(
 	base: ^sim.Inputs(Input, PLAYERS),
 ) {
 	zero: Input
-	base_present, base_replaced: sim.Players
+	base_present, base_replaced: sim.Slots
 	if base != nil {
 		base_present, base_replaced = base.present, base.replaced
 	}
@@ -53,7 +53,7 @@ window_write_tick :: proc(
 	if tick.present != base_present || tick.replaced != base_replaced {
 		flags += {.Presence}
 	}
-	changed: sim.Players
+	changed: sim.Slots
 	for player in 0 ..< PLAYERS {
 		before := base != nil ? input_bytes(&base.input[player]) : input_bytes(&zero)
 		if string(before) != string(input_bytes(&tick.input[player])) {
@@ -112,8 +112,8 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYER
 		return false
 	}
 	if .Presence in flags {
-		tick.present = transmute(sim.Players)wire.r_u32(reader)
-		tick.replaced = transmute(sim.Players)wire.r_u32(reader)
+		tick.present = transmute(sim.Slots)wire.r_u32(reader)
+		tick.replaced = transmute(sim.Slots)wire.r_u32(reader)
 	}
 	if .Inputs in flags {
 		players: u64

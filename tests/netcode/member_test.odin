@@ -65,7 +65,7 @@ member_join :: proc(
 host_player :: proc(session: ^Net, slot: int) -> (sim.Player, ^toy.Player_Data) {
 	players := &session.host.client.sim.state.players
 	player := sim.player_in_slot(players, slot)
-	return player, sim.player_get(players, player)
+	return player, sim.player_data(players, player)
 }
 
 net_leave :: proc(session: ^Net, client: ^Client) {
