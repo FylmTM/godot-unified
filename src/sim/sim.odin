@@ -248,6 +248,7 @@ create :: proc(
 	return simulation
 }
 
+// Frees a Sim made by create or from_snapshot: its ring, its events and the game's World (game.world_destroy).
 destroy :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 	for &slot in simulation.ring {
 		delete(slot.events.list)
@@ -263,11 +264,15 @@ ring_slot :: #force_inline proc(simulation: ^Sim($State, $Input, $World, $PLAYER
 	return int(tick % u32(len(simulation.ring)))
 }
 
-// One tick without saving it (benchmarks time the two halves apart); step is advance + save. The State's Presence
-// is updated first (presence.odin) and its join and leave events emitted before the game's.
+// One tick without saving it (benchmarks time the two halves apart); step is advance + save. The slot is the
+// new tick's from the start, holding its events and no state: it never answers for the tick it held before. The
+// State's Presence is updated first (presence.odin) and its join and leave events emitted before the game's.
 advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
+	slot.tick = number
+	slot.valid = true
+	slot.saved = false
 	clear(&slot.events.list)
 	changes := &simulation.changes
 	presence_update(presence_view(&simulation.state, &simulation.presence), inputs, number, &slot.events, changes)
@@ -298,10 +303,6 @@ step :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs
 // and snapshot_encode don't.
 step_unsaved :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
 	advance(simulation, inputs)
-	slot := &simulation.ring[ring_slot(simulation, simulation.tick)]
-	slot.tick = simulation.tick
-	slot.valid = true
-	slot.saved = false
 }
 
 // Saves the current state into its ring slot (keeping that slot's events).
@@ -319,7 +320,8 @@ save :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) {
 
 // Restores the saved state of `tick` (it must still be in the ring). The extras go first: if one
 // fails, the block and the tick are left as they were and false comes back (the extras before it
-// may have been restored; the caller treats the sim as broken).
+// may have been restored; the caller treats the sim as broken). The later ticks leave the ring: they are
+// another timeline's until they are stepped again.
 restore :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), tick: u32) -> bool {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
@@ -333,6 +335,12 @@ restore :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), tick: u32) -
 	}
 	simulation.state = slot.state
 	simulation.tick = tick
+	for &later in simulation.ring {
+		if later.tick > tick {
+			later.valid = false
+			later.saved = false
+		}
+	}
 	return true
 }
 

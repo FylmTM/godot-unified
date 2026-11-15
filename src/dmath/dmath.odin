@@ -8,18 +8,23 @@ import "base:intrinsics"
 Vec2 :: [2]f32
 Vec3 :: [3]f32
 
+// The hardware square root: IEEE 754 rounds it exactly, so it gives the same bits on every platform. The one
+// sqrt sim code uses.
 sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return intrinsics.sqrt(x)
 }
 
+// The length of a 2D vector, with the sum written out so it rounds the same on every platform.
 length2 :: #force_inline proc "contextless" (vec: Vec2) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y)
 }
 
+// The length of a 3D vector, with the sum written out so it rounds the same on every platform.
 length3 :: #force_inline proc "contextless" (vec: Vec3) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
 
+// The squared distance between two 2D points; range checks compare it to a squared radius to skip the sqrt.
 dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
 	dx := a.x - b.x
 	dy := a.y - b.y
@@ -35,6 +40,7 @@ normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
 	return {vec.x / length, vec.y / length}
 }
 
+// v / |v|, or zero when |v| <= eps (the 3D form of normalize2).
 normalize3 :: proc "contextless" (vec: Vec3, eps: f32 = 0.0001) -> Vec3 {
 	length := length3(vec)
 	if length <= eps {
@@ -53,6 +59,7 @@ clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
 	return {vec.x * scale, vec.y * scale}
 }
 
+// Linear interpolation from a (t = 0) to b (t = 1), as a + (b - a) * t with no fused multiply-add.
 lerp :: #force_inline proc "contextless" (a, b, t: f32) -> f32 {
 	return a + (b - a) * t
 }

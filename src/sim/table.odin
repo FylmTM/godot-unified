@@ -72,6 +72,7 @@ despawn_handle :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
 	return true
 }
 
+// Frees an item by slot index or by handle (despawn_index, despawn_handle).
 despawn :: proc {
 	despawn_index,
 	despawn_handle,
@@ -124,10 +125,12 @@ Table_Iterator :: struct($T: typeid, $N: int) {
 	index: i32, // the next slot to look at
 }
 
+// Starts a walk over the table's live items; `next` yields each one with its handle.
 iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
 	return {table = table}
 }
 
+// The next live item of a table walk and its handle; ok is false once past the table's high-water mark.
 table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
 	table := iterator.table
 	for iterator.index < table.high_water {

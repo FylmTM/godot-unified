@@ -397,6 +397,8 @@ report_globals :: proc(
 	}
 }
 
+// Whether `rule` forbids importing `path`: outside only_imports when that is set, else under a ban_imports prefix
+// and not an allow_imports exception. scan reports each import it bans.
 banned_import :: proc(rule: Rule, path: string) -> bool {
 	if rule.only_imports != nil {
 		// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified

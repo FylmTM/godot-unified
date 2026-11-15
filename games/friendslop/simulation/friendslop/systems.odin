@@ -8,6 +8,7 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
+// Advances the game one tick (GAME.tick): runs the systems in the order above around the physics step.
 tick :: proc(t: ^Tick) {
 	presence(t)
 	jumps: [PLAYERS]bool // by slot
@@ -67,6 +68,7 @@ marker_entity :: proc(marker: int) -> u64 {
 	return u64(marker + 1)
 }
 
+// An event's `entity` for an item: its level marker's.
 item_entity :: proc(world: ^World, item: int) -> u64 {
 	return marker_entity(world.items[item].marker)
 }
@@ -78,6 +80,7 @@ Entity :: struct {
 	player: sim.Player, // .Player
 }
 
+// Makes the player's character limp (no drive force, pogo released) while held, stunned or waiting to respawn.
 entity_of :: proc(t: ^Tick, material: u64) -> (entity: Entity) {
 	switch {
 	case material >= MAT_ITEM && material < MAT_ITEM + MAX_ITEMS:
@@ -109,6 +112,7 @@ presence :: proc(t: ^Tick) {
 	for player in t.returned do appear(t, player)
 }
 
+// Where the player (re)appears: their place at the team's last checkpoint during a run, else their hub spawn.
 appear :: proc(t: ^Tick, player: sim.Player) {
 	character := character_of(t, player)
 	character^ = {
@@ -309,6 +313,8 @@ hold_frame :: proc(character: ^Character, target: Held_Kind) -> b3.Transform {
 	return {offset, yaw_quat(character.facing)}
 }
 
+// Starts a hold: a motor joint from the player's hold point to the target's grab point, its force capped by what
+// the target weighs. A grabbed player drops what they held and goes limp.
 grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 	character := character_of(t, player)
 	joint_def := b3.default_motor_joint_def()
@@ -400,6 +406,8 @@ drop :: proc(t: ^Tick, player: sim.Player) {
 	})
 }
 
+// Throws what the player holds along their aim, faster the longer throw was charged, and tags a thrown item with
+// its thrower for hit attribution. A heavy item is dropped instead.
 throw :: proc(t: ^Tick, player: sim.Player) {
 	character := character_of(t, player)
 	kind, index, held_player := character.held_kind, int(character.held_item), character.held_player
@@ -455,6 +463,8 @@ update_holds :: proc(t: ^Tick) {
 
 // ---- movement
 
+// Drives a free player's character from their move input and jump: facing follows the move (the aim while holding),
+// and holding slows them down. A held, stunned or fallen player doesn't move themselves.
 player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 	character := character_of(t, player)
 	if character.respawn > 0 || character.held_by != {} || character.stun > 0 do return
@@ -484,6 +494,8 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 	}
 }
 
+// Advances each platform along its path (by its mode, and while its trigger is active when it has one) and drives its
+// kinematic body to the pose for its phase, a pure function of the platform's state.
 platforms :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.platform_count {
 		def := &t.world.platforms[i]
@@ -513,6 +525,8 @@ pad_velocity :: proc(pad: ^Pad_Def, velocity: [3]f32) -> [3]f32 {
 	return pad.launch
 }
 
+// Launches players whose feet and items whose bottom are inside a jump pad's volume, with a per-body cooldown. The
+// sim checks the volumes itself rather than using Box3D sensors.
 pads :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
@@ -574,6 +588,7 @@ knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32) {
 	})
 }
 
+// Knocks a player whose centre is inside a bumper's volume away from the bumper's centre at its strength.
 bumpers :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
@@ -592,6 +607,8 @@ bumpers :: proc(t: ^Tick) {
 
 // ---- after the step
 
+// Handles the step's Box3D hit events: a thrown or fast item knocks back a player it hits (not its holder, nor its
+// thrower just after the throw), and a hard enough hit rings a bell. Then counts down the items' thrown tags.
 hits :: proc(t: ^Tick) {
 	clear(&t.world.hits)
 	physics.hit_events(t.world.phys, &t.world.hits)
@@ -637,6 +654,8 @@ hits :: proc(t: ^Tick) {
 	}
 }
 
+// Updates the triggers after the step: a pressure plate is pressed while the mass over it reaches its threshold, and
+// a switch (a player inside) or a lock (the key inside) latches on.
 plates_and_switches :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.trigger_count {
 		def := &t.world.triggers[i]
@@ -718,6 +737,7 @@ plates_and_switches :: proc(t: ^Tick) {
 	}
 }
 
+// Counts down stuns; a thrown player gets up as soon as they land. A player whose stun ends stops being limp.
 stuns :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
@@ -742,6 +762,8 @@ stuns :: proc(t: ^Tick) {
 	}
 }
 
+// Takes a player who fell below KILL_Y out for RESPAWN_TICKS (holds released, body parked far below), then brings
+// them back at their respawn point; puts an item that fell back where the level placed it.
 falls :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
@@ -785,6 +807,8 @@ item_home :: proc(t: ^Tick, index: int) {
 
 // ---- the run
 
+// Moves the run on: a player in the start gate starts the run timer, players reaching checkpoints advance the team's
+// checkpoint, the trophy on the finish ends the run (keeping the best time), and the route resets after the hold.
 run :: proc(t: ^Tick) {
 	switch t.state.phase {
 	case .Hub:

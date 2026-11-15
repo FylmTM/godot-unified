@@ -110,6 +110,8 @@ Unified_Multi_View_Node :: struct {
 @(private)
 unified_view_class, unified_multi_view_class: gd.Class
 
+// Registers every class the extension gives Godot (UnifiedSession, the event and command classes, UnifiedView,
+// UnifiedMultiView) at SCENE initialization.
 register_classes :: proc() {
 	register_session_class()
 	register_sim_classes()
@@ -178,6 +180,7 @@ register_classes :: proc() {
 	)
 }
 
+// Unregisters what register_classes registered, in reverse order, when the extension unloads.
 unregister_classes :: proc() {
 	gd.unregister_class(&unified_multi_view_class)
 	gd.unregister_class(&unified_view_class)
@@ -443,6 +446,8 @@ marker_signal :: proc(scene_view: ^Scene_View, signal: string) {
 	gd.emit_signal(scene_view.marker, gd.sn(signal))
 }
 
+// Frees every scene view and MultiMesh binding and forgets the loaded scenes and the view index (main thread),
+// when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
 views_clear :: proc() {
 	for _, entry in V.set.entries do free_view(entry.view)
 	view.set_destroy(&V.set)
@@ -471,6 +476,8 @@ views_root_changed :: proc() {
 	clear(&V.set.entries)
 }
 
+// Brings the scene views under `root` and the MultiMesh instances up to date with the newest frame (main thread,
+// every Godot frame): spawns, despawns, data and interpolated poses. A nil root drops the scene views.
 views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	V.frame += 1
 	if root.ptr == nil {

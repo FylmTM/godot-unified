@@ -96,11 +96,14 @@ host_stop :: proc(host: ^Host($State, $Input, $World, $PLAYERS), now: i64) {
 	relay_stop(host.relay, now)
 }
 
+// Whether the session is over on both halves: the relay finished and the host's client disconnected or failed.
+// The loop that steps the host stops on it before host_destroy.
 host_finished :: proc(host: ^Host($State, $Input, $World, $PLAYERS)) -> bool {
 	status := host.client.status
 	return relay_finished(host.relay) && (status == .Disconnected || status == .Failed)
 }
 
+// Frees the host: its client, its relay (ending its recording), every link they own and the loopback hub.
 host_destroy :: proc(host: ^Host($State, $Input, $World, $PLAYERS)) {
 	for &link in host.waiting {
 		link_close(&link)

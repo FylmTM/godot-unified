@@ -49,6 +49,8 @@ extension_lib :: proc(game: Game) -> string {
 	return join(game.dir, ".out", "bin", lib_name(game.name))
 }
 
+// The build of the game's GDExtension (simulation/extension) as a shared library for `mode`, with the Box3D
+// and EOS defines it needs; ensure_extension runs it when stale.
 extension_build :: proc(game: Game, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
@@ -69,6 +71,7 @@ refresh_view_index :: proc(game: Game) {
 	if !in_ci() do bake_view_index(game, check = false, quiet = true)
 }
 
+// Whether the game has a GDExtension to build (simulation/extension) for Godot to load.
 has_extension :: proc(game: Game) -> bool {
 	return os.is_directory(join(game.dir, "simulation", "extension"))
 }
@@ -224,6 +227,8 @@ write_extension_list :: proc(game: Game) -> []string {
 	return write_extension_list_dir(game.dir)
 }
 
+// write_extension_list for any Godot project directory, without mirroring the shared code first: also
+// for the test projects (ensure_imported mirrors it itself).
 write_extension_list_dir :: proc(dir: string) -> []string {
 	listed: [dynamic]string
 	for ext in gdextensions(dir) {

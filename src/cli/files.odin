@@ -22,17 +22,20 @@ write_file :: proc(path: string, data: []byte) -> bool {
 	return true
 }
 
+// Writes a text file whole (write_file: a temp file and a rename); stops the command when it can't.
 write_text :: proc(path, text: string) {
 	if !write_file(path, transmute([]byte)text) {
 		fatal("cannot write %s", path)
 	}
 }
 
+// A whole file as text; false when it can't be read.
 read_text :: proc(path: string) -> (string, bool) {
 	data, err := os.read_entire_file(path, context.allocator)
 	return string(data), err == nil
 }
 
+// A whole file as text, for a file that must exist: stops the command when it can't be read.
 must_read :: proc(path: string) -> string {
 	text, ok := read_text(path)
 	if !ok {
@@ -41,12 +44,14 @@ must_read :: proc(path: string) -> string {
 	return text
 }
 
+// Creates a directory and its parents (an existing one is fine); stops the command when it can't.
 make_dirs :: proc(path: string) {
 	if os.make_directory_all(path) != nil && !os.is_directory(path) {
 		fatal("cannot create %s", path)
 	}
 }
 
+// Deletes a file or directory tree when it exists, ignoring failures (what a running process holds may stay).
 remove_tree :: proc(path: string) {
 	if os.exists(path) {
 		os.remove_all(path)
@@ -74,6 +79,8 @@ sha256_hex :: proc(data: []byte) -> string {
 	return string(hex.encode(digest, context.allocator))
 }
 
+// The SHA-256 of a file as lowercase hex, streamed from disk; false when it can't be read. Checks pinned
+// downloads (check_sha256) and lets copies skip unchanged files.
 sha256_file :: proc(path: string) -> (string, bool) {
 	digest, err := hash.hash_file_by_name(.SHA256, path, false, context.temp_allocator)
 	if err != nil {
@@ -95,6 +102,7 @@ check_sha256 :: proc(path, want, what: string) {
 	}
 }
 
+// A file's modification time; false when it can't be stat'ed.
 mtime :: proc(path: string) -> (time.Time, bool) {
 	info, err := os.stat(path, context.temp_allocator)
 	if err != nil {

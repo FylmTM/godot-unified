@@ -369,6 +369,8 @@ session_end :: proc(session: ^Session_Node) {
 	session.frame = nil
 }
 
+// Ends the active session, joins its thread and frees every view and the dev UI. Called when the extension
+// unloads (exit or hot reload): the session thread runs this library's code, so it must be gone first.
 session_shutdown_all :: proc() {
 	if active != nil do session_end(active)
 	if api.installed do api.wait()

@@ -372,6 +372,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	return world
 }
 
+// Frees what world_create made: the physics world, the loaded level, the scratch lists and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
 	level.destroy(&world.level)
@@ -427,6 +428,8 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	}
 }
 
+// Creates an item's dynamic body at its level placement (a sphere or a box, its density set from the item's mass),
+// with hit events on and its index as the user material so hits and rays know which item it is.
 create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 	def := &world.items[index]
 	spec := &ITEM_SPECS[def.kind]
@@ -464,6 +467,7 @@ grab_point_offset :: proc(kind: Item_Kind, point: int) -> [3]f32 {
 	return {point == 0 ? -x : x, 0, 0}
 }
 
+// Whether a point is inside an axis-aligned volume (pads, bumpers, plates, switches, checkpoints, start and finish).
 in_volume :: proc(volume: Volume, point: [3]f32) -> bool {
 	offset := point - volume.pos
 	return abs(offset.x) <= volume.half.x && abs(offset.y) <= volume.half.y && abs(offset.z) <= volume.half.z

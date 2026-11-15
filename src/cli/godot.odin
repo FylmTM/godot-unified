@@ -88,6 +88,8 @@ godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 	return
 }
 
+// What a Godot executable reports for --version (its last line; "" when it doesn't run), to check it against
+// the pin before it is used.
 godot_version :: proc(exe: string) -> string {
 	result := run_proc({
 		cmd     = strs(exe, "--version"),
@@ -238,6 +240,8 @@ Tool_Result :: struct {
 
 RESULT_MARKER :: "UNIFIED_RESULT "
 
+// The Godot command line of a tool script run: headless, or a window placed by `place`, always with
+// --no-settings and --local-net. Also for callers that start the process themselves (coop's host and joiner).
 tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	cmd: [dynamic]string
 	append(&cmd, godot())
@@ -255,6 +259,8 @@ tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	return cmd[:]
 }
 
+// Runs a tool script to its end and judges it by the strict rules (judge_tool). A window run prepares the project
+// with with_window and, on macOS, gives focus back to the app that was in front.
 run_tool :: proc(tool_run: Tool_Run) -> Tool_Result {
 	cleanup := tool_run.window ? with_window(tool_run.dir, tool_run.place) : no_cleanup
 	defer cleanup(tool_run.dir)
@@ -346,6 +352,7 @@ front_app :: proc() -> string {
 	return ""
 }
 
+// macOS: brings the app front_app named back to the front after a window run; elsewhere nothing.
 restore_front_app :: proc(bundle: string) {
 	when ODIN_OS == .Darwin {
 		run_proc({
@@ -434,6 +441,7 @@ with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: str
 	return no_cleanup
 }
 
+// The cleanup for a run that left nothing in the project to undo (no window, or one that may take focus).
 no_cleanup :: proc(_: string) {}
 
 @(private)

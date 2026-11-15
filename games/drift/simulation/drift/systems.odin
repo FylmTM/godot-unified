@@ -5,6 +5,7 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
+// Advances the match one tick (GAME.tick): runs the systems below in the spec's order around the physics step.
 tick :: proc(t: ^Tick) {
 	presence(t)
 	commands(t)
@@ -35,6 +36,8 @@ presence :: proc(t: ^Tick) {
 	for player in t.returned do spawn_ship(t, player)
 }
 
+// Applies this tick's commands: `start` begins a match from the lobby, `restart` resets an over match at once.
+// Either is ignored outside its phase.
 spawn_ship :: proc(t: ^Tick, player: sim.Player) {
 	slot, _ := sim.player_slot(&t.state.players, player)
 	create_ship(t.world, sim.player_get(&t.state.players, player), t.world.spawns[slot])
@@ -66,6 +69,8 @@ commands :: proc(t: ^Tick) {
 
 // ---- ships: the player's input flies their ship
 
+// Flies one present player's ship from their input before the physics step: thrust, turning toward the aim,
+// boost, and firing bullets; it also counts down the ship's cooldowns.
 pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	input := sim.input(t, player)
 	pos, heading := physics.pose_2d(t.world.phys, ship.body)
@@ -120,6 +125,8 @@ BULLET_QUERY :: physics.Query {
 	mask     = CAT_STATIC | CAT_ROCK | CAT_STATION,
 }
 
+// Moves every bullet one tick along a ray: a hit ends it (and a rock it hits loses 1 HP and is pushed), otherwise it
+// expires when its lifetime runs out.
 move_bullets :: proc(t: ^Tick) {
 	bullets := sim.iterate(&t.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
@@ -153,6 +160,8 @@ move_bullets :: proc(t: ^Tick) {
 
 // ---- rocks: splits, the station
 
+// Resolves the rocks after the physics step: one touching the station damages it and is gone, one out of HP splits
+// into two of the next size, or, when small, is destroyed and every other one drops a gem.
 update_rocks :: proc(t: ^Tick) {
 	station, _ := physics.pose_2d(t.world.phys, t.state.station)
 	// one pass over the slots in use now: a split's rocks that reuse a free slot ahead of the walk are visited
@@ -219,6 +228,7 @@ update_rocks :: proc(t: ^Tick) {
 	}
 }
 
+// Removes a rock: destroys its body and frees its table slot.
 kill_rock :: proc(state: ^State, world: ^World, handle: sim.Handle(Rock)) {
 	physics.destroy_body(world.phys, &sim.get(&state.rocks, handle).body)
 	sim.despawn(&state.rocks, handle)
@@ -226,6 +236,8 @@ kill_rock :: proc(state: ^State, world: ^World, handle: sim.Handle(Rock)) {
 
 // ---- gates
 
+// Recharges the gates and warps a ship that comes within reach of a charged gate to its pair, keeping its heading
+// and velocity; both gates then recharge.
 warp_ships :: proc(t: ^Tick) {
 	for gate in 0 ..< t.world.gate_count {
 		if t.state.gates[gate].charge > 0 do t.state.gates[gate].charge -= 1
@@ -294,6 +306,8 @@ update_gems :: proc(t: ^Tick) {
 
 // ---- waves: one stream of numbers (the state's Rng) generates them in order
 
+// During a match, starts a wave every WAVE_EVERY_TICKS and spawns its large rocks one at a time from the rock spawn
+// markers in turn, with speed, spread, spin and shape drawn from the state's random stream.
 spawn_waves :: proc(t: ^Tick) {
 	if t.number >= t.state.next_wave_tick {
 		t.state.rocks_left += 3 + 2 * u32(t.state.waves)
@@ -319,6 +333,8 @@ spawn_waves :: proc(t: ^Tick) {
 
 // ---- phases
 
+// Moves the phase on at the end of the tick: a match is over when the station's HP is 0, an over match resets after
+// OVER_HOLD_TICKS, and the world resets whenever nobody is present.
 advance_phase :: proc(t: ^Tick) {
 	if !anyone_present(t.state) {
 		if t.state.phase != .Lobby do reset(t)

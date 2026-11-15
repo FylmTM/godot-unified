@@ -7,6 +7,7 @@ import "unified:dmath"
 
 SCRIPT_PERIOD :: 16
 
+// 32 bits from a hash of (seed, slot, block): the draw each scripted input block is made from.
 scripted_hash :: proc(seed: u64, slot: int, block: u32) -> u32 {
 	x := seed * 0x9E3779B97F4A7C15 ~ u64(slot + 1) * 0xBF58476D1CE4E5B9 ~ u64(block + 1) * 0x94D049BB133111EB
 	x ~= x >> 31

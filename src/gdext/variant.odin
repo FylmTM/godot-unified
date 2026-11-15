@@ -149,20 +149,24 @@ is_object_type :: proc(id: typeid) -> bool {
 	}
 }
 
+// The type of the value a Variant holds.
 variant_type :: proc(variant: ^Variant) -> gdi.VariantType {
 	return gdi.variant_get_type(variant)
 }
 
+// A nil Variant: the "no value" result of a dynamic method or Callable, and a default for Dictionary lookups.
 variant_nil :: proc() -> Variant {
 	result: Variant
 	gdi.variant_new_nil(&result)
 	return result
 }
 
+// Frees what a Variant owns (a String, a reference to an Array or object...). Every owned Variant ends here.
 variant_destroy :: proc(variant: ^Variant) {
 	gdi.variant_destroy(variant)
 }
 
+// An owned copy of a Variant. Arrays, Dictionaries and objects are shared by reference, not deep-copied.
 variant_copy :: proc(variant: ^Variant) -> Variant {
 	result: Variant
 	gdi.variant_new_copy(&result, variant)
@@ -183,7 +187,7 @@ to_type :: proc(kind: gdi.VariantType, dst: rawptr, src: ^Variant) {
 	ctors[kind](dst, src)
 }
 
-// Destroys an opaque builtin value of type vt in place.
+// Destroys an opaque builtin value of type `kind` in place.
 builtin_destroy :: proc(kind: gdi.VariantType, ptr: rawptr) {
 	@(static) dtors: [gdi.VariantType]gdi.PtrDestructor
 	if dtors[kind] == nil do dtors[kind] = gdi.variant_get_ptr_destructor(kind)
@@ -192,6 +196,8 @@ builtin_destroy :: proc(kind: gdi.VariantType, ptr: rawptr) {
 
 // ---- Odin value -> owned Variant
 
+// Converts an Odin value into a new, owned Variant (variant_destroy it): strings become String, enums int; builtins
+// are copied.
 to_variant :: proc(value: $T) -> Variant {
 	result: Variant
 	when T == Variant {
@@ -220,6 +226,8 @@ to_variant :: proc(value: $T) -> Variant {
 	return result
 }
 
+// An owned Variant holding a StringName (not a String) for `text`, for an argument Godot declares as StringName
+// (generated vararg wrappers) or an enum value that reaches scripts as its name (`&"name"`).
 variant_string_name :: proc(text: string) -> Variant {
 	result: Variant
 	name := string_name_from(text)
@@ -228,6 +236,7 @@ variant_string_name :: proc(text: string) -> Variant {
 	return result
 }
 
+// An owned Variant holding a NodePath parsed from `text`, for an argument Godot declares as NodePath.
 variant_node_path :: proc(text: string) -> Variant {
 	result: Variant
 	path := node_path_from(text)
@@ -291,6 +300,8 @@ variant_from_any :: proc(value: any) -> Variant {
 
 // ---- Variant -> Odin value (ints and floats convert into each other; ok = false on a mismatch)
 
+// Reads a Variant as `T`; ok is false when it holds another type. Ints, floats and bools convert into each other;
+// a string reads String, StringName or NodePath. Reading a Variant as Variant borrows it.
 from_variant :: proc($T: typeid, variant: ^Variant) -> (result: T, ok: bool) {
 	kind := gdi.variant_get_type(variant)
 	when T == Variant {
@@ -358,6 +369,8 @@ from_variant :: proc($T: typeid, variant: ^Variant) -> (result: T, ok: bool) {
 
 // ---- ptrcall slots (arguments are borrowed for the duration of the call)
 
+// Reads a ptrcall argument slot as `T` (the typed-call path of bound methods). Variants and builtins come back as
+// borrowed views; strings are copied into the temp allocator.
 from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 	when intrinsics.type_is_boolean(T) {
 		return (^u8)(ptr)^ != 0
@@ -431,10 +444,13 @@ release :: proc(value: ^$T) {
 
 // ---- Dictionary and Array helpers (String keys, like GDScript literals)
 
+// A new, empty Dictionary the caller owns until it hands it on (returns it from a bound method, dict_set_move).
 dict_new :: proc() -> Dictionary {
 	return Dictionary_new0()
 }
 
+// Sets dict[key] to `value` converted with to_variant (a builtin is copied). Keys are Strings, as in GDScript
+// literals.
 dict_set :: proc(dict: ^Dictionary, key: string, value: $T) {
 	key_variant := to_variant(key)
 	defer gdi.variant_destroy(&key_variant)
@@ -449,6 +465,7 @@ dict_set_move :: proc(dict: ^Dictionary, key: string, value: ^$T) {
 	release(value)
 }
 
+// Reads dict[key] as `T` (see from_variant); false when the key is missing or holds another type.
 dict_get :: proc(dict: ^Dictionary, $T: typeid, key: string) -> (T, bool) {
 	key_variant := to_variant(key)
 	defer gdi.variant_destroy(&key_variant)
@@ -457,10 +474,12 @@ dict_get :: proc(dict: ^Dictionary, $T: typeid, key: string) -> (T, bool) {
 	return from_variant(T, slot)
 }
 
+// A new, empty Array the caller owns until it hands it on (returns it from a bound method, array_push_move).
 array_new :: proc() -> Array {
 	return Array_new0()
 }
 
+// Appends `value` converted with to_variant (a builtin is copied).
 array_push :: proc(array: ^Array, value: $T) {
 	variant := to_variant(value)
 	defer gdi.variant_destroy(&variant)
@@ -473,10 +492,12 @@ array_push_move :: proc(array: ^Array, value: ^$T) {
 	release(value)
 }
 
+// The number of elements in the Array.
 array_len :: proc(array: ^Array) -> int {
 	return int(Array_size(array))
 }
 
+// The element at `index`, borrowed: a pointer into the Array, read with from_variant.
 array_at :: proc(array: ^Array, index: int) -> ^Variant {
 	return (^Variant)(gdi.array_operator_index(array, i64(index)))
 }

@@ -302,6 +302,7 @@ push_view_data :: proc(
 	return push_view_out(frame, item, T, ([^]u8)(&data)[:size_of(T)], loc)
 }
 
+// Pushes a scene view from fill_frame, with or without its data struct; false when the Frame is full.
 push_view :: proc {
 	push_view_item,
 	push_view_data,

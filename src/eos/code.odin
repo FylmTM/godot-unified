@@ -34,6 +34,7 @@ code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (code: Code) {
 	return
 }
 
+// The code as text: a view of its bytes, not a copy, so it lives as long as the Code does.
 code_string :: proc(code: ^Code) -> string {
 	return string(code[:])
 }
@@ -60,6 +61,7 @@ code_parse :: proc(text: string) -> (code: Code, ok: bool) {
 	return code, count == CODE_LEN
 }
 
+// Whether an (uppercase) character is in the code alphabet; code_parse checks each typed character with it.
 code_char_ok :: proc(char: u8) -> bool {
 	for letter in transmute([]u8)string(CODE_ALPHABET) {
 		if letter == char {

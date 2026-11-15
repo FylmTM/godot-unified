@@ -27,12 +27,15 @@ View_Set :: struct($V: typeid) {
 	removed:   [dynamic]V, // this frame: lingered out; the caller destroys or pools these
 }
 
+// Frees the set's map and lists; the views still in it are the caller's to free first.
 set_destroy :: proc(view_set: ^View_Set($V)) {
 	delete(view_set.entries)
 	delete(view_set.despawned)
 	delete(view_set.removed)
 }
 
+// Starts a frame: advances the frame counter set_see stamps and clears the previous frame's despawned and removed
+// lists.
 set_begin :: proc(view_set: ^View_Set($V)) {
 	view_set.frame += 1
 	clear(&view_set.despawned)
@@ -68,6 +71,8 @@ set_end :: proc(view_set: ^View_Set($V), now_s: f64, linger_s: f64) {
 	}
 }
 
+// The entry of `key` (alive or lingering) without marking it seen, or nil: for routing an event or a signal to
+// the view of a key.
 set_get :: proc(view_set: ^View_Set($V), key: Key) -> ^Entry(V) {
 	return &view_set.entries[key] or_else nil
 }
@@ -78,14 +83,17 @@ Pool :: struct($V: typeid) {
 	free: [dynamic]V,
 }
 
+// Takes a pooled view to reuse instead of creating one; `ok` is false when the pool is empty.
 pool_get :: proc(pool: ^Pool($V)) -> (view: V, ok: bool) {
 	return pop_safe(&pool.free)
 }
 
+// Returns a view (one set_end removed) to the pool for a later spawn.
 pool_put :: proc(pool: ^Pool($V), view: V) {
 	append(&pool.free, view)
 }
 
+// Frees the pool's list; the pooled views are the caller's to free first.
 pool_destroy :: proc(pool: ^Pool($V)) {
 	delete(pool.free)
 }

@@ -272,6 +272,73 @@ restore_rewinds_and_resim_matches :: proc(t: ^testing.T) {
 	testing.expect(t, sim.state_at(simulation, 50 - ring) == nil)
 }
 
+// After a restore the later ticks are another timeline's: the ring doesn't answer for them until they are
+// stepped again, and then with the new timeline's state and events.
+@(test)
+restore_drops_the_later_ticks :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 42)
+	defer sim.destroy(simulation)
+	run(simulation, 12)
+	testing.expect(t, sim.state_at(simulation, 11) != nil && sim.state_at(simulation, 12) != nil)
+	testing.expect(t, sim.restore(simulation, 10))
+	for tick in u32(11) ..= 12 {
+		testing.expect(t, sim.state_at(simulation, tick) == nil)
+		testing.expect_value(t, len(sim.events_at(simulation, tick)), 0)
+		testing.expect(t, !sim.restore(simulation, tick))
+	}
+	testing.expect_value(t, simulation.tick, 10) // the failed restores changed nothing
+	testing.expect(t, sim.state_at(simulation, 10) != nil && sim.state_at(simulation, 9) != nil)
+	// Tick 11 again with other inputs (nobody present): the new timeline's state and events.
+	inputs: toy.Inputs
+	sim.step(simulation, &inputs)
+	after := sim.checksum(simulation)
+	state := sim.state_at(simulation, 11)
+	testing.expect(t, state != nil && state^ == simulation.state)
+	testing.expect_value(t, left_events(simulation, 11), toy.PLAYERS)
+	testing.expect(t, sim.state_at(simulation, 12) == nil) // still the old timeline's
+	testing.expect_value(t, len(sim.events_at(simulation, 12)), 0)
+	run(simulation, 1)
+	testing.expect(t, sim.state_at(simulation, 12) != nil)
+	testing.expect(t, sim.restore(simulation, 11))
+	testing.expect_value(t, sim.checksum(simulation), after)
+}
+
+// How many players the step to `tick` saw leave.
+left_events :: proc(simulation: ^toy.Sim, tick: u32) -> (count: int) {
+	for &raw in sim.events_at(simulation, tick) {
+		_, is_left := sim.event_value(&raw, toy.Event).(sim.Event_Player_Left)
+		count += int(is_left)
+	}
+	return
+}
+
+// A slot answers only for the tick whose contents it holds: between advance and save (and after step_unsaved)
+// it has the new tick's events and no state, and nothing of the tick it held a ring ago.
+@(test)
+advance_takes_the_slot_over :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 42)
+	defer sim.destroy(simulation)
+	ring := u32(len(simulation.ring))
+	run(simulation, ring + 3)
+	tick := simulation.tick + 1
+	testing.expect(t, sim.state_at(simulation, tick - ring) != nil)
+	inputs: toy.Inputs
+	sim.advance(simulation, &inputs)
+	testing.expect(t, sim.state_at(simulation, tick - ring) == nil)
+	testing.expect_value(t, len(sim.events_at(simulation, tick - ring)), 0)
+	testing.expect(t, sim.state_at(simulation, tick) == nil)
+	testing.expect_value(t, left_events(simulation, tick), toy.PLAYERS) // nobody present: everyone left
+	sim.save(simulation)
+	testing.expect(t, sim.state_at(simulation, tick) != nil)
+	testing.expect_value(t, left_events(simulation, tick), toy.PLAYERS)
+	// step_unsaved over a saved tick of an abandoned timeline: its own events, and no state.
+	testing.expect(t, sim.restore(simulation, tick - 1))
+	inputs.present = {0, 1, 2, 3}
+	sim.step_unsaved(simulation, &inputs)
+	testing.expect(t, sim.state_at(simulation, tick) == nil && !sim.restore(simulation, tick))
+	testing.expect_value(t, left_events(simulation, tick), 0) // the same players as before: nobody left
+}
+
 // D8: the ring keeps ~250 ms at any tick rate, allocated at create: ring_size - 1 ticks back restore and
 // re-simulate to the same checksum, one more is gone.
 @(test)

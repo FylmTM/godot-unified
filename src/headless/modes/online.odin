@@ -64,6 +64,8 @@ online_known :: proc(args: ^Args, online: ^Online, own: ..string) {
 	check_known(args, ..known[:])
 }
 
+// The `<name>-host` mode: opens a lobby on the game's online transport, prints its code and hosts a scripted
+// session over it; ok once the host verified every tick, `--players` joined and nobody desynced.
 mode_online_host :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
 	online: ^Online,
@@ -156,6 +158,8 @@ mode_online_host :: proc(
 	return ok && relay.desyncs == 0
 }
 
+// The `<name>-client` mode: joins a `<name>-host` lobby by `--code` and plays a scripted remote player
+// to the end of the host's session.
 mode_online_client :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
 	online: ^Online,

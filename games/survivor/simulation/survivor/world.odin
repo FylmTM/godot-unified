@@ -129,6 +129,7 @@ GAME_STRESS := Game {
 @(rodata)
 PLAYER_START := [PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
 
+// The spawn spot of item i on the 5×8 grid. The GDExtension and the tests read it too.
 item_position :: proc(i: int) -> [3]f32 {
 	// The two grid spots inside the start circle move to free lanes north and south.
 	switch i {
@@ -140,10 +141,12 @@ item_position :: proc(i: int) -> [3]f32 {
 	return {f32(i % 8) * 4 - 14, 1, f32(i / 8) * 4 - 8}
 }
 
+// Whether item i is a barrel or a crate (every fifth item from index 2 is a barrel).
 item_kind :: proc(i: int) -> Item_Kind {
 	return i % 5 == 2 ? .Barrel : .Crate
 }
 
+// The Box3D id of a body stored in the block, for calling Box3D directly.
 body_id :: proc(world: ^World, ref: Body_Ref) -> b3.Body_Id {
 	return physics.body_id(world.phys, ref)
 }
@@ -199,6 +202,7 @@ create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	return ref
 }
 
+// Destroys a body stored in the block and clears its reference.
 destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 	physics.destroy_body(world.phys, ref)
 }
@@ -219,6 +223,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	return world
 }
 
+// Frees what world_create made: the physics world and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
 	free(world)
@@ -237,6 +242,8 @@ init :: proc(state: ^State, world: ^World, seed: u64) {
 	}
 }
 
+// Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its grid spot. The
+// caller destroys any old body first.
 item_reset :: proc(state: ^State, world: ^World, i: int) {
 	item := &state.items[i]
 	item.kind = item_kind(i)

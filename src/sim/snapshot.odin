@@ -58,6 +58,8 @@ snapshot_encode :: proc(
 	return snap_end(&writer)
 }
 
+// Starts a snapshot's bytes: the header with a zero digest, then the state block; snap_add appends each Extra's
+// image and snap_end patches the digest. snapshot_encode builds every snapshot this way.
 snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator := context.allocator) -> wire.Writer {
 	writer := wire.writer_make(SNAP_HEADER + size_hint + 16, allocator)
 	wire.w_bytes(&writer, transmute([]u8)string(SNAP_MAGIC))
@@ -73,11 +75,13 @@ snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator :
 	return writer
 }
 
+// Appends one Extra's image (physics) to a snapshot snap_begin started, size-prefixed, in Extra order.
 snap_add :: proc(writer: ^wire.Writer, image: []u8) {
 	wire.w_u32(writer, u32(len(image)))
 	wire.w_bytes(writer, image)
 }
 
+// Patches the payload digest into the header and returns the snapshot's bytes (the writer's buffer).
 snap_end :: proc(writer: ^wire.Writer) -> []u8 {
 	digest := transmute([8]u8)u64le(hash_bytes(writer.buf[SNAP_HEADER:]))
 	copy(writer.buf[SNAP_HEADER - 8:], digest[:])
@@ -127,6 +131,7 @@ snap_read :: proc(
 	return
 }
 
+// Reads the next Extra's image (a view into the snapshot bytes) after snap_read; false when it is cut short.
 snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 	image = wire.r_bytes(reader, int(wire.r_u32(reader)))
 	return image, reader.ok

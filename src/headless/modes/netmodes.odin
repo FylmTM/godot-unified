@@ -12,6 +12,7 @@ import "unified:netcode"
 @(require) import "unified:sim"
 
 
+// The `--profile` option as a network profile (ideal, wan, bad); exits through die on an unknown name.
 profile_opt :: proc(args: ^Args, fallback := "ideal") -> netcode.Profile {
 	name := opt_str(args, "profile", fallback)
 	profile, ok := netcode.profile_by_name(name)
@@ -34,6 +35,8 @@ log_opt :: proc(args: ^Args) -> sim.Log_Sink {
 	return sink
 }
 
+// The `session` mode: an in-process relay and `--clients` scripted clients over loopback or UDP (session_run),
+// failing on a desync; prints each client's result and writes the relay's input log when asked.
 mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
 	check_known(args, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
 	cfg := uheadless.Session_Config {
@@ -96,6 +99,8 @@ mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAY
 	return ok
 }
 
+// The `relay` mode: a relay alone on a UDP port, run until its session ends, for the multi-process test
+// (`uni test --suite net`) with `client` processes; fails on a desync.
 mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
 	check_known(args, "port", "players", "ticks", "log", "bind")
 	port := opt_int(args, "port", required = true, low = 1, high = 65535)
@@ -141,6 +146,8 @@ mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 	return ok && relay.desyncs == 0
 }
 
+// The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
+// prints its result as the JSON line.
 mode_client :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
 	check_known(args, "connect", "slot", "ticks", "profile", "token")
 	address := opt_str(args, "connect", required = true)

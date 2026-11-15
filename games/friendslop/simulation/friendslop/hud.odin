@@ -34,6 +34,7 @@ PHASE_NAMES := [Phase]string {
 	.Finished = "finished",
 }
 
+// The HUD data for a tick, derived from the state alone; the GDExtension pushes it to the HUD view every frame.
 hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
 	result.phase = state.phase
 	result.tick = tick
