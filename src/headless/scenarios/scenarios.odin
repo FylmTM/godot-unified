@@ -148,24 +148,21 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLA
 	testing.expectf(t, returned, "%s: no returning join event for %v", what, first)
 }
 
-// Two scripted runs with the same parameters have identical traces.
+// Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
+// second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
 runs_match :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
-	first, second: headless.Trace
-	defer headless.trace_destroy(&first)
-	defer headless.trace_destroy(&second)
-	headless.run_sim(suite.game, suite.ticks, suite.seed, suite.players, &first)
-	headless.run_sim(suite.game, suite.ticks, suite.seed, suite.players, &second)
-	if tick, got, want, wrong := first_wrong_tick(&second, &first); wrong {
-		testing.expectf(
-			t,
-			false,
-			"runs_match (%s): the two runs differ first at tick %d: %016x vs %016x",
-			params(suite),
-			tick,
-			got,
-			want,
-		)
-	}
+	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
+	testing.expectf(
+		t,
+		result.mismatches == 0,
+		"runs_match (%s): a second run, created at the first's tick %d, differs first at tick %d: %016x vs %016x (%d ticks differ)",
+		params(suite),
+		result.second_start,
+		result.first_tick,
+		result.second,
+		result.first,
+		result.mismatches,
+	)
 }
 
 // A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same

@@ -247,12 +247,14 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 ## Files
 
-- **Input log** `UNIL` (`LOG_VERSION` 6): seed, content hash, players, input size, ticks (0 with ticks after it: a
-  recording that never ended, read to its end); per tick (`write_tick`) present, replaced, the slots' input bytes, a
-  command count and per command its slot, kind, size and struct bytes (`write_commands`/`read_commands`), then a join
-  record count and per record its slot (u8) and member (u16) (`write_joins`/`read_joins`; the netcode's finalized
-  ticks reuse both): an ordinary tick costs two bytes past its inputs. Seed + content + log = the whole session
-  (replays, reference runs). `Input_Log` in memory:
+- **Input log** `UNIL` (`LOG_VERSION` 7): seed, content hash, compat (`compat_of` of the build that recorded it, 0:
+  unknown; #123), players, input size, ticks (0 with ticks after it: a recording that never ended, read to its end);
+  per tick (`write_tick`) present, replaced, the slots' input bytes, a command count and per command its slot, kind,
+  size and struct bytes (`write_commands`/`read_commands`), then a join record count and per record its slot (u8)
+  and member (u16) (`write_joins`/`read_joins`; the netcode's finalized ticks reuse both): an ordinary tick costs two
+  bytes past its inputs. Seed + content + log = the whole session (replays, reference runs). A replay refuses a log
+  of another level or another build (`headless.run_replay`), saying which: a known compat that differs.
+  `Input_Log` in memory:
   `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1), `log_encode / decode / read / write`;
   decoding refuses a malformed tick. Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`

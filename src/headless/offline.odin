@@ -219,6 +219,7 @@ run_sim :: proc(
 	if input_log != nil {
 		input_log.seed = seed
 		input_log.content = simulation.content_hash
+		input_log.compat = sim.compat_of(headless.game, headless.content)
 	}
 	for tick in 1 ..= ticks {
 		inputs := scripted(headless, simulation, tick, players, &commands)
@@ -236,6 +237,77 @@ run_sim :: proc(
 		result.summary = headless.summary(&simulation.state)
 	}
 	return
+}
+
+Interleaved_Result :: struct {
+	mismatches:     int,
+	second_start:   u32, // the first run's tick at which the second sim was created
+	first_tick:     u32, // the first tick the second run computed differently (0: none)
+	first, second:  u64, // the two checksums at first_tick
+	final_checksum: u64,
+}
+
+// Two sims of one run alive in one process at once (#123, cold vs warm): the first runs the scripted
+// run; at its halfway tick a second sim is created (the first is warm) and replays the first's inputs one
+// tick per tick of the first, half a run behind; the first is destroyed and the second runs the rest
+// alone. Every tick of the second is compared with the first's. Catches state that instances share (a
+// global, a library's static, reset or shared at world creation), which two back-to-back runs miss.
+run_interleaved :: proc(
+	headless: ^Headless($State, $Input, $World, $PLAYERS),
+	ticks: u32,
+	seed: u64,
+	players: int,
+) -> (
+	result: Interleaved_Result,
+) {
+	first := sim.create(headless.game, seed, headless.content)
+	commands: Scripted_Commands
+	defer scripted_commands_destroy(&commands)
+	input_log: sim.Input_Log(Input, PLAYERS)
+	defer sim.log_destroy(&input_log)
+	forward := make([]u64, ticks + 1)
+	defer delete(forward)
+	second: ^sim.Sim(State, Input, World, PLAYERS)
+	result.second_start = max(ticks / 2, 1)
+	for tick in 1 ..= ticks {
+		inputs := scripted(headless, first, tick, players, &commands)
+		sim.log_append(&input_log, &inputs)
+		sim.step(first, &inputs)
+		forward[tick] = sim.checksum(first)
+		if tick == result.second_start {
+			second = sim.create(headless.game, seed, headless.content)
+		}
+		if second != nil {
+			interleaved_step(second, &input_log, forward, &result)
+		}
+	}
+	sim.destroy(first)
+	if second != nil {
+		for second.tick < ticks {
+			interleaved_step(second, &input_log, forward, &result)
+		}
+		sim.destroy(second)
+	}
+	result.final_checksum = forward[ticks] if ticks > 0 else 0
+	return
+}
+
+// The second sim's next tick, from the log, compared with the first run's checksum of it.
+@(private)
+interleaved_step :: proc(
+	second: ^sim.Sim($State, $Input, $World, $PLAYERS),
+	input_log: ^sim.Input_Log(Input, PLAYERS),
+	forward: []u64,
+	result: ^Interleaved_Result,
+) {
+	inputs := sim.log_inputs(input_log, int(second.tick))
+	sim.step(second, &inputs)
+	if got := sim.checksum(second); got != forward[second.tick] {
+		if result.mismatches == 0 {
+			result.first_tick, result.first, result.second = second.tick, forward[second.tick], got
+		}
+		result.mismatches += 1
+	}
 }
 
 Synctest_Result :: struct {
@@ -300,7 +372,7 @@ run_synctest :: proc(
 }
 
 // `replay`: re-simulates an input log, recording every tick's checksum into `trace` (optional). Fails
-// when the log was recorded with other content (another level).
+// when the log was recorded with other content (another level) or by another build (its compat; 0: unknown, any).
 run_replay :: proc(
 	headless: ^Headless($State, $Input, $World, $PLAYERS),
 	input_log: ^sim.Input_Log(Input, PLAYERS),
@@ -314,6 +386,14 @@ run_replay :: proc(
 			"replay: the log was recorded with another level (content %016x, this run has %016x; see --level)",
 			input_log.content,
 			sim.content_hash(headless.content),
+		)
+		return
+	}
+	if compat := sim.compat_of(headless.game, headless.content); input_log.compat != 0 && input_log.compat != compat {
+		fmt.eprintfln(
+			"replay: the log was recorded by another build (compat %016x, this build is %016x)",
+			input_log.compat,
+			compat,
 		)
 		return
 	}

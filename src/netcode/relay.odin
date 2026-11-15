@@ -179,7 +179,13 @@ relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay
 	for &player in relay.player_of {
 		player = -1
 	}
-	header := sim.Log_Header{cfg.seed, cfg.content, PLAYERS, size_of(Input), 0}
+	header := sim.Log_Header {
+		seed       = cfg.seed,
+		content    = cfg.content,
+		compat     = cfg.compat, // 0 (a relay that accepts any build): unknown
+		players    = PLAYERS,
+		input_size = size_of(Input),
+	}
 	sim.log_stream_begin(&relay.recording, cfg.recording, header)
 	return relay
 }

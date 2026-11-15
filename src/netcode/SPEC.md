@@ -24,7 +24,8 @@ through `headless.session_run`).
   (`udp_listen(port, .Local | .Lan)`: 127.0.0.1, or every interface for players on other machines; `udp_connect`),
   `netsim_wrap(link, profile, seed, clock)` (latency, jitter, loss, duplicates, reordering, seeded, real or virtual
   clock; `split` with `profile_in` impairs incoming apart; an ideal profile, `profile_is_ideal`, returns the link
-  as is). EOS implements a Link in its own package.
+  as is; closing it sends the datagrams still delayed, as if already on the wire). EOS implements a Link in its own
+  package.
 - **Channel**: reliability over any number of links (`channel_add_link`): every (link, peer) pair is one channel
   peer. Every datagram carries seq, ack and a 32-bit ack history (`DGRAM_VERSION` 2). Reliable messages ride until a
   datagram carrying them is acked, are resent after `1.5 × srtt + 15 ms` (30–500 ms), and are delivered once, in

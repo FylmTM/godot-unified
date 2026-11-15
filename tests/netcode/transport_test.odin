@@ -99,3 +99,27 @@ a_silent_peer_times_out_by_whether_it_ever_answered :: proc(t: ^testing.T) {
 		"an answered peer's silence: DISCONNECT_US",
 	)
 }
+
+// Closing a netsim link sends what it still delays: a client that leaves right after acking the relay's End must not
+// take the ack with it (#235: the relay waited 3 s for it in about half the net suite's runs).
+@(test)
+closing_a_netsim_sends_what_it_delays :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	receiver := netcode.loopback_link(hub, 0)
+	defer netcode.link_close(&receiver)
+	clock := netcode.Virtual_Clock {
+		now = 1_000_000,
+	}
+	sender := netcode.netsim_wrap(netcode.loopback_link(hub, 1), {name = "slow", latency = 120_000}, 7, &clock)
+	datagram := [3]u8{1, 2, 3}
+	netcode.link_send(&sender, 0, datagram[:])
+	buf: [netcode.MAX_DATAGRAM]u8
+	_, _, early := netcode.link_recv(&receiver, buf[:])
+	testing.expect(t, !early, "the datagram is delayed")
+	netcode.link_close(&sender)
+	size, from, ok := netcode.link_recv(&receiver, buf[:])
+	testing.expect(t, ok, "closing the sender sent it")
+	testing.expect_value(t, size, 3)
+	testing.expect_value(t, from, netcode.Peer(1))
+}

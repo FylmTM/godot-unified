@@ -98,6 +98,14 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	testing.expect(t, replay_ok)
 	testing.expect_value(t, replay.final_checksum, run.final_checksum)
 	testing.expect(t, slice.equal(replay_trace.sums[:], trace.sums[:]))
+	// The log says which build recorded it: another build's log is refused, an unknown one (0) replays.
+	testing.expect_value(t, read_log.compat, sim.compat_of(&toy.GAME))
+	read_log.compat ~= 1
+	_, other_build_ok := headless.run_replay(&HEADLESS, &read_log)
+	testing.expect(t, !other_build_ok)
+	read_log.compat = 0
+	unknown, unknown_ok := headless.run_replay(&HEADLESS, &read_log)
+	testing.expect(t, unknown_ok && unknown.final_checksum == run.final_checksum)
 	// Snapshot at 200, resume 100 ticks: the same ticks 201..300 as the straight run.
 	snapshot, _ := headless.run_snapshot(&HEADLESS, 200, 7, 3)
 	defer delete(snapshot)
