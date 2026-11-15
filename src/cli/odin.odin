@@ -153,7 +153,13 @@ vet_template :: proc() -> []Vet_Package {
 	}
 	dir := join(state.project.out, "template")
 	remove_tree(dir)
-	write_template(join(state.project.unified, "src", "cli", "template"), dir, "template_game", ".odin.tmpl")
+	write_template(
+		join(state.project.unified, "src", "cli", "template"),
+		dir,
+		"template_game",
+		repo = true,
+		suffix = ".odin.tmpl",
+	)
 	simulation := join(dir, "simulation")
 	out: [dynamic]Vet_Package
 	append(

@@ -124,6 +124,7 @@ Public (`unified:cli`, every project):
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
 | `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
+| `init games/<name> --in-repo` | in this repo: the template game at `games/<name>` (its files only), its tests imported in `tests/tests.odin` |
 | `verify [--long]` | the gate before handing work back or merging: `fmt --check`, `vet`, `test --suite all`, `test --box3d-debug`, `bench` (this repo: everything CI runs; never `selftest`); `--long` passes `--long` to `test` |
 | `version` | the CLI's source hash, Odin, and the pins |
 
@@ -135,7 +136,7 @@ Private (this repo's `tools/`; promoted to public only when a game needs one):
 | `release [game] [--tag <game>-v<version> \| --version V] [--no-smoke]`, `release notes [game] --tag T` | a playable build (the `release` skill): export, version stamp (into `project.godot` and `export_presets.cfg` in place, restored byte for byte), sign, zip, smoke test; requires the EOS IDs when the extension imports `unified:eos` |
 | `board list\|set` | the work board through `gh` |
 | `ci summary`, `ci cache-key <dep>` | the job summary (markdown); a dependency's cache key |
-| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there; CI doesn't run it, its own download runs whenever its Odin cache misses), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify` |
+| `selftest [--shims]` | run only when asked for, never by `verify`: a fresh clone of HEAD in `.out/selftest/`, bootstrapped by its shim with no pinned Odin to find and an empty per-user cache (the shim downloads, checks and unpacks Odin, then builds the CLI; `--shims` stops there; CI doesn't run it, its own download runs whenever its Odin cache misses), `init` a game outside it with the clone as its submodule pinned to HEAD (checked, and the commands and links its files name), then that game's `bake --check`, `build` (it must report a cold run: the bindings), a sync-test through `headless`, `test --suite all` and `verify`; then `init --in-repo` the same game inside the clone (checked: only the game and the `tests/tests.odin` import), its `bake --check`, `build`, a sync-test, the clone's `test` and the game's `test --suite godot` |
 
 ## Line endings
 
@@ -223,10 +224,15 @@ pushed commit, never a local one, so the game repo clones anywhere. Then it writ
 that submodule, never from this checkout, so they always match the library they build against.
 
 `init` writes `template/`: every file a `.tmpl` with `__GAME__` for the game's name (the directory's: lowercase
-letters, digits and `_`). It is a complete small game, each player moving a dot: its sim package, headless binary
-(with a standard benchmark), extension (one scene view), main scene with a `UnifiedSession`, and tests (sync-test
-under rollback, a repeatable run, the determinism lint), so the new repo passes its own `verify` at once. The
-Odin files are formatted after the name is put in (it changes line lengths). In this repo `vet` writes the template's Odin files
+letters, digits and `_`), LF whatever the checkout has. It is the most basic 3D game, each player a capsule moved
+by the arrow keys, with the core wiring only: its sim package (`game.odin`: the Game and its tick; `state.odin`;
+`players.odin`; `scripted_input.odin`), headless binary (with a standard benchmark), extension (`input.odin`,
+`frame.odin`: one scene view, its colour as view data), main scene with a `UnifiedSession`, and tests (sync-test
+under rollback, a repeatable run, the determinism lint), so the new game passes its own `verify` at once. It
+doesn't use the demo games' shared code. `template/repo/` is a game repo's own (a README, `.gitattributes`, the
+repo's `.gitignore`, `tools/main.odin`); `--in-repo` leaves it out, and its wording fits both layouts ("unified's
+`src/...`"). The Odin files are formatted after the name is put in (it changes line lengths), and the view index is
+written by the build's own code, so the first build rewrites nothing. In this repo `vet` writes the template's Odin files
 for a game named `template_game` into `.out/template/` and type-checks its packages (one target), so a library API
 change that breaks a new game fails `verify`.
 
