@@ -45,7 +45,7 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
   Linux x64, Linux arm64 and Windows x64 on every PR and push to `main`, macOS ARM64 nightly when `main` moved
   (the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all but macOS on a branch
   (its runners are often out of capacity); add `-f macos=true` for sim changes and dependency upgrades.
-- CI must stay fast. A small set of key benchmarks runs on every platform in CI; the full set runs on demand.
+- CI must stay fast. Every platform runs `uni bench` (each game's standard benchmark; reported, not gated).
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
 - **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a

@@ -6,7 +6,7 @@
 # This checkout's UNIFIED_* settings (src/cli/SPEC.md, Local settings): never committed.
 .env
 
-# CI's Odin download (.github/actions/odin)
+# Old per-checkout toolchain folder (no longer written)
 /.toolchains/
 
 # Reference input logs (a global *.log ignore would otherwise drop them)

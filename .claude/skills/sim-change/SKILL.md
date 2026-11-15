@@ -15,8 +15,9 @@ in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_C
 simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
-   a dependency bump you thought neutral: no, so find the cause. Bisect with `git stash` or the previous commit; a
-   determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
+   a dependency bump you thought neutral: no, so find the cause. Check main in a throwaway worktree
+   (`git worktree add --detach .out/main-check origin/main`, run the check there, `git worktree remove --force .out/main-check`); never
+   `git stash`, the stash is shared by every session. A determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
 2. **If it was meant to:** regenerate, on any machine, and commit the files with the change that caused them:
 
    ```
