@@ -3,8 +3,8 @@
 package godot
 
 import "base:runtime"
+import "core:fmt"
 import "core:sync"
-import gd "unified:gdext"
 import "unified:netcode"
 import "unified:sim"
 import "unified:view"
@@ -15,23 +15,24 @@ DEFAULT_MAX_VIEWS :: 256
 DEFAULT_MAX_MULTI :: 16384
 DEFAULT_VIEW_DATA_BYTES :: 16384
 
-// A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to.
+// A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to. A view is
+// identified by its kind and key.
 View_Item :: struct($View: typeid) {
-	key:    view.Key, // spawn key: a new key = a new view; must be non-zero
+	key:    view.Key, // unique within its kind (a handle's or a player's key, an index; 0 too): a new key = a new view
 	kind:   View,
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
-	entity: u64, // the id the game's events carry in a u64 `entity` field (0: none): those events come here
+	entity: u64, // the id the game's events carry in a u64 `entity` field (0: the key): those events come here
 	pos:    [3]f32, // in the views' units; 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw, view.quat_angle2d (2D); zero = identity
 }
 
-// One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the instance
-// with the same key at tick - 1 (the host remembers it); scale, color and custom are the tick's.
+// One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the
+// instance with the same key at tick - 1 (the host remembers it); scale, color and custom are the tick's.
 Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
 	pos:    [3]f32,
-	yaw:    f32, // 3D: about +Y; 2D: the angle about Z (Node2D.rotation)
+	rot:    [4]f32, // unit quaternion like View_Item's (2D: view.quat_angle2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  [4]f32, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)
@@ -44,7 +45,7 @@ Frame :: struct($State, $World, $View, $MultiView: typeid) {
 	tick:         u32,
 	local_player: sim.Player, // who this client plays at this tick ({}: nobody yet, e.g. before its join tick)
 	local_slot:   int, // the slot the relay gave this client (-1: none yet)
-	data:         ^Frame_Data, // what the main thread gets
+	out:          ^Frame_Data, // what the main thread gets
 	poses:        ^Pose_Memory, // every keyed item's pose at the fill before
 }
 
@@ -88,11 +89,18 @@ Multi_Out :: struct {
 	key:      u64,
 	pos:      [3]f32,
 	prev_pos: [3]f32,
-	yaw:      f32,
-	prev_yaw: f32,
+	rot:      [4]f32,
+	prev_rot: [4]f32,
 	scale:    [3]f32,
 	color:    [4]f32,
 	custom:   [4]f32,
+}
+
+// A session data value as published (push_data): its kind (the index in Glue.data) and its bytes' place.
+Data_Out :: struct {
+	kind:   u8,
+	offset: u32, // into Frame_Data.data
+	size:   u32,
 }
 
 // What crosses to the main thread every published tick (a triple buffer of three; capacities from the Glue).
@@ -109,19 +117,28 @@ Frame_Data :: struct {
 	n_members:    int,
 	views:        []View_Out,
 	multis:       []Multi_Out,
-	data:         []u8, // the views' data, packed
+	data:         []u8, // the views' and the session data's bytes, packed
+	datas:        [MAX_DATA_TYPES]Data_Out, // the session data pushed this frame: datas[:n_datas]
+	data_pushed:  u64, // the data kinds pushed this frame (one value per type per frame)
 	n_views:      int,
 	n_multis:     int,
 	n_data:       int,
-	dropped:      int, // items push_view / push_multi_view refused (the Frame was full); the host warns once
+	n_datas:      int,
+	dropped:      int, // items push_view / push_multi_view / push_data refused (the Frame was full); warned once
 }
 
 // What a game provides, typed by its State, Input and World and its view kinds (enums).
 Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
 	sample_input:      proc(input: ^Input),
-	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view).
+	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
+	// session data (push_data).
 	fill_frame:        proc(frame: ^Frame(State, World, View, MultiView)),
+	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
+	data:              typeid,
+	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
+	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
+	constants:         any,
 	// Optional: the views' smoothing, in the units fill_frame writes (zero: view.SMOOTHING_DEFAULT, metres). A 2D
 	// game in pixels sets it, e.g. {tau_s = 0.1, teleport_dist = 64}; the host warns when 2D views run with the
 	// default.
@@ -136,9 +153,6 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
 	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out),
-	// Main thread, optional: the game's constants for its scripts (UnifiedSession.constants()), straight from
-	// the sim's own definitions so scripts never copy them. The host adds `tick_hz`.
-	constants:         proc(dict: ^gd.Dictionary),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// entities). Single player only: it changes the initial state, which every peer would have to share.
 	bench:             proc(state: ^State, world: ^World, count: int),
@@ -146,10 +160,10 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// event classes get them), e.g. metres or cells to pixels. `world` is the session's World as of the newest
 	// frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
 	event_pos:         proc(position: sim.Position, world: ^World) -> sim.Position,
-	// Main thread, optional: the scene view an event goes to (its spawn key; 0 = none), overriding the routing
-	// by its subject (a handle field: the view with that key; an `entity` field: the view whose item's entity
+	// Main thread, optional: the scene view an event goes to (its kind and key; ok false: none), overriding the
+	// routing by its subject (a handle field: the views with that key; an `entity` field: the views whose entity
 	// equals it; else its first sim.Player field: that player's views). sim.event_value(event, Game_Event) reads it.
-	event_key:         proc(event: ^sim.Raw_Event) -> view.Key,
+	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool),
 	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
@@ -225,19 +239,25 @@ STATUS_NAMES := [Status_Kind]string {
 	.Disconnected = "disconnected",
 }
 
-// Session thread -> main thread messages.
+// Session thread -> main thread: an event in one of its states. Events have a queue of their own; one that finds it
+// full is dropped (counted: the dev UI shows it, the host warns once).
+Event_Message :: struct {
+	action: view.Event_Action, // Emitted, Confirmed or Cancelled
+	tick:   u32,
+	event:  sim.Raw_Event, // positions already in view units
+}
+
+// Session thread -> main thread: what must never be lost (statuses, the lobby code, desync reports, the result),
+// in a small queue of its own.
 Message :: struct {
 	kind:   enum u8 {
 		Status,
 		Lobby_Code,
-		Event,
 		Result,
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 	},
 	status: Status_Kind,
-	action: view.Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
-	event:  sim.Raw_Event, // positions already in view units
 	text:   [128]u8,
 	len:    u8,
 }
@@ -316,8 +336,7 @@ push_view_out :: proc(
 	data: []u8,
 	loc := #caller_location,
 ) -> bool {
-	out := frame.data
-	if item.key == 0 do panic("push_view: a view's key must be non-zero", loc)
+	out := frame.out
 	if out.n_views >= len(out.views) || out.n_data + len(data) > len(out.data) {
 		out.dropped += 1
 		return false
@@ -330,7 +349,7 @@ push_view_out :: proc(
 		key         = item.key,
 		kind        = kind,
 		player      = sim.player_key(item.player),
-		entity      = item.entity,
+		entity      = item.entity != 0 ? item.entity : u64(item.key),
 		pos         = item.pos,
 		rot         = item.rot == {} ? view.IDENTITY : item.rot,
 		data_type   = data_type,
@@ -346,7 +365,7 @@ push_view_out :: proc(
 
 // Session thread (fill_frame): one MultiMesh instance; false when the Frame is full (counted in `dropped`).
 push_multi_view :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: Multi_View_Item(MultiView)) -> bool {
-	out := frame.data
+	out := frame.out
 	if out.n_multis >= len(out.multis) {
 		out.dropped += 1
 		return false
@@ -357,7 +376,7 @@ push_multi_view :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: 
 		kind   = u8(item.kind),
 		key    = item.key,
 		pos    = item.pos,
-		yaw    = item.yaw,
+		rot    = item.rot == {} ? view.IDENTITY : item.rot,
 		scale  = item.scale,
 		color  = item.color,
 		custom = item.custom,
@@ -370,9 +389,40 @@ push_multi_view :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: 
 			item.key,
 			frame.tick,
 			item.pos,
-			{item.yaw, 0, 0, 0},
+			multi_out.rot,
 		)
-		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_yaw = true, previous.pos, previous.rot.x
+		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot
 	}
 	return true
+}
+
+// Session thread (fill_frame): the session data value of type T this tick (a `Data_` struct of Glue.data), set as
+// the properties of Unified.<name> when its bytes change. One value per type per frame (asserted); false when the
+// Frame is full (counted in `dropped`).
+push_data :: proc(frame: ^Frame($State, $World, $View, $MultiView), data: $T, loc := #caller_location) -> bool {
+	kind := data_kind(T, loc)
+	out := frame.out
+	if out.data_pushed & (1 << uint(kind)) != 0 do panic("push_data: a data type pushed twice in one frame", loc)
+	if out.n_data + size_of(T) > len(out.data) {
+		out.dropped += 1
+		return false
+	}
+	data := data
+	out.data_pushed |= 1 << uint(kind)
+	out.datas[out.n_datas] = {
+		kind   = u8(kind),
+		offset = u32(out.n_data),
+		size   = u32(size_of(T)),
+	}
+	out.n_datas += 1
+	copy(out.data[out.n_data:], ([^]u8)(&data)[:size_of(T)])
+	out.n_data += size_of(T)
+	return true
+}
+
+// The index of a data type in Glue.data (a panic for another type).
+@(private)
+data_kind :: proc(type: typeid, loc := #caller_location) -> int {
+	for layout, i in api.data do if layout.type.id == type do return i
+	panic(fmt.tprintf("push_data: %v is not in Glue.data", type), loc)
 }

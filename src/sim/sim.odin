@@ -216,6 +216,19 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	if variant_kind(events, Event_Player_Joined) < 0 || variant_kind(events, Event_Player_Left) < 0 {
 		return fmt.tprintf("%s: events: the union lists sim.Event_Player_Joined and sim.Event_Player_Left", name)
 	}
+	for variant in union_variants(events) {
+		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct) or_continue
+		for i in 0 ..< int(info.field_count) {
+			if field := info.names[i]; field == "tick" || field == "kind" {
+				return fmt.tprintf(
+					"%s: events: %v has a field named `%s`, which every event carries already (its tick and kind): rename it",
+					name,
+					variant.id,
+					field,
+				)
+			}
+		}
+	}
 	return ""
 }
 

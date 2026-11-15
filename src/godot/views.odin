@@ -7,7 +7,6 @@ package godot
 
 import "base:runtime"
 import "core:fmt"
-import "core:math"
 import "core:strings"
 import "core:time"
 import gd "unified:gdext"
@@ -15,7 +14,7 @@ import "unified:gdext/gdi"
 import "unified:sim"
 import "unified:view"
 
-LINGER_S :: 0.25 // a despawned scene view stays this long (exit animation, or a rollback brings it back)
+LINGER_S :: 0.25 // UnifiedView.linger_s's default: a despawned view stays this long (exit animation, or a rollback)
 INDEX_PATH :: "res://unified_index.tres" // the view index `uni bake` writes (metadata `views`: kind -> scene path)
 
 @(private)
@@ -23,6 +22,13 @@ Root_Mode :: enum u8 {
 	Node3D,
 	Node2D,
 	Other, // data only: no pose, no _sim_update
+}
+
+// A scene view is identified by its kind and key (a key is unique within its kind).
+@(private)
+View_Id :: struct {
+	kind: u8,
+	key:  view.Key,
 }
 
 @(private)
@@ -35,10 +41,30 @@ Scene_View :: struct {
 	kind:       u8,
 	player:     u64, // the player's key (sim.player_key; 0: none)
 	entity:     u64,
+	linger_s:   f64, // its marker's
+	spawn_tick: u32, // the tick it first appeared at
+	verified:   bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
+	gone:       bool, // _sim_despawned was called (and no _sim_revived since)
 	track:      view.Track,
 	has_update: bool,
 	has_event:  bool,
+	callbacks:  [View_Callback]bool, // the root's script has them
 	data:       []u8, // the data last set as properties
+}
+
+// The root script's lifecycle callbacks.
+@(private)
+View_Callback :: enum u8 {
+	Despawned, // its key is gone: it lingers (linger_s; the host no longer sets its pose), then is freed
+	Revived, // a rollback brought it back while it lingered
+	Cancelled, // a rollback removed it before its spawn tick was verified: freed at once, never despawned
+}
+
+@(private)
+VIEW_CALLBACK_NAMES := [View_Callback]string {
+	.Despawned = "_sim_despawned",
+	.Revived   = "_sim_revived",
+	.Cancelled = "_sim_cancelled",
 }
 
 // One field of a view's data type, set as the view's property of the same name (converted like an event's fields:
@@ -79,7 +105,7 @@ Multi_Track :: struct {
 
 @(private)
 V: struct {
-	set:         view.View_Set(^Scene_View),
+	set:         view.View_Set(View_Id, ^Scene_View),
 	scenes:      map[u8]gd.Ref(gd.PackedScene),
 	missing:     map[u8]bool, // kinds whose scene failed to load (reported once)
 	index:       map[string]string, // the view index: kind name -> scene path
@@ -99,6 +125,7 @@ Unified_View_Node :: struct {
 	kind:      string,
 	entity:    i64,
 	player:    i64,
+	linger_s:  f64,
 }
 
 Unified_Multi_View_Node :: struct {
@@ -113,12 +140,19 @@ unified_view_class, unified_multi_view_class: gd.Class
 // Registers every class the extension gives Godot (UnifiedSession, the event and command classes, UnifiedView,
 // UnifiedMultiView) at SCENE initialization.
 register_classes :: proc() {
+	if len(api.problems) > 0 {
+		for problem in api.problems {
+			gd.print_error(fmt.tprintf("unified: the game %s is not installed: %s", api.game_name, problem))
+		}
+	}
 	register_session_class()
 	register_sim_classes()
+	register_data_classes()
 	unified_view_class = {
 		name = "UnifiedView",
 		parent = "Node",
 		size = size_of(Unified_View_Node),
+		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
 	}
 	class := &unified_view_class
@@ -144,8 +178,12 @@ register_classes :: proc() {
 		proc(node: ^Unified_View_Node) -> i64 {return node.player},
 		proc(node: ^Unified_View_Node, player: i64) {node.player = player},
 	)
-	gd.bind_signal(class, "despawned")
-	gd.bind_signal(class, "revived")
+	gd.bind_property(
+		class,
+		"linger_s",
+		proc(node: ^Unified_View_Node) -> f64 {return node.linger_s},
+		proc(node: ^Unified_View_Node, linger_s: f64) {node.linger_s = max(linger_s, 0)},
+	)
 	unified_multi_view_class = {
 		name = "UnifiedMultiView",
 		parent = "Node",
@@ -184,6 +222,7 @@ register_classes :: proc() {
 unregister_classes :: proc() {
 	gd.unregister_class(&unified_multi_view_class)
 	gd.unregister_class(&unified_view_class)
+	unregister_data_classes()
 	unregister_sim_classes()
 	gd.unregister_class(&session_class)
 }
@@ -309,6 +348,8 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	kind := api.view_names[item.kind]
 	scene_view.id = gdi.object_get_instance_id(node.ptr)
 	scene_view.kind, scene_view.player, scene_view.entity = item.kind, item.player, item.entity
+	scene_view.linger_s = LINGER_S
+	scene_view.spawn_tick = frame.tick
 	scene_view.marker = find_marker(node)
 	if scene_view.marker.ptr == nil {
 		report_once(
@@ -332,9 +373,11 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 			)
 		}
 		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
+		scene_view.linger_s = marker.linger_s
 	}
 	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, gd.sn("_sim_update"))
 	scene_view.has_event = gd.has_script_method(node, gd.sn("_sim_event"))
+	for name, callback in VIEW_CALLBACK_NAMES do scene_view.callbacks[callback] = gd.has_script_method(node, gd.sn(name))
 	set_pose(scene_view, {item.pos, item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
@@ -440,10 +483,20 @@ free_view :: proc(scene_view: ^Scene_View) {
 	free(scene_view)
 }
 
+// Calls one of the root script's lifecycle callbacks (_sim_despawned, _sim_revived, _sim_cancelled), if it has it.
 @(private)
-marker_signal :: proc(scene_view: ^Scene_View, signal: string) {
-	if scene_view == nil || !alive(scene_view.marker_id) do return
-	gd.emit_signal(scene_view.marker, gd.sn(signal))
+view_callback :: proc(scene_view: ^Scene_View, callback: View_Callback) {
+	if scene_view == nil || !scene_view.callbacks[callback] || !alive(scene_view.id) do return
+	result := gd.call_script(scene_view.node, gd.sn(VIEW_CALLBACK_NAMES[callback]))
+	gd.variant_destroy(&result)
+}
+
+// Keeps the marker's entity and player current (they may change after the spawn).
+@(private)
+marker_update :: proc(scene_view: ^Scene_View) {
+	if !alive(scene_view.marker_id) do return
+	marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
+	if marker != nil do marker.entity, marker.player = i64(scene_view.entity), i64(scene_view.player)
 }
 
 // Frees every scene view and MultiMesh binding and forgets the loaded scenes and the view index (main thread),
@@ -505,14 +558,25 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		}
 		view.set_begin(&V.set)
 		for &item in frame.views[:frame.n_views] {
-			old := view.set_get(&V.set, item.key)
+			id := View_Id{item.kind, item.key}
+			old := view.set_get(&V.set, id)
 			revived := old != nil && old.phase == .Lingering
-			entry, spawned := view.set_see(&V.set, item.key)
-			if spawned do entry.view = spawn_view(root, &item, frame)
+			entry, spawned := view.set_see(&V.set, id)
+			if spawned {
+				entry.view = spawn_view(root, &item, frame)
+				if entry.view != nil do entry.linger_s = entry.view.linger_s
+			}
 			scene_view := entry.view
 			if scene_view == nil do continue
-			if revived do marker_signal(scene_view, "revived") // a rollback brought it back during its linger
-			scene_view.entity, scene_view.player = item.entity, item.player
+			if frame.verified >= scene_view.spawn_tick do scene_view.verified = true
+			if revived && scene_view.gone { 	// a rollback brought it back during its linger
+				scene_view.gone = false
+				view_callback(scene_view, .Revived)
+			}
+			if scene_view.entity != item.entity || scene_view.player != item.player {
+				scene_view.entity, scene_view.player = item.entity, item.player
+				marker_update(scene_view)
+			}
 			if !spawned && alive(scene_view.id) && item.data_type != nil {
 				set_data(
 					scene_view,
@@ -525,15 +589,34 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			if item.has_prev do view.track_push(&scene_view.track, frame.tick - 1, {item.prev_pos, item.prev_rot}, api.smoothing)
 			view.track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, api.smoothing)
 		}
-		view.set_end(&V.set, now_s, LINGER_S)
-		for key in V.set.despawned {
-			if entry := view.set_get(&V.set, key); entry != nil do marker_signal(entry.view, "despawned")
+		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
+		cancelled := make([dynamic]View_Id, context.temp_allocator)
+		for id, entry in V.set.entries {
+			if entry.seen != V.set.frame && entry.phase == .Alive && entry.view != nil && !entry.view.verified {
+				append(&cancelled, id)
+			}
 		}
-		for scene_view in V.set.removed do free_view(scene_view)
+		for id in cancelled {
+			scene_view, _ := view.set_remove(&V.set, id)
+			view_callback(scene_view, .Cancelled)
+			free_view(scene_view)
+		}
+		view.set_end(&V.set, now_s)
+		for id in V.set.despawned {
+			if entry := view.set_get(&V.set, id); entry != nil && entry.view != nil {
+				entry.view.gone = true
+				view_callback(entry.view, .Despawned)
+			}
+		}
+		for scene_view in V.set.removed {
+			if scene_view != nil && !scene_view.gone do view_callback(scene_view, .Despawned) // linger_s 0
+			free_view(scene_view)
+		}
 	}
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
 		if scene_view == nil || scene_view.mode == .Other || !alive(scene_view.id) do continue
+		if entry.phase == .Lingering do continue // unpinned: an exit animation may move it
 		pose := view.track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing)
 		set_pose(scene_view, pose)
 		if !scene_view.has_update do continue
@@ -555,30 +638,50 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 	}
 }
 
-// An event to its subject's scene view (_sim_event(event, state) on the root's script): with Glue.event_key, the
-// view it names; else the view keyed by the event's handle field, else the views whose entity is the event's
-// `entity` field, else its player's views.
+// An event to its subject's scene views (_sim_event(event, state) on the root's script): with Glue.event_key, the
+// view it names; else the views keyed by the event's handle field (of any kind), else the views whose entity is
+// the event's `entity` field (a view's entity defaults to its key), else its player's views.
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
-	key := view.Key(0)
-	if api.event_key != nil {
-		key = api.event_key(raw)
-		if key == 0 do return
+	Route :: enum u8 {
+		None,
+		Id, // Glue.event_key's view
+		Key, // the handle's key, any kind
+		Entity,
+		Player,
 	}
+	route: Route
+	named: View_Id
 	player, entity := event_subject(layout, raw.data[:raw.size])
-	if api.event_key == nil && layout.subject_is_handle && entity != 0 {
-		if entry := view.set_get(&V.set, view.Key(entity)); entry != nil && entry.view != nil do key = view.Key(entity)
+	if api.event_key != nil {
+		kind, key, ok := api.event_key(raw)
+		if !ok do return
+		route, named = .Id, {kind, key}
+	} else {
+		if layout.subject_is_handle && entity != 0 {
+			for id, entry in V.set.entries do if id.key == view.Key(entity) && entry.view != nil do route = .Key
+		}
+		switch {
+		case route == .Key:
+		case layout.subject >= 0 && !layout.subject_is_handle && entity != 0:
+			route = .Entity
+		case player != 0:
+			route = .Player
+		}
 	}
-	by_entity := layout.subject >= 0 && !layout.subject_is_handle && entity != 0
-	for entry_key, &entry in V.set.entries {
+	if route == .None do return
+	for id, &entry in V.set.entries {
 		scene_view := entry.view
 		if scene_view == nil || !scene_view.has_event || !alive(scene_view.id) do continue
 		match: bool
-		switch {
-		case key != 0:
-			match = entry_key == key
-		case by_entity:
+		switch route {
+		case .None:
+		case .Id:
+			match = id == named
+		case .Key:
+			match = id.key == view.Key(entity)
+		case .Entity:
 			match = scene_view.entity == entity
-		case player != 0:
+		case .Player:
 			match = scene_view.player == player
 		}
 		if !match do continue
@@ -716,34 +819,35 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		view_index := first[item.kind]
 		if view_index < 0 do continue
 		pos := item.pos
-		yaw := item.yaw
+		rot := item.rot
 		if item.has_prev {
 			pos = view.lerp3(item.prev_pos, item.pos, alpha)
-			turn := item.yaw - item.prev_yaw
-			turn -= math.TAU * math.round(turn / math.TAU) // the shorter arc
-			yaw = item.prev_yaw + turn * alpha
+			rot = view.nlerp(item.prev_rot, item.rot, alpha) // the shorter arc
 		}
 		scale := item.scale == {} ? [3]f32{1, 1, 1} : item.scale
 		for ; view_index >= 0; view_index = next[view_index] {
 			multi := &V.multis[view_index]
-			view_pos, view_yaw := pos, yaw
+			view_pos, view_rot := pos, rot
 			if multi.smooth && item.key != 0 {
-				view_pos, view_yaw = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
+				view_pos, view_rot = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
 			}
 			out := multi.ptr[cursor[view_index] * multi.stride:]
 			cursor[view_index] += 1
-			cos_yaw, sin_yaw := math.cos(view_yaw), math.sin(view_yaw)
+			basis := quat_basis(view_rot)
 			offset: int
 			if multi.is_2d {
-				// Transform2D rows (x axis = (cos, sin)·sx, y axis = (-sin, cos)·sy): rotation about Z, scale per axis
-				out[0], out[1], out[2], out[3] = cos_yaw * scale.x, -sin_yaw * scale.y, 0, view_pos.x
-				out[4], out[5], out[6], out[7] = sin_yaw * scale.x, cos_yaw * scale.y, 0, view_pos.y
+				// Transform2D rows: the rotation about Z (the quaternion's upper-left 2x2), local axes scaled
+				out[0], out[1], out[2], out[3] = basis[0][0] * scale.x, basis[0][1] * scale.y, 0, view_pos.x
+				out[4], out[5], out[6], out[7] = basis[1][0] * scale.x, basis[1][1] * scale.y, 0, view_pos.y
 				offset = 8
 			} else {
-				// Transform3D rows (yaw about +Y; local axes scaled by scale)
-				out[0], out[1], out[2], out[3] = cos_yaw * scale.x, 0, sin_yaw * scale.z, view_pos.x
-				out[4], out[5], out[6], out[7] = 0, scale.y, 0, view_pos.y
-				out[8], out[9], out[10], out[11] = -sin_yaw * scale.x, 0, cos_yaw * scale.z, view_pos.z
+				// Transform3D rows: the rotation, local axes (columns) scaled by scale
+				for row in 0 ..< 3 {
+					out[row * 4 + 0] = basis[row][0] * scale.x
+					out[row * 4 + 1] = basis[row][1] * scale.y
+					out[row * 4 + 2] = basis[row][2] * scale.z
+				}
+				out[3], out[7], out[11] = view_pos.x, view_pos.y, view_pos.z
 				offset = 12
 			}
 			if multi.has_col {
@@ -767,6 +871,16 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	}
 }
 
+// A unit quaternion's rotation matrix, by rows.
+@(private)
+quat_basis :: proc(q: [4]f32) -> (basis: [3][3]f32) {
+	x, y, z, w := q.x, q.y, q.z, q.w
+	basis[0] = {1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}
+	basis[1] = {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}
+	basis[2] = {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}
+	return
+}
+
 // A smooth view's instance: its own Track by key, so a rollback correction glides like a scene view's.
 @(private)
 multi_smooth :: proc(
@@ -778,20 +892,18 @@ multi_smooth :: proc(
 	dt: f32,
 ) -> (
 	pos: [3]f32,
-	yaw: f32,
+	rot: [4]f32,
 ) {
 	entry, found := &multi.tracks[item.key]
 	if !found {
 		multi.tracks[item.key] = {}
 		entry = &multi.tracks[item.key]
 	}
-	quat :: proc(is_2d: bool, angle: f32) -> [4]f32 {return is_2d ? view.quat_angle2d(angle) : view.quat_yaw(angle)}
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
-		if item.has_prev do view.track_push(&entry.track, tick - 1, {item.prev_pos, quat(multi.is_2d, item.prev_yaw)}, api.smoothing)
-		view.track_push(&entry.track, tick, {item.pos, quat(multi.is_2d, item.yaw)}, api.smoothing)
+		if item.has_prev do view.track_push(&entry.track, tick - 1, {item.prev_pos, item.prev_rot}, api.smoothing)
+		view.track_push(&entry.track, tick, {item.pos, item.rot}, api.smoothing)
 	}
 	pose := view.track_sample(&entry.track, tick, alpha, dt, api.smoothing)
-	angle := multi.is_2d ? view.angle2d_of(pose.rot) : view.yaw_of(pose.rot)
-	return pose.pos, angle
+	return pose.pos, pose.rot
 }

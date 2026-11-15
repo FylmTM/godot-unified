@@ -1,6 +1,7 @@
 // The editor's help for the classes unified:godot registers (Godot's class reference XML, loaded at the EDITOR init
-// level): UnifiedSession, UnifiedView, UnifiedMultiView, UnifiedEvent, UnifiedCommand and the game's event and
-// command classes (sim_classes.odin), so the editor's help and autocompletion say what each one does.
+// level): UnifiedSession, UnifiedView, UnifiedMultiView, UnifiedEvent, UnifiedCommand, the Unified singleton and the
+// game's event, command, data, constants and enum classes (sim_classes.odin, data.odin), so the editor's help and
+// autocompletion say what each one does.
 package godot
 
 import "core:fmt"
@@ -23,17 +24,18 @@ Doc_Class :: struct {
 	methods:                     []Doc_Method,
 	members:                     []Doc_Member,
 	signals:                     []Doc_Method, // ret unused
-	constants:                   []Doc_Member, // type: the value; enum EventState
+	constants:                   []Doc_Member, // type: the value
+	constants_enum:              string, // the enum the constants belong to ("": none)
 }
 
 @(private)
 LIBRARY_DOCS := []Doc_Class {
 	{
-		name      = "UnifiedSession",
-		inherits  = "Node",
-		brief     = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
-		text      = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code].",
-		methods   = {
+		name           = "UnifiedSession",
+		inherits       = "Node",
+		brief          = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
+		text           = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code].",
+		methods        = {
 			{"start_single", "bool", "", "Starts a single player session."},
 			{
 				"host_online",
@@ -67,7 +69,6 @@ LIBRARY_DOCS := []Doc_Class {
 				"name:StringName, value:Variant",
 				"A value only scripts know (a camera's look direction: Vector3, Vector2, float or bool) that the game's input sampling reads by name.",
 			},
-			{"constants", "Dictionary", "", "The game's constants for scripts, plus [code]tick_hz[/code]."},
 			{"set_player_name", "void", "name:String", "The name the next session shows to other players."},
 			{"get_status", "String", "", "idle, connecting, connected, failed or disconnected."},
 			{"is_running", "bool", "", "A session is running."},
@@ -113,7 +114,7 @@ LIBRARY_DOCS := []Doc_Class {
 			{"toggle_devui", "void", "", "Shows or hides the dev UI (F1)."},
 			{"is_devui_visible", "bool", "", "The dev UI is shown."},
 		},
-		members   = {
+		members        = {
 			{
 				"view_root",
 				"Node",
@@ -122,7 +123,7 @@ LIBRARY_DOCS := []Doc_Class {
 			{"seed", "int", "The next session's seed."},
 			{"ticks", "int", "The next session's length in ticks (0: endless)."},
 		},
-		signals   = {
+		signals        = {
 			{
 				"status_changed",
 				"",
@@ -139,7 +140,8 @@ LIBRARY_DOCS := []Doc_Class {
 				"Every sim event in every state: EVENT_EMITTED once, then EVENT_CONFIRMED or EVENT_CANCELLED once. Its subject's view gets it first ([code]_sim_event(event, state)[/code]).",
 			},
 		},
-		constants = {
+		constants_enum = "EventState",
+		constants      = {
 			{
 				"EVENT_EMITTED",
 				"0",
@@ -153,20 +155,22 @@ LIBRARY_DOCS := []Doc_Class {
 		name     = "UnifiedView",
 		inherits = "Node",
 		brief    = "Marks a scene as the view of one kind of the game's scene views.",
-		text     = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member entity] and [member player] when it makes the view. The root may be a Node3D (position and rotation), a Node2D (position and rotation) or anything else (a Control HUD: data only); its script may define [code]_sim_update(position, yaw_or_rotation, alpha)[/code] and [code]_sim_event(event: UnifiedEvent, state: int)[/code], and properties named after the fields of the view's data.",
+		text     = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host keeps [member entity] and [member player] current. The root may be a Node3D (position and rotation), a Node2D (position and rotation) or anything else (data only); its script may define [code]_sim_update(position, yaw_or_rotation, alpha)[/code], [code]_sim_event(event: UnifiedEvent, state: int)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		members  = {
 			{"kind", "String", "The view kind (the game's View enum member, lowercased), set in the scene."},
-			{"entity", "int", "The id the game's events carry for this view (0: none)."},
+			{"entity", "int", "The id the game's events carry for this view (unset in the game: its key)."},
 			{"player", "int", "The key of the player this view shows (0: none)."},
+			{"linger_s", "float", "How long the view stays once its key is gone (an exit animation), in seconds."},
 		},
-		signals  = {
-			{
-				"despawned",
-				"",
-				"",
-				"The view's key is gone from the sim: it lingers 0.25 s (an exit animation), then is freed.",
-			},
-			{"revived", "", "", "A rollback brought the view back while it lingered: undo the exit animation."},
+	},
+	{
+		name     = "Unified",
+		inherits = "Object",
+		brief    = "The engine singleton for the game's session data, its constants and the session.",
+		text     = "A typed property per type of the game's session data ([code]Data_Hud[/code]: [code]Unified.hud[/code], a [code]DataHud[/code] with a [code]changed[/code] signal), set from the newest tick and back to zero when a session ends; [member constants]; the active [UnifiedSession].",
+		members  = {
+			{"session", "UnifiedSession", "The active session node (null: none)."},
+			{"tick_hz", "int", "The sim's ticks per second."},
 		},
 	},
 	{
@@ -188,7 +192,10 @@ LIBRARY_DOCS := []Doc_Class {
 		inherits = "RefCounted",
 		brief    = "One of the game's sim events: the base of its event classes.",
 		text     = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field.",
-		members  = {{"tick", "int", "The tick that produced it."}},
+		members  = {
+			{"tick", "int", "The tick that produced it."},
+			{"kind", "String", "Its kind: the type name without Event_, lowercased."},
+		},
 	},
 	{
 		name     = "UnifiedCommand",
@@ -260,9 +267,10 @@ doc_xml :: proc(class: Doc_Class) -> string {
 		for constant in class.constants {
 			fmt.sbprintf(
 				&builder,
-				"\t\t<constant name=\"%s\" value=\"%s\" enum=\"EventState\">%s</constant>\n",
+				"\t\t<constant name=\"%s\" value=\"%s\"%s>%s</constant>\n",
 				constant.name,
 				constant.type,
+				class.constants_enum != "" ? fmt.tprintf(" enum=\"%s\"", class.constants_enum) : "",
 				constant.text,
 			)
 		}
@@ -282,6 +290,8 @@ doc_type :: proc(kind: Sim_Field) -> string {
 		return "float"
 	case .BOOL:
 		return "bool"
+	case .STRING:
+		return "String"
 	case .STRING_NAME:
 		return "StringName"
 	case .VECTOR2:
@@ -294,29 +304,72 @@ doc_type :: proc(kind: Sim_Field) -> string {
 		return "Array"
 	case .DICTIONARY:
 		return "Dictionary"
+	case:
+		if _, is_builtin := gd.builtin_variant_type(kind.type.id); is_builtin do return fmt.tprint(kind.type.id) // Vector4, Quaternion...
 	}
 	return "Variant"
+}
+
+// A struct's fields as doc members.
+@(private)
+doc_members :: proc(fields: []Sim_Field) -> []Doc_Member {
+	members := make([]Doc_Member, len(fields), context.temp_allocator)
+	for field, i in fields {
+		members[i] = {
+			field.name,
+			doc_type(field),
+			fmt.tprintf("The field [code]%s[/code] (Odin %v).", field.name, field.type.id),
+		}
+	}
+	return members
 }
 
 // Loads every class's docs into the editor's help (EDITOR init level).
 load_docs :: proc() {
 	for class in LIBRARY_DOCS do gd.load_class_docs(doc_xml(class))
 	for sim_class in sim_classes {
-		members := make([]Doc_Member, len(sim_class.fields), context.temp_allocator)
-		for field, i in sim_class.fields {
-			members[i] = {
-				field.name,
-				doc_type(field),
-				fmt.tprintf("The field [code]%s[/code] (Odin %v).", field.name, field.type.id),
-			}
-		}
 		what := sim_class.is_event ? "event" : "command"
 		gd.load_class_docs(doc_xml({
 				name     = sim_class.name,
 				inherits = sim_class.parent,
 				brief    = fmt.tprintf("The game's %s %v.", what, sim_class.type.id),
 				text     = sim_class.is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
-				members  = members,
+				members  = doc_members(sim_class.fields),
+			}))
+	}
+	for data_class in data_classes() {
+		is_constants := data_class == D.constants
+		gd.load_class_docs(doc_xml({
+				name     = data_class.name,
+				inherits = "Object",
+				brief    = fmt.tprintf(
+					"The game's %s %v.",
+					is_constants ? "constants" : "session data",
+					data_class.layout.type.id,
+				),
+				text     = is_constants ? "[code]Unified.constants[/code]: set once at load." : fmt.tprintf("[code]Unified.%s[/code]: the newest tick's values (fill_frame: push_data), zero outside a session.", data_class.layout.property),
+				members  = doc_members(data_class.fields),
+				signals  = is_constants ? nil : []Doc_Method{{"changed", "", "", "A value changed (a new tick's, or the reset when a session ends)."}},
+			}))
+	}
+	for enum_class in D.enums {
+		constants := make([]Doc_Member, len(enum_class.info.names), context.temp_allocator)
+		for name, i in enum_class.info.names {
+			constants[i] = {
+				strings.to_upper(name, context.temp_allocator),
+				fmt.tprint(i64(enum_class.info.values[i])),
+				fmt.tprintf("%v.%s", enum_class.type.id, name),
+			}
+		}
+		gd.load_class_docs(doc_xml({
+				name      = enum_class.name,
+				inherits  = "Object",
+				brief     = fmt.tprintf("The game's enum %v: fields of this type are ints.", enum_class.type.id),
+				text      = "Compare a field with its constants; [method name] gives a member's name for display.",
+				methods   = {
+					{"name", "String", "value:int", "The member's name, lowercased (its value as text for none)."},
+				},
+				constants = constants,
 			}))
 	}
 }

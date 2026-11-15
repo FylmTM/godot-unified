@@ -71,6 +71,12 @@ queue_spsc :: proc(t: ^testing.T) {
 		testing.expect_value(t, item, i)
 	}
 	_, ok := view.queue_pop(&queue)
+	testing.expect(t, view.queue_peek(&queue) == nil)
+	testing.expect(t, view.queue_push(&queue, 7))
+	testing.expect_value(t, view.queue_peek(&queue)^, 7) // peeking leaves it queued
+	testing.expect_value(t, view.queue_len(&queue), 1)
+	item, popped := view.queue_pop(&queue)
+	testing.expect(t, popped && item == 7)
 	testing.expect(t, !ok)
 }
 
@@ -189,20 +195,21 @@ track_rollback_drops_newer_predictions :: proc(t: ^testing.T) {
 
 @(test)
 set_lifetimes :: proc(t: ^testing.T) {
-	view_set: view.View_Set(int)
+	view_set: view.View_Set(view.Key, int)
 	defer view.set_destroy(&view_set)
 	next := 100
-	frame :: proc(view_set: ^view.View_Set(int), keys: []view.Key, now: f64, next: ^int) -> (spawned: int) {
+	frame :: proc(view_set: ^view.View_Set(view.Key, int), keys: []view.Key, now: f64, next: ^int) -> (spawned: int) {
 		view.set_begin(view_set)
 		for key in keys {
 			entry, is_new := view.set_see(view_set, key)
 			if is_new {
 				entry.view = next^
+				entry.linger_s = 0.5
 				next^ += 1
 				spawned += 1
 			}
 		}
-		view.set_end(view_set, now, 0.5)
+		view.set_end(view_set, now)
 		return
 	}
 	testing.expect_value(t, frame(&view_set, {1, 2}, 0, &next), 2)
@@ -227,6 +234,31 @@ set_lifetimes :: proc(t: ^testing.T) {
 	// the same slot re-used under a new key gets a new view
 	testing.expect_value(t, frame(&view_set, {1, 3}, 2, &next), 1)
 	testing.expect_value(t, view.set_get(&view_set, 3).view, 102)
+	// removed at once, without a linger
+	removed, ok := view.set_remove(&view_set, 3)
+	testing.expect(t, ok && removed == 102 && view.set_get(&view_set, 3) == nil)
+	_, ok = view.set_remove(&view_set, 3)
+	testing.expect(t, !ok)
+}
+
+// Views keyed by kind and key: the same key in two kinds is two views.
+@(test)
+set_wider_keys :: proc(t: ^testing.T) {
+	Id :: struct {
+		kind: u8,
+		key:  view.Key,
+	}
+	view_set: view.View_Set(Id, int)
+	defer view.set_destroy(&view_set)
+	view.set_begin(&view_set)
+	a, spawned_a := view.set_see(&view_set, Id{0, 7})
+	a.view = 1
+	b, spawned_b := view.set_see(&view_set, Id{1, 7})
+	b.view = 2
+	view.set_end(&view_set, 0)
+	testing.expect(t, spawned_a && spawned_b)
+	testing.expect_value(t, view.set_get(&view_set, Id{0, 7}).view, 1)
+	testing.expect_value(t, view.set_get(&view_set, Id{1, 7}).view, 2)
 }
 
 @(test)

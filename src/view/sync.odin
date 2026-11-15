@@ -58,6 +58,14 @@ queue_push :: proc(queue: ^Queue($T, $N), item: T) -> bool {
 	return true
 }
 
+// The oldest item without taking it (consumer thread), so the consumer can leave it for later; nil when empty.
+// Valid until the next queue_pop.
+queue_peek :: proc(queue: ^Queue($T, $N)) -> ^T {
+	head := sync.atomic_load_explicit(&queue.head, .Relaxed)
+	if head == sync.atomic_load_explicit(&queue.tail, .Acquire) do return nil
+	return &queue.items[head % u32(N)]
+}
+
 // Takes the oldest item on the consumer thread; `ok` is false when the queue is empty.
 queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 	head := sync.atomic_load_explicit(&queue.head, .Relaxed)

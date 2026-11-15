@@ -3,6 +3,7 @@
 // portable snapshot round trips, schema discovery.
 package test_sim
 
+import "core:strings"
 import "core:testing"
 
 import "../toy"
@@ -385,11 +386,20 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		sim.Event_Player_Joined,
 		toy.Event_Expired,
 	}
+	Event_Ticked :: struct {
+		tick: u32, // every event carries its tick already (and its kind)
+	}
+	Reserved_Field :: union {
+		sim.Event_Player_Joined,
+		sim.Event_Player_Left,
+		Event_Ticked,
+	}
 	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, toy.Event), "")
 	testing.expect(t, sim.game_violation("toy", 64, Big_Union, toy.Event) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, No_Leave) != "") // the library's join and leave are listed
+	testing.expect(t, strings.contains(sim.game_violation("toy", 64, nil, Reserved_Field), "`tick`"))
 	testing.expect(t, sim.game_violation("toy", 64, nil, nil) != "")
 	testing.expect(t, sim.game_violation("toy", 60, nil, toy.Event) != "") // not a power of two
 	testing.expect(t, sim.game_violation("toy", 256, nil, toy.Event) != "") // above 128

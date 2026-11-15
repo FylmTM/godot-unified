@@ -16,31 +16,39 @@ import "unified:view"
 
 // The game-independent face of the installed driver (main thread).
 Api :: struct {
-	installed:     bool,
-	game_name:     string,
-	tick_hz:       int,
-	view_names:    []string, // the View enum's members, lowercased, by kind
-	multi_names:   []string, // the MultiView enum's members, lowercased, by kind
-	smoothing:     view.Smoothing,
-	is_2d:         bool, // event positions are Vector2s
-	events:        []Event_Layout, // the game's event union, by kind (events.odin)
-	commands:      []Command_Layout, // the game's command union, by kind (command.odin)
-	commands_type: typeid, // the union itself
-	sample_input:  proc(), // main thread: the game's sample_input into the host's sample
-	start:         proc(request: Start) -> (ok: bool, err: string),
-	stop:          proc(), // ask the session to end (it keeps running until it has said goodbye)
-	hurry:         proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
-	stopping:      proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
-	wait:          proc(), // join the session thread (after stop)
-	running:       proc() -> bool,
-	front:         proc() -> (frame: ^Frame_Data, fresh: bool),
-	pop:           proc() -> (message: Message, ok: bool),
-	constants:     proc(dict: rawptr), // nil: the game exposes none
-	state:         proc() -> any, // the newest predicted state, for the inspector (while want_state)
-	event_key:     proc(event: ^sim.Raw_Event) -> view.Key, // Glue.event_key (nil: routing by the subject)
-	level:         string, // Glue.level
-	result:        proc() -> string, // the finished session's result JSON (after a Result message)
-	send:          proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
+	installed:       bool, // false: no game, or `problems` say why it wasn't installed
+	problems:        []string, // what install found wrong with the game (reported at load; nothing registered)
+	game_name:       string,
+	tick_hz:         int,
+	view_names:      []string, // the View enum's members, lowercased, by kind
+	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
+	smoothing:       view.Smoothing,
+	is_2d:           bool, // event positions are Vector2s
+	events:          []Event_Layout, // the game's event union, by kind (events.odin)
+	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
+	commands_type:   typeid, // the union itself
+	data:            []Data_Layout, // the game's session data types (Glue.data), by kind
+	constants:       Data_Layout, // the constants' type (type nil: none)
+	constants_bytes: []u8, // Glue.constants' value
+	enum_types:      []^runtime.Type_Info, // the enums the event, command, data and constants types use
+	sample_input:    proc(), // main thread: the game's sample_input into the host's sample
+	start:           proc(request: Start) -> (ok: bool, err: string),
+	stop:            proc(), // ask the session to end (it keeps running until it has said goodbye)
+	hurry:           proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
+	stopping:        proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
+	wait:            proc(), // join the session thread (after stop)
+	running:         proc() -> bool,
+	front:           proc() -> (frame: ^Frame_Data, fresh: bool),
+	pop:             proc() -> (message: Message, ok: bool),
+	// The oldest queued event if its tick is at most `shown` (the tick of the Frame on screen), taken; newer ones stay
+	// queued for the frame that shows their tick.
+	next_event:      proc(shown: u32) -> (event: Event_Message, ok: bool),
+	events_dropped:  proc() -> int, // events that found their queue full, this session
+	state:           proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, ok: bool), // Glue.event_key (nil: by subject)
+	level:           string, // Glue.level
+	result:          proc() -> string, // the finished session's result JSON (after a Result message)
+	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
 }
 
 api: Api
@@ -115,7 +123,9 @@ Driver :: struct($State, $Input, $World: typeid, $PLAYERS: int, $View, $MultiVie
 	frames:    view.Triple(Frame_Data),
 	poses:     Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	states:    view.Triple(State),
-	queue:     view.Queue(Message, 4096),
+	queue:     view.Queue(Message, 64), // statuses, the lobby code, desync reports, the result: never full in practice
+	events:    view.Queue(Event_Message, 4096), // full: dropped and counted
+	dropped:   int, // atomic: events that found `events` full
 	commands:  view.Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
 	tracker:   view.Event_Tracker(Tick_Event),
 	published: u64,
@@ -237,7 +247,9 @@ g_driver: rawptr
 @(private)
 g_bench_count: int
 
-// Installs the game: call once, before godot.entry.
+// Installs the game: call once, before godot.entry. It never stops the load: a game with problems (a bad Glue, a
+// sim that fails the game checks, a data type that clashes) is reported with print_error when the extension loads
+// and nothing of it is registered, so the editor still opens and a session fails with the reason.
 install :: proc(
 	game: ^sim.Game($State, $Input, $World, $PLAYERS),
 	glue: Glue(State, Input, World, $View, $MultiView),
@@ -245,11 +257,38 @@ install :: proc(
 	This_Driver :: Driver(State, Input, World, PLAYERS, View, MultiView)
 	This_Glue :: Glue(State, Input, World, View, MultiView)
 	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
-	assert(
-		glue.sample_input != nil && glue.fill_frame != nil,
-		"unified:godot: the Glue needs sample_input and fill_frame",
-	)
-	kept_glue := new(This_Glue, runtime.heap_allocator()) // lives as long as the process
+	context.allocator = runtime.heap_allocator() // everything here lives as long as the process
+	problems: [dynamic]string
+	if glue.sample_input == nil || glue.fill_frame == nil {
+		append(&problems, "the Glue needs sample_input and fill_frame")
+	}
+	view_names, view_ok := enum_names(View)
+	multi_names, multi_ok := enum_names(MultiView)
+	if !view_ok do append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
+	if !multi_ok do append(&problems, fmt.aprintf("the MultiView enum %v must count up from 0", typeid_of(MultiView)))
+	if reason := sim.game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
+		append(&problems, strings.clone(reason))
+	}
+	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS); reason != "" {
+		append(&problems, strings.clone(reason))
+	}
+	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
+		append(&problems, fmt.aprintf("State: %s", reason))
+	}
+	if reason := sim.plain_violation(type_info_of(Input)); reason != "" {
+		append(&problems, fmt.aprintf("Input: %s", reason))
+	}
+	data_problems(glue.data, glue.constants.id, &problems)
+	if glue.constants.id != nil && glue.constants.data == nil do append(&problems, "Glue.constants holds no value")
+	if len(problems) > 0 {
+		api = {
+			game_name = game.name,
+			tick_hz   = game.tick_hz,
+			problems  = problems[:],
+		}
+		return
+	}
+	kept_glue := new(This_Glue)
 	kept_glue^ = glue
 	g_game = game
 	g_glue = kept_glue
@@ -257,15 +296,34 @@ install :: proc(
 		installed     = true,
 		game_name     = game.name,
 		tick_hz       = game.tick_hz,
-		view_names    = enum_names(View),
-		multi_names   = enum_names(MultiView),
+		view_names    = view_names,
+		multi_names   = multi_names,
 		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
 		events        = event_layouts(game.events),
 		commands      = command_layouts(game.commands),
 		commands_type = game.commands,
-		event_key     = glue.event_key,
 		level         = glue.level,
+	}
+	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
+	api.data = kept_data[:]
+	if glue.constants.id != nil {
+		api.constants = data_layout(type_info_of(glue.constants.id))
+		api.constants_bytes = slice.clone(([^]u8)(glue.constants.data)[:type_info_of(glue.constants.id).size])
+	}
+	enum_sources: [dynamic]^runtime.Type_Info
+	for layout in api.events do append(&enum_sources, layout.type)
+	for layout in api.commands do append(&enum_sources, layout.type)
+	for layout in api.data do append(&enum_sources, layout.type)
+	if api.constants.type != nil do append(&enum_sources, api.constants.type)
+	enums: [dynamic]^runtime.Type_Info
+	enum_types_of(enum_sources[:], &enums)
+	api.enum_types = enums[:]
+	if glue.event_key != nil {
+		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, bool) {
+			kind, key, ok := (^This_Glue)(g_glue).event_key(event)
+			return u8(kind), key, ok
+		}
 	}
 	api.sample_input = proc() {
 		glue := (^This_Glue)(g_glue)
@@ -369,8 +427,15 @@ install :: proc(
 		if g_driver == nil do return {}, false
 		return view.queue_pop(&(^This_Driver)(g_driver).queue)
 	}
-	if glue.constants != nil {
-		api.constants = proc(dict: rawptr) {(^This_Glue)(g_glue).constants(auto_cast dict)}
+	api.next_event = proc(shown: u32) -> (Event_Message, bool) {
+		if g_driver == nil do return {}, false
+		events := &(^This_Driver)(g_driver).events
+		if oldest := view.queue_peek(events); oldest == nil || oldest.tick > shown do return {}, false
+		return view.queue_pop(events)
+	}
+	api.events_dropped = proc() -> int {
+		if g_driver == nil do return 0
+		return sync.atomic_load(&(^This_Driver)(g_driver).dropped)
 	}
 	api.send = proc(command: sim.Raw_Command) -> bool {
 		if g_driver == nil do return false
@@ -388,22 +453,29 @@ install :: proc(
 	}
 }
 
-// An enum's member names, lowercased, by value (allocated for the process's lifetime): View and MultiView kinds.
+// The session data layouts (api.data's storage).
 @(private)
-enum_names :: proc($E: typeid) -> []string {
+kept_data: [dynamic]Data_Layout
+
+// An enum's member names, lowercased, by value (allocated for the process's lifetime): View and MultiView kinds.
+// ok false when the members don't count up from 0.
+@(private)
+enum_names :: proc($E: typeid) -> (names: []string, ok: bool) {
 	context.allocator = runtime.heap_allocator()
 	info := runtime.type_info_base(type_info_of(E)).variant.(runtime.Type_Info_Enum)
-	names := make([]string, len(info.names))
+	names = make([]string, len(info.names))
+	ok = true
 	for name, i in info.names {
-		assert(int(info.values[i]) == i, "unified:godot: View and MultiView members must count up from 0")
+		ok &&= int(info.values[i]) == i
 		names[i] = strings.to_lower(name)
 	}
-	return names
+	return
 }
 
 @(private)
 post :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView), message: Message) {
-	_ = view.queue_push(&driver.queue, message) // full: the main thread is stalled; dropping beats blocking the sim
+	// 64 slots for a handful of messages per session: full only when the main thread stopped reading for good
+	_ = view.queue_push(&driver.queue, message)
 }
 
 @(private)
@@ -444,12 +516,13 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $M
 				position^ = driver.glue.event_pos(position^, world)
 			}
 		}
-		post(driver, Message {
-			kind   = .Event,
+		message := Event_Message {
 			action = tracked.action,
 			tick   = tracked.event.tick,
 			event  = raw,
-		})
+		}
+		// full: the main thread is stalled; dropping an event beats blocking the sim (counted)
+		if !view.queue_push(&driver.events, message) do sync.atomic_add(&driver.dropped, 1)
 	}
 	clear(&driver.tracker.out)
 }
@@ -518,7 +591,7 @@ driver_hooks :: proc(
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
 			out := view.triple_back(&driver.frames)
-			out.n_views, out.n_multis, out.n_data, out.dropped = 0, 0, 0, 0
+			out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed, out.dropped = 0, 0, 0, 0, 0, 0
 			client := driver.client
 			driver.published += 1
 			out.published = driver.published
@@ -561,7 +634,7 @@ driver_hooks :: proc(
 				tick         = info.tick,
 				local_player = local,
 				local_slot   = client.slot,
-				data         = out,
+				out          = out,
 				poses        = &driver.poses,
 			}
 			driver.glue.fill_frame(&frame)

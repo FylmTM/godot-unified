@@ -86,6 +86,7 @@ rune_upper :: proc(r: rune) -> rune {
 field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
 	if type.id == sim.Position do return api.is_2d ? .VECTOR2 : .VECTOR3
 	if is_handle(type) || type.id == sim.Player do return .INT
+	if kind, is_builtin := gd.builtin_variant_type(type.id); is_builtin do return kind // Godot's math types
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		return .INT
@@ -94,7 +95,9 @@ field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
 	case runtime.Type_Info_Boolean:
 		return .BOOL
 	case runtime.Type_Info_Enum:
-		return .STRING_NAME
+		return .INT
+	case runtime.Type_Info_String:
+		return .STRING
 	case runtime.Type_Info_Bit_Set:
 		return .ARRAY
 	case runtime.Type_Info_Array:
@@ -184,11 +187,11 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	sim_class.fields = fields[:]
 	for &field in sim_class.fields {
 		getter := fmt.tprintf("get_%s", field.name)
-		gd.bind_dynamic_method(&sim_class.class, getter, field_get, &field, nil, gd.Dynamic_Arg{"", field.kind})
+		gd.bind_dynamic_method(&sim_class.class, getter, field_get, &field, nil, gd.Dynamic_Arg{"", field.kind, ""})
 		setter := ""
 		if !is_event {
 			setter = fmt.tprintf("set_%s", field.name)
-			gd.bind_dynamic_method(&sim_class.class, setter, field_set, &field, {{"value", field.kind}})
+			gd.bind_dynamic_method(&sim_class.class, setter, field_set, &field, {{"value", field.kind, ""}})
 		}
 		gd.bind_property_by_name(&sim_class.class, field.name, field.kind, getter, setter)
 	}

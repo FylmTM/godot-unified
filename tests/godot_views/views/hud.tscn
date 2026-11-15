@@ -1,9 +1,0 @@
-[gd_scene format=3]
-
-[ext_resource type="Script" path="res://views/hud.gd" id="1"]
-
-[node name="hud" type="Control"]
-script = ExtResource("1")
-
-[node name="UnifiedView" type="UnifiedView" parent="."]
-kind = "hud"

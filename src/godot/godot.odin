@@ -39,6 +39,16 @@ entry :: proc(
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	gd.init(get_proc_address, library)
+	// Before Godot shuts its scripting down: the objects scripts connect to (Unified's data) go first, so a lambda
+	// connected to one is never destroyed after GDScript is gone.
+	@(static) callbacks := gdi.MainLoopCallbacks {
+		shutdown_func = proc "c" () {
+			context = runtime.default_context()
+			runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+			data_objects_free()
+		},
+	}
+	gdi.register_main_loop_callbacks(library, &callbacks)
 	init.minimum_initialization_level = .INITIALIZATION_SCENE
 	init.initialize = on_initialize
 	init.deinitialize = on_deinitialize

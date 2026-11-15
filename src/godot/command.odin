@@ -50,8 +50,8 @@ send_command :: proc(object: gd.Object) -> bool {
 	return true
 }
 
-// One field: ints (range-checked), floats, bools, enums (a member's name, any case, or its value), bit_sets
-// (an Array of member names or values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color).
+// One field: ints (range-checked), floats, bools, enums (a member's value: EnumPhase.LOBBY), bit_sets (an Array of
+// member values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color).
 @(private)
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
@@ -135,22 +135,16 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 	return ""
 }
 
-// An enum member's value from its name (any case) or its value.
+// An enum member's value (an int, one of the members: the Enum* class's constants).
 @(private)
 enum_value :: proc(type: ^runtime.Type_Info, info: runtime.Type_Info_Enum, variant: ^gd.Variant) -> (i64, string) {
-	#partial switch variant_type := gd.variant_type(variant); variant_type {
-	case .INT:
-		integer, _ := gd.from_variant(i64, variant)
-		for member in info.values do if i64(member) == integer do return integer, ""
-		return 0, fmt.tprintf("%d is not a %v", integer, type.id)
-	case .STRING, .STRING_NAME:
-		given, _ := gd.from_variant(string, variant)
-		for name, k in info.names do if strings.equal_fold(name, given) do return i64(info.values[k]), ""
-		names := strings.join(info.names, ", ", context.temp_allocator)
-		return 0, fmt.tprintf("%q is not a %v (%s)", given, type.id, names)
-	case:
-		return 0, fmt.tprintf("want a %v name or value, got %v", type.id, variant_type)
+	if variant_type := gd.variant_type(variant); variant_type != .INT {
+		return 0, fmt.tprintf("want a %v value (an int), got %v", type.id, variant_type)
 	}
+	integer, _ := gd.from_variant(i64, variant)
+	for member in info.values do if i64(member) == integer do return integer, ""
+	names := strings.join(info.names, ", ", context.temp_allocator)
+	return 0, fmt.tprintf("%d is not a %v (%s)", integer, type.id, names)
 }
 
 @(private)
