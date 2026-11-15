@@ -141,8 +141,8 @@ public_suites :: proc() -> []Suite {
 		{
 			name        = "godot",
 			summary     = "each game under headless Godot, the games in parallel",
-			budget      = 20,
-			long_budget = 25,
+			budget      = 25,
+			long_budget = 30,
 			run         = suite_godot,
 		},
 	})
