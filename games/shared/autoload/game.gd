@@ -6,10 +6,10 @@ extends Node
 ##   MENU --start/host/join--> CONNECTING --"connected"--> PLAYING --leave--> MENU
 ##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
 ##
-## The session is the native `UnifiedSession` from the game library (`_create_session()`; a game may offer a GDScript
-## stand-in for development, `is_mock`). Without one the app shows a fatal screen. Everything reads the sim through
-## `Game.hud` (current from the session's first event of a frame on) and its fixed numbers through `Game.constants`
-## (the session's `constants()`, read once).
+## The session is the native `UnifiedSession` from the game library (without the library the LibraryCheck autoload
+## shows a fatal screen instead). Everything reads the sim's game-wide values through `Game.hud`, which the game's HUD
+## view (a `hud` view kind, `addons/shared/views/hud_view.gd`) fills from its data every frame the data changes,
+## and its fixed numbers through `Game.constants` (the session's `constants()`, read once).
 
 signal flow_changed(flow: Flow)
 signal status_changed(status: String, detail: String)
@@ -26,9 +26,7 @@ const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const PLAY_SCENE := "res://game/arena/arena.tscn"
 const CONNECT_OVERLAY := preload("res://addons/shared/ui/connect_overlay.tscn")
 
-var session: Node
-## The session is the game's GDScript stand-in, not the game library.
-var is_mock := false
+var session: UnifiedSession
 var flow := Flow.MENU
 var mode := Mode.SINGLE
 var status := "idle"
@@ -40,14 +38,13 @@ var lan_port := LAN_PORT
 var lan_address := ""
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
-## The sim's HUD dictionary (the game's contract plus `local_player`, -1 until the session assigns one).
+## The sim's game-wide values: the HUD view's data fields (hud_view.gd), empty until its first frame.
 var hud: Dictionary = {}
 ## The sim's fixed numbers (the game's contract plus `tick_hz`).
 var constants: Dictionary = {}
 ## True while the player is using a gamepad (the last input event came from one).
 var using_pad := false
 
-var _hud_frame := -1
 var _quitting := false
 var _overlay_layer: CanvasLayer
 var _connect_overlay: Control
@@ -56,23 +53,14 @@ var _frame_ms := 16.7
 
 
 func _ready() -> void:
-	process_priority = -100  # refresh `hud` before any other node reads it
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	UiTheme.install()
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
-	session = _create_session()
-	if session == null:
-		_fatal()
-		return
-	session.name = &"Session"
+	session = UnifiedSession.new()
+	session.name = &"UnifiedSession"
 	add_child(session)
-	if not is_mock:
-		_check_event_states()
-	# Connected before any view or HUD: a handler of the frame's first event reads this frame's hud.
-	session.sim_event.connect(func(_event: StringName, _state: int, _data: Dictionary) -> void: _refresh_hud())
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
-	hud = session.hud()
 	constants = session.constants()
 
 	_overlay_layer = CanvasLayer.new()
@@ -90,12 +78,11 @@ func _ready() -> void:
 	_fit_window.call_deferred()
 	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
 	if _smoke_test():
-		print("%s: smoke test, %s session, starting single player" % [_game_name(), "mock" if is_mock else "native"])
+		print("%s: smoke test, starting single player" % _game_name())
 		play_single.call_deferred()
 
 
 func _process(delta: float) -> void:
-	_refresh_hud()
 	_frame_ms = lerpf(_frame_ms, delta * 1000.0 / maxf(Engine.time_scale, 0.001), 0.05)
 	if _fps_label.visible:
 		_fps_label.text = "%d FPS  ·  %.1f ms" % [roundi(1000.0 / maxf(_frame_ms, 0.01)), _frame_ms]
@@ -112,14 +99,6 @@ func _input(event: InputEvent) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		quit_app()
-
-
-## The session: the native `UnifiedSession` when the game library is loaded, else null. A game with a GDScript
-## stand-in returns it here (and sets `is_mock`); exports never ship one.
-func _create_session() -> Node:
-	if ClassDB.class_exists(&"UnifiedSession"):
-		return ClassDB.instantiate(&"UnifiedSession")
-	return null
 
 
 # --- The flow (menus and tools call these) -----------------------------------------------------------------------
@@ -186,10 +165,10 @@ func quit_app(exit_code := 0) -> void:
 	get_tree().quit(exit_code)
 
 
-## Sends one of the game's commands, delivered to the sim exactly once (src/godot_host/SPEC.md). False when the
-## session refused it (it prints why).
-func send_command(command: StringName, args := {}) -> bool:
-	return session.send_command(command, args)
+## Sends one of the game's commands (an object of its class, e.g. `Restart.new()`), delivered to the sim exactly
+## once (src/godot/SPEC.md). False when the session refused it (it prints why).
+func send_command(command: UnifiedCommand) -> bool:
+	return session.send_command(command)
 
 
 func is_online() -> bool:
@@ -198,7 +177,7 @@ func is_online() -> bool:
 
 ## The local player (its index, 0..), -1 until the session assigns one.
 func local_player() -> int:
-	return int(hud.get("local_player", -1))
+	return session.get_local_player()
 
 
 ## A player's entry in the HUD's `players` ({} when there is none).
@@ -225,8 +204,9 @@ func present_players() -> Array[Dictionary]:
 
 ## A HUD player's display name: the synced name when the session has one, else "P<n>".
 func player_name(info: Dictionary) -> String:
-	var name := String(info.get("name", ""))
-	return name if name != "" else "P%d" % (int(info.get("player", 0)) + 1)
+	var player := int(info.get("player", 0))
+	var name := session.get_player_name(player)
+	return name if name != "" else "P%d" % (player + 1)
 
 
 ## "keyboard text" or "pad text", whichever device the player uses.
@@ -261,24 +241,6 @@ func copy_with_feedback(button: Button, text: String) -> void:
 
 
 # --- Internals ---------------------------------------------------------------------------------------------------
-
-
-## Once per frame, from the session's first event or this node's _process, whichever comes first.
-## SimEvent's values are the native session's (scripts use SimEvent so they also run on a GDScript stand-in).
-func _check_event_states() -> void:
-	var native := {&"EVENT_EMITTED": SimEvent.EMITTED, &"EVENT_CONFIRMED": SimEvent.CONFIRMED,
-		&"EVENT_CANCELLED": SimEvent.CANCELLED}
-	for name: StringName in native:
-		var value := ClassDB.class_get_integer_constant(&"UnifiedSession", name)
-		if value != native[name]:
-			push_error("SimEvent and UnifiedSession.%s differ (%d, native %d)" % [name, native[name], value])
-
-
-func _refresh_hud() -> void:
-	var frame := Engine.get_process_frames()
-	if frame != _hud_frame:
-		_hud_frame = frame
-		hud = session.hud()
 
 
 func _begin(m: Mode) -> void:
@@ -381,48 +343,3 @@ static func _smoke_test() -> bool:
 
 static func _game_name() -> String:
 	return ProjectSettings.get_setting("application/config/name")
-
-
-## Without a session nothing can run: says so and offers Quit.
-func _fatal() -> void:
-	var exported := OS.has_feature("template")
-	push_error("%s: the game library failed to load (UnifiedSession missing): %s" % [_game_name(),
-		"the export is broken" if exported else "build it with ./uni build"])
-	set_process(false)
-	get_tree().unload_current_scene.call_deferred()
-	var layer := CanvasLayer.new()
-	layer.layer = 200
-	add_child(layer)
-	var bg := ColorRect.new()
-	bg.color = UiTheme.BG
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	layer.add_child(bg)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	layer.add_child(center)
-	var panel := PanelContainer.new()
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(box)
-	var title := Label.new()
-	title.theme_type_variation = &"Heading"
-	title.text = "The game library failed to load"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(title)
-	var detail := Label.new()
-	detail.theme_type_variation = &"Dim"
-	detail.text = ("This copy of the game is incomplete or damaged. Download it again." if exported
-		else "Build it first: ./uni build")
-	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(detail)
-	var quit := Button.new()
-	quit.theme_type_variation = &"PrimaryButton"
-	quit.text = "Quit"
-	quit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	quit.pressed.connect(quit_app)
-	box.add_child(quit)
-	quit.grab_focus.call_deferred()
-	_fit_window.call_deferred()
-	if _smoke_test():
-		quit_app.call_deferred(1)

@@ -636,3 +636,23 @@ content_identity :: proc(t: ^testing.T) {
 	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)
 	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
 }
+
+@(test)
+presence_changes_reports_joins_and_leaves :: proc(t: ^testing.T) {
+	inputs: sim.Inputs(toy.Input, toy.PLAYERS)
+	tick := toy.Tick {
+		inputs = &inputs,
+	}
+	present: sim.Players
+	inputs.present = {0, 2}
+	joined, left := sim.presence_changes(&tick, &present)
+	testing.expect_value(t, joined, sim.Players{0, 2})
+	testing.expect_value(t, left, sim.Players{})
+	testing.expect_value(t, present, sim.Players{0, 2})
+	inputs.present = {2, 3}
+	joined, left = sim.presence_changes(&tick, &present)
+	testing.expect_value(t, joined, sim.Players{3})
+	testing.expect_value(t, left, sim.Players{0})
+	joined, left = sim.presence_changes(&tick, &present)
+	testing.expect_value(t, joined | left, sim.Players{})
+}

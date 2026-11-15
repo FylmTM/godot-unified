@@ -1,3 +1,4 @@
+class_name DriftEffects
 extends Node2D
 ## Short-lived world effects in one node (one draw call list, no per-effect nodes): debris and sparks flying out
 ## and fading, rings expanding. View-only; fed by the arena from the sim's events.
@@ -59,9 +60,16 @@ func _draw() -> void:
 	for b in _bits:
 		var k: float = b.life / b.max
 		var s: float = b.size * (0.4 + 0.6 * k)
-		draw_rect(Rect2(b.pos - Vector2(s, s) * 0.5, Vector2(s, s)), Color(b.color, k))
+		var bit_pos: Vector2 = b.pos
+		var bit_color: Color = b.color
+		draw_rect(Rect2(bit_pos - Vector2(s, s) * 0.5, Vector2(s, s)), Color(bit_color, k))
 	for r in _rings:
 		var k: float = r.life / r.max
 		var t := 1.0 - k
-		var radius: float = lerpf(r.r0, r.r1, 1.0 - (1.0 - t) * (1.0 - t))
-		draw_arc(r.pos, radius, 0.0, TAU, 48, Color(r.color, r.color.a * k), r.width, true)
+		var r0: float = r.r0
+		var r1: float = r.r1
+		var ring_pos: Vector2 = r.pos
+		var ring_color: Color = r.color
+		var width: float = r.width
+		var radius := lerpf(r0, r1, 1.0 - (1.0 - t) * (1.0 - t))
+		draw_arc(ring_pos, radius, 0.0, TAU, 48, Color(ring_color, ring_color.a * k), width, true)

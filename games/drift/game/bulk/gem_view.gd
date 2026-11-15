@@ -1,5 +1,5 @@
-extends SimBulkView2D
-## Gems (`kind` gem): a typed bulk view. A diamond in pixels; the host spins it and squashes and stretches it in
+extends MultiMeshInstance2D
+## Gems (the `gem` MultiMesh view). A diamond in pixels; the host spins it and squashes and stretches it in
 ## a pulse, and its colour (from extract) fades it out before it expires. The shader adds a glint (custom.x = age).
 
 ## Loaded in _ready, not preloaded: the play scene loads on a thread (games/shared/SPEC.md, Play scene).

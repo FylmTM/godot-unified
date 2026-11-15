@@ -1,8 +1,8 @@
 class_name UnifiedCoop
 extends UnifiedTool
 ## Real co-op through the menus, one process per role (`uni coop <game>` starts both):
-##   godot --path games/<game> -s <coop script> -- --role=host --code-file=<f> [--lan] [--shots=<dir>]
-##   godot --headless --path games/<game> -s <coop script> -- --role=join --code-file=<f> [--lan]
+##   godot --path games/<game> -s <coop script> -- --role=host --code-file=<f> [--lan [--lan-port=N]] [--shots=<dir>]
+##   godot --headless --path games/<game> -s <coop script> -- --role=join --code-file=<f> [--lan [--lan-port=N]]
 ## The host clicks Host online (`--lan`: Host on LAN, direct UDP, no EOS) and writes the lobby code (or address) to
 ## the file; the joiner enters it in the Join panel (or Join by address). Both wait for two players; then the game's
 ## own play (`_host_play()` and `_join_play()`, in a game's game/tools/coop.gd that extends this), and the host
@@ -28,6 +28,8 @@ func _run() -> void:
 	role = arg("role")
 	code_file = arg("code-file")
 	lan = flag("lan")
+	if lan and arg("lan-port") != "":
+		game.set(&"lan_port", int(arg("lan-port")))  # uni's free port: parallel runs never meet
 	rejoin = flag("rejoin")
 	crash = flag("crash")
 	after_crash = flag("after-crash")

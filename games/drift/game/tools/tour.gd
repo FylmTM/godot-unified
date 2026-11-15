@@ -15,9 +15,9 @@ var _events: Dictionary[String, int] = {}
 
 
 func _run() -> void:
-	game.session.sim_event.connect(func(event: StringName, state: int, _data: Dictionary) -> void:
-		if state == SimEvent.CONFIRMED:
-			_events[String(event)] = int(_events.get(String(event), 0)) + 1)
+	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
+		if state == UnifiedSession.EVENT_CONFIRMED:
+			_events[event.kind] = int(_events.get(event.kind, 0)) + 1)
 	result["events"] = _events
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for_scene("MainMenu", 5.0)
@@ -186,13 +186,11 @@ func _views(kind: String) -> int:
 	return current_scene.views_of(kind).size() if current_scene != null and current_scene.has_method(&"views_of") else 0
 
 
-## Instances the host drew this frame in the bulk views of these kinds.
+## Instances the host drew this frame in the MultiMesh views of these kinds.
 func _bulk_count(kinds: Array) -> int:
 	var n := 0
-	for b in current_scene.get_node(^"Bulk").get_children():
-		var mmi := b as MultiMeshInstance2D
-		if mmi != null and mmi.multimesh != null and (String(b.get(&"kind")) in kinds):
-			n += maxi(mmi.multimesh.visible_instance_count, 0)
+	for kind: String in kinds:
+		n += multi_count(kind)
 	return n
 
 

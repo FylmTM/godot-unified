@@ -1,3 +1,4 @@
+class_name DriftCamera
 extends Camera2D
 ## Follows the local ship (position smoothing, within the arena's limits) and shakes on station hits. A warp moves
 ## the ship across the arena in one frame: the camera cuts instead of panning there.
@@ -25,8 +26,8 @@ func shake(amount: float) -> void:
 
 
 func _process(delta: float) -> void:
-	var arena := get_parent()
-	var me: Node2D = arena.local_ship_view() if arena.has_method(&"local_ship_view") else null
+	var arena := get_parent() as DriftArena
+	var me: Node2D = arena.local_ship_view() if arena != null else null
 	if me != null:
 		var p := me.global_position
 		position = p

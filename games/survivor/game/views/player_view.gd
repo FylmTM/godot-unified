@@ -1,6 +1,8 @@
+class_name SurvivorPlayerView
 extends GameView
 ## A player: a capsule in the player's colour with a visor, a floor ring (bright for the local player), a name tag, lean and
-## bob while moving, a hit flash when HP drops and an after-image trail while dashing.
+## bob while moving, a hit flash when HP drops and an after-image trail while dashing. `player` (GameView) is the
+## player it shows; the view lives while the player is in the session (dead too).
 
 const DASH_SPEED := 9.0  # m/s; faster than the 6 m/s walk + upgrades means a dash
 const GHOST_EVERY := 0.025
@@ -35,10 +37,10 @@ var _exit: Tween
 
 func _ready() -> void:
 	var color := UiTheme.player_color(player)
-	_mat = (_mesh.get_surface_override_material(0) as StandardMaterial3D).duplicate()
+	_mat = _mesh.get_surface_override_material(0).duplicate() as StandardMaterial3D
 	_mat.albedo_color = color
 	_mesh.set_surface_override_material(0, _mat)
-	var ring_mat := (_ring.get_surface_override_material(0) as StandardMaterial3D).duplicate()
+	var ring_mat := _ring.get_surface_override_material(0).duplicate() as StandardMaterial3D
 	ring_mat.albedo_color = Color(color * (2.2 if _is_local() else 0.8), 1.0)
 	_ring.set_surface_override_material(0, ring_mat)
 	_label.modulate = color.lightened(0.35)
@@ -71,16 +73,21 @@ func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
 			_spawn_ghost()
 
 
-func _sim_event(event: StringName, _state: int, _data: Dictionary) -> void:
-	if event == &"despawned":  # died or left: shrink away during the host's linger time
-		_leaving = true
-		_exit = create_tween()
-		_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	elif event == &"revived" and _leaving:  # a rollback brought it back within the linger time
-		_leaving = false
-		if _exit != null:
-			_exit.kill()
-		scale = Vector3.ONE
+## Left the session: shrink away during the host's linger time.
+func _despawned() -> void:
+	_leaving = true
+	_exit = create_tween()
+	_exit.tween_property(self, "scale", Vector3.ONE * 0.01, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+
+
+## A rollback brought it back within the linger time.
+func _revived() -> void:
+	if not _leaving:
+		return
+	_leaving = false
+	if _exit != null:
+		_exit.kill()
+	scale = Vector3.ONE
 
 
 func _update_hud_state(dt: float) -> void:

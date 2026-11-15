@@ -1,4 +1,4 @@
-extends SimView2D
+extends Node2D
 ## A warp gate. The host sets its position and `charge` from Gate_View: 0 ready .. 1 just used. A ring of the
 ## sim's `gate_radius` that dims while charging (an arc shows the recharge), with a slow swirl inside.
 
@@ -15,8 +15,9 @@ var _burst := 0.0
 
 
 func _ready() -> void:
-	_r = float(Game.constants.get("gate_radius", 0.8)) * Game.px_per_m
-	_t = float(entity) * 1.7  # gates swirl out of step
+	var radius: float = Game.constants.get("gate_radius", 0.8)
+	_r = radius * Game.px_per_m
+	_t = float(($UnifiedView as UnifiedView).entity) * 1.7  # gates swirl out of step
 
 
 func _process(delta: float) -> void:

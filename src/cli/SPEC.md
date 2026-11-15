@@ -118,8 +118,8 @@ Public (`unified:cli`, every project):
 | `vet` | `odin check`, strict flags, every target and define variant, the CLI included; in this repo also the template game's Odin (below) |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
-| `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; with `--lan` in a new seat, as direct UDP has no player identity) |
-| `bake [game] [--check]` | bake `.level` files from their scenes (`--check`: fail if one is stale) |
+| `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; with `--lan` in a new seat, as direct UDP has no player identity). `--lan` uses a free port (parallel runs never meet). A game without a coop tool script gets unified's default (`--lan` only): a headless host (`--host-port`) and joiner (`--join`) with scripted input for 600 ticks, their checksums compared |
+| `bake [game] [--check]` | write the view index (`unified_index.tres`: every scene with a UnifiedView marker, by kind; src/godot/SPEC.md) and bake `.level` files from their scenes (`--check`: fail if one is stale); builds the game library first |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
 | `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
@@ -159,8 +159,10 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   is mirrored into a game that uses it (its `project.godot` names `res://addons/shared/`) as `addons/shared/` before
   every Godot run (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new shared
   script is copied back). `games/shared` is no game: a game has `project.godot` and `simulation/`.
-- **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd` (validate, ui_walk and
-  coop, which a game's own script extends), run with Godot's `-s`. Each prints one
+- **Library tool scripts**: unified's `src/godot/tools` (`UnifiedTool`, `UnifiedValidate`) is mirrored the same way
+  into every game (a project with `game/`) as `addons/unified/`.
+- **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd` (ui_walk, coop), else
+  unified's `src/godot/tools/<name>.gd` (validate); a game's own script extends them. Run with Godot's `-s`. Each prints one
   `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data); the CLI passes `--no-settings`,
   `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`. Headless runs have the debugger on
   (`-d`), which prints GDScript warnings. A script quits through the game's own quit (audio stopped first): a live
@@ -190,15 +192,14 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     only; every step, `--only` too, first re-imports a missing or stale class cache, as `tool`, `run`, `coop` and
     `bake` do), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
-    `validate`, `walk` (`ui_walk.gd`, with `--mock`: a game with a GDScript stand-in session walks on it), `tour`
-    (quick). A step the game can't run prints `skipped: <why>`. Several
+    `validate`, `walk` (`ui_walk.gd`), `tour` (quick). `bake` checks the view index too. A step the game can't run prints `skipped: <why>`. Several
     games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
     parent first makes current what they share (Godot, the bindings, Box3D).
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
     desyncs (`.out/net.json`, `.out/net/`).
   - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot; `tests/godot_views`
-    also runs `session_check.gd`, godot_host's session lifecycle. The extensions build at once, then the three
+    also runs `session_check.gd`, unified:godot's session lifecycle. The extensions build at once, then the three
     Godot runs go at once: the session check (its waits for goodbyes and timers) is the suite's time.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap, 14 ticks at 64 Hz), ticks), which its `bench` mode runs

@@ -667,7 +667,7 @@ sys_deaths :: proc(tick: ^Tick) {
 		}
 		pos := enemy.pos
 		xp := ENEMY_STATS[enemy.kind].xp
-		sim.emit(tick, Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, kind = enemy.kind})
+		sim.emit(tick, Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, enemy_kind = enemy.kind})
 		sim.despawn(&state.enemies, handle)
 		state.kills += 1
 		if gem, _, ok := sim.spawn(&state.gems); ok {

@@ -1,9 +1,10 @@
 extends Node2D
 ## The game: a single player session, the players' dots drawn as scene views under this node (arrow keys move).
 
+@onready var session: UnifiedSession = %UnifiedSession
+
 
 func _ready() -> void:
-	var session: Node = $Session
-	session.set("view_root", self)
-	if not session.call("is_running"):  # headless checks (--autostart) have started one already
-		session.call("start_single")
+	session.view_root = self
+	if not session.is_running():  # headless checks (--autostart) have started one already
+		session.start_single()

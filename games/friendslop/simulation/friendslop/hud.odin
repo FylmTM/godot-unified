@@ -3,6 +3,7 @@
 package friendslop
 
 Hud_Player :: struct {
+	player:  u8,
 	present: bool,
 	holding: Held_Kind,
 	held:    bool, // someone holds this player
@@ -49,6 +50,7 @@ hud :: proc(state: ^State, tick: u32) -> (result: Hud) {
 	}
 	for &character, player in state.players {
 		result.players[player] = {
+			player  = u8(player),
 			present = character.active,
 			holding = character.held_kind,
 			held    = character.held_by != 0,

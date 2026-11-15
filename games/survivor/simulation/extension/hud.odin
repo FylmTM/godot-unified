@@ -1,6 +1,8 @@
-// What a UI shows, derived from the state on the session thread: the data behind the GDScript
-// `UnifiedSession.hud()` contract (the host adds local_player and converts to a Dictionary, see
-// extension.odin). View code, not simulation code: f32 for display only.
+// The HUD view's data (View.Hud, pushed every tick by fill_frame): what a UI shows, derived from the state on the
+// session thread. The host sets each field as a property of the HUD view (game/views/hud.tscn), which keeps them
+// in `Game.hud`: `phase` reads as &"lobby" / &"match" / &"over", `players` as an Array of Dictionaries. Player
+// names and the local player come from the session (Game.player_name, Game.local_player). View code, not
+// simulation code: f32 for display only.
 package survivor_extension
 
 import "../survivor"
@@ -19,8 +21,7 @@ Hud_Player :: struct {
 }
 
 Hud :: struct {
-	phase:         survivor.Phase,
-	phase_name:    string, // "lobby" | "match" | "over"
+	phase:         survivor.Phase, // lobby, match, over
 	tick:          u32,
 	time_s:        f32, // match time: 0 in the lobby, frozen when over
 	wave:          u32, // 1-based during a match, 0 in the lobby
@@ -30,16 +31,8 @@ Hud :: struct {
 	players:       [survivor.PLAYERS]Hud_Player,
 }
 
-@(rodata)
-PHASE_NAMES := [survivor.Phase]string {
-	.Lobby = "lobby",
-	.Match = "match",
-	.Over  = "over",
-}
-
 hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Hud) {
 	hud.phase = state.phase
-	hud.phase_name = PHASE_NAMES[state.phase]
 	hud.tick = tick
 	switch state.phase {
 	case .Lobby:

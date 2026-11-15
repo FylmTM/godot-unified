@@ -13,7 +13,7 @@ package tests
 @(require) import "dmath"
 @(require) import "eos"
 @(require) import "gdext"
-@(require) import "godot_host"
+@(require) import "godot_driver"
 @(require) import "headless"
 @(require) import "level"
 @(require) import "lint"

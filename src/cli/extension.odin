@@ -205,7 +205,7 @@ when ODIN_OS == .Windows {
 
 // Godot loads the GDExtensions listed in .godot/extension_list.cfg, which the editor writes on its first scan. This
 // writes it for a fresh checkout, listing only extensions whose library for this host exists: a missing library is
-// an error on every run (a game without its library falls back to its mock session). Returns the list.
+// an error on every run (a game without its library shows its "library failed to load" screen). Returns the list.
 write_extension_list :: proc(game: Game) -> []string {
 	sync_shared(game.dir)
 	return write_extension_list_dir(game.dir)

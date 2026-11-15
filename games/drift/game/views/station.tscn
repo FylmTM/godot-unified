@@ -4,3 +4,7 @@
 
 [node name="Station" type="Node2D"]
 script = ExtResource("1_station")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+unique_name_in_owner = true
+kind = "station"

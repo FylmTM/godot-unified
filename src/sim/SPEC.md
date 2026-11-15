@@ -51,7 +51,9 @@ take `tick` or narrower arguments, as the game prefers. Odin's implicit `context
 `Inputs(Input, PLAYERS) = {present: Players, replaced: Players, input: [PLAYERS]Input, commands}`. `present` (a
 `bit_set[0 ..< 32; u32]`) is who is in the game this tick: joining and leaving are presence changes the relay
 decides, never flags in `Input`. `replaced` marks inputs the relay substituted (informational). `inputs_same(a, b)`:
-same presence, input bytes and commands.
+same presence, input bytes and commands. `joined, left := presence_changes(tick, &state.present)` (#9's T6) compares this
+tick's presence with a `Players` field the game keeps in its State and updates it: the game emits its own join and
+leave events from the two sets.
 
 ## Commands
 
@@ -116,9 +118,9 @@ sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y,
   subject is its `player` field and its first `Handle(T)` field (or a `u64` field named `entity`), when it has them.
   The view's tracker identifies an event by (tick, type, subject, its index among events of that type and subject
   in the tick).
-- How GDScript receives them (a Dictionary of the fields: a handle becomes its key, `sim.Position` is converted to
+- How GDScript receives them (an object of a class per event kind, a typed property per field: a handle becomes its key, `sim.Position` is converted to
   view units, an enum becomes its name; the states Emitted, Confirmed and Cancelled; routing to the subject's
-  view and one global `sim_event` signal): `src/godot_host/SPEC.md`.
+  view and one global `sim_event` signal): `src/godot/SPEC.md`.
 
 ## Tables and handles
 

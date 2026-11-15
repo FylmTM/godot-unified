@@ -9,16 +9,17 @@ var _pulse := 0.0
 
 
 func _ready() -> void:
-	var arena := get_tree().current_scene
-	var m: Node3D = arena.marker(entity) if arena != null and arena.has_method(&"marker") else null
+	var arena := get_tree().current_scene as Arena
+	var m: Node3D = arena.marker(entity) if arena != null else null
 	if m == null:
 		push_warning("marker view: no level marker for entity %d" % entity)
 		return
 	for c in m.get_children():
-		if c is Node3D and not (c is Path3D):
-			c.reparent(self, false)
-			_visuals.append(c)
-			_scales.append(c.scale)
+		var visual := c as Node3D
+		if visual != null and not (visual is Path3D):
+			visual.reparent(self, false)
+			_visuals.append(visual)
+			_scales.append(visual.scale)
 
 
 func _process(delta: float) -> void:
@@ -29,11 +30,11 @@ func _process(delta: float) -> void:
 
 
 ## Effects play once, when the event is emitted (whether a prediction or the verified tick produced it).
-func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
-	if state != SimEvent.EMITTED:
+func _sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	match event:
-		&"bell_rung", &"launched", &"plate_on", &"switch_on":
+	match event.kind:
+		"bell_rung", "launched", "plate_on", "switch_on":
 			_pulse = 1.0
-		&"thrown":
+		"thrown":
 			Sfx.play(&"pop", -3.0, 1.1)

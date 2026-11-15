@@ -247,6 +247,10 @@ variant_from_any :: proc(value: any) -> Variant {
 		from_type(kind, &result, value.data)
 		return result
 	}
+	if value.id == Variant {
+		gdi.variant_new_copy(&result, (^Variant)(value.data))
+		return result
+	}
 	id := runtime.typeid_base(value.id)
 	switch id {
 	case Variant:
@@ -276,7 +280,7 @@ variant_from_any :: proc(value: any) -> Variant {
 		from_type(.FLOAT, &result, &as_float)
 		return result
 	}
-	if is_object_type(id) {
+	if is_object_type(value.id) || is_object_type(id) {
 		from_type(.OBJECT, &result, value.data) // the struct is exactly the Object* field
 		return result
 	}
@@ -290,6 +294,7 @@ variant_from_any :: proc(value: any) -> Variant {
 from_variant :: proc($T: typeid, variant: ^Variant) -> (result: T, ok: bool) {
 	kind := gdi.variant_get_type(variant)
 	when T == Variant {
+		_ = kind
 		return variant^, true // borrowed
 	} else when intrinsics.type_is_boolean(T) {
 		if kind != .BOOL do return

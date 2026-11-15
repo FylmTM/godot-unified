@@ -25,7 +25,7 @@ review ([#22](https://github.com/FylmTM/godot-unified/issues/22)), then this fil
   - Leaves: `wire` (byte reader/writer), `box3d` and `gdext` (third-party bindings).
   - Real-time: `netcode`, `view` (interpolation, smoothing, pools, event confirm/cancel; no Godot).
   - Tools: `headless` (a game's headless binary modes plus test helpers: scenarios, virtual clock, fuzzing),
-    `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot_host`
+    `control` (protocol types), `dev` (control server, debug commands, F3 capture, inspector model), `godot`
     (everything that touches Godot), `cli`.
   - `devui` (the dev UI on Godot controls: RTTI inspector, overlay, panels). **In every build for now** (developer,
     2026-11-09); `-define:UNIFIED_DEVUI=false` drops it and `vet` checks that build.
@@ -56,12 +56,12 @@ review ([#22](https://github.com/FylmTM/godot-unified/issues/22)), then this fil
 
 - **Godot route: GDExtension.** LibGodot stays a later option (our init runs unchanged under a LibGodot host).
 - **View binding: (C) hybrid.**
-  - A `.tscn` scene per rich entity kind, with a `SimView` root.
-  - MultiMesh bulk views (`SimBulkView`) for 1000+ entities.
+  - A `.tscn` scene per rich entity kind, with a `UnifiedView` marker (contract v1, #9).
+  - MultiMesh views (a `UnifiedMultiView` marker) for 1000+ entities.
   - Rollback-aware view logic in a host-independent Odin package, `unified:view`: interpolation, error smoothing,
     pooling, event confirm/cancel.
   - Views keyed by deterministic spawn keys; events routed to their entity's view.
-- **Bindings register Godot classes from the start**, so `SimView` and `SimBulkView` are visible in the editor and
+- **Bindings register Godot classes from the start**, so the view markers and event classes are visible in the editor and
   GDScript view scripts can talk to the sim. Budget: ~1–2 weeks of binding work (the spike left ~7–10 days).
 - **Godot bindings:** commit `extension_api.json` for the baseline Godot (**4.7**, marked generated in
   `.gitattributes`; `src/gdext/api/README.md` says how to refresh it) plus `bindings.txt` (the subset we bind; a test

@@ -6,8 +6,8 @@ import "unified:sim"
 
 PLAYERS :: 4
 TICK_HZ :: 64 // a power of two: dt is exact
-// Metres a dot moves per tick at full input.
-STEP :: f32(4) / f32(127 * TICK_HZ)
+DT :: f32(1) / TICK_HZ
+SPEED :: f32(4) // metres per second at full input
 
 Input :: struct {
 	dx:   i8, // -127 .. 127, right
@@ -16,8 +16,8 @@ Input :: struct {
 }
 
 State :: struct {
-	pos:    [PLAYERS][2]f32, // metres
-	joined: [PLAYERS]bool,
+	pos:     [PLAYERS][2]f32, // metres
+	present: sim.Players, // who is in the game (sim.presence_changes keeps it)
 }
 
 // What lives outside the snapshotted state (physics, a level): nothing yet.
@@ -25,7 +25,7 @@ World :: struct {
 	_unused: u8,
 }
 
-// Events (unified/src/sim/SPEC.md, Events): one plain struct each, the views get them by name.
+// Events (unified/src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes (Joined, Left).
 Joined :: struct {
 	player: u8,
 }
@@ -44,43 +44,45 @@ Tick :: sim.Tick(State, Input, World, PLAYERS)
 
 @(rodata)
 GAME := Game {
-	name = "__GAME__",
-	version = "1",
-	tick_hz = TICK_HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^World {return new(World)},
-	world_destroy = proc(world: ^World) {free(world)},
-	init = proc(state: ^State, world: ^World, seed: u64) {},
-	tick = tick,
-	events = Event,
+	name          = "__GAME__",
+	version       = "1",
+	tick_hz       = TICK_HZ,
+	world_create  = world_create,
+	world_destroy = world_destroy,
+	init          = init,
+	tick          = tick,
+	events        = Event,
 }
+
+world_create :: proc(seed: u64, content: []u8) -> ^World {
+	return new(World)
+}
+
+world_destroy :: proc(world: ^World) {
+	free(world)
+}
+
+// The tick-0 state (the block is zeroed before): nothing more to set.
+init :: proc(state: ^State, world: ^World, seed: u64) {}
 
 tick :: proc(tick: ^Tick) {
 	state := tick.state
-	for player in 0 ..< PLAYERS {
-		here := player in tick.inputs.present
-		if here != state.joined[player] {
-			state.joined[player] = here
-			state.pos[player] = {f32(player), 0}
-			if here {
-				sim.emit(tick, Joined{player = u8(player)})
-			} else {
-				sim.emit(tick, Left{player = u8(player)})
-			}
-		}
-		if here {
-			input := tick.inputs.input[player]
-			state.pos[player].x += f32(input.dx) * STEP
-			state.pos[player].y += f32(input.dy) * STEP
-		}
+	joined, left := sim.presence_changes(tick, &state.present)
+	for player in joined {
+		state.pos[player] = {f32(player), 0}
+		sim.emit(tick, Joined{player = u8(player)})
+	}
+	for player in left do sim.emit(tick, Left{player = u8(player)})
+	for player in state.present {
+		input := tick.inputs.input[player]
+		state.pos[player].x += f32(input.dx) / 127 * SPEED * DT
+		state.pos[player].y += f32(input.dy) / 127 * SPEED * DT
 	}
 }
 
-// Scripted input for headless checks: a hash of (seed, player, tick / 16), so any tick can be asked for in any
-// order.
+// Scripted input for headless checks: every player steers a random direction that changes every 16 ticks, the
+// same for a seed, player and tick whatever order they are asked in.
 scripted_input :: proc(seed: u64, player: int, tick: u32) -> Input {
-	x := u32(seed) * 0x9E3779B1 ~ u32(player + 1) * 0x85EBCA77 ~ (tick / 16) * 0xC2B2AE3D
-	x ~= x >> 15
-	x *= 0x2C1B3C6D
-	x ~= x >> 12
-	return {dx = i8(x % 255) - 127, dy = i8((x >> 8) % 255) - 127}
+	rng := sim.rng_seed(seed ~ u64(player + 1) << 32 ~ u64(tick / 16))
+	return {dx = i8(sim.rng_below(&rng, 255)) - 127, dy = i8(sim.rng_below(&rng, 255)) - 127}
 }

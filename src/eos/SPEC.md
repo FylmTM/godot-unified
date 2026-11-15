@@ -23,7 +23,7 @@ eos.forget_device()                                  // test tools: delete this 
 `bucket` names the game and its own compatibility counter (e.g. `survivor/4`): the game bumps it by hand when its
 builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
 only match inside one bucket, so
-incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot_host.Transport`;
+incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot.Transport`;
 the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
 
@@ -59,7 +59,7 @@ the game's extension wires them (`init` first, with the game library's directory
 - **Threading.** One process-wide session behind a mutex; every EOS call happens under it. The link's `recv`
   ticks EOS when it finds nothing (at most every 0.5 ms), so the session thread drives EOS; callbacks run inside
   the tick, each with a fresh context on the ticking thread (the thread that ran `init` may be a finished
-  session's). A game passes its version (`godot_host.app_version`, the project's stamped version) as
+  session's). A game passes its version (`godot.app_version`, the project's stamped version) as
   `product_version`. macOS: the SDK finishes HTTP requests on the main thread's run loop: Godot runs one; a ticking main
   thread without one (the headless binary) pumps it.
 - **macOS keychain.** The device-ID token lives in the login keychain, owned by the binary that created it. A

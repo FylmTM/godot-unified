@@ -12,8 +12,10 @@ from `uni init`: each player moves a dot. Make it yours from here.
 
 - `simulation/__GAME__/`: the deterministic sim (unified/src/sim/SPEC.md: f32 only, no pointers in the state).
 - `simulation/headless/`: the headless binary (offline runs, sync-tests, benchmarks).
-- `simulation/extension/`: the GDExtension: the sim run by unified's Godot host, and how the state becomes views.
+- `simulation/extension/`: the GDExtension: the sim run by unified's Godot integration, how Godot's input becomes an
+  Input and how the state becomes views (unified/src/godot/SPEC.md).
 - `simulation/tests/`: the sim's tests and the determinism lint.
-- `game/`: the Godot side: scenes, views and scripts. GDScript reads the sim; input is the only way in.
+- `game/`: the Godot side: scenes, views (each with a UnifiedView marker; `uni bake` indexes them into
+  `unified_index.tres`) and scripts. GDScript reads the sim; input and commands are the only way in.
 - `tools/`: this game's CLI (unified's public commands, plus the game's own).
 - `unified/`: unified, as a git submodule. Local paths (a Godot install, the EOS SDK) go in a git-ignored `.env`.

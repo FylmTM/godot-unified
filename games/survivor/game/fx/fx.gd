@@ -1,3 +1,4 @@
+class_name SurvivorFx
 extends Node3D
 ## One-shot effects driven by sim events: death puffs, barrel explosions (light, fire, smoke, shock ring, screen
 ## shake), gem sparkles, level-up bursts, player death/respawn. Built from code-made CPUParticles3D, no assets.
@@ -8,8 +9,10 @@ const ENEMY_COLORS := [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]
 const GEM_COLOR := Color("5dffb1")
 const FIRE := Color("ffb347")
 const GOLD := Color("ffd23f")
+## The sim's blast radius (m): the explosion's light and fire.
+const EXPLOSION_RADIUS := 5.0
 
-var camera: Camera3D
+var camera: SurvivorCamera
 var _cube: BoxMesh
 var _ring_mesh: TorusMesh
 var _shrink: Curve
@@ -44,43 +47,45 @@ func _warm_up() -> void:
 	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
 
 
-## Plays the effect of a sim event (`data`: its fields, as the session's `sim_event` gives them); `local`: the
-## event is about the local player. `barrel_exploded` takes an optional `radius` (5 m without one).
-func play(event: StringName, data: Dictionary, local: bool) -> void:
-	var pos: Vector3 = data.get("position", Vector3.ZERO)
-	match event:
-		&"enemy_died":
-			var kind := clampi(ENEMY_KINDS.find(String(data.get("kind", ""))), 0, 2)
-			_burst(pos + Vector3(0, 0.5, 0), ENEMY_COLORS[kind], 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
-			Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
-		&"barrel_exploded":
-			_explosion(pos, float(data.get("radius", 5.0)))
-		&"gem_collected":
-			_burst(pos + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
-			if local:
-				Sfx.play(&"gem", -6.0, randf_range(0.95, 1.15))
-		&"level_up":
-			_ring(pos + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
-			_burst(pos + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
-			if local:
-				Sfx.play(&"level")
-		&"player_died":
-			var c := UiTheme.player_color(int(data.get("player", 0)))
-			_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
-			_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
-			_shake(0.45 if local else 0.2)
-			Sfx.play(&"die")
-			if local:
-				Game.rumble(0.6, 1.0, 0.5)
-		&"player_respawned":
-			_ring(pos + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
-			_burst(pos + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
-			Sfx.play(&"respawn", -4.0)
-		&"match_started":
-			Sfx.play(&"start")
-			Game.rumble(0.3, 0.5, 0.25)
-		&"match_over":
-			Sfx.play(&"over")
+## Plays the effect of a sim event (the session's `sim_event`, an object of the event's class). Sounds and rumble
+## for the local player's own pickups, level-ups and death.
+func play(event: UnifiedEvent) -> void:
+	var pos: Vector3 = event.get(&"position") if &"position" in event else Vector3.ZERO
+	var player: int = event.get(&"player") if &"player" in event else -1
+	var local := player >= 0 and player == Game.local_player()
+	if event is EnemyDied:
+		var kind := clampi(ENEMY_KINDS.find(String((event as EnemyDied).enemy_kind)), 0, 2)
+		var color: Color = ENEMY_COLORS[kind]
+		_burst(pos + Vector3(0, 0.5, 0), color, 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
+		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
+	elif event is BarrelExploded:
+		explosion(pos, EXPLOSION_RADIUS)
+	elif event is GemCollected:
+		_burst(pos + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
+		if local:
+			Sfx.play(&"gem", -6.0, randf_range(0.95, 1.15))
+	elif event is LevelUp:
+		_ring(pos + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
+		_burst(pos + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
+		if local:
+			Sfx.play(&"level")
+	elif event is PlayerDied:
+		var c := UiTheme.player_color(player)
+		_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
+		_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
+		_shake(0.45 if local else 0.2)
+		Sfx.play(&"die")
+		if local:
+			Game.rumble(0.6, 1.0, 0.5)
+	elif event is PlayerRespawned:
+		_ring(pos + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
+		_burst(pos + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
+		Sfx.play(&"respawn", -4.0)
+	elif event is MatchStarted:
+		Sfx.play(&"start")
+		Game.rumble(0.3, 0.5, 0.25)
+	elif event is MatchOver:
+		Sfx.play(&"over")
 
 
 ## The match starts: the start circle bursts outwards across the arena.
@@ -103,7 +108,8 @@ func shockwave(from_radius: float) -> void:
 	_shake(0.3)
 
 
-func _explosion(pos: Vector3, radius: float) -> void:
+## A barrel explosion at `pos` (also played by the tour to measure its first use).
+func explosion(pos: Vector3, radius: float) -> void:
 	var at := pos + Vector3(0, 0.6, 0)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1, 0.6, 0.25)
@@ -172,5 +178,5 @@ func _ring(pos: Vector3, color: Color, radius: float, time: float) -> void:
 
 
 func _shake(amount: float) -> void:
-	if camera != null and camera.has_method(&"add_trauma"):
+	if camera != null:
 		camera.add_trauma(amount)

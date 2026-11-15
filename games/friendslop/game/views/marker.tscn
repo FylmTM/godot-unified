@@ -4,4 +4,7 @@
 
 [node name="Marker" type="Node3D"]
 script = ExtResource("1_marker")
-kind = &"marker"
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+unique_name_in_owner = true
+kind = "marker"

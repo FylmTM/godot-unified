@@ -1,0 +1,8 @@
+[gd_resource type="Resource" format=3]
+
+[resource]
+metadata/views = {
+"hud": "res://game/views/hud.tscn",
+"marker": "res://game/views/marker.tscn",
+"player": "res://game/views/player.tscn"
+}

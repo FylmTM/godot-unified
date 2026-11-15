@@ -1,6 +1,7 @@
 package cli
 
 import "core:encoding/json"
+import "core:net"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -64,19 +65,19 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 			}
 		}
 		if want(only, "bake") {
+			start := time.tick_now()
+			baked := bake_view_index(game, check = true)
 			if os.is_directory(join(game.dir, "game", "levels")) {
-				result := bake(game, check = true)
-				ok = pass(game, "bake", result.ok, result.seconds) && ok
-			} else {
-				skip(game, "bake", "no game/levels")
+				baked = bake(game, check = true).ok && baked
 			}
+			ok = pass(game, "bake", baked, seconds_since(start)) && ok
 		}
 		Script_Step :: struct {
 			step, script: string,
 			args:         []string,
 			timeout:      f64,
 		}
-		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", {"--mock"}, 90}, {"tour", "tour", {"--quick"}, 60}}) {
+		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}, {"tour", "tour", {"--quick"}, 60}}) {
 			if !want(only, script_step.step) {
 				continue
 			}
@@ -513,12 +514,19 @@ cmd_coop :: proc(args: []string) -> Result {
 		usage("--mute and --screen need --window")
 	}
 	selected := game(opts.game)
-	script := tool_script(selected, "coop")
-	if script == "" {
-		usage("%s has no coop tool script", selected.name)
-	}
 	if !has_extension(selected) {
 		usage("%s has no extension", selected.name)
+	}
+	script := tool_script(selected, "coop")
+	if script == "" {
+		// no coop tool script (no menus to drive): unified's default, a host and a joiner over direct UDP
+		if !opts.lan || opts.rejoin || opts.crash || opts.window {
+			usage(
+				"%s has no coop tool script: its default runs with --lan only (a host and a joiner, headless)",
+				selected.name,
+			)
+		}
+		return coop_default(selected)
 	}
 	ensure_extension(selected, .dev)
 	ensure_imported(selected.dir)
@@ -530,7 +538,8 @@ cmd_coop :: proc(args: []string) -> Result {
 		append(&extra, "--crash")
 	}
 	if opts.lan {
-		append(&extra, "--lan")
+		// a free port: two runs at once (parallel agents) never meet in each other's lobby
+		append(&extra, "--lan", tprint("--lan-port=%d", free_udp_port()))
 	}
 	code := join(selected.dir, ".out", "coop_code.txt")
 	os.remove(code)
@@ -598,22 +607,18 @@ cmd_coop :: proc(args: []string) -> Result {
 @(private)
 cmd_bake :: proc(args: []string) -> Result {
 	Opts :: struct {
-		game:  string `args:"pos=0" usage:"a game (default: every game with game/levels)"`,
-		check: bool `usage:"write nothing; fail when a .level file is stale"`,
+		game:  string `args:"pos=0" usage:"a game (default: every game)"`,
+		check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
 	}
 	opts: Opts
 	parse(&opts, args)
 	ok := true
 	count := 0
 	for game in games_or_all(opts.game) {
-		if !os.is_directory(join(game.dir, "game", "levels")) {
-			if opts.game != "" {
-				usage("%s has no game/levels", game.name)
-			}
-			continue
+		ok = bake_view_index(game, opts.check) && ok
+		if os.is_directory(join(game.dir, "game", "levels")) {
+			ok = bake(game, opts.check).ok && ok
 		}
-		result := bake(game, opts.check)
-		ok = ok && result.ok
 		count += 1
 	}
 	return {
@@ -622,9 +627,82 @@ cmd_bake :: proc(args: []string) -> Result {
 	}
 }
 
+VIEW_INDEX :: "unified_index.tres"
+
+// The view index (src/godot/SPEC.md): every scene of the game whose root has a UnifiedView marker as a direct child,
+// by the marker's kind, written to <game>/unified_index.tres (committed; `check`: fail when it is stale instead). A
+// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line.
+bake_view_index :: proc(game: Game, check: bool) -> bool {
+	Found :: struct {
+		kind, path: string,
+	}
+	found: [dynamic]Found
+	ok := true
+	for file in find_files(game.dir, ".tscn") {
+		rel_path := strings.trim_prefix(file[len(game.dir):], "/")
+		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
+		if strings.has_prefix(rel_path, "addons/") do continue
+		text, read := read_text(file)
+		if !read do continue
+		in_marker := false
+		for raw_line in strings.split_lines(text) {
+			line := strings.trim_space(raw_line)
+			if strings.has_prefix(line, "[") {
+				in_marker = strings.has_prefix(line, "[node ") && strings.contains(line, `type="UnifiedView"`)
+				if in_marker && !strings.contains(line, `parent="."`) {
+					log("uni: %s: a UnifiedView must be a direct child of the scene's root", rel_path)
+					ok = false
+					in_marker = false
+				}
+				continue
+			}
+			if !in_marker || !strings.has_prefix(line, "kind = ") do continue
+			kind := strings.trim_prefix(strings.trim_prefix(line, "kind = "), "&")
+			kind = strings.trim_suffix(strings.trim_prefix(kind, `"`), `"`)
+			if kind == "" {
+				log("uni: %s: its UnifiedView has no kind", rel_path)
+				ok = false
+				continue
+			}
+			for earlier in found {
+				if earlier.kind == kind {
+					log("uni: view kind %q is in two scenes: %s and %s", kind, earlier.path, rel_path)
+					ok = false
+				}
+			}
+			append(&found, Found{kind, tprint("res://%s", rel_path)})
+		}
+	}
+	slice.sort_by(found[:], proc(a, b: Found) -> bool {return a.kind < b.kind})
+	builder := strings.builder_make(context.temp_allocator)
+	strings.write_string(&builder, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\nmetadata/views = {\n")
+	for item, i in found {
+		strings.write_string(&builder, tprint("%q: %q%s\n", item.kind, item.path, i + 1 < len(found) ? "," : ""))
+	}
+	strings.write_string(&builder, "}\n")
+	want := strings.to_string(builder)
+	path := join(game.dir, VIEW_INDEX)
+	have, exists := read_text(path)
+	if len(found) == 0 && !exists do return ok
+	if exists && have == want {
+		log("uni: %s view index: %d kind(s), current", game.name, len(found))
+		return ok
+	}
+	if check {
+		log("uni: %s: %s is stale: run `uni bake %s`", game.name, VIEW_INDEX, game.name)
+		return false
+	}
+	write_text(path, want)
+	log("uni: %s view index: %d kind(s) -> %s", game.name, len(found), VIEW_INDEX)
+	return ok
+}
+
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
 // level scenes (src/level/SPEC.md).
 bake :: proc(game: Game, check: bool) -> Tool_Result {
+	if has_extension(game) {
+		ensure_extension(game, .dev) // the game's scripts name its library's classes
+	}
 	ensure_imported(game.dir)
 	copy_file(
 		join(game.dir, ".out", "tools", "level_export.gd"),
@@ -656,6 +734,90 @@ bake :: proc(game: Game, check: bool) -> Tool_Result {
 		}
 	}
 	return result
+}
+
+COOP_DEFAULT_TICKS :: 600
+
+// A game without a coop tool script: a host (`--host-port`, 127.0.0.1 only) and a joiner (`--join`), both headless
+// with scripted input, for COOP_DEFAULT_TICKS ticks; ok when both finish with the same checksums.
+@(private)
+coop_default :: proc(game: Game) -> Result {
+	ensure_extension(game, .dev)
+	ensure_imported(game.dir)
+	port := free_udp_port()
+	common := []string{"--scripted", "--quit-at-end", "--no-settings"}
+	host_cmd, join_cmd: [dynamic]string
+	append(
+		&host_cmd,
+		godot(),
+		"--headless",
+		"--path",
+		game.dir,
+		"--",
+		"--host-port",
+		tprint("%d", port),
+		"--local-net",
+	)
+	append(&host_cmd, ..common)
+	append(&host_cmd, "--ticks", tprint("%d", COOP_DEFAULT_TICKS))
+	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", tprint("127.0.0.1:%d", port))
+	append(&join_cmd, ..common)
+	timeout := time.Duration(COOP_DEFAULT_TICKS / 64 + 60) * time.Second
+	host := start({cmd = host_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_host")})
+	time.sleep(500 * time.Millisecond) // the host listens before the joiner says hello
+	joiner := start(
+		{cmd = join_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_join")},
+	)
+	host_ran, join_ran := wait(&host), wait(&joiner)
+	ok := true
+	results: [2]map[int]string
+	for ran, i in ([]Ran{host_ran, join_ran}) {
+		role := i == 0 ? "host" : "joiner"
+		out := strings.concatenate({ran.stdout, ran.stderr})
+		for line in godot_errors(out) {
+			log("uni: coop %s %s: %s", game.name, role, line)
+			ok = false
+		}
+		report, has := last_json_after(ran.stdout, "unified: result ").(json.Object)
+		if !has {
+			log("%s", tail(out, 2000))
+			log("uni: coop %s %s: no result line", game.name, role)
+			ok = false
+			continue
+		}
+		results[i] = checksums(report["checksums"])
+		log(
+			"uni: coop %s %s: %d checksums, final tick %d",
+			game.name,
+			role,
+			len(results[i]),
+			json_int(report["final_tick"]),
+		)
+	}
+	compared := 0
+	for tick, host_sum in results[0] {
+		if join_sum, found := results[1][tick]; found {
+			compared += 1
+			if join_sum != host_sum {
+				log("uni: coop %s: checksum at tick %d: host %s, joiner %s", game.name, tick, host_sum, join_sum)
+				ok = false
+			}
+		}
+	}
+	if compared == 0 {
+		log("uni: coop %s: no checksum both sides report", game.name)
+		ok = false
+	}
+	return {
+		ok = ok,
+		summary = tprint(
+			"coop %s (default, port %d): %d checksums compared, %s",
+			game.name,
+			port,
+			compared,
+			ok ? "ok" : "FAILED",
+		),
+	}
 }
 
 // `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
@@ -728,4 +890,18 @@ coop_crash :: proc(
 			rejoin_result.ok ? "ok" : "FAILED",
 		),
 	}
+}
+
+// A UDP port free on 127.0.0.1 right now (the OS picks it).
+free_udp_port :: proc() -> int {
+	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
+	if err != nil {
+		fatal("cannot bind a UDP socket: %v", err)
+	}
+	defer net.close(sock)
+	endpoint, endpoint_err := net.bound_endpoint(sock)
+	if endpoint_err != nil {
+		fatal("cannot read the UDP socket's port: %v", endpoint_err)
+	}
+	return endpoint.port
 }

@@ -1,3 +1,4 @@
+class_name DriftArena
 extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
 ## handed to the session (ships, the station, gates), the bulk views (rocks, bullets, gems), the camera following the
@@ -12,15 +13,16 @@ var mouse_aim_enabled := true
 ## The mouse aims (relative to the local ship) once it moves, until the right stick is used.
 var _mouse_aim := false
 
-@onready var camera: Camera2D = $Camera
-@onready var effects: Node2D = $Effects
+@onready var camera: DriftCamera = $Camera
+@onready var effects: DriftEffects = $Effects
 @onready var _views: Node2D = $Views
 @onready var _level: Node2D = $Level
 
 
 func _ready() -> void:
 	process_priority = -1001  # the aim is set before UnifiedSession (-1000) samples the input: never a frame late
-	Game.px_per_m = float(_level.get_meta(&"unified_px_per_m", 32.0))
+	var px_per_m: float = _level.get_meta(&"unified_px_per_m", 32.0)
+	Game.px_per_m = px_per_m
 	bounds = level_bounds(_level)
 	camera.set_bounds(bounds)
 	Game.session.view_root = _views
@@ -53,21 +55,22 @@ func _process(_delta: float) -> void:
 		dir = get_global_mouse_position() - me.global_position
 	elif stick != Vector2.ZERO:
 		dir = stick
-	Game.session.set_input_vector_2d(0, dir)  # world space (x right, y down); zero keeps the heading
+	Game.session.set_input_value(&"aim", dir)  # world space (x right, y down); zero keeps the heading
 
 
 ## The scene views of one kind (ship, station, gate) under the views root.
 func views_of(kind: String) -> Array[Node2D]:
 	var out: Array[Node2D] = []
 	for v in _views.get_children():
-		if v is Node2D and String(v.get(&"kind")) == kind:
+		var marker := v.get_node_or_null(^"UnifiedView") as UnifiedView
+		if v is Node2D and marker != null and marker.kind == kind:
 			out.append(v)
 	return out
 
 
 func ship_view(player: int) -> Node2D:
 	for v in views_of("ship"):
-		if int(v.get(&"player")) == player:
+		if (v.get_node(^"UnifiedView") as UnifiedView).player == player:
 			return v
 	return null
 
@@ -100,45 +103,45 @@ static func level_bounds(level: Node) -> Rect2:
 	return r
 
 
-func _on_sim_event(event: StringName, state: int, data: Dictionary) -> void:
+func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	# rock effects play when the event is emitted (a cancelled one has already played: left as is); the rest wait
 	# for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
-	var rock_effect := event in [&"rock_hit", &"rock_split", &"rock_destroyed"]
-	if state != (SimEvent.EMITTED if rock_effect else SimEvent.CONFIRMED):
+	var rock_effect := event is RockHit or event is RockSplit or event is RockDestroyed
+	if state != (UnifiedSession.EVENT_EMITTED if rock_effect else UnifiedSession.EVENT_CONFIRMED):
 		return
-	var at: Vector2 = data.get("position", Vector2.ZERO)
+	var at: Vector2 = event.get(&"position") if &"position" in event else Vector2.ZERO
 	var near := at.distance_to(camera.get_screen_center_position()) < 900.0
-	match event:
-		&"rock_hit":
+	match event.kind:
+		"rock_hit":
 			effects.sparks(at, 4, Color(1, 0.9, 0.7))
 			if near:
 				Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
-		&"rock_split":
+		"rock_split":
 			effects.debris(at, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
-			Sfx.play(&"pop", -6.0, 0.7 if data.size == "large" else 0.9)
-		&"rock_destroyed":
+			Sfx.play(&"pop", -6.0, 0.7 if (event as RockSplit).size == &"large" else 0.9)
+		"rock_destroyed":
 			effects.debris(at, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
 			effects.ring(at, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)
 			Sfx.play(&"boom", -12.0, 1.6)
-		&"station_hit":
+		"station_hit":
 			effects.debris(at, 14, UiTheme.BAD, 200.0, 4.0)
 			effects.ring(at, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
-			camera.shake(0.5 if int(data.damage) >= 10 else 0.3)
+			camera.shake(0.5 if (event as StationHit).damage >= 10 else 0.3)
 			Sfx.play(&"boom", -4.0)
 			Game.rumble(0.5, 0.7, 0.3)
-		&"gem_picked":
+		"gem_picked":
 			effects.ring(at, 4.0, 28.0, 0.3, UiTheme.GOLD, 2.0)
 			Sfx.play(&"gem", -2.0)
-		&"warped":
+		"warped":
 			effects.ring(at, 8.0, 70.0, 0.45, UiTheme.CYAN, 3.0)
-		&"joined":
+		"joined":
 			effects.ring(at, 8.0, 50.0, 0.5, Color.WHITE, 2.0)
 			Sfx.play(&"join", -6.0)
-		&"wave":
+		"wave":
 			Sfx.play(&"wave")
-		&"match_started":
+		"match_started":
 			Sfx.play(&"start")
-		&"match_over":
+		"match_over":
 			var station := views_of("station")
 			var c := station[0].global_position if not station.is_empty() else Vector2.ZERO
 			effects.debris(c, 40, UiTheme.BAD, 320.0, 5.0)

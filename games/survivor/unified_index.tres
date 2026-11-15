@@ -1,0 +1,9 @@
+[gd_resource type="Resource" format=3]
+
+[resource]
+metadata/views = {
+"barrel": "res://game/views/barrel.tscn",
+"crate": "res://game/views/crate.tscn",
+"hud": "res://game/views/hud.tscn",
+"player": "res://game/views/player.tscn"
+}

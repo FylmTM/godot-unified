@@ -1,8 +1,11 @@
-extends SimView2D
+extends Node2D
 ## A player's ship, drawn in code. The host sets the root's position (pixels) and rotation (the heading: 0 = +x,
 ## the nose) and the Ship_View data below; everything else is view-only: the hull in the player's colour, a flame
 ## while thrusting, a ring that fills while boost recharges, a squash on shots and boosts, a muzzle flash, a warp
 ## flash, a name tag over other players' ships, and a shrink when the ship leaves.
+
+## The view's marker: `player` is the ship's player (set by the host before _ready).
+@onready var view: UnifiedView = %UnifiedView
 
 ## Ship_View (simulation/extension), set by the host when it changes.
 var boost_ready := 1.0:  ## 0 just boosted .. 1 ready
@@ -25,9 +28,12 @@ var _tag: Label
 
 
 func _ready() -> void:
+	view.despawned.connect(func() -> void: _gone = true)
+	view.revived.connect(func() -> void: _gone = false)
 	z_index = 2
-	_r = float(Game.constants.get("ship_radius", 0.5)) * Game.px_per_m
-	_color = UiTheme.player_color(player)
+	var radius: float = Game.constants.get("ship_radius", 0.5)
+	_r = radius * Game.px_per_m
+	_color = UiTheme.player_color(view.player)
 	_tag = Label.new()
 	_tag.top_level = true  # never turns with the ship
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -46,11 +52,11 @@ func _process(delta: float) -> void:
 	_warp = maxf(_warp - delta * 2.5, 0.0)
 	_ready_pulse = maxf(_ready_pulse - delta * 3.0, 0.0)
 	_leaving = move_toward(_leaving, 1.0 if _gone else 0.0, delta * 4.0)
-	var local := player == Game.local_player()
+	var local := view.player == Game.local_player()
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
-		var info := Game.player_info(player)
-		var tag := Game.player_name(info) if not info.is_empty() else "P%d" % (player + 1)
+		var info := Game.player_info(view.player)
+		var tag := Game.player_name(info) if not info.is_empty() else "P%d" % (view.player + 1)
 		if _tag.text != tag:
 			_tag.text = tag
 		_tag.global_position = global_position + Vector2(-80, -_r - 26)
@@ -98,31 +104,24 @@ func _draw() -> void:
 
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it); a
 ## cancelled one has already played and is left as is.
-func _sim_event(event: StringName, state: int, _data: Dictionary) -> void:
-	match event:
-		&"despawned":
-			_gone = true
-			return
-		&"revived":
-			_gone = false
-			return
-	if state != SimEvent.EMITTED:
+func _sim_event(event: UnifiedEvent, state: int) -> void:
+	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	var local := player == Game.local_player()
-	match event:
-		&"fired":
+	var local := view.player == Game.local_player()
+	match event.kind:
+		"fired":
 			_muzzle = 1.0
 			_squash = minf(_squash, -0.25)
 			Sfx.play(&"fire", -12.0 if local else -18.0, randf_range(0.95, 1.08))
-		&"boosted":
+		"boosted":
 			_squash = 1.0
 			Sfx.play(&"boost", -4.0 if local else -10.0)
 			if local:
 				Game.rumble(0.3, 0.2, 0.12)
-		&"warped":
+		"warped":
 			_warp = 1.0
 			Sfx.play(&"warp", -4.0)
-		&"gem_picked":
+		"gem_picked":
 			_ready_pulse = 1.0
-		&"joined":
+		"joined":
 			_warp = 1.0
