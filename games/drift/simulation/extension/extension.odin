@@ -188,43 +188,31 @@ fill_frame :: proc(frame: ^Frame) {
 		ship := &state.ships[player]
 		if !ship.active do continue
 		pos, rotation := physics.pose_2d(world.phys, ship.body)
-		godot.push_view(
-			frame,
-			{
-				key = view.Key(KEY_SHIP + player),
-				kind = .Ship,
-				player = player,
-				pos = pixels(pos, px_per_m),
-				rot = physics.quat_2d(rotation),
-			},
-			Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(KEY_SHIP + player),
+			kind   = .Ship,
+			player = player,
+			pos    = pixels(pos, px_per_m),
+			rot    = physics.quat_2d(rotation),
+		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
 	{
 		pos, rotation := physics.pose_2d(world.phys, state.station)
-		godot.push_view(
-			frame,
-			{
-				key = KEY_STATION,
-				kind = .Station,
-				entity = 1,
-				pos = pixels(pos, px_per_m),
-				rot = physics.quat_2d(rotation),
-			},
-			Station_View{hp_frac = f32(state.station_hp) / f32(dr.STATION_HP)},
-		)
+		godot.push_view(frame, {
+			key    = KEY_STATION,
+			kind   = .Station,
+			entity = 1,
+			pos    = pixels(pos, px_per_m),
+			rot    = physics.quat_2d(rotation),
+		}, Station_View{hp_frac = f32(state.station_hp) / f32(dr.STATION_HP)})
 	}
 	for gate in 0 ..< world.gate_count {
-		godot.push_view(
-			frame,
-			{
-				key = view.Key(KEY_GATE + gate),
-				kind = .Gate,
-				entity = u64(KEY_GATE + gate),
-				pos = pixels(world.gates[gate].pos, px_per_m),
-			},
-			Gate_View{charge = f32(state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(KEY_GATE + gate),
+			kind   = .Gate,
+			entity = u64(KEY_GATE + gate),
+			pos    = pixels(world.gates[gate].pos, px_per_m),
+		}, Gate_View{charge = f32(state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&state.rocks)
@@ -232,32 +220,26 @@ fill_frame :: proc(frame: ^Frame) {
 		pos, rotation := physics.pose_2d(world.phys, rock.body)
 		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
 		flash := rock.hit_tick > 0 && tick >= rock.hit_tick ? max(0, 1 - f32(tick - rock.hit_tick) / 8) : 0
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
-				pos = pixels(pos, px_per_m),
-				yaw = math.atan2(rotation.y, rotation.x),
-				scale = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
-				custom = {f32(rock.size), flash, 0, 0},
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key    = sim.handle_key(handle),
+			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
+			pos    = pixels(pos, px_per_m),
+			yaw    = math.atan2(rotation.y, rotation.x),
+			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
+			custom = {f32(rock.size), flash, 0, 0},
+		}) or_break
 	}
 	// bullets: stretched along their velocity, tinted with the owner's colour (the view's colour index)
 	bullets := sim.iterate(&state.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = .Bullet,
-				pos = pixels(bullet.pos, px_per_m),
-				yaw = math.atan2(bullet.vel.y, bullet.vel.x),
-				scale = {1.6, 0.6, 1},
-				custom = {f32(bullet.owner), 0, 0, 0},
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key    = sim.handle_key(handle),
+			kind   = .Bullet,
+			pos    = pixels(bullet.pos, px_per_m),
+			yaw    = math.atan2(bullet.vel.y, bullet.vel.x),
+			scale  = {1.6, 0.6, 1},
+			custom = {f32(bullet.owner), 0, 0, 0},
+		}) or_break
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
 	gems := sim.iterate(&state.gems)
@@ -265,18 +247,15 @@ fill_frame :: proc(frame: ^Frame) {
 		age := f32(tick - gem.spawn_tick) / dr.TICK_HZ
 		pulse := math.sin(age * 6) * 0.18
 		fade := clamp((f32(dr.GEM_LIFE_S) - age) / 2, 0, 1)
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = .Gem,
-				pos = pixels(gem.pos, px_per_m),
-				yaw = age * 2,
-				scale = {1 + pulse, 1 - pulse, 1},
-				color = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
-				custom = {age, 0, 0, 0},
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key    = sim.handle_key(handle),
+			kind   = .Gem,
+			pos    = pixels(gem.pos, px_per_m),
+			yaw    = age * 2,
+			scale  = {1 + pulse, 1 - pulse, 1},
+			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
+			custom = {age, 0, 0, 0},
+		}) or_break
 	}
 	godot.push_view(frame, {key = KEY_HUD, kind = .Hud}, hud_of(state, tick))
 }

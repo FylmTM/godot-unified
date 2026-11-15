@@ -23,50 +23,69 @@ MATH_OK :: lint.MATH_OK
 RULES := []Rule {
 	// Library code that runs inside a tick: the same rules as game code (lint.sim_rule).
 	{
-		pkg = "dmath",
+		pkg          = "dmath",
 		only_imports = TICK_IMPORTS,
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
+		ban_idents   = SIM_IDENTS,
+		ban_matrix   = true,
+		strict       = true,
+		tick         = true,
 	},
 	// physics walks RTTI (base:runtime) and guards Box3D world creation with a mutex (core:sync).
 	// world_mutex serializes Box3D world creation across threads (b3CreateWorld); never touched by a tick.
 	{
-		pkg = "physics",
-		only_imports = PHYSICS_IMPORTS,
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
+		pkg           = "physics",
+		only_imports  = PHYSICS_IMPORTS,
+		ban_idents    = SIM_IDENTS,
+		ban_matrix    = true,
+		strict        = true,
+		tick          = true,
 		allow_globals = {"world_mutex"},
 	},
 	// Levels: parsed when a World is created; plain data, through unified:wire.
 	{
-		pkg = "level",
+		pkg          = "level",
 		only_imports = {"unified:wire"},
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
+		ban_idents   = SIM_IDENTS,
+		ban_matrix   = true,
+		strict       = true,
+		tick         = true,
 	},
 	// The harness: also walks RTTI, hashes, formats errors and reads and writes log files.
-	{pkg = "sim", only_imports = SIM_IMPORTS, ban_idents = SIM_IDENTS, ban_matrix = true, strict = true, tick = true},
+	{
+		pkg          = "sim",
+		only_imports = SIM_IMPORTS,
+		ban_idents   = SIM_IDENTS,
+		ban_matrix   = true,
+		strict       = true,
+		tick         = true,
+	},
 	// The Box3D API (src/b3/SPEC.md): conversions over the library's bindings, called inside a tick, so tick rules.
 	// base:runtime carries the caller's context through the library's C callbacks. The `box3d:` collection itself
 	// (unified-box3d's bindings) is foreign code, outside src/, like the old C binding was.
 	{
-		pkg = "b3",
+		pkg          = "b3",
 		only_imports = {"box3d:bindings", "base:runtime"},
-		ban_idents = SIM_IDENTS,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
+		ban_idents   = SIM_IDENTS,
+		ban_matrix   = true,
+		strict       = true,
+		tick         = true,
 	},
-	{pkg = "wire", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	{
+		pkg           = "wire",
+		ban_imports   = MATH,
+		allow_imports = MATH_OK,
+		ban_idents    = FLOAT_TRAPS,
+		ban_matrix    = true,
+	},
 	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
 	// stay off core:math.
-	{pkg = "netcode", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	{
+		pkg           = "netcode",
+		ban_imports   = MATH,
+		allow_imports = MATH_OK,
+		ban_idents    = FLOAT_TRAPS,
+		ban_matrix    = true,
+	},
 	// Host side (Godot bindings, view, dev UI): never feeds back into the sim, so no bans;
 	// listed so every package is accounted for.
 	{pkg = "gdext"},
@@ -74,10 +93,28 @@ RULES := []Rule {
 	{pkg = "devui"},
 	{pkg = "godot"},
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
-	{pkg = "lint", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	{
+		pkg           = "lint",
+		ban_imports   = MATH,
+		allow_imports = MATH_OK,
+		ban_idents    = FLOAT_TRAPS,
+		ban_matrix    = true,
+	},
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
-	{pkg = "eos", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
-	{pkg = "headless", ban_imports = MATH, allow_imports = MATH_OK, ban_idents = FLOAT_TRAPS, ban_matrix = true},
+	{
+		pkg           = "eos",
+		ban_imports   = MATH,
+		allow_imports = MATH_OK,
+		ban_idents    = FLOAT_TRAPS,
+		ban_matrix    = true,
+	},
+	{
+		pkg           = "headless",
+		ban_imports   = MATH,
+		allow_imports = MATH_OK,
+		ban_idents    = FLOAT_TRAPS,
+		ban_matrix    = true,
+	},
 	// The CLI library (src/cli/SPEC.md): core: only, so editing the rest of the library never rebuilds the CLI.
 	{pkg = "cli", ban_imports = {"unified:", "vendor:"}},
 }

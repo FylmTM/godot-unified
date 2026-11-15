@@ -263,12 +263,11 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = -1, name = "c", quiet = true},
-		netcode.loopback_link(hub, 1),
-		hooks_for(&watch),
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player = -1,
+			name   = "c",
+			quiet  = true,
+		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)

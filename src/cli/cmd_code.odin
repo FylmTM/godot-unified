@@ -28,7 +28,7 @@ cmd_build :: proc(args: []string) -> Result {
 		}
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint(
 			"built %d headless binaries and %d extensions (%v) in %.1fs",
 			built,
@@ -36,7 +36,7 @@ cmd_build :: proc(args: []string) -> Result {
 			opts.mode,
 			seconds_since(start),
 		),
-		data = box(libs[:]),
+		data    = box(libs[:]),
 	}
 }
 
@@ -64,7 +64,7 @@ cmd_headless :: proc(args: []string) -> Result {
 	ran := run_proc({cmd = cmd[:], interactive = true})
 	if !ran.ok {
 		return {
-			ok = false,
+			ok      = false,
 			summary = tprint("headless %s %s: exit %d", headless.name, opts.overflow[0], ran.exit_code),
 		}
 	}
@@ -143,14 +143,18 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	if len(failed) > 0 {
-		return {ok = false, summary = tprint("vet failed: %s", strings.join(failed[:], ", ")), data = box(failed[:])}
+		return {
+			ok      = false,
+			summary = tprint("vet failed: %s", strings.join(failed[:], ", ")),
+			data    = box(failed[:]),
+		}
 	}
 	names := make([]string, len(pkgs))
 	for vet_pkg, i in pkgs {
 		names[i] = rel(vet_pkg.pkg)
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint(
 			"vet ok: %d packages x %d targets%s, in %.2fs",
 			len(pkgs),
@@ -158,7 +162,7 @@ cmd_vet :: proc(args: []string) -> Result {
 			len(template) > 0 ? " + uni init's template" : "",
 			seconds_since(start),
 		),
-		data = box(names),
+		data    = box(names),
 	}
 }
 
@@ -213,17 +217,17 @@ cmd_fmt :: proc(args: []string) -> Result {
 	}
 	if opts.check && len(changed) + len(bad_eol) > 0 {
 		return {
-			ok = false,
+			ok      = false,
 			summary = tprint(
 				"%d file(s) need formatting, %d have wrong line endings: run uni fmt",
 				len(changed),
 				len(bad_eol),
 			),
-			data = box(changed),
+			data    = box(changed),
 		}
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint(
 			"fmt %s: %d of %d file(s) %s, %d line ending fix(es) in %.2fs",
 			opts.check ? "check ok" : "done",
@@ -233,7 +237,7 @@ cmd_fmt :: proc(args: []string) -> Result {
 			len(bad_eol),
 			seconds_since(start),
 		),
-		data = box(changed),
+		data    = box(changed),
 	}
 }
 
@@ -280,10 +284,11 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 	fmt_runs: [dynamic]Run
 	for k in 0 ..< runs {
 		if load[k] > 0 {
-			append(
-				&fmt_runs,
-				Run{cmd = strs(exe, config, "-w", join(tmp, tprint("%d", k))), capture = true, quiet = true},
-			)
+			append(&fmt_runs, Run {
+				cmd     = strs(exe, config, "-w", join(tmp, tprint("%d", k))),
+				capture = true,
+				quiet   = true,
+			})
 		}
 	}
 	for result in run_all(fmt_runs[:]) {
@@ -341,13 +346,11 @@ fmt_hook :: proc() -> ! {
 	}
 	tmp := join(state.project.out, "tmp", tprint("hook-%d", os.get_pid()), os.base(path))
 	copy_file(tmp, path)
-	result := run_proc(
-		{
-			cmd = {exe, tprint("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
-			capture = true,
-			quiet = true,
-		},
-	)
+	result := run_proc({
+		cmd     = {exe, tprint("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
+		capture = true,
+		quiet   = true,
+	})
 	if result.ok {
 		old_text, _ := read_text(path)
 		new_text, _ := read_text(tmp)

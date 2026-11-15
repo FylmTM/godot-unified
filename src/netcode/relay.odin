@@ -486,7 +486,11 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 		waiting := Wait_Command {
 			// a wanted tick far ahead would hold back the sender's later commands: clamp it
 			want = min(want, relay.finalized + INPUT_RING),
-			cmd = {kind = kind, player = u8(player), size = u8(size)},
+			cmd = {
+				kind   = kind,
+				player = u8(player),
+				size   = u8(size),
+			},
 		}
 		copy(waiting.cmd.data[:], bytes)
 		append(&relay.cmd_wait[player], waiting)

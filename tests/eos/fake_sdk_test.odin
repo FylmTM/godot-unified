@@ -370,7 +370,11 @@ Host_Run :: struct {
 @(private = "file")
 host_session :: proc(run: ^Host_Run) {
 	if run.init {
-		ok := eos.init({product_name = "fake", product_version = "1.2.3", sdk = &FAKE})
+		ok := eos.init({
+			product_name    = "fake",
+			product_version = "1.2.3",
+			sdk             = &FAKE,
+		})
 		testing.expect(run.t, ok, "init with the fake SDK")
 	}
 	testing.expect(run.t, eos.host("fake-bucket"), "host")

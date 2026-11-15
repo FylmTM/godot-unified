@@ -223,13 +223,25 @@ session_ready :: proc(session: ^Session_Node) {
 	case session.args.autostart:
 		session_start(session, {mode = .Single, scripted = session.args.scripted})
 	case session.args.host_port != 0:
-		session_start(session, {mode = .Host_Direct, port = session.args.host_port, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Host_Direct,
+			port     = session.args.host_port,
+			scripted = session.args.scripted,
+		})
 	case session.args.join != "":
-		session_start(session, {mode = .Join_Direct, arg = session.args.join, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Join_Direct,
+			arg      = session.args.join,
+			scripted = session.args.scripted,
+		})
 	case session.args.online:
 		session_start(session, {mode = .Host_Online, scripted = session.args.scripted})
 	case session.args.join_code != "":
-		session_start(session, {mode = .Join_Online, arg = session.args.join_code, scripted = session.args.scripted})
+		session_start(session, {
+			mode     = .Join_Online,
+			arg      = session.args.join_code,
+			scripted = session.args.scripted,
+		})
 	}
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""

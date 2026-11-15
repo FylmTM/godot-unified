@@ -91,7 +91,11 @@ eos_lib :: proc() -> string {
 // check that may wait for a prompt. Our copy of the library is ours to change, so drop the flag from it.
 unquarantine :: proc(path: string) {
 	when ODIN_OS == .Darwin {
-		run_proc({cmd = {"xattr", "-d", "com.apple.quarantine", path}, capture = true, quiet = true})
+		run_proc({
+			cmd     = {"xattr", "-d", "com.apple.quarantine", path},
+			capture = true,
+			quiet   = true,
+		})
 	}
 }
 

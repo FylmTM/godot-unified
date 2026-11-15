@@ -86,10 +86,10 @@ set_netsim :: proc(settings: Netsim_Settings) {
 netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile {
 	if !enabled do return {name = "devui"}
 	return {
-		name = "devui",
+		name    = "devui",
 		latency = i64(direction.latency_ms * 1000),
-		jitter = i64(direction.jitter_ms * 1000),
-		loss = u32(direction.loss_pct * 10),
+		jitter  = i64(direction.jitter_ms * 1000),
+		loss    = u32(direction.loss_pct * 10),
 	}
 }
 
@@ -140,9 +140,9 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 		seed  = seed | 1,
 	}
 	return dev_link, {
-		data = dev_link,
-		send = dev_link_send,
-		recv = dev_link_recv,
+		data  = dev_link,
+		send  = dev_link_send,
+		recv  = dev_link_recv,
 		close = dev_link_close,
 		event = inner.event == nil ? nil : dev_link_event,
 	}
@@ -428,7 +428,12 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $M
 				position^ = driver.glue.event_pos(position^, world)
 			}
 		}
-		post(driver, Message{kind = .Event, action = tracked.action, tick = tracked.event.tick, event = raw})
+		post(driver, Message {
+			kind   = .Event,
+			action = tracked.action,
+			tick   = tracked.event.tick,
+			event  = raw,
+		})
 	}
 	clear(&driver.tracker.out)
 }

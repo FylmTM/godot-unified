@@ -20,16 +20,22 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	opts: Opts
 	cli.parse(&opts, args)
 	root := cli.state.project.root
-	st := cli.run_proc({cmd = cli.strs("git", "-C", root, "status", "--porcelain"), capture = true, quiet = true})
+	st := cli.run_proc({
+		cmd     = cli.strs("git", "-C", root, "status", "--porcelain"),
+		capture = true,
+		quiet   = true,
+	})
 	if strings.trim_space(st.stdout) != "" {
 		cli.fatal("selftest tests the committed HEAD: commit first")
 	}
 	work := cli.join(cli.state.project.out, "selftest")
 	cli.remove_tree(work)
 	cli.make_dirs(work)
-	head := strings.trim_space(
-		cli.run_proc({cmd = cli.strs("git", "-C", root, "rev-parse", "HEAD"), capture = true, quiet = true}).stdout,
-	)
+	head := strings.trim_space(cli.run_proc({
+			cmd     = cli.strs("git", "-C", root, "rev-parse", "HEAD"),
+			capture = true,
+			quiet   = true,
+		}).stdout)
 	clone := cli.join(work, "unified")
 	game := cli.join(work, "selftest_game")
 	cache := cli.join(work, "cache")
@@ -53,61 +59,71 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		expect: string, // what cmd's stdout must contain
 	}
 	steps: [dynamic]Step
-	append(
-		&steps,
-		Step{what = "clone", cmd = cli.strs("git", "clone", "-q", root, clone), env = env},
-		Step {
-			what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
-			cmd = shim(clone, "version"),
-			dir = clone,
-			env = download_env(work, cache),
-		},
-	)
+	append(&steps, Step {
+		what = "clone",
+		cmd  = cli.strs("git", "clone", "-q", root, clone),
+		env  = env,
+	}, Step {
+		what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
+		cmd  = shim(clone, "version"),
+		dir  = clone,
+		env  = download_env(work, cache),
+	})
 	if !opts.shims {
 		append(
 			&steps,
 			Step {
-				what = "init a game outside the repo",
-				cmd = shim(clone, "init", game, "--unified", clone, "--ref", head),
-				dir = work,
-				env = env,
+				what  = "init a game outside the repo",
+				cmd   = shim(clone, "init", game, "--unified", clone, "--ref", head),
+				dir   = work,
+				env   = env,
 				check = check_init,
 			},
 			// the first build generates the Godot bindings: a cold run, not one over its budget
 			Step {
-				what = "build the game",
-				cmd = shim(game, "build", "--json"),
-				dir = game,
-				env = env,
+				what   = "build the game",
+				cmd    = shim(game, "build", "--json"),
+				dir    = game,
+				env    = env,
 				expect = `"Godot bindings"`,
 			},
 			Step {
-				what = "the headless binary through uni",
-				cmd = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
-				dir = game,
-				env = env,
+				what   = "the headless binary through uni",
+				cmd    = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
+				dir    = game,
+				env    = env,
 				expect = `"mismatches":0`,
 			},
 			Step {
 				what = "every test suite of the game",
-				cmd = shim(game, "test", "--suite", "all"),
-				dir = game,
-				env = env,
+				cmd  = shim(game, "test", "--suite", "all"),
+				dir  = game,
+				env  = env,
 			},
-			Step{what = "the game repo's gate", cmd = shim(game, "verify"), dir = game, env = env},
+			Step {
+				what = "the game repo's gate",
+				cmd  = shim(game, "verify"),
+				dir  = game,
+				env  = env,
+			},
 		)
 	}
 	start := time.tick_now()
 	for s, i in steps {
 		t := time.tick_now()
 		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({cmd = s.cmd, dir = s.dir, env = s.env, capture = s.expect != ""})
+		r := cli.run_proc({
+			cmd     = s.cmd,
+			dir     = s.dir,
+			env     = s.env,
+			capture = s.expect != "",
+		})
 		if s.expect != "" {
 			cli.log("%s%s", r.stderr, r.stdout)
 		}
 		if !r.ok {
 			return {
-				ok = false,
+				ok      = false,
 				summary = cli.tprint(
 					"selftest: %s failed (exit %d); the work is in %s",
 					s.what,
@@ -122,7 +138,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		if s.check != nil {
 			if problem := s.check(game, head); problem != "" {
 				return {
-					ok = false,
+					ok      = false,
 					summary = cli.tprint("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
 				}
 			}
@@ -131,7 +147,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			odin := cli.join(cache, "unified", "odin", cli.pin("odin", "tag"), cli.tprint("odin%s", cli.EXE))
 			if !os.is_file(odin) {
 				return {
-					ok = false,
+					ok      = false,
 					summary = cli.tprint("selftest: the bootstrap ran, but the shim downloaded no %s", odin),
 				}
 			}
@@ -139,7 +155,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		cli.log("selftest: %s: ok (%.1fs)", s.what, cli.seconds_since(t))
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = cli.tprint(
 			"selftest%s passed in %.0fs (%s)",
 			opts.shims ? " --shims" : "",
@@ -194,9 +210,11 @@ download_env :: proc(work, cache: string) -> []string {
 // What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files
 // name are the current ones (the shims are `uni` and `uni.cmd`, the repo is godot-unified).
 check_init :: proc(game, head: string) -> string {
-	pinned := cli.run_proc(
-		{cmd = cli.strs("git", "-C", game, "ls-files", "--stage", "unified"), capture = true, quiet = true},
-	)
+	pinned := cli.run_proc({
+		cmd     = cli.strs("git", "-C", game, "ls-files", "--stage", "unified"),
+		capture = true,
+		quiet   = true,
+	})
 	if !strings.contains(pinned.stdout, head) {
 		return cli.tprint("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
 	}

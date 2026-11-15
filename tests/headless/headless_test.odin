@@ -179,8 +179,17 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 @(test)
 far_start_players_keep_their_first_inputs :: proc(t: ^testing.T) {
 	profiles := [?]netcode.Profile {
-		{name = "far", latency = 150_000, jitter = 10_000},
-		{name = "far-lossy", latency = 140_000, jitter = 10_000, loss = 20},
+		{
+			name    = "far",
+			latency = 150_000,
+			jitter  = 10_000,
+		},
+		{
+			name    = "far-lossy",
+			latency = 140_000,
+			jitter  = 10_000,
+			loss    = 20,
+		},
 		netcode.PROFILES[2], // bad: 120 ± 40 ms each way, loss, reordering
 	}
 	for profile in profiles {

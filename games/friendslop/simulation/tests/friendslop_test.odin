@@ -170,15 +170,12 @@ heavy_needs_two :: proc(t: ^testing.T) {
 	alone := item_pos(&run, heavy).y
 	testing.expectf(t, alone < rest_y + 0.25, "one player lifted the heavy crate to %v (rest %v)", alone, rest_y)
 	// P1 takes the other grab point: together it rises.
-	step(
-		&run,
-		{
-			aim_at(&run, 0, heavy_pos + {0, 2, 0}, {}),
-			aim_at(&run, 1, item_pos(&run, heavy), {buttons = fs.BUTTON_GRAB}),
-			{},
-			{},
-		},
-	)
+	step(&run, {
+		aim_at(&run, 0, heavy_pos + {0, 2, 0}, {}),
+		aim_at(&run, 1, item_pos(&run, heavy), {buttons = fs.BUTTON_GRAB}),
+		{},
+		{},
+	})
 	testing.expect_value(t, players[1].held_kind, fs.Held_Kind.Item)
 	if players[1].held_kind == .Item {
 		testing.expect(t, players[1].grab_point != players[0].grab_point)
@@ -192,7 +189,20 @@ heavy_needs_two :: proc(t: ^testing.T) {
 	// Carry it together for 2 s along -z.
 	start_z := item_pos(&run, heavy).z
 	for _ in 0 ..< 128 {
-		step(&run, {{move_z = -127, aim_x = 100, aim_y = 40}, {move_z = -127, aim_x = -100, aim_y = 40}, {}, {}})
+		step(&run, {
+			{
+				move_z = -127,
+				aim_x  = 100,
+				aim_y  = 40,
+			},
+			{
+				move_z = -127,
+				aim_x  = -100,
+				aim_y  = 40,
+			},
+			{},
+			{},
+		})
 	}
 	testing.expectf(t, start_z - item_pos(&run, heavy).z > 3, "carried only %v m", start_z - item_pos(&run, heavy).z)
 	expect_clean(t, &run)
@@ -311,15 +321,12 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	)
 	// Mash jump: 3 presses.
 	for k in 0 ..< 12 {
-		step(
-			&run,
-			{
-				aim_at(&run, 0, player_pos(&run, 0) + {0, 0.3, 2}, {}),
-				{buttons = k % 2 == 0 ? fs.BUTTON_JUMP : 0},
-				{},
-				{},
-			},
-		)
+		step(&run, {
+			aim_at(&run, 0, player_pos(&run, 0) + {0, 0.3, 2}, {}),
+			{buttons = k % 2 == 0 ? fs.BUTTON_JUMP : 0},
+			{},
+			{},
+		})
 	}
 	testing.expect_value(t, event_count(&run, fs.Event_Broke_Free), 1)
 	testing.expect_value(t, players[1].held_by, 0)
@@ -330,8 +337,27 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
 	testing.expect_value(t, players[0].held_kind, fs.Held_Kind.Player)
-	for _ in 0 ..< 8 do step(&run, {{aim_x = 0, aim_y = 40, aim_z = 100, buttons = fs.BUTTON_THROW}, {}, {}, {}})
-	step(&run, {{aim_x = 0, aim_y = 40, aim_z = 100}, {}, {}, {}})
+	for _ in 0 ..< 8 do step(&run, {
+		{
+			aim_x   = 0,
+			aim_y   = 40,
+			aim_z   = 100,
+			buttons = fs.BUTTON_THROW,
+		},
+		{},
+		{},
+		{},
+	})
+	step(&run, {
+		{
+			aim_x = 0,
+			aim_y = 40,
+			aim_z = 100,
+		},
+		{},
+		{},
+		{},
+	})
 	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
 	testing.expect(t, players[1].thrown)
 	idle(&run, 160)

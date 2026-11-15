@@ -16,10 +16,37 @@ FIXTURE_2D :: #load("../godot/levels/level_2d.level")
 @(test)
 round_trip_2d :: proc(t: ^testing.T) {
 	square := [][3]f32{{-1, -1, -0.5}, {-1, -1, 0.5}, {1, -1, -0.5}, {1, -1, 0.5}, {0, 1, -0.5}, {0, 1, 0.5}}
-	shapes := []level.Shape{{kind = .Hull, rot = {0, 0, 0, 1}, points = square}}
-	bodies := []level.Body{{name = "wall", pos = {2, 3, 0}, rot = {0, 0, 0.38268343, 0.9238795}, shapes = shapes}}
-	props := []level.Prop{{key = "dir", type = .Vec3, v = {1.5, -2, 0}}}
-	markers := []level.Marker{{kind = "spawn", name = "S", rot = {0, 0, 0, 1}, scale = {1, 1, 1}, props = props}}
+	shapes := []level.Shape {
+		{
+			kind   = .Hull,
+			rot    = {0, 0, 0, 1},
+			points = square,
+		},
+	}
+	bodies := []level.Body {
+		{
+			name   = "wall",
+			pos    = {2, 3, 0},
+			rot    = {0, 0, 0.38268343, 0.9238795},
+			shapes = shapes,
+		},
+	}
+	props := []level.Prop {
+		{
+			key  = "dir",
+			type = .Vec3,
+			v    = {1.5, -2, 0},
+		},
+	}
+	markers := []level.Marker {
+		{
+			kind  = "spawn",
+			name  = "S",
+			rot   = {0, 0, 0, 1},
+			scale = {1, 1, 1},
+			props = props,
+		},
+	}
 	data := level.encode(bodies, markers, 64)
 	defer delete(data)
 	loaded, ok := level.load(data)

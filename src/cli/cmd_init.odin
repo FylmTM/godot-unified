@@ -35,13 +35,11 @@ cmd_init :: proc(args: []string) -> Result {
 	}
 	source := opts.unified
 	if source == "" {
-		result := run_proc(
-			{
-				cmd = strs(git(), "-C", state.project.unified, "remote", "get-url", "origin"),
-				capture = true,
-				quiet = true,
-			},
-		)
+		result := run_proc({
+			cmd     = strs(git(), "-C", state.project.unified, "remote", "get-url", "origin"),
+			capture = true,
+			quiet   = true,
+		})
 		source = public_url(strings.trim_space(result.stdout))
 		if source == "" {
 			usage("this checkout has no origin: pass --unified <url or path>")
@@ -50,9 +48,8 @@ cmd_init :: proc(args: []string) -> Result {
 	make_dirs(dir)
 	must_run({cmd = strs(git(), "-C", dir, "init", "-q")}, "git init")
 	// protocol.file.allow: a local path is allowed as the source (selftest clones from one)
-	must_run(
-		{
-			cmd = strs(
+	must_run({
+			cmd     = strs(
 				git(),
 				"-C",
 				dir,
@@ -65,15 +62,12 @@ cmd_init :: proc(args: []string) -> Result {
 				"unified",
 			),
 			capture = true,
-		},
-		tprint("adding %s as the unified submodule", source),
-	)
+		}, tprint("adding %s as the unified submodule", source))
 	submodule := join(dir, "unified")
 	if opts.ref != "" {
 		// a commit, tag or branch, also one the default branch doesn't reach
-		must_run(
-			{
-				cmd = strs(
+		must_run({
+				cmd     = strs(
 					git(),
 					"-C",
 					submodule,
@@ -85,18 +79,18 @@ cmd_init :: proc(args: []string) -> Result {
 					opts.ref,
 				),
 				capture = true,
-			},
-			tprint("fetching %s from %s", opts.ref, source),
-		)
+			}, tprint("fetching %s from %s", opts.ref, source))
 		must_run(
 			{cmd = strs(git(), "-C", submodule, "checkout", "-q", "--detach", "FETCH_HEAD"), capture = true},
 			tprint("checking out %s", opts.ref),
 		)
 		must_run({cmd = strs(git(), "-C", dir, "add", "unified")}, "staging the pinned submodule")
 	}
-	pinned := strings.trim_space(
-		must_run({cmd = strs(git(), "-C", submodule, "rev-parse", "HEAD"), capture = true, quiet = true}, "git rev-parse").stdout,
-	)
+	pinned := strings.trim_space(must_run({
+				cmd     = strs(git(), "-C", submodule, "rev-parse", "HEAD"),
+				capture = true,
+				quiet   = true,
+			}, "git rev-parse").stdout)
 	template := join(submodule, "src", "cli", "template")
 	if !os.is_directory(template) {
 		fatal("unified at %s has no src/cli/template: too old for this CLI's init", pinned)
@@ -114,7 +108,7 @@ cmd_init :: proc(args: []string) -> Result {
 	os.change_mode(join(dir, "uni"), os.perm_number(0o755))
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
-		ok = true,
+		ok      = true,
 		summary = tprint(
 			"init: %s, a new game repo (%d files from the template; unified at unified/: %s at %s); next: cd %s && %s run",
 			name,

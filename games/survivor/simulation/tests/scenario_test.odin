@@ -150,7 +150,11 @@ scenario_networked :: proc(t: ^testing.T) {
 	}
 	hub := netcode.hub_create(4)
 	defer netcode.hub_destroy(hub)
-	host := netcode.host_create(&SCENARIO, {seed = 13, ticks = TICKS, quiet = true}, hooks)
+	host := netcode.host_create(&SCENARIO, {
+			seed  = 13,
+			ticks = TICKS,
+			quiet = true,
+		}, hooks)
 	defer netcode.host_destroy(host)
 	netcode.host_add_link(host, netcode.loopback_link(hub, 0))
 	clients: [3]^Client

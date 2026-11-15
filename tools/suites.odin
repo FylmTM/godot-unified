@@ -8,21 +8,18 @@ import "unified:cli"
 
 // This repo's own test suites: the netcode over real UDP, and the Godot bindings under headless Godot.
 private_suites :: proc() -> []cli.Suite {
-	return cli.box_suites(
-		{
-			name = "net",
-			summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
-			budget = 10,
-			long_budget = 25,
-			run = suite_net,
-		},
-		{
-			name = "godot-bindings",
-			summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
-			budget = 5,
-			run = suite_godot_bindings,
-		},
-	)
+	return cli.box_suites({
+		name        = "net",
+		summary     = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
+		budget      = 10,
+		long_budget = 25,
+		run         = suite_net,
+	}, {
+		name    = "godot-bindings",
+		summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
+		budget  = 5,
+		run     = suite_godot_bindings,
+	})
 }
 
 // --- net --------------------------------------------------------------------------------------------------------
@@ -76,9 +73,14 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		append(&cmd, binary)
 		append(&cmd, ..args)
 		cli.write_text(cli.join(work, cli.tprint("%s.cmd", name)), cli.tprint("%s\n", strings.join(cmd[:], " ")))
-		return cli.start(
-			{cmd = cmd[:], dir = work, capture = true, quiet = true, timeout = timeout, log_to = cli.join(work, name)},
-		)
+		return cli.start({
+			cmd     = cmd[:],
+			dir     = work,
+			capture = true,
+			quiet   = true,
+			timeout = timeout,
+			log_to  = cli.join(work, name),
+		})
 	}
 	relay := start(
 		binary,

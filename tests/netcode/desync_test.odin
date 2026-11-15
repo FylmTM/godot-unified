@@ -34,12 +34,11 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 			seen.len = copy(seen.detail[:], report.detail)
 		},
 	}
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = -1, name = "c", quiet = true},
-		netcode.loopback_link(hub, 1),
-		hooks,
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player = -1,
+			name   = "c",
+			quiet  = true,
+		}, netcode.loopback_link(hub, 1), hooks)
 	defer netcode.client_destroy(client)
 	fake_welcome(&fake, client)
 	writer := fake_begin(&fake, .Desync)

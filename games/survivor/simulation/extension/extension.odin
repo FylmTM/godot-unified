@@ -141,11 +141,12 @@ fill_frame :: proc(frame: ^Frame) {
 	for player in 0 ..< survivor.PLAYERS {
 		character := &state.players[player]
 		if !character.active do continue
-		godot.push_view(
-			frame,
-			{key = view.Key(PLAYER_KEY + player), kind = .Player, player = player, pos = character.pos},
-			Player_View{hp = max(character.hp, 0)},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(PLAYER_KEY + player),
+			kind   = .Player,
+			player = player,
+			pos    = character.pos,
+		}, Player_View{hp = max(character.hp, 0)})
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &state.items[i]
@@ -165,40 +166,31 @@ fill_frame :: proc(frame: ^Frame) {
 	}
 	enemies := sim.iterate(&state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = MultiView(enemy.kind),
-				pos = {enemy.pos.x, 0, enemy.pos.y},
-				yaw = enemy_yaw(enemy.vel),
-				custom = {hit_flash(tick, enemy.hit_tick), age_s(tick, enemy.spawn_tick), 0, 0},
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key    = sim.handle_key(handle),
+			kind   = MultiView(enemy.kind),
+			pos    = {enemy.pos.x, 0, enemy.pos.y},
+			yaw    = enemy_yaw(enemy.vel),
+			custom = {hit_flash(tick, enemy.hit_tick), age_s(tick, enemy.spawn_tick), 0, 0},
+		}) or_break
 	}
 	projectiles := sim.iterate(&state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = .Projectile,
-				pos = {projectile.pos.x, 0, projectile.pos.z},
-				yaw = math.atan2(projectile.vel.x, projectile.vel.z),
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key  = sim.handle_key(handle),
+			kind = .Projectile,
+			pos  = {projectile.pos.x, 0, projectile.pos.z},
+			yaw  = math.atan2(projectile.vel.x, projectile.vel.z),
+		}) or_break
 	}
 	gems := sim.iterate(&state.gems)
 	for gem, handle in sim.next(&gems) {
-		godot.push_multi(
-			frame,
-			{
-				key = sim.handle_key(handle),
-				kind = .Gem,
-				pos = {gem.pos.x, 0, gem.pos.y},
-				custom = {0, age_s(tick, gem.spawn_tick), 0, 0},
-			},
-		) or_break
+		godot.push_multi(frame, {
+			key    = sim.handle_key(handle),
+			kind   = .Gem,
+			pos    = {gem.pos.x, 0, gem.pos.y},
+			custom = {0, age_s(tick, gem.spawn_tick), 0, 0},
+		}) or_break
 	}
 	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, hud_of(state, tick))
 }

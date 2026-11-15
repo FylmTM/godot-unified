@@ -153,15 +153,12 @@ tick :: proc(tick: ^Tick) {
 			thing.life = i32(4 + sim.rng_below(&state.rng, 60))
 			thing.owner = i32(player)
 			state.spawned += 1
-			sim.emit(
-				tick,
-				Event_Spawned {
-					thing = handle,
-					position = {thing.pos.x, 0, thing.pos.y},
-					player = u8(player),
-					shape = Shape(thing.life % 3),
-				},
-			)
+			sim.emit(tick, Event_Spawned {
+				thing    = handle,
+				position = {thing.pos.x, 0, thing.pos.y},
+				player   = u8(player),
+				shape    = Shape(thing.life % 3),
+			})
 		}
 	}
 	things := sim.iterate(&state.things)
@@ -181,7 +178,11 @@ scripted_input :: proc(seed: u64, player: int, tick: u32) -> Input {
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
 	x ~= x >> 12
-	return {dx = i8(x % 7) - 3, dy = i8((x >> 8) % 7) - 3, buttons = u8((x >> 16) % 5 == 0)}
+	return {
+		dx      = i8(x % 7) - 3,
+		dy      = i8((x >> 8) % 7) - 3,
+		buttons = u8((x >> 16) % 5 == 0),
+	}
 }
 
 // Order-sensitive: the same bumps in another order fold differently.
@@ -206,9 +207,11 @@ scripted_commands :: proc(seed: u64, player: int, tick: u32, out: ^sim.Command_O
 		}
 	}
 	if tick % 64 == 7 {
-		sim.send_command(
-			out,
-			Cmd_Mark{at = {f32(player), f32(tick % 7)}, count = i16(tick % 100), shape = .Ring, loud = true},
-		)
+		sim.send_command(out, Cmd_Mark {
+			at    = {f32(player), f32(tick % 7)},
+			count = i16(tick % 100),
+			shape = .Ring,
+			loud  = true,
+		})
 	}
 }

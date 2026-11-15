@@ -670,7 +670,11 @@ sys_deaths :: proc(tick: ^Tick) {
 		}
 		pos := enemy.pos
 		xp := ENEMY_STATS[enemy.kind].xp
-		sim.emit(tick, Event_Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, enemy_kind = enemy.kind})
+		sim.emit(tick, Event_Enemy_Died {
+			enemy      = handle,
+			position   = {pos.x, 0, pos.y},
+			enemy_kind = enemy.kind,
+		})
 		sim.despawn(&state.enemies, handle)
 		state.kills += 1
 		if gem, _, ok := sim.spawn(&state.gems); ok {
@@ -692,15 +696,12 @@ sys_deaths :: proc(tick: ^Tick) {
 			dz := character.pos.z - gem.pos.y
 			if dx * dx + dz * dz < 2.25 {
 				character.xp += gem.value
-				sim.emit(
-					tick,
-					Event_Gem_Collected {
-						gem = handle,
-						position = {gem.pos.x, 0, gem.pos.y},
-						xp = gem.value,
-						player = u8(player),
-					},
-				)
+				sim.emit(tick, Event_Gem_Collected {
+					gem      = handle,
+					position = {gem.pos.x, 0, gem.pos.y},
+					xp       = gem.value,
+					player   = u8(player),
+				})
 				sim.despawn(&state.gems, handle)
 				break
 			}
@@ -712,10 +713,11 @@ sys_deaths :: proc(tick: ^Tick) {
 			character.xp -= xp_next(state, character.level)
 			character.level += 1
 			character.pending_levelups += 1
-			sim.emit(
-				tick,
-				Event_Level_Up{position = sim.Position(character.pos), level = character.level, player = u8(player)},
-			)
+			sim.emit(tick, Event_Level_Up {
+				position = sim.Position(character.pos),
+				level    = character.level,
+				player   = u8(player),
+			})
 		}
 	}
 }

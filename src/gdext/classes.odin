@@ -665,7 +665,12 @@ bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
 	virtual_info := gdi.ClassVirtualMethodInfo {
 		name = &name_sn,
 		method_flags = u32(gdi.ClassMethodFlags.FLAG_VIRTUAL),
-		return_value = {type_ = .NIL, name = &empty_sn, class_name = &empty_sn, hint_string = &empty_s},
+		return_value = {
+			type_       = .NIL,
+			name        = &empty_sn,
+			class_name  = &empty_sn,
+			hint_string = &empty_s,
+		},
 		argument_count = u32(len(args)),
 		arguments = &infos[0],
 		arguments_metadata = &metas[0],
@@ -886,7 +891,13 @@ dynamic_property_info :: proc(
 ) -> gdi.PropertyInfo {
 	usage: u32 = 6 // PROPERTY_USAGE_DEFAULT
 	if kind == .NIL do usage |= 131072 // PROPERTY_USAGE_NIL_IS_VARIANT
-	return {type_ = kind, name = name, class_name = empty_sn, hint_string = hint, usage = usage}
+	return {
+		type_       = kind,
+		name        = name,
+		class_name  = empty_sn,
+		hint_string = hint,
+		usage       = usage,
+	}
 }
 
 // A property over methods already bound (`setter` "" for a read-only one), of Variant type `kind`.

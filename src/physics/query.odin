@@ -38,8 +38,7 @@ ray_first :: proc(world: ^World, origin, translation: [3]f32, query := Query{}) 
 			result.normal,
 			result.fraction,
 			result.user_material_id,
-		},
-		true
+		}, true
 }
 
 @(private)
@@ -134,18 +133,15 @@ Hit_Event :: struct {
 // bodies; a re-simulation regenerates them.
 hit_events :: proc(world: ^World, out: ^[dynamic]Hit_Event) {
 	for contact in b3.world_get_contact_events(world.id).hit_events {
-		append(
-			out,
-			Hit_Event {
-				link_of(b3.shape_get_body(contact.shape_id_a)),
-				link_of(b3.shape_get_body(contact.shape_id_b)),
-				contact.point,
-				contact.normal,
-				contact.approach_speed,
-				contact.user_material_id_a,
-				contact.user_material_id_b,
-			},
-		)
+		append(out, Hit_Event {
+			link_of(b3.shape_get_body(contact.shape_id_a)),
+			link_of(b3.shape_get_body(contact.shape_id_b)),
+			contact.point,
+			contact.normal,
+			contact.approach_speed,
+			contact.user_material_id_a,
+			contact.user_material_id_b,
+		})
 	}
 }
 

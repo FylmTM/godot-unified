@@ -90,15 +90,13 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 				skip(game, script_step.step, "the tour needs the game's extension")
 				continue
 			}
-			result := run_tool(
-				{
-					dir = game.dir,
-					script = script,
-					args = script_step.args,
-					timeout = script_step.timeout,
-					quiet = true,
-				},
-			)
+			result := run_tool({
+				dir     = game.dir,
+				script  = script,
+				args    = script_step.args,
+				timeout = script_step.timeout,
+				quiet   = true,
+			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
 	}
@@ -184,8 +182,7 @@ editor_check :: proc(game: Game) -> bool {
 @(private)
 session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 	ensure_imported(game.dir)
-	result := run_godot(
-		{
+	result := run_godot({
 			"--headless",
 			"--path",
 			game.dir,
@@ -197,9 +194,7 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			tprint("%d", ticks),
 			"--seed",
 			tprint("%d", seed),
-		},
-		f64(ticks) / 64 + 30,
-	)
+		}, f64(ticks) / 64 + 30)
 	errs := godot_errors(strings.concatenate({result.stdout, result.stderr}))
 	report := last_json_after(result.stdout, "unified: result ")
 	obj, has := report.(json.Object)
@@ -245,9 +240,8 @@ offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
 		Headless{game.name, join(game.dir, "simulation", "headless"), game_uses_box3d(game)},
 		.release,
 	)
-	result := run_proc(
-		{
-			cmd = strs(
+	result := run_proc({
+			cmd     = strs(
 				binary,
 				"sim",
 				"--ticks",
@@ -260,10 +254,9 @@ offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
 				game.name,
 			),
 			capture = true,
-			quiet = true,
+			quiet   = true,
 			timeout = 120 * time.Second,
-		},
-	)
+		})
 	lines := strings.split_lines(result.stdout)
 	#reverse for line in lines {
 		trimmed := strings.trim_space(line)
@@ -445,21 +438,19 @@ cmd_tool :: proc(args: []string) -> Result {
 	if opts.cold {
 		clear_shader_cache(selected)
 	}
-	result := run_tool(
-		{
-			dir = selected.dir,
-			script = script,
-			args = split < len(args) ? args[split + 1:] : nil,
-			window = opts.window,
-			shots = opts.shots ? name : "",
-			place = {opts.mute, opts.screen, true},
-			timeout = 1800,
-		},
-	)
+	result := run_tool({
+		dir     = selected.dir,
+		script  = script,
+		args    = split < len(args) ? args[split + 1:] : nil,
+		window  = opts.window,
+		shots   = opts.shots ? name : "",
+		place   = {opts.mute, opts.screen, true},
+		timeout = 1800,
+	})
 	return {
-		ok = result.ok,
+		ok      = result.ok,
 		summary = tprint("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds),
-		data = box(result.result),
+		data    = box(result.result),
 	}
 }
 
@@ -553,15 +544,13 @@ cmd_coop :: proc(args: []string) -> Result {
 		timeout = 210,
 		env     = env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1"),
 	}
-	joiner := start(
-		{
-			cmd = tool_cmd(joiner_run),
-			capture = true,
-			timeout = 210 * time.Second,
-			env = joiner_run.env,
-			log_to = join(selected.dir, ".out", "coop_join"),
-		},
-	)
+	joiner := start({
+		cmd     = tool_cmd(joiner_run),
+		capture = true,
+		timeout = 210 * time.Second,
+		env     = joiner_run.env,
+		log_to  = join(selected.dir, ".out", "coop_join"),
+	})
 	host_args: [dynamic]string
 	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
 	append(&host_args, ..extra[:])
@@ -576,23 +565,21 @@ cmd_coop :: proc(args: []string) -> Result {
 			{opts.mute, opts.screen, true},
 		)
 	}
-	host := run_tool(
-		{
-			dir = selected.dir,
-			script = script,
-			args = host_args[:],
-			window = opts.window,
-			shots = opts.window ? "coop" : "",
-			place = {opts.mute, opts.screen, true},
+	host := run_tool({
+			dir     = selected.dir,
+			script  = script,
+			args    = host_args[:],
+			window  = opts.window,
+			shots   = opts.window ? "coop" : "",
+			place   = {opts.mute, opts.screen, true},
 			timeout = 180,
-		},
-	)
+		})
 	joiner_result := wait(&joiner)
 	log("uni: the joiner:")
 	join := judge_tool(joiner_result, true)
 	ok := host.ok && join.ok
 	return {
-		ok = ok,
+		ok      = ok,
 		summary = tprint(
 			"coop %s: host %s, joiner %s",
 			selected.name,
@@ -622,7 +609,7 @@ cmd_bake :: proc(args: []string) -> Result {
 		count += 1
 	}
 	return {
-		ok = ok,
+		ok      = ok,
 		summary = tprint("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
 	}
 }
@@ -709,15 +696,13 @@ bake :: proc(game: Game, check: bool) -> Tool_Result {
 		join(game.dir, ".out", "tools", "level_export.gd"),
 		join(state.project.unified, "src", "level", "godot", "level_export.gd"),
 	)
-	result := run_tool(
-		{
-			dir = game.dir,
-			script = "res://.out/tools/level_export.gd",
-			args = check ? strs("--check") : nil,
+	result := run_tool({
+			dir     = game.dir,
+			script  = "res://.out/tools/level_export.gd",
+			args    = check ? strs("--check") : nil,
 			timeout = 60,
-			quiet = true,
-		},
-	)
+			quiet   = true,
+		})
 	if obj, ok := result.result.(json.Object); ok {
 		if levels, isa := obj["levels"].(json.Array); isa {
 			for level_value in levels {
@@ -764,11 +749,19 @@ coop_default :: proc(game: Game) -> Result {
 	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", tprint("127.0.0.1:%d", port))
 	append(&join_cmd, ..common)
 	timeout := time.Duration(COOP_DEFAULT_TICKS / 64 + 60) * time.Second
-	host := start({cmd = host_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_host")})
+	host := start({
+		cmd     = host_cmd[:],
+		capture = true,
+		timeout = timeout,
+		log_to  = join(game.dir, ".out", "coop_host"),
+	})
 	time.sleep(500 * time.Millisecond) // the host listens before the joiner says hello
-	joiner := start(
-		{cmd = join_cmd[:], capture = true, timeout = timeout, log_to = join(game.dir, ".out", "coop_join")},
-	)
+	joiner := start({
+		cmd     = join_cmd[:],
+		capture = true,
+		timeout = timeout,
+		log_to  = join(game.dir, ".out", "coop_join"),
+	})
 	host_ran, join_ran := wait(&host), wait(&joiner)
 	ok := true
 	results: [2]map[int]string
@@ -810,7 +803,7 @@ coop_default :: proc(game: Game) -> Result {
 		ok = false
 	}
 	return {
-		ok = ok,
+		ok      = ok,
 		summary = tprint(
 			"coop %s (default, port %d): %d checksums compared, %s",
 			game.name,
@@ -843,14 +836,12 @@ coop_crash :: proc(
 	}
 	cleanup := window ? with_window(game.dir, place) : no_cleanup
 	defer cleanup(game.dir)
-	host := start(
-		{
-			cmd = tool_cmd(host_run),
-			capture = true,
-			timeout = 300 * time.Second,
-			log_to = join(game.dir, ".out", "coop_host"),
-		},
-	)
+	host := start({
+		cmd     = tool_cmd(host_run),
+		capture = true,
+		timeout = 300 * time.Second,
+		log_to  = join(game.dir, ".out", "coop_host"),
+	})
 	first := wait(joiner)
 	log("uni: the first joiner (it kills itself mid-match):")
 	out := strings.concatenate({first.stdout, first.stderr})
@@ -867,22 +858,20 @@ coop_crash :: proc(
 		args   = second_args[:],
 		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
 	}
-	second := start(
-		{
-			cmd = tool_cmd(second_run),
-			capture = true,
-			timeout = 240 * time.Second,
-			env = second_run.env,
-			log_to = join(game.dir, ".out", "coop_rejoin"),
-		},
-	)
+	second := start({
+		cmd     = tool_cmd(second_run),
+		capture = true,
+		timeout = 240 * time.Second,
+		env     = second_run.env,
+		log_to  = join(game.dir, ".out", "coop_rejoin"),
+	})
 	log("uni: the host:")
 	host_result := judge_tool(wait(&host), true)
 	log("uni: the same player again:")
 	rejoin_result := judge_tool(wait(&second), true)
 	ok := crashed && host_result.ok && rejoin_result.ok
 	return {
-		ok = ok,
+		ok      = ok,
 		summary = tprint(
 			"coop %s --crash: host %s, first joiner %s, the same player again %s",
 			game.name,

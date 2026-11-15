@@ -82,13 +82,13 @@ sim_rule :: proc(pkg, dir: string, extra_imports: []string = nil, allocator := c
 	copy(imports, TICK_IMPORTS)
 	copy(imports[len(TICK_IMPORTS):], extra_imports)
 	return {
-		pkg = pkg,
-		dir = dir,
+		pkg          = pkg,
+		dir          = dir,
 		only_imports = imports,
-		ban_idents = sim_idents,
-		ban_matrix = true,
-		strict = true,
-		tick = true,
+		ban_idents   = sim_idents,
+		ban_matrix   = true,
+		strict       = true,
+		tick         = true,
 	}
 }
 
@@ -123,18 +123,14 @@ check_game :: proc(
 		if info.type != .Directory do continue
 		switch info.name {
 		case "headless":
-			check(
-				t,
-				{
-					pkg = "headless",
-					dir = info.fullpath,
-					ban_imports = MATH,
+			check(t, {
+					pkg           = "headless",
+					dir           = info.fullpath,
+					ban_imports   = MATH,
 					allow_imports = MATH_OK,
-					ban_idents = float_traps,
-					ban_matrix = true,
-				},
-				loc,
-			)
+					ban_idents    = float_traps,
+					ban_matrix    = true,
+				}, loc)
 		case "extension", "tests":
 		// host side and test code: nothing inside a tick
 		case:

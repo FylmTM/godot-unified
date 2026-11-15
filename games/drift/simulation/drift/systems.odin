@@ -140,15 +140,12 @@ move_bullets :: proc(tick: ^Tick) {
 					rock.hit_tick = tick.number
 					direction := dmath.normalize2(bullet.vel)
 					physics.apply_impulse_2d(world.phys, rock.body, direction * BULLET_PUSH)
-					sim.emit(
-						tick,
-						Event_Rock_Hit {
-							rock = sim.handle(&state.rocks, rock_index),
-							position = sim.Position(hit.point),
-							player = bullet.owner,
-							size = rock.size,
-						},
-					)
+					sim.emit(tick, Event_Rock_Hit {
+						rock     = sim.handle(&state.rocks, rock_index),
+						position = sim.Position(hit.point),
+						player   = bullet.owner,
+						size     = rock.size,
+					})
 				}
 			}
 			sim.despawn(&state.bullets, handle)
@@ -178,7 +175,11 @@ update_rocks :: proc(tick: ^Tick) {
 		   dmath.dist_sq2(pos, station) < (STATION_RADIUS + radius) * (STATION_RADIUS + radius) {
 			damage := ROCK_STATION_DAMAGE[rock.size]
 			if state.phase == .Match do state.station_hp = max(state.station_hp - damage, 0)
-			sim.emit(tick, Event_Station_Hit{position = position_of(pos), damage = damage, size = rock.size})
+			sim.emit(tick, Event_Station_Hit {
+				position = position_of(pos),
+				damage   = damage,
+				size     = rock.size,
+			})
 			kill_rock(state, world, handle)
 			continue
 		}
@@ -187,7 +188,11 @@ update_rocks :: proc(tick: ^Tick) {
 		vel, spin := physics.velocity_2d(world.phys, rock.body)
 		kill_rock(state, world, handle)
 		if size == .Small {
-			sim.emit(tick, Event_Rock_Destroyed{rock = handle, position = position_of(pos), size = size})
+			sim.emit(tick, Event_Rock_Destroyed {
+				rock     = handle,
+				position = position_of(pos),
+				size     = size,
+			})
 			state.gems_dropped += 1
 			if state.gems_dropped % 2 == 1 {
 				if gem, _, ok := sim.spawn(&state.gems); ok do gem^ = {
@@ -198,7 +203,11 @@ update_rocks :: proc(tick: ^Tick) {
 			}
 			continue
 		}
-		sim.emit(tick, Event_Rock_Split{rock = handle, position = position_of(pos), size = size})
+		sim.emit(tick, Event_Rock_Split {
+			rock     = handle,
+			position = position_of(pos),
+			size     = size,
+		})
 		child := Rock_Size(u8(size) - 1)
 		direction := dmath.normalize2(vel)
 		if direction == {} do direction = {1, 0}
@@ -244,15 +253,12 @@ warp_ships :: proc(tick: ^Tick) {
 			state.gates[gate].charge = GATE_CHARGE_TICKS
 			state.gates[gate_def.pair].charge = GATE_CHARGE_TICKS
 			ship.gate_cooldown = GATE_CHARGE_TICKS
-			sim.emit(
-				tick,
-				Event_Warped {
-					position = position_of(to),
-					player = u8(player),
-					from_gate = u8(gate),
-					to_gate = u8(gate_def.pair),
-				},
-			)
+			sim.emit(tick, Event_Warped {
+				position  = position_of(to),
+				player    = u8(player),
+				from_gate = u8(gate),
+				to_gate   = u8(gate_def.pair),
+			})
 			break
 		}
 	}

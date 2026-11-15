@@ -7,143 +7,144 @@ import "core:time"
 
 // The public commands (SPEC.md, Commands): every project's CLI has them.
 public_commands :: proc() -> []Command {
-	return slice.clone(
-		[]Command {
-			{
-				name = "setup",
-				usage = "[--check]",
-				summary = "fetch and build everything this project needs (UNIFIED_BOX3D: build that unified-box3d checkout instead of the release); print each dependency's version and source",
-				no_budget = "downloads and builds",
-				run = cmd_setup,
-			},
-			{
-				name = "clean",
-				usage = "[--check] [--cache]",
-				summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
-				budget = 5,
-				run = cmd_clean,
-			},
-			{
-				name = "build",
-				usage = "[game] [--mode dev|release|debug]",
-				summary = "each game's extension and headless binary, in parallel",
-				budget = 8,
-				run = cmd_build,
-			},
-			{
-				name = "headless",
-				usage = "[game] [--mode dev|release|debug] -- <mode> [options]",
-				summary = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench, net-bench; its JSON on stdout",
-				no_budget = "the mode decides",
-				run = cmd_headless,
-			},
-			{
-				name = "run",
-				usage = "[game] [--mute] [--screen s] [--background] [-- args]",
-				summary = "the game in a window (arguments after -- go to the game)",
-				no_budget = "interactive",
-				run = cmd_run,
-			},
-			{
-				name = "editor",
-				usage = "[game] [--mute] [--screen s]",
-				summary = "the Godot editor on the game",
-				no_budget = "interactive",
-				run = cmd_editor,
-			},
-			{
-				name = "test",
-				usage = "[game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]",
-				summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants",
-				budget = 6,
-				run = cmd_test,
-			},
-			{
-				name = "vet",
-				summary = "odin check with the strict flags, every target and define variant",
-				budget = 3,
-				run = cmd_vet,
-			},
-			{
-				name = "fmt",
-				usage = "[--check] [path...] | --hook",
-				summary = "odinfmt (pinned) over the project's Odin code, and LF line endings in every text file; --hook: the file a Claude Code edit names",
-				budget = 1,
-				run = cmd_fmt,
-			},
-			{
-				name = "tool",
-				usage = "[game] <script> [--window [--mute] [--screen s]] [--shots] [-- args]",
-				summary = "run a tool script, the game's or games/shared's (headless unless --window)",
-				no_budget = "depends on the script",
-				run = cmd_tool,
-			},
-			{
-				name = "coop",
-				usage = "[game] [--window [--mute] [--screen s]] [--rejoin | --crash] [--lan]",
-				summary = "host and joiner processes in a real lobby (EOS, or --lan)",
-				no_budget = "networked",
-				run = cmd_coop,
-			},
-			{
-				name = "bake",
-				usage = "[game] [--check]",
-				summary = "bake .level files from their scenes (--check: fail if one is stale)",
-				budget = 2,
-				run = cmd_bake,
-			},
-			{
-				name = "bench",
-				usage = "[game...]",
-				summary = "each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk",
-				budget = 10,
-				run = cmd_bench,
-			},
-			{
-				name = "record-reference",
-				usage = "<game>",
-				summary = "record a game's reference run anew (the committed log, trace and snapshot test replays)",
-				budget = 8,
-				run = cmd_record_reference,
-			},
-			{
-				name = "init",
-				usage = "<dir> [--unified <url>] [--ref <ref>]",
-				summary = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref)",
-				no_budget = "clones unified",
-				run = cmd_init,
-			},
-			{
-				name = "verify",
-				usage = "[--long]",
-				summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, test --box3d-debug, bench",
-				budget = 45,
-				run = cmd_verify,
-			},
-			{name = "version", summary = "the CLI's source hash, Odin, and the pins", budget = 1, run = cmd_version},
+	return slice.clone([]Command {
+		{
+			name      = "setup",
+			usage     = "[--check]",
+			summary   = "fetch and build everything this project needs (UNIFIED_BOX3D: build that unified-box3d checkout instead of the release); print each dependency's version and source",
+			no_budget = "downloads and builds",
+			run       = cmd_setup,
 		},
-	)
+		{
+			name    = "clean",
+			usage   = "[--check] [--cache]",
+			summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
+			budget  = 5,
+			run     = cmd_clean,
+		},
+		{
+			name    = "build",
+			usage   = "[game] [--mode dev|release|debug]",
+			summary = "each game's extension and headless binary, in parallel",
+			budget  = 8,
+			run     = cmd_build,
+		},
+		{
+			name      = "headless",
+			usage     = "[game] [--mode dev|release|debug] -- <mode> [options]",
+			summary   = "the game's headless binary (built when stale): sim, synctest, replay, session, relay, client, snapshot, resume, bench, net-bench; its JSON on stdout",
+			no_budget = "the mode decides",
+			run       = cmd_headless,
+		},
+		{
+			name      = "run",
+			usage     = "[game] [--mute] [--screen s] [--background] [-- args]",
+			summary   = "the game in a window (arguments after -- go to the game)",
+			no_budget = "interactive",
+			run       = cmd_run,
+		},
+		{
+			name      = "editor",
+			usage     = "[game] [--mute] [--screen s]",
+			summary   = "the Godot editor on the game",
+			no_budget = "interactive",
+			run       = cmd_editor,
+		},
+		{
+			name    = "test",
+			usage   = "[game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]",
+			summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants",
+			budget  = 6,
+			run     = cmd_test,
+		},
+		{
+			name    = "vet",
+			summary = "odin check with the strict flags, every target and define variant",
+			budget  = 3,
+			run     = cmd_vet,
+		},
+		{
+			name    = "fmt",
+			usage   = "[--check] [path...] | --hook",
+			summary = "odinfmt (pinned) over the project's Odin code, and LF line endings in every text file; --hook: the file a Claude Code edit names",
+			budget  = 1,
+			run     = cmd_fmt,
+		},
+		{
+			name      = "tool",
+			usage     = "[game] <script> [--window [--mute] [--screen s]] [--shots] [-- args]",
+			summary   = "run a tool script, the game's or games/shared's (headless unless --window)",
+			no_budget = "depends on the script",
+			run       = cmd_tool,
+		},
+		{
+			name      = "coop",
+			usage     = "[game] [--window [--mute] [--screen s]] [--rejoin | --crash] [--lan]",
+			summary   = "host and joiner processes in a real lobby (EOS, or --lan)",
+			no_budget = "networked",
+			run       = cmd_coop,
+		},
+		{
+			name    = "bake",
+			usage   = "[game] [--check]",
+			summary = "bake .level files from their scenes (--check: fail if one is stale)",
+			budget  = 2,
+			run     = cmd_bake,
+		},
+		{
+			name    = "bench",
+			usage   = "[game...]",
+			summary = "each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk",
+			budget  = 10,
+			run     = cmd_bench,
+		},
+		{
+			name    = "record-reference",
+			usage   = "<game>",
+			summary = "record a game's reference run anew (the committed log, trace and snapshot test replays)",
+			budget  = 8,
+			run     = cmd_record_reference,
+		},
+		{
+			name      = "init",
+			usage     = "<dir> [--unified <url>] [--ref <ref>]",
+			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref)",
+			no_budget = "clones unified",
+			run       = cmd_init,
+		},
+		{
+			name    = "verify",
+			usage   = "[--long]",
+			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, test --box3d-debug, bench",
+			budget  = 45,
+			run     = cmd_verify,
+		},
+		{
+			name    = "version",
+			summary = "the CLI's source hash, Odin, and the pins",
+			budget  = 1,
+			run     = cmd_version,
+		},
+	})
 }
 
 public_suites :: proc() -> []Suite {
-	return slice.clone(
-		[]Suite {
-			{
-				name = "odin",
-				summary = "every Odin test package in one compile (the inner loop)",
-				budget = 6,
-				long_budget = 12,
-				run = suite_odin,
-			},
-			{
-				name = "godot",
-				summary = "each game under headless Godot, the games in parallel",
-				budget = 20,
-				long_budget = 25,
-				run = suite_godot,
-			},
+	return slice.clone([]Suite {
+		{
+			name        = "odin",
+			summary     = "every Odin test package in one compile (the inner loop)",
+			budget      = 6,
+			long_budget = 12,
+			run         = suite_odin,
 		},
-	)
+		{
+			name        = "godot",
+			summary     = "each game under headless Godot, the games in parallel",
+			budget      = 20,
+			long_budget = 25,
+			run         = suite_godot,
+		},
+	})
 }
 
 // --- test -------------------------------------------------------------------------------------------------------
@@ -231,7 +232,11 @@ cmd_test :: proc(args: []string) -> Result {
 			tprint("%s %s (%.1fs)", result.suite, result.ok ? "passed" : "FAILED", result.seconds),
 		)
 	}
-	return {ok = ok, summary = tprint("test: %s", strings.to_string(builder)), data = box(results[:])}
+	return {
+		ok      = ok,
+		summary = tprint("test: %s", strings.to_string(builder)),
+		data    = box(results[:]),
+	}
 }
 
 split_list :: proc(text: string) -> []string {
@@ -317,8 +322,8 @@ cmd_version :: proc(args: []string) -> Result {
 		pins     = state.pins.sections,
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = strings.join({version.cli, version.odin, version.platform}, " "),
-		data = box(version^),
+		data    = box(version^),
 	}
 }

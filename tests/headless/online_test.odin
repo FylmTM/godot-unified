@@ -26,7 +26,13 @@ LOOP_ONLINE := modes.Online {
 		// A remote peer counts as connected once a datagram from it waits at the host's endpoint.
 		inbox := &g_hub.inboxes[0]
 		sync.guard(&inbox.mu)
-		return {ready = true, code = "loop", local = "me", host = "host", peers = len(inbox.queue) > 0 ? 1 : 0}
+		return {
+			ready = true,
+			code  = "loop",
+			local = "me",
+			host  = "host",
+			peers = len(inbox.queue) > 0 ? 1 : 0,
+		}
 	},
 }
 

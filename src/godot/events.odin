@@ -38,11 +38,11 @@ Tick_Event :: struct {
 @(private)
 tick_event_id :: proc(event: Tick_Event) -> view.Event_Id {
 	return {
-		tick = event.tick,
-		kind = u32(event.raw.kind),
+		tick   = event.tick,
+		kind   = u32(event.raw.kind),
 		entity = event.entity,
 		player = event.player,
-		nth = event.nth,
+		nth    = event.nth,
 	}
 }
 

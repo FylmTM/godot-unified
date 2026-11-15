@@ -153,7 +153,11 @@ RIG := Rig_Game {
 
 rig_world_create :: proc(workers: i32) -> ^Rig_World {
 	rig_world := new(Rig_World)
-	rig_world.phys = physics.create({anchor = true, hit_threshold = 1, workers = workers})
+	rig_world.phys = physics.create({
+			anchor        = true,
+			hit_threshold = 1,
+			workers       = workers,
+		})
 	ground(rig_world.phys)
 	box(rig_world.phys, {-4, 0.15, 0}, {1, 0.15, 1}) // a step
 	rig_world.extras[0] = physics.extra(rig_world.phys, Rig)
@@ -224,7 +228,11 @@ rig_input :: proc(player: int, tick: u32) -> Rig_Input {
 	hash ~= hash >> 15
 	hash *= 0x2C1B3C6D
 	hash ~= hash >> 12
-	return {mx = i8(hash % 255) - 127, mz = i8((hash >> 8) % 255) - 127, jump = b8((hash >> 16) % 4 == 0)}
+	return {
+		mx   = i8(hash % 255) - 127,
+		mz   = i8((hash >> 8) % 255) - 127,
+		jump = b8((hash >> 16) % 4 == 0),
+	}
 }
 
 rig_inputs :: proc(tick: u32) -> Rig_Inputs {

@@ -19,13 +19,10 @@ download :: proc(url, dest, sha256, what: string) {
 	make_dirs(os.dir(dest))
 	part := tprint("%s.%d.part", dest, os.get_pid())
 	log("uni: downloading %s", url)
-	must_run(
-		{
-			cmd = {curl(), "-fL", "--retry", "5", "--retry-all-errors", "--silent", "--show-error", "-o", part, url},
+	must_run({
+			cmd   = {curl(), "-fL", "--retry", "5", "--retry-all-errors", "--silent", "--show-error", "-o", part, url},
 			quiet = true,
-		},
-		tprint("downloading %s", url),
-	)
+		}, tprint("downloading %s", url))
 	check_sha256(part, sha256, what)
 	if os.rename(part, dest) != nil {
 		os.remove(part)
@@ -74,7 +71,11 @@ git_checkout :: proc(dir, url, commit: string) {
 		cmd: [dynamic]string
 		append(&cmd, git_exe, "-c", "core.autocrlf=false", "-c", "advice.detachedHead=false", "-C", dir)
 		append(&cmd, ..args)
-		return run_proc({cmd = cmd[:], capture = true, quiet = true})
+		return run_proc({
+			cmd     = cmd[:],
+			capture = true,
+			quiet   = true,
+		})
 	}
 	if !os.is_directory(join(dir, ".git")) {
 		remove_tree(dir)
@@ -203,7 +204,12 @@ box3d_build_local :: proc(local: string) {
 			append(&cmd, "--debug")
 		}
 		what := tprint("b3 build%s in %s", debug ? " --debug" : "", local)
-		must_run({cmd = cmd[:], dir = local, capture = true, quiet = true}, what)
+		must_run({
+				cmd     = cmd[:],
+				dir     = local,
+				capture = true,
+				quiet   = true,
+			}, what)
 		if !os.is_file(box3d_lib(debug)) {
 			fatal("%s made no %s", what, box3d_lib(debug))
 		}
@@ -299,9 +305,8 @@ ensure_odinfmt :: proc() -> string {
 	cold("odinfmt build")
 	src := join(dir, "ols-src")
 	git_checkout(src, pin("odinfmt", "url"), commit)
-	must_run(
-		{
-			cmd = {
+	must_run({
+			cmd     = {
 				odin(),
 				"build",
 				"tools/odinfmt/main.odin",
@@ -310,11 +315,9 @@ ensure_odinfmt :: proc() -> string {
 				"-o:speed",
 				tprint("-out:%s", exe),
 			},
-			dir = src,
+			dir     = src,
 			capture = true,
-		},
-		"building odinfmt",
-	)
+		}, "building odinfmt")
 	write_text(stamp, tprint("%s\n", key))
 	return exe
 }

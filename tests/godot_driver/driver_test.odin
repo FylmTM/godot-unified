@@ -43,16 +43,17 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 		state := frame.state
 		for player in 0 ..< toy.PLAYERS {
 			if !state.joined[player] do continue
-			godot.push_view(
-				frame,
-				{
-					key = view.Key(1 + player),
-					kind = .Dot,
-					player = player,
-					pos = {state.pos[player].x, 0, state.pos[player].y},
-				},
-			)
-			godot.push_multi(frame, {key = u64(1 + player), kind = .Spark, pos = {state.pos[player].x, 1, 0}})
+			godot.push_view(frame, {
+				key    = view.Key(1 + player),
+				kind   = .Dot,
+				player = player,
+				pos    = {state.pos[player].x, 0, state.pos[player].y},
+			})
+			godot.push_multi(frame, {
+				key  = u64(1 + player),
+				kind = .Spark,
+				pos  = {state.pos[player].x, 1, 0},
+			})
 		}
 		sync.atomic_store(&seen.bumps, state.bumps[0])
 		sync.atomic_store(&seen.bump_fold, state.bump_fold[0])
@@ -125,7 +126,13 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, !godot.api.send({}), "no session: nothing to send to")
 		sync.atomic_store(&seen.dx, 1)
 		godot.api.sample_input()
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo", scripted = false})
+		ok, err := godot.api.start({
+			mode     = .Single,
+			seed     = 7,
+			ticks    = 40,
+			name     = "solo",
+			scripted = false,
+		})
 		testing.expect(t, ok, err)
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
@@ -249,7 +256,11 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	size, from, ok := netcode.link_recv(&link, buf[:])
 	testing.expect(t, ok && size == 1 && buf[0] == 9 && from == 1)
 
-	godot.dev_link_set(dev_link, {enabled = true, up = {latency_ms = 20}, down = {latency_ms = 20}})
+	godot.dev_link_set(dev_link, {
+		enabled = true,
+		up = {latency_ms = 20},
+		down = {latency_ms = 20},
+	})
 	netcode.link_send(&link, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)

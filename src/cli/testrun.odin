@@ -73,7 +73,11 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 	}
 	log("+ %s", exe)
 	start := time.tick_now()
-	process, start_err := os.process_start({command = strs(exe), stdout = log_file, stderr = log_file})
+	process, start_err := os.process_start({
+		command = strs(exe),
+		stdout  = log_file,
+		stderr  = log_file,
+	})
 	if start_err != nil {
 		fatal("cannot start %s: %v", exe, start_err)
 	}

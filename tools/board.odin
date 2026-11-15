@@ -44,7 +44,11 @@ gh :: proc(args: ..string) -> string {
 	cmd: [dynamic]string
 	append(&cmd, "gh")
 	append(&cmd, ..args)
-	r := cli.run_proc({cmd = cmd[:], capture = true, quiet = true})
+	r := cli.run_proc({
+		cmd     = cmd[:],
+		capture = true,
+		quiet   = true,
+	})
 	if !r.ok {
 		cli.fatal("gh %s failed: %s", strings.join(args[:min(2, len(args))], " "), strings.trim_space(r.stderr))
 	}
@@ -187,7 +191,7 @@ board_set :: proc(issue, status, area: string) -> cli.Result {
 		}
 	}
 	return {
-		ok = true,
+		ok      = true,
 		summary = cli.tprint(
 			"board: #%d%s%s%s",
 			n,
@@ -256,5 +260,9 @@ board_list :: proc(status, area: string) -> cli.Result {
 		}
 		fmt.sbprintf(&b, "#%-4d %-18s %-13s %s", r.number, r.status, r.area, r.title)
 	}
-	return {ok = true, summary = strings.to_string(b), data = cli.box(rows[:])}
+	return {
+		ok      = true,
+		summary = strings.to_string(b),
+		data    = cli.box(rows[:]),
+	}
 }

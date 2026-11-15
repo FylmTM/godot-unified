@@ -870,7 +870,11 @@ generate_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS)) {
 			client.hooks.commands(client.hooks.user, client.player, tick, client_state(client), out)
 			for command in out.list[:min(len(out.list), max(out.cap, 0))] {
 				client.cmd_seq += 1
-				append(&client.own_cmds, Own_Command{seq = client.cmd_seq, want = tick, cmd = command})
+				append(&client.own_cmds, Own_Command {
+					seq  = client.cmd_seq,
+					want = tick,
+					cmd  = command,
+				})
 			}
 		}
 	}
@@ -1123,23 +1127,24 @@ client_result :: proc(
 	checksums := make([][2]u64, len(client.checksums), allocator)
 	copy(checksums, client.checksums[:])
 	return {
-		player = client.player,
-		join_tick = client.first_tick,
-		final_tick = client.verified,
-		checksums = checksums,
-		rollbacks = client.rollbacks,
+		player             = client.player,
+		join_tick          = client.first_tick,
+		final_tick         = client.verified,
+		checksums          = checksums,
+		rollbacks          = client.rollbacks,
 		rollback_depth_avg = client.rollbacks > 0 ? f64(client.depth_sum) / f64(client.rollbacks) : 0,
 		rollback_depth_max = client.depth_max,
-		stall_ticks = client.stall_ticks,
-		resim_ticks = client.resim_ticks,
-		delay = client.delay,
-		delay_changes = client.delay_changes,
-		rtt_ms = client.rtt_us / 1000,
-		desyncs = client.desyncs,
-		ok = client.ticks != 0 && client.verified == client.ticks && client.status != .Failed && client.desyncs == 0,
-		net = client.ch.stats,
-		steps = client.steps,
-		step_us = client.step_us,
+		stall_ticks        = client.stall_ticks,
+		resim_ticks        = client.resim_ticks,
+		delay              = client.delay,
+		delay_changes      = client.delay_changes,
+		rtt_ms             = client.rtt_us / 1000,
+		desyncs            = client.desyncs,
+		ok                 = client.ticks !=
+			0 && client.verified == client.ticks && client.status != .Failed && client.desyncs == 0,
+		net                = client.ch.stats,
+		steps              = client.steps,
+		step_us            = client.step_us,
 	}
 }
 

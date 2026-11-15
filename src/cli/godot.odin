@@ -89,7 +89,12 @@ godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 }
 
 godot_version :: proc(exe: string) -> string {
-	result := run_proc({cmd = strs(exe, "--version"), capture = true, quiet = true, timeout = 60 * time.Second})
+	result := run_proc({
+		cmd     = strs(exe, "--version"),
+		capture = true,
+		quiet   = true,
+		timeout = 60 * time.Second,
+	})
 	lines := strings.split_lines(strings.trim_space(result.stdout))
 	return len(lines) > 0 ? lines[len(lines) - 1] : ""
 }
@@ -199,7 +204,12 @@ run_godot :: proc(args: []string, timeout_s: f64, env: []string = nil) -> Ran {
 	cmd: [dynamic]string
 	append(&cmd, godot())
 	append(&cmd, ..args)
-	return run_proc({cmd = cmd[:], capture = true, timeout = time.Duration(timeout_s * f64(time.Second)), env = env})
+	return run_proc({
+		cmd     = cmd[:],
+		capture = true,
+		timeout = time.Duration(timeout_s * f64(time.Second)),
+		env     = env,
+	})
 }
 
 // --- tool scripts -----------------------------------------------------------------------------------------------
@@ -249,14 +259,12 @@ run_tool :: proc(tool_run: Tool_Run) -> Tool_Result {
 	cleanup := tool_run.window ? with_window(tool_run.dir, tool_run.place) : no_cleanup
 	defer cleanup(tool_run.dir)
 	front := tool_run.window ? front_app() : ""
-	ran := run_proc(
-		{
-			cmd = tool_cmd(tool_run),
-			capture = true,
-			timeout = time.Duration(tool_run.timeout * f64(time.Second)),
-			env = tool_run.env,
-		},
-	)
+	ran := run_proc({
+		cmd     = tool_cmd(tool_run),
+		capture = true,
+		timeout = time.Duration(tool_run.timeout * f64(time.Second)),
+		env     = tool_run.env,
+	})
 	if front != "" {
 		restore_front_app(front)
 	}
@@ -320,14 +328,16 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 // app that was in front.
 front_app :: proc() -> string {
 	when ODIN_OS == .Darwin {
-		asn := run_proc({cmd = strs("lsappinfo", "front"), capture = true, quiet = true})
-		info := run_proc(
-			{
-				cmd = strs("lsappinfo", "info", "-only", "bundleid", strings.trim_space(asn.stdout)),
-				capture = true,
-				quiet = true,
-			},
-		)
+		asn := run_proc({
+			cmd     = strs("lsappinfo", "front"),
+			capture = true,
+			quiet   = true,
+		})
+		info := run_proc({
+			cmd     = strs("lsappinfo", "info", "-only", "bundleid", strings.trim_space(asn.stdout)),
+			capture = true,
+			quiet   = true,
+		})
 		if eq := strings.index_byte(info.stdout, '='); eq >= 0 {
 			bundle_id := strings.trim(strings.trim_space(info.stdout[eq + 1:]), "\"")
 			return bundle_id == "[ NULL ]" ? "" : bundle_id
@@ -338,7 +348,11 @@ front_app :: proc() -> string {
 
 restore_front_app :: proc(bundle: string) {
 	when ODIN_OS == .Darwin {
-		run_proc({cmd = strs("open", "-b", bundle), capture = true, quiet = true})
+		run_proc({
+			cmd     = strs("open", "-b", bundle),
+			capture = true,
+			quiet   = true,
+		})
 	}
 }
 

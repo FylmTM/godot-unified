@@ -48,12 +48,11 @@ rnet_join :: proc(session: ^Rnet, player := -1, game: ^toy.Game = nil) -> ^Clien
 		u32(endpoint) * 7919,
 		&session.clock,
 	)
-	client := netcode.client_create(
-		game != nil ? game : &toy.GAME,
-		{player = player, name = "c", quiet = true},
-		link,
-		hooks_for(&session.watch[endpoint]),
-	)
+	client := netcode.client_create(game != nil ? game : &toy.GAME, {
+			player = player,
+			name   = "c",
+			quiet  = true,
+		}, link, hooks_for(&session.watch[endpoint]))
 	append(&session.clients, client)
 	return client
 }
@@ -268,12 +267,11 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = -1, name = "c", quiet = true},
-		netcode.loopback_link(hub, 1),
-		hooks_for(&watch),
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player = -1,
+			name   = "c",
+			quiet  = true,
+		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
@@ -493,12 +491,11 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	other := toy.GAME
 	other.version = "2"
 	link := netcode.loopback_link(session.hub, 6)
-	client := netcode.client_create(
-		&other,
-		{player = -1, name = "other", quiet = true},
-		link,
-		hooks_for(&session.watch[6]),
-	)
+	client := netcode.client_create(&other, {
+			player = -1,
+			name   = "other",
+			quiet  = true,
+		}, link, hooks_for(&session.watch[6]))
 	append(&session.clients, client)
 	rnet_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Failed)

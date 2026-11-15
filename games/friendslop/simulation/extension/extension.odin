@@ -161,36 +161,29 @@ fill_frame :: proc(frame: ^Frame) {
 	for player in 0 ..< fs.PLAYERS {
 		character := &state.players[player]
 		if !character.active do continue
-		godot.push_view(
-			frame,
-			{
-				key = view.Key(PLAYER_KEY + player),
-				kind = .Player,
-				player = player,
-				pos = physics.position(world.phys, character.controller.body),
-				rot = fs.yaw_quat(character.facing),
-			},
-			Player_View {
-				limp = character.stun > 0 || character.held_by != 0,
-				holding = character.held_kind != .None,
-				charge = f32(character.charge) / f32(fs.THROW_CHARGE_TICKS),
-			},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(PLAYER_KEY + player),
+			kind   = .Player,
+			player = player,
+			pos    = physics.position(world.phys, character.controller.body),
+			rot    = fs.yaw_quat(character.facing),
+		}, Player_View {
+			limp    = character.stun > 0 || character.held_by != 0,
+			holding = character.held_kind != .None,
+			charge  = f32(character.charge) / f32(fs.THROW_CHARGE_TICKS),
+		})
 	}
 	add_body :: proc(frame: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
 		id := physics.body_id(frame.world.phys, body)
 		pos := b3.body_get_position(id)
-		godot.push_view(
-			frame,
-			{
-				key = view.Key(MARKER_KEY + marker),
-				kind = .Marker,
-				entity = fs.marker_entity(marker),
-				pos = {pos.x, pos.y, pos.z},
-				rot = b3.body_get_rotation(id),
-			},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(MARKER_KEY + marker),
+			kind   = .Marker,
+			entity = fs.marker_entity(marker),
+			pos    = {pos.x, pos.y, pos.z},
+			rot    = b3.body_get_rotation(id),
+		})
 	}
 	for i in 0 ..< world.item_count {
 		if state.items[i].alive do add_body(frame, state.items[i].body, world.items[i].marker)
@@ -198,16 +191,13 @@ fill_frame :: proc(frame: ^Frame) {
 	for i in 0 ..< world.platform_count do add_body(frame, state.platforms[i].body, world.platforms[i].marker)
 	for i in 0 ..< world.trigger_count {
 		marker := world.triggers[i].marker
-		godot.push_view(
-			frame,
-			{
-				key = view.Key(MARKER_KEY + marker),
-				kind = .Marker,
-				entity = fs.marker_entity(marker),
-				pos = world.triggers[i].volume.pos,
-				rot = world.level.markers[marker].rot,
-			},
-		)
+		godot.push_view(frame, {
+			key    = view.Key(MARKER_KEY + marker),
+			kind   = .Marker,
+			entity = fs.marker_entity(marker),
+			pos    = world.triggers[i].volume.pos,
+			rot    = world.level.markers[marker].rot,
+		})
 	}
 	godot.push_view(frame, {key = HUD_KEY, kind = .Hud}, fs.hud(state, frame.tick))
 }

@@ -12,25 +12,25 @@ main :: proc() {
 private_commands :: proc() -> []cli.Command {
 	return cli.box_commands(
 		{
-			name = "godot-gen",
-			usage = "[--force]",
+			name    = "godot-gen",
+			usage   = "[--force]",
 			summary = "the Godot bindings, src/gdext/*.gen.odin, from the committed API dump",
-			budget = 3,
-			run = cmd_godot_gen,
+			budget  = 3,
+			run     = cmd_godot_gen,
 		},
 		{
-			name = "release",
-			usage = "[game] [--tag <game>-v<version> | --version V] [--no-eos] [--no-smoke] | release notes [game] --tag T [--no-eos]",
-			summary = "a playable build: export, version stamp, sign, zip, smoke test (macOS and Windows)",
+			name      = "release",
+			usage     = "[game] [--tag <game>-v<version> | --version V] [--no-eos] [--no-smoke] | release notes [game] --tag T [--no-eos]",
+			summary   = "a playable build: export, version stamp, sign, zip, smoke test (macOS and Windows)",
 			no_budget = "exports and downloads",
-			run = cmd_release,
+			run       = cmd_release,
 		},
 		{
-			name = "board",
-			usage = "list [--status S] [--area A] | set <issue> [--status S] [--area A]",
-			summary = "the work board through gh (set --status Done also closes the issue)",
+			name      = "board",
+			usage     = "list [--status S] [--area A] | set <issue> [--status S] [--area A]",
+			summary   = "the work board through gh (set --status Done also closes the issue)",
 			no_budget = "networked",
-			run = cmd_board,
+			run       = cmd_board,
 		},
 		{
 			name    = "ci",
@@ -40,11 +40,11 @@ private_commands :: proc() -> []cli.Command {
 			run     = cmd_ci,
 		},
 		{
-			name = "selftest",
-			usage = "[--shims]",
-			summary = "the bootstrap (the shims' Odin download) and init end to end, from a fresh clone (run before tooling PRs; never by verify); --shims: the bootstrap only",
+			name      = "selftest",
+			usage     = "[--shims]",
+			summary   = "the bootstrap (the shims' Odin download) and init end to end, from a fresh clone (run before tooling PRs; never by verify); --shims: the bootstrap only",
 			no_budget = "clones and builds from scratch",
-			run = cmd_selftest,
+			run       = cmd_selftest,
 		},
 	)
 }

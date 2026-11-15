@@ -114,7 +114,11 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	inputs.present = {0, 1}
 	sim.add_command(&inputs, bump(1, 5))
 	sim.add_command(&inputs, bump(1, -2))
-	mark, ok := sim.command_make(toy.Cmd, toy.Cmd_Mark{at = {1, 2}, count = 3, shapes = {.Ring}})
+	mark, ok := sim.command_make(toy.Cmd, toy.Cmd_Mark {
+		at     = {1, 2},
+		count  = 3,
+		shapes = {.Ring},
+	})
 	testing.expect(t, ok)
 	sim.add_command(&inputs, mark) // player 0
 	stray := bump(3, 100) // player 3 is not present: ignored by the toy

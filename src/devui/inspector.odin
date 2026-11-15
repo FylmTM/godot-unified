@@ -125,7 +125,12 @@ inspector_set :: proc(name: string, data: any) {
 		inspector.empty = {}
 	}
 	root := len(inspector.roots)
-	append(&inspector.roots, Insp_Root{name = fmt.aprint(name), data = data.data, type = data.id, seen = true})
+	append(&inspector.roots, Insp_Root {
+		name = fmt.aprint(name),
+		data = data.data,
+		type = data.id,
+		seen = true,
+	})
 	node_index := new_node(inspector.top, 0, data.id, name)
 	inspector.roots[root].node = node_index
 	gd.TreeItem_set_collapsed(inspector.nodes[node_index].item, false)
@@ -279,7 +284,13 @@ new_node :: proc(parent: gd.TreeItem, rel: uintptr, type: typeid, label: string,
 		gd.TreeItem_set_custom_font(item, 1, s.mono)
 	}
 	node_index := len(inspector.nodes)
-	append(&inspector.nodes, Insp_Node{item = item, rel = rel, type = type, kind = kind, list = list})
+	append(&inspector.nodes, Insp_Node {
+		item = item,
+		rel  = rel,
+		type = type,
+		kind = kind,
+		list = list,
+	})
 	inspector.by_item[item.ptr] = node_index
 	return node_index
 }
@@ -293,7 +304,11 @@ classify :: proc(type: typeid) -> (kind: Insp_Kind, list: List_Info) {
 		return .Group, {}
 	case runtime.Type_Info_Array:
 		if small_vector(info.elem, info.count) do return .Leaf, {}
-		return .List, {elem = info.elem.id, elem_size = info.elem_size, count = info.count}
+		return .List, {
+			elem      = info.elem.id,
+			elem_size = info.elem_size,
+			count     = info.count,
+		}
 	case runtime.Type_Info_Enumerated_Array:
 		if small_vector(info.elem, info.count) do return .Leaf, {}
 		return .Group, {}
@@ -315,16 +330,15 @@ table_info :: proc(type: typeid) -> (list: List_Info, ok: bool) {
 	alive := reflect.struct_field_by_name(slots_array.elem.id, "alive")
 	if alive.type == nil do return
 	return {
-			items = items.offset,
-			elem = items_array.elem.id,
+			items     = items.offset,
+			elem      = items_array.elem.id,
 			elem_size = items_array.elem_size,
-			count = items_array.count,
-			table = true,
-			slots = slots.offset,
+			count     = items_array.count,
+			table     = true,
+			slots     = slots.offset,
 			slot_size = slots_array.elem_size,
-			alive = alive.offset,
-		},
-		true
+			alive     = alive.offset,
+		}, true
 }
 
 // Up to 4 numbers or booleans: shown as one value.

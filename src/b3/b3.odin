@@ -35,8 +35,8 @@ world_get_contact_events :: proc(world_id: World_Id) -> Contact_Events {
 	events := box3d.World_GetContactEvents(world_id)
 	return {
 		begin_events = ([^]Contact_Begin_Touch_Event)(events.beginEvents)[:events.beginCount],
-		end_events = ([^]Contact_End_Touch_Event)(events.endEvents)[:events.endCount],
-		hit_events = ([^]Contact_Hit_Event)(events.hitEvents)[:events.hitCount],
+		end_events   = ([^]Contact_End_Touch_Event)(events.endEvents)[:events.endCount],
+		hit_events   = ([^]Contact_Hit_Event)(events.hitEvents)[:events.hitCount],
 	}
 }
 

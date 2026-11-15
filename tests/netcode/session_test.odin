@@ -24,11 +24,15 @@ Watch :: struct {
 
 hooks_for :: proc(watch: ^Watch) -> Hooks {
 	watch.in_order = true
-	return {user = watch, sample = proc(user: rawptr, player: int, tick: u32, state: ^toy.State) -> toy.Input {
+	return {
+		user = watch,
+		sample = proc(user: rawptr, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 			return toy.scripted_input(SEED, player, tick)
-		}, commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		},
+		commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
 			toy.scripted_commands(SEED, player, tick, out)
-		}, frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
+		},
+		frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
 			watch := (^Watch)(user)
 			watch.frames += 1
 			assert(
@@ -36,17 +40,20 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 				frame.resim_from <= frame.tick &&
 				frame.verified <= frame.tick,
 			)
-		}, verified = proc(user: rawptr, simulation: ^toy.Sim, tick: u32, events: []sim.Raw_Event) {
+		},
+		verified = proc(user: rawptr, simulation: ^toy.Sim, tick: u32, events: []sim.Raw_Event) {
 			watch := (^Watch)(user)
 			if tick != watch.verified_upto + 1 && watch.verified_upto != 0 {
 				watch.in_order = false
 			}
 			watch.verified_upto = tick
 			watch.events += len(events)
-		}, status = proc(user: rawptr, status: netcode.Status, detail: string) {
+		},
+		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			watch := (^Watch)(user)
 			append(&watch.statuses, status)
-		}}
+		},
+	}
 }
 
 Net :: struct {
@@ -71,19 +78,15 @@ net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Input, toy.PLAYERS) {
 net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(
-		&toy.GAME,
-		{
-			seed = SEED,
-			ticks = ticks,
-			name = "host",
-			player_name = "Ada",
-			quiet = true,
-			recording = sim.log_sink_memory(&session.recording),
+	session.host = netcode.host_create(&toy.GAME, {
+			seed          = SEED,
+			ticks         = ticks,
+			name          = "host",
+			player_name   = "Ada",
+			quiet         = true,
+			recording     = sim.log_sink_memory(&session.recording),
 			desync_detail = true,
-		},
-		hooks_for(&session.watch[0]),
-	)
+		}, hooks_for(&session.watch[0]))
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	for _ in 0 ..< remotes {
 		net_join(session, netcode.PROFILES[1])
@@ -98,12 +101,12 @@ net_join :: proc(session: ^Net, profile: netcode.Profile, player := -1) -> ^Clie
 		u32(endpoint) * 7919,
 		&session.clock,
 	)
-	client := netcode.client_create(
-		&toy.GAME,
-		{player = player, name = "remote", player_name = endpoint == 1 ? "Grace" : "Linus", quiet = true},
-		link,
-		hooks_for(&session.watch[endpoint]),
-	)
+	client := netcode.client_create(&toy.GAME, {
+			player      = player,
+			name        = "remote",
+			player_name = endpoint == 1 ? "Grace" : "Linus",
+			quiet       = true,
+		}, link, hooks_for(&session.watch[endpoint]))
 	append(&session.clients, client)
 	return client
 }

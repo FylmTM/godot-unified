@@ -53,55 +53,63 @@ Item_Spec :: struct {
 @(rodata)
 ITEM_SPECS := [Item_Kind]Item_Spec {
 	.Crate = {
-		half = {0.35, 0.35, 0.35},
-		radius = 0.35,
-		mass = 10,
-		lift = 3,
-		friction = 0.6,
+		half        = {0.35, 0.35, 0.35},
+		radius      = 0.35,
+		mass        = 10,
+		lift        = 3,
+		friction    = 0.6,
 		restitution = 0.1,
 		grab_points = 1,
-		throwable = true,
+		throwable   = true,
 	},
-	.Ball = {radius = 0.3, mass = 3, lift = 3, friction = 0.5, restitution = 0.6, grab_points = 1, throwable = true},
+	.Ball = {
+		radius      = 0.3,
+		mass        = 3,
+		lift        = 3,
+		friction    = 0.5,
+		restitution = 0.6,
+		grab_points = 1,
+		throwable   = true,
+	},
 	.Cube = {
-		half = {0.4, 0.4, 0.4},
-		radius = 0.4,
-		mass = 20,
-		lift = 2,
-		friction = 0.7,
+		half        = {0.4, 0.4, 0.4},
+		radius      = 0.4,
+		mass        = 20,
+		lift        = 2,
+		friction    = 0.7,
 		restitution = 0,
 		grab_points = 1,
-		throwable = true,
+		throwable   = true,
 	},
 	.Key = {
-		half = {0.15, 0.25, 0.15},
-		radius = 0.25,
-		mass = 3,
-		lift = 3,
-		friction = 0.6,
+		half        = {0.15, 0.25, 0.15},
+		radius      = 0.25,
+		mass        = 3,
+		lift        = 3,
+		friction    = 0.6,
 		restitution = 0.1,
 		grab_points = 1,
-		throwable = true,
+		throwable   = true,
 	},
 	.Heavy = {
-		half = {0.7, 0.4, 0.45},
-		radius = 0.7,
-		mass = 50,
-		lift = 0.6,
-		friction = 0.6,
+		half        = {0.7, 0.4, 0.45},
+		radius      = 0.7,
+		mass        = 50,
+		lift        = 0.6,
+		friction    = 0.6,
 		restitution = 0,
 		grab_points = 2,
-		throwable = false,
+		throwable   = false,
 	},
 	.Trophy = {
-		half = {0.25, 0.4, 0.25},
-		radius = 0.4,
-		mass = 5,
-		lift = 3,
-		friction = 0.6,
+		half        = {0.25, 0.4, 0.25},
+		radius      = 0.4,
+		mass        = 5,
+		lift        = 3,
+		friction    = 0.6,
 		restitution = 0.1,
 		grab_points = 1,
-		throwable = true,
+		throwable   = true,
 	},
 }
 
@@ -244,7 +252,11 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	loaded, ok := level.load(content)
 	assert(ok, "friendslop: the level file is missing or not a level (src/level/SPEC.md)")
 	world.level = loaded
-	world.phys = physics.create({anchor = true, hit_threshold = 2, workers = PHYSICS_WORKERS})
+	world.phys = physics.create({
+		anchor        = true,
+		hit_threshold = 2,
+		workers       = PHYSICS_WORKERS,
+	})
 	world.extras[0] = physics.extra(world.phys, State)
 	physics.create_static(world.phys, &world.level, CAT_STATIC)
 	for player in 0 ..< PLAYERS {

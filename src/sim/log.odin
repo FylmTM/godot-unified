@@ -42,16 +42,13 @@ log_destroy :: proc(input_log: ^Input_Log($Input, $PLAYERS)) {
 
 // Appends a tick's inputs (the next tick).
 log_append :: proc(input_log: ^Input_Log($Input, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
-	append(
-		&input_log.ticks,
-		Log_Tick(Input, PLAYERS) {
-			present = inputs.present,
-			replaced = inputs.replaced,
-			input = inputs.input,
-			first_command = u32(len(input_log.commands)),
-			command_count = u32(inputs.command_count),
-		},
-	)
+	append(&input_log.ticks, Log_Tick(Input, PLAYERS) {
+		present       = inputs.present,
+		replaced      = inputs.replaced,
+		input         = inputs.input,
+		first_command = u32(len(input_log.commands)),
+		command_count = u32(inputs.command_count),
+	})
 	append(&input_log.commands, ..inputs.commands[:inputs.command_count])
 }
 
@@ -229,14 +226,17 @@ Log_Sink :: struct {
 
 // A sink into `buf` (the caller owns it): log_decode reads the bytes back.
 log_sink_memory :: proc(buf: ^[dynamic]u8) -> Log_Sink {
-	return {user = buf, write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
+	return {
+		user = buf,
+		write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
 			buf := (^[dynamic]u8)(user)
 			if offset + len(bytes) > len(buf) {
 				resize(buf, offset + len(bytes))
 			}
 			copy(buf[offset:], bytes)
 			return true
-		}}
+		},
+	}
 }
 
 @(private)
