@@ -340,7 +340,7 @@ cmd_run :: proc(args: []string) -> Result {
 		game:       string `args:"pos=0" usage:"the game (default: the only one)"`,
 		mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
 		screen:     string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
-		background: bool `usage:"the window never takes focus (a window an agent opens)"`,
+		background: bool `usage:"the window never takes focus (a window an agent opens; macOS: uni hands it straight back when Godot takes it)"`,
 		overflow:   [dynamic]string `usage:"after --: the game's own arguments"`,
 	}
 	opts: Opts
@@ -393,7 +393,7 @@ play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> R
 @(private)
 cmd_tool :: proc(args: []string) -> Result {
 	Opts :: struct {
-		window:   bool `usage:"in a window (default: headless)"`,
+		window:   bool `usage:"in a window that never takes focus (default: headless)"`,
 		mute:     bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
 		screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
@@ -489,7 +489,7 @@ godot_user_dir :: proc() -> string {
 cmd_coop :: proc(args: []string) -> Result {
 	Opts :: struct {
 		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
-		window: bool `usage:"the host in a window, with screenshots"`,
+		window: bool `usage:"the host in a window that never takes focus, with screenshots"`,
 		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
 		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,

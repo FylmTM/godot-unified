@@ -59,7 +59,9 @@ These need a display; they don't run in CI. **A window you start for the develop
 opens with `--mute --screen left` and never takes focus**: they may be typing on the main screen. `run`, `editor`,
 `tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`). `tool`
 and `coop` windows never take focus (and keep running while not frontmost); `run` needs `--background`; the editor
-always takes focus, so open it only when asked.
+always takes focus, so open it only when asked. On macOS Godot activates itself as its window opens and `uni` hands
+the focus straight back (under half a second, twice per start); that a window there keeps running while not
+frontmost is unproven (#49), and `--screen left` doesn't work there yet (#231): pass Godot's index.
 
 - `./uni run <game> --mute --screen left --background` (arguments after `--` go to the game), `./uni editor <game>`.
 - `./uni tool <game> <script> --window [--shots] [-- args]`: any of the game's tool scripts in a window, PNGs in
