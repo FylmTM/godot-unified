@@ -70,7 +70,7 @@ func any_player_view() -> SurvivorPlayerView:
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	if event is MatchStarted:
+	if event is EventMatchStarted:
 		_fx.shockwave(_radius)
 	_fx.play(event)
 

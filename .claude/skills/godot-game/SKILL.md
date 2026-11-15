@@ -36,7 +36,7 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
    extension, `src/godot` or anything between input and the sim.
 5. `editor`: the extension loads in a headless editor with no `ERROR` lines.
 6. `bake`: the view index (`unified_index.tres`, every scene with a UnifiedView marker by kind) and each level's
-   `.level` file are current (`./uni bake <game>` writes them; commit both).
+   `.level` file are current (`./uni bake <game>` writes them; every build refreshes the index too; commit both).
 
 `./uni test --suite godot,godot-bindings` runs every game's steps (the games in parallel) plus the binding,
 host-view and session-lifecycle tests (`tests/godot_views/session_check.gd`: leave, then host or join at once; it

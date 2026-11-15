@@ -57,6 +57,6 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 		"plate_off":
 			Sfx.play(&"click", -4.0, 0.5)
 		"hit":
-			var hit := event as Hit
+			var hit := event as EventHit
 			if hit.position.distance_to(camera_rig.global_position) < 18.0:
 				camera_rig.shake(0.25 if hit.speed > 7.0 else 0.15)

@@ -38,7 +38,7 @@ how a table is laid out) is up to the implementation, as long as it's determinis
   leaves (body destroyed, progress reset, `player_left`).
 - The level-up pick is a command (`src/sim/SPEC.md`, Commands), not input: `Cmd_Pick {upgrade: Upgrade}`, the only
   variant of `Command` (name `"pick"`; `Upgrade` = Fire_Rate, Damage, Move_Speed, the HUD's card order), delivered
-  once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click: a `Pick` object whose
+  once. The HUD sends it from GDScript on a key (`levelup_1..3`), pad button or click: a `CommandPick` object whose
   `upgrade` is the card's id (`constants().upgrades[i].id`, e.g. `&"damage"`), `Game.send_command(pick)`.
 
 ## Phases
@@ -260,7 +260,7 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
   Upgrade order, the level-up cards; `id` is the Pick's `upgrade`) and `items` ([{position, kind}] ×40, spawn body
   centres; the menu backdrop uses them). GDScript never copies a sim number (the effects' 5 m blast radius aside).
 - Input: `sample_input` reads the InputMap (`move_*`, `dash`, held or pressed since the last tick); GDScript only
-  handles `menu` (Esc) and the level-up keys, which send a `Pick`.
+  handles `menu` (Esc) and the level-up keys, which send a `CommandPick`.
 - Player names and the local player come from the session (`Game.player_name`, `Game.local_player`);
   `host_direct(port)`: LAN/dev hosting from the address panel (port 7777), the session panel shows this machine's
   first private IPv4 `host:port` where the code would be.
@@ -270,7 +270,7 @@ over → lobby) are read from the HUD view's data (`Game.hud`); the arena never 
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
 scripts read (the cards' ids, a view scene and a rest height per item kind) and that the arena has one MultiMesh
 view per `Multi` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
-drawn, the auto-attack firing) and a `Pick` the session accepts; `tour` plays the real game headless: menu → single
+drawn, the auto-attack firing) and a `CommandPick` the session accepts; `tour` plays the real game headless: menu → single
 → lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to
 the lobby; `play_check`: minutes of play with frame times by enemy count).
 

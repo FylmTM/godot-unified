@@ -40,7 +40,7 @@ send_command :: proc(object: gd.Object) -> bool {
 	if !api.installed do return fail("no game is installed in this extension")
 	sim_class, instance := sim_class_of(object)
 	if sim_class == nil || sim_class.is_event {
-		return fail("not one of the game's commands (make one with its class: `var drop := Drop.new()`)")
+		return fail("not one of the game's commands (make one with its class: `var drop := CommandDrop.new()`)")
 	}
 	if instance.bad do return fail(fmt.tprintf("%s has a property set to a wrong value", sim_class.name))
 	command, ok := sim.command_from_bytes(api.commands_type, sim_class.kind, instance.data[:sim_class.type.size])

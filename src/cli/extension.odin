@@ -58,11 +58,19 @@ extension_build :: proc(game: Game, mode: Mode) -> Build {
 	return {pkg = join(game.dir, "simulation", "extension"), out = extension_lib(game), flags = flags[:]}
 }
 
+// Rewrites the game's view index when a view scene was added, moved or renamed, so that needs no separate
+// `uni bake` (a scan of the .tscn files, no Godot run). Not in CI: there the godot suite's bake step checks that
+// the committed index is current.
+refresh_view_index :: proc(game: Game) {
+	if !in_ci() do bake_view_index(game, check = false, quiet = true)
+}
+
 has_extension :: proc(game: Game) -> bool {
 	return os.is_directory(join(game.dir, "simulation", "extension"))
 }
 
-// Builds the game's extension when stale (always with `force`). The build tag
+// Builds the game's extension when stale (always with `force`), and refreshes the game's view index first
+// (refresh_view_index): every command that runs the game goes through here. The build tag
 // (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale. The
 // Box3D library goes next to it (the .gdextension's [dependencies] ship it from there): the debug build for --mode
 // debug.
@@ -70,6 +78,7 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false) -> string {
 	if !has_extension(game) {
 		fatal("%s has no simulation/extension to build", game.name)
 	}
+	refresh_view_index(game)
 	if game_uses_box3d(game) {
 		ensure_box3d()
 		stage_box3d(os.dir(extension_lib(game)), debug = mode == .debug)

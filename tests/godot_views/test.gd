@@ -88,7 +88,7 @@ func _initialize() -> void:
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
 	check("no session: no local player", session.get_local_player() == -1)
-	var early := Bump.new()
+	var early := CommandBump.new()
 	early.amount = 1
 	check("send_command without a session: false", not session.send_command(early))
 	check("start_single", session.start_single())
@@ -103,7 +103,7 @@ func _initialize() -> void:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
 				and typed_multi.visible_instance_count == 2 and events.any(func(e: Array) -> bool:
-					return e[0] is Expired and e[1] == UnifiedSession.EVENT_CONFIRMED):
+					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned from the index", typed != null, typed)
 	if typed == null:
@@ -175,35 +175,35 @@ func check_events(events: Array[Array], typed: Node) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
-	var joined := events.filter(func(e: Array) -> bool: return e[0] is Joined)
-	check("sim_event: Joined, player 0, tick 1", joined.size() > 0 and (joined[0][0] as Joined).player == 0 \
-		and (joined[0][0] as Joined).tick == 1, joined)
+	var joined := events.filter(func(e: Array) -> bool: return e[0] is EventJoined)
+	check("sim_event: EventJoined, player 0, tick 1", joined.size() > 0 and (joined[0][0] as EventJoined).player == 0 \
+		and (joined[0][0] as EventJoined).tick == 1, joined)
 	check("Joined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
-	var spawned := events.filter(func(e: Array) -> bool: return e[0] is Spawned)
-	var first := spawned[0][0] as Spawned if spawned.size() > 0 else null
+	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned)
+	var first := spawned[0][0] as EventSpawned if spawned.size() > 0 else null
 	check("Spawned: a handle as its key, the position a Vector2 in view units, the enum by name",
 		first != null and first.thing > 0 and first.position.x > 1 and first.shape in [&"dot", &"ring", &"star"] \
 		and first.player == 0, [first.thing, first.position, first.shape, first.player] if first else null)
 	check("Spawned: emitted, then confirmed", spawned.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
-	var expired := events.filter(func(e: Array) -> bool: return e[0] is Expired)
+	var expired := events.filter(func(e: Array) -> bool: return e[0] is EventExpired)
 	check("Expired: the same thing's key, confirmed last", expired.size() > 0 and first != null \
-		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as Expired).thing == first.thing,
+		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as EventExpired).thing == first.thing,
 		expired)
 	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool:
-		return e[0] is Joined or e[0] is Spawned)
+		return e[0] is EventJoined or e[0] is EventSpawned)
 	check("the player's view gets its events in both states", on_view.size() >= 4, typed.get("events"))
 
 
 func check_commands(session: UnifiedSession, hud: Control) -> void:
-	var bump := Bump.new()
+	var bump := CommandBump.new()
 	bump.amount = 5
 	check("send_command Bump", session.send_command(bump))
-	var bump2 := Bump.new()
+	var bump2 := CommandBump.new()
 	bump2.amount = -2
 	check("send_command another Bump", session.send_command(bump2))
-	var mark := Mark.new()
+	var mark := CommandMark.new()
 	mark.at = Vector2(1.5, -2)
 	mark.normal = Vector3(0, 1, 0)
 	mark.weight = 0.25
@@ -213,13 +213,13 @@ func check_commands(session: UnifiedSession, hud: Control) -> void:
 	mark.loud = true
 	check("send_command Mark", session.send_command(mark))
 	# refused: an error line names the problem, and send_command is false for a command holding a bad value
-	var bad := Mark.new()
+	var bad := CommandMark.new()
 	bad.count = 40000
 	check("out of range: refused", not session.send_command(bad))
-	var bad_shape := Mark.new()
+	var bad_shape := CommandMark.new()
 	bad_shape.shape = &"hexagon"
 	check("not an enum member: refused", not session.send_command(bad_shape))
-	check("an event is not a command", not session.send_command(Joined.new()))
+	check("an event is not a command", not session.send_command(EventJoined.new()))
 	for i in 100:
 		await create_timer(0.02).timeout
 		if hud.get("bumps") >= 2 and hud.get("marks") >= 1:

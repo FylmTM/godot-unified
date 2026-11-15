@@ -53,23 +53,23 @@ func play(event: UnifiedEvent) -> void:
 	var pos: Vector3 = event.get(&"position") if &"position" in event else Vector3.ZERO
 	var player: int = event.get(&"player") if &"player" in event else -1
 	var local := player >= 0 and player == Game.local_player()
-	if event is EnemyDied:
-		var kind := clampi(ENEMY_KINDS.find(String((event as EnemyDied).enemy_kind)), 0, 2)
+	if event is EventEnemyDied:
+		var kind := clampi(ENEMY_KINDS.find(String((event as EventEnemyDied).enemy_kind)), 0, 2)
 		var color: Color = ENEMY_COLORS[kind]
 		_burst(pos + Vector3(0, 0.5, 0), color, 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
-	elif event is BarrelExploded:
+	elif event is EventBarrelExploded:
 		explosion(pos, EXPLOSION_RADIUS)
-	elif event is GemCollected:
+	elif event is EventGemCollected:
 		_burst(pos + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
 		if local:
 			Sfx.play(&"gem", -6.0, randf_range(0.95, 1.15))
-	elif event is LevelUp:
+	elif event is EventLevelUp:
 		_ring(pos + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
 		_burst(pos + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
 		if local:
 			Sfx.play(&"level")
-	elif event is PlayerDied:
+	elif event is EventPlayerDied:
 		var c := UiTheme.player_color(player)
 		_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
 		_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
@@ -77,14 +77,14 @@ func play(event: UnifiedEvent) -> void:
 		Sfx.play(&"die")
 		if local:
 			Game.rumble(0.6, 1.0, 0.5)
-	elif event is PlayerRespawned:
+	elif event is EventPlayerRespawned:
 		_ring(pos + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
 		_burst(pos + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
 		Sfx.play(&"respawn", -4.0)
-	elif event is MatchStarted:
+	elif event is EventMatchStarted:
 		Sfx.play(&"start")
 		Game.rumble(0.3, 0.5, 0.25)
-	elif event is MatchOver:
+	elif event is EventMatchOver:
 		Sfx.play(&"over")
 
 

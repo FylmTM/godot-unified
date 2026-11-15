@@ -137,12 +137,12 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	if event is RunStarted:
+	if event is EventRunStarted:
 		_show_banner("GO!", 1.5)
-	elif event is Checkpoint:
-		_show_banner("Checkpoint %d" % (event as Checkpoint).index, 1.5)
-	elif event is RunFinished:
-		var seconds := (event as RunFinished).seconds
+	elif event is EventCheckpoint:
+		_show_banner("Checkpoint %d" % (event as EventCheckpoint).index, 1.5)
+	elif event is EventRunFinished:
+		var seconds := (event as EventRunFinished).seconds
 		_show_banner("Finished in %s" % _time(seconds), 4.0)
 		var saved: float = Settings.get_value(&"best_time")
 		if saved <= 0.0 or seconds < saved:

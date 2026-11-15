@@ -121,9 +121,10 @@ host owns `instance_count` and `visible_instance_count`.
 
 **Events and commands as classes.** At load the host registers a class per kind of the game's event union
 (`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
-(`extends UnifiedCommand`), named after the Odin
-type in PascalCase (`Rock_Hit` -> `RockHit`; a command loses its `Cmd_` prefix: `Cmd_Drop` -> `Drop`), with a typed
-property per field: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
+(`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase (`Rock_Hit` ->
+`EventRockHit`; a command loses its `Cmd_` prefix: `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The
+prefix groups them: Godot classes have no namespaces (an extension class can't nest, and GDScript can't alias a
+native class as a constant), and no GDScript is generated. Field types: integers `int`, f32 `float`, bools, enums a `StringName` of the member's name lowercased,
 bit_sets an `Array` of those, a handle its key (`int`), a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`
 in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` / `Color`; `_` fields are
 left out; a `player` field holding `sim.NO_PLAYER` is -1. An event field named `tick` or `kind` (UnifiedEvent's) and a
@@ -131,10 +132,10 @@ name that clashes with an existing class stop the install with an error. GDScrip
 
 ```gdscript
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
-	if event is RockHit and state == UnifiedSession.EVENT_EMITTED:
-		_spark((event as RockHit).at)
+	if event is EventRockHit and state == UnifiedSession.EVENT_EMITTED:
+		_spark((event as EventRockHit).at)
 
-var drop := Drop.new()
+var drop := CommandDrop.new()
 drop.count = 3
 session.send_command(drop)
 ```
@@ -165,8 +166,10 @@ The editor's help documents every class above (class reference XML loaded at ext
 ## The view index
 
 `uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (a
-Resource whose metadata `views` maps each kind name to its scene's path), committed next to the game; the godot
-suite's `bake` step fails when it is stale. At the first session the host checks that every `View` member has a
+Resource whose metadata `views` maps each kind name to its scene's path), committed next to the game. Every build
+of the game's library (`uni build`, `uni run`, any command that runs the game) refreshes it the same way, so a new
+or renamed view scene needs no separate step; in CI it is only checked: the godot suite's `bake` step fails when
+the committed one is stale. At the first session the host checks that every `View` member has a
 scene and every indexed kind is a `View` member (an error names each one).
 
 ## How it works

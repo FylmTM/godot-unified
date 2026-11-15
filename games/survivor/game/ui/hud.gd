@@ -257,21 +257,21 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	var local := Game.local_player()
-	if event is MatchStarted:
+	if event is EventMatchStarted:
 		_show_banner("SURVIVE!", UiTheme.ACCENT)
 		_flash.color.a = 0.12
 		_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
-	elif event is LevelUp:
-		var level_up := event as LevelUp
+	elif event is EventLevelUp:
+		var level_up := event as EventLevelUp
 		if level_up.player == local:
 			_show_banner("LEVEL %d" % level_up.level, UiTheme.GOLD)
-	elif event is PlayerJoined:
+	elif event is EventPlayerJoined:
 		# Your own join is not news; nor is a join before the session knows your player (yours, or one before you).
-		var joined := (event as PlayerJoined).player
+		var joined := (event as EventPlayerJoined).player
 		if local >= 0 and joined != local:
 			_show_banner("%s JOINED" % _name_of(joined).to_upper(), UiTheme.GOOD, 32)
-	elif event is PlayerLeft:
-		var left := (event as PlayerLeft).player
+	elif event is EventPlayerLeft:
+		var left := (event as EventPlayerLeft).player
 		if local >= 0 and left != local:
 			_show_banner("%s LEFT" % _name_of(left).to_upper(), UiTheme.TEXT_DIM, 32)
 
@@ -298,7 +298,7 @@ func _choose(option: int) -> void:
 	if option - 1 >= upgrades.size():
 		return
 	var upgrade: Dictionary = upgrades[option - 1]
-	var pick := Pick.new()
+	var pick := CommandPick.new()
 	pick.upgrade = upgrade.get("id", "")
 	Game.send_command(pick)
 

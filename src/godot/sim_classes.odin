@@ -1,8 +1,8 @@
 // The game's events and commands as Godot classes, registered at load from the sim's unions by RTTI (nothing
-// generated): a class per kind, `extends UnifiedEvent` or `extends UnifiedCommand` (RefCounted), named after the
-// Odin type in PascalCase (a command without its `Cmd_` prefix), with a typed property per field. Events reach
-// GDScript as instances (session.odin, views.odin); scripts make commands with `Drop.new()` and send them with
-// UnifiedSession.send_command (command.odin).
+// generated): a class per kind, `extends UnifiedEvent` or `extends UnifiedCommand` (RefCounted), named `Event` or
+// `Command` + the Odin type in PascalCase (EventRockHit, CommandDrop: class_name_of), with a typed property per
+// field. Events reach GDScript as instances (session.odin, views.odin); scripts make commands with
+// `CommandDrop.new()` and send them with UnifiedSession.send_command (command.odin).
 package godot
 
 import "base:runtime"
@@ -55,13 +55,16 @@ sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
 	return nil, nil
 }
 
-// PascalCase from an Odin type name: Rock_Hit -> RockHit (a command's `Cmd_` prefix dropped).
+// The class of an event or command kind: `Event` or `Command`, then the Odin type name in PascalCase (a command's
+// `Cmd_` dropped): Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop. Godot has no namespaces for classes (an
+// extension class can't nest, nor can GDScript alias one as a constant), so the prefix groups them.
 @(private)
-class_name_of :: proc(variant: ^runtime.Type_Info, prefix: string) -> string {
+class_name_of :: proc(variant: ^runtime.Type_Info, is_event: bool) -> string {
 	name := fmt.tprint(variant.id)
 	if named, ok := variant.variant.(runtime.Type_Info_Named); ok do name = named.name
-	name = strings.trim_prefix(name, prefix)
+	if !is_event do name = strings.trim_prefix(name, sim.COMMAND_PREFIX)
 	builder := strings.builder_make(context.temp_allocator)
+	strings.write_string(&builder, is_event ? "Event" : "Command")
 	upper := true
 	for r in name {
 		if r == '_' {
@@ -141,7 +144,7 @@ register_sim_classes :: proc() {
 @(private)
 register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: bool) {
 	context.allocator = runtime.heap_allocator()
-	name := class_name_of(variant, is_event ? "" : sim.COMMAND_PREFIX)
+	name := class_name_of(variant, is_event)
 	if gdi.classdb_get_class_tag(gd.sn(name)) != nil {
 		gd.print_error(
 			fmt.tprintf(
