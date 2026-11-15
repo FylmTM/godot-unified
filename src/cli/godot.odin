@@ -264,16 +264,12 @@ tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 run_tool :: proc(tool_run: Tool_Run) -> Tool_Result {
 	cleanup := tool_run.window ? with_window(tool_run.dir, tool_run.place) : no_cleanup
 	defer cleanup(tool_run.dir)
-	front := tool_run.window ? front_app() : ""
 	ran := run_proc({
 		cmd     = tool_cmd(tool_run),
 		capture = true,
 		timeout = time.Duration(tool_run.timeout * f64(time.Second)),
 		env     = tool_run.env,
 	})
-	if front != "" {
-		restore_front_app(front)
-	}
 	return judge_tool(ran, !tool_run.quiet)
 }
 
@@ -328,39 +324,6 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 		log("uni: %s", problem)
 	}
 	return report
-}
-
-// macOS: a windowed Godot may activate itself even with no_focus (not verified there yet); give focus back to the
-// app that was in front.
-front_app :: proc() -> string {
-	when ODIN_OS == .Darwin {
-		asn := run_proc({
-			cmd     = strs("lsappinfo", "front"),
-			capture = true,
-			quiet   = true,
-		})
-		info := run_proc({
-			cmd     = strs("lsappinfo", "info", "-only", "bundleid", strings.trim_space(asn.stdout)),
-			capture = true,
-			quiet   = true,
-		})
-		if eq := strings.index_byte(info.stdout, '='); eq >= 0 {
-			bundle_id := strings.trim(strings.trim_space(info.stdout[eq + 1:]), "\"")
-			return bundle_id == "[ NULL ]" ? "" : bundle_id
-		}
-	}
-	return ""
-}
-
-// macOS: brings the app front_app named back to the front after a window run; elsewhere nothing.
-restore_front_app :: proc(bundle: string) {
-	when ODIN_OS == .Darwin {
-		run_proc({
-			cmd     = strs("open", "-b", bundle),
-			capture = true,
-			quiet   = true,
-		})
-	}
 }
 
 // A tool script by name: the game's game/tools/<name>.gd, else the shared code's tools/<name>.gd when the game uses
@@ -422,13 +385,15 @@ window/size/no_focus=true
 // Prepares the project for a window opened with `window` and returns the cleanup to run when the Godot process has ended.
 // A background window opens without activation and clicks never activate it (Windows: SW_SHOWNA and
 // WS_EX_NOACTIVATE, kept on top of other windows; it never calls SetForegroundWindow), so the app in front keeps the
-// keyboard, and the game runs on while it isn't frontmost. A window that may take focus removes an override a
-// crashed run left behind.
+// keyboard, and the game runs on while it isn't frontmost. macOS activates Godot anyway: a focus guard hands the
+// focus straight back (focus_darwin.odin). A window that may take focus removes an override a crashed run left behind.
 with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: string)) {
 	path := join(dir, OVERRIDE_CFG)
 	if window.background {
 		write_text(path, BACKGROUND_OVERRIDE)
+		start_focus_guard()
 		return proc(dir: string) {
+				stop_focus_guard()
 				path := join(dir, OVERRIDE_CFG)
 				if text, ok := read_text(path); ok && text == BACKGROUND_OVERRIDE {
 					os.remove(path)
