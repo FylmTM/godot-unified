@@ -1,6 +1,6 @@
 # `unified:eos`: online play through Epic Online Services
 
-Decided autonomously 2026-11-09, pending developer review.
+Signed off 2026-11-16 (#11).
 
 Internet co-op without servers of our own: anonymous device-ID login (no Epic account), a lobby found by a short
 code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode's datagrams. One-time setup:
@@ -56,10 +56,13 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   (#11 D2). Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
   lobby results carry the session generation: a result for a session already left (Leave, then Host/Join again
   quickly) is dropped, and its lobby destroyed or left. A failed token refresh (~1 h in) retries every 15 s
-  instead of failing the running session. A crashed player rejoins with the same user ID: on one machine it is back
-  in ~6 s (`uni coop --crash`: the OS reports the dead socket, the host sees the P2P connection close, the lobby
-  keeps the member and the netcode takes the new incarnation on the same peer). Across the internet nothing reports
-  the death, so the host may wait out the SDK's 30 s reconnect window first; not measured yet (#32).
+  instead of failing the running session. A crashed player who never returns: the netcode notices first and frees the seat
+  (10 s of silence, `DISCONNECT_US`), the lobby reports the member Disconnected after ~15 s, the SDK closes P2P
+  after ~37 s (its 30 s reconnect window). A crashed player who restarts and joins again comes back as the same
+  user ID: the host gets no EOS event for the dead process, and the restarted process's packets either arrive on
+  the P2P connection EOS kept (the netcode sees a new epoch, and "newest wins" seats the same member again; back
+  ~6 s after entering the code, 11-14) or never get a connection while the host's SDK still holds the old one
+  as lost (2 of 3 runs on 11-14, before #250's retry). Measured again for #32 (`uni coop survivor --crash`).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
   1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The host accepts P2P only from
@@ -125,9 +128,9 @@ delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS revie
 - **Path labels.** Each side labels the path from its own P2P "connection established" notification, so host and
   client can disagree (Direct on the host, Relayed on the client) when EOS switches routes after connecting. Treat
   the label as a hint; RTT is the better signal.
-- **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
-  within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
-  the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
+- **Drop and rejoin.** A client killed without a clean leave: the host's netcode frees its seat after 10 s of
+  silence, the lobby reports the member Disconnected after ~15 s, and P2P closes after ~37 s (the SDK's 30 s
+  reconnect window). A new machine can then join the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
   player on one machine, `uni coop survivor --crash` a crash (the joiner kills its own process) and rejoin by the
   same player, timed on both sides.
 

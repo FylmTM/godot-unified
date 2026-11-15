@@ -13,7 +13,7 @@ it shows:
   library's join and leave events.
 - **Views and data.** A scene view per player, a MultiMesh view for the balls, and the HUD's session data
   (`Data_Hud`, read by an ordinary scene as `Unified.data.hud`).
-- **Co-op.** Players are handles, so someone who leaves and comes back (LAN or EOS) gets their capsule and balls
+- **Co-op.** Players are handles, so someone who leaves and comes back (on LAN: minimal_3d has no online play) gets their capsule and balls
   back in whatever slot is free.
 
 Units: metres, seconds, 64 Hz (`DT = 1/64`). The ground plane is the sim's x, y; the view's x, z.

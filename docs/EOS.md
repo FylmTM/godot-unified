@@ -9,7 +9,9 @@ no SDK and no EOS credentials: its tests skip the two that need the real SDK, an
 player and LAN only (`uni release --no-eos`). Online-capable packages come from `uni release` on a machine set up as
 below.
 
-1. **Product.** At <https://dev.epicgames.com/portal>, create a product (e.g. "unified survivor").
+1. **Product.** At <https://dev.epicgames.com/portal>, create a product (e.g. "unified survivor"). One product per
+   repo: the games in this repo share one (their lobbies are kept apart by game name and build); a game you ship
+   lives in its own repo (`uni init`) with its own `.env`, so its own product.
 2. **Client.** Product Settings → Clients:
    - add a **custom client policy** with only **Lobbies** enabled (all its actions). The client ID and secret ship
      inside every online build, so anyone can call EOS as this client: allow nothing the game doesn't use. Connect
@@ -30,5 +32,15 @@ below.
    UNIFIED_EOS_CLIENT_SECRET=...
    ```
    The product, sandbox (the Dev sandbox) and deployment IDs are on the product's settings pages; the client ID and
-   secret are on the client you created. Dev builds read them at run time (`uni run`, `uni editor` and `uni tool`
-   pass `.env` on); `uni release` compiles them into the game's library and checks they are there.
+   secret are on the client you created. Every game build compiles them into the game's library (`uni build` and
+   `uni release` pass them as `-define`s; `uni release` checks they are there), and the environment is the
+   fallback (`uni run`, `uni editor` and `uni tool` pass `.env` on).
+
+**Logs.** `UNIFIED_EOS_LOG=info` (or more verbose) makes the SDK print its boot line with the product, sandbox,
+deployment and client IDs (not the secret): don't paste those logs anywhere public. The default level is Warning.
+
+**Test identities.** A machine's EOS identity is a device ID kept per OS user (macOS: in the login keychain). The
+test tools replace it: `uni coop`'s joiner makes a fresh one (`UNIFIED_EOS_FRESH_DEVICE=1`, so two processes on one
+machine are two players), and the headless `eos-host` / `eos-client` delete theirs at exit. So after a test the
+machine plays as a new anonymous player, and two EOS tests run at once on one machine can delete each other's
+identity: run one at a time. Nothing is stored per player across sessions, so this costs nothing yet (#307).
