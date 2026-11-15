@@ -106,7 +106,7 @@ static func level_bounds(level: Node) -> Rect2:
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	# rock effects play when the event is emitted (a cancelled one has already played: left as is); the rest wait
 	# for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
-	var rock_effect := event is RockHit or event is RockSplit or event is RockDestroyed
+	var rock_effect := event is EventRockHit or event is EventRockSplit or event is EventRockDestroyed
 	if state != (UnifiedSession.EVENT_EMITTED if rock_effect else UnifiedSession.EVENT_CONFIRMED):
 		return
 	var at: Vector2 = event.get(&"position") if &"position" in event else Vector2.ZERO
@@ -118,7 +118,7 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 				Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
 		"rock_split":
 			effects.debris(at, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
-			Sfx.play(&"pop", -6.0, 0.7 if (event as RockSplit).size == &"large" else 0.9)
+			Sfx.play(&"pop", -6.0, 0.7 if (event as EventRockSplit).size == &"large" else 0.9)
 		"rock_destroyed":
 			effects.debris(at, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
 			effects.ring(at, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)
@@ -126,7 +126,7 @@ func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 		"station_hit":
 			effects.debris(at, 14, UiTheme.BAD, 200.0, 4.0)
 			effects.ring(at, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
-			camera.shake(0.5 if (event as StationHit).damage >= 10 else 0.3)
+			camera.shake(0.5 if (event as EventStationHit).damage >= 10 else 0.3)
 			Sfx.play(&"boom", -4.0)
 			Game.rumble(0.5, 0.7, 0.3)
 		"gem_picked":

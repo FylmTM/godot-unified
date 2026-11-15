@@ -169,10 +169,10 @@ func _start_or_restart() -> void:
 	match phase:
 		"lobby":
 			Sfx.play(&"click")
-			Game.send_command(Start.new())
+			Game.send_command(CommandStart.new())
 		"over":
 			Sfx.play(&"click")
-			Game.send_command(Restart.new())
+			Game.send_command(CommandRestart.new())
 
 
 func _show_banner(text: String, seconds := 2.0) -> void:
@@ -184,15 +184,15 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	if event is MatchStarted:
+	if event is EventMatchStarted:
 		_show_banner("Defend the station!", 2.0)
-	elif event is Wave:
-		var wave := (event as Wave).wave
+	elif event is EventWave:
+		var wave := (event as EventWave).wave
 		if wave > 1:
 			_show_banner("Wave %d" % wave, 2.0)
-	elif event is MatchOver:
+	elif event is EventMatchOver:
 		_show_banner("Station lost", 3.0)
-		var survived := (event as MatchOver).seconds_survived
+		var survived := (event as EventMatchOver).seconds_survived
 		var best: float = Settings.get_value(&"best_time")
 		if survived > best:
 			Settings.set_value(&"best_time", survived)

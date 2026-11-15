@@ -61,5 +61,5 @@ func _draw() -> void:
 
 
 func _sim_event(event: UnifiedEvent, state: int) -> void:
-	if event is StationHit and state == UnifiedSession.EVENT_EMITTED:
+	if event is EventStationHit and state == UnifiedSession.EVENT_EMITTED:
 		_flash = 1.0

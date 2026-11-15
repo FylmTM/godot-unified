@@ -59,7 +59,7 @@ LIBRARY_DOCS := []Doc_Class {
 				"send_command",
 				"bool",
 				"command:UnifiedCommand",
-				"Sends one of the game's commands (make one with its class, e.g. [code]Drop.new()[/code]); the sim gets it exactly once. False, with an error, when it can't be sent.",
+				"Sends one of the game's commands (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once. False, with an error, when it can't be sent.",
 			},
 			{
 				"set_input_value",
@@ -144,14 +144,14 @@ LIBRARY_DOCS := []Doc_Class {
 		name = "UnifiedEvent",
 		inherits = "RefCounted",
 		brief = "One of the game's sim events: the base of its event classes.",
-		text = "Each kind of the game's event union is a class extending this one, named after it, with a property per field.",
+		text = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field.",
 		members = {{"tick", "int", "The tick that produced it."}},
 	},
 	{
 		name = "UnifiedCommand",
 		inherits = "RefCounted",
 		brief = "One of the game's commands: the base of its command classes.",
-		text = "Each kind of the game's command union is a class extending this one, with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
+		text = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
 	},
 }
 

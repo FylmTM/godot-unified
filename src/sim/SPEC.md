@@ -79,8 +79,8 @@ for &raw in sim.commands(tick.inputs, player) {     // inside tick: this player'
   joiners with the log; never in the block. Only `tick` reads it. The union exists only when `command_value` builds
   it; on the wire and in the log a command is its kind and its struct's bytes.
 - `create` checks the union: a plain union (not `#no_nil` or `#shared_nil`), plain variants with no padding, 1..64
-  bytes (`COMMAND_MAX`), at most 255 variants, names unique. The names (`command_names(Command)`) are what
-  GDScript's `send_command("drop_coin", {...})` uses.
+  bytes (`COMMAND_MAX`), at most 255 variants, names unique. GDScript sends one as an object of its class
+  (`CommandDropCoin`: `src/godot/SPEC.md`).
 - A tick holds at most `COMMANDS_PER_PLAYER` (4) of one player and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
   so a tick's record has a fixed size and fits one datagram. More wait for the next tick, in order:
   `add_command(&inputs, raw) -> bool`. Ordered by player, each player's in the order sent.
@@ -104,7 +104,7 @@ Coin_Picked :: struct {
 	position: sim.Position, // distinct [3]f32, sim units (2D: z = 0)
 	value:    u32,
 }
-Event :: union {Coin_Spawned, Coin_Picked, Coin_Dropped}  // name = type name, lowercased: "coin_picked"
+Event :: union {Coin_Spawned, Coin_Picked, Coin_Dropped}  // name = type name without an Event_ prefix, lowercased: "coin_picked"
 
 GAME := Game{..., events = Event}
 sim.emit(tick, Coin_Picked{coin = handle, player = u8(player), position = {x, y, 0}, value = coin.value})

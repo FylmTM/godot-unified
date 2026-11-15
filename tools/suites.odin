@@ -205,7 +205,7 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			"views_test",
 			"test.gd",
 			"VIEWS TESTS",
-			{"unified: send_command: ", "unified: Mark.", `has no property "pad_check"`},
+			{"unified: send_command: ", "unified: CommandMark.", `has no property "pad_check"`},
 		},
 		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", nil},
 	}

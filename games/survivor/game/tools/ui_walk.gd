@@ -26,7 +26,7 @@ func _walk_play() -> void:
 	await shot("03_match")
 	step("match running (enemies, projectiles)")
 
-	var pick: Object = ClassDB.instantiate(&"Pick")
+	var pick: Object = ClassDB.instantiate(&"CommandPick")
 	pick.set(&"upgrade", &"damage")
 	expect(game.send_command(pick), "a Pick command is accepted (the sim ignores it without a level-up pending)")
 	await frames(5)

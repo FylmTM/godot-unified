@@ -631,8 +631,9 @@ VIEW_INDEX :: "unified_index.tres"
 
 // The view index (src/godot/SPEC.md): every scene of the game whose root has a UnifiedView marker as a direct child,
 // by the marker's kind, written to <game>/unified_index.tres (committed; `check`: fail when it is stale instead). A
-// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line.
-bake_view_index :: proc(game: Game, check: bool) -> bool {
+// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line. `quiet`:
+// say nothing when it is current.
+bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	Found :: struct {
 		kind, path: string,
 	}
@@ -685,7 +686,7 @@ bake_view_index :: proc(game: Game, check: bool) -> bool {
 	have, exists := read_text(path)
 	if len(found) == 0 && !exists do return ok
 	if exists && have == want {
-		log("uni: %s view index: %d kind(s), current", game.name, len(found))
+		if !quiet do log("uni: %s view index: %d kind(s), current", game.name, len(found))
 		return ok
 	}
 	if check {
