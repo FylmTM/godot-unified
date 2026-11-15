@@ -7,9 +7,8 @@ extends Node
 ##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
 ##
 ## The session is the native `UnifiedSession` from the game library (without the library the LibraryCheck autoload
-## shows a fatal screen instead). Everything reads the sim's game-wide values through `Game.hud`, which the game's HUD
-## view (a `hud` view kind, `addons/shared/views/hud_view.gd`) fills from its data every frame the data changes,
-## and its fixed numbers through `Game.constants` (the session's `constants()`, read once).
+## shows a fatal screen instead). The sim's game-wide values are the game's session data, `Unified.hud` (every demo
+## game's `Data_Hud` has `tick` and `players`), and its fixed numbers `Unified.constants`.
 
 signal flow_changed(flow: Flow)
 signal status_changed(status: String, detail: String)
@@ -38,10 +37,6 @@ var lan_port := LAN_PORT
 var lan_address := ""
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
-## The sim's game-wide values: the HUD view's data fields (hud_view.gd), empty until its first frame.
-var hud: Dictionary = {}
-## The sim's fixed numbers (the game's contract plus `tick_hz`).
-var constants: Dictionary = {}
 ## True while the player is using a gamepad (the last input event came from one).
 var using_pad := false
 
@@ -61,7 +56,6 @@ func _ready() -> void:
 	add_child(session)
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
-	constants = session.constants()
 
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer = 50
@@ -186,11 +180,11 @@ func player_slot(player: int) -> int:
 	return session.get_player_slot(player)
 
 
-## A player's entry in the HUD's `players` ({} when there is none).
+## A player's entry in the HUD data's `players` ({} when there is none).
 func player_info(player: int) -> Dictionary:
 	if player == 0:
 		return {}
-	for info: Dictionary in hud.get("players", []):
+	for info: Dictionary in Unified.hud.players:
 		if int(info.get("player", 0)) == player:
 			return info
 	return {}
@@ -204,7 +198,7 @@ func local_player_info() -> Dictionary:
 ## The HUD's players that are present, in slot order.
 func present_players() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for p: Dictionary in hud.get("players", []):
+	for p: Dictionary in Unified.hud.players:
 		if p.get("present", false):
 			out.append(p)
 	return out
