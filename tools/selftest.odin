@@ -9,10 +9,12 @@ import "unified:cli"
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
 // pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
-// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then build it,
-// run a headless mode and every test suite in that game repo. Only when called (before tooling PRs, after a pin or
-// toolchain change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD,
-// so it refuses uncommitted changes.
+// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then check its
+// view index, build it, run a headless mode and every test suite in that game repo. Then `init --in-repo` the same
+// game inside the clone (checking it wrote only the game and its tests import), its index, build, a headless mode,
+// the clone's odin suite and the game's godot suite. Only when called (before tooling PRs, after a pin or toolchain
+// change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD, so it
+// refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	Opts :: struct {
 		shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
@@ -79,6 +81,12 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 				env   = env,
 				check = check_init,
 			},
+			Step {
+				what = "its view index is what the build writes",
+				cmd  = shim(game, "bake", "--check"),
+				dir  = game,
+				env  = env,
+			},
 			// the first build generates the Godot bindings: a cold run, not one over its budget
 			Step {
 				what   = "build the game",
@@ -104,6 +112,45 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 				what = "the game repo's gate",
 				cmd  = shim(game, "verify"),
 				dir  = game,
+				env  = env,
+			},
+			// the same game inside the clone (init --in-repo), against the clone itself
+			Step {
+				what  = "init a game inside the checkout",
+				cmd   = shim(clone, "init", cli.join("games", IN_REPO_GAME), "--in-repo"),
+				dir   = clone,
+				env   = env,
+				check = check_in_repo,
+			},
+			Step {
+				what = "its view index is what the build writes",
+				cmd  = shim(clone, "bake", IN_REPO_GAME, "--check"),
+				dir  = clone,
+				env  = env,
+			},
+			Step {
+				what = "build it",
+				cmd  = shim(clone, "build", IN_REPO_GAME),
+				dir  = clone,
+				env  = env,
+			},
+			Step {
+				what   = "its headless binary through uni",
+				cmd    = shim(clone, "headless", IN_REPO_GAME, "--", "synctest", "--ticks", "64", "--window", "8"),
+				dir    = clone,
+				env    = env,
+				expect = `"mismatches":0`,
+			},
+			Step {
+				what = "the checkout's odin suite, the game's tests and lint in it",
+				cmd  = shim(clone, "test"),
+				dir  = clone,
+				env  = env,
+			},
+			Step {
+				what = "the game under headless Godot",
+				cmd  = shim(clone, "test", IN_REPO_GAME, "--suite", "godot"),
+				dir  = clone,
 				env  = env,
 			},
 		)
@@ -205,6 +252,26 @@ download_env :: proc(work, cache: string) -> []string {
 	}
 	append(&out, cli.tprint("PATH=%s", path), cli.tprint("%s=%s", cache_key, cache))
 	return out[:]
+}
+
+// The game `init --in-repo` makes inside the clone, at games/<it>.
+IN_REPO_GAME :: "selftest_game"
+
+// What `init --in-repo` changed in the clone (next to `game`'s repo): the game's directory and tests/tests.odin,
+// nothing else.
+check_in_repo :: proc(game, head: string) -> string {
+	clone := cli.join(os.dir(game), "unified")
+	status := cli.run_proc({
+		cmd     = cli.strs("git", "-C", clone, "status", "--porcelain", "--untracked-files=normal"),
+		capture = true,
+		quiet   = true,
+	})
+	changes := strings.split_lines(strings.trim_right(status.stdout, "\r\n"))
+	want := []string{" M tests/tests.odin", cli.tprint("?? games/%s/", IN_REPO_GAME)}
+	if len(changes) != len(want) || changes[0] != want[0] || changes[1] != want[1] {
+		return cli.tprint("the clone's changes are not just the game and its tests import:\n%s", status.stdout)
+	}
+	return ""
 }
 
 // What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files

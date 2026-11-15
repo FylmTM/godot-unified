@@ -4,6 +4,7 @@
 package test_cli
 
 import "core:os"
+import "core:strings"
 import "core:testing"
 import "core:time"
 import "unified:cli"
@@ -155,6 +156,52 @@ init_public_url :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.public_url(HTTPS), HTTPS)
 	testing.expect_value(t, cli.public_url("git@gitlab.com:someone/unified.git"), "git@gitlab.com:someone/unified.git")
 	testing.expect_value(t, cli.public_url("C:/work/unified"), "C:/work/unified")
+}
+
+// `init --in-repo` imports the game's tests in tests/tests.odin, sorted among the other games' imports, once.
+@(test)
+init_imports_game_tests :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	ROOT :: `package tests
+
+@(require) import "sim"
+
+@(require) import drift_tests "../games/drift/simulation/tests"
+@(require) import survivor_tests "../games/survivor/simulation/tests"
+`
+	text, added := cli.import_game_tests(ROOT, "minimal")
+	testing.expect(t, added)
+	testing.expect_value(
+		t,
+		text,
+		`package tests
+
+@(require) import "sim"
+
+@(require) import drift_tests "../games/drift/simulation/tests"
+@(require) import minimal_tests "../games/minimal/simulation/tests"
+@(require) import survivor_tests "../games/survivor/simulation/tests"
+`,
+	)
+	again, added_again := cli.import_game_tests(text, "minimal")
+	testing.expect(t, !added_again)
+	testing.expect_value(t, again, text)
+	first, _ := cli.import_game_tests(ROOT, "alpha")
+	testing.expect(t, strings.contains(first, "\"sim\"\n\n@(require) import alpha_tests"))
+	last, _ := cli.import_game_tests(ROOT, "zeta")
+	testing.expect(
+		t,
+		strings.has_suffix(
+			last,
+			"survivor_tests \"../games/survivor/simulation/tests\"\n@(require) import zeta_tests \"../games/zeta/simulation/tests\"\n",
+		),
+	)
+	none, _ := cli.import_game_tests("package tests\n\n@(require) import \"sim\"\n", "alpha")
+	testing.expect_value(
+		t,
+		none,
+		"package tests\n\n@(require) import \"sim\"\n\n@(require) import alpha_tests \"../games/alpha/simulation/tests\"\n",
+	)
 }
 
 // The test runner's output (-define:ODIN_TEST_LOG_STATE_CHANGES=true) as the test watchdog reads it.

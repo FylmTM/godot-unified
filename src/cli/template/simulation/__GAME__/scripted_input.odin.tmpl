@@ -1,0 +1,10 @@
+package __GAME__
+
+import "unified:sim"
+
+// Scripted input for headless checks: every player steers a random direction that changes every 16 ticks, the
+// same for a seed, player and tick whatever order they are asked in.
+scripted_input :: proc(seed: u64, player: int, t: u32) -> Input {
+	rng := sim.rng_seed(seed ~ u64(player + 1) << 32 ~ u64(t / 16))
+	return {dx = i8(sim.rng_below(&rng, 255)) - 127, dy = i8(sim.rng_below(&rng, 255)) - 127}
+}

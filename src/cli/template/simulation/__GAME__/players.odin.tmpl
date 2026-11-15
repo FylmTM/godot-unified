@@ -1,0 +1,20 @@
+package __GAME__
+
+import "unified:sim"
+
+MOVE_SPEED :: f32(4) // metres per second at full input
+
+update_players_presence :: proc(t: ^Tick) {
+	joined, _ := sim.presence_changes(t, &t.state.players)
+	for player in joined {
+		t.state.player_positions[player] = {f32(player), 0}
+	}
+}
+
+move_players :: proc(t: ^Tick) {
+	for player in t.state.players {
+		input := t.inputs.input[player]
+		t.state.player_positions[player].x += f32(input.dx) / 127 * MOVE_SPEED * DT
+		t.state.player_positions[player].y += f32(input.dy) / 127 * MOVE_SPEED * DT
+	}
+}
