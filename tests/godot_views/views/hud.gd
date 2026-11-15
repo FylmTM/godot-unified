@@ -15,3 +15,5 @@ var mark_loud := false
 var x := 0.0
 var y := 0.0
 var spawned := 0
+var tint := Vector4.ZERO
+var turn := Quaternion(1, 0, 0, 0)

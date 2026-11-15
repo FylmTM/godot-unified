@@ -71,7 +71,7 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 	if err != nil {
 		fatal("cannot create %s", log_path)
 	}
-	log("+ %s", exe)
+	if state.verbose do log("+ %s", exe)
 	start := time.tick_now()
 	process, start_err := os.process_start({
 		command = strs(exe),

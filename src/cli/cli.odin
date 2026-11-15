@@ -51,8 +51,9 @@ State :: struct {
 	pins:        Config,
 	commands:    [dynamic]Command,
 	command:     ^Command,
-	argv:        []string, // the command line after the program name, --json removed
+	argv:        []string, // the command line after the program name, --json and --verbose removed
 	json:        bool,
+	verbose:     bool, // --verbose (or VERBOSE_ENV, so a uni the CLI starts is verbose too): echo every command line
 	start:       time.Tick,
 	cold:        [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
 	env_keys:    []string, // the variables .env set
@@ -66,6 +67,9 @@ State :: struct {
 // Set in the environment of a `uni` the CLI starts itself (the godot suite's one per game): that run leaves
 // .out/timings.json to its parent.
 CHILD_ENV :: "UNIFIED_CLI_CHILD"
+
+// Set by --verbose for the processes the CLI starts (another uni reads it).
+VERBOSE_ENV :: "UNIFIED_VERBOSE"
 
 // Adds a project's own test suites (call before `run`).
 add_suites :: proc(suites: ..Suite) {
@@ -100,11 +104,18 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	for arg in args {
 		if arg == "--json" {
 			state.json = true
+		} else if arg == "--verbose" {
+			state.verbose = true
 		} else {
 			append(&argv, arg)
 		}
 	}
 	state.argv = argv[:]
+	if state.verbose {
+		_ = os.set_env(VERBOSE_ENV, "1")
+	} else {
+		state.verbose = os.get_env(VERBOSE_ENV, context.temp_allocator) != ""
+	}
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
 		print_help()
 		os.exit(len(argv) == 0 ? 2 : 0)
@@ -131,7 +142,7 @@ find_command :: proc(name: string) -> ^Command {
 
 print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
-	fmt.println("usage: uni <command> [options] [--json]   (uni <command> -h: its options and budget)\n")
+	fmt.println("usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options and budget)\n")
 	width := 0
 	for command in state.commands {
 		width = max(width, len(command.name) + 1 + len(command.usage))

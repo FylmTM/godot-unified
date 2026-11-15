@@ -15,7 +15,7 @@ Run :: struct {
 	timeout:     time.Duration, // 0: none; a run that exceeds it is killed
 	capture:     bool,
 	interactive: bool, // our stdin, stdout and stderr
-	quiet:       bool, // don't echo the command line
+	quiet:       bool, // never echo the command line (else it is echoed with --verbose, or when it fails)
 	env:         []string, // the whole environment (nil: ours, .env included)
 	log_to:      string, // with capture: also keep both streams in <log_to>.stdout / .stderr
 }
@@ -47,8 +47,8 @@ start :: proc(spec: Run) -> Proc {
 	child := Proc {
 		run = spec,
 	}
-	if !spec.quiet {
-		log("+ %s", strings.join(redact(spec.cmd), " ", context.temp_allocator))
+	if !spec.quiet && state.verbose {
+		log("+ %s", command_line(spec))
 	}
 	desc := os.Process_Desc {
 		command     = spec.cmd,
@@ -109,7 +109,17 @@ wait :: proc(child: ^Proc) -> Ran {
 	ran.exit_code = exit_state.exit_code
 	ran.ok = exit_state.exited && exit_state.exit_code == 0 && !ran.timed_out
 	ran.seconds = time.duration_seconds(time.tick_since(child.start))
+	// A failure names its command line, so it can be run again by hand (a captured run is a probe: its caller
+	// decides what a failure means).
+	if !ran.ok && !child.run.quiet && !child.run.capture && !state.verbose {
+		log("+ %s (%s)", command_line(child.run), ran.timed_out ? "timed out" : tprint("exit %d", ran.exit_code))
+	}
 	return collect(child, ran)
+}
+
+@(private)
+command_line :: proc(spec: Run) -> string {
+	return strings.join(redact(spec.cmd), " ", context.temp_allocator)
 }
 
 // Whether a started process has ended (without blocking).

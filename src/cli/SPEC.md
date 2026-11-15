@@ -100,7 +100,8 @@ compile, the compiler's version), never from tool sources; Odin's own cache is k
 
 Every command rejects unknown arguments; `-h` on any command prints its options and budget; `uni help` lists them
 all. Progress goes to stderr, the result to stdout: one line, or with `--json` (any command) one object
-`{command, ok, summary, seconds, cold, data}`. Exit 0 ok, 1 failed, 2 usage. A warm run over its budget prints
+`{command, ok, summary, seconds, cold, data}`. The command lines it runs are echoed only with `--verbose` (any
+command; a `uni` it starts inherits it), and when one fails. Exit 0 ok, 1 failed, 2 usage. A warm run over its budget prints
 `OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, generated the Godot bindings, or imported a project) is
 exempt and says so. Commands that need a game library or headless binary rebuild it when its build manifest is
 stale; `build` always builds.
@@ -111,7 +112,7 @@ Public (`unified:cli`, every project):
 |---|---|
 | `setup [--check]` | fetch and build everything this project needs; print each dependency's version and source (pinned download, `.env`, environment; with `UNIFIED_BOX3D`, builds that unified-box3d checkout) (`--check`: report only) |
 | `clean [--check] [--cache]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env`, the per-user cache (`--cache`: its Godot and unified-box3d downloads too, never the shims' Odin) or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
-| `build [game] [--mode dev\|release\|debug]` | every headless binary and the game's (or every game's) extension (this repo: `toy` builds no extension) |
+| `build [game] [--mode dev\|release\|debug]` | the game's (or every game's) headless binary and extension, in parallel (this repo: `toy` builds no extension) |
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
 | `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; it opens without activation and clicks don't activate it). The editor ignores the override and takes focus |
 | `test [game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast; `--box3d-debug` runs the `odin` suite against Box3D's debug library |

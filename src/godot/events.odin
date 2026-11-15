@@ -158,20 +158,63 @@ dict_put :: proc(dict: ^gd.Dictionary, key: string, value: ^gd.Variant) {
 	value^ = {}
 }
 
+// A Godot math value from a field's bytes (copied: the frame's data has no alignment).
+@(private)
+math_variant :: proc($T: typeid, bytes: []u8) -> gd.Variant {
+	value: T
+	copy(([^]u8)(&value)[:size_of(T)], bytes)
+	return gd.to_variant(value)
+}
+
 @(private)
 f32_at :: proc(bytes: []u8, i: int) -> f32 {
 	return transmute(f32)u32(read_uint(bytes[i * 4:][:4]))
 }
 
 // A field's value: a handle becomes its key (int), a sim.Position a Vector2 (2D) or Vector3 (in view units already),
-// an enum its member's name lowercased (a StringName; in a bit_set's Array a String), a bit_set an Array of those,
-// [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary, other
-// numbers int or float.
+// one of Godot's math types (gd.Color, gd.Vector4, gd.Quaternion, ...: a view's data may use them, the extension
+// imports gdext) itself, an enum its member's name lowercased (a StringName; in a bit_set's Array a String), a
+// bit_set an Array of those, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested
+// struct a Dictionary, other numbers int or float.
 @(private)
 field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.Variant {
 	if type.id == sim.Position {
 		if is_2d do return gd.to_variant(gd.Vector2{f32_at(bytes, 0), f32_at(bytes, 1)})
 		return gd.to_variant(gd.Vector3{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)})
+	}
+	switch type.id {
+	case gd.Vector2:
+		return math_variant(gd.Vector2, bytes)
+	case gd.Vector2i:
+		return math_variant(gd.Vector2i, bytes)
+	case gd.Rect2:
+		return math_variant(gd.Rect2, bytes)
+	case gd.Rect2i:
+		return math_variant(gd.Rect2i, bytes)
+	case gd.Vector3:
+		return math_variant(gd.Vector3, bytes)
+	case gd.Vector3i:
+		return math_variant(gd.Vector3i, bytes)
+	case gd.Transform2D:
+		return math_variant(gd.Transform2D, bytes)
+	case gd.Vector4:
+		return math_variant(gd.Vector4, bytes)
+	case gd.Vector4i:
+		return math_variant(gd.Vector4i, bytes)
+	case gd.Plane:
+		return math_variant(gd.Plane, bytes)
+	case gd.Quaternion:
+		return math_variant(gd.Quaternion, bytes)
+	case gd.AABB:
+		return math_variant(gd.AABB, bytes)
+	case gd.Basis:
+		return math_variant(gd.Basis, bytes)
+	case gd.Transform3D:
+		return math_variant(gd.Transform3D, bytes)
+	case gd.Projection:
+		return math_variant(gd.Projection, bytes)
+	case gd.Color:
+		return math_variant(gd.Color, bytes)
 	}
 	if is_handle(type) {
 		index, generation := read_uint(bytes[:4]), read_uint(bytes[4:])
