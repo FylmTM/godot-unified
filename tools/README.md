@@ -28,7 +28,10 @@ to the budget, and says so. Interactive, windowed and networked commands have no
 
 ## A game in its own repository
 
-`./uni init <dir>` makes one: the template game (a dot per player), the shims, `tools/main.odin` (the public
+`./uni init <dir>` makes one: the template game (a capsule per player), the shims, `tools/main.odin` (the public
 commands; the game adds its own there), `.gitignore`, and unified as a git submodule at `unified/` (its root
 `.gdignore` keeps Godot from importing it). In the game repo, the same `./uni` builds, tests and runs that game;
 `test`, `vet`, `fmt` and `verify` cover the game, not the submodule.
+
+A game inside this repo starts from the same template: `./uni init games/<name> --in-repo` writes the game's
+files only and imports its tests in `tests/tests.odin`.

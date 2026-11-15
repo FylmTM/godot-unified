@@ -1,0 +1,39 @@
+// __GAME__'s deterministic simulation, a unified sim package (unified's src/sim/SPEC.md): f32 only, no pointers or
+// heap data in State, which is snapshotted with a memcpy.
+package __GAME__
+
+import "unified:sim"
+
+PLAYERS :: 4
+TICK_HZ :: 64 // a power of two: dt is exact
+DT :: f32(1) / TICK_HZ
+
+Game :: sim.Game(State, Input, World, PLAYERS)
+Tick :: sim.Tick(State, Input, World, PLAYERS)
+
+@(rodata)
+GAME := Game {
+	name          = "__GAME__",
+	version       = "1",
+	tick_hz       = TICK_HZ,
+	world_create  = world_create,
+	world_destroy = world_destroy,
+	init          = init,
+	tick          = tick,
+}
+
+world_create :: proc(seed: u64, content: []u8) -> ^World {
+	return new(World)
+}
+
+world_destroy :: proc(world: ^World) {
+	free(world)
+}
+
+// The tick-0 state (the block is zeroed before): nothing more to set.
+init :: proc(state: ^State, world: ^World, seed: u64) {}
+
+tick :: proc(t: ^Tick) {
+	update_players_presence(t)
+	move_players(t)
+}

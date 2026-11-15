@@ -108,8 +108,8 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "init",
-			usage     = "<dir> [--unified <url>] [--ref <ref>]",
-			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref)",
+			usage     = "<dir> [--unified <url>] [--ref <ref>] | games/<name> --in-repo",
+			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout, its tests imported in tests/tests.odin",
 			no_budget = "clones unified",
 			run       = cmd_init,
 		},

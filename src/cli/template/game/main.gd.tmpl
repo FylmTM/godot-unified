@@ -1,10 +1,10 @@
-extends Node2D
-## The game: a single player session, the players' dots drawn as scene views under this node (arrow keys move).
+extends Node3D
+## The game: a single player session; each player is a capsule (game/views/player.tscn) under this node, the
+## session's view root. The arrow keys move.
 
 @onready var session: UnifiedSession = %UnifiedSession
 
 
 func _ready() -> void:
-	session.view_root = self
 	if not session.is_running():  # headless checks (--autostart) have started one already
 		session.start_single()

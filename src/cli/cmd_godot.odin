@@ -647,7 +647,7 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	}
 	found: [dynamic]Found
 	ok := true
-	for file in find_files(game.dir, ".tscn") {
+	for file in godot_scenes(game.dir) {
 		rel_path := strings.trim_prefix(file[len(game.dir):], "/")
 		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
 		if strings.has_prefix(rel_path, "addons/") do continue
@@ -704,6 +704,27 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	write_text(path, want)
 	log("uni: %s view index: %d kind(s) -> %s", game.name, len(found), VIEW_INDEX)
 	return ok
+}
+
+// The .tscn files Godot sees in the project at `dir`, sorted: not under a hidden directory, nor one with a .gdignore
+// (a game repo's unified/ submodule has one).
+godot_scenes :: proc(dir: string) -> []string {
+	out: [dynamic]string
+	walker := os.walker_create(dir)
+	defer os.walker_destroy(&walker)
+	for info in os.walker_walk(&walker) {
+		if info.type == .Directory {
+			if strings.has_prefix(info.name, ".") || os.is_file(join(info.fullpath, ".gdignore")) {
+				os.walker_skip_dir(&walker)
+			}
+			continue
+		}
+		if info.type == .Regular && strings.has_suffix(info.name, ".tscn") {
+			append(&out, strings.clone(info.fullpath))
+		}
+	}
+	sort_strings(out[:])
+	return out[:]
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
