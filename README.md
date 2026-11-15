@@ -85,7 +85,10 @@ core works inside.
 
 ## The games
 
-Three co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
+Four co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
+
+- [`games/minimal_3d/`](games/minimal_3d/SPEC.md): the smallest 3D game on every feature (capsules that throw balls),
+  the showcase of how to write a game and the base of `uni init`'s template.
 
 - [`games/survivor/`](games/survivor/SPEC.md): a top-down survivor with waves of enemies and physics props (3D).
 - [`games/friendslop/`](games/friendslop/SPEC.md): a third-person physics sandbox: carry, stack, throw (3D).

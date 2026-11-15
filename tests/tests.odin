@@ -26,4 +26,5 @@ package tests
 
 @(require) import drift_tests "../games/drift/simulation/tests"
 @(require) import friendslop_tests "../games/friendslop/simulation/tests"
+@(require) import minimal_3d_tests "../games/minimal_3d/simulation/tests"
 @(require) import survivor_tests "../games/survivor/simulation/tests"
