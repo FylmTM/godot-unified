@@ -158,7 +158,8 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
 
 Decided in #6 (D5). Events tell the view what happened (a shot, a hit, a pickup). They are not state: not in the
 block, not hashed, not rolled back as such. The game declares one plain struct per event (≤ 64 bytes) and a union of
-them; an event carries only its own fields:
+them; an event carries only its own fields, never one named `tick` or `kind` (every event carries its tick and kind
+already: the game check, `game_violation`, refuses them, so a game's own tests catch it before Godot loads anything):
 
 ```odin
 Event_Coin_Picked :: struct {
