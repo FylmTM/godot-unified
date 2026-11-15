@@ -3,9 +3,8 @@ extends Node3D
 ## One-shot effects driven by sim events: death puffs, barrel explosions (light, fire, smoke, shock ring, screen
 ## shake), gem sparkles, level-up bursts, player death/respawn. Built from code-made CPUParticles3D, no assets.
 
-## Enemy_Kind's members as events name them, in order, and their colours.
-const ENEMY_KINDS: Array[String] = ["grunt", "runner", "brute"]
-const ENEMY_COLORS := [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]
+## The enemies' colours by EnumEnemyKind value (grunt, runner, brute).
+const ENEMY_COLORS: Array[Color] = [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]
 const GEM_COLOR := Color("5dffb1")
 const FIRE := Color("ffb347")
 const GOLD := Color("ffd23f")
@@ -54,9 +53,9 @@ func play(event: UnifiedEvent) -> void:
 	var player: int = event.get(&"player") if &"player" in event else 0
 	var local := player != 0 and player == Game.local_player()
 	if event is EventEnemyDied:
-		var kind := clampi(ENEMY_KINDS.find(String((event as EventEnemyDied).enemy_kind)), 0, 2)
-		var color: Color = ENEMY_COLORS[kind]
-		_burst(pos + Vector3(0, 0.5, 0), color, 10 if kind != 2 else 22, 4.0, 0.45, 0.8)
+		var kind := (event as EventEnemyDied).enemy_kind
+		var color := ENEMY_COLORS[clampi(kind, 0, ENEMY_COLORS.size() - 1)]
+		_burst(pos + Vector3(0, 0.5, 0), color, 22 if kind == EnumEnemyKind.BRUTE else 10, 4.0, 0.45, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
 	elif event is EventBarrelExploded:
 		explosion(pos, EXPLOSION_RADIUS)

@@ -1,5 +1,5 @@
 // Phases: lobby -> match on leaving the start circle, match -> over when everyone is dead, over ->
-// lobby after the hold with a fresh world; the HUD view of it.
+// lobby after the hold with a fresh world.
 package test_survivor
 
 import "core:testing"
