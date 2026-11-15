@@ -50,7 +50,7 @@ through `headless.session_run`).
   layouts, command and event types, player count, tick rate, game name and version, content; 0 at the relay
   accepts any) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`, `Not_Started`, `No_Snapshot` (a
   joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). A game's lobby bucket is its name,
-  `compat` and `PROTOCOL_VERSION` (9); the library forms it from #11 on, until then each game bumps its own.
+  `compat` and `PROTOCOL_VERSION` (10); the library forms it from #11 on, until then each game bumps its own.
 - **Start** (#179, D6 of #8): the clock starts once the start players have connected: they get Welcome and tick 0 is
   due `START_LEAD_MS` (500 ms) later, so a far start player's inputs for tick 1 arrive in time (~550 ms RTT); during
   the lead the relay already broadcasts, with a negative relay time. A host's relay skips the lead (`local_start`):
@@ -61,9 +61,18 @@ through `headless.session_run`).
   is due.
 - **Broadcast**: on every finalize, and a heartbeat when nothing was finalized for a tick (the clients time their
   clocks from it). Each Finalized datagram carries the relay time, an echo of the client's last Inputs time, the
-  input and command acks, and the client's unacked finalized ticks (as many as fit, ≤ 32, fewer with commands); a
-  longer backlog, up to `CATCHUP_TICKS` (384), goes out one window per broadcast in turn. A client whose unacked
-  ticks have left the ring is refused (`Too_Far_Behind`).
+  input and command acks, and the client's unacked finalized ticks (as many as fit, ≤ `WINDOW_MAX` 32); a longer
+  backlog, up to `CATCHUP_TICKS` (384), goes out one window per broadcast in turn. A client whose unacked ticks have
+  left the ring is refused (`Too_Far_Behind`).
+- **The window** (#192, `window.odin`): each tick is written as its changes from the tick before it in the same
+  packet, the first from the empty tick (nobody present, zero inputs): a flags byte (presence changed, inputs
+  changed, has commands), then only what it says: present and replaced; a bit per player whose input changed and,
+  per such player, a bit per changed byte and those bytes; the commands. A tick like the one before, without
+  commands, is one byte; absent seats cost nothing. Every packet decodes on its own, so acks and loss work as before
+  (the next packet repeats what wasn't acked). A tick's commands are budgeted so it fits a packet alone however much
+  it changed (`window_tick_max_bytes`). Measured (`net-bench`, 2 clients, 140 ms each way): a joiner receives 7.5
+  kB/s in drift, 7.8 in friendslop, from 38 and 52 (110 and 115 bytes a packet from 555 and 758); scripted inputs
+  change every 16 ticks, a player turning the aim every tick costs 3–4 bytes a tick more.
 - **Recording** (#8 D12): `Relay_Config.recording` (a `sim.Log_Sink`: `sim.log_sink_memory`, `sim.log_sink_file`)
   gets the session's input log (`UNIL`, `src/sim/SPEC.md`) as ticks are finalized: the header with a tick count of
   0, each tick in the wire format, the count when it ends (`relay_end_recording`, or `relay_destroy`); a recording
@@ -144,8 +153,8 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
   commands. Finalizing T, it puts in each present player's waiting commands with W ≤ T: at most 4 per player and
   16 per tick, within the bytes that keep a tick alone inside one datagram, round-robin; the rest wait for T + 1. A
   left player's waiting commands go with it.
-- **Wire:** a finalized tick is `sim.write_tick` (present, replaced, inputs, then the commands: an empty tick costs
-  one byte). A placement T ≠ W is a misprediction like any other (the sender rolls back at W).
+- **Wire:** a finalized tick carries its commands as `sim.write_commands` does (the window, under Relay). A placement
+  T ≠ W is a misprediction like any other (the sender rolls back at W).
 
 ## Late join and rejoin
 
@@ -194,7 +203,8 @@ in order), late join + leave + seat reuse, single player, a taken player refused
 32/60/64/128 Hz, outages and rejoins, catching up, too far behind, everyone leaving (a returning player refused),
 a snapshot provider leaving (another steps in; with nobody, the joiner is refused), a bad snapshot refused and
 another sent (with nobody else: refused), the `desync` hook, a reliable burst not resent, a jitter-only netsim,
-stale finalized ticks, reliable floods, UDP endpoint reuse, oversized messages, another build refused, a seeded
+stale finalized ticks, the window encoding (`window_test.odin`: round trips, sizes, malformed ticks refused),
+reliable floods, UDP endpoint reuse, oversized messages, another build refused, a seeded
 fuzz of the channel, relay and client decoders, and commands (`command_test.odin`): exactly once and in order under
 `bad`, a late input's command moved to a later tick, the 5th command of a tick waiting for the next.
 `tests/headless`: a desync made on purpose (a tick that reads the World) is detected, reported to everyone with a

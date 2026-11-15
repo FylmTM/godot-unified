@@ -376,9 +376,10 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: 
 	client.own_acked = max(client.own_acked, input_ack)
 	limit := fin_base(client) + FIN_RING - 64
 	tick_inputs := &client.fin_scratch
+	tick_inputs^ = {} // each tick is read as its changes from the one before; the first's from the empty tick
 	for k in 0 ..< count {
 		tick := first + k
-		if !usim.inputs_read(reader, tick_inputs) {
+		if !window_read_tick(reader, tick_inputs) {
 			break // malformed: the ticks after it can't be found
 		}
 		// Ticks at or below fin_upto are held or consumed already: a stale datagram must not

@@ -251,8 +251,8 @@ fake_finalized :: proc(fake: ^Fake_Relay, first: u32, ticks: []toy.Inputs) {
 	wire.w_u32(writer, 0) // command ack
 	wire.w_u32(writer, first)
 	wire.w_u8(writer, u8(len(ticks)))
-	for &tick_inputs in ticks {
-		sim.inputs_write(writer, &tick_inputs)
+	for &tick_inputs, i in ticks {
+		netcode.window_write_tick(writer, &tick_inputs, i > 0 ? &ticks[i - 1] : nil)
 	}
 	fake_send(fake, .Unreliable)
 }
