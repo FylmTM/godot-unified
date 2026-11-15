@@ -1,5 +1,6 @@
 package cli
 
+import "core:encoding/json"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -213,14 +214,85 @@ cmd_test :: proc(args: []string) -> Result {
 		ok:      bool,
 		seconds: f64,
 	}
-	results: [dynamic]Suite_Result
+	results := make([]Suite_Result, len(suites))
 	ok := true
+	// With other suites, the `beside` ones run in child processes while the rest run here, in order.
+	children := make([]Maybe(Proc), len(suites))
+	in_process := 0
 	for suite in suites {
+		in_process += suite.beside ? 0 : 1
+	}
+	if in_process > 0 && in_process < len(suites) {
+		for suite in suites {
+			if suite.beside && suite.prepare != nil {
+				suite.prepare()
+			}
+		}
+		exe := self_exe()
+		for suite, i in suites {
+			if !suite.beside do continue
+			cmd: [dynamic]string
+			append(&cmd, exe, "test")
+			if opts.game != "" {
+				append(&cmd, opts.game)
+			}
+			append(&cmd, "--suite", suite.name, "--json")
+			if opts.only != "" {
+				append(&cmd, "--only", opts.only)
+			}
+			if opts.long {
+				append(&cmd, "--long")
+			}
+			log("uni: test --suite %s: beside the others", suite.name)
+			children[i] = start({
+				cmd     = cmd[:],
+				dir     = state.project.root,
+				capture = true,
+				quiet   = true,
+				env     = env_with(tprint("%s=1", CHILD_ENV)),
+			})
+		}
+	}
+	for suite, i in suites {
+		if children[i] != nil do continue
 		start := time.tick_now()
+		cold_before := len(state.cold)
 		log("uni: test --suite %s", suite.name)
 		passed := suite.run(games, only)
-		append(&results, Suite_Result{suite.name, passed, round2(seconds_since(start))})
+		results[i] = {suite.name, passed, round2(seconds_since(start))}
 		ok = ok && passed
+		budget := suite_budget(suite.name) * (in_ci() ? CI_BUDGET_SCALE : 1)
+		if len(suites) > 1 && len(state.cold) == cold_before && results[i].seconds > budget {
+			log(
+				"uni: OVER BUDGET: the %s suite took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
+				suite.name,
+				results[i].seconds,
+				budget,
+			)
+		}
+	}
+	// A child reports its own time against its suite's budget; its log is printed when it ends.
+	for &child, i in children {
+		running, is_child := child.?
+		if !is_child do continue
+		ran := wait(&running)
+		if text := strings.trim_right_space(ran.stderr); text != "" {
+			log("%s", text)
+		}
+		results[i] = {suites[i].name, ran.ok, round2(ran.seconds)}
+		if report, found := last_json_object(ran.stdout); found {
+			if seconds, is_number := report["seconds"].(json.Float); is_number {
+				results[i].seconds = round2(f64(seconds))
+			}
+			if list, is_list := report["cold"].(json.Array); is_list {
+				for item in list {
+					if what, is_str := item.(json.String); is_str {
+						cold(string(what))
+					}
+				}
+			}
+		}
+		ok = ok && ran.ok
 	}
 	builder := strings.builder_make()
 	for result, i in results {

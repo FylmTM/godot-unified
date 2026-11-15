@@ -33,6 +33,10 @@ Suite :: struct {
 	budget:      f64,
 	long_budget: f64, // with `test --long` (0: `budget`)
 	run:         proc(games: []Game, only: []string) -> bool,
+	// Mostly waits (the real clock, timers): run with other suites, it runs beside them in a child process.
+	beside:      bool,
+	// With `beside`: makes current, before the others start, what it builds that they share (nil: nothing).
+	prepare:     proc(),
 }
 
 // What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
