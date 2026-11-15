@@ -16,6 +16,10 @@ GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk
 SESSION_TICKS :: 64
 SESSION_TICKS_LONG :: 256
 
+// The suite's tool scripts never reach the lobby service, also where .env names the EOS SDK: without the SDK library
+// online play fails at once, as on CI (the walk's bad-code join would wait seconds for EOS). `uni coop` is online.
+SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
+
 // Each game under headless Godot (SPEC.md, Test suites); several games run in parallel.
 suite_godot :: proc(games: []Game, only: []string) -> bool {
 	for step_name in only {
@@ -96,6 +100,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 				args    = script_step.args,
 				timeout = script_step.timeout,
 				quiet   = true,
+				env     = env_with(..SUITE_OFFLINE_ENV),
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
