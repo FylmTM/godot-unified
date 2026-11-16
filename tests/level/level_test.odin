@@ -202,18 +202,18 @@ create_static_bodies :: proc(t: ^testing.T) {
 	// A ray down at the origin hits the floor's top; the rotated box (pos (0,1,5) local (0,1,0)) is hit
 	// at y = 1.5; the sphere at (3,1,5) on top at y = 1.5; the capsule lies along x at (-3,1,5): top 1.25.
 	expect_top :: proc(t: ^testing.T, world: ^physics.World, x, z, want: f32) {
-		hit, ok := physics.ray_closest(world, {x, 10, z}, {0, -20, 0})
+		hit, ok := physics.world_cast_ray_closest(world, {x, 10, z}, {0, -20, 0})
 		testing.expectf(t, ok && abs(hit.point.y - want) < 1e-3, "at (%v, %v): %v, want %v", x, z, hit.point.y, want)
 	}
 	expect_top(t, world, 0, 0, 0)
 	expect_top(t, world, 0, 5, 1.5)
 	expect_top(t, world, 3, 5, 1.5)
 	expect_top(t, world, -3.2, 5, 1.25) // along x from -3.5 to -2.5
-	hit, _ := physics.ray_closest(world, {0, 10, 5}, {0, -20, 0})
+	hit, _ := physics.world_cast_ray_closest(world, {0, 10, 5}, {0, -20, 0})
 	testing.expect_value(t, hit.material, 77)
 }
 
-// A shape Box3D refuses is never a silent hole: create_shape says so, and create_static names the first one (#149).
+// A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_static names the first one (#149).
 @(test)
 create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 	world := physics.create()
@@ -237,11 +237,11 @@ create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 		bodies = bodies,
 	}
 	body_def := b3.default_body_def()
-	body := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
-	testing.expect(t, physics.create_shape(body, &shape_def, &shapes[0]))
-	testing.expect(t, !physics.create_shape(body, &shape_def, &shapes[1]))
-	testing.expect(t, !physics.create_shape(body, &shape_def, &shapes[2]))
+	body := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
+	testing.expect(t, physics.create_level_shape(world, body, &shape_def, &shapes[0]))
+	testing.expect(t, !physics.create_level_shape(world, body, &shape_def, &shapes[1]))
+	testing.expect(t, !physics.create_level_shape(world, body, &shape_def, &shapes[2]))
 	count, problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, count, 1)
 	testing.expect_value(t, problem, `level body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)

@@ -7,7 +7,8 @@ import "unified:b3"
 import "unified:dmath"
 import "unified:level"
 
-// Creates every static body of the level, in file order, and returns how many. Shapes without a
+// Creates every static body of the level, in file order, and returns how many (the World's, when made before
+// `extra`: call it first in world_create). Shapes without a
 // category in the file get `default_category`. `problem` names the first level shape Box3D refused (a hull it
 // can't build: under 4 points, or past its 128 edges), "" when every shape was built: a refused shape is skipped,
 // a hole in the level's collision the game must not run with (the games assert on it).
@@ -24,13 +25,14 @@ create_static :: proc(
 		body_def.position = level_body.pos
 		body_def.rotation = level_body.rot
 		id := b3.create_body(world.id, &body_def)
+		body_created(world, id, 0)
 		shape_def := b3.default_shape_def()
 		shape_def.base_material.friction = level_body.friction
 		shape_def.base_material.restitution = level_body.restitution
 		shape_def.base_material.user_material_id = level_body.material
 		shape_def.filter.category_bits = level_body.category if level_body.category != 0 else default_category
 		for &shape, shape_index in level_body.shapes {
-			if !create_shape(id, &shape_def, &shape) && problem == "" {
+			if !level_shape(id, &shape_def, &shape) && problem == "" {
 				problem = fmt.tprintf(
 					"level body %d %q, shape %d (%v%s): Box3D refused it",
 					body_index,
@@ -47,7 +49,19 @@ create_static :: proc(
 
 // Adds one level shape to a body (any type: games use it for their own level bodies too); false when Box3D refused
 // it (a hull under 4 points or past its 128 edges) and nothing was added.
-create_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.Shape) -> bool {
+create_level_shape :: proc(
+	world: ^World,
+	ref: Body_Ref,
+	def: ^Shape_Def,
+	shape: ^level.Shape,
+	loc := #caller_location,
+) -> bool {
+	check_shape_def(def, loc)
+	return level_shape(body_id(world, ref), def, shape)
+}
+
+@(private)
+level_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.Shape) -> bool {
 	identity := shape.rot == {0, 0, 0, 1}
 	id: b3.Shape_Id
 	switch shape.kind {

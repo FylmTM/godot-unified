@@ -30,7 +30,7 @@ arena_walls :: proc(world: ^physics.World, half: [2]f32) {
 		id := b3.create_body(world.id, &body_def)
 		shape_def := b3.default_shape_def()
 		shape_def.filter.category_bits = CAT_STATIC
-		physics.box_2d(id, &shape_def, wall[1], DEPTH_2D)
+		physics.create_box_shape_2d(world, physics.ref_of(id), &shape_def, wall[1], DEPTH_2D)
 	}
 }
 
@@ -49,7 +49,7 @@ rock_body :: proc(world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: 
 	for point, i in ROCK_POINTS {
 		scaled[i] = point * ROCK_RADIUS[size]
 	}
-	_, ok := physics.polygon_2d(id, &shape_def, scaled[:], DEPTH_2D)
+	_, ok := physics.create_polygon_shape_2d(world, physics.ref_of(id), &shape_def, scaled[:], DEPTH_2D)
 	assert(ok)
 	return physics.ref_of(id)
 }
@@ -67,7 +67,7 @@ circle_body :: proc(
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = cat
 	shape_def.base_material.restitution = restitution
-	physics.circle_2d(id, &shape_def, radius)
+	physics.create_circle_shape_2d(world, physics.ref_of(id), &shape_def, radius)
 	return physics.ref_of(id)
 }
 
@@ -130,12 +130,19 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 				body_def.linear_velocity = {vel.x, vel.y, 0}
 				id := b3.create_body(world.id, &body_def)
 				shape_def := b3.default_shape_def()
-				physics.box_2d(id, &shape_def, {rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)}, DEPTH_2D)
+				physics.create_box_shape_2d(
+					world,
+					physics.ref_of(id),
+					&shape_def,
+					{rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)},
+					DEPTH_2D,
+				)
 				item.body = physics.ref_of(id)
 			case .Rock:
 				item.body = rock_body(world, pos, rot, vel, ang, 1 + u32(grid_x % 3))
 			}
-			physics.set_velocity_2d(world, item.body, vel, ang)
+			physics.body_set_linear_velocity_2d(world, item.body, vel)
+			physics.body_set_angular_velocity_2d(world, item.body, ang)
 			append(&items, item)
 		}
 	}
@@ -155,26 +162,27 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 	for tick in 1 ..= 640 { 	// 10 s
 		if tick % 16 == 0 {
 			item := items[(tick / 16) % len(items)]
-			physics.apply_impulse_2d(
+			physics.body_apply_linear_impulse_to_center_2d(
 				world,
 				item.body,
-				{rnd(&rng, -1, 1), rnd(&rng, -1, 1)} * 6 * physics.mass(world, item.body),
+				{rnd(&rng, -1, 1), rnd(&rng, -1, 1)} * 6 * physics.body_mass(world, item.body),
 			)
 		}
 		if tick % 40 == 0 {
 			item := items[(tick / 40 * 7) % len(items)]
-			lin, _ := physics.velocity_2d(world, item.body)
-			physics.set_velocity_2d(world, item.body, lin, rnd(&rng, -10, 10))
+			lin := physics.body_linear_velocity_2d(world, item.body)
+			physics.body_set_linear_velocity_2d(world, item.body, lin)
+			physics.body_set_angular_velocity_2d(world, item.body, rnd(&rng, -10, 10))
 		}
 		step(world)
 		for item in items {
 			if !on_plane(world, item.body) do off_plane += 1
 			if !in_plane_velocity(world, item.body) do off_velocity += 1
-			pos, _ := physics.pose_2d(world, item.body)
+			pos := physics.body_position_2d(world, item.body)
 			if abs(pos.x) >= ARENA.x || abs(pos.y) >= ARENA.y do escaped += 1
 			if item.radius > 0 do sink = max(sink, abs(pos.x) + item.radius - ARENA.x, abs(pos.y) + item.radius - ARENA.y)
 		}
-		vel, _ := physics.velocity_2d(world, fast[0])
+		vel := physics.body_linear_velocity_2d(world, fast[0])
 		bounced ||= vel.x < -1
 	}
 	testing.expectf(t, off_plane == 0, "%d body-ticks left the plane (z or quaternion x/y not zero)", off_plane)
@@ -195,8 +203,8 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		if first.kind != .Circle do continue
 		for second in items[i + 1:] {
 			if second.kind != .Circle do continue
-			pos_first, _ := physics.pose_2d(world, first.body)
-			pos_second, _ := physics.pose_2d(world, second.body)
+			pos_first := physics.body_position_2d(world, first.body)
+			pos_second := physics.body_position_2d(world, second.body)
 			delta := pos_first - pos_second
 			worst = max(worst, first.radius + second.radius - dmath.sqrt(delta.x * delta.x + delta.y * delta.y))
 		}
@@ -259,13 +267,13 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
 	circle_body_def := physics.body_def_2d(.Dynamic_Body, {0, 0})
 	circle := b3.create_body(world.id, &circle_body_def)
-	physics.circle_2d(circle, &shape_def, 1)
+	physics.create_circle_shape_2d(world, physics.ref_of(circle), &shape_def, 1)
 	box_body_def := physics.body_def_2d(.Dynamic_Body, {5, 0})
 	box_body := b3.create_body(world.id, &box_body_def)
-	physics.box_2d(box_body, &shape_def, {1, 0.5}, 0.4)
+	physics.create_box_shape_2d(world, physics.ref_of(box_body), &shape_def, {1, 0.5}, 0.4)
 	tri_body_def := physics.body_def_2d(.Dynamic_Body, {10, 0}, {0, 1})
 	tri := b3.create_body(world.id, &tri_body_def)
-	_, ok := physics.polygon_2d(tri, &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
+	_, ok := physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
 	testing.expectf(
 		t,
@@ -274,39 +282,42 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 		b3.body_get_mass(box_body),
 	)
 	testing.expectf(t, abs(b3.body_get_mass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.body_get_mass(tri))
-	pos, rot := physics.pose_2d(world, physics.ref_of(tri))
+	pos := physics.body_position_2d(world, physics.ref_of(tri))
+	rot := physics.body_rotation_2d(world, physics.ref_of(tri))
 	testing.expectf(t, pos == {10, 0} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 
 	// Bullets: rays in the plane (z = 0) through ray_closest.
-	hit, found := physics.ray_closest(world, {-5, 0.2, 0}, {20, 0, 0})
+	hit, found := physics.world_cast_ray_closest(world, {-5, 0.2, 0}, {20, 0, 0})
 	testing.expect(t, found && hit.body == physics.link_of(circle))
 	testing.expectf(t, hit.point.z == 0 && abs(hit.normal.z) < 1e-6 && hit.normal.x < -0.97, "circle hit %v", hit)
-	hit, found = physics.ray_closest(world, {2, 0.2, 0}, {20, 0, 0})
+	hit, found = physics.world_cast_ray_closest(world, {2, 0.2, 0}, {20, 0, 0})
 	testing.expect(t, found && hit.body == physics.link_of(box_body))
 	testing.expectf(t, abs(hit.point.x - 4) < 1e-4 && hit.normal.x < -0.999, "box hit %v", hit)
 	// The triangle turned 90°: its apex (0, 1) points to −x, at x = 9; its base is at x = 11.
-	hit, found = physics.ray_closest(world, {7, 0, 0}, {20, 0, 0})
+	hit, found = physics.world_cast_ray_closest(world, {7, 0, 0}, {20, 0, 0})
 	testing.expect(t, found && hit.body == physics.link_of(tri))
 	testing.expectf(t, abs(hit.point.x - 9) < 1e-4, "triangle apex hit %v", hit)
-	hit, found = physics.ray_closest(world, {20, 0.5, 0}, {-20, 0, 0})
+	hit, found = physics.world_cast_ray_closest(world, {20, 0.5, 0}, {-20, 0, 0})
 	testing.expectf(t, found && abs(hit.point.x - 11) < 1e-4 && hit.normal.x > 0.999, "triangle base hit %v", hit)
 
 	// Velocities and impulses in the plane.
-	physics.set_velocity_2d(world, physics.ref_of(circle), {1, 2}, 3)
-	lin, ang := physics.velocity_2d(world, physics.ref_of(circle))
+	physics.body_set_linear_velocity_2d(world, physics.ref_of(circle), {1, 2})
+	physics.body_set_angular_velocity_2d(world, physics.ref_of(circle), 3)
+	lin := physics.body_linear_velocity_2d(world, physics.ref_of(circle))
+	ang := physics.body_angular_velocity_2d(world, physics.ref_of(circle))
 	testing.expect(t, lin == {1, 2} && ang == 3)
 	mass := b3.body_get_mass(circle)
-	physics.apply_impulse_2d(world, physics.ref_of(circle), {mass, -mass})
-	lin, _ = physics.velocity_2d(world, physics.ref_of(circle))
+	physics.body_apply_linear_impulse_to_center_2d(world, physics.ref_of(circle), {mass, -mass})
+	lin = physics.body_linear_velocity_2d(world, physics.ref_of(circle))
 	testing.expectf(t, abs(lin.x - 2) < 1e-5 && abs(lin.y - 1) < 1e-5, "after the impulse %v", lin)
 
 	// polygon_2d refuses what has no area or too many points.
-	_, ok = physics.polygon_2d(tri, &shape_def, {{0, 0}, {1, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{0, 0}, {1, 0}}, 1)
 	testing.expect(t, !ok)
-	_, ok = physics.polygon_2d(tri, &shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
 	testing.expect(t, !ok, "collinear points made a hull")
 	many: [physics.POLYGON_2D_MAX + 1][2]f32
-	_, ok = physics.polygon_2d(tri, &shape_def, many[:], 1)
+	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, many[:], 1)
 	testing.expect(t, !ok)
 }
 
@@ -369,7 +380,9 @@ FIELD := Field_Game {
 		t.state.rng = sim.rng_seed(t.seed)
 		t.state.ships[0].body = circle_body(world, {-4, 0}, {}, 0.5)
 		t.state.ships[1].body = circle_body(world, {4, 0}, {}, 0.5)
-		physics.teleport(world, t.state.ships[1].body, {4, 0, 0}, physics.quat_2d({-1, 0}))
+		physics.body_set_transform(world, t.state.ships[1].body, {4, 0, 0}, physics.quat_2d({-1, 0}))
+		physics.body_set_linear_velocity(world, t.state.ships[1].body, {})
+		physics.body_set_angular_velocity(world, t.state.ships[1].body, {})
 		// Every rock size is in the world at tick 0, so a late joiner's registry has every hull.
 		for size, i in ([?]u32{3, 3, 3, 3, 2, 2, 1, 1}) {
 			rock_add(
@@ -406,29 +419,35 @@ field_tick :: proc(tick: ^Field_Tick) {
 	world := tick.world.phys
 	for &ship, player in state.ships {
 		player_input := tick.inputs.input[player]
-		pos, rot := physics.pose_2d(world, ship.body)
-		lin, _ := physics.velocity_2d(world, ship.body)
+		pos := physics.body_position_2d(world, ship.body)
+		rot := physics.body_rotation_2d(world, ship.body)
+		lin := physics.body_linear_velocity_2d(world, ship.body)
 		turn := f32(player_input.turn) * (4.0 / 127)
 		if player_input.turn == 0 {
 			// No steering: the ship turns toward the first rock (aim assist), by the sign of the
 			// cross product of its heading and the direction to the rock.
 			for rock in state.rocks {
 				if rock.size == 0 do continue
-				rock_pos, _ := physics.pose_2d(world, rock.body)
+				rock_pos := physics.body_position_2d(world, rock.body)
 				to_rock := rock_pos - pos
 				turn = rot.x * to_rock.y - rot.y * to_rock.x > 0 ? 5 : -5
 				break
 			}
 		}
-		physics.set_velocity_2d(world, ship.body, lin, turn)
+		physics.body_set_linear_velocity_2d(world, ship.body, lin)
+		physics.body_set_angular_velocity_2d(world, ship.body, turn)
 		if player_input.thrust != 0 {
-			physics.apply_impulse_2d(world, ship.body, rot * (10 * DT * physics.mass(world, ship.body)))
+			physics.body_apply_linear_impulse_to_center_2d(
+				world,
+				ship.body,
+				rot * (10 * DT * physics.body_mass(world, ship.body)),
+			)
 		}
 		if ship.cooldown > 0 do ship.cooldown -= 1
 		if player_input.fire != 0 && ship.cooldown == 0 {
 			ship.cooldown = 6
 			nose := pos + rot * 0.5
-			hit, ok := physics.ray_closest(
+			hit, ok := physics.world_cast_ray_closest(
 				world,
 				{nose.x, nose.y, 0},
 				{rot.x * 30, rot.y * 30, 0},
@@ -468,8 +487,10 @@ rock_add :: proc(state: ^Field, world: ^physics.World, pos, rot, vel: [2]f32, an
 
 // Destroys the rock; a big or medium one leaves two smaller ones flying apart across the shot.
 rock_split :: proc(state: ^Field, world: ^physics.World, rock: ^Rock, shot: [2]f32) {
-	pos, rot := physics.pose_2d(world, rock.body)
-	lin, ang := physics.velocity_2d(world, rock.body)
+	pos := physics.body_position_2d(world, rock.body)
+	rot := physics.body_rotation_2d(world, rock.body)
+	lin := physics.body_linear_velocity_2d(world, rock.body)
+	ang := physics.body_angular_velocity_2d(world, rock.body)
 	size := rock.size
 	physics.destroy_body(world, &rock.body)
 	rock^ = {}
@@ -525,7 +546,7 @@ field_synctest :: proc(t: ^testing.T, game: ^Field_Game) -> (forward: [FIELD_TIC
 		forward[tick] = sim.checksum(session)
 		if tick < WINDOW do continue
 		testing.expect(t, sim.restore(session, tick - WINDOW))
-		testing.expect(t, physics.check_refs(session.world.phys, &session.state))
+		testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
 		for replay_tick in tick - WINDOW + 1 ..= tick {
 			replay_inputs := field_inputs(replay_tick)
 			sim.step(session, &replay_inputs)

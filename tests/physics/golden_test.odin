@@ -68,8 +68,8 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 			state.thrown = physics.ref_of(
 				box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
 			)
-			physics.set_velocity(world, state.thrown, {14, 0, 0})
-			target_x0 = physics.position(world, state.target.body).x
+			physics.body_set_linear_velocity(world, state.thrown, {14, 0, 0})
+			target_x0 = physics.body_position(world, state.target.body).x
 		}
 		step(world)
 		jumped ||= tick > 160 && !physics.character_grounded(&state.walker)
@@ -86,8 +86,8 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	// The scene does what it is for, so the trace covers walking, jumping, riding and being pushed.
 	testing.expect(t, jumped, "the walker never left the ground")
 	testing.expect(t, rode, "the rider left the platform")
-	testing.expect(t, physics.position(world, state.walker.body).y > 1.1, "the walker fell through")
-	pushed := physics.position(world, state.target.body).x - target_x0
+	testing.expect(t, physics.body_position(world, state.walker.body).y > 1.1, "the walker fell through")
+	pushed := physics.body_position(world, state.target.body).x - target_x0
 	testing.expectf(t, pushed > 0.1, "the target was pushed only %v m", pushed)
 	testing.expect(t, physics.character_grounded(&state.target), "the target did not get up again")
 	testing.expectf(

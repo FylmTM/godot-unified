@@ -54,7 +54,7 @@ save_restore_hash :: proc(t: ^testing.T) {
 	world := make_world(&state)
 	defer physics.destroy(world)
 	extra := physics.extra(world, State)
-	testing.expect_value(t, len(world.refs), 1 + 3 + 4) // player, crates, table items (memory order)
+	testing.expect_value(t, len(world.refs.bodies), 1 + 3 + 4) // player, crates, table items (memory order)
 	extra.save(extra.data, 0)
 	hash_0 := checksum(&state, &extra)
 	for _ in 0 ..< 30 {

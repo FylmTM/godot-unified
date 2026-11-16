@@ -3,7 +3,7 @@
 package physics
 
 import "unified:b3"
-import "unified:dmath"
+import "unified:sim"
 
 MAX_PATH_POINTS :: 16
 
@@ -29,11 +29,6 @@ Path :: struct {
 	ease:    Path_Ease,
 }
 
-@(private)
-ticks_of :: #force_inline proc(seconds: f32, tick_hz: int) -> u32 {
-	// Through dmath: level data may hold a negative, NaN or huge value, which converts differently on x86 and ARM.
-	return u32(dmath.to_i32_clamped(seconds * f32(tick_hz) + 0.5, 0, max(i32)))
-}
 
 // One leg of the cycle: wait at `from`, then travel to `to`.
 @(private)
@@ -51,16 +46,16 @@ path_leg :: proc(path: ^Path, leg_index: int, tick_hz: int) -> (leg: Leg, ok: bo
 		leg = {
 			leg_index,
 			leg_index + 1,
-			ticks_of(path.wait_s[leg_index], tick_hz),
-			ticks_of(path.seconds[leg_index], tick_hz),
+			sim.ticks(path.wait_s[leg_index], tick_hz),
+			sim.ticks(path.seconds[leg_index], tick_hz),
 		}
 	case .Loop:
 		if leg_index >= count do return
 		leg = {
 			leg_index,
 			(leg_index + 1) % count,
-			ticks_of(path.wait_s[leg_index], tick_hz),
-			ticks_of(path.seconds[leg_index], tick_hz),
+			sim.ticks(path.wait_s[leg_index], tick_hz),
+			sim.ticks(path.seconds[leg_index], tick_hz),
 		}
 	case .Ping_Pong:
 		if leg_index >= 2 * (count - 1) do return
@@ -68,12 +63,12 @@ path_leg :: proc(path: ^Path, leg_index: int, tick_hz: int) -> (leg: Leg, ok: bo
 			leg = {
 				leg_index,
 				leg_index + 1,
-				ticks_of(path.wait_s[leg_index], tick_hz),
-				ticks_of(path.seconds[leg_index], tick_hz),
+				sim.ticks(path.wait_s[leg_index], tick_hz),
+				sim.ticks(path.seconds[leg_index], tick_hz),
 			}
 		} else {
 			i := 2 * (count - 1) - leg_index // n-1 down to 1
-			leg = {i, i - 1, ticks_of(path.wait_s[i], tick_hz), ticks_of(path.seconds[i - 1], tick_hz)}
+			leg = {i, i - 1, sim.ticks(path.wait_s[i], tick_hz), sim.ticks(path.seconds[i - 1], tick_hz)}
 		}
 	}
 	return leg, true

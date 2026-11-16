@@ -199,7 +199,7 @@ create_static_2d :: proc(t: ^testing.T) {
 	testing.expect_value(t, problem, "")
 	// A ray into the plane (+z) at (x, y): the front face it hits (z = -depth/2 for boxes and hulls).
 	front :: proc(world: ^physics.World, x, y: f32) -> (z: f32, hit: physics.Ray_Hit, ok: bool) {
-		hit, ok = physics.ray_closest(world, {x, y, -5}, {0, 0, 10})
+		hit, ok = physics.world_cast_ray_closest(world, {x, y, -5}, {0, 0, 10})
 		return hit.point.z, hit, ok
 	}
 	expect_front :: proc(t: ^testing.T, world: ^physics.World, x, y, want: f32, loc := #caller_location) {
@@ -244,6 +244,6 @@ create_static_2d :: proc(t: ^testing.T) {
 }
 
 front_body :: proc(world: ^physics.World, x, y: f32) -> physics.Body_Link {
-	hit, _ := physics.ray_closest(world, {x, y, -5}, {0, 0, 10})
+	hit, _ := physics.world_cast_ray_closest(world, {x, y, -5}, {0, 0, 10})
 	return hit.body
 }
