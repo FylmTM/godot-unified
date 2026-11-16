@@ -203,6 +203,20 @@ driver_sessions :: proc(t: ^testing.T) {
 			}
 		}
 		testing.expect_value(t, godot.api.events_dropped(), 0)
+		// ids (#240): never 0; an event's Emitted and its final state share one, and no two events do
+		emitted := make(map[u64]int, context.temp_allocator)
+		finals := make(map[u64]int, context.temp_allocator)
+		for message in events {
+			testing.expect(t, message.id != 0, "an event has an id")
+			if message.action == .Emitted do emitted[message.id] += 1
+			else do finals[message.id] += 1
+		}
+		testing.expect(t, len(emitted) > 0, "events")
+		for id, count in emitted {
+			testing.expectf(t, count == 1, "id %d emitted once (%d)", id, count)
+			testing.expectf(t, finals[id] <= 1, "id %d has at most one final state", id)
+		}
+		for id in finals do testing.expectf(t, id in emitted, "id %d: a final state of an emitted event", id)
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		frame, _ := godot.api.front()

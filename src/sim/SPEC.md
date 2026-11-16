@@ -166,8 +166,8 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
 
 Decided in #6 (D5). Events tell the view what happened (a shot, a hit, a pickup). They are not state: not in the
 block, not hashed, not rolled back as such. The game declares one plain struct per event (≤ 64 bytes) and a union of
-them; an event carries only its own fields, never one named `tick` or `kind` (every event carries its tick and kind
-already: the game check, `game_violation`, refuses them, so a game's own tests catch it before Godot loads anything):
+them; an event carries only its own fields, never one named `tick`, `kind` or `id` (every event carries its tick, kind and
+view-side id already: the game check, `game_violation`, refuses them, so a game's own tests catch it before Godot loads anything):
 
 ```odin
 Event_Coin_Picked :: struct {
@@ -192,7 +192,7 @@ sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 
   The view's tracker identifies an event by (tick, type, subject, its index among events of that type and subject
   in the tick).
 - How GDScript receives them (an object of a class per event kind, a typed property per field: a handle becomes its key, `sim.Position` is converted to
-  view units, an enum becomes its name; the states Emitted, Confirmed and Cancelled; routing to the subject's
+  view units, an enum its int (a class of constants names it); the states Emitted, Confirmed and Cancelled; routing to the subject's
   view and one global `sim_event` signal): `src/godot/SPEC.md`.
 
 ## Tables and handles

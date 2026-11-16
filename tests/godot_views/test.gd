@@ -251,6 +251,10 @@ func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> vo
 		[join.player, join.slot, join.returning, join.tick] if join else joined)
 	check("PlayerJoined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
+	var ids := events.map(func(e: Array) -> int: return (e[0] as UnifiedEvent).id)
+	check("every event has an id", not ids.has(0), ids)
+	check("PlayerJoined: one id in both states (new objects)", joined.size() == 2 \
+		and joined[0][0].id == joined[1][0].id and joined[0][0] != joined[1][0], ids)
 	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned)
 	var first := spawned[0][0] as EventSpawned if spawned.size() > 0 else null
 	check("Spawned: a handle as its key, the position a Vector2 in view units, the enum an int",
@@ -258,12 +262,16 @@ func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> vo
 		and first.player == me, [first.thing, first.position, first.shape, first.player] if first else null)
 	check("Spawned: emitted, then confirmed", spawned.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
+	check("Spawned: one id in both states, not Joined's", spawned.size() == 2 and spawned[0][0].id == spawned[1][0].id \
+		and joined.size() > 0 and spawned[0][0].id != joined[0][0].id, ids)
 	var expired := events.filter(func(e: Array) -> bool: return e[0] is EventExpired)
 	check("Expired: the same thing's key, confirmed last", expired.size() > 0 and first != null \
 		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as EventExpired).thing == first.thing,
 		expired)
 	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool: return e[0] is EventSpawned)
 	check("by subject: the player's view gets Spawned in both states", on_view.size() >= 2, typed.get("events"))
+	check("the view sees the signal's ids", on_view.size() > 0 and spawned.size() > 0 \
+		and on_view[0][0].id == spawned[0][0].id, on_view)
 	check("event_key No_View: Joined reaches no view (the signal only)",
 		not (typed.get("events") as Array).any(func(e: Array) -> bool: return e[0] is EventPlayerJoined),
 		typed.get("events"))

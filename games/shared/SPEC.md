@@ -46,7 +46,7 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   `has`, signal `changed`. The shared keys (`DEFAULTS`: volumes, window mode, vsync, show FPS, player name); a game
   adds its own in `_game_keys()`, among them the standard optional ones (`OPTIONAL`: `render_scale`,
   `mouse_sensitivity`, `invert_y`), which the settings panel shows when present.
-- **`UnifiedSfx`** (`autoload/sfx.gd`, `Sfx`): `play(name, volume_db, pitch)`, `close()` (quitting: later plays are ignored); `click` and `gem` built in; a game
+- **`UnifiedSfx`** (`autoload/sfx.gd`, `Sfx`): `play(name, volume_db, pitch)` (a token), `stop(token)`, `close()` (quitting: later plays are ignored); `click` and `gem` built in; a game
   adds its sounds in `_add_sounds()` with `add(name, stream, min_gap)`, `tone()`, `arpeggio()`.
 
 UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (`main_menu.tscn`, exports `title`

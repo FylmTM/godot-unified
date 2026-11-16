@@ -17,7 +17,9 @@ import "core:slice"
 // in emission order.
 //
 // Events are identified by `Event_Id` (tick, kind, subject, nth): the caller picks what makes two events "the
-// same" across re-simulations (src/sim/SPEC.md "Events": the subject convention).
+// same" across re-simulations (src/sim/SPEC.md "Events": the subject convention). Each tracked event also gets a
+// serial when it is Emitted, the same on its Confirmed or Cancelled, for the view to match them (an event cancelled
+// and produced again later is a new one, with a new serial).
 
 Event_Id :: struct {
 	tick:   u32,
@@ -36,13 +38,15 @@ Event_Action :: enum u8 {
 Tracked :: struct($E: typeid) {
 	action: Event_Action,
 	event:  E,
+	serial: u64, // assigned at Emitted, the same on its Confirmed or Cancelled; never 0
 }
 
 @(private)
 Pending :: struct($E: typeid) {
-	event: E,
-	order: u32, // its index among the tick's events, the last time the tick was simulated
-	seen:  bool, // produced again by the current simulation of its tick
+	event:  E,
+	order:  u32, // its index among the tick's events, the last time the tick was simulated
+	seen:   bool, // produced again by the current simulation of its tick
+	serial: u64,
 }
 
 Event_Tracker :: struct($E: typeid) {
@@ -53,13 +57,16 @@ Event_Tracker :: struct($E: typeid) {
 	current_tick: u32,
 	emitted:      u32, // events of the current tick so far
 	out:          [dynamic]Tracked(E),
+	last_serial:  u64, // the newest serial given out
 	scratch:      [dynamic]Flush_Item,
 }
 
 // Sets how the tracker tells that two events from different simulations of a tick are the same one (the
-// caller's Event_Id convention). Call once before the first tick.
-tracker_init :: proc(tracker: ^Event_Tracker($E), id_of: proc(event: E) -> Event_Id) {
+// caller's Event_Id convention), and the serial the first event gets after (a new tracker can continue an old one's,
+// so serials never repeat). Call once before the first tick.
+tracker_init :: proc(tracker: ^Event_Tracker($E), id_of: proc(event: E) -> Event_Id, last_serial: u64 = 0) {
 	tracker.id_of = id_of
+	tracker.last_serial = last_serial
 }
 
 // Frees the tracker's pending map and output buffers.
@@ -92,8 +99,9 @@ tracker_event :: proc(tracker: ^Event_Tracker($E), event: E) {
 		pending.order = order
 		return
 	}
-	tracker.pending[id] = {event, order, true}
-	append(&tracker.out, Tracked(E){.Emitted, event})
+	tracker.last_serial += 1
+	tracker.pending[id] = {event, order, true, tracker.last_serial}
+	append(&tracker.out, Tracked(E){.Emitted, event, tracker.last_serial})
 }
 
 // Ends a simulation of `tick`: its pending events this simulation did not produce again are Cancelled (a
@@ -131,7 +139,7 @@ tracker_flush :: proc(
 	for item in tracker.scratch {
 		pending := tracker.pending[item.id]
 		delete_key(&tracker.pending, item.id)
-		append(&tracker.out, Tracked(E){action, pending.event})
+		append(&tracker.out, Tracked(E){action, pending.event, pending.serial})
 	}
 }
 

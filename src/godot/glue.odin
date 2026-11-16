@@ -254,6 +254,7 @@ STATUS_NAMES := [Status_Kind]string {
 Event_Message :: struct {
 	action: view.Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
+	id:     u64, // the same in its Emitted and its Confirmed or Cancelled; unique in the process (UnifiedEvent.id)
 	event:  sim.Raw_Event, // positions already in view units
 }
 

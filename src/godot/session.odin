@@ -498,7 +498,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
-	event := new_event_object(int(raw.kind), message.tick, raw.data[:raw.size])
+	event := new_event_object(int(raw.kind), message.tick, message.id, raw.data[:raw.size])
 	if event.ptr == nil do return // its class failed to register (an error said why)
 	// the Variant holds a reference and ours goes: the event is freed with the Variant unless a script kept it
 	held := gd.variant_from_any(event)
@@ -507,7 +507,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	state := i64(message.action)
 	views_event(layout, &raw, state, held)
 	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
-	dev_event(message.tick, message.action, layout, raw.data[:raw.size])
+	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
 }
 
 // set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.

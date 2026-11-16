@@ -291,6 +291,10 @@ wrap_link :: proc(
 	return wrapped
 }
 
+// The last event id an ended session gave out (main thread, between sessions): the next one continues after it.
+@(private)
+event_serial: u64
+
 @(private)
 g_game: rawptr
 @(private)
@@ -418,7 +422,7 @@ install :: proc(
 		input_sample_reset()
 		view.triple_init(&driver.states)
 		view.triple_init(&driver.inputs)
-		view.tracker_init(&driver.tracker, tick_event_id)
+		view.tracker_init(&driver.tracker, tick_event_id, event_serial) // ids never repeat in the process
 		driver.tev = {
 			ctx = driver,
 			code = proc(ctx: rawptr, code: string) {post_text((^This_Driver)(ctx), .Lobby_Code, code)},
@@ -450,6 +454,7 @@ install :: proc(
 		sync.atomic_store(&driver.stop_req, true)
 		thread.join(driver.thread)
 		thread.destroy(driver.thread)
+		event_serial = driver.tracker.last_serial
 		view.tracker_destroy(&driver.tracker)
 		for &frame in driver.frames.slots {
 			delete(frame.views)
@@ -658,6 +663,7 @@ flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $M
 		message := Event_Message {
 			action = tracked.action,
 			tick   = tracked.event.tick,
+			id     = tracked.serial,
 			event  = raw,
 		}
 		// full: the main thread is stalled; dropping an event beats blocking the sim (counted)

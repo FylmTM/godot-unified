@@ -108,9 +108,10 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   the rock meshes).
 - Enums in GDScript: `EnumPhase` (the HUD's phase) and `EnumRockSize` (the rock events' `size`).
 - Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
-- Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
-  rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
-  banners, once it is confirmed.
+- Events go to the ship's view by `player` (the routing by subject) and `station_hit` to the station
+  (`Glue.event_key`). The arena plays rock effects when an event is emitted (a prediction shows them at once), and
+  everything else, like the HUD's banners, once it is confirmed. A shot a rollback cancels (a remote ship's
+  predicted trigger) loses its muzzle flash and sound (the ship view, by the event's `id`).
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
   the movement, fire and boost actions.

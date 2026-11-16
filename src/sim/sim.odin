@@ -253,9 +253,9 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	for variant in union_variants(events) {
 		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct) or_continue
 		for i in 0 ..< int(info.field_count) {
-			if field := info.names[i]; field == "tick" || field == "kind" {
+			if field := info.names[i]; field == "tick" || field == "kind" || field == "id" {
 				return fmt.tprintf(
-					"%s: events: %v has a field named `%s`, which every event carries already (its tick and kind): rename it",
+					"%s: events: %v has a field named `%s`, which every event carries already (its tick, kind and id): rename it",
 					name,
 					variant.id,
 					field,

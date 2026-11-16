@@ -64,8 +64,8 @@ another build before it joins; `pump`, `close`, and the optional `account`, `mai
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
-0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`
-or `kind`), the State's players field, plain State and Input, a data type that isn't a plain, padding-free
+0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`,
+`kind` or `id`), the State's players field, plain State and Input, a data type that isn't a plain, padding-free
 struct) and registers nothing of the game. They are printed with `print_error` when the
 extension loads (the editor opens and shows why), and starting a session fails with the first one as its status.
 
@@ -205,7 +205,7 @@ layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_c
 host owns `instance_count` and `visible_instance_count`.
 
 **Events, commands and enums as classes.** At load the host registers a class per kind of the game's event union
-(`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
+(`extends UnifiedEvent`, a RefCounted with `tick`, `kind` and `id`, the type name lowercased: `rock_hit`) and command union
 (`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase without its prefix
 (`Event_Rock_Hit` -> `EventRockHit`, kind `rock_hit`; `Cmd_Drop` -> `CommandDrop`; an event type without `Event_`
 is named the same way), with a typed property per field. The
@@ -251,6 +251,25 @@ its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) a
   Confirmed in the same frame. Effects and sounds on EMITTED, what must be final (score, banners) on CONFIRMED,
   undoing an effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and
   index among the tick's events of that kind and subject.
+- **Identity.** Each state arrives as a new object; its `id` (an int) is the same in an event's EMITTED and in its
+  CONFIRMED or CANCELLED, and never repeats in the process (an event cancelled and produced again later is a new
+  one, a new id). A re-simulation may change an event's fields but not its id: CONFIRMED carries the final ones. A
+  game undoes on CANCELLED only what is worth undoing (drift: a mispredicted shot's flash and sound), keyed by id:
+
+  ```gdscript
+  var _shots: Dictionary[int, int] = {}  # a shot's event id -> its sound
+
+  func _sim_event(event: UnifiedEvent, state: int) -> void:
+  	if event is EventFired:
+  		match state:
+  			UnifiedSession.EVENT_EMITTED: _shots[event.id] = Sfx.play(&"fire")
+  			UnifiedSession.EVENT_CANCELLED: if _shots.has(event.id): Sfx.stop(_shots[event.id])
+  			UnifiedSession.EVENT_CONFIRMED: pass
+  		if state != UnifiedSession.EVENT_EMITTED: _shots.erase(event.id)
+  ```
+
+  Events still pending when a session ends get no final state (scripts drop what they keep per session); after
+  dropped events (the queue full, below) a script may see a final state for an id it never saw, or miss one.
 - **Where.** Each event, in each state, goes first to its subject's views (`_sim_event(event, state)` on the root's
   script): the views keyed by its handle (`sim.handle_key`, of any kind), else the views whose `entity` is its
   `entity` field (a view's entity defaults to its key), else its player's views (those whose `player` is its
@@ -376,7 +395,7 @@ is bound to released, and a press elsewhere doesn't.
 property's error, the same key in two kinds, entity defaulting to the key, `_sim_despawned` once and no pose while it
 lingers), MultiMesh views (2D and 3D buffers, colors, custom data, a full rotation on the shorter arc, scale per
 axis), session data on `Unified` (typed, `changed`, back to zero when the session ends), constants (strings, nested
-structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal
+structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal, one `id` per event across its states, `event_key` routing (a named view, none, by subject)
 (`EventPlayerJoined` with the local player's key), the session's players by key (slot, presence, name, no
 platform, `roster_changed`), typed commands reaching the sim once with every field kind, the input sample and a
 latched press. Its `session_check.gd` checks

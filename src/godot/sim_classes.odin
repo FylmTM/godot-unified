@@ -36,6 +36,7 @@ Sim_Field :: struct {
 Sim_Object :: struct {
 	using hdr: gd.Instance_Header,
 	tick:      i64, // an event's tick
+	id:        i64, // an event's id (the same in each of its states)
 	bad:       bool, // a command property was set to a wrong value (send_command refuses it)
 	data:      [sim.EVENT_MAX]u8,
 }
@@ -130,6 +131,8 @@ register_sim_classes :: proc() {
 	gd.register_class(&event_base_class)
 	gd.bind_method(&event_base_class, "get_tick", proc(object: ^Sim_Object) -> i64 {return object.tick})
 	gd.bind_property_by_name(&event_base_class, "tick", .INT, "get_tick")
+	gd.bind_method(&event_base_class, "get_id", proc(object: ^Sim_Object) -> i64 {return object.id})
+	gd.bind_property_by_name(&event_base_class, "id", .INT, "get_id")
 	gd.bind_method(&event_base_class, "get_kind", proc(object: ^Sim_Object) -> string {
 		if object.class == &event_base_class do return ""
 		return api.events[(^Sim_Class)(object.class).kind].name
@@ -230,12 +233,13 @@ unregister_sim_classes :: proc() {
 
 // An event in a new object of its class (main thread; the first Variant made of it holds its reference).
 @(private)
-new_event_object :: proc(kind: int, tick: u32, data: []u8) -> gd.Object {
+new_event_object :: proc(kind: int, tick: u32, id: u64, data: []u8) -> gd.Object {
 	for sim_class in sim_classes {
 		if !sim_class.is_event || sim_class.kind != kind do continue
 		object := gd.Object{gd.construct_object(sim_class.name)}
 		instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
 		instance.tick = i64(tick)
+		instance.id = i64(id)
 		copy(instance.data[:], data)
 		return object
 	}

@@ -118,7 +118,7 @@ when DEVUI {
 
 	// An event in one of its states, to the Events panel.
 	@(private)
-	dev_event :: proc(tick: u32, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {
+	dev_event :: proc(tick: u32, id: u64, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {
 		state: devui.Log_State
 		switch action {
 		case .Emitted:
@@ -129,7 +129,7 @@ when DEVUI {
 			state = .Cancelled
 		}
 		player, entity := event_subject(layout, data)
-		devui.log(tick, state, "%s player %d entity %d", layout.name, player, entity)
+		devui.log(tick, state, "#%d %s player %d entity %d", id, layout.name, player, entity)
 	}
 
 	// A note in the Events panel (a desync report).
@@ -377,7 +377,7 @@ when DEVUI {
 	@(private)
 	dev_session_started :: proc() {}
 	@(private)
-	dev_event :: proc(tick: u32, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {}
+	dev_event :: proc(tick: u32, id: u64, action: view.Event_Action, layout: ^Event_Layout, data: []u8) {}
 	@(private)
 	dev_note :: proc(tick: u32, text: string) {}
 	@(private)

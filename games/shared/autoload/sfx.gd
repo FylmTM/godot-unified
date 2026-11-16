@@ -14,6 +14,9 @@ var _last_played: Dictionary[StringName, float] = {}
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _closed := false
+## Per voice: the token of the sound it plays (play's result, for stop).
+var _tokens: PackedInt64Array = []
+var _serial := 0
 
 
 func _ready() -> void:
@@ -26,6 +29,7 @@ func _ready() -> void:
 		p.bus = &"SFX"
 		add_child(p)
 		_players.append(p)
+	_tokens.resize(VOICES)
 
 
 ## The game's sounds: `add()` each.
@@ -40,24 +44,37 @@ func add(sound: StringName, stream: AudioStream, min_gap := 0.0) -> void:
 		_min_gap[sound] = min_gap
 
 
-## Plays a sound on the next voice; nothing once the app is quitting (`close`).
-func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> void:
+## Plays a sound on the next voice; nothing once the app is quitting (`close`). Returns a token for `stop` (0:
+## nothing played).
+func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> int:
 	if _closed:
-		return
+		return 0
 	var stream: AudioStream = _streams.get(sound)
 	if stream == null:
 		push_error("Sfx: no sound %s" % sound)
-		return
+		return 0
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - _last_played.get(sound, -1.0) < _min_gap.get(sound, 0.0):
-		return
+		return 0
 	_last_played[sound] = now
 	var p := _players[_next]
+	_serial += 1
+	_tokens[_next] = _serial
 	_next = (_next + 1) % VOICES
 	p.stream = stream
 	p.volume_db = volume_db
 	p.pitch_scale = pitch
 	p.play()
+	return _serial
+
+
+## Stops the sound `token` started (play's result), if its voice still plays it: e.g. a mispredicted shot's, when
+## its event is cancelled.
+func stop(token: int) -> void:
+	var voice := _tokens.find(token) if token != 0 else -1
+	if voice >= 0:
+		_players[voice].stop()
+		_tokens[voice] = 0
 
 
 ## The app is quitting (Game.quit_app, which then stops the voices and waits for their playbacks): later plays
