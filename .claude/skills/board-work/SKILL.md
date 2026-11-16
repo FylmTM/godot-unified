@@ -1,6 +1,6 @@
 ---
 name: board-work
-description: How work moves on the unified board (GitHub Project 2) - taking an issue, the in-progress comment, branches and PRs, Closes vs Part of, when an agent may merge, moving issues to Done (which closes them), and filing new findings as Backlog issues. Use when starting work on an issue, opening, updating or merging a PR, moving a card, or filing an issue.
+description: How work moves on the unified board (GitHub Project 2) - taking an issue, the in-progress comment, branches and PRs, Closes vs Part of, when an agent may merge, moving issues to Done (which closes them), and when a finding is fixed in place or filed. Use when starting work on an issue, opening, updating or merging a PR, moving a card, or filing an issue.
 ---
 
 # Working on the board
@@ -62,8 +62,18 @@ and only when:
 
 Everything else waits in Review.
 
-## New findings
+## Findings
 
-Bugs, follow-ups and ideas outside the current request become new Backlog issues (`.github/ISSUE_TEMPLATE/work.md`:
-what and why, done when), not notes in docs or reports. A finding that is part of the current request gets fixed,
-not filed. Work the developer asks for in chat is done in that session, not filed first.
+Fix in place, in the current PR, whatever belongs to the current stream of work: a bug next to the change, a stale
+doc or comment, a small cleanup or fix, a leftover the review turned up. Work the developer asks for in chat is done
+in that session, not filed first.
+
+File a Backlog issue (`.github/ISSUE_TEMPLATE/work.md`: what and why, done when) only for:
+
+- a new feature (during the foundations review, AGENTS.md: ideas are filed, not built);
+- a fix or improvement big or risky enough to need its own PR and review (a design question, a protocol or sim
+  change nobody asked for, work across several modules).
+
+Feedback for later from one stream of work (a review, a sitting, a batch) goes into as few issues as possible, each
+still on one topic: one issue with a checklist, not one issue per item. Before filing, look for an open issue it
+belongs to and add a comment there instead. Never notes in docs or reports.
