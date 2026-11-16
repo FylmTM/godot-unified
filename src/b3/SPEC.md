@@ -1,11 +1,12 @@
 # `unified:b3`: the Box3D API
 
-Status: signed off 2026-11-14 (#7); its conventions 2026-11-11.
+Status: signed off 2026-11-14 (#7); its conventions 2026-11-11; 2026-11-16 private to physics (#236).
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin, exporting upstream's C API plus our snapshots and
 images; `pins.cfg`). Its Odin bindings are the `box3d:` collection (`box3d "box3d:bindings"`, upstream's API 1:1).
-`b3` is the hand-written layer every unified package and game uses instead: `src/physics` and games import
-`unified:b3`, never `box3d:bindings`.
+`b3` is the hand-written layer over them, and **physics' private implementation** (#236): only `src/physics` and
+`tests/b3` import `unified:b3` (the lint); games reach Box3D through `unified:physics` (`src/physics/SPEC.md`, The
+boundary), and nothing imports `box3d:bindings` but `b3`.
 
 ## Conventions
 
@@ -29,28 +30,24 @@ images; `pins.cfg`). Its Odin bindings are the `box3d:` collection (`box3d "box3
 - **Results** are `(value, ok)` instead of a `hit` field (`world_cast_ray_closest`). Scalars keep C's types (`i32`).
 - **No allocation of its own**: collecting is the caller's (callbacks), images go into the caller's `World_State`,
   snapshots into the caller's `World_Snapshot`.
-- **Coverage**: what `src/physics` and the games use, nothing more; a new use adds its proc with a test.
+- **Coverage**: what `src/physics` wraps (its "What physics covers"), nothing more. Each proc is tested once, through
+  physics (`tests/physics`); `tests/b3` keeps what is b3's own (below).
 - Every proc has a short doc comment: what it does, and anything the C name doesn't say (ownership, validity).
 - `b3` is linted as tick code (`tests/lint`): it imports `box3d:bindings` and `base:runtime` only.
 
 ## Coverage
 
-| Group     | Procs |
-|-----------|-------|
-| World     | `default_world_def`, `create_world`, `destroy_world`, `world_step`, `world_get_gravity`, `world_get_contact_events`, `world_overlap_aabb`, `world_cast_ray`, `world_cast_ray_closest` |
-| Rollback  | `world_save_snapshot`, `world_restore_snapshot`, `destroy_world_snapshot`, `create_world_state`, `destroy_world_state`, `world_state_get_data`, `world_save_image`, `world_load_image`, `world_hash_state`, `world_hash_awake_bodies` |
-| Bodies    | `default_body_def`, `create_body`, `destroy_body`, `body_is_valid`, `body_get_type`, `body_get_position`, `body_get_rotation`, `body_set_transform`, `body_get_local_point`, `body_get_linear_velocity`, `body_get_angular_velocity`, `body_set_linear_velocity`, `body_set_angular_velocity`, `body_apply_linear_impulse_to_center`, `body_get_mass` |
-| Shapes    | `default_shape_def`, `default_query_filter`, `create_sphere_shape`, `create_capsule_shape`, `create_hull_shape`, `shape_get_body`, `shape_is_sensor`, `create_hull`, `clone_and_transform_hull`, `destroy_hull`, `make_box_hull` |
-| Joints    | `destroy_joint`, `joint_is_valid`, `joint_get_body_a`, `joint_set_local_frame_a`, `joint_set_local_frame_b`, `default_motor_joint_def`, `create_motor_joint`, `default_mover_joint_def`, `create_mover_joint`, `mover_joint_set_linear_velocity`, `mover_joint_set_max_velocity_force`, `default_pogo_joint_def`, `create_pogo_joint`, `pogo_joint_set_spring_hertz`, `pogo_joint_set_spring_damping_ratio`, `pogo_joint_set_max_tension_force`, `pogo_joint_set_max_compression_force`, `pogo_joint_set_normal`, `pogo_joint_get_current_speed`, `pogo_joint_get_impulse` |
+Physics' coverage (`src/physics/SPEC.md`, What physics covers) plus what the plug-in itself needs: world creation
+and destruction, `world_step`, snapshots, world states, images, `world_hash_state`, `world_hash_awake_bodies`, the
+profile and counters (the bench).
 
 World creation and destruction touch the library's global world table: callers serialise them (`physics.create`
 does).
 
 ## Tests (`tests/b3`)
 
-One test per proc against the library (setters read back through the bindings' getters); every mirror's layout
-against its binding, scalar by scalar; the conversions are the identity on the bits; and the golden trace that pins the
-library's results on every platform (`GOLDEN`, a fixed scene hashed every 60 ticks: a library upgrade that changes it
+Every mirror's layout against its binding, scalar by scalar; the conversions are the identity on the bits; and the
+golden trace that pins the library's results on every platform (`GOLDEN`, a fixed scene hashed every 60 ticks: a library upgrade that changes it
 fails here first). A sync-test of its own (`sync_test.odin`): a stack falls asleep and a push wakes it while the run
 rolls back 8 ticks after every tick; every re-simulated tick hashes (whole world and awake bodies) as a straight
 1-worker run does, on 1 and 4 workers. So an upgrade is proven at this layer before physics' tests run.
