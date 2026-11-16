@@ -4,7 +4,6 @@ import "base:runtime"
 import win "core:sys/windows"
 
 // The monitors in the system's order, which is Godot's screen order on Windows.
-@(private)
 os_screens :: proc() -> []Screen {
 	list := make([dynamic]Screen, context.temp_allocator)
 	win.EnumDisplayMonitors(nil, nil, on_monitor, transmute(win.LPARAM)&list)
