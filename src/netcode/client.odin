@@ -914,8 +914,10 @@ send_inputs :: proc(client: ^Client($State, $Input, $World, $PLAYERS), now: i64)
 	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
 	wire.w_u8(writer, u8(count))
+	base: Input // each input as its changes from the one before it, the first from the zero input (#245)
 	for tick in first ..< first + count {
-		w_raw(writer, &client.own[tick % OWN_RING])
+		window_write_input(writer, &client.own[tick % OWN_RING], &base)
+		base = client.own[tick % OWN_RING]
 	}
 	// Commands the relay hasn't acked, in seq order, as many as fit.
 	k := 0

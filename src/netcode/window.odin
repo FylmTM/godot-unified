@@ -5,13 +5,14 @@
 //   flags u8 (Window_Flags)
 //   .Presence: present u32, replaced u32
 //   .Inputs:   the players whose input changed (a bit per player, ceil(PLAYERS / 8) bytes), then per such player,
-//              in order, the bytes of its input that changed (a bit per byte, ceil(size_of(Input) / 8) bytes) and
-//              their new values
+//              in order, its input as window_write_input writes it: the bytes that changed (a bit per byte,
+//              ceil(size_of(Input) / 8) bytes) and their new values
 //   .Commands: the tick's commands (sim.write_commands); without the flag the tick has none
 //   .Joins:    the tick's join records (sim.write_joins); without the flag it has none (they are per tick, never
 //              carried over from the tick before)
 //
-// A tick like the one before it, without commands, is one byte. The input log keeps sim.write_tick's format.
+// A tick like the one before it, without commands, is one byte. The input log keeps sim.write_tick's format. A
+// client's Inputs packet writes its own unacked inputs the same way (#245), each from the one before it.
 package netcode
 
 import "unified:sim"
@@ -27,7 +28,7 @@ Window_Flags :: bit_set[Window_Flag;u8]
 
 // The most bytes window_write_tick writes for a tick with `commands`: every field changed, every slot joining.
 window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw_Command) -> int {
-	size := 1 + 8 + mask_bytes(PLAYERS) + PLAYERS * (mask_bytes(size_of(Input)) + size_of(Input))
+	size := 1 + 8 + mask_bytes(PLAYERS) + PLAYERS * window_input_max_bytes(Input)
 	size += 1 + PLAYERS * sim.JOIN_BYTES
 	if len(commands) > 0 {
 		size += 1
@@ -80,18 +81,7 @@ window_write_tick :: proc(
 			wire.w_u8(writer, u8(players >> uint(8 * i)))
 		}
 		for player in changed {
-			before := base != nil ? input_bytes(&base.input[player]) : input_bytes(&zero)
-			after := input_bytes(&tick.input[player])
-			mask_at := len(writer.buf)
-			for _ in 0 ..< mask_bytes(size_of(Input)) {
-				wire.w_u8(writer, 0)
-			}
-			for i in 0 ..< size_of(Input) {
-				if before[i] != after[i] {
-					writer.buf[mask_at + i / 8] |= 1 << uint(i % 8)
-					wire.w_u8(writer, after[i])
-				}
-			}
+			window_write_input(writer, &tick.input[player], base != nil ? &base.input[player] : &zero)
 		}
 	}
 	if .Commands in flags {
@@ -128,23 +118,8 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYER
 			return false
 		}
 		for player in 0 ..< PLAYERS {
-			if players & (1 << uint(player)) == 0 {
-				continue
-			}
-			mask := wire.r_bytes(reader, mask_bytes(size_of(Input)))
-			if mask == nil {
+			if players & (1 << uint(player)) != 0 && !window_read_input(reader, &tick.input[player]) {
 				return false
-			}
-			for i in size_of(Input) ..< 8 * len(mask) {
-				if mask[i / 8] & (1 << uint(i % 8)) != 0 {
-					return false
-				}
-			}
-			after := input_bytes(&tick.input[player])
-			for i in 0 ..< size_of(Input) {
-				if mask[i / 8] & (1 << uint(i % 8)) != 0 {
-					after[i] = wire.r_u8(reader)
-				}
 			}
 		}
 	}
@@ -159,6 +134,48 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYER
 	tick.member = {}
 	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.member[:]) {
 		return false
+	}
+	return reader.ok
+}
+
+// Writes `input` as its changes from `base`: a bit per byte (ceil(size_of(Input) / 8) bytes), then the bytes that
+// changed, in order. An input like its base is the mask alone.
+window_write_input :: proc(writer: ^wire.Writer, input, base: ^$Input) {
+	before, after := input_bytes(base), input_bytes(input)
+	mask_at := len(writer.buf)
+	for _ in 0 ..< mask_bytes(size_of(Input)) {
+		wire.w_u8(writer, 0)
+	}
+	for i in 0 ..< size_of(Input) {
+		if before[i] != after[i] {
+			writer.buf[mask_at + i / 8] |= 1 << uint(i % 8)
+			wire.w_u8(writer, after[i])
+		}
+	}
+}
+
+// The most bytes window_write_input writes for one input: every byte changed.
+window_input_max_bytes :: proc($Input: typeid) -> int {
+	return mask_bytes(size_of(Input)) + size_of(Input)
+}
+
+// Reads the next input's changes into `input`, which holds its base (the input before it): false when malformed (a
+// bit past the input's size, or cut short).
+window_read_input :: proc(reader: ^wire.Reader, input: ^$Input) -> bool {
+	mask := wire.r_bytes(reader, mask_bytes(size_of(Input)))
+	if mask == nil {
+		return false
+	}
+	for i in size_of(Input) ..< 8 * len(mask) {
+		if mask[i / 8] & (1 << uint(i % 8)) != 0 {
+			return false
+		}
+	}
+	after := input_bytes(input)
+	for i in 0 ..< size_of(Input) {
+		if mask[i / 8] & (1 << uint(i % 8)) != 0 {
+			after[i] = wire.r_u8(reader)
+		}
 	}
 	return reader.ok
 }

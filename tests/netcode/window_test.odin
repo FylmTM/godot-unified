@@ -164,3 +164,42 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 		testing.expectf(t, read < len(ticks), "a window cut to %d of %d bytes read whole", cut, len(writer.buf))
 	}
 }
+
+// A client's own unacked inputs (#245): each as its changes from the one before, the first from the zero input. A
+// held input is one byte (the mask); they read back as written; a bit past the input's size or a cut is refused.
+@(test)
+window_own_inputs :: proc(t: ^testing.T) {
+	inputs: [20]toy.Input
+	for &input, i in inputs {
+		input = i > 0 ? inputs[i - 1] : {}
+		if i % 6 == 1 do input.dx = i8(i)
+		if i % 9 == 2 do input.buttons = {.Spawn}
+	}
+	writer := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(writer.buf)
+	base: toy.Input
+	for &input in inputs {
+		netcode.window_write_input(&writer, &input, &base)
+		base = input
+	}
+	// 20 masks, plus dx at 1, 7, 13, 19 and buttons at 2, 11 (at 11 they were set already: only 2 changes them)
+	testing.expect_value(t, len(writer.buf), 20 + 4 + 1)
+	reader := wire.reader_make(writer.buf[:])
+	back: toy.Input
+	for &input, i in inputs {
+		ok := netcode.window_read_input(&reader, &back)
+		testing.expectf(t, ok && back == input, "input %d differs", i)
+	}
+	testing.expect_value(t, wire.r_remaining(&reader), 0)
+	for cut in 0 ..< len(writer.buf) {
+		cut_reader := wire.reader_make(writer.buf[:cut])
+		cut_back: toy.Input
+		read := 0
+		for read < len(inputs) && netcode.window_read_input(&cut_reader, &cut_back) {
+			read += 1
+		}
+		testing.expectf(t, read < len(inputs), "own inputs cut to %d of %d bytes read whole", cut, len(writer.buf))
+	}
+	past := wire.reader_make({0x10, 7}) // byte 4 of a 4-byte input
+	testing.expect(t, !netcode.window_read_input(&past, &back))
+}

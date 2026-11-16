@@ -531,11 +531,15 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 	if relay.base_known[player] {
 		relay.client_ack[player] = max(relay.client_ack[player], min(finalized_ack, relay.finalized))
 	}
+	input: Input // each input as its changes from the one before it, the first from the zero input
+	malformed := false
 	for k in 0 ..< count {
-		input := r_raw(reader, Input)
+		if !window_read_input(reader, &input) {
+			malformed = true // the inputs after it, and the commands, can't be found
+			break
+		}
 		tick := first + k
-		if !reader.ok ||
-		   tick <= relay.finalized ||
+		if tick <= relay.finalized ||
 		   tick >= relay.finalized + INPUT_RING ||
 		   (relay.cfg.ticks != 0 && tick > relay.cfg.ticks) ||
 		   tick < relay.active_from[player] ||
@@ -547,6 +551,9 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 	}
 	for have_input(relay, player, relay.recv_upto[player] + 1) {
 		relay.recv_upto[player] += 1
+	}
+	if malformed {
+		return
 	}
 	// Commands: the sender's unacked ones, from `first_seq` on. Each seq is taken once, in order; one the
 	// relay already has (a resend, a duplicate) is skipped.
