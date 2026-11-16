@@ -90,6 +90,8 @@ mode_online_host :: proc(
 		fmt.eprintfln("%s: %s", args.mode, online.poll().detail)
 		return false
 	}
+	link_ours := true // until the host takes it: an early return closes it before online.stop
+	defer if link_ours do netcode.link_close(&link)
 	status, ok := online_wait_ready(online, 30)
 	if !ok {
 		fmt.eprintfln("%s: %s", args.mode, status.detail)
@@ -127,6 +129,7 @@ mode_online_host :: proc(
 		}, uheadless.scripted_hooks(&scripted))
 	defer netcode.host_destroy(host)
 	netcode.host_add_link(host, link)
+	link_ours = false
 	deadline := netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6)
 	for !netcode.host_finished(host) {
 		now := netcode.now_us()
@@ -182,6 +185,8 @@ mode_online_client :: proc(
 		fmt.eprintfln("%s: %s", args.mode, online.poll().detail)
 		return false
 	}
+	link_ours := true // until the client takes it: an early return closes it before online.stop
+	defer if link_ours do netcode.link_close(&link)
 	status, ok := online_wait_ready(online, 30)
 	if !ok {
 		fmt.eprintfln("%s: %s", args.mode, status.detail)
@@ -195,6 +200,7 @@ mode_online_client :: proc(
 			name    = "client",
 			content = headless.content,
 		}, link, uheadless.scripted_hooks(&scripted))
+	link_ours = false
 	defer netcode.client_destroy(client)
 	task := uheadless.Client_Task(State, Input, World, PLAYERS) {
 		client,
