@@ -5,6 +5,8 @@
 // and `command_value`.
 package sim
 
+import "base:intrinsics"
+
 COMMAND_MAX :: 64 // bytes of one command's struct
 COMMANDS_PER_PLAYER :: 4 // per player per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
@@ -33,9 +35,44 @@ slot_commands :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int) -> []Raw_Com
 	return inputs.commands[low:high]
 }
 
-// The command as the game's union (nil: a kind out of range or the wrong size).
+// The command as the game's union (nil: a kind out of range or the wrong size). Inside `tick`, sim.commands gives
+// them decoded.
 command_value :: proc(raw: ^Raw_Command, $Command: typeid) -> Command {
 	return union_value(int(raw.kind), raw.data[:raw.size], Command)
+}
+
+// A tick's commands, decoded once before `tick` (Tick.commands), each with its slot, in the record's order.
+Commands :: struct($Cmd: typeid) {
+	list:  [TICK_COMMANDS]Cmd,
+	slots: [TICK_COMMANDS]u8,
+	count: int,
+}
+
+// Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size).
+commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($Input, $PLAYERS)) {
+	commands.count = 0
+	when intrinsics.type_union_variant_count(Cmd) > 0 { 	// sim.No_Commands: nothing to decode
+		for &raw in inputs.commands[:inputs.command_count] {
+			value := command_value(&raw, Cmd)
+			if value == nil do continue
+			commands.list[commands.count] = value
+			commands.slots[commands.count] = raw.slot
+			commands.count += 1
+		}
+	}
+}
+
+// The decoded commands of `slot`.
+commands_of_slot :: proc(commands: ^Commands($Cmd), slot: int) -> []Cmd {
+	low := 0
+	for low < commands.count && int(commands.slots[low]) < slot {
+		low += 1
+	}
+	high := low
+	for high < commands.count && int(commands.slots[high]) == slot {
+		high += 1
+	}
+	return commands.list[low:high]
 }
 
 // A raw command of kind `kind` from its struct's bytes (false: an unknown kind or the wrong size).
@@ -51,10 +88,11 @@ command_from_bytes :: proc(commands: typeid, kind: int, bytes: []u8) -> (raw: Ra
 }
 
 // A raw command from a value of one of the game's command structs (tests and tools):
-// `sim.command_make(Command, Cmd_Set_Map{map_index = 2})`.
-command_make :: proc(commands: typeid, value: $T) -> (raw: Raw_Command, ok: bool) {
+// `sim.command_make(Cmd, Cmd_Set_Map{map_index = 2})`. A value that is not a variant of Cmd does not compile.
+command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.type_is_variant_of(Cmd, T) {
 	value := value
-	return command_from_bytes(commands, variant_kind(commands, T), ([^]u8)(&value)[:size_of(T)])
+	raw, _ := command_from_bytes(Cmd, variant_kind(Cmd, T), ([^]u8)(&value)[:size_of(T)])
+	return raw
 }
 
 // Adds a command to a tick's record, after the commands `raw.slot` already has there. False at the
@@ -76,22 +114,20 @@ add_command :: proc(inputs: ^Inputs($Input, $PLAYERS), raw: Raw_Command) -> bool
 	return true
 }
 
-// Where a command source (a UI, a script, a bot) puts the commands it sends for one tick.
-Command_Out :: struct {
-	commands: typeid, // the game's command union
-	slot:     int, // the sender's slot
-	list:     [dynamic]Raw_Command,
-	cap:      int, // the most `list` may hold
+// Where a command source (a UI, a script, a bot) puts the commands it sends for one tick; Cmd is the game's union.
+Command_Out :: struct($Cmd: typeid) {
+	slot: int, // the sender's slot
+	list: [dynamic]Raw_Command,
+	cap:  int, // the most `list` may hold
 }
 
-// Sends a command; false when T is not one of the game's command structs or the out is full.
-send_command :: proc(out: ^Command_Out, value: $T) -> bool {
-	raw, ok := command_make(out.commands, value)
-	return ok && push_command(out, raw)
+// Sends a command (false: the out is full). A value that is not a variant of Cmd does not compile.
+send_command :: proc(out: ^Command_Out($Cmd), value: $T) -> bool where intrinsics.type_is_variant_of(Cmd, T) {
+	return push_command(out, command_make(Cmd, value))
 }
 
 // Sends a command made with command_make or command_from_bytes (false when the out is full).
-push_command :: proc(out: ^Command_Out, raw: Raw_Command) -> bool {
+push_command :: proc(out: ^Command_Out($Cmd), raw: Raw_Command) -> bool {
 	if len(out.list) >= out.cap {
 		return false
 	}

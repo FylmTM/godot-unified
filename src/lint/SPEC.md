@@ -1,6 +1,6 @@
 # lint
 
-Status: signed off 2026-11-09.
+Status: signed off 2026-11-09; 2026-11-16 no `unified:b3` in games (#236).
 
 The determinism lint (AGENTS.md "Deterministic simulation") as a library, so a game outside this repo lints its
 sim package the way unified lints its own. Test-side code: it imports `core:testing` and runs inside `odin test`.
@@ -32,8 +32,8 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
 
 ## Rules
 
-- **Sim rule** (`sim_rule`): imports only `TICK_IMPORTS` (`unified:sim`, `physics`, `level`, `dmath`, `box3d`,
-  `wire`, `base:intrinsics`, `core:math/bits`) plus `extra_imports` (exact, or a prefix ending in `/`); none of
+- **Sim rule** (`sim_rule`): imports only `TICK_IMPORTS` (`unified:sim`, `physics`, `level`, `dmath`, `wire`,
+  `base:intrinsics`, `core:math/bits`; not `unified:b3`, which is physics' own, #236) plus `extra_imports` (exact, or a prefix ending in `/`); none of
   `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex types, cycle counters, random generators,
   `sim`'s file procs: `log_write`, `log_read`, `log_sink_file`, `write_file`, `read_file`);
   no `matrix`; strict: no `foreign`, no `map`, no `x := 1.5` (an untyped float literal is f64); tick: every
@@ -43,7 +43,8 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
 - **What it can't see:** types. A float-to-int conversion goes through `dmath.to_i32_clamped` by convention (x86
   and ARM convert out-of-range floats differently).
 - **Game layout** (`check_game`): `headless/` gets the real-time rule (off `core:math`, no float traps),
-  `extension/` and `tests/` nothing (host and test code), every other directory the sim rule. A new sim package
+  `extension/` and `tests/` only the ban on `unified:b3` (host and test code reach Box3D through physics too), every
+  other directory the sim rule. A new sim package
   is linted without editing a list.
 - **Imports:** `only_imports` entries match as written, an entry ending in `/` matches what is under it and one
   ending in `:` a whole collection (`core:`, `base:`, `system:` for a `foreign import`); `ban_imports` (with its

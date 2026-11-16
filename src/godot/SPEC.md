@@ -17,7 +17,7 @@ Frame :: godot.Frame(g.State, g.World, View, MultiView)
 
 CONSTANTS := Data_Constants{speed = g.SPEED, ...} // Unified.constants: a package variable, copied at install
 
-GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
+GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
 	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional

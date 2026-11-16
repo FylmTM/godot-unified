@@ -256,6 +256,32 @@ Contact_Events :: struct {
 	hit_events:   []Contact_Hit_Event,
 }
 
+Sensor_Begin_Touch_Event :: struct {
+	sensor_shape_id:  Shape_Id,
+	visitor_shape_id: Shape_Id,
+}
+
+Sensor_End_Touch_Event :: struct {
+	sensor_shape_id:  Shape_Id,
+	visitor_shape_id: Shape_Id,
+}
+
+// The step's sensor events, as slices into Box3D's memory: valid until the next step.
+Sensor_Events :: struct {
+	begin_events: []Sensor_Begin_Touch_Event,
+	end_events:   []Sensor_End_Touch_Event,
+}
+
+// A convex point cloud with a radius, for shape overlaps and casts: a sphere is one point with a radius, a capsule
+// two, a box its 8 corners with none. `points` is the caller's (at most MAX_SHAPE_CAST_POINTS).
+Shape_Proxy :: struct {
+	points: [^][3]f32,
+	count:  i32,
+	radius: f32,
+}
+
+MAX_SHAPE_CAST_POINTS :: box3d.MAX_SHAPE_CAST_POINTS
+
 // Called for each shape an overlap query finds; return false to stop. `user` is the query's.
 Overlap_Result_Fcn :: #type proc(shape_id: Shape_Id, user: rawptr) -> bool
 
@@ -302,3 +328,6 @@ Cast_Result_Fcn :: #type proc(
 #assert(size_of(Contact_Begin_Touch_Event) == size_of(box3d.ContactBeginTouchEvent))
 #assert(size_of(Contact_End_Touch_Event) == size_of(box3d.ContactEndTouchEvent))
 #assert(size_of(Contact_Hit_Event) == size_of(box3d.ContactHitEvent))
+#assert(size_of(Sensor_Begin_Touch_Event) == size_of(box3d.SensorBeginTouchEvent))
+#assert(size_of(Sensor_End_Touch_Event) == size_of(box3d.SensorEndTouchEvent))
+#assert(size_of(Shape_Proxy) == size_of(box3d.ShapeProxy))

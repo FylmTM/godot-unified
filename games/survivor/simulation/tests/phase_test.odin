@@ -163,28 +163,34 @@ no_items_inside_the_start_circle :: proc(t: ^testing.T) {
 	}
 }
 
-// The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin), 2 seeds:
-// guards the tuning's targets (games/survivor/SPEC.md). `survivor bot` measures more seeds. A balance check,
-// not a correctness one: `uni test --long` only.
+// The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin) over 8 seeds: guards the
+// tuning's targets (games/survivor/SPEC.md) as a population, so one unlucky seed can't fail it or pass it: every
+// seed's first level-up comes in 10..45 s, and on average the bot survives past 120 s and reaches wave 3.5. `survivor
+// bot` measures more seeds. A balance check, not a correctness one: `uni test --long` only.
 when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {
-		for seed in 1 ..= u64(2) {
+		SEEDS :: 8
+		survived_sum, wave_sum: f32
+		for seed in 1 ..= u64(SEEDS) {
 			simulation := sim.create(&survivor.GAME, seed)
 			defer sim.destroy(simulation)
 			state := &simulation.state
 			first_level: f32 = -1
-			out: sim.Command_Out
+			out: sim.Command_Out(survivor.Cmd)
 			defer delete(out.list)
 			for simulation.tick < 200 * survivor.TICK_HZ && state.phase != .Over {
 				inputs := survivor.bot_tick(state, 1, simulation.tick + 1, &out)
 				sim.step(simulation, &inputs)
 				if first_level < 0 && in_slot(simulation, 0).level > 1 {
-					first_level = f32(simulation.tick - state.match_tick) * survivor.DT
+					first_level = sim.seconds(simulation.tick - state.match_tick, survivor.TICK_HZ)
 				}
 			}
-			survived :=
-				f32((state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick) * survivor.DT
+			survived_sum += sim.seconds(
+				(state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick,
+				survivor.TICK_HZ,
+			)
+			wave_sum += f32(state.wave)
 			testing.expectf(
 				t,
 				first_level > 10 && first_level < 45,
@@ -192,8 +198,14 @@ when scenarios.LONG {
 				seed,
 				first_level,
 			)
-			testing.expectf(t, survived > 100, "seed %d: survived %.1f s", seed, survived)
-			testing.expectf(t, state.wave >= 3, "seed %d: wave %d", seed, state.wave)
 		}
+		testing.expectf(
+			t,
+			survived_sum / SEEDS > 120,
+			"mean survival %.1f s over %d seeds",
+			survived_sum / SEEDS,
+			SEEDS,
+		)
+		testing.expectf(t, wave_sum / SEEDS >= 3.5, "mean wave %.2f over %d seeds", wave_sum / SEEDS, SEEDS)
 	}
 }

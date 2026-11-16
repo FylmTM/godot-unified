@@ -50,26 +50,26 @@ session_result_destroy :: proc(result: ^Session_Result($Input, $PLAYERS)) {
 }
 
 // Scripted hooks: every client samples the game's scripted input (and commands) for its slot.
-Scripted_User :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	headless: ^Headless(State, Input, World, PLAYERS),
+Scripted_User :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
+	headless: ^Headless(State, Input, World, Event, Cmd, PLAYERS),
 	seed:     u64,
 }
 
 // Client hooks that sample the game's scripted input and commands for the client's player, so a session's
 // clients, the `client` mode and the online modes play without a human.
 scripted_hooks :: proc(
-	scripted: ^Scripted_User($State, $Input, $World, $PLAYERS),
-) -> netcode.Hooks(State, Input, World, PLAYERS) {
-	hooks := netcode.Hooks(State, Input, World, PLAYERS) {
+	scripted: ^Scripted_User($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+) -> netcode.Hooks(State, Input, World, Event, Cmd, PLAYERS) {
+	hooks := netcode.Hooks(State, Input, World, Event, Cmd, PLAYERS) {
 		user = scripted,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
-			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
+			scripted := (^Scripted_User(State, Input, World, Event, Cmd, PLAYERS))(user)
 			return scripted.headless.scripted_input(scripted.seed, slot, tick, state)
 		},
 	}
 	if scripted.headless.scripted_commands != nil {
-		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
-			scripted := (^Scripted_User(State, Input, World, PLAYERS))(user)
+		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+			scripted := (^Scripted_User(State, Input, World, Event, Cmd, PLAYERS))(user)
 			scripted.headless.scripted_commands(scripted.seed, slot, tick, state, out)
 		}
 	}
@@ -77,14 +77,14 @@ scripted_hooks :: proc(
 }
 
 // A client stepped by run_client until `deadline` (µs); `ok` once it verified every tick.
-Client_Task :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	client:   ^netcode.Client(State, Input, World, PLAYERS),
+Client_Task :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
+	client:   ^netcode.Client(State, Input, World, Event, Cmd, PLAYERS),
 	deadline: i64,
 	ok:       bool,
 }
 
 // Steps a client on this thread until the session ends for it (or the deadline).
-run_client :: proc(task: ^Client_Task($State, $Input, $World, $PLAYERS)) {
+run_client :: proc(task: ^Client_Task($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	client := task.client
 	for {
 		now := netcode.now_us()
@@ -109,7 +109,7 @@ run_client :: proc(task: ^Client_Task($State, $Input, $World, $PLAYERS)) {
 
 // The client verified every tick of its session and disconnected cleanly.
 @(private)
-client_done :: proc(client: ^netcode.Client($State, $Input, $World, $PLAYERS)) -> bool {
+client_done :: proc(client: ^netcode.Client($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> bool {
 	return client.ticks != 0 && client.verified == client.ticks && client.status == .Disconnected
 }
 
@@ -141,22 +141,22 @@ session_timeout_s :: proc(ticks: u32, tick_hz: int) -> f64 {
 
 // A session's relay, transport and clients, before they run.
 @(private)
-Session :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	headless: ^Headless(State, Input, World, PLAYERS),
+Session :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
+	headless: ^Headless(State, Input, World, Event, Cmd, PLAYERS),
 	cfg:      Session_Config,
 	relay:    ^netcode.Relay(Input, PLAYERS),
 	hub:      ^netcode.Hub,
 	port:     int,
 	clock:    ^netcode.Virtual_Clock, // nil: real time
-	scripted: Scripted_User(State, Input, World, PLAYERS),
-	tasks:    []Client_Task(State, Input, World, PLAYERS),
+	scripted: Scripted_User(State, Input, World, Event, Cmd, PLAYERS),
+	tasks:    []Client_Task(State, Input, World, Event, Cmd, PLAYERS),
 	deadline: i64,
 }
 
 // Runs a whole session in this process: a relay and `cfg.clients` scripted clients over loopback or local UDP,
 // each behind a netsim profile, on threads or a virtual clock. The `session` mode and the end-to-end scenarios use it.
 session_run :: proc(
-	headless: ^Headless($State, $Input, $World, $PLAYERS),
+	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	cfg: Session_Config,
 ) -> (
 	result: Session_Result(Input, PLAYERS),
@@ -164,7 +164,7 @@ session_run :: proc(
 	clock := netcode.Virtual_Clock {
 		now = 1_000_000,
 	}
-	session := Session(State, Input, World, PLAYERS) {
+	session := Session(State, Input, World, Event, Cmd, PLAYERS) {
 		headless = headless,
 		cfg      = cfg,
 		clock    = cfg.virtual ? &clock : nil,
@@ -200,7 +200,7 @@ session_run :: proc(
 		session.hub = netcode.hub_create(cfg.clients + 1)
 		netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 	}
-	session.tasks = make([]Client_Task(State, Input, World, PLAYERS), cfg.clients)
+	session.tasks = make([]Client_Task(State, Input, World, Event, Cmd, PLAYERS), cfg.clients)
 	defer delete(session.tasks)
 	result.ok = session_run_virtual(&session) if cfg.virtual else session_run_threads(&session)
 
@@ -234,17 +234,17 @@ session_run :: proc(
 }
 
 @(private)
-session_now :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> i64 {
+session_now :: proc(session: ^Session($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> i64 {
 	return session.clock.now if session.clock != nil else netcode.now_us()
 }
 
 // The client of `player` (`join`: its join tick, 0 for a starting player).
 @(private)
 session_client :: proc(
-	session: ^Session($State, $Input, $World, $PLAYERS),
+	session: ^Session($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	player: int,
 	join: u32,
-) -> ^netcode.Client(State, Input, World, PLAYERS) {
+) -> ^netcode.Client(State, Input, World, Event, Cmd, PLAYERS) {
 	cfg := session.cfg
 	link: netcode.Link
 	if cfg.transport == "udp" {
@@ -268,7 +268,7 @@ session_client :: proc(
 
 // Real time: the relay and each client on a thread of its own.
 @(private)
-session_run_threads :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> bool {
+session_run_threads :: proc(session: ^Session($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> bool {
 	Relay_Task :: struct {
 		relay:    ^netcode.Relay(Input, PLAYERS),
 		deadline: i64,
@@ -310,7 +310,7 @@ session_run_threads :: proc(session: ^Session($State, $Input, $World, $PLAYERS))
 
 // Virtual time: one thread steps the relay and every client, jumping to the earliest wake time.
 @(private)
-session_run_virtual :: proc(session: ^Session($State, $Input, $World, $PLAYERS)) -> bool {
+session_run_virtual :: proc(session: ^Session($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> bool {
 	cfg := session.cfg
 	clock := session.clock
 	for player in 0 ..< cfg.clients {

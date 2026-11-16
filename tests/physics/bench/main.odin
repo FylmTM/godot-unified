@@ -83,7 +83,7 @@ main :: proc() {
 		restored := time.tick_now()
 		for ray in 0 ..< RAYS {
 			origin := [3]f32{f32(ray % 8) * 0.8 - 2.8, 20, f32(ray / 8) * 0.8 - 2.8}
-			if _, ok := physics.ray_first(world, origin, {0, -30, 0}); ok do hits += 1
+			if _, ok := physics.world_cast_ray_closest(world, origin, {0, -30, 0}); ok do hits += 1
 		}
 		raycast := time.tick_now()
 		if !restored_ok || b3.world_hash_state(world.id) != hash {

@@ -11,8 +11,9 @@ import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
 // 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2); 5: the #6
-// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233).
-SNAP_VERSION :: 6
+// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233); 7: the physics
+// extra's image carries its body table after Box3D's image (#237).
+SNAP_VERSION :: 7
 SNAP_HEADER :: 56
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
@@ -39,7 +40,7 @@ Snap_Header :: struct {
 
 // Encodes the ring snapshot of `tick` into a new byte slice.
 snapshot_encode :: proc(
-	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	tick: u32,
 	allocator := context.allocator,
 ) -> []u8 {
@@ -50,7 +51,7 @@ snapshot_encode :: proc(
 // Encodes the ring snapshot of `tick` into `out`, replacing what it held and keeping its capacity: a snapshot taken
 // again and again (a client's kept desync images) allocates only when it outgrows the last one. Returns out's bytes.
 snapshot_encode_into :: proc(
-	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	tick: u32,
 	out: ^[dynamic]u8,
 ) -> []u8 {
@@ -172,11 +173,11 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 // this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
 // Build_Differs. `content` is borrowed like create's.
 from_snapshot :: proc(
-	game: ^Game($State, $Input, $World, $PLAYERS),
+	game: ^Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	data: []u8,
 	content: []u8 = nil,
 ) -> (
-	^Sim(State, Input, World, PLAYERS),
+	^Sim(State, Input, World, Event, Cmd, PLAYERS),
 	Snap_Error,
 ) {
 	header, block, reader, err := snap_read(data, size_of(State), layout_hash(State))

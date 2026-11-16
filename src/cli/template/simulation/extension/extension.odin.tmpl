@@ -9,7 +9,7 @@ import "unified:godot"
 
 import g "../__GAME__"
 
-GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
+GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
 	scripted_input = scripted_input,

@@ -92,10 +92,10 @@ holding.
 - **Platforms:** kinematic bodies on `physics.Path`s (waypoints, segment times, smoothstep, ping-pong or loop, waits),
   optionally gated by a plate, bell or switch. The pose is a pure function of the platform's state (`running`,
   `phase_tick`); the sim drives the body to it each tick.
-- **Pressure plates:** a box volume; the summed mass of bodies whose centre is over it ≥ threshold → pressed. A
-  friend standing on it counts (a co-op answer), unless the plate is `items_only` (the haul's scale).
-- **Bell, switch, lock:** a hit event with approach speed ≥ 4 m/s, a player touching it, or a key item's centre
-  inside it → triggered (latched).
+- **Pressure plates:** a sensor box reaching 2.5 m above the plate; the summed mass of the bodies in it ≥ threshold
+  → pressed. A friend standing on it counts (a co-op answer), unless the plate is `items_only` (the haul's scale).
+- **Bell, switch, lock:** a hit event with approach speed ≥ 4 m/s, a player entering its sensor, or a key item
+  entering its sensor → triggered (latched).
 
 ## Sim and view
 

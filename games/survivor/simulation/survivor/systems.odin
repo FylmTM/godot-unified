@@ -2,7 +2,6 @@
 // the order the spec gives; no `matrix` types and no core:math (determinism traps, see AGENTS.md).
 package survivor
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -38,14 +37,14 @@ ENEMY_STATS := [Enemy_Kind]Enemy_Stats {
 tick :: proc(t: ^Tick) {
 	sys_players(t)
 	sys_levelup(t)
-	sys_spawner(t.state, t.number)
-	sys_enemies(t.state, t.world, t.number)
+	sys_spawner(t)
+	sys_enemies(t.state, t.world, t.number, t.dt)
 	sys_contact(t)
 	sys_attack(t.state)
-	sys_projectiles(t.state, t.world, t.number)
+	sys_projectiles(t.state, t.world, t.number, t.dt)
 	sys_barrels(t)
 	sys_deaths(t)
-	physics.step(t.world.phys, DT, SUBSTEPS)
+	physics.step(t.world.phys, t.dt, SUBSTEPS)
 	read_back(t.state, t.world)
 	sys_phase(t)
 }
@@ -84,7 +83,7 @@ sys_phase :: proc(t: ^Tick) {
 		} else if alive == 0 && !t.state.endless {
 			t.state.phase = .Over
 			t.state.over_tick = t.number
-			sim.emit(t, Event_Match_Over{duration_s = f32(t.number - t.state.match_tick) * DT})
+			sim.emit(t, Event_Match_Over{duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
 		}
 	case .Over:
 		if t.number - t.state.over_tick >= OVER_HOLD_TICKS {
@@ -168,9 +167,8 @@ sys_players :: proc(t: ^Tick) {
 			vz = vz * 3
 			character.dash_ticks -= 1
 		}
-		body := body_id(t.world, character.body)
-		velocity := b3.body_get_linear_velocity(body)
-		b3.body_set_linear_velocity(body, {vx, velocity.y, vz})
+		velocity := physics.body_linear_velocity(t.world.phys, character.body)
+		physics.body_set_linear_velocity(t.world.phys, character.body, {vx, velocity.y, vz})
 	}
 }
 
@@ -191,8 +189,8 @@ arrived :: proc(t: ^Tick, player: sim.Player) -> bool {
 sys_levelup :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
-		for &raw in sim.commands(t, player) {
-			switch command in sim.command_value(&raw, Cmd) {
+		for sent in sim.commands(t, player) {
+			switch command in sent {
 			case Cmd_Pick:
 				if character.pending_levelups <= 0 {
 					continue // nothing to pick
@@ -216,30 +214,30 @@ sys_levelup :: proc(t: ^Tick) {
 	}
 }
 
-// 3. Spawner: a burst of enemies every `spawn_every_ticks` while below the cap. The positions and kinds of a
-// wave are drawn in sequence from the state's stream.
+// 3. Spawner: a burst of enemies every `spawn_every_ticks` while below the cap. Each enemy's direction, jitter and
+// kind are keyed rolls, by its place in the wave.
 @(private)
-sys_spawner :: proc(state: ^State, tick: u32) {
-	tune := tuning(state)
-	if state.phase != .Match || (tick - state.match_tick) % tune.spawn_every_ticks != 0 {
+sys_spawner :: proc(t: ^Tick) {
+	tune := tuning(t.state)
+	if t.state.phase != .Match || (t.number - t.state.match_tick) % tune.spawn_every_ticks != 0 {
 		return
 	}
 	present: u32 = 0
-	players := sim.iterate_present(&state.players)
+	players := sim.iterate_present(&t.state.players)
 	for _ in sim.next(&players) {
 		present += 1
 	}
-	count := min(tune.spawn_base + state.wave * tune.spawn_per_wave, tune.spawn_cap)
+	count := min(tune.spawn_base + t.state.wave * tune.spawn_per_wave, tune.spawn_cap)
 	count = count * (100 + tune.extra_player_pct * (max(present, 1) - 1)) / 100
-	for _ in 0 ..< count {
-		if u32(state.enemies.count) >= state.enemy_cap {
+	for i in 0 ..< int(count) {
+		if u32(t.state.enemies.count) >= t.state.enemy_cap {
 			break
 		}
-		direction := sim.rng_below(&state.rng, 8)
-		jitter := f32(sim.rng_below(&state.rng, 1000)) / 1000 * 2 - 1
+		direction := sim.roll_below(t, 8, Roll.Spawn_Direction, index = i)
+		jitter := f32(sim.roll_below(t, 1000, Roll.Spawn_Jitter, index = i)) / 1000 * 2 - 1
 		x := 27 * dmath.DIR8_C[direction] + jitter
 		z := 27 * dmath.DIR8_S[direction] + jitter
-		spawn_enemy(state, kind_of_roll(sim.rng_below(&state.rng, 10)), {x, z}, tick)
+		spawn_enemy(t.state, kind_of_roll(sim.roll_below(t, 10, Roll.Spawn_Kind, index = i)), {x, z}, t.number)
 	}
 }
 
@@ -351,7 +349,7 @@ nearest_target :: proc(targets: ^Targets, pos: [2]f32) -> (best: ^Character, bes
 
 // 4. Enemies: seek + separation (phase 1, old positions), integrate + push-out (phase 2).
 @(private)
-sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
+sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 	scratch := &world.scratch
 	build_grid(state, scratch)
 	targets := targets_of(state)
@@ -362,7 +360,12 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 	for enemy, handle in sim.next(&enemies) {
 		index := i32(handle.index)
 		if (handle.index + tick) % CLIMB_CHECK_TICKS == 0 {
-			ray, hit := physics.ray_first(world.phys, {enemy.pos.x, 3, enemy.pos.y}, {0, -3, 0}, ray_filter)
+			ray, hit := physics.world_cast_ray_closest(
+				world.phys,
+				{enemy.pos.x, 3, enemy.pos.y},
+				{0, -3, 0},
+				ray_filter,
+			)
 			enemy.climbing = hit && ray.point.y > 0.8
 		}
 		speed := enemy.climbing ? enemy.speed * 0.5 : enemy.speed
@@ -420,8 +423,8 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32) {
 	enemies = sim.iterate(&state.enemies)
 	for enemy, handle in sim.next(&enemies) {
 		enemy.vel = scratch.new_vel[handle.index]
-		x := enemy.pos.x + enemy.vel.x * DT
-		z := enemy.pos.y + enemy.vel.y * DT
+		x := enemy.pos.x + enemy.vel.x * dt
+		z := enemy.pos.y + enemy.vel.y * dt
 		radius := enemy.radius
 		for k in 0 ..< 8 {
 			pillar_x := 14 * dmath.DIR8_C[k]
@@ -542,7 +545,7 @@ sys_attack :: proc(state: ^State) {
 
 // 7. Projectiles: move, hit enemies (grid, first index wins), else ray-cast the segment.
 @(private)
-sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
+sys_projectiles :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 	scratch := &world.scratch
 	build_grid(state, scratch)
 	ray_filter := physics.Query {
@@ -550,7 +553,7 @@ sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
 	}
 	projectiles := sim.iterate(&state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
-		step := [3]f32{projectile.vel.x * DT, projectile.vel.y * DT, projectile.vel.z * DT}
+		step := [3]f32{projectile.vel.x * dt, projectile.vel.y * dt, projectile.vel.z * dt}
 		next_pos := [3]f32{projectile.pos.x + step.x, projectile.pos.y + step.y, projectile.pos.z + step.z}
 		hit: i32 = -1
 		cell_x, cell_z := cell_of({next_pos.x, next_pos.z})
@@ -587,9 +590,9 @@ sys_projectiles :: proc(state: ^State, world: ^World, tick: u32) {
 			sim.despawn(&state.projectiles, handle)
 			continue
 		}
-		if ray, ray_hit := physics.ray_first(world.phys, projectile.pos, step, ray_filter); ray_hit {
-			if ray.material >= MAT_ITEM_BASE && ray.material < MAT_ITEM_BASE + ITEM_COUNT {
-				item := &state.items[ray.material - MAT_ITEM_BASE]
+		if ray, ray_hit := physics.world_cast_ray_closest(world.phys, projectile.pos, step, ray_filter); ray_hit {
+			if ray.category & (CAT_CRATE | CAT_BARREL) != 0 {
+				item := &state.items[ray.tag]
 				if item.kind == .Barrel && item.alive {
 					item.hp -= projectile.damage
 				}
@@ -622,19 +625,19 @@ sys_barrels :: proc(t: ^Tick) {
 		if item.kind != .Barrel || !item.alive || item.hp > 0 {
 			continue
 		}
-		body_pos := b3.body_get_position(body_id(t.world, item.body))
+		body_pos := physics.body_position(t.world.phys, item.body)
 		center := [3]f32{body_pos.x, body_pos.y, body_pos.z}
 		for j in 0 ..< ITEM_COUNT {
 			other := &t.state.items[j]
 			if j == i || !other.alive {
 				continue
 			}
-			explosion_impulse(t.world, center, body_id(t.world, other.body))
+			explosion_impulse(t.world, center, other.body)
 		}
 		players := sim.iterate_present(&t.state.players)
 		for character in sim.next(&players) {
 			if character.alive {
-				explosion_impulse(t.world, center, body_id(t.world, character.body))
+				explosion_impulse(t.world, center, character.body)
 			}
 		}
 		enemies := sim.iterate(&t.state.enemies)
@@ -669,8 +672,8 @@ sys_barrels :: proc(t: ^Tick) {
 }
 
 @(private)
-explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
-	body_pos := b3.body_get_position(body)
+explosion_impulse :: proc(world: ^World, center: [3]f32, body: Body_Ref) {
+	body_pos := physics.body_position(world.phys, body)
 	dx := body_pos.x - center.x
 	dy := body_pos.y - center.y
 	dz := body_pos.z - center.z
@@ -687,10 +690,10 @@ explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
 	up: f32 = 0.5
 	length := dmath.sqrt(dir_x * dir_x + up * up + dir_z * dir_z)
 	strength := 12 * (1 - distance / 5)
-	b3.body_apply_linear_impulse_to_center(
+	physics.body_apply_linear_impulse_to_center(
+		world.phys,
 		body,
 		{dir_x / length * strength, up / length * strength, dir_z / length * strength},
-		true,
 	)
 }
 
@@ -763,7 +766,7 @@ read_back :: proc(state: ^State, world: ^World) {
 	players := sim.iterate_present(&state.players)
 	for character in sim.next(&players) {
 		if character.alive {
-			body_pos := b3.body_get_position(body_id(world, character.body))
+			body_pos := physics.body_position(world.phys, character.body)
 			character.pos = {body_pos.x, body_pos.y, body_pos.z}
 		}
 	}
@@ -779,13 +782,14 @@ bench_prepare :: proc(state: ^State, world: ^World, count: int) {
 	prespawn_enemies(state, count)
 }
 
-// Spawns `count` enemies of random kinds at random positions over the arena, drawn from the state's stream, until
-// the table is full; bench_prepare starts its fixed population with it.
+// Spawns `count` enemies of random kinds at random positions over the arena, drawn from a stream of the session's
+// seed (setup outside any tick), until the table is full; bench_prepare starts its fixed population with it.
 prespawn_enemies :: proc(state: ^State, count: int) {
+	rng := sim.rng_seed(u64(state.seed))
 	for _ in 0 ..< count {
-		x := f32(sim.rng_below(&state.rng, 5600)) / 100 - 28
-		z := f32(sim.rng_below(&state.rng, 5600)) / 100 - 28
-		if !spawn_enemy(state, kind_of_roll(sim.rng_below(&state.rng, 10)), {x, z}, 0) {
+		x := f32(sim.rng_below(&rng, 5600)) / 100 - 28
+		z := f32(sim.rng_below(&rng, 5600)) / 100 - 28
+		if !spawn_enemy(state, kind_of_roll(sim.rng_below(&rng, 10)), {x, z}, 0) {
 			break
 		}
 	}

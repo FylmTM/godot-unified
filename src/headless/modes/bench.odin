@@ -51,7 +51,7 @@ Bench_Result :: struct {
 // (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too, and the forward tick's
 // checksum is timed (deep ticks and the others apart).
 run_bench :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	entities: int,
 	window, ticks: u32,
 	seed: u64,
@@ -76,7 +76,7 @@ run_bench :: proc(
 	checksum_deep_us := make([]f64, tick_count)
 	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
 	forward := make([]u64, ticks + 1)
-	commands: uheadless.Scripted_Commands
+	commands: uheadless.Scripted_Commands(Cmd)
 	defer uheadless.scripted_commands_destroy(&commands)
 	defer {
 		delete(step_us)
@@ -236,7 +236,10 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 // and every client through test time, so the run is deterministic and its wall time is the clients' and relay's
 // CPU time): wall time, rollbacks and what they re-simulated, the time each kind of step took, and the bytes per
 // second on the wire.
-mode_net_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_net_bench :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "clients", "ticks", "profile", "seed", "latency", "jitter", "loss")
 	cfg := uheadless.Session_Config {
 		clients     = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),

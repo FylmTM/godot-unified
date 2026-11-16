@@ -75,7 +75,8 @@ step :: proc(run: ^Run, inputs_by_slot: [fs.PLAYERS]fs.Input) {
 	if tick < WINDOW do return
 	from := max(tick - WINDOW, run.floor)
 	if from == tick do return
-	if !sim.restore(run.simulation, from) || !physics.check_refs(run.simulation.world.phys, &run.simulation.state) {
+	if !sim.restore(run.simulation, from) ||
+	   physics.check_refs(run.simulation.world.phys, &run.simulation.state) != "" {
 		run.mismatches += 1
 		return
 	}
@@ -103,11 +104,11 @@ character :: proc(run: ^Run, slot: int) -> ^fs.Character {
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {
-	return physics.position(run.simulation.world.phys, character(run, slot).controller.body)
+	return physics.body_position(run.simulation.world.phys, character(run, slot).controller.body)
 }
 
 item_pos :: proc(run: ^Run, item: int) -> [3]f32 {
-	return physics.position(run.simulation.world.phys, run.simulation.state.items[item].body)
+	return physics.body_position(run.simulation.world.phys, run.simulation.state.items[item].body)
 }
 
 // The nth item of a kind, in level order.
@@ -270,7 +271,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 	on_lift := false
 	top: f32 = 0
 	for _ in 0 ..< 2 * cycle {
-		lift_pos := physics.position(world.phys, run.simulation.state.platforms[lift].body)
+		lift_pos := physics.body_position(world.phys, run.simulation.state.platforms[lift].body)
 		target := lift_pos.y < lift_at.y + 0.1 || on_lift ? lift_at : lift_at + {-3, 0, 0}
 		step(&run, {walk(&run, 0, target, 0.1), walk(&run, 1, ferry_at, 0.1), {}, {}})
 		rider := player_pos(&run, 0)

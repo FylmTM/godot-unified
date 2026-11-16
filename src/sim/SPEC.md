@@ -1,6 +1,7 @@
 # `unified:sim`: the deterministic harness
 
-Status: signed off 2026-11-14 (#6, #166); 2026-11-16 buttons and the input before (#242).
+Status: signed off 2026-11-14 (#6, #166); 2026-11-16 buttons and the input before (#242), the unions as type
+parameters, ergonomics and the Extra check (#243, #252, #237).
 
 A game is a function `tick(state, inputs) → next state`. Every machine that starts from the same bytes and applies
 the same inputs computes the same bytes; rollback, replays, late join and desync detection follow from that. This
@@ -9,7 +10,7 @@ state: `src/physics/SPEC.md`. What tick code may not use: `src/lint/SPEC.md`.
 
 ## What a game supplies
 
-Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS)`:
+Five compile-time types, a count and a descriptor, `sim.Game(State, Input, World, Event, Cmd, PLAYERS)`:
 
 - `State` **the state block**: one plain-data struct: sized integers (not `int`, `uint` or `uintptr`, whose size
   is the platform's), `f32` (no other float), bools, enums and bit_sets with an explicit sized backing integer, fixed
@@ -27,15 +28,21 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   `world_create` builds and what an `Extra` rolls back.** Anything else in it that affects `tick` diverges after a
   rollback, unhashed. Every game's suite runs `scenarios.rollback_every_tick` (restore 8 ticks back on every tick,
   re-simulate, compare each checksum with the forward run), which fails offline on the tick such state shows.
+- `Event` the event union, `Cmd` the command union (below; `sim.No_Commands`, an empty union, for a game without
+  commands). Being type parameters, `emit`, `send_command` and the command loop check their variant at compile time
+  (`intrinsics.type_is_variant_of`): emitting a non-event or sending a non-command does not compile.
 - `PLAYERS` the number of input **slots**, 1..32: how many players are in the session at once (Players, below).
 - `Game`: `name`, `version` (bump when `tick` computes differently without a layout change: a rule, a constant),
-  `tick_hz` (a power of two, 32..128; the games use 64; `dt = 1/tick_hz` exactly, so tick ↔ second conversions are
-  exact: every time constant is written in seconds and converted with `dt`, never as a raw tick count),
-  `world_create(seed, content)` (`content`: the level file's bytes, `src/level/SPEC.md`; empty when the game has
-  none), `world_destroy`, `extras(world)`,
-  `init(state, world, seed)` (tick 0; the block is zeroed before), `tick(tick: ^Tick)`, `events` (the event union,
-  below), `commands` (the command union, below), `min_input_delay` (the least input delay the netcode gives a
-  player, in ticks; 0: 1; `src/netcode/SPEC.md`, Timing).
+  `tick_hz` (a power of two, 32..128; the games use 64; `dt = 1/tick_hz` exactly), `world_create(seed, content)`
+  (`content`: the level file's bytes, `src/level/SPEC.md`; empty when the game has none), `world_destroy`,
+  `extras(world)`, `init(t: ^Tick)` (tick 0: `number` 0, no players; the block is zeroed before; it may emit, roll and
+  create bodies), `tick(t: ^Tick)`, `min_input_delay` (the least input delay the netcode gives a player, in ticks; 0:
+  1; `src/netcode/SPEC.md`, Timing).
+- **Time.** Every time constant is written in seconds and converted to ticks, never written as a raw tick count. A
+  constant: `RESPAWN_TICKS :: u16(RESPAWN_S * TICK_HZ)`; Odin refuses a constant conversion that would truncate, so a
+  time that is not a whole number of ticks does not compile. A value from data (a level file) at run time:
+  `ticks(seconds, tick_hz) -> u32` (rounded to the nearest tick, clamped to 0..max(i32)) and `seconds(ticks, tick_hz)
+  -> f32` (views and HUDs). Inside `tick`, `t.dt`.
 - `compat_of(&GAME, content) -> u64`: the build's identity for the netcode, input logs and snapshots (the layouts of
   `State`, `Input` and `Inputs`, the command and event types, `PLAYERS`, `tick_hz`, `name`, `version`, the content
   hash, and the library's part: `LIBRARY_VERSION`, the library's own simulation, bumped by hand per the `sim-change`
@@ -45,17 +52,17 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
 Odin can't derive one generic type from another, so a game declares its aliases once:
 
 ```odin
-Game :: sim.Game(State, Input, World, PLAYER_COUNT)
-Simulation :: sim.Sim(State, Input, World, PLAYER_COUNT)
-Tick :: sim.Tick(State, Input, World, PLAYER_COUNT)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYER_COUNT)
+Simulation :: sim.Sim(State, Input, World, Event, Cmd, PLAYER_COUNT)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYER_COUNT)
 ```
 
 ## The tick
 
-`tick :: proc(tick: ^Tick)` advances the state from tick `number - 1` to `number`. `sim.Tick(State, Input, World,
-PLAYERS)` is built by the harness for each step: `{state: ^State, world: ^World, number: u32, seed: u64, inputs:
-^Inputs, events: ^Events, player_changes: Player_Changes}` (`Player_Changes{joined, returned, left: []Player}`, the
-step's presence changes, Players below). Per-tick
+`tick :: proc(t: ^Tick)` advances the state from tick `number - 1` to `number`. `sim.Tick(...)` is built by the
+harness for each step: `{state: ^State, world: ^World, number: u32, seed: u64, dt: f32, inputs: ^Inputs, events:
+^Events, player_changes: Player_Changes}` (`dt = 1 / tick_hz`; `Player_Changes{joined, returned, left: []Player}`,
+the step's presence changes, Players below). `init` gets one too (`number` 0, empty inputs, no changes). Per-tick
 helpers that need more than the block take it (`roll_below`, `emit`, `input`, `commands`). Systems
 take `tick` or narrower arguments, as the game prefers. Odin's implicit `context` carries no sim data.
 
@@ -95,7 +102,7 @@ tick :: proc(t: ^Tick) {
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
 		if .Jump in sim.buttons(t, player).pressed {...}
-		for &raw in sim.commands(t, player) {...}
+		for sent in sim.commands(t, player) {...}
 	}
 }
 ```
@@ -142,25 +149,30 @@ Cmd_Drop_Coin :: struct {value: u8}                 // any plain struct, 1..64 b
 Cmd_Start :: struct {map_index: u8, _pad: [3]u8}
 Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index; name = type name without Cmd_, lowercased
 
-GAME := Game{..., commands = Cmd}
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYER_COUNT)
 
-for &raw in sim.commands(t, player) {               // inside tick: this player's, in order, exactly once each
-	switch command in sim.command_value(&raw, Cmd) {
+for sent in sim.commands(t, player) {               // inside tick: this player's, in order, exactly once each
+	switch command in sent {
 	case Cmd_Drop_Coin: ...
 	case Cmd_Start: ...
 	}
 }
 ```
 
+- `commands(t, player) -> []Cmd`: the harness decodes the tick's commands once, before `tick`, into a buffer in the
+  `Sim`; the slice holds exactly this player's, never a nil entry (a command whose bytes don't decode, an unknown kind
+  or a wrong size from the network, is left out on every peer alike). Valid until the tick returns. Empty when the
+  player is absent. The raw records stay readable as `slot_commands(&inputs, slot)` (netcode, tools).
+
 - Naming (#214): command types `Cmd_<Name>` in a union `Cmd`, event types `Event_<Name>` in a union `Event`. The
   prefixes are left out of the names (`drop_coin`, `coin_picked`) and of the Godot classes (`CommandDropCoin`,
   `EventCoinPicked`); an event type without `Event_` still works.
 - A command is **input, not state**: part of the tick's input record, so it is logged, replayed and sent to late
-  joiners with the log; never in the block. Only `tick` reads it. The union exists only when `command_value` builds
+  joiners with the log; never in the block. Only `tick` reads it. The union exists only when the harness decodes
   it; on the wire and in the log a command is its kind and its struct's bytes.
 - `create` checks the union: a plain union (not `#no_nil` or `#shared_nil`), plain variants with no padding, 1..64
-  bytes (`COMMAND_MAX`), at most 255 variants, names unique. A command may hold bools: `command_value` reads each
-  back as 0 or 1 whatever its bytes held. GDScript sends one as an object of its class
+  bytes (`COMMAND_MAX`), at most 255 variants, names unique. A command may hold bools: decoding reads each back
+  as 0 or 1 whatever its bytes held. GDScript sends one as an object of its class
   (`CommandDropCoin`: `src/godot/SPEC.md`).
 - A tick holds at most `COMMANDS_PER_PLAYER` (4) of one slot and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
   so a tick's record has a fixed size and fits one datagram. The slots cost memory only (about 1.1 kB a record, 0.6
@@ -170,16 +182,18 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
   slot)`; inside `tick`, `commands(t, player)`).
 - `Raw_Command {kind, slot, size, data: [64]u8}`. A kind out of range or a wrong size reads as no variant (bytes
   from the network are dropped the same way on every peer).
-- Sources (a UI, a script, a bot) send into a `Command_Out` (`slot`, `cap`): `send_command(out, value) -> bool`
-  (false: not a variant, or `cap` reached). `command_make(Cmd, value)` builds a raw one for tests and tools.
+- Sources (a UI, a script, a bot) send into a `Command_Out(Cmd)` (`slot`, `cap`): `send_command(out, value) ->
+  bool` (a value that is not a variant of `Cmd` does not compile; false: `cap` reached). GDScript sends by kind and
+  bytes (`push_command`). `command_make(Cmd, value)` builds a raw one for tests and tools (also compile-checked).
   Delivery (the client predicts it at the tick it was sent for, or at the first tick not yet finalized when that one
   is; the relay places it): `src/netcode/SPEC.md`.
 
 ## Events
 
 Decided in #6 (D5). Events tell the view what happened (a shot, a hit, a pickup). They are not state: not in the
-block, not hashed, not rolled back as such. The game declares one plain struct per event (≤ 64 bytes) and a union of
-them; an event carries only its own fields, never one named `tick`, `kind` or `id` (every event carries its tick, kind and
+block, not hashed, not rolled back as such. The game declares one struct per event (≤ 64 bytes) and a union of them. An
+event is plain data like the block (`plain_violation`) except for padding: events are never hashed or compared as
+bytes (the view reads typed fields and keys an event by tick, type and subject), so they need no `_pad` fields; an event carries only its own fields, never one named `tick`, `kind` or `id` (every event carries its tick, kind and
 view-side id already: the game check, `game_violation`, refuses them, so a game's own tests catch it before Godot loads anything):
 
 ```odin
@@ -191,14 +205,14 @@ Event_Coin_Picked :: struct {
 }
 Event :: union {Event_Coin_Spawned, Event_Coin_Picked, Event_Coin_Dropped}  // name = type name without Event_, lowercased: "coin_picked"
 
-GAME := Game{..., events = Event}
 sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 0}, value = coin.value})
 ```
 
 - Stored per tick in the ring as kind + bytes (`Raw_Event {kind, size, data}`), like commands; emitted again when a
   tick is re-simulated. `events_at(simulation, tick)` reads a tick's back in emission order, `event_value(&raw,
   Event)` makes one the union again (nil for a kind out of range or a wrong size), `event_names(Event)` names them.
-  `create` checks the union as it checks commands (`EVENT_MAX` 64).
+  `create` checks the union as it checks commands, padding allowed (`EVENT_MAX` 64). `emit(t, value)`: a value
+  that is not a variant of `Event` does not compile.
 - **The subject convention** (how the view matches an event across re-simulations and routes it): an event's
   subject is its first `Player` field and its first `Handle(T)` field (or a `u64` field named `entity`), when it has
   them.
@@ -220,7 +234,7 @@ sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 
   block, in an event, by a view). `get(&table, handle) -> ^T` is nil for a stale, null or out-of-range handle.
 - `spawn(&table) -> (^T, Handle(T), ok)` (ok = false: full), `despawn(&table, index | handle)`, `handle(&table,
   index)`, `handle_key(handle) -> u64` (generation << 32 | index: unique among a table's live and past items; view
-  keys), `prev_item(prev, cur, index) -> (^T, ok)` (the same item in the previous tick's table: views interpolate).
+  keys, physics tags) and `handle_of_key(T, key) -> Handle(T)`, `prev_item(prev, cur, index) -> (^T, ok)` (the same item in the previous tick's table: views interpolate).
 - **Iteration**, in index order, safe to despawn the current item:
 
   ```odin
@@ -241,16 +255,17 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 - **`Rng`** (SplitMix64, 8 bytes in the block, period 2⁶⁴): `rng_seed(u64)`, `rng_next`, `rng_below(&rng, n)`
   (unbiased: Lemire's multiply-shift with rejection), `rng_f32` (24 bits, exact in f32). For code that wants "the
-  next number": level generation, shuffles. One `Rng` is one stream: a draw added anywhere shifts every later draw
-  from it.
+  next number" outside `tick`: level generation, scripted bots. One `Rng` is one stream: a draw added anywhere shifts
+  every later draw from it.
 - **Keyed rolls**, nothing in the block: `roll_below(tick, n, purpose, key := 0, index := 0)` and `roll_f32` hash
   (seed, tick number, purpose, key, index); `purpose` is a value of the game's own enum. A roll depends only on what
   it names, so adding, removing or reordering one system's rolls never moves another's. Two rolls that should
-  differ must differ in something: in a loop, pass the loop index.
+  differ must differ in something: in a loop, pass the loop index. **The sim's own draws (in `init` and `tick`) are
+  keyed rolls**: the games keep no `Rng` in their block.
 
 ## The harness
 
-`Sim(State, Input, World, PLAYERS)` holds the tick counter, `state`, `world`, the extras and a ring of saved ticks
+`Sim(State, Input, World, Event, Cmd, PLAYERS)` holds the tick counter, `state`, `world`, the extras and a ring of saved ticks
 (the block copy, the extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the initial state.
 
 - **The ring** keeps about 250 ms of ticks at any rate: `ring_size(tick_hz) = tick_hz / 4` (8 at 32 Hz, 16 at 64,
@@ -266,8 +281,10 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   the block, then each Extra's bytes. Peers compare it on finalized ticks.
 - **Extra** (`save/restore(slot)` with `slot = tick % ring_size`, `hash(state, tick, out)`: on multiples of
   `DEEP_CHECKSUM_EVERY` (16), the ticks the netcode compares, its whole internal state, otherwise a cheaper
-  summary; `image(slot)`, `load(bytes)`, optional `size(slot)`: the bytes a slot's save holds): rollback state outside
-  the block. `save_size(simulation)`: what each tick's save copies (the block and the extras' saves), against
+  summary; `image(slot)`, `load(bytes)`, optional `size(slot)`: the bytes a slot's save holds; optional `check(state)
+  -> string`: "" when the extra agrees with the block, else why, e.g. physics' broken refs and orphaned bodies):
+  rollback state outside the block. `check(simulation) -> string` runs every extra's check;
+  `scenarios.rollback_every_tick` runs it after every restore, so every game's suite catches it. `save_size(simulation)`: what each tick's save copies (the block and the extras' saves), against
   `snapshot_size`'s portable image (`uni bench` prints both). The harness knows nothing about Box3D
   (`src/physics/SPEC.md`).
 
@@ -286,7 +303,7 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   records). Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
   (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
-- **Portable snapshot** `UNIS` (`SNAP_VERSION` 6): seed, content hash, tick, block size, `layout_hash(State)` (field
+- **Portable snapshot** `UNIS` (`SNAP_VERSION` 7): seed, content hash, tick, block size, `layout_hash(State)` (field
   names, offsets and types), compat (`compat_of` of the build that took it), a payload digest, the block bytes, each
   Extra's image. `snapshot_encode(simulation, tick)` (`snapshot_encode_into(simulation, tick, &buf)` reuses a
   buffer: the netcode's kept desync images),

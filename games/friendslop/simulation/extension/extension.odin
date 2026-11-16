@@ -7,7 +7,6 @@ package friendslop_extension
 import "base:runtime"
 import "core:math"
 import "core:reflect"
-import "unified:b3"
 import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
@@ -47,7 +46,7 @@ MultiView :: enum u8 {}
 
 Frame :: godot.Frame(fs.State, fs.World, View, MultiView)
 
-GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, MultiView) {
+GLUE := godot.Glue(fs.State, fs.Input, fs.World, fs.Cmd, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
 	data           = Data,
@@ -129,7 +128,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = player_view_key(player),
 			kind   = .Player,
 			player = player,
-			pos    = physics.position(f.world.phys, character.controller.body),
+			pos    = physics.body_position(f.world.phys, character.controller.body),
 			rot    = fs.yaw_quat(character.facing),
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
@@ -139,14 +138,13 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	add_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
-		id := physics.body_id(f.world.phys, body)
-		pos := b3.body_get_position(id)
+		pos := physics.body_position(f.world.phys, body)
 		godot.push_view(f, {
 			key    = view.Key(marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
 			pos    = {pos.x, pos.y, pos.z},
-			rot    = b3.body_get_rotation(id),
+			rot    = physics.body_rotation(f.world.phys, body),
 		})
 	}
 	for i in 0 ..< f.world.item_count {

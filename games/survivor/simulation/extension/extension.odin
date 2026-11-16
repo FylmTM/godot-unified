@@ -7,7 +7,6 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
-import "unified:b3"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -66,7 +65,7 @@ Player_View :: struct {
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
 // instances, so their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, MultiView) {
+GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, survivor.Cmd, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	data              = Data,
@@ -104,8 +103,7 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &f.state.items[i]
 		if !item.alive do continue
-		body := physics.body_id(f.world.phys, item.body)
-		body_pos := b3.body_get_position(body)
+		body_pos := physics.body_position(f.world.phys, item.body)
 		godot.push_view(
 			f,
 			{
@@ -113,7 +111,7 @@ fill_frame :: proc(f: ^Frame) {
 				kind   = item.kind == .Barrel ? .Barrel : .Crate,
 				entity = u64(i + 1), // barrel_exploded's entity: item index + 1 (an entity of 0 routes nowhere)
 				pos    = {body_pos.x, body_pos.y, body_pos.z},
-				rot    = b3.body_get_rotation(body),
+				rot    = physics.body_rotation(f.world.phys, item.body),
 			},
 		)
 	}
@@ -163,11 +161,11 @@ facing :: proc(dir: [2]f32) -> [4]f32 {
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
 hit_flash :: proc(tick, hit_tick: u32) -> f32 {
 	if hit_tick == 0 || tick < hit_tick do return 0
-	return max(0, 1 - f32(tick - hit_tick) * survivor.DT / HIT_FLASH_S)
+	return max(0, 1 - sim.seconds(tick - hit_tick, survivor.TICK_HZ) / HIT_FLASH_S)
 }
 
 age_s :: proc(tick, spawn_tick: u32) -> f32 {
-	return tick > spawn_tick ? f32(tick - spawn_tick) * survivor.DT : 0
+	return tick > spawn_tick ? sim.seconds(tick - spawn_tick, survivor.TICK_HZ) : 0
 }
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions

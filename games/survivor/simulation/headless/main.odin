@@ -11,7 +11,14 @@ import "unified:headless"
 import "unified:headless/modes"
 import "unified:sim"
 
-HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
+HEADLESS := headless.Headless(
+	survivor.State,
+	survivor.Input,
+	survivor.World,
+	survivor.Event,
+	survivor.Cmd,
+	survivor.PLAYERS,
+) {
 	game = &survivor.GAME_STRESS,
 	scripted_input = survivor.scripted_input,
 	scripted_commands = survivor.scripted_commands,

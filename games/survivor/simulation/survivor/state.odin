@@ -5,7 +5,6 @@ import "unified:physics"
 import "unified:sim"
 
 TICK_HZ :: 64
-DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4 // input slots: the most players in the game at once
@@ -223,7 +222,6 @@ Phase :: enum u8 {
 
 // The whole simulation state: one pointer-free block (checked by sim.create).
 State :: struct {
-	rng:           sim.Rng,
 	seed:          u32,
 	enemy_cap:     u32, // 1200; bench lowers it to hold a fixed population
 	kills:         u32,

@@ -12,7 +12,14 @@ import "unified:sim"
 
 PARK_LEVEL :: #load("../../game/levels/park.level")
 
-HEADLESS := headless.Headless(friendslop.State, friendslop.Input, friendslop.World, friendslop.PLAYERS) {
+HEADLESS := headless.Headless(
+	friendslop.State,
+	friendslop.Input,
+	friendslop.World,
+	friendslop.Event,
+	friendslop.Cmd,
+	friendslop.PLAYERS,
+) {
 	game = &friendslop.GAME,
 	scripted_input = friendslop.scripted_input,
 	summary = summary,

@@ -3,17 +3,15 @@
 // descriptor.
 package survivor
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// Shape categories (filter bits) and user material ids (reported by ray casts).
+// Shape categories (filter bits, reported by every query). An item's body is tagged with its index.
 CAT_STATIC :: u64(1 << 0)
 CAT_CRATE :: u64(1 << 1)
 CAT_BARREL :: u64(1 << 2)
 CAT_PLAYER :: u64(1 << 3)
-MAT_ITEM_BASE :: u64(1000) // item i -> 1000 + i
 
 World :: struct {
 	phys:    ^physics.World,
@@ -21,9 +19,9 @@ World :: struct {
 	extras:  [1]sim.Extra,
 }
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Sim :: sim.Sim(State, Input, World, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
 // (y = 0) for enemies and gems, the body's centre for players and barrels. A `player` field names the player the
@@ -90,7 +88,7 @@ Event :: union {
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
 // constant changes what a tick computes without changing the State or Input layout.
-SIM_VERSION :: "2"
+SIM_VERSION :: "3" // 3: keyed rolls for the spawner (#252)
 
 // The game as played (`play` tuning).
 @(rodata)
@@ -103,8 +101,6 @@ GAME := Game {
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	events = Event,
-	commands = Cmd,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -116,13 +112,11 @@ GAME_STRESS := Game {
 	world_create = world_create,
 	world_destroy = world_destroy,
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
-	init = proc(state: ^State, world: ^World, seed: u64) {
-		init(state, world, seed)
-		set_tuning(state, .Stress)
+	init = proc(t: ^Tick) {
+		init(t)
+		set_tuning(t.state, .Stress)
 	},
 	tick = tick,
-	events = Event,
-	commands = Cmd,
 }
 
 // Start spots by slot, inside the start circle.
@@ -146,47 +140,39 @@ item_kind :: proc(i: int) -> Item_Kind {
 	return i % 5 == 2 ? .Barrel : .Crate
 }
 
-// The Box3D id of a body stored in the block, for calling Box3D directly.
-body_id :: proc(world: ^World, ref: Body_Ref) -> b3.Body_Id {
-	return physics.body_id(world.phys, ref)
-}
-
 @(private)
 add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.position = pos
-	body := physics.body_id(world.phys, physics.create_body(world.phys, &body_def))
-	shape_def := b3.default_shape_def()
+	body := physics.create_body(world.phys, &body_def)
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATIC
-	hull := b3.make_box_hull(half.x, half.y, half.z)
-	b3.create_hull_shape(body, &shape_def, &hull.base)
+	hull := physics.make_box_hull(half.x, half.y, half.z)
+	physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
 }
 
-// Creates the body of item i (a crate or a barrel) at its grid spot.
+// Creates the body of item i (a crate or a barrel) at its grid spot, tagged with i.
 create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = item_position(i)
-	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	ref := physics.create_body(world.phys, &body_def, tag = u64(i))
+	shape_def := physics.default_shape_def()
 	shape_def.density = 1
-	shape_def.base_material.user_material_id = MAT_ITEM_BASE + u64(i)
 	if item_kind(i) == .Barrel {
 		shape_def.filter.category_bits = CAT_BARREL
-		capsule := b3.Capsule{{0, -0.3, 0}, {0, 0.3, 0}, 0.4}
-		b3.create_capsule_shape(body, &shape_def, &capsule)
+		physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.3, 0}, {0, 0.3, 0}, 0.4})
 	} else {
 		shape_def.filter.category_bits = CAT_CRATE
-		hull := b3.make_box_hull(0.5, 0.5, 0.5)
-		b3.create_hull_shape(body, &shape_def, &hull.base)
+		hull := physics.make_box_hull(0.5, 0.5, 0.5)
+		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
 	}
 	return ref
 }
 
 // Creates a player's body at the start spot of `slot`.
 create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = PLAYER_START[slot]
 	body_def.motion_locks.angular_x = true
@@ -194,11 +180,9 @@ create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	body_def.motion_locks.angular_z = true
 	body_def.enable_sleep = false
 	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_PLAYER
-	capsule := b3.Capsule{{0, -0.45, 0}, {0, 0.45, 0}, 0.45}
-	b3.create_capsule_shape(body, &shape_def, &capsule)
+	physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.45, 0}, {0, 0.45, 0}, 0.45})
 	return ref
 }
 
@@ -211,7 +195,6 @@ destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 world_create :: proc(seed: u64, _: []u8) -> ^World {
 	world := new(World)
 	world.phys = physics.create({workers = PHYSICS_WORKERS})
-	world.extras[0] = physics.extra(world.phys, State)
 	add_static_box(world, {0, -0.5, 0}, {ARENA_HALF, 0.5, ARENA_HALF}) // ground
 	add_static_box(world, {30.5, 1.5, 0}, {0.5, 1.5, 31}) // walls: inner faces at x, z = ±30
 	add_static_box(world, {-30.5, 1.5, 0}, {0.5, 1.5, 31})
@@ -220,6 +203,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	for k in 0 ..< 8 {
 		add_static_box(world, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
 	}
+	world.extras[0] = physics.extra(world.phys, State) // last: the bodies above are the World's
 	return world
 }
 
@@ -230,16 +214,22 @@ world_destroy :: proc(world: ^World) {
 }
 
 // The tick-0 state: the lobby, items with their bodies; players join when they are first present (sys_players).
-init :: proc(state: ^State, world: ^World, seed: u64) {
-	state.seed = u32(seed)
-	state.rng = sim.rng_seed(seed)
-	state.enemy_cap = MAX_ENEMIES
-	state.phase = .Lobby
-	state.circle_radius = START_RADIUS
-	set_tuning(state, .Play)
+init :: proc(t: ^Tick) {
+	t.state.seed = u32(t.seed)
+	t.state.enemy_cap = MAX_ENEMIES
+	t.state.phase = .Lobby
+	t.state.circle_radius = START_RADIUS
+	set_tuning(t.state, .Play)
 	for i in 0 ..< ITEM_COUNT {
-		item_reset(state, world, i)
+		item_reset(t.state, t.world, i)
 	}
+}
+
+// What the keyed rolls are for (sim.roll_below).
+Roll :: enum u8 {
+	Spawn_Direction,
+	Spawn_Jitter,
+	Spawn_Kind,
 }
 
 // Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its grid spot. The

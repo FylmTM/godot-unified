@@ -103,6 +103,12 @@ handle_key :: proc(handle: Handle($T)) -> u64 {
 	return u64(handle.generation) << 32 | u64(handle.index)
 }
 
+// The handle a key names (handle_key's inverse; a physics tag, a view key): `sim.handle_of_key(Coin, hit.tag)`. A
+// key of no live item gives a handle that `get` answers nil for.
+handle_of_key :: proc($T: typeid, key: u64) -> Handle(T) {
+	return {index = u32(key & 0xFFFF_FFFF), generation = u32(key >> 32)}
+}
+
 // The same item one tick earlier, for views that interpolate: `previous` is the table in the previous
 // tick's state (nil when that state is not available); found when the item at `index` is alive in both
 // with the same generation (not a reused slot).

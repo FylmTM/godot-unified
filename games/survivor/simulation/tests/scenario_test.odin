@@ -44,8 +44,6 @@ SCENARIO := survivor.Game {
 	extras        = survivor.GAME.extras,
 	init          = survivor.GAME_STRESS.init, // the dense stress spawner
 	tick          = scenario_tick,
-	events        = survivor.Event,
-	commands      = survivor.Cmd,
 }
 
 Counts :: struct {
@@ -72,9 +70,8 @@ count :: proc(counts: ^Counts, events: []sim.Raw_Event) {
 // Scripted inputs and level-up picks of a tick, every slot present (joining on tick 1).
 scripted :: proc(simulation: ^survivor.Sim, tick: u32) -> (inputs: survivor.Inputs) {
 	join_free(simulation, &inputs, {0, 1, 2, 3})
-	out := sim.Command_Out {
-		commands = survivor.Cmd,
-		cap      = sim.COMMANDS_PER_PLAYER,
+	out := sim.Command_Out(survivor.Cmd) {
+		cap = sim.COMMANDS_PER_PLAYER,
 	}
 	defer delete(out.list)
 	for slot in 0 ..< survivor.PLAYERS {
@@ -133,16 +130,36 @@ scenario_synctest :: proc(t: ^testing.T) {
 	}
 }
 
-Client :: netcode.Client(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS)
+Client :: netcode.Client(
+	survivor.State,
+	survivor.Input,
+	survivor.World,
+	survivor.Event,
+	survivor.Cmd,
+	survivor.PLAYERS,
+)
 
 @(test)
 scenario_networked :: proc(t: ^testing.T) {
 	TICKS :: 900
-	hooks := netcode.Hooks(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
+	hooks := netcode.Hooks(
+		survivor.State,
+		survivor.Input,
+		survivor.World,
+		survivor.Event,
+		survivor.Cmd,
+		survivor.PLAYERS,
+	) {
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State) -> survivor.Input {
 			return survivor.scripted_input(13, slot, tick, state)
 		},
-		commands = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State, out: ^sim.Command_Out) {
+		commands = proc(
+			user: rawptr,
+			slot: int,
+			tick: u32,
+			state: ^survivor.State,
+			out: ^sim.Command_Out(survivor.Cmd),
+		) {
 			survivor.scripted_commands(13, slot, tick, state, out)
 		},
 	}

@@ -172,20 +172,19 @@ Tight_Event :: union {
 	sim.Event_Player_Left,
 }
 
-Tight_Game :: sim.Game(Tight_State, toy.Input, toy.World, 2)
+Tight_Game :: sim.Game(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Commands, 2)
 
 TIGHT := Tight_Game {
 	name = "tight",
 	tick_hz = 64,
 	world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)},
 	world_destroy = proc(world: ^toy.World) {free(world)},
-	init = proc(state: ^Tight_State, world: ^toy.World, seed: u64) {},
-	tick = proc(t: ^sim.Tick(Tight_State, toy.Input, toy.World, 2)) {
+	init = proc(t: ^sim.Tick(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Commands, 2)) {},
+	tick = proc(t: ^sim.Tick(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Commands, 2)) {
 		for player in t.player_changes.left {
 			assert(sim.player_data(&t.state.players, player) != nil, "a leaver's handle names its data on its tick")
 		}
 	},
-	events = Tight_Event,
 }
 
 @(test)
@@ -196,7 +195,7 @@ a_member_who_just_left_is_not_forgotten_on_that_tick :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(players.members), 4) // 2 x PLAYERS
 	inputs: sim.Inputs(toy.Input, 2)
 	swap :: proc(
-		simulation: ^sim.Sim(Tight_State, toy.Input, toy.World, 2),
+		simulation: ^sim.Sim(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Commands, 2),
 		inputs: ^sim.Inputs(toy.Input, 2),
 		a, b: int,
 	) {

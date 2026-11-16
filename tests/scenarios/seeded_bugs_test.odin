@@ -21,9 +21,9 @@ Bug_World :: struct {
 	ticks_run: u32, // ticks this world computed, re-simulations included
 }
 
-Bug_Game :: sim.Game(toy.State, toy.Input, Bug_World, toy.PLAYERS)
-Bug_Tick :: sim.Tick(toy.State, toy.Input, Bug_World, toy.PLAYERS)
-Bug_Headless :: headless.Headless(toy.State, toy.Input, Bug_World, toy.PLAYERS)
+Bug_Game :: sim.Game(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Bug_Tick :: sim.Tick(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Bug_Headless :: headless.Headless(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
 
 // Bug: the World keeps a count of the ticks it ran and the tick reads it. It is never rolled back, so a
 // re-simulated tick sees another count. Detector: rollback_every_tick (run_synctest).
@@ -68,10 +68,9 @@ seeded_shared_state_is_caught_by_runs_match :: proc(t: ^testing.T) {
 // machine has its own addresses. Detector: the netcode's desync detection (session_agrees).
 @(test)
 seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
-	game := bug_game("address_dependent", init = proc(state: ^toy.State, world: ^Bug_World, seed: u64) {
-			state.rng = sim.rng_seed(seed)
-			address := u64(uintptr(world))
-			state.spawned = u32(address ~ address >> 32)
+	game := bug_game("address_dependent", init = proc(t: ^Bug_Tick) {
+			address := u64(uintptr(t.world))
+			t.state.spawned = u32(address ~ address >> 32)
 		})
 	bugged := bug_headless(&game)
 	network, _ := netcode.profile_by_name("ideal")
@@ -95,10 +94,12 @@ toy_tick :: proc(tick: ^Bug_Tick) {
 		world          = &tick.world.toy,
 		number         = tick.number,
 		seed           = tick.seed,
+		dt             = tick.dt,
 		inputs         = tick.inputs,
 		events         = tick.events,
 		player_changes = tick.player_changes,
 		players_layout = tick.players_layout,
+		commands       = tick.commands,
 	}
 	toy.tick(&inner)
 }
@@ -108,7 +109,7 @@ bug_game :: proc(
 	name: string,
 	tick: proc(tick: ^Bug_Tick) = toy_tick,
 	world_create: proc(seed: u64, content: []u8) -> ^Bug_World = bug_world_create,
-	init: proc(state: ^toy.State, world: ^Bug_World, seed: u64) = bug_init,
+	init: proc(t: ^Bug_Tick) = bug_init,
 ) -> Bug_Game {
 	return Bug_Game {
 		name = name,
@@ -118,8 +119,6 @@ bug_game :: proc(
 		world_destroy = proc(world: ^Bug_World) {free(world)},
 		init = init,
 		tick = tick,
-		events = toy.Event,
-		commands = toy.Cmd,
 	}
 }
 
@@ -127,9 +126,7 @@ bug_world_create :: proc(seed: u64, content: []u8) -> ^Bug_World {
 	return new(Bug_World)
 }
 
-bug_init :: proc(state: ^toy.State, world: ^Bug_World, seed: u64) {
-	state.rng = sim.rng_seed(seed)
-}
+bug_init :: proc(t: ^Bug_Tick) {}
 
 bug_headless :: proc(game: ^Bug_Game) -> Bug_Headless {
 	return Bug_Headless {

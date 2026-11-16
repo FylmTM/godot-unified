@@ -5,11 +5,10 @@ package __GAME__
 import "unified:sim"
 
 PLAYERS :: 4 // input slots: who is in the session at once
-TICK_HZ :: 64 // a power of two: dt is exact
-DT :: f32(1) / TICK_HZ
+TICK_HZ :: 64 // a power of two: t.dt is exact
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 @(rodata)
 GAME := Game {
@@ -20,7 +19,6 @@ GAME := Game {
 	world_destroy = world_destroy,
 	init          = init,
 	tick          = tick,
-	events        = Event,
 }
 
 // Events (unified's src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes. The library's
@@ -29,6 +27,10 @@ Event :: union {
 	sim.Event_Player_Joined,
 	sim.Event_Player_Left,
 }
+
+// Commands (unified's src/sim/SPEC.md, Commands): one-shot actions a player sends, a union of plain structs
+// (`Cmd :: union {Cmd_Ready}`); none yet.
+Cmd :: sim.No_Commands
 
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	return new(World)
@@ -39,7 +41,7 @@ world_destroy :: proc(world: ^World) {
 }
 
 // The tick-0 state (the block is zeroed before): nothing more to set.
-init :: proc(state: ^State, world: ^World, seed: u64) {}
+init :: proc(t: ^Tick) {}
 
 tick :: proc(t: ^Tick) {
 	update_players_presence(t)

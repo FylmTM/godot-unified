@@ -37,7 +37,10 @@ log_opt :: proc(args: ^Args) -> sim.Log_Sink {
 
 // The `session` mode: an in-process relay and `--clients` scripted clients over loopback or UDP (session_run),
 // failing on a desync; prints each client's result and writes the relay's input log when asked.
-mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_session :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "clients", "transport", "profile", "ticks", "late-join", "log", "seed", "clock")
 	cfg := uheadless.Session_Config {
 		clients     = opt_int(args, "clients", required = true, low = 1, high = PLAYERS),
@@ -101,7 +104,10 @@ mode_session :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAY
 
 // The `relay` mode: a relay alone on a UDP port, run until its session ends, for the multi-process test
 // (`uni test --suite net`) with `client` processes; fails on a desync.
-mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_relay :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "port", "players", "ticks", "log", "bind")
 	port := opt_int(args, "port", required = true, low = 1, high = 65535)
 	scope: netcode.Udp_Scope
@@ -148,7 +154,10 @@ mode_relay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYER
 
 // The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
 // prints its result as the JSON line.
-mode_client :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_client :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "connect", "slot", "ticks", "profile", "token")
 	address := opt_str(args, "connect", required = true)
 	endpoint, endpoint_ok := cnet.parse_endpoint(address)
@@ -172,10 +181,10 @@ mode_client :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYE
 		name    = fmt.tprintf("client%d", slot),
 		token   = token,
 	}
-	scripted := uheadless.Scripted_User(State, Input, World, PLAYERS){headless, 1}
+	scripted := uheadless.Scripted_User(State, Input, World, Event, Cmd, PLAYERS){headless, 1}
 	client := netcode.client_create(headless.game, cfg, link, uheadless.scripted_hooks(&scripted))
 	defer netcode.client_destroy(client)
-	task := uheadless.Client_Task(State, Input, World, PLAYERS) {
+	task := uheadless.Client_Task(State, Input, World, Event, Cmd, PLAYERS) {
 		client,
 		netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6),
 		false,

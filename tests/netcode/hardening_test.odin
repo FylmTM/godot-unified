@@ -492,7 +492,7 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	rnet_join(&session, 0)
 	rnet_run(&session, 1)
 	other := toy.GAME
-	other.version = "2"
+	other.version = "a version the toy never has"
 	link := netcode.loopback_link(session.hub, 6)
 	client := netcode.client_create(&other, {
 			slot  = -1,

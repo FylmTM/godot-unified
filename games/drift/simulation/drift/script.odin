@@ -41,7 +41,7 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 
 // Sends the slot-0 player's scripted `start` and `restart` on a fixed beat, so scripted runs go through whole matches and
 // back to the lobby.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	if slot != 0 do return
 	switch tick % SCRIPT_COMMAND_EVERY {
 	case SCRIPT_START_AT:

@@ -11,5 +11,4 @@ Event :: union {
 Event_Ball_Dropped :: struct {
 	player: sim.Player,
 	speed:  u8,
-	_pad:   u8,
 }

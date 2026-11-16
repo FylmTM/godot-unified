@@ -80,6 +80,60 @@ world_cast_ray :: proc(
 	return transmute(Tree_Stats)stats
 }
 
+// The last step's sensor events: slices into Box3D's memory, valid until the next step.
+world_get_sensor_events :: proc(world_id: World_Id) -> Sensor_Events {
+	events := box3d.World_GetSensorEvents(world_id)
+	return {
+		begin_events = ([^]Sensor_Begin_Touch_Event)(events.beginEvents)[:events.beginCount],
+		end_events   = ([^]Sensor_End_Touch_Event)(events.endEvents)[:events.endCount],
+	}
+}
+
+// Calls `fcn` (with the caller's context) for every shape the proxy at `origin` overlaps (exact, not fat AABBs).
+world_overlap_shape :: proc(
+	world_id: World_Id,
+	origin: [3]f32,
+	proxy: ^Shape_Proxy,
+	filter: Query_Filter,
+	fcn: Overlap_Result_Fcn,
+	user: rawptr,
+) -> Tree_Stats {
+	trampoline := Overlap_Trampoline{context, fcn, user}
+	stats := box3d.World_OverlapShape(
+		world_id,
+		transmute(box3d.Vec3)origin,
+		(^box3d.ShapeProxy)(proxy),
+		transmute(box3d.QueryFilter)filter,
+		overlap_trampoline,
+		&trampoline,
+	)
+	return transmute(Tree_Stats)stats
+}
+
+// Calls `fcn` (with the caller's context) for every shape the proxy, swept from `origin` by `translation`, hits; its
+// return value steers the cast as world_cast_ray's.
+world_cast_shape :: proc(
+	world_id: World_Id,
+	origin: [3]f32,
+	proxy: ^Shape_Proxy,
+	translation: [3]f32,
+	filter: Query_Filter,
+	fcn: Cast_Result_Fcn,
+	user: rawptr,
+) -> Tree_Stats {
+	trampoline := Cast_Trampoline{context, fcn, user}
+	stats := box3d.World_CastShape(
+		world_id,
+		transmute(box3d.Vec3)origin,
+		(^box3d.ShapeProxy)(proxy),
+		transmute(box3d.Vec3)translation,
+		transmute(box3d.QueryFilter)filter,
+		cast_trampoline,
+		&trampoline,
+	)
+	return transmute(Tree_Stats)stats
+}
+
 // The closest hit along the ray; not ok: no hit.
 world_cast_ray_closest :: proc(
 	world_id: World_Id,
@@ -226,6 +280,31 @@ body_apply_linear_impulse_to_center :: proc(body_id: Body_Id, impulse: [3]f32, w
 	box3d.Body_ApplyLinearImpulseToCenter(body_id, transmute(box3d.Vec3)impulse, wake)
 }
 
+// Adds a force (N) at a world point for the next step; `wake` wakes a sleeping body.
+body_apply_force :: proc(body_id: Body_Id, force: [3]f32, point: [3]f32, wake: bool) {
+	box3d.Body_ApplyForce(body_id, transmute(box3d.Vec3)force, transmute(box3d.Vec3)point, wake)
+}
+
+// Adds a force (N) at the centre of mass for the next step.
+body_apply_force_to_center :: proc(body_id: Body_Id, force: [3]f32, wake: bool) {
+	box3d.Body_ApplyForceToCenter(body_id, transmute(box3d.Vec3)force, wake)
+}
+
+// Adds a torque (N·m, world frame) for the next step.
+body_apply_torque :: proc(body_id: Body_Id, torque: [3]f32, wake: bool) {
+	box3d.Body_ApplyTorque(body_id, transmute(box3d.Vec3)torque, wake)
+}
+
+// Adds an impulse (N·s) at a world point.
+body_apply_linear_impulse :: proc(body_id: Body_Id, impulse: [3]f32, point: [3]f32, wake: bool) {
+	box3d.Body_ApplyLinearImpulse(body_id, transmute(box3d.Vec3)impulse, transmute(box3d.Vec3)point, wake)
+}
+
+// Adds an angular impulse (N·m·s, world frame).
+body_apply_angular_impulse :: proc(body_id: Body_Id, impulse: [3]f32, wake: bool) {
+	box3d.Body_ApplyAngularImpulse(body_id, transmute(box3d.Vec3)impulse, wake)
+}
+
 // The body's mass (kg), from its shapes' densities.
 body_get_mass :: proc(body_id: Body_Id) -> f32 {
 	return box3d.Body_GetMass(body_id)
@@ -261,6 +340,26 @@ create_hull_shape :: proc(body_id: Body_Id, def: ^Shape_Def, hull: ^Hull_Data) -
 // The body a shape belongs to.
 shape_get_body :: proc(shape_id: Shape_Id) -> Body_Id {
 	return box3d.Shape_GetBody(shape_id)
+}
+
+// Whether the id names a live shape (index and generation).
+shape_is_valid :: proc(id: Shape_Id) -> bool {
+	return box3d.Shape_IsValid(id)
+}
+
+// A shape's collision filter (its category and mask bits).
+shape_get_filter :: proc(shape_id: Shape_Id) -> Filter {
+	return transmute(Filter)box3d.Shape_GetFilter(shape_id)
+}
+
+// How many visitors a sensor shape can report (the size shape_get_sensor_data needs).
+shape_get_sensor_capacity :: proc(shape_id: Shape_Id) -> i32 {
+	return box3d.Shape_GetSensorCapacity(shape_id)
+}
+
+// The shapes overlapping a sensor shape after the last step, into `out` (at most len(out)); the count written.
+shape_get_sensor_data :: proc(shape_id: Shape_Id, out: []Shape_Id) -> i32 {
+	return box3d.Shape_GetSensorData(shape_id, raw_data(out), i32(len(out)))
 }
 
 // Whether the shape is a sensor (detects overlaps, doesn't collide).

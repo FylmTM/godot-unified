@@ -5,6 +5,7 @@ package test_lint
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 import "unified:lint"
@@ -212,6 +213,53 @@ games_follow_determinism_rules :: proc(t: ^testing.T) {
 		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, game))
 		imp := fmt.tprintf("\"../games/%s/simulation/tests\"", game)
 		testing.expectf(t, strings.contains(string(root), imp), "tests/tests.odin does not import %s", imp)
+	}
+}
+
+// Box3D is physics' implementation (src/physics/SPEC.md, The boundary): only src/physics and tests/b3 import
+// unified:b3 (and the physics bench, which reads Box3D's own counters), across the library, its tests and the games.
+@(test)
+only_physics_imports_b3 :: proc(t: ^testing.T) {
+	ALLOWED :: []string{"src/physics", "src/b3", "tests/b3", "tests/physics/bench"}
+	clean, _ := filepath.clean(SRC_DIR + "/..", context.temp_allocator)
+	root, _ := strings.replace_all(clean, "\\", "/", context.temp_allocator)
+	for top in ([]string{"src", "tests", "games"}) {
+		files := make([dynamic]string, context.temp_allocator)
+		collect_odin(fmt.tprintf("%s/%s", root, top), &files)
+		file_loop: for path in files {
+			normalized, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+			relative := strings.trim_prefix(strings.trim_prefix(normalized, root), "/")
+			for allowed in ALLOWED {
+				if strings.has_prefix(relative, allowed) && strings.has_prefix(relative[len(allowed):], "/") do continue file_loop
+			}
+			data, _ := os.read_entire_file(path, context.temp_allocator)
+			text := string(data)
+			for line in strings.split_lines_iterator(&text) {
+				trimmed := strings.trim_space(line)
+				if strings.has_prefix(trimmed, "import") && strings.contains(trimmed, `"unified:b3"`) {
+					testing.expectf(
+						t,
+						false,
+						"%s imports unified:b3 (Box3D is reached through unified:physics)",
+						relative,
+					)
+				}
+			}
+		}
+	}
+}
+
+@(private)
+collect_odin :: proc(dir: string, out: ^[dynamic]string) {
+	infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
+	if err != nil do return
+	for info in infos {
+		if info.type == .Directory {
+			if info.name == ".out" || info.name == ".godot" do continue
+			collect_odin(info.fullpath, out)
+		} else if strings.has_suffix(info.name, ".odin") {
+			append(out, info.fullpath)
+		}
 	}
 }
 

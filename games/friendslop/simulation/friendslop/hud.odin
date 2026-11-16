@@ -35,15 +35,15 @@ hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 	result.phase = state.phase
 	result.tick = tick
 	result.runs = state.runs
-	result.best_s = f32(state.best_ticks) * DT
+	result.best_s = sim.seconds(state.best_ticks, TICK_HZ)
 	result.checkpoint = state.checkpoint
 	switch state.phase {
 	case .Hub:
 	case .Run:
-		result.run_s = f32(tick - state.run_tick) * DT
+		result.run_s = sim.seconds(tick - state.run_tick, TICK_HZ)
 	case .Finished:
-		result.run_s = f32(state.finish_tick - state.run_tick) * DT
-		result.reset_in_s = f32(FINISH_HOLD_TICKS - min(tick - state.finish_tick, FINISH_HOLD_TICKS)) * DT
+		result.run_s = sim.seconds(state.finish_tick - state.run_tick, TICK_HZ)
+		result.reset_in_s = sim.seconds(FINISH_HOLD_TICKS - min(tick - state.finish_tick, FINISH_HOLD_TICKS), TICK_HZ)
 	}
 	for trigger, i in state.triggers {
 		if trigger.active do result.triggers |= 1 << u32(i)

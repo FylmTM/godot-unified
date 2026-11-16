@@ -10,7 +10,7 @@ scripted_input :: proc(seed: u64, slot: int, t: u32) -> Input {
 }
 
 // The player in `slot` throws a ball every 32 ticks (each slot at its own tick), 3 to 6 metres per second up.
-scripted_commands :: proc(seed: u64, slot: int, t: u32, state: ^State, out: ^sim.Command_Out) {
+scripted_commands :: proc(seed: u64, slot: int, t: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	if (t + u32(slot) * 8) % 32 != 0 do return
 	sim.send_command(out, Cmd_Ball_Drop{speed = 3 + u8(t / 32 % 4)})
 }

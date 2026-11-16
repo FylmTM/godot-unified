@@ -11,13 +11,27 @@ import "../survivor"
 import "unified:headless"
 import "unified:headless/scenarios"
 
-HEADLESS := headless.Headless(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
+HEADLESS := headless.Headless(
+	survivor.State,
+	survivor.Input,
+	survivor.World,
+	survivor.Event,
+	survivor.Cmd,
+	survivor.PLAYERS,
+) {
 	game              = &survivor.GAME_STRESS,
 	scripted_input    = survivor.scripted_input,
 	scripted_commands = survivor.scripted_commands,
 }
 
-SUITE := scenarios.Suite(survivor.State, survivor.Input, survivor.World, survivor.PLAYERS) {
+SUITE := scenarios.Suite(
+	survivor.State,
+	survivor.Input,
+	survivor.World,
+	survivor.Event,
+	survivor.Cmd,
+	survivor.PLAYERS,
+) {
 	game = &HEADLESS,
 	players = 4,
 	seed = 42,

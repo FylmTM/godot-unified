@@ -23,10 +23,10 @@ GOLDEN_EVERY :: 128
 // change is intended, update the values in the same commit (with tests/b3's GOLDEN and the
 // games' reference runs when they change too).
 GOLDEN_CHARACTERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
-	0xdf33d7851d354ae0,
-	0x0366abcca4f15d0e,
-	0x79cae35e15958f91,
-	0x06044d6818f89ceb,
+	0x82a758bfac90b21f,
+	0xe1fd6c627ffd6815,
+	0x6197a25c12088a1e,
+	0xcdb5e608c03aba83,
 }
 
 // On 1 and on 4 workers: the same values.
@@ -44,9 +44,7 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	ground(world)
 	box(world, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
 	state: Golden
-	state.platform = physics.ref_of(
-		box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
-	)
+	state.platform = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM)
 	physics.character_create(world, &state.rider, &CHARACTER, {0, 1.6, 6})
 	physics.character_create(world, &state.walker, &CHARACTER, {-8, 1.5, 0})
 	physics.character_create(world, &state.target, &CHARACTER, {4, 1.5, -2})
@@ -65,11 +63,9 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 		physics.character_update(world, &state.target, &CHARACTER, {}, false, 1, DT)
 		if tick == 64 {
 			// A heavy box (about the character's mass) at 14 m/s: the drive's force cap gives way.
-			state.thrown = physics.ref_of(
-				box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
-			)
-			physics.set_velocity(world, state.thrown, {14, 0, 0})
-			target_x0 = physics.position(world, state.target.body).x
+			state.thrown = box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400)
+			physics.body_set_linear_velocity(world, state.thrown, {14, 0, 0})
+			target_x0 = physics.body_position(world, state.target.body).x
 		}
 		step(world)
 		jumped ||= tick > 160 && !physics.character_grounded(&state.walker)
@@ -86,8 +82,8 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	// The scene does what it is for, so the trace covers walking, jumping, riding and being pushed.
 	testing.expect(t, jumped, "the walker never left the ground")
 	testing.expect(t, rode, "the rider left the platform")
-	testing.expect(t, physics.position(world, state.walker.body).y > 1.1, "the walker fell through")
-	pushed := physics.position(world, state.target.body).x - target_x0
+	testing.expect(t, physics.body_position(world, state.walker.body).y > 1.1, "the walker fell through")
+	pushed := physics.body_position(world, state.target.body).x - target_x0
 	testing.expectf(t, pushed > 0.1, "the target was pushed only %v m", pushed)
 	testing.expect(t, physics.character_grounded(&state.target), "the target did not get up again")
 	testing.expectf(

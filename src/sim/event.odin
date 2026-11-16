@@ -5,6 +5,8 @@
 // cancels them when the tick is verified. Not state: not in the block, not hashed.
 package sim
 
+import "base:intrinsics"
+
 EVENT_MAX :: 64 // bytes of one event's struct
 
 // A point in sim units (2D games: z = 0). The view maps fields of this type to its units (Glue.view_scale).
@@ -23,12 +25,24 @@ Events :: struct {
 	list: [dynamic]Raw_Event,
 }
 
-// Emits an event from inside `tick`: `sim.emit(tick, Coin_Picked{coin = handle, player = u8(player)})`.
-emit :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), event: $E) {
-	emit_to(tick.events, event)
+// Emits an event from inside `tick`: `sim.emit(t, Event_Coin_Picked{coin = handle, player = player})`. A value
+// that is not a variant of the game's Event union does not compile.
+emit :: proc(
+	tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	event: $E,
+) where intrinsics.type_is_variant_of(Event, E) {
+	#assert(size_of(E) <= EVENT_MAX)
+	event := event
+	raw := Raw_Event {
+		kind = u8(intrinsics.type_variant_index_of(Event, E)),
+		size = size_of(E),
+	}
+	copy(raw.data[:], ([^]u8)(&event)[:size_of(E)])
+	append(&tick.events.list, raw)
 }
 
-// Appends an event to a tick's list; E must be one of the union's structs.
+// Appends an event to a tick's list, the union known at run time (the harness's own join and leave events); E must
+// be one of the union's structs.
 emit_to :: proc(events: ^Events, event: $E) {
 	kind := variant_kind(events.type, E)
 	assert(kind >= 0, "sim.emit: not a variant of the game's event union")

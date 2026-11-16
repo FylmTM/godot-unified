@@ -9,6 +9,7 @@ package physics
 
 import "unified:b3"
 import "unified:dmath"
+import "unified:sim"
 
 Character_Flag :: enum u8 {
 	On_Ground, // the probes found ground and the character is not jumping
@@ -21,8 +22,8 @@ Character_Flags :: bit_set[Character_Flag;u8]
 // One character, in the block. Zero value: no character.
 Character :: struct {
 	body:          Body_Ref,
-	move_joint:    Joint_Ref,
-	pogo:          Joint_Ref,
+	move_joint:    Mover_Joint_Ref,
+	pogo:          Pogo_Joint_Ref,
 	ground:        Body_Link, // what the pogo stands on (zero: air)
 	velocity:      [3]f32, // the drive's target, relative to the body it is attached to
 	pogo_impulse:  f32,
@@ -45,6 +46,7 @@ Character_Def :: struct {
 	mask:                   u64,
 	material:               u64, // the capsule's user material id (how others recognise a character)
 	hit_events:             bool, // the capsule reports contact hit events
+	sensor_events:          bool, // sensors see the capsule (Shape_Def.enable_sensor_events)
 	max_speed:              f32,
 	min_speed:              f32,
 	stop_speed:             f32,
@@ -93,8 +95,9 @@ CHARACTER_DEFAULT :: Character_Def {
 	jump_buffer_s          = 0.125,
 }
 
-// Creates the character's body and drive joint at `pos` (the capsule's centre). Needs Settings.anchor.
-character_create :: proc(world: ^World, character: ^Character, def: ^Character_Def, pos: [3]f32) {
+// Creates the character's body (tagged `tag`, as create_body's) and drive joint at `pos` (the capsule's centre). Needs
+// Settings.anchor.
+character_create :: proc(world: ^World, character: ^Character, def: ^Character_Def, pos: [3]f32, tag: u64 = 0) {
 	assert(world.anchor.index1 != 0, "physics: characters need Settings.anchor")
 	character^ = {}
 	body_def := b3.default_body_def()
@@ -109,6 +112,7 @@ character_create :: proc(world: ^World, character: ^Character, def: ^Character_D
 	body_def.enable_sleep = false
 	body_def.name = "character"
 	body := b3.create_body(world.id, &body_def)
+	body_created(world, body, tag)
 	shape_def := b3.default_shape_def()
 	shape_def.density = def.density
 	// The joints do all the moving; surface friction would fight them.
@@ -118,6 +122,7 @@ character_create :: proc(world: ^World, character: ^Character, def: ^Character_D
 	if def.category != 0 do shape_def.filter.category_bits = def.category
 	if def.mask != 0 do shape_def.filter.mask_bits = def.mask
 	shape_def.enable_hit_events = def.hit_events
+	shape_def.enable_sensor_events = def.sensor_events
 	capsule := b3.Capsule{{0, -def.half_height, 0}, {0, def.half_height, 0}, def.radius}
 	b3.create_capsule_shape(body, &shape_def, &capsule)
 	character.body = ref_of(body)
@@ -131,14 +136,19 @@ character_destroy :: proc(world: ^World, character: ^Character) {
 }
 
 @(private)
-create_move_joint :: proc(world: ^World, character: ^Character, def: ^Character_Def, base: b3.Body_Id) -> Joint_Ref {
+create_move_joint :: proc(
+	world: ^World,
+	character: ^Character,
+	def: ^Character_Def,
+	base: b3.Body_Id,
+) -> Mover_Joint_Ref {
 	joint_def := b3.default_mover_joint_def()
 	joint_def.linear_velocity = character.velocity
 	joint_def.max_force = .Limp in character.flags ? 0 : def.max_ground_force
 	joint_def.base.body_id_a = base
 	joint_def.base.body_id_b = body_id(world, character.body)
 	joint_def.base.collide_connected = true
-	return joint_ref_of(b3.create_mover_joint(world.id, &joint_def))
+	return {joint_ref_of(b3.create_mover_joint(world.id, &joint_def))}
 }
 
 @(private)
@@ -193,7 +203,10 @@ character_set_limp :: proc(world: ^World, character: ^Character, limp: bool) {
 
 // Moves the character (respawn): velocities zeroed, ground forgotten.
 character_teleport :: proc(world: ^World, character: ^Character, pos: [3]f32) {
-	teleport(world, character.body, pos)
+	id := body_id(world, character.body)
+	b3.body_set_transform(id, pos, {0, 0, 0, 1})
+	b3.body_set_linear_velocity(id, {})
+	b3.body_set_angular_velocity(id, {})
 	drop_pogo(world, character)
 	character.velocity = {}
 	character.flags -= {.On_Ground, .Walkable, .Jumping}
@@ -249,7 +262,7 @@ character_update :: proc(
 	origin := [3]f32{pos.x, pos.y - def.half_height, pos.z}
 	query := Query{def.category, def.mask}
 	self := link(character.body)
-	hit, found := ray_closest(world, origin, translation, query, self)
+	hit, found := world_cast_ray_closest(world, origin, translation, query, self)
 	offset: [3]f32
 	if !(found && hit.normal.y >= def.min_ground_normal_y) {
 		// The skirt turns with the direction of travel, so ties go to the leading probe.
@@ -270,7 +283,7 @@ character_update :: proc(
 				0,
 				def.radius * (dmath.DIR8_C[i] * heading.y + dmath.DIR8_S[i] * side.y),
 			}
-			skirt_hit, ok := ray_closest(world, origin + skirt_offset, translation, query, self)
+			skirt_hit, ok := world_cast_ray_closest(world, origin + skirt_offset, translation, query, self)
 			if ok && skirt_hit.normal.y >= def.min_ground_normal_y {
 				gap := abs(skirt_hit.fraction * ray_len - def.pogo_rest)
 				if gap < best {
@@ -407,7 +420,7 @@ character_update :: proc(
 			// Warm start from the joint that was just destroyed.
 			pogo_def.impulse = character.pogo_impulse
 			pogo_def.velocity = character.pogo_velocity
-			character.pogo = joint_ref_of(b3.create_pogo_joint(world.id, &pogo_def))
+			character.pogo = {joint_ref_of(b3.create_pogo_joint(world.id, &pogo_def))}
 		} else {
 			pogo_id := joint_id(world, character.pogo)
 			b3.joint_set_local_frame_a(pogo_id, {local_point, {0, 0, 0, 1}})
@@ -426,9 +439,9 @@ character_update :: proc(
 	return
 }
 
-// Seconds as whole ticks of `dt`, rounded, clamped to u16 (through dmath: a negative, NaN or huge
-// value converts differently on x86 and ARM).
+// Seconds as whole ticks of `dt` (sim.ticks: rounded), clamped to u16.
 @(private)
 ticks_u16 :: proc(seconds, dt: f32) -> u16 {
-	return u16(dmath.to_i32_clamped(seconds / dt + 0.5, 0, i32(max(u16))))
+	tick_hz := int(dmath.to_i32_clamped(1 / dt + 0.5, 1, 1 << 20))
+	return u16(min(sim.ticks(seconds, tick_hz), u32(max(u16))))
 }

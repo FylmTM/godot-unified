@@ -17,12 +17,12 @@ import "unified:netcode"
 import "unified:sim"
 
 // Read-only: the runs only read it, so the tests share it.
-HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.PLAYERS) {
+HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 	game = &toy.GAME,
 	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 		return toy.scripted_input(seed, player, tick)
 	},
-	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
 		toy.scripted_commands(seed, player, tick, out)
 	},
 }
@@ -38,8 +38,8 @@ offline_runs_hold_commands_over_the_limit_for_the_next_tick :: proc(t: ^testing.
 		applied_at: [6]u32 // the tick each of the six bumps went into
 		for k in 249 ..< 255 {
 			inputs := sim.log_inputs(&input_log, k)
-			testing.expect(t, len(sim.commands(&inputs, player)) <= sim.COMMANDS_PER_PLAYER)
-			for &raw in sim.commands(&inputs, player) {
+			testing.expect(t, len(sim.slot_commands(&inputs, player)) <= sim.COMMANDS_PER_PLAYER)
+			for &raw in sim.slot_commands(&inputs, player) {
 				bump := sim.command_value(&raw, toy.Cmd).(toy.Cmd_Bump) or_continue
 				if i := int(bump.amount) - 100 * player; i >= 0 && i < 6 && applied_at[i] == 0 {
 					applied_at[i] = u32(k + 1)

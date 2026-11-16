@@ -537,10 +537,10 @@ input_log_round_trip :: proc(t: ^testing.T) {
 		inputs.input[0] = toy.scripted_input(99, 0, u32(k + 1))
 		inputs.input[1] = toy.scripted_input(99, 1, u32(k + 1))
 		if k % 5 == 0 {
-			bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(k)})
+			bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(k)})
 			bump.slot = 1
 			sim.add_command(&inputs, bump)
-			mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
+			mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
 			sim.add_command(&inputs, mark) // slot 0: goes before slot 1's
 		}
 		sim.log_append(&input_log, &inputs)
@@ -700,7 +700,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 	testing.expect(t, compat != 0)
 	testing.expect_value(t, sim.compat_of(&base), compat) // stable
 	other := base
-	other.version = "2"
+	other.version = "a version the toy never has"
 	testing.expect(t, sim.compat_of(&other) != compat)
 	other = base
 	other.name = "toy-variant"
@@ -708,17 +708,27 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 	other = base
 	other.tick_hz = 128
 	testing.expect(t, sim.compat_of(&other) != compat)
-	other = base
-	other.events = nil
-	testing.expect(t, sim.compat_of(&other) != compat)
-	other = base
-	other.commands = Swapped_Commands // the same structs, other kinds
-	testing.expect(t, sim.compat_of(&other) != compat)
+	Fewer_Events :: union {
+		sim.Event_Player_Joined,
+		sim.Event_Player_Left,
+	}
+	fewer_events := sim.Game(toy.State, toy.Input, toy.World, Fewer_Events, toy.Cmd, toy.PLAYERS) {
+		name    = base.name,
+		version = base.version,
+		tick_hz = base.tick_hz,
+	}
+	testing.expect(t, sim.compat_of(&fewer_events) != compat)
+	swapped := sim.Game(toy.State, toy.Input, toy.World, toy.Event, Swapped_Commands, toy.PLAYERS) { 	// the same structs, other kinds
+		name    = base.name,
+		version = base.version,
+		tick_hz = base.tick_hz,
+	}
+	testing.expect(t, sim.compat_of(&swapped) != compat)
 	Other_Input :: struct {
 		dx, dy:  i8,
 		buttons: u16,
 	}
-	other_input := sim.Game(toy.State, Other_Input, toy.World, toy.PLAYERS) {
+	other_input := sim.Game(toy.State, Other_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 		name    = base.name,
 		version = base.version,
 		tick_hz = base.tick_hz,

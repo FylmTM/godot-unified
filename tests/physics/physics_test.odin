@@ -4,7 +4,6 @@ package test_physics
 
 import "core:testing"
 
-import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -22,21 +21,20 @@ State :: struct {
 
 make_world :: proc(state: ^State) -> ^physics.World {
 	world := physics.create()
-	body_def := b3.default_body_def()
-	ground := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
-	hull := b3.make_box_hull(10, 0.5, 10)
-	b3.create_hull_shape(ground, &shape_def, &hull.base)
+	body_def := physics.default_body_def()
+	ground := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
+	hull := physics.make_box_hull(10, 0.5, 10)
+	physics.create_hull_shape(world, ground, &shape_def, &hull.base)
 	for &crate, i in state.crates {
-		crate_body_def := b3.default_body_def()
+		crate_body_def := physics.default_body_def()
 		crate_body_def.type = .Dynamic_Body
 		crate_body_def.position = {f32(i) * 2 - 2, 2 + f32(i), 0}
-		body := b3.create_body(world.id, &crate_body_def)
-		crate_hull := b3.make_box_hull(0.5, 0.5, 0.5)
-		crate_shape_def := b3.default_shape_def()
+		crate.body = physics.create_body(world, &crate_body_def)
+		crate_hull := physics.make_box_hull(0.5, 0.5, 0.5)
+		crate_shape_def := physics.default_shape_def()
 		crate_shape_def.density = 1
-		b3.create_hull_shape(body, &crate_shape_def, &crate_hull.base)
-		crate.body = physics.ref_of(body)
+		physics.create_hull_shape(world, crate.body, &crate_shape_def, &crate_hull.base)
 	}
 	return world
 }
@@ -54,11 +52,11 @@ save_restore_hash :: proc(t: ^testing.T) {
 	world := make_world(&state)
 	defer physics.destroy(world)
 	extra := physics.extra(world, State)
-	testing.expect_value(t, len(world.refs), 1 + 3 + 4) // player, crates, table items (memory order)
+	testing.expect_value(t, len(world.refs.bodies), 1 + 3 + 4) // player, crates, table items (memory order)
 	extra.save(extra.data, 0)
 	hash_0 := checksum(&state, &extra)
 	for _ in 0 ..< 30 {
-		b3.world_step(world.id, 1.0 / 64, 4)
+		physics.step(world, 1.0 / 64, 4)
 	}
 	hash_30 := checksum(&state, &extra)
 	testing.expect(t, hash_30 != hash_0)
@@ -92,11 +90,11 @@ save_restore_hash :: proc(t: ^testing.T) {
 create_body_and_a_stale_destroy :: proc(t: ^testing.T) {
 	world := physics.create()
 	defer physics.destroy(world)
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	first := physics.create_body(world, &body_def)
 	testing.expect(t, physics.body_valid(world, physics.link(first)))
-	testing.expect_value(t, b3.body_get_type(physics.body_id(world, first)), b3.Body_Type.Dynamic_Body)
+	testing.expect_value(t, physics.body_type(world, first), physics.Body_Type.Dynamic_Body)
 	stale := first
 	physics.destroy_body(world, &first)
 	testing.expect(t, first == physics.Body_Ref{})

@@ -6,7 +6,7 @@ import "unified:godot"
 
 import g "../minimal_3d"
 
-GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
+GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	data              = Data,
