@@ -13,6 +13,7 @@ var _min_gap: Dictionary[StringName, float] = {}
 var _last_played: Dictionary[StringName, float] = {}
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
+var _closed := false
 
 
 func _ready() -> void:
@@ -39,7 +40,10 @@ func add(sound: StringName, stream: AudioStream, min_gap := 0.0) -> void:
 		_min_gap[sound] = min_gap
 
 
+## Plays a sound on the next voice; nothing once the app is quitting (`close`).
 func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> void:
+	if _closed:
+		return
 	var stream: AudioStream = _streams.get(sound)
 	if stream == null:
 		push_error("Sfx: no sound %s" % sound)
@@ -54,6 +58,14 @@ func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> void:
 	p.volume_db = volume_db
 	p.pitch_scale = pitch
 	p.play()
+
+
+## The app is quitting (Game.quit_app): every voice stops and later plays are ignored. Events keep arriving until
+## the quit (the frame it happens in too), and a playback started then would still be held at exit (a leak).
+func close() -> void:
+	_closed = true
+	for p in _players:
+		p.stop()
 
 
 ## A sine sweep from f0 to f1 (Hz) with an exponential decay, mixed with `noise` (0..1) low-passed noise.

@@ -138,15 +138,16 @@ func leave_to_menu(error := "") -> void:
 		get_tree().change_scene_to_file(MENU_SCENE)
 
 
-## Quits the app (menus, the window's close button, tools). The session ends and every playing sound stops first,
-## and the quit waits (at most 1 s) until the AudioServer has freed their playbacks: one it still holds at exit is
-## reported as leaked.
+## Quits the app (menus, the window's close button, tools). The session ends and every playing sound stops first
+## (Sfx plays nothing more: the session's events keep arriving until the quit), and the quit waits (at most 1 s)
+## until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
 func quit_app(exit_code := 0) -> void:
 	if _quitting:
 		return
 	_quitting = true
 	if session != null and status != "idle":
 		session.leave()
+	Sfx.close()
 	var playbacks: Array[WeakRef] = []
 	for type: String in ["AudioStreamPlayer", "AudioStreamPlayer2D", "AudioStreamPlayer3D"]:
 		for p: Node in get_tree().root.find_children("*", type, true, false):

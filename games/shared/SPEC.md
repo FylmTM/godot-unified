@@ -46,7 +46,7 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   `has`, signal `changed`. The shared keys (`DEFAULTS`: volumes, window mode, vsync, show FPS, player name); a game
   adds its own in `_game_keys()`, among them the standard optional ones (`OPTIONAL`: `render_scale`,
   `mouse_sensitivity`, `invert_y`), which the settings panel shows when present.
-- **`UnifiedSfx`** (`autoload/sfx.gd`, `Sfx`): `play(name, volume_db, pitch)`; `click` and `gem` built in; a game
+- **`UnifiedSfx`** (`autoload/sfx.gd`, `Sfx`): `play(name, volume_db, pitch)`, `close()` (quitting: nothing plays any more); `click` and `gem` built in; a game
   adds its sounds in `_add_sounds()` with `add(name, stream, min_gap)`, `tone()`, `arpeggio()`.
 
 UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (`main_menu.tscn`, exports `title`
@@ -70,8 +70,9 @@ player at boot; `uni release`), plus the session flags (`--autostart`, `--script
 ## How it works
 
 - **Quitting** goes through `Game.quit_app()` (the menus, the window's close button, every tool): the session ends
-  (no event starts a sound any more), every AudioStreamPlayer (2D, 3D) in the tree stops, and the quit waits (at
-  most 1 s) until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
+  and `Sfx.close()` stops its voices and ignores later plays (the session's events keep arriving until the quit, in
+  its last frame too), every AudioStreamPlayer (2D, 3D) in the tree stops, and the quit waits (at most 1 s) until the
+  AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
 - **`Unified.data.hud` is current for event handlers.** The session sets the session data after it syncs the views and
   before it routes the frame's events, so a handler never reads the previous frame's values.
 - **Play scene** (#89): the main menu loads the play scene on a worker thread
