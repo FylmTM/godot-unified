@@ -20,7 +20,7 @@ Event_Layout :: struct {
 	player:            int, // offset of the first sim.Player field, -1: none
 	subject:           int, // offset of the first sim.Handle(T) field, or of a u64 field named `entity`; -1: none
 	subject_is_handle: bool,
-	positions:         [dynamic]int, // offsets of the sim.Position fields
+	positions:         [dynamic]int, // offsets of the sim.Position fields, nested structs' too
 }
 
 // What the tracker identifies and the session thread posts: one event of one simulated tick.
@@ -62,8 +62,6 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 			field, offset := info.types[i], int(info.offsets[i])
 			name := info.names[i]
 			switch {
-			case field.id == sim.Position:
-				append(&layout.positions, offset)
 			case field.id == sim.Player:
 				if layout.player < 0 do layout.player = offset
 			case is_handle(field):
@@ -72,8 +70,24 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 				if layout.subject < 0 do layout.subject = offset
 			}
 		}
+		position_offsets(variant, 0, &layout.positions)
 	}
 	return layouts
+}
+
+// The offsets of a struct's sim.Position fields, in nested structs too (what crosses between sim and view units).
+@(private)
+position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int) {
+	info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
+	if !is_struct do return
+	for i in 0 ..< int(info.field_count) {
+		field, offset := info.types[i], base + int(info.offsets[i])
+		if field.id == sim.Position {
+			append(out, offset)
+		} else if !is_handle(field) && field.id != sim.Player {
+			position_offsets(field, offset, out)
+		}
+	}
 }
 
 // A sim.Handle(T): its RTTI names it "Handle($T=...)" in package sim.

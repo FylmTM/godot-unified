@@ -281,6 +281,10 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	mark.shape = EnumShape.STAR
 	mark.shapes = [EnumShape.DOT, 2]
 	mark.loud = true
+	mark.target = (7 << 32) | 3  # a handle's key: generation 7, index 3
+	mark.place = Vector2(30, 40)  # view units (pixels): the sim gets them in its units
+	mark.area = {"corner": Vector2(1, 2), "layer": 3}  # a nested struct; `_pad` is left out
+	check("a position reads back as it was set", mark.place == Vector2(30, 40), mark.place)
 	check("send_command Mark", session.send_command(mark))
 	# refused: an error line names the problem, and send_command is false for a command holding a bad value
 	var bad := CommandMark.new()
@@ -289,6 +293,12 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	var bad_shape := CommandMark.new()
 	bad_shape.shape = 7
 	check("not an enum member: refused", not session.send_command(bad_shape))
+	var bad_handle := CommandMark.new()
+	bad_handle.target = 3  # generation 0: no handle's key
+	check("not a handle's key: refused", not session.send_command(bad_handle))
+	var bad_area := CommandMark.new()
+	bad_area.area = {"corner": Vector2(1, 2), "depth": 1}
+	check("a key that names no field: refused", not session.send_command(bad_area))
 	check("an event is not a command", not session.send_command(EventPlayerJoined.new()))
 	for i in 100:
 		await create_timer(0.02).timeout
@@ -303,6 +313,10 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	var shapes: Array[int] = toy.mark_shapes
 	check("an enum as its int, a bit_set as an Array[int]", toy.mark_shape == EnumShape.STAR \
 		and shapes == [EnumShape.DOT, EnumShape.STAR], [toy.mark_shape, toy.mark_shapes])
+	check("a handle as its key", toy.mark_target == (7 << 32) | 3, toy.mark_target)
+	check("a position in sim units", toy.mark_place == Vector3(3, 4, 0), toy.mark_place)
+	check("a nested struct from a Dictionary", toy.mark_area == {"corner": Vector2(1, 2), "layer": 3},
+		toy.mark_area)
 	check("Godot's own types as they are", toy.tint == Vector4(1, 2, 3, 4) and toy.turn == Quaternion.IDENTITY,
 		[toy.tint, toy.turn])
 

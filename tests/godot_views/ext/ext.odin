@@ -64,6 +64,9 @@ Data_Toy :: struct {
 	mark_shapes: toy.Shapes, // an Array of ints
 	mark_loud:   bool,
 	_pad:        [3]u8,
+	mark_target: sim.Handle(toy.Thing), // its key
+	mark_place:  [3]f32, // sim units (a sim.Position here would be shown in view units)
+	mark_area:   toy.Mark_Area,
 	x:           f32,
 	y:           f32,
 	spawned:     u32,
@@ -174,6 +177,9 @@ fill_frame :: proc(f: ^Frame) {
 		mark_shape  = mark.shape,
 		mark_shapes = mark.shapes,
 		mark_loud   = mark.loud,
+		mark_target = mark.target,
+		mark_place  = ([3]f32)(mark.place),
+		mark_area   = mark.area,
 		x           = local.pos.x,
 		y           = local.pos.y,
 		spawned     = f.state.spawned,

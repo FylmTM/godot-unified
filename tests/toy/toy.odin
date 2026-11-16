@@ -45,6 +45,15 @@ Cmd_Mark :: struct {
 	shapes: Shapes,
 	loud:   bool,
 	_pad:   [3]u8,
+	target: sim.Handle(Thing), // its key
+	place:  sim.Position, // a Vector2 in the 2D host (view units)
+	area:   Mark_Area, // a Dictionary
+}
+
+Mark_Area :: struct {
+	corner: [2]f32,
+	layer:  u8,
+	_pad:   [3]u8,
 }
 
 Cmd :: union {

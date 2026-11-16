@@ -12,8 +12,9 @@ import "unified:sim"
 
 // One kind of the game's command union.
 Command_Layout :: struct {
-	name: string, // the type name without `Cmd_`, lowercased ("drop")
-	type: ^runtime.Type_Info,
+	name:      string, // the type name without `Cmd_`, lowercased ("drop")
+	type:      ^runtime.Type_Info,
+	positions: [dynamic]int, // offsets of the sim.Position fields, nested structs' too: view units to sim units
 }
 
 // The layouts of a game's command union, by kind (allocated for the process's lifetime).
@@ -26,6 +27,7 @@ command_layouts :: proc(commands: typeid) -> []Command_Layout {
 			name = strings.clone(sim.variant_name(variant, sim.COMMAND_PREFIX)),
 			type = variant,
 		}
+		position_offsets(variant, 0, &layouts[kind].positions)
 	}
 	return layouts
 }
@@ -43,9 +45,15 @@ send_command :: proc(object: gd.Object) -> bool {
 		return fail("not one of the game's commands (make one with its class: `var drop := CommandDrop.new()`)")
 	}
 	if instance.bad do return fail(fmt.tprintf("%s has a property set to a wrong value", sim_class.name))
-	command, ok := sim.command_from_bytes(api.commands_type, sim_class.kind, instance.data[:sim_class.type.size])
-	assert(ok)
 	if !api.running() do return fail("no session is running")
+	// the object holds positions in view units (what a script reads back); the sim gets sim units
+	bytes := instance.data
+	for offset in api.commands[sim_class.kind].positions {
+		position := (^sim.Position)(&bytes[offset])
+		position^ = position_to_sim(position^)
+	}
+	command, ok := sim.command_from_bytes(api.commands_type, sim_class.kind, bytes[:sim_class.type.size])
+	assert(ok)
 	tick, player: u64 = 0, 0
 	if active != nil && active.frame != nil do tick, player = u64(active.frame.tick), active.frame.local_player
 	if !api.send(command) {
@@ -56,12 +64,42 @@ send_command :: proc(object: gd.Object) -> bool {
 	return true
 }
 
+// A command's position, from view units (what the script set) to sim units.
+@(private)
+position_to_sim :: proc(position: sim.Position) -> sim.Position {
+	return position // TODO(#242c): the units setting
+}
+
 // One field: ints (range-checked), floats, bools, enums (a member's value: EnumPhase.LOBBY), bit_sets (an Array of
-// member values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color).
+// member values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color), a sim.Position (Vector2 in a 2D game, else
+// Vector3; in view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a
+// nested struct (a Dictionary of its fields by name; a field left out keeps its value).
 @(private)
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
+	if type.id == sim.Position {
+		position: sim.Position
+		if api.is_2d {
+			if variant_type != .VECTOR2 do return fmt.tprintf("want a position (a Vector2), %s", got(variant_type))
+			vector, _ := gd.from_variant(gd.Vector2, variant)
+			position = {vector.x, vector.y, 0}
+		} else {
+			if variant_type != .VECTOR3 do return fmt.tprintf("want a position (a Vector3), %s", got(variant_type))
+			vector, _ := gd.from_variant(gd.Vector3, variant)
+			position = {vector.x, vector.y, vector.z}
+		}
+		copy(out, ([^]u8)(&position)[:size_of(sim.Position)])
+		return ""
+	}
+	if is_handle(type) { 	// a handle's key (sim.handle_key: generation << 32 | index; 0: the null handle)
+		if variant_type != .INT do return fmt.tprintf("want a handle's key (an int), %s", got(variant_type))
+		key, _ := gd.from_variant(i64, variant)
+		handle := [2]u32{u32(u64(key) & 0xFFFF_FFFF), u32(u64(key) >> 32)} // index, generation
+		if key != 0 && handle[1] == 0 do return fmt.tprintf("%d is not a handle's key", key)
+		copy(out, ([^]u8)(&handle)[:8])
+		return ""
+	}
 	if type.id == sim.Player { 	// a player's key (sim.player_key; 0: nobody)
 		if variant_type != .INT do return fmt.tprintf("want a player (an int), %s", got(variant_type))
 		key, _ := gd.from_variant(i64, variant)
@@ -135,6 +173,11 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 			xyz.xyz = {vector.x, vector.y, vector.z}
 		}
 		copy(out, ([^]u8)(&xyz)[:4 * info.count])
+	case runtime.Type_Info_Struct:
+		if variant_type != .DICTIONARY do return fmt.tprintf("want a Dictionary of %v's fields, %s", type.id, got(variant_type))
+		dict, _ := gd.from_variant(gd.Dictionary, variant)
+		defer gd.Dictionary_destroy(&dict)
+		return write_struct(type, info, out, &dict)
 	case:
 		return fmt.tprintf("unsupported field type %v", type.id)
 	}
@@ -166,4 +209,31 @@ int_fits :: proc(value: i64, size: int, signed: bool) -> bool {
 put_int :: proc(out: []u8, value: i64) {
 	bytes := transmute([8]u8)i64le(value)
 	copy(out, bytes[:len(out)])
+}
+
+// A nested struct's fields from a Dictionary keyed by field name (a String): each key present is written, a field
+// left out keeps its value, a key that names no field is an error.
+@(private)
+write_struct :: proc(
+	type: ^runtime.Type_Info,
+	info: runtime.Type_Info_Struct,
+	out: []u8,
+	dict: ^gd.Dictionary,
+) -> string {
+	found := 0
+	for i in 0 ..< int(info.field_count) {
+		name := info.names[i]
+		if strings.has_prefix(name, "_") do continue
+		key := gd.to_variant(name)
+		defer gd.variant_destroy(&key)
+		if !gd.Dictionary_has(dict, key) do continue
+		found += 1
+		value := (^gd.Variant)(gdi.dictionary_operator_index(dict, &key))
+		field := info.types[i]
+		if err := write_value(field, out[info.offsets[i]:][:field.size], value); err != "" {
+			return fmt.tprintf("%s: %s", name, err)
+		}
+	}
+	if found != gd.Dictionary_size(dict) do return fmt.tprintf("a key names no field of %v", type.id)
+	return ""
 }
