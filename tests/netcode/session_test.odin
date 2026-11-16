@@ -273,6 +273,43 @@ single_player_host :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.host.relay.replaced, 0)
 }
 
+// #263: a host with no remote links (single player) wakes at its deadlines only, about twice a tick (the relay's tick
+// and the client's), and verifies every tick on time: its relay and client hand each other datagrams in the same
+// host_step. Once a remote link is added it polls again (DEFAULT_POLL_US).
+@(test)
+single_player_wakes_at_its_deadlines :: proc(t: ^testing.T) {
+	watch: Watch
+	defer delete(watch.statuses)
+	host := netcode.host_create(&toy.GAME, {seed = SEED, name = "host", quiet = true}, hooks_for(&watch))
+	defer netcode.host_destroy(host)
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	clock := netcode.Virtual_Clock {
+		now = 1_000_000,
+	}
+	run :: proc(host: ^Host, clock: ^netcode.Virtual_Clock, seconds: i64) -> (steps: int) {
+		end := clock.now + seconds * 1_000_000
+		for clock.now < end {
+			wake := netcode.host_step(host, clock.now)
+			clock.now = max(wake, clock.now + 1)
+			steps += 1
+		}
+		return
+	}
+	run(host, &clock, 1) // the clock starts
+	from := host.client.verified
+	steps := run(host, &clock, 4)
+	verified := int(host.client.verified - from)
+	testing.expectf(t, steps <= 3 * 4 * toy.GAME.tick_hz, "%d steps in 4 s", steps)
+	testing.expectf(t, verified >= 4 * toy.GAME.tick_hz - 1, "%d ticks verified in 4 s", verified)
+	testing.expect_value(t, host.relay.replaced, 0)
+	testing.expect_value(t, host.client.delay, 1)
+	testing.expect_value(t, host.client.stall_ticks, 0)
+	netcode.host_add_link(host, netcode.loopback_link(hub, 0))
+	steps = run(host, &clock, 1)
+	testing.expectf(t, steps >= 900, "%d steps in 1 s with a remote link", steps)
+}
+
 @(test)
 taken_player_is_rejected :: proc(t: ^testing.T) {
 	session: Net

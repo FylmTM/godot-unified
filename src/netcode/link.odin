@@ -180,6 +180,14 @@ loopback_link :: proc(hub: ^Hub, self: Peer, account := Account{}) -> Link {
 	}
 }
 
+// Whether endpoint `endpoint`'s inbox holds datagrams its link hasn't taken yet.
+@(private)
+hub_pending :: proc(hub: ^Hub, endpoint: Peer) -> bool {
+	inbox := &hub.inboxes[endpoint]
+	sync.guard(&inbox.mu)
+	return len(inbox.queue.datagrams) > 0
+}
+
 @(private)
 loop_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
 	loop := (^Loop_Link)(data)
