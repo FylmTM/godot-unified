@@ -1,7 +1,6 @@
 # The demo games' shared Godot code
 
-Decided autonomously 2026-11-14 (#101, #74); its home signed off in the review of #147 (demo-games code, not the
-library: `src/` is library only).
+Status: draft, pending #101; its home signed off in #147 (demo-games code, not the library: `src/` is library only).
 
 What the Godot projects of this repo's demo games (survivor, friendslop, drift) share, kept once here and mirrored
 by `uni` into each game as `res://addons/shared/` (git-ignored there). A game uses it when its `project.godot` names

@@ -1,6 +1,6 @@
 # wire
 
-Reviewed with the developer in the #6 sitting (2026-11-14); signed off when this version merges.
+Status: signed off 2026-11-14 (#6).
 
 Little-endian byte writer and reader for every binary format (`src/wire`, a leaf package): the input log, portable
 snapshots, netcode messages. Tests: `tests/wire`.

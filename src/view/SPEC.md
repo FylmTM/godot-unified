@@ -1,6 +1,6 @@
 # view
 
-Decided autonomously 2026-11-09; signed off by the developer in the #9 sitting (2026-11-15, D1).
+Status: signed off 2026-11-15 (#9).
 
 Host-agnostic view logic between the rollback sim and any renderer (`src/view`, no Godot; tests in `tests/view`).
 Render-side code: f32 and transcendentals are fine, nothing feeds back into the sim.

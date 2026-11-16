@@ -1,6 +1,6 @@
 # `unified:eos`: online play through Epic Online Services
 
-Signed off 2026-11-16 (#11).
+Status: signed off 2026-11-16 (#11).
 
 Internet co-op without servers of our own: anonymous device-ID login (no Epic account), a lobby found by a short
 code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode's datagrams. One-time setup:

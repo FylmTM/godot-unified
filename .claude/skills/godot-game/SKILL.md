@@ -16,7 +16,8 @@ for editing Godot files load on their own (`.claude/rules/godot.md`).
 
 Run from the repo root. `<game>` is the folder name under `games/`. Every command builds the game's extension when
 it is stale and re-imports the project when an imported file changed, so there is no separate build or import step
-(`./uni build <game>` builds anyway).
+(`./uni build <game>` builds anyway). Agents work through these cold headless Godot processes: no editor bridge, no
+daemon.
 
 `./uni test <game> --suite godot` runs these steps in order, each when the game has what it needs; `--only` picks
 steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at exit or a GDScript warning fails it.

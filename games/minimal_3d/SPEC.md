@@ -1,5 +1,7 @@
 # minimal_3d: the smallest 3D game on unified
 
+Status: signed off 2026-11-15 (#9).
+
 The developer built it by hand in the #9 sitting (2026-11-15), as the showcase of how to write a game with `unified`
 and the base of the `uni init` template. It touches every part of the library a game uses, with as little game as
 possible. Code: `games/minimal_3d/`.

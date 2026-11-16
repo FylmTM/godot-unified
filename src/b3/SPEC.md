@@ -1,6 +1,6 @@
 # `unified:b3`: the Box3D API
 
-Signed off: conventions 2026-11-11; coverage and the choices below 2026-11-14 (the physics review).
+Status: signed off 2026-11-14 (#7); its conventions 2026-11-11.
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin, exporting upstream's C API plus our snapshots and
 images; `pins.cfg`). Its Odin bindings are the `box3d:` collection (`box3d "box3d:bindings"`, upstream's API 1:1).
