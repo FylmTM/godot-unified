@@ -302,19 +302,19 @@ events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	sim_tick(&tracker, 5, boom)
 	sim_tick(&tracker, 6, death)
 	testing.expect_value(t, len(tracker.out), 2)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, boom})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, boom, 1})
 	clear(&tracker.out)
 	// rollback to 5: tick 5 produces the explosion again (not emitted twice), tick 6 no longer kills
 	sim_tick(&tracker, 5, boom)
 	sim_tick(&tracker, 6)
 	testing.expect_value(t, len(tracker.out), 1)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Cancelled, death})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Cancelled, death, 2})
 	clear(&tracker.out)
 	// tick 5 verified: confirmed once
 	view.tracker_verified(&tracker, 5)
 	view.tracker_verified(&tracker, 5)
 	testing.expect_value(t, len(tracker.out), 1)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Confirmed, boom})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Confirmed, boom, 1})
 	clear(&tracker.out)
 	// re-simulating a verified tick (a rollback that starts there) emits nothing again
 	sim_tick(&tracker, 5, boom)
@@ -323,8 +323,8 @@ events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	sim_tick(&tracker, 7, Ev{7, 1, 1})
 	sim_tick(&tracker, 7, Ev{7, 1, 2})
 	testing.expect_value(t, len(tracker.out), 3) // emitted 1, emitted 2, cancelled 1
-	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Emitted, Ev{7, 1, 2}})
-	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Cancelled, Ev{7, 1, 1}})
+	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Emitted, Ev{7, 1, 2}, 4})
+	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Cancelled, Ev{7, 1, 1}, 3})
 	clear(&tracker.out)
 	// tick 8 is first seen as it is verified: emitted and confirmed together; a predicted one of 8 that the
 	// verified simulation drops is cancelled
@@ -332,10 +332,57 @@ events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	clear(&tracker.out)
 	verify_tick(&tracker, 8, Ev{8, 4, 1})
 	testing.expect_value(t, len(tracker.out), 4)
-	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, Ev{8, 4, 1}})
-	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Cancelled, Ev{8, 3, 1}})
-	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Confirmed, Ev{7, 1, 2}})
-	testing.expect_value(t, tracker.out[3], view.Tracked(Ev){.Confirmed, Ev{8, 4, 1}})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Ev){.Emitted, Ev{8, 4, 1}, 6})
+	testing.expect_value(t, tracker.out[1], view.Tracked(Ev){.Cancelled, Ev{8, 3, 1}, 5})
+	testing.expect_value(t, tracker.out[2], view.Tracked(Ev){.Confirmed, Ev{7, 1, 2}, 4})
+	testing.expect_value(t, tracker.out[3], view.Tracked(Ev){.Confirmed, Ev{8, 4, 1}, 6})
+}
+
+// #240: an event keeps its serial from Emitted to Confirmed even when a re-simulation changes its data (Confirmed
+// carries the final data); a cancelled event produced again is a new one; a new tracker continues the serials.
+Hit :: struct {
+	tick:   u32,
+	entity: u64,
+	at:     f32, // data: not part of the id
+}
+
+hit_id :: proc(hit: Hit) -> view.Event_Id {
+	return {tick = hit.tick, entity = hit.entity}
+}
+
+hit_tick :: proc(tracker: ^view.Event_Tracker(Hit), tick: u32, hits: ..Hit) {
+	view.tracker_begin_tick(tracker, tick)
+	for hit in hits do view.tracker_event(tracker, hit)
+	view.tracker_end_tick(tracker, tick)
+}
+
+@(test)
+events_keep_their_serial :: proc(t: ^testing.T) {
+	tracker: view.Event_Tracker(Hit)
+	view.tracker_init(&tracker, hit_id, 100)
+	defer view.tracker_destroy(&tracker)
+	hit_tick(&tracker, 3, Hit{3, 1, 0.5}, Hit{3, 2, 0.5})
+	testing.expect_value(t, tracker.out[0], view.Tracked(Hit){.Emitted, Hit{3, 1, 0.5}, 101})
+	testing.expect_value(t, tracker.out[1], view.Tracked(Hit){.Emitted, Hit{3, 2, 0.5}, 102})
+	clear(&tracker.out)
+	// a rollback: the same hit lands elsewhere (same id, new data); the other one is gone
+	hit_tick(&tracker, 3, Hit{3, 1, 0.75})
+	testing.expect_value(t, len(tracker.out), 1)
+	testing.expect_value(t, tracker.out[0], view.Tracked(Hit){.Cancelled, Hit{3, 2, 0.5}, 102})
+	clear(&tracker.out)
+	// and back: the cancelled one is produced again, a new event
+	hit_tick(&tracker, 3, Hit{3, 1, 0.75}, Hit{3, 2, 0.5})
+	testing.expect_value(t, len(tracker.out), 1)
+	testing.expect_value(t, tracker.out[0], view.Tracked(Hit){.Emitted, Hit{3, 2, 0.5}, 103})
+	clear(&tracker.out)
+	view.tracker_verified(&tracker, 3)
+	testing.expect_value(t, tracker.out[0], view.Tracked(Hit){.Confirmed, Hit{3, 1, 0.75}, 101})
+	testing.expect_value(t, tracker.out[1], view.Tracked(Hit){.Confirmed, Hit{3, 2, 0.5}, 103})
+	next: view.Event_Tracker(Hit)
+	view.tracker_init(&next, hit_id, tracker.last_serial)
+	defer view.tracker_destroy(&next)
+	hit_tick(&next, 1, Hit{1, 1, 0})
+	testing.expect_value(t, next.out[0].serial, 104)
 }
 
 // #152: a tick's cancels and confirmations come out in emission order (and ticks in order), whatever
@@ -361,7 +408,7 @@ events_keep_emission_order :: proc(t: ^testing.T) {
 	clear(&tracker.out)
 	sim_tick(&tracker, 12)
 	testing.expect_value(t, len(tracker.out), len(tick12))
-	for event, i in tick12 do testing.expect_value(t, tracker.out[i], view.Tracked(Ev){.Cancelled, event})
+	for event, i in tick12 do testing.expect_value(t, tracker.out[i], view.Tracked(Ev){.Cancelled, event, tracker.out[i].serial})
 }
 
 // track_push_prev (#284): a corrected tick - 1 goes into the error term, and a tick - 1 the history lacks starts

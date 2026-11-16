@@ -100,10 +100,18 @@ func export_scene(path: String) -> PackedByteArray:
 	_root = scene
 	_ppm = 0.0
 	if scene is Node2D:
-		_ppm = float(scene.get_meta("unified_px_per_m", 64.0))
+		# pixels per metre: the game's Glue.view_scale (Unified.view_scale); a level baked without a game (a fixture)
+		# says it in its root's metadata. Both, and they differ: an error (the views would draw it at another scale).
+		var game_scale := 0.0
+		if Engine.has_singleton(&"Unified"):
+			game_scale = float(Engine.get_singleton(&"Unified").get(&"view_scale"))
+		_ppm = float(scene.get_meta("unified_px_per_m", game_scale))
 		_depth = float(scene.get_meta("unified_depth_m", 1.0))
+		if game_scale > 0.0 and _ppm != game_scale:
+			errors.append("%s: unified_px_per_m is %s, the game's view_scale %s: drop the metadata" % [path, _ppm,
+				game_scale])
 		if _ppm <= 0.0 or _depth <= 0.0:
-			errors.append("%s: unified_px_per_m and unified_depth_m must be positive" % path)
+			errors.append("%s: pixels per metre (the game's view_scale, or the root's unified_px_per_m) and unified_depth_m must be positive" % path)
 	var bodies := []
 	var markers := []
 	_collect(scene, bodies, markers)

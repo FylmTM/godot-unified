@@ -1,9 +1,9 @@
 {
-  "made_on": {"os": "Windows", "arch": "amd64", "odin": "dev-2026-11 (9a69916)", "build": "-o:speed -use-separate-modules -debug", "commit": "fefef637b32ee5db3024783c71408d727bc60451+dirty"},
-  "made_at": "2026-11-16T11:00:39Z",
+  "made_on": {"os": "Windows", "arch": "amd64", "odin": "dev-2026-11 (9a69916)", "build": "-o:speed -use-separate-modules -debug", "commit": "876db4741aff6cee225eb17f62d0a5c2af46c188+dirty"},
+  "made_at": "2026-11-16T14:51:01Z",
   "seed": 7,
   "players": 4,
   "ticks": 3600,
   "snapshot_tick": 1800,
-  "final_checksum": "91a091a8fce2e457"
+  "final_checksum": "39a6a4dcb7154d6e"
 }

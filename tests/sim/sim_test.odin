@@ -252,7 +252,7 @@ plain_data_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.Input)), "")
 	testing.expect_value(t, sim.wire_violation(type_info_of(toy.Input)), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(Sized)), "")
-	testing.expect_value(t, sim.wire_violation(type_info_of(Sized)), "")
+	testing.expect(t, sim.wire_violation(type_info_of(Sized)) != "", "Sized holds an f32: not an Input")
 	testing.expect(t, sim.plain_violation(type_info_of(Padded)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
@@ -264,10 +264,12 @@ plain_data_check :: proc(t: ^testing.T) {
 	for type in ([]typeid{int, uint, uintptr, f64, f16, Default_Enum, bit_set[0 ..< 8;int], [2]f64, Distinct_Int}) {
 		testing.expectf(t, sim.plain_violation(type_info_of(type)) != "", "%v accepted in the state", type)
 	}
-	// Bools: in the state, yes; in what comes from another machine (an Input, a command), no.
+	// Bools and floats: in the state, yes; in an Input (from another machine), no.
 	testing.expect_value(t, sim.plain_violation(type_info_of(Flags)), "")
 	testing.expect(t, sim.wire_violation(type_info_of(Flags)) != "")
 	testing.expect(t, sim.wire_violation(type_info_of([4]b8)) != "")
+	testing.expect_value(t, sim.plain_violation(type_info_of([2]f32)), "")
+	testing.expect(t, sim.wire_violation(type_info_of([2]f32)) != "")
 	testing.expect(t, sim.layout_hash(toy.State) != sim.layout_hash(Padded))
 }
 
@@ -475,7 +477,7 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	inputs: toy.Inputs
 	sim.join(&inputs, 0, 1)
 	sim.join(&inputs, 2, 7)
-	inputs.input[0].buttons = 1
+	inputs.input[0].buttons = {.Spawn}
 	sim.step(simulation, &inputs)
 	events := sim.events_at(simulation, 1)
 	testing.expect_value(t, len(events), 3) // joined 0, joined 2 (the library's, first), spawned by 0
@@ -487,20 +489,25 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	spawned, is_spawned := sim.event_value(&events[2], toy.Event).(toy.Event_Spawned)
 	testing.expect(t, is_spawned && spawned.player == joined.player)
 	thing := sim.get(&simulation.state.things, spawned.thing)
-	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, 0, thing.pos.y})
+	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, thing.pos.y, 0})
 	inputs = {}
 	inputs.present = {0}
-	inputs.input[0].buttons = 1
+	inputs.input[0].buttons = {.Spawn}
 	sim.step(simulation, &inputs)
 	events = sim.events_at(simulation, 2)
-	testing.expect_value(t, len(events), 2) // left 2, spawned by 0 (button still down)
+	testing.expect_value(t, len(events), 1) // left 2 (the button still down: no press, no spawn)
 	left, is_left := sim.event_value(&events[0], toy.Event).(sim.Event_Player_Left)
 	testing.expect(t, is_left && left.player == second.player && left.slot == 2)
-	// Re-simulating tick 2 with other inputs replaces its events.
+	// Re-simulating tick 2 with other inputs replaces its events: 2 stays, the button is released.
 	testing.expect(t, sim.restore(simulation, 1))
 	inputs.present = {0, 2}
+	inputs.input[0].buttons = {}
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, len(sim.events_at(simulation, 2)), 1) // spawned only
+	testing.expect_value(t, len(sim.events_at(simulation, 2)), 0)
+	// pressed again (down now, up the tick before: sim.input_before): spawned
+	inputs.input[0].buttons = {.Spawn}
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, len(sim.events_at(simulation, 3)), 1)
 	// A kind out of range or a wrong size reads as nil.
 	broken := sim.Raw_Event {
 		kind = 9,

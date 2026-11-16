@@ -7,7 +7,7 @@ package sim
 
 EVENT_MAX :: 64 // bytes of one event's struct
 
-// A position in sim units (2D games: z = 0). The view converts fields of this type (Glue.event_pos).
+// A point in sim units (2D games: z = 0). The view maps fields of this type to its units (Glue.view_scale).
 Position :: distinct [3]f32
 
 // One event of a tick: its kind and its struct's bytes.

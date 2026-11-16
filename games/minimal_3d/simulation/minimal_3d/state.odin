@@ -9,7 +9,7 @@ Input :: struct {
 }
 
 State :: struct {
-	players: sim.Players(Player_Data, PLAYERS),
+	players: sim.Players(Player_Data, Input, PLAYERS),
 	balls:   sim.Table(Ball, MAX_BALLS),
 }
 

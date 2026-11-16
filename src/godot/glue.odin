@@ -22,7 +22,7 @@ View_Item :: struct($View: typeid) {
 	kind:   View,
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
 	entity: u64, // the id the game's events carry in a u64 `entity` field (0: the key): those events come here
-	pos:    [3]f32, // in the views' units; 2D: pos.xy (Godot 2D: x right, y down)
+	pos:    [3]f32, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw, view.quat_angle2d (2D); zero = identity
 }
 
@@ -139,12 +139,16 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
 	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
 	constants:         any,
-	// Optional: the views' smoothing, in the units fill_frame writes (zero: view.SMOOTHING_DEFAULT, metres). A 2D
-	// game in pixels sets it, e.g. {tau_s = 0.1, teleport_dist = 64}; the host warns when 2D views run with the
-	// default.
+	// Optional: the views' smoothing, in sim units (zero: view.SMOOTHING_DEFAULT, for a sim in metres).
 	smoothing:         view.Smoothing,
-	// Optional: event positions (sim.Position fields) reach GDScript as Vector2 (else Vector3).
+	// Optional, the view space: the sim's XY plane is shown in Godot 2D (a sim.Position reaches GDScript as a
+	// Vector2, else a Vector3).
 	is_2d:             bool,
+	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
+	// fill_frame, smoothing, events and commands are in sim units; the host scales a point where it makes a Godot
+	// value (a scene view's position, a MultiMesh instance's origin, a sim.Position a script reads) and divides one a
+	// script set (a command's). Scripts scale sizes with Unified.view_scale.
+	view_scale:        f32,
 	// Optional: the Frame's capacities (zero: DEFAULT_MAX_VIEWS, DEFAULT_MAX_MULTI, DEFAULT_VIEW_DATA_BYTES).
 	max_views:         int,
 	max_multi:         int,
@@ -156,19 +160,23 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// entities). Single player only: it changes the initial state, which every peer would have to share.
 	bench:             proc(state: ^State, world: ^World, count: int),
-	// Session thread, optional: an event's sim.Position fields in the units fill_frame writes (views and the
-	// event classes get them), e.g. metres or cells to pixels. `world` is the session's World as of the newest
-	// frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
-	event_pos:         proc(position: sim.Position, world: ^World) -> sim.Position,
-	// Main thread, optional: the scene view an event goes to (its kind and key; ok false: none), overriding the
-	// routing by its subject (a handle field: the views with that key; an `entity` field: the views whose entity
-	// equals it; else its first sim.Player field: that player's views). sim.event_value(event, Game_Event) reads it.
-	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool),
+	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
+	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
+	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
+	// views). So a game handles only its special events. sim.event_value(event, Game_Event) reads it.
+	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: Event_Route),
 	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
 	level:             string,
+}
+
+// Where Glue.event_key sends an event.
+Event_Route :: enum u8 {
+	Subject, // the routing by its subject (the default)
+	View, // the scene view of the kind and key returned
+	No_View, // no scene view (the sim_event signal still gets it)
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so
@@ -246,7 +254,8 @@ STATUS_NAMES := [Status_Kind]string {
 Event_Message :: struct {
 	action: view.Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
-	event:  sim.Raw_Event, // positions already in view units
+	id:     u64, // the same in its Emitted and its Confirmed or Cancelled; unique in the process (UnifiedEvent.id)
+	event:  sim.Raw_Event, // positions in sim units (the main thread maps them as scripts read them)
 }
 
 // Session thread -> main thread: what must never be lost (statuses, the lobby code, desync reports, the result),

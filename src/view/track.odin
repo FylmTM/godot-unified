@@ -13,7 +13,8 @@ Smoothing :: struct {
 	// Time constant of the error decay: after `tau_s` a correction has shrunk to 1/e (37%), after 3 tau to 5%.
 	// 0 disables smoothing (corrections snap).
 	tau_s:         f32,
-	// A correction or a tick-to-tick move longer than this (metres) snaps instead of smoothing/interpolating.
+	// A correction or a tick-to-tick move longer than this (in the pushed units: unified:godot's are sim units, the
+	// default suits metres) snaps instead of smoothing/interpolating.
 	teleport_dist: f32,
 }
 

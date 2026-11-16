@@ -23,7 +23,8 @@ Api :: struct {
 	view_names:      []string, // the View enum's members, lowercased, by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
 	smoothing:       view.Smoothing,
-	is_2d:           bool, // event positions are Vector2s
+	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
+	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
 	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
 	commands_type:   typeid, // the union itself
@@ -50,7 +51,7 @@ Api :: struct {
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, ok: bool), // Glue.event_key (nil: by subject)
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, route: Event_Route), // Glue.event_key (nil: by subject)
 	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
@@ -291,6 +292,10 @@ wrap_link :: proc(
 	return wrapped
 }
 
+// The last event id an ended session gave out (main thread, between sessions): the next one continues after it.
+@(private)
+event_serial: u64
+
 @(private)
 g_game: rawptr
 @(private)
@@ -315,6 +320,12 @@ install :: proc(
 	if glue.sample_input == nil || glue.fill_frame == nil {
 		append(&problems, "the Glue needs sample_input and fill_frame")
 	}
+	if !(glue.view_scale >= 0 && glue.view_scale < 1e9) {
+		append(
+			&problems,
+			fmt.tprintf("Glue.view_scale is %v: view units per sim unit, positive (zero: 1)", glue.view_scale),
+		)
+	}
 	view_names, view_ok := enum_names(View)
 	multi_names, multi_ok := enum_names(MultiView)
 	if !view_ok do append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
@@ -322,7 +333,7 @@ install :: proc(
 	if reason := sim.game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
-	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS); reason != "" {
+	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input)); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
 	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
@@ -353,6 +364,7 @@ install :: proc(
 		multi_names   = multi_names,
 		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
+		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,
 		events        = event_layouts(game.events),
 		commands      = command_layouts(game.commands),
 		commands_type = game.commands,
@@ -373,19 +385,16 @@ install :: proc(
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
-		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, bool) {
-			kind, key, ok := (^This_Glue)(g_glue).event_key(event)
-			return u8(kind), key, ok
+		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, Event_Route) {
+			kind, key, route := (^This_Glue)(g_glue).event_key(event)
+			return u8(kind), key, route
 		}
 	}
 	api.sample_input = proc() {
 		glue := (^This_Glue)(g_glue)
-		input, held: Input
+		input: Input
 		glue.sample_input(&input)
-		input_sample.no_press = true
-		glue.sample_input(&held)
-		input_sample.no_press = false
-		input_sample_store(([^]u8)(&input)[:size_of(Input)], ([^]u8)(&held)[:size_of(Input)])
+		input_sample_store(([^]u8)(&input)[:size_of(Input)])
 	}
 	api.start = proc(request: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
@@ -406,7 +415,7 @@ install :: proc(
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
-		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS)
+		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input))
 		for &frame in driver.frames.slots {
 			frame.views = make([]View_Out, max_views)
 			frame.multis = make([]Multi_Out, max_multi)
@@ -418,7 +427,7 @@ install :: proc(
 		input_sample_reset()
 		view.triple_init(&driver.states)
 		view.triple_init(&driver.inputs)
-		view.tracker_init(&driver.tracker, tick_event_id)
+		view.tracker_init(&driver.tracker, tick_event_id, event_serial) // ids never repeat in the process
 		driver.tev = {
 			ctx = driver,
 			code = proc(ctx: rawptr, code: string) {post_text((^This_Driver)(ctx), .Lobby_Code, code)},
@@ -450,6 +459,7 @@ install :: proc(
 		sync.atomic_store(&driver.stop_req, true)
 		thread.join(driver.thread)
 		thread.destroy(driver.thread)
+		event_serial = driver.tracker.last_serial
 		view.tracker_destroy(&driver.tracker)
 		for &frame in driver.frames.slots {
 			delete(frame.views)
@@ -644,20 +654,15 @@ post_status :: proc(
 	post(driver, message)
 }
 
-// Posts the tracker's output: each event's sim.Position fields converted into view units first (Glue.event_pos).
+// Posts the tracker's output (positions in sim units: the main thread maps them as scripts read them).
 @(private)
-flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView), world: ^World) {
+flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) {
 	for tracked in driver.tracker.out {
 		raw := tracked.event.raw
-		if driver.glue.event_pos != nil && int(raw.kind) < len(api.events) {
-			for offset in api.events[raw.kind].positions {
-				position := (^sim.Position)(&raw.data[offset])
-				position^ = driver.glue.event_pos(position^, world)
-			}
-		}
 		message := Event_Message {
 			action = tracked.action,
 			tick   = tracked.event.tick,
+			id     = tracked.serial,
 			event  = raw,
 		}
 		// full: the main thread is stalled; dropping an event beats blocking the sim (counted)
@@ -726,7 +731,7 @@ driver_hooks :: proc(
 		frame = proc(user: rawptr, simulation: ^sim.Sim(State, Input, World, PLAYERS), info: netcode.Frame_Info) {
 			driver := (^This_Driver)(user)
 			for tick in info.resim_from ..= info.tick do track_tick(driver, tick, sim.events_at(simulation, tick))
-			flush_events(driver, simulation.world)
+			flush_events(driver)
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
 			out := view.triple_back(&driver.frames)
@@ -794,7 +799,7 @@ driver_hooks :: proc(
 			driver := (^This_Driver)(user)
 			track_tick(driver, tick, events)
 			view.tracker_verified(&driver.tracker, tick)
-			flush_events(driver, simulation.world)
+			flush_events(driver)
 			when DEVUI {
 				inputs := &driver.client.fin[tick % netcode.FIN_RING]
 				for command in inputs.commands[:inputs.command_count] {

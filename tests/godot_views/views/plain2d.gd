@@ -5,6 +5,7 @@ var updates := 0
 var last_position := Vector2.INF
 var despawns := 0
 var revivals := 0
+var events: Array[Array] = []
 
 
 func _sim_update(position: Vector2, _rotation: float, _alpha: float) -> void:
@@ -20,3 +21,7 @@ func _sim_despawned() -> void:
 
 func _sim_revived() -> void:
 	revivals += 1
+
+
+func _sim_event(event: UnifiedEvent, state: int) -> void:
+	events.append([event, state])

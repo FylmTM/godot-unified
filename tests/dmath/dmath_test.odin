@@ -93,3 +93,45 @@ mul_add :: proc "contextless" (a, b, c: f32) -> f32 {
 mul_add3 :: proc "contextless" (a, b, c: dmath.Vec3) -> dmath.Vec3 {
 	return a * b + c
 }
+
+// Input encodings (src/dmath/input.odin): axes clamp, a stick is at most 1 long, directions round-trip within a
+// hundredth of a degree, zero is "none", and any bits decode to a unit vector or none.
+@(test)
+input_encodings :: proc(t: ^testing.T) {
+	testing.expect_value(t, dmath.axis(127), 1)
+	testing.expect_value(t, dmath.axis(-128), -1)
+	testing.expect_value(t, dmath.axis_i8(1), 127)
+	testing.expect_value(t, dmath.axis_i8(-2), -127)
+	testing.expect_value(t, dmath.axis_i8(0.5), 64)
+	testing.expect(t, dmath.length2(dmath.stick(127, 127)) <= 1)
+	testing.expect_value(t, dmath.stick(127, 0), dmath.Vec2{1, 0})
+	testing.expect_value(t, dmath.dir2({}), 0)
+	testing.expect_value(t, dmath.dir2_vec(0), dmath.Vec2{})
+	testing.expect_value(t, dmath.dir3({}), dmath.Dir3{})
+	testing.expect_value(t, dmath.dir3_vec({}), dmath.Vec3{})
+	MAX_ERROR :: 0.0002 // radians: ~0.01°
+	for i in 0 ..< 720 {
+		// directions on a spiral over the sphere (sqrt-only construction: no trig in tests either)
+		u := f32(i) / 720 * 2 - 1
+		ring := dmath.sqrt(1 - u * u)
+		k := f32(i % 37) / 37 * 2 - 1
+		w := dmath.sqrt(max(1 - k * k, 0))
+		want3 := dmath.normalize3({ring * k, u, ring * w * (1 if i % 2 == 0 else -1)})
+		got3 := dmath.dir3_vec(dmath.dir3(want3))
+		testing.expectf(t, dmath.length3(got3 - want3) < MAX_ERROR, "dir3 %v -> %v", want3, got3)
+		want2 := dmath.normalize2({k, w * (1 if i % 3 == 0 else -1)})
+		got2 := dmath.dir2_vec(dmath.dir2(want2))
+		testing.expectf(t, dmath.length2(got2 - want2) < MAX_ERROR, "dir2 %v -> %v", want2, got2)
+	}
+	// the axes (the diamond's corners)
+	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({1, 0})) - {1, 0}) < MAX_ERROR)
+	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({0, -3})) - {0, -1}) < MAX_ERROR)
+	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({-1, 0})) - {-1, 0}) < MAX_ERROR)
+	testing.expect(t, dmath.length3(dmath.dir3_vec(dmath.dir3({0, 0, -2})) - {0, 0, -1}) < MAX_ERROR)
+	testing.expect(t, dmath.length3(dmath.dir3_vec(dmath.dir3({0, 1, 0})) - {0, 1, 0}) < MAX_ERROR)
+	// any bits: a unit vector
+	for raw in ([]u16{1, 2, 32767, 32768, 40000, 65535}) {
+		testing.expect(t, abs(dmath.length2(dmath.dir2_vec(dmath.Dir2(raw))) - 1) < 0.00001)
+		testing.expect(t, abs(dmath.length3(dmath.dir3_vec({raw, 65535 - raw})) - 1) < 0.00001)
+	}
+}

@@ -329,7 +329,7 @@ Field :: struct {
 	rng:     sim.Rng,
 	splits:  u32,
 	spawns:  u32,
-	players: sim.Players(u32, 2), // every sim's State has one; the ships read their slot's input directly
+	players: sim.Players(u32, Field_Input, 2), // every sim's State has one; the ships read their slot's input directly
 }
 
 // The library's join and leave: listed in every game's event union.
@@ -601,7 +601,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0x9967f090a6dd39a4, 0x53c3286f32cd5d39, 0x4a35b14e92a6b172, 0x4ac9e585121edea0}
+GOLDEN_FIELD := [4]u64{0x5cf611baeb5122c2, 0x20c635ed9c43d217, 0x594a6dae44aeb81f, 0x898aec436f289c5}
 
 // On 1 and on 4 workers: the same values.
 @(test)

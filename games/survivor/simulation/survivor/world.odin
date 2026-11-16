@@ -278,5 +278,4 @@ character_leave :: proc(world: ^World, character: ^Character) {
 	character.alive = false
 	character.respawn = 0
 	character.dash_ticks = 0
-	character.prev_buttons = 0
 }

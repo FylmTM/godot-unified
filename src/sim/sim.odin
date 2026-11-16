@@ -24,8 +24,8 @@ MAX_PLAYERS :: 32
 // The library's own simulation (src/sim, src/dmath, src/physics, src/b3): bump it in a change that makes a reference run
 // or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump its
-// Game.version. 1: #233 (the first).
-LIBRARY_VERSION :: 1
+// Game.version. 1: #233 (the first). 2: #242, sim.Players keeps each slot's input of the tick before (input_before).
+LIBRARY_VERSION :: 2
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {
@@ -253,9 +253,9 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	for variant in union_variants(events) {
 		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct) or_continue
 		for i in 0 ..< int(info.field_count) {
-			if field := info.names[i]; field == "tick" || field == "kind" {
+			if field := info.names[i]; field == "tick" || field == "kind" || field == "id" {
 				return fmt.tprintf(
-					"%s: events: %v has a field named `%s`, which every event carries already (its tick and kind): rename it",
+					"%s: events: %v has a field named `%s`, which every event carries already (its tick, kind and id): rename it",
 					name,
 					variant.id,
 					field,
@@ -277,7 +277,7 @@ create :: proc(
 	if reason := game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
 		panic(reason)
 	}
-	players_layout, reason := players_layout_of(type_info_of(State), PLAYERS)
+	players_layout, reason := players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input))
 	if reason != "" {
 		panic(fmt.tprintf("%s: %s", game.name, reason))
 	}
@@ -346,6 +346,7 @@ advance :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), inputs: ^Inp
 		players_layout = &simulation.players_layout,
 	}
 	simulation.game.tick(&tick)
+	players_remember(players_view(&simulation.state, &simulation.players_layout), inputs)
 	simulation.tick = number
 }
 

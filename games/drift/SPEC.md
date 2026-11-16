@@ -19,7 +19,7 @@ prove `unified` for 2D games:
   local ship.
 
 Units: metres, seconds, 64 Hz (`DT = 1/64`). The plane is XY in Godot's 2D axes (x right, y down). The view is in
-pixels, with `px_per_m` from the level (32).
+pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is baked at the same scale).
 
 ## World (created before tick 0, in this order)
 
@@ -27,14 +27,14 @@ pixels, with `px_per_m` from the level (32).
   order. The marker kinds are `spawn` (×4, one per slot), `station` (×1), `gate` (pairs: `pair` = the other
   gate), and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
 - The station: a kinematic hexagon (radius 2.5 m) at the station marker, turning at 0.25 rad/s, with 100 HP.
-- Ships: dynamic circles (r 0.5 m, density 1, linear damping 0.6) locked to the plane, created when a player
+- Ships: dynamic circles (r 0.5 m, density 4, linear damping 1.4) locked to the plane, created when a player
   joins or comes back, at the `spawn` marker of the slot they hold.
 
 ## Input and commands
 
-- Per tick, per slot: `move_x, move_y` and `aim_x, aim_y`: i8 −127..127 in world space. Aim is a direction; zero keeps
-  the heading.
-- `buttons`: bit 0 = fire (held), bit 1 = boost (held; it fires when ready).
+- Per tick, per slot: `move_x, move_y` (a stick, `dmath.stick`) and `aim` (a `dmath.Dir2`; none keeps the heading),
+  in world space.
+- `buttons: bit_set[Button]`: `Fire` (held), `Boost` (held; it fires when ready).
 - Commands (`Cmd_Start`, `Cmd_Restart`, both empty): `start` (lobby → match, anyone may send it) and `restart`
   (over → lobby at once).
 
@@ -44,9 +44,9 @@ pixels, with `px_per_m` from the level (32).
    in the State's `sim.Players` (`players`, remembering 2 × PLAYERS people). A player who joins (a
    zeroed ship) or comes back (their ship as they left it: shots, gems, cooldowns) gets a body at their slot's spawn
    marker (`spawned`). One who leaves loses the body, and keeps the rest until the session forgets them.
-2. Ships: thrust force = `move × 40 N`. Turning sets the angular velocity toward the aim:
-   `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: an impulse of
-   `heading × 6 N·s`, with a 1.5 s cooldown.
+2. Ships: thrust = `stick × 14 m/s²` (an impulse of mass × that × dt; terminal speed 14 / 1.4 = 10 m/s). Turning sets the angular velocity toward the aim:
+   `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: `heading × 8 m/s`
+   added (an impulse of mass × that), with a 1.5 s cooldown.
 3. Fire: every 0.125 s while held, a bullet from the nose with velocity `heading × 18 m/s + ship velocity`, which
    lives 0.875 s. Bullets are sim-only (not bodies). Each tick a ray from the bullet's position to the next
    position (`physics.ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
@@ -107,10 +107,12 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   `station_hp`, `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, Vector2s:
   the rock meshes).
 - Enums in GDScript: `EnumPhase` (the HUD's phase) and `EnumRockSize` (the rock events' `size`).
-- Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
-- Events go to the ship's view by `player` and `station_hit` to the station (`Glue.event_key`). The arena plays
-  rock effects when an event is emitted (a prediction shows them at once), and everything else, like the HUD's
-  banners, once it is confirmed.
+- Event positions arrive in pixels like the views (the host maps them: `Glue.view_scale`); sizes from the constants
+  are metres, drawn at `Unified.view_scale`.
+- Events go to the ship's view by `player` (the routing by subject) and `station_hit` to the station
+  (`Glue.event_key`). The arena plays rock effects when an event is emitted (a prediction shows them at once), and
+  everything else, like the HUD's banners, once it is confirmed. A shot a rollback cancels (a remote ship's
+  predicted trigger) loses its muzzle flash and sound (the ship view, by the event's `id`).
 - Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
   relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
   the movement, fire and boost actions.

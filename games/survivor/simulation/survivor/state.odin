@@ -48,14 +48,18 @@ ARENA_HALF :: 32 // the ground is 2 * ARENA_HALF square, centred (m)
 DAMAGE_LEVELUP :: 3 // per "damage" level-up
 SPEED_LEVELUP :: 0.5 // m/s per "move speed" level-up
 
-BUTTON_DASH :: u8(1 << 0)
+Button :: enum u8 {
+	Dash, // the dash starts on the press
+}
+
+Buttons :: bit_set[Button;u8]
 
 // One player's input for one tick (3 bytes on the wire and in the log). Presence (joined or not)
 // comes from the relay (sim.Inputs.present and its join records), not from the input.
 Input :: struct {
 	move_x:  i8,
 	move_z:  i8,
-	buttons: u8,
+	buttons: Buttons,
 }
 
 Inputs :: sim.Inputs(Input, PLAYERS)
@@ -97,8 +101,7 @@ Character :: struct {
 	xp:               i32,
 	pending_levelups: i32,
 	alive:            bool, // has a body (present, not dead)
-	prev_buttons:     u8,
-	_pad:             [2]u8,
+	_pad:             [3]u8,
 }
 
 Item_Kind :: enum u8 {
@@ -235,7 +238,7 @@ State :: struct {
 	tuning:        Tuning_Kind, // the preset `tune` started from
 	_pad:          u8,
 	tune:          Tuning, // the match's tuning values
-	players:       sim.Players(Character, PLAYERS),
+	players:       sim.Players(Character, Input, PLAYERS),
 	items:         [ITEM_COUNT]Item,
 	enemies:       sim.Table(Enemy, MAX_ENEMIES),
 	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),

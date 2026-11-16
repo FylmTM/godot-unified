@@ -122,6 +122,11 @@ LIBRARY_DOCS := []Doc_Class {
 			},
 			{"seed", "int", "The next session's seed."},
 			{"ticks", "int", "The next session's length in ticks (0: endless)."},
+			{
+				"game_input",
+				"bool",
+				"Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); input values still flow. When it is turned back on, an action still held counts only once it is released.",
+			},
 		},
 		signals        = {
 			{
@@ -148,7 +153,11 @@ LIBRARY_DOCS := []Doc_Class {
 				"The first time any simulation of its tick produced it (a prediction, or the verified tick): effects and sounds.",
 			},
 			{"EVENT_CONFIRMED", "1", "Its tick is verified: what must be final (score, banners)."},
-			{"EVENT_CANCELLED", "2", "A re-simulation no longer produces it: undo its effect."},
+			{
+				"EVENT_CANCELLED",
+				"2",
+				"A re-simulation no longer produces it: undo the effect its EVENT_EMITTED started (the same [member UnifiedEvent.id]).",
+			},
 		},
 	},
 	{
@@ -173,6 +182,11 @@ LIBRARY_DOCS := []Doc_Class {
 			{"constants", "UnifiedConstants", "The game's constants."},
 			{"session", "UnifiedSession", "The active session node (null: none)."},
 			{"tick_hz", "int", "The sim's ticks per second."},
+			{
+				"view_scale",
+				"float",
+				"View units per sim unit (the game's Glue.view_scale; 1 unless set): positions arrive scaled already; multiply a sim size (a radius from the constants) by it.",
+			},
 		},
 	},
 	{
@@ -203,6 +217,11 @@ LIBRARY_DOCS := []Doc_Class {
 		members  = {
 			{"tick", "int", "The tick that produced it."},
 			{"kind", "String", "Its kind: the type name without Event_, lowercased."},
+			{
+				"id",
+				"int",
+				"The same in its EVENT_EMITTED and in its EVENT_CONFIRMED or EVENT_CANCELLED (each state is a new object): remember what an effect started by it, undo it on EVENT_CANCELLED, forget it on EVENT_CONFIRMED. Never repeats in the process; an event cancelled and produced again later is a new one.",
+			},
 		},
 	},
 	{

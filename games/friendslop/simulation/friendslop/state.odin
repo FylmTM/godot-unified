@@ -1,6 +1,7 @@
 // friendslop (games/friendslop/SPEC.md): constants, input, the pointer-free state block and the events.
 package friendslop
 
+import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
@@ -67,20 +68,23 @@ PLAYER_HALF_HEIGHT :: 0.45 // capsule segment half length
 POGO_REST :: 0.5 // the pogo holds the capsule's lower sphere centre this high: 1.75 m from feet to head
 FEET :: PLAYER_HALF_HEIGHT + POGO_REST // from the capsule centre down to the ground it stands on
 
-BUTTON_JUMP :: u8(1 << 0)
-BUTTON_GRAB :: u8(1 << 1) // toggle: press to grab, press again to drop; held, it catches
-BUTTON_THROW :: u8(1 << 2) // held charges a throw, released throws
+Button :: enum u8 {
+	Jump,
+	Grab, // toggle: press to grab, press again to drop; held, it catches
+	Throw, // held charges a throw, released throws
+}
+
+Buttons :: bit_set[Button;u8]
 
 // One player's input for one tick (8 bytes). Directions are world-space: the client rotates the stick
-// by its camera and sends the camera's look direction, so the sim needs no trig.
+// by its camera and sends the camera's look direction (dmath.Dir3), so the sim needs no trig. Buttons are held:
+// presses are the difference from the tick before (sim.input_before).
 Input :: struct {
 	move_x:  i8,
 	move_z:  i8,
-	aim_x:   i8,
-	aim_y:   i8,
-	aim_z:   i8,
-	buttons: u8,
-	_spare:  [2]u8,
+	buttons: Buttons,
+	_spare:  u8,
+	aim:     dmath.Dir3,
 }
 #assert(size_of(Input) == 8)
 
@@ -114,9 +118,8 @@ Character :: struct {
 	held_item:     u8, // the item index (held_kind .Item)
 	grab_point:    u8, // which grab point of the held item
 	thrown:        bool, // stunned by a throw: ends on landing
-	prev_buttons:  u8,
 	break_presses: u8,
-	_pad:          [2]u8,
+	_pad:          [3]u8,
 }
 
 Item :: struct {
@@ -149,7 +152,7 @@ Phase :: enum u8 {
 }
 
 State :: struct {
-	players:      sim.Players(Character, PLAYERS),
+	players:      sim.Players(Character, Input, PLAYERS),
 	items:        [MAX_ITEMS]Item,
 	platforms:    [MAX_PLATFORMS]Platform,
 	bodies:       [MAX_TRIGGERS]Body_Ref, // bells' and switches' bodies (static, owned by the sim)

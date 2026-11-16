@@ -154,7 +154,10 @@ func _initialize() -> void:
 		blink_despawned and blink_kept and not is_instance_valid(blink), [blink_despawned, blink_kept])
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,
 		[toy.x, toy_changes[0]])
-	check_events(events, typed, me)
+	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
+	check("a sim.Position in session data: view units (x 10), a Vector2",
+		toy.at.is_equal_approx(Vector2(toy.x, toy.y) * 10.0), [toy.at, toy.x, toy.y])
+	check_events(events, typed, plain, me)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
@@ -173,7 +176,7 @@ func _initialize() -> void:
 		near_all(buf.slice(0, 16), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3, 4]),
 		buf.slice(0, 16))
 	check("2D defaults (scale 1, white)",
-		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 6, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
+		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 7.5, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
 	# decoded with the buffer layout Godot documents (MultiMesh.buffer): rows of the transform, then the origin
 	var t := Transform2D(Vector2(buf[0], buf[4]), Vector2(buf[1], buf[5]), Vector2(buf[3], buf[7]))
 	check("2D transform as Godot reads it", t.origin.is_equal_approx(Vector2(30, 40)) \
@@ -190,6 +193,7 @@ func _initialize() -> void:
 		and t3.origin.is_equal_approx(POS_3D) and (got_rot.is_equal_approx(want_rot) or got_rot.is_equal_approx(-want_rot)) \
 		and t3.basis.get_scale().is_equal_approx(Vector3(1, 2, 1)) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
 		[multi3d.visible_instance_count, t3, want_rot])
+	await check_game_input(session, toy)
 	session.set_input_value(&"drift", 3.0)
 	var y0 := toy.y
 	for i in 20:
@@ -238,8 +242,9 @@ func check_players(session: UnifiedSession, me: int, roster_changes: int) -> voi
 
 # The events: every one on the sim_event signal as an object of its class, EMITTED once and then CONFIRMED or
 # CANCELLED once, its fields typed properties; the subject's view gets them too (the player's view: the toy's
-# things have no scene view, so `Spawned` falls back to its player).
-func check_events(events: Array[Array], typed: Node, me: int) -> void:
+# things have no scene view, so `Spawned` falls back to its player), unless Glue.event_key routes it (Expired to the
+# plain2d view keyed 2, Joined to none).
+func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
@@ -250,6 +255,10 @@ func check_events(events: Array[Array], typed: Node, me: int) -> void:
 		[join.player, join.slot, join.returning, join.tick] if join else joined)
 	check("PlayerJoined: emitted, then confirmed", joined.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], joined)
+	var ids := events.map(func(e: Array) -> int: return (e[0] as UnifiedEvent).id)
+	check("every event has an id", not ids.has(0), ids)
+	check("PlayerJoined: one id in both states (new objects)", joined.size() == 2 \
+		and joined[0][0].id == joined[1][0].id and joined[0][0] != joined[1][0], ids)
 	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned)
 	var first := spawned[0][0] as EventSpawned if spawned.size() > 0 else null
 	check("Spawned: a handle as its key, the position a Vector2 in view units, the enum an int",
@@ -257,13 +266,48 @@ func check_events(events: Array[Array], typed: Node, me: int) -> void:
 		and first.player == me, [first.thing, first.position, first.shape, first.player] if first else null)
 	check("Spawned: emitted, then confirmed", spawned.map(func(e: Array) -> int: return e[1]) \
 		== [UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED], spawned)
+	check("Spawned: one id in both states, not Joined's", spawned.size() == 2 and spawned[0][0].id == spawned[1][0].id \
+		and joined.size() > 0 and spawned[0][0].id != joined[0][0].id, ids)
 	var expired := events.filter(func(e: Array) -> bool: return e[0] is EventExpired)
 	check("Expired: the same thing's key, confirmed last", expired.size() > 0 and first != null \
 		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as EventExpired).thing == first.thing,
 		expired)
-	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool:
-		return e[0] is EventPlayerJoined or e[0] is EventSpawned)
-	check("the player's view gets its events in both states", on_view.size() >= 4, typed.get("events"))
+	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool: return e[0] is EventSpawned)
+	check("by subject: the player's view gets Spawned in both states", on_view.size() >= 2, typed.get("events"))
+	check("the view sees the signal's ids", on_view.size() > 0 and spawned.size() > 0 \
+		and on_view[0][0].id == spawned[0][0].id, on_view)
+	check("event_key No_View: Joined reaches no view (the signal only)",
+		not (typed.get("events") as Array).any(func(e: Array) -> bool: return e[0] is EventPlayerJoined),
+		typed.get("events"))
+	var on_plain: Array = (plain.get("events") as Array) if plain != null else []
+	check("event_key View: Expired reaches the view it names, in both states",
+		on_plain.size() >= 2 and on_plain.all(func(e: Array) -> bool: return e[0] is EventExpired), on_plain)
+
+
+# Game input off (UnifiedSession.game_input): a press doesn't reach the sim; an action still held when it comes back
+# counts only once released; a new press then spawns.
+func check_game_input(session: UnifiedSession, toy: DataToy) -> void:
+	var spawned := toy.spawned
+	session.game_input = false
+	check("game_input reads back", not session.game_input)
+	press(&"ui_accept", true)
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("game input off: a press doesn't reach the sim", toy.spawned == spawned, toy.spawned)
+	session.game_input = true
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("an action held when game input came back is swallowed", toy.spawned == spawned, toy.spawned)
+	press(&"ui_accept", false)
+	await create_timer(0.05).timeout
+	press(&"ui_accept", true)
+	await create_timer(0.02).timeout
+	press(&"ui_accept", false)
+	for i in 20:
+		await create_timer(0.02).timeout
+		if toy.spawned > spawned:
+			break
+	check("released, then pressed again: it spawns", toy.spawned == spawned + 1, toy.spawned)
 
 
 func check_commands(session: UnifiedSession, toy: DataToy) -> void:
@@ -281,6 +325,10 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	mark.shape = EnumShape.STAR
 	mark.shapes = [EnumShape.DOT, 2]
 	mark.loud = true
+	mark.target = (7 << 32) | 3  # a handle's key: generation 7, index 3
+	mark.place = Vector2(30, 40)  # view units (pixels): the sim gets them in its units
+	mark.area = {"corner": Vector2(1, 2), "layer": 3}  # a nested struct; `_pad` is left out
+	check("a position reads back as it was set", mark.place == Vector2(30, 40), mark.place)
 	check("send_command Mark", session.send_command(mark))
 	# refused: an error line names the problem, and send_command is false for a command holding a bad value
 	var bad := CommandMark.new()
@@ -289,6 +337,12 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	var bad_shape := CommandMark.new()
 	bad_shape.shape = 7
 	check("not an enum member: refused", not session.send_command(bad_shape))
+	var bad_handle := CommandMark.new()
+	bad_handle.target = 3  # generation 0: no handle's key
+	check("not a handle's key: refused", not session.send_command(bad_handle))
+	var bad_area := CommandMark.new()
+	bad_area.area = {"corner": Vector2(1, 2), "depth": 1}
+	check("a key that names no field: refused", not session.send_command(bad_area))
 	check("an event is not a command", not session.send_command(EventPlayerJoined.new()))
 	for i in 100:
 		await create_timer(0.02).timeout
@@ -303,6 +357,10 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	var shapes: Array[int] = toy.mark_shapes
 	check("an enum as its int, a bit_set as an Array[int]", toy.mark_shape == EnumShape.STAR \
 		and shapes == [EnumShape.DOT, EnumShape.STAR], [toy.mark_shape, toy.mark_shapes])
+	check("a handle as its key", toy.mark_target == (7 << 32) | 3, toy.mark_target)
+	check("a position in sim units", toy.mark_place == Vector3(3, 4, 0), toy.mark_place)
+	check("a nested struct from a Dictionary", toy.mark_area == {"corner": Vector2(1, 2), "layer": 3},
+		toy.mark_area)
 	check("Godot's own types as they are", toy.tint == Vector4(1, 2, 3, 4) and toy.turn == Quaternion.IDENTITY,
 		[toy.tint, toy.turn])
 

@@ -21,8 +21,6 @@ var _mouse_aim := false
 
 func _ready() -> void:
 	process_priority = -1001  # the aim is set before UnifiedSession (-1000) samples the input: never a frame late
-	var px_per_m: float = _level.get_meta(&"unified_px_per_m", 32.0)
-	Game.px_per_m = px_per_m
 	bounds = level_bounds(_level)
 	camera.set_bounds(bounds)
 	Game.session.view_root = _views
@@ -106,7 +104,7 @@ static func level_bounds(level: Node) -> Rect2:
 
 func _on_sim_event(event: UnifiedEvent, state: int) -> void:
 	# rock effects play when the event is emitted (a cancelled one has already played: left as is); the rest wait
-	# for the confirmed tick. Positions are in pixels, like the views (the extension's Glue.event_pos).
+	# for the confirmed tick. Positions are in pixels, like the views (the host maps them: Glue.view_scale).
 	var rock_effect := event is EventRockHit or event is EventRockSplit or event is EventRockDestroyed
 	if state != (UnifiedSession.EVENT_EMITTED if rock_effect else UnifiedSession.EVENT_CONFIRMED):
 		return

@@ -28,11 +28,15 @@ Member :: struct {
 
 // Who is in the session: State holds exactly one (found by type at create). The session remembers 2 x PLAYERS
 // people (MEMBERS_PER_SLOT): a newcomer to a full table takes the entry of the longest-absent member, whose handles go
-// stale and who is new if they come back. `_pad` keeps `data` aligned (4 bytes when PLAYERS is odd).
-Players :: struct($T: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
+// stale and who is new if they come back. `before` is each slot's Input of the tick before (input_before: presses
+// are the difference), kept in the state so a rollback, a snapshot and a replay carry it. The pads keep `before`
+// and `data` 8-aligned.
+Players :: struct($T: typeid, $Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player, // who holds each slot (Player{}: nobody)
 	_pad:    [PLAYERS % 2 * 4]u8,
+	before:  [PLAYERS]Input, // each slot's input of the tick before (zero on its holder's first tick; while absent)
+	_pad2:   [(8 - PLAYERS * size_of(Input) % 8) % 8]u8,
 	data:    [PLAYERS * MEMBERS_PER_SLOT]T, // the game's per-player struct, by member index: zeroed for a new member
 }
 
@@ -68,7 +72,7 @@ player_of_key :: proc(key: u64) -> Player {
 }
 
 // The player's data, or nil when the handle is nobody, stale or forgotten. Valid while the player is absent.
-player_data :: proc(players: ^Players($T, $PLAYERS), player: Player) -> ^T {
+player_data :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> ^T {
 	if !player_known(players, player) {
 		return nil
 	}
@@ -76,12 +80,12 @@ player_data :: proc(players: ^Players($T, $PLAYERS), player: Player) -> ^T {
 }
 
 // Whether the handle names a member the table still remembers (present or absent).
-player_known :: proc(players: ^Players($T, $PLAYERS), player: Player) -> bool {
+player_known :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
 	return player.id != 0 && int(player.index) < len(players.members) && players.members[player.index].id == player.id
 }
 
 // The slot the player holds this tick (present), or -1 and false when absent or unknown.
-player_slot :: proc(players: ^Players($T, $PLAYERS), player: Player) -> (slot: int, present: bool) {
+player_slot :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> (slot: int, present: bool) {
 	if !player_known(players, player) || players.members[player.index].slot == NO_SLOT {
 		return -1, false
 	}
@@ -89,13 +93,13 @@ player_slot :: proc(players: ^Players($T, $PLAYERS), player: Player) -> (slot: i
 }
 
 // Whether the player holds a slot this tick.
-player_present :: proc(players: ^Players($T, $PLAYERS), player: Player) -> bool {
+player_present :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
 	_, present := player_slot(players, player)
 	return present
 }
 
 // Who holds `slot` (Player{}: nobody, or a slot out of range).
-player_in_slot :: proc(players: ^Players($T, $PLAYERS), slot: int) -> Player {
+player_in_slot :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> Player {
 	return players.slots[slot] if slot >= 0 && slot < PLAYERS else {}
 }
 
@@ -106,21 +110,27 @@ player_in_slot :: proc(players: ^Players($T, $PLAYERS), slot: int) -> Player {
 //
 // iterate_present: the present players in slot order; iterate_known: every remembered member, present or absent, in
 // member order.
-Players_Iterator :: struct($T: typeid, $PLAYERS: int) {
-	players: ^Players(T, PLAYERS),
+Players_Iterator :: struct($T: typeid, $Input: typeid, $PLAYERS: int) {
+	players: ^Players(T, Input, PLAYERS),
 	index:   int, // the next slot (present) or member (known) to look at
 	known:   bool,
 }
 
-iterate_present :: #force_inline proc(players: ^Players($T, $PLAYERS)) -> Players_Iterator(T, PLAYERS) {
+iterate_present :: #force_inline proc(players: ^Players($T, $Input, $PLAYERS)) -> Players_Iterator(T, Input, PLAYERS) {
 	return {players = players}
 }
 
-iterate_known :: #force_inline proc(players: ^Players($T, $PLAYERS)) -> Players_Iterator(T, PLAYERS) {
+iterate_known :: #force_inline proc(players: ^Players($T, $Input, $PLAYERS)) -> Players_Iterator(T, Input, PLAYERS) {
 	return {players = players, known = true}
 }
 
-players_next :: #force_inline proc(iterator: ^Players_Iterator($T, $PLAYERS)) -> (data: ^T, player: Player, ok: bool) {
+players_next :: #force_inline proc(
+	iterator: ^Players_Iterator($T, $Input, $PLAYERS),
+) -> (
+	data: ^T,
+	player: Player,
+	ok: bool,
+) {
 	players := iterator.players
 	if iterator.known {
 		for iterator.index < len(players.members) {
@@ -146,6 +156,17 @@ players_next :: #force_inline proc(iterator: ^Players_Iterator($T, $PLAYERS)) ->
 input :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> Input {
 	slot := tick_slot(tick, player)
 	return tick.inputs.input[slot] if slot >= 0 else {}
+}
+
+// The player's input of the tick before, in the slot they hold now (zero on their first tick in it, and when
+// absent): a button pressed this tick is down in `input` and not here.
+//
+//   pressed := sim.input(t, player).buttons - sim.input_before(t, player).buttons
+input_before :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> Input {
+	slot := tick_slot(tick, player)
+	if slot < 0 do return {}
+	view := players_view(tick.state, tick.players_layout)
+	return ([^]Input)(view.before)[slot]
 }
 
 // The commands `player` sent for this tick, in the order sent (none when absent):
@@ -209,6 +230,8 @@ Players_Layout :: struct {
 	slots_at:  int, // offset of `slots` in the Players
 	data_at:   int, // offset of `data`
 	data_size: int, // size_of(T)
+	before_at: int, // offset of `before`
+	input:     int, // size_of(its Input)
 }
 
 // The Players of a state block, untyped (the harness's view of it).
@@ -218,6 +241,8 @@ Players_View :: struct {
 	slots:   []Player,
 	data:    [^]u8,
 	stride:  int,
+	before:  [^]u8, // [slots]Input
+	input:   int, // size_of(Input)
 }
 
 @(private)
@@ -228,11 +253,21 @@ players_view :: proc(state: rawptr, layout: ^Players_Layout) -> Players_View {
 		slots   = ([^]Player)(rawptr(base + uintptr(layout.slots_at)))[:layout.slots],
 		data    = ([^]u8)(rawptr(base + uintptr(layout.data_at))),
 		stride  = layout.data_size,
+		before  = ([^]u8)(rawptr(base + uintptr(layout.before_at))),
+		input   = layout.input,
 	}
 }
 
-// Finds the State's one Players field and checks it ("" and the layout when it is there and fits PLAYERS).
-players_layout_of :: proc(state: ^runtime.Type_Info, players: int) -> (layout: Players_Layout, reason: string) {
+// Finds the State's one Players field and checks it ("" and the layout when it is there and fits PLAYERS and the
+// game's Input).
+players_layout_of :: proc(
+	state: ^runtime.Type_Info,
+	players: int,
+	input: ^runtime.Type_Info,
+) -> (
+	layout: Players_Layout,
+	reason: string,
+) {
 	info, is_struct := runtime.type_info_base(state).variant.(runtime.Type_Info_Struct)
 	if !is_struct {
 		return {}, "State is not a struct"
@@ -256,10 +291,14 @@ players_layout_of :: proc(state: ^runtime.Type_Info, players: int) -> (layout: P
 				layout.slots, layout.slots_at = array.count, int(table.offsets[j])
 			case "data":
 				layout.data_at, layout.data_size = int(table.offsets[j]), array.elem_size
+			case "before":
+				layout.before_at, layout.input = int(table.offsets[j]), array.elem_size
+				if array.elem.id != input.id do reason = fmt.tprintf("the State's Players is for the input %v, the game's is %v", array.elem.id, input.id)
 			}
 		}
 	}
 	switch {
+	case reason != "":
 	case found == 0:
 		reason = "State has no sim.Players field (the session's players: src/sim/SPEC.md, Players)"
 	case found > 1:
@@ -270,7 +309,7 @@ players_layout_of :: proc(state: ^runtime.Type_Info, players: int) -> (layout: P
 	return
 }
 
-// A sim.Players(T, PLAYERS): its RTTI names it "Players($T=...)" in package sim.
+// A sim.Players(T, Input, PLAYERS): its RTTI names it "Players($T=...)" in package sim.
 @(private)
 is_players :: proc(type: ^runtime.Type_Info) -> bool {
 	named, ok := type.variant.(runtime.Type_Info_Named)
@@ -334,6 +373,7 @@ players_update :: proc(
 		member := &view.members[index]
 		member.slot = u8(slot)
 		member.since = number
+		runtime.memset(view.before[slot * view.input:], 0, view.input) // nothing held before their first tick here
 		player := Player{u16(index), record}
 		view.slots[slot] = player
 		if returning {
@@ -344,6 +384,15 @@ players_update :: proc(
 			changes.joined_count += 1
 		}
 		emit_to(events, Event_Player_Joined{player = player, slot = u8(slot), returning = returning})
+	}
+}
+
+// After `tick`: each slot's input becomes its `before` for the next tick (zero for a slot nobody holds).
+@(private)
+players_remember :: proc(view: Players_View, inputs: ^Inputs($Input, $PLAYERS)) {
+	before := ([^]Input)(view.before)
+	for slot in 0 ..< PLAYERS {
+		before[slot] = inputs.input[slot] if view.slots[slot].id != 0 else {}
 	}
 }
 

@@ -1,5 +1,6 @@
 package __GAME__
 
+import "unified:dmath"
 import "unified:sim"
 
 MOVE_SPEED :: f32(4) // metres per second at full input
@@ -17,7 +18,7 @@ move_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
-		data.position.x += f32(input.dx) / 127 * MOVE_SPEED * DT
-		data.position.y += f32(input.dy) / 127 * MOVE_SPEED * DT
+		move := dmath.stick(input.dx, input.dy) // each axis -1..1, at most 1 long
+		data.position += move * (MOVE_SPEED * DT)
 	}
 }

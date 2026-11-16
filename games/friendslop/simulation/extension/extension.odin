@@ -8,6 +8,7 @@ import "base:runtime"
 import "core:math"
 import "core:reflect"
 import "unified:b3"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -67,16 +68,16 @@ player_view_key :: proc(player: sim.Player) -> view.Key {
 
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
-// where the default routing would send them to the item's or the switch's view.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
+// where the default routing would send them to the item's or the switch's view. The rest: by their subject.
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
 	value := sim.event_value(event, fs.Event)
 	fields := any{&value, reflect.union_variant_typeid(value)}
 	if player, is_player := reflect.struct_field_value_by_name(fields, "player").(sim.Player);
 	   is_player && player != {} {
-		return .Player, player_view_key(player), true
+		return .Player, player_view_key(player), .View
 	}
 	if entity, is_entity := reflect.struct_field_value_by_name(fields, "entity").(u64); is_entity && entity != 0 {
-		return .Marker, view.Key(entity - 1), true // the marker index
+		return .Marker, view.Key(entity - 1), .View // the marker index
 	}
 	return
 }
@@ -84,7 +85,7 @@ event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool
 // ---- input (main thread): move relative to the camera, aim = the camera's look
 
 // The camera rig sets its look direction and its flat right every frame (UnifiedSession.set_input_value: &"look",
-// &"right"); movement is relative to them. A jump or grab tap shorter than a tick still counts (action_pressed).
+// &"right"); movement is relative to them. A jump or grab tap shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^fs.Input) {
 	look := godot.input_value("look")
 	right := godot.input_value("right")
@@ -94,15 +95,10 @@ sample_input :: proc(input: ^fs.Input) {
 	flat_right := normalize2({right.x, right.z})
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	look_length := length3(look)
 	input.move_x = godot.axis_i8(flat_right.x * move.x - forward.x * move.y)
 	input.move_z = godot.axis_i8(flat_right.y * move.x - forward.y * move.y)
-	input.aim_x = godot.axis_i8(look.x / look_length)
-	input.aim_y = godot.axis_i8(look.y / look_length)
-	input.aim_z = godot.axis_i8(look.z / look_length)
-	if godot.action_held("jump") || godot.action_pressed("jump") do input.buttons |= fs.BUTTON_JUMP
-	if godot.action_held("grab") || godot.action_pressed("grab") do input.buttons |= fs.BUTTON_GRAB
-	if godot.action_held("throw") do input.buttons |= fs.BUTTON_THROW
+	input.aim = dmath.dir3(look)
+	input.buttons = godot.buttons(fs.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
 }
 
 normalize2 :: proc(v: [2]f32) -> [2]f32 {

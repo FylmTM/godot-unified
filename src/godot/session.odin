@@ -109,6 +109,12 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return session.ticks},
 		proc(session: ^Session_Node, value: i64) {session.ticks = value},
 	)
+	gd.bind_property(
+		class,
+		"game_input",
+		proc(session: ^Session_Node) -> bool {return !input_sample.off},
+		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
+	)
 	gd.bind_property(class, "view_root", effective_root, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
@@ -427,6 +433,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		if root_id != session.synced_root {
 			views_root_changed() // the views lived under the old root
 			session.synced_root = root_id
+			view_space_check(root)
 		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
 		if fresh do data_sync(frame)
@@ -498,7 +505,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
-	event := new_event_object(int(raw.kind), message.tick, raw.data[:raw.size])
+	event := new_event_object(int(raw.kind), message.tick, message.id, raw.data[:raw.size])
 	if event.ptr == nil do return // its class failed to register (an error said why)
 	// the Variant holds a reference and ours goes: the event is freed with the Variant unless a script kept it
 	held := gd.variant_from_any(event)
@@ -507,7 +514,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	state := i64(message.action)
 	views_event(layout, &raw, state, held)
 	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
-	dev_event(message.tick, message.action, layout, raw.data[:raw.size])
+	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
 }
 
 // set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.

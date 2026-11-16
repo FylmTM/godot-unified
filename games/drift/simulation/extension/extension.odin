@@ -6,6 +6,7 @@ package drift_extension
 
 import "base:runtime"
 import "core:math"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -68,50 +69,24 @@ Gate_View :: struct {
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
 GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, MultiView) {
-	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	constants = CONSTANTS,
-	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels: a warp snaps
-	is_2d = true,
-	scripted_input = dr.scripted_input,
+	sample_input      = sample_input,
+	fill_frame        = fill_frame,
+	data              = Data,
+	constants         = CONSTANTS,
+	is_2d             = true,
+	view_scale        = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
+	scripted_input    = dr.scripted_input,
 	scripted_commands = dr.scripted_commands,
-	event_key = event_key,
-	event_pos = event_pos,
-	level = "res://game/levels/arena.level",
+	event_key         = event_key,
+	level             = "res://game/levels/arena.level",
 }
 
-// Events in pixels too, like the views: the level's scale (World.px_per_m).
-event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
-	return {position.x * world.px_per_m, position.y * world.px_per_m, 0}
-}
-
-// Station hits go to the station's view (they have no subject). Setting event_key replaces the routing by
-// subject, so a player's events go to their ship's view here too (a rock hit: the shooter's), and the rest
-// (the rock events' subject, a rock, has no scene view) to none.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
-	switch value in sim.event_value(event, dr.Event) {
+// Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
+// their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+	#partial switch _ in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
-		return .Station, 0, true
-	case sim.Event_Player_Joined:
-		return .Ship, ship_key(value.player), true
-	case sim.Event_Player_Left:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Spawned:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Fired:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Boosted:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Warped:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Rock_Hit:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Gem_Picked:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Match_Started:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Rock_Split, dr.Event_Rock_Destroyed, dr.Event_Wave, dr.Event_Match_Over:
+		return .Station, 0, .View
 	}
 	return
 }
@@ -125,28 +100,23 @@ ship_key :: proc(player: sim.Player) -> view.Key {
 
 // The movement, fire and boost from the InputMap, and the aim: a world-space direction the arena's script sets
 // (UnifiedSession.set_input_value(&"aim", ...)) from the mouse (relative to the local ship) or the right stick;
-// zero keeps the heading. A tap of fire or boost shorter than a tick still counts (action_pressed).
+// zero keeps the heading. A tap of fire or boost shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^dr.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = godot.axis_i8(move.x), godot.axis_i8(move.y)
 	aim := godot.input_value("aim")
-	length := math.sqrt(aim.x * aim.x + aim.y * aim.y)
-	if length > 1e-4 {
-		input.aim_x, input.aim_y = godot.axis_i8(aim.x / length), godot.axis_i8(aim.y / length)
-	}
-	if godot.action_held("fire") || godot.action_pressed("fire") do input.buttons |= dr.BUTTON_FIRE
-	if godot.action_held("boost") || godot.action_pressed("boost") do input.buttons |= dr.BUTTON_BOOST
+	input.aim = dmath.dir2(aim.xy)
+	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
 }
 
-// ---- the frame (session thread): metres -> pixels (the level's px_per_m)
+// ---- the frame (session thread): everything in metres (the host maps positions to pixels: Glue.view_scale)
 
-// A point on the plane (metres) in pixels.
-pixels :: proc(point: [2]f32, px_per_m: f32) -> [3]f32 {
-	return {point.x * px_per_m, point.y * px_per_m, 0}
+// A point on the plane.
+plane :: #force_inline proc(point: [2]f32) -> [3]f32 {
+	return {point.x, point.y, 0}
 }
 
 fill_frame :: proc(f: ^Frame) {
-	px_per_m := f.world.px_per_m
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
 		pos, rotation := physics.pose_2d(f.world.phys, ship.body)
@@ -154,7 +124,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = ship_key(player),
 			kind   = .Ship,
 			player = player,
-			pos    = pixels(pos, px_per_m),
+			pos    = plane(pos),
 			rot    = physics.quat_2d(rotation),
 		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
@@ -162,7 +132,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos, rotation := physics.pose_2d(f.world.phys, f.state.station)
 		godot.push_view(f, {
 			kind = .Station,
-			pos  = pixels(pos, px_per_m),
+			pos  = plane(pos),
 			rot  = physics.quat_2d(rotation),
 		}, Station_View{hp_frac = f32(f.state.station_hp) / f32(dr.STATION_HP)})
 	}
@@ -170,19 +140,19 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, {
 			key  = view.Key(gate),
 			kind = .Gate,
-			pos  = pixels(f.world.gates[gate].pos, px_per_m),
+			pos  = plane(f.world.gates[gate].pos),
 		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)
 	for rock, handle in sim.next(&rocks) {
 		pos, rotation := physics.pose_2d(f.world.phys, rock.body)
-		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
+		radius := dr.ROCK_RADIUS[rock.size] // the mesh is a radius-1 m rock
 		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
-			pos    = pixels(pos, px_per_m),
+			pos    = plane(pos),
 			rot    = physics.quat_2d(rotation),
 			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
@@ -196,7 +166,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
-			pos    = pixels(bullet.pos, px_per_m),
+			pos    = plane(bullet.pos),
 			rot    = physics.quat_2d(bullet.vel),
 			scale  = {1.6, 0.6, 1},
 			custom = {f32(owner_slot), 0, 0, 0},
@@ -211,7 +181,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
-			pos    = pixels(gem.pos, px_per_m),
+			pos    = plane(gem.pos),
 			rot    = view.quat_angle2d(age * 2),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
@@ -287,7 +257,7 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 
 // ---- the constants for the scripts (Unified.constants), from the sim's own definitions
 
-// Sizes in metres (the views draw them at the level's scale, Game.px_per_m).
+// Sizes in metres (the views draw them at Unified.view_scale).
 Data_Constants :: struct {
 	ship_radius:    f32,
 	station_radius: f32,

@@ -64,6 +64,10 @@ Data_Toy :: struct {
 	mark_shapes: toy.Shapes, // an Array of ints
 	mark_loud:   bool,
 	_pad:        [3]u8,
+	mark_target: sim.Handle(toy.Thing), // its key
+	mark_place:  [3]f32, // sim units (a sim.Position here would be shown in view units)
+	mark_area:   toy.Mark_Area,
+	at:          sim.Position, // the local player's position: a view unit Vector2 (x, y) * VIEW_SCALE
 	x:           f32,
 	y:           f32,
 	spawned:     u32,
@@ -94,7 +98,9 @@ CONSTANTS := Data_Constants {
 	by_shape = {.Dot = 0.5, .Ring = 1, .Star = 2},
 }
 
-// Fixed poses: every tick the same, so the interpolated pose is exact at any alpha.
+// Fixed poses: every tick the same, so the interpolated pose is exact at any alpha. In view units (what test.gd
+// expects): fill_frame pushes them in sim units (/ VIEW_SCALE) and the host maps them back.
+VIEW_SCALE :: 10
 POS_2D :: [3]f32{120, 80, 5} // pos.z is unused in 2D
 ANGLE_2D :: 0.5
 POS_3D :: [3]f32{1, 2, 3}
@@ -105,20 +111,21 @@ BLINK_TO :: 40
 
 GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	constants = CONSTANTS,
-	smoothing = {tau_s = 0.1, teleport_dist = 64},
-	is_2d = true,
-	event_pos = event_pos,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	is_2d        = true,
+	view_scale   = VIEW_SCALE,
+	event_key    = event_key,
 }
 
-// The player drifts right; ui_accept pressed spawns one thing (a `Spawned` event with a handle, a position, the
-// player and an enum), which expires a few dozen ticks later; the input value "drift" moves it down.
+// The player drifts right; pressing ui_accept spawns one thing (on the press: held, it doesn't repeat), a `Spawned`
+// event with a handle, a position, the player and an enum, which expires a few dozen ticks later; the input value
+// "drift" moves it down.
 sample_input :: proc(input: ^toy.Input) {
 	input.dx = 2
 	input.dy = i8(godot.input_value("drift").x)
-	input.buttons = u8(godot.action_pressed("ui_accept"))
+	input.buttons = godot.buttons(toy.Buttons, {.Spawn = "ui_accept"})
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -130,7 +137,7 @@ fill_frame :: proc(f: ^Frame) {
 		key    = 1,
 		kind   = .Typed2D,
 		player = f.local_player,
-		pos    = POS_2D,
+		pos    = POS_2D / VIEW_SCALE,
 		rot    = q2,
 	}, Typed2D_Data {
 		shown  = true,
@@ -145,21 +152,21 @@ fill_frame :: proc(f: ^Frame) {
 		key    = 2,
 		kind   = .Plain2D,
 		entity = 7,
-		pos    = POS_2D + {10, 0, 0},
+		pos    = (POS_2D + {10, 0, 0}) / VIEW_SCALE,
 		rot    = q2,
 	})
 	// the same key in another kind: another view; its entity is its key
 	godot.push_view(f, {
 		key  = 2,
 		kind = .Plain3D,
-		pos  = POS_3D,
+		pos  = POS_3D / VIEW_SCALE,
 		rot  = q3,
 	})
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
 		godot.push_view(f, {
 			key  = 5,
 			kind = .Plain2D,
-			pos  = {-50, -50, 0},
+			pos  = {-5, -5, 0},
 		})
 	}
 	mark := &local.last_mark
@@ -174,6 +181,10 @@ fill_frame :: proc(f: ^Frame) {
 		mark_shape  = mark.shape,
 		mark_shapes = mark.shapes,
 		mark_loud   = mark.loud,
+		mark_target = mark.target,
+		mark_place  = ([3]f32)(mark.place),
+		mark_area   = mark.area,
+		at          = {local.pos.x, local.pos.y, 0},
 		x           = local.pos.x,
 		y           = local.pos.y,
 		spawned     = f.state.spawned,
@@ -186,27 +197,34 @@ fill_frame :: proc(f: ^Frame) {
 	godot.push_multi_view(f, {
 		key    = 1,
 		kind   = .Multi2D,
-		pos    = {30, 40, 0},
+		pos    = {3, 4, 0},
 		rot    = f.tick % 2 == 0 ? -angle : angle,
 		scale  = {2, 3, 0},
 		color  = {1, 0.5, 0.25, 1},
 		custom = {1, 2, 3, 4},
 	})
-	godot.push_multi_view(f, {kind = .Multi2D, pos = {-5, 6, 0}}) // no key; color zero: white; scale zero: 1
+	godot.push_multi_view(f, {kind = .Multi2D, pos = {-0.5, 0.75, 0}}) // no key; color zero: white; scale zero: 1
 	tumble := [4]f32{math.sin(f32(TUMBLE_3D) / 2), 0, 0, math.cos(f32(TUMBLE_3D) / 2)}
 	godot.push_multi_view(f, {
 		key   = 2,
 		kind  = .Multi3D,
-		pos   = POS_3D,
+		pos   = POS_3D / VIEW_SCALE,
 		rot   = view.qmul(q3, tumble),
 		scale = {1, 2, 1},
 		color = {0, 1, 0, 1},
 	})
 }
 
-// The toy's {x, 0, y} (sim units) to the view's pixels: ×10 on the plane.
-event_pos :: proc(position: sim.Position, world: ^toy.World) -> sim.Position {
-	return {position.x * 10, position.z * 10, 0}
+// Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
+// subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+	#partial switch _ in sim.event_value(event, toy.Event) {
+	case toy.Event_Expired:
+		return .Plain2D, 2, .View
+	case sim.Event_Player_Joined:
+		return {}, 0, .No_View
+	}
+	return
 }
 
 @(export, link_name = "views_test_init")

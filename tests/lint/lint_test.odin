@@ -121,6 +121,7 @@ RULES := []Rule {
 			"unified:sim",
 			"unified:netcode",
 			"unified:view",
+			"unified:dmath",
 			"unified:gdext",
 			"unified:gdext/gdi",
 			"unified:devui",

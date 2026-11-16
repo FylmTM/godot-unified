@@ -20,7 +20,7 @@ The view contract is `simulation/extension/extension.odin`; the Godot side follo
 
 - Scene views (`game/views/`): `ship.tscn`, `gate.tscn` and `station.tscn` are Node2D roots with a UnifiedView
   marker (`uni bake drift` indexes them). Each is drawn in code at the sim's sizes (`Unified.constants`, metres)
-  times the level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
+  times `Unified.view_scale` (32 px per metre, drift's `Glue.view_scale`); the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
   properties. The HUD (`game/ui/hud.gd`) reads the session data `Unified.data.hud`.
 - MultiMesh views (`game/multi/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant,
   the sim's own hull), bullets and gems are MultiMeshInstance2D nodes, each with a UnifiedMultiView marker. All use

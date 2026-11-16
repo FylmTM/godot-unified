@@ -18,7 +18,7 @@ var _t := 0.0
 
 
 func _ready() -> void:
-	_r = Unified.constants.station_radius * Game.px_per_m
+	_r = Unified.constants.station_radius * Unified.view_scale
 
 
 func _process(delta: float) -> void:

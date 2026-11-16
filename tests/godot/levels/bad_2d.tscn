@@ -4,6 +4,7 @@
 b = Vector2(64, 0)
 
 [node name="Bad2D" type="Node2D" unique_id=1474969099]
+metadata/unified_px_per_m = 64.0
 
 [node name="Rail" type="StaticBody2D" parent="." unique_id=808437368]
 

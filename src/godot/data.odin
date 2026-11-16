@@ -7,7 +7,7 @@
 //   - `UnifiedConstants`: the constants' fields (Glue.constants), one instance filled at load (no fields when the
 //     game has none);
 //   - the engine singleton `Unified` (class and singleton, like Godot's Input): `Unified.data`, `Unified.constants`,
-//     `Unified.session` and `Unified.tick_hz`;
+//     `Unified.session`, `Unified.tick_hz` and `Unified.view_scale`;
 //   - a class per enum type the event, command, data and constants types use (`Phase` -> EnumPhase) with its members
 //     as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
 package godot
@@ -178,6 +178,10 @@ register_data_classes :: proc() {
 		return gd.to_variant(i64(api.tick_hz))
 	}, nil, nil, gd.Dynamic_Arg{"", .INT, ""})
 	gd.bind_property_by_name(&D.unified, "tick_hz", .INT, "get_tick_hz")
+	gd.bind_dynamic_method(&D.unified, "get_view_scale", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+		return gd.to_variant(f64(api.view_scale))
+	}, nil, nil, gd.Dynamic_Arg{"", .FLOAT, ""})
+	gd.bind_property_by_name(&D.unified, "view_scale", .FLOAT, "get_view_scale")
 	gd.bind_dynamic_method(&D.unified, "get_data", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
 		return gd.variant_from_any(D.holder_object)
 	}, nil, nil, gd.Dynamic_Arg{"", .OBJECT, "UnifiedData"})
@@ -249,7 +253,7 @@ register_data_class :: proc(layout: Data_Layout, is_constants := false) -> ^Data
 data_field_get :: proc(user: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Data_Object)(instance)
-	return field_variant(field.type, object.bytes[field.offset:][:field.type.size], api.is_2d)
+	return field_variant(field.type, object.bytes[field.offset:][:field.type.size], .Sim)
 }
 
 // The properties of a struct's fields (`_` fields are padding, left out).

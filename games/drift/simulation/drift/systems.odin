@@ -76,13 +76,13 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	pos, heading := physics.pose_2d(t.world.phys, ship.body)
 	vel, _ := physics.velocity_2d(t.world.phys, ship.body)
 	mass := physics.mass(t.world.phys, ship.body)
-	move := [2]f32{f32(input.move_x), f32(input.move_y)} / 127
+	move := dmath.stick(input.move_x, input.move_y)
 	ship.thrust = move != {}
 	if ship.thrust do physics.apply_impulse_2d(t.world.phys, ship.body, move * (THRUST_ACCEL * mass * DT))
 	// turn toward the aim: the angular velocity from the cross product (the sine of the error), the full rate
 	// when the aim is behind
 	spin: f32 = 0
-	aim := dmath.normalize2({f32(input.aim_x), f32(input.aim_y)})
+	aim := dmath.dir2_vec(input.aim)
 	if aim != {} {
 		cross := heading.x * aim.y - heading.y * aim.x
 		dot := heading.x * aim.x + heading.y * aim.y
@@ -97,12 +97,12 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	if ship.boost_cooldown > 0 do ship.boost_cooldown -= 1
 	if ship.fire_cooldown > 0 do ship.fire_cooldown -= 1
 	if ship.gate_cooldown > 0 do ship.gate_cooldown -= 1
-	if input.buttons & BUTTON_BOOST != 0 && ship.boost_cooldown == 0 {
+	if .Boost in input.buttons && ship.boost_cooldown == 0 {
 		physics.apply_impulse_2d(t.world.phys, ship.body, heading * (BOOST_SPEED * mass))
 		ship.boost_cooldown = BOOST_COOLDOWN_TICKS
 		sim.emit(t, Event_Boosted{position = position_of(pos), player = player})
 	}
-	if input.buttons & BUTTON_FIRE != 0 && ship.fire_cooldown == 0 {
+	if .Fire in input.buttons && ship.fire_cooldown == 0 {
 		ship.fire_cooldown = FIRE_EVERY_TICKS
 		muzzle := pos + heading * (SHIP_RADIUS + 0.1)
 		if bullet, _, ok := sim.spawn(&t.state.bullets); ok {

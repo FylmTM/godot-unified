@@ -12,9 +12,15 @@ HZ :: 64
 Input :: struct {
 	dx:      i8,
 	dy:      i8,
-	buttons: u8,
+	buttons: Buttons, // held (sim.buttons: down, pressed, released)
 	_pad:    u8,
 }
+
+Button :: enum u8 {
+	Spawn,
+}
+
+Buttons :: bit_set[Button;u8]
 
 Thing :: struct {
 	pos:   [2]f32,
@@ -45,6 +51,15 @@ Cmd_Mark :: struct {
 	shapes: Shapes,
 	loud:   bool,
 	_pad:   [3]u8,
+	target: sim.Handle(Thing), // its key
+	place:  sim.Position, // a Vector2 in the 2D host (view units)
+	area:   Mark_Area, // a Dictionary
+}
+
+Mark_Area :: struct {
+	corner: [2]f32,
+	layer:  u8,
+	_pad:   [3]u8,
 }
 
 Cmd :: union {
@@ -67,7 +82,7 @@ State :: struct {
 	rng:     sim.Rng,
 	spawned: u32,
 	_pad:    u32,
-	players: sim.Players(Player_Data, PLAYERS),
+	players: sim.Players(Player_Data, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
 
@@ -133,7 +148,7 @@ tick :: proc(t: ^Tick) {
 		input := sim.input(t, player)
 		data.pos.x += f32(input.dx) / 64
 		data.pos.y += f32(input.dy) / 64
-		if input.buttons & 1 != 0 && t.state.things.count < 32 {
+		if .Spawn in sim.buttons(t, player).pressed && t.state.things.count < 32 { 	// held: one thing
 			thing, handle, _ := sim.spawn(&t.state.things)
 			thing.pos = data.pos
 			thing.life = i32(4 + sim.rng_below(&t.state.rng, 60))
@@ -141,7 +156,7 @@ tick :: proc(t: ^Tick) {
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
 				thing    = handle,
-				position = {thing.pos.x, 0, thing.pos.y},
+				position = {thing.pos.x, thing.pos.y, 0},
 				player   = player,
 				shape    = Shape(thing.life % 3),
 			})
@@ -174,7 +189,7 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32) -> Input {
 	return {
 		dx      = i8(x % 7) - 3,
 		dy      = i8((x >> 8) % 7) - 3,
-		buttons = u8((x >> 16) % 5 == 0),
+		buttons = {.Spawn} if (x >> 16) % 5 == 0 else {},
 	}
 }
 

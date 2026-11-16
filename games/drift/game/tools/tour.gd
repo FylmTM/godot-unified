@@ -1,11 +1,13 @@
 extends UnifiedTool
 ## A tour of the real game with the native session (the game library must be built), driven by input actions as
 ## a player would (the right stick aims, so the tour needs no mouse):
-##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
+##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick] [--end-in-match]
 ## menu -> single player -> lobby (the ship, the station and both gates are there) -> click Start (the `start`
 ## command) -> match: aim with the stick (the ship turns to it), thrust (it moves, the camera follows), fire
 ## (bullets in the multi view) while the first wave's rocks drift in (rock multi views) -> hunt rocks (_hunt) until
 ## one is hit (`--quick`) or splits or is destroyed -> without `--quick`, warp through a gate -> leave to the menu.
+## `--end-in-match`: the run ends after the hunt, fire held, so the app quits mid-match with sounds playing (in a
+## window with `--shots` the quit leaked their playbacks before Sfx.close, #302).
 ## The result adds the sim events seen.
 
 const ROCK_KINDS: Array[String] = ["rock_0", "rock_1", "rock_2", "rock_3"]
@@ -96,6 +98,8 @@ func _run() -> void:
 		_multi_count(ROCK_KINDS), _multi_count(["gem"]), int(game.local_player_info().get("shots", 0))])
 
 	await _hunt(flag("quick"))
+	if flag("end-in-match"):
+		return  # fire still held: the run quits mid-match, with sounds playing (Game.quit_app frees them)
 	if not flag("quick"):
 		await _warp()
 	Input.action_release(&"fire")

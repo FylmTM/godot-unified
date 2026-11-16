@@ -1,6 +1,6 @@
 # godot
 
-Status: signed off 2026-11-15 (#9: contract v1, with its follow-ups #273-#287).
+Status: signed off 2026-11-15 (#9: contract v1, with its follow-ups #273-#287); 2026-11-16 the game API (#234, #240, #242).
 
 `unified:godot` is everything that touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is
 the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.
@@ -22,16 +22,17 @@ GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
 	data = Data, constants = CONSTANTS,
-	scripted_input, scripted_commands, bench, event_key, event_pos, compat, level,
-	smoothing,                       // view.Smoothing in fill_frame's units (zero: the default, metres)
-	is_2d,                           // event positions reach GDScript as Vector2 (else Vector3)
+	scripted_input, scripted_commands, bench, event_key, compat, level,
+	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
+	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space, below)
+	smoothing,                       // view.Smoothing in sim units (zero: the default, for metres)
 	max_views, max_multi, view_data_bytes, // the Frame's capacities (zero: 256, 16384, 16384)
 }
 
 sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
 	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
-	input.jump = godot.action_pressed("jump")
+	input.buttons = godot.buttons(g.Buttons, {.Jump = "jump", .Grab = "grab"})
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -64,30 +65,58 @@ another build before it joins; `pump`, `close`, and the optional `account`, `mai
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
-0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`
-or `kind`), the State's players field, plain State and Input, a data type that isn't a plain, padding-free
+0, the sim's game checks (`sim.game_violation`: tick rate, unions, the library's events, an event field named `tick`,
+`kind` or `id`), the State's players field, plain State and Input, a data type that isn't a plain, padding-free
 struct) and registers nothing of the game. They are printed with `print_error` when the
 extension loads (the editor opens and shows why), and starting a session fails with the first one as its status.
 
 ### Input
 
-`sample_input` runs on the main thread every frame and fills the local player's `Input` itself, explicitly, through
-these helpers (main thread only; they read Godot's `Input` singleton) or the bindings:
+`sample_input` runs on the main thread **once a frame** and fills the local player's `Input` itself, explicitly,
+through these helpers (main thread only; they read Godot's `Input` singleton) or the bindings. The host keeps the
+newest sample, and every tick that samples the local player takes it: frames and ticks don't line up, so one sample
+can feed several ticks (a 64 Hz tick on a 60 Hz screen, a catch-up). So an `Input` is the controls' **state**, never
+a one-shot: a button is down or up (`sim.buttons` derives presses and releases from the tick before, so a repeated
+input never presses twice), and a one-shot value is a command.
 
-- `action_held(action) -> bool`, `action_strength(action) -> f32`,
-  `action_vector(negative_x, positive_x, negative_y, positive_y) -> [2]f32` (`Input.get_vector`: y is "back");
-- `action_pressed(action) -> bool`: true for every press since the session thread last took the input, so a tap
-  shorter than a tick is never lost (the host latches each press per action and clears it once a tick has taken a
-  sample holding it);
+- `buttons(Buttons, [Button]string) -> Buttons`: the Input's `buttons` bit_set, each button from its action through
+  `action_down` (`input.buttons = godot.buttons(Buttons, {.Jump = "jump", .Grab = "grab"})`);
+- `action_down(action) -> bool`: held now, or tapped since a tick last took the input (the host latches each tap
+  until a tick takes a sample holding it), so a tap shorter than a frame still reaches the sim;
+- `action_strength(action) -> f32`, `action_vector(negative_x, positive_x, negative_y, positive_y) -> [2]f32`
+  (`Input.get_vector`: y is "back"): analog input;
 - `input_value(name) -> [3]f32`: the latest value a script set with `UnifiedSession.set_input_value(name, value)`
   (a Vector3, a Vector2 with z = 0, or a float or bool in x): what only GDScript knows, such as a camera's look
   direction;
-- `axis_i8(x) -> i8`: −1..1 to −127..127.
+- `axis_i8(x) -> i8`: −1..1 to −127..127 (`dmath.axis_i8`); a stick decodes with `dmath.stick` (clamped to length
+  1), a direction is a `dmath.Dir2` / `Dir3` (`dmath.dir2(vec)`, 2 or 4 bytes; zero: none). An `Input` holds no bools
+  and no floats (`sim.wire_violation`).
 
-While a dev UI text field has the keyboard the action helpers return nothing pressed, and a press on the dev UI never
-reaches them (it releases the actions it triggered: `src/devui/SPEC.md`, Input). The host hands the newest
-sample to the session thread when a tick takes the local input; `scripted_input` replaces it in `--scripted` runs.
-`Input` is what the player intends: interpreting it against the state is the sim's job.
+**Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
+pause menu, a chat field: the shared pause menu turns it off while open): the action helpers read nothing and latched
+taps drop, `input_value` still flows. When it comes back, and when the window gets the focus back, an action still
+held counts only once it is released (the key that closed the menu, the click that focused the window never fire).
+An unfocused window still reads input: Godot releases what was held when it lost the focus, and tool runs drive
+windows that never take it. A press on the
+dev UI never reaches the actions (it releases the actions it triggered: `src/devui/SPEC.md`, Input).
+`scripted_input` replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
+against the state is the sim's job.
+
+### View space
+
+The sim works in its own units (metres in every game so far) and never converts. The views draw in Godot's: metres
+in 3D, pixels in 2D. The game says how the two relate once, in its Glue: `is_2d` (the sim's XY plane is Godot 2D, x
+right, y down) and `view_scale` (view units per sim unit; drift: 32 px per metre; 1 when unset). Everything up to the
+hand-off is in sim units: what `fill_frame` pushes, the host's smoothing and rollback estimates (`Glue.smoothing` in
+sim units: the default suits metres), the event queue. The host maps a point once, on the main thread, where it
+makes a Godot value from it: a scene view's position (and `_sim_update`'s), a MultiMesh instance's origin (only the
+origin: a mesh is the view's content, drawn in view units, and `Multi_View_Item.scale` a multiplier), and every
+`sim.Position` a script reads (events, view data, session data, constants); and the inverse for a `sim.Position` a
+script sets in a command (the object keeps what was set: it reads back as set). Nothing else is mapped: rotations,
+directions, lengths and input values stay as they are; a script scales a sim size (a radius from the constants) with
+`Unified.view_scale`. View space is `view_root`'s local space; the host warns once when `view_root` is not at the
+world origin (a script placing an effect at an event's position elsewhere, or sending the mouse's world position,
+would be off by its transform). A 2D level is baked at the same scale (`src/level/SPEC.md`).
 
 ### Filling a frame
 
@@ -163,6 +192,7 @@ for what is performance-critical or shared across games.
 
 **`UnifiedSession`** (Node, one per app):
 
+- `game_input` (bool, default true): off, the action helpers read nothing (Input, above);
 - methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
   `set_player_name(name)`, `get_status()`,
@@ -205,7 +235,7 @@ layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_c
 host owns `instance_count` and `visible_instance_count`.
 
 **Events, commands and enums as classes.** At load the host registers a class per kind of the game's event union
-(`extends UnifiedEvent`, a RefCounted with `tick` and `kind`, the type name lowercased: `rock_hit`) and command union
+(`extends UnifiedEvent`, a RefCounted with `tick`, `kind` and `id`, the type name lowercased: `rock_hit`) and command union
 (`extends UnifiedCommand`), named `Event` or `Command` + the Odin type in PascalCase without its prefix
 (`Event_Rock_Hit` -> `EventRockHit`, kind `rock_hit`; `Cmd_Drop` -> `CommandDrop`; an event type without `Event_`
 is named the same way), with a typed property per field. The
@@ -213,7 +243,7 @@ prefix groups them: Godot classes have no namespaces (an extension class can't n
 native class as a constant), and no GDScript is generated. Field types (events, commands, view and session data,
 constants): integers `int`, f32 `float`, bools, enums an `int` (below), bit_sets an `Array[int]`, a handle its key
 (`int`), a `sim.Player` its key (`int`, 0: nobody; a command's from one), a `sim.Position` a `Vector2`
-(`Glue.is_2d`) or `Vector3` in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` /
+(`Glue.is_2d`) or `Vector3` in view units (`Glue.view_scale`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` /
 `Color`, Godot's own math types as themselves, other arrays and enumerated arrays a typed `Array` (`Array[int]`,
 `Array[Vector2]`, `Array[Dictionary]` for structs; an array of arrays stays untyped), a nested struct a
 `Dictionary`, a string (constants) a `String`; `_` fields are left out. The library's `sim.Event_Player_Joined` and
@@ -234,8 +264,10 @@ drop.count = 3
 session.send_command(drop)
 ```
 
-`send_command` converts the object to the command's struct (enums by value, integers range-checked);
-a wrong value, no running session or a full queue (64 waiting) returns false with a `print_error` naming it.
+`send_command` converts the object to the command's struct (enums by value, integers range-checked; a handle set as
+its key, 0: none; a `sim.Position` set in view units, divided by `Glue.view_scale`; a nested struct set as a
+Dictionary of its fields by name, a field left out keeping its value; a property reads back as it was set); a wrong
+value, no running session or a full queue (64 waiting) returns false with a `print_error` naming it.
 The command reaches the sim exactly once, on the next tick the client samples.
 
 The editor's help documents every class above (class reference XML loaded at extension start).
@@ -251,11 +283,31 @@ its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) a
   Confirmed in the same frame. Effects and sounds on EMITTED, what must be final (score, banners) on CONFIRMED,
   undoing an effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and
   index among the tick's events of that kind and subject.
+- **Identity.** Each state arrives as a new object; its `id` (an int) is the same in an event's EMITTED and in its
+  CONFIRMED or CANCELLED, and never repeats in the process (an event cancelled and produced again later is a new
+  one, a new id). A re-simulation may change an event's fields but not its id: CONFIRMED carries the final ones. A
+  game undoes on CANCELLED only what is worth undoing (drift: a mispredicted shot's flash and sound), keyed by id:
+
+  ```gdscript
+  var _shots: Dictionary[int, int] = {}  # a shot's event id -> its sound
+
+  func _sim_event(event: UnifiedEvent, state: int) -> void:
+  	if event is EventFired:
+  		match state:
+  			UnifiedSession.EVENT_EMITTED: _shots[event.id] = Sfx.play(&"fire")
+  			UnifiedSession.EVENT_CANCELLED: if _shots.has(event.id): Sfx.stop(_shots[event.id])
+  			UnifiedSession.EVENT_CONFIRMED: pass
+  		if state != UnifiedSession.EVENT_EMITTED: _shots.erase(event.id)
+  ```
+
+  Events still pending when a session ends get no final state (scripts drop what they keep per session); after
+  dropped events (the queue full, below) a script may see a final state for an id it never saw, or miss one.
 - **Where.** Each event, in each state, goes first to its subject's views (`_sim_event(event, state)` on the root's
-  script): the view `Glue.event_key` names when the game sets it (a kind and key; ok false: none), else the views
-  keyed by its handle (`sim.handle_key`, of any kind), else the views whose `entity` is its `entity` field (a view's
-  entity defaults to its key), else its player's views (those whose `player` is its player). Then to the `sim_event`
-  signal.
+  script): the views keyed by its handle (`sim.handle_key`, of any kind), else the views whose `entity` is its
+  `entity` field (a view's entity defaults to its key), else its player's views (those whose `player` is its
+  player). Then to the `sim_event` signal. A game routes its special events itself with `Glue.event_key`, which
+  returns a kind, a key and a `godot.Event_Route`: `.View` (the view of that kind and key), `.No_View` (none) or
+  `.Subject` (the zero value, so a bare `return`: the routing by subject above).
 - **When.** An event is delivered once the Frame of its tick is shown: the session thread queues a tick's events
   before it publishes that tick's Frame, and the main thread delivers only those up to the shown Frame's tick, the
   newer ones waiting for the next frame (so an event about a view spawned at its tick finds the view).
@@ -287,7 +339,7 @@ scene and every indexed kind is a `View` member (an error names each one).
   carried (an SPSC queue, 256; full: dropped) and the recording (below, a mutex per verified tick).
 - **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
   the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
-  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose, call
+  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose (× `view_scale`), call
   `_sim_update`), write each MultiMesh's buffer in one `set_buffer`, set the session data, route the events of the
   ticks the Frame shows, then statuses and the result, then the dev UI (`dev.odin`;
   `-define:UNIFIED_DEVUI=false` compiles it out, `src/devui/SPEC.md`). The screen runs one tick behind the newest
@@ -365,7 +417,7 @@ resource first preloaded during a worker-thread load as leaked), the main scene 
 
 `tests/godot_driver` runs the driver with the toy game and no Godot: frames (the local player, the slots and the
 remembered players by key, the roster), previous poses from the host's memory and their estimates after a rollback
-or skipped ticks, one press delivered once, confirmed events, a tick's events held until its Frame is shown (a
+or skipped ticks, the input sample, confirmed events, a tick's events held until its Frame is shown (a
 `fill_frame` held to force the race), the result, the commands verified ticks carried, the session's recording
 replaying offline to the session's own checksum, transport failure, a game with problems installing nothing, the
 Dev_Link switch. `tests/godot` (the bindings suite) also checks that a press on a dev UI button leaves the action it
@@ -375,10 +427,10 @@ is bound to released, and a press elsewhere doesn't.
 property's error, the same key in two kinds, entity defaulting to the key, `_sim_despawned` once and no pose while it
 lingers), MultiMesh views (2D and 3D buffers, colors, custom data, a full rotation on the shorter arc, scale per
 axis), session data on `Unified` (typed, `changed`, back to zero when the session ends), constants (strings, nested
-structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal
+structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal, one `id` per event across its states, `event_key` routing (a named view, none, by subject)
 (`EventPlayerJoined` with the local player's key), the session's players by key (slot, presence, name, no
-platform, `roster_changed`), typed commands reaching the sim once with every field kind, the input sample and a
-latched press. Its `session_check.gd` checks
+platform, `roster_changed`), typed commands reaching the sim once with every field kind (a handle, a position in sim units, a nested struct),
+the input sample, a latched tap spawning once, game input off and a held action swallowed when it comes back. Its `session_check.gd` checks
 starting during a goodbye. Each game's `godot` suite: `validate`, `walk`, `tour`, `session` (a headless Godot
 session's checksums equal the offline binary's), `editor`, `bake`.
 

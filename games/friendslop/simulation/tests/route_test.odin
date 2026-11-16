@@ -206,12 +206,12 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 	put_player(&run, 0, base)
 	put_player(&run, 1, base + {1.2, 0, 0})
 	idle(&run, 32)
-	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
 	for _ in 0 ..< 24 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 0.2, 0}, {}), {}, {}, {}})
 	// Full charge, aimed up and over the perch's edge.
 	for _ in 0 ..< 40 {
-		step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {buttons = fs.BUTTON_THROW}), {}, {}, {}})
+		step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {buttons = {.Throw}}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {}), {}, {}, {}})
 	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)

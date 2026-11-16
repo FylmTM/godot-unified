@@ -27,11 +27,13 @@ var _leaving := 0.0  ## 0 here .. 1 gone (despawned, lingering)
 var _gone := false
 var _t := 0.0
 var _tag: Label
+## A shot not yet confirmed: its event id -> its sound (Sfx.play's token), undone if a rollback cancels it.
+var _shots: Dictionary[int, int] = {}
 
 
 func _ready() -> void:
 	z_index = 2
-	_r = Unified.constants.ship_radius * Game.px_per_m
+	_r = Unified.constants.ship_radius * Unified.view_scale
 	_tag = Label.new()
 	_tag.top_level = true  # never turns with the ship
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -110,17 +112,27 @@ func _sim_revived() -> void:
 	_gone = false
 
 
-## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it); a
-## cancelled one has already played and is left as is.
+## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it). A cancelled
+## shot is undone (its flash and sound: by its event id); the other effects are short and left as they played.
 func _sim_event(event: UnifiedEvent, state: int) -> void:
+	var local := view.player == Game.local_player()
+	if event is EventFired:  # predicted (a remote ship's trigger): a rollback may cancel it; undo the flash and sound
+		match state:
+			UnifiedSession.EVENT_EMITTED:
+				_muzzle = 1.0
+				_squash = minf(_squash, -0.25)
+				_shots[event.id] = Sfx.play(&"fire", -12.0 if local else -18.0, randf_range(0.95, 1.08))
+			UnifiedSession.EVENT_CANCELLED:
+				_muzzle = 0.0
+				if _shots.has(event.id):
+					Sfx.stop(_shots[event.id])
+					_shots.erase(event.id)
+			UnifiedSession.EVENT_CONFIRMED:
+				_shots.erase(event.id)
+		return
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	var local := view.player == Game.local_player()
 	match event.kind:
-		"fired":
-			_muzzle = 1.0
-			_squash = minf(_squash, -0.25)
-			Sfx.play(&"fire", -12.0 if local else -18.0, randf_range(0.95, 1.08))
 		"boosted":
 			_squash = 1.0
 			Sfx.play(&"boost", -4.0 if local else -10.0)

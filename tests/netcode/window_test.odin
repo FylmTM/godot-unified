@@ -65,7 +65,7 @@ varied_ticks :: proc(ticks: []toy.Inputs) {
 			player := int(state >> 8) % toy.PLAYERS
 			tick_inputs.input[player].dx = i8(state >> 16)
 			if i % 2 == 0 {
-				tick_inputs.input[player].buttons = u8(state >> 24)
+				tick_inputs.input[player].buttons = transmute(toy.Buttons)u8(state >> 24) // any bits: the window copies bytes
 			}
 		}
 	}
@@ -94,7 +94,7 @@ window_sizes :: proc(t: ^testing.T) {
 	}
 	ticks[1] = ticks[0]
 	ticks[2] = ticks[0]
-	ticks[2].input[1].buttons = 1
+	ticks[2].input[1].buttons = {.Spawn}
 	// 1 flag + 8 presence + 1 player mask + (1 byte mask + 2 bytes) for player 0
 	testing.expect_value(t, expect_round_trip(t, ticks[:1]), 13)
 	testing.expect_value(t, expect_round_trip(t, ticks[:2]), 13 + 1)
@@ -110,7 +110,7 @@ window_sizes :: proc(t: ^testing.T) {
 		input = {
 			dx      = 1,
 			dy      = 2,
-			buttons = 3,
+			buttons = transmute(toy.Buttons)u8(3),
 			_pad    = 4,
 		}
 	}
