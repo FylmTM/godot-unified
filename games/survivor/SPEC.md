@@ -92,7 +92,7 @@ nearest enemies, collect gems, dash out of contact, level-ups round-robin). Medi
 
 The same bot under `stress` dies at 16-30 s, half the time before its first level-up. The windowed bot of `uni tool
 survivor play_check --window` (circle-strafe, no gem seeking) reached wave 5 and lasted 128 s. `simulation/tests`
-guards the targets on 2 seeds (first level-up 10-45 s, survival > 100 s, wave ≥ 3).
+guards the targets over 8 seeds (each first level-up in 10-45 s; on average survival > 120 s and wave ≥ 3.5).
 
 ## Systems (run in this order every tick)
 

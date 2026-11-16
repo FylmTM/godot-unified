@@ -45,12 +45,16 @@ rollback plumbing.
 - **Types**: def structs, value types and their defaults are b3's, re-exported by alias (`Body_Def :: b3.Body_Def`,
   `default_shape_def :: b3.default_shape_def`, `Transform`, `Sphere`, `Capsule`, `Hull_Data`, `Mass_Data`, the joint
   defs, ...). Creation takes the references as arguments and fills the def's ids itself (`create_revolute_joint(w,
-  link(a), link(b), &def)`: links, so a joint can attach to the anchor or a platform); it asserts the def's `user_data` and `name` unset (pointers have no place in rollback state).
+  link(a), link(b), &def)`: links, so a joint can attach to the anchor, `world_anchor(world)`, or a platform); it
+  asserts the def's `user_data` unset (a pointer has no place in rollback state). A `name` is fine: Box3D copies it
+  into the world (its names table, hashed and imaged), and `body_set_name` / `shape_set_name` set one later.
 - **Out of scope**, each for a reason: debug draw, profile and counters (host-side diagnostics; the bench reads them
   through b3), Box3D's recording (our replays), the dynamic tree (internal), task and worker callbacks (`Settings`
   owns `workers`), pre-solve, custom-filter, friction and restitution callbacks (code pointers run mid-step on
-  workers), `user_data` and name setters (pointers), step and snapshots (the plug-in's), narrow-phase internals
-  (`ShapeDistance`, pair casts, simplexes: the world and body queries cover games), Box3D's demo geometry
+  workers), the `user_data` setters (pointers), step and snapshots (the plug-in's), narrow-phase internals
+  (`ShapeDistance`, pair casts, simplexes, the mover's `SolvePlanes` / `ClipVector`: the world and body queries cover
+  games), `World_EnableSpeculative` (Box3D stores the flag and never reads it: speculation is per shape), Box3D's demo
+  geometry
   (`CreateRock`, `CreateComplexHull`, the wave and torus meshes), and `ComputeCosSin` (ours is `dmath`).
 
 ## References
@@ -103,11 +107,11 @@ Every Box3D proc in these groups, on references, named by the rule above:
 | Group     | Procs |
 |-----------|-------|
 | World     | `world_set/_gravity`, `world_explode`, the solver settings (`world_enable_sleeping`, `_continuous`, `_warm_starting`, `_speculative`, `_restitution_propagation`; `world_set/_restitution_threshold`, `_restitution_iterations`, `_hit_event_threshold`, `_contact_tuning`, `_contact_recycle_distance`, `_maximum_linear_speed`, `_isotropic_inertia_tolerance`; `world_is_*`), `world_bounds`, `world_awake_body_count`. A setter is covered only once a test shows it rolls back with the snapshot. |
-| Queries   | `world_cast_ray_closest`, `world_cast_ray`, `world_cast_shape`, `world_overlap_aabb`, `world_overlap_shape`, `world_cast_mover`, `world_collide_mover`; per body `body_cast_ray`, `body_cast_shape`, `body_overlap_shape`, `body_closest_point`, `body_collide_mover`, `body_time_of_impact_mover`; per shape `shape_ray_cast`, `shape_closest_point` |
+| Queries   | `world_cast_ray_closest`, `world_cast_ray`, `world_cast_shape`, `world_overlap_aabb`, `world_overlap_shape`, `world_cast_mover`, `world_collide_mover`; per body `body_cast_ray`, `body_cast_shape`, `body_overlap_shape`, `body_closest_point`, `body_collide_mover`, `body_time_of_impact_mover` (a `pose: Maybe(Transform)`, nil: where the body is now); per shape `shape_ray_cast`, `shape_closest_point`. The mover queries skip sensors and take an `ignore` body like the ray's, and give `Mover_Plane`s (body, shape, tag, category, plane, point) |
 | Events    | `world_contact_events` (begin, end, hit), `world_sensor_events` (begin, end), `world_joint_events` (force and torque thresholds), `world_body_events` (moves) |
 | Bodies    | create, destroy; type; transform (`body_position`, `_rotation`, `_transform`, `body_set_transform`, `body_set_target_transform`); local and world points and vectors; velocities (linear, angular, of a point); forces, torques and impulses (at a point, at the centre); mass, inertia, mass data; damping; gravity scale; sleep (awake, threshold, enable); enable and disable; motion locks; bullet; fast rotation; contact recycling; hit events; safety factor; extents and AABB; `body_shapes`, `body_joints`, `body_contact_data` |
 | Shapes    | `create_sphere_shape`, `_capsule_`, `_hull_`, `_transformed_hull_`, `_mesh_`, `_height_field_`, `_baked_compound_shape`, `destroy_shape`; type, body, sensor, density, friction, restitution, surface materials (the mesh ones too), filter, the event switches (sensor, contact, hit), geometry get and set (sphere, capsule, hull, mesh), AABB, mass data, contact and sensor data, `shape_apply_wind` |
-| Geometry  | host-side, outside the block: `create_hull`, `clone_hull`, `clone_and_transform_hull`, `destroy_hull`, `make_box_hull` and its cube, offset, transformed and scaled forms, `create_cylinder`, `create_cone`, `create_mesh`, `create_box_mesh`, `create_hollow_box_mesh`, `create_platform_mesh`, `create_grid_mesh`, `destroy_mesh`, `create_height_field`, `create_grid` (height field), `destroy_height_field`, `create_compound`, `destroy_compound`, `compute_*_mass`, `compute_*_aabb` |
+| Geometry  | host-side, outside the block: `create_hull`, `clone_hull`, `clone_and_transform_hull`, `destroy_hull`, `make_box_hull` and its cube, offset, transformed and scaled forms, `create_cylinder`, `create_cone`, `create_mesh`, `create_box_mesh`, `create_hollow_box_mesh`, `create_platform_mesh`, `create_grid_mesh`, `destroy_mesh`, `create_height_field`, `create_grid` (height field), `destroy_height_field`, `create_compound`, `destroy_compound`, `compute_*_mass`, `compute_*_aabb`. Box3D copies a hull into its database, but a mesh, height field or compound shape keeps a pointer to the caller's geometry (a compound to its meshes too): keep it alive as long as the world, since a rollback can bring a destroyed shape back. Height fields and compounds go on static bodies. Images carry all of them (tested) |
 | Joints    | generic, on any joint ref: type, bodies, local frames, collide-connected, wake, awake, constraint force and torque, linear and angular separation, constraint tuning, force and torque thresholds; per type, create and every getter and setter of Box3D's distance, filter, motor, mover, parallel, pogo, prismatic, revolute, spherical, weld and wheel joints |
 
 Results come back in a deterministic order: `out` arrays sorted (casts by fraction then body index, overlaps and
@@ -153,8 +157,8 @@ Character :: struct {             // in the block, plain data
 	coyote, jump_buffer, jump_ticks:           u16,       // ticks
 	flags:                                     Character_Flags, // On_Ground, Walkable, Jumping, Limp
 }
-Character_Def :: struct {radius, half_height, density, category, mask, material, hit_events, sensor_events, max_speed, min_speed,
-                         stop_speed, accelerate, friction, air_steer, jump_speed, gravity_scale, max_ground_force,
+Character_Def :: struct {radius, half_height, density, category, mask, material, hit_events, sensor_events, max_speed,
+                         min_speed, stop_speed, accelerate, friction, air_steer, jump_speed, gravity_scale, max_ground_force,
                          max_air_force, pogo_rest, pogo_hertz, pogo_damping, pogo_compression_scale,
                          pogo_tension_scale, min_ground_normal_y, slide_s, coyote_s, jump_buffer_s,
                          platform_material}   // constants in game code, not in the block; CHARACTER_DEFAULT
@@ -186,10 +190,12 @@ needs it, comes later as a unit-vector path.
 ## Static level geometry
 
 `create_static(world, ^level.Level, default_category) -> (count: int, problem: string)`: one static body per level
-body, in file order (shapes without a category get `default_category`); `create_level_shape(world, Body_Ref,
-^Shape_Def, ^level.Shape) -> bool` adds one level shape to any body. A shape Box3D refuses (a hull under 4 points, or past its 128
-edges at the 64-vertex cap) is never a silent hole: `create_shape` returns false, and `problem` names the first such
-level body and shape ("" when every shape was built); the games assert on it. Baking the level into compound shapes is #148; triangle meshes and height fields are #149.
+body, in file order (shapes without a category get `default_category`; the World's, made before `extra`);
+`create_level_shape(world, Body_Ref, ^Shape_Def, ^level.Shape) -> bool` adds one level shape to any body. A shape
+Box3D refuses (a hull under 4 points, or past its 128 edges at the 64-vertex cap) is never a silent hole:
+`create_level_shape` returns false, and `problem` names the first such level body and shape ("" when every shape was
+built); the games assert on it. Baking the level into compound shapes is #148; triangle meshes and height fields in
+levels are #149.
 
 ## 2D
 
