@@ -13,7 +13,7 @@ import "unified:wire"
 // 11: players are session members (#222): Hello's token, Welcome's member id, join records in finalized ticks, a
 // roster entry per member; 12: snapshots v6 (the build's compat in the header), a finalized tick with a slot past
 // PLAYERS present or replaced is refused (#233, #255); 13: a client's own inputs as their changes from the input before
-// (#245), the relay's Finalized broadcast at most once a tick (#246).
+// (#245).
 PROTOCOL_VERSION :: 13
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
