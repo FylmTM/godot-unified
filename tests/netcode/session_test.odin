@@ -75,7 +75,8 @@ net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Input, toy.PLAYERS) {
 	return &session.log
 }
 
-net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
+// A host with `remotes` remote clients under `wan`; `record`: the relay records the session (net_log).
+net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
 	session.host = netcode.host_create(&toy.GAME, {
@@ -84,7 +85,7 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int) {
 			name          = "host",
 			player_name   = "Ada",
 			quiet         = true,
-			recording     = sim.log_sink_memory(&session.recording),
+			recording     = record ? sim.log_sink_memory(&session.recording) : {},
 			desync_detail = true,
 		}, hooks_for(&session.watch[0]))
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))

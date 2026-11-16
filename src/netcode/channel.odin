@@ -49,6 +49,7 @@ Event :: struct {
 }
 
 MAX_PEERS :: 32
+POOL_RESERVE :: 32 // message slots a channel (and a netsim) has from the start (37 kB): what usual traffic holds
 SENT_RING :: 1024 // per active connection, allocated when it opens
 MAX_IDS_PER_PACKET :: 64
 REL_WINDOW :: 512 // reliable messages in flight past the oldest unacked one
@@ -75,6 +76,7 @@ Channel :: struct {
 	arena:  runtime.Arena, // event payloads, reset by each poll
 	tx:     wire.Writer,
 	epochs: u32, // seeds the epoch of each connection this channel opens
+	pool:   Slot_Pool, // the queued messages' and early reliable messages' bytes
 }
 
 Channel_Stats :: struct {
@@ -83,7 +85,7 @@ Channel_Stats :: struct {
 
 Rel_Msg :: struct {
 	id:        u32,
-	data:      []u8,
+	data:      Pooled,
 	last_sent: i64, // µs; 0 = never sent
 	acked:     bool,
 }
@@ -110,7 +112,7 @@ Conn :: struct {
 	sent:        []Sent_Packet, // SENT_RING records while active, nil otherwise
 	rel_out:     [dynamic]Rel_Msg,
 	next_rel_id: u32,
-	unrel_out:   [dynamic][]u8,
+	unrel_out:   [dynamic]Pooled,
 	srtt_us:     f64,
 	acked_max:   u32, // the newest of our seqs the peer acked (0: none)
 	rel_seqs:    [REL_IN_FLIGHT]u32, // seqs of datagrams with reliable messages, newer than acked_max (a FIFO)
@@ -124,13 +126,14 @@ Conn :: struct {
 	recv_bits:   u32,
 	ack_pending: bool,
 	rel_next:    u32,
-	rel_early:   map[u32][]u8, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
+	rel_early:   map[u32]Pooled, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
 }
 
 // Creates an empty channel with no links; the relay and each client own one. Free it with channel_destroy.
 channel_make :: proc() -> ^Channel {
 	channel := new(Channel)
 	channel.tx = wire.writer_make(MAX_DATAGRAM)
+	pool_reserve(&channel.pool, POOL_RESERVE)
 	// Distinct per process run and channel, so a restarted program never reuses its old epochs.
 	channel.epochs = u32(now_us()) ~ u32(uintptr(channel) >> 4)
 	return channel
@@ -145,7 +148,8 @@ channel_add_link :: proc(channel: ^Channel, link: Link) -> int {
 // Frees every connection, closes every link the channel owns, and frees the channel.
 channel_destroy :: proc(channel: ^Channel) {
 	for &conn in channel.conns {
-		conn_reset(&conn)
+		conn_reset(channel, &conn)
+		conn_free(&conn)
 	}
 	delete(channel.events)
 	for &link in channel.links {
@@ -154,6 +158,7 @@ channel_destroy :: proc(channel: ^Channel) {
 	delete(channel.links)
 	delete(channel.tx.buf)
 	runtime.arena_destroy(&channel.arena)
+	pool_destroy(&channel.pool)
 	free(channel)
 }
 
@@ -173,7 +178,7 @@ channel_peer :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
 		return -1
 	}
 	conn := &channel.conns[free_slot]
-	conn^ = {}
+	conn_reset(channel, conn)
 	conn.used = true
 	conn.link = link
 	conn.lpeer = link_peer
@@ -212,7 +217,7 @@ channel_drop :: proc(channel: ^Channel, peer: Peer) {
 conn_release :: proc(channel: ^Channel, peer: Peer) {
 	conn := &channel.conns[peer]
 	used, link, link_peer := conn.used, conn.link, conn.lpeer
-	conn_reset(conn)
+	conn_reset(channel, conn)
 	if used {
 		link_forget(&channel.links[link], link_peer)
 	}
@@ -220,22 +225,36 @@ conn_release :: proc(channel: ^Channel, peer: Peer) {
 
 @(private)
 arena_bytes :: proc(channel: ^Channel, bytes: []u8) -> []u8 {
-	return clone_bytes(bytes, runtime.arena_allocator(&channel.arena))
+	clone := make([]u8, len(bytes), runtime.arena_allocator(&channel.arena))
+	copy(clone, bytes)
+	return clone
+}
+
+// Empties a connection, its slots back to the pool. Its queues and sent ring keep their memory for the next
+// connection on this channel peer (conn_free frees them).
+@(private)
+conn_reset :: proc(channel: ^Channel, conn: ^Conn) {
+	for message in conn.rel_out {
+		pool_release(&channel.pool, message.data)
+	}
+	for held in conn.unrel_out {
+		pool_release(&channel.pool, held)
+	}
+	for _, held in conn.rel_early {
+		pool_release(&channel.pool, held)
+	}
+	rel_out, unrel_out, rel_early, sent := conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent
+	clear(&rel_out)
+	clear(&unrel_out)
+	clear(&rel_early)
+	conn^ = {}
+	conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent = rel_out, unrel_out, rel_early, sent
 }
 
 @(private)
-conn_reset :: proc(conn: ^Conn) {
-	for message in conn.rel_out {
-		delete(message.data)
-	}
+conn_free :: proc(conn: ^Conn) {
 	delete(conn.rel_out)
-	for bytes in conn.unrel_out {
-		delete(bytes)
-	}
 	delete(conn.unrel_out)
-	for _, bytes in conn.rel_early {
-		delete(bytes)
-	}
 	delete(conn.rel_early)
 	delete(conn.sent)
 	conn^ = {}
@@ -246,12 +265,18 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 	conn := &channel.conns[peer]
 	if !conn.active {
 		link, link_peer := conn.link, conn.lpeer
-		conn_reset(conn)
+		conn_reset(channel, conn)
 		conn.used = true
 		conn.link = link
 		conn.lpeer = link_peer
 		conn.active = true
-		conn.sent = make([]Sent_Packet, SENT_RING)
+		if conn.sent == nil {
+			conn.sent = make([]Sent_Packet, SENT_RING)
+		} else {
+			for &record in conn.sent {
+				record.valid = false
+			}
+		}
 		conn.last_recv = now
 		conn.next_seq = 1
 		conn.srtt_us = 100_000
@@ -282,10 +307,10 @@ channel_send :: proc(channel: ^Channel, peer: Peer, data: []u8, delivery: Delive
 	}
 	conn := conn_open(channel, peer, now)
 	if delivery == .Reliable {
-		append(&conn.rel_out, Rel_Msg{id = conn.next_rel_id, data = clone_bytes(data)})
+		append(&conn.rel_out, Rel_Msg{id = conn.next_rel_id, data = pool_put(&channel.pool, data)})
 		conn.next_rel_id += 1
 	} else {
-		append(&conn.unrel_out, clone_bytes(data))
+		append(&conn.unrel_out, pool_put(&channel.pool, data))
 	}
 	return true
 }
@@ -410,7 +435,7 @@ handle_datagram :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, byt
 	channel.stats.datagrams_recv += 1
 	channel.stats.bytes_recv += len(bytes)
 	if header.ack != 0 {
-		take_acks(conn, header.ack, header.ack_bits, now)
+		take_acks(channel, conn, header.ack, header.ack_bits, now)
 	}
 	note_seq(conn, header.seq)
 	reader := wire.reader_make(bytes)
@@ -436,7 +461,7 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 	if old.active && old.peer_epoch != 0 && old.peer_epoch != header.epoch {
 		// The peer started over: end the old connection; this datagram opens the new one.
 		link, link_peer := old.link, old.lpeer
-		conn_reset(old)
+		conn_reset(channel, old)
 		old.used, old.link, old.lpeer = true, link, link_peer
 		append(&channel.events, Event{kind = .Disconnected, peer = from})
 	}
@@ -449,7 +474,7 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 // Our sequence numbers that the peer has received: mark their reliable messages acked and drop the
 // acknowledged prefix of the reliable queue.
 @(private)
-take_acks :: proc(conn: ^Conn, ack, ack_bits: u32, now: i64) {
+take_acks :: proc(channel: ^Channel, conn: ^Conn, ack, ack_bits: u32, now: i64) {
 	conn.acked_max = max(conn.acked_max, min(ack, conn.next_seq - 1))
 	seq_acked(conn, ack, now)
 	for bit in 0 ..< u32(32) {
@@ -459,7 +484,7 @@ take_acks :: proc(conn: ^Conn, ack, ack_bits: u32, now: i64) {
 	}
 	k := 0
 	for k < len(conn.rel_out) && conn.rel_out[k].acked {
-		delete(conn.rel_out[k].data)
+		pool_release(&channel.pool, conn.rel_out[k].data)
 		k += 1
 	}
 	if k > 0 {
@@ -511,7 +536,7 @@ read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Re
 		}
 		if id > conn.rel_next {
 			if id not_in conn.rel_early {
-				conn.rel_early[id] = clone_bytes(data)
+				conn.rel_early[id] = pool_put(&channel.pool, data)
 			}
 			continue
 		}
@@ -529,9 +554,9 @@ read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Re
 			append(&channel.events, Event {
 				kind = .Message,
 				peer = from,
-				data = arena_bytes(channel, early),
+				data = arena_bytes(channel, pool_bytes(&channel.pool, early)),
 			})
-			delete(early)
+			pool_release(&channel.pool, early)
 			delete_key(&conn.rel_early, conn.rel_next)
 			conn.rel_next += 1
 		}
@@ -608,7 +633,8 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 		fits :: proc(builder: ^Packet_Builder, size: int) -> bool {
 			return len(builder.w.buf) + size <= MAX_DATAGRAM
 		}
-		for bytes in conn.unrel_out {
+		for held in conn.unrel_out {
+			bytes := pool_bytes(&channel.pool, held)
 			if !fits(&builder, 3 + len(bytes)) {
 				end_packet(channel, &builder, &conn, peer, now)
 				begin_packet(&builder, &conn)
@@ -617,7 +643,7 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			wire.w_u16(&builder.w, u16(len(bytes)))
 			wire.w_bytes(&builder.w, bytes)
 			builder.count += 1
-			delete(bytes)
+			pool_release(&channel.pool, held)
 		}
 		clear(&conn.unrel_out)
 		budget := FLUSH_BUDGET
@@ -628,7 +654,8 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			if message.acked || (message.last_sent != 0 && now - message.last_sent < rto) {
 				continue
 			}
-			if !fits(&builder, CHUNK_OVERHEAD + len(message.data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
+			data := pool_bytes(&channel.pool, message.data)
+			if !fits(&builder, CHUNK_OVERHEAD + len(data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
 				end_packet(channel, &builder, &conn, peer, now)
 				begin_packet(&builder, &conn)
 			}
@@ -640,13 +667,13 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			}
 			wire.w_u8(&builder.w, 1)
 			wire.w_u32(&builder.w, message.id)
-			wire.w_u16(&builder.w, u16(len(message.data)))
-			wire.w_bytes(&builder.w, message.data)
+			wire.w_u16(&builder.w, u16(len(data)))
+			wire.w_bytes(&builder.w, data)
 			builder.count += 1
 			builder.sp.ids[builder.sp.n_ids] = message.id
 			builder.sp.n_ids += 1
 			message.last_sent = now
-			budget -= len(message.data)
+			budget -= len(data)
 		}
 		// Data, a pending ack, or a keepalive so idle peers (e.g. waiting for the start) stay connected.
 		if builder.count > 0 ||

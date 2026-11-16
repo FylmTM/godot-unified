@@ -291,7 +291,9 @@ create :: proc(
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		slot.events.type = game.events
-		slot.events.list = make([dynamic]Raw_Event) // grows under create's allocator, whatever is active then
+		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
+		// session thread doesn't allocate the first time a ring slot gets some.
+		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
 	simulation.world = game.world_create(seed, content)

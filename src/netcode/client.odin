@@ -85,11 +85,12 @@ Snap_Req :: struct {
 	min_tick: u32,
 }
 
-// A kept snapshot of a checksum tick (Welcome's Keep_Images), for a desync report.
+// A kept snapshot of a checksum tick (Welcome's Keep_Images), for a desync report. Its buffer is reused for the next
+// tick it keeps.
 @(private)
 Kept_Image :: struct {
 	tick: u32,
-	data: []u8,
+	data: [dynamic]u8, // empty: nothing kept
 }
 
 FIN_RING :: 512
@@ -227,6 +228,7 @@ client_create :: proc(
 	link_index := channel_add_link(client.ch, link)
 	client.relay = channel_peer(client.ch, link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
+	reserve(&client.own_cmds, COMMAND_QUEUE)
 	client.delay = client.min_delay
 	client.slot = -1
 	return client
@@ -332,6 +334,9 @@ on_welcome :: proc(client: ^Client($State, $Input, $World, $PLAYERS), reader: ^w
 	client.keep_images = .Keep_Images in flags
 	client.own_last = first - 1
 	client.own_acked = first - 1
+	if ticks != 0 {
+		reserve(&client.checksums, int(ticks / CHECKSUM_EVERY) + 1) // no growing on the session thread
+	}
 	if first == 1 {
 		client.sim = usim.create(client.game, seed, client.cfg.content)
 		set_status(client, .Connected, "")
@@ -696,8 +701,20 @@ on_checksum_tick :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick
 	if !wants_image(client, tick) || usim.state_at(client.sim, tick) == nil {
 		return
 	}
-	data := usim.snapshot_encode(client.sim, tick)
-	kept := false
+	// The kept image replaces the oldest one, in its buffer; a joiner gets the same bytes.
+	data: []u8
+	if client.keep_images {
+		oldest := 0
+		for image, k in client.images {
+			if image.tick < client.images[oldest].tick {
+				oldest = k
+			}
+		}
+		client.images[oldest].tick = tick
+		data = usim.snapshot_encode_into(client.sim, tick, &client.images[oldest].data)
+	} else {
+		data = usim.snapshot_encode(client.sim, tick)
+	}
 	for i := 0; i < len(client.snap_reqs); {
 		request := client.snap_reqs[i]
 		if request.min_tick > tick {
@@ -716,18 +733,7 @@ on_checksum_tick :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick
 		}
 		ordered_remove(&client.snap_reqs, i)
 	}
-	if client.keep_images {
-		oldest := 0
-		for image, k in client.images {
-			if image.tick < client.images[oldest].tick {
-				oldest = k
-			}
-		}
-		delete(client.images[oldest].data)
-		client.images[oldest] = {tick, data}
-		kept = true
-	}
-	if !kept {
+	if !client.keep_images {
 		delete(data)
 	}
 }
@@ -752,8 +758,8 @@ send_snapshot :: proc(client: ^Client($State, $Input, $World, $PLAYERS), target:
 @(private)
 send_image :: proc(client: ^Client($State, $Input, $World, $PLAYERS), tick: u32, now: i64) {
 	for image in client.images {
-		if image.tick == tick && image.data != nil {
-			send_snapshot(client, RELAY_TARGET, tick, image.data, now)
+		if image.tick == tick && len(image.data) > 0 {
+			send_snapshot(client, RELAY_TARGET, tick, image.data[:], now)
 			return
 		}
 	}

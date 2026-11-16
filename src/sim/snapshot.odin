@@ -43,6 +43,17 @@ snapshot_encode :: proc(
 	tick: u32,
 	allocator := context.allocator,
 ) -> []u8 {
+	out := make([dynamic]u8, allocator)
+	return snapshot_encode_into(simulation, tick, &out)
+}
+
+// Encodes the ring snapshot of `tick` into `out`, replacing what it held and keeping its capacity: a snapshot taken
+// again and again (a client's kept desync images) allocates only when it outgrows the last one. Returns out's bytes.
+snapshot_encode_into :: proc(
+	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	tick: u32,
+	out: ^[dynamic]u8,
+) -> []u8 {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
 	assert(slot.saved && slot.tick == tick, "snapshot of a tick that is not in the ring")
@@ -61,30 +72,35 @@ snapshot_encode :: proc(
 		images[k] = extra.image(extra.data, index)
 		size += 4 + len(images[k])
 	}
-	writer := snap_begin(header, ([^]u8)(&slot.state)[:size_of(State)], size, allocator)
+	writer := wire.Writer {
+		buf = out^,
+	}
+	clear(&writer.buf)
+	reserve(&writer.buf, SNAP_HEADER + size + 16)
+	snap_begin(&writer, header, ([^]u8)(&slot.state)[:size_of(State)])
 	for image in images {
 		snap_add(&writer, image)
 	}
-	return snap_end(&writer)
+	bytes := snap_end(&writer)
+	out^ = writer.buf
+	return bytes
 }
 
-// Starts a snapshot's bytes: the header with a zero digest, then the state block; snap_add appends each Extra's
-// image and snap_end patches the digest. snapshot_encode builds every snapshot this way.
+// Starts a snapshot's bytes in an empty writer: the header with a zero digest, then the state block; snap_add appends
+// each Extra's image and snap_end patches the digest. snapshot_encode_into builds every snapshot this way.
 @(private)
-snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator := context.allocator) -> wire.Writer {
-	writer := wire.writer_make(SNAP_HEADER + size_hint + 16, allocator)
-	wire.w_bytes(&writer, transmute([]u8)string(SNAP_MAGIC))
-	wire.w_u16(&writer, SNAP_VERSION)
-	wire.w_u16(&writer, u16(header.extras))
-	wire.w_u64(&writer, header.seed)
-	wire.w_u64(&writer, header.content)
-	wire.w_u32(&writer, header.tick)
-	wire.w_u32(&writer, u32(header.block))
-	wire.w_u64(&writer, header.layout)
-	wire.w_u64(&writer, header.compat)
-	wire.w_u64(&writer, 0) // payload digest, patched by snap_end
-	wire.w_bytes(&writer, block)
-	return writer
+snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
+	wire.w_bytes(writer, transmute([]u8)string(SNAP_MAGIC))
+	wire.w_u16(writer, SNAP_VERSION)
+	wire.w_u16(writer, u16(header.extras))
+	wire.w_u64(writer, header.seed)
+	wire.w_u64(writer, header.content)
+	wire.w_u32(writer, header.tick)
+	wire.w_u32(writer, u32(header.block))
+	wire.w_u64(writer, header.layout)
+	wire.w_u64(writer, header.compat)
+	wire.w_u64(writer, 0) // payload digest, patched by snap_end
+	wire.w_bytes(writer, block)
 }
 
 // Appends one Extra's image (physics) to a snapshot snap_begin started, size-prefixed, in Extra order.

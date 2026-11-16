@@ -62,6 +62,7 @@ Net_Sim :: struct {
 	outgoing:   [dynamic]Sim_Packet,
 	incoming:   [dynamic]Sim_Packet,
 	scratch:    [MAX_DATAGRAM]u8,
+	pool:       Slot_Pool, // the queued datagrams' bytes
 	stats:      Net_Sim_Stats,
 	clock:      ^Virtual_Clock,
 }
@@ -89,7 +90,7 @@ xorshift32 :: proc(state: ^u32) -> u32 {
 Sim_Packet :: struct {
 	at:    i64,
 	peer:  Peer,
-	bytes: []u8,
+	bytes: Pooled,
 }
 
 Net_Sim_Stats :: struct {
@@ -106,6 +107,7 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 	netsim.profile = profile
 	netsim.rng = seed == 0 ? 0x9E3779B9 : seed
 	netsim.clock = clock
+	pool_reserve(&netsim.pool, POOL_RESERVE)
 	return {
 		data    = netsim,
 		send    = netsim_send,
@@ -151,7 +153,7 @@ impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes:
 		append(queue, Sim_Packet {
 			at    = now + max(delay, 0),
 			peer  = peer,
-			bytes = clone_bytes(bytes),
+			bytes = pool_put(&netsim.pool, bytes),
 		})
 	}
 }
@@ -181,8 +183,8 @@ pump :: proc(netsim: ^Net_Sim) {
 		if !ok {
 			break
 		}
-		link_send(&netsim.inner, packet.peer, packet.bytes)
-		delete(packet.bytes)
+		link_send(&netsim.inner, packet.peer, pool_bytes(&netsim.pool, packet.bytes))
+		pool_release(&netsim.pool, packet.bytes)
 	}
 	for {
 		size, from, ok := link_recv(&netsim.inner, netsim.scratch[:])
@@ -205,8 +207,8 @@ netsim_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool
 	netsim := (^Net_Sim)(data)
 	pump(netsim)
 	packet := pop_due(&netsim.incoming, clock_now(netsim.clock)) or_return
-	defer delete(packet.bytes)
-	return copy(buf, packet.bytes), packet.peer, true
+	defer pool_release(&netsim.pool, packet.bytes)
+	return copy(buf, pool_bytes(&netsim.pool, packet.bytes)), packet.peer, true
 }
 
 @(private)
@@ -222,14 +224,11 @@ netsim_event :: proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bo
 netsim_close :: proc(data: rawptr) {
 	netsim := (^Net_Sim)(data)
 	for packet in netsim.outgoing {
-		link_send(&netsim.inner, packet.peer, packet.bytes)
-		delete(packet.bytes)
-	}
-	for packet in netsim.incoming {
-		delete(packet.bytes)
+		link_send(&netsim.inner, packet.peer, pool_bytes(&netsim.pool, packet.bytes))
 	}
 	delete(netsim.outgoing)
 	delete(netsim.incoming)
+	pool_destroy(&netsim.pool)
 	link_close(&netsim.inner)
 	free(netsim)
 }

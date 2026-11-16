@@ -175,6 +175,7 @@ relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay
 		relay.peer_of[player] = -1
 		relay.provider[player] = -1
 		relay.report_from[player] = NO_REPORTS
+		reserve(&relay.cmd_wait[player], COMMAND_QUEUE)
 	}
 	for &player in relay.player_of {
 		player = -1

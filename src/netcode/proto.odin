@@ -316,11 +316,3 @@ inputs_window :: proc($Input: typeid) -> u32 {
 	room := MAX_MESSAGE - INPUTS_HEAD - COMMANDS_HEAD - COMMAND_SEND_HEAD - sim.COMMAND_MAX
 	return u32(min(room / size_of(Input), INPUTS_MAX))
 }
-
-// Copies a byte slice into a new one from `allocator`: queued messages and delayed datagrams outlive the buffer
-// they came in.
-clone_bytes :: proc(bytes: []u8, allocator := context.allocator) -> []u8 {
-	clone := make([]u8, len(bytes), allocator)
-	copy(clone, bytes)
-	return clone
-}
