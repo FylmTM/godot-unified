@@ -60,12 +60,11 @@ func play(sound: StringName, volume_db := 0.0, pitch := 1.0) -> void:
 	p.play()
 
 
-## The app is quitting (Game.quit_app): every voice stops and later plays are ignored. Events keep arriving until
-## the quit (the frame it happens in too), and a playback started then would still be held at exit (a leak).
+## The app is quitting (Game.quit_app, which then stops the voices and waits for their playbacks): later plays
+## are ignored. Events keep arriving until the quit (the frame it happens in too), and a playback started then would
+## still be held at exit (a leak).
 func close() -> void:
 	_closed = true
-	for p in _players:
-		p.stop()
 
 
 ## A sine sweep from f0 to f1 (Hz) with an exponential decay, mixed with `noise` (0..1) low-passed noise.
