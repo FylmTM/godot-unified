@@ -364,7 +364,8 @@ env_with :: proc(overrides: ..string) -> []string {
 // --- windows ----------------------------------------------------------------------------------------------------
 
 // Where and how a game window opens (run, editor, tool --window, coop --window): `mute` starts Godot with the dummy
-// audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: Windows only for now);
+// audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: os_screens, on Windows,
+// macOS and Linux with xrandr);
 // `background`: the window never takes focus (`with_window`). An agent starting a window for the developer passes
 // all three, so it doesn't get in the way; tool and coop windows are always in the background.
 Window_Opts :: struct {
@@ -409,10 +410,44 @@ with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: str
 // The cleanup for a run that left nothing in the project to undo (no window, or one that may take focus).
 no_cleanup :: proc(_: string) {}
 
-@(private)
+// A screen as the OS lists it (os_screens, in Godot's screen order): its left and right edges in the desktop's
+// coordinates, and whether it is the primary one.
 Screen :: struct {
 	left, right: i32,
 	primary:     bool,
+}
+
+// How long `xrandr --listmonitors` may take (Linux, screens_linux.odin): it answers in milliseconds.
+XRANDR_TIMEOUT :: 5 * time.Second
+
+// The monitors `xrandr --listmonitors` lists, in its order (XRandR's, Godot's on X11): a line per monitor,
+// ` 0: +*DP-1 2560/597x1440/336+0+0  DP-1`, `*` marking the primary, the geometry width/mm x height/mm + x + y.
+parse_xrandr_monitors :: proc(text: string) -> []Screen {
+	out: [dynamic]Screen
+	for line in strings.split_lines(text, context.temp_allocator) {
+		fields := strings.fields(line, context.temp_allocator)
+		if len(fields) < 3 || !strings.has_suffix(fields[0], ":") {
+			continue
+		}
+		if _, is_index := strconv.parse_int(strings.trim_suffix(fields[0], ":")); !is_index {
+			continue // the "Monitors: 2" header
+		}
+		// width/mm x height/mm + x + y
+		geometry := fields[2]
+		slash := strings.index_byte(geometry, '/')
+		plus := strings.index_byte(geometry, '+')
+		if slash < 0 || plus < 0 {
+			continue
+		}
+		offsets := strings.split(geometry[plus + 1:], "+", context.temp_allocator)
+		width, width_ok := strconv.parse_int(geometry[:slash])
+		x, x_ok := strconv.parse_int(len(offsets) > 0 ? offsets[0] : "")
+		if !width_ok || !x_ok {
+			continue
+		}
+		append(&out, Screen{i32(x), i32(x + width), strings.contains(fields[1], "*")})
+	}
+	return out[:]
 }
 
 // Godot's arguments for `window` (before --).
@@ -437,7 +472,10 @@ screen_index :: proc(name: string) -> int {
 	}
 	screens := os_screens()
 	if len(screens) == 0 {
-		usage("--screen %s: this OS's screens can't be read yet; pass Godot's screen index", name)
+		usage(
+			"--screen %s: this OS's screens can't be read here (Linux: needs xrandr and an X11 or XWayland display); pass Godot's screen index",
+			name,
+		)
 	}
 	best := 0
 	for screen, i in screens {

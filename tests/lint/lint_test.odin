@@ -70,32 +70,50 @@ RULES := []Rule {
 		strict       = true,
 		tick         = true,
 	},
+	// The rest: the unified packages each may import, listed (the graph), plus Odin's own (core:, base:; system: for
+	// a foreign import). Real-time packages also stay off core:math.
 	{
 		pkg           = "wire",
+		only_imports  = {"core:", "base:"},
 		ban_imports   = MATH,
 		allow_imports = MATH_OK,
 		ban_idents    = FLOAT_TRAPS,
 		ban_matrix    = true,
 	},
-	// Netcode and the headless tools feed inputs into the sim and own real-time clocks (fine), but
-	// stay off core:math.
+	// Netcode feeds inputs into the sim and owns real-time clocks (fine), but stays off core:math.
 	{
 		pkg           = "netcode",
+		only_imports  = {"unified:sim", "unified:wire", "core:", "base:"},
 		ban_imports   = MATH,
 		allow_imports = MATH_OK,
 		ban_idents    = FLOAT_TRAPS,
 		ban_matrix    = true,
 	},
-	// Host side (Godot bindings, view, dev UI): never feeds back into the sim, so no bans;
-	// listed so every package is accounted for.
-	{pkg = "gdext"},
-	{pkg = "view"},
-	{pkg = "devui"},
-	{pkg = "godot"},
-	{pkg = "godot_eos"}, // EOS as a godot.Transport: imports eos and godot, so neither imports the other
+	// Host side (Godot bindings, view, dev UI): never feeds back into the sim, so no bans beyond the graph.
+	// gdext: its generated API imports its gdi sub-package relatively.
+	{pkg = "gdext", only_imports = {"unified:gdext/gdi", "gdi", "core:", "base:"}},
+	{pkg = "view", only_imports = {"core:", "base:"}},
+	{pkg = "devui", only_imports = {"unified:gdext", "unified:gdext/gdi", "core:", "base:"}},
+	{
+		pkg          = "godot",
+		only_imports = {
+			"unified:sim",
+			"unified:netcode",
+			"unified:view",
+			"unified:gdext",
+			"unified:gdext/gdi",
+			"unified:devui",
+			"core:",
+			"base:",
+			"system:",
+		},
+	},
+	// EOS as a godot.Transport: imports eos and godot, so neither imports the other.
+	{pkg = "godot_eos", only_imports = {"unified:eos", "unified:godot", "unified:netcode", "core:", "base:"}},
 	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
 	{
 		pkg           = "lint",
+		only_imports  = {"core:", "base:"},
 		ban_imports   = MATH,
 		allow_imports = MATH_OK,
 		ban_idents    = FLOAT_TRAPS,
@@ -104,20 +122,23 @@ RULES := []Rule {
 	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
 	{
 		pkg           = "eos",
+		only_imports  = {"unified:netcode", "core:", "base:", "system:"},
 		ban_imports   = MATH,
 		allow_imports = MATH_OK,
 		ban_idents    = FLOAT_TRAPS,
 		ban_matrix    = true,
 	},
+	// The headless binary's library, its modes and the scenario suites (subdirectories).
 	{
 		pkg           = "headless",
+		only_imports  = {"unified:headless", "unified:sim", "unified:netcode", "core:", "base:"},
 		ban_imports   = MATH,
 		allow_imports = MATH_OK,
 		ban_idents    = FLOAT_TRAPS,
 		ban_matrix    = true,
 	},
-	// The CLI library (src/cli/SPEC.md): core: only, so editing the rest of the library never rebuilds the CLI.
-	{pkg = "cli", ban_imports = {"unified:", "vendor:"}},
+	// The CLI library (src/cli/SPEC.md): Odin's own only, so editing the rest of the library never rebuilds the CLI.
+	{pkg = "cli", only_imports = {"core:", "base:"}},
 }
 
 PHYSICS_IMPORTS :: []string {
@@ -181,9 +202,18 @@ game_dirs :: proc(t: ^testing.T) -> []string {
 	return out[:]
 }
 
-// Every library package has a rule, so a new one can't skip the lint (games: by layout, above).
+// Every library package has a rule with an import allowlist (the graph), so a new one can't skip the lint (games:
+// by layout, above).
 @(test)
 every_package_has_a_rule :: proc(t: ^testing.T) {
+	for rule in RULES {
+		testing.expectf(
+			t,
+			rule.only_imports != nil,
+			"src/%s's rule has no only_imports: the graph must name its imports",
+			rule.pkg,
+		)
+	}
 	infos, err := os.read_all_directory_by_path(SRC_DIR, context.temp_allocator)
 	if !testing.expectf(t, err == nil, "cannot list %s: %v", SRC_DIR, err) {
 		return
@@ -198,6 +228,50 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 			}
 		}
 		testing.expectf(t, false, "src/%s has no determinism rule in tests/lint/lint_test.odin", info.name)
+	}
+}
+
+// The graph holds for host-side packages too: an import their rule doesn't list fails, Odin's own packages don't,
+// and a real-time package's core:math ban still applies beside its allowlist.
+@(test)
+lint_catches_forbidden_host_imports :: proc(t: ^testing.T) {
+	rule_of :: proc(pkg: string) -> Rule {
+		for rule in RULES {
+			if rule.pkg == pkg do return rule
+		}
+		return {}
+	}
+	Case :: struct {
+		pkg, src: string,
+		caught:   bool,
+	}
+	cases := []Case {
+		{"view", `import "unified:gdext"`, true}, // the view layer stays independent of the bindings
+		{"netcode", `import "unified:godot"`, true}, // the netcode never reaches the host
+		{"gdext", `import "unified:view"`, true},
+		{"devui", `import "unified:sim"`, true},
+		{"eos", `import "unified:godot"`, true},
+		{"cli", `import "unified:sim"`, true}, // the CLI imports Odin's packages only
+		{"cli", `import "vendor:darwin/AppKit"`, true},
+		{"godot", `import "unified:eos"`, true}, // godot_eos joins them; neither imports the other
+		{"netcode", `import "core:math"`, true}, // the ban beside the allowlist
+		{"netcode", `import "core:math/bits"`, false},
+		{"view", `import "core:math"`, false}, // host side: no ban
+		{"godot", `import "unified:view"`, false},
+		{"godot", `foreign import kernel32 "system:Kernel32.lib"`, false},
+		{"devui", `import gd "unified:gdext"`, false},
+	}
+	for test_case in cases {
+		src := fmt.tprintf("package %s\n%s\n", test_case.pkg, test_case.src)
+		found := len(lint.scan(rule_of(test_case.pkg), "case.odin", src)) > 0
+		testing.expectf(
+			t,
+			found == test_case.caught,
+			"%s: %s: %s",
+			test_case.pkg,
+			test_case.src,
+			test_case.caught ? "not caught" : "caught, but allowed",
+		)
 	}
 }
 

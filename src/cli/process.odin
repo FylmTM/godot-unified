@@ -111,7 +111,7 @@ wait :: proc(child: ^Proc) -> Ran {
 	}
 	ran: Ran
 	if err != nil || !exit_state.exited {
-		_ = os.process_kill(child.process)
+		kill_tree(child.process)
 		exit_state, _ = os.process_wait(child.process)
 		ran.timed_out = err == nil || err == .Timeout
 	}
@@ -124,6 +124,35 @@ wait :: proc(child: ^Proc) -> Ran {
 		log("+ %s (%s)", command_line(child.run), ran.timed_out ? "timed out" : tprint("exit %d", ran.exit_code))
 	}
 	return collect(child, ran)
+}
+
+// Kills a process at its timeout, with what it started: on Windows Godot's console executable (what `godot()` runs)
+// starts the real Godot as its child, which a kill of the wrapper alone would leave running (at a debugger prompt,
+// say). taskkill /T ends the tree; the run is already over its time, so its cost doesn't matter.
+@(private)
+kill_tree :: proc(process: os.Process) {
+	when ODIN_OS == .Windows {
+		if null, null_err := os.open("NUL", {.Write, .Inheritable}); null_err == nil {
+			taskkill, err := os.process_start(
+			{
+				command = strs("taskkill", "/T", "/F", "/PID", tprint("%d", process.pid)),
+				stdout  = null, // "SUCCESS: ..." would end up in the command's result
+				stderr  = null,
+			},
+			)
+			if err == nil {
+				_, _ = os.process_wait(taskkill, 10 * time.Second)
+			}
+			os.close(null)
+		}
+	}
+	_ = os.process_kill(process)
+}
+
+// Whether a started process has run past its timeout (none: never).
+@(private)
+past_timeout :: proc(child: ^Proc) -> bool {
+	return child.run.timeout > 0 && time.tick_since(child.start) > child.run.timeout
 }
 
 @(private)
@@ -181,7 +210,8 @@ must_run :: proc(spec: Run, what: string) -> Ran {
 	return ran
 }
 
-// Runs every process, at most `parallel` at a time (0: all at once), and returns their results in order.
+// Runs every process, at most `parallel` at a time (0: all at once), and returns their results in order. A run past
+// its timeout is killed (wait) and reported as timed out.
 run_all :: proc(runs: []Run, parallel := 0) -> []Ran {
 	results := make([]Ran, len(runs))
 	limit := parallel > 0 ? parallel : len(runs)
@@ -200,7 +230,7 @@ run_all :: proc(runs: []Run, parallel := 0) -> []Ran {
 		}
 		progressed := false
 		for k := 0; k < len(running); {
-			if done(&running[k].child) {
+			if done(&running[k].child) || past_timeout(&running[k].child) {
 				results[running[k].index] = wait(&running[k].child)
 				unordered_remove(&running, k)
 				progressed = true

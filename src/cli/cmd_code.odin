@@ -8,12 +8,14 @@ import "core:time"
 // build, vet, fmt and the odin test suite.
 
 @(private)
+Build_Opts :: struct {
+	game: string `args:"pos=0" usage:"a game (default: every game; in this repo also toy, which has no extension)"`,
+	mode: Mode `usage:"dev (default), release or debug"`,
+}
+
+@(private)
 cmd_build :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game: string `args:"pos=0" usage:"a game (default: every game; in this repo also toy, which has no extension)"`,
-		mode: Mode `usage:"dev (default), release or debug"`,
-	}
-	opts: Opts
+	opts: Build_Opts
 	parse(&opts, args)
 	start := time.tick_now()
 	games: []Game
@@ -46,17 +48,19 @@ cmd_build :: proc(args: []string) -> Result {
 
 // --- headless ---------------------------------------------------------------------------------------------------
 
+@(private)
+Headless_Opts :: struct {
+	game:     string `args:"pos=0" usage:"the game (default: the only one; in this repo also toy)"`,
+	mode:     Mode `usage:"the build: dev (default), release or debug"`,
+	overflow: [dynamic]string `usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
+}
+
 // The game's headless binary (src/headless/SPEC.md: offline runs, sync-tests, replays, sessions, the relay and
 // clients, benchmarks), built when stale and run with our stdin, stdout and stderr: its JSON is this command's
 // stdout.
 @(private)
 cmd_headless :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game:     string `args:"pos=0" usage:"the game (default: the only one; in this repo also toy)"`,
-		mode:     Mode `usage:"the build: dev (default), release or debug"`,
-		overflow: [dynamic]string `usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
-	}
-	opts: Opts
+	opts: Headless_Opts
 	parse(&opts, args)
 	if len(opts.overflow) == 0 {
 		usage("name a headless mode after --, e.g. uni headless -- sim --ticks 600 (-- help: every mode)")
@@ -78,9 +82,11 @@ cmd_headless :: proc(args: []string) -> Result {
 // --- vet --------------------------------------------------------------------------------------------------------
 
 @(private)
+Vet_Opts :: struct {}
+
+@(private)
 cmd_vet :: proc(args: []string) -> Result {
-	Opts :: struct {}
-	opts: Opts
+	opts: Vet_Opts
 	parse(&opts, args)
 	ensure_bindings()
 	ensure_deps_for_headless() // the Box3D bindings
@@ -132,6 +138,13 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	failed: [dynamic]string
+	// Each command's help against what it accepts (usage_problems): the public commands and this project's own.
+	for command in state.commands {
+		for problem in usage_problems(command) {
+			append(&failed, tprint("uni %s's help", command.name))
+			log("vet: %s", problem)
+		}
+	}
 	for result, i in run_all(runs) {
 		if !result.ok {
 			job := jobs[i]
@@ -176,13 +189,15 @@ cmd_vet :: proc(args: []string) -> Result {
 FMT_FILES_PER_RUN :: 8
 
 @(private)
+Fmt_Opts :: struct {
+	check:    bool `usage:"change nothing; fail when a file needs formatting or has the wrong line endings"`,
+	hook:     bool `usage:"format the one file a Claude Code edit names (the hook's JSON on stdin)"`,
+	overflow: [dynamic]string `usage:"files or directories (default: the project: every Odin source, every text file's line endings)"`,
+}
+
+@(private)
 cmd_fmt :: proc(args: []string) -> Result {
-	Opts :: struct {
-		check:    bool `usage:"change nothing; fail when a file needs formatting or has the wrong line endings"`,
-		hook:     bool `usage:"format the one file a Claude Code edit names (the hook's JSON on stdin)"`,
-		overflow: [dynamic]string `usage:"files or directories (default: the project: every Odin source, every text file's line endings)"`,
-	}
-	opts: Opts
+	opts: Fmt_Opts
 	parse(&opts, args)
 	if opts.hook {
 		fmt_hook()
@@ -378,15 +393,15 @@ uses_scenarios :: proc() -> bool {
 // Every test package in one compile: unit tests, the library's black-box tests, the end-to-end suites with their
 // reference-run replays, the Box3D golden trace, the determinism and import lint.
 @(private)
-suite_odin :: proc(games: []Game, only: []string) -> bool {
+suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	ensure_deps_for_headless()
 	ensure_bindings()
 	// --box3d-debug builds in a folder of its own: the debug library has the release one's file name.
-	out := join(state.project.out, state.box3d_debug ? "test-box3d-debug" : "test", tprint("unified_tests%s", EXE))
+	out := join(state.project.out, opts.box3d_debug ? "test-box3d-debug" : "test", tprint("unified_tests%s", EXE))
 	make_dirs(os.dir(out))
 	uses_box3d := project_uses_box3d()
 	if uses_box3d {
-		stage_box3d(os.dir(out), debug = state.box3d_debug)
+		stage_box3d(os.dir(out), debug = opts.box3d_debug)
 	}
 	cmd: [dynamic]string
 	append(&cmd, odin(), "build", test_root(), tprint("-out:%s", out))
@@ -397,18 +412,18 @@ suite_odin :: proc(games: []Game, only: []string) -> bool {
 	append(&cmd, ..TEST_RUN_FLAGS)
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
-	if state.long && uses_scenarios() {
+	if opts.long && uses_scenarios() {
 		append(&cmd, "-define:UNIFIED_LONG_TESTS=true")
 	}
-	if state.crash {
+	if opts.crash {
 		append(&cmd, "-define:UNIFIED_TEST_CRASH=true")
 	}
-	append(&cmd, ..box3d_defines(state.box3d_debug ? .debug : .dev, uses_box3d))
-	if len(only) > 0 {
-		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(only, ",")))
+	append(&cmd, ..box3d_defines(opts.box3d_debug ? .debug : .dev, uses_box3d))
+	if len(opts.only) > 0 {
+		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
 	}
 	if !run_proc({cmd = cmd[:]}).ok {
 		return false
 	}
-	return run_test_binary(out, suite_timeout("odin"))
+	return run_test_binary(out, suite_timeout("odin", opts))
 }

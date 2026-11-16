@@ -44,5 +44,9 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
 - **Game layout** (`check_game`): `headless/` gets the real-time rule (off `core:math`, no float traps),
   `extension/` and `tests/` nothing (host and test code), every other directory the sim rule. A new sim package
   is linted without editing a list.
-- `tests/lint` holds unified's import graph: one rule per package of `src/` (a package without one fails), and
-  lints every game under `games/` with `check_game` (and checks `tests/tests.odin` imports its tests).
+- **Imports:** `only_imports` entries match as written, an entry ending in `/` matches what is under it and one
+  ending in `:` a whole collection (`core:`, `base:`, `system:` for a `foreign import`); `ban_imports` (with its
+  `allow_imports` exceptions) applies beside it, so a rule can allow `core:` and still ban `core:math`.
+- `tests/lint` holds unified's import graph: every package of `src/` has a rule with `only_imports` naming the
+  `unified:` packages (and `box3d:`) it may import (a package without a rule fails), and lints every game under
+  `games/` with `check_game` (and checks `tests/tests.odin` imports its tests).

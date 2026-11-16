@@ -4,6 +4,14 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
+@(private)
+Init_Opts :: struct {
+	dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
+	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
+	unified: string `usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
+	ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
+}
+
 // `init <dir>`: a new game from the template (template/, every file a .tmpl with __GAME__ for the game's name, the
 // directory's): a complete small game, each player moving a capsule: its sim, headless binary, extension, Godot
 // scenes and tests, and its view index.
@@ -16,13 +24,7 @@ import "core:strings"
 // and its tests imported in tests/tests.odin, the one test compile (the lint test fails without it).
 @(private)
 cmd_init :: proc(args: []string) -> Result {
-	Opts :: struct {
-		dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
-		in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
-		unified: string `usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
-		ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
-	}
-	opts: Opts
+	opts: Init_Opts
 	parse(&opts, args)
 	dir := opts.dir
 	if !os.is_absolute_path(dir) {

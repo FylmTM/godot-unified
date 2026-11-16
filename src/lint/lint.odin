@@ -16,7 +16,7 @@ import "core:testing"
 Rule :: struct {
 	pkg:           string, // the package's name, for messages (and the tests' rule table)
 	dir:           string, // the package's directory (subdirectories included); see `check`
-	only_imports:  []string, // when set: the only imports allowed, as written ("a/" allows a/*)
+	only_imports:  []string, // when set: the only imports allowed, as written ("a/" allows a/*, "core:" all of core)
 	ban_imports:   []string, // import path prefixes
 	allow_imports: []string, // exceptions to ban_imports
 	ban_idents:    []string, // identifiers, e.g. types or intrinsics
@@ -397,18 +397,21 @@ report_globals :: proc(
 	}
 }
 
-// Whether `rule` forbids importing `path`: outside only_imports when that is set, else under a ban_imports prefix
-// and not an allow_imports exception. scan reports each import it bans.
+// Whether `rule` forbids importing `path`: outside only_imports when that is set, or under a ban_imports prefix and
+// not an allow_imports exception (both apply: a host package lists its unified imports and allows "core:", while
+// still banning core:math). scan reports each import it bans.
 banned_import :: proc(rule: Rule, path: string) -> bool {
 	if rule.only_imports != nil {
 		// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified
 		// package, so a game's `../sim` is not unified:sim and must be listed itself (extra_imports).
+		listed := false
 		for ok in rule.only_imports {
-			if path == ok || (strings.has_suffix(ok, "/") && strings.has_prefix(path, ok)) {
-				return false
-			}
+			prefix := strings.has_suffix(ok, "/") || strings.has_suffix(ok, ":")
+			listed ||= path == ok || (prefix && strings.has_prefix(path, ok))
 		}
-		return true
+		if !listed {
+			return true
+		}
 	}
 	for ok in rule.allow_imports {
 		if path == ok {

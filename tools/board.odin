@@ -16,16 +16,17 @@ BOARD_NUMBER :: "2"
 BOARD_REPO :: "FylmTM/godot-unified"
 BOARD_DONE :: "Done" // the Status column whose issues are closed: `set --status done` closes the issue too
 
+Board_Opts :: struct {
+	issue:  string `args:"pos=0" usage:"set: issue number, #N or URL"`,
+	status: string `usage:"a Status column by name"`,
+	area:   string `usage:"an Area by name"`,
+}
+
 cmd_board :: proc(args: []string) -> cli.Result {
 	if len(args) == 0 || (args[0] != "list" && args[0] != "set" && args[0] != "-h" && args[0] != "--help") {
 		cli.usage("board list [--status S] [--area A] | board set <issue> [--status S] [--area A]")
 	}
-	Opts :: struct {
-		issue:  string `args:"pos=0" usage:"set: issue number, #N or URL"`,
-		status: string `usage:"a Status column by name"`,
-		area:   string `usage:"an Area by name"`,
-	}
-	opts: Opts
+	opts: Board_Opts
 	if args[0] == "-h" || args[0] == "--help" {
 		cli.parse(&opts, args)
 	}
