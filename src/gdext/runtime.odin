@@ -220,8 +220,14 @@ Ref :: struct($T: typeid) {
 construct_object :: proc(class: string) -> rawptr {
 	class_sn := string_name_from(class)
 	defer StringName_destroy(&class_sn)
-	object := gdi.classdb_construct_object3(&class_sn)
-	if object == nil do fail(fmt.tprintf("cannot construct %s", class))
+	return construct_object_named(&class_sn)
+}
+
+// construct_object by a class name the caller keeps (`sn`): for objects made often (an event's, one per delivery),
+// no StringName is made and dropped per call.
+construct_object_named :: proc(class: ^StringName) -> rawptr {
+	object := gdi.classdb_construct_object3(class)
+	if object == nil do fail(fmt.tprintf("cannot construct %s", string_name_to_odin(class)))
 	Object_notification(Object{object}, 0) // NOTIFICATION_POSTINITIALIZE
 	return object
 }

@@ -111,6 +111,12 @@ LIBRARY_DOCS := []Doc_Class {
 				"player:int",
 				"The account id the transport vouched for (EOS: the product user id); empty on LAN, in single player and in replays.",
 			},
+			{
+				"take_sync_stats",
+				"Dictionary",
+				"",
+				"The main thread's view-sync cost since the last call, then counts anew: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's.",
+			},
 			{"toggle_devui", "void", "", "Shows or hides the dev UI (F1)."},
 			{"is_devui_visible", "bool", "", "The dev UI is shown."},
 		},

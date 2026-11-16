@@ -117,6 +117,44 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	is_2d        = true,
 	view_scale   = VIEW_SCALE,
 	event_key    = event_key,
+	bench        = bench_prepare,
+}
+
+// The view-sync benchmark (view_bench.gd, `uni bench --views`): `-- --bench N` makes every frame N moving Multi3D
+// instances and BENCH_SCENE_VIEWS moving plain3d views instead of the fixed items. Set on the session thread before
+// its first tick, read by fill_frame on the same thread.
+BENCH_SCENE_VIEWS :: 64
+bench_instances: int
+
+bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
+	bench_instances = count
+}
+
+// The benchmark's frame: the local player's typed2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
+// changes every tick, so nothing is the same as the tick before).
+bench_frame :: proc(f: ^Frame) {
+	godot.push_view(f, {key = 1, kind = .Typed2D, player = f.local_player})
+	seconds := f32(f.tick) / toy.HZ
+	for i in 0 ..< BENCH_SCENE_VIEWS {
+		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
+		godot.push_view(f, {
+			key  = view.Key(100 + i),
+			kind = .Plain3D,
+			pos  = {math.cos(angle), 0, math.sin(angle)},
+			rot  = view.quat_yaw(angle),
+		})
+	}
+	side := max(int(math.sqrt(f32(bench_instances))), 1)
+	for i in 0 ..< bench_instances {
+		phase := seconds + f32(i) * 0.01
+		godot.push_multi_view(f, {
+			key    = u64(i + 1),
+			kind   = .Multi3D,
+			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
+			rot    = view.quat_yaw(phase),
+			custom = {phase, 0, 0, 0},
+		}) or_break
+	}
 }
 
 // The player drifts right; pressing ui_accept spawns one thing (on the press: held, it doesn't repeat), a `Spawned`
@@ -131,6 +169,10 @@ sample_input :: proc(input: ^toy.Input) {
 fill_frame :: proc(f: ^Frame) {
 	local := sim.player_data(&f.state.players, f.local_player)
 	if local == nil do return // before the local player's join tick
+	if bench_instances > 0 {
+		bench_frame(f)
+		return
+	}
 	q2 := view.quat_angle2d(ANGLE_2D)
 	q3 := view.quat_yaw(YAW_3D)
 	godot.push_view(f, {

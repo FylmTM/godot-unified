@@ -196,7 +196,9 @@ for what is performance-critical or shared across games.
 - methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
   `set_player_name(name)`, `get_status()`,
-  `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`;
+  `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`, `take_sync_stats()` (the main thread's
+  view-sync cost since the last call, as a Dictionary: frames, events, and microseconds summed for the scene views,
+  the MultiMesh build and upload, the event delivery and the whole sync; `uni bench --views` reads it);
 - players, by handle: a player reaches GDScript as its key (`sim.player_key`, an int; 0 is nobody), the same while
   they are in the session, whatever slot they hold. At the shown tick: `get_players()` (the present ones, slot
   order), `get_known_players()` (every one the state remembers, present or not), `get_local_player()` (0 until this
@@ -232,7 +234,9 @@ anything else only data. The root's script may define:
 with the instances of one `MultiView` kind: `kind`, `smooth` (rollback corrections glide like scene views' instead of
 popping; off by default). Registered when it enters the tree. The MultiMesh's `transform_format` decides the
 layout (2D: position, rotation about Z, scale per axis); `use_colors` and `use_custom_data` add 4 floats each. The
-host owns `instance_count` and `visible_instance_count`.
+host owns `instance_count`, `visible_instance_count` and, unless the game set one before the first frame,
+`custom_aabb`: each frame the instances' origins grown by the mesh's reach times the largest scale (without it,
+`set_buffer` makes Godot transform the mesh's AABB by every instance, most of the upload's cost).
 
 **Events, commands and enums as classes.** At load the host registers a class per kind of the game's event union
 (`extends UnifiedEvent`, a RefCounted with `tick`, `kind` and `id`, the type name lowercased: `rock_hit`) and command union
@@ -340,7 +344,8 @@ scene and every indexed kind is a `View` member (an error names each one).
 - **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
   the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
   view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose (× `view_scale`), call
-  `_sim_update`), write each MultiMesh's buffer in one `set_buffer`, set the session data, route the events of the
+  `_sim_update`), write each MultiMesh's buffer (every instance interpolated at alpha) and bounds in one
+  `set_custom_aabb` and one `set_buffer`, set the session data, route the events of the
   ticks the Frame shows, then statuses and the result, then the dev UI (`dev.odin`;
   `-define:UNIFIED_DEVUI=false` compiles it out, `src/devui/SPEC.md`). The screen runs one tick behind the newest
   prediction and never extrapolates.
@@ -426,7 +431,7 @@ is bound to released, and a press elsewhere doesn't.
 `UnifiedView` scene views in 2D and 3D (pose, `_sim_update`, data as properties only when it changes, a missing
 property's error, the same key in two kinds, entity defaulting to the key, `_sim_despawned` once and no pose while it
 lingers), MultiMesh views (2D and 3D buffers, colors, custom data, a full rotation on the shorter arc, scale per
-axis), session data on `Unified` (typed, `changed`, back to zero when the session ends), constants (strings, nested
+axis, bounds holding every instance, a game's own `custom_aabb` kept), session data on `Unified` (typed, `changed`, back to zero when the session ends), constants (strings, nested
 structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal, one `id` per event across its states, `event_key` routing (a named view, none, by subject)
 (`EventPlayerJoined` with the local player's key), the session's players by key (slot, presence, name, no
 platform, `roster_changed`), typed commands reaching the sim once with every field kind (a handle, a position in sim units, a nested struct),

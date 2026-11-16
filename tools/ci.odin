@@ -152,5 +152,28 @@ ci_summary :: proc() -> string {
 	} else {
 		strings.write_string(&out, "\nNo .out/bench.json: `uni bench` did not run.\n")
 	}
+	// linux-x64 only (it has Godot): the host's main-thread view sync, headless
+	if v, ok := read("view_bench.json"); ok {
+		strings.write_string(
+			&out,
+			"\n### View sync (`uni bench --views`, headless Godot; per frame)\n\n| instances | total µs | MultiMesh build µs | upload µs | scene views µs | events µs (each) |\n|---:|---:|---:|---:|---:|---:|\n",
+		)
+		lines, _ := v.(json.Array)
+		for line_value in lines {
+			line, _ := line_value.(json.Object)
+			fmt.sbprintf(
+				&out,
+				"| %d | **%.0f** | %.0f | %.0f | %.0f (%d) | %.1f (%.1f) |\n",
+				cli.json_int(line["instances"]),
+				cli.json_f64(line["total_us"]),
+				cli.json_f64(line["multi_build_us"]),
+				cli.json_f64(line["multi_upload_us"]),
+				cli.json_f64(line["scene_us"]),
+				cli.json_int(line["scene_views"]),
+				cli.json_f64(line["delivery_us"]),
+				cli.json_f64(line["event_us"]),
+			)
+		}
+	}
 	return strings.to_string(out)
 }

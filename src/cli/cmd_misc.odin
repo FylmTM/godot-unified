@@ -14,6 +14,10 @@ BENCH_TARGET_US :: 6000.0
 
 @(private)
 Bench_Opts :: struct {
+	views:    bool `usage:"instead: the Godot host's main-thread view sync at 1k, 4k and 16k MultiMesh instances (bench_views.odin)"`,
+	window:   bool `usage:"with --views: in a window, the real renderer (default: headless, Godot's dummy one)"`,
+	mute:     bool `usage:"with --window: no sound"`,
+	screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
 	overflow: [dynamic]string `usage:"games (default: every game with a headless binary)"`,
 }
 
@@ -21,6 +25,7 @@ Bench_Opts :: struct {
 cmd_bench :: proc(args: []string) -> Result {
 	opts: Bench_Opts
 	parse(&opts, args)
+	if opts.views do return bench_views(opts.window, {opts.mute, opts.screen, true})
 	games: [dynamic]Game
 	if len(opts.overflow) == 0 {
 		for game in state.project.games {
