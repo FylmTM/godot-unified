@@ -350,31 +350,30 @@ Field_World :: struct {
 	extras: [1]sim.Extra,
 }
 
-Field_Game :: sim.Game(Field, Field_Input, Field_World, 2)
+Field_Game :: sim.Game(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
 Field_Inputs :: sim.Inputs(Field_Input, 2)
-Field_Tick :: sim.Tick(Field, Field_Input, Field_World, 2)
+Field_Tick :: sim.Tick(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
 
 FIELD := Field_Game {
 	name = "field",
 	version = "1",
 	tick_hz = HZ,
-	events = Library_Events,
 	world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(1)},
 	world_destroy = proc(field_world: ^Field_World) {
 		physics.destroy(field_world.phys)
 		free(field_world)
 	},
 	extras = proc(field_world: ^Field_World) -> []sim.Extra {return field_world.extras[:]},
-	init = proc(state: ^Field, field_world: ^Field_World, seed: u64) {
-		world := field_world.phys
-		state.rng = sim.rng_seed(seed)
-		state.ships[0].body = circle_body(world, {-4, 0}, {}, 0.5)
-		state.ships[1].body = circle_body(world, {4, 0}, {}, 0.5)
-		physics.teleport(world, state.ships[1].body, {4, 0, 0}, physics.quat_2d({-1, 0}))
+	init = proc(t: ^Field_Tick) {
+		world := t.world.phys
+		t.state.rng = sim.rng_seed(t.seed)
+		t.state.ships[0].body = circle_body(world, {-4, 0}, {}, 0.5)
+		t.state.ships[1].body = circle_body(world, {4, 0}, {}, 0.5)
+		physics.teleport(world, t.state.ships[1].body, {4, 0, 0}, physics.quat_2d({-1, 0}))
 		// Every rock size is in the world at tick 0, so a late joiner's registry has every hull.
 		for size, i in ([?]u32{3, 3, 3, 3, 2, 2, 1, 1}) {
 			rock_add(
-				state,
+				t.state,
 				world,
 				{f32(i % 4) * 5 - 7.5, f32(i / 4) * 10 - 5},
 				{1, 0},

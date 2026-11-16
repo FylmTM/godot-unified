@@ -26,7 +26,7 @@ tick :: proc(t: ^Tick) {
 	platforms(t)
 	pads(t)
 	bumpers(t)
-	physics.step(t.world.phys, DT, SUBSTEPS)
+	physics.step(t.world.phys, t.dt, SUBSTEPS)
 	hits(t)
 	plates_and_switches(t)
 	stuns(t)
@@ -485,7 +485,7 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 		move,
 		jump,
 		scale,
-		DT,
+		t.dt,
 	) {
 		sim.emit(t, Event_Jumped{position = sim.Position(player_pos(t, player)), player = player})
 	}
@@ -853,7 +853,7 @@ run :: proc(t: ^Tick) {
 				sim.emit(t, Event_Run_Finished {
 					entity   = item_entity(t.world, i),
 					position = sim.Position(t.world.finish.pos),
-					seconds  = f32(ticks) * DT,
+					seconds  = sim.seconds(ticks, TICK_HZ),
 				})
 				break
 			}

@@ -119,15 +119,14 @@ RIG_PATH := physics.Path {
 	ease = .Smooth,
 }
 
-Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, 2)
+Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
 Rig_Inputs :: sim.Inputs(Rig_Input, 2)
-Rig_Tick :: sim.Tick(Rig, Rig_Input, Rig_World, 2)
+Rig_Tick :: sim.Tick(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
 
 RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
-	events = Library_Events,
 	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(1)},
 	world_destroy = proc(rig_world: ^Rig_World) {
 		physics.destroy(rig_world.phys)
@@ -135,18 +134,18 @@ RIG := Rig_Game {
 		free(rig_world)
 	},
 	extras = proc(rig_world: ^Rig_World) -> []sim.Extra {return rig_world.extras[:]},
-	init = proc(state: ^Rig, rig_world: ^Rig_World, seed: u64) {
-		world := rig_world.phys
-		for &character, i in state.characters {
+	init = proc(t: ^Rig_Tick) {
+		world := t.world.phys
+		for &character, i in t.state.characters {
 			physics.character_create(world, &character, &CHARACTER, {f32(i) * 2, 1.2, 0})
 		}
-		for &box_ref, i in state.boxes {
-			state.boxes[i] = physics.ref_of(
+		for &box_ref, i in t.state.boxes {
+			t.state.boxes[i] = physics.ref_of(
 				box(world, {f32(i) - 1.5, 0.5, 2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, hit = true),
 			)
 			_ = box_ref
 		}
-		state.platform = physics.ref_of(
+		t.state.platform = physics.ref_of(
 			box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
 		)
 	},

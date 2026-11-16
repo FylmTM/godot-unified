@@ -79,7 +79,6 @@ Player_Data :: struct {
 }
 
 State :: struct {
-	rng:     sim.Rng,
 	spawned: u32,
 	_pad:    u32,
 	players: sim.Players(Player_Data, Input, PLAYERS),
@@ -97,7 +96,6 @@ Event_Spawned :: struct {
 	position: sim.Position,
 	player:   sim.Player,
 	shape:    Shape,
-	_pad:     [3]u8,
 }
 
 Event_Expired :: struct {
@@ -111,10 +109,10 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Sim :: sim.Sim(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
 Inputs :: sim.Inputs(Input, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 GAME := Game {
 	name = "toy",
@@ -122,20 +120,21 @@ GAME := Game {
 	tick_hz = HZ,
 	world_create = proc(seed: u64, _: []u8) -> ^World {return new(World)},
 	world_destroy = proc(world: ^World) {free(world)},
-	init = proc(state: ^State, world: ^World, seed: u64) {
-		state.rng = sim.rng_seed(seed)
-	},
+	init = proc(t: ^Tick) {},
 	tick = tick,
-	events = Event,
-	commands = Cmd,
+}
+
+// What the toy's keyed rolls are for (sim.roll_below).
+Roll :: enum u8 {
+	Thing_Life,
 }
 
 tick :: proc(t: ^Tick) {
 	t.world.ticks_run += 1
 	players := sim.iterate_present(&t.state.players)
 	for data, player in sim.next(&players) {
-		for &raw in sim.commands(t, player) {
-			switch command in sim.command_value(&raw, Cmd) {
+		for sent in sim.commands(t, player) {
+			switch command in sent {
 			case Cmd_Bump:
 				data.bumps += 1
 				data.bump_sum += command.amount
@@ -151,7 +150,7 @@ tick :: proc(t: ^Tick) {
 		if .Spawn in sim.buttons(t, player).pressed && t.state.things.count < 32 { 	// held: one thing
 			thing, handle, _ := sim.spawn(&t.state.things)
 			thing.pos = data.pos
-			thing.life = i32(4 + sim.rng_below(&t.state.rng, 60))
+			thing.life = i32(4 + sim.roll_below(t, 60, Roll.Thing_Life, sim.handle_key(handle)))
 			thing.owner = player
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
@@ -201,7 +200,7 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 // Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every
 // 16th tick, a burst of 6 bumps every 200th tick (tick % 200 == 50: two of them wait for the next tick), a
 // mark every 64th.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd)) {
 	x := u32(seed) * 0x85EBCA77 ~ u32(slot + 1) * 0x9E3779B1 ~ tick * 0x27D4EB2F
 	x ~= x >> 15
 	x *= 0x2C1B3C6D

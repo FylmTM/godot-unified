@@ -102,7 +102,7 @@ tick :: proc(t: ^Tick) {
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
 		if .Jump in sim.buttons(t, player).pressed {...}
-		for command in sim.commands(t, player) {...}
+		for sent in sim.commands(t, player) {...}
 	}
 }
 ```
@@ -151,8 +151,8 @@ Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index; nam
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYER_COUNT)
 
-for command in sim.commands(t, player) {            // inside tick: this player's, in order, exactly once each
-	switch c in command {
+for sent in sim.commands(t, player) {               // inside tick: this player's, in order, exactly once each
+	switch command in sent {
 	case Cmd_Drop_Coin: ...
 	case Cmd_Start: ...
 	}

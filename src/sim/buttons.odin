@@ -22,7 +22,7 @@ Button_State :: struct($Set: typeid) {
 //   if .Throw in buttons.released { ... }
 //   if .Fire in buttons.down { ... }
 buttons :: proc(
-	t: ^Tick($State, $Input, $World, $PLAYERS),
+	t: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	player: Player,
 ) -> Button_State(intrinsics.type_field_type(Input, "buttons")) where intrinsics.type_has_field(Input, "buttons") {
 	now := input(t, player).buttons

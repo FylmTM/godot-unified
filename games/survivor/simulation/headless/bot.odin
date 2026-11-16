@@ -39,7 +39,7 @@ bot_run :: proc(
 	run.seed = seed
 	run.first_level_s = -1
 	limit := u32(limit_s * survivor.TICK_HZ)
-	out: sim.Command_Out
+	out: sim.Command_Out(survivor.Cmd)
 	defer delete(out.list)
 	for {
 		inputs := survivor.bot_tick(&simulation.state, player_count, simulation.tick + 1, &out)
@@ -51,7 +51,7 @@ bot_run :: proc(
 			}
 			continue
 		}
-		elapsed := f32(simulation.tick - state.match_tick) * survivor.DT
+		elapsed := sim.seconds(simulation.tick - state.match_tick, survivor.TICK_HZ)
 		for &raw in sim.events_at(simulation, simulation.tick) {
 			if _, is_level_up := sim.event_value(&raw, survivor.Event).(survivor.Event_Level_Up);
 			   is_level_up && run.first_level_s < 0 {
@@ -66,7 +66,7 @@ bot_run :: proc(
 		run.wave = state.wave + 1
 		run.kills = state.kills
 		if state.phase == .Over {
-			run.survival_s = f32(state.over_tick - state.match_tick) * survivor.DT
+			run.survival_s = sim.seconds(state.over_tick - state.match_tick, survivor.TICK_HZ)
 			return
 		}
 		if simulation.tick - state.match_tick >= limit {

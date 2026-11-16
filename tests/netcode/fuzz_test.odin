@@ -142,9 +142,9 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		netcode.window_write_tick(writer, &first, nil)
 		inputs := finalized_of(6, 2)
 		inputs.present = {0, 1}
-		bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{3})
+		bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{3})
 		sim.add_command(&inputs, bump)
-		mark, _ := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = 2})
+		mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = 2})
 		mark.slot = 1
 		sim.add_command(&inputs, mark)
 		netcode.window_write_tick(writer, &inputs, &first)

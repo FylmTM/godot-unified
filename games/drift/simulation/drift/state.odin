@@ -8,7 +8,6 @@ import "unified:physics"
 import "unified:sim"
 
 TICK_HZ :: 64
-DT :: f32(1) / TICK_HZ
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 
 PLAYERS :: 4
@@ -203,8 +202,6 @@ State :: struct {
 	score:          u32,
 	matches:        u32,
 	gems_dropped:   u32, // every other small rock drops a gem
-	_pad1:          u32, // the Rng's u64 is 8-byte aligned
-	rng:            sim.Rng, // the waves' stream
 	players:        sim.Players(Ship, Input, PLAYERS),
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),

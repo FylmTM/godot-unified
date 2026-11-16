@@ -109,7 +109,7 @@ TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a fu
 BLINK_FROM :: 20 // the blink view (plain2d key 5) exists for ticks BLINK_FROM ..< BLINK_TO
 BLINK_TO :: 40
 
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,

@@ -67,7 +67,7 @@ roll_bits :: proc(seed: u64, tick: u32, purpose, key, index: u64) -> u64 {
 // `key` (an entity's handle_key, a player...) and `index` (in a loop, the loop index: two rolls that
 // should differ must differ in something). Unbiased: a rejected draw re-mixes.
 roll_below :: proc(
-	tick: ^Tick($State, $Input, $World, $PLAYERS),
+	tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	n: u32,
 	purpose: $Purpose,
 	key: u64 = 0,
@@ -88,7 +88,7 @@ roll_below :: proc(
 
 // A roll uniform in [0, 1) with 24 bits of precision, named like roll_below's.
 roll_f32 :: proc(
-	tick: ^Tick($State, $Input, $World, $PLAYERS),
+	tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	purpose: $Purpose,
 	key: u64 = 0,
 	index: int = 0,

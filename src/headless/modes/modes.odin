@@ -15,8 +15,8 @@ import "unified:sim"
 // tunings), picked with `--game NAME` (sim.Game.name) on any mode. `online`: a lobby transport for the
 // <name>-host and <name>-client modes (optional).
 run :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
-	variants: []^sim.Game(State, Input, World, PLAYERS) = nil,
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	variants: []^sim.Game(State, Input, World, Event, Cmd, PLAYERS) = nil,
 	online: ^Online = nil,
 ) {
 	platform_init()
@@ -91,7 +91,7 @@ players_opt :: proc(args: ^Args, max_players: int) -> int {
 
 // `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window).
 window_opt :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS),
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	args: ^Args,
 	fallback := 0,
 	required := false,
@@ -105,7 +105,7 @@ window_opt :: proc(
 }
 
 // The `sim` mode: an offline run with scripted inputs, writing the per-tick trace and the input log when asked.
-mode_sim :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_sim :: proc(headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS), args: ^Args) -> bool {
 	check_known(args, "ticks", "seed", "players", "trace", "log")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	seed := seed_opt(args)
@@ -132,7 +132,10 @@ mode_sim :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS)
 
 // The `synctest` mode: an offline run that re-simulates the last `--window` ticks every tick and fails on any
 // tick that comes out differently.
-mode_synctest :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_synctest :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "ticks", "window", "seed", "players")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	window := window_opt(headless, args, required = true)
@@ -141,6 +144,9 @@ mode_synctest :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLA
 	result := uheadless.run_synctest(headless, ticks, window, seed, players)
 	if result.mismatches > 0 {
 		fmt.eprintfln("synctest: tick %d re-simulated differently at %d", result.first_tick, result.first_at)
+	}
+	if result.check != "" {
+		fmt.eprintfln("synctest: after restoring tick %d: %s", result.check_tick, result.check)
 	}
 	fmt.printfln(
 		`{{"mode":"synctest","ticks":%d,"window":%d,"seed":%d,"players":%d,"mismatches":%d,"first_mismatch":%d,"resimulated_ticks":%d,"final_checksum":"%016x"}}`,
@@ -153,12 +159,15 @@ mode_synctest :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLA
 		result.resimulated,
 		result.final_checksum,
 	)
-	return result.mismatches == 0
+	return result.mismatches == 0 && result.check == ""
 }
 
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
 // writing the trace when asked; fails on a log of another build.
-mode_replay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_replay :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "log", "trace", "snapshot")
 	log_path := opt_str(args, "log", required = true)
 	input_log, log_ok := sim.log_read(log_path, Input, PLAYERS)
@@ -189,7 +198,10 @@ mode_replay :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYE
 }
 
 // The `snapshot` mode: runs offline to `--ticks` and writes a portable snapshot of that tick to `--out`.
-mode_snapshot :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_snapshot :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "ticks", "out", "seed", "players")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	out := opt_str(args, "out", required = true)
@@ -208,7 +220,10 @@ mode_snapshot :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLA
 
 // The `resume` mode: restores a snapshot file and runs `--ticks` more, tracing them, so a test can compare
 // with the uninterrupted run.
-mode_resume :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_resume :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "in", "ticks", "trace", "players")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	in_path := opt_str(args, "in", required = true)
@@ -234,7 +249,10 @@ mode_resume :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYE
 
 // The `bench` mode: times step, save, restore and re-sim with `--entities` held (the game's standard benchmark
 // without options); `uni bench` reads its JSON.
-mode_bench :: proc(headless: ^uheadless.Headless($State, $Input, $World, $PLAYERS), args: ^Args) -> bool {
+mode_bench :: proc(
+	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	args: ^Args,
+) -> bool {
 	check_known(args, "entities", "window", "ticks", "seed", "players")
 	standard := headless.bench
 	if standard.ticks == 0 {

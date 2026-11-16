@@ -35,7 +35,7 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 
 // The scripted commands hook: a level-up pick at the start of every 24-tick block, whether or not one is
 // pending (the sim ignores it then), so the script depends on (seed, slot, tick) only, like the inputs.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	if (tick - 1) % SCRIPT_PERIOD == 0 {
 		sim.send_command(out, Cmd_Pick{Upgrade(script_roll(seed, slot, tick) % 3)})
 	}

@@ -39,9 +39,9 @@ World :: struct {
 	spawner_count: int,
 }
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Sim :: sim.Sim(State, Input, World, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 @(rodata)
 GAME := Game {
@@ -53,8 +53,13 @@ GAME := Game {
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	events = Event,
-	commands = Cmd,
+}
+
+// What the keyed rolls are for (sim.roll_below, sim.roll_f32).
+Roll :: enum u8 {
+	Rock_Turn,
+	Rock_Spin,
+	Rock_Variant,
 }
 
 // Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, then the markers. Bodies the block owns (the station, ships, rocks) are created by init and the tick.
@@ -130,22 +135,21 @@ HEX_C := [6]f32{1, 0.5, -0.5, -1, -0.5, 0.5}
 @(rodata)
 HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 
-// Sets up the tick-0 state (GAME.init): seeds the random stream, gives the station full HP and creates its turning
-// kinematic hexagon at the station marker.
-init :: proc(state: ^State, world: ^World, seed: u64) {
-	state.rng = sim.rng_seed(seed)
-	state.station_hp = STATION_HP
-	body_def := physics.body_def_2d(.Kinematic_Body, world.station)
-	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
+// Sets up the tick-0 state (GAME.init): gives the station full HP and creates its turning kinematic hexagon at the
+// station marker.
+init :: proc(t: ^Tick) {
+	t.state.station_hp = STATION_HP
+	body_def := physics.body_def_2d(.Kinematic_Body, t.world.station)
+	ref := physics.create_body(t.world.phys, &body_def)
+	body := physics.body_id(t.world.phys, ref)
 	shape_def := b3.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATION
 	shape_def.base_material.user_material_id = MAT_STATION
 	corners: [6][2]f32
 	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
 	physics.polygon_2d(body, &shape_def, corners[:], ROCK_DEPTH)
-	state.station = ref
-	physics.set_velocity_2d(world.phys, state.station, {}, STATION_SPIN)
+	t.state.station = ref
+	physics.set_velocity_2d(t.world.phys, t.state.station, {}, STATION_SPIN)
 }
 
 // A ship's body at `at`, nose up.

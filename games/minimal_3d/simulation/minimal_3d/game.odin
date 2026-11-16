@@ -4,10 +4,9 @@ import "unified:sim"
 
 PLAYERS :: 4
 TICK_HZ :: 64
-DT :: f32(1) / TICK_HZ
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 @(rodata)
 GAME := Game {
@@ -18,8 +17,6 @@ GAME := Game {
 	world_destroy = world_destroy,
 	init          = init,
 	tick          = tick,
-	events        = Event,
-	commands      = Cmd,
 }
 
 world_create :: proc(seed: u64, content: []u8) -> ^World {
@@ -30,7 +27,7 @@ world_destroy :: proc(world: ^World) {
 	free(world)
 }
 
-init :: proc(state: ^State, world: ^World, seed: u64) {}
+init :: proc(t: ^Tick) {}
 
 tick :: proc(t: ^Tick) {
 	on_player_join(t)

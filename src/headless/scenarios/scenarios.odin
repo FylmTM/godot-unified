@@ -26,8 +26,8 @@ UNIFIED_REGEN_COMMIT :: #config(UNIFIED_REGEN_COMMIT, "unknown")
 LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: its headless descriptor and the parameters of its runs.
-Suite :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	game:    ^headless.Headless(State, Input, World, PLAYERS), // the game as the headless runs drive it
+Suite :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
+	game:    ^headless.Headless(State, Input, World, Event, Cmd, PLAYERS), // the game as the headless runs drive it
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
@@ -59,7 +59,11 @@ PROFILE_NAMES := [Profile]string {
 
 // Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.
 // `window` is at most headless.max_window(game) (the game's ring).
-rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS), window: u32 = 8) {
+rollback_every_tick :: proc(
+	t: ^testing.T,
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	window: u32 = 8,
+) {
 	longest := headless.max_window(suite.game.game)
 	if !testing.expectf(
 		t,
@@ -83,6 +87,15 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World,
 	)
 	testing.expectf(
 		t,
+		result.check == "",
+		"rollback_every_tick (window %d; %s): after restoring tick %d: %s",
+		window,
+		params(suite),
+		result.check_tick,
+		result.check,
+	)
+	testing.expectf(
+		t,
 		suite.ticks < window || result.resimulated > 0,
 		"rollback_every_tick (%s): nothing re-simulated",
 		params(suite),
@@ -92,7 +105,7 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World,
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
 // player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
 // tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.
-presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS), window: u32 = 8) {
+presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS), window: u32 = 8) {
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
 	if !testing.expectf(
 		t,
@@ -124,7 +137,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLA
 	// Forward, the handles: the newcomer is someone else, the one who came back is who they were.
 	simulation := sim.create(suite.game.game, suite.seed, suite.game.content)
 	defer sim.destroy(simulation)
-	commands := headless.Scripted_Commands {
+	commands := headless.Scripted_Commands(Cmd) {
 		seats = seats,
 	}
 	defer headless.scripted_commands_destroy(&commands)
@@ -138,7 +151,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLA
 	testing.expectf(t, newcomer.id == NEWCOMER && newcomer != first, "%s: slot 0 holds %v", what, newcomer)
 	testing.expectf(t, sim.slot_player(simulation, back) == first, "%s: %v did not come back", what, first)
 	returned := false
-	joined_kind := sim.variant_kind(suite.game.game.events, sim.Event_Player_Joined)
+	joined_kind := sim.variant_kind(Event, sim.Event_Player_Joined)
 	for &raw in sim.events_at(simulation, start + 20) {
 		if int(raw.kind) == joined_kind {
 			joined := (^sim.Event_Player_Joined)(&raw.data[0])^
@@ -150,7 +163,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLA
 
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
 // second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
-runs_match :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
+runs_match :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
 	testing.expectf(
 		t,
@@ -169,7 +182,7 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS
 // checksums, and rollbacks happen unless the network is ideal.
 session_agrees :: proc(
 	t: ^testing.T,
-	suite: ^Suite($State, $Input, $World, $PLAYERS),
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	clients: int,
 	profile: Profile,
 ) {
@@ -183,7 +196,7 @@ session_agrees :: proc(
 // verified.
 session_log_replays :: proc(
 	t: ^testing.T,
-	suite: ^Suite($State, $Input, $World, $PLAYERS),
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	clients: int,
 	profile: Profile,
 ) {
@@ -236,7 +249,7 @@ session_log_replays :: proc(
 // verified tick on.
 late_join_agrees :: proc(
 	t: ^testing.T,
-	suite: ^Suite($State, $Input, $World, $PLAYERS),
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	profile: Profile,
 	player: int,
 	tick: u32,
@@ -263,7 +276,7 @@ late_join_agrees :: proc(
 
 // The replay of the committed ref.log reproduces ref.trace. With UNIFIED_REGEN it first writes a
 // new reference run (and also checks its resume).
-reference_replays :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
+reference_replays :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	when UNIFIED_REGEN {
 		if regenerate(t, suite) {
 			check_replay(t, suite)
@@ -275,7 +288,7 @@ reference_replays :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $
 }
 
 // Resuming the committed snapshot reproduces the rest of ref.trace.
-reference_resumes :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
+reference_resumes :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	when UNIFIED_REGEN {
 		regen_note("reference_resumes: skipped while regenerating (reference_replays checks the new snapshot)")
 	} else {
@@ -284,7 +297,7 @@ reference_resumes :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $
 }
 
 @(private)
-check_replay :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
+check_replay :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	reference := suite.ref
 	what := fmt.tprintf("reference_replays (%s)", ref_params(reference))
 	input_log, ok := sim.log_read(ref_path(reference, "ref.log"), Input, PLAYERS)
@@ -331,7 +344,7 @@ check_replay :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYE
 }
 
 @(private)
-check_resume :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) {
+check_resume :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 	reference := suite.ref
 	what := fmt.tprintf("reference_resumes (%s)", ref_params(reference))
 	if !testing.expectf(
@@ -382,7 +395,7 @@ check_resume :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYE
 // --- helpers ---------------------------------------------------------------------------------------
 
 @(private)
-params :: proc(suite: ^Suite($State, $Input, $World, $PLAYERS)) -> string {
+params :: proc(suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> string {
 	return fmt.tprintf("%d players, seed %d, %d ticks", suite.players, suite.seed, suite.ticks)
 }
 
@@ -432,7 +445,7 @@ first_wrong_tick :: proc(got, want: ^headless.Trace) -> (tick: u32, got_checksum
 
 @(private)
 session :: proc(
-	suite: ^Suite($State, $Input, $World, $PLAYERS),
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	clients: int,
 	profile: Profile,
 	late_player := -1,
@@ -459,7 +472,7 @@ session :: proc(
 check_session :: proc(
 	t: ^testing.T,
 	what: string,
-	suite: ^Suite($State, $Input, $World, $PLAYERS),
+	suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	result: ^headless.Session_Result(Input, PLAYERS),
 	need_rollbacks: bool,
 	joiner := -1,
@@ -558,7 +571,7 @@ check_session :: proc(
 // run_snapshot, and ref.json (where, when and how it was made). A run that reproduces the committed one byte for byte
 // leaves ref.json alone too, so the directory shows no change (`uni record-reference` says "nothing changed").
 @(private)
-regenerate :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $PLAYERS)) -> bool {
+regenerate :: proc(t: ^testing.T, suite: ^Suite($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> bool {
 	reference := suite.ref
 	if !testing.expectf(
 		t,

@@ -174,17 +174,19 @@ when scenarios.LONG {
 			defer sim.destroy(simulation)
 			state := &simulation.state
 			first_level: f32 = -1
-			out: sim.Command_Out
+			out: sim.Command_Out(survivor.Cmd)
 			defer delete(out.list)
 			for simulation.tick < 200 * survivor.TICK_HZ && state.phase != .Over {
 				inputs := survivor.bot_tick(state, 1, simulation.tick + 1, &out)
 				sim.step(simulation, &inputs)
 				if first_level < 0 && in_slot(simulation, 0).level > 1 {
-					first_level = f32(simulation.tick - state.match_tick) * survivor.DT
+					first_level = sim.seconds(simulation.tick - state.match_tick, survivor.TICK_HZ)
 				}
 			}
-			survived :=
-				f32((state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick) * survivor.DT
+			survived := sim.seconds(
+				(state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick,
+				survivor.TICK_HZ,
+			)
 			testing.expectf(
 				t,
 				first_level > 10 && first_level < 45,

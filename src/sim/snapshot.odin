@@ -39,7 +39,7 @@ Snap_Header :: struct {
 
 // Encodes the ring snapshot of `tick` into a new byte slice.
 snapshot_encode :: proc(
-	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	tick: u32,
 	allocator := context.allocator,
 ) -> []u8 {
@@ -50,7 +50,7 @@ snapshot_encode :: proc(
 // Encodes the ring snapshot of `tick` into `out`, replacing what it held and keeping its capacity: a snapshot taken
 // again and again (a client's kept desync images) allocates only when it outgrows the last one. Returns out's bytes.
 snapshot_encode_into :: proc(
-	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	tick: u32,
 	out: ^[dynamic]u8,
 ) -> []u8 {
@@ -172,11 +172,11 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 // this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
 // Build_Differs. `content` is borrowed like create's.
 from_snapshot :: proc(
-	game: ^Game($State, $Input, $World, $PLAYERS),
+	game: ^Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	data: []u8,
 	content: []u8 = nil,
 ) -> (
-	^Sim(State, Input, World, PLAYERS),
+	^Sim(State, Input, World, Event, Cmd, PLAYERS),
 	Snap_Error,
 ) {
 	header, block, reader, err := snap_read(data, size_of(State), layout_hash(State))

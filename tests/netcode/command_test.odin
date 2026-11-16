@@ -12,10 +12,9 @@ import "unified:sim"
 
 // What toy.scripted_commands sends from `player` over ticks first..last, in order.
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
-	out := sim.Command_Out {
-		commands = toy.Cmd,
-		slot     = player,
-		cap      = 1 << 20,
+	out := sim.Command_Out(toy.Cmd) {
+		slot = player,
+		cap  = 1 << 20,
 	}
 	for tick in first ..= last {
 		toy.scripted_commands(SEED, player, tick, &out)
@@ -33,7 +32,7 @@ logged_commands :: proc(
 ) {
 	for k in 0 ..< len(log.ticks) {
 		inputs := sim.log_inputs(log, k)
-		for command in sim.commands(&inputs, player) {
+		for command in sim.slot_commands(&inputs, player) {
 			append(&commands, command)
 			append(&ticks, u32(k + 1))
 		}
@@ -146,7 +145,7 @@ Sender :: struct {
 sender_hooks :: proc(sender: ^Sender, watch: ^Watch) -> Hooks {
 	hooks := hooks_for(watch)
 	hooks.user = sender
-	hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+	hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
 		sender := (^Sender)(user)
 		if sender.armed && sim.send_command(out, toy.Cmd_Bump{777}) {
 			sender.armed = false

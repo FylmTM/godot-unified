@@ -54,9 +54,9 @@ event_names :: proc(events: typeid, allocator := context.allocator) -> []string 
 }
 
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union
-// (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation) of
-// 1..max_size bytes, names unique.
-union_violation :: proc(type: typeid, max_size: int, prefix: string) -> string {
+// (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation; events: padding allowed,
+// padded_violation) of 1..max_size bytes, names unique.
+union_violation :: proc(type: typeid, max_size: int, prefix: string, padding := false) -> string {
 	if type == nil do return ""
 	info, ok := runtime.type_info_base(type_info_of(type)).variant.(runtime.Type_Info_Union)
 	if !ok do return fmt.tprintf("%v is not a union", type)
@@ -64,7 +64,8 @@ union_violation :: proc(type: typeid, max_size: int, prefix: string) -> string {
 	if len(info.variants) > 255 do return fmt.tprintf("%v: %d variants (at most 255)", type, len(info.variants))
 	for variant, i in info.variants {
 		name := variant_name(variant, prefix)
-		if reason := plain_violation(variant, fmt.tprint(variant.id)); reason != "" {
+		check := padding ? padded_violation : plain_violation
+		if reason := check(variant, fmt.tprint(variant.id)); reason != "" {
 			return fmt.tprintf("%q: %s", name, reason)
 		}
 		if variant.size > max_size || variant.size == 0 {

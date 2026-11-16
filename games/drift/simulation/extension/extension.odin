@@ -68,7 +68,7 @@ Gate_View :: struct {
 // Keys (unique within a kind): a ship its player's key (ship_key: sim.player_key, the same while they are in the
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
-GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, MultiView) {
+GLUE := godot.Glue(dr.State, dr.Input, dr.World, dr.Cmd, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	data              = Data,

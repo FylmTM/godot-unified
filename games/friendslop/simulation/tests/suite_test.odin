@@ -10,13 +10,13 @@ import fs "../friendslop"
 import "unified:headless"
 import "unified:headless/scenarios"
 
-HEADLESS := headless.Headless(fs.State, fs.Input, fs.World, fs.PLAYERS) {
+HEADLESS := headless.Headless(fs.State, fs.Input, fs.World, fs.Event, fs.Cmd, fs.PLAYERS) {
 	game           = &fs.GAME,
 	scripted_input = fs.scripted_input,
 	content        = PARK,
 }
 
-SUITE := scenarios.Suite(fs.State, fs.Input, fs.World, fs.PLAYERS) {
+SUITE := scenarios.Suite(fs.State, fs.Input, fs.World, fs.Event, fs.Cmd, fs.PLAYERS) {
 	game = &HEADLESS,
 	players = 4,
 	seed = 42,

@@ -153,7 +153,7 @@ players_next :: #force_inline proc(
 }
 
 // The player's input this tick (zero when absent).
-input :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> Input {
+input :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> Input {
 	slot := tick_slot(tick, player)
 	return tick.inputs.input[slot] if slot >= 0 else {}
 }
@@ -162,26 +162,22 @@ input :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> 
 // absent): a button pressed this tick is down in `input` and not here.
 //
 //   pressed := sim.input(t, player).buttons - sim.input_before(t, player).buttons
-input_before :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> Input {
+input_before :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> Input {
 	slot := tick_slot(tick, player)
 	if slot < 0 do return {}
 	view := players_view(tick.state, tick.players_layout)
 	return ([^]Input)(view.before)[slot]
 }
 
-// The commands `player` sent for this tick, in the order sent (none when absent):
+// The commands `player` sent for this tick, decoded, in the order sent; empty when absent, never a nil entry (one
+// whose bytes don't decode is left out on every peer alike). Valid until the tick returns:
 //
-//   for &raw in sim.commands(t, player) {
-//       switch command in sim.command_value(&raw, Cmd) { ... }
+//   for sent in sim.commands(t, player) {
+//       switch command in sent { case Cmd_Pick: ... }
 //   }
-player_commands :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> []Raw_Command {
+commands :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> []Cmd {
 	slot := tick_slot(tick, player)
-	return slot_commands(tick.inputs, slot) if slot >= 0 else nil
-}
-
-commands :: proc {
-	player_commands,
-	slot_commands,
+	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }
 
 // A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick.
@@ -193,7 +189,7 @@ join :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int, member: int) {
 
 // Who holds `slot` in the simulation's current state (Player{}: nobody): for drivers outside `tick` (a scripted
 // run adds a join record only for a slot nobody holds).
-slot_player :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), slot: int) -> Player {
+slot_player :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), slot: int) -> Player {
 	view := players_view(&simulation.state, &simulation.players_layout)
 	return view.slots[slot] if slot >= 0 && slot < PLAYERS else {}
 }
@@ -201,7 +197,7 @@ slot_player :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS), slot: in
 // The member table and who holds each slot in `state` (one of the simulation's: its current one, or a saved tick's
 // from state_at), for drivers outside `tick` that know the State only generically (a view host).
 players_of :: proc(
-	simulation: ^Sim($State, $Input, $World, $PLAYERS),
+	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	state: ^State,
 ) -> (
 	members: []Member,
@@ -213,7 +209,7 @@ players_of :: proc(
 
 // The slot `player` holds in the tick being computed (-1: absent or unknown).
 @(private)
-tick_slot :: proc(tick: ^Tick($State, $Input, $World, $PLAYERS), player: Player) -> int {
+tick_slot :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> int {
 	view := players_view(tick.state, tick.players_layout)
 	if player.id == 0 || int(player.index) >= len(view.members) {
 		return -1

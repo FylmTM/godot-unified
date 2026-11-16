@@ -128,7 +128,7 @@ Frame_Data :: struct {
 }
 
 // What a game provides, typed by its State, Input and World and its view kinds (enums).
-Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
+Glue :: struct($State, $Input, $World, $Cmd, $View, $MultiView: typeid) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
 	sample_input:      proc(input: ^Input),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
@@ -156,7 +156,7 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
 	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
-	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out),
+	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// entities). Single player only: it changes the initial state, which every peer would have to share.
 	bench:             proc(state: ^State, world: ^World, count: int),

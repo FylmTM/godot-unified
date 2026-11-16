@@ -40,7 +40,7 @@ MultiView :: enum u8 {
 }
 
 @(private = "file")
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
+GLUE := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, View, MultiView) {
 	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
 	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, MultiView)) {
 		players := sim.iterate_present(&frame.state.players)
@@ -183,7 +183,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, ok, err)
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
-			command, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
+			command := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 			testing.expect(t, godot.api.send(command))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
@@ -358,7 +358,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		Bad_View :: enum u8 {
 			Dot = 1,
 		}
-		bad := godot.Glue(toy.State, toy.Input, toy.World, Bad_View, MultiView){}
+		bad := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, Bad_View, MultiView){}
 		godot.install(&toy.GAME, bad)
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)

@@ -6,7 +6,6 @@ import "unified:physics"
 import "unified:sim"
 
 TICK_HZ :: 64
-DT: f32 : 1.0 / TICK_HZ // exact
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 SUBSTEPS :: 4
 PLAYERS :: 4
@@ -89,7 +88,7 @@ Input :: struct {
 #assert(size_of(Input) == 8)
 
 Inputs :: sim.Inputs(Input, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 Body_Ref :: physics.Body_Ref
 
@@ -289,6 +288,9 @@ Event_Switch_On :: struct {
 	position: sim.Position,
 	player:   sim.Player,
 }
+
+// The game has no commands (sim.Game's Cmd).
+Cmd :: sim.No_Commands
 
 Event :: union {
 	sim.Event_Player_Joined,

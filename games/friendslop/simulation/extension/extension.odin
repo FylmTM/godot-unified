@@ -47,7 +47,7 @@ MultiView :: enum u8 {}
 
 Frame :: godot.Frame(fs.State, fs.World, View, MultiView)
 
-GLUE := godot.Glue(fs.State, fs.Input, fs.World, View, MultiView) {
+GLUE := godot.Glue(fs.State, fs.Input, fs.World, fs.Cmd, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
 	data           = Data,

@@ -201,8 +201,8 @@ World :: struct {
 	hits:             [dynamic]physics.Hit_Event, // scratch
 }
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Sim :: sim.Sim(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
 
 @(rodata)
 GAME := Game {
@@ -214,7 +214,6 @@ GAME := Game {
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	events = Event,
 }
 
 @(rodata)
@@ -383,49 +382,49 @@ world_destroy :: proc(world: ^World) {
 }
 
 // The tick-0 state: the hub, every item, platform and bell with its body; players join when present.
-init :: proc(state: ^State, world: ^World, seed: u64) {
-	state.phase = .Hub
-	state.checkpoint = -1
-	for i in 0 ..< world.item_count {
-		state.items[i] = {
-			body  = create_item_body(world, i),
+init :: proc(t: ^Tick) {
+	t.state.phase = .Hub
+	t.state.checkpoint = -1
+	for i in 0 ..< t.world.item_count {
+		t.state.items[i] = {
+			body  = create_item_body(t.world, i),
 			alive = true,
 		}
 	}
-	for i in 0 ..< world.platform_count {
-		def := &world.platforms[i]
+	for i in 0 ..< t.world.platform_count {
+		def := &t.world.platforms[i]
 		body_def := b3.default_body_def()
 		body_def.type = .Kinematic_Body
 		body_def.position = def.origin
 		body_def.rotation = def.rot
 		body_def.enable_sleep = false
-		ref := physics.create_body(world.phys, &body_def)
-		id := physics.body_id(world.phys, ref)
+		ref := physics.create_body(t.world.phys, &body_def)
+		id := physics.body_id(t.world.phys, ref)
 		shape_def := b3.default_shape_def()
 		shape_def.filter.category_bits = CAT_PLATFORM
 		shape_def.base_material.user_material_id = MAT_PLATFORM + u64(i)
 		shape_def.base_material.friction = 0.8
 		hull := b3.make_box_hull(def.half.x, def.half.y, def.half.z)
 		b3.create_hull_shape(id, &shape_def, &hull.base)
-		state.platforms[i] = {
+		t.state.platforms[i] = {
 			body    = ref,
 			running = def.trigger < 0,
 		}
 	}
-	for i in 0 ..< world.trigger_count {
-		def := &world.triggers[i]
+	for i in 0 ..< t.world.trigger_count {
+		def := &t.world.triggers[i]
 		if def.kind != .Bell do continue
 		body_def := b3.default_body_def()
 		body_def.position = def.volume.pos
-		ref := physics.create_body(world.phys, &body_def)
-		id := physics.body_id(world.phys, ref)
+		ref := physics.create_body(t.world.phys, &body_def)
+		id := physics.body_id(t.world.phys, ref)
 		shape_def := b3.default_shape_def()
 		shape_def.filter.category_bits = CAT_TRIGGER
 		shape_def.base_material.user_material_id = MAT_TRIGGER + u64(i)
 		shape_def.enable_hit_events = true
 		sphere := b3.Sphere{{}, def.radius}
 		b3.create_sphere_shape(id, &shape_def, &sphere)
-		state.bodies[i] = ref
+		t.state.bodies[i] = ref
 	}
 }
 

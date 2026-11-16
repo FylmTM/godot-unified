@@ -8,9 +8,9 @@ import "../toy"
 import "unified:netcode"
 import "unified:sim"
 
-Client :: netcode.Client(toy.State, toy.Input, toy.World, toy.PLAYERS)
-Host :: netcode.Host(toy.State, toy.Input, toy.World, toy.PLAYERS)
-Hooks :: netcode.Hooks(toy.State, toy.Input, toy.World, toy.PLAYERS)
+Client :: netcode.Client(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
+Host :: netcode.Host(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
+Hooks :: netcode.Hooks(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
 
 SEED :: 5
 
@@ -29,7 +29,7 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 		sample = proc(user: rawptr, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 			return toy.scripted_input(SEED, player, tick)
 		},
-		commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+		commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
 			toy.scripted_commands(SEED, player, tick, out)
 		},
 		frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {

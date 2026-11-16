@@ -46,10 +46,10 @@ hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Data_Hud) {
 	switch state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = f32(tick - state.match_tick) * survivor.DT
+		hud.time_s = sim.seconds(tick - state.match_tick, survivor.TICK_HZ)
 		hud.wave = state.wave + 1
 	case .Over:
-		hud.time_s = f32(state.over_tick - state.match_tick) * survivor.DT
+		hud.time_s = sim.seconds(state.over_tick - state.match_tick, survivor.TICK_HZ)
 		hud.wave = state.wave + 1
 	}
 	hud.enemies_alive = state.enemies.count
@@ -69,7 +69,7 @@ hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Data_Hud) {
 			xp_next          = survivor.xp_next(state, character.level),
 			level            = character.level,
 			pending_levelups = character.pending_levelups,
-			respawn_s        = character.alive ? 0 : f32(character.respawn) * survivor.DT,
+			respawn_s        = character.alive ? 0 : sim.seconds(character.respawn, survivor.TICK_HZ),
 		}
 	}
 	return

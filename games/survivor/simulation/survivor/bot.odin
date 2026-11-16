@@ -90,7 +90,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 // The bot's commands: a level-up pick while one is pending, round-robin over the upgrades by level. In a
 // session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
-bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out) {
+bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out(Cmd)) {
 	character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(slot)) % 3)})
@@ -99,14 +99,13 @@ bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out)
 
 // One tick of bots in slots 0 ..< player_count (the bot in slot i is member i + 1, joining when its slot is
 // free): their inputs and commands, as the tick's record. `out` is scratch (the caller deletes its list).
-bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out) -> (inputs: Inputs) {
+bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out(Cmd)) -> (inputs: Inputs) {
 	for slot in 0 ..< player_count {
 		inputs.present += {slot}
 		if sim.player_in_slot(&state.players, slot) == {} {
 			sim.join(&inputs, slot, slot + 1)
 		}
 		inputs.input[slot] = bot_input(state, slot, tick)
-		out.commands = Cmd
 		out.slot = slot
 		out.cap = sim.COMMANDS_PER_PLAYER
 		clear(&out.list)

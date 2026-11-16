@@ -12,17 +12,17 @@ import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:sim"
 
-HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.PLAYERS) {
+HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 	game = &toy.GAME,
 	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
 		return toy.scripted_input(seed, player, tick)
 	},
-	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out) {
+	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
 		toy.scripted_commands(seed, player, tick, out)
 	},
 }
 
-SUITE := scenarios.Suite(toy.State, toy.Input, toy.World, toy.PLAYERS) {
+SUITE := scenarios.Suite(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 	game = &HEADLESS,
 	players = 4,
 	seed = 42,

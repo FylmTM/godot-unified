@@ -116,8 +116,8 @@ setup_done :: proc(run: ^Run) {
 
 // Slot 0 sends a command this tick.
 send :: proc(inputs: ^dr.Inputs, value: $T) {
-	raw, ok := sim.command_make(dr.Cmd, value)
-	assert(ok && sim.add_command(inputs, raw))
+	ok := sim.add_command(inputs, sim.command_make(dr.Cmd, value))
+	assert(ok)
 }
 
 // Every ship and rock: z == 0 and a rotation about Z only, bit-exact (−0 counts as 0).

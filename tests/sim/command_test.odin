@@ -92,8 +92,7 @@ command_unions_are_checked :: proc(t: ^testing.T) {
 }
 
 bump :: proc(slot: int, amount: i32) -> sim.Raw_Command {
-	raw, ok := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
-	assert(ok)
+	raw := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 	raw.slot = u8(slot)
 	return raw
 }
@@ -117,10 +116,10 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 		value, is_bump := sim.command_value(raw, toy.Cmd).(toy.Cmd_Bump)
 		testing.expect(t, is_bump && i32(raw.slot) == expected[0] && value.amount == expected[1])
 	}
-	testing.expect_value(t, len(sim.commands(&inputs, 0)), 2)
-	testing.expect_value(t, len(sim.commands(&inputs, 1)), 0)
-	testing.expect_value(t, len(sim.commands(&inputs, 2)), 4)
-	testing.expect_value(t, len(sim.commands(&inputs, 3)), 1)
+	testing.expect_value(t, len(sim.slot_commands(&inputs, 0)), 2)
+	testing.expect_value(t, len(sim.slot_commands(&inputs, 1)), 0)
+	testing.expect_value(t, len(sim.slot_commands(&inputs, 2)), 4)
+	testing.expect_value(t, len(sim.slot_commands(&inputs, 3)), 1)
 	// At most TICK_COMMANDS in all.
 	big: sim.Inputs(toy.Input, 8)
 	for k in 0 ..< 32 {
@@ -138,12 +137,7 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	sim.join(&inputs, 1, 2)
 	sim.add_command(&inputs, bump(1, 5))
 	sim.add_command(&inputs, bump(1, -2))
-	mark, ok := sim.command_make(toy.Cmd, toy.Cmd_Mark {
-		at     = {1, 2},
-		count  = 3,
-		shapes = {.Ring},
-	})
-	testing.expect(t, ok)
+	mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{at = {1, 2}, count = 3, shapes = {.Ring}})
 	sim.add_command(&inputs, mark) // slot 0
 	stray := bump(3, 100) // slot 3 is not present: nobody's
 	sim.add_command(&inputs, stray)
@@ -169,10 +163,8 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	testing.expect_value(t, toy.in_slot(state, 0).bumps, 0)
 	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Cmd) == nil)
 	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Cmd) == nil)
-	// command_from_bytes and command_make refuse what isn't one of the game's
-	_, made := sim.command_make(toy.Cmd, Cmd_Bump{1}) // the same layout, not the toy's type
-	testing.expect(t, !made)
-	_, made = sim.command_from_bytes(toy.Cmd, 0, {1, 2, 3})
+	// command_from_bytes refuses what isn't one of the game's (command_make and send_command: a compile error)
+	_, made := sim.command_from_bytes(toy.Cmd, 0, {1, 2, 3})
 	testing.expect(t, !made)
 	_, made = sim.command_from_bytes(toy.Cmd, 2, {1, 2, 3, 4})
 	testing.expect(t, !made)
@@ -221,14 +213,18 @@ Same_As_Toy :: union {
 
 @(test)
 compat_covers_the_command_types :: proc(t: ^testing.T) {
-	game := toy.GAME
-	compat := sim.compat_of(&game)
-	game.commands = Only_Bump
-	testing.expect(t, sim.compat_of(&game) != compat)
-	game.commands = Bump_And_Renamed // the same layout under another name
-	testing.expect(t, sim.compat_of(&game) != compat)
-	game.commands = Same_As_Toy
-	testing.expect_value(t, sim.compat_of(&game), compat)
+	compat := sim.compat_of(&toy.GAME)
+	with_commands :: proc($Cmd: typeid) -> u64 {
+		game := sim.Game(toy.State, toy.Input, toy.World, toy.Event, Cmd, toy.PLAYERS) {
+			name    = toy.GAME.name,
+			version = toy.GAME.version,
+			tick_hz = toy.GAME.tick_hz,
+		}
+		return sim.compat_of(&game)
+	}
+	testing.expect(t, with_commands(Only_Bump) != compat)
+	testing.expect(t, with_commands(Bump_And_Renamed) != compat) // the same layout under another name
+	testing.expect_value(t, with_commands(Same_As_Toy), compat)
 }
 
 @(test)

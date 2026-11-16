@@ -12,7 +12,7 @@ tick :: proc(t: ^Tick) {
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) do pilot(t, ship, player)
 	physics.set_velocity_2d(t.world.phys, t.state.station, {}, t.state.phase == .Over ? 0 : STATION_SPIN)
-	physics.step(t.world.phys, DT, 4)
+	physics.step(t.world.phys, t.dt, 4)
 	move_bullets(t)
 	update_rocks(t)
 	warp_ships(t)
@@ -47,8 +47,8 @@ spawn_ship :: proc(t: ^Tick, player: sim.Player) {
 commands :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for _, player in sim.next(&players) {
-		for &raw in sim.commands(t, player) {
-			switch _ in sim.command_value(&raw, Cmd) {
+		for sent in sim.commands(t, player) {
+			switch _ in sent {
 			case Cmd_Start:
 				if t.state.phase == .Lobby {
 					t.state.phase = .Match
@@ -78,7 +78,7 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	mass := physics.mass(t.world.phys, ship.body)
 	move := dmath.stick(input.move_x, input.move_y)
 	ship.thrust = move != {}
-	if ship.thrust do physics.apply_impulse_2d(t.world.phys, ship.body, move * (THRUST_ACCEL * mass * DT))
+	if ship.thrust do physics.apply_impulse_2d(t.world.phys, ship.body, move * (THRUST_ACCEL * mass * t.dt))
 	// turn toward the aim: the angular velocity from the cross product (the sine of the error), the full rate
 	// when the aim is behind
 	spin: f32 = 0
@@ -130,7 +130,7 @@ BULLET_QUERY :: physics.Query {
 move_bullets :: proc(t: ^Tick) {
 	bullets := sim.iterate(&t.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		step := bullet.vel * DT
+		step := bullet.vel * t.dt
 		hit, ok := physics.ray_closest(t.world.phys, v3(bullet.pos), v3(step), BULLET_QUERY)
 		if ok {
 			if hit.material >= MAT_ROCK && hit.material < MAT_ROCK + MAX_ROCKS {
@@ -289,7 +289,7 @@ update_gems :: proc(t: ^Tick) {
 	}
 	gems := sim.iterate(&t.state.gems)
 	each_gem: for gem, handle in sim.next(&gems) {
-		gem.pos += gem.vel * DT
+		gem.pos += gem.vel * t.dt
 		gem.vel *= GEM_DRAG
 		for &picker in pickers[:picker_count] {
 			if dmath.dist_sq2(picker.pos, gem.pos) > GEM_PICK_RADIUS * GEM_PICK_RADIUS do continue
@@ -307,7 +307,7 @@ update_gems :: proc(t: ^Tick) {
 // ---- waves: one stream of numbers (the state's Rng) generates them in order
 
 // During a match, starts a wave every WAVE_EVERY_TICKS and spawns its large rocks one at a time from the rock spawn
-// markers in turn, with speed, spread, spin and shape drawn from the state's random stream.
+// markers in turn, with speed, spread, spin and shape from keyed rolls (Roll).
 spawn_waves :: proc(t: ^Tick) {
 	if t.number >= t.state.next_wave_tick {
 		t.state.rocks_left += 3 + 2 * u32(t.state.waves)
@@ -320,10 +320,10 @@ spawn_waves :: proc(t: ^Tick) {
 	spawner := &t.world.spawners[t.state.spawner % u32(t.world.spawner_count)]
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
 	// a little spread: the drift direction turned by up to ±0.25 rad (a small-angle rotation, renormalised)
-	turn := (sim.rng_f32(&t.state.rng) - 0.5) * 0.5
+	turn := (sim.roll_f32(t, Roll.Rock_Turn) - 0.5) * 0.5
 	direction := dmath.normalize2({spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
-	spin := (sim.rng_f32(&t.state.rng) - 0.5) * 2
-	variant := int(sim.rng_below(&t.state.rng, ROCK_VARIANTS))
+	spin := (sim.roll_f32(t, Roll.Rock_Spin) - 0.5) * 2
+	variant := int(sim.roll_below(t, ROCK_VARIANTS, Roll.Rock_Variant))
 	if _, ok := create_rock(t.state, t.world, .Large, variant, spawner.pos, direction * speed, spin); ok {
 		t.state.spawner += 1
 		t.state.rocks_left -= 1
@@ -346,7 +346,7 @@ advance_phase :: proc(t: ^Tick) {
 		if t.state.station_hp <= 0 {
 			t.state.phase = .Over
 			t.state.over_tick = t.number
-			sim.emit(t, Event_Match_Over{seconds_survived = f32(t.number - t.state.match_tick) * DT})
+			sim.emit(t, Event_Match_Over{seconds_survived = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
 		}
 	case .Over:
 		if t.number - t.state.over_tick >= OVER_HOLD_TICKS do reset(t)

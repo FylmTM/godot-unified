@@ -15,6 +15,11 @@ plain_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 	return plain_check(type, path, bools = true, floats = true)
 }
 
+// plain_violation that allows padding: the rule for an event, which is never hashed or compared as bytes.
+padded_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
+	return plain_check(type, path, bools = true, floats = true, padding = true)
+}
+
 // plain_violation without bools or floats: the rule for a tick's Input, which comes from another machine and is
 // compared and logged as raw bytes. A bool's byte can hold values other than 0 and 1 there, which Odin's bool
 // operations don't define (a u8 of flags or a bit_set says the same with every byte value defined); a float can be
@@ -24,10 +29,10 @@ wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 }
 
 @(private)
-plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats: bool) -> string {
+plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats: bool, padding := false) -> string {
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_check(variant.base, path, bools, floats)
+		return plain_check(variant.base, path, bools, floats, padding)
 	case runtime.Type_Info_Integer:
 		if type.id == int || type.id == uint || type.id == uintptr {
 			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
@@ -55,19 +60,19 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats:
 		}
 		return ""
 	case runtime.Type_Info_Enum:
-		return plain_check(variant.base, path, bools, floats)
+		return plain_check(variant.base, path, bools, floats, padding)
 	case runtime.Type_Info_Bit_Set:
 		if variant.underlying == nil {
 			return fmt.tprintf("%s: bit_set without an explicit backing integer", path)
 		}
-		return plain_check(variant.underlying, path, bools, floats)
+		return plain_check(variant.underlying, path, bools, floats, padding)
 	case runtime.Type_Info_Array:
-		return plain_check(variant.elem, path, bools, floats)
+		return plain_check(variant.elem, path, bools, floats, padding)
 	case runtime.Type_Info_Enumerated_Array:
 		if variant.is_sparse {
 			return fmt.tprintf("%s: sparse enumerated array", path)
 		}
-		return plain_check(variant.elem, path, bools, floats)
+		return plain_check(variant.elem, path, bools, floats, padding)
 	case runtime.Type_Info_Struct:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
@@ -75,15 +80,15 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats:
 		end := uintptr(0)
 		for i in 0 ..< int(variant.field_count) {
 			name := fmt.tprintf("%s.%s", path, variant.names[i])
-			if variant.offsets[i] != end {
+			if !padding && variant.offsets[i] != end {
 				return fmt.tprintf("%s: implicit padding before this field", name)
 			}
-			if reason := plain_check(variant.types[i], name, bools, floats); reason != "" {
+			if reason := plain_check(variant.types[i], name, bools, floats, padding); reason != "" {
 				return reason
 			}
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
 		}
-		if end != uintptr(type.size) {
+		if !padding && end != uintptr(type.size) {
 			return fmt.tprintf("%s: implicit padding at the end", path)
 		}
 		return ""

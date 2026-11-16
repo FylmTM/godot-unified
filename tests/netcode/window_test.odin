@@ -57,7 +57,7 @@ varied_ticks :: proc(ticks: []toy.Inputs) {
 		case 3:
 			tick_inputs.replaced = state % 2 == 0 ? {} : tick_inputs.present
 		case 5:
-			bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(i)})
+			bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(i)})
 			bump.slot = u8(state % toy.PLAYERS)
 			sim.add_command(&tick_inputs, bump)
 		}
@@ -115,7 +115,7 @@ window_sizes :: proc(t: ^testing.T) {
 		}
 	}
 	for player in 0 ..< toy.PLAYERS {
-		bump, _ := sim.command_make(toy.Cmd, toy.Cmd_Bump{7})
+		bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{7})
 		bump.slot = u8(player)
 		sim.add_command(&full[1], bump)
 	}

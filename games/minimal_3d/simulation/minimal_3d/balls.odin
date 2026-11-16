@@ -22,8 +22,8 @@ throw_ball :: proc(t: ^Tick, player: sim.Player, speed: u8) {
 move_balls :: proc(t: ^Tick) {
 	balls := sim.iterate(&t.state.balls)
 	for ball, handle in sim.next(&balls) {
-		ball.vertical_speed -= GRAVITY * DT
-		ball.height += ball.vertical_speed * DT
+		ball.vertical_speed -= GRAVITY * t.dt
+		ball.height += ball.vertical_speed * t.dt
 		if ball.height <= BALL_RADIUS do sim.despawn(&t.state.balls, handle)
 	}
 }

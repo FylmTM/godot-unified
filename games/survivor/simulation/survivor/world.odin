@@ -21,9 +21,9 @@ World :: struct {
 	extras:  [1]sim.Extra,
 }
 
-Game :: sim.Game(State, Input, World, PLAYERS)
-Sim :: sim.Sim(State, Input, World, PLAYERS)
-Tick :: sim.Tick(State, Input, World, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
 // (y = 0) for enemies and gems, the body's centre for players and barrels. A `player` field names the player the
@@ -103,8 +103,6 @@ GAME := Game {
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
 	init = init,
 	tick = tick,
-	events = Event,
-	commands = Cmd,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -116,13 +114,11 @@ GAME_STRESS := Game {
 	world_create = world_create,
 	world_destroy = world_destroy,
 	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
-	init = proc(state: ^State, world: ^World, seed: u64) {
-		init(state, world, seed)
-		set_tuning(state, .Stress)
+	init = proc(t: ^Tick) {
+		init(t)
+		set_tuning(t.state, .Stress)
 	},
 	tick = tick,
-	events = Event,
-	commands = Cmd,
 }
 
 // Start spots by slot, inside the start circle.
@@ -230,16 +226,22 @@ world_destroy :: proc(world: ^World) {
 }
 
 // The tick-0 state: the lobby, items with their bodies; players join when they are first present (sys_players).
-init :: proc(state: ^State, world: ^World, seed: u64) {
-	state.seed = u32(seed)
-	state.rng = sim.rng_seed(seed)
-	state.enemy_cap = MAX_ENEMIES
-	state.phase = .Lobby
-	state.circle_radius = START_RADIUS
-	set_tuning(state, .Play)
+init :: proc(t: ^Tick) {
+	t.state.seed = u32(t.seed)
+	t.state.enemy_cap = MAX_ENEMIES
+	t.state.phase = .Lobby
+	t.state.circle_radius = START_RADIUS
+	set_tuning(t.state, .Play)
 	for i in 0 ..< ITEM_COUNT {
-		item_reset(state, world, i)
+		item_reset(t.state, t.world, i)
 	}
+}
+
+// What the keyed rolls are for (sim.roll_below).
+Roll :: enum u8 {
+	Spawn_Direction,
+	Spawn_Jitter,
+	Spawn_Kind,
 }
 
 // Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its grid spot. The
