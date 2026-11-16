@@ -11,12 +11,15 @@ state: `src/physics/SPEC.md`. What tick code may not use: `src/lint/SPEC.md`.
 
 Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS)`:
 
-- `State` **the state block**: one plain-data struct (integers, floats, bools, enums, bit_sets with an explicit
-  backing integer, fixed arrays, nested structs; no pointers, slices, maps or unions; no implicit padding: gaps are
-  explicit `_pad` fields). Its memory is its canonical little-endian serialization: a snapshot is a copy, the
-  checksum hashes its bytes. `create` checks it by an RTTI walk (`plain_violation`) and panics with the reason.
-- `Input` one player's **input** for one tick, plain data. The netcode may repeat or substitute it, so a one-shot
-  action is never an `Input` field: it is a command.
+- `State` **the state block**: one plain-data struct: sized integers (not `int`, `uint` or `uintptr`, whose size
+  is the platform's), `f32` (no other float), bools, enums and bit_sets with an explicit sized backing integer, fixed
+  arrays, nested structs; no pointers, slices, maps or unions; no implicit padding: gaps are explicit `_pad`
+  fields. Its memory is its canonical little-endian serialization: a snapshot is a copy, the checksum hashes its
+  bytes. `create` checks it by an RTTI walk (`plain_violation`) and panics with the reason.
+- `Input` one player's **input** for one tick: plain data **without bools** (`wire_violation`; `create`, the
+  netcode client and the relay check it). It comes from another machine and is compared and logged as raw bytes,
+  and a bool's byte from there may hold neither 0 nor 1: use a `u8` of flags or a bit_set. The netcode may repeat or
+  substitute it, so a one-shot action is never an `Input` field: it is a command.
 - `World` everything outside the block (the Box3D world, level geometry, scratch). **The World holds only what
   `world_create` builds and what an `Extra` rolls back.** Anything else in it that affects `tick` diverges after a
   rollback, unhashed. Every game's suite runs `scenarios.rollback_every_tick` (restore 8 ticks back on every tick,
@@ -142,7 +145,8 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
   joiners with the log; never in the block. Only `tick` reads it. The union exists only when `command_value` builds
   it; on the wire and in the log a command is its kind and its struct's bytes.
 - `create` checks the union: a plain union (not `#no_nil` or `#shared_nil`), plain variants with no padding, 1..64
-  bytes (`COMMAND_MAX`), at most 255 variants, names unique. GDScript sends one as an object of its class
+  bytes (`COMMAND_MAX`), at most 255 variants, names unique. A command may hold bools: `command_value` reads each
+  back as 0 or 1 whatever its bytes held. GDScript sends one as an object of its class
   (`CommandDropCoin`: `src/godot/SPEC.md`).
 - A tick holds at most `COMMANDS_PER_PLAYER` (4) of one slot and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
   so a tick's record has a fixed size and fits one datagram. More wait for the next tick, in order:
@@ -260,7 +264,8 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   of another level or another build (`headless.run_replay`), saying which: a known compat that differs.
   `Input_Log` in memory:
   `log_append(&log, &inputs)`, `log_inputs(&log, k) -> Inputs` (tick k + 1), `log_encode / decode / read / write`;
-  decoding refuses a malformed tick. Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
+  decoding refuses a malformed tick (cut short, a slot past `PLAYERS` present or replaced, bad commands or join
+  records). Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
   (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
 - **Portable snapshot** `UNIS`: seed, content hash, tick, block size, `layout_hash(State)` (field names, offsets and

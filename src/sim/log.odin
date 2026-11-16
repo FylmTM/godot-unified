@@ -131,8 +131,9 @@ write_joins :: proc(writer: ^wire.Writer, member: []u16) {
 	}
 }
 
-// Reads a tick's record into `input`, `commands` and `member`; false when it is malformed: cut short, or its
-// commands (read_commands) or join records (read_joins) are.
+// Reads a tick's record into `input`, `commands` and `member` (one per slot); false when it is malformed: cut short,
+// a slot past the session's (len(member)) present or replaced, or its commands (read_commands) or join records
+// (read_joins) malformed.
 read_tick :: proc(
 	reader: ^wire.Reader,
 	input: []u8,
@@ -145,6 +146,10 @@ read_tick :: proc(
 ) {
 	present = transmute(Slots)wire.r_u32(reader)
 	replaced = transmute(Slots)wire.r_u32(reader)
+	outside := ~u32(0) << uint(len(member)) // Odin: a shift by the width or more is 0 (all 32 slots)
+	if (transmute(u32)present | transmute(u32)replaced) & outside != 0 {
+		return
+	}
 	copy(input, wire.r_bytes(reader, len(input)))
 	count, ok = read_commands(reader, len(member), commands)
 	ok = ok && read_joins(reader, present, member)

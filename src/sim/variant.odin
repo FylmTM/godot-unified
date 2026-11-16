@@ -80,7 +80,8 @@ union_violation :: proc(type: typeid, max_size: int, prefix: string) -> string {
 }
 
 // The union value of kind `kind` made of `bytes` (nil: a kind out of range or the wrong size, which
-// is how bytes from the network that don't match the build read back on every peer).
+// is how bytes from the network that don't match the build read back on every peer). Every bool in it reads back
+// as 0 or 1 whatever its bytes held (a command comes from another machine), so every peer branches on it alike.
 union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 	variants := union_variants(U)
 	if kind < 0 || kind >= len(variants) || len(bytes) != variants[kind].size {
@@ -88,6 +89,7 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 	}
 	info := runtime.type_info_base(type_info_of(U)).variant.(runtime.Type_Info_Union)
 	runtime.mem_copy_non_overlapping(&value, raw_data(bytes), len(bytes))
+	normalize_bools(&value, variants[kind])
 	tag := uintptr(&value) + info.tag_offset
 	switch info.tag_type.size { 	// the tag of variant `kind` is kind + 1 (0 is nil)
 	case 1:
@@ -100,6 +102,31 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 		(^u64)(tag)^ = u64(kind + 1)
 	}
 	return
+}
+
+// Sets every bool in the value at `data` (of a plain type) to 0 or 1: false when all its bytes are 0.
+@(private)
+normalize_bools :: proc(data: rawptr, type: ^runtime.Type_Info) {
+	#partial switch variant in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Boolean:
+		bytes := ([^]u8)(data)[:type.size]
+		set := false
+		for b in bytes do set ||= b != 0
+		runtime.mem_zero(data, type.size)
+		bytes[0] = u8(set) // little-endian: the low byte holds 1
+	case runtime.Type_Info_Array:
+		for i in 0 ..< variant.count {
+			normalize_bools(rawptr(uintptr(data) + uintptr(i * variant.elem_size)), variant.elem)
+		}
+	case runtime.Type_Info_Enumerated_Array:
+		for i in 0 ..< variant.count {
+			normalize_bools(rawptr(uintptr(data) + uintptr(i * variant.elem_size)), variant.elem)
+		}
+	case runtime.Type_Info_Struct:
+		for i in 0 ..< int(variant.field_count) {
+			normalize_bools(rawptr(uintptr(data) + variant.offsets[i]), variant.types[i])
+		}
+	}
 }
 
 // The XXH3 of a union's variants (names and layouts), for compat_of (0 for nil).

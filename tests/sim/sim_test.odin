@@ -226,13 +226,48 @@ With_Pointer :: struct {
 	pointer: ^int,
 }
 
+Sized :: struct {
+	f: i64,
+	a: i8,
+	b: u8,
+	c: i16,
+	d: u32be,
+	e: f32,
+	g: enum u16 {
+		A,
+	},
+	h: bit_set[0 ..< 16;u16],
+	i: [8]u8,
+}
+
+Flags :: struct {
+	on:   bool,
+	_pad: [3]u8,
+	more: b32,
+}
+
 @(test)
 plain_data_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.State)), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.Input)), "")
+	testing.expect_value(t, sim.wire_violation(type_info_of(toy.Input)), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(Sized)), "")
+	testing.expect_value(t, sim.wire_violation(type_info_of(Sized)), "")
 	testing.expect(t, sim.plain_violation(type_info_of(Padded)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
+	// Platform-sized integers and any float but f32, also inside an enum, a bit_set or an array.
+	Default_Enum :: enum {
+		A,
+	}
+	Distinct_Int :: distinct int
+	for type in ([]typeid{int, uint, uintptr, f64, f16, Default_Enum, bit_set[0 ..< 8;int], [2]f64, Distinct_Int}) {
+		testing.expectf(t, sim.plain_violation(type_info_of(type)) != "", "%v accepted in the state", type)
+	}
+	// Bools: in the state, yes; in what comes from another machine (an Input, a command), no.
+	testing.expect_value(t, sim.plain_violation(type_info_of(Flags)), "")
+	testing.expect(t, sim.wire_violation(type_info_of(Flags)) != "")
+	testing.expect(t, sim.wire_violation(type_info_of([4]b8)) != "")
 	testing.expect(t, sim.layout_hash(toy.State) != sim.layout_hash(Padded))
 }
 

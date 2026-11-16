@@ -210,7 +210,7 @@ client_create :: proc(
 	link: Link,
 	hooks: Hooks(State, Input, World, PLAYERS),
 ) -> ^Client(State, Input, World, PLAYERS) {
-	usim.check_plain(Input)
+	usim.check_wire(Input)
 	client := new(Client(State, Input, World, PLAYERS))
 	client.game = game
 	client.cfg = cfg

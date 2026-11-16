@@ -36,6 +36,29 @@ Cmd_Bump :: struct {
 	amount: i32,
 }
 
+Cmd_Toggle :: struct {
+	on:    bool,
+	_pad:  [3]u8,
+	also:  [2]b16,
+	count: u32,
+}
+
+Toggles :: union {
+	Cmd_Toggle,
+}
+
+// A bool's byte from another machine may hold anything: command_value reads every bool back as 0 or 1.
+@(test)
+command_bools_read_back_as_0_or_1 :: proc(t: ^testing.T) {
+	bytes := [size_of(Cmd_Toggle)]u8{2, 0xAA, 0xAA, 0xAA, 0, 0, 0, 0x80, 7, 0, 0, 0}
+	raw, ok := sim.command_from_bytes(Toggles, 0, bytes[:])
+	testing.expect(t, ok)
+	toggle := sim.command_value(&raw, Toggles).(Cmd_Toggle)
+	got := transmute([size_of(Cmd_Toggle)]u8)toggle
+	testing.expect_value(t, got, [size_of(Cmd_Toggle)]u8{1, 0xAA, 0xAA, 0xAA, 0, 0, 1, 0, 7, 0, 0, 0})
+	testing.expect(t, toggle.on && !toggle.also[0] && toggle.also[1] && toggle.count == 7)
+}
+
 @(test)
 command_unions_are_checked :: proc(t: ^testing.T) {
 	Max :: union {
@@ -241,6 +264,14 @@ malformed_tick_records_are_refused :: proc(t: ^testing.T) {
 		data[case_.at] = case_.value
 		reader = wire.reader_make(data)
 		testing.expectf(t, !sim.inputs_read(&reader, &back), "case %d read", i)
+	}
+	// A slot past PLAYERS (4) present or replaced: the tick can't mark seats that don't exist.
+	for at in ([]int{0, 3, 4, 7}) {
+		data := make([]u8, len(good), context.temp_allocator)
+		copy(data, good)
+		data[at] |= at % 4 == 0 ? 0x10 : 0x80 // slot 4, or slot 31
+		reader = wire.reader_make(data)
+		testing.expectf(t, !sim.inputs_read(&reader, &back), "a slot past PLAYERS at byte %d read", at)
 	}
 	// Players out of order: player 1's command first.
 	out_of_order := inputs

@@ -127,7 +127,7 @@ window_sizes :: proc(t: ^testing.T) {
 	)
 }
 
-// Malformed ticks are refused, never read past: unknown flags, a player past PLAYERS, a byte past the input's
+// Malformed ticks are refused, never read past: unknown flags, a slot past PLAYERS, a byte past the input's
 // size, bad commands, bad join records, and every cut-short prefix of a valid window.
 @(test)
 window_refuses_malformed :: proc(t: ^testing.T) {
@@ -138,6 +138,8 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 	}
 	expect_refused(t, {0x10}, "an unknown flag")
 	expect_refused(t, {0x80}, "an unknown flag")
+	expect_refused(t, {0x01, 0x10, 0, 0, 0, 0, 0, 0, 0}, "slot 4 of 4 present") // .Presence {4}
+	expect_refused(t, {0x01, 0x01, 0, 0, 0, 0, 0, 0, 0x80}, "slot 31 of 4 replaced") // .Presence {0}, replaced {31}
 	expect_refused(t, {0x02, 0x10, 0x01, 7}, "player 4 of 4") // .Inputs, players {4}
 	expect_refused(t, {0x02, 0x01, 0x10, 7}, "byte 4 of a 4-byte input") // .Inputs, players {0}, bytes {4}
 	expect_refused(t, {0x04, 17}, "17 commands")

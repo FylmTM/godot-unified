@@ -238,7 +238,7 @@ create :: proc(
 	content: []u8 = nil,
 ) -> ^Sim(State, Input, World, PLAYERS) {
 	check_plain(State)
-	check_plain(Input)
+	check_wire(Input)
 	if reason := game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
 		panic(reason)
 	}

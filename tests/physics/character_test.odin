@@ -87,7 +87,7 @@ step :: proc(world: ^physics.World) {
 
 Rig_Input :: struct {
 	mx, mz: i8,
-	jump:   b8,
+	jump:   u8, // 0 or 1 (an Input holds no bools: sim.wire_violation)
 	_pad:   u8,
 }
 
@@ -185,13 +185,13 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 			&character,
 			&CHARACTER,
 			move,
-			bool(player_input.jump && !state.prev[player]),
+			player_input.jump != 0 && !state.prev[player],
 			1,
 			DT,
 		) {
 			state.jumps += 1
 		}
-		state.prev[player] = player_input.jump
+		state.prev[player] = b8(player_input.jump != 0)
 	}
 	// Character 0 grabs box (number / 40) % 4 for 25 ticks of every 40: a motor joint created and
 	// destroyed inside rollback windows.
@@ -233,7 +233,7 @@ rig_input :: proc(player: int, tick: u32) -> Rig_Input {
 	return {
 		mx   = i8(hash % 255) - 127,
 		mz   = i8((hash >> 8) % 255) - 127,
-		jump = b8((hash >> 16) % 4 == 0),
+		jump = u8((hash >> 16) % 4 == 0),
 	}
 }
 
