@@ -11,7 +11,8 @@ tick :: proc(t: ^Tick) {
 	commands(t)
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) do pilot(t, ship, player)
-	physics.set_velocity_2d(t.world.phys, t.state.station, {}, t.state.phase == .Over ? 0 : STATION_SPIN)
+	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
+	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, t.state.phase == .Over ? 0 : STATION_SPIN)
 	physics.step(t.world.phys, t.dt, 4)
 	move_bullets(t)
 	update_rocks(t)
@@ -73,12 +74,13 @@ commands :: proc(t: ^Tick) {
 // boost, and firing bullets; it also counts down the ship's cooldowns.
 pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	input := sim.input(t, player)
-	pos, heading := physics.pose_2d(t.world.phys, ship.body)
-	vel, _ := physics.velocity_2d(t.world.phys, ship.body)
-	mass := physics.mass(t.world.phys, ship.body)
+	pos := physics.body_position_2d(t.world.phys, ship.body)
+	heading := physics.body_rotation_2d(t.world.phys, ship.body)
+	vel := physics.body_linear_velocity_2d(t.world.phys, ship.body)
+	mass := physics.body_mass(t.world.phys, ship.body)
 	move := dmath.stick(input.move_x, input.move_y)
 	ship.thrust = move != {}
-	if ship.thrust do physics.apply_impulse_2d(t.world.phys, ship.body, move * (THRUST_ACCEL * mass * t.dt))
+	if ship.thrust do physics.body_apply_linear_impulse_to_center_2d(t.world.phys, ship.body, move * (THRUST_ACCEL * mass * t.dt))
 	// turn toward the aim: the angular velocity from the cross product (the sine of the error), the full rate
 	// when the aim is behind
 	spin: f32 = 0
@@ -92,13 +94,14 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 			spin = clamp(TURN_GAIN * cross, -TURN_MAX, TURN_MAX)
 		}
 	}
-	vel, _ = physics.velocity_2d(t.world.phys, ship.body)
-	physics.set_velocity_2d(t.world.phys, ship.body, vel, spin)
+	vel = physics.body_linear_velocity_2d(t.world.phys, ship.body)
+	physics.body_set_linear_velocity_2d(t.world.phys, ship.body, vel)
+	physics.body_set_angular_velocity_2d(t.world.phys, ship.body, spin)
 	if ship.boost_cooldown > 0 do ship.boost_cooldown -= 1
 	if ship.fire_cooldown > 0 do ship.fire_cooldown -= 1
 	if ship.gate_cooldown > 0 do ship.gate_cooldown -= 1
 	if .Boost in input.buttons && ship.boost_cooldown == 0 {
-		physics.apply_impulse_2d(t.world.phys, ship.body, heading * (BOOST_SPEED * mass))
+		physics.body_apply_linear_impulse_to_center_2d(t.world.phys, ship.body, heading * (BOOST_SPEED * mass))
 		ship.boost_cooldown = BOOST_COOLDOWN_TICKS
 		sim.emit(t, Event_Boosted{position = position_of(pos), player = player})
 	}
@@ -131,18 +134,17 @@ move_bullets :: proc(t: ^Tick) {
 	bullets := sim.iterate(&t.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
 		step := bullet.vel * t.dt
-		hit, ok := physics.ray_closest(t.world.phys, v3(bullet.pos), v3(step), BULLET_QUERY)
+		hit, ok := physics.world_cast_ray_closest(t.world.phys, v3(bullet.pos), v3(step), BULLET_QUERY)
 		if ok {
-			if hit.material >= MAT_ROCK && hit.material < MAT_ROCK + MAX_ROCKS {
-				rock_index := int(hit.material - MAT_ROCK)
-				rock := &t.state.rocks.items[rock_index]
-				if sim.alive(&t.state.rocks, rock_index) && rock.hp > 0 {
+			if hit.category & CAT_ROCK != 0 {
+				rock_handle := sim.handle_of_key(Rock, hit.tag)
+				if rock := sim.get(&t.state.rocks, rock_handle); rock != nil && rock.hp > 0 {
 					rock.hp -= 1
 					rock.hit_tick = t.number
 					direction := dmath.normalize2(bullet.vel)
-					physics.apply_impulse_2d(t.world.phys, rock.body, direction * BULLET_PUSH)
+					physics.body_apply_linear_impulse_to_center_2d(t.world.phys, rock.body, direction * BULLET_PUSH)
 					sim.emit(t, Event_Rock_Hit {
-						rock     = sim.handle(&t.state.rocks, rock_index),
+						rock     = rock_handle,
 						position = sim.Position(hit.point),
 						player   = bullet.owner,
 						size     = rock.size,
@@ -163,14 +165,14 @@ move_bullets :: proc(t: ^Tick) {
 // Resolves the rocks after the physics step: one touching the station damages it and is gone, one out of HP splits
 // into two of the next size, or, when small, is destroyed and every other one drops a gem.
 update_rocks :: proc(t: ^Tick) {
-	station, _ := physics.pose_2d(t.world.phys, t.state.station)
+	station := physics.body_position_2d(t.world.phys, t.state.station)
 	// one pass over the slots in use now: a split's rocks that reuse a free slot ahead of the walk are visited
 	// this tick, the ones past the high water mark (where the walk started it) the next
 	high_water := t.state.rocks.high_water
 	rocks := sim.iterate(&t.state.rocks)
 	for rock, handle in sim.next(&rocks) {
 		if i32(handle.index) >= high_water do break
-		pos, _ := physics.pose_2d(t.world.phys, rock.body)
+		pos := physics.body_position_2d(t.world.phys, rock.body)
 		radius := ROCK_RADIUS[rock.size]
 		// touching the station (its corners' circle): damage, and the rock is gone
 		if t.state.phase != .Over &&
@@ -187,7 +189,8 @@ update_rocks :: proc(t: ^Tick) {
 		}
 		if rock.hp > 0 do continue
 		size, variant := rock.size, int(rock.variant)
-		vel, spin := physics.velocity_2d(t.world.phys, rock.body)
+		vel := physics.body_linear_velocity_2d(t.world.phys, rock.body)
+		spin := physics.body_angular_velocity_2d(t.world.phys, rock.body)
 		kill_rock(t.state, t.world, handle)
 		if size == .Small {
 			sim.emit(t, Event_Rock_Destroyed {
@@ -230,8 +233,7 @@ update_rocks :: proc(t: ^Tick) {
 
 // Removes a rock: destroys its body and frees its table slot.
 kill_rock :: proc(state: ^State, world: ^World, handle: sim.Handle(Rock)) {
-	physics.destroy_body(world.phys, &sim.get(&state.rocks, handle).body)
-	sim.despawn(&state.rocks, handle)
+	physics.despawn(world.phys, &state.rocks, handle)
 }
 
 // ---- gates
@@ -245,15 +247,20 @@ warp_ships :: proc(t: ^Tick) {
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
 		if ship.gate_cooldown > 0 do continue
-		pos, rotation := physics.pose_2d(t.world.phys, ship.body)
+		pos := physics.body_position_2d(t.world.phys, ship.body)
+		rotation := physics.body_rotation_2d(t.world.phys, ship.body)
 		for gate in 0 ..< t.world.gate_count {
 			gate_def := &t.world.gates[gate]
 			if gate_def.pair < 0 || t.state.gates[gate].charge > 0 do continue
 			if dmath.dist_sq2(pos, gate_def.pos) > GATE_RADIUS * GATE_RADIUS do continue
 			to := t.world.gates[gate_def.pair].pos
-			vel, spin := physics.velocity_2d(t.world.phys, ship.body)
-			physics.teleport(t.world.phys, ship.body, v3(to), physics.quat_2d(rotation))
-			physics.set_velocity_2d(t.world.phys, ship.body, vel, spin)
+			vel := physics.body_linear_velocity_2d(t.world.phys, ship.body)
+			spin := physics.body_angular_velocity_2d(t.world.phys, ship.body)
+			physics.body_set_transform(t.world.phys, ship.body, v3(to), physics.quat_2d(rotation))
+			physics.body_set_linear_velocity(t.world.phys, ship.body, {})
+			physics.body_set_angular_velocity(t.world.phys, ship.body, {})
+			physics.body_set_linear_velocity_2d(t.world.phys, ship.body, vel)
+			physics.body_set_angular_velocity_2d(t.world.phys, ship.body, spin)
 			t.state.gates[gate].charge = GATE_CHARGE_TICKS
 			t.state.gates[gate_def.pair].charge = GATE_CHARGE_TICKS
 			ship.gate_cooldown = GATE_CHARGE_TICKS
@@ -283,7 +290,7 @@ update_gems :: proc(t: ^Tick) {
 	picker_count := 0
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
-		pos, _ := physics.pose_2d(t.world.phys, ship.body)
+		pos := physics.body_position_2d(t.world.phys, ship.body)
 		pickers[picker_count] = {ship, player, pos}
 		picker_count += 1
 	}
@@ -372,7 +379,9 @@ reset :: proc(t: ^Tick) {
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
 		slot, _ := sim.player_slot(&t.state.players, player)
-		physics.teleport(t.world.phys, ship.body, v3(t.world.spawns[slot]), physics.quat_2d({0, -1}))
+		physics.body_set_transform(t.world.phys, ship.body, v3(t.world.spawns[slot]), physics.quat_2d({0, -1}))
+		physics.body_set_linear_velocity(t.world.phys, ship.body, {})
+		physics.body_set_angular_velocity(t.world.phys, ship.body, {})
 		ship.fire_cooldown, ship.boost_cooldown, ship.gate_cooldown = 0, 0, 0
 	}
 	for &gate in t.state.gates do gate = {}

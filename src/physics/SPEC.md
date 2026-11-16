@@ -14,7 +14,7 @@ Box3D (any worker count steps identically), state in the block or in the Box3D w
 create(settings := Settings{}) -> ^World    // one Box3D world; mutex-guarded (Box3D's world table is global)
 destroy(world)
 Settings :: struct {workers: i32, gravity: Maybe([3]f32), hit_threshold: f32, anchor: bool}
-extra(world, State) -> sim.Extra            // the world as rollback state; finds every Body_Ref/Joint_Ref by RTTI once
+extra(world, State) -> sim.Extra            // the world as rollback state; finds every ref by RTTI once; make it last
 ```
 
 - `workers`: Box3D's threads for the step (0 or 1: the caller's thread). Results are bit-identical for any count;
@@ -26,8 +26,9 @@ extra(world, State) -> sim.Extra            // the world as rollback state; find
   (contacts, warm starts, sleep, trees), so a re-simulation continues bit-exactly. The hash is Box3D's whole-world
   hash (its canonical image's) on `DEEP_CHECKSUM_EVERY` ticks, the ones peers compare; on other ticks the awake
   bodies' hash (every awake body's id, pose and velocities, so also which bodies are awake), a fraction of the cost,
-  so a divergence anywhere in the awake world shows on the next tick in sync-tests and traces. Images are Box3D's
-  canonical images with their geometry (unified-box3d's SPEC.md); `load` puts the world back when Box3D refuses one.
+  so a divergence anywhere in the awake world shows on the next tick in sync-tests and traces. Each save, hash (deep
+  ticks) and image also carries physics' body table (Entity tags, below). Images are Box3D's canonical images with
+  their geometry (unified-box3d's SPEC.md), then the table; `load` puts the world back when Box3D refuses one.
 
 ## The boundary (#236)
 
@@ -42,9 +43,9 @@ rollback plumbing.
   `b3CreateBody` → `create_body`. Every proc takes the physics `World` first. A plane-locked form adds `_2d` (2D,
   below). An agent finds a proc's meaning in Box3D's docs by its name, and coverage diffs against Box3D's API.
 - **Types**: def structs, value types and their defaults are b3's, re-exported by alias (`Body_Def :: b3.Body_Def`,
-  `default_shape_def :: b3.default_shape_def`, `Transform`, `Sphere`, `Capsule`, `Hull`, `Mass_Data`, the joint
+  `default_shape_def :: b3.default_shape_def`, `Transform`, `Sphere`, `Capsule`, `Hull_Data`, `Mass_Data`, the joint
   defs, ...). Creation takes the references as arguments and fills the def's ids itself (`create_revolute_joint(w,
-  a, b, &def)`); it asserts the def's `user_data` and `name` unset (pointers have no place in rollback state).
+  link(a), link(b), &def)`: links, so a joint can attach to the anchor or a platform); it asserts the def's `user_data` and `name` unset (pointers have no place in rollback state).
 - **Out of scope**, each for a reason: debug draw, profile and counters (host-side diagnostics; the bench reads them
   through b3), Box3D's recording (our replays), the dynamic tree (internal), task and worker callbacks (`Settings`
   owns `workers`), pre-solve, custom-filter, friction and restitution callbacks (code pointers run mid-step on
@@ -67,7 +68,8 @@ rollback plumbing.
   release library doesn't check a joint's type). The generic `joint_*` procs take any of them; an untyped
   `Joint_Ref` (`body_joints`' results) converts with `joint_as(world, ref, Revolute_Joint_Ref) -> (ref, bool)`.
 - `check_refs(world, state) -> string`: every body, shape and joint ref in the block is valid, and **no body is an
-  orphan**: bodies created before `extra()` (level geometry, the anchor, kinematic platforms) are the World's; every
+  orphan**: bodies created before `extra()` (level geometry, the anchor, trigger sensors: a game makes `extra` last in
+  `world_create`) are the World's; every
   body created after must be owned by a `Body_Ref` in the block. "" when all holds, else the first problem. It is the
   `Extra`'s `check`, so `scenarios.rollback_every_tick` runs it after every restore.
 
@@ -120,12 +122,15 @@ kept.
 Query :: struct {category, mask: u64}  // zero: everything
 Ray_Hit :: struct {body: Body_Link, shape: Shape_Ref, tag, category, material: u64, point, normal: [3]f32, fraction: f32}
 Overlap :: struct {body: Body_Link, shape: Shape_Ref, tag, category: u64}
-Contact_Event :: struct {kind: enum {Begin, End, Hit}, a, b: Overlap, point, normal: [3]f32, speed: f32}  // normal a → b
+Contact_Event :: struct {kind: enum {Begin, End, Hit}, a, b: Overlap, point, normal: [3]f32, speed: f32}  // Hit: normal a → b
+world_contact_events(world, out) / world_sensor_events(world, out)  // the begins, the ends (then the hits), each in Box3D's order
 Sensor_Event :: struct {kind: enum {Begin, End}, sensor, visitor: Overlap}
 step(world, dt, substeps)
 world_cast_ray_closest(world, origin, translation, query := {}, ignore: Body_Link = {}) -> (Ray_Hit, bool) // skips ignore, sensors
-world_overlap_shape(world, origin, ^Shape_Proxy, out: ^[dynamic]Overlap, query := {})   // the exact shape, not fat AABBs
-world_cast_shape(world, origin, ^Shape_Proxy, translation, out: ^[dynamic]Ray_Hit, query := {})
+world_overlap_shape(world, origin, Shape_Proxy, out: ^[dynamic]Overlap, query := {})    // the exact shape, not fat AABBs
+world_cast_shape(world, origin, Shape_Proxy, translation, out: ^[dynamic]Ray_Hit, query := {})
+make_proxy(points: [][3]f32, radius) -> Shape_Proxy // a convex point cloud with a radius (one point: a sphere)
+shape_sensor_data(world, sensor: Shape_Ref, out: ^[dynamic]Overlap)  // what is in a sensor after the step, sorted
 ```
 
 ## Character: the dynamic character controller
@@ -148,7 +153,7 @@ Character :: struct {             // in the block, plain data
 	coyote, jump_buffer, jump_ticks:           u16,       // ticks
 	flags:                                     Character_Flags, // On_Ground, Walkable, Jumping, Limp
 }
-Character_Def :: struct {radius, half_height, density, category, mask, material, hit_events, max_speed, min_speed,
+Character_Def :: struct {radius, half_height, density, category, mask, material, hit_events, sensor_events, max_speed, min_speed,
                          stop_speed, accelerate, friction, air_steer, jump_speed, gravity_scale, max_ground_force,
                          max_air_force, pogo_rest, pogo_hertz, pogo_damping, pogo_compression_scale,
                          pogo_tension_scale, min_ground_normal_y, slide_s, coyote_s, jump_buffer_s,

@@ -303,7 +303,7 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   records). Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
   (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
-- **Portable snapshot** `UNIS` (`SNAP_VERSION` 6): seed, content hash, tick, block size, `layout_hash(State)` (field
+- **Portable snapshot** `UNIS` (`SNAP_VERSION` 7): seed, content hash, tick, block size, `layout_hash(State)` (field
   names, offsets and types), compat (`compat_of` of the build that took it), a payload digest, the block bytes, each
   Extra's image. `snapshot_encode(simulation, tick)` (`snapshot_encode_into(simulation, tick, &buf)` reuses a
   buffer: the netcode's kept desync images),

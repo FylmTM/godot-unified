@@ -26,7 +26,8 @@ MAX_PLAYERS :: 32
 // or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump its
 // Game.version. 1: #233 (the first). 2: #242, sim.Players keeps each slot's input of the tick before (input_before).
-LIBRARY_VERSION :: 2
+// 3: #236/#237, the physics extra hashes and images its body table (tags, which bodies are alive and the World's).
+LIBRARY_VERSION :: 3
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {

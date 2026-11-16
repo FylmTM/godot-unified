@@ -11,8 +11,9 @@ import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
 // 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2); 5: the #6
-// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233).
-SNAP_VERSION :: 6
+// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233); 7: the physics
+// extra's image carries its body table after Box3D's image (#237).
+SNAP_VERSION :: 7
 SNAP_HEADER :: 56
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.

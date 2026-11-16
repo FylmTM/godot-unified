@@ -7,7 +7,6 @@ package test_drift
 import "core:testing"
 
 import dr "../drift"
-import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -77,7 +76,7 @@ step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Cmd = nil) {
 	if tick < WINDOW do return
 	from := max(tick - WINDOW, run.floor)
 	if from == tick do return
-	if !sim.restore(simulation, from) || !physics.check_refs(simulation.world.phys, &simulation.state) {
+	if !sim.restore(simulation, from) || physics.check_refs(simulation.world.phys, &simulation.state) != "" {
 		run.mismatches += 1
 		return
 	}
@@ -125,9 +124,8 @@ check_plane :: proc(run: ^Run) {
 	world := run.simulation.world.phys
 	state := &run.simulation.state
 	on_plane :: proc(world: ^physics.World, ref: physics.Body_Ref) -> bool {
-		body := physics.body_id(world, ref)
-		position := b3.body_get_position(body)
-		rotation := b3.body_get_rotation(body)
+		position := physics.body_position(world, ref)
+		rotation := physics.body_rotation(world, ref)
 		return position.z == 0 && rotation.x == 0 && rotation.y == 0
 	}
 	ships := sim.iterate_present(&state.players)
@@ -207,8 +205,11 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	// a setup: the ship just short of gate 0, flying into it
 	gate := world.gates[0].pos
 	ship := ship_in_slot(&run, 0)
-	physics.teleport(world.phys, ship.body, {gate.x - 1.5, gate.y, 0})
-	physics.set_velocity_2d(world.phys, ship.body, {6, 0}, 0)
+	physics.body_set_transform(world.phys, ship.body, {gate.x - 1.5, gate.y, 0}, {0, 0, 0, 1})
+	physics.body_set_linear_velocity(world.phys, ship.body, {})
+	physics.body_set_angular_velocity(world.phys, ship.body, {})
+	physics.body_set_linear_velocity_2d(world.phys, ship.body, {6, 0})
+	physics.body_set_angular_velocity_2d(world.phys, ship.body, 0)
 	setup_done(&run)
 	for _ in 0 ..< 32 {
 		step(&run, {})
@@ -218,12 +219,12 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	testing.expect_value(t, run.last_warp.player, sim.slot_player(run.simulation, 0))
 	testing.expect_value(t, run.last_warp.from_gate, 0)
 	testing.expect_value(t, run.last_warp.to_gate, 1)
-	pos, _ := physics.pose_2d(world.phys, ship.body)
+	pos := physics.body_position_2d(world.phys, ship.body)
 	to := world.gates[1].pos
 	testing.expect_value(t, run.last_warp.position, sim.Position{to.x, to.y, 0})
 	offset := pos - to
 	testing.expect(t, offset.x * offset.x + offset.y * offset.y < 1, "the ship comes out of the other gate")
-	vel, _ := physics.velocity_2d(world.phys, ship.body)
+	vel := physics.body_linear_velocity_2d(world.phys, ship.body)
 	testing.expect(t, vel.x > 3, "it keeps its velocity")
 	for _ in 0 ..< 64 do step(&run, {}) // both gates recharge: no warp back
 	testing.expect_value(t, run.warps, 1)
@@ -268,7 +269,7 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 	ship := sim.player_data(&state.players, first)
 	testing.expect_value(t, ship.shots, 1)
 	testing.expect(t, ship.body != {}, "A's ship has a body again")
-	pos, _ := physics.pose_2d(run.simulation.world.phys, ship.body)
+	pos := physics.body_position_2d(run.simulation.world.phys, ship.body)
 	testing.expect_value(t, pos, run.simulation.world.spawns[2])
 	last := run.spawned[len(run.spawned) - 1]
 	testing.expect_value(t, last.player, first)

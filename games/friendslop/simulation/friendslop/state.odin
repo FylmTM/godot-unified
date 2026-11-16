@@ -102,7 +102,7 @@ Held_Kind :: enum u8 {
 // owns outside the block (the body, the hold) and zeroes it, so a returning player starts fresh too.
 Character :: struct {
 	controller:    physics.Character,
-	hold:          physics.Joint_Ref, // the joint to what this player holds
+	hold:          physics.Motor_Joint_Ref, // the joint to what this player holds
 	facing:        [2]f32, // unit (x, z)
 	aim:           [3]f32, // unit look direction from the last input
 	held_player:   sim.Player, // the player this one holds (held_kind .Player)

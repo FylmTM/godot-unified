@@ -49,7 +49,7 @@ pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is b
    added (an impulse of mass × that), with a 1.5 s cooldown.
 3. Fire: every 0.125 s while held, a bullet from the nose with velocity `heading × 18 m/s + ship velocity`, which
    lives 0.875 s. Bullets are sim-only (not bodies). Each tick a ray from the bullet's position to the next
-   position (`physics.ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
+   position (`physics.world_cast_ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
    from it. A rock hit costs it 1 HP and pushes it (an impulse of `dir × 0.6`).
 4. Rocks: sizes large/medium/small (radius 1.6/1.0/0.6 m, HP 6/3/1). Each is a convex 8-gon from one of 4 fixed
    shape variants scaled to its size, locked to the plane. At 0 HP, a large or medium rock splits into 2 of the

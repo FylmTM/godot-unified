@@ -119,7 +119,8 @@ plane :: #force_inline proc(point: [2]f32) -> [3]f32 {
 fill_frame :: proc(f: ^Frame) {
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
-		pos, rotation := physics.pose_2d(f.world.phys, ship.body)
+		pos := physics.body_position_2d(f.world.phys, ship.body)
+		rotation := physics.body_rotation_2d(f.world.phys, ship.body)
 		godot.push_view(f, {
 			key    = ship_key(player),
 			kind   = .Ship,
@@ -129,7 +130,8 @@ fill_frame :: proc(f: ^Frame) {
 		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
 	{
-		pos, rotation := physics.pose_2d(f.world.phys, f.state.station)
+		pos := physics.body_position_2d(f.world.phys, f.state.station)
+		rotation := physics.body_rotation_2d(f.world.phys, f.state.station)
 		godot.push_view(f, {
 			kind = .Station,
 			pos  = plane(pos),
@@ -146,7 +148,8 @@ fill_frame :: proc(f: ^Frame) {
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)
 	for rock, handle in sim.next(&rocks) {
-		pos, rotation := physics.pose_2d(f.world.phys, rock.body)
+		pos := physics.body_position_2d(f.world.phys, rock.body)
+		rotation := physics.body_rotation_2d(f.world.phys, rock.body)
 		radius := dr.ROCK_RADIUS[rock.size] // the mesh is a radius-1 m rock
 		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
 		godot.push_multi_view(f, {

@@ -2,21 +2,17 @@
 // markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
-import "unified:b3"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"
 
-// Shape categories (filter bits) and user materials (how hits and rays tell entities apart).
+// Shape categories (filter bits): every query, contact and sensor reports the category of the shape it names, and
+// the body's tag says which one: a player's player_key, an item's, a platform's or a trigger's index.
 CAT_STATIC :: u64(1 << 0)
 CAT_PLAYER :: u64(1 << 1)
 CAT_ITEM :: u64(1 << 2)
 CAT_PLATFORM :: u64(1 << 3)
 CAT_TRIGGER :: u64(1 << 4)
-MAT_PLAYER :: u64(100) // + the player's member index (Player.index)
-MAT_ITEM :: u64(1000) // + item index
-MAT_TRIGGER :: u64(2000) // + trigger index
-MAT_PLATFORM :: u64(3000) // + platform index
 
 GRAVITY :: 10.0 // Box3D's default, |g|
 
@@ -160,6 +156,7 @@ Trigger_Def :: struct {
 	radius:     f32, // bells
 	items_only: bool, // plates: players don't count
 	marker:     int,
+	sensor:     physics.Shape_Ref, // plates, switches, locks: the volume's sensor (a body of the World's)
 }
 
 Pad_Def :: struct {
@@ -181,7 +178,6 @@ World :: struct {
 	phys:             ^physics.World,
 	extras:           [1]sim.Extra,
 	level:            level.Level,
-	character_defs:   [CHARACTERS]physics.Character_Def, // by member index: each body's material names its player
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
 	platforms:        [MAX_PLATFORMS]Platform_Def,
@@ -197,8 +193,8 @@ World :: struct {
 	spawns:           [PLAYERS][3]f32, // by slot
 	start:            Volume, // walking in starts a run (zero: no route)
 	finish:           Volume, // the trophy in it ends the run
-	links:            [dynamic]physics.Body_Link, // scratch
-	hits:             [dynamic]physics.Hit_Event, // scratch
+	overlaps:         [dynamic]physics.Overlap, // scratch
+	contacts:         [dynamic]physics.Contact_Event, // scratch
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
@@ -207,7 +203,7 @@ Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
 @(rodata)
 GAME := Game {
 	name = "friendslop",
-	version = "3", // 3: the route resets when nobody is present
+	version = "4", // 4: plates, switches and locks are sensors (#236)
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
@@ -223,6 +219,7 @@ CHARACTER_DEF := physics.Character_Def {
 	density                = 200,
 	category               = CAT_PLAYER,
 	hit_events             = true,
+	sensor_events          = true, // plates and switches see players
 	max_speed              = WALK_SPEED,
 	min_speed              = 0.1,
 	stop_speed             = 3,
@@ -256,13 +253,8 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 		hit_threshold = 2,
 		workers       = PHYSICS_WORKERS,
 	})
-	world.extras[0] = physics.extra(world.phys, State)
 	_, problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
-	for index in 0 ..< CHARACTERS {
-		world.character_defs[index] = CHARACTER_DEF
-		world.character_defs[index].material = MAT_PLAYER + u64(index)
-	}
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 1.5 - 2.25, 1.2, 0}
 	// Triggers first: platforms refer to them by marker index.
 	trigger_of := make([]int, len(world.level.markers), context.temp_allocator)
@@ -369,15 +361,51 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			world.finish = {marker.pos, level.prop_vec3(&marker, "size", {1, 1, 1})}
 		}
 	}
+	for i in 0 ..< world.trigger_count {
+		create_trigger_sensor(world, i)
+	}
+	world.extras[0] = physics.extra(world.phys, State) // last: the level and the sensors are the World's
 	return world
+}
+
+// The sensor of a plate, switch or lock (bells are bodies of the block: init): a static box over its volume that
+// sees the bodies with sensor events on (items, characters). A plate's reaches 2.5 m above it (what stands on it); a
+// plate sees items, and players unless it is items_only; a switch sees players; a lock sees items.
+@(private)
+create_trigger_sensor :: proc(world: ^World, index: int) {
+	def := &world.triggers[index]
+	mask: u64
+	volume := def.volume
+	switch def.kind {
+	case .Plate:
+		mask = def.items_only ? CAT_ITEM : CAT_ITEM | CAT_PLAYER
+		top := volume.pos.y + volume.half.y
+		volume = {{volume.pos.x, top + 1.15, volume.pos.z}, {volume.half.x, 1.35, volume.half.z}} // top - 0.2 .. top + 2.5
+	case .Switch:
+		mask = CAT_PLAYER
+	case .Lock:
+		mask = CAT_ITEM
+	case .Bell:
+		return
+	}
+	body_def := physics.default_body_def()
+	body_def.position = volume.pos
+	body := physics.create_body(world.phys, &body_def, tag = u64(index))
+	shape_def := physics.default_shape_def()
+	shape_def.is_sensor = true
+	shape_def.enable_sensor_events = true
+	shape_def.filter.category_bits = CAT_TRIGGER
+	shape_def.filter.mask_bits = mask
+	hull := physics.make_box_hull(volume.half.x, volume.half.y, volume.half.z)
+	def.sensor = physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
 }
 
 // Frees what world_create made: the physics world, the loaded level, the scratch lists and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
 	level.destroy(&world.level)
-	delete(world.links)
-	delete(world.hits)
+	delete(world.overlaps)
+	delete(world.contacts)
 	free(world)
 }
 
@@ -393,19 +421,17 @@ init :: proc(t: ^Tick) {
 	}
 	for i in 0 ..< t.world.platform_count {
 		def := &t.world.platforms[i]
-		body_def := b3.default_body_def()
+		body_def := physics.default_body_def()
 		body_def.type = .Kinematic_Body
 		body_def.position = def.origin
 		body_def.rotation = def.rot
 		body_def.enable_sleep = false
-		ref := physics.create_body(t.world.phys, &body_def)
-		id := physics.body_id(t.world.phys, ref)
-		shape_def := b3.default_shape_def()
+		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
+		shape_def := physics.default_shape_def()
 		shape_def.filter.category_bits = CAT_PLATFORM
-		shape_def.base_material.user_material_id = MAT_PLATFORM + u64(i)
 		shape_def.base_material.friction = 0.8
-		hull := b3.make_box_hull(def.half.x, def.half.y, def.half.z)
-		b3.create_hull_shape(id, &shape_def, &hull.base)
+		hull := physics.make_box_hull(def.half.x, def.half.y, def.half.z)
+		physics.create_hull_shape(t.world.phys, ref, &shape_def, &hull.base)
 		t.state.platforms[i] = {
 			body    = ref,
 			running = def.trigger < 0,
@@ -414,47 +440,42 @@ init :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.trigger_count {
 		def := &t.world.triggers[i]
 		if def.kind != .Bell do continue
-		body_def := b3.default_body_def()
+		body_def := physics.default_body_def()
 		body_def.position = def.volume.pos
-		ref := physics.create_body(t.world.phys, &body_def)
-		id := physics.body_id(t.world.phys, ref)
-		shape_def := b3.default_shape_def()
+		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
+		shape_def := physics.default_shape_def()
 		shape_def.filter.category_bits = CAT_TRIGGER
-		shape_def.base_material.user_material_id = MAT_TRIGGER + u64(i)
 		shape_def.enable_hit_events = true
-		sphere := b3.Sphere{{}, def.radius}
-		b3.create_sphere_shape(id, &shape_def, &sphere)
+		physics.create_sphere_shape(t.world.phys, ref, &shape_def, {{}, def.radius})
 		t.state.bodies[i] = ref
 	}
 }
 
 // Creates an item's dynamic body at its level placement (a sphere or a box, its density set from the item's mass),
-// with hit events on and its index as the user material so hits and rays know which item it is.
+// tagged with its index, with hit events on and sensor events on (plates and locks see it).
 create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 	def := &world.items[index]
 	spec := &ITEM_SPECS[def.kind]
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = def.pos
 	body_def.rotation = def.rot
-	ref := physics.create_body(world.phys, &body_def)
-	id := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	ref := physics.create_body(world.phys, &body_def, tag = u64(index))
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_ITEM
-	shape_def.base_material.user_material_id = MAT_ITEM + u64(index)
 	shape_def.base_material.friction = spec.friction
 	shape_def.base_material.restitution = spec.restitution
 	shape_def.enable_hit_events = true
+	shape_def.enable_sensor_events = true
 	if spec.half == {} {
 		radius := spec.radius
 		shape_def.density = spec.mass / (4.0 / 3.0 * 3.1415927 * radius * radius * radius)
-		sphere := b3.Sphere{{}, radius}
-		b3.create_sphere_shape(id, &shape_def, &sphere)
+		physics.create_sphere_shape(world.phys, ref, &shape_def, {{}, radius})
 	} else {
 		half := spec.half
 		shape_def.density = spec.mass / (8 * half.x * half.y * half.z)
-		hull := b3.make_box_hull(half.x, half.y, half.z)
-		b3.create_hull_shape(id, &shape_def, &hull.base)
+		hull := physics.make_box_hull(half.x, half.y, half.z)
+		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
 	}
 	return ref
 }

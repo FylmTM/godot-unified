@@ -5,7 +5,6 @@ package test_physics
 
 import "core:testing"
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -27,10 +26,10 @@ arena_walls :: proc(world: ^physics.World, half: [2]f32) {
 	}
 	for wall in walls {
 		body_def := physics.body_def_2d(.Static_Body, wall[0])
-		id := b3.create_body(world.id, &body_def)
-		shape_def := b3.default_shape_def()
+		id := physics.create_body(world, &body_def)
+		shape_def := physics.default_shape_def()
 		shape_def.filter.category_bits = CAT_STATIC
-		physics.create_box_shape_2d(world, physics.ref_of(id), &shape_def, wall[1], DEPTH_2D)
+		physics.create_box_shape_2d(world, id, &shape_def, wall[1], DEPTH_2D)
 	}
 }
 
@@ -42,16 +41,16 @@ rock_body :: proc(world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: 
 	body_def := physics.body_def_2d(.Dynamic_Body, pos, rot)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
 	body_def.angular_velocity = {0, 0, ang}
-	id := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
+	id := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_ROCK
 	scaled: [len(ROCK_POINTS)][2]f32
 	for point, i in ROCK_POINTS {
 		scaled[i] = point * ROCK_RADIUS[size]
 	}
-	_, ok := physics.create_polygon_shape_2d(world, physics.ref_of(id), &shape_def, scaled[:], DEPTH_2D)
+	_, ok := physics.create_polygon_shape_2d(world, id, &shape_def, scaled[:], DEPTH_2D)
 	assert(ok)
-	return physics.ref_of(id)
+	return id
 }
 
 circle_body :: proc(
@@ -63,12 +62,12 @@ circle_body :: proc(
 ) -> physics.Body_Ref {
 	body_def := physics.body_def_2d(.Dynamic_Body, pos)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
-	id := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
+	id := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = cat
 	shape_def.base_material.restitution = restitution
-	physics.create_circle_shape_2d(world, physics.ref_of(id), &shape_def, radius)
-	return physics.ref_of(id)
+	physics.create_circle_shape_2d(world, id, &shape_def, radius)
+	return id
 }
 
 zero_g :: proc(workers: i32 = 1) -> ^physics.World {
@@ -77,17 +76,15 @@ zero_g :: proc(workers: i32 = 1) -> ^physics.World {
 
 // Whether a dynamic body sits exactly on the plane: z, and the quaternion's x and y, are zero (±0).
 on_plane :: proc(world: ^physics.World, ref: physics.Body_Ref) -> bool {
-	id := physics.body_id(world, ref)
-	body_pos := b3.body_get_position(id)
-	body_rot := b3.body_get_rotation(id)
+	body_pos := physics.body_position(world, ref)
+	body_rot := physics.body_rotation(world, ref)
 	return body_pos.z == 0 && body_rot.x == 0 && body_rot.y == 0
 }
 
 // Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step (#87).
 in_plane_velocity :: proc(world: ^physics.World, ref: physics.Body_Ref) -> bool {
-	id := physics.body_id(world, ref)
-	vel := b3.body_get_linear_velocity(id)
-	ang_vel := b3.body_get_angular_velocity(id)
+	vel := physics.body_linear_velocity(world, ref)
+	ang_vel := physics.body_angular_velocity(world, ref)
 	return vel.z == 0 && ang_vel.x == 0 && ang_vel.y == 0
 }
 
@@ -128,16 +125,16 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 			case .Box:
 				body_def := physics.body_def_2d(.Dynamic_Body, pos, rot)
 				body_def.linear_velocity = {vel.x, vel.y, 0}
-				id := b3.create_body(world.id, &body_def)
-				shape_def := b3.default_shape_def()
+				id := physics.create_body(world, &body_def)
+				shape_def := physics.default_shape_def()
 				physics.create_box_shape_2d(
 					world,
-					physics.ref_of(id),
+					id,
 					&shape_def,
 					{rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)},
 					DEPTH_2D,
 				)
-				item.body = physics.ref_of(id)
+				item.body = id
 			case .Rock:
 				item.body = rock_body(world, pos, rot, vel, ang, 1 + u32(grid_x % 3))
 			}
@@ -262,62 +259,67 @@ rot_2d_round_trips :: proc(t: ^testing.T) {
 shapes_and_rays_2d :: proc(t: ^testing.T) {
 	world := zero_g()
 	defer physics.destroy(world)
-	shape_def := b3.default_shape_def()
+	shape_def := physics.default_shape_def()
 	shape_def.density = 2
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
 	circle_body_def := physics.body_def_2d(.Dynamic_Body, {0, 0})
-	circle := b3.create_body(world.id, &circle_body_def)
-	physics.create_circle_shape_2d(world, physics.ref_of(circle), &shape_def, 1)
+	circle := physics.create_body(world, &circle_body_def)
+	physics.create_circle_shape_2d(world, circle, &shape_def, 1)
 	box_body_def := physics.body_def_2d(.Dynamic_Body, {5, 0})
-	box_body := b3.create_body(world.id, &box_body_def)
-	physics.create_box_shape_2d(world, physics.ref_of(box_body), &shape_def, {1, 0.5}, 0.4)
+	box_body := physics.create_body(world, &box_body_def)
+	physics.create_box_shape_2d(world, box_body, &shape_def, {1, 0.5}, 0.4)
 	tri_body_def := physics.body_def_2d(.Dynamic_Body, {10, 0}, {0, 1})
-	tri := b3.create_body(world.id, &tri_body_def)
-	_, ok := physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
+	tri := physics.create_body(world, &tri_body_def)
+	_, ok := physics.create_polygon_shape_2d(world, tri, &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
 	testing.expectf(
 		t,
-		abs(b3.body_get_mass(box_body) - 2 * 2 * 1 * 0.4) < 1e-4,
+		abs(physics.body_mass(world, box_body) - 2 * 2 * 1 * 0.4) < 1e-4,
 		"box mass %v",
-		b3.body_get_mass(box_body),
+		physics.body_mass(world, box_body),
 	)
-	testing.expectf(t, abs(b3.body_get_mass(tri) - 2 * 2 * 2) < 1e-3, "prism mass %v", b3.body_get_mass(tri))
-	pos := physics.body_position_2d(world, physics.ref_of(tri))
-	rot := physics.body_rotation_2d(world, physics.ref_of(tri))
+	testing.expectf(
+		t,
+		abs(physics.body_mass(world, tri) - 2 * 2 * 2) < 1e-3,
+		"prism mass %v",
+		physics.body_mass(world, tri),
+	)
+	pos := physics.body_position_2d(world, tri)
+	rot := physics.body_rotation_2d(world, tri)
 	testing.expectf(t, pos == {10, 0} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 
-	// Bullets: rays in the plane (z = 0) through ray_closest.
+	// Bullets: rays in the plane (z = 0) through world_cast_ray_closest.
 	hit, found := physics.world_cast_ray_closest(world, {-5, 0.2, 0}, {20, 0, 0})
-	testing.expect(t, found && hit.body == physics.link_of(circle))
+	testing.expect(t, found && hit.body == physics.link(circle))
 	testing.expectf(t, hit.point.z == 0 && abs(hit.normal.z) < 1e-6 && hit.normal.x < -0.97, "circle hit %v", hit)
 	hit, found = physics.world_cast_ray_closest(world, {2, 0.2, 0}, {20, 0, 0})
-	testing.expect(t, found && hit.body == physics.link_of(box_body))
+	testing.expect(t, found && hit.body == physics.link(box_body))
 	testing.expectf(t, abs(hit.point.x - 4) < 1e-4 && hit.normal.x < -0.999, "box hit %v", hit)
 	// The triangle turned 90°: its apex (0, 1) points to −x, at x = 9; its base is at x = 11.
 	hit, found = physics.world_cast_ray_closest(world, {7, 0, 0}, {20, 0, 0})
-	testing.expect(t, found && hit.body == physics.link_of(tri))
+	testing.expect(t, found && hit.body == physics.link(tri))
 	testing.expectf(t, abs(hit.point.x - 9) < 1e-4, "triangle apex hit %v", hit)
 	hit, found = physics.world_cast_ray_closest(world, {20, 0.5, 0}, {-20, 0, 0})
 	testing.expectf(t, found && abs(hit.point.x - 11) < 1e-4 && hit.normal.x > 0.999, "triangle base hit %v", hit)
 
 	// Velocities and impulses in the plane.
-	physics.body_set_linear_velocity_2d(world, physics.ref_of(circle), {1, 2})
-	physics.body_set_angular_velocity_2d(world, physics.ref_of(circle), 3)
-	lin := physics.body_linear_velocity_2d(world, physics.ref_of(circle))
-	ang := physics.body_angular_velocity_2d(world, physics.ref_of(circle))
+	physics.body_set_linear_velocity_2d(world, circle, {1, 2})
+	physics.body_set_angular_velocity_2d(world, circle, 3)
+	lin := physics.body_linear_velocity_2d(world, circle)
+	ang := physics.body_angular_velocity_2d(world, circle)
 	testing.expect(t, lin == {1, 2} && ang == 3)
-	mass := b3.body_get_mass(circle)
-	physics.body_apply_linear_impulse_to_center_2d(world, physics.ref_of(circle), {mass, -mass})
-	lin = physics.body_linear_velocity_2d(world, physics.ref_of(circle))
+	mass := physics.body_mass(world, circle)
+	physics.body_apply_linear_impulse_to_center_2d(world, circle, {mass, -mass})
+	lin = physics.body_linear_velocity_2d(world, circle)
 	testing.expectf(t, abs(lin.x - 2) < 1e-5 && abs(lin.y - 1) < 1e-5, "after the impulse %v", lin)
 
 	// polygon_2d refuses what has no area or too many points.
-	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{0, 0}, {1, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, {{0, 0}, {1, 0}}, 1)
 	testing.expect(t, !ok)
-	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
 	testing.expect(t, !ok, "collinear points made a hull")
 	many: [physics.POLYGON_2D_MAX + 1][2]f32
-	_, ok = physics.create_polygon_shape_2d(world, physics.ref_of(tri), &shape_def, many[:], 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, many[:], 1)
 	testing.expect(t, !ok)
 }
 
@@ -621,7 +623,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0x5cf611baeb5122c2, 0x20c635ed9c43d217, 0x594a6dae44aeb81f, 0x898aec436f289c5}
+GOLDEN_FIELD := [4]u64{0xc1e37f2e9c996beb, 0xa8ee79918a89e3bc, 0x3b8a4336456b77d, 0x6194f13dfa782d04}
 
 // On 1 and on 4 workers: the same values.
 @(test)

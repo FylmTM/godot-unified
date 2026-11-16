@@ -5,7 +5,6 @@ package test_level
 import "core:math"
 import "core:testing"
 
-import "unified:b3"
 import "unified:level"
 import "unified:physics"
 
@@ -236,7 +235,7 @@ create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 	loaded := level.Level {
 		bodies = bodies,
 	}
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body := physics.create_body(world, &body_def)
 	shape_def := physics.default_shape_def()
 	testing.expect(t, physics.create_level_shape(world, body, &shape_def, &shapes[0]))

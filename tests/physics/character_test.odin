@@ -5,7 +5,6 @@ package test_physics
 
 import "core:testing"
 
-import "unified:b3"
 import "unified:physics"
 import "unified:sim"
 
@@ -50,25 +49,25 @@ CHARACTER := physics.Character_Def {
 box :: proc(
 	world: ^physics.World,
 	pos, half: [3]f32,
-	type: b3.Body_Type = .Static_Body,
+	type: physics.Body_Type = .Static_Body,
 	rot := [4]f32{0, 0, 0, 1},
 	cat := CAT_STATIC,
 	density: f32 = 1,
 	hit := false,
-) -> b3.Body_Id {
-	body_def := b3.default_body_def()
+) -> physics.Body_Ref {
+	body_def := physics.default_body_def()
 	body_def.type = type
 	body_def.position = {pos.x, pos.y, pos.z}
 	body_def.rotation = rot
 	if type == .Kinematic_Body do body_def.enable_sleep = false
-	id := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
+	ref := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
 	shape_def.density = density
 	shape_def.filter.category_bits = cat
 	shape_def.enable_hit_events = hit
-	hull := b3.make_box_hull(half.x, half.y, half.z)
-	b3.create_hull_shape(id, &shape_def, &hull.base)
-	return id
+	hull := physics.make_box_hull(half.x, half.y, half.z)
+	physics.create_hull_shape(world, ref, &shape_def, &hull.base)
+	return ref
 }
 
 ground :: proc(world: ^physics.World) {
@@ -95,7 +94,7 @@ Rig :: struct {
 	characters: [2]physics.Character,
 	boxes:      [4]physics.Body_Ref,
 	platform:   physics.Body_Ref,
-	hold:       physics.Joint_Ref,
+	hold:       physics.Motor_Joint_Ref,
 	held:       u32, // box index + 1 (0: none)
 	hits:       u32,
 	jumps:      u32,
@@ -140,14 +139,17 @@ RIG := Rig_Game {
 			physics.character_create(world, &character, &CHARACTER, {f32(i) * 2, 1.2, 0})
 		}
 		for &box_ref, i in t.state.boxes {
-			t.state.boxes[i] = physics.ref_of(
-				box(world, {f32(i) - 1.5, 0.5, 2}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, hit = true),
+			t.state.boxes[i] = box(
+				world,
+				{f32(i) - 1.5, 0.5, 2},
+				{0.3, 0.3, 0.3},
+				.Dynamic_Body,
+				cat = CAT_BOX,
+				hit = true,
 			)
 			_ = box_ref
 		}
-		t.state.platform = physics.ref_of(
-			box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM),
-		)
+		t.state.platform = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM)
 	},
 	tick = rig_tick,
 }
@@ -197,9 +199,7 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 	phase := number % 40
 	if phase == 5 && state.hold == {} {
 		box_ref := state.boxes[(number / 40) % 4]
-		joint_def := b3.default_motor_joint_def()
-		joint_def.base.body_id_a = physics.body_id(world, state.characters[0].body)
-		joint_def.base.body_id_b = physics.body_id(world, box_ref)
+		joint_def := physics.default_motor_joint_def()
 		joint_def.base.local_frame_a = {{0, 0.3, 0.9}, {0, 0, 0, 1}}
 		joint_def.linear_hertz = 6
 		joint_def.linear_damping_ratio = 1
@@ -207,7 +207,12 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 		joint_def.angular_hertz = 4
 		joint_def.angular_damping_ratio = 1
 		joint_def.max_spring_torque = 50
-		state.hold = physics.joint_ref_of(b3.create_motor_joint(world.id, &joint_def))
+		state.hold = physics.create_motor_joint(
+			world,
+			physics.link(state.characters[0].body),
+			physics.link(box_ref),
+			&joint_def,
+		)
 		state.held = (number / 40) % 4 + 1
 	} else if phase == 30 && state.hold != {} {
 		physics.destroy_joint(world, &state.hold)
@@ -282,11 +287,12 @@ rig_synctest :: proc(t: ^testing.T, game: ^Rig_Game) -> (forward: [RIG_TICKS + 1
 		}
 	}
 	testing.expect_value(t, mismatches, 0)
-	// What each tick's save copies: the block and the world's arena snapshot of its slot (#260).
+	// What each tick's save copies: the block, the world's arena snapshot of its slot (#260) and its body table.
 	slot := sim.ring_slot(session, session.tick)
 	world_bytes := session.world.phys.ring[slot].size
-	testing.expect(t, world_bytes > 0)
-	testing.expect_value(t, sim.save_size(session), size_of(Rig) + world_bytes)
+	table_bytes := len(session.world.phys.body_ring[slot]) * size_of(physics.Body_Entry)
+	testing.expect(t, world_bytes > 0 && table_bytes > 0)
+	testing.expect_value(t, sim.save_size(session), size_of(Rig) + world_bytes + table_bytes)
 	// The rig really did what it is for.
 	testing.expect(t, session.state.jumps > 5)
 	testing.expect(t, session.state.hits > 0)
@@ -398,7 +404,7 @@ character_slides_off_a_steep_slope :: proc(t: ^testing.T) {
 character_rides_platforms :: proc(t: ^testing.T) {
 	scene := solo({0, 1.6, 6})
 	defer physics.destroy(scene.world)
-	plat := physics.ref_of(box(scene.world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM))
+	plat := box(scene.world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic_Body, cat = CAT_PLATFORM)
 	cycle := int(physics.path_duration_ticks(&RIG_PATH, HZ))
 	worst: f32 = 0
 	for i in 0 ..< 2 * cycle {
@@ -431,9 +437,7 @@ character_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
 	run(&scene, 64)
 	x0 := physics.body_position(scene.world, scene.character.body).x
 	// A heavy box (86 kg, about the character's mass) at 14 m/s: the drive's force cap gives way.
-	thrown := physics.ref_of(
-		box(scene.world, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400),
-	)
+	thrown := box(scene.world, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic_Body, cat = CAT_BOX, density = 400)
 	physics.body_set_linear_velocity(scene.world, thrown, {14, 0, 0})
 	run(&scene, 64)
 	pushed := physics.body_position(scene.world, scene.character.body).x - x0
@@ -484,13 +488,13 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	faller := box(world, {0, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic_Body, cat = CAT_BOX, hit = true)
 	side_box := box(world, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic_Body, cat = CAT_BOX)
 	// A ray from inside `a` skips it when told to, and finds the ground under it.
-	hit, ok := physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0}, {}, physics.link_of(faller))
+	hit, ok := physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0}, {}, physics.link(faller))
 	testing.expect(t, ok && abs(hit.point.y) < 1e-4 && hit.normal.y > 0.99)
 	hit, ok = physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0})
-	testing.expect(t, ok && hit.body == physics.link_of(faller))
+	testing.expect(t, ok && hit.body == physics.link(faller))
 	// ray_first (b3World_CastRayClosest): the closest hit, filtered by category.
 	hit, ok = physics.world_cast_ray_closest(world, {0, 5, 0}, {0, -8, 0})
-	testing.expect(t, ok && hit.body == physics.link_of(faller) && abs(hit.point.y - 2.5) < 1e-4)
+	testing.expect(t, ok && hit.body == physics.link(faller) && abs(hit.point.y - 2.5) < 1e-4)
 	hit, ok = physics.world_cast_ray_closest(world, {0, 5, 0}, {0, -8, 0}, {mask = CAT_STATIC})
 	testing.expect(t, ok && abs(hit.point.y) < 1e-4)
 	_, ok = physics.world_cast_ray_closest(world, {0, 10, 0}, {0, 1, 0})
@@ -500,9 +504,9 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	defer delete(got)
 	physics.world_overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX})
 	testing.expect_value(t, len(got), 2)
-	if len(got) == 2 do testing.expect(t, got[0].body.index1 < got[1].body.index1 && got[1].body == physics.link_of(side_box))
+	if len(got) == 2 do testing.expect(t, got[0].body.index1 < got[1].body.index1 && got[1].body == physics.link(side_box))
 	// Each call replaces what `out` held: a result can't carry over into another call (another tick).
-	append(&got, physics.Overlap{body = physics.link_of(faller)}, physics.Overlap{body = physics.link_of(faller)})
+	append(&got, physics.Overlap{body = physics.link(faller)}, physics.Overlap{body = physics.link(faller)})
 	physics.world_overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX})
 	testing.expect_value(t, len(got), 2)
 	physics.world_overlap_aabb(world, {10, 10, 10}, {11, 11, 11}, &got)
@@ -532,11 +536,12 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 		joint: physics.Joint_Ref,
 	}
 	two := Two {
-		body = physics.ref_of(side_box),
+		body = side_box,
 	}
 	_ = physics.extra(world, Two)
 	testing.expect_value(t, physics.check_refs(world, &two), "")
-	b3.destroy_body(side_box)
+	doomed := side_box // a copy: the block's ref is left naming the dead body
+	physics.destroy_body(world, &doomed)
 	testing.expect(t, physics.check_refs(world, &two) != "")
 }
 
@@ -573,7 +578,7 @@ kinematic_drive_does_not_drift :: proc(t: ^testing.T) {
 	world := new_world()
 	defer physics.destroy(world)
 	path := RIG_PATH
-	plat := physics.ref_of(box(world, path.points[0], {1, 0.25, 1}, .Kinematic_Body, cat = CAT_PLATFORM))
+	plat := box(world, path.points[0], {1, 0.25, 1}, .Kinematic_Body, cat = CAT_PLATFORM)
 	cycle := physics.path_duration_ticks(&path, HZ)
 	worst: f32 = 0
 	for i in u32(1) ..= 10 * cycle {

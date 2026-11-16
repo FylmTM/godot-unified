@@ -42,6 +42,18 @@ PAIRS := []Pair {
 	{b3.Contact_Begin_Touch_Event, box3d.ContactBeginTouchEvent, false},
 	{b3.Contact_End_Touch_Event, box3d.ContactEndTouchEvent, false},
 	{b3.Contact_Hit_Event, box3d.ContactHitEvent, false},
+	{b3.Sensor_Begin_Touch_Event, box3d.SensorBeginTouchEvent, false},
+	{b3.Sensor_End_Touch_Event, box3d.SensorEndTouchEvent, false},
+	{b3.Shape_Proxy, box3d.ShapeProxy, false},
+	{b3.Joint_Type, box3d.JointType, false},
+	{b3.Distance_Joint_Def, box3d.DistanceJointDef, false},
+	{b3.Filter_Joint_Def, box3d.FilterJointDef, false},
+	{b3.Parallel_Joint_Def, box3d.ParallelJointDef, false},
+	{b3.Prismatic_Joint_Def, box3d.PrismaticJointDef, false},
+	{b3.Revolute_Joint_Def, box3d.RevoluteJointDef, false},
+	{b3.Spherical_Joint_Def, box3d.SphericalJointDef, false},
+	{b3.Weld_Joint_Def, box3d.WeldJointDef, false},
+	{b3.Wheel_Joint_Def, box3d.WheelJointDef, false},
 }
 
 // One scalar of a flattened layout: its offset and its kind ("f4", "i4", "u8", "b1", "p8", ...).

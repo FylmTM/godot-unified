@@ -51,7 +51,22 @@ trigger_at_marker :: proc(run: ^Run, name: string) -> int {
 put_item :: proc(run: ^Run, item: int, at: [3]f32) {
 	run.setup_index, run.setup_pos = item, at
 	setup(run, proc(run: ^Run) {
-		physics.teleport(run.simulation.world.phys, run.simulation.state.items[run.setup_index].body, run.setup_pos)
+		physics.body_set_transform(
+			run.simulation.world.phys,
+			run.simulation.state.items[run.setup_index].body,
+			run.setup_pos,
+			{0, 0, 0, 1},
+		)
+		physics.body_set_linear_velocity(
+			run.simulation.world.phys,
+			run.simulation.state.items[run.setup_index].body,
+			{},
+		)
+		physics.body_set_angular_velocity(
+			run.simulation.world.phys,
+			run.simulation.state.items[run.setup_index].body,
+			{},
+		)
 	})
 }
 
@@ -67,7 +82,7 @@ put_player :: proc(run: ^Run, slot: int, at: [3]f32) {
 }
 
 platform_y :: proc(run: ^Run, platform: int) -> f32 {
-	return physics.position(run.simulation.world.phys, run.simulation.state.platforms[platform].body).y
+	return physics.body_position(run.simulation.world.phys, run.simulation.state.platforms[platform].body).y
 }
 
 @(test)
@@ -136,18 +151,20 @@ route_bell_bridge :: proc(t: ^testing.T) {
 	ball := item_at_marker(&run, "Ball1")
 	testing.expect(t, bridge >= 0 && bell != nil && ball >= 0)
 	if bridge < 0 || bell == nil || ball < 0 do return
-	bridge_x_before := physics.position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
+	bridge_x_before := physics.body_position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
 	// A ball flying at the bell.
 	run.setup_index, run.setup_pos = ball, bell.pos
 	setup(&run, proc(run: ^Run) {
 		body := run.simulation.state.items[run.setup_index].body
-		physics.teleport(run.simulation.world.phys, body, run.setup_pos + {0, 0, 3})
-		physics.set_velocity(run.simulation.world.phys, body, {0, 0, -9})
+		physics.body_set_transform(run.simulation.world.phys, body, run.setup_pos + {0, 0, 3}, {0, 0, 0, 1})
+		physics.body_set_linear_velocity(run.simulation.world.phys, body, {})
+		physics.body_set_angular_velocity(run.simulation.world.phys, body, {})
+		physics.body_set_linear_velocity(run.simulation.world.phys, body, {0, 0, -9})
 	})
 	idle(&run, 32)
 	testing.expect_value(t, event_count(&run, fs.Event_Bell_Rung), 1)
 	idle(&run, 160)
-	bridge_x_after := physics.position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
+	bridge_x_after := physics.body_position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
 	testing.expectf(
 		t,
 		abs(bridge_x_after) < 0.01 && bridge_x_before > 7,

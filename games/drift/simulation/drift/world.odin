@@ -2,20 +2,17 @@
 // its markers, body creation, and the game descriptor.
 package drift
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"
 
-// Shape categories (filter bits) and user materials (how rays tell entities apart).
+// Shape categories (filter bits, reported by every query). A rock's body is tagged with its handle's key.
 CAT_STATIC :: u64(1 << 0)
 CAT_SHIP :: u64(1 << 1)
 CAT_ROCK :: u64(1 << 2)
 CAT_STATION :: u64(1 << 3)
 CAT_BULLET :: u64(1 << 4) // rays only
-MAT_ROCK :: u64(1000) // + rock index
-MAT_STATION :: u64(2000)
 
 Gate_Def :: struct {
 	pos:  [2]f32,
@@ -46,7 +43,7 @@ Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
 @(rodata)
 GAME := Game {
 	name = "drift",
-	version = "2",
+	version = "3", // 3: keyed rolls for the rocks (#252)
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
@@ -69,9 +66,9 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
 	world.level_data = loaded
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
-	world.extras[0] = physics.extra(world.phys, State)
 	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
+	world.extras[0] = physics.extra(world.phys, State) // after the level: its bodies are the World's
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {
@@ -141,15 +138,14 @@ init :: proc(t: ^Tick) {
 	t.state.station_hp = STATION_HP
 	body_def := physics.body_def_2d(.Kinematic_Body, t.world.station)
 	ref := physics.create_body(t.world.phys, &body_def)
-	body := physics.body_id(t.world.phys, ref)
-	shape_def := b3.default_shape_def()
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATION
-	shape_def.base_material.user_material_id = MAT_STATION
 	corners: [6][2]f32
 	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
-	physics.polygon_2d(body, &shape_def, corners[:], ROCK_DEPTH)
+	physics.create_polygon_shape_2d(t.world.phys, ref, &shape_def, corners[:], ROCK_DEPTH)
 	t.state.station = ref
-	physics.set_velocity_2d(t.world.phys, t.state.station, {}, STATION_SPIN)
+	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
+	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, STATION_SPIN)
 }
 
 // A ship's body at `at`, nose up.
@@ -158,18 +154,17 @@ create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
 	body_def.linear_damping = SHIP_DAMPING
 	body_def.is_bullet = false
 	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	shape_def := physics.default_shape_def()
 	shape_def.density = SHIP_DENSITY
 	shape_def.base_material.restitution = 0.5
 	shape_def.base_material.friction = 0.1
 	shape_def.filter.category_bits = CAT_SHIP
-	physics.circle_2d(body, &shape_def, SHIP_RADIUS)
+	physics.create_circle_shape_2d(world.phys, ref, &shape_def, SHIP_RADIUS)
 	ship.body = ref
 }
 
-// A rock in the rocks table and its body (ok = false: the table is full). Its shapes carry its slot index as
-// the user material, so a bullet's ray finds it.
+// A rock in the rocks table and its body (ok = false: the table is full), tagged with the rock's handle key, so a
+// bullet's ray finds it.
 create_rock :: proc(
 	state: ^State,
 	world: ^World,
@@ -184,22 +179,21 @@ create_rock :: proc(
 	rock: ^Rock
 	rock, handle = sim.spawn(&state.rocks) or_return
 	body_def := physics.body_def_2d(.Dynamic_Body, pos)
-	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	ref := physics.create_body(world.phys, &body_def, tag = sim.handle_key(handle))
+	shape_def := physics.default_shape_def()
 	shape_def.density = 1
 	shape_def.base_material.restitution = 0.4
 	shape_def.base_material.friction = 0.3
-	shape_def.base_material.user_material_id = MAT_ROCK + u64(handle.index)
 	shape_def.filter.category_bits = CAT_ROCK
 	points := rock_points(variant, size)
-	physics.polygon_2d(body, &shape_def, points[:], ROCK_DEPTH)
+	physics.create_polygon_shape_2d(world.phys, ref, &shape_def, points[:], ROCK_DEPTH)
 	rock^ = {
 		body    = ref,
 		size    = size,
 		variant = u8(variant),
 		hp      = ROCK_HP[size],
 	}
-	physics.set_velocity_2d(world.phys, rock.body, vel, spin)
+	physics.body_set_linear_velocity_2d(world.phys, rock.body, vel)
+	physics.body_set_angular_velocity_2d(world.phys, rock.body, spin)
 	return handle, true
 }

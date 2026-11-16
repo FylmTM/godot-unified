@@ -107,6 +107,12 @@ Body_Flag :: enum u8 {
 	World, // the World's: level geometry, the anchor, platforms made in world_create
 }
 
+// A type's ref layout, cached by destroy_refs.
+Type_Layout :: struct {
+	type:   typeid,
+	layout: Ref_Layout,
+}
+
 // Where a type's refs are (byte offsets), found by RTTI once per type.
 Ref_Layout :: struct {
 	bodies: []int,
@@ -125,7 +131,7 @@ World :: struct {
 	bodies:      [dynamic]Body_Entry, // by body index (rolled back: body_ring)
 	sealed:      bool, // `extra` was made: bodies created from now on are the block's
 	refs:        Ref_Layout, // the State's (extra)
-	layouts:     map[typeid]Ref_Layout, // destroy_refs' cache
+	layouts:     [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
 	owned:       [dynamic]bool, // check_refs' scratch
 	visitors:    [dynamic]b3.Shape_Id, // shape_sensor_data's scratch
 	anchor:      b3.Body_Id, // Settings.anchor
@@ -153,6 +159,7 @@ create :: proc(settings := Settings{}) -> ^World {
 	world.id = b3.create_world(&world_def)
 	if settings.anchor {
 		body_def := b3.default_body_def()
+		body_def.name = "anchor"
 		world.anchor = b3.create_body(world.id, &body_def)
 		body_created(world, world.anchor, 0)
 	}
@@ -173,8 +180,8 @@ destroy :: proc(world: ^World) {
 	b3.destroy_world_state(world.image)
 	b3.destroy_world(world.id)
 	delete_layout(world.refs)
-	for _, layout in world.layouts {
-		delete_layout(layout)
+	for cached in world.layouts {
+		delete_layout(cached.layout)
 	}
 	delete(world.layouts)
 	delete(world.bodies)
@@ -286,9 +293,10 @@ destroy_joint :: proc(world: ^World, joint: ^$J) where J == Joint_Ref || intrins
 
 // Creates a body from a definition and returns the block's reference to it, tagged `tag` (the game's: an entity's
 // handle_key, a player's player_key; every query and event reports it). Box3D hands out indices in creation order,
-// so a game creates the bodies its block owns in a fixed order. The def's user_data and name stay unset (pointers).
+// so a game creates the bodies its block owns in a fixed order. The def's user_data stays unset (a pointer); a name
+// is copied into the world (its state: hashed, imaged).
 create_body :: proc(world: ^World, def: ^Body_Def, tag: u64 = 0, loc := #caller_location) -> Body_Ref {
-	assert(def.user_data == nil && def.name == nil, "physics: a body def's user_data and name stay unset", loc)
+	assert(def.user_data == nil, "physics: a body def's user_data stays unset (a pointer in rollback state)", loc)
 	id := b3.create_body(world.id, def)
 	body_created(world, id, tag)
 	return ref_of(id)
@@ -338,10 +346,17 @@ tag_of :: proc(world: ^World, index1: i32) -> u64 {
 // Destroys every joint and body a plain value (a table item, a player's data) refers to, and zeroes those refs and
 // its shape refs: joints first, then bodies (their shapes go with them). The value's layout is found by RTTI once.
 destroy_refs :: proc(world: ^World, value: ^$T) {
-	layout, found := world.layouts[T]
+	layout: Ref_Layout
+	found := false
+	for cached in world.layouts {
+		if cached.type == T {
+			layout, found = cached.layout, true
+			break
+		}
+	}
 	if !found {
 		layout = layout_of(type_info_of(T))
-		world.layouts[T] = layout
+		append(&world.layouts, Type_Layout{T, layout})
 	}
 	base := ([^]u8)(value)
 	for offset in layout.joints {

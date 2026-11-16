@@ -3,17 +3,15 @@
 // descriptor.
 package survivor
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// Shape categories (filter bits) and user material ids (reported by ray casts).
+// Shape categories (filter bits, reported by every query). An item's body is tagged with its index.
 CAT_STATIC :: u64(1 << 0)
 CAT_CRATE :: u64(1 << 1)
 CAT_BARREL :: u64(1 << 2)
 CAT_PLAYER :: u64(1 << 3)
-MAT_ITEM_BASE :: u64(1000) // item i -> 1000 + i
 
 World :: struct {
 	phys:    ^physics.World,
@@ -90,7 +88,7 @@ Event :: union {
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
 // constant changes what a tick computes without changing the State or Input layout.
-SIM_VERSION :: "2"
+SIM_VERSION :: "3" // 3: keyed rolls for the spawner (#252)
 
 // The game as played (`play` tuning).
 @(rodata)
@@ -142,47 +140,39 @@ item_kind :: proc(i: int) -> Item_Kind {
 	return i % 5 == 2 ? .Barrel : .Crate
 }
 
-// The Box3D id of a body stored in the block, for calling Box3D directly.
-body_id :: proc(world: ^World, ref: Body_Ref) -> b3.Body_Id {
-	return physics.body_id(world.phys, ref)
-}
-
 @(private)
 add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.position = pos
-	body := physics.body_id(world.phys, physics.create_body(world.phys, &body_def))
-	shape_def := b3.default_shape_def()
+	body := physics.create_body(world.phys, &body_def)
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_STATIC
-	hull := b3.make_box_hull(half.x, half.y, half.z)
-	b3.create_hull_shape(body, &shape_def, &hull.base)
+	hull := physics.make_box_hull(half.x, half.y, half.z)
+	physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
 }
 
-// Creates the body of item i (a crate or a barrel) at its grid spot.
+// Creates the body of item i (a crate or a barrel) at its grid spot, tagged with i.
 create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = item_position(i)
-	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	ref := physics.create_body(world.phys, &body_def, tag = u64(i))
+	shape_def := physics.default_shape_def()
 	shape_def.density = 1
-	shape_def.base_material.user_material_id = MAT_ITEM_BASE + u64(i)
 	if item_kind(i) == .Barrel {
 		shape_def.filter.category_bits = CAT_BARREL
-		capsule := b3.Capsule{{0, -0.3, 0}, {0, 0.3, 0}, 0.4}
-		b3.create_capsule_shape(body, &shape_def, &capsule)
+		physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.3, 0}, {0, 0.3, 0}, 0.4})
 	} else {
 		shape_def.filter.category_bits = CAT_CRATE
-		hull := b3.make_box_hull(0.5, 0.5, 0.5)
-		b3.create_hull_shape(body, &shape_def, &hull.base)
+		hull := physics.make_box_hull(0.5, 0.5, 0.5)
+		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
 	}
 	return ref
 }
 
 // Creates a player's body at the start spot of `slot`.
 create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
-	body_def := b3.default_body_def()
+	body_def := physics.default_body_def()
 	body_def.type = .Dynamic_Body
 	body_def.position = PLAYER_START[slot]
 	body_def.motion_locks.angular_x = true
@@ -190,11 +180,9 @@ create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	body_def.motion_locks.angular_z = true
 	body_def.enable_sleep = false
 	ref := physics.create_body(world.phys, &body_def)
-	body := physics.body_id(world.phys, ref)
-	shape_def := b3.default_shape_def()
+	shape_def := physics.default_shape_def()
 	shape_def.filter.category_bits = CAT_PLAYER
-	capsule := b3.Capsule{{0, -0.45, 0}, {0, 0.45, 0}, 0.45}
-	b3.create_capsule_shape(body, &shape_def, &capsule)
+	physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.45, 0}, {0, 0.45, 0}, 0.45})
 	return ref
 }
 
@@ -207,7 +195,6 @@ destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 world_create :: proc(seed: u64, _: []u8) -> ^World {
 	world := new(World)
 	world.phys = physics.create({workers = PHYSICS_WORKERS})
-	world.extras[0] = physics.extra(world.phys, State)
 	add_static_box(world, {0, -0.5, 0}, {ARENA_HALF, 0.5, ARENA_HALF}) // ground
 	add_static_box(world, {30.5, 1.5, 0}, {0.5, 1.5, 31}) // walls: inner faces at x, z = ±30
 	add_static_box(world, {-30.5, 1.5, 0}, {0.5, 1.5, 31})
@@ -216,6 +203,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	for k in 0 ..< 8 {
 		add_static_box(world, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
 	}
+	world.extras[0] = physics.extra(world.phys, State) // last: the bodies above are the World's
 	return world
 }
 

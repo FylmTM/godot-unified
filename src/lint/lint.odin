@@ -67,13 +67,13 @@ SIM_IDENTS :: []string {
 	"read_file",
 }
 
-// What code inside a tick may import: the deterministic packages and the integer bit helpers.
+// What code inside a tick may import: the deterministic packages and the integer bit helpers. Not unified:b3:
+// Box3D is physics' (src/physics/SPEC.md, The boundary).
 TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
 	"unified:level",
 	"unified:dmath",
-	"unified:b3",
 	"unified:wire",
 	"base:intrinsics",
 	"core:math/bits",
@@ -109,8 +109,8 @@ check_sim_package :: proc(t: ^testing.T, dir: string, extra_imports: []string = 
 }
 
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
-// core:math, no float traps), `extension/` (the GDExtension: host side, nothing banned) and `tests/` (test code,
-// nothing banned) are known; every other directory is one of the game's sim packages, linted under `sim_rule`
+// core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none
+// of them imports unified:b3; every other directory is one of the game's sim packages, linted under `sim_rule`
 // with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories.
 check_game :: proc(
 	t: ^testing.T,
@@ -132,13 +132,14 @@ check_game :: proc(
 			check(t, {
 					pkg           = "headless",
 					dir           = info.fullpath,
-					ban_imports   = MATH,
+					ban_imports   = HEADLESS_BANS,
 					allow_imports = MATH_OK,
 					ban_idents    = float_traps,
 					ban_matrix    = true,
 				}, loc)
 		case "extension", "tests":
-		// host side and test code: nothing inside a tick
+			// host side and test code: nothing inside a tick, but Box3D only through physics as everywhere in a game
+			check(t, {pkg = info.name, dir = info.fullpath, ban_imports = {B3}}, loc)
 		case:
 			check(t, sim_rule(info.name, info.fullpath, extra_imports), loc)
 			append(&out, info.fullpath)
@@ -150,6 +151,12 @@ check_game :: proc(
 
 @(private)
 float_traps := FLOAT_TRAPS
+
+// Box3D's bindings: physics' implementation, never imported by a game (src/physics/SPEC.md, The boundary).
+B3 :: "unified:b3"
+
+@(private)
+HEADLESS_BANS :: []string{"core:math", B3}
 
 // Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,
 // and with `scan_globals` when `rule.tick`: one test failure per violation, and one when there are no files.

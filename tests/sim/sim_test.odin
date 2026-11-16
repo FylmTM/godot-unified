@@ -700,7 +700,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 	testing.expect(t, compat != 0)
 	testing.expect_value(t, sim.compat_of(&base), compat) // stable
 	other := base
-	other.version = "2"
+	other.version = "a version the toy never has"
 	testing.expect(t, sim.compat_of(&other) != compat)
 	other = base
 	other.name = "toy-variant"

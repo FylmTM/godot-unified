@@ -46,6 +46,7 @@ Character_Def :: struct {
 	mask:                   u64,
 	material:               u64, // the capsule's user material id (how others recognise a character)
 	hit_events:             bool, // the capsule reports contact hit events
+	sensor_events:          bool, // sensors see the capsule (Shape_Def.enable_sensor_events)
 	max_speed:              f32,
 	min_speed:              f32,
 	stop_speed:             f32,
@@ -109,6 +110,7 @@ character_create :: proc(world: ^World, character: ^Character, def: ^Character_D
 		angular_z = true,
 	}
 	body_def.enable_sleep = false
+	body_def.name = "character"
 	body := b3.create_body(world.id, &body_def)
 	body_created(world, body, tag)
 	shape_def := b3.default_shape_def()
@@ -120,6 +122,7 @@ character_create :: proc(world: ^World, character: ^Character, def: ^Character_D
 	if def.category != 0 do shape_def.filter.category_bits = def.category
 	if def.mask != 0 do shape_def.filter.mask_bits = def.mask
 	shape_def.enable_hit_events = def.hit_events
+	shape_def.enable_sensor_events = def.sensor_events
 	capsule := b3.Capsule{{0, -def.half_height, 0}, {0, def.half_height, 0}, def.radius}
 	b3.create_capsule_shape(body, &shape_def, &capsule)
 	character.body = ref_of(body)

@@ -7,7 +7,6 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
-import "unified:b3"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -104,8 +103,7 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &f.state.items[i]
 		if !item.alive do continue
-		body := physics.body_id(f.world.phys, item.body)
-		body_pos := b3.body_get_position(body)
+		body_pos := physics.body_position(f.world.phys, item.body)
 		godot.push_view(
 			f,
 			{
@@ -113,7 +111,7 @@ fill_frame :: proc(f: ^Frame) {
 				kind   = item.kind == .Barrel ? .Barrel : .Crate,
 				entity = u64(i + 1), // barrel_exploded's entity: item index + 1 (an entity of 0 routes nowhere)
 				pos    = {body_pos.x, body_pos.y, body_pos.z},
-				rot    = b3.body_get_rotation(body),
+				rot    = physics.body_rotation(f.world.phys, item.body),
 			},
 		)
 	}

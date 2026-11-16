@@ -2,7 +2,6 @@
 // the order the spec gives; no `matrix` types and no core:math (determinism traps, see AGENTS.md).
 package survivor
 
-import "unified:b3"
 import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
@@ -168,9 +167,8 @@ sys_players :: proc(t: ^Tick) {
 			vz = vz * 3
 			character.dash_ticks -= 1
 		}
-		body := body_id(t.world, character.body)
-		velocity := b3.body_get_linear_velocity(body)
-		b3.body_set_linear_velocity(body, {vx, velocity.y, vz})
+		velocity := physics.body_linear_velocity(t.world.phys, character.body)
+		physics.body_set_linear_velocity(t.world.phys, character.body, {vx, velocity.y, vz})
 	}
 }
 
@@ -362,7 +360,12 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 	for enemy, handle in sim.next(&enemies) {
 		index := i32(handle.index)
 		if (handle.index + tick) % CLIMB_CHECK_TICKS == 0 {
-			ray, hit := physics.ray_first(world.phys, {enemy.pos.x, 3, enemy.pos.y}, {0, -3, 0}, ray_filter)
+			ray, hit := physics.world_cast_ray_closest(
+				world.phys,
+				{enemy.pos.x, 3, enemy.pos.y},
+				{0, -3, 0},
+				ray_filter,
+			)
 			enemy.climbing = hit && ray.point.y > 0.8
 		}
 		speed := enemy.climbing ? enemy.speed * 0.5 : enemy.speed
@@ -587,9 +590,9 @@ sys_projectiles :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 			sim.despawn(&state.projectiles, handle)
 			continue
 		}
-		if ray, ray_hit := physics.ray_first(world.phys, projectile.pos, step, ray_filter); ray_hit {
-			if ray.material >= MAT_ITEM_BASE && ray.material < MAT_ITEM_BASE + ITEM_COUNT {
-				item := &state.items[ray.material - MAT_ITEM_BASE]
+		if ray, ray_hit := physics.world_cast_ray_closest(world.phys, projectile.pos, step, ray_filter); ray_hit {
+			if ray.category & (CAT_CRATE | CAT_BARREL) != 0 {
+				item := &state.items[ray.tag]
 				if item.kind == .Barrel && item.alive {
 					item.hp -= projectile.damage
 				}
@@ -622,19 +625,19 @@ sys_barrels :: proc(t: ^Tick) {
 		if item.kind != .Barrel || !item.alive || item.hp > 0 {
 			continue
 		}
-		body_pos := b3.body_get_position(body_id(t.world, item.body))
+		body_pos := physics.body_position(t.world.phys, item.body)
 		center := [3]f32{body_pos.x, body_pos.y, body_pos.z}
 		for j in 0 ..< ITEM_COUNT {
 			other := &t.state.items[j]
 			if j == i || !other.alive {
 				continue
 			}
-			explosion_impulse(t.world, center, body_id(t.world, other.body))
+			explosion_impulse(t.world, center, other.body)
 		}
 		players := sim.iterate_present(&t.state.players)
 		for character in sim.next(&players) {
 			if character.alive {
-				explosion_impulse(t.world, center, body_id(t.world, character.body))
+				explosion_impulse(t.world, center, character.body)
 			}
 		}
 		enemies := sim.iterate(&t.state.enemies)
@@ -669,8 +672,8 @@ sys_barrels :: proc(t: ^Tick) {
 }
 
 @(private)
-explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
-	body_pos := b3.body_get_position(body)
+explosion_impulse :: proc(world: ^World, center: [3]f32, body: Body_Ref) {
+	body_pos := physics.body_position(world.phys, body)
 	dx := body_pos.x - center.x
 	dy := body_pos.y - center.y
 	dz := body_pos.z - center.z
@@ -687,10 +690,10 @@ explosion_impulse :: proc(world: ^World, center: [3]f32, body: b3.Body_Id) {
 	up: f32 = 0.5
 	length := dmath.sqrt(dir_x * dir_x + up * up + dir_z * dir_z)
 	strength := 12 * (1 - distance / 5)
-	b3.body_apply_linear_impulse_to_center(
+	physics.body_apply_linear_impulse_to_center(
+		world.phys,
 		body,
 		{dir_x / length * strength, up / length * strength, dir_z / length * strength},
-		true,
 	)
 }
 
@@ -763,7 +766,7 @@ read_back :: proc(state: ^State, world: ^World) {
 	players := sim.iterate_present(&state.players)
 	for character in sim.next(&players) {
 		if character.alive {
-			body_pos := b3.body_get_position(body_id(world, character.body))
+			body_pos := physics.body_position(world.phys, character.body)
 			character.pos = {body_pos.x, body_pos.y, body_pos.z}
 		}
 	}
