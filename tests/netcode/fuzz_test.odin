@@ -82,7 +82,7 @@ relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
 		wire.w_u32(writer, 10)
 		wire.w_u32(writer, 11)
 		wire.w_u8(writer, 2)
-		wire.w_bytes(writer, {1, 2, 3, 0, 4, 5, 6, 0})
+		wire.w_bytes(writer, {0b0111, 1, 2, 3, 0b0111, 4, 5, 6}) // {1, 2, 3, 0} from zero, then {4, 5, 6, 0}
 		// commands: seq 1, 2 (a bump for tick 11, a mark for tick 12)
 		wire.w_u32(writer, 1)
 		wire.w_u8(writer, 2)

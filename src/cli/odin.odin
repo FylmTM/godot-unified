@@ -98,6 +98,7 @@ ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
 	}
 	if stale(build) {
 		odin_build(build, aprintf("building %s's headless binary", headless.name))
+		cold(aprintf("%s's headless binary", headless.name))
 	}
 	return build.out
 }
@@ -256,10 +257,15 @@ odin_build :: proc(build: Build, what: string, manifest := "") -> f64 {
 // --- the headless binaries --------------------------------------------------------------------------------------
 
 // Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
-// library beside them when one links it.
+// library beside them when one links it. Building stale ones makes the run cold (a suite or bench that needs them
+// isn't held to its budget for the build).
 build_headless :: proc(mode: Mode, force := false) -> (built: int) {
 	builds := start_headless(mode, force = force)
-	return finish_headless(&builds)
+	built = finish_headless(&builds)
+	if built > 0 && !force {
+		cold(aprintf("%d headless binar%s", built, built == 1 ? "y" : "ies"))
+	}
+	return
 }
 
 Headless_Builds :: struct {

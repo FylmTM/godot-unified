@@ -382,8 +382,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	defer netcode.link_close(&other)
 	buf: [64]u8
 	inbox := proc(hub: ^netcode.Hub, i: int) -> int {
-		sync.guard(&hub.inboxes[i].mu)
-		return len(hub.inboxes[i].queue)
+		return netcode.hub_queued(hub, netcode.Peer(i))
 	}
 
 	netcode.link_forget(&link, 1)

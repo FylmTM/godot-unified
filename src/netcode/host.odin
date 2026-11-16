@@ -13,7 +13,7 @@ Host_Config :: struct {
 	name:          string, // for log lines
 	player_name:   string, // the host player's display name
 	account:       Account, // optional: the host player's own platform account (borrowed for the host's lifetime)
-	poll_us:       i64,
+	poll_us:       i64, // the relay's poll for remote links (0: DEFAULT_POLL_US); with none, the host doesn't poll
 	quiet:         bool,
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
 	// Typed desync reports (dev builds): the relay diffs two players' snapshots of a desynced tick (Relay_Config.desync_diff).
@@ -25,7 +25,12 @@ Host :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	client:  ^Client(State, Input, World, PLAYERS),
 	hub:     ^Hub,
 	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
+	poll_us: i64, // the relay's poll once a remote link is added (until then nothing comes from outside)
 }
+
+// The steps' poll while a host has no remote links (single player): nothing arrives from outside, so a step runs at
+// its deadlines (the next tick of the relay or the client) and this is only the fallback before the clock starts.
+SOLO_POLL_US :: 50_000
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
 // the host's client in slot 0.
@@ -45,7 +50,7 @@ host_create :: proc(
 		compat        = compat,
 		content       = sim.content_hash(cfg.content),
 		name          = cfg.name,
-		poll_us       = cfg.poll_us,
+		poll_us       = SOLO_POLL_US,
 		quiet         = cfg.quiet,
 		local_start   = true, // the only start player is the host's own client
 		recording     = cfg.recording,
@@ -59,10 +64,11 @@ host_create :: proc(
 		content     = cfg.content,
 		name        = cfg.name,
 		player_name = cfg.player_name,
-		poll_us     = cfg.poll_us,
+		poll_us     = SOLO_POLL_US, // its only link is in-process: host_step hands it what the relay sends at once
 		quiet       = cfg.quiet,
 	}
 	host.client = client_create(game, client_config, loopback_link(host.hub, 1), hooks)
+	host.poll_us = cfg.poll_us > 0 ? cfg.poll_us : DEFAULT_POLL_US
 	return host
 }
 
@@ -70,6 +76,7 @@ host_create :: proc(
 // own player is in (its clock started), so a remote Hello already waiting on the link (a player who connected
 // while the host waited for them) joins as a remote player instead of taking the host's player 0.
 host_add_link :: proc(host: ^Host($State, $Input, $World, $PLAYERS), link: Link) {
+	host.relay.cfg.poll_us = host.poll_us // datagrams from outside: poll for them
 	if host.relay.started {
 		relay_add_link(host.relay, link)
 	} else {
@@ -77,10 +84,19 @@ host_add_link :: proc(host: ^Host($State, $Input, $World, $PLAYERS), link: Link)
 	}
 }
 
-// Steps the relay and the host's client; returns the earlier of their wake times.
+// Steps the relay and the host's client; returns the earlier of their wake times. What one of them sends the other
+// is taken in the same call (they talk in-process), so the host's own inputs and finalized ticks never wait for a
+// wake, and a single-player host wakes only at its deadlines (#263).
 host_step :: proc(host: ^Host($State, $Input, $World, $PLAYERS), now: i64) -> i64 {
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
+	for _ in 0 ..< 4 { 	// inputs -> finalized tick -> its ack: a few rounds at most
+		if hub_queued(host.hub, 0) == 0 && hub_queued(host.hub, 1) == 0 {
+			break
+		}
+		relay_wake = relay_step(host.relay, now)
+		client_wake = client_step(host.client, now)
+	}
 	if host.relay.started && len(host.waiting) > 0 {
 		for link in host.waiting {
 			relay_add_link(host.relay, link)

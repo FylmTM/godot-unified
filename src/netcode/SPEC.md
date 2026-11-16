@@ -8,9 +8,16 @@ relay's input log is the session (seed + content + log replays to the same check
 Generic over the game: `Relay(Input, PLAYERS)`, `Client(State, Input, World, PLAYERS)`, `Host(...)`. Nothing runs a
 thread or loop of its own: the host application calls `*_step(now_us) -> wake_us` from its own loop (or one thread
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
-`sleep_until(wake_us)`. The wake time is the next tick boundary or the poll interval (the configs' `poll_us`, 1 ms by
-default), whichever is sooner, so a session thread wakes about 1,000 times a second; sleeping to the next tick or
-datagram instead is #263. `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
+`sleep_until(wake_us)` (to the microsecond: a high-resolution waitable timer on Windows, whose `Sleep` takes whole
+milliseconds). The wake time is the next deadline (a tick of the relay or the client, a held broadcast) or the poll
+interval (the configs' `poll_us`, 1 ms by default), whichever is sooner. A host with no remote links (single player)
+doesn't poll: its relay and client hand each other what they send within the same `host_step`, so it wakes at its
+deadlines only, about twice a tick (measured on the toy: 156 wakeups a second and a quarter of the CPU, from 683).
+Remote links are polled every 1 ms (decided in #263: EOS links can't wait on a socket, and the Godot driver pumps EOS
+every 4 ms anyway). The session thread allocates nothing in steady state (#262): queued messages, delayed
+datagrams and early reliable messages take reused slots (`Slot_Pool`), the loopback hub's inboxes are byte queues
+swapped whole, a client's kept desync images reuse their buffers (`tests/netcode/alloc_test.odin` keeps the count at
+0). `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
 picks EOS, UDP or loopback), `Hooks`, the configs (through
 `unified:godot`'s driver, or directly in its tests) and the test helpers (`Profile`, `Virtual_Clock`, `hub_create`,
 through `headless.session_run`).
@@ -59,7 +66,7 @@ through `headless.session_run`).
   layouts, command and event types, player count, tick rate, game name and version, content; 0 at the relay
   accepts any), the client's token (Members) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`,
   `Not_Started`, `No_Snapshot` (a joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). An EOS
-  lobby carries `compat` and `PROTOCOL_VERSION` (12), so a joiner on another build is told before it joins
+  lobby carries `compat` and `PROTOCOL_VERSION` (13), so a joiner on another build is told before it joins
   (`src/eos/SPEC.md`). **Welcome** carries the slot, the joiner's member id, the seed, the tick rate, the length,
   the first tick it is present and flags.
 - **Start** (#179, D6 of #8): the clock starts once the start players have connected: they get Welcome and tick 0 is
@@ -71,8 +78,11 @@ through `headless.session_run`).
   player's last one (`replaced`). `present` = connected slots from their join tick; a slot's join tick carries its
   join record (`sim.Inputs.member`: the member seated there). Slots go lowest-free. A tick can be final before it
   is due.
-- **Broadcast**: on every finalize, and a heartbeat when nothing was finalized for a tick (the clients time their
-  clocks from it). Each Finalized datagram carries the relay time, an echo of the client's last Inputs time, the
+- **Broadcast**: newly finalized ticks, at most once per ¾ tick (`BROADCAST_GAP`, #246), and a heartbeat when
+  nothing was finalized for a tick (the clients time their clocks from it). Under jitter the players' inputs arrive
+  apart and each arrival can finalize a tick: once per finalize was ~106 packets a second per client at 64 Hz (100 ±
+  25 ms, 1% loss), ¾ tick cuts packets 25% and bytes 23% for +0.12 rollback depth, a clean network unchanged (a whole
+  tick: −33%, but +1 depth on a clean network). Each Finalized datagram carries the relay time, an echo of the client's last Inputs time, the
   input and command acks, and the client's unacked finalized ticks (as many as fit, ≤ `WINDOW_MAX` 32); a longer
   backlog, up to `CATCHUP_TICKS` (384), goes out one window per broadcast in turn. A client whose unacked ticks have
   left the ring is refused (`Too_Far_Behind`).
@@ -84,7 +94,10 @@ through `headless.session_run`).
   (the next packet repeats what wasn't acked). A tick's commands are budgeted so it fits a packet alone however much
   it changed (`window_tick_max_bytes`). Measured (`net-bench`, 2 clients, 140 ms each way): a joiner receives 7.5
   kB/s in drift, 7.8 in friendslop, from 38 and 52 (110 and 115 bytes a packet from 555 and 758); scripted inputs
-  change every 16 ticks, a player turning the aim every tick costs 3–4 bytes a tick more.
+  change every 16 ticks, a player turning the aim every tick costs 3–4 bytes a tick more. A client's Inputs packet
+  writes its own unacked inputs the same way (#245, `window_write_input`: each from the one before, the first from
+  the zero input): its upload at 60 / 100 / 140 ms is 4.4 / 4.8 / 5.2 kB/s in drift (from 6.7 / 8.6 / 10.6), 4.6 /
+  5.1 / 5.6 in friendslop (from 7.7 / 10.3 / 12.8), nearly all of it headers.
 - **Recording** (#8 D12): `Relay_Config.recording` (a `sim.Log_Sink`: `sim.log_sink_memory`, `sim.log_sink_file`)
   gets the session's input log (`UNIL`, `src/sim/SPEC.md`) as ticks are finalized: the header with a tick count of
   0, each tick in the wire format, the count when it ends (`relay_end_recording`, or `relay_destroy`); a recording
@@ -235,7 +248,8 @@ implementation choices accepted in the #8 sitting (D2). Each player's commands a
 
 `tests/netcode`, on the toy and a virtual clock unless a test says otherwise (every client sends the toy's scripted
 commands): host + remote clients under `wan` (checksums agree, the recording replays to the verified checksum, hooks
-in order), late join + leave + slot reuse (the roster by member), single player, a taken player refused, the delay and stamp formulas at
+in order), late join + leave + slot reuse (the roster by member), single player (and that it wakes at its deadlines
+only), no heap allocation in steady state (`alloc_test.odin`), a taken player refused, the delay and stamp formulas at
 32/60/64/128 Hz, outages and rejoins, catching up, too far behind, everyone leaving (a returning player refused),
 a snapshot provider leaving (another steps in; with nobody, the joiner is refused), a bad snapshot refused and
 another sent (with nobody else: refused), the `desync` hook, a reliable burst not resent, a jitter-only netsim,

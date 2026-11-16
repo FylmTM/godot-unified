@@ -106,6 +106,8 @@ Extra :: struct {
 	image:   proc(data: rawptr, slot: int) -> []u8,
 	// Loads portable bytes (from `image`, possibly another machine) into the live state.
 	load:    proc(data: rawptr, bytes: []u8) -> bool,
+	// Optional: the bytes the save of a ring slot holds (what each tick's save copies; save_size, the benchmarks).
+	size:    proc(data: rawptr, slot: int) -> int,
 }
 
 // A game, as the harness, netcode and tools see it.
@@ -291,7 +293,9 @@ create :: proc(
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		slot.events.type = game.events
-		slot.events.list = make([dynamic]Raw_Event) // grows under create's allocator, whatever is active then
+		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
+		// session thread doesn't allocate the first time a ring slot gets some.
+		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
 	simulation.world = game.world_create(seed, content)
@@ -431,6 +435,18 @@ checksum :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) -> u64 {
 // The ticks whose checksums cover every extra's whole internal state (Extra.hash), and the ones the
 // netcode compares between peers.
 DEEP_CHECKSUM_EVERY :: 16
+
+// Bytes each tick's save copies, measured on the current tick: the block and every extra's save of its slot (an
+// extra without `size` counts 0). What a tick costs in the ring, against snapshot_size's portable image.
+save_size :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) -> int {
+	size := size_of(State)
+	for &extra in simulation.extras {
+		if extra.size != nil {
+			size += extra.size(extra.data, ring_slot(simulation, simulation.tick))
+		}
+	}
+	return size
+}
 
 // Size in bytes of a full snapshot of the current tick (block + extras' images).
 snapshot_size :: proc(simulation: ^Sim($State, $Input, $World, $PLAYERS)) -> int {

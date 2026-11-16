@@ -279,6 +279,11 @@ rig_synctest :: proc(t: ^testing.T, game: ^Rig_Game) -> (forward: [RIG_TICKS + 1
 		}
 	}
 	testing.expect_value(t, mismatches, 0)
+	// What each tick's save copies: the block and the world's arena snapshot of its slot (#260).
+	slot := sim.ring_slot(session, session.tick)
+	world_bytes := session.world.phys.ring[slot].size
+	testing.expect(t, world_bytes > 0)
+	testing.expect_value(t, sim.save_size(session), size_of(Rig) + world_bytes)
 	// The rig really did what it is for.
 	testing.expect(t, session.state.jumps > 5)
 	testing.expect(t, session.state.hits > 0)

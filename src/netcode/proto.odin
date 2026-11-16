@@ -12,8 +12,9 @@ import "unified:wire"
 // ticks as their changes from the tick before (window.odin, #192);
 // 11: players are session members (#222): Hello's token, Welcome's member id, join records in finalized ticks, a
 // roster entry per member; 12: snapshots v6 (the build's compat in the header), a finalized tick with a slot past
-// PLAYERS present or replaced is refused (#233, #255).
-PROTOCOL_VERSION :: 12
+// PLAYERS present or replaced is refused (#233, #255); 13: a client's own inputs as their changes from the input before
+// (#245).
+PROTOCOL_VERSION :: 13
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
 ACCOUNT_MAX :: 63 // bytes of an account id (an EOS product user id: 32)
@@ -138,8 +139,9 @@ Msg :: enum u8 {
 	// (Welcome_Flags)
 	Welcome,
 	Reject, // r->c R: reason u8
-	// c->r U: player u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs; then the
-	// unacked commands: first seq u32, count u8, per command: wanted tick u32, kind u8, size u8, bytes
+	// c->r U: player u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs (window_write_input:
+	// each its changes from the one before, the first from the zero input); then the unacked commands: first seq u32,
+	// count u8, per command: wanted tick u32, kind u8, size u8, bytes
 	Inputs,
 	// r->c U: relay time i64, echo i64, hold i64, input ack u32, command ack u32, first u32, count u8, ticks
 	// (window_write_tick: each tick's changes from the one before it in the packet, and its join records)
@@ -282,20 +284,6 @@ r_i64 :: proc(reader: ^wire.Reader) -> i64 {
 	return i64(wire.r_u64(reader))
 }
 
-// Plain data is its own serialization.
-@(private)
-w_raw :: proc(writer: ^wire.Writer, value: ^$Value) {
-	wire.w_bytes(writer, ([^]u8)(value)[:size_of(Value)])
-}
-
-@(private)
-r_raw :: proc(reader: ^wire.Reader, $Value: typeid) -> (value: Value) {
-	if bytes := wire.r_bytes(reader, size_of(Value)); bytes != nil {
-		copy(([^]u8)(&value)[:size_of(Value)], bytes)
-	}
-	return
-}
-
 FINALIZED_HEAD :: 38 // type u8, relay time, echo, hold i64, input ack u32, command ack u32, first u32, count u8
 INPUTS_HEAD :: 19 // type u8, player u8, client time i64, finalized ack u32, first u32, count u8
 COMMANDS_HEAD :: 5 // first seq u32, count u8
@@ -310,17 +298,10 @@ tick_command_budget :: proc($Input: typeid, $PLAYERS: int) -> int {
 	return budget
 }
 
-// Own inputs per client packet: what fits one message next to at least one command of the largest size.
+// Own inputs per client packet: what fits one message next to at least one command of the largest size, every
+// input changed.
 @(private)
 inputs_window :: proc($Input: typeid) -> u32 {
 	room := MAX_MESSAGE - INPUTS_HEAD - COMMANDS_HEAD - COMMAND_SEND_HEAD - sim.COMMAND_MAX
-	return u32(min(room / size_of(Input), INPUTS_MAX))
-}
-
-// Copies a byte slice into a new one from `allocator`: queued messages and delayed datagrams outlive the buffer
-// they came in.
-clone_bytes :: proc(bytes: []u8, allocator := context.allocator) -> []u8 {
-	clone := make([]u8, len(bytes), allocator)
-	copy(clone, bytes)
-	return clone
+	return u32(min(room / window_input_max_bytes(Input), INPUTS_MAX))
 }

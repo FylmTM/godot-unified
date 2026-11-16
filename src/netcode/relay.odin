@@ -52,6 +52,7 @@ INPUT_RING :: 256
 CHECK_RING :: 64
 JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock at its Hello
 START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
+BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (#246; a heartbeat waits a tick)
 CHECK_WAIT_MS :: 1000 // a checksum tick is judged once every expected report is in, or this long after it is due
 IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
@@ -142,6 +143,7 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	echo_time:    [PLAYERS]i64,
 	echo_recv:    [PLAYERS]i64,
 	broadcast_us: i64, // when the last broadcast went out
+	broadcast_to: u32, // the newest finalized tick when it did
 	checks:       [CHECK_RING]Check(PLAYERS),
 	desyncs:      int, // desync reports (a checksum tick on which some players differ from the majority)
 	reports:      [dynamic]Desync_Report, // waiting to go out while a typed report gathers its snapshots
@@ -175,6 +177,7 @@ relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay
 		relay.peer_of[player] = -1
 		relay.provider[player] = -1
 		relay.report_from[player] = NO_REPORTS
+		reserve(&relay.cmd_wait[player], COMMAND_QUEUE)
 	}
 	for &player in relay.player_of {
 		player = -1
@@ -530,11 +533,15 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 	if relay.base_known[player] {
 		relay.client_ack[player] = max(relay.client_ack[player], min(finalized_ack, relay.finalized))
 	}
+	input: Input // each input as its changes from the one before it, the first from the zero input
+	malformed := false
 	for k in 0 ..< count {
-		input := r_raw(reader, Input)
+		if !window_read_input(reader, &input) {
+			malformed = true // the inputs after it, and the commands, can't be found
+			break
+		}
 		tick := first + k
-		if !reader.ok ||
-		   tick <= relay.finalized ||
+		if tick <= relay.finalized ||
 		   tick >= relay.finalized + INPUT_RING ||
 		   (relay.cfg.ticks != 0 && tick > relay.cfg.ticks) ||
 		   tick < relay.active_from[player] ||
@@ -546,6 +553,9 @@ on_inputs :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.Re
 	}
 	for have_input(relay, player, relay.recv_upto[player] + 1) {
 		relay.recv_upto[player] += 1
+	}
+	if malformed {
+		return
 	}
 	// Commands: the sender's unacked ones, from `first_seq` on. Each seq is taken once, in order; one the
 	// relay already has (a resend, a duplicate) is skipped.
@@ -942,6 +952,7 @@ take_commands :: proc(relay: ^Relay($Input, $PLAYERS), tick: u32, tick_inputs: ^
 broadcast :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) {
 	window := u32(WINDOW_MAX)
 	relay.broadcast_us = now
+	relay.broadcast_to = relay.finalized
 	for player in 0 ..< PLAYERS {
 		if !relay.welcomed[player] || !relay.connected[player] {
 			continue
@@ -1147,7 +1158,6 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 		relay.beats = u32(f64(now - relay.welcome_us) / relay.tm.tick_us)
 		relay.clock = relay.beats > relay.lead ? relay.beats - relay.lead : 0
 		sync.atomic_store(&relay.clock_pub, relay.clock)
-		finalized_before := relay.finalized
 		finalize(relay)
 		// A client whose unacked ticks left the ring can't be streamed to any more.
 		for player in 0 ..< PLAYERS {
@@ -1157,9 +1167,7 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 				refuse_player(relay, player, .Too_Far_Behind, now)
 			}
 		}
-		// On every finalize, and a heartbeat when nothing was finalized for a tick (during the lead too: the
-		// clients time their clocks from these).
-		if relay.finalized != finalized_before || f64(now - relay.broadcast_us) >= relay.tm.tick_us {
+		if broadcast_due(relay, now) {
 			broadcast(relay, now)
 		}
 		judge_checks(relay, now)
@@ -1190,6 +1198,21 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 	wake_us = now + relay.cfg.poll_us
 	if relay.started {
 		wake_us = min(wake_us, relay.welcome_us + i64(f64(relay.beats + 1) * relay.tm.tick_us) + 1)
+		if relay.finalized != relay.broadcast_to {
+			wake_us = min(wake_us, relay.broadcast_us + i64(BROADCAST_GAP * relay.tm.tick_us) + 1) // a held broadcast
+		}
 	}
 	return
+}
+
+// Whether the Finalized broadcast goes out now: newly finalized ticks, at most once per BROADCAST_GAP (#246: under
+// jitter the players' inputs arrive apart and each arrival can finalize a tick), and a heartbeat when nothing was
+// finalized for a tick (during the lead too: the clients time their clocks from these).
+@(private)
+broadcast_due :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> bool {
+	since := f64(now - relay.broadcast_us)
+	return(
+		since >= relay.tm.tick_us ||
+		(relay.finalized != relay.broadcast_to && since >= BROADCAST_GAP * relay.tm.tick_us) \
+	)
 }

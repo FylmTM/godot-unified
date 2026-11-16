@@ -39,7 +39,8 @@ All modes print a final JSON line on stdout. Non-zero exit = failure.
 - `bench [--entities E --window W --ticks N]`: JSON with mean/p99 µs for the forward step, save, restore,
   W-tick re-sim (`resim_us`), the same re-sim of final ticks saving only the last (`resim_final_us`, a catch-up
   burst), the stepped tick's checksum (`checksum_deep_us` on the ticks peers compare, every 16th; `checksum_us` on
-  the others) and snapshot bytes; E entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
+  the others), the portable snapshot's bytes and what each tick's save copies (`save_bytes`, `sim.save_size`); E
+  entities held (`Headless.bench_prepare`, the game's own kind: the survivor's
   enemies), `entities_mean` the count it held. Without arguments it runs the game's standard benchmark
   (`Headless.bench`; W defaults to the prediction cap, `headless.prediction_window(game)`).
 - `net-bench [--clients N --ticks T --profile P | --latency MS [--jitter MS] [--loss PERMILLE]] [--seed S]`: a
@@ -70,7 +71,8 @@ procs in-process):
     `join_tick`, `delay`, `delay_changes`, `rtt_ms`, `desyncs`, `ok`, `net`, `steps` and `step_us` (by kind:
     `verified`, `resim`, `predicted`).
   - `bench`: `what`, `entities`, `window`, `ticks`, the timings `step_us`, `save_us`, `restore_us`, `resim_us`,
-    `resim_final_us`, `checksum_us`, `checksum_deep_us`, then `snapshot_bytes`, `block_bytes`, `entities_mean`,
+    `resim_final_us`, `checksum_us`, `checksum_deep_us`, then `snapshot_bytes`, `block_bytes`, `save_bytes`,
+    `entities_mean`,
     `mismatches`. `net-bench`: `clients`, `profile`, `latency_ms`, `jitter_ms`, `ticks`, `tick_hz`, `wall_ms`,
     `delay` (per client), `rollbacks`, `rollback_depth_avg`, `resim_ticks`, `stall_ticks`, `replaced_inputs`,
     `desyncs`, `steps`, `step_us`, `relay_bytes_per_s`, `client_bytes_per_s`, `relay_datagrams_per_s`, `resends`.

@@ -163,7 +163,9 @@ for &raw in sim.commands(t, player) {               // inside tick: this player'
   back as 0 or 1 whatever its bytes held. GDScript sends one as an object of its class
   (`CommandDropCoin`: `src/godot/SPEC.md`).
 - A tick holds at most `COMMANDS_PER_PLAYER` (4) of one slot and `TICK_COMMANDS` (16) in all, inline in `Inputs`,
-  so a tick's record has a fixed size and fits one datagram. More wait for the next tick, in order:
+  so a tick's record has a fixed size and fits one datagram. The slots cost memory only (about 1.1 kB a record, 0.6
+  MB per ring of the relay or a client; a copy ~21 ns): the wire and the log carry the used commands alone (#264,
+  measured and kept). More wait for the next tick, in order:
   `add_command(&inputs, raw) -> bool`. Ordered by slot, each slot's in the order sent (`slot_commands(&inputs,
   slot)`; inside `tick`, `commands(t, player)`).
 - `Raw_Command {kind, slot, size, data: [64]u8}`. A kind out of range or a wrong size reads as no variant (bytes
@@ -264,7 +266,9 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   the block, then each Extra's bytes. Peers compare it on finalized ticks.
 - **Extra** (`save/restore(slot)` with `slot = tick % ring_size`, `hash(state, tick, out)`: on multiples of
   `DEEP_CHECKSUM_EVERY` (16), the ticks the netcode compares, its whole internal state, otherwise a cheaper
-  summary; `image(slot)`, `load(bytes)`): rollback state outside the block. The harness knows nothing about Box3D
+  summary; `image(slot)`, `load(bytes)`, optional `size(slot)`: the bytes a slot's save holds): rollback state outside
+  the block. `save_size(simulation)`: what each tick's save copies (the block and the extras' saves), against
+  `snapshot_size`'s portable image (`uni bench` prints both). The harness knows nothing about Box3D
   (`src/physics/SPEC.md`).
 
 ## Files
@@ -284,7 +288,8 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
 - **Portable snapshot** `UNIS` (`SNAP_VERSION` 6): seed, content hash, tick, block size, `layout_hash(State)` (field
   names, offsets and types), compat (`compat_of` of the build that took it), a payload digest, the block bytes, each
-  Extra's image. `snapshot_encode(simulation, tick)`,
+  Extra's image. `snapshot_encode(simulation, tick)` (`snapshot_encode_into(simulation, tick, &buf)` reuses a
+  buffer: the netcode's kept desync images),
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads).
   `Snap_Error`: `Bad_Header` (not a snapshot, or another format version), `Layout_Differs` (another build's state:
   another layout or block size), `Content_Differs`, `Build_Differs` (the same layout, another compat: another game
