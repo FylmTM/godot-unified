@@ -1,8 +1,9 @@
 # friendslop: the co-op physics sandbox (the second game)
 
-Signed off by the developer 2026-11-09; their decisions are marked (D). Code: `games/friendslop/`, laid
-out like `games/survivor/`. Library work it needs: `src/physics/SPEC.md` (character, joints, paths) and `src/level/SPEC.md`
-(Godot-authored levels).
+Status: signed off 2026-11-09, review pending #14; the developer's decisions are marked (D).
+
+Code: `games/friendslop/`, laid out like `games/survivor/`. Library work it needs: `src/physics/SPEC.md` (character,
+joints, paths) and `src/level/SPEC.md` (Godot-authored levels).
 
 A third-person physics sandbox for 1–4 players (solo works): wobbly capsule characters who ride platforms, bounce
 on jump pads, push, carry, stack and throw things (and each other), knock each other over, and haul heavy things
@@ -23,6 +24,9 @@ rollback, bit-exact across machines. Metres, seconds, Y up; 64 Hz (`DT = 1/64`),
    spawn (open: also resetting a key item that leaves its beat).
 4. **Finish:** the trophy on the pedestal → run time shown (best time kept by the view) → after 5 s everyone is back
    in the hub and the route resets.
+
+When the last player leaves, a run (or its finish) ends there: the route resets and the phase is back to the hub, as
+drift and survivor reset theirs.
 
 No health, no fail state: getting hit or dropped costs time, not a life.
 

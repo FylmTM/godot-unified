@@ -1,6 +1,6 @@
 # cli
 
-Signed off 2026-11-11 (#20, PR #98; the reasoning behind each decision is in #98's description). Built in #20.
+Status: signed off 2026-11-11 (#20); the reasoning behind each decision is in PR #98's description.
 
 `uni`, the unified CLI: one Odin binary per project that builds, tests and runs games, in this repo and in a game
 repo that has `unified` as a git submodule. `unified:cli` is the public part, a library: each project compiles it

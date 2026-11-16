@@ -32,13 +32,13 @@ ensure_bindings :: proc(force := false) {
 	start := time.tick_now()
 	make_dirs(join(gdext, "gdi"))
 	make_dirs(out)
-	gen := join(out, tprint("gdext_gen%s", EXE))
+	gen := join(out, aprintf("gdext_gen%s", EXE))
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", join(gdext, "gen"), tprint("-out:%s", gen), "-o:minimal")
+	append(&cmd, odin(), "build", join(gdext, "gen"), aprintf("-out:%s", gen), "-o:minimal")
 	append(&cmd, ..VET)
 	must_run({cmd = cmd[:]}, "building the binding generator")
 	must_run({cmd = {gen, join(gdext, "api"), join(gdext, "bindings.txt"), gdext}}, "the binding generator")
-	write_text(stamp, tprint("%s\n", key))
+	write_text(stamp, aprintf("%s\n", key))
 	log("uni: godot-gen -> src/gdext/*.gen.odin in %.2fs", seconds_since(start))
 }
 
@@ -91,7 +91,7 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 		ensure_box3d()
 		stage_box3d(os.dir(extension_lib(game)), debug = mode == .debug)
 		for ext in gdextensions(game.dir) {
-			if text, _ := read_text(ext); !strings.contains(text, tprint("res://.out/bin/%s", lib_name("box3d"))) {
+			if text, _ := read_text(ext); !strings.contains(text, aprintf("res://.out/bin/%s", lib_name("box3d"))) {
 				log(
 					"uni: warning: %s's [dependencies] don't list %s: an export won't load",
 					rel(ext),
@@ -122,16 +122,16 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 	now := time.now()
 	stamp := timestamp(now)
 	tmp :=
-		versioned ? join(os.dir(lib), tprint("lib%s-%s.dylib", game.name, stamp)) : tprint("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
+		versioned ? join(os.dir(lib), aprintf("lib%s-%s.dylib", game.name, stamp)) : aprintf("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
 	built := build
 	built.out = tmp
 	flags: [dynamic]string
 	append(&flags, ..build.flags)
-	append(&flags, tprint("-define:UNIFIED_BUILD_TAG=%v-%s", mode, stamp[:15]))
+	append(&flags, aprintf("-define:UNIFIED_BUILD_TAG=%v-%s", mode, stamp[:15]))
 	built.flags = flags[:]
-	secs := odin_build(built, tprint("building %s's extension", game.name), tprint("%s.inputs", lib))
+	secs := odin_build(built, aprintf("building %s's extension", game.name), aprintf("%s.inputs", lib))
 	// The manifest's key is the build without the tag (see above).
-	if entries, _, ok := read_manifest(tprint("%s.inputs", lib)); ok {
+	if entries, _, ok := read_manifest(aprintf("%s.inputs", lib)); ok {
 		files: [dynamic]string
 		odin_path := ""
 		for entry in entries {
@@ -141,13 +141,13 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 				odin_path = entry.path
 			}
 		}
-		write_manifest(tprint("%s.inputs", lib), build_key(build), files[:], odin_path)
+		write_manifest(aprintf("%s.inputs", lib), build_key(build), files[:], odin_path)
 	}
 	if versioned {
-		link := tprint("%s.new", lib)
+		link := aprintf("%s.new", lib)
 		os.remove(link)
 		if os.symlink(os.base(tmp), link) != nil || os.rename(link, lib) != nil {
-			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
+			os.remove(aprintf("%s.inputs", lib)) // not current: the next command builds again
 			fatal("cannot point %s at %s", lib, os.base(tmp))
 		}
 		prune_versions(game)
@@ -158,19 +158,19 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 			// running on the old file; the next start gets the new one. Old ones go once nothing holds them.
 			infos, _ := os.read_all_directory_by_path(os.dir(lib), context.temp_allocator)
 			for info in infos do if strings.contains(info.name, ".old-") do os.remove(info.fullpath)
-			if os.exists(lib) do os.rename(lib, tprint("%s.old-%s", lib, stamp))
+			if os.exists(lib) do os.rename(lib, aprintf("%s.old-%s", lib, stamp))
 		}
 		if os.rename(tmp, lib) != nil {
-			os.remove(tprint("%s.inputs", lib)) // not current: the next command builds again
+			os.remove(aprintf("%s.inputs", lib)) // not current: the next command builds again
 			fatal("cannot move %s into place (a running game holds it?)", lib)
 		}
 		when ODIN_OS == .Windows {
 			for ext in ([]string{".pdb", ".lib", ".exp"}) {
-				from := tprint("%s%s", tmp[:len(tmp) - 4], ext)
+				from := aprintf("%s%s", tmp[:len(tmp) - 4], ext)
 				if os.exists(from) {
-					to := tprint("%s%s", lib[:len(lib) - 4], ext)
+					to := aprintf("%s%s", lib[:len(lib) - 4], ext)
 					os.remove(to)
-					if os.exists(to) do os.rename(to, tprint("%s.old-%s", to, stamp))
+					if os.exists(to) do os.rename(to, aprintf("%s.old-%s", to, stamp))
 					os.rename(from, to)
 				}
 			}
@@ -186,7 +186,7 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 prune_versions :: proc(game: Game) {
 	dir := join(game.dir, ".out", "bin")
 	infos, _ := os.read_all_directory_by_path(dir, context.allocator)
-	prefix := tprint("lib%s-", game.name)
+	prefix := aprintf("lib%s-", game.name)
 	builds: [dynamic]os.File_Info
 	for info in infos {
 		if strings.has_prefix(info.name, prefix) && strings.has_suffix(info.name, ".dylib") && info.type == .Regular {
@@ -199,7 +199,7 @@ prune_versions :: proc(game: Game) {
 	})
 	for info in builds[min(4, len(builds)):] {
 		os.remove(info.fullpath)
-		remove_tree(tprint("%s.dSYM", info.fullpath))
+		remove_tree(aprintf("%s.dSYM", info.fullpath))
 	}
 }
 
@@ -208,7 +208,7 @@ timestamp :: proc(moment: time.Time) -> string {
 	year, month, day := time.date(moment)
 	hour, minute, second := time.clock(moment)
 	millis := (time.to_unix_nanoseconds(moment) / 1_000_000) % 1000
-	return tprint("%04d%02d%02d-%02d%02d%02d-%03d", year, int(month), day, hour, minute, second, millis)
+	return aprintf("%04d%02d%02d-%02d%02d%02d-%03d", year, int(month), day, hour, minute, second, millis)
 }
 
 // --- Godot's extension list ---------------------------------------------------------------------------------------
@@ -244,7 +244,7 @@ write_extension_list_dir :: proc(dir: string) -> []string {
 			lib, ok := config_get(config, "libraries", key)
 			if ok && os.exists(join(dir, strings.trim_prefix(lib, "res://"))) {
 				relative, _ := strings.replace_all(ext[len(dir) + 1:], "\\", "/")
-				append(&listed, tprint("res://%s", relative))
+				append(&listed, aprintf("res://%s", relative))
 				break
 			}
 		}

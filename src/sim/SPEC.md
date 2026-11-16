@@ -1,7 +1,6 @@
 # `unified:sim`: the deterministic harness
 
-Reviewed with the developer in the #6 sitting and signed off (2026-11-14, #166); the code follows it since the
-sitting's follow-up PR.
+Status: signed off 2026-11-14 (#6, #166).
 
 A game is a function `tick(state, inputs) → next state`. Every machine that starts from the same bytes and applies
 the same inputs computes the same bytes; rollback, replays, late join and desync detection follow from that. This
@@ -24,8 +23,10 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   re-simulate, compare each checksum with the forward run), which fails offline on the tick such state shows.
 - `PLAYERS` the number of input **slots**, 1..32: how many players are in the session at once (Players, below).
 - `Game`: `name`, `version` (bump when `tick` computes differently without a layout change: a rule, a constant),
-  `tick_hz` (a power of two, 32..128; `dt = 1/tick_hz` exactly), `world_create(seed, content)` (`content`: the
-  level file's bytes, `src/level/SPEC.md`; empty when the game has none), `world_destroy`, `extras(world)`,
+  `tick_hz` (a power of two, 32..128; the games use 64; `dt = 1/tick_hz` exactly, so tick ↔ second conversions are
+  exact: every time constant is written in seconds and converted with `dt`, never as a raw tick count),
+  `world_create(seed, content)` (`content`: the level file's bytes, `src/level/SPEC.md`; empty when the game has
+  none), `world_destroy`, `extras(world)`,
   `init(state, world, seed)` (tick 0; the block is zeroed before), `tick(tick: ^Tick)`, `events` (the event union,
   below), `commands` (the command union, below), `min_input_delay` (the least input delay the netcode gives a
   player, in ticks; 0: 1; `src/netcode/SPEC.md`, Timing).

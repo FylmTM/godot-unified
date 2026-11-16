@@ -19,7 +19,7 @@ godot :: proc() -> string {
 		return cached
 	}
 	version := pin("godot", "version")
-	want := tprint("%s.stable.official", version)
+	want := aprintf("%s.stable.official", version)
 	if path := os.get_env("UNIFIED_GODOT", context.allocator); path != "" {
 		// `--version` costs a Godot start: remember the answer for this exact file.
 		check := join(state.project.out, "godot", "unified_godot.checked")
@@ -29,7 +29,7 @@ godot :: proc() -> string {
 			if !strings.has_prefix(got, want) {
 				fatal("UNIFIED_GODOT=%s reports %q; the pin is %s", path, got, want)
 			}
-			write_text(check, tprint("%s\n", id))
+			write_text(check, aprintf("%s\n", id))
 		}
 		cached = path
 		return path
@@ -39,11 +39,11 @@ godot :: proc() -> string {
 		cold("Godot download")
 		// Unpacked beside its final place and renamed into it: another checkout may be fetching it at the same time
 		// (the first rename wins), and a half-unpacked editor never sits at the final path.
-		tmp := tprint("%s.%d.tmp", dir, os.get_pid())
+		tmp := aprintf("%s.%d.tmp", dir, os.get_pid())
 		remove_tree(tmp)
 		zip := join(tmp, asset)
 		download(
-			tprint("https://github.com/godotengine/godot/releases/download/%s-stable/%s", version, asset),
+			aprintf("https://github.com/godotengine/godot/releases/download/%s-stable/%s", version, asset),
 			zip,
 			sha256,
 			asset,
@@ -66,24 +66,24 @@ godot :: proc() -> string {
 // asset never mixes with the old one), the editor executable in it, its release asset and pinned hash.
 godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 	version := pin("godot", "version")
-	tag := tprint("%s-stable", version)
+	tag := aprintf("%s-stable", version)
 	when ODIN_OS == .Darwin {
 		sha256 = pin("godot", "sha256_macos")
-		asset = tprint("Godot_v%s_macos.universal.zip", tag)
+		asset = aprintf("Godot_v%s_macos.universal.zip", tag)
 	} else when ODIN_OS == .Windows {
 		sha256 = pin("godot", "sha256_windows")
-		asset = tprint("Godot_v%s_win64.exe.zip", tag)
+		asset = aprintf("Godot_v%s_win64.exe.zip", tag)
 	} else {
 		sha256 = pin("godot", "sha256_linux")
-		asset = tprint("Godot_v%s_linux.x86_64.zip", tag)
+		asset = aprintf("Godot_v%s_linux.x86_64.zip", tag)
 	}
-	dir = join(user_cache(), "godot", tprint("%s-%s", version, sha256[:min(12, len(sha256))]))
+	dir = join(user_cache(), "godot", aprintf("%s-%s", version, sha256[:min(12, len(sha256))]))
 	when ODIN_OS == .Darwin {
 		exe = join(dir, "Godot.app", "Contents", "MacOS", "Godot")
 	} else when ODIN_OS == .Windows {
-		exe = join(dir, tprint("Godot_v%s_win64_console.exe", tag))
+		exe = join(dir, aprintf("Godot_v%s_win64_console.exe", tag))
 	} else {
-		exe = join(dir, tprint("Godot_v%s_linux.x86_64", tag))
+		exe = join(dir, aprintf("Godot_v%s_linux.x86_64", tag))
 	}
 	return
 }
@@ -154,9 +154,9 @@ import_signature :: proc(dir: string) -> string {
 						append(&names, strings.trim_space(line))
 					}
 				}
-				append(parts, tprint("%s %v %v", relative, names[:], os.exists(tprint("%s.uid", info.fullpath))))
+				append(parts, aprintf("%s %v %v", relative, names[:], os.exists(aprintf("%s.uid", info.fullpath))))
 			} else if slice.contains(IMPORTED, ext) {
-				append(parts, tprint("%s %d", relative, time.to_unix_nanoseconds(info.modification_time)))
+				append(parts, aprintf("%s %d", relative, time.to_unix_nanoseconds(info.modification_time)))
 			}
 		}
 	}
@@ -182,7 +182,7 @@ ensure_imported :: proc(dir: string) -> []string {
 		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
 	}
 	import_mark_current(dir) // after the import: it may have added .uid files
-	cold(tprint("Godot import of %s", os.base(dir)))
+	cold(aprintf("Godot import of %s", os.base(dir)))
 	log("uni: imported %s in %.1fs", rel(dir), seconds_since(start))
 	return exts
 }
@@ -253,7 +253,7 @@ tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	}
 	append(&cmd, "--path", tool_run.dir, "-s", tool_run.script, "--", "--no-settings", "--local-net")
 	if tool_run.shots != "" {
-		append(&cmd, tprint("--shots=res://.out/shots/%s", tool_run.shots))
+		append(&cmd, aprintf("--shots=res://.out/shots/%s", tool_run.shots))
 	}
 	append(&cmd, ..tool_run.args)
 	return cmd[:]
@@ -292,21 +292,21 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 			log("%s", line)
 		}
 		if strings.contains(line, "leaked at exit") || strings.contains(line, "still in use at exit") {
-			append(&problems, tprint("leak at exit: %s", strings.trim_space(line)))
+			append(&problems, aprintf("leak at exit: %s", strings.trim_space(line)))
 		}
 		if strings.has_prefix(line, "WARNING:") &&
 		   i + 1 < len(lines) &&
 		   strings.contains(lines[i + 1], "GDScript::reload") {
-			append(&problems, tprint("GDScript warning: %s", strings.trim_space(line)))
+			append(&problems, aprintf("GDScript warning: %s", strings.trim_space(line)))
 		}
 	}
 	for error_line in godot_errors(out) {
-		append(&problems, tprint("error line: %s", strings.trim_space(error_line)))
+		append(&problems, aprintf("error line: %s", strings.trim_space(error_line)))
 	}
 	if ran.timed_out {
-		append(&problems, tprint("timed out after %.0fs", ran.seconds))
+		append(&problems, aprintf("timed out after %.0fs", ran.seconds))
 	} else if ran.exit_code != 0 {
-		append(&problems, tprint("exit code %d", ran.exit_code))
+		append(&problems, aprintf("exit code %d", ran.exit_code))
 	}
 	if obj, ok := report.result.(json.Object); !ok {
 		append(&problems, "no UNIFIED_RESULT line")
@@ -329,14 +329,14 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 // A tool script by name: the game's game/tools/<name>.gd, else the shared code's tools/<name>.gd when the game uses
 // it, else unified's (src/godot/tools, mirrored as res://addons/unified/) ("" when none has it).
 tool_script :: proc(game: Game, name: string) -> string {
-	if os.is_file(join(game.dir, "game", "tools", tprint("%s.gd", name))) {
-		return tprint("res://game/tools/%s.gd", name)
+	if os.is_file(join(game.dir, "game", "tools", aprintf("%s.gd", name))) {
+		return aprintf("res://game/tools/%s.gd", name)
 	}
-	if uses_shared(game.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", tprint("%s.gd", name))) {
-		return tprint("res://%s/tools/%s.gd", SHARED_DIR, name)
+	if uses_shared(game.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", aprintf("%s.gd", name))) {
+		return aprintf("res://%s/tools/%s.gd", SHARED_DIR, name)
 	}
-	if os.is_file(join(state.project.unified, TOOLS_SOURCE, tprint("%s.gd", name))) {
-		return tprint("res://%s/%s.gd", TOOLS_DIR, name)
+	if os.is_file(join(state.project.unified, TOOLS_SOURCE, aprintf("%s.gd", name))) {
+		return aprintf("res://%s/%s.gd", TOOLS_DIR, name)
 	}
 	return ""
 }
@@ -349,7 +349,7 @@ env_with :: proc(overrides: ..string) -> []string {
 		key := entry[:max(0, strings.index_byte(entry, '='))]
 		replaced := false
 		for override in overrides {
-			if strings.has_prefix(override, tprint("%s=", key)) {
+			if strings.has_prefix(override, aprintf("%s=", key)) {
 				replaced = true
 			}
 		}
@@ -457,7 +457,7 @@ window_args :: proc(window: Window_Opts) -> []string {
 		append(&args, "--audio-driver", "Dummy")
 	}
 	if window.screen != "" {
-		append(&args, "--screen", tprint("%d", screen_index(window.screen)))
+		append(&args, "--screen", aprintf("%d", screen_index(window.screen)))
 	}
 	return args[:]
 }

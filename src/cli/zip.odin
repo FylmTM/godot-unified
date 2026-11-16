@@ -63,7 +63,7 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 			cmd     = {curl(), "-sSIL", "--retry", "5", url},
 			capture = true,
 			quiet   = true,
-		}, tprint("HEAD %s", url))
+		}, aprintf("HEAD %s", url))
 	size: i64 = -1
 	text := head.stdout
 	for line in strings.split_lines_iterator(&text) {
@@ -84,7 +84,7 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 			   len(reader.cache) > 0 {
 				return reader.cache[offset - reader.cache_off:][:count]
 			}
-			tmp := join(state.project.out, "tmp", tprint("range-%d", os.get_pid()))
+			tmp := join(state.project.out, "tmp", aprintf("range-%d", os.get_pid()))
 			make_dirs(os.dir(tmp))
 			must_run({
 					cmd   = {
@@ -94,13 +94,13 @@ zip_open_url :: proc(url: string) -> Zip_Reader {
 						"5",
 						"--retry-all-errors",
 						"-r",
-						tprint("%d-%d", offset, offset + count - 1),
+						aprintf("%d-%d", offset, offset + count - 1),
 						"-o",
 						tmp,
 						reader.url,
 					},
 					quiet = true,
-				}, tprint("range GET %s", reader.url))
+				}, aprintf("range GET %s", reader.url))
 			data, err := os.read_entire_file(tmp, context.allocator)
 			os.remove(tmp)
 			if err != nil || i64(len(data)) != count {
@@ -281,6 +281,9 @@ zip_add :: proc(writer: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o6
 	if len(data) >= 0xFFFFFFFF || len(writer.buf) >= 0xFFFFFFFF {
 		fatal("%s: archives over 4 GB are not supported", name)
 	}
+	if writer.count >= 0xFFFF { 	// the count fields are u16, and 0xFFFF means Zip64 to a reader
+		fatal("%s: archives over %d members are not supported", name, 0xFFFF - 1)
+	}
 	offset := u32(len(writer.buf))
 	DOS_DATE :: u16((1980 - 1980) << 9 | 1 << 5 | 1)
 	// local header
@@ -323,6 +326,9 @@ zip_add :: proc(writer: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o6
 // Appends the central directory to the members zip_add packed and returns the whole archive, ready for
 // write_file.
 zip_finish :: proc(writer: ^Zip_Writer) -> []byte {
+	if len(writer.buf) >= 0xFFFFFFFF || len(writer.central) >= 0xFFFFFFFF {
+		fatal("archives over 4 GB are not supported")
+	}
 	cd_off := u32(len(writer.buf))
 	append(&writer.buf, ..writer.central[:])
 	put32(&writer.buf, 0x06054b50)

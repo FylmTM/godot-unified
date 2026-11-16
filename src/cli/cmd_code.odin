@@ -33,7 +33,7 @@ cmd_build :: proc(args: []string) -> Result {
 	built := finish_headless(&headless)
 	return {
 		ok      = true,
-		summary = tprint(
+		summary = aprintf(
 			"built %d headless %s and %d %s (%v) in %.1fs",
 			built,
 			built == 1 ? "binary" : "binaries",
@@ -73,7 +73,7 @@ cmd_headless :: proc(args: []string) -> Result {
 	if !ran.ok {
 		return {
 			ok      = false,
-			summary = tprint("headless %s %s: exit %d", headless.name, opts.overflow[0], ran.exit_code),
+			summary = aprintf("headless %s %s: exit %d", headless.name, opts.overflow[0], ran.exit_code),
 		}
 	}
 	return {ok = true}
@@ -105,7 +105,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	}
 	for vet_pkg in pkgs {
 		if vet_pkg.ext {
-			// godot_host without the dev UI must keep compiling
+			// unified:godot without the dev UI must keep compiling
 			append(&jobs, Job{vet_pkg, VET_TARGETS[0], "-define:UNIFIED_DEVUI=false"})
 		}
 	}
@@ -122,7 +122,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	runs := make([]Run, len(jobs))
 	for job, i in jobs {
 		cmd: [dynamic]string
-		append(&cmd, odin(), "check", job.pkg.pkg, tprint("-target:%s", job.target))
+		append(&cmd, odin(), "check", job.pkg.pkg, aprintf("-target:%s", job.target))
 		append(&cmd, ..collection())
 		if !job.pkg.entry {
 			append(&cmd, "-no-entry-point")
@@ -141,14 +141,14 @@ cmd_vet :: proc(args: []string) -> Result {
 	// Each command's help against what it accepts (usage_problems): the public commands and this project's own.
 	for command in state.commands {
 		for problem in usage_problems(command) {
-			append(&failed, tprint("uni %s's help", command.name))
+			append(&failed, aprintf("uni %s's help", command.name))
 			log("vet: %s", problem)
 		}
 	}
 	for result, i in run_all(runs) {
 		if !result.ok {
 			job := jobs[i]
-			append(&failed, tprint("%s %s %s", rel(job.pkg.pkg), job.target, job.define))
+			append(&failed, aprintf("%s %s %s", rel(job.pkg.pkg), job.target, job.define))
 			log(
 				"vet: %s -target:%s %s FAILED\n%s%s",
 				rel(job.pkg.pkg),
@@ -162,7 +162,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	if len(failed) > 0 {
 		return {
 			ok      = false,
-			summary = tprint("vet failed: %s", strings.join(failed[:], ", ")),
+			summary = aprintf("vet failed: %s", strings.join(failed[:], ", ")),
 			data    = box(failed[:]),
 		}
 	}
@@ -172,7 +172,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	}
 	return {
 		ok      = true,
-		summary = tprint(
+		summary = aprintf(
 			"vet ok: %d packages x %d targets%s, in %.2fs",
 			len(pkgs),
 			len(VET_TARGETS),
@@ -237,7 +237,7 @@ cmd_fmt :: proc(args: []string) -> Result {
 	if opts.check && len(changed) + len(bad_eol) > 0 {
 		return {
 			ok      = false,
-			summary = tprint(
+			summary = aprintf(
 				"%d file(s) need formatting, %d have wrong line endings: run uni fmt",
 				len(changed),
 				len(bad_eol),
@@ -247,7 +247,7 @@ cmd_fmt :: proc(args: []string) -> Result {
 	}
 	return {
 		ok      = true,
-		summary = tprint(
+		summary = aprintf(
 			"fmt %s: %d of %d file(s) %s, %d line ending fix(es) in %.2fs",
 			opts.check ? "check ok" : "done",
 			len(changed),
@@ -267,7 +267,7 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 	if len(srcs) == 0 {
 		return nil
 	}
-	tmp := join(state.project.out, "tmp", tprint("fmt-%d", os.get_pid()))
+	tmp := join(state.project.out, "tmp", aprintf("fmt-%d", os.get_pid()))
 	remove_tree(tmp)
 	defer remove_tree(tmp)
 	runs := max(1, min(os.get_processor_core_count(), len(srcs) / FMT_FILES_PER_RUN))
@@ -296,15 +296,15 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 			}
 		}
 		load[k] += sizes[i]
-		scratch[i] = join(tmp, tprint("%d", k), tprint("%d-%s", i, os.base(srcs[i])))
+		scratch[i] = join(tmp, aprintf("%d", k), aprintf("%d-%s", i, os.base(srcs[i])))
 		copy_file(scratch[i], srcs[i])
 	}
-	config := tprint("-config:%s", join(state.project.unified, "odinfmt.json"))
+	config := aprintf("-config:%s", join(state.project.unified, "odinfmt.json"))
 	fmt_runs: [dynamic]Run
 	for k in 0 ..< runs {
 		if load[k] > 0 {
 			append(&fmt_runs, Run {
-				cmd     = strs(exe, config, "-w", join(tmp, tprint("%d", k))),
+				cmd     = strs(exe, config, "-w", join(tmp, aprintf("%d", k))),
 				capture = true,
 				quiet   = true,
 			})
@@ -352,21 +352,21 @@ fmt_hook :: proc() -> ! {
 	path, _ := os.get_absolute_path(hook.tool_input.file_path, context.allocator)
 	inside := false
 	for dir in fmt_dirs() {
-		if strings.has_prefix(path, tprint("%s/", dir)) {
+		if strings.has_prefix(path, aprintf("%s/", dir)) {
 			inside = true
 		}
 	}
 	if !inside || !os.is_file(path) {
 		os.exit(0)
 	}
-	exe := join(state.project.out, "odinfmt", tprint("odinfmt%s", EXE))
+	exe := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
 	if !os.is_file(exe) {
 		os.exit(0)
 	}
-	tmp := join(state.project.out, "tmp", tprint("hook-%d", os.get_pid()), os.base(path))
+	tmp := join(state.project.out, "tmp", aprintf("hook-%d", os.get_pid()), os.base(path))
 	copy_file(tmp, path)
 	result := run_proc({
-		cmd     = {exe, tprint("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
+		cmd     = {exe, aprintf("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
 		capture = true,
 		quiet   = true,
 	})
@@ -397,14 +397,14 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	ensure_deps_for_headless()
 	ensure_bindings()
 	// --box3d-debug builds in a folder of its own: the debug library has the release one's file name.
-	out := join(state.project.out, opts.box3d_debug ? "test-box3d-debug" : "test", tprint("unified_tests%s", EXE))
+	out := join(state.project.out, opts.box3d_debug ? "test-box3d-debug" : "test", aprintf("unified_tests%s", EXE))
 	make_dirs(os.dir(out))
 	uses_box3d := project_uses_box3d()
 	if uses_box3d {
 		stage_box3d(os.dir(out), debug = opts.box3d_debug)
 	}
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", test_root(), tprint("-out:%s", out))
+	append(&cmd, odin(), "build", test_root(), aprintf("-out:%s", out))
 	append(&cmd, ..collection())
 	if is_unified_repo() {
 		append(&cmd, "-all-packages") // tests/ is a root that pulls in every test package; a game's tests are one
@@ -420,7 +420,7 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	}
 	append(&cmd, ..box3d_defines(opts.box3d_debug ? .debug : .dev, uses_box3d))
 	if len(opts.only) > 0 {
-		append(&cmd, tprint("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
+		append(&cmd, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
 	}
 	if !run_proc({cmd = cmd[:]}).ok {
 		return false

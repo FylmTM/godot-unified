@@ -15,6 +15,26 @@ GAMES_DIR :: #directory + "/../../games"
 Rule :: lint.Rule
 TICK_IMPORTS :: lint.TICK_IMPORTS
 SIM_IDENTS :: lint.SIM_IDENTS
+// sim's own ban list: lint.SIM_IDENTS without the file procs it defines (the last five).
+SIM_HARNESS_IDENTS :: []string {
+	"fused_mul_add",
+	"quaternion64",
+	"quaternion128",
+	"quaternion256",
+	"complex32",
+	"complex64",
+	"complex128",
+	"f64",
+	"f64le",
+	"f64be",
+	"f16",
+	"f16le",
+	"f16be",
+	"read_cycle_counter",
+	"read_cycle_counter_frequency",
+	"random_generator",
+	"default_random_generator",
+}
 FLOAT_TRAPS :: lint.FLOAT_TRAPS
 MATH :: lint.MATH
 MATH_OK :: lint.MATH_OK
@@ -50,11 +70,12 @@ RULES := []Rule {
 		strict       = true,
 		tick         = true,
 	},
-	// The harness: also walks RTTI, hashes, formats errors and reads and writes log files.
+	// The harness: also walks RTTI (its schema cache built once, core:sync), hashes, formats errors and reads and writes
+	// log files.
 	{
 		pkg          = "sim",
 		only_imports = SIM_IMPORTS,
-		ban_idents   = SIM_IDENTS,
+		ban_idents   = SIM_HARNESS_IDENTS,
 		ban_matrix   = true,
 		strict       = true,
 		tick         = true,
@@ -161,6 +182,7 @@ SIM_IMPORTS :: []string {
 	"core:strings",
 	"core:os",
 	"core:hash/xxhash",
+	"core:sync",
 }
 
 rule_dir :: proc(rule: Rule) -> string {
@@ -286,6 +308,7 @@ import "core:time"
 M :: matrix[2, 2]f32
 x: f64
 y := intrinsics.fused_mul_add(a, b, c)
+ok := sim.write_file("state.bin", bytes)
 `
 	clean := `package survivor
 import "core:math/bits"
@@ -299,7 +322,7 @@ c: f32 = 1.5
 D :: 1.5
 `
 	game_rule := lint.sim_rule("survivor", "")
-	testing.expect_value(t, len(lint.scan(game_rule, "bad.odin", bad)), 6)
+	testing.expect_value(t, len(lint.scan(game_rule, "bad.odin", bad)), 7)
 	for violation in lint.scan(game_rule, "clean.odin", clean) {
 		testing.expect(t, false, violation)
 	}

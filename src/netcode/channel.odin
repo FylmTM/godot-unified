@@ -69,6 +69,7 @@ Channel :: struct {
 	links:  [dynamic]Link,
 	conns:  [MAX_PEERS]Conn,
 	events: [dynamic]Event,
+	polled: int, // how many of `events` the last poll returned (the rest came after it: channel_send's Connected)
 	rx:     [MAX_DATAGRAM]u8,
 	stats:  Channel_Stats,
 	arena:  runtime.Arena, // event payloads, reset by each poll
@@ -303,9 +304,10 @@ channel_idle :: proc(channel: ^Channel, peer: Peer) -> bool {
 	return len(channel.conns[peer].rel_out) == 0
 }
 
-// Receives everything pending on every link and returns the events (valid until the next poll).
+// Receives everything pending on every link and returns the events (valid until the next poll), the ones raised
+// since the last poll first (a Connected from channel_send opening a connection).
 channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
-	clear(&channel.events)
+	remove_range(&channel.events, 0, channel.polled)
 	runtime.arena_free_all(&channel.arena)
 	for &link, link_index in channel.links {
 		if link.event != nil {
@@ -349,6 +351,7 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 			append(&channel.events, Event{kind = .Disconnected, peer = Peer(i)})
 		}
 	}
+	channel.polled = len(channel.events)
 	return channel.events[:]
 }
 

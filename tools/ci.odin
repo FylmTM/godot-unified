@@ -60,7 +60,7 @@ cache_key :: proc(dep: string) -> string {
 	if dep == "odinfmt" {
 		fmt.sbprintf(&b, "odin %s\n", ODIN_VERSION_HASH)
 	}
-	return cli.tprint("%s-%s-%s", dep, cli.PLATFORM, cli.sha256_hex(transmute([]byte)strings.to_string(b))[:16])
+	return cli.aprintf("%s-%s-%s", dep, cli.PLATFORM, cli.sha256_hex(transmute([]byte)strings.to_string(b))[:16])
 }
 
 // Markdown for $GITHUB_STEP_SUMMARY from .out/: the commands' times against their budgets, the net suite and the
@@ -93,7 +93,7 @@ ci_summary :: proc() -> string {
 			flag := ""
 			if budget > 0 {
 				flag =
-					over ? cli.tprint("**OVER** %.0fs", budget) : len(cold) > 0 ? cli.tprint("%.0fs (cold)", budget) : cli.tprint("%.0fs", budget)
+					over ? cli.aprintf("**OVER** %.0fs", budget) : len(cold) > 0 ? cli.aprintf("%.0fs (cold)", budget) : cli.aprintf("%.0fs", budget)
 			}
 			fmt.sbprintf(&out, "| `uni %s` | %.1f | %s |\n", k, cli.json_f64(e["seconds"]), flag)
 		}

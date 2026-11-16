@@ -96,7 +96,7 @@ mirror_tree :: proc(src, dst, label: string) {
 			}
 			changed += 1
 		}
-		strings.write_string(&builder, tprint("%s %s\n", sha256_hex(data), relative))
+		strings.write_string(&builder, aprintf("%s %s\n", sha256_hex(data), relative))
 	}
 	for relative in last {
 		if !keep[relative] {

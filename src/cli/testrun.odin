@@ -68,7 +68,7 @@ test_watch_drop :: proc(watch: ^Test_Watch, name: string) {
 // failing one prints the whole output (state changes aside), and --verbose echoes it as it comes. A run killed after
 // a crash or at its timeout also says which tests crashed and which were still running.
 run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
-	log_path := tprint("%s.log", exe)
+	log_path := aprintf("%s.log", exe)
 	log_file, err := os.open(log_path, {.Write, .Create, .Trunc, .Inheritable})
 	if err != nil {
 		fatal("cannot create %s", log_path)
@@ -134,9 +134,9 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 			break
 		}
 		if crashed_at, ok := crash_at.?; ok && time.tick_since(crashed_at) > CRASH_GRACE {
-			killed = tprint("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
+			killed = aprintf("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
 		} else if timeout > 0 && time.tick_since(start) > timeout {
-			killed = tprint("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
+			killed = aprintf("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
 		}
 		if killed != "" {
 			_ = os.process_kill(process)

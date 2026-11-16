@@ -150,7 +150,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			capture = true,
 			quiet   = true,
 			timeout = 300 * time.Second,
-			log_to  = join(work, tprint("%s-net", game.name)),
+			log_to  = join(work, aprintf("%s-net", game.name)),
 		})
 		net_obj, net_ok := last_json_object(net_result.stdout)
 		if !net_result.ok || !net_ok {
@@ -160,7 +160,7 @@ cmd_bench :: proc(args: []string) -> Result {
 				net_result.exit_code,
 				tail(net_result.stderr, 2000),
 			)
-			append(&failed, tprint("%s net-bench", game.name))
+			append(&failed, aprintf("%s net-bench", game.name))
 			continue
 		}
 		steps_us, _ := net_obj["step_us"].(json.Object)
@@ -233,13 +233,13 @@ cmd_bench :: proc(args: []string) -> Result {
 	if len(failed) > 0 {
 		return {
 			ok      = false,
-			summary = tprint("bench failed: %s (.out/bench/)", strings.join(failed[:], ", ")),
+			summary = aprintf("bench failed: %s (.out/bench/)", strings.join(failed[:], ", ")),
 			data    = summary^,
 		}
 	}
 	return {
 		ok      = true,
-		summary = tprint("bench: %d game(s), sim and netcode benchmarks, reported in .out/bench.json", len(games)),
+		summary = aprintf("bench: %d game(s), sim and netcode benchmarks, reported in .out/bench.json", len(games)),
 		data    = summary^,
 	}
 }
@@ -299,7 +299,7 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	if !os.is_file(join(pkg, "suite_test.odin")) {
 		usage("%s has no end-to-end suite (suite_test.odin)", rel(pkg))
 	}
-	exe := join(state.project.out, "record-reference", tprint("%s_suite%s", opts.game, EXE))
+	exe := join(state.project.out, "record-reference", aprintf("%s_suite%s", opts.game, EXE))
 	make_dirs(os.dir(exe))
 	if needs_box3d {
 		ensure_box3d()
@@ -307,13 +307,13 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	}
 	commit := git_commit()
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", pkg, tprint("-out:%s", exe), "-define:UNIFIED_REGEN=true")
+	append(&cmd, odin(), "build", pkg, aprintf("-out:%s", exe), "-define:UNIFIED_REGEN=true")
 	append(&cmd, ..collection())
-	append(&cmd, tprint("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
+	append(&cmd, aprintf("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
 	append(&cmd, ..TEST_RUN_FLAGS)
 	append(&cmd, ..TEST_FLAGS)
 	append(&cmd, ..VET)
-	must_run({cmd = cmd[:]}, tprint("record-reference %s: the build", opts.game))
+	must_run({cmd = cmd[:]}, aprintf("record-reference %s: the build", opts.game))
 	if !run_test_binary(exe, time.Duration(state.command.budget * CI_BUDGET_SCALE * f64(time.Second))) {
 		fatal("record-reference %s: the suite failed", opts.game)
 	}
@@ -327,13 +327,13 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	if changed == "" {
 		return {
 			ok      = true,
-			summary = tprint("record-reference %s: reproduced byte for byte, nothing changed", opts.game),
+			summary = aprintf("record-reference %s: reproduced byte for byte, nothing changed", opts.game),
 		}
 	}
 	log("%s", changed)
 	return {
 		ok      = true,
-		summary = tprint("record-reference %s -> %s (commit the files above with the change)", opts.game, rel(data)),
+		summary = aprintf("record-reference %s -> %s (commit the files above with the change)", opts.game, rel(data)),
 	}
 }
 
@@ -361,7 +361,7 @@ cmd_setup :: proc(args: []string) -> Result {
 		uses_box3d = uses_box3d || game_uses_box3d(game)
 		uses_eos = uses_eos || extension_uses_eos(game)
 	}
-	append(&deps, Dep{"odin", tprint("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
+	append(&deps, Dep{"odin", aprintf("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
 	if !opts.check {
 		ensure_odinfmt()
 		ensure_bindings()
@@ -370,24 +370,24 @@ cmd_setup :: proc(args: []string) -> Result {
 		}
 		godot()
 	}
-	odinfmt := join(state.project.out, "odinfmt", tprint("odinfmt%s", EXE))
+	odinfmt := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
 	append(
 		&deps,
-		Dep{"odinfmt", tprint("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
+		Dep{"odinfmt", aprintf("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
 	)
 	if uses_box3d {
 		version, src :=
-			pin("box3d", "tag"), tprint("pinned release (.out/unified-box3d; the zip in %s/downloads)", user_cache())
+			pin("box3d", "tag"), aprintf("pinned release (.out/unified-box3d; the zip in %s/downloads)", user_cache())
 		if local := box3d_local(); local != "" {
 			version = "local"
-			src = tprint("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
+			src = aprintf("UNIFIED_BOX3D (%s): %s, built by its b3", env_source("UNIFIED_BOX3D"), local)
 		}
 		append(&deps, Dep{"box3d", version, src, box3d_ready()})
 	}
 	godot_dir, godot_exe, _, _ := godot_download()
-	godot_source := tprint("pinned download, shared by every checkout (%s)", godot_dir)
+	godot_source := aprintf("pinned download, shared by every checkout (%s)", godot_dir)
 	if os.get_env("UNIFIED_GODOT", context.temp_allocator) != "" {
-		godot_source = tprint("UNIFIED_GODOT (%s)", env_source("UNIFIED_GODOT"))
+		godot_source = aprintf("UNIFIED_GODOT (%s)", env_source("UNIFIED_GODOT"))
 	}
 	if env := os.get_env("UNIFIED_GODOT", context.temp_allocator); env != "" {
 		godot_exe = env
@@ -395,9 +395,9 @@ cmd_setup :: proc(args: []string) -> Result {
 	append(&deps, Dep{"godot", pin("godot", "version"), godot_source, os.is_file(godot_exe)})
 	if uses_eos {
 		// never fetched (Epic's licence): online play only, so a missing SDK is reported, not a failure
-		src := tprint("UNIFIED_EOS_SDK (%s)", env_source("UNIFIED_EOS_SDK"))
+		src := aprintf("UNIFIED_EOS_SDK (%s)", env_source("UNIFIED_EOS_SDK"))
 		if problem := eos_problem(); problem != "" {
-			src = tprint("optional, for online play: %s", problem)
+			src = aprintf("optional, for online play: %s", problem)
 		}
 		append(&deps, Dep{"eos_sdk", pin("eos_sdk", "version"), src, true})
 	}
@@ -408,7 +408,7 @@ cmd_setup :: proc(args: []string) -> Result {
 	}
 	return {
 		ok      = opts.check || all_ready,
-		summary = tprint("setup: %s", all_ready ? "everything is in place" : "some dependencies are missing"),
+		summary = aprintf("setup: %s", all_ready ? "everything is in place" : "some dependencies are missing"),
 		data    = box(deps[:]),
 	}
 }
@@ -448,7 +448,7 @@ cmd_clean :: proc(args: []string) -> Result {
 	// The root's .out/ but the running CLI.
 	exe, _ := os.get_executable_path(context.allocator)
 	cli_dir := join(project.out, "cli")
-	keep := []string{os.base(exe), tprint("%s.inputs", os.base(exe)), "current"}
+	keep := []string{os.base(exe), aprintf("%s.inputs", os.base(exe)), "current"}
 	if entries, err := os.read_all_directory_by_path(project.out, context.allocator); err == nil {
 		for entry in entries {
 			if entry.name != "cli" {
@@ -501,7 +501,7 @@ cmd_clean :: proc(args: []string) -> Result {
 			log(
 				"  %s: not removed%s: in use? (close Godot and other uni commands, then run clean again)",
 				name,
-				err != nil ? tprint(" (%v)", err) : "",
+				err != nil ? aprintf(" (%v)", err) : "",
 			)
 			failed += 1
 		} else {
@@ -516,11 +516,11 @@ cmd_clean :: proc(args: []string) -> Result {
 	case len(removed) == 0:
 		summary = "clean: nothing to remove"
 	case opts.check:
-		summary = tprint("clean: %d paths would go (nothing removed)", len(removed))
+		summary = aprintf("clean: %d paths would go (nothing removed)", len(removed))
 	case failed > 0:
-		summary = tprint("clean: %d of %d paths could not be removed (above)", failed, len(removed))
+		summary = aprintf("clean: %d of %d paths could not be removed (above)", failed, len(removed))
 	case:
-		summary = tprint("clean: removed %d paths (uni setup fetches and builds them again)", len(removed))
+		summary = aprintf("clean: removed %d paths (uni setup fetches and builds them again)", len(removed))
 	}
 	return {
 		ok      = failed == 0,

@@ -85,7 +85,7 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		cmd: [dynamic]string
 		append(&cmd, binary)
 		append(&cmd, ..args)
-		cli.write_text(cli.join(work, cli.tprint("%s.cmd", name)), cli.tprint("%s\n", strings.join(cmd[:], " ")))
+		cli.write_text(cli.join(work, cli.aprintf("%s.cmd", name)), cli.aprintf("%s\n", strings.join(cmd[:], " ")))
 		return cli.start({
 			cmd     = cmd[:],
 			dir     = work,
@@ -102,11 +102,11 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		timeout,
 		"relay",
 		"--port",
-		cli.tprint("%d", port),
+		cli.aprintf("%d", port),
 		"--players",
-		cli.tprint("%d", UDP_CLIENTS),
+		cli.aprintf("%d", UDP_CLIENTS),
 		"--ticks",
-		cli.tprint("%d", ticks),
+		cli.aprintf("%d", ticks),
 		"--log",
 		cli.join(work, "relay.log"),
 	)
@@ -118,40 +118,40 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 			&args,
 			"client",
 			"--connect",
-			cli.tprint("127.0.0.1:%d", port),
+			cli.aprintf("127.0.0.1:%d", port),
 			"--slot",
-			cli.tprint("%d", i),
+			cli.aprintf("%d", i),
 			"--ticks",
-			cli.tprint("%d", ticks),
+			cli.aprintf("%d", ticks),
 		)
 		if i == UDP_CLIENTS - 1 {
 			append(&args, "--profile", "bad")
 		}
-		clients[i] = start(binary, work, cli.tprint("client%d", i), timeout, ..args[:])
+		clients[i] = start(binary, work, cli.aprintf("client%d", i), timeout, ..args[:])
 	}
 	errors: [dynamic]string
 	finish :: proc(p: ^cli.Proc, name: string, errors: ^[dynamic]string) -> json.Object {
 		r := cli.wait(p)
 		if r.timed_out {
-			append(errors, cli.tprint("%s: timed out (killed)", name))
+			append(errors, cli.aprintf("%s: timed out (killed)", name))
 			return nil
 		}
 		if r.exit_code != 0 {
 			append(
 				errors,
-				cli.tprint("%s: exit code %d: %s", name, r.exit_code, strings.trim_space(cli.tail(r.stderr, 400))),
+				cli.aprintf("%s: exit code %d: %s", name, r.exit_code, strings.trim_space(cli.tail(r.stderr, 400))),
 			)
 			return nil
 		}
 		obj, ok := cli.last_json_object(r.stdout)
 		if !ok {
-			append(errors, cli.tprint("%s: no JSON line on stdout", name))
+			append(errors, cli.aprintf("%s: no JSON line on stdout", name))
 		}
 		return obj
 	}
 	results: [UDP_CLIENTS]json.Object
 	for i in 0 ..< UDP_CLIENTS {
-		results[i] = finish(&clients[i], cli.tprint("client%d", i), &errors)
+		results[i] = finish(&clients[i], cli.aprintf("client%d", i), &errors)
 	}
 	rj := finish(&relay, "relay", &errors)
 	if len(errors) > 0 {
@@ -162,16 +162,17 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		desyncs += max(0, cli.json_int(c["desyncs"]))
 	}
 	if desyncs > 0 {
-		return cli.tprint("%d desync(s)", desyncs), false
+		return cli.aprintf("%d desync(s)", desyncs), false
 	}
 	ref: map[int]string
 	for c, i in results {
 		if cli.json_int(c["final_tick"]) != ticks {
-			return cli.tprint("client %d verified up to tick %d of %d", i, cli.json_int(c["final_tick"]), ticks), false
+			return cli.aprintf("client %d verified up to tick %d of %d", i, cli.json_int(c["final_tick"]), ticks),
+				false
 		}
 		cs := cli.checksums(c["checksums"])
 		if len(cs) != ticks / 16 {
-			return cli.tprint("client %d's checksums don't cover every 16th tick", i), false
+			return cli.aprintf("client %d's checksums don't cover every 16th tick", i), false
 		}
 		if i == 0 {
 			ref = cs
@@ -179,12 +180,12 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		}
 		for t := 16; t <= ticks; t += 16 {
 			if cs[t] != ref[t] {
-				return cli.tprint("client %d's checksum differs first at tick %d: %s vs %s", i, t, cs[t], ref[t]),
+				return cli.aprintf("client %d's checksum differs first at tick %d: %s vs %s", i, t, cs[t], ref[t]),
 					false
 			}
 		}
 	}
-	return cli.tprint(
+	return cli.aprintf(
 			"toy relay + %d client processes (one under `bad`) over UDP, %d ticks on the real clock: 0 desyncs, checksums agree",
 			UDP_CLIENTS,
 			ticks,
@@ -195,7 +196,7 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
-// The Godot-side library tests: the gdext bindings (tests/godot), godot_host's views and send_command's refusals,
+// The Godot-side library tests: the gdext bindings (tests/godot), unified:godot's views and send_command's refusals,
 // and its session lifecycle (tests/godot_views), each an extension plus a test script under headless Godot.
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
 // nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
@@ -281,7 +282,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"--path",
 				p.dir,
 				"-s",
-				cli.tprint("res://%s", p.script),
+				cli.aprintf("res://%s", p.script),
 				"--",
 				"--local-net",
 			),
@@ -331,10 +332,10 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			}
 			errs = kept
 			for expected, k in p.expected {
-				if !provoked[k] do append(&errs, cli.tprint("no error line with %q: the test expects some", expected))
+				if !provoked[k] do append(&errs, cli.aprintf("no error line with %q: the test expects some", expected))
 			}
 		}
-		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
+		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.aprintf("%s: 0 failed", p.summary))
 		if !passed {
 			cli.log("%s", strings.trim_right_space(out))
 		} else if cli.state.verbose {

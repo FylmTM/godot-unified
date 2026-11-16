@@ -17,12 +17,12 @@ MACOS_MIN :: "11.0"
 // part file is this process's own: another checkout may download the same file into the shared cache meanwhile.
 download :: proc(url, dest, sha256, what: string) {
 	make_dirs(os.dir(dest))
-	part := tprint("%s.%d.part", dest, os.get_pid())
+	part := aprintf("%s.%d.part", dest, os.get_pid())
 	log("uni: downloading %s", url)
 	must_run({
 			cmd   = {curl(), "-fL", "--retry", "5", "--retry-all-errors", "--silent", "--show-error", "-o", part, url},
 			quiet = true,
-		}, tprint("downloading %s", url))
+		}, aprintf("downloading %s", url))
 	check_sha256(part, sha256, what)
 	if os.rename(part, dest) != nil {
 		os.remove(part)
@@ -56,7 +56,7 @@ file_identity :: proc(path: string) -> string {
 	if err != nil {
 		return path
 	}
-	return tprint("%s %d %d", path, info.size, time.to_unix_nanoseconds(info.modification_time))
+	return aprintf("%s %d %d", path, info.size, time.to_unix_nanoseconds(info.modification_time))
 }
 
 // Whether a stamp file holds exactly `key`: the cheap check, with no process started, that something built or
@@ -90,7 +90,7 @@ git_checkout :: proc(dir, url, commit: string) {
 			}
 		}
 	}
-	if !gitc(git_exe, dir, "cat-file", "-e", tprint("%s^{commit}", commit)).ok {
+	if !gitc(git_exe, dir, "cat-file", "-e", aprintf("%s^{commit}", commit)).ok {
 		log("uni: fetching %s @ %s", url, commit[:10])
 		if result := gitc(git_exe, dir, "fetch", "-q", "--depth", "1", "origin", commit); !result.ok {
 			fatal("fetching %s failed: %s", url, result.stderr)
@@ -137,7 +137,7 @@ box3d_local :: proc() -> string {
 
 // The library for this platform: the release build, or the debug one (-define:BOX3D_LIB_DEBUG=true links it).
 box3d_lib :: proc(debug := false) -> string {
-	return join(box3d_dir(), "lib", tprint("%s%s", PLATFORM, debug ? "-debug" : ""), lib_name("box3d"))
+	return join(box3d_dir(), "lib", aprintf("%s%s", PLATFORM, debug ? "-debug" : ""), lib_name("box3d"))
 }
 
 // Makes box3d_dir() hold the library (both builds) and the bindings: a stamp check when they do. With UNIFIED_BOX3D,
@@ -155,20 +155,20 @@ ensure_box3d :: proc(build := false) {
 	dir := box3d_dir()
 	repo, tag := pin("box3d", "repo"), pin("box3d", "tag")
 	start := time.tick_now()
-	name := tprint("unified-box3d-%s-%s.zip", tag, PLATFORM)
+	name := aprintf("unified-box3d-%s-%s.zip", tag, PLATFORM)
 	sha256 := pin("box3d", PLATFORM)
 	// The zip stays in the per-user cache: the next checkout unpacks it without a download. Each checkout unpacks
 	// its own copy, so ols.json can name the bindings inside the project.
 	zip := join(
 		user_cache(),
 		"downloads",
-		tprint("%s-%s.zip", name[:len(name) - len(".zip")], sha256[:min(12, len(sha256))]),
+		aprintf("%s-%s.zip", name[:len(name) - len(".zip")], sha256[:min(12, len(sha256))]),
 	)
 	if have, _ := sha256_file(zip); have == sha256 {
 		cold("unified-box3d unpack (the download cached)")
 	} else {
 		cold("unified-box3d download")
-		download(tprint("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
+		download(aprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
 	}
 	remove_tree(dir)
 	if os.exists(dir) {
@@ -179,7 +179,7 @@ ensure_box3d :: proc(build := false) {
 	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
 		fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
 	}
-	write_text(join(dir, "release.stamp"), tprint("%s\n", box3d_release_key()))
+	write_text(join(dir, "release.stamp"), aprintf("%s\n", box3d_release_key()))
 	log("uni: unified-box3d %s ready in %.1fs", tag, seconds_since(start))
 }
 
@@ -193,7 +193,7 @@ box3d_ready :: proc() -> bool {
 
 @(private)
 box3d_release_key :: proc() -> string {
-	return tprint("%s %s %s %s", pin("box3d", "repo"), pin("box3d", "tag"), PLATFORM, pin("box3d", PLATFORM))
+	return aprintf("%s %s %s %s", pin("box3d", "repo"), pin("box3d", "tag"), PLATFORM, pin("box3d", PLATFORM))
 }
 
 // `b3 build` and `b3 build --debug` in a local checkout (each rebuilds only when the port's sources changed).
@@ -209,7 +209,7 @@ box3d_build_local :: proc(local: string) {
 		if debug {
 			append(&cmd, "--debug")
 		}
-		what := tprint("b3 build%s in %s", debug ? " --debug" : "", local)
+		what := aprintf("b3 build%s in %s", debug ? " --debug" : "", local)
 		must_run({
 				cmd     = cmd[:],
 				dir     = local,
@@ -229,7 +229,7 @@ stage_box3d :: proc(dir: string, debug := false) {
 	files: [dynamic]string
 	append(&files, src)
 	when ODIN_OS == .Windows {
-		if pdb := tprint("%s.pdb", src[:len(src) - len(".dll")]); debug && os.is_file(pdb) {
+		if pdb := aprintf("%s.pdb", src[:len(src) - len(".dll")]); debug && os.is_file(pdb) {
 			append(&files, pdb)
 		} else if !debug {
 			os.remove(join(dir, "box3d.pdb")) // the debug build's, from an earlier --mode debug
@@ -283,14 +283,25 @@ project_uses_box3d :: proc() -> bool {
 	return false
 }
 
-// Whether any .odin file under `dir` contains one of the strings (import paths such as `"unified:physics"`),
-// to tell without compiling what code uses (Box3D, EOS, the scenarios). A text search: a comment counts too.
+// Whether an import line of any .odin file under `dir` contains one of the strings (import paths such as
+// `"unified:physics"`), to tell without compiling what code uses (Box3D, EOS, the scenarios). A line counts when it
+// starts with `import`, after an attribute (`@(require) import`); a commented-out import doesn't count, one inside a
+// /* */ block still does.
 sources_import :: proc(dir: string, imports: ..string) -> bool {
 	for file in find_files(dir, ".odin") {
 		text, _ := read_text(file)
-		for pattern in imports {
-			if strings.contains(text, pattern) {
-				return true
+		for line in strings.split_lines_iterator(&text) {
+			trimmed := strings.trim_left_space(line)
+			if strings.has_prefix(trimmed, "@(") {
+				if close := strings.index_byte(trimmed, ')'); close >= 0 do trimmed = strings.trim_left_space(trimmed[close + 1:])
+			}
+			if !strings.has_prefix(trimmed, "import ") && !strings.has_prefix(trimmed, "import	") {
+				continue
+			}
+			for pattern in imports {
+				if strings.contains(trimmed, pattern) {
+					return true
+				}
 			}
 		}
 	}
@@ -303,9 +314,9 @@ sources_import :: proc(dir: string, imports: ..string) -> bool {
 // must agree).
 ensure_odinfmt :: proc() -> string {
 	dir := join(state.project.out, "odinfmt")
-	exe := join(dir, tprint("odinfmt%s", EXE))
+	exe := join(dir, aprintf("odinfmt%s", EXE))
 	commit := pin("odinfmt", "commit")
-	key := tprint("%s %s", commit, ODIN_VERSION_HASH)
+	key := aprintf("%s %s", commit, ODIN_VERSION_HASH)
 	stamp := join(dir, "odinfmt.stamp")
 	if os.is_file(exe) && stamp_ok(stamp, key) {
 		return exe
@@ -321,12 +332,12 @@ ensure_odinfmt :: proc() -> string {
 				"-file",
 				"-collection:src=src",
 				"-o:speed",
-				tprint("-out:%s", exe),
+				aprintf("-out:%s", exe),
 			},
 			dir     = src,
 			capture = true,
 		}, "building odinfmt")
-	write_text(stamp, tprint("%s\n", key))
+	write_text(stamp, aprintf("%s\n", key))
 	return exe
 }
 

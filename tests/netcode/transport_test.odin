@@ -100,6 +100,26 @@ a_silent_peer_times_out_by_whether_it_ever_answered :: proc(t: ^testing.T) {
 	)
 }
 
+// A connection channel_send opens raises Connected, which the next poll returns (not clears), once.
+@(test)
+a_connected_event_from_send_reaches_the_next_poll :: proc(t: ^testing.T) {
+	connected :: proc(channel: ^netcode.Channel, now: i64) -> (count: int) {
+		for event in netcode.channel_poll(channel, now) {
+			if event.kind == .Connected do count += 1
+		}
+		return
+	}
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	to_peer := netcode.channel_peer(sender, netcode.channel_add_link(sender, netcode.loopback_link(hub, 0)), 1)
+	hello := [1]u8{7}
+	netcode.channel_send(sender, to_peer, hello[:], .Reliable, 1_000)
+	testing.expect_value(t, connected(sender, 1_000), 1)
+	testing.expect_value(t, connected(sender, 2_000), 0)
+}
+
 // Closing a netsim link sends what it still delays: a client that leaves right after acking the relay's End must not
 // take the ack with it (#235: the relay waited 3 s for it in about half the net suite's runs).
 @(test)

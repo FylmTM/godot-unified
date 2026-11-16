@@ -63,7 +63,6 @@ Player_Changes :: struct {
 // the ring slot (tick % ring_size), so an Extra keeps one saved copy per ring slot (at most
 // MAX_RING_SIZE).
 Extra :: struct {
-	name:    string,
 	data:    rawptr,
 	save:    proc(data: rawptr, slot: int),
 	restore: proc(data: rawptr, slot: int) -> bool,
@@ -256,7 +255,9 @@ create :: proc(
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		slot.events.type = game.events
+		slot.events.list = make([dynamic]Raw_Event) // grows under create's allocator, whatever is active then
 	}
+	simulation.hash_buf = make([dynamic]u8)
 	simulation.world = game.world_create(seed, content)
 	if game.extras != nil {
 		simulation.extras = game.extras(simulation.world)

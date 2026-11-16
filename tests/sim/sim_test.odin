@@ -590,7 +590,6 @@ flaky_game :: proc(flaky: rawptr) -> toy.Game {
 	game.extras = proc(world: ^toy.World) -> []sim.Extra {
 		@(static) extra: [1]sim.Extra
 		extra[0] = {
-			name = "flaky",
 			data = g_flaky,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},

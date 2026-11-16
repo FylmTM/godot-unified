@@ -89,7 +89,7 @@ cmd_release :: proc(args: []string) -> cli.Result {
 	g := cli.game(game_name)
 	if version == "" {
 		c := short_commit(g.dir)
-		version = cli.tprint("dev-%s", c != "" ? c : "local")
+		version = cli.aprintf("dev-%s", c != "" ? c : "local")
 	}
 	if !valid_version(version) {
 		cli.usage("bad version %q (letters, digits, . + - only)", version)
@@ -124,7 +124,7 @@ is_alnum :: proc(c: u8) -> bool {
 
 // `v0.1.2` for a release version, a dev version (`dev-<sha>`) as is: the zip names use it.
 release_label :: proc(version: string) -> string {
-	return version[0] >= '0' && version[0] <= '9' ? cli.tprint("v%s", version) : version
+	return version[0] >= '0' && version[0] <= '9' ? cli.aprintf("v%s", version) : version
 }
 
 // What goes into the platforms' numeric version fields (macOS CFBundle*Version, Windows file version): the version
@@ -228,7 +228,7 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bo
 		g.dir,
 		".out",
 		"release",
-		cli.tprint("%s-%s-%s%s.zip", g.name, release_label(version), HOST.platform, no_devui ? "-nodevui" : ""),
+		cli.aprintf("%s-%s-%s%s.zip", g.name, release_label(version), HOST.platform, no_devui ? "-nodevui" : ""),
 	)
 	sign_and_zip(target, zip)
 	if smoke_test {
@@ -331,7 +331,7 @@ check_embedded :: proc(libs: []string) {
 // range reads), each file checked against its pin.
 ensure_templates :: proc() {
 	version := cli.pin("godot", "version")
-	dir := cli.join(cli.godot_user_dir(), "export_templates", cli.tprint("%s.stable", version))
+	dir := cli.join(cli.godot_user_dir(), "export_templates", cli.aprintf("%s.stable", version))
 	need: [dynamic]string
 	for n in HOST.templates {
 		if !os.is_file(cli.join(dir, n)) {
@@ -345,7 +345,7 @@ ensure_templates :: proc() {
 		return
 	}
 	cli.cold("export templates")
-	url := cli.tprint(
+	url := cli.aprintf(
 		"https://github.com/godotengine/godot/releases/download/%s-stable/Godot_v%s-stable_export_templates.tpz",
 		version,
 		version,
@@ -356,13 +356,13 @@ ensure_templates :: proc() {
 	for n in need {
 		found := false
 		for e in entries {
-			if e.name == cli.tprint("templates/%s", n) {
+			if e.name == cli.aprintf("templates/%s", n) {
 				data := cli.zip_read(&z, e)
-				part := cli.join(dir, cli.tprint("%s.part", n))
+				part := cli.join(dir, cli.aprintf("%s.part", n))
 				if !cli.write_file(part, data) {
 					cli.fatal("cannot write %s", part)
 				}
-				cli.check_sha256(part, cli.pin("godot_templates", n), cli.tprint("export template %s", n))
+				cli.check_sha256(part, cli.pin("godot_templates", n), cli.aprintf("export template %s", n))
 				os.rename(part, cli.join(dir, n))
 				found = true
 			}
@@ -371,7 +371,7 @@ ensure_templates :: proc() {
 			cli.fatal("the templates archive has no %s", n)
 		}
 	}
-	if strings.trim_space(cli.must_read(cli.join(dir, "version.txt"))) != cli.tprint("%s.stable", version) {
+	if strings.trim_space(cli.must_read(cli.join(dir, "version.txt"))) != cli.aprintf("%s.stable", version) {
 		cli.fatal("unexpected templates version in %s", dir)
 	}
 	cli.log("release: templates ready (%d MB fetched)", z.fetched >> 20)
@@ -403,7 +403,7 @@ stamp_version :: proc(g: cli.Game, version: string) -> []Saved_File {
 			current = strings.trim(l, "[]")
 		} else if strings.has_prefix(current, "preset.") &&
 		   !strings.contains(current, ".options") &&
-		   l == cli.tprint(`name="%s"`, HOST.preset) {
+		   l == cli.aprintf(`name="%s"`, HOST.preset) {
 			section = current
 		}
 	}
@@ -414,7 +414,7 @@ stamp_version :: proc(g: cli.Game, version: string) -> []Saved_File {
 	num := platform_version(version)
 	cli.write_text(
 		presets,
-		set_keys(text, cli.tprint("%s.options", section), HOST.version_keys, num, "export_presets.cfg"),
+		set_keys(text, cli.aprintf("%s.options", section), HOST.version_keys, num, "export_presets.cfg"),
 	)
 	cli.log("release: version %s (platform fields %s) stamped for the export", version, num)
 	return saved
@@ -444,7 +444,7 @@ set_keys :: proc(text, section: string, keys: []string, value, what: string) -> 
 			k := strings.trim_space(s[:eq])
 			for key, i in keys {
 				if k == key {
-					line = cli.tprint(`%s="%s"`, key, value)
+					line = cli.aprintf(`%s="%s"`, key, value)
 					seen[i] += 1
 				}
 			}
@@ -489,7 +489,7 @@ check_version :: proc(target, version: string) {
 
 // A <string> value of an XML plist key.
 plist_string :: proc(plist, key: string) -> string {
-	i := strings.index(plist, cli.tprint("<key>%s</key>", key))
+	i := strings.index(plist, cli.aprintf("<key>%s</key>", key))
 	if i < 0 {
 		return ""
 	}
@@ -550,12 +550,12 @@ export :: proc(godot: string, g: cli.Game) -> string {
 	out_dir := cli.join(g.dir, ".out", "export", HOST.platform)
 	cli.remove_tree(out_dir)
 	cli.make_dirs(out_dir)
-	target := cli.join(out_dir, cli.tprint("%s%s", g.name, ODIN_OS == .Darwin ? ".app" : ".exe"))
+	target := cli.join(out_dir, cli.aprintf("%s%s", g.name, ODIN_OS == .Darwin ? ".app" : ".exe"))
 	godot_step(
 		godot,
 		g,
 		cli.strs("--export-release", HOST.preset, target),
-		cli.tprint("export (%s)", HOST.preset),
+		cli.aprintf("export (%s)", HOST.preset),
 		600,
 	)
 	if !os.exists(target) {
@@ -634,7 +634,7 @@ sign_and_zip :: proc(target, zip: string) {
 		dir := os.dir(target)
 		for f in cli.find_files(dir, "") {
 			rel, _ := strings.replace_all(f[len(dir) + 1:], "\\", "/")
-			cli.zip_add(&w, cli.tprint("%s/%s", stem, rel), transmute([]byte)cli.must_read(f))
+			cli.zip_add(&w, cli.aprintf("%s/%s", stem, rel), transmute([]byte)cli.must_read(f))
 		}
 		if !cli.write_file(zip, cli.zip_finish(&w)) {
 			cli.fatal("cannot write %s", zip)
@@ -642,7 +642,7 @@ sign_and_zip :: proc(target, zip: string) {
 	}
 	// LF on every OS: SHA256SUMS.txt concatenates these, and macOS `shasum -c` rejects a CRLF line.
 	sum, _ := cli.sha256_file(zip)
-	cli.write_text(cli.tprint("%s.sha256", zip), cli.tprint("%s  %s\n", sum, os.base(zip)))
+	cli.write_text(cli.aprintf("%s.sha256", zip), cli.aprintf("%s  %s\n", sum, os.base(zip)))
 	fi, _ := os.stat(zip, context.temp_allocator)
 	cli.log("release: %s (%.1f MB) in %.1fs", os.base(zip), f64(fi.size) / 1e6, cli.seconds_since(t))
 }
@@ -650,7 +650,7 @@ sign_and_zip :: proc(target, zip: string) {
 // Unpacks the zip (what a tester gets) and runs the game headless for a few seconds.
 smoke :: proc(zip, name: string, no_devui: bool) {
 	t := step("smoke test")
-	tmp := cli.join(cli.state.project.out, "tmp", cli.tprint("smoke-%d", os.get_pid()))
+	tmp := cli.join(cli.state.project.out, "tmp", cli.aprintf("smoke-%d", os.get_pid()))
 	cli.remove_tree(tmp)
 	cli.make_dirs(tmp)
 	defer cli.remove_tree(tmp)
@@ -658,7 +658,7 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 	exe: string
 	when ODIN_OS == .Darwin {
 		cli.must_run({cmd = cli.strs("ditto", "-x", "-k", zip, tmp)}, "ditto -x")
-		bins := cli.find_files(cli.join(tmp, stem, cli.tprint("%s.app", name), "Contents", "MacOS"), "")
+		bins := cli.find_files(cli.join(tmp, stem, cli.aprintf("%s.app", name), "Contents", "MacOS"), "")
 		if len(bins) == 0 {
 			cli.fatal("the zip has no app executable")
 		}
@@ -666,7 +666,7 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 	} else {
 		z := cli.zip_open_file(zip)
 		cli.zip_extract_all(&z, tmp)
-		exe = cli.join(tmp, stem, cli.tprint("%s.exe", name))
+		exe = cli.join(tmp, stem, cli.aprintf("%s.exe", name))
 	}
 	log_file := cli.join(tmp, "smoke.log")
 	r := cli.run_proc({
@@ -678,7 +678,7 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 			"--max-fps",
 			"60",
 			"--quit-after",
-			cli.tprint("%d", SMOKE_FRAMES),
+			cli.aprintf("%d", SMOKE_FRAMES),
 			"--",
 			"--smoke-test",
 		),
@@ -695,15 +695,15 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 	if r.timed_out {
 		append(&problems, "did not quit within 90 s")
 	} else if r.exit_code != 0 {
-		append(&problems, cli.tprint("exit %d", r.exit_code))
+		append(&problems, cli.aprintf("exit %d", r.exit_code))
 	}
 	if len(errs) > 0 {
-		append(&problems, cli.tprint("%d error line(s): %s", len(errs), strings.join(errs[:min(5, len(errs))], "; ")))
+		append(&problems, cli.aprintf("%d error line(s): %s", len(errs), strings.join(errs[:min(5, len(errs))], "; ")))
 	}
 	if !strings.contains(out, SMOKE_MARKER) {
-		append(&problems, cli.tprint("no %q line (the extension did not load)", SMOKE_MARKER))
+		append(&problems, cli.aprintf("no %q line (the extension did not load)", SMOKE_MARKER))
 	} else if devui := no_devui ? "dev ui off" : "dev ui on"; !strings.contains(out, devui) {
-		append(&problems, cli.tprint("the extension did not say %q", devui))
+		append(&problems, cli.aprintf("the extension did not say %q", devui))
 	}
 	if len(problems) > 0 {
 		cli.log("%s", cli.tail(out, 20000))
@@ -775,10 +775,10 @@ release_notes :: proc(args: []string) -> cli.Result {
 	g := cli.game(name)
 	extra := ""
 	if text, ok := cli.read_text(cli.join(g.dir, "RELEASE_NOTES.md")); ok {
-		extra = cli.tprint("\n%s", text)
+		extra = cli.aprintf("\n%s", text)
 	}
 	lan := opts.no_eos ? "\n\n**Single player and LAN only:** this build has no online play (no EOS)." : ""
-	notes := cli.tprint(NOTES, g.name, version, short_commit(g.dir), release_label(version), extra, lan)
+	notes := cli.aprintf(NOTES, g.name, version, short_commit(g.dir), release_label(version), extra, lan)
 	return {ok = true, summary = strings.trim_right(notes, "\n")}
 }
 
@@ -815,7 +815,7 @@ drop_eos_dependency :: proc(g: cli.Game) -> []Saved_File {
 			for raw in strings.split(line[open + 1:close], `, "`) {
 				e := strings.trim_space(raw)
 				if strings.contains(e, "EOSSDK") do continue
-				append(&kept, strings.has_prefix(e, `"`) ? e : cli.tprint(`"%s`, e))
+				append(&kept, strings.has_prefix(e, `"`) ? e : cli.aprintf(`"%s`, e))
 			}
 			body := strings.join(kept[:], ", ")
 			pad := len(kept) > 0 ? " " : ""

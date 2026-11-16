@@ -267,7 +267,7 @@ cmd_test :: proc(args: []string) -> Result {
 				dir     = state.project.root,
 				capture = true,
 				quiet   = true,
-				env     = env_with(tprint("%s=1", CHILD_ENV)),
+				env     = env_with(aprintf("%s=1", CHILD_ENV)),
 			})
 		}
 	}
@@ -317,10 +317,15 @@ cmd_test :: proc(args: []string) -> Result {
 		}
 		strings.write_string(
 			&builder,
-			tprint("%s %s (%.1fs)", result.suite, result.ok ? "passed" : "FAILED", result.seconds),
+			aprintf("%s %s (%.1fs)", result.suite, result.ok ? "passed" : "FAILED", result.seconds),
 		)
 	}
-	return {ok = ok, summary = tprint("test: %s", strings.to_string(builder)), data = box(results[:]), budget = budget}
+	return {
+		ok      = ok,
+		summary = aprintf("test: %s", strings.to_string(builder)),
+		data    = box(results[:]),
+		budget  = budget,
+	}
 }
 
 // The registered suites' names, in order.
@@ -371,12 +376,12 @@ test_details :: proc() -> string {
 		width = max(width, len(suite.name))
 	}
 	for suite in state.suites {
-		budget := tprint("%.0fs", suite.budget)
+		budget := aprintf("%.0fs", suite.budget)
 		if suite.long_budget > 0 {
-			budget = tprint("%s, --long %.0fs", budget, suite.long_budget)
+			budget = aprintf("%s, --long %.0fs", budget, suite.long_budget)
 		}
 		if suite.name == "odin" {
-			budget = tprint("%s, --box3d-debug +%ds", budget, BOX3D_DEBUG_EXTRA_BUDGET)
+			budget = aprintf("%s, --box3d-debug +%ds", budget, BOX3D_DEBUG_EXTRA_BUDGET)
 		}
 		fmt.sbprintf(&builder, "  %-*s  %s (budget %s)\n", width, suite.name, suite.summary, budget)
 		if suite.name == "godot" {
@@ -440,7 +445,7 @@ cmd_verify :: proc(args: []string) -> Result {
 			log("  %s", result.summary)
 		}
 		if !result.ok {
-			return {ok = false, summary = tprint("verify: %s failed: %s", step.name, result.summary), budget = budget}
+			return {ok = false, summary = aprintf("verify: %s failed: %s", step.name, result.summary), budget = budget}
 		}
 	}
 	return {ok = true, summary = "verify: fmt, vet, every test suite and the benchmarks passed", budget = budget}
@@ -468,7 +473,7 @@ cmd_version :: proc(args: []string) -> Result {
 	version := new(Version)
 	version^ = {
 		cli      = os.base(exe),
-		odin     = tprint("%s:%s", ODIN_VERSION, ODIN_VERSION_HASH),
+		odin     = aprintf("%s:%s", ODIN_VERSION, ODIN_VERSION_HASH),
 		platform = PLATFORM,
 		project  = state.project.root,
 		unified  = state.project.unified,

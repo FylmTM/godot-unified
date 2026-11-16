@@ -265,3 +265,23 @@ route_finish_and_reset :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(player_pos(&run, 0).z) < 2, "the player is back in the hub? %v", player_pos(&run, 0))
 	expect_clean(t, &run)
 }
+
+// When the last player leaves, the run ends there: back to the hub, the checkpoint cleared (like drift and survivor).
+@(test)
+route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
+	run := start(1)
+	defer finish(&run)
+	put_player(&run, 0, marker_named(&run, "Check3").pos)
+	setup(&run, proc(run: ^Run) {
+		run.simulation.state.phase = .Run
+		run.simulation.state.run_tick = run.simulation.tick
+		run.simulation.state.checkpoint = 3
+	})
+	idle(&run, 4)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Run)
+	leave(&run, 0)
+	idle(&run, 4)
+	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Hub)
+	testing.expect_value(t, run.simulation.state.checkpoint, -1)
+	expect_clean(t, &run)
+}
