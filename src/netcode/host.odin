@@ -91,7 +91,7 @@ host_step :: proc(host: ^Host($State, $Input, $World, $PLAYERS), now: i64) -> i6
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
 	for _ in 0 ..< 4 { 	// inputs -> finalized tick -> its ack: a few rounds at most
-		if !hub_pending(host.hub, 0) && !hub_pending(host.hub, 1) {
+		if hub_queued(host.hub, 0) == 0 && hub_queued(host.hub, 1) == 0 {
 			break
 		}
 		relay_wake = relay_step(host.relay, now)

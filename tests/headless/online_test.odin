@@ -4,7 +4,6 @@
 package test_headless
 
 import "base:runtime"
-import "core:sync"
 import "core:testing"
 import "core:thread"
 
@@ -35,14 +34,12 @@ LOOP_ONLINE := modes.Online {
 	},
 	poll = proc() -> modes.Online_Status {
 		// A remote peer counts as connected once a datagram from it waits at the host's endpoint.
-		inbox := &g_hub.inboxes[0]
-		sync.guard(&inbox.mu)
 		return {
 			ready = true,
 			code  = "loop",
 			local = "me",
 			host  = "host",
-			peers = len(inbox.queue) > 0 ? 1 : 0,
+			peers = netcode.hub_queued(g_hub, 0) > 0 ? 1 : 0,
 		}
 	},
 }

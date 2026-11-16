@@ -180,12 +180,11 @@ loopback_link :: proc(hub: ^Hub, self: Peer, account := Account{}) -> Link {
 	}
 }
 
-// Whether endpoint `endpoint`'s inbox holds datagrams its link hasn't taken yet.
-@(private)
-hub_pending :: proc(hub: ^Hub, endpoint: Peer) -> bool {
+// How many datagrams wait in endpoint `endpoint`'s inbox, not taken by its link yet (any thread).
+hub_queued :: proc(hub: ^Hub, endpoint: Peer) -> int {
 	inbox := &hub.inboxes[endpoint]
 	sync.guard(&inbox.mu)
-	return len(inbox.queue.datagrams) > 0
+	return len(inbox.queue.datagrams)
 }
 
 @(private)
