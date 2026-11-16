@@ -59,7 +59,7 @@ through `headless.session_run`).
   layouts, command and event types, player count, tick rate, game name and version, content; 0 at the relay
   accepts any), the client's token (Members) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`,
   `Not_Started`, `No_Snapshot` (a joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). An EOS
-  lobby carries `compat` and `PROTOCOL_VERSION` (11), so a joiner on another build is told before it joins
+  lobby carries `compat` and `PROTOCOL_VERSION` (12), so a joiner on another build is told before it joins
   (`src/eos/SPEC.md`). **Welcome** carries the slot, the joiner's member id, the seed, the tick rate, the length,
   the first tick it is present and flags.
 - **Start** (#179, D6 of #8): the clock starts once the start players have connected: they get Welcome and tick 0 is

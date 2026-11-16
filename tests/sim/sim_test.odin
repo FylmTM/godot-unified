@@ -666,15 +666,15 @@ snapshot_errors_are_values :: proc(t: ^testing.T) {
 	defer delete(data)
 	_, err := sim.from_snapshot(&toy.GAME, data[:10])
 	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
-	data[sim.SNAP_HEADER - 9] ~= 1 // the layout hash
+	data[sim.SNAP_HEADER - 17] ~= 1 // the layout hash
 	_, err = sim.from_snapshot(&toy.GAME, data)
 	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
-	data[sim.SNAP_HEADER - 9] ~= 1
+	data[sim.SNAP_HEADER - 17] ~= 1
 	// another block size (a state that grew) is another build's state too, not a bad header
-	data[sim.SNAP_HEADER - 20] ~= 4 // the block size's low byte
+	data[sim.SNAP_HEADER - 28] ~= 4 // the block size's low byte
 	_, err = sim.from_snapshot(&toy.GAME, data)
 	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
-	data[sim.SNAP_HEADER - 20] ~= 4
+	data[sim.SNAP_HEADER - 28] ~= 4
 	// magic and version come first: a wrong magic is a bad header whatever follows
 	data[0] = 'X'
 	_, err = sim.from_snapshot(&toy.GAME, data)
@@ -763,6 +763,17 @@ content_identity :: proc(t: ^testing.T) {
 	restored, restore_err := sim.from_snapshot(&toy.GAME, snap, level_a)
 	testing.expect_value(t, restore_err, sim.Snap_Error.None)
 	if restored != nil do sim.destroy(restored)
+	// Another build with the same state layout (here another game version) refuses the snapshot.
+	other := toy.GAME
+	other.version = "another"
+	_, err = sim.from_snapshot(&other, snap, level_a)
+	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
+	// ... and so does a snapshot taken by a build on another library version (its compat in the header).
+	another := transmute([8]u8)u64le(sim.compat_of(&toy.GAME, level_a, {version = sim.LIBRARY_VERSION + 1}))
+	at := sim.SNAP_HEADER - 16 // the compat, before the payload digest
+	copy(snap[at:], another[:])
+	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)
+	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
 
 	// The current version round-trips; any other version is refused.
 	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {

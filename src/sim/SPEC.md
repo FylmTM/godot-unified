@@ -33,8 +33,11 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   `init(state, world, seed)` (tick 0; the block is zeroed before), `tick(tick: ^Tick)`, `events` (the event union,
   below), `commands` (the command union, below), `min_input_delay` (the least input delay the netcode gives a
   player, in ticks; 0: 1; `src/netcode/SPEC.md`, Timing).
-- `compat_of(&GAME, content) -> u64`: the build's identity for the netcode (the layouts of `State`, `Input` and
-  `Inputs`, the command and event types, `PLAYERS`, `tick_hz`, `name`, `version`, the content hash).
+- `compat_of(&GAME, content) -> u64`: the build's identity for the netcode, input logs and snapshots (the layouts of
+  `State`, `Input` and `Inputs`, the command and event types, `PLAYERS`, `tick_hz`, `name`, `version`, the content
+  hash, and the library's part: `LIBRARY_VERSION`, the library's own simulation, bumped by hand per the `sim-change`
+  skill, and `box3d_pin()`, the `[box3d] tag` of `pins.cfg` embedded at compile time). An optional
+  `Library{version, box3d}` computes another build's value (tests).
 
 Odin can't derive one generic type from another, so a game declares its aliases once:
 
@@ -268,11 +271,13 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   records). Written as it grows (a relay's recording): a `Log_Sink` (`write(offset,
   bytes)`, optional `close`; `log_sink_memory(&buf)`, `log_sink_file(path)`, 64 KB at a time) fed by a `Log_Stream`
   (`log_stream_begin(header)`, `log_stream_tick(&inputs)`, `log_stream_end`: the tick count, then close).
-- **Portable snapshot** `UNIS`: seed, content hash, tick, block size, `layout_hash(State)` (field names, offsets and
-  types), a payload digest, the block bytes, each Extra's image. `snapshot_encode(simulation, tick)`,
+- **Portable snapshot** `UNIS` (`SNAP_VERSION` 6): seed, content hash, tick, block size, `layout_hash(State)` (field
+  names, offsets and types), compat (`compat_of` of the build that took it), a payload digest, the block bytes, each
+  Extra's image. `snapshot_encode(simulation, tick)`,
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)` (creates the world the same way, saves tick 0, then loads).
   `Snap_Error`: `Bad_Header` (not a snapshot, or another format version), `Layout_Differs` (another build's state:
-  another layout or block size), `Content_Differs`, `Checksum_Mismatch`, `Extra_Count`, `Extra_Rejected`. The
+  another layout or block size), `Content_Differs`, `Build_Differs` (the same layout, another compat: another game
+  version, library sim version or Box3D), `Checksum_Mismatch`, `Extra_Count`, `Extra_Rejected`. The
   library never prints.
 - **Format versions** (D9): readers accept only the current version of each format. Decide again before a release
   whose game saves replays or saves that players keep. A format change bumps the version and regenerates every

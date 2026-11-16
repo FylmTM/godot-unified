@@ -56,9 +56,15 @@ tuning, `src/physics`, `src/netcode` or the rollback path also runs the long var
 
 ## Format and protocol changes
 
-- **State layout, input, commands, player count, tick rate, game name or version:** `sim.compat_of` changes with
-  them, so peers on different builds refuse each other at hello. Nothing to bump by hand. Reference runs are
-  regenerated (above), since the log and snapshot carry the layout.
+- **State layout, input, commands, player count, tick rate, game name or version, or the `[box3d]` pin:**
+  `sim.compat_of` changes with them, so peers on different builds refuse each other at hello, and a replay or
+  snapshot from another build is refused. Nothing to bump by hand. Reference runs are regenerated (above), since the
+  log and snapshot carry compat.
+- **A game's rules or tuning** (it computes differently with the same layouts): bump that game's `Game.version`.
+- **The library's own simulation** (`src/sim`, `src/dmath`, `src/physics`, `src/b3`): when a change makes a reference
+  run or a golden trace compute differently, bump `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) with a note on what
+  changed, in the same PR. A refactor, a comment or a tooling change that reproduces every reference run and golden
+  doesn't bump it.
 - **The netcode wire protocol** (anything a datagram, hello, snapshot transfer or command message carries):
   bump `PROTOCOL_VERSION` in `src/netcode/proto.odin` with a note on what changed. Nothing else to bump: an EOS
   lobby carries the build (`compat` and the protocol), so a joiner on another build is told so before joining

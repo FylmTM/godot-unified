@@ -11,8 +11,9 @@ import "unified:wire"
 // desync reports (Desync, Welcome's flags), no replay from tick 0 (new reject reasons); 10: a Finalized packet's
 // ticks as their changes from the tick before (window.odin, #192);
 // 11: players are session members (#222): Hello's token, Welcome's member id, join records in finalized ticks, a
-// roster entry per member.
-PROTOCOL_VERSION :: 11
+// roster entry per member; 12: snapshots v6 (the build's compat in the header), a finalized tick with a slot past
+// PLAYERS present or replaced is refused (#233, #255).
+PROTOCOL_VERSION :: 12
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
 ACCOUNT_MAX :: 63 // bytes of an account id (an EOS product user id: 32)

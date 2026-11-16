@@ -504,3 +504,32 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	testing.expect_value(t, client.status, netcode.Status.Failed)
 	testing.expect_value(t, client.detail, "a different game build or level")
 }
+
+// Two builds that differ only in the library's simulation (LIBRARY_VERSION) or the unified-box3d pin refuse each
+// other at hello (#233): both are in compat.
+@(test)
+other_library_build_is_refused :: proc(t: ^testing.T) {
+	this := sim.compat_of(&toy.GAME)
+	testing.expect_value(t, sim.compat_of(&toy.GAME, nil, {sim.LIBRARY_VERSION, sim.box3d_pin()}), this)
+	others := []sim.Library{{version = sim.LIBRARY_VERSION + 1}, {box3d = "another-release"}}
+	for library, i in others {
+		compat := sim.compat_of(&toy.GAME, nil, library)
+		testing.expect(t, compat != this)
+		session: Rnet
+		rnet_make(&session, 1, 0)
+		defer rnet_destroy(&session)
+		rnet_join(&session, 0)
+		rnet_run(&session, 1)
+		link := netcode.loopback_link(session.hub, 6)
+		client := netcode.client_create(&toy.GAME, {
+				slot   = -1,
+				name   = "other",
+				quiet  = true,
+				compat = compat,
+			}, link, hooks_for(&session.watch[6]))
+		append(&session.clients, client)
+		rnet_run(&session, 1)
+		testing.expectf(t, client.status == .Failed, "build %d: %v", i, client.status)
+		testing.expect_value(t, client.detail, "a different game build or level")
+	}
+}

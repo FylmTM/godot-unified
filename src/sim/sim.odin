@@ -17,8 +17,39 @@ package sim
 @(require) import "base:runtime"
 import "core:fmt"
 import "core:hash/xxhash"
+import "core:strings"
 
 MAX_PLAYERS :: 32
+
+// The library's own simulation (src/sim, src/dmath, src/physics, src/b3): bump it in a change that makes a reference run
+// or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
+// compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump its
+// Game.version. 1: #233 (the first).
+LIBRARY_VERSION :: 1
+
+// The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
+Library :: struct {
+	version: u32, // LIBRARY_VERSION
+	box3d:   string, // box3d_pin()
+}
+
+// The unified-box3d release the build is pinned to: `[box3d] tag` of unified's pins.cfg (src/cli/SPEC.md, Pins),
+// embedded at compile time. Part of compat_of: Box3D's state is the sim's (src/physics/SPEC.md), so builds pinned to
+// other releases refuse each other. A UNIFIED_BOX3D checkout (unified-box3d's own development) still reports the pin.
+box3d_pin :: proc() -> string {
+	PINS :: #load("../../pins.cfg", string)
+	text, section := PINS, false
+	for line in strings.split_lines_iterator(&text) {
+		trimmed := strings.trim_space(line)
+		if strings.has_prefix(trimmed, "[") {
+			section = trimmed == "[box3d]"
+		} else if section && strings.has_prefix(trimmed, "tag") {
+			value := strings.trim_space(trimmed[len("tag"):])
+			if strings.has_prefix(value, "=") do return strings.trim(value[1:], ` "`)
+		}
+	}
+	panic("pins.cfg has no [box3d] tag")
+}
 
 #assert(ODIN_ENDIAN == .Little) // the block's in-memory bytes are its canonical LE serialization
 
@@ -127,6 +158,7 @@ Sim :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
 	seed:           u64,
 	content:        []u8, // borrowed: the caller of create keeps it alive
 	content_hash:   u64, // content_hash(content): recorded in input logs and snapshots
+	compat:         u64, // compat_of(game, content): recorded in snapshots
 	tick:           u32,
 	state:          State,
 	world:          ^World,
@@ -150,13 +182,14 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 
 // The game build's identity for netcode (Hello's compat): the state, input and inputs layouts, the
 // command and event types, the player count, the tick rate, the game's name (each variant, e.g. a
-// tuning, has its own) and version. Two builds with the same value run the same simulation, as far as
-// the build can tell. The content's hash goes in too, so peers with different levels refuse to play
-// together.
-compat_of :: proc(game: ^Game($State, $Input, $World, $PLAYERS), content: []u8 = nil) -> u64 {
+// tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d pin (box3d_pin):
+// `library` overrides those two (tests: another build's compat; zero fields: this build's). Two builds with the same value run
+// the same simulation, as far as the build can tell. The content's hash goes in too, so peers with different
+// levels refuse to play together.
+compat_of :: proc(game: ^Game($State, $Input, $World, $PLAYERS), content: []u8 = nil, library := Library{}) -> u64 {
 	Ids :: struct {
-		state, input, inputs, name, version, content, commands, events: u64,
-		players, tick_hz:                                               u32,
+		state, input, inputs, name, version, content, commands, events, box3d: u64,
+		players, tick_hz, library, _pad:                                       u32, // no padding: hashed as bytes
 	}
 	ids := Ids {
 		state    = layout_hash(State),
@@ -167,8 +200,10 @@ compat_of :: proc(game: ^Game($State, $Input, $World, $PLAYERS), content: []u8 =
 		content  = content_hash(content),
 		commands = union_hash(game.commands, COMMAND_PREFIX),
 		events   = union_hash(game.events, EVENT_PREFIX),
+		box3d    = hash_bytes(transmute([]u8)(library.box3d != "" ? library.box3d : box3d_pin())),
 		players  = u32(PLAYERS),
 		tick_hz  = u32(game.tick_hz),
+		library  = library.version != 0 ? library.version : LIBRARY_VERSION,
 	}
 	return max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }
@@ -252,6 +287,7 @@ create :: proc(
 	simulation.seed = seed
 	simulation.content = content
 	simulation.content_hash = content_hash(content)
+	simulation.compat = compat_of(game, content)
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		slot.events.type = game.events
