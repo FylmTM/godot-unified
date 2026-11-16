@@ -65,14 +65,17 @@ Query :: struct {category, mask: u64}   // zero: everything
 Ray_Hit :: struct {body: Body_Link, point, normal: [3]f32, fraction: f32, material: u64}
 ray_first(world, origin, translation, query := {}) -> (Ray_Hit, bool)                    // b3World_CastRayClosest
 ray_closest(world, origin, translation, query := {}, ignore: Body_Link = {}) -> (Ray_Hit, bool) // skips ignore, sensors
-overlap_aabb(world, lo, hi, out: ^[dynamic]Body_Link, query := {})   // fat AABBs; sorted by body index, no duplicates
+overlap_aabb(world, lo, hi, out: ^[dynamic]Body_Link, query := {})   // clears out; fat AABBs; by body index, no duplicates
 Hit_Event :: struct {a, b: Body_Link, point, normal: [3]f32, speed: f32, material_a, material_b: u64}  // normal a → b
-hit_events(world, out: ^[dynamic]Hit_Event)   // after the step, in Box3D's order
+hit_events(world, out: ^[dynamic]Hit_Event)   // clears out; after the step, in Box3D's order
 position, velocity, set_velocity, rotation, mass, impulse, teleport(world, ref, pos, rot)   // thin body helpers
 ```
 
 Rays take an origin and a translation (the ray's whole length), not two points. Hit events are read in the tick that
-stepped, so a re-simulation regenerates them; nothing about them is kept.
+stepped, so a re-simulation regenerates them; nothing about them is kept. `overlap_aabb` and `hit_events` **replace**
+`out`'s contents, never append: a game keeps the array in its World as scratch (no allocation per tick once it has
+grown), and a forgotten `clear` can't carry one tick's results into the next, which would diverge after a rollback
+unhashed (`src/sim/SPEC.md`, World).
 
 ## Character: the dynamic character controller
 

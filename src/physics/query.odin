@@ -88,12 +88,13 @@ ray_callback :: proc(
 	return fraction
 }
 
-// Appends every body with a shape overlapping the box [lo, hi] (fat AABBs, so "near" rather than
-// exact), sorted by body index, without duplicates.
+// Fills `out` (cleared first) with every body with a shape overlapping the box [lo, hi] (fat AABBs, so "near"
+// rather than exact), sorted by body index, without duplicates. A game keeps `out` in its World as scratch: it
+// never holds anything from an earlier call, so it can't carry a result into another tick (src/sim/SPEC.md, World).
 overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, query := Query{}) {
-	start := len(out)
+	clear(out)
 	b3.world_overlap_aabb(world.id, {lo, hi}, query_filter(query), overlap_callback, out)
-	got := out[start:]
+	got := out[:]
 	// Insertion sort: a handful of bodies, and no core:slice in tick code.
 	for i in 1 ..< len(got) {
 		held := got[i]
@@ -110,7 +111,7 @@ overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Body_Link, qu
 		got[kept] = body_link
 		kept += 1
 	}
-	resize(out, start + kept)
+	resize(out, kept)
 }
 
 @(private)
@@ -128,10 +129,11 @@ Hit_Event :: struct {
 	material_b: u64,
 }
 
-// The step's hit events (contacts between shapes with `enable_hit_events` that approached faster than
-// Settings.hit_threshold), in Box3D's order. Read them right after the step, before destroying
-// bodies; a re-simulation regenerates them.
+// Fills `out` (cleared first) with the step's hit events (contacts between shapes with `enable_hit_events` that
+// approached faster than Settings.hit_threshold), in Box3D's order. Read them right after the step, before
+// destroying bodies; a re-simulation regenerates them. Like overlap_aabb's, `out` never carries an earlier step's.
 hit_events :: proc(world: ^World, out: ^[dynamic]Hit_Event) {
+	clear(out)
 	for contact in b3.world_get_contact_events(world.id).hit_events {
 		append(out, Hit_Event {
 			link_of(b3.shape_get_body(contact.shape_id_a)),

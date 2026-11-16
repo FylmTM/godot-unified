@@ -220,7 +220,6 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 		state.held = {}
 	}
 	step(world)
-	clear(&rig_world.scratch)
 	physics.hit_events(world, &rig_world.scratch)
 	state.hits += u32(len(rig_world.scratch))
 }
@@ -494,15 +493,30 @@ queries_and_hit_events :: proc(t: ^testing.T) {
 	physics.overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX})
 	testing.expect_value(t, len(got), 2)
 	if len(got) == 2 do testing.expect(t, got[0].index1 < got[1].index1 && got[1] == physics.link_of(side_box))
-	// `a` falls onto the ground: one hit event at ~6 m/s.
+	// Each call replaces what `out` held: a result can't carry over into another call (another tick).
+	append(&got, physics.link_of(faller), physics.link_of(faller))
+	physics.overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX})
+	testing.expect_value(t, len(got), 2)
+	physics.overlap_aabb(world, {10, 10, 10}, {11, 11, 11}, &got)
+	testing.expect_value(t, len(got), 0)
+	// `a` falls onto the ground: one hit event at ~6 m/s, in the step that lands it only.
 	events: [dynamic]physics.Hit_Event
 	defer delete(events)
+	append(&events, physics.Hit_Event{speed = -1}) // a stale entry hit_events must drop
+	hits, landing := 0, f32(0)
 	for _ in 0 ..< 64 {
 		step(world)
 		physics.hit_events(world, &events)
+		for &event in events {
+			testing.expect(t, event.speed >= 0)
+			if hits == 0 do landing = event.speed
+			hits += 1
+		}
 	}
-	testing.expect(t, len(events) >= 1)
-	if len(events) >= 1 do testing.expect(t, events[0].speed > 3)
+	testing.expect(t, hits >= 1 && landing > 3)
+	step(world) // at rest: no hits, and nothing left from before
+	physics.hit_events(world, &events)
+	testing.expect_value(t, len(events), 0)
 	// check_refs: stale refs are caught.
 	Two :: struct {
 		body:  physics.Body_Ref,
