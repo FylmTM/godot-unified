@@ -145,24 +145,26 @@ players_is_plain_at_any_player_count :: proc(t: ^testing.T) {
 	Wide :: struct {
 		value: u64,
 	}
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, 3))), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, 4))), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(u32, 1))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, toy.Input, 3))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, [3]u8, 4))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(u32, u8, 1))), "")
 	Two :: struct {
-		a, b: sim.Players(u8, 4),
+		a, b: sim.Players(u8, toy.Input, 4),
 	}
-	_, reason := sim.players_layout_of(type_info_of(Two), 4)
+	_, reason := sim.players_layout_of(type_info_of(Two), 4, type_info_of(toy.Input))
 	testing.expect(t, reason != "", "two Players fields are refused")
-	_, reason = sim.players_layout_of(type_info_of(toy.Thing), 4)
+	_, reason = sim.players_layout_of(type_info_of(toy.Thing), 4, type_info_of(toy.Input))
 	testing.expect(t, reason != "", "a State without one is refused")
-	_, reason = sim.players_layout_of(type_info_of(toy.State), 3)
+	_, reason = sim.players_layout_of(type_info_of(toy.State), 3, type_info_of(toy.Input))
 	testing.expect(t, reason != "", "a Players for another player count is refused")
+	_, reason = sim.players_layout_of(type_info_of(toy.State), 4, type_info_of(u8))
+	testing.expect(t, reason != "", "a Players for another Input is refused")
 }
 
 // A member who left on a tick keeps its entry through that tick, so the game can clean up by its handle in
 // t.player_changes.left: when the table is full, newcomers take the entries of members who left earlier.
 Tight_State :: struct {
-	players: sim.Players(u32, 2),
+	players: sim.Players(u32, toy.Input, 2),
 }
 
 Tight_Event :: union {

@@ -19,6 +19,11 @@ quat_rotate(quat, v)                      // v turned by the unit quaternion (x,
 lerp(a, b, t)
 to_i32_clamped(x, lo, hi)                 // clamp the f32, then convert; NaN gives lo
 DIR8_C, DIR8_S                            // the exact 8-direction table (@(rodata))
+// input encodings (input.odin): the client quantizes, the sim decodes any bits safely
+axis_i8(x) / axis(i8)                     // −1..1 <-> −127..127 (NaN: 0; −128 reads as −1)
+stick(x, y: i8) -> Vec2                   // two axes, the length clamped to 1
+Dir2 (u16) / dir2(v) / dir2_vec(d)        // a 2D direction in 2 bytes (~0.01°); 0: none
+Dir3 ({u, v: u16}) / dir3(v) / dir3_vec(d) // a 3D direction in 4 bytes (octahedral, ~0.01°); {}: none
 ```
 
 ## How it works

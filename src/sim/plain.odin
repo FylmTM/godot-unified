@@ -12,27 +12,35 @@ import "core:strings"
 // (the sim is f32 only), bools, enums, bit_sets, fixed arrays and structs of those, with no implicit
 // padding anywhere (so the bytes are fully defined). Otherwise, the reason. The state block's rule.
 plain_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
-	return plain_check(type, path, bools = true)
+	return plain_check(type, path, bools = true, floats = true)
 }
 
-// plain_violation without bools: the rule for what comes from another machine and is compared and logged as raw
-// bytes (a tick's Input, a command). A bool's byte can hold values other than 0 and 1 there, which Odin's bool
-// operations don't define; a u8 of flags or a bit_set says the same thing with every byte value defined.
+// plain_violation without bools or floats: the rule for a tick's Input, which comes from another machine and is
+// compared and logged as raw bytes. A bool's byte can hold values other than 0 and 1 there, which Odin's bool
+// operations don't define (a u8 of flags or a bit_set says the same with every byte value defined); a float can be
+// a NaN or an infinity a sim never expects (quantize: an i8 axis, dmath's direction encodings).
 wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
-	return plain_check(type, path, bools = false)
+	return plain_check(type, path, bools = false, floats = false)
 }
 
 @(private)
-plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool) -> string {
+plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats: bool) -> string {
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_check(variant.base, path, bools)
+		return plain_check(variant.base, path, bools, floats)
 	case runtime.Type_Info_Integer:
 		if type.id == int || type.id == uint || type.id == uintptr {
 			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
 		}
 		return ""
 	case runtime.Type_Info_Float:
+		if !floats {
+			return fmt.tprintf(
+				"%s: %v (an input is quantized: a float from another machine may be a NaN; use an integer, e.g. an i8 axis or a dmath direction)",
+				path,
+				type.id,
+			)
+		}
 		if type.size != 4 {
 			return fmt.tprintf("%s: %v (the simulation is f32 only)", path, type.id)
 		}
@@ -47,19 +55,19 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool) -> stri
 		}
 		return ""
 	case runtime.Type_Info_Enum:
-		return plain_check(variant.base, path, bools)
+		return plain_check(variant.base, path, bools, floats)
 	case runtime.Type_Info_Bit_Set:
 		if variant.underlying == nil {
 			return fmt.tprintf("%s: bit_set without an explicit backing integer", path)
 		}
-		return plain_check(variant.underlying, path, bools)
+		return plain_check(variant.underlying, path, bools, floats)
 	case runtime.Type_Info_Array:
-		return plain_check(variant.elem, path, bools)
+		return plain_check(variant.elem, path, bools, floats)
 	case runtime.Type_Info_Enumerated_Array:
 		if variant.is_sparse {
 			return fmt.tprintf("%s: sparse enumerated array", path)
 		}
-		return plain_check(variant.elem, path, bools)
+		return plain_check(variant.elem, path, bools, floats)
 	case runtime.Type_Info_Struct:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
@@ -70,7 +78,7 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool) -> stri
 			if variant.offsets[i] != end {
 				return fmt.tprintf("%s: implicit padding before this field", name)
 			}
-			if reason := plain_check(variant.types[i], name, bools); reason != "" {
+			if reason := plain_check(variant.types[i], name, bools, floats); reason != "" {
 				return reason
 			}
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
@@ -95,7 +103,7 @@ check_plain_of :: proc(type: ^runtime.Type_Info) {
 	}
 }
 
-// Panics unless T is plain data without bools (see wire_violation): what create, the netcode client and the relay
+// Panics unless T is plain data without bools or floats (see wire_violation): what create, the netcode client and the relay
 // check an Input with.
 check_wire :: proc($T: typeid) {
 	if reason := wire_violation(type_info_of(T), fmt.tprint(typeid_of(T))); reason != "" {

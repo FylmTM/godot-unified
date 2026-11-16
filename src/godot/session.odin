@@ -109,6 +109,12 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return session.ticks},
 		proc(session: ^Session_Node, value: i64) {session.ticks = value},
 	)
+	gd.bind_property(
+		class,
+		"game_input",
+		proc(session: ^Session_Node) -> bool {return !input_sample.off},
+		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
+	)
 	gd.bind_property(class, "view_root", effective_root, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0

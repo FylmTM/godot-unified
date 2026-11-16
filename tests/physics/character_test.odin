@@ -101,7 +101,7 @@ Rig :: struct {
 	jumps:      u32,
 	prev:       [2]b8,
 	_pad:       u16,
-	players:    sim.Players(u32, 2), // every sim's State has one; the characters read their slot's input directly
+	players:    sim.Players(u32, Rig_Input, 2), // every sim's State has one; the characters read their slot's input directly
 }
 
 Rig_World :: struct {

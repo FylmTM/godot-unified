@@ -82,8 +82,8 @@ GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, View, MultiVi
 sample_input :: proc(input: ^survivor.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back") // +y = move_back = +Z
 	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
-	// the sim dashes on the press edge; a tap shorter than a tick still counts (action_pressed)
-	if godot.action_held("dash") || godot.action_pressed("dash") do input.buttons |= survivor.BUTTON_DASH
+	// the sim dashes on the press (sim.buttons); a tap shorter than a frame still counts
+	input.buttons = godot.buttons(survivor.Buttons, {.Dash = "dash"})
 }
 
 // ---- the frame (session thread)

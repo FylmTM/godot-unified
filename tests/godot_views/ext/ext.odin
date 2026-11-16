@@ -117,12 +117,13 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	event_key = event_key,
 }
 
-// The player drifts right; ui_accept pressed spawns one thing (a `Spawned` event with a handle, a position, the
-// player and an enum), which expires a few dozen ticks later; the input value "drift" moves it down.
+// The player drifts right; pressing ui_accept spawns one thing (on the press: held, it doesn't repeat), a `Spawned`
+// event with a handle, a position, the player and an enum, which expires a few dozen ticks later; the input value
+// "drift" moves it down.
 sample_input :: proc(input: ^toy.Input) {
 	input.dx = 2
 	input.dy = i8(godot.input_value("drift").x)
-	input.buttons = u8(godot.action_pressed("ui_accept"))
+	input.buttons = godot.buttons(toy.Buttons, {.Spawn = "ui_accept"})
 }
 
 fill_frame :: proc(f: ^Frame) {

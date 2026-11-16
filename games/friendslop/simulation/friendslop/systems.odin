@@ -148,13 +148,11 @@ release_all :: proc(t: ^Tick, player: sim.Player) {
 // Break free, grab, drop, throw. Returns whether jump was pressed this tick (for the character).
 player_actions :: proc(t: ^Tick, player: sim.Player, input: Input) -> (jump: bool) {
 	character := character_of(t, player)
-	pressed := input.buttons & ~character.prev_buttons
-	released := character.prev_buttons & ~input.buttons
-	character.prev_buttons = input.buttons
-	aim := dmath.normalize3({f32(input.aim_x), f32(input.aim_y), f32(input.aim_z)})
+	buttons := sim.buttons(t, player)
+	aim := dmath.dir3_vec(input.aim)
 	if aim != {} do character.aim = aim
 	if character.respawn > 0 do return
-	jump = pressed & BUTTON_JUMP != 0
+	jump = .Jump in buttons.pressed
 
 	if character.held_by != {} {
 		// Held: 3 jump presses within the window break free (not too early); the holder lets go anyway
@@ -162,7 +160,7 @@ player_actions :: proc(t: ^Tick, player: sim.Player, input: Input) -> (jump: boo
 		character.held_ticks += 1
 		if character.break_window > 0 do character.break_window -= 1
 		else do character.break_presses = 0
-		if pressed & BUTTON_JUMP != 0 {
+		if .Jump in buttons.pressed {
 			if character.break_presses == 0 do character.break_window = BREAK_FREE_WINDOW_TICKS
 			character.break_presses += 1
 		}
@@ -180,15 +178,15 @@ player_actions :: proc(t: ^Tick, player: sim.Player, input: Input) -> (jump: boo
 	}
 	if character.stun > 0 do return
 
-	if pressed & BUTTON_GRAB != 0 {
+	if .Grab in buttons.pressed {
 		if holding(character) do drop(t, player)
 		else do try_grab(t, player, false)
-	} else if input.buttons & BUTTON_GRAB != 0 && !holding(character) {
+	} else if .Grab in buttons.down && !holding(character) {
 		try_grab(t, player, true) // catch
 	}
 	if holding(character) {
-		if input.buttons & BUTTON_THROW != 0 do character.charge = min(character.charge + 1, THROW_CHARGE_TICKS)
-		if released & BUTTON_THROW != 0 do throw(t, player)
+		if .Throw in buttons.down do character.charge = min(character.charge + 1, THROW_CHARGE_TICKS)
+		if .Throw in buttons.released do throw(t, player)
 	} else {
 		character.charge = 0
 	}
@@ -468,8 +466,7 @@ update_holds :: proc(t: ^Tick) {
 player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 	character := character_of(t, player)
 	if character.respawn > 0 || character.held_by != {} || character.stun > 0 do return
-	move := [2]f32{f32(input.move_x) / 127, f32(input.move_z) / 127}
-	move = dmath.clamp_length2(move, 1)
+	move := dmath.stick(input.move_x, input.move_z)
 	if holding(character) {
 		facing := dmath.normalize2({character.aim.x, character.aim.z})
 		if facing != {} do character.facing = facing

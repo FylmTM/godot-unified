@@ -32,11 +32,10 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 
 ## Input (per player per tick)
 
-- `move_x, move_z`: i8 in −127..127. The movement direction is `(move_x, move_z) / 127` (not normalized; the
-  scripted inputs only produce lengths ≤ 1).
-- `buttons`: bit 0 = dash (edge-triggered).
+- `move_x, move_z`: i8 in −127..127, a stick (`dmath.stick`: each axis −1..1, the length at most 1).
+- `buttons: bit_set[Button]`: `Dash` (on the press: `sim.buttons`).
 - Presence is not in the input: players are session members (`src/sim/SPEC.md`, Players), held in the state's
-  `players: sim.Players(Character, PLAYERS)` (2 · PLAYERS remembered); the library applies joins and leaves before the tick and
+  `players: sim.Players(Character, Input, PLAYERS)` (2 · PLAYERS remembered); the library applies joins and leaves before the tick and
   emits `player_joined` / `player_left`. The game's part (system 1): a player who leaves loses their body (an absent
   player owns nothing outside the block) and keeps their progress (level, XP, upgrades, pending level-ups); someone
   new starts fresh; both new and returning players get a body at their slot's start spot with full HP. Everything

@@ -33,10 +33,9 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 		input.move_y = i8(dmath.DIR8_S[move] * 127)
 	}
 	aim := (bits >> 4) % 8
-	input.aim_x = i8(dmath.DIR8_C[aim] * 127)
-	input.aim_y = i8(dmath.DIR8_S[aim] * 127)
-	if (bits >> 8) % 4 != 0 do input.buttons |= BUTTON_FIRE
-	if (bits >> 10) % 6 == 0 do input.buttons |= BUTTON_BOOST
+	input.aim = dmath.dir2({dmath.DIR8_C[aim], dmath.DIR8_S[aim]})
+	if (bits >> 8) % 4 != 0 do input.buttons += {.Fire}
+	if (bits >> 10) % 6 == 0 do input.buttons += {.Boost}
 	return input
 }
 

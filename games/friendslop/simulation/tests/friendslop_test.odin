@@ -142,9 +142,7 @@ walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe(
 aim_at :: proc(run: ^Run, slot: int, target: [3]f32, input: fs.Input) -> fs.Input {
 	input := input
 	aim := dmath.normalize3(target - (player_pos(run, slot) + {0, fs.HOLD_UP, 0}))
-	input.aim_x = i8_of(aim.x)
-	input.aim_y = i8_of(aim.y)
-	input.aim_z = i8_of(aim.z)
+	input.aim = dmath.dir3(aim)
 	return input
 }
 
@@ -186,10 +184,7 @@ heavy_needs_two :: proc(t: ^testing.T) {
 		step(&run, {walk(&run, 0, sides[0], 0.1, heavy_pos), walk(&run, 1, sides[1], 0.1, heavy_pos), {}, {}})
 	}
 	// P0 grabs alone and pulls up for 2 s: it stays on the floor.
-	step(
-		&run,
-		{aim_at(&run, 0, heavy_pos + {0, 1, 0}, {buttons = fs.BUTTON_GRAB}), aim_at(&run, 1, heavy_pos, {}), {}, {}},
-	)
+	step(&run, {aim_at(&run, 0, heavy_pos + {0, 1, 0}, {buttons = {.Grab}}), aim_at(&run, 1, heavy_pos, {}), {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Item)
 	for _ in 0 ..< 128 {
 		step(&run, {aim_at(&run, 0, heavy_pos + {0, 2, 0}, {}), aim_at(&run, 1, heavy_pos, {}), {}, {}})
@@ -199,7 +194,7 @@ heavy_needs_two :: proc(t: ^testing.T) {
 	// P1 takes the other grab point: together it rises.
 	step(&run, {
 		aim_at(&run, 0, heavy_pos + {0, 2, 0}, {}),
-		aim_at(&run, 1, item_pos(&run, heavy), {buttons = fs.BUTTON_GRAB}),
+		aim_at(&run, 1, item_pos(&run, heavy), {buttons = {.Grab}}),
 		{},
 		{},
 	})
@@ -217,16 +212,8 @@ heavy_needs_two :: proc(t: ^testing.T) {
 	start_z := item_pos(&run, heavy).z
 	for _ in 0 ..< 128 {
 		step(&run, {
-			{
-				move_z = -127,
-				aim_x  = 100,
-				aim_y  = 40,
-			},
-			{
-				move_z = -127,
-				aim_x  = -100,
-				aim_y  = 40,
-			},
+			{move_z = -127, aim = dmath.dir3({100, 40, 0})},
+			{move_z = -127, aim = dmath.dir3({-100, 40, 0})},
 			{},
 			{},
 		})
@@ -247,10 +234,10 @@ throw_hits_friend :: proc(t: ^testing.T) {
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, stand, 0.1, crate_pos), walk(&run, 1, friend, 0.1), {}, {}})
 	}
-	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Item)
 	for _ in 0 ..< 40 {
-		step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {buttons = fs.BUTTON_THROW}), {}, {}, {}})
+		step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {buttons = {.Throw}}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {}), {}, {}, {}}) // release: throw
 	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
@@ -332,7 +319,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	for _ in 0 ..< 64 {
 		step(&run, {walk(&run, 0, player_pos(&run, 1) + {-1.2, 0, 0}, 0.1, player_pos(&run, 1)), {}, {}, {}})
 	}
-	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
 	testing.expect_value(t, character(&run, 1).held_by, player_in(&run, 0))
 	start_y := player_pos(&run, 1).y
@@ -348,7 +335,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	for k in 0 ..< 12 {
 		step(&run, {
 			aim_at(&run, 0, player_pos(&run, 0) + {0, 0.3, 2}, {}),
-			{buttons = k % 2 == 0 ? fs.BUTTON_JUMP : 0},
+			{buttons = {.Jump} if k % 2 == 0 else {}},
 			{},
 			{},
 		})
@@ -360,25 +347,16 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	for _ in 0 ..< 96 {
 		step(&run, {walk(&run, 0, player_pos(&run, 1) + {-1.2, 0, 0}, 0.1, player_pos(&run, 1)), {}, {}, {}})
 	}
-	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
 	for _ in 0 ..< 8 do step(&run, {
-		{
-			aim_x   = 0,
-			aim_y   = 40,
-			aim_z   = 100,
-			buttons = fs.BUTTON_THROW,
-		},
+		{aim = dmath.dir3({0, 40, 100}), buttons = {.Throw}},
 		{},
 		{},
 		{},
 	})
 	step(&run, {
-		{
-			aim_x = 0,
-			aim_y = 40,
-			aim_z = 100,
-		},
+		{aim = dmath.dir3({0, 40, 100})},
 		{},
 		{},
 		{},
@@ -422,11 +400,11 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	crate := item_of(&run, .Crate)
 	crate_pos := item_pos(&run, crate)
 	for _ in 0 ..< 200 do step(&run, {walk(&run, 0, crate_pos + {-1.3, 0, 0}, 0.1, crate_pos), {}, {}, {}})
-	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = fs.BUTTON_GRAB}), {}, {}, {}})
+	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Item)
 	thrower := player_in(&run, 0)
-	for _ in 0 ..< 8 do step(&run, {{aim_y = 40, aim_z = -100, buttons = fs.BUTTON_THROW}, {}, {}, {}})
-	step(&run, {{aim_y = 40, aim_z = -100}, {}, {}, {}}) // release: throw
+	for _ in 0 ..< 8 do step(&run, {{aim = dmath.dir3({0, 40, -100}), buttons = {.Throw}}, {}, {}, {}})
+	step(&run, {{aim = dmath.dir3({0, 40, -100})}, {}, {}, {}}) // release: throw
 	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower leaves; someone new (member 100) takes slot 0.

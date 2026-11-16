@@ -129,9 +129,9 @@ nameplates, menus, settings, dev UI.
 
 ## Input (8 bytes per player per tick)
 
-`move_x, move_z: i8` (world-space; the client rotates the stick by the camera yaw), `aim_x, aim_y, aim_z: i8` (the
-camera's look direction; the sim normalizes with `sqrt`), `buttons: u8` (jump, grab, throw held; edges against the
-previous tick's buttons in the state), 2 spare bytes. No angles cross the wire, so the sim needs no trig.
+`move_x, move_z: i8` (world-space; the client rotates the stick by the camera yaw; `dmath.stick`), `aim: dmath.Dir3`
+(the camera's look direction), `buttons: bit_set[Button]` (`Jump`, `Grab`, `Throw` held; presses and releases from
+`sim.buttons`), 1 spare byte. No angles cross the wire, so the sim needs no trig.
 
 ## Camera and controls (D)
 

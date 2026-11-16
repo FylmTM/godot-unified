@@ -6,6 +6,7 @@ package drift_extension
 
 import "base:runtime"
 import "core:math"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -105,17 +106,13 @@ ship_key :: proc(player: sim.Player) -> view.Key {
 
 // The movement, fire and boost from the InputMap, and the aim: a world-space direction the arena's script sets
 // (UnifiedSession.set_input_value(&"aim", ...)) from the mouse (relative to the local ship) or the right stick;
-// zero keeps the heading. A tap of fire or boost shorter than a tick still counts (action_pressed).
+// zero keeps the heading. A tap of fire or boost shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^dr.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = godot.axis_i8(move.x), godot.axis_i8(move.y)
 	aim := godot.input_value("aim")
-	length := math.sqrt(aim.x * aim.x + aim.y * aim.y)
-	if length > 1e-4 {
-		input.aim_x, input.aim_y = godot.axis_i8(aim.x / length), godot.axis_i8(aim.y / length)
-	}
-	if godot.action_held("fire") || godot.action_pressed("fire") do input.buttons |= dr.BUTTON_FIRE
-	if godot.action_held("boost") || godot.action_pressed("boost") do input.buttons |= dr.BUTTON_BOOST
+	input.aim = dmath.dir2(aim.xy)
+	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
 }
 
 // ---- the frame (session thread): metres -> pixels (the level's px_per_m)

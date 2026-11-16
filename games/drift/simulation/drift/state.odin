@@ -3,6 +3,7 @@
 // at compile time.
 package drift
 
+import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
@@ -103,17 +104,22 @@ ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
 
 // ---- input
 
-// One slot's input for one tick. Directions are in world space (the plane's x right, y down), −127..127.
+// One slot's input for one tick, in world space (the plane's x right, y down): the move as a stick (−127..127 per
+// axis, dmath.stick), the aim as a direction (dmath.Dir2; none: keep the heading), the buttons held.
 Input :: struct {
 	move_x:  i8,
 	move_y:  i8,
-	aim_x:   i8, // zero aim: keep the heading
-	aim_y:   i8,
-	buttons: u8,
+	aim:     dmath.Dir2,
+	buttons: Buttons,
+	_pad:    u8,
 }
 
-BUTTON_FIRE :: u8(1 << 0) // held: fires every FIRE_EVERY_S
-BUTTON_BOOST :: u8(1 << 1) // held: boosts whenever the cooldown allows
+Button :: enum u8 {
+	Fire, // held: fires every FIRE_EVERY_S
+	Boost, // held: boosts whenever the cooldown allows
+}
+
+Buttons :: bit_set[Button;u8]
 
 Inputs :: sim.Inputs(Input, PLAYERS)
 
@@ -199,7 +205,7 @@ State :: struct {
 	gems_dropped:   u32, // every other small rock drops a gem
 	_pad1:          u32, // the Rng's u64 is 8-byte aligned
 	rng:            sim.Rng, // the waves' stream
-	players:        sim.Players(Ship, PLAYERS),
+	players:        sim.Players(Ship, Input, PLAYERS),
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),
 	bullets:        sim.Table(Bullet, MAX_BULLETS),

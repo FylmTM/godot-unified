@@ -326,7 +326,7 @@ install :: proc(
 	if reason := sim.game_violation(game.name, game.tick_hz, game.commands, game.events); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
-	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS); reason != "" {
+	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input)); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
 	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
@@ -384,12 +384,9 @@ install :: proc(
 	}
 	api.sample_input = proc() {
 		glue := (^This_Glue)(g_glue)
-		input, held: Input
+		input: Input
 		glue.sample_input(&input)
-		input_sample.no_press = true
-		glue.sample_input(&held)
-		input_sample.no_press = false
-		input_sample_store(([^]u8)(&input)[:size_of(Input)], ([^]u8)(&held)[:size_of(Input)])
+		input_sample_store(([^]u8)(&input)[:size_of(Input)])
 	}
 	api.start = proc(request: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
@@ -410,7 +407,7 @@ install :: proc(
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
-		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS)
+		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input))
 		for &frame in driver.frames.slots {
 			frame.views = make([]View_Out, max_views)
 			frame.multis = make([]Multi_Out, max_multi)

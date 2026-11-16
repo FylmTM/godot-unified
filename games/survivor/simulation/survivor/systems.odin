@@ -144,8 +144,7 @@ sys_players :: proc(t: ^Tick) {
 		if character.dash_cooldown > 0 {
 			character.dash_cooldown -= 1
 		}
-		pressed := input.buttons & BUTTON_DASH != 0 && character.prev_buttons & BUTTON_DASH == 0
-		character.prev_buttons = input.buttons
+		pressed := .Dash in sim.buttons(t, player).pressed
 		if !character.alive {
 			if t.state.phase == .Over {
 				continue // nobody respawns until the reset
@@ -161,10 +160,9 @@ sys_players :: proc(t: ^Tick) {
 			character.dash_ticks = DASH_TICKS
 			character.dash_cooldown = DASH_COOLDOWN_TICKS
 		}
-		dx := f32(input.move_x) / 127
-		dz := f32(input.move_z) / 127
-		vx := dx * character.speed
-		vz := dz * character.speed
+		move := dmath.stick(input.move_x, input.move_z)
+		vx := move.x * character.speed
+		vz := move.y * character.speed
 		if character.dash_ticks > 0 {
 			vx = vx * 3
 			vz = vz * 3

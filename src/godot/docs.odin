@@ -122,6 +122,11 @@ LIBRARY_DOCS := []Doc_Class {
 			},
 			{"seed", "int", "The next session's seed."},
 			{"ticks", "int", "The next session's length in ticks (0: endless)."},
+			{
+				"game_input",
+				"bool",
+				"Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); input values still flow. When it is turned back on, an action still held counts only once it is released.",
+			},
 		},
 		signals        = {
 			{

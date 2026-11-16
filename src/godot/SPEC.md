@@ -31,7 +31,7 @@ GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
 	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
-	input.jump = godot.action_pressed("jump")
+	input.buttons = godot.buttons(g.Buttons, {.Jump = "jump", .Grab = "grab"})
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -71,23 +71,35 @@ extension loads (the editor opens and shows why), and starting a session fails w
 
 ### Input
 
-`sample_input` runs on the main thread every frame and fills the local player's `Input` itself, explicitly, through
-these helpers (main thread only; they read Godot's `Input` singleton) or the bindings:
+`sample_input` runs on the main thread **once a frame** and fills the local player's `Input` itself, explicitly,
+through these helpers (main thread only; they read Godot's `Input` singleton) or the bindings. The host keeps the
+newest sample, and every tick that samples the local player takes it: frames and ticks don't line up, so one sample
+can feed several ticks (a 64 Hz tick on a 60 Hz screen, a catch-up). So an `Input` is the controls' **state**, never
+a one-shot: a button is down or up (`sim.buttons` derives presses and releases from the tick before, so a repeated
+input never presses twice), and a one-shot value is a command.
 
-- `action_held(action) -> bool`, `action_strength(action) -> f32`,
-  `action_vector(negative_x, positive_x, negative_y, positive_y) -> [2]f32` (`Input.get_vector`: y is "back");
-- `action_pressed(action) -> bool`: true for every press since the session thread last took the input, so a tap
-  shorter than a tick is never lost (the host latches each press per action and clears it once a tick has taken a
-  sample holding it);
+- `buttons(Buttons, [Button]string) -> Buttons`: the Input's `buttons` bit_set, each button from its action through
+  `action_down` (`input.buttons = godot.buttons(Buttons, {.Jump = "jump", .Grab = "grab"})`);
+- `action_down(action) -> bool`: held now, or tapped since a tick last took the input (the host latches each tap
+  until a tick takes a sample holding it), so a tap shorter than a frame still reaches the sim;
+- `action_strength(action) -> f32`, `action_vector(negative_x, positive_x, negative_y, positive_y) -> [2]f32`
+  (`Input.get_vector`: y is "back"): analog input;
 - `input_value(name) -> [3]f32`: the latest value a script set with `UnifiedSession.set_input_value(name, value)`
   (a Vector3, a Vector2 with z = 0, or a float or bool in x): what only GDScript knows, such as a camera's look
   direction;
-- `axis_i8(x) -> i8`: −1..1 to −127..127.
+- `axis_i8(x) -> i8`: −1..1 to −127..127 (`dmath.axis_i8`); a stick decodes with `dmath.stick` (clamped to length
+  1), a direction is a `dmath.Dir2` / `Dir3` (`dmath.dir2(vec)`, 2 or 4 bytes; zero: none). An `Input` holds no bools
+  and no floats (`sim.wire_violation`).
 
-While a dev UI text field has the keyboard the action helpers return nothing pressed, and a press on the dev UI never
-reaches them (it releases the actions it triggered: `src/devui/SPEC.md`, Input). The host hands the newest
-sample to the session thread when a tick takes the local input; `scripted_input` replaces it in `--scripted` runs.
-`Input` is what the player intends: interpreting it against the state is the sim's job.
+**Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
+pause menu, a chat field: the shared pause menu turns it off while open): the action helpers read nothing and latched
+taps drop, `input_value` still flows. When it comes back, and when the window gets the focus back, an action still
+held counts only once it is released (the key that closed the menu, the click that focused the window never fire).
+An unfocused window still reads input: Godot releases what was held when it lost the focus, and tool runs drive
+windows that never take it. A press on the
+dev UI never reaches the actions (it releases the actions it triggered: `src/devui/SPEC.md`, Input).
+`scripted_input` replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
+against the state is the sim's job.
 
 ### Filling a frame
 
@@ -163,6 +175,7 @@ for what is performance-critical or shared across games.
 
 **`UnifiedSession`** (Node, one per app):
 
+- `game_input` (bool, default true): off, the action helpers read nothing (Input, above);
 - methods: `start_single()`, `host_online()`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave()`, `send_command(command: UnifiedCommand) -> bool`, `set_input_value(name: StringName, value)`,
   `set_player_name(name)`, `get_status()`,
@@ -385,7 +398,7 @@ resource first preloaded during a worker-thread load as leaked), the main scene 
 
 `tests/godot_driver` runs the driver with the toy game and no Godot: frames (the local player, the slots and the
 remembered players by key, the roster), previous poses from the host's memory and their estimates after a rollback
-or skipped ticks, one press delivered once, confirmed events, a tick's events held until its Frame is shown (a
+or skipped ticks, the input sample, confirmed events, a tick's events held until its Frame is shown (a
 `fill_frame` held to force the race), the result, the commands verified ticks carried, the session's recording
 replaying offline to the session's own checksum, transport failure, a game with problems installing nothing, the
 Dev_Link switch. `tests/godot` (the bindings suite) also checks that a press on a dev UI button leaves the action it
@@ -397,8 +410,8 @@ lingers), MultiMesh views (2D and 3D buffers, colors, custom data, a full rotati
 axis), session data on `Unified` (typed, `changed`, back to zero when the session ends), constants (strings, nested
 structs, enumerated arrays), an enum class, typed event classes in every state to the views and the signal, one `id` per event across its states, `event_key` routing (a named view, none, by subject)
 (`EventPlayerJoined` with the local player's key), the session's players by key (slot, presence, name, no
-platform, `roster_changed`), typed commands reaching the sim once with every field kind, the input sample and a
-latched press. Its `session_check.gd` checks
+platform, `roster_changed`), typed commands reaching the sim once with every field kind (a handle, a position in sim units, a nested struct),
+the input sample, a latched tap spawning once, game input off and a held action swallowed when it comes back. Its `session_check.gd` checks
 starting during a goodbye. Each game's `godot` suite: `validate`, `walk`, `tour`, `session` (a headless Godot
 session's checksums equal the offline binary's), `editor`, `bake`.
 

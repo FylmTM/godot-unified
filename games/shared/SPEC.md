@@ -50,7 +50,7 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   adds its sounds in `_add_sounds()` with `add(name, stream, min_gap)`, `tone()`, `arpeggio()`.
 
 UI (`ui/`): `UiTheme` (the theme and palette, installed by `Game`), `MainMenu` (`main_menu.tscn`, exports `title`
-and `tagline`), `pause_menu.tscn`, `connect_overlay.tscn` (shown by `Game` while connecting), `SettingsPanel`,
+and `tagline`), `pause_menu.tscn` (game input off while it is open: `UnifiedSession.game_input`), `connect_overlay.tscn` (shown by `Game` while connecting), `SettingsPanel`,
 `SessionPanel` and `ControlsPanel` (a HUD's top-right session panel and bottom-right controls list: the game passes
 rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). The sim's values come from the
 library directly: `Unified.data.hud` (the game's session data) and `Unified.constants`. Audio: `audio/bus_layout.tres`.

@@ -16,10 +16,13 @@ Four compile-time types and a descriptor, `sim.Game(State, Input, World, PLAYERS
   arrays, nested structs; no pointers, slices, maps or unions; no implicit padding: gaps are explicit `_pad`
   fields. Its memory is its canonical little-endian serialization: a snapshot is a copy, the checksum hashes its
   bytes. `create` checks it by an RTTI walk (`plain_violation`) and panics with the reason.
-- `Input` one player's **input** for one tick: plain data **without bools** (`wire_violation`; `create`, the
-  netcode client and the relay check it). It comes from another machine and is compared and logged as raw bytes,
-  and a bool's byte from there may hold neither 0 nor 1: use a `u8` of flags or a bit_set. The netcode may repeat or
-  substitute it, so a one-shot action is never an `Input` field: it is a command.
+- `Input` one player's **input** for one tick: plain data **without bools or floats** (`wire_violation`; `create`,
+  the netcode client and the relay check it). It comes from another machine and is compared and logged as raw
+  bytes: a bool's byte from there may hold neither 0 nor 1 (use a bit_set), a float may be a NaN (quantize: an i8
+  axis, `dmath.stick`, a `dmath.Dir2` / `Dir3` direction). The netcode may repeat or substitute it, so an `Input` is
+  the controls' state, never a one-shot: buttons are a bit_set field named `buttons` holding what is down, and
+  `buttons(t, player)` gives `down`, `pressed` (down now, up the tick before) and `released` against the slot's
+  input of the tick before (`input_before(t, player)`, kept in `Players`); a one-shot value is a command.
 - `World` everything outside the block (the Box3D world, level geometry, scratch). **The World holds only what
   `world_create` builds and what an `Extra` rolls back.** Anything else in it that affects `tick` diverges after a
   rollback, unhashed. Every game's suite runs `scenarios.rollback_every_tick` (restore 8 ticks back on every tick,
@@ -72,14 +75,16 @@ host-side only: never in State, Inputs, logs, snapshots or replays (`src/netcode
 ```odin
 Player :: struct {index: u16, id: u16}            // {} = nobody; index: its entry in members, id: the relay's member id
 Member :: struct {id: u16, slot: u8, _pad: u8, since: u32} // slot NO_SLOT when absent; since: last join or leave tick
-Players :: struct($T: typeid, $PLAYERS: int) {   // remembers 2 x PLAYERS people (MEMBERS_PER_SLOT)
+Players :: struct($T: typeid, $Input: typeid, $PLAYERS: int) { // remembers 2 x PLAYERS people (MEMBERS_PER_SLOT)
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player,                       // who holds each slot
-	_pad:    [PLAYERS % 2 * 4]u8,                   // keeps data 8-aligned
+	_pad:    [PLAYERS % 2 * 4]u8,
+	before:  [PLAYERS]Input,                        // each slot's input of the tick before (input_before)
+	_pad2:   [...]u8,                               // keeps data 8-aligned
 	data:    [PLAYERS * MEMBERS_PER_SLOT]T,         // the game's per-player struct
 }
 
-State :: struct {..., players: sim.Players(Player_Data, PLAYERS), ...}
+State :: struct {..., players: sim.Players(Player_Data, Input, PLAYERS), ...}
 Event :: union {sim.Event_Player_Joined, sim.Event_Player_Left, ...}
 
 tick :: proc(t: ^Tick) {
@@ -89,6 +94,7 @@ tick :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
+		if .Jump in sim.buttons(t, player).pressed {...}
 		for &raw in sim.commands(t, player) {...}
 	}
 }
@@ -105,6 +111,9 @@ tick :: proc(t: ^Tick) {
   if that person comes back they are new. A member who left on this tick is never forgotten on it (its handle in
   `t.player_changes.left` still names its data while the game cleans up); a join with no entry left stays absent
   (unreachable with 2 x PLAYERS entries: the leavers hold at most PLAYERS of them). A member already present in another slot moves (the newest connection).
+- **After `tick`** it keeps each held slot's input as `before` (zero for a slot nobody holds, and zeroed when a slot's
+  holder changes): it is state, so a rollback restores it, a snapshot and a replay carry it, and a predicted or
+  substituted input (a repeat of the tick before) never reads as a press.
 - It fills `t.player_changes`: `joined` (new members), `returned` and `left` (`[]Player`, slot order) and emits
   `Event_Player_Joined{player, slot, returning}` and `Event_Player_Left{player, slot}` before the game's events. Both
   must be listed in the game's `Event` union (`create` panics otherwise).
@@ -114,6 +123,8 @@ tick :: proc(t: ^Tick) {
 - API: `player_data(&players, player) -> ^T` (nil when nobody, stale or forgotten; valid while absent),
   `player_known`, `player_slot(&players, player) -> (slot, present)` (-1, false when absent),
   `player_in_slot(&players, slot) -> Player`, `player_present`; `input(t, player)` (zero when absent),
+  `input_before(t, player)` (the tick before's, in the slot they hold now; zero on their first tick there),
+  `buttons(t, player) -> Button_State` (`down`, `pressed`, `released` of the Input's `buttons` bit_set),
   `commands(t, player)`; `iterate_present` (slot order) and `iterate_known` (member order) with `next`;
   `player_key(player) -> u64` (`id << 16 | index`, 0 for nobody: views and GDScript name a player by it) and
   `player_of_key`. Outside `tick` (drivers, tools): `slot_player(simulation, slot)`, `players_of(simulation, state)`.

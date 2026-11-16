@@ -1,12 +1,17 @@
-// Input: the game's Glue.sample_input fills the local player's Input on the main thread every frame, through the
+// Input: the game's Glue.sample_input fills the local player's Input on the main thread once a frame, through the
 // action helpers below (they read Godot's Input singleton); the host keeps the newest sample and the session
-// thread takes it when a tick samples the local player. A press is latched until a tick has taken a sample holding
-// it, so a tap shorter than a tick is never lost; a second tick taking the same sample gets it without its presses
-// (sample_input runs twice: with presses, and with action_pressed false), so a press reaches the sim once.
+// thread takes it for every tick that samples the local player (several ticks may take one sample). Buttons are
+// state: `action_down` is held, or tapped since a tick last took the input (latched, so a tap shorter than a
+// frame is never lost); the sim derives presses from the tick before (sim.buttons). Game input is off while a dev
+// UI text field has the keyboard and while UnifiedSession.game_input is false; when it comes back, and when the
+// window gets the focus back, an action still held counts only once it is released (the key that closed a menu, the
+// click that focused the window never fire). An unfocused window still reads input (Godot releases what was held
+// when it lost the focus; tool runs drive windows that never take it).
 package godot
 
 import "core:fmt"
 import "core:sync"
+import "unified:dmath"
 import gd "unified:gdext"
 
 MAX_INPUT_BYTES :: 256
@@ -15,59 +20,70 @@ MAX_INPUT_BYTES :: 256
 input_sample: struct {
 	mu:       sync.Mutex, // guards bytes and seq
 	bytes:    [MAX_INPUT_BYTES]u8, // the newest sample
-	held:     [MAX_INPUT_BYTES]u8, // the same, without presses
 	sampling: u64, // the sample the main thread is making (main thread only)
 	seq:      u64, // the newest stored sample's number (guarded)
 	taken:    u64, // the newest sample a tick took (atomic)
-	blocked:  bool, // a dev UI text field has the keyboard: the helpers read nothing
-	no_press: bool, // sampling the press-free copy: action_pressed is false
+	blocked:  bool, // game input is off (the dev UI's keyboard, game_input false): the actions read nothing
+	off:      bool, // UnifiedSession.game_input is false (main thread)
+	focused:  bool, // the window had the focus last frame
 	latches:  [dynamic]Latch,
 	values:   map[string][3]f32, // set_input_value (main thread only)
 }
 
 @(private)
 Latch :: struct {
-	action:  string,
-	name:    ^gd.StringName,
-	latched: bool,
-	seq:     u64, // the sample it was latched in
+	action:    string,
+	name:      ^gd.StringName,
+	latched:   bool, // tapped since a tick last took the input
+	seq:       u64, // the sample it was latched in
+	swallowed: bool, // held when game input came back: not down until released
 }
 
-// Main thread, every frame: the game fills a fresh Input (sample_input) and the host keeps it.
+// Main thread, every frame, before sample_input: latches a tick has taken are cleared; game input is on unless the
+// dev UI has the keyboard or the game turned it off. Turning off drops the latches; coming back (or the window
+// getting the focus back) swallows what is still held.
 @(private)
-input_sample_begin :: proc(blocked: bool) {
+input_sample_begin :: proc(dev_keyboard: bool) {
 	taken := sync.atomic_load(&input_sample.taken)
 	for &latch in input_sample.latches do if latch.latched && latch.seq <= taken do latch.latched = false
-	input_sample.blocked = blocked
+	focused := gd.DisplayServer_window_is_focused(gd.DisplayServer_singleton())
+	blocked := dev_keyboard || input_sample.off
+	back := (input_sample.blocked && !blocked) || (focused && !input_sample.focused)
+	godot_input := gd.Input_singleton()
+	for &latch in input_sample.latches {
+		held := gd.Input_is_action_pressed(godot_input, latch.name, false)
+		if blocked {
+			latch.latched = false
+		} else if back && held {
+			latch.swallowed = true
+		}
+		if !held do latch.swallowed = false
+	}
+	input_sample.blocked, input_sample.focused = blocked, focused
 	input_sample.sampling += 1
 }
 
 @(private)
-input_sample_store :: proc(bytes, held: []u8) {
+input_sample_store :: proc(bytes: []u8) {
 	sync.guard(&input_sample.mu)
 	copy(input_sample.bytes[:], bytes)
-	copy(input_sample.held[:], held)
 	input_sample.seq = input_sample.sampling
 }
 
-// Session thread: the newest sample's bytes, marking it taken (its latched presses are then cleared); a sample
-// already taken comes without its presses.
+// Session thread: the newest sample's bytes (every tick that samples gets it, also when several take one), marking
+// it taken (its latches are then cleared).
 @(private)
 input_sample_take :: proc(out: []u8) {
 	sync.guard(&input_sample.mu)
-	if input_sample.seq > sync.atomic_load(&input_sample.taken) {
-		copy(out, input_sample.bytes[:len(out)])
-		sync.atomic_store(&input_sample.taken, input_sample.seq)
-	} else {
-		copy(out, input_sample.held[:len(out)])
-	}
+	copy(out, input_sample.bytes[:len(out)])
+	sync.atomic_store(&input_sample.taken, input_sample.seq)
 }
 
 // A new session: nothing sampled for it yet.
 @(private)
 input_sample_reset :: proc() {
 	sync.guard(&input_sample.mu)
-	input_sample.bytes, input_sample.held = {}, {}
+	input_sample.bytes = {}
 	sync.atomic_store(&input_sample.taken, input_sample.seq)
 	for &latch in input_sample.latches do latch.latched = false
 }
@@ -75,12 +91,6 @@ input_sample_reset :: proc() {
 @(private)
 action_name :: proc(action: string) -> ^gd.StringName {
 	return gd.sn(action)
-}
-
-// Main thread (sample_input): the action is held now.
-action_held :: proc(action: string) -> bool {
-	if input_sample.blocked do return false
-	return gd.Input_is_action_pressed(gd.Input_singleton(), action_name(action), false)
 }
 
 // Main thread (sample_input): the action's strength now, 0..1 (an analog trigger or stick direction).
@@ -103,20 +113,39 @@ action_vector :: proc(negative_x, positive_x, negative_y, positive_y: string) ->
 	return {vector.x, vector.y}
 }
 
-// Main thread (sample_input): true for every press of the action since a tick last took the input, so a tap
-// shorter than a tick still reaches the sim once.
-action_pressed :: proc(action: string) -> bool {
-	if input_sample.no_press do return false
+// Main thread (sample_input): a button's state: held now, or tapped since a tick last took the input (so a tap
+// shorter than a frame still reaches the sim). False while game input is off, and for an action held when it came
+// back until it is released. The sim sees a press as the button down this tick and not the tick before
+// (sim.input_before).
+action_down :: proc(action: string) -> bool {
 	latch: ^Latch
 	for &known in input_sample.latches do if known.action == action do latch = &known
 	if latch == nil {
 		append(&input_sample.latches, Latch{action = fmt.aprint(action), name = action_name(action)})
 		latch = &input_sample.latches[len(input_sample.latches) - 1]
 	}
-	if !input_sample.blocked && gd.Input_is_action_just_pressed(gd.Input_singleton(), latch.name, false) {
+	if input_sample.blocked || latch.swallowed do return false
+	godot_input := gd.Input_singleton()
+	if gd.Input_is_action_just_pressed(godot_input, latch.name, false) {
 		latch.latched, latch.seq = true, input_sample.sampling
 	}
-	return latch.latched
+	return latch.latched || gd.Input_is_action_pressed(godot_input, latch.name, false)
+}
+
+// Main thread (sample_input): an Input's `buttons` bit_set, each button from its action (action_down; "": never
+// down). The sim reads it with sim.buttons (down, pressed, released).
+//
+//   input.buttons = godot.buttons(Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
+buttons :: proc($Set: typeid/bit_set[$E;$U], actions: [E]string) -> (set: Set) {
+	for action, button in actions do if action != "" && action_down(action) do set += {button}
+	return
+}
+
+// UnifiedSession.game_input (main thread): off, the action helpers read nothing (a pause menu, a chat field);
+// input_value still flows.
+@(private)
+set_game_input :: proc(on: bool) {
+	input_sample.off = !on
 }
 
 // Main thread (sample_input): the latest value a script set with UnifiedSession.set_input_value(name, value): a
@@ -125,10 +154,8 @@ input_value :: proc(name: string) -> [3]f32 {
 	return input_sample.values[name]
 }
 
-// −1..1 to an axis of −127..127.
-axis_i8 :: proc(x: f32) -> i8 {
-	return i8(clamp(x, -1, 1) * 127)
-}
+// −1..1 to an axis of −127..127 (dmath.axis decodes it).
+axis_i8 :: dmath.axis_i8
 
 // UnifiedSession.set_input_value (main thread).
 @(private)

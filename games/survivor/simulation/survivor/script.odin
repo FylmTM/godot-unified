@@ -28,7 +28,7 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 		input.move_z = i8(dmath.DIR8_S[direction] * 127)
 	}
 	if roll % 13 == 0 {
-		input.buttons |= BUTTON_DASH
+		input.buttons += {.Dash}
 	}
 	return
 }

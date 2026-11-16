@@ -82,7 +82,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 	input.move_z = i8(direction.y * 127)
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
 	if nearest2 < 1.6 * 1.6 && character.dash_cooldown == 0 && tick % 2 == 0 {
-		input.buttons |= BUTTON_DASH
+		input.buttons += {.Dash}
 	}
 	return
 }

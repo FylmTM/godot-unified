@@ -239,7 +239,7 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 	state := &run.simulation.state
 	first := sim.slot_player(run.simulation, 0)
 	fire: [dr.PLAYERS]dr.Input
-	fire[0].buttons = dr.BUTTON_FIRE
+	fire[0].buttons = {.Fire}
 	step(&run, fire)
 	bullet: sim.Handle(dr.Bullet)
 	bullets := sim.iterate(&state.bullets)

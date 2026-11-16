@@ -32,9 +32,9 @@ pixels, with `px_per_m` from the level (32).
 
 ## Input and commands
 
-- Per tick, per slot: `move_x, move_y` and `aim_x, aim_y`: i8 −127..127 in world space. Aim is a direction; zero keeps
-  the heading.
-- `buttons`: bit 0 = fire (held), bit 1 = boost (held; it fires when ready).
+- Per tick, per slot: `move_x, move_y` (a stick, `dmath.stick`) and `aim` (a `dmath.Dir2`; none keeps the heading),
+  in world space.
+- `buttons: bit_set[Button]`: `Fire` (held), `Boost` (held; it fires when ready).
 - Commands (`Cmd_Start`, `Cmd_Restart`, both empty): `start` (lobby → match, anyone may send it) and `restart`
   (over → lobby at once).
 

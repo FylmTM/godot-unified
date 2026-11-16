@@ -8,6 +8,7 @@ import "base:runtime"
 import "core:math"
 import "core:reflect"
 import "unified:b3"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -84,7 +85,7 @@ event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: g
 // ---- input (main thread): move relative to the camera, aim = the camera's look
 
 // The camera rig sets its look direction and its flat right every frame (UnifiedSession.set_input_value: &"look",
-// &"right"); movement is relative to them. A jump or grab tap shorter than a tick still counts (action_pressed).
+// &"right"); movement is relative to them. A jump or grab tap shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^fs.Input) {
 	look := godot.input_value("look")
 	right := godot.input_value("right")
@@ -94,15 +95,10 @@ sample_input :: proc(input: ^fs.Input) {
 	flat_right := normalize2({right.x, right.z})
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	look_length := length3(look)
 	input.move_x = godot.axis_i8(flat_right.x * move.x - forward.x * move.y)
 	input.move_z = godot.axis_i8(flat_right.y * move.x - forward.y * move.y)
-	input.aim_x = godot.axis_i8(look.x / look_length)
-	input.aim_y = godot.axis_i8(look.y / look_length)
-	input.aim_z = godot.axis_i8(look.z / look_length)
-	if godot.action_held("jump") || godot.action_pressed("jump") do input.buttons |= fs.BUTTON_JUMP
-	if godot.action_held("grab") || godot.action_pressed("grab") do input.buttons |= fs.BUTTON_GRAB
-	if godot.action_held("throw") do input.buttons |= fs.BUTTON_THROW
+	input.aim = dmath.dir3(look)
+	input.buttons = godot.buttons(fs.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
 }
 
 normalize2 :: proc(v: [2]f32) -> [2]f32 {

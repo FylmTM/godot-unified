@@ -190,6 +190,7 @@ func _initialize() -> void:
 		and t3.origin.is_equal_approx(POS_3D) and (got_rot.is_equal_approx(want_rot) or got_rot.is_equal_approx(-want_rot)) \
 		and t3.basis.get_scale().is_equal_approx(Vector3(1, 2, 1)) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
 		[multi3d.visible_instance_count, t3, want_rot])
+	await check_game_input(session, toy)
 	session.set_input_value(&"drift", 3.0)
 	var y0 := toy.y
 	for i in 20:
@@ -278,6 +279,32 @@ func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> vo
 	var on_plain: Array = (plain.get("events") as Array) if plain != null else []
 	check("event_key View: Expired reaches the view it names, in both states",
 		on_plain.size() >= 2 and on_plain.all(func(e: Array) -> bool: return e[0] is EventExpired), on_plain)
+
+
+# Game input off (UnifiedSession.game_input): a press doesn't reach the sim; an action still held when it comes back
+# counts only once released; a new press then spawns.
+func check_game_input(session: UnifiedSession, toy: DataToy) -> void:
+	var spawned := toy.spawned
+	session.game_input = false
+	check("game_input reads back", not session.game_input)
+	press(&"ui_accept", true)
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("game input off: a press doesn't reach the sim", toy.spawned == spawned, toy.spawned)
+	session.game_input = true
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("an action held when game input came back is swallowed", toy.spawned == spawned, toy.spawned)
+	press(&"ui_accept", false)
+	await create_timer(0.05).timeout
+	press(&"ui_accept", true)
+	await create_timer(0.02).timeout
+	press(&"ui_accept", false)
+	for i in 20:
+		await create_timer(0.02).timeout
+		if toy.spawned > spawned:
+			break
+	check("released, then pressed again: it spawns", toy.spawned == spawned + 1, toy.spawned)
 
 
 func check_commands(session: UnifiedSession, toy: DataToy) -> void:
