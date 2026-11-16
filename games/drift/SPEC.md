@@ -27,7 +27,7 @@ pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is b
   order. The marker kinds are `spawn` (×4, one per slot), `station` (×1), `gate` (pairs: `pair` = the other
   gate), and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
 - The station: a kinematic hexagon (radius 2.5 m) at the station marker, turning at 0.25 rad/s, with 100 HP.
-- Ships: dynamic circles (r 0.5 m, density 1, linear damping 0.6) locked to the plane, created when a player
+- Ships: dynamic circles (r 0.5 m, density 4, linear damping 1.4) locked to the plane, created when a player
   joins or comes back, at the `spawn` marker of the slot they hold.
 
 ## Input and commands
@@ -44,9 +44,9 @@ pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is b
    in the State's `sim.Players` (`players`, remembering 2 × PLAYERS people). A player who joins (a
    zeroed ship) or comes back (their ship as they left it: shots, gems, cooldowns) gets a body at their slot's spawn
    marker (`spawned`). One who leaves loses the body, and keeps the rest until the session forgets them.
-2. Ships: thrust force = `move × 40 N`. Turning sets the angular velocity toward the aim:
-   `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: an impulse of
-   `heading × 6 N·s`, with a 1.5 s cooldown.
+2. Ships: thrust = `stick × 14 m/s²` (an impulse of mass × that × dt; terminal speed 14 / 1.4 = 10 m/s). Turning sets the angular velocity toward the aim:
+   `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: `heading × 8 m/s`
+   added (an impulse of mass × that), with a 1.5 s cooldown.
 3. Fire: every 0.125 s while held, a bullet from the nose with velocity `heading × 18 m/s + ship velocity`, which
    lives 0.875 s. Bullets are sim-only (not bodies). Each tick a ray from the bullet's position to the next
    position (`physics.ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
