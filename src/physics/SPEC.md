@@ -199,4 +199,7 @@ tick 0 (arbitrary split shapes included).
   and jumping, pushed by a heavy box) and `GOLDEN_FIELD` (the top-down game), hashed every 128 ticks; the values are
   pinned in the tests and must match on every platform. An intended change updates them in the same commit.
 - Workers: both sync-tests and both golden traces run on 1 and on 4 workers and must give the same checksums.
-- Speed: the games' benchmarks (`uni bench`: step plus a re-sim of the prediction cap) cover physics as games use it.
+- Speed: the games' benchmarks (`uni bench`: step plus a re-sim of the prediction cap, and each tick's save size)
+  cover physics as games use it; `uni bench`'s `physics` row (`tests/physics/bench`, #260) times Box3D apart from any
+  game on a fixed pile of 512 awake boxes: step, save, restore, deep hash, a batch of 64 rays, and the arena
+  snapshot's size. A Box3D upgrade compares it (the `upgrade-dependency` skill).

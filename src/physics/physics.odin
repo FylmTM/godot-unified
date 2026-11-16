@@ -234,6 +234,9 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 		},
 		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
 		// saved first and put back on failure. Loads are rare (late join).
+		size = proc(data: rawptr, slot: int) -> int {
+			return (^World)(data).ring[slot].size
+		},
 		load = proc(data: rawptr, bytes: []u8) -> bool {
 			world := (^World)(data)
 			b3.world_save_snapshot(world.id, &world.scratch)

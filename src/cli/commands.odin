@@ -110,7 +110,7 @@ public_commands :: proc() -> []Command {
 		{
 			name    = "bench",
 			usage   = "[game...]",
-			summary = "each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk",
+			summary = "each game's standard benchmark, alone, on a release build, the sim's sparse-table walk and (this repo) the physics row",
 			budget  = 10,
 			options = option_types(Bench_Opts),
 			run     = cmd_bench,

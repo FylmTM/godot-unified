@@ -266,7 +266,9 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
   the block, then each Extra's bytes. Peers compare it on finalized ticks.
 - **Extra** (`save/restore(slot)` with `slot = tick % ring_size`, `hash(state, tick, out)`: on multiples of
   `DEEP_CHECKSUM_EVERY` (16), the ticks the netcode compares, its whole internal state, otherwise a cheaper
-  summary; `image(slot)`, `load(bytes)`): rollback state outside the block. The harness knows nothing about Box3D
+  summary; `image(slot)`, `load(bytes)`, optional `size(slot)`: the bytes a slot's save holds): rollback state outside
+  the block. `save_size(simulation)`: what each tick's save copies (the block and the extras' saves), against
+  `snapshot_size`'s portable image (`uni bench` prints both). The harness knows nothing about Box3D
   (`src/physics/SPEC.md`).
 
 ## Files

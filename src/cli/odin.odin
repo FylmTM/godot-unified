@@ -98,6 +98,7 @@ ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
 	}
 	if stale(build) {
 		odin_build(build, aprintf("building %s's headless binary", headless.name))
+		cold(aprintf("%s's headless binary", headless.name))
 	}
 	return build.out
 }

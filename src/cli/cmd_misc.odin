@@ -51,6 +51,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		window:             int,
 		step_plus_resim_us: f64,
 		snapshot_bytes:     int,
+		save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
 		within_target:      bool,
 		mismatches:         int,
 	}
@@ -74,6 +75,19 @@ cmd_bench :: proc(args: []string) -> Result {
 		sparse_p99_us:  f64,
 		dense_mean_us:  f64,
 	}
+	// Box3D through unified:physics on a fixed scene (tests/physics/bench, this repo only): reported, no target. What
+	// to compare on a Box3D upgrade (the upgrade-dependency skill).
+	Physics_Line :: struct {
+		bodies:          int,
+		step_mean_us:    f64,
+		step_p99_us:     f64,
+		save_mean_us:    f64,
+		restore_mean_us: f64,
+		hash_deep_us:    f64,
+		rays:            int,
+		rays_mean_us:    f64,
+		snapshot_bytes:  int,
+	}
 	Summary :: struct {
 		platform:   string,
 		commit:     string,
@@ -81,6 +95,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		benchmarks: map[string]Bench_Line,
 		net:        map[string]Net_Line,
 		table:      Table_Line,
+		physics:    Physics_Line,
 	}
 	summary := new(Summary)
 	summary^ = {
@@ -121,13 +136,14 @@ cmd_bench :: proc(args: []string) -> Result {
 			checksum_deep_us = stat(obj, "checksum_deep_us", "mean"),
 			window           = json_int(obj["window"]),
 			snapshot_bytes   = json_int(obj["snapshot_bytes"]),
+			save_bytes       = json_int(obj["save_bytes"]),
 			mismatches       = json_int(obj["mismatches"]),
 		}
 		bench.step_plus_resim_us = bench.step_mean_us + bench.resim_mean_us
 		bench.within_target = bench.step_plus_resim_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us, restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
+			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
 			game.name,
 			bench.step_mean_us,
 			bench.window,
@@ -137,6 +153,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.within_target ? "yes" : "NO",
 			bench.resim_final_us,
 			bench.save_mean_us,
+			bench.save_bytes,
 			bench.restore_mean_us,
 			bench.checksum_us,
 			bench.checksum_deep_us,
@@ -227,6 +244,51 @@ cmd_bench :: proc(args: []string) -> Result {
 			append(&failed, "table-bench")
 		}
 	}
+	if is_unified_repo() {
+		physics_bench := Headless{"physics_bench", join(state.project.root, "tests", "physics", "bench"), true}
+		result := run_proc({
+			cmd     = strs(ensure_headless(physics_bench, .release)),
+			capture = true,
+			quiet   = true,
+			timeout = 120 * time.Second,
+			log_to  = join(work, "physics"),
+		})
+		obj, ok := last_json_object(result.stdout)
+		if result.ok && ok {
+			section :: proc(object: json.Object, key, field: string) -> f64 {
+				inner, _ := object[key].(json.Object)
+				return json_f64(inner[field])
+			}
+			summary.physics = {
+				bodies          = json_int(obj["bodies"]),
+				step_mean_us    = section(obj, "step_us", "mean"),
+				step_p99_us     = section(obj, "step_us", "p99"),
+				save_mean_us    = section(obj, "save_us", "mean"),
+				restore_mean_us = section(obj, "restore_us", "mean"),
+				hash_deep_us    = section(obj, "hash_deep_us", "mean"),
+				rays            = json_int(obj["rays"]),
+				rays_mean_us    = section(obj, "rays_us", "mean"),
+				snapshot_bytes  = json_int(obj["snapshot_bytes"]),
+			}
+			line := summary.physics
+			log(
+				"%-12s %d awake boxes: step %.0f us (p99 %.0f), save %.0f us (%d bytes), restore %.0f us, deep hash %.0f us, %d rays %.0f us",
+				"physics",
+				line.bodies,
+				line.step_mean_us,
+				line.step_p99_us,
+				line.save_mean_us,
+				line.snapshot_bytes,
+				line.restore_mean_us,
+				line.hash_deep_us,
+				line.rays,
+				line.rays_mean_us,
+			)
+		} else {
+			log("uni: physics bench failed (exit %d):\n%s", result.exit_code, tail(result.stderr, 2000))
+			append(&failed, "physics")
+		}
+	}
 	if data, err := json.marshal(summary^, {pretty = true}); err == nil {
 		write_file(join(state.project.out, "bench.json"), data)
 	}
@@ -239,7 +301,11 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	return {
 		ok      = true,
-		summary = aprintf("bench: %d game(s), sim and netcode benchmarks, reported in .out/bench.json", len(games)),
+		summary = aprintf(
+			"bench: %d game(s), sim, netcode%s benchmarks, reported in .out/bench.json",
+			len(games),
+			is_unified_repo() ? " and physics" : "",
+		),
 		data    = summary^,
 	}
 }

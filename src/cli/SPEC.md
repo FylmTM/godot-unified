@@ -126,7 +126,7 @@ Public (`unified:cli`, every project):
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first; a script error ends the run at once (below), and a run still going after 30 minutes (`TOOL_TIMEOUT`) is killed, the Godot it started included |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; the same player, by its EOS account or, with `--lan`, its LAN token). `--lan` uses a free port (parallel runs never meet). A game without a coop tool script gets unified's default (`--lan` only): a headless host (`--host-port`) and joiner (`--join`) with scripted input for 600 ticks, their checksums compared |
 | `bake [game] [--check]` | write the view index (`unified_index.tres`: every scene with a UnifiedView marker, by kind; src/godot/SPEC.md) and bake `.level` files from their scenes (`--check`: fail if one is stale); builds the game library first. Every build of a game's library (so every command that runs the game) refreshes its view index too, except in CI |
-| `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
+| `bench [game...]` | each game's standard benchmark, alone, on a release build, the sim's sparse-table walk and (this repo) the physics row (`.out/bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
 | `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
 | `init games/<name> --in-repo` | in this repo: the template game at `games/<name>` (its files only), its tests imported in `tests/tests.odin` |
@@ -223,11 +223,14 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap, 14 ticks at 64 Hz), ticks), which its `bench` mode runs
   with no arguments; the target, a forward step plus a re-sim at the prediction cap within 6 ms, is unified's (the
-  same re-sim of final ticks, saving only the last, and a tick's checksum, deep and not, are reported beside it).
+  same re-sim of final ticks, saving only the last, a tick's checksum, deep and not, and the bytes each tick's save
+  copies beside the portable snapshot's are reported beside it).
   `bench` also runs each game's `net-bench` (a session of 4 clients under `bad` on the virtual clock: time,
   rollbacks, stalls, replaced inputs, bytes per second; `net` in `.out/bench.json`, no target) and the headless
   `table-bench` mode once (any game's
-  binary): a walk of a sparse 65,536-slot table against a dense one (`table`), without a target.
+  binary): a walk of a sparse 65,536-slot table against a dense one (`table`), without a target. In this repo it
+  also builds and runs `tests/physics/bench` (`physics`, no target): Box3D on a fixed scene apart from any game,
+  what a Box3D upgrade compares. Building a stale binary makes the run cold.
 
 ## The template game
 

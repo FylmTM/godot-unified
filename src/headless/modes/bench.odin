@@ -40,6 +40,7 @@ Bench_Result :: struct {
 	checksum_deep, checksum:    Stat,
 	snapshot_bytes:             int,
 	block_bytes:                int,
+	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
 	entities_mean:              f64,
 	mismatches:                 int,
 }
@@ -153,6 +154,7 @@ run_bench :: proc(
 	result.checksum = stat_of(checksum_us[:checksums])
 	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
 	result.block_bytes = size_of(State)
+	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	result.entities_mean = count_sum / f64(max(tick_count, 1))
 	return
