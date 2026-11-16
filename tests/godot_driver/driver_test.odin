@@ -69,10 +69,7 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 		}
 		sync.atomic_add(&seen.extracted, 1)
 	},
-	// event positions in view units: ×10, lifted by 1 (a game's metres or cells to pixels)
-	event_pos = proc(position: sim.Position, world: ^toy.World) -> sim.Position {
-		return {position.x * 10, position.y * 10, position.z * 10 + 1}
-	},
+	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
 }
 
 @(private = "file")

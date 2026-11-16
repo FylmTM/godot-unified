@@ -27,7 +27,9 @@ Decided with the developer 2026-11-10 (2D levels in unified:level); the mapping 
 
 A level whose root is a `Node2D` is a 2D level. The sim's plane is XY with Godot's 2D axes (x right, y down, z into
 the screen) at z = 0; a rotation is about +Z (positive turns +x toward +y, as `Node2D.rotation`). Pixels are divided
-by the root's metadata `unified_px_per_m` (default 64); shapes are extruded to ±`unified_depth_m` / 2 (default 1 m).
+by the game's `Glue.view_scale` (`Unified.view_scale`: the views draw at the same scale; a fixture baked without a
+game sets the root's metadata `unified_px_per_m`, and a level whose metadata disagrees with the game's is an error);
+shapes are extruded to ±`unified_depth_m` / 2 (default 1 m).
 
 | Godot | File |
 |---|---|
@@ -43,8 +45,7 @@ by the root's metadata `unified_px_per_m` (default 64); shapes are extruded to �
 Export errors, naming the node: segment, world boundary, concave and separation ray shapes, a polygon in segments
 mode, one-way collision, scene tiles, a 3D body or marker in a 2D level (and the reverse).
 
-The file records `px_per_m` (`Level.px_per_m`, 0 for a 3D level) so the game's view maps metres back to pixels with
-the level's own number. `physics.create_static` needs nothing new: the bodies are ordinary static bodies at z = 0.
+The file records `px_per_m` (`Level.px_per_m`, 0 for a 3D level), the scale it was baked at. `physics.create_static` needs nothing new: the bodies are ordinary static bodies at z = 0.
 
 ## File (`UNLV`, little-endian, through `unified:wire`)
 

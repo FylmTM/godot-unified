@@ -489,7 +489,7 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	spawned, is_spawned := sim.event_value(&events[2], toy.Event).(toy.Event_Spawned)
 	testing.expect(t, is_spawned && spawned.player == joined.player)
 	thing := sim.get(&simulation.state.things, spawned.thing)
-	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, 0, thing.pos.y})
+	testing.expect(t, thing != nil && spawned.position == {thing.pos.x, thing.pos.y, 0})
 	inputs = {}
 	inputs.present = {0}
 	inputs.input[0].buttons = {.Spawn}

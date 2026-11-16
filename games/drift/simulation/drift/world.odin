@@ -31,7 +31,6 @@ World :: struct {
 	phys:          ^physics.World,
 	extras:        [1]sim.Extra,
 	level_data:    level.Level,
-	px_per_m:      f32, // the level's (the view's units)
 	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
 	gates:         [MAX_GATES]Gate_Def,
@@ -64,7 +63,6 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	loaded, ok := level.load(content)
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
 	world.level_data = loaded
-	world.px_per_m = loaded.px_per_m
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
 	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)

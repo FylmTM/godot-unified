@@ -182,6 +182,11 @@ LIBRARY_DOCS := []Doc_Class {
 			{"constants", "UnifiedConstants", "The game's constants."},
 			{"session", "UnifiedSession", "The active session node (null: none)."},
 			{"tick_hz", "int", "The sim's ticks per second."},
+			{
+				"view_scale",
+				"float",
+				"View units per sim unit (the game's Glue.view_scale; 1 unless set): positions arrive scaled already; multiply a sim size (a radius from the constants) by it.",
+			},
 		},
 	},
 	{

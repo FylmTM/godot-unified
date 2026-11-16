@@ -69,22 +69,16 @@ Gate_View :: struct {
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
 GLUE := godot.Glue(dr.State, dr.Input, dr.World, View, MultiView) {
-	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	constants = CONSTANTS,
-	smoothing = {tau_s = 0.1, teleport_dist = 64}, // pixels: a warp snaps
-	is_2d = true,
-	scripted_input = dr.scripted_input,
+	sample_input      = sample_input,
+	fill_frame        = fill_frame,
+	data              = Data,
+	constants         = CONSTANTS,
+	is_2d             = true,
+	view_scale        = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
+	scripted_input    = dr.scripted_input,
 	scripted_commands = dr.scripted_commands,
-	event_key = event_key,
-	event_pos = event_pos,
-	level = "res://game/levels/arena.level",
-}
-
-// Events in pixels too, like the views: the level's scale (World.px_per_m).
-event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
-	return {position.x * world.px_per_m, position.y * world.px_per_m, 0}
+	event_key         = event_key,
+	level             = "res://game/levels/arena.level",
 }
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
@@ -115,15 +109,14 @@ sample_input :: proc(input: ^dr.Input) {
 	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
 }
 
-// ---- the frame (session thread): metres -> pixels (the level's px_per_m)
+// ---- the frame (session thread): everything in metres (the host maps positions to pixels: Glue.view_scale)
 
-// A point on the plane (metres) in pixels.
-pixels :: proc(point: [2]f32, px_per_m: f32) -> [3]f32 {
-	return {point.x * px_per_m, point.y * px_per_m, 0}
+// A point on the plane.
+plane :: #force_inline proc(point: [2]f32) -> [3]f32 {
+	return {point.x, point.y, 0}
 }
 
 fill_frame :: proc(f: ^Frame) {
-	px_per_m := f.world.px_per_m
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
 		pos, rotation := physics.pose_2d(f.world.phys, ship.body)
@@ -131,7 +124,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = ship_key(player),
 			kind   = .Ship,
 			player = player,
-			pos    = pixels(pos, px_per_m),
+			pos    = plane(pos),
 			rot    = physics.quat_2d(rotation),
 		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
@@ -139,7 +132,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos, rotation := physics.pose_2d(f.world.phys, f.state.station)
 		godot.push_view(f, {
 			kind = .Station,
-			pos  = pixels(pos, px_per_m),
+			pos  = plane(pos),
 			rot  = physics.quat_2d(rotation),
 		}, Station_View{hp_frac = f32(f.state.station_hp) / f32(dr.STATION_HP)})
 	}
@@ -147,19 +140,19 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, {
 			key  = view.Key(gate),
 			kind = .Gate,
-			pos  = pixels(f.world.gates[gate].pos, px_per_m),
+			pos  = plane(f.world.gates[gate].pos),
 		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)
 	for rock, handle in sim.next(&rocks) {
 		pos, rotation := physics.pose_2d(f.world.phys, rock.body)
-		radius := dr.ROCK_RADIUS[rock.size] * px_per_m
+		radius := dr.ROCK_RADIUS[rock.size] // the mesh is a radius-1 m rock
 		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
-			pos    = pixels(pos, px_per_m),
+			pos    = plane(pos),
 			rot    = physics.quat_2d(rotation),
 			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
@@ -173,7 +166,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
-			pos    = pixels(bullet.pos, px_per_m),
+			pos    = plane(bullet.pos),
 			rot    = physics.quat_2d(bullet.vel),
 			scale  = {1.6, 0.6, 1},
 			custom = {f32(owner_slot), 0, 0, 0},
@@ -188,7 +181,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
-			pos    = pixels(gem.pos, px_per_m),
+			pos    = plane(gem.pos),
 			rot    = view.quat_angle2d(age * 2),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
@@ -264,7 +257,7 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 
 // ---- the constants for the scripts (Unified.constants), from the sim's own definitions
 
-// Sizes in metres (the views draw them at the level's scale, Game.px_per_m).
+// Sizes in metres (the views draw them at Unified.view_scale).
 Data_Constants :: struct {
 	ship_radius:    f32,
 	station_radius: f32,

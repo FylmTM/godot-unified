@@ -1,9 +1,9 @@
 // Sim events on the Godot side (src/godot/SPEC.md "Events"): the game's event union, read by RTTI once at install.
 // The session thread feeds every simulated tick's events to the view's tracker (each identified by its tick, kind,
-// subject and index among equal ones), converts their sim.Position fields into view units (Glue.event_pos) and
-// posts them as kind + bytes; the main thread makes each an object of its class (sim_classes.odin) and hands it to
-// the subject's view and to the `sim_event` signal, as Emitted, Confirmed or Cancelled. field_variant converts a
-// field by type for the event classes and for the views' data.
+// subject and index among equal ones) and posts them as kind + bytes, positions in sim units; the main thread makes
+// each an object of its class (sim_classes.odin) and hands it to the subject's view and to the `sim_event` signal, as
+// Emitted, Confirmed or Cancelled. field_variant converts a field by type for the event classes and for the views'
+// and the session's data, mapping a sim.Position to view units (Glue.view_scale).
 package godot
 
 import "base:runtime"
@@ -20,7 +20,6 @@ Event_Layout :: struct {
 	player:            int, // offset of the first sim.Player field, -1: none
 	subject:           int, // offset of the first sim.Handle(T) field, or of a u64 field named `entity`; -1: none
 	subject_is_handle: bool,
-	positions:         [dynamic]int, // offsets of the sim.Position fields, nested structs' too
 }
 
 // What the tracker identifies and the session thread posts: one event of one simulated tick.
@@ -42,6 +41,25 @@ tick_event_id :: proc(event: Tick_Event) -> view.Event_Id {
 		player = event.player,
 		nth    = event.nth,
 	}
+}
+
+// Which units a sim.Position's bytes are in: .Sim (from the sim: events, view and session data, constants; the host
+// maps them to view units) or .View (a command object: what the script set, read back as set).
+Units :: enum u8 {
+	Sim,
+	View,
+}
+
+// Sim units to view units (Glue.view_scale): where the host makes a Godot value from a point.
+@(private)
+to_view :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
+	return point * api.view_scale
+}
+
+// View units to sim units: a point a script set (a command's sim.Position).
+@(private)
+to_sim :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
+	return point / api.view_scale
 }
 
 // The layouts of a game's event union, by kind (allocated for the process's lifetime).
@@ -70,7 +88,6 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 				if layout.subject < 0 do layout.subject = offset
 			}
 		}
-		position_offsets(variant, 0, &layout.positions)
 	}
 	return layouts
 }
@@ -138,13 +155,13 @@ player_key_of :: proc(bytes: []u8) -> u64 {
 
 // A nested struct's fields into a Dictionary (fields named `_...` are padding, left out).
 @(private)
-struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, is_2d: bool) {
+struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	for i in 0 ..< int(info.field_count) {
 		name := info.names[i]
 		if strings.has_prefix(name, "_") do continue
 		field := info.types[i]
-		value := field_variant(field, data[info.offsets[i]:][:field.size], is_2d)
+		value := field_variant(field, data[info.offsets[i]:][:field.size], units)
 		dict_put(dict, name, &value)
 	}
 }
@@ -180,10 +197,12 @@ f32_at :: proc(bytes: []u8, i: int) -> f32 {
 // ints, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary,
 // a string a String (constants), other numbers int or float.
 @(private)
-field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.Variant {
+field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd.Variant {
 	if type.id == sim.Position {
-		if is_2d do return gd.to_variant(gd.Vector2{f32_at(bytes, 0), f32_at(bytes, 1)})
-		return gd.to_variant(gd.Vector3{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)})
+		point := [3]f32{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)}
+		if units == .Sim do point = to_view(point)
+		if api.is_2d do return gd.to_variant(gd.Vector2{point.x, point.y})
+		return gd.to_variant(gd.Vector3{point.x, point.y, point.z})
 	}
 	switch type.id {
 	case gd.Vector2:
@@ -261,7 +280,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		}
 		array := typed_array(type)
 		for i in 0 ..< info.count {
-			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
+			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], units)
 			gd.Array_push_back(&array, element)
 			gdi.variant_destroy(&element)
 		}
@@ -272,7 +291,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		// [Enum]T: an Array by the enum's order
 		array := typed_array(type)
 		for i in 0 ..< info.count {
-			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], is_2d)
+			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], units)
 			gd.Array_push_back(&array, element)
 			gdi.variant_destroy(&element)
 		}
@@ -281,7 +300,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, is_2d: bool) -> gd.
 		return value
 	case runtime.Type_Info_Struct:
 		dict := gd.dict_new()
-		struct_fields(&dict, type, bytes, is_2d)
+		struct_fields(&dict, type, bytes, units)
 		value := gd.to_variant(dict)
 		gd.Dictionary_destroy(&dict)
 		return value

@@ -64,10 +64,10 @@ send_command :: proc(object: gd.Object) -> bool {
 	return true
 }
 
-// A command's position, from view units (what the script set) to sim units.
+// A command's position, from view units (what the script set) to sim units (Glue.view_scale).
 @(private)
 position_to_sim :: proc(position: sim.Position) -> sim.Position {
-	return position // TODO(#242c): the units setting
+	return sim.Position(to_sim(([3]f32)(position)))
 }
 
 // One field: ints (range-checked), floats, bools, enums (a member's value: EnumPhase.LOBBY), bit_sets (an Array of

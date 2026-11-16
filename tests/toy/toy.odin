@@ -156,7 +156,7 @@ tick :: proc(t: ^Tick) {
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
 				thing    = handle,
-				position = {thing.pos.x, 0, thing.pos.y},
+				position = {thing.pos.x, thing.pos.y, 0},
 				player   = player,
 				shape    = Shape(thing.life % 3),
 			})

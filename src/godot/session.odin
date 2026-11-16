@@ -433,6 +433,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		if root_id != session.synced_root {
 			views_root_changed() // the views lived under the old root
 			session.synced_root = root_id
+			view_space_check(root)
 		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
 		if fresh do data_sync(frame)

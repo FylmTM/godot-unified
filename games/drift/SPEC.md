@@ -19,7 +19,7 @@ prove `unified` for 2D games:
   local ship.
 
 Units: metres, seconds, 64 Hz (`DT = 1/64`). The plane is XY in Godot's 2D axes (x right, y down). The view is in
-pixels, with `px_per_m` from the level (32).
+pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is baked at the same scale).
 
 ## World (created before tick 0, in this order)
 
@@ -107,7 +107,8 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   `station_hp`, `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, Vector2s:
   the rock meshes).
 - Enums in GDScript: `EnumPhase` (the HUD's phase) and `EnumRockSize` (the rock events' `size`).
-- Event positions arrive in pixels like the views (`Glue.event_pos`, the level's scale).
+- Event positions arrive in pixels like the views (the host maps them: `Glue.view_scale`); sizes from the constants
+  are metres, drawn at `Unified.view_scale`.
 - Events go to the ship's view by `player` (the routing by subject) and `station_hit` to the station
   (`Glue.event_key`). The arena plays rock effects when an event is emitted (a prediction shows them at once), and
   everything else, like the HUD's banners, once it is confirmed. A shot a rollback cancels (a remote ship's

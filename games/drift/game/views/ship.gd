@@ -33,7 +33,7 @@ var _shots: Dictionary[int, int] = {}
 
 func _ready() -> void:
 	z_index = 2
-	_r = Unified.constants.ship_radius * Game.px_per_m
+	_r = Unified.constants.ship_radius * Unified.view_scale
 	_tag = Label.new()
 	_tag.top_level = true  # never turns with the ship
 	_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

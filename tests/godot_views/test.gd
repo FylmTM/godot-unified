@@ -154,6 +154,9 @@ func _initialize() -> void:
 		blink_despawned and blink_kept and not is_instance_valid(blink), [blink_despawned, blink_kept])
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,
 		[toy.x, toy_changes[0]])
+	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
+	check("a sim.Position in session data: view units (x 10), a Vector2",
+		toy.at.is_equal_approx(Vector2(toy.x, toy.y) * 10.0), [toy.at, toy.x, toy.y])
 	check_events(events, typed, plain, me)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
@@ -173,7 +176,7 @@ func _initialize() -> void:
 		near_all(buf.slice(0, 16), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3, 4]),
 		buf.slice(0, 16))
 	check("2D defaults (scale 1, white)",
-		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 6, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
+		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 7.5, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
 	# decoded with the buffer layout Godot documents (MultiMesh.buffer): rows of the transform, then the origin
 	var t := Transform2D(Vector2(buf[0], buf[4]), Vector2(buf[1], buf[5]), Vector2(buf[3], buf[7]))
 	check("2D transform as Godot reads it", t.origin.is_equal_approx(Vector2(30, 40)) \

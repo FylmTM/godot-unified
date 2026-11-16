@@ -23,7 +23,8 @@ Api :: struct {
 	view_names:      []string, // the View enum's members, lowercased, by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
 	smoothing:       view.Smoothing,
-	is_2d:           bool, // event positions are Vector2s
+	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
+	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
 	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
 	commands_type:   typeid, // the union itself
@@ -319,6 +320,12 @@ install :: proc(
 	if glue.sample_input == nil || glue.fill_frame == nil {
 		append(&problems, "the Glue needs sample_input and fill_frame")
 	}
+	if !(glue.view_scale >= 0 && glue.view_scale < 1e9) {
+		append(
+			&problems,
+			fmt.tprintf("Glue.view_scale is %v: view units per sim unit, positive (zero: 1)", glue.view_scale),
+		)
+	}
 	view_names, view_ok := enum_names(View)
 	multi_names, multi_ok := enum_names(MultiView)
 	if !view_ok do append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
@@ -357,6 +364,7 @@ install :: proc(
 		multi_names   = multi_names,
 		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
+		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,
 		events        = event_layouts(game.events),
 		commands      = command_layouts(game.commands),
 		commands_type = game.commands,
@@ -646,17 +654,11 @@ post_status :: proc(
 	post(driver, message)
 }
 
-// Posts the tracker's output: each event's sim.Position fields converted into view units first (Glue.event_pos).
+// Posts the tracker's output (positions in sim units: the main thread maps them as scripts read them).
 @(private)
-flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView), world: ^World) {
+flush_events :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) {
 	for tracked in driver.tracker.out {
 		raw := tracked.event.raw
-		if driver.glue.event_pos != nil && int(raw.kind) < len(api.events) {
-			for offset in api.events[raw.kind].positions {
-				position := (^sim.Position)(&raw.data[offset])
-				position^ = driver.glue.event_pos(position^, world)
-			}
-		}
 		message := Event_Message {
 			action = tracked.action,
 			tick   = tracked.event.tick,
@@ -729,7 +731,7 @@ driver_hooks :: proc(
 		frame = proc(user: rawptr, simulation: ^sim.Sim(State, Input, World, PLAYERS), info: netcode.Frame_Info) {
 			driver := (^This_Driver)(user)
 			for tick in info.resim_from ..= info.tick do track_tick(driver, tick, sim.events_at(simulation, tick))
-			flush_events(driver, simulation.world)
+			flush_events(driver)
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
 			out := view.triple_back(&driver.frames)
@@ -797,7 +799,7 @@ driver_hooks :: proc(
 			driver := (^This_Driver)(user)
 			track_tick(driver, tick, events)
 			view.tracker_verified(&driver.tracker, tick)
-			flush_events(driver, simulation.world)
+			flush_events(driver)
 			when DEVUI {
 				inputs := &driver.client.fin[tick % netcode.FIN_RING]
 				for command in inputs.commands[:inputs.command_count] {

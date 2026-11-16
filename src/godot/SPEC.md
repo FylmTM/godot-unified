@@ -22,9 +22,10 @@ GLUE := godot.Glue(g.State, g.Input, g.World, View, MultiView) {
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
 	data = Data, constants = CONSTANTS,
-	scripted_input, scripted_commands, bench, event_key, event_pos, compat, level,
-	smoothing,                       // view.Smoothing in fill_frame's units (zero: the default, metres)
-	is_2d,                           // event positions reach GDScript as Vector2 (else Vector3)
+	scripted_input, scripted_commands, bench, event_key, compat, level,
+	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
+	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space, below)
+	smoothing,                       // view.Smoothing in sim units (zero: the default, for metres)
 	max_views, max_multi, view_data_bytes, // the Frame's capacities (zero: 256, 16384, 16384)
 }
 
@@ -100,6 +101,22 @@ windows that never take it. A press on the
 dev UI never reaches the actions (it releases the actions it triggered: `src/devui/SPEC.md`, Input).
 `scripted_input` replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
 against the state is the sim's job.
+
+### View space
+
+The sim works in its own units (metres in every game so far) and never converts. The views draw in Godot's: metres
+in 3D, pixels in 2D. The game says how the two relate once, in its Glue: `is_2d` (the sim's XY plane is Godot 2D, x
+right, y down) and `view_scale` (view units per sim unit; drift: 32 px per metre; 1 when unset). Everything up to the
+hand-off is in sim units: what `fill_frame` pushes, the host's smoothing and rollback estimates (`Glue.smoothing` in
+sim units: the default suits metres), the event queue. The host maps a point once, on the main thread, where it
+makes a Godot value from it: a scene view's position (and `_sim_update`'s), a MultiMesh instance's origin (only the
+origin: a mesh is the view's content, drawn in view units, and `Multi_View_Item.scale` a multiplier), and every
+`sim.Position` a script reads (events, view data, session data, constants); and the inverse for a `sim.Position` a
+script sets in a command (the object keeps what was set: it reads back as set). Nothing else is mapped: rotations,
+directions, lengths and input values stay as they are; a script scales a sim size (a radius from the constants) with
+`Unified.view_scale`. View space is `view_root`'s local space; the host warns once when `view_root` is not at the
+world origin (a script placing an effect at an event's position elsewhere, or sending the mouse's world position,
+would be off by its transform). A 2D level is baked at the same scale (`src/level/SPEC.md`).
 
 ### Filling a frame
 
@@ -226,7 +243,7 @@ prefix groups them: Godot classes have no namespaces (an extension class can't n
 native class as a constant), and no GDScript is generated. Field types (events, commands, view and session data,
 constants): integers `int`, f32 `float`, bools, enums an `int` (below), bit_sets an `Array[int]`, a handle its key
 (`int`), a `sim.Player` its key (`int`, 0: nobody; a command's from one), a `sim.Position` a `Vector2`
-(`Glue.is_2d`) or `Vector3` in view units (`Glue.event_pos`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` /
+(`Glue.is_2d`) or `Vector3` in view units (`Glue.view_scale`), `[2]f32` / `[3]f32` / `[4]f32` a `Vector2` / `Vector3` /
 `Color`, Godot's own math types as themselves, other arrays and enumerated arrays a typed `Array` (`Array[int]`,
 `Array[Vector2]`, `Array[Dictionary]` for structs; an array of arrays stays untyped), a nested struct a
 `Dictionary`, a string (constants) a `String`; `_` fields are left out. The library's `sim.Event_Player_Joined` and
@@ -247,8 +264,10 @@ drop.count = 3
 session.send_command(drop)
 ```
 
-`send_command` converts the object to the command's struct (enums by value, integers range-checked);
-a wrong value, no running session or a full queue (64 waiting) returns false with a `print_error` naming it.
+`send_command` converts the object to the command's struct (enums by value, integers range-checked; a handle set as
+its key, 0: none; a `sim.Position` set in view units, divided by `Glue.view_scale`; a nested struct set as a
+Dictionary of its fields by name, a field left out keeping its value; a property reads back as it was set); a wrong
+value, no running session or a full queue (64 waiting) returns false with a `print_error` naming it.
 The command reaches the sim exactly once, on the next tick the client samples.
 
 The editor's help documents every class above (class reference XML loaded at extension start).
@@ -320,7 +339,7 @@ scene and every indexed kind is a `View` member (an error names each one).
   carried (an SPSC queue, 256; full: dropped) and the recording (below, a mutex per verified tick).
 - **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
   the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
-  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose, call
+  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose (× `view_scale`), call
   `_sim_update`), write each MultiMesh's buffer in one `set_buffer`, set the session data, route the events of the
   ticks the Frame shows, then statuses and the result, then the dev UI (`dev.odin`;
   `-define:UNIFIED_DEVUI=false` compiles it out, `src/devui/SPEC.md`). The screen runs one tick behind the newest

@@ -208,7 +208,12 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Sim_Object)(instance)
-	return field_variant(field.type, object.data[field.offset:][:field.type.size], api.is_2d)
+	// an event's bytes are the sim's; a command object's positions are what the script set (view units)
+	return field_variant(
+		field.type,
+		object.data[field.offset:][:field.type.size],
+		(^Sim_Class)(object.class).is_event ? .Sim : .View,
+	)
 }
 
 @(private)

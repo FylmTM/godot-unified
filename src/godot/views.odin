@@ -380,16 +380,9 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, gd.sn("_sim_update"))
 	scene_view.has_event = gd.has_script_method(node, gd.sn("_sim_event"))
 	for name, callback in VIEW_CALLBACK_NAMES do scene_view.callbacks[callback] = gd.has_script_method(node, gd.sn(name))
-	set_pose(scene_view, {item.pos, item.rot})
+	set_pose(scene_view, {to_view(item.pos), item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
-	if scene_view.mode == .Node2D && api.smoothing == view.SMOOTHING_DEFAULT {
-		report_once(
-			"smoothing",
-			"unified: 2D scene views with the default smoothing (metres): set Glue.smoothing in the units fill_frame writes, e.g. {tau_s = 0.1, teleport_dist = 64} for pixels",
-			false,
-		)
-	}
 	if item.data_type != nil {
 		fields := data_fields(item.data_type)
 		for &field in fields {
@@ -412,7 +405,8 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	return scene_view
 }
 
-// 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z. Other roots: nothing.
+// 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z. Other roots: nothing. The pose
+// is in view units (to_view).
 @(private)
 set_pose :: proc(scene_view: ^Scene_View, pose: view.Pose) {
 	switch scene_view.mode {
@@ -465,7 +459,7 @@ set_data :: proc(scene_view: ^Scene_View, fields: []Data_Field, data: []u8, fres
 	for &field in fields {
 		bytes := data[field.offset:][:field.type.size]
 		if !fresh && string(bytes) == string(scene_view.data[field.offset:][:len(bytes)]) do continue
-		set_prop(scene_view.node, field.name, field_variant(field.type, bytes, api.is_2d))
+		set_prop(scene_view.node, field.name, field_variant(field.type, bytes, .Sim))
 	}
 	copy(scene_view.data, data)
 }
@@ -524,6 +518,28 @@ views_clear :: proc() {
 	}
 	delete(V.index)
 	V.index, V.index_read = nil, false
+}
+
+// View space is view_root's local space; event and command positions are in it too, so a script that places an
+// effect at an event's position under another node, or sends the mouse's world position, is right only while
+// view_root sits at the world origin: warned once when it doesn't.
+@(private)
+view_space_check :: proc(root: gd.Node) {
+	at_origin := true
+	if node2d := gd.object_cast(gd.Node2D, root, "Node2D"); node2d.ptr != nil {
+		transform := gd.CanvasItem_get_global_transform(gd.cast_to(gd.CanvasItem, root))
+		at_origin = transform == {x = {1, 0}, y = {0, 1}}
+	} else if node3d := gd.object_cast(gd.Node3D, root, "Node3D"); node3d.ptr != nil {
+		transform := gd.Node3D_get_global_transform(node3d)
+		at_origin = transform == {basis = {x = {1, 0, 0}, y = {0, 1, 0}, z = {0, 0, 1}}}
+	}
+	if !at_origin {
+		report_once(
+			"view_space",
+			"unified: view_root is not at the world origin: view positions (events', commands') are its local space, not the world's",
+			false,
+		)
+	}
 }
 
 // The game set or cleared view_root: drop every scene view (they lived under the old root).
@@ -628,7 +644,8 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		scene_view := entry.view
 		if scene_view == nil || scene_view.mode == .Other || !alive(scene_view.id) do continue
 		if entry.phase == .Lingering do continue // unpinned: an exit animation may move it
-		pose := view.track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing)
+		pose := view.track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing) // sim units
+		pose.pos = to_view(pose.pos) // the node's position and _sim_update's
 		set_pose(scene_view, pose)
 		if !scene_view.has_update do continue
 		result: gd.Variant
@@ -848,6 +865,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 			if multi.smooth && item.key != 0 {
 				view_pos, view_rot = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
 			}
+			view_pos = to_view(view_pos) // the origin only: the mesh is the view's content, `scale` a multiplier
 			out := multi.ptr[cursor[view_index] * multi.stride:]
 			cursor[view_index] += 1
 			basis := quat_basis(view_rot)
