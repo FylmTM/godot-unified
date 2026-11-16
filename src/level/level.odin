@@ -11,7 +11,6 @@
 //   markers: count u32, each kind u32, name u32, pos 3f32, rot 4f32, scale 3f32,
 //            prop count u16, each key u32, type u8, value (bool u8 | int i32 | float f32 | vec3 3f32 |
 //            string u32 | ref i32: marker index, -1 none), then path point count u16, points 3f32 (world)
-// Version 1 has no px_per_m and still loads (as a 3D level).
 package level
 
 import "unified:wire"
@@ -89,8 +88,6 @@ Level :: struct {
 	points:   [][3]f32,
 }
 
-// The level's identity (XXH3 of the file), as recorded in logs and snapshots: sim.content_hash.
-
 // Frees the slices load allocated, through the context allocator (so under the one load was given), and zeroes
 // the Level. Its strings point into the file bytes, which the caller owns.
 destroy :: proc(level: ^Level) {
@@ -163,8 +160,8 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 	}
 	magic := wire.r_bytes(&decoder.r, 4)
 	version := wire.r_u16(&decoder.r)
-	if !decoder.r.ok || string(magic) != MAGIC || version < 1 || version > VERSION do return
-	px_per_m := version >= 2 ? f32_(&decoder) : 0
+	if !decoder.r.ok || string(magic) != MAGIC || version != VERSION do return
+	px_per_m := f32_(&decoder)
 	string_count := int(wire.r_u32(&decoder.r))
 	if string_count > len(data) do return
 	string_table := make([]string, string_count)

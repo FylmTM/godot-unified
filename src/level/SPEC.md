@@ -1,7 +1,8 @@
 # `unified:level`: Godot-authored levels for the sim
 
-Signed off by the developer 2026-11-09. A level is authored as a Godot scene, exported to a small binary
-file, and loaded by the sim at runtime. First user: `games/friendslop/SPEC.md`.
+Status: signed off 2026-11-09; 2D levels 2026-11-15 (#9).
+
+A level is authored as a Godot scene, exported to a small binary file, and loaded by the sim at runtime. First user: `games/friendslop/SPEC.md`.
 
 ## Authoring
 
@@ -47,7 +48,7 @@ the level's own number. `physics.create_static` needs nothing new: the bodies ar
 
 ## File (`UNLV`, little-endian, through `unified:wire`)
 
-Header: magic, version u16 (2; version 1, without px_per_m, still loads as a 3D level), px_per_m f32, record
+Header: magic, version u16 (2; readers accept only this version, `src/sim/SPEC.md`), px_per_m f32, record
 counts. Then static bodies (transform, shapes with local transforms and
 materials) in scene-tree order, a string table, and markers (kind, name, transform, properties, path points) in
 scene-tree order. Transforms are f32 position + quaternion, taken as Godot computed them at export: the bits are
@@ -59,13 +60,20 @@ still goes through Godot's own `sin`/`cos` when the scene loads; no rotation, or
 ## API
 
 ```odin
-level.load(bytes) -> (Level, ok)         // parses into one allocation; Level holds slices into it
-level.hash(bytes) -> u64                 // XXH3 of the file: the level's identity
-level.markers(&lvl, "platform") -> []Marker
-level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string, prop_ref, path_points(&m)
-lvl.px_per_m                             // a 2D level's pixels per metre; 0: 3D
-physics.create_static(w, &lvl)           // static bodies in file order
+level.load(bytes, allocator) -> (Level, ok)   // Level holds slices; its strings are views into `bytes`
+level.destroy(&lvl)                           // frees the slices load allocated (not the bytes)
+lvl.bodies, lvl.markers, lvl.px_per_m         // file order; a 2D level's pixels per metre (0: 3D)
+level.find_all(&lvl, "platform") -> []^Marker // one kind, file order (temp-allocated by default)
+level.find_named(&lvl, "start") -> ^Marker    // nil: none
+m.path                                        // a Path3D/Path2D child's points, world space (empty: none)
+level.prop(&m, key) -> ^Prop                  // nil: none; the typed getters read through it:
+level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string
+level.prop_ref(&m, "target") -> int           // a NodePath to another marker: its index (-1: none)
+level.encode(bodies, markers, px_per_m) -> []u8 // the file from Odin values (tests, levels built in code)
+physics.create_static(w, &lvl)                // static bodies in file order
 ```
+
+A level's identity is `sim.content_hash(bytes)` (XXH3 of the file), below.
 
 ## Getting the level to the sim (runtime-loaded)
 
@@ -86,8 +94,8 @@ physics.create_static(w, &lvl)           // static bodies in file order
 
 ## Tests
 
-`tests/level`: round-trip of every record and property type; rejects bad magic, versions and truncated files; version
-1 loads; `create_static` builds the expected bodies, also from the 2D fixture's exported file. `tests/godot` (`uni
+`tests/level`: round-trip of every record and property type; rejects bad magic, other versions and truncated
+files; `create_static` builds the expected bodies, also from the 2D fixture's exported file. `tests/godot` (`uni
 test --suite godot-bindings`): export the 2D fixture scene (`levels/level_2d.tscn`) and compare to its committed file;
 an unsupported shape fails the export with the node's name. A replay or resume with a different level fails with the
 level hash in the error.

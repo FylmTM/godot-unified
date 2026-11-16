@@ -1,4 +1,4 @@
-// src/level/SPEC.md, 2D levels: version 2 records px_per_m, version 1 still loads, Vector2 props read
+// src/level/SPEC.md, 2D levels: version 2 records px_per_m, other versions are refused, Vector2 props read
 // back, and the exporter's 2D fixture (tests/godot/levels/level_2d.tscn, exported by `uni test --suite godot-bindings`)
 // builds the bodies it was drawn with: metres, z = 0, rotations about +Z.
 package test_level
@@ -63,29 +63,15 @@ round_trip_2d :: proc(t: ^testing.T) {
 	testing.expect(t, string(again) == string(data))
 }
 
-// A version 1 file (no px_per_m) loads as a 3D level.
+// Readers accept only the current version (src/sim/SPEC.md, format versions): 1 (no px_per_m) and the next one are
+// refused.
 @(test)
-version_1_loads :: proc(t: ^testing.T) {
-	version_2_file := fixture()
-	defer delete(version_2_file)
-	version_1_file := make([]u8, len(version_2_file) - 4)
-	defer delete(version_1_file)
-	copy(version_1_file, version_2_file[:4])
-	version_1_file[4] = 1
-	copy(version_1_file[6:], version_2_file[10:])
-	loaded, ok := level.load(version_1_file)
-	defer level.destroy(&loaded)
-	testing.expect(t, ok)
-	testing.expect_value(t, loaded.px_per_m, 0)
-	testing.expect_value(t, len(loaded.bodies), 2)
-	testing.expect_value(t, len(loaded.markers), 3)
-	// Re-encoded, it is the version 2 file.
-	again := level.encode(loaded.bodies, loaded.markers)
-	defer delete(again)
-	testing.expect(t, string(again) == string(version_2_file))
-	for version in ([]u8{0, 3}) {
-		bad := make([]u8, len(version_1_file), context.temp_allocator)
-		copy(bad, version_1_file)
+other_versions_refused :: proc(t: ^testing.T) {
+	file := fixture()
+	defer delete(file)
+	for version in ([]u8{0, 1, 3}) {
+		bad := make([]u8, len(file), context.temp_allocator)
+		copy(bad, file)
 		bad[4] = version
 		_, bad_ok := level.load(bad)
 		testing.expectf(t, !bad_ok, "version %d loaded", version)
