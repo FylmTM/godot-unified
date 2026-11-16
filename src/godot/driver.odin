@@ -211,6 +211,10 @@ dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Lin
 		recv    = dev_link_recv,
 		close   = dev_link_close,
 		event   = inner.event == nil ? nil : dev_link_event,
+		// the transport's own: it frees the peer (UDP) or closes its connection (EOS), netsim on or off
+		forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: netcode.Peer) {
+			netcode.link_forget(&(^Dev_Link)(data).inner, peer)
+		},
 		account = inner.account == nil ? nil : proc(data: rawptr, peer: netcode.Peer) -> (netcode.Account, bool) {
 			return netcode.link_account(&(^Dev_Link)(data).inner, peer)
 		},
@@ -924,7 +928,7 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Host_Online:
 		driver.uses_tp = true
-		link, ok := transport.open_host(transport.user, &driver.tev)
+		link, ok := transport.open_host(transport.user, session_compat(driver), &driver.tev)
 		if !ok {
 			// the transport's fail hook may have posted the real reason already
 			if !driver.failed do post_status(driver, .Failed, fmt.tprintf("%s: cannot host", transport.name))
@@ -959,7 +963,7 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
 	case .Join_Online:
 		driver.uses_tp = true
-		link, ok := transport.open_join(transport.user, request.arg, &driver.tev)
+		link, ok := transport.open_join(transport.user, request.arg, session_compat(driver), &driver.tev)
 		if !ok {
 			if !driver.failed {
 				post_status(driver, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, request.arg))
@@ -970,6 +974,13 @@ driver_open :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $Mu
 	}
 	if driver.host != nil do driver.client = driver.host.client
 	return true
+}
+
+// The session's build id, as the relay computes it (the glue's, else derived from the game and the level).
+@(private)
+session_compat :: proc(driver: ^Driver($State, $Input, $World, $PLAYERS, $View, $MultiView)) -> u64 {
+	if driver.glue.compat != 0 do return driver.glue.compat
+	return sim.compat_of(driver.game, driver.req.content)
 }
 
 @(private)

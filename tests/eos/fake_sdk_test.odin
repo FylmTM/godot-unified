@@ -13,14 +13,17 @@ import "core:thread"
 import "core:time"
 
 import "unified:eos"
+import "unified:netcode"
 
 @(private = "file")
 Pending_Kind :: enum {
 	Login,
 	Lobby, // Lobby_Callback_Info: create, update, join, leave, destroy
 	Result, // Result_Callback_Info: search
-	Established, // the P2P connection to the lobby owner came up
-	Closed, // the P2P connection to the lobby owner closed
+	Established, // a P2P connection came up (with `user`)
+	Closed, // a P2P connection closed (with `user`)
+	Request, // `user` asks the host for a P2P connection
+	Member, // a lobby member status (`user`, `status`)
 }
 
 @(private = "file")
@@ -30,6 +33,8 @@ Pending :: struct {
 	client_data: rawptr,
 	result:      eos.Result,
 	lobby:       [32]u8,
+	user:        int, // Established, Closed, Request, Member: the index into fake.users (0: means the owner)
+	status:      eos.Lobby_Member_Status,
 }
 
 @(private = "file")
@@ -46,21 +51,52 @@ fake: struct {
 	shut_down:          int,
 	released:           int,
 	product_version:    string,
-	last_code:          string, // the code attribute the host published
+	last_code:          string, // the attributes the host published
+	last_build:         string,
+	last_version:       string,
+	lobby_build:        cstring, // the attributes a search result has (nil: none)
+	lobby_version:      cstring,
+	attribute_data:     eos.Lobby_Attribute_Data, // what CopyAttributeByKey hands out
+	attribute:          eos.Lobby_Attribute,
+	joins:              int, // Lobby_JoinLobby calls
 	closed_to_owner:    int, // P2P_CloseConnection calls for the lobby owner
 	on_established:     rawptr, // the session's P2P notifications and their client data
 	on_closed:          rawptr,
+	on_request:         rawptr,
 	p2p_data:           rawptr,
-	users:              [2]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner
+	on_member:          rawptr, // the lobby member status notification and its client data
+	member_data:        rawptr,
+	accepted:           [dynamic]int, // the users P2P_AcceptConnection was called for (fake.users indices)
+	users:              [3]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner (or a joiner), [2] = a stranger
 }
 
 @(private = "file")
-enqueue :: proc(kind: Pending_Kind, callback: rawptr, client_data: rawptr, result: eos.Result, lobby := "") {
+OWNER :: 1
+@(private = "file")
+STRANGER :: 2
+
+@(private = "file")
+user_id :: proc(index: int) -> eos.Product_User_Id {
+	return eos.Product_User_Id(&fake.users[index == 0 ? OWNER : index])
+}
+
+@(private = "file")
+enqueue :: proc(
+	kind: Pending_Kind,
+	callback: rawptr,
+	client_data: rawptr,
+	result: eos.Result,
+	lobby := "",
+	user := 0,
+	status := eos.Lobby_Member_Status.Joined,
+) {
 	pending := Pending {
 		kind        = kind,
 		callback    = callback,
 		client_data = client_data,
 		result      = result,
+		user        = user,
+		status      = status,
 	}
 	copy(pending.lobby[:len(pending.lobby) - 1], lobby)
 	fake.queue[fake.queued] = pending
@@ -98,16 +134,30 @@ fire_all :: proc() {
 		case .Established:
 			info := eos.P2P_On_Peer_Connection_Established_Info {
 				client_data    = pending.client_data,
-				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+				remote_user_id = user_id(pending.user),
 				network_type   = .Direct,
 			}
 			(proc "c" (_: ^eos.P2P_On_Peer_Connection_Established_Info))(pending.callback)(&info)
 		case .Closed:
 			info := eos.P2P_On_Remote_Connection_Closed_Info {
 				client_data    = pending.client_data,
-				remote_user_id = eos.Product_User_Id(&fake.users[1]),
+				remote_user_id = user_id(pending.user),
 			}
 			(proc "c" (_: ^eos.P2P_On_Remote_Connection_Closed_Info))(pending.callback)(&info)
+		case .Request:
+			info := eos.P2P_On_Incoming_Connection_Request_Info {
+				client_data    = pending.client_data,
+				remote_user_id = user_id(pending.user),
+			}
+			(proc "c" (_: ^eos.P2P_On_Incoming_Connection_Request_Info))(pending.callback)(&info)
+		case .Member:
+			info := eos.Lobby_Member_Status_Received_Callback_Info {
+				client_data    = pending.client_data,
+				lobby_id       = cstring(&pending.lobby[0]),
+				target_user_id = user_id(pending.user),
+				current_status = pending.status,
+			}
+			(proc "c" (_: ^eos.Lobby_Member_Status_Received_Callback_Info))(pending.callback)(&info)
 		}
 	}
 }
@@ -123,7 +173,8 @@ FAKE := eos.Api {
 	Shutdown = proc "c" () -> eos.Result {fake.shut_down += 1; return .Success},
 	EResult_ToString = proc "c" (result: eos.Result) -> cstring {return result == .Success ? "success" : "fake error"},
 	ProductUserId_ToString = proc "c" (id: eos.Product_User_Id, out: [^]u8, length: ^i32) -> eos.Result {
-		text := (^u8)(id) == &fake.users[0] ? "fakeuser0" : "fakeowner"
+		text :=
+			(^u8)(id) == &fake.users[0] ? "fakeuser0" : (^u8)(id) == &fake.users[STRANGER] ? "fakestranger" : "fakeowner"
 		for i in 0 ..< len(text) do out[i] = text[i]
 		out[len(text)] = 0
 		length^ = i32(len(text) + 1)
@@ -198,7 +249,10 @@ FAKE := eos.Api {
 		options: ^eos.P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.P2P_On_Incoming_Connection_Request_Info),
-	) -> eos.Notification_Id {return 2},
+	) -> eos.Notification_Id {
+		fake.on_request = rawptr(callback)
+		return 2
+	},
 	P2P_RemoveNotifyPeerConnectionRequest = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
 	P2P_AddNotifyPeerConnectionEstablished = proc "c" (
 		handle: eos.H_P2P,
@@ -221,10 +275,13 @@ FAKE := eos.Api {
 		return 4
 	},
 	P2P_RemoveNotifyPeerConnectionClosed = proc "c" (handle: eos.H_P2P, id: eos.Notification_Id) {},
-	P2P_AcceptConnection = proc "c" (
-		handle: eos.H_P2P,
-		options: ^eos.P2P_Accept_Connection_Options,
-	) -> eos.Result {return .Success},
+	P2P_AcceptConnection = proc "c" (handle: eos.H_P2P, options: ^eos.P2P_Accept_Connection_Options) -> eos.Result {
+		context = runtime.default_context()
+		for i in 0 ..< len(fake.users) {
+			if (^u8)(options.remote_user_id) == &fake.users[i] do append(&fake.accepted, i)
+		}
+		return .Success
+	},
 	P2P_CloseConnection = proc "c" (handle: eos.H_P2P, options: ^eos.P2P_Accept_Connection_Options) -> eos.Result {
 		context = runtime.default_context()
 		if (^u8)(options.remote_user_id) == &fake.users[1] && options.socket_id != nil {
@@ -288,6 +345,7 @@ FAKE := eos.Api {
 		callback: proc "c" (info: ^eos.Lobby_Callback_Info),
 	) {
 		context = runtime.default_context()
+		fake.joins += 1
 		enqueue(.Lobby, rawptr(callback), client_data, .Success, "joined-lobby")
 	},
 	Lobby_LeaveLobby = proc "c" (
@@ -323,16 +381,28 @@ FAKE := eos.Api {
 		options: ^eos.Version_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^eos.Lobby_Member_Status_Received_Callback_Info),
-	) -> eos.Notification_Id {return 5},
+	) -> eos.Notification_Id {
+		fake.on_member = rawptr(callback)
+		fake.member_data = client_data
+		return 5
+	},
 	Lobby_RemoveNotifyLobbyMemberStatusReceived = proc "c" (handle: eos.H_Lobby, id: eos.Notification_Id) {},
 	LobbyModification_AddAttribute = proc "c" (
 		handle: eos.H_Lobby_Modification,
 		options: ^eos.Lobby_Modification_Add_Attribute_Options,
 	) -> eos.Result {
 		context = runtime.default_context()
-		if string(options.attribute.key) == "code" {
+		value := string(options.attribute.value.as_utf8)
+		switch string(options.attribute.key) {
+		case "code":
 			delete(fake.last_code)
-			fake.last_code = strings.clone(string(options.attribute.value.as_utf8))
+			fake.last_code = strings.clone(value)
+		case "build":
+			delete(fake.last_build)
+			fake.last_build = strings.clone(value)
+		case "version":
+			delete(fake.last_version)
+			fake.last_version = strings.clone(value)
 		}
 		return .Success
 	},
@@ -369,6 +439,31 @@ FAKE := eos.Api {
 	) -> eos.Product_User_Id {
 		return eos.Product_User_Id(&fake.users[1])
 	},
+	LobbyDetails_CopyAttributeByKey = proc "c" (
+		handle: eos.H_Lobby_Details,
+		options: ^eos.LobbyDetails_Copy_Attribute_By_Key_Options,
+		out: ^^eos.Lobby_Attribute,
+	) -> eos.Result {
+		value: cstring
+		switch string(options.attr_key) {
+		case "build":
+			value = fake.lobby_build
+		case "version":
+			value = fake.lobby_version
+		}
+		if value == nil do return .NotFound
+		fake.attribute_data = {
+			key = options.attr_key,
+			value = {as_utf8 = value},
+			value_type = .String,
+		}
+		fake.attribute = {
+			data = &fake.attribute_data,
+		}
+		out^ = &fake.attribute
+		return .Success
+	},
+	Lobby_Attribute_Release = proc "c" (attribute: ^eos.Lobby_Attribute) {},
 	LobbyDetails_Release = proc "c" (handle: eos.H_Lobby_Details) {},
 }
 
@@ -422,7 +517,7 @@ host_session :: proc(run: ^Host_Run) {
 		})
 		testing.expect(run.t, ok, "init with the fake SDK")
 	}
-	testing.expect(run.t, eos.host("fake-bucket"), "host")
+	testing.expect(run.t, eos.host(BUILD), "host")
 	code: string
 	run.stage, code, _ = pump_until(.Ready)
 	run.code = strings.clone(code)
@@ -432,6 +527,9 @@ host_session :: proc(run: ^Host_Run) {
 
 @(private = "file")
 CONNECT_WAIT_MS :: 20 // the joiner's P2P wait, shortened
+
+@(private = "file")
+BUILD :: eos.Build{"fake", 0x1234, "1.2.3"}
 
 // The whole session state machine in one test: EOS is per process and can't be initialized again.
 @(test)
@@ -445,6 +543,8 @@ session_state_machine :: proc(t: ^testing.T) {
 		delete(fake.destroyed)
 		delete(fake.product_version, heap)
 		delete(fake.last_code, heap)
+		delete(fake.last_build, heap)
+		delete(fake.last_version, heap)
 		fake = {}
 	}
 	// Two sessions, each on a thread that exits before the next starts.
@@ -457,6 +557,8 @@ session_state_machine :: proc(t: ^testing.T) {
 		testing.expect_value(t, run.stage_2, eos.Stage.Idle)
 		testing.expect_value(t, len(run.code), eos.CODE_LEN)
 		testing.expect_value(t, run.code, fake.last_code) // the published attribute is the reported code
+		testing.expect_value(t, fake.last_build, eos.build_id(BUILD.compat)) // and the build, and its version
+		testing.expect_value(t, fake.last_version, BUILD.version)
 	}
 	testing.expect(t, runs[0].code != runs[1].code, "a new code per session")
 	for run in runs do delete(run.code, heap) // cloned on the session threads
@@ -468,9 +570,9 @@ session_state_machine :: proc(t: ^testing.T) {
 	// Leave while the lobby request is in flight, host again: the stale lobby is destroyed when it
 	// arrives, the new session is unaffected.
 	fake.hold = true
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	eos.leave()
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	fake.hold = false
 	stage, code, _ := pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
@@ -481,7 +583,7 @@ session_state_machine :: proc(t: ^testing.T) {
 
 	// A failing lobby request: Failed, the reason reported by pump once, then leave returns to Idle.
 	fake.fail_create = true
-	testing.expect(t, eos.host("fake-bucket"))
+	testing.expect(t, eos.host(BUILD))
 	failed: string
 	stage, _, failed = pump_until(.Failed)
 	testing.expect_value(t, stage, eos.Stage.Failed)
@@ -490,8 +592,78 @@ session_state_machine :: proc(t: ^testing.T) {
 	eos.leave()
 	testing.expect_value(t, eos.status().stage, eos.Stage.Idle)
 
-	// Join: search by code, the lobby owner becomes the host (peer 0).
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	// #300: the host accepts P2P only from its lobby's members. A stranger who asks is never accepted; a
+	// joiner whose request comes before the lobby says it joined is accepted when it does; one who left is
+	// held again until it rejoins.
+	testing.expect(t, eos.host(BUILD))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	lobby := fake_lobby_name(fake.lobbies)
+	member :: proc(lobby: string, user: int, status: eos.Lobby_Member_Status) {
+		enqueue(.Member, fake.on_member, fake.member_data, .Success, lobby, user, status)
+		eos.pump()
+	}
+	request :: proc(user: int) {
+		enqueue(.Request, fake.on_request, fake.p2p_data, .Success, user = user)
+		eos.pump()
+	}
+	request(STRANGER)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 0)
+	member(lobby, OWNER, .Joined)
+	testing.expect(t, len(fake.accepted) == 1 && fake.accepted[0] == OWNER, "the held request is accepted on join")
+	request(OWNER) // a member's request: accepted at once
+	testing.expect_value(t, len(fake.accepted), 2)
+	request(STRANGER)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = STRANGER)
+	eos.pump()
+	testing.expect_value(t, len(fake.accepted), 2)
+	testing.expect_value(t, eos.status().peers, 0) // a stranger's connection never becomes a peer
+	member(lobby, OWNER, .Left)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 2)
+	member(lobby, OWNER, .Joined)
+	testing.expect_value(t, len(fake.accepted), 3)
+
+	// #32: the netcode gives up on a member's peer (silence after a crash): the host closes that P2P connection,
+	// tells the netcode nothing more, and the same user's next request gets a fresh connection on the same peer.
+	host_link, _ := eos.link()
+	drain_events :: proc(net_link: netcode.Link) -> (connected, disconnected: int) {
+		for {
+			_, kind, has := net_link.event(net_link.data)
+			if !has do return
+			if kind == .Connected do connected += 1
+			if kind == .Disconnected do disconnected += 1
+		}
+	}
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = OWNER)
+	eos.pump()
+	testing.expect_value(t, eos.status().peers, 1)
+	drain_events(host_link)
+	closes := fake.closed_to_owner
+	host_link.forget(host_link.data, 1)
+	eos.pump() // the close notification
+	testing.expect_value(t, fake.closed_to_owner, closes + 1)
+	testing.expect_value(t, eos.status().peers, 0)
+	connected, disconnected := drain_events(host_link)
+	testing.expect_value(t, disconnected, 0)
+	request(OWNER)
+	testing.expect_value(t, len(fake.accepted), 4)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = OWNER)
+	eos.pump()
+	testing.expect_value(t, eos.status().peers, 1)
+	connected, disconnected = drain_events(host_link)
+	testing.expect_value(t, connected, 1)
+	fake.closed_to_owner = 0
+	eos.leave()
+	delete(fake.accepted)
+	fake.accepted = {}
+
+	// Join: search by code, the lobby owner becomes the host (peer 0); its lobby is this build.
+	same_build := strings.clone_to_cstring(eos.build_id(BUILD.compat))
+	defer delete(same_build)
+	fake.lobby_build, fake.lobby_version = same_build, "1.2.3"
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	testing.expect_value(t, eos.status().host, "fakeowner")
@@ -509,7 +681,7 @@ session_state_machine :: proc(t: ^testing.T) {
 			count += 1
 		}
 	}
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	stage, _, failed = pump_until(.Failed)
@@ -522,7 +694,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	// A retry that works: the connection comes up after the first close; no more closes, the
 	// session stays Ready and the netcode hears the host connect.
 	fake.closed_to_owner = 0
-	testing.expect(t, eos.join("fake-bucket", "ABCDEF"))
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
 	stage, _, _ = pump_until(.Ready)
 	testing.expect_value(t, stage, eos.Stage.Ready)
 	for _ in 0 ..< 400 {
@@ -538,6 +710,56 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, fake.closed_to_owner, 1)
 	testing.expect_value(t, link_events(), 1)
 	eos.leave()
+
+	// #32: a connection that came up but carried nothing, then closed by the host (a host whose SDK still held the
+	// crashed process's connection): not a lost host for the netcode; the joiner tries again and gets through.
+	fake.closed_to_owner = 0
+	testing.expect(t, eos.join(BUILD, "ABCDEF"))
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success)
+	eos.pump()
+	testing.expect_value(t, link_events(), 1) // connected
+	enqueue(.Closed, fake.on_closed, fake.p2p_data, .Success) // the host closed it
+	eos.pump()
+	testing.expect_value(t, link_events(), 0)
+	testing.expect_value(t, eos.status().stage, eos.Stage.Ready)
+	for _ in 0 ..< 400 {
+		if fake.closed_to_owner > 0 do break
+		eos.pump()
+		time.sleep(2 * time.Millisecond)
+	}
+	testing.expect_value(t, fake.closed_to_owner, 1) // the retry asked again
+	enqueue(.Established, fake.on_established, fake.p2p_data, .Success)
+	pump_for(CONNECT_WAIT_MS * 2)
+	testing.expect_value(t, eos.status().stage, eos.Stage.Ready)
+	testing.expect_value(t, eos.status().peers, 1)
+	eos.leave()
+
+	// #304: a lobby of another build is not joined; the reason names both versions, or says the build differs
+	// when the versions match (or the lobby has no build at all).
+	joins := fake.joins
+	other_build := strings.clone_to_cstring(eos.build_id(BUILD.compat + 1))
+	defer delete(other_build)
+	Case :: struct {
+		build, version: cstring,
+		message:        string,
+	}
+	cases := [?]Case {
+		{other_build, "1.2.4", "that game runs fake 1.2.4; you have 1.2.3"},
+		{other_build, "1.2.3", "that game runs a different build of fake 1.2.3"},
+		{nil, nil, "that game runs a different build of fake"},
+	}
+	for test_case in cases {
+		fake.lobby_build, fake.lobby_version = test_case.build, test_case.version
+		testing.expect(t, eos.join(BUILD, "ABCDEF"))
+		stage, _, failed = pump_until(.Failed)
+		testing.expect_value(t, stage, eos.Stage.Failed)
+		testing.expect_value(t, failed, test_case.message)
+		eos.leave()
+	}
+	testing.expect_value(t, fake.joins, joins) // never joined
+	fake.lobby_build, fake.lobby_version = nil, nil
 
 	eos.shutdown()
 	testing.expect_value(t, fake.released, 1)

@@ -177,10 +177,12 @@ Transport :: struct {
 	name:       string,
 	user:       rawptr,
 	// Host: open the transport and return the link the relay serves remote players on. Report the join
-	// code with events.code (now or later, from pump).
-	open_host:  proc(user: rawptr, events: ^Transport_Events) -> (netcode.Link, bool),
-	// Join: return the link to the host's relay (packets may flow only once the transport connects).
-	open_join:  proc(user: rawptr, code: string, events: ^Transport_Events) -> (netcode.Link, bool),
+	// code with events.code (now or later, from pump). `compat` is the session's build id (what the relay
+	// checks): a transport that lists games can publish it, so a joiner on another build is told before joining.
+	open_host:  proc(user: rawptr, compat: u64, events: ^Transport_Events) -> (netcode.Link, bool),
+	// Join: return the link to the host's relay (packets may flow only once the transport connects). `compat`
+	// is this build's, to compare with the host's.
+	open_join:  proc(user: rawptr, code: string, compat: u64, events: ^Transport_Events) -> (netcode.Link, bool),
 	// Called every loop iteration while a session uses the transport (e.g. EOS_Platform_Tick).
 	pump:       proc(user: rawptr, events: ^Transport_Events),
 	// The session ended (its links are already closed).

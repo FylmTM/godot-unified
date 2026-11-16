@@ -101,9 +101,12 @@ unquarantine :: proc(path: string) {
 	}
 }
 
-// Whether a game's extension imports unified:eos.
+// Whether a game's extension imports unified:eos, directly or through unified:godot_eos.
 extension_uses_eos :: proc(game: Game) -> bool {
-	return has_extension(game) && sources_import(join(game.dir, "simulation", "extension"), `"unified:eos"`)
+	return(
+		has_extension(game) &&
+		sources_import(join(game.dir, "simulation", "extension"), `"unified:eos"`, `"unified:godot_eos"`) \
+	)
 }
 
 // Copies the SDK's library next to the game's library (its .gdextension's [dependencies] ship it from there). The

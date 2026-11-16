@@ -9,14 +9,15 @@ Generic over the game: `Relay(Input, PLAYERS)`, `Client(State, Input, World, PLA
 thread or loop of its own: the host application calls `*_step(now_us) -> wake_us` from its own loop (or one thread
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
 `sleep_until(wake_us)`. `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
-picks EOS, UDP or loopback), `PROTOCOL_VERSION` with its lobby bucket, `Hooks`, the configs (through
+picks EOS, UDP or loopback), `Hooks`, the configs (through
 `unified:godot`'s driver, or directly in its tests) and the test helpers (`Profile`, `Virtual_Clock`, `hub_create`,
 through `headless.session_run`).
 
 ## Pieces
 
 - **Link** (the transport interface, stable and small): `send(to, bytes)`, `recv(buf) -> (n, from, ok)`, `close`,
-  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number),
+  optional `event() -> (peer, Connected|Disconnected, ok)`, optional `forget(peer)` (UDP reuses the number; EOS
+  closes the P2P connection; wrappers such as the netsim pass it on),
   optional `account(peer) -> (Account{platform, id}, ok)` (the account the transport vouches for behind a peer: EOS
   gives the remote's product user id; LAN and direct UDP none).
   Datagrams ≤ `MAX_DATAGRAM` (1152, fits EOS P2P), may be lost. A link numbers its remote endpoints as `Peer`s (a
@@ -55,9 +56,9 @@ through `headless.session_run`).
 - **Hello** carries the protocol, the slot (or any), a join tick, a `compat` id (default `sim.compat_of(game)`:
   layouts, command and event types, player count, tick rate, game name and version, content; 0 at the relay
   accepts any), the client's token (Members) and a name. Rejects: `Full`, `Player_Taken`, `Incompatible`,
-  `Not_Started`, `No_Snapshot` (a joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). A
-  game's lobby bucket is its name, `compat` and `PROTOCOL_VERSION` (11); the library forms it from #11 on, until then
-  each game bumps its own. **Welcome** carries the slot, the joiner's member id, the seed, the tick rate, the length,
+  `Not_Started`, `No_Snapshot` (a joiner nobody can send a snapshot), `Bad_Snapshot`, `Too_Far_Behind` (below). An EOS
+  lobby carries `compat` and `PROTOCOL_VERSION` (11), so a joiner on another build is told before it joins
+  (`src/eos/SPEC.md`). **Welcome** carries the slot, the joiner's member id, the seed, the tick rate, the length,
   the first tick it is present and flags.
 - **Start** (#179, D6 of #8): the clock starts once the start players have connected: they get Welcome and tick 0 is
   due `START_LEAD_MS` (500 ms) later, so a far start player's inputs for tick 1 arrive in time (~550 ms RTT); during

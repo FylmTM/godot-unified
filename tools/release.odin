@@ -13,9 +13,9 @@ import "unified:cli"
 // .github/workflows/release.yml (tag builds). Steps, each failing loudly:
 //   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK (UNIFIED_EOS_SDK) and the EOS
 //      IDs (UNIFIED_EOS_*, the environment or .env) must be there, and their values must end up in the library;
-//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library;
-//      with --no-devui the extension is built without the dev UI (-define:UNIFIED_DEVUI=false: no overlay, F1 or F3
-//      notes), for public builds; the zip's name says -nodevui,
+//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library (the
+//      export is checked for one); with --no-devui the extension is built without the dev UI
+//      (-define:UNIFIED_DEVUI=false: no overlay, F1 or F3 notes), for public builds; the zip's name says -nodevui,
 //   2. the pinned Godot and this host's export templates (pulled out of the official archive with HTTP range reads,
 //      each file checked against its pin) in Godot's own folder,
 //   3. the version stamped into project.godot and the export preset's version keys for the export (the files are
@@ -220,6 +220,9 @@ release_build :: proc(g: cli.Game, version: string, smoke_test: bool, no_eos: bo
 	append(&files, ..libs)
 	for d in release_dependencies(g) do if !(no_eos && is_eos_lib(d)) do append(&files, d)
 	check_payload(target, files[:])
+	if no_eos {
+		check_no_eos(target)
+	}
 	zip := cli.join(
 		g.dir,
 		".out",
@@ -775,6 +778,17 @@ release_notes :: proc(args: []string) -> cli.Result {
 	lan := opts.no_eos ? "\n\n**Single player and LAN only:** this build has no online play (no EOS)." : ""
 	notes := cli.tprint(NOTES, g.name, version, short_commit(g.dir), release_label(version), extra, lan)
 	return {ok = true, summary = strings.trim_right(notes, "\n")}
+}
+
+// --no-eos: the export holds no EOS SDK library, under any platform's name. The IDs can't be looked for without
+// their values, but without the library no build goes online.
+check_no_eos :: proc(target: string) {
+	root := os.is_directory(target) ? target : os.dir(target)
+	for path in cli.find_files(root, "") {
+		if is_eos_lib(os.base(path)) {
+			cli.fatal("--no-eos, but the export holds the EOS SDK library %s", path)
+		}
+	}
 }
 
 is_eos_lib :: proc(path: string) -> bool {

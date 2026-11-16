@@ -420,6 +420,20 @@ Version_Options :: struct {
 	api_version: i32,
 }
 
+LOBBY_ATTRIBUTE_API_LATEST :: 1
+// A lobby attribute copied out of lobby details (release it with Lobby_Attribute_Release).
+Lobby_Attribute :: struct {
+	api_version: i32,
+	data:        ^Lobby_Attribute_Data,
+	visibility:  i32,
+}
+
+LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST :: 1
+LobbyDetails_Copy_Attribute_By_Key_Options :: struct {
+	api_version: i32,
+	attr_key:    cstring,
+}
+
 LOBBYSEARCH_COPYSEARCHRESULTBYINDEX_API_LATEST :: 1
 Lobby_Search_Copy_Search_Result_By_Index_Options :: struct {
 	api_version: i32,
@@ -628,6 +642,12 @@ Api :: struct {
 		handle: H_Lobby_Details,
 		opts: ^Version_Options,
 	) -> Product_User_Id,
+	LobbyDetails_CopyAttributeByKey:             proc "c" (
+		handle: H_Lobby_Details,
+		opts: ^LobbyDetails_Copy_Attribute_By_Key_Options,
+		out: ^^Lobby_Attribute,
+	) -> Result,
+	Lobby_Attribute_Release:                     proc "c" (attribute: ^Lobby_Attribute),
 	LobbyDetails_Release:                        proc "c" (handle: H_Lobby_Details),
 }
 

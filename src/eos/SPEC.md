@@ -1,6 +1,6 @@
 # `unified:eos`: online play through Epic Online Services
 
-Decided autonomously 2026-11-09, pending developer review.
+Signed off 2026-11-16 (#11).
 
 Internet co-op without servers of our own: anonymous device-ID login (no Epic account), a lobby found by a short
 code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode's datagrams. One-time setup:
@@ -12,8 +12,8 @@ code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode'
 eos.init(Init_Options{lib_dirs, product_name, product_version, cache_dir, relay_control, no_keychain_prompts,
                       sdk /* tests: a fake ^Api instead of the library */,
                       connect_wait_us /* tests: a shorter CONNECT_WAIT_US */}) -> bool
-eos.open_host(bucket) -> (netcode.Link, bool)        // login if needed, create the lobby; link usable at once
-eos.open_join(bucket, code) -> (netcode.Link, bool)  // login, search by code, join; a malformed code fails here
+eos.open_host(Build{game, compat, version}) -> (netcode.Link, bool)  // login if needed, create the lobby; link usable at once
+eos.open_join(Build{game, compat, version}, code) -> (netcode.Link, bool)  // login, search by code, check the build, join
 eos.pump() -> Pump_Result{code, failed}              // tick EOS; the code (host) and a failure are reported once
 eos.close()                                          // destroy/leave the lobby (ticks EOS ≤ 0.5 s so it goes out), close P2P
 eos.status() -> Status{stage, role, code, detail, local, host, network, peers, lib}   // any thread
@@ -22,11 +22,14 @@ eos.forget_device()                                  // test tools: delete this 
 eos.local_account() -> (netcode.Account, bool)       // logged in: {"eos", our product user id} (godot.Transport.account)
 ```
 
-`bucket` names the game and its own compatibility counter (e.g. `survivor/4`): the game bumps it by hand when its
-builds stop being compatible, at least with every netcode `PROTOCOL_VERSION` (an `#assert` reminds it). Lobbies
-only match inside one bucket, so
-incompatible builds never meet. `open_host`/`open_join`/`pump`/`close` are the shape of `godot.Transport`;
-the game's extension wires them (`init` first, with the game library's directory in `lib_dirs`). The link vouches
+`Build` says what keeps builds apart. `game` is the lobby bucket (the game's name: lobbies are searched per game).
+`compat` is the session's build id (`sim.compat_of`, what the relay checks; `godot.Transport` hands it over): with
+`netcode.PROTOCOL_VERSION` it becomes the lobby's `build` attribute (`build_id`). `version` is the readable one (the
+project's stamped version), the lobby's `version` attribute. A joiner whose build differs from the lobby's fails
+before joining, with a message: "that game runs survivor 0.1.4; you have 0.1.3", or "that game runs a different
+build of survivor 0.1.4" when the versions match. Nothing is bumped by hand. `open_host`/`open_join`/`pump`/`close`
+are the shape of `godot.Transport`; a Godot game wires them with `unified:godot_eos` (one line,
+src/godot_eos/SPEC.md), which calls them (`init` first, on the first host or join). The link vouches
 for every peer's account (`netcode.Link.account`: "eos" and the remote's product user id, which EOS authenticated):
 the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower level:
 `host`, `join`, `poll`, `link`, `leave`.
@@ -45,19 +48,30 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
   `.env`), else the same names from the environment (`uni` fills it from `.env`). CI has none. Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
   login again; first login of that device → `CreateUser`. Auth expiry (~1 h) logs in again.
-- **Lobby.** Host: public lobby, max 4 members, host migration off, attribute `code` = 6 characters from
-  `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/L; crypto random, unbiased). Joiner: search by bucket + code (a
-  new lobby takes ~1–2 s to become searchable: up to 5 searches 1.2 s apart), the lobby owner's Product User ID
-  is the host, join. Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
+- **Lobby.** Host: public lobby in the game's bucket, max 4 members, host migration off, public attributes `code` =
+  6 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (no 0/O/1/I/L; crypto random, unbiased), `build` and
+  `version`. Joiner: search by bucket + code (a new lobby takes ~1–2 s to become searchable: up to 5 searches 1.2 s
+  apart), the lobby owner's Product User ID is the host, the lobby's `build` must be ours, join. Any client of the
+  product can list a game's open lobbies with their codes: the code is a convenience for friends, not a secret
+  (#11 D2). Members leaving become link `Disconnected` events; the host leaving fails the joiner. Async
   lobby results carry the session generation: a result for a session already left (Leave, then Host/Join again
   quickly) is dropped, and its lobby destroyed or left. A failed token refresh (~1 h in) retries every 15 s
-  instead of failing the running session. A crashed player rejoins with the same user ID: on one machine it is back
-  in ~6 s (`uni coop --crash`: the OS reports the dead socket, the host sees the P2P connection close, the lobby
-  keeps the member and the netcode takes the new incarnation on the same peer). Across the internet nothing reports
-  the death, so the host may wait out the SDK's 30 s reconnect window first; not measured yet (#32).
+  instead of failing the running session. A crashed player who never returns: the netcode notices first and frees the seat
+  (10 s of silence, `DISCONNECT_US`), the lobby reports the member Disconnected after ~15 s, the SDK closes P2P
+  after ~37 s (its 30 s reconnect window). A crashed player who restarts and joins again comes back as the same
+  user ID. The host gets no EOS event for the dead process, and its SDK can hold the old connection (as lost, for
+  its 30 s reconnect window), so the new process's connection may not come up, or come up half-open (nothing gets
+  through). Two rules get it back (#32): when the netcode is done with a peer (`Link.forget`: 10 s of silence, a
+  goodbye), the host closes that P2P connection, so the user's next request opens a fresh one on the same peer
+  number; and a joiner's connection that closes before anything came through it is another try, not a lost host.
+  Then the netcode's new epoch and "newest wins" seat the same member again. `uni coop survivor --crash`, 5 of 5
+  (2026-11-16, one Windows machine): back 0.5–6.2 s after the host dropped the player (10 s after the crash).
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's
   channel already provides acks, resends and ordering for its reliable lane, the same as over UDP. Host peers
-  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The joiner's first packet
+  1, 2, … are joiners in order of their first packet; a joiner's peer 0 is the host. The host accepts P2P only from
+  its lobby's members (the lobby member events): a request that comes before the lobby says its user joined is held
+  and accepted when it does (the last 8 such requests are held), a stranger's never is, and a member who left must
+  join again. The lobby is the only way in; its limit of 4 is the session's. The joiner's first packet
   makes the connection request. If the connection isn't up 5 s (`CONNECT_WAIT_US`) after joining, the joiner closes
   it (`P2P_CloseConnection`), so its next packet asks again and the host makes a fresh offer; after 4 tries
   (`CONNECT_TRIES`, ~20 s) it fails: "no connection to the host after 20 s". EOS's signalling sometimes delivers
@@ -89,7 +103,10 @@ the relay knows a returning player by it (`src/netcode/SPEC.md`, Members). Lower
 - `tests/eos` (no network): codes (alphabet, unbiased, parsing), framing (every size, loss, reordering,
   garbage, a datagram over MAX_PARTS refused at the sender), credentials precedence, header layouts, library
   load, and the lobby state machine on a fake SDK: host, leave, host again on threads that exit in between, a
-  lobby that arrives after leave is destroyed, a failed request reports its reason once, join, a joiner's P2P
+  lobby that arrives after leave is destroyed, a failed request reports its reason once, the host publishing the
+  code, build and version, a joiner refusing another build with each message (never calling join), the host accepting
+  P2P from lobby members only (a stranger never, an early request on join, a member who left after rejoining),
+  join, a joiner's P2P
   connection that never comes up (closed and asked again, then a failure) or comes up on a retry, shutdown.
 - Two processes on one machine through EOS (the `.env`'s `UNIFIED_EOS_*` IDs and SDK), the game's headless binary:
   `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C
@@ -102,10 +119,10 @@ By hand, on two machines (no CI job): a Mac hosts, a Windows machine joins by co
 both sides print their verified checksums. Mac side, the game itself:
 `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`
 (`UNIFIED_EOS_RELAYS=force` to force Epic's relays). Windows side, the release headless binary:
-`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360 --bucket <the game's bucket>` (`SURVIVOR_BUCKET` in
-`games/survivor/simulation/extension/extension.odin`; `--relays force` to force the relays), or the exported game
-from a release zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
-sides' result lines. The headless `survivor eos-host --wait-s N --bucket <the game's bucket>` hosts too where the
+`.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360` (`--relays force` to force the relays; the
+lobby's build must be the binary's, else it says which version the host runs), or the exported game from a release
+zip. Joining after the host started is a late join with a snapshot. Compare the `checksums` of the two
+sides' result lines. The headless `survivor eos-host --wait-s N` hosts too where the
 binary owns the keychain entry (not on a Mac where Godot.app made the device ID).
 
 A run passes when every common verified checksum matches (0 mismatches). The measured runs so far (RTT, input
@@ -114,9 +131,9 @@ delay, rollbacks, stalls, the survivor-v0.1.1 release gate) are on the EOS revie
 - **Path labels.** Each side labels the path from its own P2P "connection established" notification, so host and
   client can disagree (Direct on the host, Relayed on the client) when EOS switches routes after connecting. Treat
   the label as a hint; RTT is the better signal.
-- **Drop and rejoin.** A client killed without a clean leave shows up on the host as a lobby member Disconnected
-  within ~20 s; the host closes P2P when the SDK's 30 s reconnect window runs out. A new machine can then join
-  the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
+- **Drop and rejoin.** A client killed without a clean leave: the host's netcode frees its seat after 10 s of
+  silence, the lobby reports the member Disconnected after ~15 s, and P2P closes after ~37 s (the SDK's 30 s
+  reconnect window). A new machine can then join the same code as a new peer. `uni coop survivor --rejoin` covers a clean leave and rejoin by the same
   player on one machine, `uni coop survivor --crash` a crash (the joiner kills its own process) and rejoin by the
   same player, timed on both sides.
 

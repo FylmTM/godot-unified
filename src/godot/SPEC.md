@@ -47,7 +47,7 @@ fill_frame :: proc(f: ^Frame) {
 <game>_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
 	context = runtime.default_context()
 	godot.install(&g.GAME, GLUE)
-	godot.set_transport(&transport)      // optional: online play (EOS...), never imported by unified:godot
+	godot.set_transport(godot_eos.transport("<game>"))  // optional: EOS online play (src/godot_eos/SPEC.md)
 	return godot.entry(gpa, lib, init)
 }
 ```
@@ -55,6 +55,12 @@ fill_frame :: proc(f: ^Frame) {
 Glue procs are named procs, never inline lambdas. A game's extension fills frames; its Godot calls go in GDScript or
 through `unified:godot` helpers (the input helpers below), so it needs no Godot bindings of its own (`unified:gdext`
 binds what the library uses: src/gdext/SPEC.md).
+
+**Transports.** Online play goes through a `godot.Transport` the game sets (`glue.odin`): `open_host(user, compat,
+events)` and `open_join(user, code, compat, events)` return the link and get the session's build id (`compat`: the
+glue's, else `sim.compat_of(game, level)`), so a transport that lists games can publish it and tell a joiner on
+another build before it joins; `pump`, `close`, and the optional `account`, `main_frame` and `shutdown`.
+`unified:godot` never imports a transport: EOS is `unified:godot_eos`, one line in the game's init.
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from

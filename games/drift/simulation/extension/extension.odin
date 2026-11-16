@@ -6,10 +6,9 @@ package drift_extension
 
 import "base:runtime"
 import "core:math"
-import "unified:eos"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:netcode"
+import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
 import "unified:view"
@@ -25,46 +24,8 @@ drift_init :: proc "c" (
 	context = runtime.default_context()
 	constants_init()
 	godot.install(&dr.GAME, GLUE)
-	godot.set_transport(&EOS_TRANSPORT)
+	godot.set_transport(godot_eos.transport("drift")) // online play: EOS lobbies and P2P
 	return godot.entry(gpa, lib, init)
-}
-
-// ---- online play: EOS (lobby codes, P2P with Epic relays), through unified:godot's transport interface
-
-// Game + net protocol version: lobby search only finds lobbies of the same bucket.
-BUCKET :: "drift/6"
-#assert(netcode.PROTOCOL_VERSION == 11, "netcode protocol changed: bump BUCKET with it")
-
-@(private)
-eos_init :: proc(events: ^godot.Transport_Events) -> bool {
-	if eos.init({product_name = "drift", product_version = godot.app_version}) do return true
-	events.fail(events.ctx, eos.status().detail)
-	return false
-}
-
-EOS_TRANSPORT := godot.Transport {
-	name = "EOS",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		if !eos_init(events) do return {}, false
-		link, ok := eos.open_host(BUCKET)
-		if !ok do events.fail(events.ctx, eos.status().detail)
-		return link, ok
-	},
-	open_join = proc(_: rawptr, code: string, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		if !eos_init(events) do return {}, false
-		link, ok := eos.open_join(BUCKET, code)
-		if !ok do events.fail(events.ctx, eos.status().detail)
-		return link, ok
-	},
-	pump = proc(_: rawptr, events: ^godot.Transport_Events) {
-		result := eos.pump()
-		if result.code != "" do events.code(events.ctx, result.code)
-		if result.failed != "" do events.fail(events.ctx, result.failed)
-	},
-	close = proc(_: rawptr) {eos.close()},
-	account = proc(_: rawptr) -> (netcode.Account, bool) {return eos.local_account()},
-	main_frame = proc(_: rawptr) {eos.pump_main_run_loop()},
-	shutdown = proc(_: rawptr) {eos.shutdown()},
 }
 
 /// ---- the view contract

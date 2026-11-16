@@ -112,6 +112,7 @@ netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Cl
 		recv    = netsim_recv,
 		close   = netsim_close,
 		event   = inner.event == nil ? nil : netsim_event,
+		forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: Peer) {link_forget(&(^Net_Sim)(data).inner, peer)},
 		account = inner.account == nil ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
 			return link_account(&(^Net_Sim)(data).inner, peer)
 		},

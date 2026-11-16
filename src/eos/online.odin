@@ -12,7 +12,7 @@
 // the thread that ticks (a session thread may be gone by the next session). The thread running the netcode
 // drives EOS (the link's recv ticks the platform, `pump` too). Status is read with `status`, from any
 // thread. open_host / open_join / pump / close are the transport shape a host program's session
-// loop uses (godot_host.Transport).
+// loop uses (godot.Transport).
 package eos
 
 import "base:runtime"
@@ -58,8 +58,33 @@ Remote :: struct {
 	id_str:    [PRODUCTUSERID_MAX_LENGTH + 1]u8,
 	network:   Network_Connection_Type,
 	connected: bool,
+	forgotten: bool, // host: closed by link_forget; its close notification is ours, not news for the netcode
+	heard:     bool, // a packet came in on this connection since it came up
 	reasm:     Reasm,
 }
+
+// What keeps builds apart. Lobbies are found per game (the bucket is the game's name); the host publishes its
+// build and readable version as lobby attributes, and a joiner on another build is told so instead of joining.
+Build :: struct {
+	game:    string, // the lobby bucket: the game's name ("survivor")
+	compat:  u64, // the session's build id (sim.compat_of: what the relay checks), with the netcode protocol
+	version: string, // readable, for the message ("0.1.4": the project's stamped version)
+}
+
+// The `build` attribute of a lobby: the compat and the netcode protocol version.
+build_id :: proc(compat: u64, allocator := context.temp_allocator) -> string {
+	return fmt.aprintf("%016x-p%d", compat, netcode.PROTOCOL_VERSION, allocator = allocator)
+}
+
+// A user the host knows by id: a lobby member it saw join, or a connection request it holds until the user
+// joins (P2P is accepted from lobby members only).
+User :: struct {
+	used:   bool,
+	id:     Product_User_Id,
+	id_str: [PRODUCTUSERID_MAX_LENGTH + 1]u8,
+}
+
+HELD_REQUESTS :: 8 // connection requests from users not (yet) seen in the lobby; the oldest is dropped
 
 Init_Options :: struct {
 	lib_dirs:            []string, // where to look for the SDK library; empty = default_lib_dirs()
@@ -100,7 +125,9 @@ Online :: struct {
 	notify_auth:    Notification_Id,
 	notify_member:  Notification_Id,
 	// session
-	bucket:         [64]u8,
+	bucket:         [64]u8, // the game's name
+	build_id:       [40]u8, // build_id(compat)
+	version:        [64]u8,
 	code:           Code,
 	lobby_id:       [128]u8,
 	in_lobby:       bool,
@@ -110,6 +137,9 @@ Online :: struct {
 	notify_est:     Notification_Id,
 	notify_closed:  Notification_Id,
 	remotes:        [MAX_REMOTES]Remote,
+	members:        [MAX_MEMBERS]User, // host: the lobby's members it saw join (P2P is accepted from them only)
+	held:           [HELD_REQUESTS]User, // host: connection requests waiting for their user to join the lobby
+	held_next:      int, // the held slot the next request takes (a ring: a stranger can't pin a slot)
 	next_frag:      u16,
 	last_tick_us:   i64,
 	sent, received: int,
@@ -279,14 +309,15 @@ init :: proc(opts: Init_Options) -> bool {
 	return true
 }
 
-// Starts hosting: login if needed, then a lobby for `bucket` (game + protocol version, so
-// incompatible builds never meet) with a fresh code. Poll until Ready, then read the code.
-host :: proc(bucket: string) -> bool {
-	return begin(.Host, bucket, {})
+// Starts hosting: login if needed, then a lobby of `build.game` with a fresh code and the build's attributes.
+// Poll until Ready, then read the code.
+host :: proc(build: Build) -> bool {
+	return begin(.Host, build, {})
 }
 
-// Starts joining the lobby with `code` (as typed: case and dashes don't matter).
-join :: proc(bucket: string, code: string) -> bool {
+// Starts joining the lobby with `code` (as typed: case and dashes don't matter). A lobby of another build fails
+// the join with a message naming both versions.
+join :: proc(build: Build, code: string) -> bool {
 	game_code, ok := code_parse(code)
 	if !ok {
 		online := &session
@@ -294,7 +325,7 @@ join :: proc(bucket: string, code: string) -> bool {
 		set_detail(online, "%q is not a game code (6 letters and digits)", code)
 		return false
 	}
-	return begin(.Join, bucket, game_code)
+	return begin(.Join, build, game_code)
 }
 
 // Ticks EOS and advances the session. Call it regularly while no link is in use.
@@ -359,6 +390,7 @@ link :: proc() -> (net_link: netcode.Link, ok: bool) {
 			recv    = link_recv,
 			close   = link_close,
 			event   = link_event,
+			forget  = link_forget,
 			account = link_account,
 		}, true
 }
@@ -391,19 +423,19 @@ local_account :: proc() -> (account: netcode.Account, ok: bool) {
 	return {platform = PLATFORM, id = cstr(id[:])}, true
 }
 
-// --- transport shape (godot_host.Transport) -----------------------------------------------------
+// --- transport shape (godot.Transport) ----------------------------------------------------------
 
 // Starts hosting and returns the link at once (init must have succeeded).
-open_host :: proc(bucket: string) -> (net_link: netcode.Link, ok: bool) {
-	if !host(bucket) {
+open_host :: proc(build: Build) -> (net_link: netcode.Link, ok: bool) {
+	if !host(build) {
 		return
 	}
 	return link()
 }
 
 // Starts joining `code` and returns the link at once; a bad code fails here.
-open_join :: proc(bucket, code: string) -> (net_link: netcode.Link, ok: bool) {
-	if !join(bucket, code) {
+open_join :: proc(build: Build, code: string) -> (net_link: netcode.Link, ok: bool) {
+	if !join(build, code) {
 		return
 	}
 	return link()
@@ -501,7 +533,7 @@ shutdown :: proc() {
 // --- session state machine ----------------------------------------------------------------------
 
 @(private)
-begin :: proc(role: Role, bucket: string, code: Code) -> bool {
+begin :: proc(role: Role, build: Build, code: Code) -> bool {
 	online := &session
 	sync.guard(&online.mu)
 	if online.stage == .Off {
@@ -519,9 +551,16 @@ begin :: proc(role: Role, bucket: string, code: Code) -> bool {
 	online.search_at_us = 0
 	online.connect_at_us = 0
 	online.connect_tries = 0
+	online.members = {}
+	online.held = {}
+	online.held_next = 0
 	online.n_events = 0
 	online.bucket = {}
-	copy(online.bucket[:len(online.bucket) - 1], bucket)
+	copy(online.bucket[:len(online.bucket) - 1], build.game)
+	online.build_id = {}
+	copy(online.build_id[:len(online.build_id) - 1], build_id(build.compat))
+	online.version = {}
+	copy(online.version[:len(online.version) - 1], build.version)
 	online.detail_len = 0
 	if online.local == nil {
 		online.stage = .Login
@@ -847,6 +886,8 @@ start_lobby :: proc(online: ^Online) {
 }
 
 ATTR_CODE :: "code"
+ATTR_BUILD :: "build" // build_id: a joiner joins only the same build
+ATTR_VERSION :: "version" // the host's readable version, for the message when the builds differ
 
 // What an async lobby request carries to its callback: the session generation it belongs to (a
 // session left or replaced while the request was in flight must not be touched by its result) and
@@ -919,21 +960,27 @@ on_lobby_created :: proc "c" (info: ^Lobby_Callback_Info) {
 		return
 	}
 	defer online.api.LobbyModification_Release(mod)
-	code_c := strings.clone_to_cstring(string(online.code[:]), context.temp_allocator)
-	attr := Lobby_Attribute_Data {
-		api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
-		key = ATTR_CODE,
-		value = {as_utf8 = code_c},
-		value_type = .String,
+	attributes := [3][2]string {
+		{ATTR_CODE, string(online.code[:])},
+		{ATTR_BUILD, cstr(online.build_id[:])},
+		{ATTR_VERSION, cstr(online.version[:])},
 	}
-	attribute_options := Lobby_Modification_Add_Attribute_Options {
-		api_version = LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST,
-		attribute   = &attr,
-		visibility  = LA_PUBLIC,
-	}
-	if result := online.api.LobbyModification_AddAttribute(mod, &attribute_options); result != .Success {
-		fail(online, "lobby code attribute: %s", online.api.EResult_ToString(result))
-		return
+	for attribute in attributes {
+		attr := Lobby_Attribute_Data {
+			api_version = LOBBY_ATTRIBUTEDATA_API_LATEST,
+			key = strings.clone_to_cstring(attribute[0], context.temp_allocator),
+			value = {as_utf8 = strings.clone_to_cstring(attribute[1], context.temp_allocator)},
+			value_type = .String,
+		}
+		attribute_options := Lobby_Modification_Add_Attribute_Options {
+			api_version = LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST,
+			attribute   = &attr,
+			visibility  = LA_PUBLIC,
+		}
+		if result := online.api.LobbyModification_AddAttribute(mod, &attribute_options); result != .Success {
+			fail(online, "lobby attribute %s: %s", attribute[0], online.api.EResult_ToString(result))
+			return
+		}
 	}
 	update_options := Lobby_Update_Lobby_Options {
 		api_version               = LOBBY_UPDATELOBBY_API_LATEST,
@@ -1004,6 +1051,19 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 		fail(online, "the game has no host")
 		return
 	}
+	// Another build: say which, rather than join a session the relay would refuse.
+	if lobby_attribute(online, details, ATTR_BUILD) != cstr(online.build_id[:]) {
+		game, ours := cstr(online.bucket[:]), cstr(online.version[:])
+		theirs := lobby_attribute(online, details, ATTR_VERSION)
+		if theirs != "" && theirs != ours {
+			fail(online, "that game runs %s %s; you have %s", game, theirs, ours if ours != "" else "another version")
+		} else if theirs != "" {
+			fail(online, "that game runs a different build of %s %s", game, theirs)
+		} else {
+			fail(online, "that game runs a different build of %s", game)
+		}
+		return
+	}
 	join_options := Lobby_Join_Lobby_Options {
 		api_version          = LOBBY_JOINLOBBY_API_LATEST,
 		lobby_details_handle = details,
@@ -1011,6 +1071,24 @@ on_search_done :: proc "c" (info: ^Result_Callback_Info) {
 	}
 	online.api.Lobby_JoinLobby(online.lobby, &join_options, call_new(online), on_lobby_joined)
 	set_detail(online, "joining game %s", string(online.code[:]))
+}
+
+// A lobby's string attribute (temp-allocated), or "" when it has none.
+@(private)
+lobby_attribute :: proc(online: ^Online, details: H_Lobby_Details, key: cstring) -> string {
+	options := LobbyDetails_Copy_Attribute_By_Key_Options {
+		api_version = LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST,
+		attr_key    = key,
+	}
+	attribute: ^Lobby_Attribute
+	if online.api.LobbyDetails_CopyAttributeByKey(details, &options, &attribute) != .Success || attribute == nil {
+		return ""
+	}
+	defer online.api.Lobby_Attribute_Release(attribute)
+	if attribute.data == nil || attribute.data.value_type != .String || attribute.data.value.as_utf8 == nil {
+		return ""
+	}
+	return strings.clone(string(attribute.data.value.as_utf8), context.temp_allocator)
 }
 
 @(private)
@@ -1070,14 +1148,56 @@ on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info)
 			fail(online, "the host closed the game")
 		}
 	}
+	if online.role != .Host {
+		return
+	}
+	if info.current_status == .Joined {
+		member_joined(online, info.target_user_id)
+		return
+	}
 	gone := info.current_status == .Left || info.current_status == .Disconnected || info.current_status == .Kicked
-	if online.role == .Host && gone {
+	if gone {
+		if i := user_index(online, online.members[:], info.target_user_id); i >= 0 {
+			online.members[i] = {}
+		}
 		for &remote, i in online.remotes {
 			if remote.used && cstr(remote.id_str[:]) == cstr(buf[:]) {
 				remote.connected = false
 				push_event(online, netcode.Peer(i), false)
 			}
 		}
+	}
+}
+
+// Host: a user joined the lobby. It may connect from now on; a connection request it made before the
+// lobby told us (the two arrive in either order) is accepted now.
+@(private)
+member_joined :: proc(online: ^Online, id: Product_User_Id) {
+	if user_index(online, online.members[:], id) < 0 {
+		for &member in online.members {
+			if !member.used {
+				user_set(online, &member, id)
+				break
+			}
+		}
+	}
+	if i := user_index(online, online.held[:], id); i >= 0 {
+		log_line("%s joined the lobby: accepting its held connection request", cstr(online.held[i].id_str[:]))
+		online.held[i] = {}
+		accept(online, id)
+	}
+}
+
+@(private)
+accept :: proc(online: ^Online, id: Product_User_Id) {
+	accept_options := P2P_Accept_Connection_Options {
+		api_version    = P2P_ACCEPTCONNECTION_API_LATEST,
+		local_user_id  = online.local,
+		remote_user_id = id,
+		socket_id      = &online.socket,
+	}
+	if result := online.api.P2P_AcceptConnection(online.p2p, &accept_options); result != .Success {
+		log_line("accepting a P2P connection: %s", online.api.EResult_ToString(result))
 	}
 }
 
@@ -1139,16 +1259,20 @@ on_connection_request :: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Inf
 	if online.role == .Join && !same_user(online, info.remote_user_id, &online.remotes[0]) {
 		return
 	}
-	accept_options := P2P_Accept_Connection_Options {
-		api_version    = P2P_ACCEPTCONNECTION_API_LATEST,
-		local_user_id  = online.local,
-		remote_user_id = info.remote_user_id,
-		socket_id      = &online.socket,
+	// The host only accepts its lobby's members. A request can arrive before the lobby tells us the user
+	// joined: hold it, member_joined accepts it then.
+	if online.role == .Host && user_index(online, online.members[:], info.remote_user_id) < 0 {
+		if user_index(online, online.held[:], info.remote_user_id) < 0 {
+			user_set(online, &online.held[online.held_next], info.remote_user_id)
+			log_line(
+				"connection request from %s, not in the lobby: held until it joins",
+				cstr(online.held[online.held_next].id_str[:]),
+			)
+			online.held_next = (online.held_next + 1) % HELD_REQUESTS
+		}
+		return
 	}
-	result := online.api.P2P_AcceptConnection(online.p2p, &accept_options)
-	if result != .Success {
-		log_line("accepting a P2P connection: %s", online.api.EResult_ToString(result))
-	}
+	accept(online, info.remote_user_id)
 }
 
 @(private)
@@ -1162,6 +1286,7 @@ on_connection_established :: proc "c" (info: ^P2P_On_Peer_Connection_Established
 	}
 	remote := &online.remotes[i]
 	remote.connected = true
+	remote.heard = false
 	remote.network = info.network_type
 	push_event(online, netcode.Peer(i), true)
 	if online.role == .Join && online.connect_at_us != 0 {
@@ -1189,9 +1314,23 @@ on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 	}
 	was_connected := online.remotes[i].connected
 	online.remotes[i].connected = false
+	if online.remotes[i].forgotten {
+		online.remotes[i].forgotten = false // our own close (link_forget): the netcode already knows
+		return
+	}
 	if online.role == .Join && !was_connected {
 		// A try that never connected, closed by connect_again: the netcode keeps waiting for the host.
 		log_line("P2P connection to the host closed before it came up (reason %d)", info.reason)
+		return
+	}
+	if online.role == .Join && !online.remotes[i].heard && online.stage == .Ready {
+		// Up, but nothing ever came through it, then closed: after a crash the host's SDK can hold the old process's
+		// connection, so the new one is half-open until the host closes it (#32). Not a lost host: try again.
+		online.connect_at_us = online.last_tick_us + online.connect_wait
+		log_line(
+			"P2P connection to the host closed before anything came through (reason %d): trying again",
+			info.reason,
+		)
 		return
 	}
 	push_event(online, netcode.Peer(i), false)
@@ -1230,6 +1369,9 @@ end_session :: proc(online: ^Online) {
 	}
 	online.gen += 1
 	online.remotes = {}
+	online.members = {}
+	online.held = {}
+	online.held_next = 0
 	online.connect_at_us = 0
 	online.host = nil
 	online.role = .None
@@ -1335,6 +1477,7 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 				continue
 			}
 			online.received += 1
+			online.remotes[i].heard = true
 			if joined, done := frame_join(&online.remotes[i].reasm, pkt[:written], buf); done {
 				return joined, netcode.Peer(i), true
 			}
@@ -1351,6 +1494,37 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 @(private)
 link_close :: proc(data: rawptr) {
 	// The session outlives the netcode objects; `leave` ends it.
+}
+
+// Host: the netcode is done with a peer (10 s of silence, a goodbye, or garbage). Close our side of its P2P
+// connection: after a crash, EOS would otherwise hold the dead connection for its 30 s reconnect window, and the same
+// user's restarted game couldn't connect until then (#32). The peer number stays the user's; its next connection
+// request (a member's) opens a fresh connection.
+@(private)
+link_forget :: proc(data: rawptr, peer: netcode.Peer) {
+	online := (^Online)(data)
+	sync.guard(&online.mu)
+	if online.role != .Host || online.stage != .Ready || int(peer) < 1 || int(peer) >= MAX_REMOTES {
+		return
+	}
+	remote := &online.remotes[peer]
+	if !remote.used {
+		return
+	}
+	close_options := P2P_Accept_Connection_Options {
+		api_version    = P2P_CLOSECONNECTION_API_LATEST,
+		local_user_id  = online.local,
+		remote_user_id = remote.id,
+		socket_id      = &online.socket,
+	}
+	remote.forgotten = true // before the call: EOS may report the close from inside it
+	if result := online.api.P2P_CloseConnection(online.p2p, &close_options); result != .Success {
+		remote.forgotten = false
+		log_line("closing the P2P connection to %s: %s", cstr(remote.id_str[:]), online.api.EResult_ToString(result))
+		return
+	}
+	remote.connected = false
+	log_line("closed the P2P connection to %s: the session is done with it", cstr(remote.id_str[:]))
 }
 
 @(private)
@@ -1385,7 +1559,8 @@ remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
 			return i
 		}
 	}
-	if !add || online.role != .Host {
+	// Only a lobby member becomes a new peer (its connection was accepted for that reason).
+	if !add || online.role != .Host || user_index(online, online.members[:], id) < 0 {
 		return -1
 	}
 	for i in 1 ..< MAX_REMOTES {
@@ -1401,6 +1576,32 @@ remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
 		}
 	}
 	return -1
+}
+
+// The index of `id` among `users`, or -1.
+@(private)
+user_index :: proc(online: ^Online, users: []User, id: Product_User_Id) -> int {
+	buf: [PRODUCTUSERID_MAX_LENGTH + 1]u8
+	text := ""
+	for &user, i in users {
+		if !user.used do continue
+		if user.id == id do return i
+		if text == "" {
+			id_to_string(online, id, buf[:])
+			text = cstr(buf[:])
+		}
+		if text == cstr(user.id_str[:]) do return i
+	}
+	return -1
+}
+
+@(private)
+user_set :: proc(online: ^Online, user: ^User, id: Product_User_Id) {
+	user^ = {
+		used = true,
+		id   = id,
+	}
+	id_to_string(online, id, user.id_str[:])
 }
 
 @(private)

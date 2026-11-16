@@ -1,8 +1,8 @@
 // EOS product credentials, under one set of names: UNIFIED_EOS_PRODUCT_ID, _SANDBOX_ID, _DEPLOYMENT_ID, _CLIENT_ID
-// and _CLIENT_SECRET. Release builds compile them in (`-define:UNIFIED_EOS_PRODUCT_ID=...`, set by the build from the
-// same names); dev builds read them at run time from the environment, which `uni` fills from the project's
-// git-ignored .env (docs/EOS.md). The values are never logged; the client secret ships inside game builds (EOS game
-// clients work that way) but stays out of the repo.
+// and _CLIENT_SECRET. Game builds compile them in (`-define:UNIFIED_EOS_PRODUCT_ID=...`, set by `uni build` and
+// `uni release` from the same names); the environment is the fallback, which `uni` fills from the project's
+// git-ignored .env (docs/EOS.md). Our code never logs them (the SDK's own boot line does, at info); the client
+// secret ships inside game builds (EOS game clients work that way) but stays out of the repo.
 package eos
 
 import "core:os"

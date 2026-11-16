@@ -26,6 +26,7 @@ seen: struct {
 	hub:       ^netcode.Hub,
 	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
 	held_tick: u32,
+	compat:    u64, // what the transport's open_host got
 }
 
 @(private = "file")
@@ -77,7 +78,7 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 @(private = "file")
 FAILING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
 		events.fail(events.ctx, "fake: no lobby service")
 		return {}, false
 	},
@@ -87,7 +88,8 @@ FAILING := godot.Transport {
 @(private = "file")
 OPENING := godot.Transport {
 	name = "fake",
-	open_host = proc(_: rawptr, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
+		seen.compat = compat
 		events.code(events.ctx, "ABC123")
 		return netcode.loopback_link(seen.hub, 0), true
 	},
@@ -313,8 +315,8 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.api.wait()
 	}
 
-	// A transport that opens: the code reaches the main thread, pump runs, stop ends the session
-	// (nobody to say goodbye to) and closes the transport once.
+	// A transport that opens: it gets the session's build id (what the relay checks), the code reaches the main
+	// thread, pump runs, stop ends the session (nobody to say goodbye to) and closes the transport once.
 	{
 		seen.hub = netcode.hub_create(2)
 		defer netcode.hub_destroy(seen.hub)
@@ -335,6 +337,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, seen.pumps > 0, "the transport is pumped")
+		testing.expect_value(t, seen.compat, sim.compat_of(&toy.GAME))
 		testing.expect_value(t, seen.closes, 1)
 	}
 
@@ -351,12 +354,19 @@ driver_sessions :: proc(t: ^testing.T) {
 	}
 }
 
-// The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after.
+@(private = "file")
+g_forgot: [dynamic]netcode.Peer // the peers the wrapped link was told to forget
+
+// The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after. `forget` reaches
+// the transport either way (EOS closes the peer's connection with it, UDP frees the peer number).
 @(test)
 dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
-	dev_link, link := godot.dev_link_wrap(netcode.loopback_link(hub, 0), 5)
+	inner := netcode.loopback_link(hub, 0)
+	inner.forget = proc(data: rawptr, peer: netcode.Peer) {append(&g_forgot, peer)}
+	defer delete(g_forgot)
+	dev_link, link := godot.dev_link_wrap(inner, 5)
 	other := netcode.loopback_link(hub, 1)
 	defer netcode.link_close(&other)
 	buf: [64]u8
@@ -365,6 +375,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 		return len(hub.inboxes[i].queue)
 	}
 
+	netcode.link_forget(&link, 1)
 	netcode.link_send(&link, 1, {1, 2, 3})
 	testing.expect_value(t, inbox(hub, 1), 1) // delivered at once, no netsim
 	testing.expect(t, dev_link.sim.data == nil, "no netsim created while off")
@@ -377,6 +388,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 		up = {latency_ms = 20},
 		down = {latency_ms = 20},
 	})
+	netcode.link_forget(&link, 1) // with the netsim on
 	netcode.link_send(&link, 1, {4})
 	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
 	time.sleep(30 * time.Millisecond)
@@ -392,6 +404,7 @@ dev_link_passes_through_while_off :: proc(t: ^testing.T) {
 	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")
 	netcode.link_send(&link, 1, {5})
 	testing.expect_value(t, inbox(hub, 1), 3) // direct again
+	testing.expect_value(t, len(g_forgot), 2)
 	netcode.link_close(&link)
 }
 

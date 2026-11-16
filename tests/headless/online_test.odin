@@ -15,13 +15,24 @@ import "unified:netcode"
 g_hub: ^netcode.Hub
 
 @(private = "file")
+g_opened: [2]struct {
+	game:   string,
+	compat: u64,
+} // what the host [0] and the joiner [1] opened the transport with
+
+@(private = "file")
 LOOP_ONLINE := modes.Online {
 	name = "loop",
-	bucket = "test",
 	start = proc(args: ^modes.Args) -> bool {return true},
 	stop = proc() {},
-	open_host = proc(bucket: string) -> (netcode.Link, bool) {return netcode.loopback_link(g_hub, 0), true},
-	open_join = proc(bucket, code: string) -> (netcode.Link, bool) {return netcode.loopback_link(g_hub, 1), true},
+	open_host = proc(game: string, compat: u64) -> (netcode.Link, bool) {
+		g_opened[0] = {game, compat}
+		return netcode.loopback_link(g_hub, 0), true
+	},
+	open_join = proc(game: string, compat: u64, code: string) -> (netcode.Link, bool) {
+		g_opened[1] = {game, compat}
+		return netcode.loopback_link(g_hub, 1), true
+	},
 	poll = proc() -> modes.Online_Status {
 		// A remote peer counts as connected once a datagram from it waits at the host's endpoint.
 		inbox := &g_hub.inboxes[0]
@@ -56,7 +67,8 @@ run_mode :: proc(task: ^Mode_Task) {
 }
 
 // `<name>-host --wait-s` waits for a joiner, whose Hello is already queued when the host starts: the host's
-// own player still gets player 0 and the joiner joins as player 1; both play to the end (#143).
+// own player still gets player 0 and the joiner joins as player 1; both play to the end (#143). Both open the
+// transport with the game's name and the same build id (#304).
 @(test)
 online_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	g_hub = netcode.hub_create(2)
@@ -84,4 +96,7 @@ online_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	thread.destroy(joiner_thread)
 	testing.expect(t, host.ok, "the host failed")
 	testing.expect(t, joiner.ok, "the joiner failed")
+	testing.expect_value(t, g_opened[0].game, HEADLESS.game.name)
+	testing.expect_value(t, g_opened[1].game, HEADLESS.game.name)
+	testing.expect(t, g_opened[0].compat != 0 && g_opened[0].compat == g_opened[1].compat, "the same build id")
 }

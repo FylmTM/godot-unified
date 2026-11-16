@@ -1,6 +1,6 @@
 ---
 name: sim-change
-description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol and lobby-bucket bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/b3, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
+description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/b3, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
 ---
 
 # Changing what the simulation computes
@@ -60,10 +60,9 @@ tuning, `src/physics`, `src/netcode` or the rollback path also runs the long var
   them, so peers on different builds refuse each other at hello. Nothing to bump by hand. Reference runs are
   regenerated (above), since the log and snapshot carry the layout.
 - **The netcode wire protocol** (anything a datagram, hello, snapshot transfer or command message carries):
-  bump `PROTOCOL_VERSION` in `src/netcode/proto.odin` with a note on what changed, and bump every game's lobby
-  bucket with it (`*_BUCKET` in each game's `simulation/extension/extension.odin`, and survivor's `EOS_BUCKET` in
-  `simulation/headless/online.odin`). Each sits next to an `#assert` on the protocol number, which fails until you
-  update it with the bucket. Update `src/netcode/SPEC.md`. The datagram header has its own `DGRAM_VERSION`
+  bump `PROTOCOL_VERSION` in `src/netcode/proto.odin` with a note on what changed. Nothing else to bump: an EOS
+  lobby carries the build (`compat` and the protocol), so a joiner on another build is told so before joining
+  (`src/eos/SPEC.md`). Update `src/netcode/SPEC.md`. The datagram header has its own `DGRAM_VERSION`
   (`src/netcode/channel.odin`).
 - **The snapshot or input log format:** bump `SNAP_VERSION` (`src/sim/snapshot.odin`) or `LOG_VERSION`
   (`src/sim/log.odin`) with a note on what changed, then regenerate the reference runs. The level format has its own

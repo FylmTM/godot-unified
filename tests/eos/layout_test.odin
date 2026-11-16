@@ -143,6 +143,12 @@ LAYOUTS := []Layout {
 	{eos.Lobby_Search_Find_Options, "EOS_LobbySearch_FindOptions", "ApiVersion LocalUserId"},
 	{eos.Version_Options, "EOS_LobbySearch_GetSearchResultCountOptions", "ApiVersion"},
 	{eos.Version_Options, "EOS_LobbyDetails_GetLobbyOwnerOptions", "ApiVersion"},
+	{eos.Lobby_Attribute, "EOS_Lobby_Attribute", "ApiVersion Data Visibility"},
+	{
+		eos.LobbyDetails_Copy_Attribute_By_Key_Options,
+		"EOS_LobbyDetails_CopyAttributeByKeyOptions",
+		"ApiVersion AttrKey",
+	},
 	{eos.Version_Options, "EOS_Lobby_AddNotifyLobbyMemberStatusReceivedOptions", "ApiVersion"},
 	{
 		eos.Lobby_Search_Copy_Search_Result_By_Index_Options,
@@ -213,6 +219,8 @@ CONSTANTS := []Constant {
 	{"EOS_LOBBYSEARCH_FIND_API_LATEST", eos.LOBBYSEARCH_FIND_API_LATEST},
 	{"EOS_LOBBYSEARCH_GETSEARCHRESULTCOUNT_API_LATEST", eos.LOBBYSEARCH_GETSEARCHRESULTCOUNT_API_LATEST},
 	{"EOS_LOBBYDETAILS_GETLOBBYOWNER_API_LATEST", eos.LOBBYDETAILS_GETLOBBYOWNER_API_LATEST},
+	{"EOS_LOBBY_ATTRIBUTE_API_LATEST", eos.LOBBY_ATTRIBUTE_API_LATEST},
+	{"EOS_LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST", eos.LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST},
 	{"EOS_LOBBYSEARCH_COPYSEARCHRESULTBYINDEX_API_LATEST", eos.LOBBYSEARCH_COPYSEARCHRESULTBYINDEX_API_LATEST},
 	{"EOS_LOBBY_JOINLOBBY_API_LATEST", eos.LOBBY_JOINLOBBY_API_LATEST},
 	{
@@ -223,7 +231,9 @@ CONSTANTS := []Constant {
 	{"EOS_LAT_PUBLIC", eos.LA_PUBLIC},
 	{"EOS_AT_STRING", i64(eos.Attribute_Type.String)},
 	{"EOS_CO_EQUAL", eos.CO_EQUAL},
+	{"EOS_LMS_JOINED", i64(eos.Lobby_Member_Status.Joined)},
 	{"EOS_LMS_LEFT", i64(eos.Lobby_Member_Status.Left)},
+	{"EOS_LMS_KICKED", i64(eos.Lobby_Member_Status.Kicked)},
 	{"EOS_LMS_DISCONNECTED", i64(eos.Lobby_Member_Status.Disconnected)},
 	{"EOS_LMS_CLOSED", i64(eos.Lobby_Member_Status.Closed)},
 	{"EOS_Success", i64(eos.Result.Success)},

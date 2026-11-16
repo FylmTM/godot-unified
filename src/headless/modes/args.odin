@@ -28,7 +28,8 @@ usage :: proc() -> ! {
            the relay knows this person by when they come back over UDP)
   <online>-host   --ticks T [--wait-s N] [--bucket B] [--players N] [--code-file F] [--log F] [transport options]
   <online>-client --code CODE --ticks T [--bucket B] [transport options]
-                  (when the game plugs in an online transport, e.g. eos-host / eos-client)
+                  (when the game plugs in an online transport, e.g. eos-host / eos-client; B: the game
+                  name its lobbies go under, default the game's own)
   snapshot --ticks T --out F [--seed S] [--players P]
   resume   --in F --ticks N --trace F
   bench    --entities E --window W --ticks N [--seed S] [--players P]
