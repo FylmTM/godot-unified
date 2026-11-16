@@ -1,6 +1,6 @@
 # godot
 
-Status: signed off 2026-11-15 (#9: contract v1, with its follow-ups #273-#287).
+Status: signed off 2026-11-15 (#9: contract v1, with its follow-ups #273-#287); 2026-11-16 the game API (#234, #240, #242).
 
 `unified:godot` is everything that touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is
 the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.

@@ -1,6 +1,6 @@
 # `unified:level`: Godot-authored levels for the sim
 
-Status: signed off 2026-11-09; 2D levels 2026-11-15 (#9).
+Status: signed off 2026-11-09; 2D levels 2026-11-15 (#9); baked at the game's view_scale 2026-11-16 (#242).
 
 A level is authored as a Godot scene, exported to a small binary file, and loaded by the sim at runtime. First user: `games/friendslop/SPEC.md`.
 

@@ -1,6 +1,6 @@
 # `unified:sim`: the deterministic harness
 
-Status: signed off 2026-11-14 (#6, #166).
+Status: signed off 2026-11-14 (#6, #166); 2026-11-16 buttons and the input before (#242).
 
 A game is a function `tick(state, inputs) → next state`. Every machine that starts from the same bytes and applies
 the same inputs computes the same bytes; rollback, replays, late join and desync detection follow from that. This
