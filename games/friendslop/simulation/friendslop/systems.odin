@@ -610,7 +610,6 @@ bumpers :: proc(t: ^Tick) {
 // Handles the step's Box3D hit events: a thrown or fast item knocks back a player it hits (not its holder, nor its
 // thrower just after the throw), and a hard enough hit rings a bell. Then counts down the items' thrown tags.
 hits :: proc(t: ^Tick) {
-	clear(&t.world.hits)
 	physics.hit_events(t.world.phys, &t.world.hits)
 	for &hit in t.world.hits {
 		entity_a := entity_of(t, hit.material_a)
@@ -665,7 +664,6 @@ plates_and_switches :: proc(t: ^Tick) {
 		case .Plate:
 			// The mass of the bodies whose centre is over the plate (up to 2.5 m above it).
 			top := def.volume.pos.y + def.volume.half.y
-			clear(&t.world.links)
 			low := def.volume.pos - def.volume.half
 			high := def.volume.pos + def.volume.half + {0, 2.5, 0}
 			physics.overlap_aabb(

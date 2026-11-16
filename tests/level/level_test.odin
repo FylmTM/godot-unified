@@ -2,8 +2,10 @@
 // and physics.create_static builds the bodies.
 package test_level
 
+import "core:math"
 import "core:testing"
 
+import "unified:b3"
 import "unified:level"
 import "unified:physics"
 
@@ -194,7 +196,9 @@ create_static_bodies :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	world := physics.create()
 	defer physics.destroy(world)
-	testing.expect_value(t, physics.create_static(world, &loaded), 2)
+	count, problem := physics.create_static(world, &loaded)
+	testing.expect_value(t, count, 2)
+	testing.expect_value(t, problem, "")
 	// A ray down at the origin hits the floor's top; the rotated box (pos (0,1,5) local (0,1,0)) is hit
 	// at y = 1.5; the sphere at (3,1,5) on top at y = 1.5; the capsule lies along x at (-3,1,5): top 1.25.
 	expect_top :: proc(t: ^testing.T, world: ^physics.World, x, z, want: f32) {
@@ -207,4 +211,38 @@ create_static_bodies :: proc(t: ^testing.T) {
 	expect_top(t, world, -3.2, 5, 1.25) // along x from -3.5 to -2.5
 	hit, _ := physics.ray_closest(world, {0, 10, 5}, {0, -20, 0})
 	testing.expect_value(t, hit.material, 77)
+}
+
+// A shape Box3D refuses is never a silent hole: create_shape says so, and create_static names the first one (#149).
+@(test)
+create_static_names_a_refused_shape :: proc(t: ^testing.T) {
+	world := physics.create()
+	defer physics.destroy(world)
+	// 3 points: no hull. A cube's 7 x 7 x 7 surface lattice pushed onto a sphere: past Box3D's 128 hull edges at
+	// the 64-vertex cap.
+	sphere: [dynamic][3]f32
+	defer delete(sphere)
+	for x in -3 ..= 3 do for y in -3 ..= 3 do for z in -3 ..= 3 {
+		if max(abs(x), abs(y), abs(z)) != 3 do continue
+		point := [3]f32{f32(x), f32(y), f32(z)}
+		append(&sphere, point / math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z))
+	}
+	shapes := []level.Shape {
+		{kind = .Box, rot = {0, 0, 0, 1}, half = {1, 1, 1}},
+		{kind = .Hull, rot = {0, 0, 0, 1}, points = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}},
+		{kind = .Hull, rot = {0, 0, 0, 1}, points = sphere[:]},
+	}
+	bodies := []level.Body{{name = "rocks", rot = {0, 0, 0, 1}, shapes = shapes}}
+	loaded := level.Level {
+		bodies = bodies,
+	}
+	body_def := b3.default_body_def()
+	body := b3.create_body(world.id, &body_def)
+	shape_def := b3.default_shape_def()
+	testing.expect(t, physics.create_shape(body, &shape_def, &shapes[0]))
+	testing.expect(t, !physics.create_shape(body, &shape_def, &shapes[1]))
+	testing.expect(t, !physics.create_shape(body, &shape_def, &shapes[2]))
+	count, problem := physics.create_static(world, &loaded)
+	testing.expect_value(t, count, 1)
+	testing.expect_value(t, problem, `level body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)
 }

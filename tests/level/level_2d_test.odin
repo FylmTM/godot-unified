@@ -194,7 +194,9 @@ create_static_2d :: proc(t: ^testing.T) {
 	if !ok do return
 	world := physics.create()
 	defer physics.destroy(world)
-	testing.expect_value(t, physics.create_static(world, &loaded), 4)
+	count, problem := physics.create_static(world, &loaded)
+	testing.expect_value(t, count, 4)
+	testing.expect_value(t, problem, "")
 	// A ray into the plane (+z) at (x, y): the front face it hits (z = -depth/2 for boxes and hulls).
 	front :: proc(world: ^physics.World, x, y: f32) -> (z: f32, hit: physics.Ray_Hit, ok: bool) {
 		hit, ok = physics.ray_closest(world, {x, y, -5}, {0, 0, 10})

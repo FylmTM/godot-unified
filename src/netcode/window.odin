@@ -103,8 +103,9 @@ window_write_tick :: proc(
 }
 
 // Reads the next tick of a packet into `tick`, which holds the tick before it (zeroed for the first): its changes
-// are applied in place. False when it is malformed: unknown flags, a player past PLAYERS or a byte past the input's
-// size, bad commands (sim.read_commands) or join records (sim.read_joins), or cut short; the ticks after it can't be found.
+// are applied in place. False when it is malformed: unknown flags, a slot past PLAYERS (present, replaced or an
+// input) or a byte past the input's size, bad commands (sim.read_commands) or join records (sim.read_joins), or cut
+// short; the ticks after it can't be found.
 window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYERS)) -> bool {
 	KNOWN :: Window_Flags{.Presence, .Inputs, .Commands, .Joins}
 	flags := transmute(Window_Flags)wire.r_u8(reader)
@@ -114,6 +115,9 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYER
 	if .Presence in flags {
 		tick.present = transmute(sim.Slots)wire.r_u32(reader)
 		tick.replaced = transmute(sim.Slots)wire.r_u32(reader)
+		if (transmute(u32)tick.present | transmute(u32)tick.replaced) >> uint(PLAYERS) != 0 {
+			return false
+		}
 	}
 	if .Inputs in flags {
 		players: u64

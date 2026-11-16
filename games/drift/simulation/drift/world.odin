@@ -67,7 +67,8 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.px_per_m = loaded.px_per_m
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	world.extras[0] = physics.extra(world.phys, State)
-	physics.create_static(world.phys, &world.level_data, CAT_STATIC)
+	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
+	assert(problem == "", problem) // a hole in the level's collision
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {

@@ -328,7 +328,7 @@ install :: proc(
 	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
 		append(&problems, fmt.aprintf("State: %s", reason))
 	}
-	if reason := sim.plain_violation(type_info_of(Input)); reason != "" {
+	if reason := sim.wire_violation(type_info_of(Input)); reason != "" {
 		append(&problems, fmt.aprintf("Input: %s", reason))
 	}
 	data_problems(glue.data, glue.constants.id, &problems)

@@ -226,13 +226,48 @@ With_Pointer :: struct {
 	pointer: ^int,
 }
 
+Sized :: struct {
+	f: i64,
+	a: i8,
+	b: u8,
+	c: i16,
+	d: u32be,
+	e: f32,
+	g: enum u16 {
+		A,
+	},
+	h: bit_set[0 ..< 16;u16],
+	i: [8]u8,
+}
+
+Flags :: struct {
+	on:   bool,
+	_pad: [3]u8,
+	more: b32,
+}
+
 @(test)
 plain_data_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.State)), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(toy.Input)), "")
+	testing.expect_value(t, sim.wire_violation(type_info_of(toy.Input)), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(Sized)), "")
+	testing.expect_value(t, sim.wire_violation(type_info_of(Sized)), "")
 	testing.expect(t, sim.plain_violation(type_info_of(Padded)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
+	// Platform-sized integers and any float but f32, also inside an enum, a bit_set or an array.
+	Default_Enum :: enum {
+		A,
+	}
+	Distinct_Int :: distinct int
+	for type in ([]typeid{int, uint, uintptr, f64, f16, Default_Enum, bit_set[0 ..< 8;int], [2]f64, Distinct_Int}) {
+		testing.expectf(t, sim.plain_violation(type_info_of(type)) != "", "%v accepted in the state", type)
+	}
+	// Bools: in the state, yes; in what comes from another machine (an Input, a command), no.
+	testing.expect_value(t, sim.plain_violation(type_info_of(Flags)), "")
+	testing.expect(t, sim.wire_violation(type_info_of(Flags)) != "")
+	testing.expect(t, sim.wire_violation(type_info_of([4]b8)) != "")
 	testing.expect(t, sim.layout_hash(toy.State) != sim.layout_hash(Padded))
 }
 
@@ -631,15 +666,15 @@ snapshot_errors_are_values :: proc(t: ^testing.T) {
 	defer delete(data)
 	_, err := sim.from_snapshot(&toy.GAME, data[:10])
 	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
-	data[sim.SNAP_HEADER - 9] ~= 1 // the layout hash
+	data[sim.SNAP_HEADER - 17] ~= 1 // the layout hash
 	_, err = sim.from_snapshot(&toy.GAME, data)
 	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
-	data[sim.SNAP_HEADER - 9] ~= 1
+	data[sim.SNAP_HEADER - 17] ~= 1
 	// another block size (a state that grew) is another build's state too, not a bad header
-	data[sim.SNAP_HEADER - 20] ~= 4 // the block size's low byte
+	data[sim.SNAP_HEADER - 28] ~= 4 // the block size's low byte
 	_, err = sim.from_snapshot(&toy.GAME, data)
 	testing.expect_value(t, err, sim.Snap_Error.Layout_Differs)
-	data[sim.SNAP_HEADER - 20] ~= 4
+	data[sim.SNAP_HEADER - 28] ~= 4
 	// magic and version come first: a wrong magic is a bad header whatever follows
 	data[0] = 'X'
 	_, err = sim.from_snapshot(&toy.GAME, data)
@@ -728,6 +763,17 @@ content_identity :: proc(t: ^testing.T) {
 	restored, restore_err := sim.from_snapshot(&toy.GAME, snap, level_a)
 	testing.expect_value(t, restore_err, sim.Snap_Error.None)
 	if restored != nil do sim.destroy(restored)
+	// Another build with the same state layout (here another game version) refuses the snapshot.
+	other := toy.GAME
+	other.version = "another"
+	_, err = sim.from_snapshot(&other, snap, level_a)
+	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
+	// ... and so does a snapshot taken by a build on another library version (its compat in the header).
+	another := transmute([8]u8)u64le(sim.compat_of(&toy.GAME, level_a, {version = sim.LIBRARY_VERSION + 1}))
+	at := sim.SNAP_HEADER - 16 // the compat, before the payload digest
+	copy(snap[at:], another[:])
+	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)
+	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
 
 	// The current version round-trips; any other version is refused.
 	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {

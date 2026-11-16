@@ -8,28 +8,58 @@ import "core:fmt"
 import "core:strings"
 
 // Returns "" if values of the type are plain data that can be memcpy'd, hashed as bytes and sent
-// to another machine: integers, floats, bools, enums, bit_sets, fixed arrays and structs of those,
-// with no implicit padding anywhere (so the bytes are fully defined). Otherwise, the reason.
+// to another machine: fixed-size integers (not int, uint or uintptr, whose size is the platform's), f32
+// (the sim is f32 only), bools, enums, bit_sets, fixed arrays and structs of those, with no implicit
+// padding anywhere (so the bytes are fully defined). Otherwise, the reason. The state block's rule.
 plain_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
+	return plain_check(type, path, bools = true)
+}
+
+// plain_violation without bools: the rule for what comes from another machine and is compared and logged as raw
+// bytes (a tick's Input, a command). A bool's byte can hold values other than 0 and 1 there, which Odin's bool
+// operations don't define; a u8 of flags or a bit_set says the same thing with every byte value defined.
+wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
+	return plain_check(type, path, bools = false)
+}
+
+@(private)
+plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool) -> string {
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_violation(variant.base, path)
-	case runtime.Type_Info_Integer, runtime.Type_Info_Float, runtime.Type_Info_Boolean:
+		return plain_check(variant.base, path, bools)
+	case runtime.Type_Info_Integer:
+		if type.id == int || type.id == uint || type.id == uintptr {
+			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
+		}
+		return ""
+	case runtime.Type_Info_Float:
+		if type.size != 4 {
+			return fmt.tprintf("%s: %v (the simulation is f32 only)", path, type.id)
+		}
+		return ""
+	case runtime.Type_Info_Boolean:
+		if !bools {
+			return fmt.tprintf(
+				"%s: %v (a bool's byte from another machine may be neither 0 nor 1: use u8 flags or a bit_set)",
+				path,
+				type.id,
+			)
+		}
 		return ""
 	case runtime.Type_Info_Enum:
-		return plain_violation(variant.base, path)
+		return plain_check(variant.base, path, bools)
 	case runtime.Type_Info_Bit_Set:
 		if variant.underlying == nil {
 			return fmt.tprintf("%s: bit_set without an explicit backing integer", path)
 		}
-		return ""
+		return plain_check(variant.underlying, path, bools)
 	case runtime.Type_Info_Array:
-		return plain_violation(variant.elem, path)
+		return plain_check(variant.elem, path, bools)
 	case runtime.Type_Info_Enumerated_Array:
 		if variant.is_sparse {
 			return fmt.tprintf("%s: sparse enumerated array", path)
 		}
-		return plain_violation(variant.elem, path)
+		return plain_check(variant.elem, path, bools)
 	case runtime.Type_Info_Struct:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
@@ -40,7 +70,7 @@ plain_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 			if variant.offsets[i] != end {
 				return fmt.tprintf("%s: implicit padding before this field", name)
 			}
-			if reason := plain_violation(variant.types[i], name); reason != "" {
+			if reason := plain_check(variant.types[i], name, bools); reason != "" {
 				return reason
 			}
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
@@ -62,6 +92,14 @@ check_plain :: proc($T: typeid) {
 check_plain_of :: proc(type: ^runtime.Type_Info) {
 	if reason := plain_violation(type, fmt.tprint(type.id)); reason != "" {
 		fmt.panicf("%v is not plain data: %s", type.id, reason)
+	}
+}
+
+// Panics unless T is plain data without bools (see wire_violation): what create, the netcode client and the relay
+// check an Input with.
+check_wire :: proc($T: typeid) {
+	if reason := wire_violation(type_info_of(T), fmt.tprint(typeid_of(T))); reason != "" {
+		fmt.panicf("%v can't be sent between machines: %s", typeid_of(T), reason)
 	}
 }
 

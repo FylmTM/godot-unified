@@ -49,8 +49,8 @@ pixels, with `px_per_m` from the level (32).
    `heading × 6 N·s`, with a 1.5 s cooldown.
 3. Fire: every 0.125 s while held, a bullet from the nose with velocity `heading × 18 m/s + ship velocity`, which
    lives 0.875 s. Bullets are sim-only (not bodies). Each tick a ray from the bullet's position to the next
-   position (`physics.ray_closest`, rocks and walls) ends it on a hit. A rock hit costs it 1 HP and pushes it
-   (an impulse of `dir × 0.6`).
+   position (`physics.ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
+   from it. A rock hit costs it 1 HP and pushes it (an impulse of `dir × 0.6`).
 4. Rocks: sizes large/medium/small (radius 1.6/1.0/0.6 m, HP 6/3/1). Each is a convex 8-gon from one of 4 fixed
    shape variants scaled to its size, locked to the plane. At 0 HP, a large or medium rock splits into 2 of the
    next size. They move apart at ±2.5 m/s perpendicular to the parent's velocity, with half the parent's spin.

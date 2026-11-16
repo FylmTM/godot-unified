@@ -340,8 +340,8 @@ Library_Events :: union {
 
 Field_Input :: struct {
 	turn:   i8,
-	thrust: b8,
-	fire:   b8,
+	thrust: u8, // 0 or 1 (an Input holds no bools: sim.wire_violation)
+	fire:   u8,
 	_pad:   u8,
 }
 
@@ -422,11 +422,11 @@ field_tick :: proc(tick: ^Field_Tick) {
 			}
 		}
 		physics.set_velocity_2d(world, ship.body, lin, turn)
-		if player_input.thrust {
+		if player_input.thrust != 0 {
 			physics.apply_impulse_2d(world, ship.body, rot * (10 * DT * physics.mass(world, ship.body)))
 		}
 		if ship.cooldown > 0 do ship.cooldown -= 1
-		if player_input.fire && ship.cooldown == 0 {
+		if player_input.fire != 0 && ship.cooldown == 0 {
 			ship.cooldown = 6
 			nose := pos + rot * 0.5
 			hit, ok := physics.ray_closest(
@@ -493,8 +493,8 @@ field_inputs :: proc(tick: u32) -> Field_Inputs {
 		hash ~= hash >> 12
 		inputs.input[i] = {
 			turn   = (hash >> 4) % 3 == 0 ? i8(hash % 255) - 127 : 0,
-			thrust = b8((hash >> 8) % 3 != 0),
-			fire   = b8((hash >> 12) % 2 == 0),
+			thrust = u8((hash >> 8) % 3 != 0),
+			fire   = u8((hash >> 12) % 2 == 0),
 		}
 	}
 	return inputs

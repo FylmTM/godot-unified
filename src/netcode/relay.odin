@@ -160,7 +160,7 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 // Creates a relay for `PLAYERS` players of `Input` with no links yet (relay_add_link), starting its recording
 // if cfg has one. The clock starts once cfg.start_players have connected.
 relay_create :: proc(cfg: Relay_Config, $Input: typeid, $PLAYERS: int) -> ^Relay(Input, PLAYERS) {
-	sim.check_plain(Input)
+	sim.check_wire(Input)
 	_ = tick_command_budget(Input, PLAYERS) // asserts a tick with a command fits a datagram
 	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
 	relay := new(Relay(Input, PLAYERS))

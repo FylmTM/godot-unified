@@ -1,5 +1,6 @@
 // Portable snapshot: "UNIS", version u16, extra count u16, seed u64, content hash u64 (the level,
-// 0: none), tick u32, block size u32, layout hash u64 (layout_hash of the State), payload XXH3 u64, then
+// 0: none), tick u32, block size u32, layout hash u64 (layout_hash of the State), compat u64 (compat_of of the
+// build that took it), payload XXH3 u64, then
 // the block bytes, then per Extra its size u32 and image bytes. All of it is fixed-width little-endian
 // data without pointers, so a snapshot restores on another OS or CPU (late join, `resume`).
 package sim
@@ -10,9 +11,9 @@ import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
 // 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2); 5: the #6
-// sitting's sim (the bytes are laid out as in 4).
-SNAP_VERSION :: 5
-SNAP_HEADER :: 48
+// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233).
+SNAP_VERSION :: 6
+SNAP_HEADER :: 56
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
 Snap_Error :: enum u8 {
@@ -20,6 +21,7 @@ Snap_Error :: enum u8 {
 	Bad_Header, // not a snapshot, or another format version
 	Layout_Differs, // another build's state: another layout or block size
 	Content_Differs, // the snapshot was taken with other content (another level)
+	Build_Differs, // another build's: the same state layout, another compat (game version, library, Box3D, ...)
 	Checksum_Mismatch, // the payload is damaged
 	Extra_Count, // the number of extra states differs from this build
 	Extra_Rejected, // an extra state (physics) rejected its image
@@ -32,6 +34,7 @@ Snap_Header :: struct {
 	tick:    u32,
 	block:   int, // block size
 	layout:  u64,
+	compat:  u64,
 }
 
 // Encodes the ring snapshot of `tick` into a new byte slice.
@@ -50,6 +53,7 @@ snapshot_encode :: proc(
 		tick    = tick,
 		block   = size_of(State),
 		layout  = layout_hash(State),
+		compat  = simulation.compat,
 	}
 	images := make([][]u8, len(simulation.extras), context.temp_allocator)
 	size := size_of(State)
@@ -77,6 +81,7 @@ snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator :
 	wire.w_u32(&writer, header.tick)
 	wire.w_u32(&writer, u32(header.block))
 	wire.w_u64(&writer, header.layout)
+	wire.w_u64(&writer, header.compat)
 	wire.w_u64(&writer, 0) // payload digest, patched by snap_end
 	wire.w_bytes(&writer, block)
 	return writer
@@ -123,6 +128,7 @@ snap_read :: proc(
 	header.tick = wire.r_u32(&reader)
 	header.block = int(wire.r_u32(&reader))
 	header.layout = wire.r_u64(&reader)
+	header.compat = wire.r_u64(&reader)
 	digest := wire.r_u64(&reader)
 	payload := reader.pos
 	switch {
@@ -147,7 +153,8 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 }
 
 // Builds a new Sim from a portable snapshot, or says why the bytes are not a valid snapshot for
-// this game build and content (the Sim is nil then). `content` is borrowed like create's.
+// this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
+// Build_Differs. `content` is borrowed like create's.
 from_snapshot :: proc(
 	game: ^Game($State, $Input, $World, $PLAYERS),
 	data: []u8,
@@ -162,6 +169,9 @@ from_snapshot :: proc(
 	}
 	if header.content != content_hash(content) {
 		return nil, .Content_Differs
+	}
+	if header.compat != compat_of(game, content) {
+		return nil, .Build_Differs
 	}
 	simulation := create(game, header.seed, content)
 	if header.extras != len(simulation.extras) {

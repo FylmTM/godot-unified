@@ -28,6 +28,9 @@ For every upgrade:
   and each wrapper against the library. Update `src/b3` until `./uni vet` and those tests pass.
 - `tests/b3`'s golden trace (`GOLDEN`) pins the library's results. If it or a reference run changes, the simulation
   changed: update `GOLDEN` and regenerate the reference runs deliberately (`sim-change`).
+- The `tag` is part of `sim.compat_of` (builds on other releases refuse each other), so every reference run's log and
+  snapshot carry a new compat: run `./uni record-reference` for each game and the toy, and commit them with the bump.
+  The results are unchanged when no `ref.trace` changed (the per-tick checksums); a changed one is a sim change.
 - CI on all four platforms proves each platform's library (they must agree on every golden value and reference run):
   the run of step 4 is required before merging, as for any PR touching `src/physics`, `src/b3` or a game's sim
   (`sim-change`, Full CI before merging). `verify` also runs the odin suite against the release's debug library
