@@ -64,7 +64,11 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
 - **Every change is a PR** from its own branch. It says `Closes #N` for each issue it finishes (merging closes them)
   and `Part of #N` for one it only advances. Agents push and open PRs without asking; only merging is gated.
 - **Done means closed.** An issue moved to Done is closed too (`./uni board set N --status Done` does both).
-- **New findings** outside the current request become Backlog issues, not notes in docs or reports.
+- **Findings: do the work; file only what can't be done here.** What belongs to the current stream of work (a bug
+  next to it, a stale doc, a small cleanup or fix) is done in the same PR, not filed. File a Backlog issue only for a
+  new feature, or a fix or improvement big or risky enough to need its own PR and review. Feedback for later from
+  one stream of work (a review, a sitting, a batch) goes into as few issues as possible, each still on one topic.
+  Never notes in docs or reports.
 
 ## Current phase: the foundations review
 
@@ -75,7 +79,8 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
   decisions); its decisions and follow-ups are written into the issue. Check the issue's comments for notes added
   since it was filed.
 - **A sitting's follow-ups ship as one PR per sitting** (or per large part of one): one side session on one branch
-  does them all while the next sitting continues. Issues stay one per decision.
+  does them all while the next sitting continues. Its follow-ups are grouped into as few issues as possible (Findings,
+  above).
 
 ## Conventions
 
