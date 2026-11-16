@@ -70,7 +70,7 @@ level.prop(&m, key) -> ^Prop                  // nil: none; the typed getters re
 level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string
 level.prop_ref(&m, "target") -> int           // a NodePath to another marker: its index (-1: none)
 level.encode(bodies, markers, px_per_m) -> []u8 // the file from Odin values (tests, levels built in code)
-physics.create_static(w, &lvl)                // static bodies in file order
+physics.create_static(w, &lvl) -> (count, problem) // static bodies in file order; problem: a shape Box3D refused
 ```
 
 A level's identity is `sim.content_hash(bytes)` (XXH3 of the file), below.

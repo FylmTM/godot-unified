@@ -128,9 +128,11 @@ needs it, comes later as a unit-vector path.
 
 ## Static level geometry
 
-`create_static(world, ^level.Level, default_category) -> int`: one static body per level body, in file order (shapes
-without a category get `default_category`); `create_shape(body, ^b3.Shape_Def, ^level.Shape)` adds one level shape to
-any body. Baking the level into compound shapes is #148; triangle meshes and height fields are #149.
+`create_static(world, ^level.Level, default_category) -> (count: int, problem: string)`: one static body per level
+body, in file order (shapes without a category get `default_category`); `create_shape(body, ^b3.Shape_Def,
+^level.Shape) -> bool` adds one level shape to any body. A shape Box3D refuses (a hull under 4 points, or past its 128
+edges at the 64-vertex cap) is never a silent hole: `create_shape` returns false, and `problem` names the first such
+level body and shape ("" when every shape was built); the games assert on it. Baking the level into compound shapes is #148; triangle meshes and height fields are #149.
 
 ## 2D
 

@@ -169,6 +169,7 @@ PHYSICS_IMPORTS :: []string {
 	"unified:b3",
 	"base:intrinsics",
 	"base:runtime",
+	"core:fmt", // create_static names the level shape Box3D refused
 	"core:math/bits",
 	"core:sync",
 }

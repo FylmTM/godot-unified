@@ -258,7 +258,8 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 		workers       = PHYSICS_WORKERS,
 	})
 	world.extras[0] = physics.extra(world.phys, State)
-	physics.create_static(world.phys, &world.level, CAT_STATIC)
+	_, problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
+	assert(problem == "", problem) // a hole in the level's collision
 	for index in 0 ..< CHARACTERS {
 		world.character_defs[index] = CHARACTER_DEF
 		world.character_defs[index].material = MAT_PLAYER + u64(index)
