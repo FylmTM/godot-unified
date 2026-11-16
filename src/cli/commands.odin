@@ -109,10 +109,11 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bench",
-			usage   = "[game...]",
-			summary = "each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk",
+			usage   = "[game...] | --views [--window [--mute] [--screen s]]",
+			summary = "each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk; --views: the Godot host's view sync",
 			budget  = 10,
 			options = option_types(Bench_Opts),
+			details = bench_details,
 			run     = cmd_bench,
 		},
 		{

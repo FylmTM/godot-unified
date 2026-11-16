@@ -153,6 +153,9 @@ jobs:
       - name: test --suite godot,godot-bindings (every game under headless Godot, in parallel; the binding tests)
         if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
         run: ./uni test --suite godot,godot-bindings
+      - name: bench --views (the Godot host's view sync, headless; reported in the summary, not gated)
+        if: ${{ !cancelled() && steps.ready.outcome == 'success' && env.LINUX_X64 == 'true' }}
+        run: ./uni bench --views
       - name: Summary
         if: ${{ !cancelled() && steps.ready.outcome == 'success' }}
         run: $UNI ci summary >> "$GITHUB_STEP_SUMMARY"
@@ -163,6 +166,7 @@ jobs:
           path: |
             .out/net.json
             .out/bench.json
+            .out/view_bench.json
             .out/timings.json
             .out/net/
           if-no-files-found: ignore

@@ -126,7 +126,7 @@ Public (`unified:cli`, every project):
 | `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first; a script error ends the run at once (below), and a run still going after 30 minutes (`TOOL_TIMEOUT`) is killed, the Godot it started included |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; the same player, by its EOS account or, with `--lan`, its LAN token). `--lan` uses a free port (parallel runs never meet). A game without a coop tool script gets unified's default (`--lan` only): a headless host (`--host-port`) and joiner (`--join`) with scripted input for 600 ticks, their checksums compared |
 | `bake [game] [--check]` | write the view index (`unified_index.tres`: every scene with a UnifiedView marker, by kind; src/godot/SPEC.md) and bake `.level` files from their scenes (`--check`: fail if one is stale); builds the game library first. Every build of a game's library (so every command that runs the game) refreshes its view index too, except in CI |
-| `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
+| `bench [game...] \| --views [--window [--mute] [--screen s]]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`); `--views`: the Godot host's view sync (`.out/view_bench.json`) |
 | `record-reference <game>` | record a game's reference run anew (the committed log, trace and snapshot `test` replays); "nothing changed" when it reproduces byte for byte |
 | `init <dir> [--unified <url>] [--ref <ref>]` | a new game repo from the template game (below), the shims, `tools/`, `.gitignore`, `.gitattributes`, the submodule (below) |
 | `init games/<name> --in-repo` | in this repo: the template game at `games/<name>` (its files only), its tests imported in `tests/tests.odin` |
@@ -228,6 +228,11 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   rollbacks, stalls, replaced inputs, bytes per second; `net` in `.out/bench.json`, no target) and the headless
   `table-bench` mode once (any game's
   binary): a walk of a sparse 65,536-slot table against a dense one (`table`), without a target.
+  `bench --views` (this repo) is the Godot host's main-thread view sync per frame, the cost every rendered frame
+  pays on top of the game's: `tests/godot_views/view_bench.gd` on the view test extension (built release), one
+  Godot run each at 1k, 4k and 16k moving MultiMesh instances, with 64 moving scene views and a few events a tick;
+  it reads `UnifiedSession.take_sync_stats()` (`.out/view_bench.json`, no target; CI's linux-x64 job runs it
+  headless, where `set_buffer` reaches Godot's dummy renderer: `--window` measures the real one).
 
 ## The template game
 

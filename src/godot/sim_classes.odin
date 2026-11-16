@@ -17,6 +17,7 @@ import "unified:sim"
 // A registered event or command class.
 Sim_Class :: struct {
 	using class: gd.Class,
+	class_name:  ^gd.StringName, // its name, interned: an event's object is made per delivery
 	type:        ^runtime.Type_Info, // the variant's struct
 	kind:        int, // its index in the union
 	is_event:    bool,
@@ -171,6 +172,7 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 			native = "RefCounted",
 			size   = size_of(Sim_Object),
 		},
+		class_name = gd.sn(name),
 		type = variant,
 		kind = kind,
 		is_event = is_event,
@@ -241,7 +243,7 @@ unregister_sim_classes :: proc() {
 new_event_object :: proc(kind: int, tick: u32, id: u64, data: []u8) -> gd.Object {
 	for sim_class in sim_classes {
 		if !sim_class.is_event || sim_class.kind != kind do continue
-		object := gd.Object{gd.construct_object(sim_class.name)}
+		object := gd.Object{gd.construct_object_named(sim_class.class_name)}
 		instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
 		instance.tick = i64(tick)
 		instance.id = i64(id)

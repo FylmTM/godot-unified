@@ -81,6 +81,8 @@ func _initialize() -> void:
 	var typed_multi := multimesh_view(world, true, true, true, "multi2d")
 	var plain_multi := multimesh_view(world, true, false, false, "multi2d")
 	var multi3d := multimesh_view(world, false, true, false, "multi3d", true)
+	const GAME_BOUNDS := AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
+	plain_multi.custom_aabb = GAME_BOUNDS  # the game's own bounds: the host keeps them
 	var views := Node2D.new()
 	world.add_child(views)
 	var session := UnifiedSession.new()
@@ -193,6 +195,12 @@ func _initialize() -> void:
 		and t3.origin.is_equal_approx(POS_3D) and (got_rot.is_equal_approx(want_rot) or got_rot.is_equal_approx(-want_rot)) \
 		and t3.basis.get_scale().is_equal_approx(Vector3(1, 2, 1)) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
 		[multi3d.visible_instance_count, t3, want_rot])
+	# bounds: the host sets custom_aabb (Godot needn't recompute it from the buffer), holding every instance's mesh
+	check("3D bounds hold the instance", multi3d.custom_aabb.encloses(t3 * multi3d.mesh.get_aabb()),
+		[multi3d.custom_aabb, t3 * multi3d.mesh.get_aabb()])
+	var bounds2d := typed_multi.custom_aabb
+	check("2D bounds hold every instance", bounds2d.has_surface() and bounds2d.grow(0.001).has_point(Vector3(30, 40, 0)) 		and bounds2d.grow(0.001).has_point(Vector3(-5, 7.5, 0)) and bounds2d.size.x > 35 + 2 * sqrt(0.5) * 3 - 0.01, bounds2d)
+	check("a game's own custom_aabb is kept", plain_multi.custom_aabb == GAME_BOUNDS, plain_multi.custom_aabb)
 	await check_game_input(session, toy)
 	session.set_input_value(&"drift", 3.0)
 	var y0 := toy.y
