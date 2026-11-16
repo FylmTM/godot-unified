@@ -7,6 +7,12 @@ import "core:strings"
 
 import "unified:cli"
 
+Ci_Opts :: struct {}
+
+Ci_Cache_Key_Opts :: struct {
+	dep: string `args:"pos=0,required" usage:"cache-key: odinfmt or godot"`,
+}
+
 // CI helpers (.github/workflows): the job summary, and a dependency's cache key.
 cmd_ci :: proc(args: []string) -> cli.Result {
 	if len(args) == 0 {
@@ -14,20 +20,15 @@ cmd_ci :: proc(args: []string) -> cli.Result {
 	}
 	switch args[0] {
 	case "summary":
-		Opts :: struct {}
-		opts: Opts
+		opts: Ci_Opts
 		cli.parse(&opts, args[1:])
 		return {ok = true, summary = ci_summary()}
 	case "cache-key":
-		Opts :: struct {
-			dep: string `args:"pos=0,required" usage:"odinfmt or godot"`,
-		}
-		opts: Opts
+		opts: Ci_Cache_Key_Opts
 		cli.parse(&opts, args[1:])
 		return {ok = true, summary = cache_key(opts.dep)}
 	case "-h", "--help":
-		Opts :: struct {}
-		opts: Opts
+		opts: Ci_Opts
 		cli.parse(&opts, args)
 	}
 	cli.usage("ci summary | ci cache-key <dep>")

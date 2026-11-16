@@ -63,8 +63,10 @@ test_watch_drop :: proc(watch: ^Test_Watch, name: string) {
 	}
 }
 
-// Runs a test binary to the end under the watchdog: its output is echoed (state changes aside) and kept whole in
-// <exe>.log; a run killed after a crash or at its timeout says which tests crashed and which were still running.
+// Runs a test binary to the end under the watchdog, its output kept whole in <exe>.log. A passing run prints only the
+// runner's warnings (a leak, a test's log.warn: test_output_warnings) and its last line, "Finished N tests"; a
+// failing one prints the whole output (state changes aside), and --verbose echoes it as it comes. A run killed after
+// a crash or at its timeout also says which tests crashed and which were still running.
 run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 	log_path := tprint("%s.log", exe)
 	log_file, err := os.open(log_path, {.Write, .Create, .Trunc, .Inheritable})
@@ -86,6 +88,7 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 		fatal("cannot read %s", log_path)
 	}
 	watch: Test_Watch
+	output: [dynamic]u8 // what the terminal gets: every line but the state changes
 	pending: [dynamic]u8
 	buf: [16 * 1024]u8
 	crash_at: Maybe(time.Tick)
@@ -116,7 +119,10 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 				line := string(pending[:newline + 1])
 				had := len(watch.crashed)
 				if !test_watch_line(&watch, line) {
-					os.write_string(os.stderr, line)
+					append(&output, ..transmute([]u8)line)
+					if state.verbose {
+						os.write_string(os.stderr, line)
+					}
 				}
 				if len(watch.crashed) > had && crash_at == nil {
 					crash_at = time.tick_now()
@@ -142,13 +148,27 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 		time.sleep(10 * time.Millisecond)
 	}
 	if len(pending) > 0 {
-		os.write_string(os.stderr, string(pending[:]))
-		os.write_string(os.stderr, "\n")
+		append(&output, ..pending[:])
+		append(&output, '\n')
+		if state.verbose {
+			os.write_string(os.stderr, string(pending[:]))
+			os.write_string(os.stderr, "\n")
+		}
 	}
 	os.close(reader)
 	os.close(log_file)
 	exit_state := exited.?
 	seconds := time.duration_seconds(time.tick_since(start))
+	passed := killed == "" && exit_state.exited && exit_state.exit_code == 0
+	if !state.verbose {
+		if passed {
+			for line in test_output_warnings(string(output[:])) {
+				log("%s", line)
+			}
+		} else {
+			os.write_string(os.stderr, string(output[:]))
+		}
+	}
 	if killed != "" {
 		log("uni: %s killed after %.1fs: %s", os.base(exe), seconds, killed)
 		if len(watch.crashed) > 0 {
@@ -161,24 +181,47 @@ run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
 		log("  the whole output: %s", rel(log_path))
 		return false
 	}
-	return exit_state.exited && exit_state.exit_code == 0
+	return passed
 }
 
-// A suite's budget for a warm run (`test --long`: its long budget; `--box3d-debug`: plus BOX3D_DEBUG_EXTRA_BUDGET).
-suite_budget :: proc(name: string) -> f64 {
-	for suite in state.suites {
-		if suite.name == name {
-			budget := state.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
-			if name == "odin" && state.box3d_debug {
-				budget += BOX3D_DEBUG_EXTRA_BUDGET
+// The lines of a passing test run worth showing: each warning or error the runner logged ("[WARN ]", "[ERROR]": a
+// leak report, a test's log.warn) with the indented lines under it, and the runner's "Finished N tests" line.
+// Everything else (the tests' own prints, a fuzz test's expected rejections, the runner's [INFO] lines) stays in the
+// log.
+test_output_warnings :: proc(output: string) -> []string {
+	out: [dynamic]string
+	in_warning := false
+	for line in strings.split_lines(output, context.temp_allocator) {
+		if strings.has_prefix(line, "[WARN") || strings.has_prefix(line, "[ERROR") {
+			in_warning = true
+		} else if in_warning && (strings.has_prefix(line, " ") || strings.has_prefix(line, "\t")) {
+			// the warning's own lines (the leaks it lists)
+		} else {
+			in_warning = false
+			if !strings.has_prefix(line, "Finished ") {
+				continue
 			}
-			return budget
+		}
+		append(&out, line)
+	}
+	return out[:]
+}
+
+// A suite's budget for a warm run (`--long`: its long budget; `--box3d-debug`: plus BOX3D_DEBUG_EXTRA_BUDGET).
+suite_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
+	budget := opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
+	if suite.name == "odin" && opts.box3d_debug {
+		budget += BOX3D_DEBUG_EXTRA_BUDGET
+	}
+	return budget
+}
+
+// What CI allows the named suite (its budget, CI_BUDGET_SCALE times): a test binary still running then has hung.
+suite_timeout :: proc(name: string, opts: Test_Options) -> time.Duration {
+	for &suite in state.suites {
+		if suite.name == name {
+			return time.Duration(suite_budget(&suite, opts) * CI_BUDGET_SCALE * f64(time.Second))
 		}
 	}
 	return 0
-}
-
-// What CI allows a suite (its budget, CI_BUDGET_SCALE times): a test binary still running then has hung.
-suite_timeout :: proc(name: string) -> time.Duration {
-	return time.Duration(suite_budget(name) * CI_BUDGET_SCALE * f64(time.Second))
 }

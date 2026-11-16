@@ -31,7 +31,7 @@ steps (`--only validate,walk`). Every run is strict: an `ERROR` line, a leak at 
    and instantiates every scene, flags unknown `.tscn` properties, checks the game's own contract (friendslop: item
    sizes against the sim; drift: the view contract), fails on a `preload(` in a script the play scene loads (it
    loads on a thread: `games/shared/SPEC.md`), runs the menu for 30 frames. Run it after every GDScript or scene
-   change. A `-d` run stops at the first strict error and waits in the debugger: to list them all at once, run the
+   change. A `-d` run stops at the first strict error (its debugger prompt quits at once): to list them all, run the
    validate script without `-d` (`godot --headless --path games/<game> -s res://addons/unified/validate.gd --
    --no-settings --frames=5`) and read its `Parse Error` lines.
 5. `walk` (`ui_walk.gd`): a headless scripted walk through the games' shared menus and flows with real input events
@@ -61,7 +61,9 @@ opens with `--mute --screen left` and never takes focus**: they may be typing on
 and `coop` windows never take focus (and keep running while not frontmost); `run` needs `--background`; the editor
 always takes focus, so open it only when asked. On macOS Godot activates itself as its window opens and `uni` hands
 the focus straight back (under half a second, twice per start); that a window there keeps running while not
-frontmost is unproven (#49), and `--screen left` doesn't work there yet (#231): pass Godot's index.
+frontmost is unproven (#49). `--screen left|right|primary` reads the screens from the OS in Godot's order (macOS:
+CoreGraphics, checked by CI on a one-display Mac, two screens not yet confirmed, #231; Linux: `xrandr`, or pass
+Godot's index).
 
 - `./uni run <game> --mute --screen left --background` (arguments after `--` go to the game), `./uni editor <game>`.
 - `./uni tool <game> <script> --window [--shots] [-- args]`: any of the game's tool scripts in a window, PNGs in

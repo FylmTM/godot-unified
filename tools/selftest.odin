@@ -6,6 +6,10 @@ import "core:time"
 
 import "unified:cli"
 
+Selftest_Opts :: struct {
+	shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
+}
+
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
 // pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
@@ -16,10 +20,7 @@ import "unified:cli"
 // change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD, so it
 // refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
-	Opts :: struct {
-		shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
-	}
-	opts: Opts
+	opts: Selftest_Opts
 	cli.parse(&opts, args)
 	root := cli.state.project.root
 	st := cli.run_proc({

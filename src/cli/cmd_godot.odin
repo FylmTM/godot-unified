@@ -20,15 +20,17 @@ SESSION_TICKS_LONG :: 256
 // online play fails at once, as on CI (the walk's bad-code join would wait seconds for EOS). `uni coop` is online.
 SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
 
-// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel.
-suite_godot :: proc(games: []Game, only: []string) -> bool {
+// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel. A step that passes or is
+// skipped says so only with --verbose; a failing one always does.
+suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
+	only := opts.only
 	for step_name in only {
 		if !slice.contains(GODOT_STEPS, step_name) {
 			usage("no godot step %q (%s)", step_name, strings.join(GODOT_STEPS, ", "))
 		}
 	}
 	if len(games) > 1 {
-		return godot_in_parallel(games, only)
+		return godot_in_parallel(games, opts)
 	}
 	want :: proc(only: []string, step: string) -> bool {
 		return len(only) == 0 || slice.contains(only, step)
@@ -36,10 +38,10 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 	ok := true
 	for game in games {
 		skip :: proc(game: Game, step, why: string) {
-			log("uni: %s %s: skipped: %s", game.name, step, why)
+			if state.verbose do log("uni: %s %s: skipped: %s", game.name, step, why)
 		}
 		pass :: proc(game: Game, step: string, passed: bool, secs: f64) -> bool {
-			log("uni: %s %s: %s (%.1fs)", game.name, step, passed ? "ok" : "FAILED", secs)
+			if !passed || state.verbose do log("uni: %s %s: %s (%.1fs)", game.name, step, passed ? "ok" : "FAILED", secs)
 			return passed
 		}
 		if has_extension(game) {
@@ -62,7 +64,7 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 		if want(only, "session") {
 			if has_session_step(game) {
 				start := time.tick_now()
-				ticks := state.long ? SESSION_TICKS_LONG : SESSION_TICKS
+				ticks := opts.long ? SESSION_TICKS_LONG : SESSION_TICKS
 				ok = pass(game, "session", session_vs_offline(game, ticks, 1), seconds_since(start)) && ok
 			} else {
 				skip(game, "session", "no extension or no headless binary")
@@ -70,9 +72,9 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 		}
 		if want(only, "bake") {
 			start := time.tick_now()
-			baked := bake_view_index(game, check = true)
+			baked := bake_view_index(game, check = true, quiet = !state.verbose)
 			if os.is_directory(join(game.dir, "game", "levels")) {
-				baked = bake(game, check = true).ok && baked
+				baked = bake(game, check = true, quiet = !state.verbose).ok && baked
 			}
 			ok = pass(game, "bake", baked, seconds_since(start)) && ok
 		}
@@ -112,7 +114,8 @@ suite_godot :: proc(games: []Game, only: []string) -> bool {
 // order; what it built or fetched makes this run cold too). What the games share is made current here first, so
 // the children never race on it.
 @(private)
-godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
+godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
+	only := opts.only
 	godot()
 	ensure_bindings()
 	for game in games {
@@ -140,7 +143,7 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 		if len(only) > 0 {
 			append(&cmd, "--only", strings.join(only, ","))
 		}
-		if state.long {
+		if opts.long {
 			append(&cmd, "--long")
 		}
 		runs[i] = {
@@ -152,12 +155,10 @@ godot_in_parallel :: proc(games: []Game, only: []string) -> bool {
 			timeout = 900 * time.Second,
 		}
 	}
-	log("uni: godot: %d games in parallel", len(games))
+	if state.verbose do log("uni: godot: %d games in parallel", len(games))
 	ok := true
 	for result, i in run_all(runs) {
-		if text := strings.trim_right_space(result.stderr); text != "" {
-			log("%s", text)
-		}
+		child_log(result.stderr, result.ok)
 		if report, found := last_json_object(result.stdout); found {
 			if list, is_list := report["cold"].(json.Array); is_list {
 				for item in list {
@@ -360,28 +361,31 @@ last_json_after :: proc(text, prefix: string) -> json.Value {
 // --- run, editor ------------------------------------------------------------------------------------------------
 
 @(private)
+Run_Opts :: struct {
+	game:       string `args:"pos=0" usage:"the game (default: the only one)"`,
+	mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
+	screen:     string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
+	background: bool `usage:"the window never takes focus (a window an agent opens; macOS: uni hands it straight back when Godot takes it)"`,
+	overflow:   [dynamic]string `usage:"after --: the game's own arguments"`,
+}
+
+@(private)
 cmd_run :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game:       string `args:"pos=0" usage:"the game (default: the only one)"`,
-		mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
-		screen:     string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
-		background: bool `usage:"the window never takes focus (a window an agent opens; macOS: uni hands it straight back when Godot takes it)"`,
-		overflow:   [dynamic]string `usage:"after --: the game's own arguments"`,
-	}
-	opts: Opts
+	opts: Run_Opts
 	parse(&opts, args)
 	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen, opts.background})
 }
 
 @(private)
+Editor_Opts :: struct {
+	game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
+	mute:   bool `usage:"no sound (Godot's dummy audio driver)"`,
+	screen: string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
+}
+
 // The editor takes focus: Godot applies no project override to it, so `--background` has no hook there.
 cmd_editor :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
-		mute:   bool `usage:"no sound (Godot's dummy audio driver)"`,
-		screen: string `usage:"the screen the window opens on: Godot's index, left, right or primary"`,
-	}
-	opts: Opts
+	opts: Editor_Opts
 	parse(&opts, args)
 	return play(game(opts.game), true, nil, {opts.mute, opts.screen, false})
 }
@@ -415,17 +419,35 @@ play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> R
 
 // --- tool -------------------------------------------------------------------------------------------------------
 
+// How long `uni tool` lets a script run before it kills it: a backstop for a script that waits forever (the
+// longest, play_check, runs minutes). A script error doesn't wait for it (tool_details).
+TOOL_TIMEOUT :: 1800
+
+// `tool -h`'s details: what fails a run, and how a script error ends it.
+@(private)
+tool_details :: proc() -> string {
+	return tprint(
+		"A run passes with an ok UNIFIED_RESULT line and exit 0, no ERROR line, no leak at exit and no GDScript\n" +
+		"warning. Headless runs have Godot's debugger on (-d, which prints the warnings): a script error stops at\n" +
+		"its prompt, which quits at once (the run's stdin holds `quit`), so the run ends within seconds with the\n" +
+		"error printed. A run still going after %d minutes is killed.",
+		TOOL_TIMEOUT / 60,
+	)
+}
+
+@(private)
+Tool_Opts :: struct {
+	window:   bool `usage:"in a window that never takes focus (default: headless)"`,
+	mute:     bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
+	screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
+	shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
+	cold:     bool `usage:"clear the shader caches first, like a player's first launch"`,
+	overflow: [dynamic]string `usage:"[game] <script>, then after --: the script's arguments"`,
+}
+
 @(private)
 cmd_tool :: proc(args: []string) -> Result {
-	Opts :: struct {
-		window:   bool `usage:"in a window that never takes focus (default: headless)"`,
-		mute:     bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
-		screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
-		shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
-		cold:     bool `usage:"clear the shader caches first, like a player's first launch"`,
-		overflow: [dynamic]string `usage:"[game] <script>, then after --: the script's arguments"`,
-	}
-	opts: Opts
+	opts: Tool_Opts
 	// [game] <script> [-- args]: positionals before --, the script's arguments after it.
 	split := len(args)
 	for arg, i in args {
@@ -470,7 +492,7 @@ cmd_tool :: proc(args: []string) -> Result {
 		window  = opts.window,
 		shots   = opts.shots ? name : "",
 		place   = {opts.mute, opts.screen, true},
-		timeout = 1800,
+		timeout = TOOL_TIMEOUT,
 	})
 	return {
 		ok      = result.ok,
@@ -507,21 +529,23 @@ godot_user_dir :: proc() -> string {
 
 // --- coop -------------------------------------------------------------------------------------------------------
 
+@(private)
+Coop_Opts :: struct {
+	game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
+	window: bool `usage:"the host in a window that never takes focus, with screenshots"`,
+	mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
+	screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
+	rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
+	crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
+	lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
+}
+
 // A host (windowed with --window, else headless) and a headless joiner with a fresh EOS device id, as two Godot
 // processes running the coop tool script; the host hands the lobby code over through a file. The joiner is always
 // reaped, also when the host fails: an orphan would stay connected to EOS.
 @(private)
 cmd_coop :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
-		window: bool `usage:"the host in a window that never takes focus, with screenshots"`,
-		mute:   bool `usage:"with --window: no sound (Godot's dummy audio driver)"`,
-		screen: string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
-		rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
-		crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
-		lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
-	}
-	opts: Opts
+	opts: Coop_Opts
 	parse(&opts, args)
 	if opts.crash && opts.rejoin {
 		usage("--crash and --rejoin are two different tests")
@@ -617,12 +641,14 @@ cmd_coop :: proc(args: []string) -> Result {
 // --- bake -------------------------------------------------------------------------------------------------------
 
 @(private)
+Bake_Opts :: struct {
+	game:  string `args:"pos=0" usage:"a game (default: every game)"`,
+	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
+}
+
+@(private)
 cmd_bake :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game:  string `args:"pos=0" usage:"a game (default: every game)"`,
-		check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
-	}
-	opts: Opts
+	opts: Bake_Opts
 	parse(&opts, args)
 	ok := true
 	count := 0
@@ -732,8 +758,8 @@ godot_scenes :: proc(dir: string) -> []string {
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
-// level scenes (src/level/SPEC.md).
-bake :: proc(game: Game, check: bool) -> Tool_Result {
+// level scenes (src/level/SPEC.md). `quiet`: name only the levels that changed.
+bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 	if has_extension(game) {
 		ensure_extension(game, .dev) // the game's scripts name its library's classes
 	}
@@ -754,6 +780,7 @@ bake :: proc(game: Game, check: bool) -> Tool_Result {
 			for level_value in levels {
 				if level, iso := level_value.(json.Object); iso {
 					changed, _ := level["changed"].(json.Boolean)
+					if quiet && !changed do continue
 					log(
 						"uni: %s -> %s (%d bytes%s)",
 						json_string(level["scene"]),

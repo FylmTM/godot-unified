@@ -8,13 +8,15 @@ budget; every command rejects arguments it doesn't know and takes `--json`.
 | File | What |
 |---|---|
 | `main.odin` | The entry point: the public commands, the private ones below, this repo's test suites. |
-| `suites.odin` | The `net` suite (the toy's relay and 3 clients over real UDP), the `godot-bindings` suite (`tests/godot`, `tests/godot_views`), `godot-gen`. |
+| `suites.odin` | The `net` suite (the toy's relay and 3 clients over real UDP), the `godot-bindings` suite (`tests/godot`, `tests/godot_views`, a script error under the debugger), `godot-gen`. |
 | `release.odin` | `release`: playable builds (the `release` skill), and `release notes`. |
 | `board.odin` | `board list\|set`: the work board (GitHub Project 2) through `gh` (needs the `project` scope). |
 | `ci.odin` | `ci summary` (the job summary from `.out/`) and `ci cache-key <dep>`. |
 | `selftest.odin` | `selftest`: a fresh clone, bootstrapped by its shim downloading the pinned Odin into an empty cache, `init` a game outside it, its build, tests and `verify` (`--shims`: the bootstrap only). |
 
-A command is a `cli.Command` (name, usage, summary, budget, `run`), a suite a `cli.Suite`; `tools/` imports only
+A command is a `cli.Command` (name, usage, summary, budget, its options structs in `options`, optional `details` for
+`-h`, `run`); `uni vet` fails when its usage line and options disagree. A suite is a `cli.Suite`, run with the
+`cli.Test_Options` of that `test`. `tools/` imports only
 `core:` and `unified:cli`, so library edits never rebuild the CLI. A command moves into `src/cli/` when a game
 needs it.
 

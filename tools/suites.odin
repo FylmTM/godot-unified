@@ -40,15 +40,15 @@ UDP_CLIENTS :: 3 // the last one under the `bad` profile
 
 // A relay and UDP_CLIENTS client processes of the toy's binary over localhost UDP on the real clock: every client
 // verifies every tick, their checksums (every 16th tick) agree, and nobody reports a desync. Writes .out/net.json
-// (CI's job summary reads it) and each process's output to .out/net/.
-suite_net :: proc(games: []cli.Game, only: []string) -> bool {
+// (CI's job summary reads it) and each process's output to .out/net/ (a failure names it).
+suite_net :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
 	cli.build_headless(.release)
 	binary := cli.headless_path("toy", .release)
 	work := cli.join(cli.state.project.out, "net")
 	cli.remove_tree(work)
 	cli.make_dirs(work)
 	start := time.tick_now()
-	detail, ok := udp_processes(binary, work, cli.state.long ? UDP_TICKS_LONG : UDP_TICKS)
+	detail, ok := udp_processes(binary, work, opts.long ? UDP_TICKS_LONG : UDP_TICKS)
 	secs := cli.seconds_since(start)
 	Test :: struct {
 		status:  string,
@@ -71,6 +71,9 @@ suite_net :: proc(games: []cli.Game, only: []string) -> bool {
 		cli.write_file(cli.join(cli.state.project.out, "net.json"), data)
 	}
 	cli.log("udp_processes %s %6.1fs  %s", ok ? "PASS" : "FAIL", secs, detail)
+	if !ok {
+		cli.log("  each process's command line and output: %s", cli.rel(work))
+	}
 	return ok
 }
 
@@ -194,8 +197,9 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 
 // The Godot-side library tests: the gdext bindings (tests/godot), godot_host's views and send_command's refusals,
 // and its session lifecycle (tests/godot_views), each an extension plus a test script under headless Godot.
-// `expected`: error lines the test provokes on purpose (they must show up, and nothing else may).
-suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
+// `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
+// nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
+suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
 	Project :: struct {
 		dir, pkg, stem, script, summary: string,
 		expected:                        []string,
@@ -250,7 +254,22 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 			cli.fatal("building %s failed", cli.rel(started.build.pkg))
 		}
 	}
-	runs := make([]cli.Run, len(projects))
+	// One more run beside them: a script error under the debugger (-d, as `uni tool` runs headless) must end the run
+	// at once through the `quit` on its stdin, with the error printed (tests/godot/debugger_error.gd).
+	runs := make([]cli.Run, len(projects) + 1)
+	runs[len(projects)] = {
+		cmd     = cli.strs(
+			cli.godot(),
+			"--headless",
+			"-d",
+			"--path",
+			projects[0].dir,
+			"-s",
+			"res://debugger_error.gd",
+		),
+		capture = true,
+		timeout = DEBUGGER_ERROR_TIMEOUT,
+	}
 	for p, i in projects {
 		cli.write_extension_list_dir(p.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
@@ -272,15 +291,29 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 	}
 	ok := true
 	for r, i in cli.run_all(runs) {
+		if i == len(projects) {
+			out := strings.concatenate({r.stdout, r.stderr})
+			// (Godot's exit code after the prompt's `quit` is 0: a tool run fails on the error line, judge_tool)
+			passed :=
+				!r.timed_out &&
+				strings.contains(out, "DEBUGGER ERROR: about to fail") &&
+				strings.contains(out, "SCRIPT ERROR") &&
+				!strings.contains(out, "not reached")
+			if !passed {
+				cli.log("%s", strings.trim_right_space(out))
+				cli.log(
+					"uni: tests/godot debugger_error.gd: FAILED: a script error under -d must end the run within %.0fs, failing, with the error printed%s",
+					time.duration_seconds(DEBUGGER_ERROR_TIMEOUT),
+					r.timed_out ? " (it timed out: the debugger prompt never quit)" : "",
+				)
+			} else if cli.state.verbose {
+				cli.log("uni: tests/godot debugger_error.gd: ok, ended at the debugger prompt (%.1fs)", r.seconds)
+			}
+			ok = ok && passed
+			continue
+		}
 		p := projects[i]
 		out := strings.concatenate({r.stdout, r.stderr})
-		for line in strings.split_lines(r.stdout) {
-			if strings.has_prefix(line, "PASS") ||
-			   strings.has_prefix(line, "FAIL") ||
-			   strings.has_prefix(line, p.summary) {
-				cli.log("%s", line)
-			}
-		}
 		errs: [dynamic]string
 		append(&errs, ..cli.godot_errors(out))
 		append(&errs, ..cli.lines_with(out, "Orphan StringName", "leaked at exit"))
@@ -301,23 +334,38 @@ suite_godot_bindings :: proc(games: []cli.Game, only: []string) -> bool {
 				if !provoked[k] do append(&errs, cli.tprint("no error line with %q: the test expects some", expected))
 			}
 		}
+		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
+		if !passed {
+			cli.log("%s", strings.trim_right_space(out))
+		} else if cli.state.verbose {
+			for line in strings.split_lines(r.stdout) {
+				if strings.has_prefix(line, "PASS") || strings.has_prefix(line, p.summary) {
+					cli.log("%s", line)
+				}
+			}
+		}
 		for e in errs {
 			cli.log("godot: %s", e)
 		}
-		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.tprint("%s: 0 failed", p.summary))
-		cli.log("uni: %s %s: %s (%.1fs)", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED", r.seconds)
+		if !passed || cli.state.verbose {
+			cli.log("uni: %s %s: %s (%.1fs)", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED", r.seconds)
+		}
 		ok = ok && passed
 	}
 	return ok
 }
 
+// How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
+DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second
+
 // --- godot-gen --------------------------------------------------------------------------------------------------
 
+Godot_Gen_Opts :: struct {
+	force: bool `usage:"regenerate even when the inputs are unchanged"`,
+}
+
 cmd_godot_gen :: proc(args: []string) -> cli.Result {
-	Opts :: struct {
-		force: bool `usage:"regenerate even when the inputs are unchanged"`,
-	}
-	opts: Opts
+	opts: Godot_Gen_Opts
 	cli.parse(&opts, args)
 	cli.ensure_bindings(opts.force)
 	return {ok = true, summary = "the Godot bindings are current (src/gdext/*.gen.odin)"}

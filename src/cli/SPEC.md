@@ -98,8 +98,13 @@ compile, the compiler's version), never from tool sources; Odin's own cache is k
 
 ## Commands
 
-Every command rejects unknown arguments; `-h` on any command prints its options and budget; `uni help` lists them
-all. Progress goes to stderr, the result to stdout: one line, or with `--json` (any command) one object
+Every command rejects unknown arguments. `uni help` lists every command with its usage line (every option and form)
+and summary; `-h` on a command prints that one usage line, its budget, each option with what it does and the
+command's details (`Command.details`: `test`'s suites and steps, what fails a `tool` run). Each `Command` names the
+options struct of each form it parses (`Command.options`; `parse` refuses another), and `usage_problems` checks the
+usage line against them: a flag the line names must exist, every option must appear, with a value exactly when it
+takes one, and every positional by name. `vet` runs it over every registered command (a project's own included),
+`tests/cli` over the public ones. Progress goes to stderr, the result to stdout: one line, or with `--json` (any command) one object
 `{command, ok, summary, seconds, cold, data}`. The command lines it runs are echoed only with `--verbose` (any
 command; a `uni` it starts inherits it), and when one fails. Exit 0 ok, 1 failed, 2 usage. A warm run over its budget prints
 `OVER BUDGET` (not a failure; CI allows 3x); a cold run (it fetched or built a dependency, generated the Godot bindings, or imported a project) is
@@ -114,11 +119,11 @@ Public (`unified:cli`, every project):
 | `clean [--check] [--cache]` | remove what the CLI built or fetched: every `.out/` and `.godot/` outside hidden directories, the generated bindings; not the running CLI, `.env`, the per-user cache (`--cache`: its Godot and unified-box3d downloads too, never the shims' Odin) or Godot's export templates (`--check`: list only). Fails on what a running process holds (Windows) |
 | `build [game] [--mode dev\|release\|debug]` | the game's (or every game's) headless binary and extension, in parallel (this repo: `toy` builds no extension) |
 | `headless [game] [--mode m] -- <mode> [options]` | the game's headless binary (`src/headless/SPEC.md`; this repo: also `toy`), built when stale, run with the terminal's stdin, stdout and stderr: its JSON is the command's stdout |
-| `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS: Windows only for now), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; on Windows it opens without activation and clicks don't activate it; on macOS Godot activates itself anyway, so while the window is open the CLI hands the focus straight back to the app that was in front, within a fraction of a second). The editor ignores the override and takes focus |
-| `test [game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast; `--box3d-debug` runs the `odin` suite against Box3D's debug library |
-| `vet` | `odin check`, strict flags, every target and define variant, the CLI included; in this repo also the template game's Odin (below) |
+| `run [game] [--background] [-- args]`, `editor [game]` | the game in a window, the Godot editor on it; both take `--mute` (Godot's dummy audio driver) and `--screen <n\|left\|right\|primary>` (Godot's screen index, or one the CLI finds from the OS in Godot's order: Windows' monitors; macOS' displays through CoreGraphics, loaded only then, the menu bar's first and one per mirror set; Linux' `xrandr --listmonitors`, X11 or XWayland: without xrandr, pass the index), as do `tool --window` and `coop --window`. `--background`: the window never takes focus, as `tool` and `coop` windows never do (Godot's `display/window/size/no_focus`, set through an `override.cfg` the CLI writes into the project for the run and removes after; on Windows it opens without activation and clicks don't activate it; on macOS Godot activates itself anyway, so while the window is open the CLI hands the focus straight back to the app that was in front, within a fraction of a second). The editor ignores the override and takes focus |
+| `test [game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]` | the test suites (below); plain `test` runs the `odin` suite, `--suite all` every one; `--only` picks tests (`odin`) or steps (`godot`); `--long` runs each suite's long variant; `--crash` proves a crashing test fails the run fast; `--box3d-debug` runs the `odin` suite against Box3D's debug library. A passing run prints its summary and the warnings logged (a leak, OVER BUDGET), nothing else; a failing one prints the whole log of what failed; `--verbose` everything as it comes |
+| `vet` | `odin check`, strict flags, every target and define variant, the CLI included; in this repo also the template game's Odin (below); and every command's help against its options (above) |
 | `fmt [--check] [path...]`, `fmt --hook` | odinfmt (pinned), and every text file's line endings (below); `--hook`: the one file a Claude Code edit names (the hook's JSON on stdin) |
-| `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first |
+| `tool [game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]` | run a tool script (below), headless unless `--window`; `--cold` clears the shader caches first; a script error ends the run at once (below), and a run still going after 30 minutes (`TOOL_TIMEOUT`) is killed, the Godot it started included |
 | `coop [game] [--window [--mute] [--screen s]] [--rejoin \| --crash] [--lan]` | host and joiner processes, a real lobby; `--rejoin`: the joiner leaves and joins again; `--crash`: it kills itself mid-match and the same player rejoins (timed; the same player, by its EOS account or, with `--lan`, its LAN token). `--lan` uses a free port (parallel runs never meet). A game without a coop tool script gets unified's default (`--lan` only): a headless host (`--host-port`) and joiner (`--join`) with scripted input for 600 ticks, their checksums compared |
 | `bake [game] [--check]` | write the view index (`unified_index.tres`: every scene with a UnifiedView marker, by kind; src/godot/SPEC.md) and bake `.level` files from their scenes (`--check`: fail if one is stale); builds the game library first. Every build of a game's library (so every command that runs the game) refreshes its view index too, except in CI |
 | `bench [game...]` | each game's standard benchmark, alone, on a release build, and the sim's sparse-table walk (`.out/bench.json`) |
@@ -168,16 +173,20 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
   `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data); the CLI passes `--no-settings`,
   `--shots=res://.out/shots/<name>` with `--shots`, and the arguments after `--`. Headless runs have the debugger on
   (`-d`), which prints GDScript warnings; a child's stdin holds one line, `quit`, so a run stopped at the debugger
-  prompt (a script or parse error) quits at once. A script quits through the game's own quit (audio stopped first):
-  a live playback at exit is a leak.
+  prompt (a script or parse error) quits at once (`godot-bindings` checks it: `tests/godot/debugger_error.gd`). A run
+  killed at its timeout is killed with what it started (Windows: `taskkill /T`, since the console Godot starts the
+  real one). A script quits through the game's own quit (audio stopped first): a live playback at exit is a leak.
 - **Strict:** in `godot` suite steps, `tool`, `coop` and `bake`, a failing exit, a missing or `ok: false` result, an
   `ERROR` line, a leak at exit or a GDScript warning fails. `run` and `editor` only report.
 - **Test suites**, each with its own budget (`test`'s budget is the sum of its suites'; in a run of several, one over
   its own is reported); a project's `tools/` adds its own with `cli.add_suites` (this repo: `net`, `godot-bindings`).
   A suite that mostly waits (`Suite.beside`: `net`, `godot-bindings`), run with others, runs beside them in a child
-  `uni test --suite <name>`, once its `prepare` has made current what it shares. By default a suite runs the least that shows
-  the library correct and each game working; `test --long` (`Suite.long_budget`, `cli.state.long`) runs the longer
-  variant, by hand, never in CI:
+  `uni test --suite <name>`, once its `prepare` has made current what it shares. `test` passes each suite its options
+  (`Test_Options`: `only`, `long`, `crash`, `box3d_debug`) and reports its budget in its Result, so a `test` that
+  `verify` nests keeps its own (no global state). Quiet on success: a suite prints only failures and warnings, a
+  child `uni`'s log is cut to its warnings when it passed (`--verbose`: everything). By default a suite runs the least
+  that shows the library correct and each game working; `test --long` (`Suite.long_budget`, `Test_Options.long`)
+  runs the longer variant, by hand, never in CI:
   - `odin`: the test packages in one compile (this repo: every package under `tests/`, the games' suites included;
     a game repo: its `simulation/tests`): unit tests, the library's black-box tests, end-to-end suites, the
     reference-run replays, the Box3D golden trace, the determinism and import lint. The inner loop. `--long`
@@ -186,7 +195,9 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     (`testrun.odin`), as does `record-reference`'s: Odin's runner freezes a crashed test's thread, so a lock it held
     stays held and a test waiting for it would hang the run. The watchdog kills the binary 3s after a crash, or at
     the suite's CI allowance (budget × 3), and names the crashed and still-running tests (the runner logs state
-    changes for it; they stay out of the terminal). The whole output is kept in `.out/test/unified_tests.exe.log`.
+    changes for it; they stay out of the terminal). The whole output is kept in `.out/test/unified_tests.exe.log`;
+    a passing run prints only the runner's `[WARN]`/`[ERROR]` lines (with the lines under them: a leak's
+    allocations) and its `Finished N tests` line, a failing one the whole output.
     `--crash` (this repo) adds `tests/cli`'s test that crashes while holding a lock another test waits for: the
     run must fail within seconds and name both.
     `--box3d-debug` builds into `.out/test-box3d-debug/` against Box3D's debug library (`-define:BOX3D_LIB_DEBUG=true`),
@@ -196,16 +207,19 @@ binaries, `coop`). A game opened in Godot directly, not through `uni editor`, do
     only; every step, `--only` too, first re-imports a missing or stale class cache, as `tool`, `run`, `coop` and
     `bake` do), `editor` (the extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its
     checksums equal the offline headless binary's), `bake` (`--check`), then each tool script the game has of
-    `validate`, `walk` (`ui_walk.gd`), `tour` (quick). `bake` checks the view index too. A step the game can't run prints `skipped: <why>`. Several
+    `validate`, `walk` (`ui_walk.gd`), `tour` (quick). `bake` checks the view index too. A step the game can't run
+    is skipped (`--verbose` says why). Several
     games run in parallel, each in a child `uni test <game> --suite godot` (its log printed when it ends); the
     parent first makes current what they share (Godot, the bindings, Box3D, the `session` step's headless binaries
     in `.out/release/`). The tool scripts run without the EOS SDK, as on CI: they never wait on the lobby service.
   - `net` (this repo): the toy's relay and 3 clients (one on a bad-network profile) over real UDP on the real clock,
     320 ticks at 64 Hz (5 s; `--long` 960, 15 s; never in the inner loop); checksums agree every 16th tick, 0
-    desyncs (`.out/net.json`, `.out/net/`).
+    desyncs (`.out/net.json`, `.out/net/`). Already quiet: one result line.
   - `godot-bindings` (this repo): `tests/godot` and `tests/godot_views` under headless Godot; `tests/godot_views`
-    also runs `session_check.gd`, unified:godot's session lifecycle. The extensions build at once, then the three
-    Godot runs go at once: the session check (its waits for goodbyes and timers) is the suite's time.
+    also runs `session_check.gd`, unified:godot's session lifecycle; `tests/godot/debugger_error.gd` under `-d`
+    proves a script error ends a run at once (above). The extensions build at once, then the four Godot runs go at
+    once: the session check (its waits for goodbyes and timers) is the suite's time. A failing run prints its whole
+    output.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap, 14 ticks at 64 Hz), ticks), which its `bench` mode runs
   with no arguments; the target, a forward step plus a re-sim at the prediction cap within 6 ms, is unified's (the
@@ -265,6 +279,7 @@ change that breaks a new game fails `verify`.
 ## Testing
 
 `tests/cli/` tests the library parts (the config and `.env` parsers, zip, build manifests, SHA-256, small parsers,
-the test watchdog's reading of the runner's output) in `uni test`; `uni test --crash` runs its crash test. `uni selftest` proves the bootstrap, `init` and the template end to end; it runs only when called
+the test watchdog's reading of the runner's output, the help against the public command table, the screen lists) in
+`uni test`; `uni test --crash` runs its crash test. `uni selftest` proves the bootstrap, `init` and the template end to end; it runs only when called
 (before tooling PRs, after a pin or toolchain change), locally. It tests the committed HEAD, so it refuses a working
 tree with uncommitted changes. CI runs every command through the shims, as a developer does (`uni.cmd` on Windows).

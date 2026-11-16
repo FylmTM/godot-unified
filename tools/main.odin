@@ -16,13 +16,15 @@ private_commands :: proc() -> []cli.Command {
 			usage   = "[--force]",
 			summary = "the Godot bindings, src/gdext/*.gen.odin, from the committed API dump",
 			budget  = 3,
+			options = cli.option_types(Godot_Gen_Opts),
 			run     = cmd_godot_gen,
 		},
 		{
 			name      = "release",
-			usage     = "[game] [--tag <game>-v<version> | --version V] [--no-eos] [--no-smoke] | release notes [game] --tag T [--no-eos]",
+			usage     = "[game] [--tag <game>-v<version> | --version V] [--no-eos] [--no-devui] [--no-smoke] | release notes [game] --tag T [--no-eos]",
 			summary   = "a playable build: export, version stamp, sign, zip, smoke test (macOS and Windows)",
 			no_budget = "exports and downloads",
+			options   = cli.option_types(Release_Opts, Release_Notes_Opts),
 			run       = cmd_release,
 		},
 		{
@@ -30,6 +32,7 @@ private_commands :: proc() -> []cli.Command {
 			usage     = "list [--status S] [--area A] | set <issue> [--status S] [--area A]",
 			summary   = "the work board through gh (set --status Done also closes the issue)",
 			no_budget = "networked",
+			options   = cli.option_types(Board_Opts),
 			run       = cmd_board,
 		},
 		{
@@ -37,6 +40,7 @@ private_commands :: proc() -> []cli.Command {
 			usage   = "summary | cache-key <dep>",
 			summary = "the CI job summary (markdown); a dependency's cache key",
 			budget  = 2, // a compiled dependency's key asks the C compiler its version (on Windows, through vcvars)
+			options = cli.option_types(Ci_Opts, Ci_Cache_Key_Opts),
 			run     = cmd_ci,
 		},
 		{
@@ -44,6 +48,7 @@ private_commands :: proc() -> []cli.Command {
 			usage     = "[--shims]",
 			summary   = "the bootstrap (the shims' Odin download) and init end to end, from a fresh clone (run before tooling PRs; never by verify); --shims: the bootstrap only",
 			no_budget = "clones and builds from scratch",
+			options   = cli.option_types(Selftest_Opts),
 			run       = cmd_selftest,
 		},
 	)

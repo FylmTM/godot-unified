@@ -13,11 +13,13 @@ import "core:time"
 BENCH_TARGET_US :: 6000.0
 
 @(private)
+Bench_Opts :: struct {
+	overflow: [dynamic]string `usage:"games (default: every game with a headless binary)"`,
+}
+
+@(private)
 cmd_bench :: proc(args: []string) -> Result {
-	Opts :: struct {
-		overflow: [dynamic]string `usage:"games (default: every game with a headless binary)"`,
-	}
-	opts: Opts
+	opts: Bench_Opts
 	parse(&opts, args)
 	games: [dynamic]Game
 	if len(opts.overflow) == 0 {
@@ -272,15 +274,17 @@ last_json_object :: proc(text: string) -> (json.Object, bool) {
 
 // --- record-reference -------------------------------------------------------------------------------------------
 
+@(private)
+Record_Reference_Opts :: struct {
+	game: string `args:"pos=0,required" usage:"the game (in this repo also toy: tests/scenarios)"`,
+}
+
 // Builds the game's end-to-end suite with -define:UNIFIED_REGEN=true and runs it: its reference test writes a new
 // reference run (ref.log, ref.trace, the snapshot, ref.json saying where it was made), checks it, and the files show
 // up in `git status`. Commit them with the change that made them necessary (the sim-change skill).
 @(private)
 cmd_record_reference :: proc(args: []string) -> Result {
-	Opts :: struct {
-		game: string `args:"pos=0,required" usage:"the game (in this repo also toy: tests/scenarios)"`,
-	}
-	opts: Opts
+	opts: Record_Reference_Opts
 	parse(&opts, args)
 	pkg: string
 	needs_box3d: bool
@@ -335,13 +339,15 @@ cmd_record_reference :: proc(args: []string) -> Result {
 
 // --- setup ------------------------------------------------------------------------------------------------------
 
+@(private)
+Setup_Opts :: struct {
+	check: bool `usage:"report only: fetch and build nothing"`,
+}
+
 // Fetches and builds everything the project needs, and reports each dependency's version and where it came from.
 @(private)
 cmd_setup :: proc(args: []string) -> Result {
-	Opts :: struct {
-		check: bool `usage:"report only: fetch and build nothing"`,
-	}
-	opts: Opts
+	opts: Setup_Opts
 	parse(&opts, args)
 	Dep :: struct {
 		name:    string,
@@ -420,6 +426,12 @@ env_source :: proc(key: string) -> string {
 
 // --- clean ------------------------------------------------------------------------------------------------------
 
+@(private)
+Clean_Opts :: struct {
+	check: bool `usage:"report only: list what would be removed, remove nothing"`,
+	cache: bool `usage:"also the per-user cache's Godot and unified-box3d downloads, shared by every checkout (the shims' Odin stays)"`,
+}
+
 // Removes what the CLI built or fetched: every .out/ and .godot/ in the project (outside hidden directories, so not
 // another checkout's under .claude/), and the generated Godot bindings. The running
 // CLI stays, with its manifest and `current` (Windows can't delete a running .exe; the next command needs no
@@ -427,11 +439,7 @@ env_source :: proc(key: string) -> string {
 // them) and Godot's export templates (Godot's user directory).
 @(private)
 cmd_clean :: proc(args: []string) -> Result {
-	Opts :: struct {
-		check: bool `usage:"report only: list what would be removed, remove nothing"`,
-		cache: bool `usage:"also the per-user cache's Godot and unified-box3d downloads, shared by every checkout (the shims' Odin stays)"`,
-	}
-	opts: Opts
+	opts: Clean_Opts
 	parse(&opts, args)
 	project := state.project
 	gdext := join(project.unified, "src", "gdext")

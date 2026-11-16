@@ -55,19 +55,20 @@ when ODIN_OS == .Darwin {
 SMOKE_MARKER :: "unified: extension initialized"
 SMOKE_FRAMES :: 300 // at --max-fps 60: ~5 s
 
+Release_Opts :: struct {
+	game:     string `args:"pos=0" usage:"the game (default: the tag's, or the only one)"`,
+	version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
+	tag:      string `usage:"a release tag, <game>-v<version>: the game and version come from it"`,
+	no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
+	no_devui: bool `usage:"no dev UI (overlay, panels, F3 notes): the build for the public; playtest builds keep it"`,
+	no_smoke: bool `usage:"skip the smoke test"`,
+}
+
 cmd_release :: proc(args: []string) -> cli.Result {
 	if len(args) > 0 && args[0] == "notes" {
 		return release_notes(args[1:])
 	}
-	Opts :: struct {
-		game:     string `args:"pos=0" usage:"the game (default: the tag's, or the only one)"`,
-		version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
-		tag:      string `usage:"a release tag, <game>-v<version>: the game and version come from it"`,
-		no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
-		no_devui: bool `usage:"no dev UI (overlay, panels, F3 notes): the build for the public; playtest builds keep it"`,
-		no_smoke: bool `usage:"skip the smoke test"`,
-	}
-	opts: Opts
+	opts: Release_Opts
 	cli.parse(&opts, args)
 	when ODIN_OS != .Darwin && ODIN_OS != .Windows {
 		cli.fatal("game builds are made on macOS and Windows only")
@@ -757,14 +758,15 @@ Each zip unpacks to a folder of the same name with the game inside.
   "Windows protected your PC", click **More info** → **Run anyway**.
 %[4]s`
 
+Release_Notes_Opts :: struct {
+	game:   string `args:"pos=0" usage:"the game (default: the tag's)"`,
+	tag:    string `args:"required" usage:"the release tag, <game>-v<version>"`,
+	no_eos: bool `usage:"the packages were built with --no-eos: say they have no online play"`,
+}
+
 // The prerelease notes (markdown) for a tag.
 release_notes :: proc(args: []string) -> cli.Result {
-	Opts :: struct {
-		game:   string `args:"pos=0" usage:"the game (default: the tag's)"`,
-		tag:    string `args:"required" usage:"the release tag, <game>-v<version>"`,
-		no_eos: bool `usage:"the packages were built with --no-eos: say they have no online play"`,
-	}
-	opts: Opts
+	opts: Release_Notes_Opts
 	cli.parse(&opts, args)
 	name, version := split_tag(opts.tag)
 	if opts.game != "" && opts.game != name {
