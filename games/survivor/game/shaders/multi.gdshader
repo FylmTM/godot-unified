@@ -1,4 +1,4 @@
-// MultiMesh bulk views (enemies, projectiles): toon-lit flat colour, white hit flash from INSTANCE_CUSTOM.r,
+// MultiMesh views (enemies, projectiles): toon-lit flat colour, white hit flash from INSTANCE_CUSTOM.r,
 // a spawn pop-in from INSTANCE_CUSTOM.g (age in seconds), optional emission.
 shader_type spatial;
 render_mode diffuse_toon, specular_toon;
@@ -8,7 +8,7 @@ uniform vec3 emission_color : source_color = vec3(0.0);
 uniform float emission_energy = 0.0;
 uniform float rim = 0.35;
 uniform bool pop_in = true;
-// Bulk positions are on the floor plane (y = 0); lift the mesh so it stands on it.
+// Instance positions are on the floor plane (y = 0); lift the mesh so it stands on it.
 uniform float lift = 0.0;
 
 varying float flash;

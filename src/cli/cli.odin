@@ -191,9 +191,9 @@ USER_CACHE :: "%LOCALAPPDATA%\\unified" when ODIN_OS == .Windows else "${XDG_CAC
 // A command's budget line for its -h: the seconds a warm run may take and the CI allowance, or why it has none.
 budget_text :: proc(command: Command) -> string {
 	if command.budget > 0 {
-		return tprint("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
+		return aprintf("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
 	}
-	return tprint("budget: none (%s)", command.no_budget)
+	return aprintf("budget: none (%s)", command.no_budget)
 }
 
 // Parses a command's arguments into `opts` (core:flags, Unix style: --name value, --name=value, positionals, and
@@ -222,7 +222,7 @@ command_help :: proc(command: Command) -> string {
 	fmt.sbprintf(
 		&builder,
 		"usage: uni %s\n%s\n%s\n",
-		strings.trim_space(tprint("%s %s", command.name, command.usage)),
+		strings.trim_space(aprintf("%s %s", command.name, command.usage)),
 		command.summary,
 		budget_text(command),
 	)
@@ -238,9 +238,9 @@ command_help :: proc(command: Command) -> string {
 			label = "..."
 		case option.positional:
 			label =
-				strings.contains(command.usage, tprint("[%s", option.name)) ? tprint("[%s]", option.name) : tprint("<%s>", option.name)
+				strings.contains(command.usage, aprintf("[%s", option.name)) ? aprintf("[%s]", option.name) : aprintf("<%s>", option.name)
 		case:
-			label = strings.trim_space(tprint("--%s %s", option.name, usage_value(command.usage, option.name)))
+			label = strings.trim_space(aprintf("--%s %s", option.name, usage_value(command.usage, option.name)))
 		}
 		seen := false
 		for row in rows {
@@ -302,7 +302,7 @@ command_options :: proc(command: Command) -> []Option {
 // or "" when the next word is another option, a bracket or nothing.
 usage_value :: proc(usage, flag: string) -> string {
 	rest := usage
-	needle := tprint("--%s", flag)
+	needle := aprintf("--%s", flag)
 	for {
 		at := strings.index(rest, needle)
 		if at < 0 {
@@ -356,7 +356,7 @@ usage_flags :: proc(usage: string) -> []string {
 usage_problems :: proc(command: Command) -> []string {
 	out: [dynamic]string
 	if len(command.options) == 0 {
-		append(&out, tprint("%s: Command.options names no options type", command.name))
+		append(&out, aprintf("%s: Command.options names no options type", command.name))
 	}
 	options := command_options(command)
 	named := usage_flags(command.usage)
@@ -366,26 +366,26 @@ usage_problems :: proc(command: Command) -> []string {
 			found ||= !option.positional && !option.overflow && option.name == flag
 		}
 		if !found {
-			append(&out, tprint("%s: the usage line names --%s, which is no option", command.name, flag))
+			append(&out, aprintf("%s: the usage line names --%s, which is no option", command.name, flag))
 		}
 	}
 	for option in options {
 		if option.usage == "" {
-			append(&out, tprint("%s: %s has no usage text", command.name, option.name))
+			append(&out, aprintf("%s: %s has no usage text", command.name, option.name))
 		}
 		switch {
 		case option.overflow:
 		case option.positional:
-			if !strings.contains(command.usage, tprint("<%s", option.name)) &&
-			   !strings.contains(command.usage, tprint("[%s", option.name)) {
-				append(&out, tprint("%s: the usage line doesn't name the positional %s", command.name, option.name))
+			if !strings.contains(command.usage, aprintf("<%s", option.name)) &&
+			   !strings.contains(command.usage, aprintf("[%s", option.name)) {
+				append(&out, aprintf("%s: the usage line doesn't name the positional %s", command.name, option.name))
 			}
 		case !slice.contains(named, option.name):
-			append(&out, tprint("%s: the usage line leaves out --%s", command.name, option.name))
+			append(&out, aprintf("%s: the usage line leaves out --%s", command.name, option.name))
 		case option.takes && usage_value(command.usage, option.name) == "":
-			append(&out, tprint("%s: the usage line shows no value for --%s", command.name, option.name))
+			append(&out, aprintf("%s: the usage line shows no value for --%s", command.name, option.name))
 		case !option.takes && usage_value(command.usage, option.name) != "":
-			append(&out, tprint("%s: the usage line shows a value for the switch --%s", command.name, option.name))
+			append(&out, aprintf("%s: the usage line shows a value for the switch --%s", command.name, option.name))
 		}
 	}
 	return out[:]
@@ -400,7 +400,7 @@ usage_error :: proc(err: flags.Error) -> ! {
 	case flags.Validation_Error:
 		msg = problem.message
 	case flags.Open_File_Error:
-		msg = tprint("cannot open %s", problem.filename)
+		msg = aprintf("cannot open %s", problem.filename)
 	case flags.Help_Request:
 		msg = "-h prints the usage"
 	}
@@ -410,7 +410,7 @@ usage_error :: proc(err: flags.Error) -> ! {
 
 // Stops with a usage error (exit 2).
 usage :: proc(format: string, args: ..any) -> ! {
-	log("uni %s: %s (uni %s -h)", state.command.name, tprint(format, ..args), state.command.name)
+	log("uni %s: %s (uni %s -h)", state.command.name, aprintf(format, ..args), state.command.name)
 	os.exit(2)
 }
 
@@ -446,7 +446,7 @@ finish :: proc(result: Result) -> ! {
 
 // Stops the command as failed: the message on stderr (and in the --json result).
 fatal :: proc(format: string, args: ..any) -> ! {
-	msg := tprint(format, ..args)
+	msg := aprintf(format, ..args)
 	if state.command == nil {
 		log("uni: %s", msg)
 		os.exit(1)
@@ -485,14 +485,14 @@ report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 		allowed := budget * (in_ci() ? CI_BUDGET_SCALE : 1)
 		entry.budget = allowed
 		if len(state.cold) > 0 {
-			note = tprint(
+			note = aprintf(
 				" (budget %.0fs; cold run, not held to it: %s)",
 				allowed,
 				strings.join(state.cold[:], ", ", context.temp_allocator),
 			)
 		} else if secs > allowed {
 			entry.over = true
-			note = tprint(" (budget %.0fs)", allowed)
+			note = aprintf(" (budget %.0fs)", allowed)
 			log(
 				"uni: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
 				strings.join(state.argv, " ", context.temp_allocator),
@@ -500,7 +500,7 @@ report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 				allowed,
 			)
 		} else {
-			note = tprint(" (budget %.0fs)", allowed)
+			note = aprintf(" (budget %.0fs)", allowed)
 		}
 	}
 	what := strings.join(state.argv, " ", context.temp_allocator)
@@ -552,8 +552,8 @@ strs :: proc(items: ..string) -> []string {
 	return slice.clone(items)
 }
 
-// The CLI's formatter: fmt.aprintf, a heap string valid for the whole run (not the temp allocator, despite the
-// name), so it is safe in a Result's summary or data.
-tprint :: proc(format: string, args: ..any) -> string {
+// The CLI's formatter: fmt.aprintf, a heap string valid for the whole run, so it is safe in a Result's summary or
+// data.
+aprintf :: proc(format: string, args: ..any) -> string {
 	return fmt.aprintf(format, ..args)
 }

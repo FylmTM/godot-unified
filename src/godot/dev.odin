@@ -106,6 +106,9 @@ when DEVUI {
 	dev_wants_keyboard :: proc() -> bool {return devui.wants_keyboard()}
 	@(private)
 	dev_visible :: proc() -> bool {return devui.visible}
+	// The session thread copies the newest state and inputs only while a panel shows them.
+	@(private)
+	dev_wants_state :: proc() -> bool {return devui.panel_shown(.Inspector) || devui.panel_shown(.Input)}
 	@(private)
 	dev_toggle :: proc() {devui.visible = !devui.visible}
 
@@ -367,6 +370,8 @@ when DEVUI {
 	dev_wants_keyboard :: proc() -> bool {return false}
 	@(private)
 	dev_visible :: proc() -> bool {return false}
+	@(private)
+	dev_wants_state :: proc() -> bool {return false}
 	@(private)
 	dev_toggle :: proc() {}
 	@(private)

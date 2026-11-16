@@ -207,7 +207,7 @@ Sim :: sim.Sim(State, Input, World, PLAYERS)
 @(rodata)
 GAME := Game {
 	name = "friendslop",
-	version = "2",
+	version = "3", // 3: the route resets when nobody is present
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,

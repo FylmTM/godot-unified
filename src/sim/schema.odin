@@ -6,6 +6,8 @@ package sim
 
 import "base:runtime"
 
+import "core:sync"
+
 Table_Info :: struct {
 	name:      string,
 	elem:      ^runtime.Type_Info, // the entity type
@@ -25,15 +27,31 @@ Schema :: struct {
 	globals: [dynamic]Global_Info,
 }
 
-// Built once per state type and kept for the program's lifetime (not thread-safe on first call).
+// Built once per state type, by whichever thread asks first, and kept for the program's lifetime.
 schema_of :: proc($State: typeid) -> ^Schema {
-	@(static) cached: Schema
-	@(static) built: bool
-	if !built {
-		build_schema(&cached, type_info_of(State))
-		built = true
+	@(static) cache: Schema_Cache
+	return schema_cached(&cache, type_info_of(State))
+}
+
+// One state type's schema and the guard that builds it once (a non-generic home for core:sync: -vet).
+@(private)
+Schema_Cache :: struct {
+	schema: Schema,
+	once:   sync.Once,
+}
+
+@(private)
+schema_cached :: proc(cache: ^Schema_Cache, type: ^runtime.Type_Info) -> ^Schema {
+	Build :: struct {
+		out:  ^Schema,
+		type: ^runtime.Type_Info,
 	}
-	return &cached
+	build := Build{&cache.schema, type}
+	sync.once_do_with_data(&cache.once, proc(data: rawptr) {
+			build := (^Build)(data)
+			build_schema(build.out, build.type)
+		}, &build)
+	return &cache.schema
 }
 
 // Fills `out` with the tables and globals of the state type (heap-allocated, as the schema lives as long as the

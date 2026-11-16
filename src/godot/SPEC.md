@@ -1,9 +1,9 @@
 # godot
 
-Contract v1, decided in the #9 sitting (2026-11-15, the decisions in that issue), with its follow-ups #273-#287; signed
-off by the developer as written (D1, 2026-11-15). `unified:godot` is everything that
-touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is the raw bindings underneath. Each
-game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.
+Status: signed off 2026-11-15 (#9: contract v1, with its follow-ups #273-#287).
+
+`unified:godot` is everything that touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is
+the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`) that installs its sim and its glue.
 
 ## A game's extension
 
@@ -155,6 +155,11 @@ Its objects are freed at Godot's shutdown callback, while scripting still runs, 
 never outlives GDScript.
 
 ## Godot side
+
+Godot hosts the game through GDExtension (a LibGodot host would run the same init unchanged; a later option). An
+entity kind is drawn by scene views (`UnifiedView`) up to a few hundred at once, or by a multi view
+(`UnifiedMultiView`, one MultiMesh) above that. View logic is GDScript by default; Odin, in the game's extension,
+for what is performance-critical or shared across games.
 
 **`UnifiedSession`** (Node, one per app):
 
@@ -322,7 +327,11 @@ scene and every indexed kind is a `View` member (an error names each one).
 port N), `--join host:port`, `--host-online`, `--join-code CODE`, `--local-net` (direct hosting listens on 127.0.0.1
 only), `--scripted` (scripted input and commands), `--ticks N`, `--seed N`, `--quit-at-end` (quit when the session
 ends, printing its result), `--devui` (the dev UI shown at start), `--lag MS` (the dev netsim on remote links: MS
-each way, a quarter of it jitter, 1% loss), `--bench N` (single player holds N entities, `Glue.bench`).
+each way, a quarter of it jitter, 1% loss), `--bench N` (single player holds N entities, `Glue.bench`). The game and
+its tool scripts read their own flags from the same command line, so other flags pass through; a missing or bad value
+of one of these, or a near miss of one of their names (`--tiks`), prints an error and quits (exit 2), like `uni`.
+`--scripted`, `--ticks`, `--seed`, `--devui`, `--lag` and `--bench` are dev flags: a build without the dev UI (`uni
+release --no-devui`) ignores them with a warning (`godot.parse_command_line`, tested in `tests/godot_driver`).
 
 ## Replay sessions (specified; built after the foundations review, #124)
 

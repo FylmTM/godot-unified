@@ -23,7 +23,7 @@ func _check_contract() -> String:
 			log_capture.add("item kind %s has no view scene or rest height" % kind, MENU_SCRIPT)
 	var arena := (load(game.PLAY_SCENE) as PackedScene).instantiate()
 	var kinds: Array[String] = []
-	for b in arena.get_node(^"Bulk").get_children():
+	for b in arena.get_node(^"MultiViews").get_children():
 		kinds.append((b.get_node(^"UnifiedMultiView") as UnifiedMultiView).kind)
 	kinds.sort()
 	if kinds != MULTI_KINDS:

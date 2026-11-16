@@ -8,7 +8,7 @@ const SHADER := "res://game/shaders/bullet.gdshader"
 
 
 func _ready() -> void:
-	multimesh = BulkMesh.multimesh(BulkMesh.quad(Vector2(6, 6)))
-	var m := BulkMesh.material(load(SHADER) as Shader)
+	multimesh = ViewMeshes.multimesh(ViewMeshes.quad(Vector2(6, 6)))
+	var m := ViewMeshes.material(load(SHADER) as Shader)
 	m.set_shader_parameter(&"palette", PackedColorArray(UiTheme.PLAYER_COLORS))
 	material = m

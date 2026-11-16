@@ -1,7 +1,8 @@
 # gdext
 
-Signed off in the #9 sitting (2026-11-15). Odin bindings for Godot's GDExtension API: what `unified:godot` and a
-game's extension call Godot through.
+Status: signed off 2026-11-15 (#9).
+
+Odin bindings for Godot's GDExtension API: what `unified:godot` and a game's extension call Godot through.
 
 - **Generated code.** `uni godot-gen` (well under a second, cached by input hash) turns the committed
   `api/{extension_api,gdextension_interface}.json` (dumped from 4.7.2) and `bindings.txt` into git-ignored

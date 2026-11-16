@@ -40,7 +40,8 @@ FLOAT_TRAPS :: []string {
 	"complex128",
 }
 
-// Inside a tick: f32 only, no clocks, entropy or cycle counters.
+// Inside a tick: f32 only, no clocks, entropy or cycle counters, and none of sim's file procs (input logs, log
+// sinks, whole files: tools and tests use them; a tick that touched a file would do it again on every re-simulation).
 SIM_IDENTS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -59,6 +60,11 @@ SIM_IDENTS :: []string {
 	"read_cycle_counter_frequency",
 	"random_generator",
 	"default_random_generator",
+	"log_write",
+	"log_read",
+	"log_sink_file",
+	"write_file",
+	"read_file",
 }
 
 // What code inside a tick may import: the deterministic packages and the integer bit helpers.

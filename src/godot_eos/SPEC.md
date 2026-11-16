@@ -1,6 +1,6 @@
 # `unified:godot_eos`: EOS online play for a Godot game
 
-Decided in sitting #11 (D5, 2026-11-16); signed off with that sitting's follow-up PR.
+Status: signed off 2026-11-16 (#11).
 
 `unified:eos` (src/eos/SPEC.md) as a `godot.Transport` (src/godot/SPEC.md, Transports), so a game gets online play
 with one line in its extension:

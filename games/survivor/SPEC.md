@@ -1,5 +1,7 @@
 # Survivor: the test game for the core
 
+Status: draft, pending #12.
+
 A small top-down co-op survivor game that exercises everything the core must handle: 1–4 players, waves of up to
 **1200 enemies**, projectiles, Box3D rigid bodies (crates, barrels), explosions, pickups, a level-up choice, death and
 respawn, joining and leaving, a lobby and match resets. Code: `games/survivor/simulation/survivor/`. Units: metres,
@@ -230,8 +232,8 @@ game/autoload/         the shared Settings (+ render scale, best time) and Sfx (
 game/ui/               the HUD; the menu scene (the arena with props behind the shared menu)
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, MultiMesh views,
                        camera), follow camera
-game/views/            the scene views: player, crate, barrel; bulk_view.gd (the MultiMesh views' script)
-game/fx/, game/shaders/  event effects; floor, start circle, bulk (toon + hit flash), gem shaders
+game/views/            the scene views: player, crate, barrel; multi_view.gd (the MultiMesh views' script)
+game/fx/, game/shaders/  event effects; floor, start circle, multi views (toon + hit flash), gem shaders
 game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the shared ones), tour, play_check
 ```
 
@@ -256,7 +258,7 @@ reloads between matches.
 - View data: the player view's `hp` (`Player_View`; a drop flashes it).
 - Session data: `Data_Hud` (HUD above) as `Unified.data.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
   `OVER`), `players` an Array of Dictionaries. The HUD reads it every frame.
-- MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `Bulk` node, each with a
+- MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `MultiViews` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
   3D transforms (enemies and projectiles face their velocity) + custom data (r = hit flash 0..1, g = age in s), no
   colours; positions on the floor plane (y = 0), the shaders lift the meshes. The host sizes the MultiMeshes.

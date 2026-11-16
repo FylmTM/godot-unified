@@ -67,11 +67,11 @@ start :: proc(spec: Run) -> Proc {
 		base := spec.log_to
 		if base == "" {
 			index := sync.atomic_add(&tmp_counter, 1)
-			base = join(state.project.out, "tmp", tprint("%d-%d", os.get_pid(), index))
+			base = join(state.project.out, "tmp", aprintf("%d-%d", os.get_pid(), index))
 		}
 		make_dirs(os.dir(base))
-		child.out_path = tprint("%s.stdout", base)
-		child.err_path = tprint("%s.stderr", base)
+		child.out_path = aprintf("%s.stdout", base)
+		child.err_path = aprintf("%s.stderr", base)
 		// Inheritable: on Windows a child gets only the handles opened so
 		flags := os.File_Flags{.Write, .Create, .Trunc, .Inheritable}
 		out_file, out_error := os.open(child.out_path, flags)
@@ -121,7 +121,7 @@ wait :: proc(child: ^Proc) -> Ran {
 	// A failure names its command line, so it can be run again by hand (a captured run is a probe: its caller
 	// decides what a failure means).
 	if !ran.ok && !child.run.quiet && !child.run.capture && !state.verbose {
-		log("+ %s (%s)", command_line(child.run), ran.timed_out ? "timed out" : tprint("exit %d", ran.exit_code))
+		log("+ %s (%s)", command_line(child.run), ran.timed_out ? "timed out" : aprintf("exit %d", ran.exit_code))
 	}
 	return collect(child, ran)
 }
@@ -135,7 +135,7 @@ kill_tree :: proc(process: os.Process) {
 		if null, null_err := os.open("NUL", {.Write, .Inheritable}); null_err == nil {
 			taskkill, err := os.process_start(
 			{
-				command = strs("taskkill", "/T", "/F", "/PID", tprint("%d", process.pid)),
+				command = strs("taskkill", "/T", "/F", "/PID", aprintf("%d", process.pid)),
 				stdout  = null, // "SUCCESS: ..." would end up in the command's result
 				stderr  = null,
 			},
@@ -256,7 +256,7 @@ which :: proc(name: string) -> string {
 		candidate := join(dir, name)
 		when ODIN_OS == .Windows {
 			if !strings.has_suffix(name, ".exe") {
-				candidate = tprint("%s.exe", candidate)
+				candidate = aprintf("%s.exe", candidate)
 			}
 		}
 		if os.is_file(candidate) {
@@ -278,7 +278,7 @@ redact :: proc(cmd: []string) -> []string {
 		out[i] = arg
 		if strings.has_prefix(arg, "-define:UNIFIED_EOS_") {
 			if eq := strings.index_byte(arg, '='); eq >= 0 {
-				out[i] = tprint("%s=***", arg[:eq])
+				out[i] = aprintf("%s=***", arg[:eq])
 			}
 		}
 	}

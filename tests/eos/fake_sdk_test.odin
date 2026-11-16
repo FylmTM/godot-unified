@@ -1,6 +1,6 @@
 // unified:eos's lobby/login state machine against a fake SDK (Init_Options.sdk): no library, no network.
 // The fake answers every request through a callback fired inside Platform_Tick, as EOS does. Sessions run
-// on threads that exit before the next one starts (as godot_host's session threads do), so callbacks must
+// on threads that exit before the next one starts (as unified:godot's session threads do), so callbacks must
 // never use a context captured on an earlier thread.
 package test_eos
 
@@ -505,7 +505,7 @@ Host_Run :: struct {
 	stage_2: eos.Stage, // after leave
 }
 
-// One hosted session on its own thread, like a godot_host session thread: (init), host, Ready, leave.
+// One hosted session on its own thread, like a unified:godot session thread: (init), host, Ready, leave.
 @(private = "file")
 host_session :: proc(run: ^Host_Run) {
 	if run.init {

@@ -244,7 +244,13 @@ session_ready :: proc(session: ^Session_Node) {
 	gd.Node_set_process(node_of(session), true)
 	if !session.args_read {
 		session.args_read = true
-		session.args = parse_args()
+		problems: []string
+		session.args, problems = parse_args()
+		if len(problems) > 0 {
+			for problem in problems do gd.print_error(fmt.tprintf("unified: %s", problem))
+			gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 2) // like uni: a bad command line runs nothing
+			return
+		}
 		if session.args.seed != 0 do session.seed = session.args.seed
 		if session.args.ticks != 0 do session.ticks = i64(session.args.ticks)
 		session.quit_at_end = session.args.quit
@@ -284,6 +290,8 @@ session_ready :: proc(session: ^Session_Node) {
 			scripted = session.args.scripted,
 		})
 	}
+	delete(session.args.join) // session_start keeps its own copy
+	delete(session.args.join_code)
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
 }
@@ -377,6 +385,7 @@ session_end :: proc(session: ^Session_Node) {
 
 // Ends the active session, joins its thread and frees every view and the dev UI. Called when the extension
 // unloads (exit or hot reload): the session thread runs this library's code, so it must be gone first.
+@(private)
 session_shutdown_all :: proc() {
 	if active != nil do session_end(active)
 	if api.installed do api.wait()
@@ -430,7 +439,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	}
 	start_pending(session)
 	session.sync_us = f32(time.duration_microseconds(time.tick_since(started)))
-	sync.atomic_store(&want_state, dev_visible())
+	sync.atomic_store(&want_state, dev_wants_state())
 	dev_frame(session, dt)
 }
 
@@ -525,7 +534,7 @@ input_value_of :: proc(value: ^gd.Variant) -> [3]f32 {
 // ---- command line (user args after `--`)
 
 @(private)
-parse_args :: proc() -> (args: Args) {
+parse_args :: proc() -> (args: Args, problems: []string) {
 	list := gd.OS_get_cmdline_user_args(gd.OS_singleton())
 	defer gd.PackedStringArray_destroy(&list)
 	count := int(gd.PackedStringArray_size(&list))
@@ -533,12 +542,87 @@ parse_args :: proc() -> (args: Args) {
 	for i in 0 ..< count {
 		user_args[i] = gd.string_to_odin(cast(^gd.String)gdi.packed_string_array_operator_index(&list, i64(i)))
 	}
-	next :: proc(user_args: []string, index: ^int) -> string {
-		index^ += 1
-		return index^ < len(user_args) ? user_args[index^] : ""
+	ignored: []string
+	args, problems, ignored = parse_command_line(user_args, DEVUI)
+	for flag in ignored {
+		gd.print_warning(fmt.tprintf("unified: %s is a dev flag; this build has no dev UI and ignores it", flag))
+	}
+	return
+}
+
+// The flags unified:godot reads, and whether each takes a value. Every other flag on the command line belongs to
+// the game or a tool script, which share it.
+@(private)
+FLAGS := [?]struct {
+	name:  string,
+	value: bool,
+	dev:   bool, // a dev flag: a build without the dev UI ignores it
+} {
+	{"--autostart", false, false},
+	{"--host-port", true, false},
+	{"--join", true, false},
+	{"--host-online", false, false},
+	{"--join-code", true, false},
+	{"--local-net", false, false},
+	{"--quit-at-end", false, false},
+	{"--scripted", false, true},
+	{"--ticks", true, true},
+	{"--seed", true, true},
+	{"--devui", false, true},
+	{"--lag", true, true},
+	{"--bench", true, true},
+}
+
+// Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:
+// a missing or bad value of one of its flags, or a near miss of one of its names (`--tiks`), each a line to report
+// before quitting; any other flag is the game's. Without the dev UI (`dev_flags` false) the dev flags are `ignored`.
+parse_command_line :: proc(
+	user_args: []string,
+	dev_flags: bool,
+) -> (
+	args: Args,
+	problems: []string,
+	ignored: []string,
+) {
+	found_problems := make([dynamic]string, context.temp_allocator)
+	found_ignored := make([dynamic]string, context.temp_allocator)
+	number :: proc(problems: ^[dynamic]string, flag, text: string, low, high: i64) -> i64 {
+		value, ok := strconv.parse_i64(text)
+		if !ok || value < low || value > high {
+			append(problems, fmt.tprintf("%s wants a whole number from %d to %d, got %q", flag, low, high, text))
+		}
+		return value
 	}
 	for i := 0; i < len(user_args); i += 1 {
-		switch user_args[i] {
+		arg := user_args[i]
+		flag_index := -1
+		for flag, k in FLAGS do if flag.name == arg do flag_index = k
+		if flag_index < 0 {
+			name := arg
+			if eq := strings.index_byte(arg, '='); eq > 0 do name = arg[:eq]
+			if !strings.has_prefix(name, "--") do continue // a value of the game's flags
+			for flag in FLAGS {
+				if name == flag.name {
+					append(&found_problems, fmt.tprintf("%s: write %s VALUE", arg, flag.name))
+				} else if near_miss(name, flag.name) {
+					append(&found_problems, fmt.tprintf("unknown flag %s: did you mean %s?", arg, flag.name))
+				}
+			}
+			continue
+		}
+		flag := FLAGS[flag_index]
+		value := ""
+		if flag.value {
+			if i + 1 < len(user_args) {
+				i += 1
+				value = user_args[i]
+			}
+		}
+		if flag.dev && !dev_flags {
+			append(&found_ignored, flag.name)
+			continue
+		}
+		switch flag.name {
 		case "--autostart":
 			args.autostart = true
 		case "--scripted":
@@ -547,28 +631,56 @@ parse_args :: proc() -> (args: Args) {
 			args.quit = true
 		case "--devui":
 			args.devui = true
-		case "--ticks":
-			args.ticks, _ = strconv.parse_int(next(user_args, &i))
-		case "--seed":
-			seed, _ := strconv.parse_i64(next(user_args, &i))
-			args.seed = seed
-		case "--join":
-			args.join = strings.clone(next(user_args, &i))
-		case "--bench":
-			args.bench, _ = strconv.parse_int(next(user_args, &i))
 		case "--host-online":
 			args.online = true
-		case "--join-code":
-			args.join_code = strings.clone(next(user_args, &i))
-		case "--lag":
-			args.lag_ms, _ = strconv.parse_int(next(user_args, &i))
-		case "--host-port":
-			args.host_port, _ = strconv.parse_int(next(user_args, &i))
 		case "--local-net":
 			args.local_net = true
+		case "--ticks":
+			args.ticks = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
+		case "--seed":
+			args.seed = number(&found_problems, flag.name, value, min(i64), max(i64))
+		case "--bench":
+			args.bench = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
+		case "--lag":
+			args.lag_ms = int(number(&found_problems, flag.name, value, 0, 10_000))
+		case "--host-port":
+			args.host_port = int(number(&found_problems, flag.name, value, 1, 65535))
+		case "--join":
+			if value == "" do append(&found_problems, "--join wants host:port")
+			args.join = strings.clone(value)
+		case "--join-code":
+			if value == "" do append(&found_problems, "--join-code wants a code")
+			args.join_code = strings.clone(value)
 		}
 	}
-	return
+	return args, found_problems[:], found_ignored[:]
+}
+
+// Whether `name` is one edit (insert, delete, replace, or swap of neighbours) from `flag`, or two for flags of seven
+// letters or more: a mistyped flag of ours, not some other flag. Flags under four letters match only exactly (the
+// games' `--lan` is one edit from `--lag`).
+@(private)
+near_miss :: proc(name, flag: string) -> bool {
+	letters := len(flag) - 2
+	if letters < 4 do return false
+	limit := letters >= 7 ? 2 : 1
+	if abs(len(name) - len(flag)) > limit do return false
+	// optimal string alignment distance, rows of at most 32 characters (flag names are short)
+	if len(name) > 31 || len(flag) > 31 do return false
+	rows: [3][32]int // row i (of name's prefix length i) is rows[(i + 1) % 3]
+	for j in 0 ..= len(flag) do rows[1][j] = j
+	for i in 1 ..= len(name) {
+		before, previous, current := &rows[(i + 2) % 3], &rows[i % 3], &rows[(i + 1) % 3]
+		current[0] = i
+		for j in 1 ..= len(flag) {
+			cost := name[i - 1] == flag[j - 1] ? 0 : 1
+			current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+			if i > 1 && j > 1 && name[i - 1] == flag[j - 2] && name[i - 2] == flag[j - 1] {
+				current[j] = min(current[j], before[j - 2] + 1)
+			}
+		}
+	}
+	return rows[(len(name) + 1) % 3][len(flag)] <= limit
 }
 
 TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their own

@@ -1,7 +1,7 @@
 class_name SurvivorArena
 extends Node3D
 ## The match scene: hands its `Views` node to the session (scene views spawn there; the MultiMesh views are under
-## `Bulk`), drives the start circle and routes sim events to effects and camera shake.
+## `MultiViews`), drives the start circle and routes sim events to effects and camera shake.
 
 @onready var _views: Node3D = $Views
 @onready var _circle: MeshInstance3D = $StartCircle

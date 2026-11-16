@@ -84,15 +84,15 @@ env_parse :: proc(text: string) -> (pairs: [dynamic][2]string, err: string) {
 		}
 		eq := strings.index_byte(trimmed, '=')
 		if eq <= 0 {
-			return pairs, tprint("line %d: not KEY=value", line_number)
+			return pairs, aprintf("line %d: not KEY=value", line_number)
 		}
 		key := strings.trim_space(trimmed[:eq])
 		if !strings.has_prefix(key, "UNIFIED_") {
-			return pairs, tprint("line %d: %s: only UNIFIED_* variables belong here", line_number, key)
+			return pairs, aprintf("line %d: %s: only UNIFIED_* variables belong here", line_number, key)
 		}
 		for ch in key {
 			if !(ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_') {
-				return pairs, tprint("line %d: %s: a key is A-Z, 0-9 and _", line_number, key)
+				return pairs, aprintf("line %d: %s: a key is A-Z, 0-9 and _", line_number, key)
 			}
 		}
 		append(&pairs, [2]string{key, strings.trim_space(trimmed[eq + 1:])})

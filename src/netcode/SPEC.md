@@ -1,6 +1,6 @@
 # `unified:netcode`: input relay, prediction, rollback
 
-Decided autonomously 2026-11-09, rewritten with the #8 sitting's decisions 2026-11-14, pending developer review.
+Status: signed off 2026-11-14 (#8).
 
 Nobody sends game state: every client runs the whole deterministic sim, and the relay only orders inputs. The
 relay's input log is the session (seed + content + log replays to the same checksums anywhere).
@@ -8,7 +8,9 @@ relay's input log is the session (seed + content + log replays to the same check
 Generic over the game: `Relay(Input, PLAYERS)`, `Client(State, Input, World, PLAYERS)`, `Host(...)`. Nothing runs a
 thread or loop of its own: the host application calls `*_step(now_us) -> wake_us` from its own loop (or one thread
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
-`sleep_until(wake_us)`. `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
+`sleep_until(wake_us)`. The wake time is the next tick boundary or the poll interval (the configs' `poll_us`, 1 ms by
+default), whichever is sooner, so a session thread wakes about 1,000 times a second; sleeping to the next tick or
+datagram instead is #263. `now_us()` is the monotonic time base. A game touches the netcode only through a `Link` (it
 picks EOS, UDP or loopback), `Hooks`, the configs (through
 `unified:godot`'s driver, or directly in its tests) and the test helpers (`Profile`, `Virtual_Clock`, `hub_create`,
 through `headless.session_run`).

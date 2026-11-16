@@ -89,7 +89,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			}
 			script := tool_script(game, script_step.script)
 			if script == "" {
-				skip(game, script_step.step, tprint("no %s tool script", script_step.script))
+				skip(game, script_step.step, aprintf("no %s tool script", script_step.script))
 				continue
 			}
 			if script_step.step == "tour" && !has_extension(game) {
@@ -135,7 +135,7 @@ godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 	}
 	finish_headless(&headless)
 	exe := self_exe()
-	env := env_with(tprint("%s=1", CHILD_ENV))
+	env := env_with(aprintf("%s=1", CHILD_ENV))
 	runs := make([]Run, len(games))
 	for game, i in games {
 		cmd: [dynamic]string
@@ -213,9 +213,9 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			"--scripted",
 			"--quit-at-end",
 			"--ticks",
-			tprint("%d", ticks),
+			aprintf("%d", ticks),
 			"--seed",
-			tprint("%d", seed),
+			aprintf("%d", seed),
 		}, f64(ticks) / 64 + 30)
 	errs := godot_errors(strings.concatenate({result.stdout, result.stderr}))
 	report := last_json_after(result.stdout, "unified: result ")
@@ -267,11 +267,11 @@ offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
 				binary,
 				"sim",
 				"--ticks",
-				tprint("%d", ticks),
+				aprintf("%d", ticks),
 				"--players",
 				"1",
 				"--seed",
-				tprint("%d", seed),
+				aprintf("%d", seed),
 				"--game",
 				game.name,
 			),
@@ -339,9 +339,9 @@ json_string :: proc(value: json.Value) -> string {
 	case json.String:
 		return inner
 	case json.Integer:
-		return tprint("%d", inner)
+		return aprintf("%d", inner)
 	case json.Float:
-		return tprint("%v", inner)
+		return aprintf("%v", inner)
 	}
 	return ""
 }
@@ -414,7 +414,10 @@ play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> R
 		append(&cmd, ..extra)
 	}
 	result := run_proc({cmd = cmd[:], interactive = true})
-	return {ok = result.ok, summary = tprint("%s exited with %d", editor ? "the editor" : game.name, result.exit_code)}
+	return {
+		ok      = result.ok,
+		summary = aprintf("%s exited with %d", editor ? "the editor" : game.name, result.exit_code),
+	}
 }
 
 // --- tool -------------------------------------------------------------------------------------------------------
@@ -426,7 +429,7 @@ TOOL_TIMEOUT :: 1800
 // `tool -h`'s details: what fails a run, and how a script error ends it.
 @(private)
 tool_details :: proc() -> string {
-	return tprint(
+	return aprintf(
 		"A run passes with an ok UNIFIED_RESULT line and exit 0, no ERROR line, no leak at exit and no GDScript\n" +
 		"warning. Headless runs have Godot's debugger on (-d, which prints the warnings): a script error stops at\n" +
 		"its prompt, which quits at once (the run's stdin holds `quit`), so the run ends within seconds with the\n" +
@@ -496,7 +499,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	})
 	return {
 		ok      = result.ok,
-		summary = tprint("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds),
+		summary = aprintf("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds),
 		data    = box(result.result),
 	}
 }
@@ -579,7 +582,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	}
 	if opts.lan {
 		// a free port: two runs at once (parallel agents) never meet in each other's lobby
-		append(&extra, "--lan", tprint("--lan-port=%d", free_udp_port()))
+		append(&extra, "--lan", aprintf("--lan-port=%d", free_udp_port()))
 	}
 	code := join(selected.dir, ".out", "coop_code.txt")
 	os.remove(code)
@@ -629,7 +632,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	ok := host.ok && join.ok
 	return {
 		ok      = ok,
-		summary = tprint(
+		summary = aprintf(
 			"coop %s: host %s, joiner %s",
 			selected.name,
 			host.ok ? "ok" : "FAILED",
@@ -661,7 +664,7 @@ cmd_bake :: proc(args: []string) -> Result {
 	}
 	return {
 		ok      = ok,
-		summary = tprint("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
+		summary = aprintf("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
 	}
 }
 
@@ -709,14 +712,14 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 					ok = false
 				}
 			}
-			append(&found, Found{kind, tprint("res://%s", rel_path)})
+			append(&found, Found{kind, aprintf("res://%s", rel_path)})
 		}
 	}
 	slice.sort_by(found[:], proc(a, b: Found) -> bool {return a.kind < b.kind})
 	builder := strings.builder_make(context.temp_allocator)
 	strings.write_string(&builder, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\nmetadata/views = {\n")
 	for item, i in found {
-		strings.write_string(&builder, tprint("%q: %q%s\n", item.kind, item.path, i + 1 < len(found) ? "," : ""))
+		strings.write_string(&builder, aprintf("%q: %q%s\n", item.kind, item.path, i + 1 < len(found) ? "," : ""))
 	}
 	strings.write_string(&builder, "}\n")
 	want := strings.to_string(builder)
@@ -814,12 +817,12 @@ coop_default :: proc(game: Game) -> Result {
 		game.dir,
 		"--",
 		"--host-port",
-		tprint("%d", port),
+		aprintf("%d", port),
 		"--local-net",
 	)
 	append(&host_cmd, ..common)
-	append(&host_cmd, "--ticks", tprint("%d", COOP_DEFAULT_TICKS))
-	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", tprint("127.0.0.1:%d", port))
+	append(&host_cmd, "--ticks", aprintf("%d", COOP_DEFAULT_TICKS))
+	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", aprintf("127.0.0.1:%d", port))
 	append(&join_cmd, ..common)
 	timeout := time.Duration(COOP_DEFAULT_TICKS / 64 + 60) * time.Second
 	host := start({
@@ -877,7 +880,7 @@ coop_default :: proc(game: Game) -> Result {
 	}
 	return {
 		ok      = ok,
-		summary = tprint(
+		summary = aprintf(
 			"coop %s (default, port %d): %d checksums compared, %s",
 			game.name,
 			port,
@@ -945,7 +948,7 @@ coop_crash :: proc(
 	ok := crashed && host_result.ok && rejoin_result.ok
 	return {
 		ok      = ok,
-		summary = tprint(
+		summary = aprintf(
 			"coop %s --crash: host %s, first joiner %s, the same player again %s",
 			game.name,
 			host_result.ok ? "ok" : "FAILED",

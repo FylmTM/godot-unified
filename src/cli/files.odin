@@ -4,14 +4,13 @@ import "core:crypto/hash"
 import "core:encoding/hex"
 import "core:os"
 import "core:strings"
-import "core:time"
 
 // Writes a file whole through a temp file and a rename, so a reader never sees half of it. Creates the directory.
 write_file :: proc(path: string, data: []byte) -> bool {
 	if os.make_directory_all(os.dir(path)) != nil && !os.is_directory(os.dir(path)) {
 		return false
 	}
-	tmp := tprint("%s.%d.tmp", path, os.get_pid())
+	tmp := aprintf("%s.%d.tmp", path, os.get_pid())
 	if os.write_entire_file(tmp, data) != nil {
 		return false
 	}
@@ -100,15 +99,6 @@ check_sha256 :: proc(path, want, what: string) {
 		os.remove(path)
 		fatal("%s: SHA-256 mismatch: got %s, pinned %s", what, got, want)
 	}
-}
-
-// A file's modification time; false when it can't be stat'ed.
-mtime :: proc(path: string) -> (time.Time, bool) {
-	info, err := os.stat(path, context.temp_allocator)
-	if err != nil {
-		return {}, false
-	}
-	return info.modification_time, true
 }
 
 // Every file under `dir` (recursively) whose name ends with `suffix`, skipping hidden entries (.godot, .out, .git);

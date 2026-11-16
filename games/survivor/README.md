@@ -1,12 +1,12 @@
 # Survivor
 
-The co-op survivor prototype on `unified`: a Godot 4.7 project (this folder is `res://`). The deterministic sim and
+The co-op survivor prototype on `unified`: a Godot project (this folder is `res://`). The deterministic sim and
 the GDExtension live in `simulation/` (Odin); everything Godot is in `game/`. Spec (the sim, then the
 client): [`SPEC.md`](SPEC.md).
 
 ## Run
 
-Open this folder with Godot 4.7.2 (standard build), or from the repo root:
+Open this folder with the pinned Godot (`pins.cfg`, standard build), or from the repo root:
 
 ```
 uni run survivor                  # the game; builds the game library first

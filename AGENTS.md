@@ -88,7 +88,9 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
   sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all in one compile.
-- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game.
+- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game. The line
+  under a spec's title is its status, `Status: signed off YYYY-MM-DD (#N)` or `Status: draft, pending #N`; the PR
+  that carries a sitting's decisions updates it.
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
   options: `./uni help`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
@@ -114,8 +116,7 @@ back:
 
 ## Where things are
 
-- The board (above): current and upcoming work. `docs/WORK.md`: phases and decisions taken so far (they move into
-  the specs during the foundations review, then the file goes).
+- The board (above): current and upcoming work; decisions live in the specs.
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
 - `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
 - `docs/EOS.md` (online setup), `docs/research/` (open research).

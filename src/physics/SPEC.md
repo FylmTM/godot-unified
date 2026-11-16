@@ -1,7 +1,7 @@
 # `unified:physics`: characters, joints, kinematic paths
 
-Signed off by the developer 2026-11-09 (the plug-in section moved here from `src/sim/SPEC.md` in the #6 sitting); the
-2D API and this revision 2026-11-14 (the physics review, #7).
+Status: signed off 2026-11-14 (#7); first 2026-11-09.
+
 Box3D as `sim` rollback state, plus what every co-op physics game needs. First user: `games/friendslop/SPEC.md`.
 Everything stays deterministic: f32, `+ − × ÷ sqrt`, fixed tables instead of trig, float-to-int through `dmath`,
 Box3D (any worker count steps identically), state in the block or in the Box3D world (both snapshotted).
@@ -194,4 +194,4 @@ tick 0 (arbitrary split shapes included).
   and jumping, pushed by a heavy box) and `GOLDEN_FIELD` (the top-down game), hashed every 128 ticks; the values are
   pinned in the tests and must match on every platform. An intended change updates them in the same commit.
 - Workers: both sync-tests and both golden traces run on 1 and on 4 workers and must give the same checksums.
-- Speed: the games' benchmarks (`uni bench`: step plus an 8-tick re-sim) cover physics as games use it.
+- Speed: the games' benchmarks (`uni bench`: step plus a re-sim of the prediction cap) cover physics as games use it.

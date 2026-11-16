@@ -1,4 +1,4 @@
-// Rocks (game/bulk/rock_view.gd): stone shaded by size, a bright rim, a white flash on a hit.
+// Rocks (game/multi/rock_view.gd): stone shaded by size, a bright rim, a white flash on a hit.
 // INSTANCE_CUSTOM: x = size (0 small, 1 medium, 2 large), y = hit flash 0..1. UV.x: 0 centre .. 1 rim.
 shader_type canvas_item;
 

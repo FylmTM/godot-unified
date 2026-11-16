@@ -1,4 +1,4 @@
-# godot_host session lifecycle tests: run headless by `uni test --suite godot-bindings`, on the toy's session (the
+# unified:godot session lifecycle tests: run headless by `uni test --suite godot-bindings`, on the toy's session (the
 # extension in ext/). Leave, then host or join at once, while the left session is still saying goodbye:
 # 1. join a silent UDP peer (the client lingers up to 2 s for its Leave's ack), leave, start single player at once:
 #    the start is accepted, waits for the goodbye (cut to 1 s) and connects.

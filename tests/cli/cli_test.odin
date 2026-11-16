@@ -299,3 +299,17 @@ import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
 	os.remove(cli.join(dir, ".godot", "global_script_class_cache.cfg"))
 	testing.expect(t, !cli.import_current(dir), "the class cache is gone")
 }
+
+// sources_import reads import lines only: a commented-out import doesn't count, an attributed one does.
+@(test)
+sources_import_reads_import_lines :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	dir, temp_err := os.make_directory_temp("", "unified-cli-sources-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	cli.write_text(cli.join(dir, "a.odin"), "package a\n\n// import \"unified:physics\"\nx := \"unified:physics\"\n")
+	testing.expect(t, !cli.sources_import(dir, `"unified:physics"`), "a comment or a string is not an import")
+	cli.write_text(cli.join(dir, "sub/b.odin"), "package b\n\n@(require) import \"unified:physics\"\n")
+	testing.expect(t, cli.sources_import(dir, `"unified:physics"`), "an attributed import counts")
+	testing.expect(t, !cli.sources_import(dir, `"unified:eos"`))
+}

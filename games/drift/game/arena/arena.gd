@@ -1,7 +1,7 @@
 class_name DriftArena
 extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
-## handed to the session (ships, the station, gates), the bulk views (rocks, bullets, gems), the camera following the
+## handed to the session (ships, the station, gates), the multi views (rocks, bullets, gems), the camera following the
 ## local ship, effects and the HUD. Turns the mouse or the right stick into the aim every frame, and routes the
 ## sim's events (sim_event) to effects, sounds and camera shake: rock effects as soon as an event is first shown
 ## (predicted), the rest once its tick is confirmed.

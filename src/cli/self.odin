@@ -40,12 +40,12 @@ self_check :: proc(args: []string) {
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
-		write_manifest(tprint("%s.inputs", target), hash, files, odin)
-		write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
+		write_manifest(aprintf("%s.inputs", target), hash, files, odin)
+		write_text(join(cli_dir, "current"), aprintf("%s\n", os.base(target)))
 		os.remove(deps)
 		return
 	}
-	entries, hash, ok := read_manifest(tprint("%s.inputs", exe))
+	entries, hash, ok := read_manifest(aprintf("%s.inputs", exe))
 	// Built with an Odin that isn't the pinned one while PATH now names another odin (the shims put the pinned
 	// release first): rebuild with it. Else check_odin_version refuses.
 	if ok && entries_current(entries) && (built_with_pinned_odin() || !odin_changed(entries)) {
@@ -65,7 +65,7 @@ self_check :: proc(args: []string) {
 					odin = entry.path
 				}
 			}
-			write_manifest(tprint("%s.inputs", exe), hash, files[:], odin)
+			write_manifest(aprintf("%s.inputs", exe), hash, files[:], odin)
 			return
 		}
 	}
@@ -91,9 +91,9 @@ self_exe :: proc() -> string {
 @(private)
 binary_name :: proc(hash, odin_commit: string) -> string {
 	if odin_commit == "" {
-		return tprint("uni-%s%s", hash[:12], EXE)
+		return aprintf("uni-%s%s", hash[:12], EXE)
 	}
-	return tprint("uni-%s-%s%s", hash[:12], odin_commit, EXE)
+	return aprintf("uni-%s-%s%s", hash[:12], odin_commit, EXE)
 }
 
 // Rebuilds the CLI from source, installs it and runs it with our arguments in our place.
@@ -105,19 +105,19 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		os.exit(1)
 	}
 	project := state.project
-	tmp := join(cli_dir, tprint("uni-build-%d%s", os.get_pid(), EXE))
-	deps := tprint("%s.deps.json", tmp)
+	tmp := join(cli_dir, aprintf("uni-build-%d%s", os.get_pid(), EXE))
+	deps := aprintf("%s.deps.json", tmp)
 	log("uni: the CLI's sources or its odin changed: rebuilding it")
 	ran := run_proc({
 		cmd   = {
 			odin,
 			"build",
 			join(project.root, "tools"),
-			tprint("-collection:unified=%s", join(project.unified, "src")),
+			aprintf("-collection:unified=%s", join(project.unified, "src")),
 			"-o:minimal",
-			tprint("-out:%s", tmp),
+			aprintf("-out:%s", tmp),
 			"-export-dependencies:json",
-			tprint("-export-dependencies-file:%s", deps),
+			aprintf("-export-dependencies-file:%s", deps),
 		},
 		quiet = true,
 	})
@@ -152,8 +152,8 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("uni: cannot install %s", target)
 		os.exit(1)
 	}
-	write_manifest(tprint("%s.inputs", target), hash, files, odin_path)
-	write_text(join(cli_dir, "current"), tprint("%s\n", os.base(target)))
+	write_manifest(aprintf("%s.inputs", target), hash, files, odin_path)
+	write_text(join(cli_dir, "current"), aprintf("%s\n", os.base(target)))
 	prune_binaries(cli_dir)
 	cmd := make([dynamic]string)
 	append(&cmd, target)
@@ -345,7 +345,7 @@ prune_binaries :: proc(cli_dir: string) {
 	})
 	for info in bins[min(CLI_KEEP, len(bins)):] {
 		if os.remove(info.fullpath) == nil {
-			os.remove(tprint("%s.inputs", info.fullpath))
+			os.remove(aprintf("%s.inputs", info.fullpath))
 		}
 	}
 }

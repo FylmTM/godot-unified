@@ -68,8 +68,6 @@ set_transport :: proc(new_transport: ^Transport) {
 	transport = new_transport
 }
 
-// Network impairment for remote links (the dev UI's Conditions panel): the main thread publishes settings, the
-// session thread applies them to every wrapped link.
 // One direction of the dev netsim.
 Netsim_Dir :: struct {
 	latency_ms: f32,
@@ -83,6 +81,8 @@ Netsim_Settings :: struct {
 	down:    Netsim_Dir, // from it
 }
 
+// Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings
+// (set_netsim), the session thread applies them to every wrapped link.
 @(private)
 netsim_req: struct {
 	mu:  sync.Mutex,
@@ -92,6 +92,7 @@ netsim_req: struct {
 
 // Publishes new impairment settings from the main thread (the dev UI's Conditions panel, the --lag argument); the
 // session thread applies them to every wrapped link on its next loop iteration.
+@(private)
 set_netsim :: proc(settings: Netsim_Settings) {
 	sync.mutex_lock(&netsim_req.mu)
 	netsim_req.set = settings

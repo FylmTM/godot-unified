@@ -1,7 +1,6 @@
 # `unified:dmath`: deterministic f32 math
 
-Reviewed with the developer in the #6 sitting (2026-11-14); signed off when this version merges (moved here from
-`src/sim/SPEC.md`).
+Status: signed off 2026-11-14 (#6).
 
 The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), never
 fused into a multiply-add. Tests: `tests/dmath`.

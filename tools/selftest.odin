@@ -172,7 +172,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		if !r.ok {
 			return {
 				ok      = false,
-				summary = cli.tprint(
+				summary = cli.aprintf(
 					"selftest: %s failed (exit %d); the work is in %s",
 					s.what,
 					r.exit_code,
@@ -181,22 +181,22 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			}
 		}
 		if s.expect != "" && !strings.contains(r.stdout, s.expect) {
-			return {ok = false, summary = cli.tprint("selftest: %s: its output has no %s", s.what, s.expect)}
+			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", s.what, s.expect)}
 		}
 		if s.check != nil {
 			if problem := s.check(game, head); problem != "" {
 				return {
 					ok      = false,
-					summary = cli.tprint("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
+					summary = cli.aprintf("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
 				}
 			}
 		}
 		if i == 1 { 	// the bootstrap: the Odin it ran with is the download
-			odin := cli.join(cache, "unified", "odin", cli.pin("odin", "tag"), cli.tprint("odin%s", cli.EXE))
+			odin := cli.join(cache, "unified", "odin", cli.pin("odin", "tag"), cli.aprintf("odin%s", cli.EXE))
 			if !os.is_file(odin) {
 				return {
 					ok      = false,
-					summary = cli.tprint("selftest: the bootstrap ran, but the shim downloaded no %s", odin),
+					summary = cli.aprintf("selftest: the bootstrap ran, but the shim downloaded no %s", odin),
 				}
 			}
 		}
@@ -204,7 +204,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	}
 	return {
 		ok      = true,
-		summary = cli.tprint(
+		summary = cli.aprintf(
 			"selftest%s passed in %.0fs (%s)",
 			opts.shims ? " --shims" : "",
 			cli.seconds_since(start),
@@ -249,9 +249,9 @@ download_env :: proc(work, cache: string) -> []string {
 		stand_in := cli.join(work, "other-odin")
 		cli.write_text(cli.join(stand_in, "odin"), "#!/bin/sh\necho 'odin version dev-2000-01:0000000'\n")
 		os.change_mode(cli.join(stand_in, "odin"), os.perm_number(0o755))
-		path = cli.tprint("%s:%s", stand_in, path)
+		path = cli.aprintf("%s:%s", stand_in, path)
 	}
-	append(&out, cli.tprint("PATH=%s", path), cli.tprint("%s=%s", cache_key, cache))
+	append(&out, cli.aprintf("PATH=%s", path), cli.aprintf("%s=%s", cache_key, cache))
 	return out[:]
 }
 
@@ -268,9 +268,9 @@ check_in_repo :: proc(game, head: string) -> string {
 		quiet   = true,
 	})
 	changes := strings.split_lines(strings.trim_right(status.stdout, "\r\n"))
-	want := []string{" M tests/tests.odin", cli.tprint("?? games/%s/", IN_REPO_GAME)}
+	want := []string{" M tests/tests.odin", cli.aprintf("?? games/%s/", IN_REPO_GAME)}
 	if len(changes) != len(want) || changes[0] != want[0] || changes[1] != want[1] {
-		return cli.tprint("the clone's changes are not just the game and its tests import:\n%s", status.stdout)
+		return cli.aprintf("the clone's changes are not just the game and its tests import:\n%s", status.stdout)
 	}
 	return ""
 }
@@ -284,7 +284,7 @@ check_init :: proc(game, head: string) -> string {
 		quiet   = true,
 	})
 	if !strings.contains(pinned.stdout, head) {
-		return cli.tprint("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
+		return cli.aprintf("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
 	}
 	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
 	for file in cli.find_files(game, "") {
@@ -295,7 +295,7 @@ check_init :: proc(game, head: string) -> string {
 		text, _ := cli.read_text(file)
 		for stale in STALE {
 			if strings.contains(text, stale) {
-				return cli.tprint("%s names %q", cli.rel(file), stale)
+				return cli.aprintf("%s names %q", cli.rel(file), stale)
 			}
 		}
 	}

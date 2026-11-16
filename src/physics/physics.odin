@@ -52,7 +52,7 @@ World :: struct {
 	ring:       [sim.MAX_RING_SIZE]b3.World_Snapshot, // slots past the sim's ring_size stay empty
 	scratch:    b3.World_Snapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
 	image:      ^b3.World_State, // the last portable image `image` built
-	// Offsets of every Body_Ref / Joint_Ref in the state block, in memory order (the hash order).
+	// Offsets of every Body_Ref / Joint_Ref in the state block, in memory order, for check_refs.
 	refs:       []int,
 	joint_refs: []int,
 	anchor:     b3.Body_Id, // Settings.anchor
@@ -203,7 +203,6 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 	delete(world.joint_refs)
 	world.joint_refs = joint_refs[:]
 	return {
-		name = "physics",
 		data = world,
 		save = proc(data: rawptr, slot: int) {
 			world := (^World)(data)

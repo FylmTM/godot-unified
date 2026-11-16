@@ -3,9 +3,9 @@
 [ext_resource type="PackedScene" path="res://game/arena/level.tscn" id="1_level"]
 [ext_resource type="Script" path="res://game/arena/arena.gd" id="2_arena"]
 [ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="3_circle"]
-[ext_resource type="Shader" path="res://game/shaders/bulk.gdshader" id="4_bulk"]
+[ext_resource type="Shader" path="res://game/shaders/multi.gdshader" id="4_multi"]
 [ext_resource type="Shader" path="res://game/shaders/gem.gdshader" id="5_gem"]
-[ext_resource type="Script" path="res://game/views/bulk_view.gd" id="6_bulk"]
+[ext_resource type="Script" path="res://game/views/multi_view.gd" id="6_multi"]
 [ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="7_camera"]
 [ext_resource type="Script" path="res://game/fx/fx.gd" id="8_fx"]
 [ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="9_hud"]
@@ -13,7 +13,7 @@
 
 [sub_resource type="ShaderMaterial" id="grunt_mat"]
 render_priority = 0
-shader = ExtResource("4_bulk")
+shader = ExtResource("4_multi")
 shader_parameter/albedo = Color(0.22, 0.4, 0.7, 1)
 shader_parameter/lift = 0.55
 
@@ -31,7 +31,7 @@ mesh = SubResource("grunt_mesh")
 
 [sub_resource type="ShaderMaterial" id="runner_mat"]
 render_priority = 0
-shader = ExtResource("4_bulk")
+shader = ExtResource("4_multi")
 shader_parameter/albedo = Color(0.12, 0.66, 0.7, 1)
 shader_parameter/lift = 0.48
 
@@ -50,7 +50,7 @@ mesh = SubResource("runner_mesh")
 
 [sub_resource type="ShaderMaterial" id="brute_mat"]
 render_priority = 0
-shader = ExtResource("4_bulk")
+shader = ExtResource("4_multi")
 shader_parameter/albedo = Color(0.4, 0.22, 0.66, 1)
 shader_parameter/lift = 0.65
 
@@ -65,7 +65,7 @@ mesh = SubResource("brute_mesh")
 
 [sub_resource type="ShaderMaterial" id="projectile_mat"]
 render_priority = 0
-shader = ExtResource("4_bulk")
+shader = ExtResource("4_multi")
 shader_parameter/albedo = Color(1, 0.95, 0.7, 1)
 shader_parameter/emission_color = Color(1, 0.8, 0.35, 1)
 shader_parameter/emission_energy = 5.0
@@ -110,43 +110,43 @@ script = ExtResource("2_arena")
 
 [node name="Views" type="Node3D" parent="."]
 
-[node name="Bulk" type="Node3D" parent="."]
+[node name="MultiViews" type="Node3D" parent="."]
 
-[node name="Grunts" type="MultiMeshInstance3D" parent="Bulk"]
+[node name="Grunts" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("grunt_mm")
-script = ExtResource("6_bulk")
+script = ExtResource("6_multi")
 
-[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Grunts"]
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Grunts"]
 kind = "grunt"
 
-[node name="Runners" type="MultiMeshInstance3D" parent="Bulk"]
+[node name="Runners" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("runner_mm")
-script = ExtResource("6_bulk")
+script = ExtResource("6_multi")
 
-[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Runners"]
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Runners"]
 kind = "runner"
 
-[node name="Brutes" type="MultiMeshInstance3D" parent="Bulk"]
+[node name="Brutes" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("brute_mm")
-script = ExtResource("6_bulk")
+script = ExtResource("6_multi")
 
-[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Brutes"]
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Brutes"]
 kind = "brute"
 
-[node name="Projectiles" type="MultiMeshInstance3D" parent="Bulk"]
+[node name="Projectiles" type="MultiMeshInstance3D" parent="MultiViews"]
 cast_shadow = 0
 multimesh = SubResource("projectile_mm")
-script = ExtResource("6_bulk")
+script = ExtResource("6_multi")
 
-[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Projectiles"]
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Projectiles"]
 kind = "projectile"
 
-[node name="Gems" type="MultiMeshInstance3D" parent="Bulk"]
+[node name="Gems" type="MultiMeshInstance3D" parent="MultiViews"]
 cast_shadow = 0
 multimesh = SubResource("gem_mm")
-script = ExtResource("6_bulk")
+script = ExtResource("6_multi")
 
-[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Bulk/Gems"]
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Gems"]
 kind = "gem"
 
 [node name="Camera" type="Camera3D" parent="."]

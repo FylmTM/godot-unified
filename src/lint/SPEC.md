@@ -1,6 +1,6 @@
 # lint
 
-Signed off by the developer 2026-11-09.
+Status: signed off 2026-11-09.
 
 The determinism lint (AGENTS.md "Deterministic simulation") as a library, so a game outside this repo lints its
 sim package the way unified lints its own. Test-side code: it imports `core:testing` and runs inside `odin test`.
@@ -34,7 +34,8 @@ TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
 
 - **Sim rule** (`sim_rule`): imports only `TICK_IMPORTS` (`unified:sim`, `physics`, `level`, `dmath`, `box3d`,
   `wire`, `base:intrinsics`, `core:math/bits`) plus `extra_imports` (exact, or a prefix ending in `/`); none of
-  `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex types, cycle counters, random generators);
+  `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex types, cycle counters, random generators,
+  `sim`'s file procs: `log_write`, `log_read`, `log_sink_file`, `write_file`, `read_file`);
   no `matrix`; strict: no `foreign`, no `map`, no `x := 1.5` (an untyped float literal is f64); tick: every
   package-level variable is `@(rodata)` or listed in `allow_globals` (a write during a tick would be state outside
   the block: not rolled back, not hashed). unified's own tick packages name their exceptions with a reason

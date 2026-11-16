@@ -60,6 +60,37 @@ Class :: struct {
 	native_sn:          StringName,
 	instances:          int,
 	vcalls:             [Virtual]Virtual_Call,
+	bound:              [dynamic]Bound, // what the bind_* procs registered, in order (checks such as the docs')
+}
+
+// One member a bind_* proc registered on a class. A property's get_/set_ methods are its accessors.
+Bound :: struct {
+	kind: Bound_Kind,
+	name: string,
+}
+
+Bound_Kind :: enum u8 {
+	Method,
+	Accessor,
+	Property,
+	Signal,
+	Constant,
+	Script_Virtual,
+}
+
+@(private)
+record_bound :: proc(cls: ^Class, kind: Bound_Kind, name: string) {
+	append(&cls.bound, Bound{kind, strings.clone(name)})
+}
+
+// Marks the methods a property reads and writes through as its accessors.
+@(private)
+record_accessors :: proc(cls: ^Class, getter, setter: string) {
+	for &bound in cls.bound {
+		if bound.kind == .Method && (bound.name == getter || (setter != "" && bound.name == setter)) {
+			bound.kind = .Accessor
+		}
+	}
 }
 
 @(private)
@@ -193,6 +224,9 @@ unregister_class :: proc(cls: ^Class) {
 	StringName_destroy(&cls.name_sn)
 	StringName_destroy(&cls.parent_sn)
 	if cls.native != "" do StringName_destroy(&cls.native_sn)
+	for bound in cls.bound do delete(bound.name)
+	delete(cls.bound)
+	cls.bound = nil
 }
 
 // ---- typed methods
@@ -332,6 +366,7 @@ register_method :: proc(cls: ^Class, name: string, method: ^Method, names: []str
 		arguments_metadata    = count > 0 ? &metas[0] : nil,
 	}
 	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
+	record_bound(cls, .Method, name)
 }
 
 @(private)
@@ -615,6 +650,8 @@ bind_property :: proc(
 	info := property_info(Value, &name_sn, &class_sn, &hint_text)
 	info.hint = u32(hint)
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
+	record_bound(cls, .Property, name)
+	record_accessors(cls, getter, setter)
 }
 
 @(private)
@@ -651,6 +688,7 @@ bind_signal :: proc(cls: ^Class, name: string, args: ..Arg) {
 	sns, infos := arg_infos(args, &empty_sn, &empty_s)
 	defer for &string_name in sns do StringName_destroy(&string_name)
 	gdi.classdb_register_extension_class_signal(library, &cls.name_sn, &name_sn, &infos[0], i64(len(args)))
+	record_bound(cls, .Signal, name)
 }
 
 // Declares an integer constant of the class, in the enum `enum_name` ("" for none): scripts read it as
@@ -661,6 +699,7 @@ bind_constant :: proc(cls: ^Class, enum_name, name: string, value: i64) {
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
 	gdi.classdb_register_extension_class_integer_constant(library, &cls.name_sn, &enum_sn, &name_sn, value, 0)
+	record_bound(cls, .Constant, name)
 }
 
 // Declares a virtual that scripts may implement (docs, autocomplete); Odin calls it with call_script.
@@ -688,11 +727,13 @@ bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
 		arguments_metadata = &metas[0],
 	}
 	gdi.classdb_register_extension_class_virtual_method(library, &cls.name_sn, &virtual_info)
+	record_bound(cls, .Script_Virtual, name)
 }
 
 // ---- calling into Godot with Variants
 
-// Emits `signal` on `obj` with Odin values (converted with variant_from_any).
+// Emits `signal` on `obj` with Odin values (converted with variant_from_any). A failed call (a signal declared with
+// other arguments) is reported through call_error, like the generated wrappers'.
 emit_signal :: proc(obj: Object, signal: ^StringName, args: ..any) {
 	@(static) method_bind_ptr: rawptr
 	if method_bind_ptr == nil do method_bind_ptr = method_bind("Object", "emit_signal", 4047867050)
@@ -704,6 +745,7 @@ emit_signal :: proc(obj: Object, signal: ^StringName, args: ..any) {
 	ret: Variant
 	err: gdi.CallError
 	gdi.object_method_bind_call(method_bind_ptr, obj.ptr, raw_data(ptrs), i64(len(ptrs)), &ret, &err)
+	if err.error != .OK do call_error(err, fmt.tprintf("emit_signal %q", string_name_to_odin(signal)))
 	gdi.variant_destroy(&ret)
 	for &variant in variants do gdi.variant_destroy(&variant)
 }
@@ -714,7 +756,9 @@ has_script_method :: proc(obj: Object, method: ^StringName) -> bool {
 	return gdi.object_has_script_method(obj.ptr, method) != 0
 }
 
-// Calls a method implemented by the object's script (no-op without one); returns an owned Variant.
+// Calls a method implemented by the object's script (no-op without one); returns an owned Variant. A failed call
+// (wrong argument count or types against the script's method) is reported through call_error; a missing method is
+// the no-op.
 call_script :: proc(obj: Object, method: ^StringName, args: ..any) -> Variant {
 	variants := make([]Variant, max(len(args), 1), context.temp_allocator)
 	ptrs := make([]rawptr, max(len(args), 1), context.temp_allocator)
@@ -725,6 +769,9 @@ call_script :: proc(obj: Object, method: ^StringName, args: ..any) -> Variant {
 	ret: Variant
 	err: gdi.CallError
 	gdi.object_call_script_method(obj.ptr, method, raw_data(ptrs), i64(len(args)), &ret, &err)
+	if err.error != .OK && err.error != .ERROR_INVALID_METHOD {
+		call_error(err, fmt.tprintf("call_script %q", string_name_to_odin(method)))
+	}
 	for i in 0 ..< len(args) do gdi.variant_destroy(&variants[i])
 	return ret
 }
@@ -908,6 +955,7 @@ bind_dynamic_method :: proc(
 		arguments_metadata = count > 0 ? &metas[0] : nil,
 	}
 	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
+	record_bound(cls, .Method, name)
 }
 
 @(private)
@@ -955,6 +1003,8 @@ bind_property_by_name :: proc(
 	info.hint = u32(hint)
 	if setter == "" do info.usage = 8192 // PROPERTY_USAGE_READ_ONLY: not saved, not in the inspector, no doc default
 	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
+	record_bound(cls, .Property, name)
+	record_accessors(cls, getter, setter)
 }
 
 // Makes an empty Array typed: only elements of Variant type `kind` (Array[int]...).

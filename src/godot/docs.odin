@@ -334,6 +334,7 @@ doc_members :: proc(fields: []Sim_Field) -> []Doc_Member {
 
 // Loads every class's docs into the editor's help (EDITOR init level).
 load_docs :: proc() {
+	for problem in docs_problems() do gd.print_error(problem)
 	for class in LIBRARY_DOCS do gd.load_class_docs(doc_xml(class))
 	for sim_class in sim_classes {
 		what := sim_class.is_event ? "event" : "command"
@@ -376,4 +377,73 @@ load_docs :: proc() {
 				constants = constants,
 			}))
 	}
+}
+
+// What LIBRARY_DOCS and the library's classes disagree on (temp-allocated): a method, property, signal or constant
+// bound without an entry, or an entry for one that isn't bound. load_docs reports each as an error, which fails the
+// godot suite's `editor` step. UnifiedData is left out: its properties are the game's data types.
+@(private)
+docs_problems :: proc() -> []string {
+	problems := make([dynamic]string, context.temp_allocator)
+	classes := [?]^gd.Class {
+		&session_class,
+		&unified_view_class,
+		&unified_multi_view_class,
+		&D.unified,
+		&event_base_class,
+		&command_base_class,
+	}
+	for class in classes {
+		doc: ^Doc_Class
+		for &candidate in LIBRARY_DOCS do if candidate.name == class.name do doc = &candidate
+		if doc == nil {
+			append(&problems, fmt.tprintf("unified: docs.odin has no entry for %s", class.name))
+			continue
+		}
+		documented :: proc(doc: ^Doc_Class, bound: gd.Bound) -> bool {
+			#partial switch bound.kind {
+			case .Method, .Script_Virtual:
+				for method in doc.methods do if method.name == bound.name do return true
+			case .Property:
+				for member in doc.members do if member.name == bound.name do return true
+			case .Signal:
+				for signal in doc.signals do if signal.name == bound.name do return true
+			case .Constant:
+				for constant in doc.constants do if constant.name == bound.name do return true
+			case:
+				return true // a property's accessor
+			}
+			return false
+		}
+		is_bound :: proc(class: ^gd.Class, name: string, kinds: bit_set[gd.Bound_Kind]) -> bool {
+			for bound in class.bound do if bound.kind in kinds && bound.name == name do return true
+			return false
+		}
+		for bound in class.bound {
+			if !documented(doc, bound) {
+				append(
+					&problems,
+					fmt.tprintf("unified: %s.%s (%v) has no entry in docs.odin", class.name, bound.name, bound.kind),
+				)
+			}
+		}
+		stale :: "unified: docs.odin documents %s.%s, which %s doesn't bind"
+		for method in doc.methods {
+			if !is_bound(class, method.name, {.Method, .Script_Virtual}) {
+				append(&problems, fmt.tprintf(stale, class.name, method.name, class.name))
+			}
+		}
+		for member in doc.members {
+			if !is_bound(class, member.name, {.Property}) do append(&problems, fmt.tprintf(stale, class.name, member.name, class.name))
+		}
+		for signal in doc.signals {
+			if !is_bound(class, signal.name, {.Signal}) do append(&problems, fmt.tprintf(stale, class.name, signal.name, class.name))
+		}
+		for constant in doc.constants {
+			if !is_bound(class, constant.name, {.Constant}) {
+				append(&problems, fmt.tprintf(stale, class.name, constant.name, class.name))
+			}
+		}
+	}
+	return problems[:]
 }

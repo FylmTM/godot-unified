@@ -3,7 +3,7 @@
 2026-11-08. Spec: `spec/CORE.md` (since split into `spec/headless.md`, `sim.md`, `netcode.md`), `spec/GAME.md`. Built in C++, Odin and Rust; the cross-language comparison (numbers,
 lines, build times, agent cost, per-language problems) is in git (`git show
 6994822:docs/archive/PHASE2-comparison.md`). Odin was chosen. This
-page keeps the Odin-relevant results; its open items moved to `docs/WORK.md`.
+page keeps the Odin-relevant results; its open items moved to the board and the specs.
 
 ## Verdict
 

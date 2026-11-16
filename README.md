@@ -25,8 +25,9 @@ from one CLI. It's built for fast iteration and for AI coding agents.
   Each client predicts and rolls back, and players can join late or rejoin after a drop. It needs no backend.
 - **Pluggable transports:** in-process loopback, direct UDP / LAN, and Epic Online Services (lobbies by code, P2P
   with relay fallback).
-- **Sync-test mode:** in single player, every frame rolls back, re-simulates and compares checksums, so "works in
-  single player" means "works online".
+- **Sync-test mode:** the headless `synctest` mode, and a scenario every game's test suite runs, roll back and
+  re-simulate on every tick and compare checksums with the forward run, so state that would diverge online fails
+  offline. (Single player is a host with no remote links: nothing rolls back there.)
 - **Replays and reference runs:** replays are exact regression tests within a build, and every platform has to reproduce the
   recorded reference runs bit for bit.
 - **Headless everything:** N clients in one process with a network simulator, for tests, CI and agents.
@@ -133,8 +134,7 @@ A step-by-step guide to setting up and making a tiny game is planned
 - [`src/README.md`](src/README.md): how the core works inside, across packages.
 - [`tools/README.md`](tools/README.md): this repo's CLI, `uni`, and its private commands.
 - [`AGENTS.md`](AGENTS.md): the rules and workflow for working on unified, for people and agents alike.
-- [`docs/`](docs/): decisions so far (`WORK.md`), online setup (`EOS.md`), open research (`research/`) and earlier
-  results (`archive/`).
+- [`docs/`](docs/): online setup (`EOS.md`), open research (`research/`) and earlier results (`archive/`).
 - [Issues](https://github.com/FylmTM/godot-unified/issues): current and upcoming work.
 
 ## License

@@ -109,11 +109,11 @@ PLATFORM :: OS_NAME + "-" + ARCH_NAME
 // A shared library's file name on this OS: libX.dylib, libX.so, X.dll.
 lib_name :: proc(stem: string) -> string {
 	when ODIN_OS == .Windows {
-		return tprint("%s.dll", stem)
+		return aprintf("%s.dll", stem)
 	} else when ODIN_OS == .Darwin {
-		return tprint("lib%s.dylib", stem)
+		return aprintf("lib%s.dylib", stem)
 	} else {
-		return tprint("lib%s.so", stem)
+		return aprintf("lib%s.so", stem)
 	}
 }
 

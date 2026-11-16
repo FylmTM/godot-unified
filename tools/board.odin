@@ -130,7 +130,7 @@ board_set :: proc(issue, status, area: string) -> cli.Result {
 	Item :: struct {
 		id: string,
 	}
-	url := cli.tprint("https://github.com/%s/issues/%d", BOARD_REPO, n)
+	url := cli.aprintf("https://github.com/%s/issues/%d", BOARD_REPO, n)
 	item: Item
 	json.unmarshal(
 		transmute([]byte)gh(
@@ -183,21 +183,21 @@ board_set :: proc(issue, status, area: string) -> cli.Result {
 		}
 		st: State
 		json.unmarshal(
-			transmute([]byte)gh("issue", "view", cli.tprint("%d", n), "--repo", BOARD_REPO, "--json", "state"),
+			transmute([]byte)gh("issue", "view", cli.aprintf("%d", n), "--repo", BOARD_REPO, "--json", "state"),
 			&st,
 		)
 		if st.state != "CLOSED" {
-			gh("issue", "close", cli.tprint("%d", n), "--repo", BOARD_REPO, "--reason", "completed")
+			gh("issue", "close", cli.aprintf("%d", n), "--repo", BOARD_REPO, "--reason", "completed")
 			closed = ", closed"
 		}
 	}
 	return {
 		ok      = true,
-		summary = cli.tprint(
+		summary = cli.aprintf(
 			"board: #%d%s%s%s",
 			n,
-			status_name != "" ? cli.tprint(" -> %s", status_name) : "",
-			area != "" ? cli.tprint(" (area %s)", area) : "",
+			status_name != "" ? cli.aprintf(" -> %s", status_name) : "",
+			area != "" ? cli.aprintf(" (area %s)", area) : "",
 			closed,
 		),
 	}

@@ -808,8 +808,14 @@ item_home :: proc(t: ^Tick, index: int) {
 // ---- the run
 
 // Moves the run on: a player in the start gate starts the run timer, players reaching checkpoints advance the team's
-// checkpoint, the trophy on the finish ends the run (keeping the best time), and the route resets after the hold.
+// checkpoint, the trophy on the finish ends the run (keeping the best time), and the route resets after the hold or
+// as soon as nobody is present.
 run :: proc(t: ^Tick) {
+	nobody := sim.iterate_present(&t.state.players)
+	if _, _, anyone := sim.next(&nobody); !anyone {
+		if t.state.phase != .Hub do reset_route(t)
+		return
+	}
 	switch t.state.phase {
 	case .Hub:
 		if t.world.start.half == {} do return

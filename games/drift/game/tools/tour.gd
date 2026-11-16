@@ -4,7 +4,7 @@ extends UnifiedTool
 ##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
 ## menu -> single player -> lobby (the ship, the station and both gates are there) -> click Start (the `start`
 ## command) -> match: aim with the stick (the ship turns to it), thrust (it moves, the camera follows), fire
-## (bullets in the bulk view) while the first wave's rocks drift in (rock bulk views) -> hunt rocks (_hunt) until
+## (bullets in the multi view) while the first wave's rocks drift in (rock multi views) -> hunt rocks (_hunt) until
 ## one is hit (`--quick`) or splits or is destroyed -> without `--quick`, warp through a gate -> leave to the menu.
 ## The result adds the sim events seen.
 
@@ -84,16 +84,16 @@ func _run() -> void:
 	# fire while the first wave drifts in
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
-	await wait_for(func() -> bool: return _bulk_count(["bullet"]) > 0, 2.0, "bullets in the bullet bulk view")
-	await wait_for(func() -> bool: return _bulk_count(ROCK_KINDS) > 0, 6.0, "rocks in the rock bulk views")
+	await wait_for(func() -> bool: return _multi_count(["bullet"]) > 0, 2.0, "bullets in the bullet multi view")
+	await wait_for(func() -> bool: return _multi_count(ROCK_KINDS) > 0, 6.0, "rocks in the rock multi views")
 	Input.action_release(&"aim_up")
 	if failed():
 		Input.action_release(&"fire")
 		return
 	await seconds(0.5)
 	await shot("r03_match")
-	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_bulk_count(["bullet"]),
-		_bulk_count(ROCK_KINDS), _bulk_count(["gem"]), int(game.local_player_info().get("shots", 0))])
+	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_multi_count(["bullet"]),
+		_multi_count(ROCK_KINDS), _multi_count(["gem"]), int(game.local_player_info().get("shots", 0))])
 
 	await _hunt(flag("quick"))
 	if not flag("quick"):
@@ -106,8 +106,8 @@ func _run() -> void:
 	step("left to the menu")
 
 
-## Fires at rocks: aims at the nearest one (read back from the rock bulk views) and thrusts into range. Headless (no
-## renderer holds the bulk views' transforms to read back) it sweeps the aim around while the rocks drift at the
+## Fires at rocks: aims at the nearest one (read back from the rock multi views) and thrusts into range. Headless (no
+## renderer holds the multi views' transforms to read back) it sweeps the aim around while the rocks drift at the
 ## station, and aims at the last rock hit for a second after each hit. Quick: until the first hit, 15 s at most.
 ## Otherwise until a rock splits or is destroyed, 40 s at most.
 func _hunt(quick: bool) -> void:
@@ -205,21 +205,21 @@ func _views(kind: String) -> int:
 
 
 ## Instances the host drew this frame in the MultiMesh views of these kinds.
-func _bulk_count(kinds: Array) -> int:
+func _multi_count(kinds: Array) -> int:
 	var n := 0
 	for kind: String in kinds:
 		n += multi_count(kind)
 	return n
 
 
-## The nearest rock's position, read back from the rock bulk views' instance transforms (what the host wrote), or
+## The nearest rock's position, read back from the rock multi views' instance transforms (what the host wrote), or
 ## Vector2.INF when there is none or nothing to read back: headless, the renderer keeps no MultiMesh buffer and
 ## every transform reads as the origin.
 func _nearest_rock(from: Vector2) -> Vector2:
 	var best := Vector2.INF
 	if _headless():
 		return best
-	for b in current_scene.get_node(^"Bulk").get_children():
+	for b in current_scene.get_node(^"MultiViews").get_children():
 		var mmi := b as MultiMeshInstance2D
 		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
 		if mmi == null or mmi.multimesh == null or marker == null or not (marker.kind in ROCK_KINDS):

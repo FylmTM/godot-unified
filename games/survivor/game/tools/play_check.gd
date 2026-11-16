@@ -171,7 +171,7 @@ func _press_key(key: Key) -> void:
 ## extension writes), walls and pillars as hard edges, a pull towards nearby gems and a bonus for keeping the last
 ## heading; replanned every 4 frames. Dash when an enemy is close. Strengths go through the InputMap like a stick.
 
-func _bulk_points(kinds: Array, near: Vector2, radius: float) -> PackedVector2Array:
+func _multi_points(kinds: Array, near: Vector2, radius: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	var r2 := radius * radius
 	for marker: Node in root.find_children("*", "UnifiedMultiView", true, false):
@@ -192,8 +192,8 @@ func _steer(p: Vector3, _held: Array[StringName]) -> Array[StringName]:
 	_plan_frame += 1
 	var nearest := 1e9
 	if _plan_frame % 4 == 0:
-		var enemies := _bulk_points(["grunt", "runner", "brute"], me, 12.0)
-		var gems := _bulk_points(["gem"], me, 10.0)
+		var enemies := _multi_points(["grunt", "runner", "brute"], me, 12.0)
+		var gems := _multi_points(["gem"], me, 10.0)
 		for e in enemies:
 			nearest = minf(nearest, e.distance_to(me))
 		var best := 1e18

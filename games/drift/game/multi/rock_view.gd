@@ -14,5 +14,5 @@ func _ready() -> void:
 	var pts := PackedVector2Array()
 	for p: Vector2 in shapes[variant]:
 		pts.append(p)
-	multimesh = BulkMesh.multimesh(BulkMesh.fan(pts))
-	material = BulkMesh.material(load(SHADER) as Shader)
+	multimesh = ViewMeshes.multimesh(ViewMeshes.fan(pts))
+	material = ViewMeshes.material(load(SHADER) as Shader)

@@ -1,4 +1,4 @@
-// Gems (game/bulk/gem_view.gd): the instance colour (extract fades it before expiry) with a glint that sweeps
+// Gems (game/multi/gem_view.gd): the instance colour (extract fades it before expiry) with a glint that sweeps
 // across now and then. INSTANCE_CUSTOM.x: the gem's age in seconds. UV.x: 0 centre .. 1 rim.
 shader_type canvas_item;
 

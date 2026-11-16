@@ -1,5 +1,7 @@
 # headless
 
+Status: draft (no sitting signed it off as a whole); its end-to-end suites signed off 2026-11-09 (#4).
+
 The headless binary every game builds from `unified:headless/modes` (`src/headless/modes`, wired by
 `games/<game>/simulation/headless`; the toy game's by `tests/toy/headless`) on top of the in-memory runs of
 `unified:headless` (`src/headless`), and the end-to-end suites: each game's Odin tests built on the standard
@@ -55,15 +57,26 @@ procs in-process):
 - Ticks are numbered from 1: the state after the k-th step is tick k, and `--ticks N` ends at tick N. A trace has one
   line per tick, 1..N in order (`resume` from a tick-T snapshot traces T+1..T+N). Checksums in traces and JSON are
   lowercase `%016x`.
-- JSON fields (extra fields are fine):
-  - `synctest`: `mismatches`.
-  - `session`: `desyncs` (relay-detected mismatches) and `clients`, a list with one object per client. `client`
-    prints that same object as its whole JSON line, and `relay` prints `desyncs`. A client object has `slot`, `member`,
-    `final_tick` (last verified tick, = N on success), `checksums` (`[[tick, "%016x"], ...]` for every verified tick
-    divisible by 16; a late joiner starts at its first verified one), `rollbacks`, `rollback_depth_avg`,
-    `rollback_depth_max`, `stall_ticks`, and optionally `desyncs`.
-  - `bench`: `step_us`, `save_us`, `restore_us`, `resim_us` (the W-tick re-sim), `checksum_us`,
-    `checksum_deep_us`, each `{"mean": µs, "p99": µs}`, and `snapshot_bytes`.
+- JSON fields: every line has `mode`; a timing is `{"mean": µs, "p99": µs}`; `ok` where the mode can fail.
+  - `sim`: `ticks`, `seed`, `players`, `final_checksum` (and the game's `summary` fields). `synctest`: `ticks`,
+    `window`, `seed`, `players`, `mismatches`, `first_mismatch`, `resimulated_ticks`, `final_checksum`. `replay`:
+    `ticks`, `final_checksum`. `snapshot`: `tick`, `bytes`, `checksum`. `resume`: `final_tick`, `final_checksum`.
+  - `session`: `clients` (a client object each), `desyncs` (relay-detected mismatches), `replaced_inputs`,
+    `profile`, `transport`, `clock`, `ticks`, `relay_net` (the relay's channel stats). `relay`: `desyncs`,
+    `replaced_inputs`, `finalized`, `net`. `client` prints a client object as its whole line.
+  - A client object (`netcode.client_json`): `slot`, `member`, `final_tick` (last verified tick, = N on success),
+    `checksums` (`[[tick, "%016x"], ...]` for every verified tick divisible by 16; a late joiner starts at its first
+    verified one), `rollbacks`, `rollback_depth_avg`, `rollback_depth_max`, `stall_ticks`, `resim_ticks`,
+    `join_tick`, `delay`, `delay_changes`, `rtt_ms`, `desyncs`, `ok`, `net`, `steps` and `step_us` (by kind:
+    `verified`, `resim`, `predicted`).
+  - `bench`: `what`, `entities`, `window`, `ticks`, the timings `step_us`, `save_us`, `restore_us`, `resim_us`,
+    `resim_final_us`, `checksum_us`, `checksum_deep_us`, then `snapshot_bytes`, `block_bytes`, `entities_mean`,
+    `mismatches`. `net-bench`: `clients`, `profile`, `latency_ms`, `jitter_ms`, `ticks`, `tick_hz`, `wall_ms`,
+    `delay` (per client), `rollbacks`, `rollback_depth_avg`, `resim_ticks`, `stall_ticks`, `replaced_inputs`,
+    `desyncs`, `steps`, `step_us`, `relay_bytes_per_s`, `client_bytes_per_s`, `relay_datagrams_per_s`, `resends`.
+    `table-bench`: `capacity`, `live`, `walks`, `sparse_us`, `dense_us`, `checksum`.
+  - `<online>-host`: `code`, `lobby_ready_ms`, `players`, `desyncs`, `finalized`, `net`, `client`.
+    `<online>-client`: `join_ms`, `network`, `client`.
 
 Network profiles: `ideal` (0 ms); `wan` (50 ms ± 15 ms one way, 2% loss, 1% duplicates, 1% reordering); `bad`
 (120 ms ± 40 ms, 8% loss, 3% duplicates, 5% reordering).
@@ -159,8 +172,8 @@ clients under `bad`, a late joiner, `presence_churn`, the reference run's replay
 - **CI**, on every platform it tests (when each runs: the top of `.github/workflows/ci.yml`): `uni test` (every
   suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`. Never `--long`.
 - **Benchmarks are not part of the suites:** `uni bench` runs each game's `bench` mode (its standard benchmark) alone
-  on a release build (reported, not gated; target: forward step + 8-tick re-sim ≤ 6 ms), and CI's job summary shows
-  them.
+  on a release build (reported, not gated; target: forward step + a re-sim of the prediction cap, 14 ticks at 64 Hz,
+  ≤ 6 ms), and CI's job summary shows them.
 
 ### Reference runs (#61)
 

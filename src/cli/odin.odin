@@ -35,9 +35,9 @@ mode_flags :: proc(mode: Mode) -> []string {
 // box3d_dir()) once it is there (odin refuses a collection that isn't a directory; a project without physics never
 // fetches it).
 collection :: proc() -> []string {
-	unified := tprint("-collection:unified=%s", join(state.project.unified, "src"))
+	unified := aprintf("-collection:unified=%s", join(state.project.unified, "src"))
 	if dir := box3d_dir(); os.is_directory(dir) {
-		return strs(unified, tprint("-collection:box3d=%s", dir))
+		return strs(unified, aprintf("-collection:box3d=%s", dir))
 	}
 	return strs(unified)
 }
@@ -97,14 +97,14 @@ ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
 		stage_box3d(os.dir(build.out), debug = mode == .debug)
 	}
 	if stale(build) {
-		odin_build(build, tprint("building %s's headless binary", headless.name))
+		odin_build(build, aprintf("building %s's headless binary", headless.name))
 	}
 	return build.out
 }
 
 // Where a headless binary is built: .out/<mode>/<name>[.exe]. `bench` runs the release ones from there.
 headless_path :: proc(name: string, mode: Mode) -> string {
-	return join(state.project.out, tprint("%v", mode), tprint("%s%s", name, EXE))
+	return join(state.project.out, aprintf("%v", mode), aprintf("%s%s", name, EXE))
 }
 
 // The packages `test` compiles: this repo's tests/ (every package, the games' suites included), or a game repo's
@@ -197,12 +197,12 @@ Build :: struct {
 // The full odin command line of a build.
 build_cmd :: proc(build: Build, deps_file := "") -> []string {
 	cmd: [dynamic]string
-	append(&cmd, odin(), "build", build.pkg, tprint("-out:%s", build.out))
+	append(&cmd, odin(), "build", build.pkg, aprintf("-out:%s", build.out))
 	append(&cmd, ..collection())
 	append(&cmd, ..build.flags)
 	append(&cmd, ..VET)
 	if deps_file != "" {
-		append(&cmd, "-export-dependencies:json", tprint("-export-dependencies-file:%s", deps_file))
+		append(&cmd, "-export-dependencies:json", aprintf("-export-dependencies-file:%s", deps_file))
 	}
 	return cmd[:]
 }
@@ -216,7 +216,7 @@ build_key :: proc(build: Build) -> string {
 // Whether `out` is missing or older than its sources (by its manifest: sizes and times of every source file and
 // directory, the odin executable, the same command line).
 stale :: proc(build: Build, manifest := "") -> bool {
-	path := manifest != "" ? manifest : tprint("%s.inputs", build.out)
+	path := manifest != "" ? manifest : aprintf("%s.inputs", build.out)
 	if !os.exists(build.out) {
 		return true
 	}
@@ -227,17 +227,17 @@ stale :: proc(build: Build, manifest := "") -> bool {
 // Starts a build that records its manifest when it finishes (`finish_build`).
 start_build :: proc(build: Build) -> Proc {
 	make_dirs(os.dir(build.out))
-	return start({cmd = build_cmd(build, tprint("%s.deps.json", build.out)), dir = build.dir})
+	return start({cmd = build_cmd(build, aprintf("%s.deps.json", build.out)), dir = build.dir})
 }
 
 // Waits for a build start_build started and, when it succeeded, writes its manifest from odin's dependency list
 // so `stale` can judge it next time. Returns how it ran: the caller decides what a failure means.
 finish_build :: proc(build: Build, child: ^Proc, manifest := "") -> Ran {
 	ran := wait(child)
-	deps := tprint("%s.deps.json", build.out)
+	deps := aprintf("%s.deps.json", build.out)
 	if ran.ok {
 		files, odin_path := read_deps(deps)
-		write_manifest(manifest != "" ? manifest : tprint("%s.inputs", build.out), build_key(build), files, odin_path)
+		write_manifest(manifest != "" ? manifest : aprintf("%s.inputs", build.out), build_key(build), files, odin_path)
 	}
 	os.remove(deps)
 	return ran
@@ -340,7 +340,7 @@ git_commit :: proc(dir := "") -> string {
 		capture = true,
 		quiet   = true,
 	})
-	return tprint("%s%s", strings.trim_space(head.stdout), strings.trim_space(status.stdout) != "" ? "+dirty" : "")
+	return aprintf("%s%s", strings.trim_space(head.stdout), strings.trim_space(status.stdout) != "" ? "+dirty" : "")
 }
 
 // Seconds since a tick, for the times commands and suites report.

@@ -51,15 +51,22 @@ snapshot_encode :: proc(
 		block   = size_of(State),
 		layout  = layout_hash(State),
 	}
-	writer := snap_begin(header, ([^]u8)(&slot.state)[:size_of(State)], snapshot_size(simulation), allocator)
-	for &extra in simulation.extras {
-		snap_add(&writer, extra.image(extra.data, index))
+	images := make([][]u8, len(simulation.extras), context.temp_allocator)
+	size := size_of(State)
+	for &extra, k in simulation.extras {
+		images[k] = extra.image(extra.data, index)
+		size += 4 + len(images[k])
+	}
+	writer := snap_begin(header, ([^]u8)(&slot.state)[:size_of(State)], size, allocator)
+	for image in images {
+		snap_add(&writer, image)
 	}
 	return snap_end(&writer)
 }
 
 // Starts a snapshot's bytes: the header with a zero digest, then the state block; snap_add appends each Extra's
 // image and snap_end patches the digest. snapshot_encode builds every snapshot this way.
+@(private)
 snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator := context.allocator) -> wire.Writer {
 	writer := wire.writer_make(SNAP_HEADER + size_hint + 16, allocator)
 	wire.w_bytes(&writer, transmute([]u8)string(SNAP_MAGIC))
@@ -76,12 +83,14 @@ snap_begin :: proc(header: Snap_Header, block: []u8, size_hint: int, allocator :
 }
 
 // Appends one Extra's image (physics) to a snapshot snap_begin started, size-prefixed, in Extra order.
+@(private)
 snap_add :: proc(writer: ^wire.Writer, image: []u8) {
 	wire.w_u32(writer, u32(len(image)))
 	wire.w_bytes(writer, image)
 }
 
 // Patches the payload digest into the header and returns the snapshot's bytes (the writer's buffer).
+@(private)
 snap_end :: proc(writer: ^wire.Writer) -> []u8 {
 	digest := transmute([8]u8)u64le(hash_bytes(writer.buf[SNAP_HEADER:]))
 	copy(writer.buf[SNAP_HEADER - 8:], digest[:])

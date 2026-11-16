@@ -1,7 +1,8 @@
 # drift: the 2D test game
 
-The concept was signed off by the developer on 2026-11-10: a top-down co-op ship arena where the players defend a
-station. The details below were decided autonomously and are pending review. Code: `games/drift/`, laid out like
+Status: draft, pending #91; the concept signed off 2026-11-10.
+
+A top-down co-op ship arena where the players defend a station. Code: `games/drift/`, laid out like
 `games/survivor/`.
 
 1–4 players fly small ships in an arena drawn in Godot's 2D editor. Rocks drift in from the edges in waves toward a

@@ -431,10 +431,10 @@ map_type :: proc(type_name: string, meta: string) -> Type_Info {
 	return {.Pointer, "rawptr", "rawptr", false}
 }
 
-// Whether a default value from the JSON parses as a number, so it can be emitted as an Odin literal.
+// Whether a default value from the JSON is a finite number, so it can be emitted as an Odin literal.
 is_number :: proc(text: string) -> bool {
-	_, ok := strconv.parse_f64(text)
-	return ok
+	value, ok := strconv.parse_f64(text)
+	return ok && value - value == 0 // finite: parse_f64 also takes inf, -inf and nan, which Odin can't write
 }
 
 // Godot default value -> Odin default expression, or "" if not expressible.
@@ -445,7 +445,6 @@ map_default :: proc(type_info: Type_Info, raw_type: string, default_text: string
 	case .Int:
 		if is_number(default_text) do return default_text
 	case .Float:
-		if default_text == "inf" do return ""
 		if is_number(default_text) do return default_text
 	case .Enum:
 		if is_number(default_text) do return fmt.aprintf("%s(%s)", type_info.param, default_text)

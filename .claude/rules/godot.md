@@ -11,7 +11,7 @@ paths:
 
 # Editing a Godot project as text
 
-- Godot 4.7, standard (non-.NET) build. Check APIs against 4.x docs, not Godot 3: training data mixes them.
+- Godot 4 (the version pinned in `pins.cfg`), standard (non-.NET) build. Check APIs against 4.x docs, not Godot 3: training data mixes them.
 - Edit `.gd`, `.tscn`, `.tres` and `project.godot` as text. Hand-written scenes stay minimal: `[gd_scene format=3]`,
   `ext_resource` by `path` with a short `id`, no `uid=`, and no properties set to their default values.
 - GDScript is typed: every declaration has a type (`untyped_declaration` is a warning, and every tool-script run

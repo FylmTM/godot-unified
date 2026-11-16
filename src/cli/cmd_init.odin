@@ -55,7 +55,7 @@ cmd_init :: proc(args: []string) -> Result {
 		}
 		return init_in_repo(dir, name)
 	}
-	if is_unified_repo() && strings.has_prefix(path_key(dir), tprint("%s/", path_key(state.project.root))) {
+	if is_unified_repo() && strings.has_prefix(path_key(dir), aprintf("%s/", path_key(state.project.root))) {
 		usage("%s is inside this unified checkout: --in-repo makes a game at games/<name>", dir)
 	}
 	return init_game_repo(dir, name, opts.dir, opts.unified, opts.ref)
@@ -93,7 +93,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 				"unified",
 			),
 			capture = true,
-		}, tprint("adding %s as the unified submodule", source))
+		}, aprintf("adding %s as the unified submodule", source))
 	submodule := join(dir, "unified")
 	if ref != "" {
 		// a commit, tag or branch, also one the default branch doesn't reach
@@ -110,10 +110,10 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 					ref,
 				),
 				capture = true,
-			}, tprint("fetching %s from %s", ref, source))
+			}, aprintf("fetching %s from %s", ref, source))
 		must_run(
 			{cmd = strs(git(), "-C", submodule, "checkout", "-q", "--detach", "FETCH_HEAD"), capture = true},
-			tprint("checking out %s", ref),
+			aprintf("checking out %s", ref),
 		)
 		must_run({cmd = strs(git(), "-C", dir, "add", "unified")}, "staging the pinned submodule")
 	}
@@ -135,7 +135,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
-		summary = tprint(
+		summary = aprintf(
 			"init: %s, a new game repo (%d files from the template; unified at unified/: %s at %s); next: cd %s && %s run",
 			name,
 			count,
@@ -160,7 +160,7 @@ init_in_repo :: proc(dir, name: string) -> Result {
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
-		summary = tprint(
+		summary = aprintf(
 			"init: %s, a new game in games/%s (%d files from the template%s); next: %s run %s",
 			name,
 			name,
@@ -201,7 +201,7 @@ public_url :: proc(url: string) -> string {
 		return url
 	}
 	path = strings.trim_suffix(strings.trim_right(path, "/"), ".git")
-	return tprint("https://github.com/%s.git", path)
+	return aprintf("https://github.com/%s.git", path)
 }
 
 // Writes the template's files ending in `suffix` (every file by default) into `dir`, __GAME__ replaced by `name`, LF
@@ -224,7 +224,7 @@ write_template :: proc(template, dir, name: string, repo: bool, suffix := ".tmpl
 			rel_path = rel_path[len(REPO) + 1:]
 		}
 		if rel_path == "gitignore" || rel_path == "gitattributes" {
-			rel_path = tprint(".%s", rel_path)
+			rel_path = aprintf(".%s", rel_path)
 		}
 		target, _ := strings.replace_all(rel_path, "__GAME__", name)
 		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
@@ -244,7 +244,7 @@ is_repo_file :: proc(path: string) -> bool {
 // tests/tests.odin's text with `name`'s sim tests imported among the other games' (sorted), and whether that changed
 // it (false: already imported).
 import_game_tests :: proc(text, name: string) -> (string, bool) {
-	line := tprint(`@(require) import %s_tests "../games/%s/simulation/tests"`, name, name)
+	line := aprintf(`@(require) import %s_tests "../games/%s/simulation/tests"`, name, name)
 	lines := strings.split_lines(strings.trim_right(text, "\n"))
 	at := -1 // before the first game import that sorts after it, else after the last one
 	for existing, i in lines {
@@ -269,7 +269,7 @@ import_game_tests :: proc(text, name: string) -> (string, bool) {
 		append(&out, line)
 		append(&out, ..lines[at:])
 	}
-	return tprint("%s\n", strings.join(out[:], "\n")), true
+	return aprintf("%s\n", strings.join(out[:], "\n")), true
 }
 
 // A path to compare: / separators, no trailing one, and (on Windows) lowercase.

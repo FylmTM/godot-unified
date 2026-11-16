@@ -465,15 +465,6 @@ dict_set_move :: proc(dict: ^Dictionary, key: string, value: ^$T) {
 	release(value)
 }
 
-// Reads dict[key] as `T` (see from_variant); false when the key is missing or holds another type.
-dict_get :: proc(dict: ^Dictionary, $T: typeid, key: string) -> (T, bool) {
-	key_variant := to_variant(key)
-	defer gdi.variant_destroy(&key_variant)
-	slot := (^Variant)(gdi.dictionary_operator_index_const(dict, &key_variant))
-	if slot == nil do return {}, false
-	return from_variant(T, slot)
-}
-
 // A new, empty Array the caller owns until it hands it on (returns it from a bound method, array_push_move).
 array_new :: proc() -> Array {
 	return Array_new0()

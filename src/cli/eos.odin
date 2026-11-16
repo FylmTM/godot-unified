@@ -57,7 +57,7 @@ eos_sdk_version :: proc(sdk: string) -> string {
 		}
 	}
 	for part in parts do if part == "" do return ""
-	return tprint("%s.%s.%s.%s", parts[0], parts[1], parts[2], parts[3])
+	return aprintf("%s.%s.%s.%s", parts[0], parts[1], parts[2], parts[3])
 }
 
 // Why the SDK can't be used, or "" when it can: set, the pinned version, this host's library present.
@@ -68,20 +68,15 @@ eos_problem :: proc() -> string {
 	}
 	version := eos_sdk_version(sdk)
 	if version == "" {
-		return tprint("UNIFIED_EOS_SDK=%s holds no SDK/Include/eos_version.h", sdk)
+		return aprintf("UNIFIED_EOS_SDK=%s holds no SDK/Include/eos_version.h", sdk)
 	}
 	if version != pin("eos_sdk", "version") {
-		return tprint("UNIFIED_EOS_SDK=%s is version %s; pins.cfg wants %s", sdk, version, pin("eos_sdk", "version"))
+		return aprintf("UNIFIED_EOS_SDK=%s is version %s; pins.cfg wants %s", sdk, version, pin("eos_sdk", "version"))
 	}
 	if !os.is_file(eos_lib()) {
-		return tprint("UNIFIED_EOS_SDK=%s has no SDK/Bin/%s", sdk, EOS_LIB)
+		return aprintf("UNIFIED_EOS_SDK=%s has no SDK/Bin/%s", sdk, EOS_LIB)
 	}
 	return ""
-}
-
-// Whether the SDK can be used: set, the pinned version, this host's library present (eos_problem says why not).
-eos_ready :: proc() -> bool {
-	return eos_problem() == ""
 }
 
 // This host's SDK runtime library inside UNIFIED_EOS_SDK: what stage_eos copies next to a game's library.
@@ -138,7 +133,7 @@ eos_defines :: proc(game: Game) -> []string {
 	out: [dynamic]string
 	for key in EOS_ENV_DEFINES {
 		if value := os.get_env(key, context.allocator); value != "" {
-			append(&out, tprint("-define:%s=%s", key, value))
+			append(&out, aprintf("-define:%s=%s", key, value))
 		}
 	}
 	return out[:]
