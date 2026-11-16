@@ -121,11 +121,12 @@ a_token_brings_the_member_back_in_another_slot :: proc(t: ^testing.T) {
 
 @(test)
 a_vouched_account_brings_the_member_back :: proc(t: ^testing.T) {
+	// The hub outlives the session: closing the clients' links still sends into it (a netsim flushes what it delays).
+	hub := netcode.hub_create(8)
+	defer netcode.hub_destroy(hub)
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	hub := netcode.hub_create(8)
-	defer netcode.hub_destroy(hub)
 	vouching: Vouching
 	vouching.accounts = {
 		1 = "0002aaaa",
