@@ -86,32 +86,12 @@ event_pos :: proc(position: sim.Position, world: ^dr.World) -> sim.Position {
 	return {position.x * world.px_per_m, position.y * world.px_per_m, 0}
 }
 
-// Station hits go to the station's view (they have no subject). Setting event_key replaces the routing by
-// subject, so a player's events go to their ship's view here too (a rock hit: the shooter's), and the rest
-// (the rock events' subject, a rock, has no scene view) to none.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
-	switch value in sim.event_value(event, dr.Event) {
+// Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
+// their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+	#partial switch _ in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
-		return .Station, 0, true
-	case sim.Event_Player_Joined:
-		return .Ship, ship_key(value.player), true
-	case sim.Event_Player_Left:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Spawned:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Fired:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Boosted:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Warped:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Rock_Hit:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Gem_Picked:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Match_Started:
-		return .Ship, ship_key(value.player), true
-	case dr.Event_Rock_Split, dr.Event_Rock_Destroyed, dr.Event_Wave, dr.Event_Match_Over:
+		return .Station, 0, .View
 	}
 	return
 }

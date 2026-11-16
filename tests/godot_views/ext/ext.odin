@@ -114,6 +114,7 @@ GLUE := godot.Glue(toy.State, toy.Input, toy.World, View, MultiView) {
 	smoothing = {tau_s = 0.1, teleport_dist = 64},
 	is_2d = true,
 	event_pos = event_pos,
+	event_key = event_key,
 }
 
 // The player drifts right; ui_accept pressed spawns one thing (a `Spawned` event with a handle, a position, the
@@ -208,6 +209,18 @@ fill_frame :: proc(f: ^Frame) {
 		scale = {1, 2, 1},
 		color = {0, 1, 0, 1},
 	})
+}
+
+// Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
+// subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+	#partial switch _ in sim.event_value(event, toy.Event) {
+	case toy.Event_Expired:
+		return .Plain2D, 2, .View
+	case sim.Event_Player_Joined:
+		return {}, 0, .No_View
+	}
+	return
 }
 
 // The toy's {x, 0, y} (sim units) to the view's pixels: ×10 on the plane.

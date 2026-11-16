@@ -649,8 +649,8 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 	}
 }
 
-// An event to its subject's scene views (_sim_event(event, state) on the root's script): with Glue.event_key, the
-// view it names; else the views keyed by the event's handle field (of any kind), else the views whose entity is
+// An event to its subject's scene views (_sim_event(event, state) on the root's script): the view Glue.event_key
+// names (or none); else the views keyed by the event's handle field (of any kind), else the views whose entity is
 // the event's `entity` field (a view's entity defaults to its key), else its player's views.
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
 	Route :: enum u8 {
@@ -664,10 +664,16 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 	named: View_Id
 	player, entity := event_subject(layout, raw.data[:raw.size])
 	if api.event_key != nil {
-		kind, key, ok := api.event_key(raw)
-		if !ok do return
-		route, named = .Id, {kind, key}
-	} else {
+		kind, key, event_route := api.event_key(raw)
+		switch event_route {
+		case .Subject:
+		case .View:
+			route, named = .Id, {kind, key}
+		case .No_View:
+			return
+		}
+	}
+	if route == .None { 	// by its subject
 		if layout.subject_is_handle && entity != 0 {
 			for id, entry in V.set.entries do if id.key == view.Key(entity) && entry.view != nil do route = .Key
 		}

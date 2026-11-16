@@ -67,16 +67,16 @@ player_view_key :: proc(player: sim.Player) -> view.Key {
 
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
-// where the default routing would send them to the item's or the switch's view.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool) {
+// where the default routing would send them to the item's or the switch's view. The rest: by their subject.
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
 	value := sim.event_value(event, fs.Event)
 	fields := any{&value, reflect.union_variant_typeid(value)}
 	if player, is_player := reflect.struct_field_value_by_name(fields, "player").(sim.Player);
 	   is_player && player != {} {
-		return .Player, player_view_key(player), true
+		return .Player, player_view_key(player), .View
 	}
 	if entity, is_entity := reflect.struct_field_value_by_name(fields, "entity").(u64); is_entity && entity != 0 {
-		return .Marker, view.Key(entity - 1), true // the marker index
+		return .Marker, view.Key(entity - 1), .View // the marker index
 	}
 	return
 }

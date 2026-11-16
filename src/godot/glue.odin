@@ -160,15 +160,23 @@ Glue :: struct($State, $Input, $World, $View, $MultiView: typeid) {
 	// event classes get them), e.g. metres or cells to pixels. `world` is the session's World as of the newest
 	// frame: read constants from it (a level's scale), not per-tick state. Nil: the sim's units.
 	event_pos:         proc(position: sim.Position, world: ^World) -> sim.Position,
-	// Main thread, optional: the scene view an event goes to (its kind and key; ok false: none), overriding the
-	// routing by its subject (a handle field: the views with that key; an `entity` field: the views whose entity
-	// equals it; else its first sim.Player field: that player's views). sim.event_value(event, Game_Event) reads it.
-	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, ok: bool),
+	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
+	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
+	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
+	// views). So a game handles only its special events. sim.event_value(event, Game_Event) reads it.
+	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: Event_Route),
 	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
 	level:             string,
+}
+
+// Where Glue.event_key sends an event.
+Event_Route :: enum u8 {
+	Subject, // the routing by its subject (the default)
+	View, // the scene view of the kind and key returned
+	No_View, // no scene view (the sim_event signal still gets it)
 }
 
 // Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so

@@ -50,7 +50,7 @@ Api :: struct {
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, ok: bool), // Glue.event_key (nil: by subject)
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, route: Event_Route), // Glue.event_key (nil: by subject)
 	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
@@ -373,9 +373,9 @@ install :: proc(
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
-		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, bool) {
-			kind, key, ok := (^This_Glue)(g_glue).event_key(event)
-			return u8(kind), key, ok
+		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, Event_Route) {
+			kind, key, route := (^This_Glue)(g_glue).event_key(event)
+			return u8(kind), key, route
 		}
 	}
 	api.sample_input = proc() {

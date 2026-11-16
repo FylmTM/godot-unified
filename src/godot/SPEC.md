@@ -252,10 +252,11 @@ its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) a
   undoing an effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and
   index among the tick's events of that kind and subject.
 - **Where.** Each event, in each state, goes first to its subject's views (`_sim_event(event, state)` on the root's
-  script): the view `Glue.event_key` names when the game sets it (a kind and key; ok false: none), else the views
-  keyed by its handle (`sim.handle_key`, of any kind), else the views whose `entity` is its `entity` field (a view's
-  entity defaults to its key), else its player's views (those whose `player` is its player). Then to the `sim_event`
-  signal.
+  script): the views keyed by its handle (`sim.handle_key`, of any kind), else the views whose `entity` is its
+  `entity` field (a view's entity defaults to its key), else its player's views (those whose `player` is its
+  player). Then to the `sim_event` signal. A game routes its special events itself with `Glue.event_key`, which
+  returns a kind, a key and a `godot.Event_Route`: `.View` (the view of that kind and key), `.No_View` (none) or
+  `.Subject` (the zero value, so a bare `return`: the routing by subject above).
 - **When.** An event is delivered once the Frame of its tick is shown: the session thread queues a tick's events
   before it publishes that tick's Frame, and the main thread delivers only those up to the shown Frame's tick, the
   newer ones waiting for the next frame (so an event about a view spawned at its tick finds the view).

@@ -154,7 +154,7 @@ func _initialize() -> void:
 		blink_despawned and blink_kept and not is_instance_valid(blink), [blink_despawned, blink_kept])
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,
 		[toy.x, toy_changes[0]])
-	check_events(events, typed, me)
+	check_events(events, typed, plain, me)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
@@ -238,8 +238,9 @@ func check_players(session: UnifiedSession, me: int, roster_changes: int) -> voi
 
 # The events: every one on the sim_event signal as an object of its class, EMITTED once and then CONFIRMED or
 # CANCELLED once, its fields typed properties; the subject's view gets them too (the player's view: the toy's
-# things have no scene view, so `Spawned` falls back to its player).
-func check_events(events: Array[Array], typed: Node, me: int) -> void:
+# things have no scene view, so `Spawned` falls back to its player), unless Glue.event_key routes it (Expired to the
+# plain2d view keyed 2, Joined to none).
+func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
@@ -261,9 +262,14 @@ func check_events(events: Array[Array], typed: Node, me: int) -> void:
 	check("Expired: the same thing's key, confirmed last", expired.size() > 0 and first != null \
 		and expired[-1][1] == UnifiedSession.EVENT_CONFIRMED and (expired[-1][0] as EventExpired).thing == first.thing,
 		expired)
-	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool:
-		return e[0] is EventPlayerJoined or e[0] is EventSpawned)
-	check("the player's view gets its events in both states", on_view.size() >= 4, typed.get("events"))
+	var on_view: Array = (typed.get("events") as Array).filter(func(e: Array) -> bool: return e[0] is EventSpawned)
+	check("by subject: the player's view gets Spawned in both states", on_view.size() >= 2, typed.get("events"))
+	check("event_key No_View: Joined reaches no view (the signal only)",
+		not (typed.get("events") as Array).any(func(e: Array) -> bool: return e[0] is EventPlayerJoined),
+		typed.get("events"))
+	var on_plain: Array = (plain.get("events") as Array) if plain != null else []
+	check("event_key View: Expired reaches the view it names, in both states",
+		on_plain.size() >= 2 and on_plain.all(func(e: Array) -> bool: return e[0] is EventExpired), on_plain)
 
 
 func check_commands(session: UnifiedSession, toy: DataToy) -> void:
