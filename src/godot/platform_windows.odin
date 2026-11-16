@@ -30,10 +30,12 @@ set_power_throttling :: proc(control: u32) {
 
 // Nothing on Windows: the session thread keeps its class; the 1 ms timer resolution session_power_begin asks for
 // is what makes its sleeps wake on time.
+@(private)
 set_realtime_thread :: proc(tick_hz: int) {}
 
 // Starts a session's power requests (session thread): 1 ms timer resolution and no power throttling, so a game
 // hosting in the background keeps its tick rate. Paired with session_power_end; a second call does nothing.
+@(private)
 session_power_begin :: proc() {
 	if power_on do return
 	power_on = true
@@ -43,6 +45,7 @@ session_power_begin :: proc() {
 
 // Hands the timer resolution and power throttling back to the system when the session ends; does nothing unless
 // session_power_begin ran.
+@(private)
 session_power_end :: proc() {
 	if !power_on do return
 	power_on = false

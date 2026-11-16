@@ -95,6 +95,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 
 // Whether the extension runs inside the Godot editor, where the session node and views stay inert: the editor
 // shows scenes, the game never runs in it.
+@(private)
 is_editor :: proc() -> bool {
 	return gd.Engine_is_editor_hint(gd.Engine_singleton())
 }

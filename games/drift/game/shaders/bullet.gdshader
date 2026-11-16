@@ -1,4 +1,4 @@
-// Bullets (game/bulk/bullet_view.gd): a soft glowing slug in the owner's colour.
+// Bullets (game/multi/bullet_view.gd): a soft glowing slug in the owner's colour.
 // INSTANCE_CUSTOM.x: the slot of the owner (0..3), an index into `palette` (UiTheme.PLAYER_COLORS, set by the view);
 // -1 once the owner has left (a pale grey).
 shader_type canvas_item;

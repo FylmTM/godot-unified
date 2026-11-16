@@ -1,6 +1,6 @@
-class_name BulkMesh
-## The 2D meshes and MultiMeshes of drift's bulk views, built in code. The host writes every instance's
-## TRANSFORM_2D (position, rotation, scale per axis), colour and custom data (SimBulkView2D, src/godot_host/SPEC.md),
+class_name ViewMeshes
+## The 2D meshes and MultiMeshes of drift's multi views, built in code. The host writes every instance's
+## TRANSFORM_2D (position, rotation, scale per axis), colour and custom data (UnifiedMultiView, src/godot/SPEC.md),
 ## so a mesh is drawn at unit scale: rocks at radius 1 (scaled by the rock's radius in pixels), bullets and gems in
 ## pixels (scaled by the pulse or stretch extract gives them).
 

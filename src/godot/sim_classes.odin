@@ -220,6 +220,7 @@ field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Var
 }
 
 // Unregisters the event and command classes, the per-kind ones before their bases, when the extension unloads.
+@(private)
 unregister_sim_classes :: proc() {
 	#reverse for sim_class in sim_classes do gd.unregister_class(&sim_class.class)
 	gd.unregister_class(&command_base_class)

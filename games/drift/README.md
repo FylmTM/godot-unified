@@ -1,6 +1,6 @@
 # drift
 
-The 2D test game on `unified` (spec: [`SPEC.md`](SPEC.md)): a top-down co-op ship arena, a Godot 4.7 project (this
+The 2D test game on `unified` (spec: [`SPEC.md`](SPEC.md)): a top-down co-op ship arena, a Godot project (this
 folder is `res://`). It exists to exercise unified's 2D host features in a real game. The deterministic sim, its
 headless binary and the GDExtension live in `simulation/` (Odin); everything Godot is in `game/`. The level is a
 Godot 2D scene (`game/levels/arena.tscn`), exported to a `.level` file the sim loads (`src/level/SPEC.md`).
@@ -22,7 +22,7 @@ The view contract is `simulation/extension/extension.odin`; the Godot side follo
   marker (`uni bake drift` indexes them). Each is drawn in code at the sim's sizes (`Unified.constants`, metres)
   times the level's `unified_px_per_m`; the typed view data (`boost_ready`, `thrust`, `hp_frac`, `charge`) arrive as
   properties. The HUD (`game/ui/hud.gd`) reads the session data `Unified.data.hud`.
-- MultiMesh views (`game/bulk/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant,
+- MultiMesh views (`game/multi/`, in `game/arena/arena.tscn`): rocks (`rock_0..rock_3`, one mesh per shape variant,
   the sim's own hull), bullets and gems are MultiMeshInstance2D nodes, each with a UnifiedMultiView marker. All use
   `TRANSFORM_2D` MultiMeshes with colours and custom data, read by small shaders (`game/shaders/`).
 - `game/arena/arena.gd` sets the aim every frame before the session samples input (the input value `aim`): the

@@ -31,6 +31,7 @@ when ODIN_OS == .Darwin {
 	}
 
 	// The session thread: a time-constraint policy, period one tick, ~1 ms of computation, 2 ms constraint.
+	@(private)
 	set_realtime_thread :: proc(tick_hz: int) {
 		timebase: [2]u32 // numer, denom: ns = units * numer / denom
 		mach_timebase_info(&timebase)
@@ -73,6 +74,7 @@ when ODIN_OS == .Darwin {
 	@(private)
 	power_activity: ^Ns_Object // the NSProcessInfo activity token (retained)
 
+	@(private)
 	session_power_begin :: proc() {
 		if power_activity != nil do return
 		pool := objc_autoreleasePoolPush() // the session thread has none
@@ -100,6 +102,7 @@ when ODIN_OS == .Darwin {
 		power_activity = intrinsics.objc_send(^Ns_Object, token, "retain")
 	}
 
+	@(private)
 	session_power_end :: proc() {
 		if power_activity == nil do return
 		pool := objc_autoreleasePoolPush()
@@ -114,8 +117,11 @@ when ODIN_OS == .Darwin {
 	_ :: fmt
 	_ :: intrinsics
 	when ODIN_OS != .Windows { 	// Windows: platform_windows.odin
+		@(private)
 		set_realtime_thread :: proc(tick_hz: int) {}
+		@(private)
 		session_power_begin :: proc() {}
+		@(private)
 		session_power_end :: proc() {}
 	}
 }

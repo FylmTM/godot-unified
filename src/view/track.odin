@@ -39,11 +39,6 @@ Track :: struct {
 	has_out: bool,
 }
 
-// Clears the history and the correction offset, for a view reused for another entity (the next push starts over).
-track_reset :: proc(track: ^Track) {
-	track^ = {}
-}
-
 // Records the sim pose at `tick`. Pushing a tick that is already in the history (a re-simulation after a
 // rollback) overwrites it; the difference goes into the error offset, so the display doesn't jump.
 track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_DEFAULT) {

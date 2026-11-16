@@ -11,10 +11,10 @@ func _check_contract() -> String:
 		want.append("rock_%d" % v)
 		if (shapes[v] as Array).size() < 3:
 			log_capture.add("rock_shapes[%d] has %d points" % [v, (shapes[v] as Array).size()],
-				"res://game/bulk/rock_view.gd")
+				"res://game/multi/rock_view.gd")
 	var arena := (load(game.PLAY_SCENE) as PackedScene).instantiate()
 	var kinds: Array[String] = []
-	for b in arena.get_node(^"Bulk").get_children():
+	for b in arena.get_node(^"MultiViews").get_children():
 		kinds.append((b.get_node(^"UnifiedMultiView") as UnifiedMultiView).kind)
 	kinds.sort()
 	want.sort()

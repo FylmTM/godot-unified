@@ -181,6 +181,10 @@ wants_mouse :: proc() -> bool {
 // ignore keys then. Godot routes the events themselves.
 wants_keyboard :: proc() -> bool {return s.inited && s.want_key}
 
+// Whether `kind`'s panel is open while the dev UI is shown: the host feeds a panel only then (a copy of the state
+// for the Inspector and the Input panel costs the sim thread every tick).
+panel_shown :: proc(kind: Panel_Kind) -> bool {return s.inited && visible && s.panels[kind].open}
+
 // Shows `data` (any value, read by RTTI) in the Inspector this frame.
 inspect :: proc(name: string, data: any) {
 	if !s.inited || !visible do return

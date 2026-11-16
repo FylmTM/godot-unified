@@ -9,5 +9,5 @@ const SIZE := Vector2(7, 10)  ## half width and half height, pixels
 
 func _ready() -> void:
 	var pts := PackedVector2Array([Vector2(SIZE.x, 0), Vector2(0, SIZE.y), Vector2(-SIZE.x, 0), Vector2(0, -SIZE.y)])
-	multimesh = BulkMesh.multimesh(BulkMesh.fan(pts))
-	material = BulkMesh.material(load(SHADER) as Shader)
+	multimesh = ViewMeshes.multimesh(ViewMeshes.fan(pts))
+	material = ViewMeshes.material(load(SHADER) as Shader)

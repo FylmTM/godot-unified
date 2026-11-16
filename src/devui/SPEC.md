@@ -1,6 +1,6 @@
 # devui
 
-Signed off in the #10 sitting (2026-11-16).
+Status: signed off 2026-11-16 (#10).
 
 The in-game dev UI, built from Godot's own controls and driven from Odin (`src/devui`). Game-agnostic: the host passes
 its values; it knows nothing about any game. `unified:godot` reaches it only through `godot/dev.odin`, which also
@@ -30,6 +30,7 @@ devui.group_shown(name)                             // a group's stat lines are 
 devui.visible, devui.netsim, devui.netsim_changed   // F1 state; Conditions panel netsim (up, down; the host applies it)
 devui.netsim_applies                                // false: no remote links (single player): the netsim part is greyed
 devui.wants_mouse() / wants_keyboard()
+devui.panel_shown(.Inspector)                       // the panel is open and the dev UI shown: worth feeding
 ```
 
 ## How it works
