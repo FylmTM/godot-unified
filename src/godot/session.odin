@@ -203,6 +203,7 @@ register_session_class :: proc() {
 	}, {"player"})
 	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
 	gd.bind_method(class, "get_tick", proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)})
+	gd.bind_method(class, "take_sync_stats", take_sync_stats)
 	gd.bind_method(class, "toggle_devui", proc(session: ^Session_Node) {dev_toggle()})
 	gd.bind_method(class, "is_devui_visible", proc(session: ^Session_Node) -> bool {return dev_visible()})
 	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
@@ -438,14 +439,23 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		views_sync(root, frame, fresh, alpha, f32(dt))
 		if fresh do data_sync(frame)
 	}
+	delivering := time.tick_now()
 	drain_events(session)
+	V.stats.delivery += time.tick_since(delivering)
 	drain_messages(session)
 	if changes := sync.atomic_load(&roster.changes); changes != session.roster_seen {
 		session.roster_seen = changes
 		gd.emit_signal(session.obj, gd.sn("roster_changed"))
 	}
 	start_pending(session)
-	session.sync_us = f32(time.duration_microseconds(time.tick_since(started)))
+	took := time.tick_since(started)
+	session.sync_us = f32(time.duration_microseconds(took))
+	if session.frame != nil {
+		V.stats.frames += 1
+		V.stats.fresh += fresh ? 1 : 0
+		V.stats.total += took
+		V.stats.total_max = max(V.stats.total_max, took)
+	}
 	sync.atomic_store(&want_state, dev_wants_state())
 	dev_frame(session, dt)
 }
@@ -512,9 +522,32 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	defer gd.variant_destroy(&held)
 	gd.unref(transmute(gd.RefCounted)event)
 	state := i64(message.action)
+	V.stats.events += 1
 	views_event(layout, &raw, state, held)
-	gd.emit_signal(session.obj, gd.sn("sim_event"), held, state)
+	gd.emit_signal(session.obj, NAMES.sim_event, held, state)
 	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
+}
+
+// The main thread's view-sync cost since the last call (Sync_Stats), and starts counting anew: `frames` and
+// `fresh` (frames that showed a new tick), `events` (deliveries), and in microseconds summed over the frames
+// `scene_us`, `multi_build_us`, `multi_upload_us`, `delivery_us`, `total_us`, plus the slowest frame's
+// `total_max_us`.
+@(private)
+take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
+	stats := V.stats
+	V.stats = {}
+	us :: time.duration_microseconds
+	dict := gd.dict_new()
+	gd.dict_set(&dict, "frames", i64(stats.frames))
+	gd.dict_set(&dict, "fresh", i64(stats.fresh))
+	gd.dict_set(&dict, "events", i64(stats.events))
+	gd.dict_set(&dict, "scene_us", us(stats.scene))
+	gd.dict_set(&dict, "multi_build_us", us(stats.multi_build))
+	gd.dict_set(&dict, "multi_upload_us", us(stats.multi_upload))
+	gd.dict_set(&dict, "delivery_us", us(stats.delivery))
+	gd.dict_set(&dict, "total_us", us(stats.total))
+	gd.dict_set(&dict, "total_max_us", us(stats.total_max))
+	return dict
 }
 
 // set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.

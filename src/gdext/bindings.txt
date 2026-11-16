@@ -22,6 +22,7 @@ Node3D
 MultiMeshInstance2D
 MultiMeshInstance3D
 MultiMesh
+Mesh
 ResourceLoader
 PackedScene
 # rendering

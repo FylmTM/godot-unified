@@ -7,6 +7,7 @@ package godot
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:time"
 import gd "unified:gdext"
@@ -67,6 +68,15 @@ VIEW_CALLBACK_NAMES := [View_Callback]string {
 	.Cancelled = "_sim_cancelled",
 }
 
+// The names the host passes every frame or event, interned once at registration (gd.sn looks a name up by its text).
+@(private)
+NAMES: struct {
+	sim_update: ^gd.StringName, // a scene view's _sim_update
+	view_event: ^gd.StringName, // a scene view's _sim_event
+	sim_event:  ^gd.StringName, // UnifiedSession.sim_event (the signal)
+	callbacks:  [View_Callback]^gd.StringName,
+}
+
 // One field of a view's data type, set as the view's property of the same name (converted like an event's fields:
 // events.odin field_variant).
 @(private)
@@ -89,10 +99,14 @@ Multi_View :: struct {
 	mm:         gd.Ref(gd.MultiMesh),
 	buf:        gd.PackedFloat32Array,
 	cap:        int,
+	count:      int, // the instances written this frame
 	stride:     int,
 	is_2d:      bool, // transform_format TRANSFORM_2D: 8 floats per transform, else 12
 	has_col:    bool,
 	has_custom: bool,
+	bounds:     bool, // the host sets custom_aabb (the game set none): Godot needn't recompute it from the buffer
+	low, high:  [3]f32, // this frame's instance origins (bounds)
+	reach:      f32, // this frame's largest scale factor (bounds)
 	ptr:        [^]f32,
 	tracks:     map[u64]Multi_Track, // smooth: by key
 }
@@ -116,6 +130,22 @@ V: struct {
 	clock:       time.Tick,
 	fields:      map[typeid][]Data_Field, // per data type, built on first use
 	reported:    map[string]bool, // warnings and errors given once per process
+	stats:       Sync_Stats,
+}
+
+// The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
+// the view-sync benchmark, tests/godot_views/view_bench.gd; a game's own performance readout).
+@(private)
+Sync_Stats :: struct {
+	frames:       int,
+	fresh:        int, // frames that showed a new tick
+	events:       int, // event deliveries (one per event state)
+	scene:        time.Duration, // scene views: spawns, data, poses, _sim_update
+	multi_build:  time.Duration, // MultiMesh views: every instance interpolated and written into its buffer
+	multi_upload: time.Duration, // MultiMesh views: set_buffer, set_visible_instance_count
+	delivery:     time.Duration, // events: their objects, _sim_event, the sim_event signal
+	total:        time.Duration, // the whole sync (session_process from the newest frame on)
+	total_max:    time.Duration,
 }
 
 // ---- the marker classes
@@ -146,6 +176,8 @@ register_classes :: proc() {
 			gd.print_error(fmt.tprintf("unified: the game %s is not installed: %s", api.game_name, problem))
 		}
 	}
+	NAMES.sim_update, NAMES.view_event, NAMES.sim_event = gd.sn("_sim_update"), gd.sn("_sim_event"), gd.sn("sim_event")
+	for name, callback in VIEW_CALLBACK_NAMES do NAMES.callbacks[callback] = gd.sn(name)
 	register_session_class()
 	register_sim_classes()
 	register_data_classes()
@@ -377,9 +409,9 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
 		scene_view.linger_s = marker.linger_s
 	}
-	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, gd.sn("_sim_update"))
-	scene_view.has_event = gd.has_script_method(node, gd.sn("_sim_event"))
-	for name, callback in VIEW_CALLBACK_NAMES do scene_view.callbacks[callback] = gd.has_script_method(node, gd.sn(name))
+	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, NAMES.sim_update)
+	scene_view.has_event = gd.has_script_method(node, NAMES.view_event)
+	for name, callback in NAMES.callbacks do scene_view.callbacks[callback] = gd.has_script_method(node, name)
 	set_pose(scene_view, {to_view(item.pos), item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
@@ -483,7 +515,7 @@ free_view :: proc(scene_view: ^Scene_View) {
 @(private)
 view_callback :: proc(scene_view: ^Scene_View, callback: View_Callback) {
 	if scene_view == nil || !scene_view.callbacks[callback] || !alive(scene_view.id) do return
-	result := gd.call_script(scene_view.node, gd.sn(VIEW_CALLBACK_NAMES[callback]))
+	result := gd.call_script(scene_view.node, NAMES.callbacks[callback])
 	gd.variant_destroy(&result)
 }
 
@@ -554,12 +586,19 @@ views_root_changed :: proc() {
 @(private)
 views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	V.frame += 1
+	started := time.tick_now()
 	if root.ptr == nil {
 		if len(V.set.entries) > 0 do views_root_changed()
 	} else {
 		scene_sync(root, frame, fresh, alpha, dt)
 	}
+	scened := time.tick_now()
 	multi_sync(frame, fresh, alpha, dt)
+	built := time.tick_now()
+	multi_upload(fresh)
+	V.stats.scene += time.tick_diff(started, scened)
+	V.stats.multi_build += time.tick_diff(scened, built)
+	V.stats.multi_upload += time.tick_since(built)
 }
 
 @(private)
@@ -651,77 +690,57 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		result: gd.Variant
 		if scene_view.mode == .Node2D {
 			pos := gd.Vector2{pose.pos.x, pose.pos.y}
-			result = gd.call_script(
-				scene_view.node,
-				gd.sn("_sim_update"),
-				pos,
-				f64(view.angle2d_of(pose.rot)),
-				f64(alpha),
-			)
+			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(view.angle2d_of(pose.rot)), f64(alpha))
 		} else {
 			pos := gd.Vector3{pose.pos.x, pose.pos.y, pose.pos.z}
-			result = gd.call_script(scene_view.node, gd.sn("_sim_update"), pos, f64(view.yaw_of(pose.rot)), f64(alpha))
+			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(view.yaw_of(pose.rot)), f64(alpha))
 		}
 		gd.variant_destroy(&result)
 	}
 }
 
 // An event to its subject's scene views (_sim_event(event, state) on the root's script): the view Glue.event_key
-// names (or none); else the views keyed by the event's handle field (of any kind), else the views whose entity is
-// the event's `entity` field (a view's entity defaults to its key), else its player's views.
+// names (or none); else the views keyed by the event's handle field (of any kind, in kind order), else the views
+// whose entity is the event's `entity` field (a view's entity defaults to its key), else its player's views. A view
+// named or keyed is found by its id; only the entity and player routes walk the views.
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
-	Route :: enum u8 {
-		None,
-		Id, // Glue.event_key's view
-		Key, // the handle's key, any kind
-		Entity,
-		Player,
-	}
-	route: Route
-	named: View_Id
 	player, entity := event_subject(layout, raw.data[:raw.size])
 	if api.event_key != nil {
 		kind, key, event_route := api.event_key(raw)
 		switch event_route {
 		case .Subject:
 		case .View:
-			route, named = .Id, {kind, key}
+			if entry := view.set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state)
+			return
 		case .No_View:
 			return
 		}
 	}
-	if route == .None { 	// by its subject
-		if layout.subject_is_handle && entity != 0 {
-			for id, entry in V.set.entries do if id.key == view.Key(entity) && entry.view != nil do route = .Key
+	if layout.subject_is_handle && entity != 0 {
+		keyed := false // a view has the handle's key (whether or not it takes events): the event goes to those only
+		for kind in 0 ..< len(api.view_names) {
+			entry := view.set_get(&V.set, View_Id{u8(kind), view.Key(entity)})
+			if entry == nil || entry.view == nil do continue
+			keyed = true
+			call_sim_event(entry.view, event, state)
 		}
-		switch {
-		case route == .Key:
-		case layout.subject >= 0 && !layout.subject_is_handle && entity != 0:
-			route = .Entity
-		case player != 0:
-			route = .Player
-		}
+		if keyed do return
 	}
-	if route == .None do return
-	for id, &entry in V.set.entries {
+	by_entity := layout.subject >= 0 && !layout.subject_is_handle && entity != 0
+	if !by_entity && player == 0 do return
+	for _, &entry in V.set.entries {
 		scene_view := entry.view
-		if scene_view == nil || !scene_view.has_event || !alive(scene_view.id) do continue
-		match: bool
-		switch route {
-		case .None:
-		case .Id:
-			match = id == named
-		case .Key:
-			match = id.key == view.Key(entity)
-		case .Entity:
-			match = scene_view.entity == entity
-		case .Player:
-			match = scene_view.player == player
-		}
-		if !match do continue
-		result := gd.call_script(scene_view.node, gd.sn("_sim_event"), event, state)
-		gd.variant_destroy(&result)
+		if scene_view == nil do continue
+		if by_entity ? scene_view.entity == entity : scene_view.player == player do call_sim_event(scene_view, event, state)
 	}
+}
+
+// Calls the view root script's _sim_event, if it has one.
+@(private)
+call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64) {
+	if scene_view == nil || !scene_view.has_event || !alive(scene_view.id) do return
+	result := gd.call_script(scene_view.node, NAMES.view_event, event, state)
+	gd.variant_destroy(&result)
 }
 
 // ---- MultiMesh views
@@ -818,6 +837,7 @@ multi_mesh :: proc(multi: ^Multi_View) -> bool {
 	multi.has_custom = gd.MultiMesh_is_using_custom_data(multi.mm)
 	if multi.has_col do multi.stride += 4
 	if multi.has_custom do multi.stride += 4
+	multi.bounds = gd.MultiMesh_get_custom_aabb(multi.mm) == {}
 	return true
 }
 
@@ -846,6 +866,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		}
 		if multi.cap == 0 do continue
 		multi.ptr = ([^]f32)(gdi.packed_float32_array_operator_index(&multi.buf, 0))
+		multi.low, multi.high, multi.reach = max(f32), min(f32), 0
 		next[i] = first[multi.kind]
 		first[multi.kind] = i32(i)
 	}
@@ -866,6 +887,12 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 				view_pos, view_rot = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
 			}
 			view_pos = to_view(view_pos) // the origin only: the mesh is the view's content, `scale` a multiplier
+			if multi.is_2d do view_pos.z = 0
+			for axis in 0 ..< 3 {
+				multi.low[axis] = min(multi.low[axis], view_pos[axis])
+				multi.high[axis] = max(multi.high[axis], view_pos[axis])
+			}
+			multi.reach = max(multi.reach, abs(scale.x), abs(scale.y), abs(scale.z))
 			out := multi.ptr[cursor[view_index] * multi.stride:]
 			cursor[view_index] += 1
 			basis := quat_basis(view_rot)
@@ -893,10 +920,20 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 			if multi.has_custom do out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = item.custom[0], item.custom[1], item.custom[2], item.custom[3]
 		}
 	}
-	for &multi, i in V.multis {
+	for &multi, i in V.multis do multi.count = cursor[i]
+}
+
+// Hands each MultiMesh view's buffer and bounds to Godot and forgets the smooth keys the frame no longer has.
+@(private)
+multi_upload :: proc(fresh: bool) {
+	for &multi in V.multis {
 		if multi.kind < 0 || !alive(multi.id) || multi.cap == 0 do continue
-		gd.MultiMesh_set_buffer(multi.mm, multi.buf)
-		gd.MultiMesh_set_visible_instance_count(multi.mm, cursor[i])
+		if multi.count > 0 {
+			// the bounds first: without a custom_aabb, set_buffer transforms the mesh's AABB by every instance
+			if multi.bounds do gd.MultiMesh_set_custom_aabb(multi.mm, multi_bounds(&multi))
+			gd.MultiMesh_set_buffer(multi.mm, multi.buf)
+		}
+		gd.MultiMesh_set_visible_instance_count(multi.mm, multi.count)
 		if multi.smooth && fresh {
 			// forget the keys this frame no longer has
 			gone := make([dynamic]u64, context.temp_allocator)
@@ -904,6 +941,26 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 			for key in gone do delete_key(&multi.tracks, key)
 		}
 	}
+}
+
+// Bounds holding every instance written this frame: their origins, grown by the mesh's farthest point from its own
+// origin times the largest scale factor (a rotation can turn it any way). Looser than the exact union, never
+// smaller; Godot culls the whole MultiMesh by it.
+@(private)
+multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
+	radius: f32
+	if mesh := gd.MultiMesh_get_mesh(multi.mm); mesh.ptr != nil {
+		box := gd.Mesh_get_aabb(mesh)
+		gd.unref(mesh)
+		lo := [3]f32{box.position.x, box.position.y, box.position.z}
+		hi := lo + {box.size.x, box.size.y, box.size.z}
+		far: [3]f32 // per axis, the face farther from the origin
+		for axis in 0 ..< 3 do far[axis] = max(abs(lo[axis]), abs(hi[axis]))
+		radius = math.sqrt(far.x * far.x + far.y * far.y + far.z * far.z)
+	}
+	grow := radius * multi.reach
+	low, high := multi.low - grow, multi.high + grow
+	return {position = {low.x, low.y, low.z}, size = {high.x - low.x, high.y - low.y, high.z - low.z}}
 }
 
 // A unit quaternion's rotation matrix, by rows.
