@@ -121,7 +121,7 @@ public_commands :: proc() -> []Command {
 		{
 			name    = "verify",
 			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all",
-			budget  = 30,
+			budget  = 25,
 			options = option_types(Verify_Opts),
 			run     = cmd_verify,
 		},
@@ -149,7 +149,7 @@ public_suites :: proc() -> []Suite {
 		{
 			name    = "box3d-debug",
 			summary = "the odin suite's binary again, against Box3D's debug library (its asserts trap a misused id)",
-			budget  = 6,
+			budget  = 8,
 			run     = suite_box3d_debug,
 		},
 		{
@@ -388,7 +388,7 @@ test_details :: proc() -> string {
 // --- verify -----------------------------------------------------------------------------------------------------
 
 // `verify --long`'s budget (plain `verify`: the command's).
-VERIFY_LONG_BUDGET :: 50
+VERIFY_LONG_BUDGET :: 45
 
 // `verify`'s options.
 @(private)
