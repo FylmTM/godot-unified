@@ -330,10 +330,10 @@ left_events :: proc(simulation: ^toy.Sim, tick: u32) -> (count: int) {
 	return
 }
 
-// A slot answers only for the tick whose contents it holds: between advance and save (and after step_unsaved)
-// it has the new tick's events and no state, and nothing of the tick it held a ring ago.
+// A slot answers only for the tick whose contents it holds: after a step that doesn't save, until save, it has the
+// new tick's events and no state, and nothing of the tick it held a ring ago.
 @(test)
-advance_takes_the_slot_over :: proc(t: ^testing.T) {
+an_unsaved_step_takes_the_slot_over :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 42)
 	defer sim.destroy(simulation)
 	ring := u32(len(simulation.ring))
@@ -341,7 +341,7 @@ advance_takes_the_slot_over :: proc(t: ^testing.T) {
 	tick := simulation.tick + 1
 	testing.expect(t, sim.state_at(simulation, tick - ring) != nil)
 	inputs: toy.Inputs
-	sim.advance(simulation, &inputs)
+	sim.step(simulation, &inputs, save = false)
 	testing.expect(t, sim.state_at(simulation, tick - ring) == nil)
 	testing.expect_value(t, len(sim.events_at(simulation, tick - ring)), 0)
 	testing.expect(t, sim.state_at(simulation, tick) == nil)
@@ -349,10 +349,10 @@ advance_takes_the_slot_over :: proc(t: ^testing.T) {
 	sim.save(simulation)
 	testing.expect(t, sim.state_at(simulation, tick) != nil)
 	testing.expect_value(t, left_events(simulation, tick), toy.PLAYERS)
-	// step_unsaved over a saved tick of an abandoned timeline: its own events, and no state.
+	// An unsaved step over a saved tick of an abandoned timeline: its own events, and no state.
 	testing.expect(t, sim.restore(simulation, tick - 1))
 	inputs.present = {0, 1, 2, 3}
-	sim.step_unsaved(simulation, &inputs)
+	sim.step(simulation, &inputs, save = false)
 	testing.expect(t, sim.state_at(simulation, tick) == nil && !sim.restore(simulation, tick))
 	testing.expect_value(t, left_events(simulation, tick), 0) // the same players as before: nobody left
 }
@@ -536,7 +536,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 50 {
 		decoded, original := sim.log_inputs(&back, k), sim.log_inputs(&input_log, k)
 		testing.expect(t, sim.inputs_same(&decoded, &original) && decoded.replaced == original.replaced)
-		testing.expect_value(t, decoded.member[1], u16(k + 2) if k == 0 || k == 30 else 0)
+		testing.expect_value(t, decoded.joins[1], u16(k + 2) if k == 0 || k == 30 else 0)
 		if k % 5 == 0 {
 			commands := decoded.commands
 			testing.expect(t, decoded.command_count == 2 && commands[0].slot == 0 && commands[1].slot == 1)

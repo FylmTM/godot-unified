@@ -164,7 +164,7 @@ person, not a slot.
 - Frames: V (newest verified), P (newest predicted), L (the clock). Predicted ticks use own inputs and commands and
   the others' last finalized inputs repeated. A finalized tick that differs from its prediction (presence, input
   bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P. Re-simulated ticks that are
-  already final are not saved (#117, `sim.step_unsaved`), except V (the next rollback's target), V − 1 when nothing
+  already final are not saved (`sim.step(.., save = false)`), except V (the next rollback's target), V − 1 when nothing
   is predicted past V (the view interpolates between P and P − 1), and a checksum tick a snapshot is wanted of.
 - The clock starts at the first Finalized after Welcome (during the start lead: once L's tick 0 is due), timed by
   the channel's latest RTT sample until the relay echoes an Inputs packet, so a joiner's inputs for its join tick

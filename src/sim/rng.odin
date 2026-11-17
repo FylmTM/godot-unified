@@ -37,14 +37,24 @@ rng_next :: proc(rng: ^Rng) -> u64 {
 	return mix64(rng.state)
 }
 
-// Uniform in [0, n) without the bias of `% n` (Lemire's multiply-shift with rejection). n > 0.
+// Uniform in [0, n) without the bias of `% n`. n > 0.
 rng_below :: proc(rng: ^Rng, n: u32) -> u32 {
+	return lemire_below(rng_next(rng), n, &rng.state, proc(state: ^u64) -> u64 {
+		state^ += GAMMA
+		return mix64(state^)
+	})
+}
+
+// Lemire's multiply-shift with rejection: uniform in [0, n) (n > 0) from 64-bit draws, `draw` first, then `next(state)`
+// while a draw is rejected.
+@(private)
+lemire_below :: #force_inline proc(draw: u64, n: u32, state: ^u64, next: proc(state: ^u64) -> u64) -> u32 {
 	assert(n > 0)
-	product := (rng_next(rng) >> 32) * u64(n)
+	product := (draw >> 32) * u64(n)
 	if u32(product) < n {
 		threshold := (0 - n) % n
 		for u32(product) < threshold {
-			product = (rng_next(rng) >> 32) * u64(n)
+			product = (next(state) >> 32) * u64(n)
 		}
 	}
 	return u32(product >> 32)
@@ -75,17 +85,11 @@ roll_below :: proc(
 	key: u64 = 0,
 	index: int = 0,
 ) -> u32 where intrinsics.type_is_enum(Purpose) {
-	assert(n > 0)
 	bits := roll_bits(tick.seed, tick.number, u64(purpose), key, u64(index))
-	product := (bits >> 32) * u64(n)
-	if u32(product) < n {
-		threshold := (0 - n) % n
-		for u32(product) < threshold {
-			bits = mix64(bits + GAMMA)
-			product = (bits >> 32) * u64(n)
-		}
-	}
-	return u32(product >> 32)
+	return lemire_below(bits, n, &bits, proc(state: ^u64) -> u64 {
+		state^ = mix64(state^ + GAMMA)
+		return state^
+	})
 }
 
 // 32 bits for a scripted player (Game.scripted_input): a hash of (seed, slot, block), where the block is the

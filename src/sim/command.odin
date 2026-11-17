@@ -8,7 +8,7 @@ package sim
 import "base:intrinsics"
 
 COMMAND_MAX :: 64 // bytes of one command's struct
-COMMANDS_PER_PLAYER :: 4 // per player per tick: more wait for the next tick, in order
+COMMANDS_PER_SLOT :: 4 // per slot per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
 
 // One command in a tick's input record: its kind (the variant's index in Game.commands), the slot it
@@ -99,13 +99,13 @@ command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.ty
 }
 
 // Adds a command to a tick's record, after the commands `raw.slot` already has there. False at the
-// limits (COMMANDS_PER_PLAYER for the slot, TICK_COMMANDS in all).
+// limits (COMMANDS_PER_SLOT for the slot, TICK_COMMANDS in all).
 add_command :: proc(inputs: ^Inputs($G), raw: Raw_Command) -> bool {
 	PLAYERS :: part(G, GAME_PLAYERS)
 	count := inputs.command_count
 	if count >= TICK_COMMANDS ||
 	   int(raw.slot) >= PLAYERS ||
-	   len(slot_commands(inputs, int(raw.slot))) >= COMMANDS_PER_PLAYER {
+	   len(slot_commands(inputs, int(raw.slot))) >= COMMANDS_PER_SLOT {
 		return false
 	}
 	at := count

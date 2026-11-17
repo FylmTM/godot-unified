@@ -249,7 +249,7 @@ commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
 join :: proc(inputs: ^Inputs($G), slot: int, member: int) {
 	assert(slot >= 0 && slot < part(G, GAME_PLAYERS) && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
-	inputs.member[slot] = u16(member)
+	inputs.joins[slot] = u16(member)
 }
 
 // The changes of a tick's presence, for Tick.player_changes.
@@ -269,20 +269,20 @@ players_update :: proc(tick: ^Tick($G), changes: ^Changes_Buffer($PLAYERS)) {
 	changes^ = {}
 	for slot in 0 ..< PLAYERS {
 		holder := players.slots[slot]
-		record := inputs.member[slot]
+		record := inputs.joins[slot]
 		if holder.id == 0 || (slot in inputs.present && (record == 0 || record == holder.id)) {
 			continue
 		}
 		players_leave(tick, slot, changes)
 	}
 	for slot in 0 ..< PLAYERS {
-		record := inputs.member[slot]
+		record := inputs.joins[slot]
 		if record == 0 || slot not_in inputs.present || players.slots[slot].id != 0 {
 			continue
 		}
 		for other in 0 ..< slot {
 			// read_joins refuses it; two would leave one slot twice, past changes.left
-			assert(other not_in inputs.present || inputs.member[other] != record, "one member in two join records")
+			assert(other not_in inputs.present || inputs.joins[other] != record, "one member in two join records")
 		}
 		index := -1
 		for member, i in players.members {

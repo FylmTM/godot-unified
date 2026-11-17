@@ -41,7 +41,7 @@ logged_commands :: proc(
 }
 
 // Where the relay puts commands that all arrive in time: each in the tick it was sent for, at most
-// COMMANDS_PER_PLAYER per tick, the rest in the next ticks in order.
+// COMMANDS_PER_SLOT per tick, the rest in the next ticks in order.
 placed_ticks :: proc(player: int, first, last: u32) -> (ticks: [dynamic]u32) {
 	at, in_tick: u32 = 0, 0
 	for tick in first ..= last {
@@ -49,7 +49,7 @@ placed_ticks :: proc(player: int, first, last: u32) -> (ticks: [dynamic]u32) {
 		defer delete(sent)
 		for _ in sent {
 			lands_at := max(tick, at)
-			if lands_at == at && in_tick == sim.COMMANDS_PER_PLAYER {
+			if lands_at == at && in_tick == sim.COMMANDS_PER_SLOT {
 				lands_at += 1
 			}
 			if lands_at != at {
@@ -105,14 +105,14 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 				break
 			}
 		}
-		for k in sim.COMMANDS_PER_PLAYER ..< len(at) {
-			if at[k] == at[k - sim.COMMANDS_PER_PLAYER] {
+		for k in sim.COMMANDS_PER_SLOT ..< len(at) {
+			if at[k] == at[k - sim.COMMANDS_PER_SLOT] {
 				testing.expectf(
 					t,
 					false,
 					"player %d: more than %d commands in tick %d",
 					client.slot,
-					sim.COMMANDS_PER_PLAYER,
+					sim.COMMANDS_PER_SLOT,
 					at[k],
 				)
 				break

@@ -28,7 +28,7 @@ Log_Tick :: struct($G: typeid) {
 	present:       Slots,
 	replaced:      Slots,
 	input:         [part(G, GAME_PLAYERS)]part(G, GAME_INPUT),
-	member:        [part(G, GAME_PLAYERS)]u16, // join records
+	joins:         [part(G, GAME_PLAYERS)]u16, // join records
 	first_command: u32, // index into Input_Log.commands
 	command_count: u32,
 }
@@ -55,7 +55,7 @@ log_append :: proc(input_log: ^Input_Log($G), inputs: ^Inputs(G)) {
 		present       = inputs.present,
 		replaced      = inputs.replaced,
 		input         = inputs.input,
-		member        = inputs.member,
+		joins         = inputs.joins,
 		first_command = u32(len(input_log.commands)),
 		command_count = u32(inputs.command_count),
 	})
@@ -74,7 +74,7 @@ log_inputs :: proc(input_log: ^Input_Log($G), k: int) -> (inputs: Inputs(G)) {
 	inputs.present = log_tick.present
 	inputs.replaced = log_tick.replaced
 	inputs.input = log_tick.input
-	inputs.member = log_tick.member
+	inputs.joins = log_tick.joins
 	commands := log_commands(input_log, k)
 	inputs.command_count = len(commands)
 	copy(inputs.commands[:], commands)
@@ -162,7 +162,7 @@ read_tick :: proc(
 }
 
 // Reads a tick's commands written by write_commands; false when they are malformed: cut short, more than
-// TICK_COMMANDS commands or COMMANDS_PER_PLAYER of one slot, a slot out of range or out of order, a command over
+// TICK_COMMANDS commands or COMMANDS_PER_SLOT of one slot, a slot out of range or out of order, a command over
 // COMMAND_MAX bytes. Command kinds are not checked here (command_value reads an unknown kind as nil).
 read_commands :: proc(
 	reader: ^wire.Reader,
@@ -188,7 +188,7 @@ read_commands :: proc(
 		}
 		copy(command.data[:], wire.r_bytes(reader, int(command.size)))
 		per_slot = i > 0 && commands[i - 1].slot == command.slot ? per_slot + 1 : 1
-		if !reader.ok || (i > 0 && commands[i - 1].slot > command.slot) || per_slot > COMMANDS_PER_PLAYER {
+		if !reader.ok || (i > 0 && commands[i - 1].slot > command.slot) || per_slot > COMMANDS_PER_SLOT {
 			return
 		}
 	}
@@ -226,7 +226,7 @@ inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($G)) {
 		inputs.replaced,
 		([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)],
 		inputs.commands[:inputs.command_count],
-		inputs.member[:],
+		inputs.joins[:],
 	)
 }
 
@@ -236,7 +236,7 @@ inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($G)) -> bool {
 	PLAYERS :: part(G, GAME_PLAYERS)
 	inputs^ = {}
 	input := ([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)]
-	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.member[:])
+	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.joins[:])
 	inputs.present, inputs.replaced, inputs.command_count = present, replaced, count
 	return ok
 }
@@ -248,7 +248,7 @@ log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($G), k: int) 
 	PLAYERS :: part(G, GAME_PLAYERS)
 	log_tick := &input_log.ticks[k]
 	input := ([^]u8)(&log_tick.input)[:size_of([PLAYERS]Input)]
-	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k), log_tick.member[:])
+	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k), log_tick.joins[:])
 }
 
 // The log's bytes: the header, then the ticks.

@@ -107,7 +107,7 @@ bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_
 		}
 		inputs.input[slot] = bot_input(state, slot, tick)
 		out.slot = slot
-		out.cap = sim.COMMANDS_PER_PLAYER
+		out.cap = sim.COMMANDS_PER_SLOT
 		clear(&out.list)
 		bot_commands(state, slot, tick, out)
 		for raw in out.list {

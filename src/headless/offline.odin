@@ -126,7 +126,7 @@ Seat :: struct {
 }
 
 // The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats`
-// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_PLAYER of a
+// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_SLOT of a
 // slot go in one tick and the rest follow in order, a script's send fails once netcode.COMMAND_QUEUE of its
 // commands wait, and a player's waiting commands go when they leave.
 Scripted_Commands :: struct($G: typeid) {

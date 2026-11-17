@@ -242,7 +242,7 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 
 finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
 	inputs.present = {0}
-	if tick == 1 do inputs.member[0] = 1 // the join record
+	if tick == 1 do inputs.joins[0] = 1 // the join record
 	inputs.input[0] = {
 		dx = dx,
 	}

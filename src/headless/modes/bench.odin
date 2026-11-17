@@ -98,7 +98,7 @@ run_bench :: proc(
 	for tick in 1 ..= ticks {
 		recorded[tick] = uheadless.scripted(headless, simulation, tick, players, &commands)
 		step_start := time.tick_now()
-		sim.advance(simulation, &recorded[tick])
+		sim.step(simulation, &recorded[tick], save = false)
 		step_end := time.tick_now()
 		sim.save(simulation)
 		save_end := time.tick_now()
@@ -126,7 +126,7 @@ run_bench :: proc(
 		assert(ok)
 		final_start := time.tick_now()
 		for resim in base + 1 ..< tick {
-			sim.step_unsaved(simulation, &recorded[resim])
+			sim.step(simulation, &recorded[resim], save = false)
 		}
 		sim.step(simulation, &recorded[tick])
 		final_end := time.tick_now()

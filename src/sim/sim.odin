@@ -58,8 +58,8 @@ box3d_pin :: proc() -> string {
 Slots :: bit_set[0 ..< MAX_PLAYERS;u32]
 
 // What a tick consumes, by slot: every slot's input, which slots are present, the join records and the commands
-// sent for this tick (command.odin). A slot not in `present` has a zero input. `member` is a slot's join record: the
-// relay's member id of who becomes present in it, non-zero only on that tick (a slot that becomes present without
+// sent for this tick (command.odin). A slot not in `present` has a zero input. `joins` holds each slot's join record:
+// the relay's member id of who becomes present in it, non-zero only on that tick (a slot that becomes present without
 // one stays absent; sim.join). `replaced` marks inputs the relay substituted (the slot's last one) because the real
 // one came too late; it is informational, games should not branch on it. Commands are never repeated or
 // substituted: each arrives in one tick only.
@@ -67,7 +67,7 @@ Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game)
 	present:       Slots,
 	replaced:      Slots,
 	input:         [part(G, GAME_PLAYERS)]part(G, GAME_INPUT),
-	member:        [part(G, GAME_PLAYERS)]u16,
+	joins:         [part(G, GAME_PLAYERS)]u16,
 	command_count: int,
 	commands:      [TICK_COMMANDS]Raw_Command, // ordered by slot, each slot's in the order sent (sim.commands)
 }
@@ -150,9 +150,9 @@ ticks :: proc(seconds: f32, tick_hz: int) -> u32 {
 	return u32(scaled)
 }
 
-// The seconds `ticks` ticks last at `tick_hz` (views, HUDs), for a tick count of any integer type.
-seconds :: proc(ticks: $T, tick_hz: int) -> f32 where intrinsics.type_is_integer(T) {
-	return f32(ticks) / f32(tick_hz)
+// The seconds `count` ticks last at `tick_hz` (views, HUDs), for a tick count of any integer type.
+seconds :: proc(count: $T, tick_hz: int) -> f32 where intrinsics.type_is_integer(T) {
+	return f32(count) / f32(tick_hz)
 }
 
 // A game, as the harness, netcode and tools see it.
@@ -216,7 +216,7 @@ ring_size :: proc(tick_hz: int) -> int {
 Ring_Slot :: struct($State: typeid) {
 	tick:   u32,
 	valid:  bool, // the slot holds `tick`'s events
-	saved:  bool, // ... and its state (step_unsaved leaves it out): state_at, restore and snapshots read it
+	saved:  bool, // ... and its state (step(save = false) leaves it out): state_at, restore and snapshots read it
 	state:  State,
 	events: Events, // emitted by the step that produced `tick`
 }
@@ -292,7 +292,7 @@ inputs_same :: proc(a, b: ^Inputs($G)) -> bool {
 	Input :: part(G, GAME_INPUT)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	if a.present != b.present ||
-	   a.member != b.member ||
+	   a.joins != b.joins ||
 	   a.command_count != b.command_count ||
 	   runtime.memory_compare(&a.input, &b.input, size_of([PLAYERS]Input)) != 0 {
 		return false
@@ -408,10 +408,12 @@ ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 	return int(tick % u32(len(simulation.ring)))
 }
 
-// One tick without saving it (benchmarks time the two halves apart); step is advance + save. The slot is the
-// new tick's from the start, holding its events and no state: it never answers for the tick it held before. The
-// State's Players is updated first (players.odin) and its join and leave events emitted before the game's.
-advance :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
+// Advances one tick with the given inputs and saves the new state into the ring. `save` false keeps only its events
+// there: for ticks nothing will roll back to (the netcode re-simulating ticks that are already final; a benchmark
+// timing the save apart); events_at answers for such a tick, state_at, restore and snapshot_encode don't. The slot is
+// the new tick's from the start: it never answers for the tick it held before. The State's Players is updated first
+// (players.odin) and its join and leave events emitted before the game's.
+step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
@@ -430,9 +432,10 @@ advance :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 	simulation.game.tick(&tick)
 	players_remember(&simulation.state.players, inputs)
 	simulation.tick = number
+	if save do save_tick(simulation)
 }
 
-// The Tick for computing tick `number` (no player changes: advance fills them).
+// The Tick for computing tick `number` (no player changes: step fills them).
 @(private)
 make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events: ^Events) -> Tick(G) {
 	return {
@@ -447,21 +450,14 @@ make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events:
 	}
 }
 
-// Advances one tick with the given inputs and saves the new state into the ring.
-step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
-	advance(simulation, inputs)
-	save(simulation)
-}
-
-// Advances one tick and keeps its events in the ring, without saving its state: for ticks nothing will roll back
-// to (the netcode re-simulating ticks that are already final, #117). events_at answers for it; state_at, restore
-// and snapshot_encode don't.
-step_unsaved :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
-	advance(simulation, inputs)
-}
-
 // Saves the current state into its ring slot (keeping that slot's events).
 save :: proc(simulation: ^Sim($G)) {
+	save_tick(simulation)
+}
+
+// save's body, under another name: step's `save` parameter shadows the proc there.
+@(private)
+save_tick :: proc(simulation: ^Sim($G)) {
 	index := ring_slot(simulation, simulation.tick)
 	slot := &simulation.ring[index]
 	slot.state = simulation.state

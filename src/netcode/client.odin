@@ -611,16 +611,16 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 		out.present += {client.slot}
 		out.input[client.slot] = client.own[min(tick, client.own_last) % OWN_RING]
 		if tick == client.first_tick {
-			out.member[client.slot] = client.member // our join record, as the relay will write it
+			out.joins[client.slot] = client.member // our join record, as the relay will write it
 		}
 	}
 	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
 	// for, or the first tick not finalized yet when that one is (a late command moves on), in order, at
-	// most COMMANDS_PER_PLAYER per tick. A wrong guess is an ordinary misprediction.
+	// most COMMANDS_PER_SLOT per tick. A wrong guess is an ordinary misprediction.
 	at, in_tick: u32 = 0, 0
 	for &own_command in client.own_cmds {
 		lands_at := max(own_command.want, client.fin_upto + 1, at)
-		if lands_at == at && in_tick == usim.COMMANDS_PER_PLAYER {
+		if lands_at == at && in_tick == usim.COMMANDS_PER_SLOT {
 			lands_at += 1
 		}
 		if lands_at != at {
@@ -651,15 +651,11 @@ record_checksum :: proc(client: ^Client($G)) {
 	}
 }
 
-// Steps one tick; `save` false: a tick that is already final and nothing reads its state (step_unsaved).
+// Steps one tick; `save` false: a tick that is already final and nothing reads its state.
 @(private)
 step_tick :: proc(client: ^Client($G), inputs: ^usim.Inputs(G), kind: Step_Kind, save := true) {
 	step_start := time.tick_now()
-	if save {
-		usim.step(client.sim, inputs)
-	} else {
-		usim.step_unsaved(client.sim, inputs)
-	}
+	usim.step(client.sim, inputs, save)
 	client.steps[kind] += 1
 	client.step_us[kind] += i64(time.duration_microseconds(time.tick_since(step_start)))
 	record_checksum(client)

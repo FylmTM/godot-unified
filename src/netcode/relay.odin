@@ -928,7 +928,7 @@ finalize :: proc(relay: ^Relay($G)) {
 			}
 			tick_inputs.present += {player}
 			if tick == relay.active_from[player] {
-				tick_inputs.member[player] = relay.member_of[player] // the join record
+				tick_inputs.joins[player] = relay.member_of[player] // the join record
 			}
 			if have_input(relay, player, tick) {
 				tick_inputs.input[player] = relay.inputs[player][tick % INPUT_RING]
@@ -947,7 +947,7 @@ finalize :: proc(relay: ^Relay($G)) {
 }
 
 // Puts the waiting commands that are due into `tick`: each present player's in seq order, those sent for
-// it or earlier, at most COMMANDS_PER_PLAYER each and TICK_COMMANDS in all, within the bytes a tick may
+// it or earlier, at most COMMANDS_PER_SLOT each and TICK_COMMANDS in all, within the bytes a tick may
 // carry (round-robin over the players, so one can't crowd the others out). The rest wait for the next tick.
 @(private)
 take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G)) {
@@ -956,7 +956,7 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 	taken: [PLAYERS]int
 	total, bytes := 0, 0
 	budget := tick_command_budget(Input, PLAYERS)
-	for k in 0 ..< sim.COMMANDS_PER_PLAYER {
+	for k in 0 ..< sim.COMMANDS_PER_SLOT {
 		for player in 0 ..< PLAYERS {
 			waiting := &relay.cmd_wait[player]
 			if taken[player] != k || k >= len(waiting) || !active(relay, player, tick) || waiting[k].want > tick {

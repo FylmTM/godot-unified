@@ -65,7 +65,7 @@ window_write_tick :: proc(writer: ^wire.Writer, tick: ^sim.Inputs($G), base: ^si
 	if tick.command_count > 0 {
 		flags += {.Commands}
 	}
-	if sim.join_count(tick.member[:]) > 0 {
+	if sim.join_count(tick.joins[:]) > 0 {
 		flags += {.Joins}
 	}
 	wire.w_u8(writer, transmute(u8)flags)
@@ -86,7 +86,7 @@ window_write_tick :: proc(writer: ^wire.Writer, tick: ^sim.Inputs($G), base: ^si
 		sim.write_commands(writer, tick.commands[:tick.command_count])
 	}
 	if .Joins in flags {
-		sim.write_joins(writer, tick.member[:])
+		sim.write_joins(writer, tick.joins[:])
 	}
 }
 
@@ -130,8 +130,8 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($G)) -> bool {
 		}
 		tick.command_count = count
 	}
-	tick.member = {}
-	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.member[:]) {
+	tick.joins = {}
+	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.joins[:]) {
 		return false
 	}
 	return reader.ok
