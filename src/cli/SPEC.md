@@ -144,7 +144,8 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
   - `box3d-debug`: the odin suite's binary again, copied next to Box3D's debug library (same file name and ABI),
     whose asserts trap what the release library lets through (a stale id destroying another body).
   - `godot` (beside): each game under headless Godot, the games in parallel (a child `uni test <game> --suite godot`
-    each), a game's steps in two lanes (`editor`, `bake`, `tour` beside the rest). Steps, each run when the game has
+    each), and with 16 cores or more a game's steps in two lanes (`editor`, `bake`, `tour` beside the rest; on fewer,
+    the doubled Godot processes gain nothing). Steps, each run when the game has
     what it needs: `import` (stale imports only; every Godot run first re-imports a stale class cache), `editor` (the
     extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its checksums equal the offline
     headless binary's), `bake` (`--check`, the view index too), then the tool scripts `validate`, `walk`

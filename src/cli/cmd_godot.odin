@@ -25,8 +25,13 @@ SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
 // nothing they write but Godot's import cache, current before either starts.
 GODOT_LANE_APART :: []string{"editor", "bake", "tour"}
 
-// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel, and a game's steps in two
-// lanes (GODOT_LANE_APART beside the rest), once its extension is current and its project imported. A step that
+// The lanes pay off only with cores to spare: every game already runs in parallel, so two lanes each double the Godot
+// processes (no gain measured on CI's 4-core runners; a quarter of the suite's time on 28 threads).
+GODOT_LANE_MIN_CORES :: 16
+
+// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel, and on a machine with
+// GODOT_LANE_MIN_CORES a game's steps in two lanes (GODOT_LANE_APART beside the rest), once its extension is current
+// and its project imported. A step that
 // passes or is skipped says so only with --verbose; a failing one always does.
 suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 	only := opts.only
@@ -65,7 +70,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			}
 		}
 		lane: Maybe(Proc)
-		if len(apart) > 0 && len(rest) > 0 {
+		if len(apart) > 0 && len(rest) > 0 && os.get_processor_core_count() >= GODOT_LANE_MIN_CORES {
 			cmd: [dynamic]string
 			append(
 				&cmd,
