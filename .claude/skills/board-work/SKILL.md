@@ -70,7 +70,7 @@ in that session, not filed first.
 
 File a Backlog issue (`.github/ISSUE_TEMPLATE/work.md`: what and why, done when) only for:
 
-- a new feature (during the foundations review, AGENTS.md: ideas are filed, not built);
+- a new feature;
 - a fix or improvement big or risky enough to need its own PR and review (a design question, a protocol or sim
   change nobody asked for, work across several modules).
 
