@@ -17,6 +17,7 @@ Rng :: struct {
 GAMMA :: 0x9E3779B97F4A7C15 // SplitMix64's increment (2^64 / golden ratio, odd)
 
 // SplitMix64's output function (Stafford's variant 13): a bijection on u64 with full avalanche.
+@(private)
 mix64 :: proc "contextless" (value: u64) -> u64 {
 	z := value
 	z = (z ~ (z >> 30)) * 0xBF58476D1CE4E5B9
@@ -55,6 +56,7 @@ rng_f32 :: proc(rng: ^Rng) -> f32 {
 }
 
 // The 64 bits of a keyed roll: (seed, tick, purpose, key, index) hashed through mix64 in turn.
+@(private)
 roll_bits :: proc(seed: u64, tick: u32, purpose, key, index: u64) -> u64 {
 	bits := mix64(seed + GAMMA)
 	bits = mix64((bits ~ u64(tick)) + GAMMA)

@@ -173,9 +173,7 @@ Game :: struct(
 	// play together instead of desyncing.
 	version:           string,
 	tick_hz:           int, // a power of two, 32..128; dt = 1 / tick_hz exactly
-	// The least input delay the netcode gives a player, in ticks (0: 1). The delay grows past it only as far as a
-	// round trip needs to keep the prediction inside the rollback window (src/netcode/SPEC.md, Timing).
-	min_input_delay:   int,
+
 	// Optional: the World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes outlive the World
 	// (the caller of create owns them). nil: a zeroed World (a game without one names sim.No_World).
@@ -204,6 +202,7 @@ No_Commands :: union {}
 // The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, Event, Cmd, PLAYERS).
 No_World :: struct {}
 
+@(private)
 MIN_RING_SIZE :: 8
 MAX_RING_SIZE :: 32
 
@@ -213,6 +212,7 @@ ring_size :: proc(tick_hz: int) -> int {
 	return clamp(tick_hz / 4, MIN_RING_SIZE, MAX_RING_SIZE)
 }
 
+@(private)
 Ring_Slot :: struct($State: typeid) {
 	tick:   u32,
 	valid:  bool, // the slot holds `tick`'s events

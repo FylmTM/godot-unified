@@ -10,17 +10,20 @@ package sim
 
 import "unified:wire"
 
+@(private)
 LOG_MAGIC :: "UNIL"
 // 4: commands per tick; 5: the #6 sitting's sim (u32 handles, SplitMix64, keyed rolls), so a log recorded
 // before replays differently: the bytes are laid out as in 4; 6: the recording build's compat in the header (#123);
 // 7: join records (players are session members, #222).
 LOG_VERSION :: 7
 LOG_HEADER :: 37
+@(private)
 LOG_TICKS_AT :: 33 // the header's tick count
 COMMAND_HEAD :: 3 // slot, kind, size: a command's bytes on the wire and in the log, before its data
 JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in the log
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
+@(private)
 Log_Tick :: struct($G: typeid) {
 	present:       Slots,
 	replaced:      Slots,
@@ -79,6 +82,7 @@ log_inputs :: proc(input_log: ^Input_Log($G), k: int) -> (inputs: Inputs(G)) {
 }
 
 // The bytes of a tick's record (write_tick) with these commands and `joins` join records, for sizing datagrams.
+@(private)
 tick_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []Raw_Command, joins := 0) -> int {
 	size := 10 + PLAYERS * size_of(Input) + joins * JOIN_BYTES
 	for &command in commands {
@@ -134,6 +138,7 @@ write_joins :: proc(writer: ^wire.Writer, member: []u16) {
 // Reads a tick's record into `input`, `commands` and `member` (one per slot); false when it is malformed: cut short,
 // a slot past the session's (len(member)) present or replaced, or its commands (read_commands) or join records
 // (read_joins) malformed.
+@(private)
 read_tick :: proc(
 	reader: ^wire.Reader,
 	input: []u8,
@@ -237,6 +242,7 @@ inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($G)) -> bool {
 }
 
 // Writes the log's tick k + 1 as write_tick does.
+@(private)
 log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($G), k: int) {
 	Input :: part(G, GAME_INPUT)
 	PLAYERS :: part(G, GAME_PLAYERS)
@@ -398,6 +404,7 @@ Log_Header :: struct {
 }
 
 // Writes the log header (LOG_HEADER bytes, the tick count at LOG_TICKS_AT), for log_encode and log streams.
+@(private)
 write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_bytes(writer, transmute([]u8)string(LOG_MAGIC))
 	wire.w_u16(writer, LOG_VERSION)
@@ -410,6 +417,7 @@ write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 }
 
 // The header and the tick bytes (a view into data).
+@(private)
 decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 	reader := wire.reader_make(data)
 	magic := wire.r_bytes(&reader, 4)

@@ -16,6 +16,7 @@ plain_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 }
 
 // plain_violation that allows padding: the rule for an event, which is never hashed or compared as bytes.
+@(private)
 padded_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 	return plain_check(type, path, bools = true, floats = true, padding = true)
 }
@@ -102,6 +103,7 @@ check_plain :: proc($T: typeid) {
 }
 
 // Panics unless the type is plain data, for a type known only at run time (check_plain's RTTI form).
+@(private)
 check_plain_of :: proc(type: ^runtime.Type_Info) {
 	if reason := plain_violation(type, fmt.tprint(type.id)); reason != "" {
 		fmt.panicf("%v is not plain data: %s", type.id, reason)
@@ -123,6 +125,7 @@ layout_hash :: proc($T: typeid) -> u64 {
 }
 
 // The layout hash of a type known only at run time (layout_hash's RTTI form); union variants are hashed with it.
+@(private)
 layout_hash_of :: proc(type: ^runtime.Type_Info) -> u64 {
 	builder := strings.builder_make(context.temp_allocator)
 	layout_text(&builder, type)

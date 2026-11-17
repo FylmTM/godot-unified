@@ -8,6 +8,7 @@ import "base:intrinsics"
 
 import "unified:wire"
 
+@(private)
 SNAP_MAGIC :: "UNIS"
 // Bump on any change to the format or to what an image holds.
 SNAP_VERSION :: 8
@@ -24,6 +25,7 @@ Snap_Error :: enum u8 {
 	Extra_Rejected, // the extra state (physics) rejected its image, or the snapshot has one and the game none
 }
 
+@(private)
 Snap_Header :: struct {
 	seed:    u64,
 	content: u64,
@@ -99,6 +101,7 @@ snap_end :: proc(writer: ^wire.Writer) -> []u8 {
 // Parses and verifies the header and payload digest; `reader` is left at the Extra's image. The magic and
 // version come first (Bad_Header), then this build's block size and layout (Layout_Differs), then the
 // payload digest (Checksum_Mismatch).
+@(private)
 snap_read :: proc(
 	data: []u8,
 	block_size: int,
@@ -141,6 +144,7 @@ snap_read :: proc(
 }
 
 // Reads the Extra's image (a view into the snapshot bytes; empty: none) after snap_read; false when it is cut short.
+@(private)
 snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 	image = wire.r_bytes(reader, int(wire.r_u32(reader)))
 	return image, reader.ok

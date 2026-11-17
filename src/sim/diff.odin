@@ -8,6 +8,7 @@ import "core:strings"
 
 import "unified:wire"
 
+@(private)
 DIFF_MAX :: 8 // differences listed; the rest are counted
 
 @(private)

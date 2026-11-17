@@ -42,6 +42,7 @@ command_value :: proc(raw: ^Raw_Command, $Command: typeid) -> Command {
 }
 
 // A tick's commands, decoded once before `tick` (Tick.commands), each with its slot, in the record's order.
+@(private)
 Commands :: struct($Cmd: typeid) {
 	list:  [TICK_COMMANDS]Cmd,
 	slots: [TICK_COMMANDS]u8,
@@ -49,6 +50,7 @@ Commands :: struct($Cmd: typeid) {
 }
 
 // Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size).
+@(private)
 commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G)) {
 	commands.count = 0
 	when intrinsics.type_union_variant_count(Cmd) > 0 { 	// sim.No_Commands: nothing to decode
@@ -63,6 +65,7 @@ commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G)) {
 }
 
 // The decoded commands of `slot`.
+@(private)
 commands_of_slot :: proc(commands: ^Commands($Cmd), slot: int) -> []Cmd {
 	low := 0
 	for low < commands.count && int(commands.slots[low]) < slot {

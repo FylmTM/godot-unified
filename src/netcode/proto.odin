@@ -114,8 +114,7 @@ stamp_ahead :: proc(rtt_us: f64, timing: Timing) -> u32 {
 }
 
 // The input delay k in ticks (the lag a player feels) for a round trip: the least that keeps the prediction depth
-// (about RTT + ½ − k ticks) inside the cap, never below the game's floor `min_delay` (sim.Game.min_input_delay) or
-// above max_delay. clamp(ceil((rtt + 8 ms) / tick) + 1 − cap, min_delay, max_delay). The client passes the round
+// (about RTT + ½ − k ticks) inside the cap, never below `min_delay` (the client's is 1) or above max_delay. clamp(ceil((rtt + 8 ms) / tick) + 1 − cap, min_delay, max_delay). The client passes the round
 // trip's high end (RTT + 4 × its mean deviation), so jitter doesn't push the prediction past the cap.
 want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 	needed := i64(ceil_ticks(rtt_us + DELAY_MARGIN_US, timing.tick_us)) + 1 - i64(timing.prediction_cap)

@@ -118,7 +118,6 @@ Client :: struct($G: typeid) {
 	cfg:            Client_Config,
 	hooks:          Hooks(G),
 	tm:             Timing,
-	min_delay:      u32, // the game's floor on the input delay (sim.Game.min_input_delay)
 	ch:             ^Channel,
 	relay:          Peer,
 	w:              wire.Writer,
@@ -225,13 +224,12 @@ client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)
 	}
 	client.hooks = hooks
 	client.tm = timing_of(game.tick_hz)
-	client.min_delay = u32(max(game.min_input_delay, 1))
 	client.ch = channel_make()
 	link_index := channel_add_link(client.ch, link)
 	client.relay = channel_peer(client.ch, link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
 	reserve(&client.own_cmds, COMMAND_QUEUE)
-	client.delay = client.min_delay
+	client.delay = 1
 	client.slot = -1
 	return client
 }
@@ -955,7 +953,7 @@ clock_lead :: proc(client: ^Client($G), delay: u32) -> f64 {
 // doesn't push the prediction past the cap) into want_delay.
 @(private)
 client_want_delay :: proc(client: ^Client($G)) -> u32 {
-	return want_delay(client.rtt_us + 4 * client.rtt_dev_us, client.tm, client.min_delay)
+	return want_delay(client.rtt_us + 4 * client.rtt_dev_us, client.tm)
 }
 
 // One tick of the local clock: own inputs for local + delay go out on it, also while the prediction cap holds the

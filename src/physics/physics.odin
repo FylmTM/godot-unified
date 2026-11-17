@@ -370,23 +370,13 @@ destroy_refs :: proc(world: ^World, value: ^$T) {
 	}
 }
 
-// Frees a table item and everything physics it refers to (destroy_refs, then sim.despawn).
-despawn_index :: proc(world: ^World, table: ^sim.Table($T, $N), index: int) {
-	destroy_refs(world, &table.items[index])
-	sim.despawn(table, index)
-}
-
-// Frees a table item by handle and everything physics it refers to; false when the handle is stale.
-despawn_handle :: proc(world: ^World, table: ^sim.Table($T, $N), handle: sim.Handle(T)) -> bool {
+// Frees a table item and everything physics it refers to (destroy_refs, then sim.despawn); false when the handle is
+// stale.
+despawn :: proc(world: ^World, table: ^sim.Table($T, $N), handle: sim.Handle(T)) -> bool {
 	item := sim.get(table, handle)
 	if item == nil do return false
 	destroy_refs(world, item)
 	return sim.despawn(table, handle)
-}
-
-despawn :: proc {
-	despawn_index,
-	despawn_handle,
 }
 
 // ---- the plug-in

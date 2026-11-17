@@ -52,30 +52,19 @@ spawn :: proc(table: ^Table($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) 
 	return &table.items[index], {u32(index), slot.generation}, true
 }
 
-// Frees the item at `index` (it must be alive) and zeroes it, so equal states hash equal.
-despawn_index :: proc(table: ^Table($T, $N), index: int) {
+// Frees the item `handle` refers to and zeroes it, so equal states hash equal; false for a stale or null handle.
+despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
+	if get(table, handle) == nil {
+		return false
+	}
+	index := int(handle.index)
 	slot := &table.slots[index]
-	assert(slot.alive, "despawn of a dead slot")
 	table.items[index] = {}
 	slot.alive = false
 	slot.next_free = table.free_head
 	table.free_head = i32(index) + 1
 	table.count -= 1
-}
-
-// Frees the item `handle` refers to; returns false for a stale or null handle.
-despawn_handle :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
-	if get(table, handle) == nil {
-		return false
-	}
-	despawn_index(table, int(handle.index))
 	return true
-}
-
-// Frees an item by slot index or by handle (despawn_index, despawn_handle).
-despawn :: proc {
-	despawn_index,
-	despawn_handle,
 }
 
 // The item `handle` refers to, or nil for the null handle, an out-of-range index or a stale handle.
@@ -87,15 +76,6 @@ get :: proc(table: ^Table($T, $N), handle: Handle(T)) -> ^T {
 	return &table.items[handle.index] if slot.alive && slot.generation == handle.generation else nil
 }
 
-// Whether the slot at `index` holds a live item.
-alive :: #force_inline proc(table: ^Table($T, $N), index: int) -> bool {
-	return table.slots[index].alive
-}
-
-// Handle of the (alive) item at `index`.
-handle :: proc(table: ^Table($T, $N), index: int) -> Handle(T) {
-	return {u32(index), table.slots[index].generation}
-}
 
 // A u64 key unique among the live and past items of one table (generation << 32 | index): what views
 // key an entity by, matching it across predicted and verified frames.
@@ -109,15 +89,6 @@ handle_of_key :: proc($T: typeid, key: u64) -> Handle(T) {
 	return {index = u32(key & 0xFFFF_FFFF), generation = u32(key >> 32)}
 }
 
-// The same item one tick earlier, for views that interpolate: `previous` is the table in the previous
-// tick's state (nil when that state is not available); found when the item at `index` is alive in both
-// with the same generation (not a reused slot).
-prev_item :: proc(previous, current: ^Table($T, $N), index: int) -> (^T, bool) {
-	if previous == nil do return nil, false
-	before, now := previous.slots[index], current.slots[index]
-	if !before.alive || !now.alive || before.generation != now.generation do return nil, false
-	return &previous.items[index], true
-}
 
 // Walks a table's live items in index order (iterate, then next):
 //

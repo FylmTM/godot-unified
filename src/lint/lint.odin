@@ -1,6 +1,6 @@
 // The determinism lint (AGENTS.md "Deterministic simulation"): a token scan that fails on constructs a
 // simulation must not use. Cheap (a few ms), run from a test package: `tests/lint` runs it over unified and its
-// games, and a game outside the repo calls `check_sim_package` from its own sim tests. It can't prove determinism
+// games, and a game outside the repo calls `check_game` from its own sim tests. It can't prove determinism
 // (end-to-end suites and reference runs do); it stops the known traps from creeping in. src/lint/SPEC.md.
 package lint
 
@@ -8,7 +8,6 @@ import "base:runtime"
 import "core:fmt"
 import "core:odin/tokenizer"
 import "core:os"
-import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:testing"
@@ -108,12 +107,6 @@ sim_rule :: proc(pkg, dir: string, extra_imports: []string = nil, allocator := c
 @(private)
 sim_idents := SIM_IDENTS // a constant slice in a returned Rule would point at the stack
 
-// Lints a game's simulation package under `sim_rule`: every .odin file in `dir` (subdirectories included), one
-// test failure per violation. A game's sim tests call it on their sim package, e.g.
-// `lint.check_sim_package(t, #directory + "/../mygame")`.
-check_sim_package :: proc(t: ^testing.T, dir: string, extra_imports: []string = nil, loc := #caller_location) {
-	check(t, sim_rule(filepath.base(dir), dir, extra_imports), loc)
-}
 
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
 // core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none

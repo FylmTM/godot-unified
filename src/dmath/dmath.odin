@@ -85,10 +85,6 @@ quat_rotate :: proc "contextless" (quat: [4]f32, vec: Vec3) -> Vec3 {
 	}
 }
 
-// Linear interpolation from a (t = 0) to b (t = 1), as a + (b - a) * t with no fused multiply-add.
-lerp :: #force_inline proc "contextless" (a, b, t: f32) -> f32 {
-	return a + (b - a) * t
-}
 
 // x truncated toward zero and clamped to [lo, hi]; NaN gives lo. Clamping happens on the f32, so
 // the conversion never sees a value outside the integer range (out-of-range and NaN conversions

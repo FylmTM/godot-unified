@@ -111,26 +111,6 @@ iterator_walks_live_items_in_index_order :: proc(t: ^testing.T) {
 	for _, _ in sim.next(&none) do testing.fail(t)
 }
 
-@(test)
-prev_item_needs_the_same_generation :: proc(t: ^testing.T) {
-	previous: Small
-	_, first, _ := sim.spawn(&previous)
-	sim.spawn(&previous)
-	current := previous
-	item, ok := sim.prev_item(&previous, &current, 0)
-	testing.expect(t, ok && item == &previous.items[0])
-	_, ok = sim.prev_item((^Small)(nil), &current, 0)
-	testing.expect(t, !ok)
-	sim.despawn(&current, first)
-	_, ok = sim.prev_item(&previous, &current, 0) // gone this tick
-	testing.expect(t, !ok)
-	sim.spawn(&current) // slot 0 reused: a different item
-	_, ok = sim.prev_item(&previous, &current, 0)
-	testing.expect(t, !ok)
-	_, ok = sim.prev_item(&previous, &current, 1)
-	testing.expect(t, ok)
-}
-
 // SplitMix64's reference outputs for seed 0 (Vigna's splitmix64.c), so a change to the mixer is caught.
 @(test)
 rng_is_splitmix64 :: proc(t: ^testing.T) {

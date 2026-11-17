@@ -90,8 +90,7 @@ inputs_count_past_the_round_trip_ceiling :: proc(t: ^testing.T) {
 	}
 }
 
-// Within the window the delay stays at the game's floor (D3): 1 tick at 100 ms round trip (it was 4), and
-// sim.Game.min_input_delay raises the floor.
+// Within the window the delay stays at its floor: 1 tick at 100 ms round trip.
 @(test)
 input_delay_stays_at_the_floor_within_the_window :: proc(t: ^testing.T) {
 	cfg := headless.Session_Config {
@@ -109,15 +108,5 @@ input_delay_stays_at_the_floor_within_the_window :: proc(t: ^testing.T) {
 	for client in result.clients {
 		testing.expect_value(t, client.delay, 1)
 		testing.expect_value(t, client.stall_ticks, 0)
-	}
-	game := toy.GAME
-	game.min_input_delay = 3
-	floor3 := HEADLESS
-	floor3.game = &game
-	raised := headless.session_run(&floor3, cfg)
-	defer headless.session_result_destroy(&raised)
-	testing.expect(t, raised.ok)
-	for client in raised.clients {
-		testing.expect_value(t, client.delay, 3)
 	}
 }

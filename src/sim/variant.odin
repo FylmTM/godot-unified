@@ -34,6 +34,7 @@ variant_name :: proc(type: ^runtime.Type_Info, prefix: string) -> string {
 }
 
 // The names of a union's variants, by kind (allocated with `allocator`, names included).
+@(private)
 variant_names :: proc(type: typeid, prefix: string, allocator := context.allocator) -> []string {
 	variants := union_variants(type)
 	names := make([]string, len(variants), allocator)
@@ -83,6 +84,7 @@ union_violation :: proc(type: typeid, max_size: int, prefix: string, padding := 
 // The union value of kind `kind` made of `bytes` (nil: a kind out of range or the wrong size, which
 // is how bytes from the network that don't match the build read back on every peer). Every bool in it reads back
 // as 0 or 1 whatever its bytes held (a command comes from another machine), so every peer branches on it alike.
+@(private)
 union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 	variants := union_variants(U)
 	if kind < 0 || kind >= len(variants) || len(bytes) != variants[kind].size {

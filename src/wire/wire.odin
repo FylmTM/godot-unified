@@ -40,11 +40,6 @@ w_u64 :: proc(writer: ^Writer, value: u64) {
 	append(&writer.buf, ..bytes[:])
 }
 
-// Patches a u32 written earlier at byte offset `at`.
-w_patch_u32 :: proc(writer: ^Writer, at: int, value: u32) {
-	bytes := transmute([4]u8)u32le(value)
-	copy(writer.buf[at:at + 4], bytes[:])
-}
 
 // Bounds-checked reader: a short read sets ok = false and yields zeros, so a decoder can read a
 // whole message and check `ok` once at the end.

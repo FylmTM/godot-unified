@@ -188,13 +188,16 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 	defer free(sparse)
 	defer free(dense)
 	// sparse: every slot used once, then all but `live` (spread evenly) despawned; dense: `live` items at the front
+	handles := make([]sim.Handle(Table_Bench_Item), TABLE_BENCH_CAPACITY)
+	defer delete(handles)
 	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		item, _, _ := sim.spawn(sparse)
+		item: ^Table_Bench_Item
+		item, handles[i], _ = sim.spawn(sparse)
 		item.life = i32(i)
 	}
 	keep_every := TABLE_BENCH_CAPACITY / live
 	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, i)
+		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, handles[i])
 	}
 	for i in 0 ..< live {
 		item, _, _ := sim.spawn(dense)
