@@ -408,6 +408,8 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	relay.done[player] = false
 	relay.cmd_recv[player] = 0 // a new client numbers its commands from 1
 	relay.checking[player] = false
+	relay.echo_time[player] = 0 // the previous occupant's clock (another machine's) is no round trip of this one
+	relay.echo_recv[player] = 0
 	clear(&relay.cmd_wait[player])
 	send_roster_entry(relay, known, now)
 	for k in 0 ..< len(relay.members) {

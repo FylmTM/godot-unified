@@ -610,3 +610,53 @@ future_checksums_are_dropped :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, judged) // honest reports are still judged
 }
+
+// A joiner in a slot another player just left starts from its own clock: the relay's echo of the old occupant's
+// time (another machine's clock, here 4 hours behind) is not taken as a round trip.
+@(test)
+joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 1, 0)
+	defer rnet_destroy(&session)
+	rnet_join(&session, 0)
+	rnet_run(&session, 1)
+	old := rnet_join(&session)
+	rnet_run(&session, 3, proc(session: ^Rnet) -> bool {return session.clients[1].status == .Connected})
+	testing.expect_value(t, old.status, netcode.Status.Connected)
+	rnet_run(&session, 1)
+	netcode.client_stop(old, session.clock.now)
+	rnet_run(&session, 1)
+	testing.expect(t, !session.relay.connected[1])
+	netcode.client_destroy(pop(&session.clients))
+
+	AHEAD :: i64(4 * 3600) * 1_000_000 // the joiner's machine booted 4 hours earlier
+	joiner_clock := netcode.Virtual_Clock {
+		now = session.clock.now + AHEAD,
+	}
+	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 5), netcode.PROFILES[1], 5 * 7919, &joiner_clock)
+	joiner := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, name = "j", quiet = true},
+		link,
+		hooks_for(&session.watch[5]),
+	)
+	defer netcode.client_destroy(joiner)
+	for _ in 0 ..< 3 * 4000 {
+		session.clock.now += 250
+		joiner_clock.now = session.clock.now + AHEAD
+		netcode.relay_step(session.relay, session.clock.now)
+		for client in session.clients do netcode.client_step(client, session.clock.now)
+		netcode.client_step(joiner, joiner_clock.now)
+	}
+	testing.expect_value(t, joiner.status, netcode.Status.Connected)
+	testing.expect_value(t, joiner.slot, 1)
+	testing.expectf(t, joiner.rtt_us < 300_000, "rtt %.0f us", joiner.rtt_us)
+	testing.expectf(
+		t,
+		joiner.local < session.relay.clock + 64,
+		"joiner at %d, relay at %d",
+		joiner.local,
+		session.relay.clock,
+	)
+	testing.expect_value(t, joiner.own_replaced, 0)
+}

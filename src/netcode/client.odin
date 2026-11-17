@@ -374,7 +374,8 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAY
 	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
 	if echo > 0 {
 		sample := f64(now - echo - hold)
-		if sample > 0 {
+		// A sample past the disconnect timeout is no round trip: an echo of another clock (a previous occupant's).
+		if sample > 0 && sample < DISCONNECT_US {
 			if client.rtt_samples == 0 {
 				client.rtt_us = sample
 			} else {
