@@ -5,16 +5,14 @@ package test_friendslop
 import "core:testing"
 
 import fs "../friendslop"
+import "unified:headless"
 import "unified:level"
 import "unified:physics"
-import "unified:sim"
 
 // Applies a setup to the current tick and makes it the tick's saved state.
 setup :: proc(run: ^Run, apply: proc(run: ^Run)) {
 	apply(run)
-	sim.save(run.simulation)
-	run.forward[run.simulation.tick] = sim.checksum(run.simulation)
-	run.floor = run.simulation.tick
+	headless.run_pin(&run.checked)
 }
 
 marker_named :: proc(run: ^Run, name: string) -> ^level.Marker {

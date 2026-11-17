@@ -135,25 +135,3 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	testing.expect(t, found && joined.returning && joined.slot == 1)
 	testing.expect_value(t, in_slot(simulation, 0).level, 1)
 }
-
-@(test)
-synctest_short :: proc(t: ^testing.T) {
-	simulation := sim.create(&survivor.GAME, 42)
-	defer sim.destroy(simulation)
-	forward: [241]u64
-	for tick in 1 ..= u32(240) {
-		step(simulation, {0, 1, 2, 3})
-		forward[tick] = sim.checksum(simulation)
-		if tick < 8 {
-			continue
-		}
-		testing.expect(t, sim.restore(simulation, tick - 8))
-		for resim in tick - 7 ..= tick {
-			step(simulation, {0, 1, 2, 3})
-			if sim.checksum(simulation) != forward[resim] {
-				testing.expectf(t, false, "tick %d re-sim at %d differs", resim, tick)
-				return
-			}
-		}
-	}
-}

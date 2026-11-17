@@ -302,67 +302,126 @@ interleaved_step :: proc(
 Synctest_Result :: struct {
 	mismatches:     int,
 	resimulated:    int, // ticks re-simulated
-	final_checksum: u64,
+	final_checksum: u64, // the last forward tick's
 	first_tick:     u32, // the first mismatching tick (0: none)
 	first_at:       u32, // the tick whose rollback re-simulated it differently
-	check:          string, // the first problem sim.check found after a restore ("": none; temp-allocated)
+	check:          string, // the first problem sim.check_extra found after a restore ("": none; temp-allocated)
 	check_tick:     u32, // the tick it was restored to
+	events:         [256]int, // what the forward ticks emitted, by event kind (run_events)
 }
 
-// `synctest`: every tick, once `window` ticks exist, restore `window` ticks back, run every extra's check
-// (sim.check), re-simulate with the recorded inputs and compare each tick's checksum with the forward one. `window` is at most
-// max_window(game) (the ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
+// A sync-tested run its caller steps: each step is a forward tick, then a restore `window` ticks back (never before
+// a pinned tick), the extra's check (sim.check_extra) and a re-simulation with the recorded inputs, each tick's
+// checksum compared with the forward one. A game test drives it with its own inputs (run_step) or the game's scripted
+// player (run_scripted), changes the state between steps (run_pin) and asserts `mismatches == 0`, `check == ""`
+// and its own facts. `simulation` is at the newest tick between steps.
+//
+//   run := headless.run_begin(&g.GAME, seed, LEVEL)
+//   defer headless.run_end(&run)
+//   for _ in 1 ..= 600 do headless.run_scripted(&run, 4)
+Run :: struct($G: typeid) {
+	using result: Synctest_Result,
+	simulation:   ^sim.Sim(G),
+	window:       u32,
+	recorded:     [dynamic]sim.Inputs(G), // recorded[tick]: the inputs of that tick
+	forward:      [dynamic]u64, // forward[tick]: its checksum
+	floor:        u32, // never restored before (run_pin)
+	commands:     Scripted_Commands(G), // run_scripted's
+}
+
+// A run of `game` from tick 0, sync-tested `window` ticks back (1 ..= max_window(game)).
+run_begin :: proc(game: ^$G, seed: u64, content: []u8 = nil, window: u32 = 8) -> (run: Run(G)) {
+	assert(window >= 1 && int(window) <= max_window(game))
+	run.simulation = sim.create(game, seed, content)
+	run.window = window
+	append(&run.recorded, sim.Inputs(G){})
+	append(&run.forward, sim.checksum(run.simulation))
+	return
+}
+
+// Frees the run's sim and records.
+run_end :: proc(run: ^Run($G)) {
+	sim.destroy(run.simulation)
+	delete(run.recorded)
+	delete(run.forward)
+	scripted_commands_destroy(&run.commands)
+}
+
+// One forward tick with `inputs`, then its sync-test.
+run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
+	simulation := run.simulation
+	append(&run.recorded, inputs^)
+	sim.step(simulation, inputs)
+	tick := simulation.tick
+	append(&run.forward, sim.checksum(simulation))
+	run.final_checksum = run.forward[tick]
+	for event in sim.events_at(simulation, tick) do run.events[event.kind] += 1
+	if tick < run.window do return
+	from := max(tick - run.window, run.floor)
+	if from == tick do return
+	if !sim.restore(simulation, from) {
+		if run.mismatches == 0 {
+			run.first_tick, run.first_at = from, tick
+		}
+		run.mismatches += 1
+		return
+	}
+	if reason := sim.check_extra(simulation); reason != "" && run.check == "" {
+		run.check, run.check_tick = reason, from
+	}
+	for resim in from + 1 ..= tick {
+		sim.step(simulation, &run.recorded[resim])
+		run.resimulated += 1
+		if sim.checksum(simulation) != run.forward[resim] {
+			if run.mismatches == 0 {
+				run.first_tick, run.first_at = resim, tick
+			}
+			run.mismatches += 1
+		}
+	}
+}
+
+// One forward tick played by the game's scripted player, then its sync-test: slots < `players` present (slot i is
+// member i + 1), then as `seats` say (taken on the first call), as run_sim plays.
+run_scripted :: proc(run: ^Run($G), players: int, seats: []Seat = nil) {
+	if !run.commands.seated do run.commands.seats = seats
+	runs := Headless(G) {
+		game    = run.simulation.game,
+		content = run.simulation.content,
+	}
+	inputs := scripted(&runs, run.simulation, run.simulation.tick + 1, players, &run.commands)
+	run_step(run, &inputs)
+}
+
+// The test changed the state (or the World) at the current tick: save it again, and never restore before it.
+run_pin :: proc(run: ^Run($G)) {
+	simulation := run.simulation
+	sim.save(simulation)
+	run.forward[simulation.tick] = sim.checksum(simulation)
+	run.floor = simulation.tick
+}
+
+// How many events of type E (a variant of the game's Event union) the forward ticks emitted.
+run_events :: proc(
+	run: ^Run($G),
+	$E: typeid,
+) -> int where intrinsics.type_is_variant_of(sim.part(G, sim.GAME_EVENT), E) {
+	return run.events[intrinsics.type_variant_index_of(sim.part(G, sim.GAME_EVENT), E)]
+}
+
+// `synctest`: run_scripted for `ticks` ticks, rolling back `window` ticks every tick (at most max_window(game), the
+// ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
 run_synctest :: proc(
 	headless: ^Headless($G),
 	ticks, window: u32,
 	seed: u64,
 	players: int,
 	seats: []Seat = nil,
-) -> (
-	result: Synctest_Result,
-) {
-	assert(window >= 1 && int(window) <= max_window(headless.game))
-	simulation := sim.create(headless.game, seed, headless.content)
-	defer sim.destroy(simulation)
-	commands := Scripted_Commands(G) {
-		seats = seats,
-	}
-	defer scripted_commands_destroy(&commands)
-	recorded := make([]sim.Inputs(G), ticks + 1)
-	forward := make([]u64, ticks + 1)
-	defer delete(recorded)
-	defer delete(forward)
-	for tick in 1 ..= ticks {
-		recorded[tick] = scripted(headless, simulation, tick, players, &commands)
-		sim.step(simulation, &recorded[tick])
-		forward[tick] = sim.checksum(simulation)
-		if tick < window {
-			continue
-		}
-		base := tick - window
-		if !sim.restore(simulation, base) {
-			if result.mismatches == 0 {
-				result.first_tick, result.first_at = base, tick
-			}
-			result.mismatches += 1
-			continue
-		}
-		if reason := sim.check_extra(simulation); reason != "" && result.check == "" {
-			result.check, result.check_tick = reason, base
-		}
-		for resim in base + 1 ..= tick {
-			sim.step(simulation, &recorded[resim])
-			result.resimulated += 1
-			if sim.checksum(simulation) != forward[resim] {
-				if result.mismatches == 0 {
-					result.first_tick, result.first_at = resim, tick
-				}
-				result.mismatches += 1
-			}
-		}
-	}
-	result.final_checksum = forward[ticks] if ticks > 0 else 0
-	return
+) -> Synctest_Result {
+	run := run_begin(headless.game, seed, headless.content, window)
+	defer run_end(&run)
+	for _ in 1 ..= ticks do run_scripted(&run, players, seats)
+	return run.result
 }
 
 // `replay`: re-simulates an input log, recording every tick's checksum into `trace` (optional). Fails

@@ -106,6 +106,22 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	)
 }
 
+// A game test's sync-tested run (headless.Run) re-simulated every tick the same, and its extra agreed with the block
+// after every restore.
+expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_location) -> bool {
+	synced := testing.expectf(
+		t,
+		run.mismatches == 0,
+		"%d mismatches; first: tick %d re-simulated differently at tick %d",
+		run.mismatches,
+		run.first_tick,
+		run.first_at,
+		loc = loc,
+	)
+	agreed := testing.expectf(t, run.check == "", "after restoring tick %d: %s", run.check_tick, run.check, loc = loc)
+	return synced && agreed
+}
+
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
 // player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
 // tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.

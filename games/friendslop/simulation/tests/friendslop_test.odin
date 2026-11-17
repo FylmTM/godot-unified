@@ -8,41 +8,32 @@ import "core:testing"
 
 import fs "../friendslop"
 import "unified:dmath"
+import "unified:headless"
+import "unified:headless/scenarios"
 import "unified:physics"
 import "unified:sim"
 
 PARK :: #load("../../game/levels/park.level")
-WINDOW :: 8
 
+// A sync-tested run (headless.Run) on the park, with the presence and join records of the next step.
 Run :: struct {
-	simulation:  ^fs.Sim,
-	recorded:    [dynamic]fs.Inputs, // recorded[tick] = the inputs of that tick
-	forward:     [dynamic]u64,
-	mismatches:  int,
-	counts:      [256]int, // events of the forward ticks, by kind (event_count)
-	present:     sim.Slots,
-	joins:       [fs.PLAYERS]u16, // join records for the next step (a member id per slot; 0: none)
-	floor:       u32, // the sync-test never restores before this tick (a setup changed it)
-	setup_index: int, // a setup's arguments (tests run on several threads: no globals)
-	setup_pos:   [3]f32,
+	using checked: headless.Run(fs.Game),
+	present:       sim.Slots,
+	joins:         [fs.PLAYERS]u16, // join records for the next step (a member id per slot; 0: none)
+	setup_index:   int, // a setup's arguments (tests run on several threads: no globals)
+	setup_pos:     [3]f32,
 }
 
 // A run with `players` slots present from the first tick (slot i is member i + 1).
-start :: proc(players: int) -> Run {
-	run := Run {
-		simulation = sim.create(&fs.GAME, 1, PARK),
-	}
-	append(&run.recorded, fs.Inputs{})
-	append(&run.forward, 0)
+start :: proc(players: int) -> (run: Run) {
+	run.checked = headless.run_begin(&fs.GAME, 1, PARK)
 	for slot in 0 ..< players do join(&run, slot, slot + 1)
 	step(&run, {}) // players join on the first tick: their bodies exist from here on
-	return run
+	return
 }
 
 finish :: proc(run: ^Run) {
-	sim.destroy(run.simulation)
-	delete(run.recorded)
-	delete(run.forward)
+	headless.run_end(&run.checked)
 }
 
 // `member` takes `slot` on the next step (someone new, or a member coming back).
@@ -57,7 +48,7 @@ leave :: proc(run: ^Run, slot: int) {
 	run.joins[slot] = 0
 }
 
-// One forward tick with these inputs (by slot), then the sync-test check of the last WINDOW ticks.
+// One sync-tested tick with these inputs (by slot).
 step :: proc(run: ^Run, inputs_by_slot: [fs.PLAYERS]fs.Input) {
 	inputs := fs.Inputs {
 		present = run.present,
@@ -67,40 +58,17 @@ step :: proc(run: ^Run, inputs_by_slot: [fs.PLAYERS]fs.Input) {
 		if member != 0 do sim.join(&inputs, slot, int(member))
 	}
 	run.joins = {}
-	append(&run.recorded, inputs)
-	sim.step(run.simulation, &inputs)
-	tick := run.simulation.tick
-	append(&run.forward, sim.checksum(run.simulation))
-	for event in sim.events_at(run.simulation, tick) do run.counts[event.kind] += 1
-	if tick < WINDOW do return
-	from := max(tick - WINDOW, run.floor)
-	if from == tick do return
-	if !sim.restore(run.simulation, from) ||
-	   physics.check_refs(run.simulation.world.phys, &run.simulation.state) != "" {
-		run.mismatches += 1
-		return
-	}
-	for replayed in from + 1 ..= tick {
-		sim.step(run.simulation, &run.recorded[replayed])
-		if sim.checksum(run.simulation) != run.forward[replayed] do run.mismatches += 1
-	}
+	headless.run_step(&run.checked, &inputs)
 }
 
-// How many events of this type (a variant of fs.Event) the forward ticks emitted.
-event_count :: proc(run: ^Run, event: typeid) -> int {
-	kind := sim.variant_kind(fs.Event, event)
-	assert(kind >= 0, "not a friendslop event")
-	return run.counts[kind]
-}
-
-// Who holds `slot` now (sim.Player{}: nobody).
-player_in :: proc(run: ^Run, slot: int) -> sim.Player {
-	return sim.player_in_slot(&run.simulation.state.players, slot)
+// How many events of type E the forward ticks emitted.
+event_count :: proc(run: ^Run, $E: typeid) -> int {
+	return headless.run_events(&run.checked, E)
 }
 
 // The data of whoever holds `slot` (nil: nobody).
 character :: proc(run: ^Run, slot: int) -> ^fs.Character {
-	return sim.player_data(&run.simulation.state.players, player_in(run, slot))
+	return sim.player_data(&run.simulation.state.players, sim.player_in_slot(run.simulation, slot))
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {
@@ -151,8 +119,8 @@ idle :: proc(run: ^Run, ticks: int) {
 	for _ in 0 ..< ticks do step(run, {})
 }
 
-expect_clean :: proc(t: ^testing.T, run: ^Run) {
-	testing.expectf(t, run.mismatches == 0, "%d sync-test mismatches", run.mismatches)
+expect_clean :: proc(t: ^testing.T, run: ^Run, loc := #caller_location) {
+	scenarios.expect_synced(t, &run.checked, loc)
 }
 
 @(test)
@@ -322,7 +290,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
-	testing.expect_value(t, character(&run, 1).held_by, player_in(&run, 0))
+	testing.expect_value(t, character(&run, 1).held_by, sim.player_in_slot(run.simulation, 0))
 	start_y := player_pos(&run, 1).y
 	for _ in 0 ..< 48 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {0, 0.3, 2}, {}), {}, {}, {}})
 	testing.expectf(
@@ -377,19 +345,6 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 	expect_clean(t, &run)
 }
 
-// Four chaos players for 20 s (the CLI's scripted input): everything at once, still deterministic.
-@(test)
-chaos_synctest :: proc(t: ^testing.T) {
-	run := start(4)
-	defer finish(&run)
-	for tick in u32(1) ..= 1280 {
-		inputs: [fs.PLAYERS]fs.Input
-		for slot in 0 ..< 4 do inputs[slot] = fs.scripted_input(7, slot, tick, nil)
-		step(&run, inputs)
-	}
-	testing.expect(t, event_count(&run, fs.Event_Grabbed) > 0)
-	expect_clean(t, &run)
-}
 
 // What a player owns follows the person, not the slot: the thrower of a crate leaves, someone new takes their slot
 // (the crate is still the thrower's), and the thrower comes back in another slot as the same player.
@@ -403,7 +358,7 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	for _ in 0 ..< 200 do step(&run, {walk(&run, 0, crate_pos + {-1.3, 0, 0}, 0.1, crate_pos), {}, {}, {}})
 	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = {.Grab}}), {}, {}, {}})
 	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Item)
-	thrower := player_in(&run, 0)
+	thrower := sim.player_in_slot(run.simulation, 0)
 	for _ in 0 ..< 8 do step(&run, {{aim = dmath.dir3({0, 40, -100}), buttons = {.Throw}}, {}, {}, {}})
 	step(&run, {{aim = dmath.dir3({0, 40, -100})}, {}, {}, {}}) // release: throw
 	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
@@ -414,13 +369,13 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	testing.expect(t, !sim.player_present(&run.simulation.state.players, thrower))
 	join(&run, 0, 100)
 	step(&run, {})
-	newcomer := player_in(&run, 0)
+	newcomer := sim.player_in_slot(run.simulation, 0)
 	testing.expect(t, newcomer != {} && newcomer != thrower)
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower comes back in slot 2: the same handle, and the crate is still theirs.
 	join(&run, 2, 1)
 	step(&run, {})
-	testing.expect_value(t, player_in(&run, 2), thrower)
+	testing.expect_value(t, sim.player_in_slot(run.simulation, 2), thrower)
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	testing.expect(t, items[crate].thrown_ticks > 0)
 	testing.expect_value(t, event_count(&run, fs.Event_Spawned), 4) // two at the start, the newcomer, the return
