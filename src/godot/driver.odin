@@ -893,7 +893,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			driver.bench.init = proc(t: ^sim.Tick(G)) {
 				game := (^G)(g_game)
 				glue := (^Glue(G, View, MultiView))(g_glue)
-				game.init(t)
+				if game.init != nil do game.init(t)
 				glue.bench(t.state, t.world, g_bench_count)
 			}
 			driver.host = netcode.host_create(&driver.bench, host_config, hooks)

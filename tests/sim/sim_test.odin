@@ -622,7 +622,7 @@ Flaky :: struct {
 
 flaky_game :: proc(flaky: rawptr) -> toy.Game {
 	game := toy.GAME
-	game.world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)}
+
 	game.extra = proc(world: ^toy.World) -> sim.Extra {
 		return {
 			data = g_flaky,

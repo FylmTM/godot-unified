@@ -115,7 +115,6 @@ bug_game :: proc(
 		version = "1",
 		tick_hz = toy.HZ,
 		world_create = world_create,
-		world_destroy = proc(world: ^Bug_World) {free(world)},
 		init = init,
 		tick = tick,
 		scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {

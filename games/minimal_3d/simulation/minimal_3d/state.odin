@@ -13,9 +13,6 @@ State :: struct {
 	balls:   sim.Table(Ball, MAX_BALLS),
 }
 
-World :: struct {
-	_unused: u8,
-}
 
 Player_Data :: struct {
 	position: [2]f32,

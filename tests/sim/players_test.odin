@@ -165,9 +165,6 @@ Tight_Game :: sim.Game(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Co
 TIGHT := Tight_Game {
 	name = "tight",
 	tick_hz = 64,
-	world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)},
-	world_destroy = proc(world: ^toy.World) {free(world)},
-	init = proc(t: ^sim.Tick(Tight_Game)) {},
 	tick = proc(t: ^sim.Tick(Tight_Game)) {
 		for player in t.player_changes.left {
 			assert(sim.player_data(t, player) != nil, "a leaver's handle names its data on its tick")

@@ -176,16 +176,17 @@ Game :: struct(
 	// The least input delay the netcode gives a player, in ticks (0: 1). The delay grows past it only as far as a
 	// round trip needs to keep the prediction inside the rollback window (src/netcode/SPEC.md, Timing).
 	min_input_delay:   int,
-	// The World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
-	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes
-	// outlive the World (the caller of create owns them).
+	// Optional: the World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
+	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes outlive the World
+	// (the caller of create owns them). nil: a zeroed World (a game without one names sim.No_World).
 	world_create:      proc(seed: u64, content: []u8) -> ^World,
+	// Optional: frees what world_create made (nil: free(world)).
 	world_destroy:     proc(world: ^World),
 	// The World's rollback state (nil: none), asked for right after world_create: a physics game returns
 	// physics.extra(world.phys, State).
 	extra:             proc(world: ^World) -> Extra,
-	// Fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit, roll and
-	// create physics bodies.
+	// Optional: fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit,
+	// roll and create physics bodies.
 	init:              proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
 	tick:              proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
@@ -199,6 +200,9 @@ Game :: struct(
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, PLAYERS).
 No_Commands :: union {}
+
+// The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, Event, Cmd, PLAYERS).
+No_World :: struct {}
 
 MIN_RING_SIZE :: 8
 MAX_RING_SIZE :: 32
@@ -367,7 +371,7 @@ create :: proc(
 		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
-	simulation.world = game.world_create(seed, content)
+	simulation.world = game.world_create(seed, content) if game.world_create != nil else new(part(G, GAME_WORLD))
 	if game.extra != nil {
 		simulation.extra = game.extra(simulation.world)
 	}
@@ -375,20 +379,27 @@ create :: proc(
 	slot := &simulation.ring[0]
 	slot.tick = 0
 	slot.valid = true
-	t := make_tick(simulation, 0, &inputs, &slot.events)
-	game.init(&t)
+	if game.init != nil {
+		t := make_tick(simulation, 0, &inputs, &slot.events)
+		game.init(&t)
+	}
 	save(simulation)
 	return simulation
 }
 
-// Frees a Sim made by create or from_snapshot: its ring, its events and the game's World (game.world_destroy).
+// Frees a Sim made by create or from_snapshot: its ring, its events and the game's World (game.world_destroy, or
+// free).
 destroy :: proc(simulation: ^Sim($G)) {
 	for &slot in simulation.ring {
 		delete(slot.events.list)
 	}
 	delete(simulation.ring)
 	delete(simulation.hash_buf)
-	simulation.game.world_destroy(simulation.world)
+	if simulation.game.world_destroy != nil {
+		simulation.game.world_destroy(simulation.world)
+	} else {
+		free(simulation.world)
+	}
 	free(simulation)
 }
 

@@ -115,14 +115,11 @@ Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
 
 GAME := Game {
-	name = "toy",
-	version = "2", // 2: a thing's life is a keyed roll
-	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^World {return new(World)},
-	world_destroy = proc(world: ^World) {free(world)},
-	init = proc(t: ^Tick) {},
-	tick = tick,
-	scripted_input = scripted_input,
+	name              = "toy",
+	version           = "2", // 2: a thing's life is a keyed roll
+	tick_hz           = HZ,
+	tick              = tick,
+	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
 }
 
