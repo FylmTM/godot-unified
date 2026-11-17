@@ -63,6 +63,25 @@ init_gets_a_tick_and_every_tick_its_dt :: proc(t: ^testing.T) {
 	testing.expect_value(t, simulation.world.tick_dt, 1.0 / 32)
 }
 
+// A sim restored from a snapshot has no events at the snapshot's tick, even when that tick shares ring slot 0 with
+// tick 0, whose events init emitted.
+@(test)
+snapshot_restore_drops_init_events :: proc(t: ^testing.T) {
+	simulation := sim.create(&PROBE, 3)
+	defer sim.destroy(simulation)
+	inputs: toy.Inputs
+	tick := u32(len(simulation.ring)) // ring slot 0
+	for _ in 0 ..< tick do sim.step(simulation, &inputs)
+	data := sim.snapshot_encode(simulation, tick)
+	defer delete(data)
+	restored, err := sim.from_snapshot(&PROBE, data)
+	testing.expect_value(t, err, sim.Snap_Error.None)
+	if restored == nil do return
+	defer sim.destroy(restored)
+	testing.expect_value(t, restored.tick, tick)
+	testing.expect_value(t, len(sim.events_at(restored, tick)), 0)
+}
+
 @(test)
 commands_yield_only_real_ones_by_player :: proc(t: ^testing.T) {
 	simulation := sim.create(&PROBE, 3)
