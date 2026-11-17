@@ -10,8 +10,7 @@ physics ([Box3D](https://github.com/erincatto/box3d)) runs inside the rollback. 
 from one CLI. It's built for fast iteration and for AI coding agents.
 
 > [!NOTE]
-> **Status: pre-1.0.** The foundations are under review: the simulation, physics, netcode and Godot host are being
-> reviewed one at a time. The API is not stable yet, and breaking changes land without notice.
+> **Status: pre-1.0.** The API is not stable yet, and breaking changes land without notice.
 
 ## Features
 
@@ -75,22 +74,15 @@ core works inside.
 - **Simulation:** single-threaded f32 (fixed point was rejected). Parallel only where measurements demand it.
 - **Testing:** headless sim tests, per-game end-to-end suites, and reference runs that CI reproduces on Linux x64
   and arm64, Windows x64 and macOS ARM64.
-- **Dev tools in the game:** entity inspector, timeline scrub, a network simulator panel with desync diffs, tuning
-  that writes back to text files, a free camera and a perf overlay.
-- **An agent API in the running game:** query and edit state, step ticks, inject input per player, snapshots,
-  replays, screenshots and scripted scenarios.
 - **Gameplay code:** plain functions over typed queries, with minimal magic.
-- **Minimal dependencies:** every third-party dependency needs a reason and its own tests. Some designs are still
-  open, such as how entity kinds and levels are authored
-  ([#38](https://github.com/FylmTM/godot-unified/issues/38)).
+- **Minimal dependencies:** every third-party dependency needs a reason and its own tests.
 
 ## The games
 
 Four co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
 
-- [`games/minimal_3d/`](games/minimal_3d/SPEC.md): the smallest 3D game on every feature (capsules that throw balls),
-  the showcase of how to write a game and the base of `uni init`'s template.
-
+- [`games/minimal_3d/`](games/minimal_3d/SPEC.md): the smallest 3D game (capsules that throw balls), the showcase
+  of how to write a game and the base of `uni init`'s template.
 - [`games/survivor/`](games/survivor/SPEC.md): a top-down survivor with waves of enemies and physics props (3D).
 - [`games/friendslop/`](games/friendslop/SPEC.md): a third-person physics sandbox: carry, stack, throw (3D).
 - [`games/drift/`](games/drift/SPEC.md): a ship arena defending a station (2D views, physics locked to a plane).
@@ -125,16 +117,13 @@ Then, from the repo root (`uni.cmd` on Windows):
 ./uni init games/mygame --in-repo # a new game inside this repo
 ```
 
-A step-by-step guide to setting up and making a tiny game is planned
-([#21](https://github.com/FylmTM/godot-unified/issues/21)).
-
 ## Documentation
 
 - `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
 - [`src/README.md`](src/README.md): how the core works inside, across packages.
 - [`tools/README.md`](tools/README.md): this repo's CLI, `uni`, and its private commands.
 - [`AGENTS.md`](AGENTS.md): the rules and workflow for working on unified, for people and agents alike.
-- [`docs/`](docs/): online setup (`EOS.md`), open research (`research/`) and earlier results (`archive/`).
+- [`docs/EOS.md`](docs/EOS.md): online setup.
 - [Issues](https://github.com/FylmTM/godot-unified/issues): current and upcoming work.
 
 ## License
