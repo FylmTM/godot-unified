@@ -55,6 +55,7 @@ START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome
 BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (#246; a heartbeat waits a tick)
 CHECK_WAIT_MS :: 1000 // a checksum tick is judged once every expected report is in, or this long after it is due
 IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots
+SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Relay.report_from of a player that sends no checksums yet
 
@@ -129,10 +130,11 @@ Relay :: struct($Input: typeid, $PLAYERS: int) {
 	snap_sent:    [PLAYERS]u32, // bytes forwarded so far
 	snap_tick:    [PLAYERS]u32, // the checksum tick the joiner's snapshot is of
 	snap_from:    [PLAYERS]int, // who sent it
+	snap_us:      [PLAYERS]i64, // when the joiner's snapshot last made progress (asked for, begun, a chunk)
 	checking:     [PLAYERS]bool, // the joiner restores it and sends its checksum; the relay compares
 	snap_value:   [PLAYERS]u64, // the joiner's checksum of its restored snapshot
 	snap_have:    [PLAYERS]bool,
-	refused:      [PLAYERS]sim.Slots, // providers whose snapshot for this joiner failed the check
+	refused:      [PLAYERS]sim.Slots, // providers whose snapshot for this joiner failed the check, was unusable or never came
 	inputs:       [PLAYERS][INPUT_RING]Input,
 	input_tick:   [PLAYERS][INPUT_RING]u32, // which tick inputs[player][k] holds
 	recv_upto:    [PLAYERS]u32,
@@ -321,7 +323,11 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	token: Token
 	copy(token[:], wire.r_bytes(reader, TOKEN_SIZE))
 	name := r_name(reader)
-	if !reader.ok || relay.player_of[peer] >= 0 || relay.ending {
+	if !reader.ok || relay.player_of[peer] >= 0 {
+		return
+	}
+	if relay.ending {
+		channel_send(relay.ch, peer, msg_begin(&relay.w, .End).buf[:], .Reliable, now) // not 30 s of silence
 		return
 	}
 	if protocol != PROTOCOL_VERSION || (relay.cfg.compat != 0 && compat != relay.cfg.compat) {
@@ -338,12 +344,11 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 		key = fmt.tprintf("token:%s", token_text(token))
 	}
 	known := find_member(relay, key)
-	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection.
+	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection, once
+	// the new one is accepted (its seat counts as free until then).
+	replaced := -1
 	if known >= 0 && relay.members[known].entry.connected {
-		old := int(relay.members[known].entry.slot)
-		old_peer := relay.peer_of[old]
-		player_gone(relay, old, "replaced by a new connection", now)
-		channel_drop(relay.ch, old_peer)
+		replaced = int(relay.members[known].entry.slot)
 	}
 	if known < 0 && len(relay.members) >= int(max(u16)) {
 		reject(relay, peer, .Full, now) // 65,535 people in one session
@@ -353,7 +358,7 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	if wanted == ANY_PLAYER {
 		limit := relay.started ? PLAYERS : relay.cfg.start_players
 		for other in 0 ..< limit {
-			if !relay.connected[other] {
+			if !relay.connected[other] || other == replaced {
 				player = other
 				break
 			}
@@ -368,7 +373,7 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 			reject(relay, peer, .Full, now)
 			return
 		}
-		if relay.connected[player] {
+		if relay.connected[player] && player != replaced {
 			reject(relay, peer, .Player_Taken, now)
 			return
 		}
@@ -381,11 +386,16 @@ on_hello :: proc(relay: ^Relay($Input, $PLAYERS), peer: Peer, reader: ^wire.Read
 	provider := -1
 	if relay.started {
 		relay.refused[player] = {}
-		if provider = pick_provider(relay, player); provider < 0 {
+		if provider = pick_provider(relay, player, replaced); provider < 0 {
 			reject(relay, peer, .No_Snapshot, now)
 			relay_log(relay, "a player asking for %d refused: no player can send a snapshot", player)
 			return
 		}
+	}
+	if replaced >= 0 {
+		old_peer := relay.peer_of[replaced]
+		player_gone(relay, replaced, "replaced by a new connection", now)
+		channel_drop(relay.ch, old_peer)
 	}
 	if known < 0 {
 		append(&relay.members, Relay_Member{key = strings.clone(key)})
@@ -470,11 +480,13 @@ find_member :: proc(relay: ^Relay($Input, $PLAYERS), key: string) -> int {
 	return -1
 }
 
-// The lowest connected player that can send `joiner` a snapshot and didn't send it a bad one (-1: none).
+// The lowest connected player that can send `joiner` a snapshot and didn't send it a bad one (-1: none), other than
+// `leaving` (a seat about to be replaced).
 @(private)
-pick_provider :: proc(relay: ^Relay($Input, $PLAYERS), joiner: int) -> int {
+pick_provider :: proc(relay: ^Relay($Input, $PLAYERS), joiner: int, leaving := -1) -> int {
 	for other in 0 ..< PLAYERS {
 		if other != joiner &&
+		   other != leaving &&
 		   relay.connected[other] &&
 		   relay.welcomed[other] &&
 		   relay.base_known[other] &&
@@ -492,6 +504,7 @@ request_snapshot :: proc(relay: ^Relay($Input, $PLAYERS), joiner, provider: int,
 	relay.provider[joiner] = provider
 	relay.snap_total[joiner] = 0
 	relay.snap_sent[joiner] = 0
+	relay.snap_us[joiner] = now
 	writer := msg_begin(&relay.w, .Snap_Request)
 	wire.w_u8(writer, u8(joiner))
 	wire.w_u32(writer, relay.snap_min[joiner])
@@ -1111,8 +1124,16 @@ forward_snapshot :: proc(
 		   tick % CHECKSUM_EVERY != 0 ||
 		   relay_tick(relay, tick) == nil ||
 		   total == 0 {
+			relay.refused[joiner] += {player} // it would send the same again: ask another player
+			restart_snapshot(
+				relay,
+				joiner,
+				fmt.tprintf("player %d's snapshot of tick %d is not usable", player, tick),
+				now,
+			)
 			return
 		}
+		relay.snap_us[joiner] = now
 		relay.snap_total[joiner] = total
 		relay.snap_sent[joiner] = 0
 		relay.snap_tick[joiner] = tick
@@ -1133,6 +1154,7 @@ forward_snapshot :: proc(
 			return
 		}
 		relay.snap_sent[joiner] += size
+		relay.snap_us[joiner] = now
 		if relay.snap_sent[joiner] == relay.snap_total[joiner] {
 			// Complete: the joiner restores it and sends its checksum, which judge_snapshots checks.
 			relay.provider[joiner] = -1
@@ -1174,6 +1196,12 @@ relay_step :: proc(relay: ^Relay($Input, $PLAYERS), now: i64) -> (wake_us: i64) 
 		}
 		judge_checks(relay, now)
 		judge_snapshots(relay, now)
+		for joiner in 0 ..< PLAYERS {
+			if provider := relay.provider[joiner]; provider >= 0 && now - relay.snap_us[joiner] > SNAP_STALL_US {
+				relay.refused[joiner] += {provider}
+				restart_snapshot(relay, joiner, fmt.tprintf("no snapshot from player %d", provider), now)
+			}
+		}
 		send_reports(relay, now)
 	}
 	if !relay.ending && relay.started && relay.cfg.ticks != 0 && relay.finalized == relay.cfg.ticks {

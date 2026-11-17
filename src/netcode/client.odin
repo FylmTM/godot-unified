@@ -495,6 +495,7 @@ handle_client_msg :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, 
 		on_welcome(client, &reader)
 	case .Reject:
 		why := Reject_Reason(wire.r_u8(&reader))
+		if !reader.ok do return
 		detail := "rejected"
 		#partial switch why {
 		case .Full:
@@ -1084,7 +1085,7 @@ client_step :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAYE
 	for event in channel_poll(client.ch, now) {
 		switch event.kind {
 		case .Message:
-			handle_client_msg(client, event.data, now)
+			if event.peer == client.relay do handle_client_msg(client, event.data, now) // not from another peer
 		case .Disconnected:
 			if event.peer == client.relay && client.end_us == 0 {
 				set_status(
