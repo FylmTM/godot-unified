@@ -12,7 +12,6 @@ public_commands :: proc() -> []Command {
 	return slice.clone([]Command {
 		{
 			name      = "setup",
-			usage     = "[--check]",
 			summary   = "fetch and build everything this project needs (UNIFIED_BOX3D: build that unified-box3d checkout instead of the release); print each dependency's version and source",
 			no_budget = "downloads and builds",
 			options   = option_types(Setup_Opts),
@@ -20,7 +19,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "clean",
-			usage   = "[--check] [--cache]",
 			summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
 			budget  = 5,
 			options = option_types(Clean_Opts),
@@ -28,15 +26,13 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "build",
-			usage   = "[game] [--mode dev|release|debug]",
-			summary = "each game's extension and headless binary, in parallel",
-			budget  = 8,
+			summary = "each game's extension and headless binary that is stale, all at once (--force: every one)",
+			budget  = 1,
 			options = option_types(Build_Opts),
 			run     = cmd_build,
 		},
 		{
 			name      = "headless",
-			usage     = "[game] [--mode dev|release|debug] -- <mode> [options]",
 			summary   = "the game's headless binary (built when stale), its JSON on stdout; modes: sim, synctest, replay, snapshot, resume, session, relay, client, bench, net-bench, table-bench (`-- help`: every mode's options)",
 			no_budget = "the mode decides",
 			options   = option_types(Headless_Opts),
@@ -44,7 +40,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "run",
-			usage     = "[game] [--mute] [--screen s] [--background] [-- args]",
 			summary   = "the game in a window (arguments after -- go to the game)",
 			no_budget = "interactive",
 			options   = option_types(Run_Opts),
@@ -52,7 +47,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "editor",
-			usage     = "[game] [--mute] [--screen s]",
 			summary   = "the Godot editor on the game",
 			no_budget = "interactive",
 			options   = option_types(Editor_Opts),
@@ -60,7 +54,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "test",
-			usage   = "[game] [--suite s,...] [--only name,...] [--long] [--crash] [--box3d-debug]",
 			summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants; quiet when it passes",
 			budget  = 6,
 			options = option_types(Test_Opts),
@@ -76,16 +69,14 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "fmt",
-			usage   = "[--check] [path...] | --hook",
-			summary = "odinfmt (pinned) over the project's Odin code, and LF line endings in every text file; --hook: the file a Claude Code edit names",
+			summary = "odinfmt (pinned) over the project's Odin code; --hook: the file a Claude Code edit names",
 			budget  = 1,
 			options = option_types(Fmt_Opts),
 			run     = cmd_fmt,
 		},
 		{
 			name      = "tool",
-			usage     = "[game] <script> [--window [--mute] [--screen s]] [--shots] [--cold] [-- args]",
-			summary   = "run a tool script, the game's or games/shared's (headless unless --window); a script error fails the run at once",
+			summary   = "run a tool script, the game's or games/shared's (headless; --window: muted, on the leftmost screen, never taking focus); a script error fails the run at once",
 			no_budget = "depends on the script",
 			options   = option_types(Tool_Opts),
 			details   = tool_details,
@@ -93,7 +84,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "coop",
-			usage     = "[game] [--window [--mute] [--screen s]] [--rejoin | --crash] [--lan]",
 			summary   = "host and joiner processes in a real lobby (EOS, or --lan); EOS: one test at a time (docs/EOS.md)",
 			no_budget = "networked",
 			options   = option_types(Coop_Opts),
@@ -101,16 +91,14 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bake",
-			usage   = "[game] [--check]",
-			summary = "bake .level files from their scenes (--check: fail if one is stale)",
+			summary = "write the view index and bake .level files from their scenes (--check: fail if one is stale)",
 			budget  = 2,
 			options = option_types(Bake_Opts),
 			run     = cmd_bake,
 		},
 		{
 			name    = "bench",
-			usage   = "[game...] | --views [--window [--mute] [--screen s]]",
-			summary = "each game's standard benchmark, alone, on a release build, the sim's sparse-table walk and (this repo) the physics row; --views: the Godot host's view sync",
+			summary = "each game's standard benchmark and its session on the virtual clock, alone, on a release build; the sim's sparse-table walk; the project's own rows",
 			budget  = 10,
 			options = option_types(Bench_Opts),
 			details = bench_details,
@@ -118,7 +106,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "record-reference",
-			usage   = "<game>",
 			summary = "record a game's reference run anew (the committed log, trace and snapshot test replays)",
 			budget  = 8,
 			options = option_types(Record_Reference_Opts),
@@ -126,7 +113,6 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "init",
-			usage     = "<dir> [--unified <url>] [--ref <ref>] | games/<name> --in-repo",
 			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout, its tests imported in tests/tests.odin",
 			no_budget = "clones unified",
 			options   = option_types(Init_Opts),
@@ -134,9 +120,8 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "verify",
-			usage   = "[--long]",
-			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all, test --box3d-debug, bench",
-			budget  = 45,
+			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all",
+			budget  = 30,
 			options = option_types(Verify_Opts),
 			run     = cmd_verify,
 		},
@@ -150,15 +135,22 @@ public_commands :: proc() -> []Command {
 	})
 }
 
-// The test suites every project has (`odin`, `godot`); `run` puts them before the project's own (`add_suites`).
+// The test suites every project has (`odin`, `box3d-debug`, `godot`); `run` puts them before the project's own
+// (`add_suites`).
 public_suites :: proc() -> []Suite {
 	return slice.clone([]Suite {
 		{
 			name        = "odin",
-			summary     = "every Odin test package in one compile (the inner loop)",
+			summary     = "every Odin test package in one compile (the inner loop); with a game named, that game's tests",
 			budget      = 6,
 			long_budget = 12,
 			run         = suite_odin,
+		},
+		{
+			name    = "box3d-debug",
+			summary = "the odin suite's binary again, against Box3D's debug library (its asserts trap a misused id)",
+			budget  = 6,
+			run     = suite_box3d_debug,
 		},
 		{
 			name        = "godot",
@@ -166,38 +158,27 @@ public_suites :: proc() -> []Suite {
 			budget      = 25,
 			long_budget = 30,
 			run         = suite_godot,
+			beside      = true,
+			prepare     = godot_prepare,
 		},
 	})
 }
 
 // --- test -------------------------------------------------------------------------------------------------------
 
-// What `test --box3d-debug` adds to the odin suite's budget: the debug library's physics is unoptimised, so the run
-// takes 3-4 times as long (3.4x here on 28 threads, 4x on CI's 4-core linux-x64: 17 s against 4 s); the compile is the
-// same, into a folder of its own.
-BOX3D_DEBUG_EXTRA_BUDGET :: 6
-
-// `test`'s options (the command table names them: -h lists them, `vet` checks the usage line against them).
+// `test`'s options (the command table names them: -h lists them).
 @(private)
 Test_Opts :: struct {
-	game:        string `args:"pos=0" usage:"a game (default: every game)"`,
-	suite:       string `usage:"suites, comma-separated, or all (default: odin); listed below"`,
-	only:        string `usage:"tests (odin) or steps (godot), comma-separated"`,
-	long:        bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
-	crash:       bool `usage:"odin, this repo: a test also crashes holding a lock another test waits for; proves the run fails within seconds and names it"`,
-	box3d_debug: bool `args:"name=box3d-debug" usage:"odin: link Box3D's debug library (its id and state asserts trap a misuse the release library lets through)"`,
+	game:  string `args:"pos=0" usage:"a game (default: every game); the odin suite then compiles that game's tests only"`,
+	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
+	only:  string `hint:"name,..." usage:"tests (odin) or steps (godot), comma-separated"`,
+	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
 }
 
 @(private)
 cmd_test :: proc(args: []string) -> Result {
 	opts: Test_Opts
 	parse(&opts, args)
-	if opts.crash && !is_unified_repo() {
-		usage("--crash runs tests/cli's crash test: the unified repo only")
-	}
-	if opts.box3d_debug && opts.suite != "" && opts.suite != "odin" {
-		usage("--box3d-debug is for the odin suite")
-	}
 	names := split_list(opts.suite)
 	if len(names) == 0 {
 		names = {"odin"}
@@ -206,12 +187,11 @@ cmd_test :: proc(args: []string) -> Result {
 		names = suite_names()
 	}
 	test_opts := Test_Options {
-		only        = split_list(opts.only),
-		long        = opts.long,
-		crash       = opts.crash,
-		box3d_debug = opts.box3d_debug,
+		only = split_list(opts.only),
+		long = opts.long,
+		game = opts.game,
 	}
-	// The run's budget: its suites' (each by suite_budget, --long and --box3d-debug included).
+	// The run's budget: its suites' (each by suite_budget, --long included).
 	budget: f64
 	suites: [dynamic]^Suite
 	for name in names {
@@ -235,21 +215,20 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 	results := make([]Suite_Result, len(suites))
 	ok := true
-	// With other suites, the `beside` ones run in child processes while the rest run here, in order.
+	// With other suites, the `beside` ones run in child processes while the rest run here, in order. Each child starts
+	// once its `prepare` has made current what it shares with the others.
 	children := make([]Maybe(Proc), len(suites))
 	in_process := 0
 	for suite in suites {
 		in_process += suite.beside ? 0 : 1
 	}
 	if in_process > 0 && in_process < len(suites) {
-		for suite in suites {
-			if suite.beside && suite.prepare != nil {
-				suite.prepare()
-			}
-		}
 		exe := self_exe()
 		for suite, i in suites {
 			if !suite.beside do continue
+			if suite.prepare != nil {
+				suite.prepare()
+			}
 			cmd: [dynamic]string
 			append(&cmd, exe, "test")
 			if opts.game != "" {
@@ -268,7 +247,6 @@ cmd_test :: proc(args: []string) -> Result {
 				dir     = state.project.root,
 				capture = true,
 				quiet   = true,
-				env     = env_with(aprintf("%s=1", CHILD_ENV)),
 			})
 		}
 	}
@@ -301,13 +279,7 @@ cmd_test :: proc(args: []string) -> Result {
 			if seconds, is_number := report["seconds"].(json.Float); is_number {
 				results[i].seconds = round2(f64(seconds))
 			}
-			if list, is_list := report["cold"].(json.Array); is_list {
-				for item in list {
-					if what, is_str := item.(json.String); is_str {
-						cold(string(what))
-					}
-				}
-			}
+			adopt_cold(report)
 		}
 		ok = ok && ran.ok
 	}
@@ -326,6 +298,17 @@ cmd_test :: proc(args: []string) -> Result {
 		summary = aprintf("test: %s", strings.to_string(builder)),
 		data    = box(results[:]),
 		budget  = budget,
+	}
+}
+
+// What a child `uni` built or fetched first (its --json report's `cold`) makes this run cold too.
+adopt_cold :: proc(report: json.Object) {
+	if list, is_list := report["cold"].(json.Array); is_list {
+		for item in list {
+			if what, is_str := item.(json.String); is_str {
+				cold(string(what))
+			}
+		}
 	}
 }
 
@@ -381,9 +364,6 @@ test_details :: proc() -> string {
 		if suite.long_budget > 0 {
 			budget = aprintf("%s, --long %.0fs", budget, suite.long_budget)
 		}
-		if suite.name == "odin" {
-			budget = aprintf("%s, --box3d-debug +%ds", budget, BOX3D_DEBUG_EXTRA_BUDGET)
-		}
 		fmt.sbprintf(&builder, "  %-*s  %s (budget %s)\n", width, suite.name, suite.summary, budget)
 		if suite.name == "godot" {
 			fmt.sbprintf(
@@ -397,8 +377,10 @@ test_details :: proc() -> string {
 	}
 	strings.write_string(
 		&builder,
-		"A run's budget is its suites' sum. A passing run prints a summary: each suite's result and the warnings it\n" +
-		"logged (a leak, OVER BUDGET); a failing one prints the whole log of what failed, and --verbose everything.",
+		"With other suites, the ones that mostly wait (godot, and the project's own that say so) run beside them in\n" +
+		"child processes. A run's budget is its suites' sum. A passing run prints a summary: each suite's result and\n" +
+		"the warnings it logged (a leak, OVER BUDGET); a failing one prints the whole log of what failed, and\n" +
+		"--verbose everything.",
 	)
 	return strings.to_string(builder)
 }
@@ -406,7 +388,7 @@ test_details :: proc() -> string {
 // --- verify -----------------------------------------------------------------------------------------------------
 
 // `verify --long`'s budget (plain `verify`: the command's).
-VERIFY_LONG_BUDGET :: 65
+VERIFY_LONG_BUDGET :: 50
 
 // `verify`'s options.
 @(private)
@@ -415,7 +397,9 @@ Verify_Opts :: struct {
 }
 
 // The gate: every step runs in this process, in order; the first failure stops it. Each step reports its own budget
-// in its Result (verify ignores it); verify's is the command's, or VERIFY_LONG_BUDGET with --long.
+// in its Result (verify ignores it); verify's is the command's, or VERIFY_LONG_BUDGET with --long. The benchmarks
+// are not in it: they gate nothing (a re-sim mismatch fails every game's sync-test first); `uni bench` runs them,
+// and CI on every platform.
 @(private)
 cmd_verify :: proc(args: []string) -> Result {
 	opts: Verify_Opts
@@ -425,8 +409,7 @@ cmd_verify :: proc(args: []string) -> Result {
 		args: []string,
 	}
 	test := opts.long ? []string{"--suite", "all", "--long"} : []string{"--suite", "all"}
-	// The odin suite again against Box3D's debug library, where a misused id traps.
-	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}, {"test", {"--box3d-debug"}}, {"bench", {}}}
+	steps := []Step{{"fmt", {"--check"}}, {"vet", {}}, {"test", test}}
 	budget: f64 = opts.long ? VERIFY_LONG_BUDGET : 0
 	self := state.command
 	for step in steps {
@@ -449,7 +432,7 @@ cmd_verify :: proc(args: []string) -> Result {
 			return {ok = false, summary = aprintf("verify: %s failed: %s", step.name, result.summary), budget = budget}
 		}
 	}
-	return {ok = true, summary = "verify: fmt, vet, every test suite and the benchmarks passed", budget = budget}
+	return {ok = true, summary = "verify: fmt, vet and every test suite passed", budget = budget}
 }
 
 // --- version ----------------------------------------------------------------------------------------------------

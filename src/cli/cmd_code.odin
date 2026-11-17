@@ -2,6 +2,7 @@ package cli
 
 import "core:encoding/json"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -9,37 +10,60 @@ import "core:time"
 
 @(private)
 Build_Opts :: struct {
-	game: string `args:"pos=0" usage:"a game (default: every game; in this repo also toy, which has no extension)"`,
-	mode: Mode `usage:"dev (default), release or debug"`,
+	game:  string `args:"pos=0" usage:"a game (default: every game; also a headless binary of the project's own, which has no extension)"`,
+	mode:  Mode `usage:"dev (default), release or debug"`,
+	force: bool `usage:"build every one, current or not (and the Godot bindings): when the build manifests can't be trusted"`,
 }
 
+// Builds what is stale (by the build manifests every command trusts), the extensions and the headless binaries all
+// at once.
 @(private)
 cmd_build :: proc(args: []string) -> Result {
 	opts: Build_Opts
 	parse(&opts, args)
 	start := time.tick_now()
 	games: []Game
-	if opts.game != "toy" || !is_unified_repo() {
+	if !is_extra_headless(opts.game) {
 		games = games_or_all(opts.game) // the name is checked before anything builds
 	}
-	// the headless binaries build beside the extensions (each extension's build waits for the one before)
-	headless := start_headless(opts.mode, only = opts.game, force = true)
-	libs: [dynamic]string
+	if opts.force {
+		ensure_bindings(force = true)
+	}
+	headless := start_headless(opts.mode, only = opts.game, force = opts.force)
+	extensions: [dynamic]Extension_Build
+	current := headless.current
 	for game in games {
-		if has_extension(game) {
-			append(&libs, rel(ensure_extension(game, opts.mode, force = true)))
+		if !has_extension(game) do continue
+		if running, started := start_extension(game, opts.mode, force = opts.force).?; started {
+			append(&extensions, running)
+		} else {
+			current += 1
 		}
 	}
 	built := finish_headless(&headless)
+	libs: [dynamic]string
+	failed: [dynamic]string
+	for &running in extensions {
+		lib, ok := finish_extension(&running)
+		if ok {
+			append(&libs, rel(lib))
+		} else {
+			append(&failed, aprintf("%s's extension", running.game.name))
+		}
+	}
+	if len(failed) > 0 {
+		fatal("building %s failed", strings.join(failed[:], ", "))
+	}
 	return {
 		ok      = true,
 		summary = aprintf(
-			"built %d headless %s and %d %s (%v) in %.1fs",
+			"build (%v): %d headless %s and %d %s built, %d current, in %.1fs",
+			opts.mode,
 			built,
 			built == 1 ? "binary" : "binaries",
 			len(libs),
 			len(libs) == 1 ? "extension" : "extensions",
-			opts.mode,
+			current,
 			seconds_since(start),
 		),
 		data    = box(libs[:]),
@@ -50,9 +74,9 @@ cmd_build :: proc(args: []string) -> Result {
 
 @(private)
 Headless_Opts :: struct {
-	game:     string `args:"pos=0" usage:"the game (default: the only one; in this repo also toy)"`,
+	game:     string `args:"pos=0" usage:"the game (default: the only one; also a headless binary of the project's own)"`,
 	mode:     Mode `usage:"the build: dev (default), release or debug"`,
-	overflow: [dynamic]string `usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
+	overflow: [dynamic]string `hint:"-- <mode> [options]" usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
 }
 
 // The game's headless binary (src/headless/SPEC.md: offline runs, sync-tests, replays, sessions, the relay and
@@ -115,7 +139,7 @@ cmd_vet :: proc(args: []string) -> Result {
 	}
 	// the suites as record-reference builds them (unified:headless/scenarios writes reference runs)
 	// and as `test --long` builds them
-	if uses_scenarios() {
+	if uses_scenarios(test_root()) {
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_REGEN=true"})
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_LONG_TESTS=true"})
 	}
@@ -138,13 +162,6 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	failed: [dynamic]string
-	// Each command's help against what it accepts (usage_problems): the public commands and this project's own.
-	for command in state.commands {
-		for problem in usage_problems(command) {
-			append(&failed, aprintf("uni %s's help", command.name))
-			log("vet: %s", problem)
-		}
-	}
 	for result, i in run_all(runs) {
 		if !result.ok {
 			job := jobs[i]
@@ -190,9 +207,9 @@ FMT_FILES_PER_RUN :: 8
 
 @(private)
 Fmt_Opts :: struct {
-	check:    bool `usage:"change nothing; fail when a file needs formatting or has the wrong line endings"`,
+	check:    bool `usage:"change nothing; fail when a file needs formatting"`,
 	hook:     bool `usage:"format the one file a Claude Code edit names (the hook's JSON on stdin)"`,
-	overflow: [dynamic]string `usage:"files or directories (default: the project: every Odin source, every text file's line endings)"`,
+	overflow: [dynamic]string `hint:"[path...]" usage:"files or directories (default: every Odin source of the project)"`,
 }
 
 @(private)
@@ -218,52 +235,36 @@ cmd_fmt :: proc(args: []string) -> Result {
 			}
 		}
 	}
-	eol_listing := eol_start(opts.overflow[:]) // line endings, every text file: while odinfmt runs
 	changed := fmt_files(exe, srcs[:], opts.check)
-	bad_eol := eol_wait(&eol_listing)
-	for file in bad_eol {
-		if opts.check {
-			log("fmt: %s: %s", file.path, file.problem)
-		} else {
-			eol_fix(file)
-			log("fmt: %s: %s, fixed", file.path, file.problem)
-		}
-	}
 	if opts.check && len(changed) > 0 {
 		for path in changed {
 			log("fmt: needs formatting: %s", path)
 		}
-	}
-	if opts.check && len(changed) + len(bad_eol) > 0 {
 		return {
 			ok      = false,
-			summary = aprintf(
-				"%d file(s) need formatting, %d have wrong line endings: run uni fmt",
-				len(changed),
-				len(bad_eol),
-			),
+			summary = aprintf("%d file(s) need formatting: run uni fmt", len(changed)),
 			data    = box(changed),
 		}
 	}
 	return {
 		ok      = true,
 		summary = aprintf(
-			"fmt %s: %d of %d file(s) %s, %d line ending fix(es) in %.2fs",
+			"fmt %s: %d of %d file(s) %s in %.2fs",
 			opts.check ? "check ok" : "done",
 			len(changed),
 			len(srcs),
 			opts.check ? "to change" : "changed",
-			len(bad_eol),
 			seconds_since(start),
 		),
 		data    = box(changed),
 	}
 }
 
-// Formats copies of the files in size-balanced chunk folders (one odinfmt run each, all at once), then compares:
-// only changed files are written back. Returns the changed ones.
+/// Formats copies of the files in size-balanced chunk folders (one odinfmt run each, all at once), then compares:
+// only changed files are written back. Returns the changed ones. `config`: the odinfmt.json to use (default: this
+// project's).
 @(private)
-fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
+fmt_files :: proc(exe: string, srcs: []string, check: bool, config := "") -> []string {
 	if len(srcs) == 0 {
 		return nil
 	}
@@ -273,38 +274,35 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 	runs := max(1, min(os.get_processor_core_count(), len(srcs) / FMT_FILES_PER_RUN))
 	load := make([]i64, runs)
 	scratch := make([]string, len(srcs))
-	sizes := make([]i64, len(srcs))
-	order := make([]int, len(srcs))
+	Sized :: struct {
+		index: int,
+		size:  i64,
+	}
+	order := make([]Sized, len(srcs))
 	for src, i in srcs {
 		info, _ := os.stat(src, context.temp_allocator)
-		sizes[i] = info.size
-		order[i] = i
+		order[i] = {i, info.size}
 	}
-	sort_by_size :: proc(order: []int, sizes: []i64) {
-		for i in 1 ..< len(order) {
-			for j := i; j > 0 && sizes[order[j]] > sizes[order[j - 1]]; j -= 1 {
-				order[j], order[j - 1] = order[j - 1], order[j]
-			}
-		}
-	}
-	sort_by_size(order, sizes)
-	for i in order {
-		k := 0
+	// the largest first, each into the lightest folder so far
+	slice.sort_by(order, proc(first, second: Sized) -> bool {return first.size > second.size})
+	for item in order {
+		i := item.index
+		lightest := 0
 		for bucket, index in load {
-			if bucket < load[k] {
-				k = index
+			if bucket < load[lightest] {
+				lightest = index
 			}
 		}
-		load[k] += sizes[i]
-		scratch[i] = join(tmp, aprintf("%d", k), aprintf("%d-%s", i, os.base(srcs[i])))
+		load[lightest] += item.size
+		scratch[i] = join(tmp, aprintf("%d", lightest), aprintf("%d-%s", i, os.base(srcs[i])))
 		copy_file(scratch[i], srcs[i])
 	}
-	config := aprintf("-config:%s", join(state.project.unified, "odinfmt.json"))
+	config_flag := aprintf("-config:%s", config != "" ? config : join(state.project.unified, "odinfmt.json"))
 	fmt_runs: [dynamic]Run
-	for k in 0 ..< runs {
-		if load[k] > 0 {
+	for bucket in 0 ..< runs {
+		if load[bucket] > 0 {
 			append(&fmt_runs, Run {
-				cmd     = strs(exe, config, "-w", join(tmp, aprintf("%d", k))),
+				cmd     = strs(exe, config_flag, "-w", join(tmp, aprintf("%d", bucket))),
 				capture = true,
 				quiet   = true,
 			})
@@ -330,8 +328,10 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool) -> []string {
 }
 
 // Claude Code's PostToolUse hook (.claude/settings.json): formats the one .odin file an Edit or Write touched, named
-// in the hook's JSON on stdin. Never blocks the agent: anything unexpected (not Odin, outside the formatted
-// directories, a file that doesn't parse yet) is skipped quietly; `fmt --check` in CI is the gate.
+// in the hook's JSON on stdin. The file's own project is the nearest directory above it with a `uni` shim, so an edit
+// in a git worktree of this checkout (.claude/worktrees/<name>/) is formatted too, with its own odinfmt.json. Never
+// blocks the agent: anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet)
+// is skipped quietly; `fmt --check` in `verify` and CI is the gate.
 @(private)
 fmt_hook :: proc() -> ! {
 	data, err := os.read_entire_file(os.stdin, context.allocator)
@@ -350,80 +350,124 @@ fmt_hook :: proc() -> ! {
 		os.exit(0)
 	}
 	path, _ := os.get_absolute_path(hook.tool_input.file_path, context.allocator)
-	inside := false
-	for dir in fmt_dirs() {
-		if strings.has_prefix(path, aprintf("%s/", dir)) {
-			inside = true
+	path, _ = strings.replace_all(path, "\\", "/")
+	root := os.dir(path)
+	for !os.is_file(join(root, "uni")) {
+		parent := os.dir(root)
+		if parent == root || parent == "" || parent == "." {
+			os.exit(0)
 		}
+		root = parent
 	}
-	if !inside || !os.is_file(path) {
-		os.exit(0)
+	inside := false
+	for dir in fmt_dirs(root) {
+		slashed, _ := strings.replace_all(dir, "\\", "/")
+		inside ||= strings.has_prefix(path, aprintf("%s/", slashed))
 	}
 	exe := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
-	if !os.is_file(exe) {
+	if !inside || !os.is_file(path) || !os.is_file(exe) {
 		os.exit(0)
 	}
-	tmp := join(state.project.out, "tmp", aprintf("hook-%d", os.get_pid()), os.base(path))
-	copy_file(tmp, path)
-	result := run_proc({
-		cmd     = {exe, aprintf("-config:%s", join(state.project.unified, "odinfmt.json")), "-w", tmp},
-		capture = true,
-		quiet   = true,
-	})
-	if result.ok {
-		old_text, _ := read_text(path)
-		new_text, _ := read_text(tmp)
-		if old_text != new_text {
-			write_text(path, new_text)
-		}
+	config := join(root, "odinfmt.json")
+	if !os.is_file(config) {
+		config = join(root, "unified", "odinfmt.json") // a game repo: the submodule's
 	}
-	remove_tree(os.dir(tmp))
+	fmt_files(exe, {path}, false, config)
 	os.exit(0)
 }
 
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
-// Whether the tests build unified:headless/scenarios, which declares UNIFIED_REGEN and UNIFIED_LONG_TESTS (odin
-// rejects a -define nothing declares).
+// Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_REGEN and
+// UNIFIED_LONG_TESTS (odin rejects a -define nothing declares).
 @(private)
-uses_scenarios :: proc() -> bool {
-	return is_unified_repo() || sources_import(test_root(), `"unified:headless/scenarios"`)
+uses_scenarios :: proc(root: string) -> bool {
+	return sources_import(root, `"unified:headless/scenarios"`)
+}
+
+// The odin suite's build: every test package under the project's test root in one compile (Project_Config.tests,
+// with -all-packages), or one game's simulation/tests (`test <game>`, and a game repo's). Built through its manifest
+// like every other build, so an unchanged tree skips the compile.
+@(private)
+test_build :: proc(opts: Test_Options) -> Build {
+	root := test_root(opts.game)
+	name := opts.game
+	if name == "" {
+		name = state.config.tests != "" ? "unified" : state.project.games[0].name
+	}
+	flags: [dynamic]string
+	if opts.game == "" && state.config.tests != "" {
+		append(&flags, "-all-packages") // the test root pulls in every test package; a game's tests are one
+	}
+	append(&flags, ..TEST_RUN_FLAGS)
+	append(&flags, ..mode_flags(.dev))
+	if opts.long && uses_scenarios(root) {
+		append(&flags, "-define:UNIFIED_LONG_TESTS=true")
+	}
+	if len(opts.only) > 0 {
+		append(&flags, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
+	}
+	return {
+		pkg = root,
+		out = join(state.project.out, "test", aprintf("%s_tests%s", name, EXE)),
+		flags = flags[:],
+		own = true,
+	}
+}
+
+// Whether the tests `test` compiles link Box3D.
+@(private)
+tests_use_box3d :: proc(opts: Test_Options) -> bool {
+	return opts.game != "" ? game_uses_box3d(game(opts.game)) : project_uses_box3d()
+}
+
+// Makes the odin suite's test binary current, with the Box3D library beside it; false when the compile failed (the
+// compiler's errors are on the terminal).
+@(private)
+ensure_test_binary :: proc(opts: Test_Options) -> (exe: string, ok: bool) {
+	ensure_deps_for_headless()
+	ensure_bindings()
+	build := test_build(opts)
+	make_dirs(os.dir(build.out))
+	if tests_use_box3d(opts) {
+		stage_box3d(os.dir(build.out))
+	}
+	if stale(build) {
+		child := start_build(build)
+		if !finish_build(build, &child).ok {
+			return build.out, false
+		}
+	}
+	return build.out, true
 }
 
 // Every test package in one compile: unit tests, the library's black-box tests, the end-to-end suites with their
-// reference-run replays, the Box3D golden trace, the determinism and import lint.
+// reference-run replays, the Box3D golden trace, the determinism and import lint. With a game named, that game's
+// tests only (no import lint: it lives in the project's test root).
 @(private)
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
-	ensure_deps_for_headless()
-	ensure_bindings()
-	// --box3d-debug builds in a folder of its own: the debug library has the release one's file name.
-	out := join(state.project.out, opts.box3d_debug ? "test-box3d-debug" : "test", aprintf("unified_tests%s", EXE))
-	make_dirs(os.dir(out))
-	uses_box3d := project_uses_box3d()
-	if uses_box3d {
-		stage_box3d(os.dir(out), debug = opts.box3d_debug)
+	exe, ok := ensure_test_binary(opts)
+	return ok && run_test_binary(exe, suite_timeout("odin", opts))
+}
+
+// The odin suite's binary again, next to Box3D's debug library in a folder of its own (the debug library has the
+// release one's file name and ABI: unified-box3d builds both from the same sources): its asserts trap what the
+// release library lets through (a stale id destroying another body). The same build as the odin suite's, so it only
+// copies a current binary. Its physics is unoptimised: the run takes about three times the release one's.
+@(private)
+suite_box3d_debug :: proc(games: []Game, opts: Test_Options) -> bool {
+	if !tests_use_box3d(opts) {
+		if state.verbose do log("uni: box3d-debug: skipped: nothing links Box3D")
+		return true
 	}
-	cmd: [dynamic]string
-	append(&cmd, odin(), "build", test_root(), aprintf("-out:%s", out))
-	append(&cmd, ..collection())
-	if is_unified_repo() {
-		append(&cmd, "-all-packages") // tests/ is a root that pulls in every test package; a game's tests are one
-	}
-	append(&cmd, ..TEST_RUN_FLAGS)
-	append(&cmd, ..TEST_FLAGS)
-	append(&cmd, ..VET)
-	if opts.long && uses_scenarios() {
-		append(&cmd, "-define:UNIFIED_LONG_TESTS=true")
-	}
-	if opts.crash {
-		append(&cmd, "-define:UNIFIED_TEST_CRASH=true")
-	}
-	append(&cmd, ..box3d_defines(opts.box3d_debug ? .debug : .dev, uses_box3d))
-	if len(opts.only) > 0 {
-		append(&cmd, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
-	}
-	if !run_proc({cmd = cmd[:]}).ok {
+	exe, ok := ensure_test_binary(opts)
+	if !ok {
 		return false
 	}
-	return run_test_binary(out, suite_timeout("odin", opts))
+	dir := join(state.project.out, "test-box3d-debug")
+	make_dirs(dir)
+	stage_box3d(dir, debug = true)
+	debug_exe := join(dir, os.base(exe))
+	copy_file(debug_exe, exe)
+	return run_test_binary(debug_exe, suite_timeout("box3d-debug", opts))
 }

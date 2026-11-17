@@ -7,8 +7,14 @@ import "core:time"
 
 // The Godot bindings (src/gdext/*.gen.odin), generated from the committed API dump: no Godot needed. Skipped when
 // the inputs (api/*.json, bindings.txt, the generator's source) hash the same as last time and the outputs exist.
-// Generating them is first-time work (a fresh checkout or game repo, a Godot upgrade): it makes the run cold.
+// Generating them is first-time work (a fresh checkout or game repo, a Godot upgrade): it makes the run cold. Checked
+// once per run (the dump is several megabytes to hash).
 ensure_bindings :: proc(force := false) {
+	@(static) checked: bool
+	if checked && !force {
+		return
+	}
+	checked = true
 	gdext := join(state.project.unified, "src", "gdext")
 	inputs: [dynamic]string
 	append(&inputs, ..find_files(join(gdext, "api"), ".json"))
@@ -39,7 +45,7 @@ ensure_bindings :: proc(force := false) {
 	must_run({cmd = cmd[:]}, "building the binding generator")
 	must_run({cmd = {gen, join(gdext, "api"), join(gdext, "bindings.txt"), gdext}}, "the binding generator")
 	write_text(stamp, aprintf("%s\n", key))
-	log("uni: godot-gen -> src/gdext/*.gen.odin in %.2fs", seconds_since(start))
+	log("uni: the Godot bindings -> src/gdext/*.gen.odin in %.2fs", seconds_since(start))
 }
 
 // --- a game's GDExtension -----------------------------------------------------------------------------------------
@@ -76,13 +82,36 @@ has_extension :: proc(game: Game) -> bool {
 	return os.is_directory(join(game.dir, "simulation", "extension"))
 }
 
-// Builds the game's extension when stale (always with `force`; `defines`: extra -define flags), and refreshes the
-// game's view index first
-// (refresh_view_index): every command that runs the game goes through here. The build tag
-// (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale. The
-// Box3D library goes next to it (the .gdextension's [dependencies] ship it from there): the debug build for --mode
-// debug.
+// Builds the game's extension when stale (always with `force`; `defines`: extra -define flags) and returns its
+// library: every command that runs the game goes through here. A failed build stops the command.
 ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []string = nil) -> string {
+	running, started := start_extension(game, mode, force, defines).?
+	if !started {
+		return extension_lib(game)
+	}
+	lib, ok := finish_extension(&running)
+	if !ok {
+		fatal("building %s's extension failed", game.name)
+	}
+	return lib
+}
+
+// An extension build start_extension started; finish_extension puts it in place.
+Extension_Build :: struct {
+	game:      Game,
+	build:     Build, // to the temporary file, its manifest the library's
+	child:     Proc,
+	stamp:     string,
+	versioned: bool,
+	start:     time.Tick,
+	mode:      Mode,
+}
+
+// Prepares the game's extension and starts its build when stale (always with `force`), without waiting: refreshes
+// the game's view index (refresh_view_index), stages the Box3D library next to it (the .gdextension's [dependencies]
+// ship it from there; the debug build for --mode debug) and the EOS SDK's. nil when it is current. The build tag
+// (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale.
+start_extension :: proc(game: Game, mode: Mode, force := false, defines: []string = nil) -> Maybe(Extension_Build) {
 	if !has_extension(game) {
 		fatal("%s has no simulation/extension to build", game.name)
 	}
@@ -111,39 +140,40 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 	}
 	if !force && !stale(build) {
 		write_extension_list(game)
-		return build.out
+		return nil
 	}
-	start := time.tick_now()
 	lib := build.out
 	make_dirs(os.dir(lib))
 	// macOS dev builds get a new file each time and lib<game>.dylib becomes a symlink to it: dyld never unloads an
 	// image with thread-locals (Odin's runtime has some), so the editor would keep running the old code.
 	versioned := ODIN_OS == .Darwin && mode != .release
-	now := time.now()
-	stamp := timestamp(now)
-	tmp :=
-		versioned ? join(os.dir(lib), aprintf("lib%s-%s.dylib", game.name, stamp)) : aprintf("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
+	stamp := timestamp(time.now())
 	built := build
-	built.out = tmp
-	flags: [dynamic]string
-	append(&flags, ..build.flags)
-	append(&flags, aprintf("-define:UNIFIED_BUILD_TAG=%v-%s", mode, stamp[:15]))
-	built.flags = flags[:]
-	secs := odin_build(built, aprintf("building %s's extension", game.name), aprintf("%s.inputs", lib))
-	// The manifest's key is the build without the tag (see above).
-	if entries, _, ok := read_manifest(aprintf("%s.inputs", lib)); ok {
-		files: [dynamic]string
-		odin_path := ""
-		for entry in entries {
-			if entry.kind == "file" {
-				append(&files, entry.path)
-			} else if entry.kind == "odin" {
-				odin_path = entry.path
-			}
-		}
-		write_manifest(aprintf("%s.inputs", lib), build_key(build), files[:], odin_path)
+	built.out =
+		versioned ? join(os.dir(lib), aprintf("lib%s-%s.dylib", game.name, stamp)) : aprintf("%s.tmp%s", lib, ODIN_OS == .Windows ? ".dll" : "")
+	built.manifest = aprintf("%s.inputs", lib)
+	built.unkeyed = strs(aprintf("-define:UNIFIED_BUILD_TAG=%v-%s", mode, stamp[:15]))
+	return Extension_Build {
+		game      = game,
+		build     = built,
+		child     = start_build(built),
+		stamp     = stamp,
+		versioned = versioned,
+		start     = time.tick_now(),
+		mode      = mode,
 	}
-	if versioned {
+}
+
+// Waits for an extension build start_extension started and moves the library into place; false when the build
+// failed (the compiler's errors are on the terminal).
+finish_extension :: proc(running: ^Extension_Build) -> (lib: string, ok: bool) {
+	game, tmp := running.game, running.build.out
+	lib = extension_lib(game)
+	ran := finish_build(running.build, &running.child)
+	if !ran.ok {
+		return lib, false
+	}
+	if running.versioned {
 		link := aprintf("%s.new", lib)
 		os.remove(link)
 		if os.symlink(os.base(tmp), link) != nil || os.rename(link, lib) != nil {
@@ -158,7 +188,7 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 			// running on the old file; the next start gets the new one. Old ones go once nothing holds them.
 			infos, _ := os.read_all_directory_by_path(os.dir(lib), context.temp_allocator)
 			for info in infos do if strings.contains(info.name, ".old-") do os.remove(info.fullpath)
-			if os.exists(lib) do os.rename(lib, aprintf("%s.old-%s", lib, stamp))
+			if os.exists(lib) do os.rename(lib, aprintf("%s.old-%s", lib, running.stamp))
 		}
 		if os.rename(tmp, lib) != nil {
 			os.remove(aprintf("%s.inputs", lib)) // not current: the next command builds again
@@ -170,15 +200,15 @@ ensure_extension :: proc(game: Game, mode: Mode, force := false, defines: []stri
 				if os.exists(from) {
 					to := aprintf("%s%s", lib[:len(lib) - 4], ext)
 					os.remove(to)
-					if os.exists(to) do os.rename(to, aprintf("%s.old-%s", to, stamp))
+					if os.exists(to) do os.rename(to, aprintf("%s.old-%s", to, running.stamp))
 					os.rename(from, to)
 				}
 			}
 		}
 	}
 	write_extension_list(game)
-	log("uni: %s extension (%v) -> %s in %.2fs (odin %.2fs)", game.name, mode, rel(lib), seconds_since(start), secs)
-	return lib
+	log("uni: %s extension (%v) -> %s in %.2fs", game.name, running.mode, rel(lib), seconds_since(running.start))
+	return lib, true
 }
 
 // Keeps the newest four versioned builds: a running editor may still have older ones mapped.

@@ -366,13 +366,17 @@ env_with :: proc(overrides: ..string) -> []string {
 // Where and how a game window opens (run, editor, tool --window, coop --window): `mute` starts Godot with the dummy
 // audio driver; `screen` is Godot's screen index, or left / right / primary (read from the OS: os_screens, on Windows,
 // macOS and Linux with xrandr);
-// `background`: the window never takes focus (`with_window`). An agent starting a window for the developer passes
-// all three, so it doesn't get in the way; tool and coop windows are always in the background.
+// `background`: the window never takes focus (`with_window`). `run` and `editor` take them as flags (an agent's
+// `run` passes all three); a check's window is always AGENT_WINDOW.
 Window_Opts :: struct {
 	mute:       bool,
 	screen:     string,
 	background: bool,
 }
+
+// The window of a check (tool --window, coop --window, this repo's view-bench --window): muted, on the leftmost
+// screen, never taking focus, so it never disturbs the developer's screen or keyboard.
+AGENT_WINDOW :: Window_Opts{true, "left", true}
 
 // The project override uni writes for a background window: Godot's no-focus flag, which can only be set before the
 // main window exists. Godot reads <project>/override.cfg at startup (a run, not the editor, which ignores it).

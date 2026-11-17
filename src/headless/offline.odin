@@ -22,8 +22,6 @@ Headless :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) 
 	summary:           proc(state: ^State) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
 	bench_prepare:     proc(state: ^State, world: ^World, count: int),
-	// `bench`: the current entity count, for entities_mean (optional).
-	bench_count:       proc(state: ^State) -> int,
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
 	bench:             Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
@@ -32,7 +30,8 @@ Headless :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) 
 }
 
 // A benchmark's setup: `entities` entities held (with bench_prepare), a `window`-tick rollback every tick, for
-// `ticks` ticks. `what` says what it measures.
+// `ticks` ticks. `what` is the game's part of the description ("survivor (stress tuning) holding 1000 enemies"); the
+// bench mode adds the rollback and the ticks it actually ran.
 Bench :: struct {
 	what:     string,
 	entities: int,

@@ -257,7 +257,7 @@ mode_bench :: proc(
 	standard := headless.bench
 	if standard.ticks == 0 {
 		standard = {
-			what     = "the default benchmark",
+			what     = headless.game.name,
 			entities = 1000,
 			ticks    = 600,
 		}
@@ -269,15 +269,21 @@ mode_bench :: proc(
 	window := window_opt(headless, args, standard.window)
 	ticks := u32(opt_int(args, "ticks", standard.ticks, low = 1, high = 1_000_000))
 	result := run_bench(headless, entities, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
-	stat_json :: proc(stat: Stat) -> string {
-		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
-	}
-	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_bytes":%d,"block_bytes":%d,"save_bytes":%d,"entities_mean":%.1f,"mismatches":%d}}`,
+	// What ran, from the run's actual parameters (the game names only its own part).
+	what := fmt.tprintf(
+		"%s; a %d-tick rollback every tick, %d ticks (the first %d untimed)",
 		standard.what,
+		window,
+		ticks,
+		result.warmup,
+	)
+	fmt.printfln(
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
+		what,
 		entities,
 		window,
 		ticks,
+		result.warmup,
 		stat_json(result.step),
 		stat_json(result.save),
 		stat_json(result.restore),
@@ -286,9 +292,7 @@ mode_bench :: proc(
 		stat_json(result.checksum),
 		stat_json(result.checksum_deep),
 		result.snapshot_bytes,
-		result.block_bytes,
 		result.save_bytes,
-		result.entities_mean,
 		result.mismatches,
 	)
 	return result.mismatches == 0

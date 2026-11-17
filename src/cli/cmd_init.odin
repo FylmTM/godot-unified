@@ -8,7 +8,7 @@ import "core:strings"
 Init_Opts :: struct {
 	dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
 	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
-	unified: string `usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
+	unified: string `hint:"<url>" usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
 	ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
 }
 

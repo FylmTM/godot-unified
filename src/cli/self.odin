@@ -357,8 +357,8 @@ built_with_pinned_odin :: proc() -> bool {
 }
 
 // The binary was built with the pinned Odin (tag and commit), or it refuses to run: Odin has no semver, and a
-// build from master reports the month's tag too. Refusing drops the shims' stamp (.out/cli/odin-on-path: this
-// odin on PATH is the pinned one), so the next run checks the odin on PATH again and downloads the pinned release.
+// build from master reports the month's tag too. Through the shims it always is (they put the pinned release first
+// on PATH, and a changed odin executable rebuilds the binary): a mismatch is a binary run some other way.
 @(private)
 check_odin_version :: proc() {
 	tag := pin("odin", "tag")
@@ -369,9 +369,8 @@ check_odin_version :: proc() {
 		return
 	}
 	if !built_with_pinned_odin() {
-		os.remove(join(state.project.out, "cli", "odin-on-path"))
 		log(
-			"uni: Odin %s (commit %s) is not the pinned %s (commit %s): run uni again, and the shim downloads that release",
+			"uni: Odin %s (commit %s) is not the pinned %s (commit %s): run uni through its shim (./uni, uni.cmd), which uses that release",
 			ODIN_VERSION,
 			built,
 			tag,

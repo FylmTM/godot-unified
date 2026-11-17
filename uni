@@ -1,7 +1,7 @@
 #!/bin/sh
 # uni, the unified CLI (src/cli/SPEC.md, Bootstrap): runs the binary .out/cli/current names, building one first when
-# there is none. Odin is the release pins.cfg pins: the odin on PATH when it reports that commit, else that release,
-# downloaded once into ~/.cache/unified/odin/<tag> (checked against its SHA-256) and put first on PATH.
+# there is none. Odin is always the release pins.cfg pins, downloaded once into ~/.cache/unified/odin/<tag> (checked
+# against its SHA-256) and put first on PATH.
 case "$0" in
 */*) root=${0%/*} ;;
 *) root=. ;;
@@ -17,27 +17,14 @@ die() {
 	exit 1
 }
 
-# No download for this tag, and the stamp doesn't name the odin on PATH: that odin if it reports the pinned commit
-# (stamped), else the pinned release, downloaded.
-resolve() {
-	have=
-	[ -n "$found" ] && have=$("$found" version 2> /dev/null) # "odin version <tag>:<commit>"
-	have=${have##*:}
-	have=${have%%[!0-9a-f]*}
-	if [ -n "$have" ]; then
-		case $commit in
-		"$have"*)
-			mkdir -p "$cli" && echo "$commit $found" > "$cli/odin-on-path"
-			return
-			;;
-		esac
-	fi
+# The pinned release, downloaded, checked and unpacked into $odin.
+download() {
 	case $(uname -s)-$(uname -m) in
 	Linux-x86_64) plat=linux_x64 asset=odin-linux-amd64-$tag.tar.gz ;;
 	Linux-aarch64 | Linux-arm64) plat=linux_arm64 asset=odin-linux-arm64-$tag.tar.gz ;;
 	Darwin-arm64) plat=macos_arm64 asset=odin-macos-arm64-$tag.tar.gz ;;
 	*_NT*-x86_64) plat=windows_x64 asset=odin-windows-amd64-$tag.zip ;;
-	*) die "no Odin release for $(uname -sm): install Odin $tag (pins.cfg) on PATH" ;;
+	*) die "no Odin release for $(uname -sm) (pins.cfg pins linux x64 and arm64, macOS arm64, Windows x64)" ;;
 	esac
 	case "$shas " in
 	*" sha256_$plat="*) sha=${shas#* sha256_$plat=}; sha=${sha%% *} ;;
@@ -45,7 +32,7 @@ resolve() {
 	esac
 	dl="$odin.tmp-$$"
 	rm -rf "$dl" && mkdir -p "$dl" || die "cannot create $dl"
-	echo "uni: no odin on PATH is the pinned $tag (pins.cfg): downloading that release once, into $odin" >&2
+	echo "uni: downloading Odin $tag (pins.cfg) once, into $odin" >&2
 	curl -fL --retry 3 --progress-bar -o "$dl/$asset" "https://github.com/odin-lang/Odin/releases/download/$tag/$asset" ||
 		{ rm -rf "$dl"; die "cannot download $asset"; }
 	if command -v sha256sum > /dev/null 2>&1; then got=$(sha256sum < "$dl/$asset"); else got=$(shasum -a 256 < "$dl/$asset"); fi
@@ -60,52 +47,34 @@ resolve() {
 	done
 	rm -rf "$dl"
 	[ -f "$odin/odin$exe" ] || die "$asset holds no odin$exe"
-	PATH="$odin:$PATH"
 }
 
 # The [odin] pins, read without starting a process; the loop stops at the next section.
-tag= commit= shas= s=
+tag= shas= s=
 while read -r k _ v; do
 	case $k in
 	\[*)
 		[ "$s" = "[odin]" ] && break
 		s=$k
 		;;
-	tag | commit | sha256_*)
+	tag | sha256_*)
 		[ "$s" = "[odin]" ] || continue
 		v=${v#\"}; v=${v%%\"*}
 		case $k in
 		tag) tag=$v ;;
-		commit) commit=$v ;;
 		*) shas="$shas $k=$v" ;;
 		esac
 		;;
 	esac
 done < "$pins"
-[ -n "$tag" ] && [ -n "$commit" ] || die "$pins: no [odin] tag and commit"
+[ -n "$tag" ] || die "$pins: no [odin] tag"
 if [ "$OS" = Windows_NT ]; then
 	odin="$HOME/AppData/Local/unified/odin/$tag" # where uni.cmd puts it (%LOCALAPPDATA%)
 else
 	odin="${XDG_CACHE_HOME:-$HOME/.cache}/unified/odin/$tag"
 fi
-if [ -f "$odin/odin$exe" ]; then
-	PATH="$odin:$PATH"
-else
-	found= # the odin on PATH, found without starting a process
-	set -f
-	IFS=:
-	for d in $PATH; do
-		[ -f "$d/odin$exe" ] && found="$d/odin$exe" && break
-	done
-	unset IFS
-	set +f
-	ok=
-	[ -f "$cli/odin-on-path" ] && read -r ok < "$cli/odin-on-path"
-	case $ok in
-	"$commit $found" | "$commit $found"?) ;; # ? : uni.cmd writes it with CRLF
-	*) resolve ;;
-	esac
-fi
+[ -f "$odin/odin$exe" ] || download
+PATH="$odin:$PATH"
 export PATH
 
 if [ -f "$cli/current" ]; then

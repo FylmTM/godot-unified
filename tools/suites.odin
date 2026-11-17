@@ -1,6 +1,7 @@
 package main
 
 import "core:encoding/json"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -8,25 +9,27 @@ import "unified:cli"
 
 // This repo's own test suites: the netcode over real UDP, and the Godot bindings under headless Godot.
 private_suites :: proc() -> []cli.Suite {
-	return cli.box_suites(
-		{
-			name = "net",
-			summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
-			budget = 10,
-			long_budget = 25,
-			run = suite_net,
-			beside = true,
-			prepare = proc() {cli.build_headless(.release)}, 	// .out/release/: the godot suite's binaries are there too
-		},
-		{
-			name = "godot-bindings",
-			summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
-			budget = 5,
-			run = suite_godot_bindings,
-			beside = true,
-			prepare = proc() {
-				cli.godot()
-				cli.ensure_bindings()
+	return slice.clone(
+		[]cli.Suite {
+			{
+				name = "net",
+				summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
+				budget = 10,
+				long_budget = 25,
+				run = suite_net,
+				beside = true,
+				prepare = proc() {cli.build_headless(.release)}, 	// .out/release/: the godot suite's binaries are there too
+			},
+			{
+				name = "godot-bindings",
+				summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
+				budget = 5,
+				run = suite_godot_bindings,
+				beside = true,
+				prepare = proc() {
+					cli.godot()
+					cli.ensure_bindings()
+				},
 			},
 		},
 	)
@@ -39,8 +42,8 @@ UDP_TICKS_LONG :: 960 // with `test --long`: 15 s
 UDP_CLIENTS :: 3 // the last one under the `bad` profile
 
 // A relay and UDP_CLIENTS client processes of the toy's binary over localhost UDP on the real clock: every client
-// verifies every tick, their checksums (every 16th tick) agree, and nobody reports a desync. Writes .out/net.json
-// (CI's job summary reads it) and each process's output to .out/net/ (a failure names it).
+// verifies every tick, their checksums (every 16th tick) agree, and nobody reports a desync. Each process's output
+// goes to .out/net/ (a failure names it).
 suite_net :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
 	cli.build_headless(.release)
 	binary := cli.headless_path("toy", .release)
@@ -50,26 +53,6 @@ suite_net :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
 	start := time.tick_now()
 	detail, ok := udp_processes(binary, work, opts.long ? UDP_TICKS_LONG : UDP_TICKS)
 	secs := cli.seconds_since(start)
-	Test :: struct {
-		status:  string,
-		seconds: f64,
-		detail:  string,
-	}
-	Summary :: struct {
-		platform: string,
-		commit:   string,
-		ok:       bool,
-		tests:    map[string]Test,
-	}
-	s := Summary {
-		platform = cli.PLATFORM,
-		commit   = cli.git_commit(),
-		ok       = ok,
-	}
-	s.tests["udp_processes"] = {ok ? "pass" : "fail", cli.round2(secs), detail}
-	if data, err := json.marshal(s, {pretty = true}); err == nil {
-		cli.write_file(cli.join(cli.state.project.out, "net.json"), data)
-	}
 	cli.log("udp_processes %s %6.1fs  %s", ok ? "PASS" : "FAIL", secs, detail)
 	if !ok {
 		cli.log("  each process's command line and output: %s", cli.rel(work))
@@ -192,7 +175,6 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		),
 		true
 }
-
 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
@@ -358,16 +340,3 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 
 // How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
 DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second
-
-// --- godot-gen --------------------------------------------------------------------------------------------------
-
-Godot_Gen_Opts :: struct {
-	force: bool `usage:"regenerate even when the inputs are unchanged"`,
-}
-
-cmd_godot_gen :: proc(args: []string) -> cli.Result {
-	opts: Godot_Gen_Opts
-	cli.parse(&opts, args)
-	cli.ensure_bindings(opts.force)
-	return {ok = true, summary = "the Godot bindings are current (src/gdext/*.gen.odin)"}
-}
