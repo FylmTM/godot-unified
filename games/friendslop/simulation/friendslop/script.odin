@@ -4,24 +4,16 @@
 package friendslop
 
 import "unified:dmath"
+import "unified:sim"
 
 SCRIPT_PERIOD :: 16
 
-// 32 bits from a hash of (seed, slot, block): the draw each scripted input block is made from.
-scripted_hash :: proc(seed: u64, slot: int, block: u32) -> u32 {
-	x := seed * 0x9E3779B97F4A7C15 ~ u64(slot + 1) * 0xBF58476D1CE4E5B9 ~ u64(block + 1) * 0x94D049BB133111EB
-	x ~= x >> 31
-	x *= 0xD6E8FEB86659FD93
-	x ~= x >> 32
-	return u32(x)
-}
 
 // The scripted input hook: what the headless modes and test sessions feed in (a function of seed, slot and
 // tick only; `state` may be nil).
 scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
-	block := (tick - 1) / SCRIPT_PERIOD
 	in_block := (tick - 1) % SCRIPT_PERIOD
-	hash := scripted_hash(seed, slot, block)
+	hash := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	input: Input
 	if hash % 7 != 6 {
 		move := hash % 8

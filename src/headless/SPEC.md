@@ -10,8 +10,10 @@ phase 2 spec moved into `src/sim/SPEC.md` and `src/netcode/SPEC.md`, which descr
 
 ## CLI
 
-The modes come from `unified:headless/modes` (`modes.run(&HEADLESS, variants, online)`: `--game NAME` picks one of the
-variants, `online` plugs in a lobby transport); the binary is the game's headless binary (`.out/<mode>/<game>`).
+The modes come from `unified:headless/modes` (`modes.run(&GAME, {content, summary, bench, ...}, variants, online)`:
+`--game NAME` picks one of the variants, `online` plugs in a lobby transport); the binary is the game's headless binary
+(`.out/<mode>/<game>`). The runs are played by the game's scripted player (`sim.Game.scripted_input`,
+`scripted_commands`).
 `uni headless [game] -- <mode> [options]` builds it when stale and runs it with the mode below (`src/cli/SPEC.md`).
 A game may add its own modes (the survivor: `eos-host`, `eos-client`, `src/eos/SPEC.md`).
 Formats and the sim/netcode behaviour behind the modes: `src/sim/SPEC.md`, `src/netcode/SPEC.md`.
@@ -91,8 +93,8 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 ### Where things are
 
-- **`unified:headless`** (`src/headless/`): the game descriptor (`Headless`: `game`, `scripted_input`, optional
-  `scripted_commands(seed, slot, tick, state, out)` next to it, `summary`, `bench_*`, `content`), the in-memory runs
+- **`unified:headless`** (`src/headless/`): a run's description (`Headless`: `game`, whose scripted player plays,
+  `content`, and for the binary `summary` and `bench_*`), the in-memory runs
   (`run_sim`, `run_synctest`, `run_interleaved`, `run_replay`, `run_snapshot`, `run_resume`, `Trace`) and `session_run`. The suites use
   only this. In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/SPEC.md`,
   Players); `run_synctest`'s `seats` (`Seat{tick, slot, member}`, member 0: nobody) change who holds a slot.
@@ -116,7 +118,8 @@ calls each one explicitly; tests are named for what they check; no platform assu
 
 ```odin
 Suite :: struct($G: typeid) {    // G: the game type, a sim.Game (scenarios.Suite(g.Game){...})
-	game:    ^headless.Headless(G),
+	game:    ^G, // its scripted player plays every run
+	content: []u8, // its level, if any
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions

@@ -86,6 +86,18 @@ roll_below :: proc(
 	return u32(product >> 32)
 }
 
+// 32 bits for a scripted player (Game.scripted_input): a hash of (seed, slot, block), where the block is the
+// `period`-tick stretch `tick` (>= 1) falls in, so a script that maps them to an input holds it for a block and
+// answers any tick in any order.
+script_bits :: proc(seed: u64, slot: int, tick: u32, period: u32) -> u32 {
+	block := u64((tick - 1) / period)
+	x := seed * GAMMA ~ u64(slot + 1) * 0xBF58476D1CE4E5B9 ~ (block + 1) * 0x94D049BB133111EB
+	x ~= x >> 31
+	x *= 0xD6E8FEB86659FD93
+	x ~= x >> 32
+	return u32(x)
+}
+
 // A roll uniform in [0, 1) with 24 bits of precision, named like roll_below's.
 roll_f32 :: proc(
 	tick: ^Tick($G),

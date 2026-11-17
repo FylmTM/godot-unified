@@ -17,7 +17,7 @@ sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command
 		cap  = 1 << 20,
 	}
 	for tick in first ..= last {
-		toy.scripted_commands(SEED, player, tick, &out)
+		toy.scripted_commands(SEED, player, tick, nil, &out)
 	}
 	return out.list
 }

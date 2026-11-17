@@ -10,13 +10,15 @@ Tick :: sim.Tick(Game)
 
 @(rodata)
 GAME := Game {
-	name          = "minimal_3d",
-	version       = "1",
-	tick_hz       = TICK_HZ,
-	world_create  = world_create,
-	world_destroy = world_destroy,
-	init          = init,
-	tick          = tick,
+	name              = "minimal_3d",
+	version           = "1",
+	tick_hz           = TICK_HZ,
+	world_create      = world_create,
+	world_destroy     = world_destroy,
+	init              = init,
+	tick              = tick,
+	scripted_input    = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 world_create :: proc(seed: u64, content: []u8) -> ^World {

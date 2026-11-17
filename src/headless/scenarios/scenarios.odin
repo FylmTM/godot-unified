@@ -27,7 +27,8 @@ LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: its headless descriptor and the parameters of its runs.
 Suite :: struct($G: typeid) {
-	game:    ^headless.Headless(G), // the game as the headless runs drive it
+	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run
+	content: []u8, // its level (src/level/SPEC.md), if it has one
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
@@ -41,6 +42,12 @@ Reference :: struct {
 	ticks, snapshot_tick: u32, // ref.trace covers 1..ticks; ref-<snapshot_tick>.snap
 	seed:                 u64,
 	players:              int,
+}
+
+// The headless runs of a suite's game and content.
+@(private)
+headless_of :: proc(suite: ^Suite($G)) -> headless.Headless(G) {
+	return {game = suite.game, content = suite.content}
 }
 
 // The network profiles of src/headless/SPEC.md (CLI).
@@ -60,7 +67,8 @@ PROFILE_NAMES := [Profile]string {
 // Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.
 // `window` is at most headless.max_window(game) (the game's ring).
 rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
-	longest := headless.max_window(suite.game.game)
+	runs := headless_of(suite)
+	longest := headless.max_window(suite.game)
 	if !testing.expectf(
 		t,
 		window >= 1 && int(window) <= longest,
@@ -70,7 +78,7 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	) {
 		return
 	}
-	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players)
+	result := headless.run_synctest(&runs, suite.ticks, window, suite.seed, suite.players)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -102,10 +110,11 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 // player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
 // tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.
 presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
+	runs := headless_of(suite)
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
 	if !testing.expectf(
 		t,
-		suite.players >= 2 && suite.ticks >= 64 && int(window) <= headless.max_window(suite.game.game),
+		suite.players >= 2 && suite.ticks >= 64 && int(window) <= headless.max_window(suite.game),
 		"%s: needs 2 players, 64 ticks and a window the ring allows",
 		what,
 	) {
@@ -120,7 +129,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		{tick = start + 12, slot = back, member = 0},
 		{tick = start + 20, slot = back, member = 1}, // member 1 comes back in another slot
 	}
-	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players, seats)
+	result := headless.run_synctest(&runs, suite.ticks, window, suite.seed, suite.players, seats)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -131,7 +140,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		result.first_at,
 	)
 	// Forward, the handles: the newcomer is someone else, the one who came back is who they were.
-	simulation := sim.create(suite.game.game, suite.seed, suite.game.content)
+	simulation := sim.create(suite.game, suite.seed, suite.content)
 	defer sim.destroy(simulation)
 	commands := headless.Scripted_Commands(G) {
 		seats = seats,
@@ -139,7 +148,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	defer headless.scripted_commands_destroy(&commands)
 	first: sim.Player
 	for tick in 1 ..= start + 20 {
-		inputs := headless.scripted(suite.game, simulation, tick, suite.players, &commands)
+		inputs := headless.scripted(&runs, simulation, tick, suite.players, &commands)
 		sim.step(simulation, &inputs)
 		if tick == 1 do first = sim.player_in_slot(simulation, 0)
 	}
@@ -160,7 +169,8 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
 // second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
 runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
+	runs := headless_of(suite)
+	result := headless.run_interleaved(&runs, suite.ticks, suite.seed, suite.players)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -186,6 +196,7 @@ session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: 
 // A session's official input log (the relay's) replays offline to every checksum each client
 // verified.
 session_log_replays :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
+	runs := headless_of(suite)
 	what := fmt.tprintf(
 		"session_log_replays (%d clients, %s network; %s)",
 		clients,
@@ -206,7 +217,7 @@ session_log_replays :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, prof
 	}
 	trace: headless.Trace
 	defer headless.trace_destroy(&trace)
-	if _, ok := headless.run_replay(suite.game, &result.log, &trace);
+	if _, ok := headless.run_replay(&runs, &result.log, &trace);
 	   !testing.expectf(t, ok, "%s: the log does not replay", what) {
 		return
 	}
@@ -278,6 +289,7 @@ reference_resumes :: proc(t: ^testing.T, suite: ^Suite($G)) {
 
 @(private)
 check_replay :: proc(t: ^testing.T, suite: ^Suite($G)) {
+	runs := headless_of(suite)
 	reference := suite.ref
 	what := fmt.tprintf("reference_replays (%s)", ref_params(reference))
 	input_log, ok := sim.log_read(ref_path(reference, "ref.log"), G)
@@ -306,7 +318,7 @@ check_replay :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	}
 	got: headless.Trace
 	defer headless.trace_destroy(&got)
-	if _, replay_ok := headless.run_replay(suite.game, &input_log, &got);
+	if _, replay_ok := headless.run_replay(&runs, &input_log, &got);
 	   !testing.expectf(t, replay_ok, "%s: ref.log does not replay", what) {
 		return
 	}
@@ -325,6 +337,7 @@ check_replay :: proc(t: ^testing.T, suite: ^Suite($G)) {
 
 @(private)
 check_resume :: proc(t: ^testing.T, suite: ^Suite($G)) {
+	runs := headless_of(suite)
 	reference := suite.ref
 	what := fmt.tprintf("reference_resumes (%s)", ref_params(reference))
 	if !testing.expectf(
@@ -349,7 +362,7 @@ check_resume :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	got: headless.Trace
 	defer headless.trace_destroy(&got)
 	resumed := reference.ticks - reference.snapshot_tick
-	result, ok := headless.run_resume(suite.game, data, resumed, reference.players, &got)
+	result, ok := headless.run_resume(&runs, data, resumed, reference.players, &got)
 	if !testing.expectf(
 		t,
 		ok && result.final_tick == reference.ticks,
@@ -431,9 +444,10 @@ session :: proc(
 	late_player := -1,
 	late_tick: u32 = 0,
 ) -> headless.Session_Result(G) {
+	runs := headless_of(suite)
 	network, ok := netcode.profile_by_name(PROFILE_NAMES[profile])
 	assert(ok)
-	return headless.session_run(suite.game, {
+	return headless.session_run(&runs, {
 		clients     = clients,
 		transport   = "loopback",
 		virtual     = true,
@@ -552,6 +566,7 @@ check_session :: proc(
 // leaves ref.json alone too, so the directory shows no change (`uni record-reference` says "nothing changed").
 @(private)
 regenerate :: proc(t: ^testing.T, suite: ^Suite($G)) -> bool {
+	runs := headless_of(suite)
 	reference := suite.ref
 	if !testing.expectf(
 		t,
@@ -565,8 +580,8 @@ regenerate :: proc(t: ^testing.T, suite: ^Suite($G)) -> bool {
 	defer headless.trace_destroy(&trace)
 	input_log: sim.Input_Log(G)
 	defer sim.log_destroy(&input_log)
-	result := headless.run_sim(suite.game, reference.ticks, reference.seed, reference.players, &trace, &input_log)
-	snapshot, _ := headless.run_snapshot(suite.game, reference.snapshot_tick, reference.seed, reference.players)
+	result := headless.run_sim(&runs, reference.ticks, reference.seed, reference.players, &trace, &input_log)
+	snapshot, _ := headless.run_snapshot(&runs, reference.snapshot_tick, reference.seed, reference.players)
 	defer delete(snapshot)
 	snapshot_path := ref_path(reference, fmt.tprintf("ref-%d.snap", reference.snapshot_tick))
 	files := [3]string{ref_path(reference, "ref.trace"), ref_path(reference, "ref.log"), snapshot_path}

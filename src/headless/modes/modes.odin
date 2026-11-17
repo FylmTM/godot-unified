@@ -1,5 +1,5 @@
 // A game's headless binary: the CLI of src/headless/SPEC.md (CLI), generic over the game, on top of the
-// in-memory runs of unified:headless. The game's `main` builds a headless.Headless and calls modes.run.
+// in-memory runs of unified:headless. The game's `main` calls modes.run(&GAME, ...).
 // Every mode prints one JSON object as its last stdout line; a non-zero exit code means failure.
 package modes
 
@@ -11,10 +11,14 @@ package modes
 import uheadless "unified:headless"
 @(require) import "unified:sim" // only in generic procs
 
-// Runs the mode named on the command line. `variants`: other variants of the game (e.g. other
+// Runs the mode named on the command line on `game` (its scripted player plays the runs). `options`: the binary's
+// content, benchmark and summary (its `game` is `game`). `variants`: other variants of the game (e.g. other
 // tunings), picked with `--game NAME` (sim.Game.name) on any mode. `online`: a lobby transport for the
 // <name>-host and <name>-client modes (optional).
-run :: proc(headless: ^uheadless.Headless($G), variants: []^G = nil, online: ^Online = nil) {
+run :: proc(game: ^$G, options: uheadless.Headless(G), variants: []^G = nil, online: ^Online = nil) {
+	options := options
+	options.game = game
+	headless := &options
 	platform_init()
 	args := parse_args()
 	if name, has := args.opts["game"]; has {

@@ -69,16 +69,14 @@ Gate_View :: struct {
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
 GLUE := godot.Glue(dr.Game, View, MultiView) {
-	sample_input      = sample_input,
-	fill_frame        = fill_frame,
-	data              = Data,
-	constants         = CONSTANTS,
-	is_2d             = true,
-	view_scale        = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
-	scripted_input    = dr.scripted_input,
-	scripted_commands = dr.scripted_commands,
-	event_key         = event_key,
-	level             = "res://game/levels/arena.level",
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	is_2d        = true,
+	view_scale   = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
+	event_key    = event_key,
+	level        = "res://game/levels/arena.level",
 }
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to

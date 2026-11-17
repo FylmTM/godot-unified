@@ -209,6 +209,7 @@ GAME := Game {
 	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
 }
 
 @(rodata)

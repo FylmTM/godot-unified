@@ -6,26 +6,18 @@ package main
 import "core:fmt"
 
 import "../drift"
-import "unified:headless"
 import "unified:headless/modes"
 import "unified:sim"
 
-ARENA_LEVEL :: #load("../../game/levels/arena.level")
-
-HEADLESS := headless.Headless(drift.Game) {
-	game = &drift.GAME,
-	scripted_input = drift.scripted_input,
-	scripted_commands = drift.scripted_commands,
-	summary = summary,
-	bench = {
-		what  = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), a rollback at the prediction cap every tick",
-		ticks = 1800,
-	},
-}
-
 main :: proc() {
-	HEADLESS.content = ARENA_LEVEL
-	modes.run(&HEADLESS)
+	modes.run(&drift.GAME, {
+		content = #load("../../game/levels/arena.level"),
+		summary = summary,
+		bench = {
+			what  = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), a rollback at the prediction cap every tick",
+			ticks = 1800,
+		},
+	})
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).

@@ -8,22 +8,10 @@ package test_scenarios
 import "core:testing"
 
 import "../toy"
-import "unified:headless"
 import "unified:headless/scenarios"
-import "unified:sim"
-
-HEADLESS := headless.Headless(toy.Game) {
-	game = &toy.GAME,
-	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-		return toy.scripted_input(seed, player, tick)
-	},
-	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
-		toy.scripted_commands(seed, player, tick, out)
-	},
-}
 
 SUITE := scenarios.Suite(toy.Game) {
-	game = &HEADLESS,
+	game = &toy.GAME,
 	players = 4,
 	seed = 42,
 	ticks = 3600,

@@ -22,7 +22,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
 	data = Data, constants = CONSTANTS,
-	scripted_input, scripted_commands, bench, event_key, compat, level,
+	bench, event_key, compat, level,
 	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
 	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space, below)
 	smoothing,                       // view.Smoothing in sim units (zero: the default, for metres)
@@ -99,7 +99,7 @@ held counts only once it is released (the key that closed the menu, the click th
 An unfocused window still reads input: Godot releases what was held when it lost the focus, and tool runs drive
 windows that never take it. A press on the
 dev UI never reaches the actions (it releases the actions it triggered: `src/devui/SPEC.md`, Input).
-`scripted_input` replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
+The game's scripted player (`sim.Game.scripted_input`, `scripted_commands`) replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
 against the state is the sim's job.
 
 ### View space
@@ -333,7 +333,7 @@ scene and every indexed kind is a `View` member (an error names each one).
   `host_step` / `client_step` on its own thread (macOS: the real-time time-constraint class; while a session runs
   the process opts out of background throttling: an NSProcessInfo activity on macOS, `timeBeginPeriod(1)` and no
   power throttling on Windows). The netcode hooks run there: `sample` takes the main thread's newest Input (or
-  `scripted_input`); `commands` drains the command queue; `frame` feeds the re-simulated and new ticks' events to
+  the game's `scripted_input`); `commands` drains the command queue; `frame` feeds the re-simulated and new ticks' events to
   the tracker and calls `fill_frame`, then publishes the Frame; `verified` confirms or cancels events; `status` and
   `desync` post. Godot is only called from the main thread.
 - **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins), an SPSC event queue (4096;

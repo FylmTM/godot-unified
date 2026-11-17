@@ -6,25 +6,18 @@ package main
 import "core:fmt"
 
 import "../friendslop"
-import "unified:headless"
 import "unified:headless/modes"
 import "unified:sim"
 
-PARK_LEVEL :: #load("../../game/levels/park.level")
-
-HEADLESS := headless.Headless(friendslop.Game) {
-	game = &friendslop.GAME,
-	scripted_input = friendslop.scripted_input,
-	summary = summary,
-	bench = {
-		what  = "friendslop on the park level (Box3D characters and joints), a rollback at the prediction cap every tick",
-		ticks = 600,
-	},
-}
-
 main :: proc() {
-	HEADLESS.content = PARK_LEVEL
-	modes.run(&HEADLESS)
+	modes.run(&friendslop.GAME, {
+		content = #load("../../game/levels/park.level"),
+		summary = summary,
+		bench = {
+			what  = "friendslop on the park level (Box3D characters and joints), a rollback at the prediction cap every tick",
+			ticks = 600,
+		},
+	})
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).

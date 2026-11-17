@@ -65,13 +65,13 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 		user = scripted,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(G))(user)
-			return scripted.headless.scripted_input(scripted.seed, slot, tick, state)
+			return scripted.headless.game.scripted_input(scripted.seed, slot, tick, state)
 		},
 	}
-	if scripted.headless.scripted_commands != nil {
+	if scripted.headless.game.scripted_commands != nil {
 		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 			scripted := (^Scripted_User(G))(user)
-			scripted.headless.scripted_commands(scripted.seed, slot, tick, state, out)
+			scripted.headless.game.scripted_commands(scripted.seed, slot, tick, state, out)
 		}
 	}
 	return hooks

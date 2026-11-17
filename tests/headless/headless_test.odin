@@ -19,12 +19,6 @@ import "unified:sim"
 // Read-only: the runs only read it, so the tests share it.
 HEADLESS := headless.Headless(toy.Game) {
 	game = &toy.GAME,
-	scripted_input = proc(seed: u64, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-		return toy.scripted_input(seed, player, tick)
-	},
-	scripted_commands = proc(seed: u64, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
-		toy.scripted_commands(seed, player, tick, out)
-	},
 }
 
 // An offline run gives a tick at most four commands of a player and the rest to the next ticks, in order,

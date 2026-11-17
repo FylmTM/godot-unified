@@ -17,8 +17,9 @@ GAME := Game {
 	tick_hz       = TICK_HZ,
 	world_create  = world_create,
 	world_destroy = world_destroy,
-	init          = init,
-	tick          = tick,
+	init              = init,
+	tick              = tick,
+	scripted_input    = scripted_input,
 }
 
 // Events (unified's src/sim/SPEC.md, Events): one plain struct each; GDScript gets them as classes. The library's

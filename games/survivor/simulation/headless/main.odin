@@ -7,28 +7,26 @@ package main
 import "core:fmt"
 
 import "../survivor"
-import "unified:headless"
 import "unified:headless/modes"
 import "unified:sim"
 
-HEADLESS := headless.Headless(survivor.Game) {
-	game = &survivor.GAME_STRESS,
-	scripted_input = survivor.scripted_input,
-	scripted_commands = survivor.scripted_commands,
-	summary = summary,
-	bench_prepare = survivor.bench_prepare,
-	bench_count = proc(state: ^survivor.State) -> int {return int(state.enemies.count)},
-	bench = {
-		what     = "survivor (stress tuning) holding 1000 enemies, a rollback at the prediction cap every tick",
-		entities = 1000,
-		ticks    = 600,
-	},
-}
-
 main :: proc() {
 	bot_main()
-	// --game survivor: the `play` tuning, as the game runs it
-	modes.run(&HEADLESS, variants = {&survivor.GAME}, online = &EOS_ONLINE)
+	modes.run(
+		&survivor.GAME_STRESS,
+		{
+			summary = summary,
+			bench_prepare = survivor.bench_prepare,
+			bench_count = proc(state: ^survivor.State) -> int {return int(state.enemies.count)},
+			bench = {
+				what     = "survivor (stress tuning) holding 1000 enemies, a rollback at the prediction cap every tick",
+				entities = 1000,
+				ticks    = 600,
+			},
+		},
+		variants = {&survivor.GAME}, // --game survivor: the `play` tuning, as the game runs it
+		online = &EOS_ONLINE,
+	)
 }
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated). `levels` by slot (0: nobody).

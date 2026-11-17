@@ -689,8 +689,8 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		user = driver,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			driver := (^This_Driver)(user)
-			if driver.req.scripted && driver.glue.scripted_input != nil {
-				return driver.glue.scripted_input(driver.req.seed, slot, tick, state)
+			if driver.req.scripted && driver.game.scripted_input != nil {
+				return driver.game.scripted_input(driver.req.seed, slot, tick, state)
 			}
 			input: Input
 			input_sample_take(([^]u8)(&input)[:size_of(Input)])
@@ -700,8 +700,8 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted {
-				if driver.glue.scripted_commands != nil {
-					driver.glue.scripted_commands(driver.req.seed, slot, tick, state, out)
+				if driver.game.scripted_commands != nil {
+					driver.game.scripted_commands(driver.req.seed, slot, tick, state, out)
 				}
 				return
 			}

@@ -100,6 +100,8 @@ GAME := Game {
 	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -116,6 +118,8 @@ GAME_STRESS := Game {
 		set_tuning(t.state, .Stress)
 	},
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // Start spots by slot, inside the start circle.

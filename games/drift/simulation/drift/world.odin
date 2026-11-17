@@ -49,6 +49,8 @@ GAME := Game {
 	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // What the keyed rolls are for (sim.roll_below, sim.roll_f32).

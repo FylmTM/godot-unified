@@ -13,34 +13,18 @@ import "unified:sim"
 
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
-	game:              ^G,
-	// Scripted input of the player in `slot` for a tick; `state` is the caller's current state (nil if none).
-	scripted_input:    proc(
-		seed: u64,
-		slot: int,
-		tick: u32,
-		state: ^sim.part(G, sim.GAME_STATE),
-	) -> sim.part(G, sim.GAME_INPUT),
-	// Optional: the scripted commands of the player in `slot` for a tick (sim.send_command(out, command)); called
-	// right after `scripted_input` for the same tick, in offline runs and by every client of a session.
-	scripted_commands: proc(
-		seed: u64,
-		slot: int,
-		tick: u32,
-		state: ^sim.part(G, sim.GAME_STATE),
-		out: ^sim.Command_Out(sim.part(G, sim.GAME_CMD)),
-	),
+	game:          ^G, // its scripted player (Game.scripted_input, scripted_commands) plays the runs
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
-	summary:           proc(state: ^sim.part(G, sim.GAME_STATE)) -> string,
+	summary:       proc(state: ^sim.part(G, sim.GAME_STATE)) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
-	bench_prepare:     proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
+	bench_prepare: proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
 	// `bench`: the current entity count, for entities_mean (optional).
-	bench_count:       proc(state: ^sim.part(G, sim.GAME_STATE)) -> int,
+	bench_count:   proc(state: ^sim.part(G, sim.GAME_STATE)) -> int,
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
-	bench:             Bench,
+	bench:         Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.
-	content:           []u8,
+	content:       []u8,
 }
 
 // A benchmark's setup: `entities` entities held (with bench_prepare), a `window`-tick rollback every tick, for
@@ -192,8 +176,8 @@ scripted :: proc(
 		if int(sim.player_in_slot(simulation, slot).id) != member {
 			sim.join(&inputs, slot, member)
 		}
-		inputs.input[slot] = headless.scripted_input(simulation.seed, slot, tick, &simulation.state)
-		if headless.scripted_commands == nil {
+		inputs.input[slot] = headless.game.scripted_input(simulation.seed, slot, tick, &simulation.state)
+		if headless.game.scripted_commands == nil {
 			continue
 		}
 		queue := &commands.waiting[slot]
@@ -201,7 +185,7 @@ scripted :: proc(
 		out.slot = slot
 		out.cap = netcode.COMMAND_QUEUE - len(queue)
 		clear(&out.list)
-		headless.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
+		headless.game.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
 		append(queue, ..out.list[:])
 		added := 0
 		for added < len(queue) && sim.add_command(&inputs, queue[added]) {

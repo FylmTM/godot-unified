@@ -131,57 +131,43 @@ Frame_Data :: struct {
 // What a game provides, typed by its game (a sim.Game) and its view kinds (enums).
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
-	sample_input:      proc(input: ^sim.part(G, sim.GAME_INPUT)),
+	sample_input:    proc(input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).
-	fill_frame:        proc(frame: ^Frame(G, View, MultiView)),
+	fill_frame:      proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
-	data:              typeid,
+	data:            typeid,
 	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
 	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
-	constants:         any,
+	constants:       any,
 	// Optional: the views' smoothing, in sim units (zero: view.SMOOTHING_DEFAULT, for a sim in metres).
-	smoothing:         view.Smoothing,
+	smoothing:       view.Smoothing,
 	// Optional, the view space: the sim's XY plane is shown in Godot 2D (a sim.Position reaches GDScript as a
 	// Vector2, else a Vector3).
-	is_2d:             bool,
+	is_2d:           bool,
 	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
 	// fill_frame, smoothing, events and commands are in sim units; the host scales a point where it makes a Godot
 	// value (a scene view's position, a MultiMesh instance's origin, a sim.Position a script reads) and divides one a
 	// script set (a command's). Scripts scale sizes with Unified.view_scale.
-	view_scale:        f32,
+	view_scale:      f32,
 	// Optional: the Frame's capacities (zero: DEFAULT_MAX_VIEWS, DEFAULT_MAX_MULTI, DEFAULT_VIEW_DATA_BYTES).
-	max_views:         int,
-	max_multi:         int,
-	view_data_bytes:   int,
-	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
-	scripted_input:    proc(
-		seed: u64,
-		slot: int,
-		tick: u32,
-		state: ^sim.part(G, sim.GAME_STATE),
-	) -> sim.part(G, sim.GAME_INPUT),
-	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
-	scripted_commands: proc(
-		seed: u64,
-		slot: int,
-		tick: u32,
-		state: ^sim.part(G, sim.GAME_STATE),
-		out: ^sim.Command_Out(sim.part(G, sim.GAME_CMD)),
-	),
+	max_views:       int,
+	max_multi:       int,
+	view_data_bytes: int,
+
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// entities). Single player only: it changes the initial state, which every peer would have to share.
-	bench:             proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
+	bench:           proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
 	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
 	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
 	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
 	// views). So a game handles only its special events. sim.event_value(event, Game_Event) reads it.
-	event_key:         proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: Event_Route),
-	compat:            u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: Event_Route),
+	compat:          u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
-	level:             string,
+	level:           string,
 }
 
 // Where Glue.event_key sends an event.

@@ -66,13 +66,11 @@ Player_View :: struct {
 // explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
 // instances, so their events (by handle) reach no view.
 GLUE := godot.Glue(survivor.Game, View, MultiView) {
-	sample_input      = sample_input,
-	fill_frame        = fill_frame,
-	data              = Data,
-	constants         = CONSTANTS,
-	scripted_input    = survivor.scripted_input,
-	scripted_commands = survivor.scripted_commands,
-	bench             = survivor.bench_prepare,
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	bench        = survivor.bench_prepare,
 }
 
 // ---- input (main thread, the one local player)

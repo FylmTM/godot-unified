@@ -7,17 +7,11 @@ package test_friendslop
 import "core:testing"
 
 import fs "../friendslop"
-import "unified:headless"
 import "unified:headless/scenarios"
 
-HEADLESS := headless.Headless(fs.Game) {
-	game           = &fs.GAME,
-	scripted_input = fs.scripted_input,
-	content        = PARK,
-}
-
 SUITE := scenarios.Suite(fs.Game) {
-	game = &HEADLESS,
+	game = &fs.GAME,
+	content = PARK,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,

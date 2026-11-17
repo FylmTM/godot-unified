@@ -30,7 +30,7 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 			return toy.scripted_input(SEED, player, tick)
 		},
 		commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
-			toy.scripted_commands(SEED, player, tick, out)
+			toy.scripted_commands(SEED, player, tick, nil, out)
 		},
 		frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
 			watch := (^Watch)(user)

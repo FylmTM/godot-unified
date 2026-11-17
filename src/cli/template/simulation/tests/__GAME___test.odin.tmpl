@@ -10,9 +10,6 @@ import g "../__GAME__"
 
 HEADLESS := headless.Headless(g.Game) {
 	game = &g.GAME,
-	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
-		return g.scripted_input(seed, slot, tick)
-	},
 }
 
 @(test)

@@ -7,20 +7,13 @@ package test_drift
 import "core:testing"
 
 import dr "../drift"
-import "unified:headless"
 import "unified:headless/scenarios"
 
 ARENA :: #load("../../game/levels/arena.level")
 
-HEADLESS := headless.Headless(dr.Game) {
-	game              = &dr.GAME,
-	scripted_input    = dr.scripted_input,
-	scripted_commands = dr.scripted_commands,
-	content           = ARENA,
-}
-
 SUITE := scenarios.Suite(dr.Game) {
-	game = &HEADLESS,
+	game = &dr.GAME,
+	content = ARENA,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,

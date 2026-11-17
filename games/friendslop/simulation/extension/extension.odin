@@ -47,13 +47,12 @@ MultiView :: enum u8 {}
 Frame :: godot.Frame(fs.Game, View, MultiView)
 
 GLUE := godot.Glue(fs.Game, View, MultiView) {
-	sample_input   = sample_input,
-	fill_frame     = fill_frame,
-	data           = Data,
-	constants      = CONSTANTS,
-	scripted_input = fs.scripted_input,
-	event_key      = event_key,
-	level          = "res://game/levels/park.level",
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	event_key    = event_key,
+	level        = "res://game/levels/park.level",
 }
 
 // The session data (Unified.data.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.

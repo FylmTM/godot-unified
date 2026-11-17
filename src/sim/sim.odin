@@ -167,28 +167,34 @@ Game :: struct(
 	Input,
 	part(intrinsics.type_field_type(State, "players"), 2) ==
 	PLAYERS {
-	name:            string,
+	name:              string,
 	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
 	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
 	// play together instead of desyncing.
-	version:         string,
-	tick_hz:         int, // a power of two, 32..128; dt = 1 / tick_hz exactly
+	version:           string,
+	tick_hz:           int, // a power of two, 32..128; dt = 1 / tick_hz exactly
 	// The least input delay the netcode gives a player, in ticks (0: 1). The delay grows past it only as far as a
 	// round trip needs to keep the prediction inside the rollback window (src/netcode/SPEC.md, Timing).
-	min_input_delay: int,
+	min_input_delay:   int,
 	// The World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes
 	// outlive the World (the caller of create owns them).
-	world_create:    proc(seed: u64, content: []u8) -> ^World,
-	world_destroy:   proc(world: ^World),
+	world_create:      proc(seed: u64, content: []u8) -> ^World,
+	world_destroy:     proc(world: ^World),
 	// The World's rollback state (nil: none), asked for right after world_create: a physics game returns
 	// physics.extra(world.phys, State).
-	extra:           proc(world: ^World) -> Extra,
+	extra:             proc(world: ^World) -> Extra,
 	// Fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit, roll and
 	// create physics bodies.
-	init:            proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
+	init:              proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
-	tick:            proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
+	tick:              proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
+	// Optional: a scripted player, for tests, benchmarks and headless checks (never called by the sim): the input of
+	// the player in `slot` for `tick`, and right after it that player's commands (sim.send_command(out, command)).
+	// `state` is the caller's current state; a script that answers from (seed, slot, tick) alone (sim.script_bits)
+	// gives every client of a session and every offline run the same player.
+	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
+	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 }
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, PLAYERS).

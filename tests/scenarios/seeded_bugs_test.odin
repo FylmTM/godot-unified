@@ -118,6 +118,9 @@ bug_game :: proc(
 		world_destroy = proc(world: ^Bug_World) {free(world)},
 		init = init,
 		tick = tick,
+		scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+			return toy.scripted_input(seed, slot, tick)
+		},
 	}
 }
 
@@ -128,10 +131,5 @@ bug_world_create :: proc(seed: u64, content: []u8) -> ^Bug_World {
 bug_init :: proc(t: ^Bug_Tick) {}
 
 bug_headless :: proc(game: ^Bug_Game) -> Bug_Headless {
-	return Bug_Headless {
-		game = game,
-		scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
-			return toy.scripted_input(seed, slot, tick)
-		},
-	}
+	return Bug_Headless{game = game}
 }
