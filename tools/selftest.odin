@@ -9,13 +9,14 @@ import "unified:cli"
 Selftest_Opts :: struct {}
 
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
-// bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
-// pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
-// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then check its
-// view index, build it, run a headless mode and every test suite in that game repo. Then `init --in-repo` the same
-// game inside the clone (checking it wrote only the game and its tests import), its index, build, a headless mode,
-// the clone's odin suite and the game's godot suite. Only when called (before tooling PRs, after a pin or toolchain
-// change); never by `verify`, nor by CI. It tests the committed HEAD, so it refuses uncommitted changes.
+// bootstrapped by its shim with an empty per-user cache, so the shim downloads the pinned Odin, checks its SHA-256,
+// unpacks it and builds the CLI with it. Then `init` a game outside it with the clone as its submodule pinned to HEAD
+// (checking the pin and the commands and links its files name), then check its view index, build it, run a headless
+// mode and every test suite in that game repo. Then `init --in-repo` the same game inside the clone (checking it wrote
+// only the game and its tests import), its index, build, a headless mode, the clone's odin suite and the game's godot
+// suite. Last, the test watchdog: a test crashing while it holds a lock must fail its run within seconds. Only when
+// called (before tooling PRs, after a pin or toolchain change); never by `verify`, nor by CI. It tests the committed
+// HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	opts: Selftest_Opts
 	cli.parse(&opts, args)
@@ -64,7 +65,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		cmd  = cli.strs("git", "clone", "-q", root, clone),
 		env  = env,
 	}, Step {
-		what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
+		what = "bootstrap: the shim downloads the pinned Odin into an empty cache and builds the CLI with it",
 		cmd  = shim(clone, "version"),
 		dir  = clone,
 		env  = download_env(work, cache),

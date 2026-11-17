@@ -174,7 +174,7 @@ clients under `bad`, a late joiner, `presence_churn`, the reference run's replay
   suite and every reference run: the cross-check), then `uni test --suite net`, then `uni bench`. Never `--long`.
 - **Benchmarks are not part of the suites:** `uni bench` runs each game's `bench` mode (its standard benchmark) alone
   on a release build (reported, not gated; target: forward step + a re-sim of the prediction cap, 14 ticks at 64 Hz,
-  ≤ 6 ms), and CI's job summary shows them.
+  ≤ 6 ms at their p99), and CI's job summary shows them.
 
 ### Reference runs (#61)
 
