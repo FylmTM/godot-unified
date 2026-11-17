@@ -537,3 +537,36 @@ lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", ""), "b.odin", own)), 2)
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../sim", "../physics"}), "b.odin", own)), 0)
 }
+
+// A game's export leaves out the tool scripts: its own (game/tools), the shared kit's and the library's (the
+// addons/unified mirror). Every preset's exclude_filter names them (Godot reads the filters per preset).
+@(test)
+game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
+	for game in game_dirs(t) {
+		presets, err := os.read_entire_file(
+			fmt.tprintf("%s/%s/export_presets.cfg", GAMES_DIR, game),
+			context.temp_allocator,
+		)
+		if err != nil do continue // no export
+		project, _ := os.read_entire_file(fmt.tprintf("%s/%s/project.godot", GAMES_DIR, game), context.temp_allocator)
+		tools := []string{"game/tools/*", "addons/unified/*", "addons/shared/tools/*"}
+		if !strings.contains(string(project), "res://addons/shared/") do tools = tools[:2]
+		filters := 0
+		text := string(presets)
+		for line in strings.split_lines_iterator(&text) {
+			if !strings.has_prefix(line, "exclude_filter=") do continue
+			filters += 1
+			for tool in tools {
+				testing.expectf(
+					t,
+					strings.contains(line, tool),
+					"%s: an export preset ships %s (%s)",
+					game,
+					tool,
+					line,
+				)
+			}
+		}
+		testing.expectf(t, filters > 0, "%s: export_presets.cfg has no exclude_filter", game)
+	}
+}
