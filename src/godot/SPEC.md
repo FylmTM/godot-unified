@@ -202,8 +202,9 @@ for what is performance-critical or shared across games.
 - players, by handle: a player reaches GDScript as its key (`sim.player_key`, an int; 0 is nobody), the same while
   they are in the session, whatever slot they hold. At the shown tick: `get_players()` (the present ones, slot
   order), `get_known_players()` (every one the state remembers, present or not), `get_local_player()` (0 until this
-  client's join tick), `get_player_slot(player)` (-1 when absent), `is_player_present(player)`. From the relay's
-  roster, still answering after the player left: `get_player_name(player)`, `get_player_platform(player)` and
+  client's join tick), `get_player_slot(player)` (-1 when absent), `is_player_present(player)`; none once the session
+  is over (its views keep the last frame's pose, nothing is synced until the next start). From the relay's roster,
+  still answering after the player left: `get_player_name(player)`, `get_player_platform(player)` and
   `get_player_platform_id(player)` (the account the transport vouched for: "eos" and the product user id; empty on
   LAN, in single player and in replays; a LAN token is never shown). A client's LAN token is kept in
   `user://unified_token_<n>` (each running copy of the game on a machine claims its own on its first session, by an

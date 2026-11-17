@@ -4,6 +4,7 @@
 #    the start is accepted, waits for the goodbye (cut to 1 s) and connects.
 # 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
 # 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("disconnected").
+# 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
 #   godot --path tests/godot_views --headless -s res://session_check.gd -- [--idle-end S]
 # --idle-end S: stay S seconds with no session before quitting (to see the power activity released).
@@ -90,6 +91,17 @@ func _run() -> void:
 		return _finish()
 	await _sleep(0.3)
 	check("the cancelled start never ran", not s.is_running())
+
+	# 4. a session that ends on its own: its last frame stays on screen, nothing answers from it
+	s.ticks = 40
+	check("start a 40-tick single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.get_local_player() != 0, 5.0, "the short session runs"):
+		return _finish()
+	if not await _wait_for(func() -> bool: return not s.is_running(), 5.0, "the short session ends"):
+		return _finish()
+	await _sleep(0.2)
+	check("an ended session has no local player", s.get_local_player() == 0, s.get_local_player())
+	s.ticks = 0
 
 	if idle_end > 0.0:
 		print("session_check: idle with no session for %.1f s" % idle_end)
