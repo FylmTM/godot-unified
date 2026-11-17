@@ -387,7 +387,8 @@ from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 	}
 }
 
-// Writes a return value into a ptrcall slot. Opaque builtins move into the (constructed) slot.
+// Writes a return value into a ptrcall slot. Opaque builtins move into the (constructed) slot. A RefCounted's slot is a
+// reference of Godot's: a `Ref(T)` result hands ours over, a bare `T` is borrowed (the slot takes its own).
 to_ptr :: proc(value: $T, ptr: rawptr) {
 	when intrinsics.type_is_boolean(T) {
 		(^u8)(ptr)^ = u8(value)
@@ -398,6 +399,11 @@ to_ptr :: proc(value: $T, ptr: rawptr) {
 	} else when T == string {
 		String_destroy((^String)(ptr))
 		(^String)(ptr)^ = string_from(value)
+	} else when intrinsics.type_is_specialization_of(T, Ref) {
+		gdi.ref_set_object(ptr, value.ptr)
+		unref(RefCounted{{value.ptr}})
+	} else when intrinsics.type_is_subtype_of(T, RefCounted) {
+		gdi.ref_set_object(ptr, value.ptr)
 	} else when intrinsics.type_is_subtype_of(T, Object) {
 		(^rawptr)(ptr)^ = value.ptr
 	} else when T == Variant {
@@ -410,11 +416,14 @@ to_ptr :: proc(value: $T, ptr: rawptr) {
 	}
 }
 
-// Writes an owned return value into a Variant slot (moves opaque builtins).
+// Writes an owned return value into a Variant slot (moves opaque builtins; the Variant takes a reference of a
+// RefCounted of its own: a `Ref(T)` result's is dropped, a bare `T` is borrowed).
 to_variant_slot :: proc(value: $T, slot: ^Variant) {
 	gdi.variant_destroy(slot)
 	slot^ = to_variant(value)
-	when T != Variant && !intrinsics.type_is_subtype_of(T, Object) && T != string {
+	when intrinsics.type_is_specialization_of(T, Ref) {
+		unref(RefCounted{{value.ptr}})
+	} else when T != Variant && !intrinsics.type_is_subtype_of(T, Object) && T != string {
 		when !intrinsics.type_is_boolean(
 			T,
 		) && !intrinsics.type_is_integer(T) && !intrinsics.type_is_enum(T) && !intrinsics.type_is_float(T) {

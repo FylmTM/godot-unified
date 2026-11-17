@@ -38,6 +38,8 @@ func _initialize() -> void:
 	check("Callable from Odin", c.call(20, 22) == 42, c.call(20, 22))
 	check("vararg wrapper (Object.call)", t.call_add_via_vararg() == 7, t.call_add_via_vararg())
 	check("Ref ownership (Image round trip)", t.image_size() == 12, t.image_size())
+	check("returned Ref(Image) (Variant call)", t.new_image().get_width() == 2)
+	check("returned borrowed Image (Variant call)", t.kept_image().get_width() == 5)
 	check("interned StringName", t.sn_same())
 	check("nested callback keeps the caller's temp data", t.nested_temp())
 	# The same bindings through typed calls: GDScript ptrcalls a method whose types it knows at compile time.
@@ -53,6 +55,17 @@ func _initialize() -> void:
 	tt.value = 23
 	check("typed property", tt.value == 23, tt.value)
 	check("typed nested_temp", tt.nested_temp())
+	var owned: Image = tt.new_image()
+	check("typed returned Ref(Image)", owned.get_width() == 2)
+	owned = null
+	for i in 3:  # each borrowed result dropped: the instance's own reference must survive them
+		var kept: Image = tt.kept_image()
+		kept = null
+	check("typed returned borrowed Image", tt.kept_image().get_width() == 5)
+	for i in 3:  # the same through a dynamic method (bind_dynamic_method: a Variant result)
+		var kept: Image = tt.dynamic_kept_image()
+		kept = null
+	check("typed returned Image (dynamic method)", tt.dynamic_kept_image().get_width() == 5)
 	var after: Vector2i = tt.call_counts()
 	check("typed calls took ptrcall", after.y - before.y >= 10, [before, after])
 	await process_frame

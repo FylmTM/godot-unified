@@ -13,6 +13,7 @@ Tester :: struct {
 	value:     i64,
 	readied:   bool,
 	processed: i64,
+	image:     gd.Ref(gd.Image), // kept_image's: the instance owns it
 }
 
 tester: gd.Class
@@ -48,6 +49,10 @@ register :: proc() {
 		name = "Tester",
 		parent = "Node3D",
 		size = size_of(Tester),
+		fini = proc(instance: rawptr) {
+			self := (^Tester)(instance)
+			gd.unref(self.image)
+		},
 		ready = proc(instance: rawptr) {
 			(^Tester)(instance).readied = true
 			devui.init({visible = true})
@@ -142,6 +147,26 @@ register :: proc() {
 		defer gd.unref(img)
 		return i64(gd.Image_get_width(img) * gd.Image_get_height(img))
 	})
+	// A returned RefCounted: Ref(T) hands our reference over, a bare T is borrowed (Godot adds its own).
+	gd.bind_method(cls, "new_image", proc(self: ^Tester) -> gd.Ref(gd.Image) {
+		return gd.Image_create_empty(2, 3, false, .FORMAT_RGBA8)
+	})
+	gd.bind_method(cls, "kept_image", proc(self: ^Tester) -> gd.Image {
+		if self.image.ptr == nil do self.image = gd.Image_create_empty(5, 1, false, .FORMAT_RGBA8)
+		return self.image
+	})
+	gd.bind_dynamic_method(
+		cls,
+		"dynamic_kept_image",
+		proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			self := (^Tester)(instance)
+			if self.image.ptr == nil do self.image = gd.Image_create_empty(5, 1, false, .FORMAT_RGBA8)
+			return gd.variant_from_any(self.image.ref) // the Variant's reference, dropped after the call
+		},
+		nil,
+		nil,
+		gd.Dynamic_Arg{"", .OBJECT, "Image"},
+	)
 	gd.bind_method(cls, "sn_same", proc(self: ^Tester) -> bool {return gd.sn("abc") == gd.sn("abc")})
 	gd.bind_method(cls, "is_readied", proc(self: ^Tester) -> bool {return self.readied})
 	gd.bind_method(cls, "processed_count", proc(self: ^Tester) -> i64 {return self.processed})
