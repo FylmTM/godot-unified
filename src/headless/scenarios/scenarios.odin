@@ -308,7 +308,7 @@ check_replay :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	runs := headless_of(suite)
 	reference := suite.ref
 	what := fmt.tprintf("reference_replays (%s)", ref_params(reference))
-	input_log, ok := sim.log_read(ref_path(reference, "ref.log"), G)
+	input_log, ok := headless.log_read(ref_path(reference, "ref.log"), G)
 	if !testing.expectf(t, ok, "%s: cannot read %s", what, ref_path(reference, "ref.log")) {
 		return
 	}
@@ -606,7 +606,7 @@ regenerate :: proc(t: ^testing.T, suite: ^Suite($G)) -> bool {
 		before[i] = read_or_empty(file)
 	}
 	ok := headless.trace_write(&trace, files[0])
-	ok &&= sim.log_write(files[1], &input_log)
+	ok &&= headless.log_write(files[1], &input_log)
 	ok &&= os.write_entire_file(files[2], snapshot) == nil
 	reproduced := ok && os.is_file(ref_path(reference, "ref.json"))
 	for file, i in files {

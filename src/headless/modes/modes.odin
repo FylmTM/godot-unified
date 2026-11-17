@@ -114,7 +114,7 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	defer sim.log_destroy(&input_log)
 	result := uheadless.run_sim(headless, ticks, seed, players, &trace, &input_log if log_path != "" else nil)
 	ok := trace_path == "" || uheadless.trace_write(&trace, trace_path)
-	ok &&= log_path == "" || sim.log_write(log_path, &input_log)
+	ok &&= log_path == "" || uheadless.log_write(log_path, &input_log)
 	fmt.printfln(
 		`{{"mode":"sim","ticks":%d,"seed":%d,"players":%d,"final_checksum":"%016x",%s"ok":%v}}`,
 		result.final_tick,
@@ -164,7 +164,7 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	check_known(args, "log", "trace", "snapshot")
 	log_path := opt_str(args, "log", required = true)
-	input_log, log_ok := sim.log_read(log_path, G)
+	input_log, log_ok := uheadless.log_read(log_path, G)
 	if !log_ok {
 		die("replay: cannot read input log %s (or it is for another game build)", log_path)
 	}
@@ -174,9 +174,9 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	snapshot: []u8
 	defer delete(snapshot)
 	if path := opt_str(args, "snapshot"); path != "" {
-		read_ok: bool
-		snapshot, read_ok = sim.read_file(path)
-		if !read_ok do die("replay: cannot read snapshot %s", path)
+		read_err: os.Error
+		snapshot, read_err = os.read_entire_file(path, context.allocator)
+		if read_err != nil do die("replay: cannot read snapshot %s", path)
 	}
 	result, ok := uheadless.run_replay(headless, &input_log, &trace, snapshot)
 	if path := opt_str(args, "trace"); ok && path != "" {

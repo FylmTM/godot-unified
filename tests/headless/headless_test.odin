@@ -79,8 +79,8 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	testing.expect(t, synctest.resimulated > 300)
 	testing.expect_value(t, synctest.final_checksum, run.final_checksum)
 	// Through files: the log and the trace read back as written, and the log replays to the trace.
-	testing.expect(t, sim.log_write(log_path, &input_log) && headless.trace_write(&trace, trace_path))
-	read_log, log_ok := sim.log_read(log_path, toy.Game)
+	testing.expect(t, headless.log_write(log_path, &input_log) && headless.trace_write(&trace, trace_path))
+	read_log, log_ok := headless.log_read(log_path, toy.Game)
 	defer sim.log_destroy(&read_log)
 	testing.expect(t, log_ok)
 	read_trace, trace_ok := headless.trace_read(trace_path)

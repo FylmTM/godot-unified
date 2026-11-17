@@ -38,7 +38,7 @@ Relay_Config :: struct {
 	// the clock starts START_LEAD_MS after Welcome, so a far start player's first inputs arrive in time.
 	local_start:   bool,
 	// Optional: the session's input log, written tick by tick as ticks are finalized (sim/log.odin's format;
-	// sim.log_sink_memory, sim.log_sink_file). The relay owns the sink: relay_end_recording (or relay_destroy)
+	// sim.log_sink_memory, headless.log_sink_file). The relay owns the sink: relay_end_recording (or relay_destroy)
 	// writes the tick count and closes it. Without one, the session is kept only RELAY_RING ticks back.
 	recording:     sim.Log_Sink,
 	// Optional, for dev builds: what differs between two snapshots of a tick (desync_diff_of(State)). With it,

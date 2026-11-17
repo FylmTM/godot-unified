@@ -590,29 +590,27 @@ portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, sim.Snap_Error.Checksum_Mismatch)
 }
 
+
+// The desync report walks the State: a table's item by index down to the leaf field, a slot's liveness, a global.
 @(test)
-schema_finds_tables :: proc(t: ^testing.T) {
-	schema := sim.schema_of(toy.State)
-	things: ^sim.Table_Info
-	for &table in schema.tables {
-		testing.expect(t, table.name != "pos") // [4][2]f32: an array, but not of structs
-		if table.name == "things" {
-			things = &table
-		}
-	}
-	if !testing.expect(t, things != nil) {
-		return
-	}
-	testing.expect_value(t, things.cap, 32)
-	testing.expect(t, things.elem.id == toy.Thing)
+snapshot_diff_names_the_fields :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 3)
 	defer sim.destroy(simulation)
 	_, handle, _ := sim.spawn(&simulation.state.things)
-	base := ([^]u8)(&simulation.state)
-	item := rawptr(&base[things.items_off + int(handle.index) * things.elem.size])
-	testing.expect(t, item == rawptr(sim.get(&simulation.state.things, handle)))
-	slot := (^sim.Slot)(&base[things.slots_off + int(handle.index) * size_of(sim.Slot)])
-	testing.expect(t, slot.alive)
+	sim.save(simulation)
+	before := sim.snapshot_encode(simulation, 0)
+	defer delete(before)
+	sim.get(&simulation.state.things, handle).pos.y = 2
+	simulation.state.spawned = 5
+	sim.spawn(&simulation.state.things)
+	sim.save(simulation)
+	after := sim.snapshot_encode(simulation, 0)
+	defer delete(after)
+	diff := sim.snapshot_diff(toy.State, before, after)
+	testing.expect(t, strings.contains(diff, "things[0].pos[1] 0 vs 2"), diff)
+	testing.expect(t, strings.contains(diff, "things[1]: its slot"), diff)
+	testing.expect(t, strings.contains(diff, "spawned 0 vs 5"), diff)
+	testing.expect_value(t, sim.snapshot_diff(toy.State, before, before), "")
 }
 
 // An extra state that can be told to fail its restore.

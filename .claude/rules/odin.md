@@ -10,7 +10,7 @@ paths:
 - Package names must be unique program-wide and must avoid Odin's own (`net`, `log`, `bytes`, ...): `core:net` is
   package `net`, which is why ours is `netcode`.
 - Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
-  package that doesn't call them. Keep such imports behind small non-generic helpers (`sim.write_file`,
+  package that doesn't call them. Keep such imports behind small non-generic helpers (`headless.write_file`,
   `sim.hash_bytes`, ...), or in a package of their own (`unified:headless/modes`: the game suites import
   `unified:headless` and never instantiate the CLI modes).
 - A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's

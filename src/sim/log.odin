@@ -7,7 +7,6 @@
 package sim
 
 @(require) import "base:intrinsics" // only in a where clause
-import "core:os"
 
 import "unified:wire"
 
@@ -303,24 +302,9 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	return input_log, true
 }
 
-// Writes the log to a file (log_encode's bytes): the replay a headless run or a recorded session leaves.
-log_write :: proc(path: string, input_log: ^Input_Log($G)) -> bool {
-	data := log_encode(input_log)
-	defer delete(data)
-	return write_file(path, data)
-}
-
-// Reads a log file written by log_write (or a relay's recording) for a replay; false when it is missing or does
-// not decode for game G.
-log_read :: proc(path: string, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
-	data := read_file(path) or_return
-	defer delete(data)
-	return log_decode(data, G)
-}
-
 // Where a log goes as it grows (a relay's recording, src/netcode/SPEC.md): `write` puts bytes at an offset (the
-// end, to append; the header's tick count, when it ends), `close` (optional) ends it. log_sink_memory and
-// log_sink_file are the two the library has.
+// end, to append; the header's tick count, when it ends), `close` (optional) ends it. log_sink_memory here,
+// headless.log_sink_file for a file.
 Log_Sink :: struct {
 	user:  rawptr,
 	write: proc(user: rawptr, offset: int, bytes: []u8) -> bool,
@@ -342,57 +326,6 @@ log_sink_memory :: proc(buf: ^[dynamic]u8) -> Log_Sink {
 	}
 }
 
-@(private)
-File_Sink :: struct {
-	file:    ^os.File,
-	pending: [dynamic]u8, // appended bytes not written yet, from offset `written`
-	written: int,
-	ok:      bool,
-}
-
-@(private)
-file_sink_flush :: proc(sink: ^File_Sink) {
-	if len(sink.pending) > 0 {
-		_, err := os.write_at(sink.file, sink.pending[:], i64(sink.written))
-		sink.ok &&= err == nil
-		sink.written += len(sink.pending)
-		clear(&sink.pending)
-	}
-}
-
-// A sink into a new file at `path` (64 KB written at a time). The sink owns the file: close flushes and closes it.
-log_sink_file :: proc(path: string) -> (sink: Log_Sink, ok: bool) {
-	file, err := os.create(path)
-	if err != nil {
-		return
-	}
-	file_sink := new(File_Sink)
-	file_sink.file = file
-	file_sink.ok = true
-	sink.user = file_sink
-	sink.write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
-		file_sink := (^File_Sink)(user)
-		if offset == file_sink.written + len(file_sink.pending) {
-			append(&file_sink.pending, ..bytes)
-			if len(file_sink.pending) >= 64 * 1024 {
-				file_sink_flush(file_sink)
-			}
-		} else {
-			file_sink_flush(file_sink)
-			_, err := os.write_at(file_sink.file, bytes, i64(offset))
-			file_sink.ok &&= err == nil
-		}
-		return file_sink.ok
-	}
-	sink.close = proc(user: rawptr) {
-		file_sink := (^File_Sink)(user)
-		file_sink_flush(file_sink)
-		os.close(file_sink.file)
-		delete(file_sink.pending)
-		free(file_sink)
-	}
-	return sink, true
-}
 
 // A log being written to a sink tick by tick: log_stream_begin writes the header (tick count 0), log_stream_tick
 // each tick, log_stream_end the count, then closes the sink.
@@ -491,15 +424,4 @@ decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 		return
 	}
 	return header, data[reader.pos:], true
-}
-
-// Writes `data` to a file, replacing it; true on success.
-write_file :: proc(path: string, data: []u8) -> bool {
-	return os.write_entire_file(path, data) == nil
-}
-
-// Reads a whole file into memory from `allocator`; ok is false when it cannot be read.
-read_file :: proc(path: string, allocator := context.allocator) -> (data: []u8, ok: bool) {
-	file_data, err := os.read_entire_file(path, allocator)
-	return file_data, err == nil
 }

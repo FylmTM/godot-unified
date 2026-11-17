@@ -28,7 +28,7 @@ log_opt :: proc(args: ^Args) -> sim.Log_Sink {
 	if path == "" {
 		return {}
 	}
-	sink, ok := sim.log_sink_file(path)
+	sink, ok := uheadless.log_sink_file(path)
 	if !ok {
 		die("%s: cannot write --log %s", args.mode, path)
 	}
@@ -79,7 +79,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	defer uheadless.session_result_destroy(&result)
 	ok := result.ok
 	if path := opt_str(args, "log"); path != "" {
-		ok &&= sim.log_write(path, &result.log)
+		ok &&= uheadless.log_write(path, &result.log)
 	}
 	clients := make([]string, len(result.clients), context.temp_allocator)
 	for client, i in result.clients {
