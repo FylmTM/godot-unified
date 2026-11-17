@@ -660,3 +660,29 @@ joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, joiner.own_replaced, 0)
 }
+
+// One ack that covers several datagrams measures the round trip of the newest one only: the older ones waited at
+// the receiver, and their samples would read the round trip that much longer.
+@(test)
+one_ack_of_several_datagrams_samples_the_newest :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	netcode.channel_add_link(sender, netcode.loopback_link(hub, 0))
+	netcode.channel_add_link(receiver, netcode.loopback_link(hub, 1))
+	to := netcode.channel_peer(sender, 0, 1)
+	start := i64(1_000_000)
+	for k in 0 ..< i64(3) { 	// three datagrams, 10 ms apart, that the receiver reads at once
+		netcode.channel_send(sender, to, {u8(k)}, .Reliable, start + k * 10_000)
+		netcode.channel_flush(sender, start + k * 10_000)
+	}
+	netcode.channel_poll(receiver, start + 30_000)
+	netcode.channel_flush(receiver, start + 30_000) // one datagram acks all three
+	netcode.channel_poll(sender, start + 30_000)
+	rtt, ok := netcode.channel_rtt(sender, to)
+	testing.expect(t, ok)
+	testing.expect_value(t, rtt, 10_000) // the newest, sent at +20 ms; the oldest would read 30 ms
+}
