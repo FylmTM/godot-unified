@@ -1,5 +1,5 @@
 // A tiny deterministic game for the library's own tests: players move dots, a table of things they own is
-// spawned and despawned from the state's RNG, events are emitted, commands are counted. No physics
+// spawned and despawned (each thing's life a keyed roll), events are emitted, commands are counted. No physics
 // (tests/physics covers the Extra), so it is fast enough to run sessions on a virtual clock inside
 // `odin test`.
 package toy

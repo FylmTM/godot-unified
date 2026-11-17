@@ -12,9 +12,7 @@ import "unified:wire"
 
 @(private)
 LOG_MAGIC :: "UNIL"
-// 4: commands per tick; 5: the #6 sitting's sim (u32 handles, SplitMix64, keyed rolls), so a log recorded
-// before replays differently: the bytes are laid out as in 4; 6: the recording build's compat in the header (#123);
-// 7: join records (players are session members, #222).
+// Bump on any change to what the bytes hold.
 LOG_VERSION :: 7
 LOG_HEADER :: 37
 @(private)

@@ -1,8 +1,7 @@
 // Commands (src/sim/SPEC.md "Commands"): one-shot actions a player sends, delivered exactly once, in order.
-// The game declares one plain struct per command and a union of them (Game.commands; kind = variant
+// The game declares one plain struct per command and a union of them (sim.Game's Cmd; kind = variant
 // index). A command is input, not state: part of the tick's input record (Inputs.commands; logged,
-// replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`
-// and `command_value`.
+// replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`.
 package sim
 
 import "base:intrinsics"
@@ -11,7 +10,7 @@ COMMAND_MAX :: 64 // bytes of one command's struct
 COMMANDS_PER_SLOT :: 4 // per slot per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
 
-// One command in a tick's input record: its kind (the variant's index in Game.commands), the slot it
+// One command in a tick's input record: its kind (the variant's index in the Cmd union), the slot it
 // was sent from and its struct's bytes.
 Raw_Command :: struct {
 	kind: u8,

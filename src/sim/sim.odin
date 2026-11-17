@@ -1,15 +1,17 @@
-// The deterministic simulation harness, generic over a game's types at compile time (src/sim/SPEC.md):
+// The deterministic simulation harness, generic over the game type, sim.Game(State, Input, World, Event, Cmd,
+// PLAYERS) (src/sim/SPEC.md):
 //
 //   State    the state block: plain data (no pointers, no padding), so a snapshot is a copy and its bytes
-//            are the checksum input. Games put sim.Table(T, N) tables, handles and an Rng in it.
-//   Input    one player's input for one tick (plain data).
-//   World    the game's World: everything outside the block (physics world, per-tick scratch). Rollback
-//            state outside the block is registered as Extra state (physics.extra does that for Box3D).
+//            are the checksum input. It holds the players (`players: sim.Players(...)`), tables and handles.
+//   Input    one player's input for one tick (plain data, no bools or floats).
+//   World    everything outside the block (physics world, per-tick scratch); its rollback state is the
+//            game's Extra (physics.extra for Box3D).
+//   Event    the event union, Cmd the command union.
 //   PLAYERS  input slots (1..32): a player (a session member, sim.Player) holds one while present.
 //
-// The harness owns the tick counter, a ring of saved ticks (block copy + every Extra's save + the
-// events the tick emitted, ring_size(tick_hz) of them) and the checksum. Ticks are numbered from 1:
-// the state after the k-th step is tick k; tick 0 is the initial state.
+// The harness owns the tick counter, a ring of saved ticks (block copy + the Extra's save + the events the
+// tick emitted, ring_size(tick_hz) of them) and the checksum. Ticks are numbered from 1: the state after the
+// k-th step is tick k; tick 0 is the initial state.
 package sim
 
 // Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
@@ -22,11 +24,10 @@ import "core:strings"
 
 MAX_PLAYERS :: 32
 
-// The library's own simulation (src/sim, src/dmath, src/physics, src/b3): bump it in a change that makes a reference run
-// or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
-// compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump its
-// Game.version. 1: #233 (the first). 2: #242, sim.Players keeps each slot's input of the tick before (input_before).
-// 3: #236/#237, the physics extra hashes and images its body table (tags, which bodies are alive and the World's).
+// The library's own simulation (src/sim, src/dmath, src/physics, src/b3): bump it in a change that makes a reference
+// run or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
+// compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
+// its Game.version.
 LIBRARY_VERSION :: 3
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.

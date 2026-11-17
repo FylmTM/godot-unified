@@ -13,7 +13,7 @@ import "unified:gdext/gdi"
 import "unified:sim"
 import "unified:view"
 
-// One event kind (a variant of Game.events), read by RTTI.
+// One event kind (a variant of the game's Event union), read by RTTI.
 Event_Layout :: struct {
 	name:              string, // the type name without `Event_`, lowercased ("coin_picked")
 	type:              ^runtime.Type_Info,

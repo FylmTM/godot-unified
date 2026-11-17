@@ -146,7 +146,7 @@ person, not a slot.
 - **Stamp lead** `s = ceil((RTT/2 + 8 ms) / tick)`: an input reaches the relay 8 ms or so before its tick is due.
 - **Input delay** (the lag a player feels, #8 D3) `k = clamp(ceil((RTT⁺ + 8 ms)/tick) + 1 − cap, k_min, k_max)`:
   the least delay that keeps the prediction depth inside the cap. RTT⁺ = RTT + 4 × its mean deviation (jitter);
-  `k_min` is the game's `sim.Game.min_input_delay` (0: 1), `k_max` 100 ms (7 ticks at 64 Hz). It rises at once
+  `k_min` 1 tick, `k_max` 100 ms (7 ticks at 64 Hz). It rises at once
   and falls a tick per second.
 - **The clock**: L runs `s − k` ticks ahead of the relay clock (behind, when negative), slewed ±2% towards it (a
   jump when more than 4 ticks behind). Own inputs are sampled for L + k on every clock tick, also while the sim

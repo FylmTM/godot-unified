@@ -1,7 +1,7 @@
 // Random numbers (src/sim/SPEC.md "Random numbers"), integer-only, built on SplitMix64's mixing function:
 //
-// - Rng: one stream, 8 bytes in the block, for code that wants "the next number" (level generation,
-//   shuffles). A draw added anywhere shifts every later draw from it.
+// - Rng: one stream, for code outside `tick` that wants "the next number" (level generation, shuffles). A draw
+//   added anywhere shifts every later draw from it.
 // - Keyed rolls (roll_below, roll_f32): nothing in the block; a roll is a hash of (seed, tick, purpose,
 //   key, index), so it depends only on what it names: adding, removing or reordering one system's rolls
 //   never moves another's.
@@ -25,8 +25,7 @@ mix64 :: proc "contextless" (value: u64) -> u64 {
 	return z ~ (z >> 31)
 }
 
-// A stream that starts from `seed`; a game seeds its state's Rng with the session seed in init, so every peer
-// draws the same numbers.
+// A stream that starts from `seed`.
 rng_seed :: proc(seed: u64) -> Rng {
 	return {seed}
 }

@@ -1,5 +1,5 @@
 // Events (src/sim/SPEC.md "Events"): what a tick tells the view (a shot, a hit, a pickup). The game
-// declares one plain struct per event and a union of them (Game.events; kind = variant index, name =
+// declares one plain struct per event and a union of them (sim.Game's Event; kind = variant index, name =
 // type name lowercased). Events are deterministic, kept per tick in the ring as kind + bytes and
 // emitted again when a tick is re-simulated, so a view shows predicted events at once and confirms or
 // cancels them when the tick is verified. Not state: not in the block, not hashed.
