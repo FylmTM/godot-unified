@@ -91,10 +91,6 @@ item_of :: proc(run: ^Run, kind: fs.Item_Kind, nth := 0) -> int {
 	return -1
 }
 
-i8_of :: proc(x: f32) -> i8 {
-	return i8(clamp(x * 127, -127, 127))
-}
-
 // Walks the player in `slot` towards `target` (stops within `near`), looking at `look` (default: the target).
 walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe([3]f32) = nil) -> fs.Input {
 	at := player_pos(run, slot)
@@ -102,8 +98,8 @@ walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe(
 	input: fs.Input
 	if dmath.length(offset) > near {
 		direction := dmath.normalize(offset)
-		input.move_x = i8_of(direction.x)
-		input.move_z = i8_of(direction.y)
+		input.move_x = dmath.axis_i8(direction.x)
+		input.move_z = dmath.axis_i8(direction.y)
 	}
 	return aim_at(run, slot, look.? or_else target, input)
 }

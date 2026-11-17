@@ -19,8 +19,8 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 	pos := dmath.Vec2{character.pos.x, character.pos.z}
 	if state.phase == .Lobby {
 		direction := slot * 2 % 8 // walk out of the start circle, each slot its own way
-		input.move_x = i8(dmath.DIR8[direction].x * 127)
-		input.move_z = i8(dmath.DIR8[direction].y * 127)
+		input.move_x = dmath.axis_i8(dmath.DIR8[direction].x)
+		input.move_z = dmath.axis_i8(dmath.DIR8[direction].y)
 		return
 	}
 	// Flee: the sum of (pos - enemy) / d², for enemies in sight.

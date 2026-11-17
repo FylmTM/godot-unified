@@ -21,8 +21,8 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 	input: Input
 	if bits % 5 != 4 {
 		move := bits % 8
-		input.move_x = i8(dmath.DIR8[move].x * 127)
-		input.move_y = i8(dmath.DIR8[move].y * 127)
+		input.move_x = dmath.axis_i8(dmath.DIR8[move].x)
+		input.move_y = dmath.axis_i8(dmath.DIR8[move].y)
 	}
 	aim := (bits >> 4) % 8
 	input.aim = dmath.dir2(dmath.DIR8[aim])

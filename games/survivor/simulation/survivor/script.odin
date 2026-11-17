@@ -13,8 +13,8 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 	roll := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	if roll % 9 != 8 {
 		direction := roll % 8
-		input.move_x = i8(dmath.DIR8[direction].x * 127)
-		input.move_z = i8(dmath.DIR8[direction].y * 127)
+		input.move_x = dmath.axis_i8(dmath.DIR8[direction].x)
+		input.move_z = dmath.axis_i8(dmath.DIR8[direction].y)
 	}
 	if roll % 13 == 0 {
 		input.buttons += {.Dash}
