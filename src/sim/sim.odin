@@ -113,18 +113,17 @@ Player_Changes :: struct {
 	left:    []Player, // members absent from this tick
 }
 
-// Rollback state that lives outside the block (physics). The harness calls `save`/`restore` with
-// the ring slot (tick % ring_size), so an Extra keeps one saved copy per ring slot (at most
-// MAX_RING_SIZE).
+// Rollback state that lives outside the block (physics: physics.extra). A game has at most one (Game.extra; a game
+// with two kinds composes them into one). The harness calls `save`/`restore` with the ring slot (tick % ring_size),
+// so an Extra keeps one saved copy per ring slot (at most MAX_RING_SIZE).
 Extra :: struct {
 	data:    rawptr,
 	save:    proc(data: rawptr, slot: int),
 	restore: proc(data: rawptr, slot: int) -> bool,
-	// Appends the canonical bytes of the current state to `out` (checksum input). `state` points
-	// at the block, for extras whose order follows references stored in it. On ticks that are a
-	// multiple of DEEP_CHECKSUM_EVERY (the ones the netcode compares) an extra covers all of its
-	// internal state; on others it may cover less (a cheaper summary).
-	hash:    proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8),
+	// Appends the canonical bytes of the current state to `out` (checksum input). On ticks that are a multiple of
+	// DEEP_CHECKSUM_EVERY (the ones the netcode compares) it covers all of its internal state; on others it may cover
+	// less (a cheaper summary).
+	hash:    proc(data: rawptr, tick: u32, out: ^[dynamic]u8),
 	// Portable bytes of a ring slot (valid until that slot is saved again).
 	image:   proc(data: rawptr, slot: int) -> []u8,
 	// Loads portable bytes (from `image`, possibly another machine) into the live state.
@@ -132,17 +131,14 @@ Extra :: struct {
 	// Optional: the bytes the save of a ring slot holds (what each tick's save copies; save_size, the benchmarks).
 	size:    proc(data: rawptr, slot: int) -> int,
 	// Optional: "" when the extra agrees with the block (`state`), else why (physics: a broken ref, an orphaned body).
-	// sim.check runs every extra's; scenarios.rollback_every_tick runs it after every restore.
+	// sim.check_extra runs it; the sync-tests run it after every restore.
 	check:   proc(data: rawptr, state: rawptr) -> string,
 }
 
-// Every extra's check on the current state: "" when all agree with the block, else the first problem.
-check :: proc(simulation: ^Sim($G)) -> string {
-	for &extra in simulation.extras {
-		if extra.check == nil do continue
-		if reason := extra.check(extra.data, &simulation.state); reason != "" do return reason
-	}
-	return ""
+// The game's Extra's check on the current state: "" when it agrees with the block (or the game has none), else why.
+check_extra :: proc(simulation: ^Sim($G)) -> string {
+	extra := &simulation.extra
+	return extra.check(extra.data, &simulation.state) if extra.check != nil else ""
 }
 
 // The whole ticks nearest to `seconds` at `tick_hz` (clamped to 0..max(i32)): a time from data (a level file). A time
@@ -185,8 +181,9 @@ Game :: struct(
 	// outlive the World (the caller of create owns them).
 	world_create:    proc(seed: u64, content: []u8) -> ^World,
 	world_destroy:   proc(world: ^World),
-	// The World's rollback state (nil: none).
-	extras:          proc(world: ^World) -> []Extra,
+	// The World's rollback state (nil: none), asked for right after world_create: a physics game returns
+	// physics.extra(world.phys, State).
+	extra:           proc(world: ^World) -> Extra,
 	// Fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit, roll and
 	// create physics bodies.
 	init:            proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
@@ -223,7 +220,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	tick:         u32,
 	state:        part(G, GAME_STATE),
 	world:        ^part(G, GAME_WORLD),
-	extras:       []Extra,
+	extra:        Extra, // the game's (Game.extra; zero: none)
 	ring:         []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
 	changes:      Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
 	commands:     Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
@@ -365,8 +362,8 @@ create :: proc(
 	}
 	simulation.hash_buf = make([dynamic]u8)
 	simulation.world = game.world_create(seed, content)
-	if game.extras != nil {
-		simulation.extras = game.extras(simulation.world)
+	if game.extra != nil {
+		simulation.extra = game.extra(simulation.world)
 	}
 	inputs: Inputs(G)
 	slot := &simulation.ring[0]
@@ -451,7 +448,7 @@ save :: proc(simulation: ^Sim($G)) {
 	index := ring_slot(simulation, simulation.tick)
 	slot := &simulation.ring[index]
 	slot.state = simulation.state
-	for &extra in simulation.extras {
+	if extra := &simulation.extra; extra.save != nil {
 		extra.save(extra.data, index)
 	}
 	slot.tick = simulation.tick
@@ -459,9 +456,8 @@ save :: proc(simulation: ^Sim($G)) {
 	slot.saved = true
 }
 
-// Restores the saved state of `tick` (it must still be in the ring). The extras go first: if one
-// fails, the block and the tick are left as they were and false comes back (the extras before it
-// may have been restored; the caller treats the sim as broken). The later ticks leave the ring: they are
+// Restores the saved state of `tick` (it must still be in the ring). The extra goes first: if it fails, the block
+// and the tick are left as they were and false comes back (the caller treats the sim as broken). The later ticks leave the ring: they are
 // another timeline's until they are stepped again.
 restore :: proc(simulation: ^Sim($G), tick: u32) -> bool {
 	index := ring_slot(simulation, tick)
@@ -469,10 +465,8 @@ restore :: proc(simulation: ^Sim($G), tick: u32) -> bool {
 	if !slot.saved || slot.tick != tick {
 		return false
 	}
-	for &extra in simulation.extras {
-		if !extra.restore(extra.data, index) {
-			return false
-		}
+	if extra := &simulation.extra; extra.restore != nil && !extra.restore(extra.data, index) {
+		return false
 	}
 	simulation.state = slot.state
 	simulation.tick = tick
@@ -499,38 +493,36 @@ events_at :: proc(simulation: ^Sim($G), tick: u32) -> []Raw_Event {
 }
 
 // XXH3-64 (seed 0) over the tick (u32 LE), the block's bytes (its canonical serialization, in
-// field order) and then each Extra's canonical bytes.
+// field order) and then the Extra's canonical bytes.
 checksum :: proc(simulation: ^Sim($G)) -> u64 {
 	clear(&simulation.hash_buf)
 	tick := transmute([4]u8)u32le(simulation.tick)
 	append(&simulation.hash_buf, ..tick[:])
 	append(&simulation.hash_buf, ..([^]u8)(&simulation.state)[:size_of(simulation.state)])
-	for &extra in simulation.extras {
-		extra.hash(extra.data, &simulation.state, simulation.tick, &simulation.hash_buf)
+	if extra := &simulation.extra; extra.hash != nil {
+		extra.hash(extra.data, simulation.tick, &simulation.hash_buf)
 	}
 	return hash_bytes(simulation.hash_buf[:])
 }
 
-// The ticks whose checksums cover every extra's whole internal state (Extra.hash), and the ones the
-// netcode compares between peers.
+// The ticks whose checksums cover the Extra's whole internal state (Extra.hash), and the ones the netcode compares
+// between peers.
 DEEP_CHECKSUM_EVERY :: 16
 
-// Bytes each tick's save copies, measured on the current tick: the block and every extra's save of its slot (an
-// extra without `size` counts 0). What a tick costs in the ring, against snapshot_size's portable image.
+// Bytes each tick's save copies, measured on the current tick: the block and the extra's save of its slot (an extra
+// without `size` counts 0). What a tick costs in the ring, against snapshot_size's portable image.
 save_size :: proc(simulation: ^Sim($G)) -> int {
 	size := size_of(simulation.state)
-	for &extra in simulation.extras {
-		if extra.size != nil {
-			size += extra.size(extra.data, ring_slot(simulation, simulation.tick))
-		}
+	if extra := &simulation.extra; extra.size != nil {
+		size += extra.size(extra.data, ring_slot(simulation, simulation.tick))
 	}
 	return size
 }
 
-// Size in bytes of a full snapshot of the current tick (block + extras' images).
+// Size in bytes of a full snapshot of the current tick (block + the extra's image).
 snapshot_size :: proc(simulation: ^Sim($G)) -> int {
 	size := size_of(simulation.state)
-	for &extra in simulation.extras {
+	if extra := &simulation.extra; extra.image != nil {
 		size += len(extra.image(extra.data, ring_slot(simulation, simulation.tick)))
 	}
 	return size

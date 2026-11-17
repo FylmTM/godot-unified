@@ -29,8 +29,8 @@ diff_note :: proc(diff: ^Diff, format: string, args: ..any) {
 }
 
 // What differs between two snapshots of this build ("" when nothing does; temp-allocated): "tick 4160:
-// enemies[12].pos.x 3.25 vs 3.5; ..." down to the leaf field of the state's tables and globals, then each extra's
-// image by its first differing byte (extras are numbered in the game's order). At most DIFF_MAX are listed.
+// enemies[12].pos.x 3.25 vs 3.5; ..." down to the leaf field of the state's tables and globals, then the extra's
+// image by its first differing byte. At most DIFF_MAX are listed.
 snapshot_diff :: proc($State: typeid, a, b: []u8) -> string {
 	header_a, block_a, reader_a, err_a := snap_read(a, size_of(State), layout_hash(State))
 	header_b, block_b, reader_b, err_b := snap_read(b, size_of(State), layout_hash(State))
@@ -73,28 +73,16 @@ diff_blocks :: proc(
 		size := global.type.size
 		diff_value(&diff, global.name, global.type, block_a[global.off:][:size], block_b[global.off:][:size])
 	}
-	for k in 0 ..< min(header_a.extras, header_b.extras) {
-		image_a, ok_a := snap_extra(reader_a)
-		image_b, ok_b := snap_extra(reader_b)
-		if !ok_a || !ok_b {
-			diff_note(&diff, "extra %d: an image is cut short", k)
-			break
-		}
-		if string(image_a) == string(image_b) {
-			continue
-		}
+	image_a, ok_a := snap_extra(reader_a)
+	image_b, ok_b := snap_extra(reader_b)
+	if !ok_a || !ok_b {
+		diff_note(&diff, "extra: an image is cut short")
+	} else if string(image_a) != string(image_b) {
 		first := 0
 		for first < min(len(image_a), len(image_b)) && image_a[first] == image_b[first] {
 			first += 1
 		}
-		diff_note(
-			&diff,
-			"extra %d: its image differs from byte %d (%d vs %d bytes)",
-			k,
-			first,
-			len(image_a),
-			len(image_b),
-		)
+		diff_note(&diff, "extra: its image differs from byte %d (%d vs %d bytes)", first, len(image_a), len(image_b))
 	}
 	if diff.count == 0 {
 		return ""

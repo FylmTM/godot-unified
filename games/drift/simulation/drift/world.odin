@@ -26,7 +26,6 @@ Spawner_Def :: struct {
 
 World :: struct {
 	phys:          ^physics.World,
-	extras:        [1]sim.Extra,
 	level_data:    level.Level,
 	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
@@ -47,7 +46,7 @@ GAME := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
 }
@@ -68,7 +67,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
-	world.extras[0] = physics.extra(world.phys, State) // after the level: its bodies are the World's
+
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {

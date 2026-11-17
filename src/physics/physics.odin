@@ -391,9 +391,10 @@ despawn :: proc {
 
 // ---- the plug-in
 
-// The Extra that makes the world part of the rollback state of a block of type State (the game passes it to the
-// harness): saves, restores, hashes, images, loads and checks the world. Every ref in State (fields, arrays, table
-// items) is found once by RTTI, for check_refs. Make it last in world_create: the bodies made before it (level
+// The Extra that makes the world part of the rollback state of a block of type State: a physics game's Game.extra
+// returns it (`extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)}`). It saves,
+// restores, hashes, images, loads and checks the world. Every ref in State (fields, arrays, table items) is found
+// once by RTTI, for check_refs. The harness asks for it right after world_create: the bodies made before (level
 // geometry, the anchor, platforms) are the World's, every later one must be owned by a Body_Ref in the block.
 extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 	delete_layout(world.refs)
@@ -419,7 +420,7 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 		// start, island and tree (the canonical image's hash), and the body table. On other ticks: every awake body
 		// (id, pose and velocities) and which bodies are awake, a fraction of the cost (tests and traces checksum
 		// every tick).
-		hash = proc(data: rawptr, _: rawptr, tick: u32, out: ^[dynamic]u8) {
+		hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {
 			world := (^World)(data)
 			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
 				hash_bytes := transmute([8]u8)u64le(b3.world_hash_state(world.id))

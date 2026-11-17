@@ -363,7 +363,7 @@ run_synctest :: proc(
 			result.mismatches += 1
 			continue
 		}
-		if reason := sim.check(simulation); reason != "" && result.check == "" {
+		if reason := sim.check_extra(simulation); reason != "" && result.check == "" {
 			result.check, result.check_tick = reason, base
 		}
 		for resim in base + 1 ..= tick {

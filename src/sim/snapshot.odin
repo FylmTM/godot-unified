@@ -1,7 +1,6 @@
-// Portable snapshot: "UNIS", version u16, extra count u16, seed u64, content hash u64 (the level,
-// 0: none), tick u32, block size u32, layout hash u64 (layout_hash of the State), compat u64 (compat_of of the
-// build that took it), payload XXH3 u64, then
-// the block bytes, then per Extra its size u32 and image bytes. All of it is fixed-width little-endian
+// Portable snapshot: "UNIS", version u16, seed u64, content hash u64 (the level, 0: none), tick u32, block size u32,
+// layout hash u64 (layout_hash of the State), compat u64 (compat_of of the build that took it), payload XXH3 u64,
+// then the block bytes, then the Extra's image: its size u32 (0: the game has no Extra) and bytes. All of it is fixed-width little-endian
 // data without pointers, so a snapshot restores on another OS or CPU (late join, `resume`).
 package sim
 
@@ -10,11 +9,9 @@ import "base:intrinsics"
 import "unified:wire"
 
 SNAP_MAGIC :: "UNIS"
-// 4: physics images are Box3D's canonical images with their geometry (box3d_port phase 2); 5: the #6
-// sitting's sim (the bytes are laid out as in 4); 6: the build's compat in the header (#233); 7: the physics
-// extra's image carries its body table after Box3D's image (#237).
-SNAP_VERSION :: 7
-SNAP_HEADER :: 56
+// Bump on any change to the format or to what an image holds.
+SNAP_VERSION :: 8
+SNAP_HEADER :: 54
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
 Snap_Error :: enum u8 {
@@ -24,12 +21,10 @@ Snap_Error :: enum u8 {
 	Content_Differs, // the snapshot was taken with other content (another level)
 	Build_Differs, // another build's: the same state layout, another compat (game version, library, Box3D, ...)
 	Checksum_Mismatch, // the payload is damaged
-	Extra_Count, // the number of extra states differs from this build
-	Extra_Rejected, // an extra state (physics) rejected its image
+	Extra_Rejected, // the extra state (physics) rejected its image, or the snapshot has one and the game none
 }
 
 Snap_Header :: struct {
-	extras:  int,
 	seed:    u64,
 	content: u64,
 	tick:    u32,
@@ -52,7 +47,6 @@ snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8)
 	slot := &simulation.ring[index]
 	assert(slot.saved && slot.tick == tick, "snapshot of a tick that is not in the ring")
 	header := Snap_Header {
-		extras  = len(simulation.extras),
 		seed    = simulation.seed,
 		content = simulation.content_hash,
 		tick    = tick,
@@ -60,33 +54,29 @@ snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8)
 		layout  = layout_hash(State),
 		compat  = simulation.compat,
 	}
-	images := make([][]u8, len(simulation.extras), context.temp_allocator)
-	size := size_of(State)
-	for &extra, k in simulation.extras {
-		images[k] = extra.image(extra.data, index)
-		size += 4 + len(images[k])
+	image: []u8
+	if extra := &simulation.extra; extra.image != nil {
+		image = extra.image(extra.data, index)
 	}
 	writer := wire.Writer {
 		buf = out^,
 	}
 	clear(&writer.buf)
-	reserve(&writer.buf, SNAP_HEADER + size + 16)
+	reserve(&writer.buf, SNAP_HEADER + size_of(State) + 4 + len(image))
 	snap_begin(&writer, header, ([^]u8)(&slot.state)[:size_of(State)])
-	for image in images {
-		snap_add(&writer, image)
-	}
+	wire.w_u32(&writer, u32(len(image)))
+	wire.w_bytes(&writer, image)
 	bytes := snap_end(&writer)
 	out^ = writer.buf
 	return bytes
 }
 
-// Starts a snapshot's bytes in an empty writer: the header with a zero digest, then the state block; snap_add appends
-// each Extra's image and snap_end patches the digest. snapshot_encode_into builds every snapshot this way.
+// Starts a snapshot's bytes in an empty writer: the header with a zero digest, then the state block; the caller
+// appends the Extra's image and snap_end patches the digest.
 @(private)
 snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
 	wire.w_bytes(writer, transmute([]u8)string(SNAP_MAGIC))
 	wire.w_u16(writer, SNAP_VERSION)
-	wire.w_u16(writer, u16(header.extras))
 	wire.w_u64(writer, header.seed)
 	wire.w_u64(writer, header.content)
 	wire.w_u32(writer, header.tick)
@@ -97,12 +87,6 @@ snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
 	wire.w_bytes(writer, block)
 }
 
-// Appends one Extra's image (physics) to a snapshot snap_begin started, size-prefixed, in Extra order.
-@(private)
-snap_add :: proc(writer: ^wire.Writer, image: []u8) {
-	wire.w_u32(writer, u32(len(image)))
-	wire.w_bytes(writer, image)
-}
 
 // Patches the payload digest into the header and returns the snapshot's bytes (the writer's buffer).
 @(private)
@@ -112,7 +96,7 @@ snap_end :: proc(writer: ^wire.Writer) -> []u8 {
 	return writer.buf[:]
 }
 
-// Parses and verifies the header and payload digest; `reader` is left at the extras. The magic and
+// Parses and verifies the header and payload digest; `reader` is left at the Extra's image. The magic and
 // version come first (Bad_Header), then this build's block size and layout (Layout_Differs), then the
 // payload digest (Checksum_Mismatch).
 snap_read :: proc(
@@ -132,7 +116,7 @@ snap_read :: proc(
 		err = .Bad_Header
 		return
 	}
-	header.extras = int(wire.r_u16(&reader))
+
 	header.seed = wire.r_u64(&reader)
 	header.content = wire.r_u64(&reader)
 	header.tick = wire.r_u32(&reader)
@@ -156,7 +140,7 @@ snap_read :: proc(
 	return
 }
 
-// Reads the next Extra's image (a view into the snapshot bytes) after snap_read; false when it is cut short.
+// Reads the Extra's image (a view into the snapshot bytes; empty: none) after snap_read; false when it is cut short.
 snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 	image = wire.r_bytes(reader, int(wire.r_u32(reader)))
 	return image, reader.ok
@@ -185,18 +169,13 @@ from_snapshot :: proc(
 		return nil, .Build_Differs
 	}
 	simulation := create(game, header.seed, content)
-	if header.extras != len(simulation.extras) {
-		destroy(simulation)
-		return nil, .Extra_Count
-	}
 	intrinsics.mem_copy_non_overlapping(&simulation.state, raw_data(block), size_of(State))
 	simulation.tick = header.tick
-	for &extra in simulation.extras {
-		image, image_ok := snap_extra(&reader)
-		if !image_ok || !extra.load(extra.data, image) {
-			destroy(simulation)
-			return nil, .Extra_Rejected
-		}
+	image, image_ok := snap_extra(&reader)
+	extra := &simulation.extra
+	if !image_ok || (extra.load != nil ? !extra.load(extra.data, image) : len(image) != 0) {
+		destroy(simulation)
+		return nil, .Extra_Rejected
 	}
 	for &slot in simulation.ring {
 		slot.valid = false

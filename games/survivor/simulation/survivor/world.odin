@@ -16,7 +16,6 @@ CAT_PLAYER :: u64(1 << 3)
 World :: struct {
 	phys:    ^physics.World,
 	scratch: Scratch,
-	extras:  [1]sim.Extra,
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
@@ -98,7 +97,7 @@ GAME := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
 }
@@ -111,7 +110,7 @@ GAME_STRESS := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = proc(t: ^Tick) {
 		init(t)
 		set_tuning(t.state, .Stress)
@@ -203,7 +202,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	for k in 0 ..< 8 {
 		add_static_box(world, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
 	}
-	world.extras[0] = physics.extra(world.phys, State) // last: the bodies above are the World's
+
 	return world
 }
 

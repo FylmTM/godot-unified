@@ -75,7 +75,7 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 		if tick % GOLDEN_EVERY == 0 {
 			clear(&buf)
 			append(&buf, ..([^]u8)(&state)[:size_of(state)])
-			extra.hash(extra.data, &state, u32(tick), &buf)
+			extra.hash(extra.data, u32(tick), &buf)
 			got[tick / GOLDEN_EVERY - 1] = sim.hash_bytes(buf[:])
 		}
 	}

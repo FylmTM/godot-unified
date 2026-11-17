@@ -180,31 +180,30 @@ Checked :: struct {
 g_checked: ^Checked
 
 @(test)
-check_runs_every_extras_check :: proc(t: ^testing.T) {
+check_extra_runs_the_extras_check :: proc(t: ^testing.T) {
 	checked: Checked
 	g_checked = &checked
 	defer g_checked = nil
+	plain := sim.create(&toy.GAME, 7)
+	defer sim.destroy(plain)
+	testing.expect_value(t, sim.check_extra(plain), "") // no extra: nothing to disagree
 	game := toy.GAME
-	game.extras = proc(world: ^toy.World) -> []sim.Extra {
-		@(static) extras: [2]sim.Extra
-		quiet := sim.Extra {
+	game.extra = proc(world: ^toy.World) -> sim.Extra {
+		return {
+			data = g_checked,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return true},
-			hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {},
+			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
 			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
+			check = proc(data: rawptr, state: rawptr) -> string {
+				return "a broken ref" if (^Checked)(data).broken else ""
+			},
 		}
-		extras[0] = quiet // no check: always agrees
-		extras[1] = quiet
-		extras[1].data = g_checked
-		extras[1].check = proc(data: rawptr, state: rawptr) -> string {
-			return "a broken ref" if (^Checked)(data).broken else ""
-		}
-		return extras[:]
 	}
 	simulation := sim.create(&game, 7)
 	defer sim.destroy(simulation)
-	testing.expect_value(t, sim.check(simulation), "")
+	testing.expect_value(t, sim.check_extra(simulation), "")
 	checked.broken = true
-	testing.expect_value(t, sim.check(simulation), "a broken ref")
+	testing.expect_value(t, sim.check_extra(simulation), "a broken ref")
 }

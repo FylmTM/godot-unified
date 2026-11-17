@@ -623,17 +623,15 @@ Flaky :: struct {
 flaky_game :: proc(flaky: rawptr) -> toy.Game {
 	game := toy.GAME
 	game.world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)}
-	game.extras = proc(world: ^toy.World) -> []sim.Extra {
-		@(static) extra: [1]sim.Extra
-		extra[0] = {
+	game.extra = proc(world: ^toy.World) -> sim.Extra {
+		return {
 			data = g_flaky,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},
-			hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {},
+			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
 			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
 		}
-		return extra[:]
 	}
 	g_flaky = (^Flaky)(flaky)
 	return game

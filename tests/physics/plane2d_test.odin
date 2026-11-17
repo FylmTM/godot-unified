@@ -359,8 +359,7 @@ Field_Input :: struct {
 }
 
 Field_World :: struct {
-	phys:   ^physics.World,
-	extras: [1]sim.Extra,
+	phys: ^physics.World,
 }
 
 Field_Game :: sim.Game(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
@@ -376,7 +375,7 @@ FIELD := Field_Game {
 		physics.destroy(field_world.phys)
 		free(field_world)
 	},
-	extras = proc(field_world: ^Field_World) -> []sim.Extra {return field_world.extras[:]},
+	extra = proc(field_world: ^Field_World) -> sim.Extra {return physics.extra(field_world.phys, Field)},
 	init = proc(t: ^Field_Tick) {
 		world := t.world.phys
 		t.state.rng = sim.rng_seed(t.seed)
@@ -405,7 +404,6 @@ field_world_create :: proc(workers: i32) -> ^Field_World {
 	field_world := new(Field_World)
 	field_world.phys = zero_g(workers)
 	arena_walls(field_world.phys, ARENA)
-	field_world.extras[0] = physics.extra(field_world.phys, Field)
 	return field_world
 }
 
@@ -613,8 +611,8 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 	session3 := sim.create(&FIELD, 3)
 	defer sim.destroy(session3)
 	before := sim.checksum(session3)
-	image := session.extras[0].image(session.extras[0].data, sim.ring_slot(session, 100))
-	testing.expect(t, !session3.extras[0].load(session3.extras[0].data, image[:len(image) / 2]))
+	image := session.extra.image(session.extra.data, sim.ring_slot(session, 100))
+	testing.expect(t, !session3.extra.load(session3.extra.data, image[:len(image) / 2]))
 	testing.expect_value(t, sim.checksum(session3), before)
 	inputs := field_inputs(1)
 	sim.step(session3, &inputs)

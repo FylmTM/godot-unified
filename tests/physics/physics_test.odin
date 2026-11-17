@@ -42,7 +42,7 @@ make_world :: proc(state: ^State) -> ^physics.World {
 checksum :: proc(state: ^State, extra: ^sim.Extra) -> u64 {
 	buf: [dynamic]u8
 	defer delete(buf)
-	extra.hash(extra.data, state, 0, &buf) // tick 0: the whole world (sim.DEEP_CHECKSUM_EVERY)
+	extra.hash(extra.data, 0, &buf) // tick 0: the whole world (sim.DEEP_CHECKSUM_EVERY)
 	return sim.hash_bytes(buf[:])
 }
 

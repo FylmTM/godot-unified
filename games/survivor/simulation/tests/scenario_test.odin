@@ -41,7 +41,7 @@ SCENARIO := survivor.Game {
 	tick_hz       = survivor.TICK_HZ,
 	world_create  = survivor.world_create,
 	world_destroy = survivor.world_destroy,
-	extras        = survivor.GAME.extras,
+	extra         = survivor.GAME.extra,
 	init          = survivor.GAME_STRESS.init, // the dense stress spawner
 	tick          = scenario_tick,
 }

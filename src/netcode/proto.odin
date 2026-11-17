@@ -5,16 +5,8 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-// 4: datagram epochs (channel.odin); 5: compat derived by default, snapshot restart, reliable window; 6: commands;
-// 7: snapshots v4, checksums cover Box3D's whole state; 8: a relay time below 0 (the start lead) before tick 0;
-// 9: the #8 sitting: adaptive input delay, snapshots of checksum ticks checked against the majority (Snap_Ok),
-// desync reports (Desync, Welcome's flags), no replay from tick 0 (new reject reasons); 10: a Finalized packet's
-// ticks as their changes from the tick before (window.odin, #192);
-// 11: players are session members (#222): Hello's token, Welcome's member id, join records in finalized ticks, a
-// roster entry per member; 12: snapshots v6 (the build's compat in the header), a finalized tick with a slot past
-// PLAYERS present or replaced is refused (#233, #255); 13: a client's own inputs as their changes from the input before
-// (#245).
-PROTOCOL_VERSION :: 13
+// Bump on any change to what a message carries, the snapshots a late joiner gets included (sim.SNAP_VERSION).
+PROTOCOL_VERSION :: 14
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
 ACCOUNT_MAX :: 63 // bytes of an account id (an EOS product user id: 32)
