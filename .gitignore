@@ -13,7 +13,7 @@
 !/games/*/simulation/tests/testdata/ref.log
 !/tests/scenarios/testdata/ref.log
 
-# Generated Godot bindings (uni godot-gen)
+# Generated Godot bindings (from the API dump, when stale)
 *.gen.odin
 
 # Older checkouts staged the EOS SDK here; Epic's licence keeps it out of the repo (docs/EOS.md)

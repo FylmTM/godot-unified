@@ -8,7 +8,7 @@ import "core:strings"
 Init_Opts :: struct {
 	dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
 	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
-	unified: string `usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
+	unified: string `hint:"<url>" usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
 	ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
 }
 
@@ -270,14 +270,6 @@ import_game_tests :: proc(text, name: string) -> (string, bool) {
 		append(&out, ..lines[at:])
 	}
 	return aprintf("%s\n", strings.join(out[:], "\n")), true
-}
-
-// A path to compare: / separators, no trailing one, and (on Windows) lowercase.
-@(private = "file")
-path_key :: proc(path: string) -> string {
-	key, _ := strings.replace_all(path, "\\", "/")
-	key = strings.trim_right(key, "/")
-	return ODIN_OS == .Windows ? strings.to_lower(key) : key
 }
 
 // Whether a name can be a game's (`init` takes it from the directory): lowercase letters, digits and _,

@@ -1,4 +1,4 @@
-// Odin binding generator for Godot's GDExtension API (run by `uni godot-gen`).
+// Odin binding generator for Godot's GDExtension API (run by the CLI when the bindings are stale).
 //
 //   gen <api dir> <bindings.txt> <out dir>
 //
@@ -1070,7 +1070,7 @@ write_file :: proc(path: string, text: string) {
 }
 
 // Writes gdi/gdi.gen.odin and api.gen.odin under the out dir and prints counts of what it generated and skipped.
-// `uni godot-gen` builds and runs it when its inputs (the dumps, bindings.txt, this package) change.
+// The CLI (`ensure_bindings`) builds and runs it when its inputs (the dumps, bindings.txt, this package) change.
 main :: proc() {
 	if len(os.args) != 4 {
 		fmt.eprintln("usage: gen <api dir> <bindings.txt> <out dir>")

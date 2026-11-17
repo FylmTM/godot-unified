@@ -7,10 +7,6 @@ import "core:time"
 // Dependencies the CLI fetches or builds, pinned in pins.cfg (SPEC.md, Dependencies). Each `ensure_*` is a stamp
 // check when nothing changed (no process started), else it does the work and marks the run cold.
 
-// Bump when a recipe below changes in a way its inputs don't capture.
-RECIPE_VERSION :: 1
-MACOS_MIN :: "11.0"
-
 // --- downloads --------------------------------------------------------------------------------------------------
 
 // Downloads `url` to `dest` through the system curl (retries, redirects), checked against the pinned SHA-256. The
@@ -270,9 +266,9 @@ game_uses_box3d :: proc(game: Game) -> bool {
 	return sources_import(join(game.dir, "simulation"), `"unified:physics"`, `"unified:b3"`, `"box3d:`)
 }
 
-// Whether anything this project builds links Box3D (this repo's tests always do).
+// Whether anything this project builds links Box3D (Project_Config.uses_box3d: this repo's tests always do).
 project_uses_box3d :: proc() -> bool {
-	if is_unified_repo() {
+	if state.config.uses_box3d {
 		return true
 	}
 	for game in state.project.games {
@@ -286,8 +282,20 @@ project_uses_box3d :: proc() -> bool {
 // Whether an import line of any .odin file under `dir` contains one of the strings (import paths such as
 // `"unified:physics"`), to tell without compiling what code uses (Box3D, EOS, the scenarios). A line counts when it
 // starts with `import`, after an attribute (`@(require) import`); a commented-out import doesn't count, one inside a
-// /* */ block still does.
+// /* */ block still does. Each question is answered once per run (a command asks it per game, several times).
 sources_import :: proc(dir: string, imports: ..string) -> bool {
+	@(static) answers: map[string]bool
+	key := strings.join({dir, strings.join(imports, "\x00")}, "\x01")
+	if answer, known := answers[key]; known {
+		return answer
+	}
+	answer := scan_imports(dir, imports)
+	answers[key] = answer
+	return answer
+}
+
+// sources_import without the memo (a test changes the files between questions).
+scan_imports :: proc(dir: string, imports: []string) -> bool {
 	for file in find_files(dir, ".odin") {
 		text, _ := read_text(file)
 		for line in strings.split_lines_iterator(&text) {

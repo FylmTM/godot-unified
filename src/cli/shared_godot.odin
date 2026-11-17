@@ -49,7 +49,7 @@ mirror_tree :: proc(src, dst, label: string) {
 			}
 		}
 	}
-	rel :: proc(root, path: string) -> string {
+	relative_to :: proc(root, path: string) -> string {
 		relative, _ := strings.replace_all(path[len(root) + 1:], "\\", "/", context.temp_allocator)
 		return relative
 	}
@@ -57,13 +57,13 @@ mirror_tree :: proc(src, dst, label: string) {
 		return relative != "SPEC.md"
 	}
 	for file in find_files(dst, "") {
-		relative := rel(dst, file)
+		relative := relative_to(dst, file)
 		have, _ := sha256_file(file)
 		if want, known := last[relative]; known {
 			if have != want {
 				fatal(
 					"%s was edited in place: make the change in %s/%s (uni overwrites the copy), then delete the copy",
-					rel_path(file),
+					rel(file),
 					label,
 					relative,
 				)
@@ -79,7 +79,7 @@ mirror_tree :: proc(src, dst, label: string) {
 	keep := make(map[string]bool, context.temp_allocator)
 	changed := 0
 	for file in find_files(src, "") {
-		relative := rel(src, file)
+		relative := relative_to(src, file)
 		if !mirrored(relative) {
 			continue
 		}
@@ -108,16 +108,6 @@ mirror_tree :: proc(src, dst, label: string) {
 		write_text(stamp, strings.to_string(builder))
 	}
 	if changed > 0 {
-		log("uni: %s: %s mirrored (%d file(s) changed)", rel_path(dst), label, changed)
+		log("uni: %s: %s mirrored (%d file(s) changed)", rel(dst), label, changed)
 	}
-}
-
-// A path relative to the project root, for messages.
-@(private = "file")
-rel_path :: proc(path: string) -> string {
-	root := state.project.root
-	if strings.has_prefix(path, root) && len(path) > len(root) {
-		return path[len(root) + 1:]
-	}
-	return path
 }

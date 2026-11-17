@@ -11,7 +11,7 @@ HEADLESS := headless.Headless(g.State, g.Input, g.World, g.Event, g.Cmd, g.PLAYE
 	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
 		return g.scripted_input(seed, slot, tick)
 	},
-	bench = {what = "__GAME__ with 4 players, a rollback at the prediction cap every tick", ticks = 600},
+	bench = {what = "__GAME__ with 4 players", ticks = 600},
 }
 
 main :: proc() {

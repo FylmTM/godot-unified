@@ -8,24 +8,95 @@ import "core:time"
 
 // bench, record-reference, setup, clean.
 
-// A forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) must fit here (unified's target; each
-// game owns its benchmark's setup).
+// A forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) must fit here, both at their p99 (unified's
+// target, the frame budget's bad frames; each game owns its benchmark's setup).
 BENCH_TARGET_US :: 6000.0
 
 @(private)
 Bench_Opts :: struct {
-	views:    bool `usage:"instead: the Godot host's main-thread view sync at 1k, 4k and 16k MultiMesh instances (bench_views.odin)"`,
-	window:   bool `usage:"with --views: in a window, the real renderer (default: headless, Godot's dummy one)"`,
-	mute:     bool `usage:"with --window: no sound"`,
-	screen:   string `usage:"with --window: the screen it opens on: Godot's index, left, right or primary"`,
-	overflow: [dynamic]string `usage:"games (default: every game with a headless binary)"`,
+	overflow: [dynamic]string `hint:"[game...]" usage:"games (default: every game with a headless binary)"`,
+}
+
+// `bench -h`: how a benchmark measures, and what is checked.
+@(private)
+bench_details :: proc() -> string {
+	return aprintf(
+		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
+		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
+		"window + 64 ticks run untimed. The target: a step plus that re-sim within %.0f ms at their p99. A re-sim whose\n" +
+		"checksum differs fails the run. Then its `net-bench` (4 clients under `bad` on the virtual clock), the sim's\n" +
+		"`table-bench` once, and the project's own rows. Reported in .out/bench.json, not gated by time.",
+		BENCH_TARGET_US / 1000,
+	)
+}
+
+// Timing samples as the headless modes report them, in microseconds.
+Bench_Stat :: struct {
+	mean, p99: f64,
+}
+
+// A game's `bench` report (the headless mode's JSON line), with the target check added.
+Bench_Report :: struct {
+	what:                   string,
+	entities:               int,
+	window:                 int,
+	ticks:                  int,
+	warmup:                 int,
+	step_us:                Bench_Stat,
+	save_us:                Bench_Stat,
+	restore_us:             Bench_Stat,
+	resim_us:               Bench_Stat,
+	resim_final_us:         Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
+	checksum_us:            Bench_Stat, // sim.checksum of a tick peers don't compare
+	checksum_deep_us:       Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
+	snapshot_bytes:         int,
+	save_bytes:             int, // what each tick's save copies (the block and the extras' saves)
+	mismatches:             int,
+	step_plus_resim_p99_us: f64, // the target's measure
+	within_target:          bool,
+}
+
+// A game's `net-bench` report: its session of 4 clients under `bad` on the virtual clock.
+Net_Report :: struct {
+	wall_ms:            f64,
+	rollbacks:          int,
+	rollback_depth_avg: f64,
+	resim_ticks:        int,
+	stall_ticks:        int,
+	replaced_inputs:    int,
+	desyncs:            int,
+	step_us:            struct {
+		verified, resim, predicted: i64,
+	},
+	relay_bytes_per_s:  f64,
+	client_bytes_per_s: f64,
+	resends:            int,
+}
+
+// The `table-bench` report: the sim's sparse-table walk against a dense one, game-independent.
+Table_Report :: struct {
+	capacity:  int,
+	live:      int,
+	walks:     int,
+	sparse_us: Bench_Stat,
+	dense_us:  Bench_Stat,
+}
+
+// .out/bench.json.
+Bench_Summary :: struct {
+	platform:   string,
+	commit:     string,
+	target_us:  f64,
+	benchmarks: map[string]Bench_Report,
+	net:        map[string]Net_Report,
+	table:      Table_Report,
+	rows:       map[string]any, // the project's own (Project_Config.bench: this repo's physics)
 }
 
 @(private)
 cmd_bench :: proc(args: []string) -> Result {
 	opts: Bench_Opts
 	parse(&opts, args)
-	if opts.views do return bench_views(opts.window, {opts.mute, opts.screen, true})
 	games: [dynamic]Game
 	if len(opts.overflow) == 0 {
 		for game in state.project.games {
@@ -42,67 +113,7 @@ cmd_bench :: proc(args: []string) -> Result {
 	work := join(state.project.out, "bench")
 	remove_tree(work)
 	make_dirs(work)
-	Bench_Line :: struct {
-		what:               string,
-		step_mean_us:       f64,
-		step_p99_us:        f64,
-		save_mean_us:       f64,
-		restore_mean_us:    f64,
-		resim_mean_us:      f64,
-		resim_p99_us:       f64,
-		resim_final_us:     f64, // the same re-sim of final ticks, saving only the last (a catch-up burst)
-		checksum_us:        f64, // sim.checksum of a tick peers don't compare
-		checksum_deep_us:   f64, // ... and of one they do (every 16th: every extra's whole state)
-		window:             int,
-		step_plus_resim_us: f64,
-		snapshot_bytes:     int,
-		save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
-		within_target:      bool,
-		mismatches:         int,
-	}
-	// The netcode's cost (the headless `net-bench` mode): a game's session on the virtual clock under `bad`, 4 clients.
-	Net_Line :: struct {
-		wall_ms:            f64,
-		rollbacks:          int,
-		rollback_depth_avg: f64,
-		stall_ticks:        int,
-		replaced_inputs:    int,
-		resim_us:           int,
-		relay_bytes_per_s:  f64,
-		client_bytes_per_s: f64,
-		resends:            int,
-	}
-	// The sim's sparse-table walk (the headless `table-bench` mode, game-independent): reported, no target.
-	Table_Line :: struct {
-		capacity:       int,
-		live:           int,
-		sparse_mean_us: f64,
-		sparse_p99_us:  f64,
-		dense_mean_us:  f64,
-	}
-	// Box3D through unified:physics on a fixed scene (tests/physics/bench, this repo only): reported, no target. What
-	// to compare on a Box3D upgrade (the upgrade-dependency skill).
-	Physics_Line :: struct {
-		bodies:          int,
-		step_mean_us:    f64,
-		step_p99_us:     f64,
-		save_mean_us:    f64,
-		restore_mean_us: f64,
-		hash_deep_us:    f64,
-		rays:            int,
-		rays_mean_us:    f64,
-		snapshot_bytes:  int,
-	}
-	Summary :: struct {
-		platform:   string,
-		commit:     string,
-		target_us:  f64,
-		benchmarks: map[string]Bench_Line,
-		net:        map[string]Net_Line,
-		table:      Table_Line,
-		physics:    Physics_Line,
-	}
-	summary := new(Summary)
+	summary := new(Bench_Summary)
 	summary^ = {
 		platform  = PLATFORM,
 		commit    = git_commit(),
@@ -111,91 +122,46 @@ cmd_bench :: proc(args: []string) -> Result {
 	failed: [dynamic]string
 	for game in games {
 		// alone: nothing else runs meanwhile, so the timings are clean
-		result := run_proc({
-			cmd     = strs(headless_path(game.name, .release), "bench"),
-			capture = true,
-			quiet   = true,
-			timeout = 900 * time.Second,
-			log_to  = join(work, game.name),
-		})
-		obj, ok := last_json_object(result.stdout)
-		if !result.ok || !ok {
-			log("uni: bench %s failed (exit %d):\n%s", game.name, result.exit_code, tail(result.stderr, 2000))
+		bench: Bench_Report
+		if !run_report(headless_path(game.name, .release), "bench", join(work, game.name), 900, &bench) {
 			append(&failed, game.name)
 			continue
 		}
-		stat :: proc(object: json.Object, key, field: string) -> f64 {
-			section, _ := object[key].(json.Object)
-			return json_f64(section[field])
-		}
-		bench := Bench_Line {
-			what             = json_string(obj["what"]),
-			step_mean_us     = stat(obj, "step_us", "mean"),
-			step_p99_us      = stat(obj, "step_us", "p99"),
-			save_mean_us     = stat(obj, "save_us", "mean"),
-			restore_mean_us  = stat(obj, "restore_us", "mean"),
-			resim_mean_us    = stat(obj, "resim_us", "mean"),
-			resim_p99_us     = stat(obj, "resim_us", "p99"),
-			resim_final_us   = stat(obj, "resim_final_us", "mean"),
-			checksum_us      = stat(obj, "checksum_us", "mean"),
-			checksum_deep_us = stat(obj, "checksum_deep_us", "mean"),
-			window           = json_int(obj["window"]),
-			snapshot_bytes   = json_int(obj["snapshot_bytes"]),
-			save_bytes       = json_int(obj["save_bytes"]),
-			mismatches       = json_int(obj["mismatches"]),
-		}
-		bench.step_plus_resim_us = bench.step_mean_us + bench.resim_mean_us
-		bench.within_target = bench.step_plus_resim_us <= BENCH_TARGET_US
+		bench.step_plus_resim_p99_us = bench.step_us.p99 + bench.resim_us.p99
+		bench.within_target = bench.step_plus_resim_p99_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms (target <= %.0f ms: %s); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
+			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
 			game.name,
-			bench.step_mean_us,
+			bench.step_us.p99,
 			bench.window,
-			bench.resim_mean_us,
-			bench.step_plus_resim_us / 1000,
+			bench.resim_us.p99,
+			bench.step_plus_resim_p99_us / 1000,
 			BENCH_TARGET_US / 1000,
 			bench.within_target ? "yes" : "NO",
-			bench.resim_final_us,
-			bench.save_mean_us,
+			bench.step_us.mean,
+			bench.resim_us.mean,
+			bench.resim_final_us.mean,
+			bench.save_us.mean,
 			bench.save_bytes,
-			bench.restore_mean_us,
-			bench.checksum_us,
-			bench.checksum_deep_us,
+			bench.restore_us.mean,
+			bench.checksum_us.mean,
+			bench.checksum_deep_us.mean,
 			bench.snapshot_bytes,
 		)
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}
-		net_result := run_proc({
-			cmd     = strs(headless_path(game.name, .release), "net-bench"),
-			capture = true,
-			quiet   = true,
-			timeout = 300 * time.Second,
-			log_to  = join(work, aprintf("%s-net", game.name)),
-		})
-		net_obj, net_ok := last_json_object(net_result.stdout)
-		if !net_result.ok || !net_ok {
-			log(
-				"uni: net-bench %s failed (exit %d):\n%s",
-				game.name,
-				net_result.exit_code,
-				tail(net_result.stderr, 2000),
-			)
+		net: Net_Report
+		if !run_report(
+			headless_path(game.name, .release),
+			"net-bench",
+			join(work, aprintf("%s-net", game.name)),
+			300,
+			&net,
+		) {
 			append(&failed, aprintf("%s net-bench", game.name))
 			continue
-		}
-		steps_us, _ := net_obj["step_us"].(json.Object)
-		net := Net_Line {
-			wall_ms            = json_f64(net_obj["wall_ms"]),
-			rollbacks          = json_int(net_obj["rollbacks"]),
-			rollback_depth_avg = json_f64(net_obj["rollback_depth_avg"]),
-			stall_ticks        = json_int(net_obj["stall_ticks"]),
-			replaced_inputs    = json_int(net_obj["replaced_inputs"]),
-			resim_us           = json_int(steps_us["resim"]),
-			relay_bytes_per_s  = json_f64(net_obj["relay_bytes_per_s"]),
-			client_bytes_per_s = json_f64(net_obj["client_bytes_per_s"]),
-			resends            = json_int(net_obj["resends"]),
 		}
 		summary.net[game.name] = net
 		log(
@@ -204,7 +170,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			net.wall_ms,
 			net.rollbacks,
 			net.rollback_depth_avg,
-			f64(net.resim_us) / 1000,
+			f64(net.step_us.resim) / 1000,
 			net.stall_ticks,
 			net.replaced_inputs,
 			net.relay_bytes_per_s / 1000,
@@ -214,84 +180,34 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	if len(games) > 0 {
 		// any game's binary runs it; once is enough
-		result := run_proc({
-				cmd     = strs(headless_path(games[0].name, .release), "table-bench"),
-				capture = true,
-				quiet   = true,
-				timeout = 120 * time.Second,
-				log_to  = join(work, "table"),
-			})
-		obj, ok := last_json_object(result.stdout)
-		if result.ok && ok {
-			section :: proc(object: json.Object, key, field: string) -> f64 {
-				inner, _ := object[key].(json.Object)
-				return json_f64(inner[field])
-			}
-			summary.table = {
-				capacity       = json_int(obj["capacity"]),
-				live           = json_int(obj["live"]),
-				sparse_mean_us = section(obj, "sparse_us", "mean"),
-				sparse_p99_us  = section(obj, "sparse_us", "p99"),
-				dense_mean_us  = section(obj, "dense_us", "mean"),
-			}
+		if run_report(
+			headless_path(games[0].name, .release),
+			"table-bench",
+			join(work, "table"),
+			120,
+			&summary.table,
+		) {
+			table := summary.table
 			log(
 				"%-12s walk of a %d-slot table holding %d: %.1f us (p99 %.1f); the same %d dense: %.1f us",
 				"sim.table",
-				summary.table.capacity,
-				summary.table.live,
-				summary.table.sparse_mean_us,
-				summary.table.sparse_p99_us,
-				summary.table.live,
-				summary.table.dense_mean_us,
+				table.capacity,
+				table.live,
+				table.sparse_us.mean,
+				table.sparse_us.p99,
+				table.live,
+				table.dense_us.mean,
 			)
 		} else {
-			log("uni: table-bench failed (exit %d):\n%s", result.exit_code, tail(result.stderr, 2000))
 			append(&failed, "table-bench")
 		}
 	}
-	if is_unified_repo() {
-		physics_bench := Headless{"physics_bench", join(state.project.root, "tests", "physics", "bench"), true}
-		result := run_proc({
-			cmd     = strs(ensure_headless(physics_bench, .release)),
-			capture = true,
-			quiet   = true,
-			timeout = 120 * time.Second,
-			log_to  = join(work, "physics"),
-		})
-		obj, ok := last_json_object(result.stdout)
-		if result.ok && ok {
-			section :: proc(object: json.Object, key, field: string) -> f64 {
-				inner, _ := object[key].(json.Object)
-				return json_f64(inner[field])
-			}
-			summary.physics = {
-				bodies          = json_int(obj["bodies"]),
-				step_mean_us    = section(obj, "step_us", "mean"),
-				step_p99_us     = section(obj, "step_us", "p99"),
-				save_mean_us    = section(obj, "save_us", "mean"),
-				restore_mean_us = section(obj, "restore_us", "mean"),
-				hash_deep_us    = section(obj, "hash_deep_us", "mean"),
-				rays            = json_int(obj["rays"]),
-				rays_mean_us    = section(obj, "rays_us", "mean"),
-				snapshot_bytes  = json_int(obj["snapshot_bytes"]),
-			}
-			line := summary.physics
-			log(
-				"%-12s %d awake boxes: step %.0f us (p99 %.0f), save %.0f us (%d bytes), restore %.0f us, deep hash %.0f us, %d rays %.0f us",
-				"physics",
-				line.bodies,
-				line.step_mean_us,
-				line.step_p99_us,
-				line.save_mean_us,
-				line.snapshot_bytes,
-				line.restore_mean_us,
-				line.hash_deep_us,
-				line.rays,
-				line.rays_mean_us,
-			)
+	for row in state.config.bench {
+		data, ok := row.run(work)
+		if ok {
+			summary.rows[row.name] = data
 		} else {
-			log("uni: physics bench failed (exit %d):\n%s", result.exit_code, tail(result.stderr, 2000))
-			append(&failed, "physics")
+			append(&failed, row.name)
 		}
 	}
 	if data, err := json.marshal(summary^, {pretty = true}); err == nil {
@@ -307,47 +223,72 @@ cmd_bench :: proc(args: []string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"bench: %d game(s), sim, netcode%s benchmarks, reported in .out/bench.json",
+			"bench: %d game(s), the sim and netcode benchmarks%s, reported in .out/bench.json",
 			len(games),
-			is_unified_repo() ? " and physics" : "",
+			len(state.config.bench) > 0 ? " and the project's own" : "",
 		),
 		data    = summary^,
 	}
 }
 
-// A JSON number as an f64, or 0 when it is missing or not a number: reads the headless binaries' benchmark
-// reports for `bench`.
-json_f64 :: proc(value: json.Value) -> f64 {
-	#partial switch number in value {
-	case json.Float:
-		return f64(number)
-	case json.Integer:
-		return f64(number)
+// Runs a benchmark binary (`mode` its first argument, "" none) and reads its last JSON line into `report` (a struct in
+// the line's shape: what it names is read, the rest left). False, with its output's tail logged, when it failed or
+// printed no such line. Its output goes to `log_to` (.out/bench/).
+run_report :: proc(binary, mode, log_to: string, timeout_s: int, report: ^$Report) -> bool {
+	cmd: [dynamic]string
+	append(&cmd, binary)
+	if mode != "" {
+		append(&cmd, mode)
 	}
-	return 0
+	result := run_proc({
+		cmd     = cmd[:],
+		capture = true,
+		quiet   = true,
+		timeout = time.Duration(timeout_s) * time.Second,
+		log_to  = log_to,
+	})
+	line, found := last_json_line(result.stdout)
+	if !result.ok || !found || json.unmarshal_string(line, report) != nil {
+		log(
+			"uni: %s %s failed (exit %d):\n%s",
+			os.base(binary),
+			mode,
+			result.exit_code,
+			tail(strings.concatenate({result.stdout, result.stderr}), 2000),
+		)
+		return false
+	}
+	return true
 }
 
 // The last line of a text that parses as a JSON object.
-last_json_object :: proc(text: string) -> (json.Object, bool) {
+last_json_line :: proc(text: string) -> (string, bool) {
 	lines := strings.split_lines(text)
 	#reverse for line in lines {
 		trimmed := strings.trim_space(line)
 		if strings.has_prefix(trimmed, "{") {
 			if value, err := json.parse_string(trimmed); err == nil {
-				if object, ok := value.(json.Object); ok {
-					return object, true
+				if _, ok := value.(json.Object); ok {
+					return trimmed, true
 				}
 			}
 		}
 	}
-	return nil, false
+	return "", false
+}
+
+// The last line of a text that parses as a JSON object, parsed.
+last_json_object :: proc(text: string) -> (object: json.Object, ok: bool) {
+	line := last_json_line(text) or_return
+	value, _ := json.parse_string(line)
+	return value.(json.Object)
 }
 
 // --- record-reference -------------------------------------------------------------------------------------------
 
 @(private)
 Record_Reference_Opts :: struct {
-	game: string `args:"pos=0,required" usage:"the game (in this repo also toy: tests/scenarios)"`,
+	game: string `args:"pos=0,required" usage:"the game (or a headless binary of the project's own with an end-to-end suite: this repo's toy)"`,
 }
 
 // Builds the game's end-to-end suite with -define:UNIFIED_REGEN=true and runs it: its reference test writes a new
@@ -359,10 +300,13 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	parse(&opts, args)
 	pkg: string
 	needs_box3d: bool
-	if opts.game == "toy" && is_unified_repo() {
-		pkg = join(state.project.root, "tests", "scenarios")
-		needs_box3d = true
-	} else {
+	for extra in state.config.headless {
+		if extra.name == opts.game && extra.suite != "" {
+			pkg = join(state.project.root, extra.suite)
+			needs_box3d = project_uses_box3d() // its suite may link it through the library
+		}
+	}
+	if pkg == "" {
 		selected := game(opts.game)
 		pkg = join(selected.dir, "simulation", "tests")
 		needs_box3d = game_uses_box3d(selected)
@@ -382,7 +326,7 @@ cmd_record_reference :: proc(args: []string) -> Result {
 	append(&cmd, ..collection())
 	append(&cmd, aprintf("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
 	append(&cmd, ..TEST_RUN_FLAGS)
-	append(&cmd, ..TEST_FLAGS)
+	append(&cmd, ..mode_flags(.dev))
 	append(&cmd, ..VET)
 	must_run({cmd = cmd[:]}, aprintf("record-reference %s: the build", opts.game))
 	if !run_test_binary(exe, time.Duration(state.command.budget * CI_BUDGET_SCALE * f64(time.Second))) {
@@ -411,9 +355,7 @@ cmd_record_reference :: proc(args: []string) -> Result {
 // --- setup ------------------------------------------------------------------------------------------------------
 
 @(private)
-Setup_Opts :: struct {
-	check: bool `usage:"report only: fetch and build nothing"`,
-}
+Setup_Opts :: struct {}
 
 // Fetches and builds everything the project needs, and reports each dependency's version and where it came from.
 @(private)
@@ -427,20 +369,18 @@ cmd_setup :: proc(args: []string) -> Result {
 		ready:   bool,
 	}
 	deps: [dynamic]Dep
-	uses_box3d, uses_eos := is_unified_repo(), is_unified_repo()
+	uses_box3d, uses_eos := project_uses_box3d(), false
 	for game in state.project.games {
 		uses_box3d = uses_box3d || game_uses_box3d(game)
 		uses_eos = uses_eos || extension_uses_eos(game)
 	}
 	append(&deps, Dep{"odin", aprintf("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
-	if !opts.check {
-		ensure_odinfmt()
-		ensure_bindings()
-		if uses_box3d {
-			ensure_box3d(build = true)
-		}
-		godot()
+	ensure_odinfmt()
+	ensure_bindings()
+	if uses_box3d {
+		ensure_box3d(build = true)
 	}
+	godot()
 	odinfmt := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
 	append(
 		&deps,
@@ -478,7 +418,7 @@ cmd_setup :: proc(args: []string) -> Result {
 		all_ready = all_ready && dep.ready
 	}
 	return {
-		ok      = opts.check || all_ready,
+		ok      = all_ready,
 		summary = aprintf("setup: %s", all_ready ? "everything is in place" : "some dependencies are missing"),
 		data    = box(deps[:]),
 	}
@@ -499,7 +439,6 @@ env_source :: proc(key: string) -> string {
 
 @(private)
 Clean_Opts :: struct {
-	check: bool `usage:"report only: list what would be removed, remove nothing"`,
 	cache: bool `usage:"also the per-user cache's Godot and unified-box3d downloads, shared by every checkout (the shims' Odin stays)"`,
 }
 
@@ -545,7 +484,7 @@ cmd_clean :: proc(args: []string) -> Result {
 			continue
 		}
 		if info.name == ".out" || info.name == ".godot" {
-			if !same_path(info.fullpath, project.out) {
+			if path_key(info.fullpath) != path_key(project.out) {
 				append(&targets, strings.clone(info.fullpath))
 			}
 			os.walker_skip_dir(&walker)
@@ -561,10 +500,6 @@ cmd_clean :: proc(args: []string) -> Result {
 		}
 		name, _ := strings.replace_all(rel(target), "\\", "/")
 		append(&removed, name)
-		if opts.check {
-			log("  %s", name)
-			continue
-		}
 		// remove_all can return no error and leave files a running process holds (Windows: a Godot this project
 		// started, its loaded extension, an older uni still running), so what is left decides.
 		err := os.remove_all(target)
@@ -586,8 +521,6 @@ cmd_clean :: proc(args: []string) -> Result {
 	switch {
 	case len(removed) == 0:
 		summary = "clean: nothing to remove"
-	case opts.check:
-		summary = aprintf("clean: %d paths would go (nothing removed)", len(removed))
 	case failed > 0:
 		summary = aprintf("clean: %d of %d paths could not be removed (above)", failed, len(removed))
 	case:
@@ -598,15 +531,4 @@ cmd_clean :: proc(args: []string) -> Result {
 		summary = summary,
 		data    = box(removed[:]),
 	}
-}
-
-// Whether two paths name the same place (slashes and, on Windows, case aside).
-@(private)
-same_path :: proc(first, second: string) -> bool {
-	norm :: proc(path: string) -> string {
-		slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
-		slashed = strings.trim_right(slashed, "/")
-		return ODIN_OS == .Windows ? strings.to_lower(slashed, context.temp_allocator) : slashed
-	}
-	return norm(first) == norm(second)
 }

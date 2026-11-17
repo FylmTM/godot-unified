@@ -57,16 +57,17 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The Godot editor (the per-user cache: ~/.cache/unified on macOS, %LOCALAPPDATA%\unified on Windows); the
-      # export templates are fetched into Godot's own folder per run, checked against pins.cfg (range reads: ~120 MB).
-      - id: keys
-        run: echo "godot=$(${{ matrix.uni }} ci cache-key godot)" >> "$GITHUB_OUTPUT"
+      # The shims' Odin and the Godot editor (the per-user cache: ~/.cache/unified on macOS, %LOCALAPPDATA%\unified on
+      # Windows), keyed by pins.cfg; the export templates are fetched into Godot's own folder per run, checked against
+      # pins.cfg (range reads: ~120 MB).
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
+            ~/.cache/unified/odin
             ~/.cache/unified/godot
+            ~/AppData/Local/unified/odin
             ~/AppData/Local/unified/godot
-          key: ${{ steps.keys.outputs.godot }}
+          key: release-${{ matrix.platform }}-${{ hashFiles('pins.cfg') }}
       # The public variant first (#33): built and smoke-tested without the dev UI, then removed, not published (the
       # prerelease is for playtests, which keep it: F3 notes).
       - name: uni release --no-devui (checked, not published)

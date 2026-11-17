@@ -16,6 +16,11 @@ Stat :: struct {
 	p99:  f64,
 }
 
+// A Stat as the modes print it: {"mean":..,"p99":..} (temp-allocated).
+stat_json :: proc(stat: Stat) -> string {
+	return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
+}
+
 // The mean and nearest-rank p99 of timing samples (zeros for none); sorts `samples` in place.
 stat_of :: proc(samples: []f64) -> Stat {
 	if len(samples) == 0 {
@@ -39,17 +44,22 @@ Bench_Result :: struct {
 	// state) and on the others (an extra's cheaper summary)
 	checksum_deep, checksum:    Stat,
 	snapshot_bytes:             int,
-	block_bytes:                int,
 	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
-	entities_mean:              f64,
+	warmup:                     int, // the first ticks, left out of the timings
 	mismatches:                 int,
 }
+
+// The ticks a benchmark runs before it times anything, after the first `window` (which have no rollback that deep):
+// caches warm and a game's population settles (players joining, the first waves).
+BENCH_WARMUP :: 64
 
 // `bench`: prepares `entities` entities (the game holds that population), and every tick measures
 // the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
 // save per tick, which is what a client rollback of predicted ticks costs), then the same re-sim of final ticks
 // (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too, and the forward tick's
-// checksum is timed (deep ticks and the others apart).
+// checksum is timed (deep ticks and the others apart). The first `window` + BENCH_WARMUP ticks run untimed (all of
+// them when the run is no longer). A rollback at the prediction cap every tick is the worst case the netcode
+// makes, not a typical frame: the bound the frame budget is checked against.
 run_bench :: proc(
 	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
 	entities: int,
@@ -90,9 +100,14 @@ run_bench :: proc(
 		delete(forward)
 	}
 	micros :: proc(from, to: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(from, to))}
-	count_sum := 0.0
-	rollbacks, checksums, deep_checksums := 0, 0, 0
+	warmup := u32(window) + BENCH_WARMUP
+	if warmup >= ticks {
+		warmup = 0
+	}
+	result.warmup = int(warmup)
+	steps, rollbacks, checksums, deep_checksums := 0, 0, 0, 0
 	for tick in 1 ..= ticks {
+		timed := tick > warmup
 		recorded[tick] = uheadless.scripted(headless, simulation, tick, players, &commands)
 		step_start := time.tick_now()
 		sim.advance(simulation, &recorded[tick])
@@ -101,17 +116,17 @@ run_bench :: proc(
 		save_end := time.tick_now()
 		forward[tick] = sim.checksum(simulation)
 		checksum_end := time.tick_now()
-		if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
-			checksum_deep_us[deep_checksums] = micros(save_end, checksum_end)
-			deep_checksums += 1
-		} else {
-			checksum_us[checksums] = micros(save_end, checksum_end)
-			checksums += 1
-		}
-		step_us[tick - 1] = micros(step_start, step_end)
-		save_us[tick - 1] = micros(step_end, save_end)
-		if headless.bench_count != nil {
-			count_sum += f64(headless.bench_count(&simulation.state))
+		if timed {
+			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
+				checksum_deep_us[deep_checksums] = micros(save_end, checksum_end)
+				deep_checksums += 1
+			} else {
+				checksum_us[checksums] = micros(save_end, checksum_end)
+				checksums += 1
+			}
+			step_us[steps] = micros(step_start, step_end)
+			save_us[steps] = micros(step_end, save_end)
+			steps += 1
 		}
 		if tick < window {
 			continue
@@ -141,22 +156,22 @@ run_bench :: proc(
 		if sim.checksum(simulation) != forward[tick] {
 			result.mismatches += 1
 		}
-		restore_us[rollbacks] = micros(restore_start, restore_end)
-		resim_us[rollbacks] = micros(restore_end, resim_end)
-		resim_final_us[rollbacks] = micros(final_start, final_end)
-		rollbacks += 1
+		if timed {
+			restore_us[rollbacks] = micros(restore_start, restore_end)
+			resim_us[rollbacks] = micros(restore_end, resim_end)
+			resim_final_us[rollbacks] = micros(final_start, final_end)
+			rollbacks += 1
+		}
 	}
-	result.step = stat_of(step_us)
-	result.save = stat_of(save_us)
+	result.step = stat_of(step_us[:steps])
+	result.save = stat_of(save_us[:steps])
 	result.restore = stat_of(restore_us[:rollbacks])
 	result.resim = stat_of(resim_us[:rollbacks])
 	result.resim_final = stat_of(resim_final_us[:rollbacks])
 	result.checksum = stat_of(checksum_us[:checksums])
 	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
-	result.block_bytes = size_of(State)
 	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
-	result.entities_mean = count_sum / f64(max(tick_count, 1))
 	return
 }
 
@@ -217,9 +232,6 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 		dense_sum += sum
 	}
 	sparse_stat, dense_stat := stat_of(sparse_us), stat_of(dense_us)
-	stat_json :: proc(stat: Stat) -> string {
-		return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
-	}
 	fmt.printfln(
 		`{{"mode":"table-bench","capacity":%d,"live":%d,"walks":%d,"sparse_us":%s,"dense_us":%s,"checksum":%d}}`,
 		TABLE_BENCH_CAPACITY,

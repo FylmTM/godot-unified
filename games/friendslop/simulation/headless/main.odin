@@ -24,7 +24,7 @@ HEADLESS := headless.Headless(
 	scripted_input = friendslop.scripted_input,
 	summary = summary,
 	bench = {
-		what  = "friendslop on the park level (Box3D characters and joints), a rollback at the prediction cap every tick",
+		what  = "friendslop on the park level (Box3D characters and joints)",
 		ticks = 600,
 	},
 }

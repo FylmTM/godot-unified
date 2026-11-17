@@ -88,7 +88,7 @@ body_valid(world, Body_Link) -> bool  joint_valid(world, $J) -> bool  resolve(wo
 
 Box3D's release library (what every build links but `--mode debug`) compiles its id checks out, so a stale id reaches
 whatever now has its index. Accessors trust refs (`check_refs` covers them); `destroy_*` and `resolve` check, where a
-stale one is plausible. `uni test --box3d-debug` (run by `verify`) runs the suite against the debug library, whose
+stale one is plausible. The `box3d-debug` test suite (run by `verify`) runs the tests against the debug library, whose
 asserts trap a misused id. `body_id`, `link_id` and `joint_id` (raw `b3` ids) stay for the library and `tests/b3`.
 
 ## Entity tags (#237)

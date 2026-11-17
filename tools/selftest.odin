@@ -6,29 +6,27 @@ import "core:time"
 
 import "unified:cli"
 
-Selftest_Opts :: struct {
-	shims: bool `usage:"only the clone's bootstrap: the shim's Odin download, checked and unpacked, and the CLI built with it"`,
-}
+Selftest_Opts :: struct {}
 
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
-// bootstrapped by its shim with no pinned Odin to find and an empty per-user cache, so the shim downloads the
-// pinned Odin, checks its SHA-256, unpacks it and builds the CLI with it. Then `init` a game outside it with the
-// clone as its submodule pinned to HEAD (checking the pin and the commands and links its files name), then check its
-// view index, build it, run a headless mode and every test suite in that game repo. Then `init --in-repo` the same
-// game inside the clone (checking it wrote only the game and its tests import), its index, build, a headless mode,
-// the clone's odin suite and the game's godot suite. Only when called (before tooling PRs, after a pin or toolchain
-// change); never by `verify`, nor by CI. `--shims` stops after the bootstrap. It tests the committed HEAD, so it
-// refuses uncommitted changes.
+// bootstrapped by its shim with an empty per-user cache, so the shim downloads the pinned Odin, checks its SHA-256,
+// unpacks it and builds the CLI with it. Then `init` a game outside it with the clone as its submodule pinned to HEAD
+// (checking the pin and the commands and links its files name), then check its view index, build it, run a headless
+// mode and every test suite in that game repo. Then `init --in-repo` the same game inside the clone (checking it wrote
+// only the game and its tests import), its index, build, a headless mode, the clone's odin suite and the game's godot
+// suite. Last, the test watchdog: a test crashing while it holds a lock must fail its run within seconds. Only when
+// called (before tooling PRs, after a pin or toolchain change); never by `verify`, nor by CI. It tests the committed
+// HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	opts: Selftest_Opts
 	cli.parse(&opts, args)
 	root := cli.state.project.root
-	st := cli.run_proc({
+	status := cli.run_proc({
 		cmd     = cli.strs("git", "-C", root, "status", "--porcelain"),
 		capture = true,
 		quiet   = true,
 	})
-	if strings.trim_space(st.stdout) != "" {
+	if strings.trim_space(status.stdout) != "" {
 		cli.fatal("selftest tests the committed HEAD: commit first")
 	}
 	work := cli.join(cli.state.project.out, "selftest")
@@ -67,127 +65,125 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		cmd  = cli.strs("git", "clone", "-q", root, clone),
 		env  = env,
 	}, Step {
-		what = "bootstrap: the shim downloads the pinned Odin (none to find, an empty cache) and builds the CLI with it",
+		what = "bootstrap: the shim downloads the pinned Odin into an empty cache and builds the CLI with it",
 		cmd  = shim(clone, "version"),
 		dir  = clone,
 		env  = download_env(work, cache),
 	})
-	if !opts.shims {
-		append(
-			&steps,
-			Step {
-				what  = "init a game outside the repo",
-				cmd   = shim(clone, "init", game, "--unified", clone, "--ref", head),
-				dir   = work,
-				env   = env,
-				check = check_init,
-			},
-			Step {
-				what = "its view index is what the build writes",
-				cmd  = shim(game, "bake", "--check"),
-				dir  = game,
-				env  = env,
-			},
-			// the first build generates the Godot bindings: a cold run, not one over its budget
-			Step {
-				what   = "build the game",
-				cmd    = shim(game, "build", "--json"),
-				dir    = game,
-				env    = env,
-				expect = `"Godot bindings"`,
-			},
-			Step {
-				what   = "the headless binary through uni",
-				cmd    = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
-				dir    = game,
-				env    = env,
-				expect = `"mismatches":0`,
-			},
-			Step {
-				what = "every test suite of the game",
-				cmd  = shim(game, "test", "--suite", "all"),
-				dir  = game,
-				env  = env,
-			},
-			Step {
-				what = "the game repo's gate",
-				cmd  = shim(game, "verify"),
-				dir  = game,
-				env  = env,
-			},
-			// the same game inside the clone (init --in-repo), against the clone itself
-			Step {
-				what  = "init a game inside the checkout",
-				cmd   = shim(clone, "init", cli.join("games", IN_REPO_GAME), "--in-repo"),
-				dir   = clone,
-				env   = env,
-				check = check_in_repo,
-			},
-			Step {
-				what = "its view index is what the build writes",
-				cmd  = shim(clone, "bake", IN_REPO_GAME, "--check"),
-				dir  = clone,
-				env  = env,
-			},
-			Step {
-				what = "build it",
-				cmd  = shim(clone, "build", IN_REPO_GAME),
-				dir  = clone,
-				env  = env,
-			},
-			Step {
-				what   = "its headless binary through uni",
-				cmd    = shim(clone, "headless", IN_REPO_GAME, "--", "synctest", "--ticks", "64", "--window", "8"),
-				dir    = clone,
-				env    = env,
-				expect = `"mismatches":0`,
-			},
-			Step {
-				what = "the checkout's odin suite, the game's tests and lint in it",
-				cmd  = shim(clone, "test"),
-				dir  = clone,
-				env  = env,
-			},
-			Step {
-				what = "the game under headless Godot",
-				cmd  = shim(clone, "test", IN_REPO_GAME, "--suite", "godot"),
-				dir  = clone,
-				env  = env,
-			},
-		)
-	}
+	append(
+		&steps,
+		Step {
+			what  = "init a game outside the repo",
+			cmd   = shim(clone, "init", game, "--unified", clone, "--ref", head),
+			dir   = work,
+			env   = env,
+			check = check_init,
+		},
+		Step {
+			what = "its view index is what the build writes",
+			cmd  = shim(game, "bake", "--check"),
+			dir  = game,
+			env  = env,
+		},
+		// the first build generates the Godot bindings: a cold run, not one over its budget
+		Step {
+			what   = "build the game",
+			cmd    = shim(game, "build", "--json"),
+			dir    = game,
+			env    = env,
+			expect = `"Godot bindings"`,
+		},
+		Step {
+			what   = "the headless binary through uni",
+			cmd    = shim(game, "headless", "--", "synctest", "--ticks", "64", "--window", "8"),
+			dir    = game,
+			env    = env,
+			expect = `"mismatches":0`,
+		},
+		Step {
+			what = "every test suite of the game",
+			cmd  = shim(game, "test", "--suite", "all"),
+			dir  = game,
+			env  = env,
+		},
+		Step {
+			what = "the game repo's gate",
+			cmd  = shim(game, "verify"),
+			dir  = game,
+			env  = env,
+		},
+		// the same game inside the clone (init --in-repo), against the clone itself
+		Step {
+			what  = "init a game inside the checkout",
+			cmd   = shim(clone, "init", cli.join("games", IN_REPO_GAME), "--in-repo"),
+			dir   = clone,
+			env   = env,
+			check = check_in_repo,
+		},
+		Step {
+			what = "its view index is what the build writes",
+			cmd  = shim(clone, "bake", IN_REPO_GAME, "--check"),
+			dir  = clone,
+			env  = env,
+		},
+		Step {
+			what = "build it",
+			cmd  = shim(clone, "build", IN_REPO_GAME),
+			dir  = clone,
+			env  = env,
+		},
+		Step {
+			what   = "its headless binary through uni",
+			cmd    = shim(clone, "headless", IN_REPO_GAME, "--", "synctest", "--ticks", "64", "--window", "8"),
+			dir    = clone,
+			env    = env,
+			expect = `"mismatches":0`,
+		},
+		Step {
+			what = "the checkout's odin suite, the game's tests and lint in it",
+			cmd  = shim(clone, "test"),
+			dir  = clone,
+			env  = env,
+		},
+		Step {
+			what = "the game under headless Godot",
+			cmd  = shim(clone, "test", IN_REPO_GAME, "--suite", "godot"),
+			dir  = clone,
+			env  = env,
+		},
+	)
 	start := time.tick_now()
-	for s, i in steps {
-		t := time.tick_now()
-		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({
-			cmd     = s.cmd,
-			dir     = s.dir,
-			env     = s.env,
-			capture = s.expect != "",
+	for step, i in steps {
+		started := time.tick_now()
+		cli.log("selftest: == %s", step.what)
+		ran := cli.run_proc({
+			cmd     = step.cmd,
+			dir     = step.dir,
+			env     = step.env,
+			capture = step.expect != "",
 		})
-		if s.expect != "" {
-			cli.log("%s%s", r.stderr, r.stdout)
+		if step.expect != "" {
+			cli.log("%s%s", ran.stderr, ran.stdout)
 		}
-		if !r.ok {
+		if !ran.ok {
 			return {
 				ok      = false,
 				summary = cli.aprintf(
 					"selftest: %s failed (exit %d); the work is in %s",
-					s.what,
-					r.exit_code,
+					step.what,
+					ran.exit_code,
 					cli.rel(work),
 				),
 			}
 		}
-		if s.expect != "" && !strings.contains(r.stdout, s.expect) {
-			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", s.what, s.expect)}
+		if step.expect != "" && !strings.contains(ran.stdout, step.expect) {
+			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", step.what, step.expect)}
 		}
-		if s.check != nil {
-			if problem := s.check(game, head); problem != "" {
+		if step.check != nil {
+			if problem := step.check(game, head); problem != "" {
 				return {
 					ok      = false,
-					summary = cli.aprintf("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
+					summary = cli.aprintf("selftest: %s: %s; the work is in %s", step.what, problem, cli.rel(work)),
 				}
 			}
 		}
@@ -200,16 +196,41 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 				}
 			}
 		}
-		cli.log("selftest: %s: ok (%.1fs)", s.what, cli.seconds_since(t))
+		cli.log("selftest: %s: ok (%.1fs)", step.what, cli.seconds_since(started))
 	}
+	// The test watchdog: a test that crashes holding a lock another test waits for must fail the run within seconds,
+	// naming both (tests/cli/crash_test.odin, src/cli/testrun.odin).
+	cli.log("selftest: == a crashing test fails the run within seconds, named with the test it blocks")
+	crash_start := time.tick_now()
+	crash_tests :: "test_cli.crash_holding_a_lock,test_cli.crash_waits_for_the_lock"
+	crash := cli.run_proc({
+		cmd     = shim(clone, "test", "--only", crash_tests),
+		dir     = clone,
+		env     = cli.env_with("UNIFIED_TEST_CRASH=1"),
+		capture = true,
+		quiet   = true,
+	})
+	crash_out := strings.concatenate({crash.stdout, crash.stderr})
+	crash_secs := cli.seconds_since(crash_start)
+	if crash.ok ||
+	   crash_secs > CRASH_CHECK_SECONDS ||
+	   !strings.contains(crash_out, "crash_holding_a_lock") ||
+	   !strings.contains(crash_out, "crash_waits_for_the_lock") {
+		cli.log("%s", crash_out)
+		return {
+			ok      = false,
+			summary = cli.aprintf(
+				"selftest: the crash check: the run must fail within %.0fs naming both tests (exit %d, %.1fs)",
+				CRASH_CHECK_SECONDS,
+				crash.exit_code,
+				crash_secs,
+			),
+		}
+	}
+	cli.log("selftest: the crash check: ok (%.1fs, the compile included)", crash_secs)
 	return {
 		ok      = true,
-		summary = cli.aprintf(
-			"selftest%s passed in %.0fs (%s)",
-			opts.shims ? " --shims" : "",
-			cli.seconds_since(start),
-			cli.rel(work),
-		),
+		summary = cli.aprintf("selftest passed in %.0fs (%s)", cli.seconds_since(start), cli.rel(work)),
 	}
 }
 
@@ -301,3 +322,7 @@ check_init :: proc(game, head: string) -> string {
 	}
 	return ""
 }
+
+// How long the crash check may take, the clone's test compile included: the watchdog kills the run 3 s after the
+// crash (a hang would last the suite's CI allowance).
+CRASH_CHECK_SECONDS :: 30.0
