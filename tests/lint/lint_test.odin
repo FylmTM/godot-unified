@@ -15,132 +15,38 @@ GAMES_DIR :: #directory + "/../../games"
 
 Rule :: lint.Rule
 TICK_IMPORTS :: lint.TICK_IMPORTS
-SIM_IDENTS :: lint.SIM_IDENTS
-FLOAT_TRAPS :: lint.FLOAT_TRAPS
-MATH :: lint.MATH
-MATH_OK :: lint.MATH_OK
 
-// `dir` "": src/<pkg>; else relative to the repo root (subdirectories included).
+// The import graph: every package of src/ (src/<pkg>, subdirectories included), what it is (lint.Kind: the bans) and
+// the unified packages it may import (a Tick package: everything it may import).
 RULES := []Rule {
-	// Library code that runs inside a tick: the same rules as game code (lint.sim_rule).
-	{
-		pkg          = "dmath",
-		only_imports = TICK_IMPORTS,
-		ban_idents   = SIM_IDENTS,
-		ban_matrix   = true,
-		strict       = true,
-		tick         = true,
-	},
-	// physics walks RTTI (base:runtime) and guards Box3D world creation with a mutex (core:sync).
-	// world_mutex serializes Box3D world creation across threads (b3CreateWorld); never touched by a tick.
-	{
-		pkg           = "physics",
-		only_imports  = PHYSICS_IMPORTS,
-		ban_idents    = SIM_IDENTS,
-		ban_matrix    = true,
-		strict        = true,
-		tick          = true,
-		allow_globals = {"world_mutex"},
-	},
+	// Library code inside a tick: the same rules as game code (lint.sim_rule).
+	{pkg = "dmath", kind = .Tick, imports = TICK_IMPORTS},
+	// physics walks RTTI (base:runtime) and serializes Box3D world creation across threads with world_mutex
+	// (core:sync; b3CreateWorld), which no tick touches.
+	{pkg = "physics", kind = .Tick, imports = PHYSICS_IMPORTS, allow_globals = {"world_mutex"}},
 	// Levels: parsed when a World is created; plain data, through unified:wire.
-	{
-		pkg          = "level",
-		only_imports = {"unified:wire"},
-		ban_idents   = SIM_IDENTS,
-		ban_matrix   = true,
-		strict       = true,
-		tick         = true,
-	},
+	{pkg = "level", kind = .Tick, imports = {"unified:wire"}},
 	// The harness: also walks RTTI, hashes and formats errors.
-	{
-		pkg          = "sim",
-		only_imports = SIM_IMPORTS,
-		ban_idents   = SIM_IDENTS,
-		ban_matrix   = true,
-		strict       = true,
-		tick         = true,
-	},
-	// The Box3D API (src/b3/SPEC.md): conversions over the library's bindings, called inside a tick, so tick rules.
-	// base:runtime carries the caller's context through the library's C callbacks. The `box3d:` collection itself
-	// (unified-box3d's bindings) is foreign code, outside src/, like the old C binding was.
-	{
-		pkg          = "b3",
-		only_imports = {"box3d:bindings", "base:runtime"},
-		ban_idents   = SIM_IDENTS,
-		ban_matrix   = true,
-		strict       = true,
-		tick         = true,
-	},
-	// The rest: the unified packages each may import, listed (the graph), plus Odin's own (core:, base:; system: for
-	// a foreign import). Real-time packages also stay off core:math.
-	{
-		pkg           = "wire",
-		only_imports  = {"core:", "base:"},
-		ban_imports   = MATH,
-		allow_imports = MATH_OK,
-		ban_idents    = FLOAT_TRAPS,
-		ban_matrix    = true,
-	},
-	// Netcode feeds inputs into the sim and owns real-time clocks (fine), but stays off core:math.
-	{
-		pkg           = "netcode",
-		only_imports  = {"unified:sim", "unified:wire", "core:", "base:"},
-		ban_imports   = MATH,
-		allow_imports = MATH_OK,
-		ban_idents    = FLOAT_TRAPS,
-		ban_matrix    = true,
-	},
-	// Host side (Godot bindings, view, dev UI): never feeds back into the sim, so no bans beyond the graph.
-	// gdext: its generated API imports its gdi sub-package relatively.
-	{pkg = "gdext", only_imports = {"unified:gdext/gdi", "gdi", "core:", "base:"}},
-	{pkg = "view", only_imports = {"core:", "base:"}},
-	{pkg = "devui", only_imports = {"unified:gdext", "unified:gdext/gdi", "core:", "base:"}},
-	{
-		pkg          = "godot",
-		only_imports = {
-			"unified:sim",
-			"unified:netcode",
-			"unified:view",
-			"unified:dmath",
-			"unified:gdext",
-			"unified:gdext/gdi",
-			"unified:devui",
-			"core:",
-			"base:",
-			"system:",
-		},
-	},
-	// EOS as a godot.Transport: imports eos and godot, so neither imports the other.
-	{pkg = "godot_eos", only_imports = {"unified:eos", "unified:godot", "unified:netcode", "core:", "base:"}},
-	// The determinism lint itself: test-side code (core:testing, the tokenizer), never inside a tick.
-	{
-		pkg           = "lint",
-		only_imports  = {"core:", "base:"},
-		ban_imports   = MATH,
-		allow_imports = MATH_OK,
-		ban_idents    = FLOAT_TRAPS,
-		ban_matrix    = true,
-	},
-	// EOS transport (real-time, like netcode): the SDK bindings need f64 fields, nothing else.
-	{
-		pkg           = "eos",
-		only_imports  = {"unified:netcode", "core:", "base:", "system:"},
-		ban_imports   = MATH,
-		allow_imports = MATH_OK,
-		ban_idents    = FLOAT_TRAPS,
-		ban_matrix    = true,
-	},
-	// The headless binary's library, its modes and the scenario suites (subdirectories).
-	{
-		pkg           = "headless",
-		only_imports  = {"unified:headless", "unified:sim", "unified:netcode", "core:", "base:"},
-		ban_imports   = MATH,
-		allow_imports = MATH_OK,
-		ban_idents    = FLOAT_TRAPS,
-		ban_matrix    = true,
-	},
-	// The CLI library (src/cli/SPEC.md): Odin's own only, so editing the rest of the library never rebuilds the CLI.
-	{pkg = "cli", only_imports = {"core:", "base:"}},
+	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS},
+	// The Box3D API (src/b3/SPEC.md), called inside a tick. base:runtime carries the caller's context through the
+	// library's C callbacks; the `box3d:` collection (unified-box3d's bindings) is foreign code outside src/.
+	{pkg = "b3", kind = .Tick, imports = {"box3d:bindings", "base:runtime"}},
+	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK
+	// bindings need f64 fields and system: libraries), the headless library, modes and scenarios, the lint itself.
+	{pkg = "wire", kind = .Realtime},
+	{pkg = "netcode", kind = .Realtime, imports = {"unified:sim", "unified:wire"}},
+	{pkg = "eos", kind = .Realtime, imports = {"unified:netcode", "system:"}},
+	{pkg = "headless", kind = .Realtime, imports = {"unified:headless", "unified:sim", "unified:netcode"}},
+	{pkg = "lint", kind = .Realtime},
+	// Host side (Godot bindings, view, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
+	// its gdi sub-package relatively; godot_eos joins EOS and godot, so neither imports the other; the CLI imports
+	// Odin's own only, so editing the rest of the library never rebuilds it.
+	{pkg = "gdext", kind = .Host, imports = {"unified:gdext/gdi", "gdi"}},
+	{pkg = "view", kind = .Host},
+	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
+	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
+	{pkg = "godot_eos", kind = .Host, imports = {"unified:eos", "unified:godot", "unified:netcode"}},
+	{pkg = "cli", kind = .Host},
 }
 
 PHYSICS_IMPORTS :: []string {
@@ -165,18 +71,22 @@ SIM_IMPORTS :: []string {
 	"core:hash/xxhash",
 }
 
-rule_dir :: proc(rule: Rule) -> string {
-	if rule.dir != "" {
-		return strings.concatenate({SRC_DIR, "/../", rule.dir}, context.temp_allocator)
-	}
-	return strings.concatenate({SRC_DIR, "/", rule.pkg}, context.temp_allocator)
+GODOT_IMPORTS :: []string {
+	"unified:sim",
+	"unified:netcode",
+	"unified:view",
+	"unified:dmath",
+	"unified:gdext",
+	"unified:gdext/gdi",
+	"unified:devui",
+	"system:",
 }
 
 @(test)
 library_follows_determinism_rules :: proc(t: ^testing.T) {
 	for rule in RULES {
 		rule := rule
-		rule.dir = rule_dir(rule)
+		rule.dir = strings.concatenate({SRC_DIR, "/", rule.pkg}, context.temp_allocator)
 		lint.check(t, rule)
 	}
 }
@@ -260,14 +170,6 @@ game_dirs :: proc(t: ^testing.T) -> []string {
 // by layout, above).
 @(test)
 every_package_has_a_rule :: proc(t: ^testing.T) {
-	for rule in RULES {
-		testing.expectf(
-			t,
-			rule.only_imports != nil,
-			"src/%s's rule has no only_imports: the graph must name its imports",
-			rule.pkg,
-		)
-	}
 	infos, err := os.read_all_directory_by_path(SRC_DIR, context.temp_allocator)
 	if !testing.expectf(t, err == nil, "cannot list %s: %v", SRC_DIR, err) {
 		return
@@ -277,7 +179,7 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 			continue
 		}
 		for rule in RULES {
-			if rule.dir == "" && rule.pkg == info.name {
+			if rule.pkg == info.name {
 				continue outer
 			}
 		}
@@ -285,44 +187,45 @@ every_package_has_a_rule :: proc(t: ^testing.T) {
 	}
 }
 
-// The graph holds for host-side packages too: an import their rule doesn't list fails, Odin's own packages don't,
-// and a real-time package's core:math ban still applies beside its allowlist.
+// The import matcher: an import a rule doesn't list fails, Odin's own don't (but in a Tick package), a Realtime
+// package's core:math ban holds beside them (core:math/bits is fine), a collection prefix and an aliased import match.
 @(test)
-lint_catches_forbidden_host_imports :: proc(t: ^testing.T) {
-	rule_of :: proc(pkg: string) -> Rule {
-		for rule in RULES {
-			if rule.pkg == pkg do return rule
-		}
-		return {}
-	}
+lint_catches_unlisted_imports :: proc(t: ^testing.T) {
 	Case :: struct {
-		pkg, src: string,
-		caught:   bool,
+		rule:   Rule,
+		src:    string,
+		caught: bool,
+	}
+	host := Rule {
+		pkg     = "host",
+		kind    = .Host,
+		imports = {"unified:view", "system:"},
+	}
+	realtime := Rule {
+		pkg     = "realtime",
+		kind    = .Realtime,
+		imports = {"unified:sim"},
 	}
 	cases := []Case {
-		{"view", `import "unified:gdext"`, true}, // the view layer stays independent of the bindings
-		{"netcode", `import "unified:godot"`, true}, // the netcode never reaches the host
-		{"gdext", `import "unified:view"`, true},
-		{"devui", `import "unified:sim"`, true},
-		{"eos", `import "unified:godot"`, true},
-		{"cli", `import "unified:sim"`, true}, // the CLI imports Odin's packages only
-		{"cli", `import "vendor:darwin/AppKit"`, true},
-		{"godot", `import "unified:eos"`, true}, // godot_eos joins them; neither imports the other
-		{"netcode", `import "core:math"`, true}, // the ban beside the allowlist
-		{"netcode", `import "core:math/bits"`, false},
-		{"view", `import "core:math"`, false}, // host side: no ban
-		{"godot", `import "unified:view"`, false},
-		{"godot", `foreign import kernel32 "system:Kernel32.lib"`, false},
-		{"devui", `import gd "unified:gdext"`, false},
+		{host, `import "unified:sim"`, true},
+		{host, `import "vendor:darwin/AppKit"`, true},
+		{host, `import "core:math"`, false},
+		{host, `import v "unified:view"`, false},
+		{host, `foreign import kernel32 "system:Kernel32.lib"`, false},
+		{realtime, `import "core:math"`, true},
+		{realtime, `import "core:math/linalg"`, true},
+		{realtime, `import "core:math/bits"`, false},
+		{realtime, `import "core:time"`, false},
+		{lint.sim_rule("tick", ""), `import "core:time"`, true},
 	}
 	for test_case in cases {
-		src := fmt.tprintf("package %s\n%s\n", test_case.pkg, test_case.src)
-		found := len(lint.scan(rule_of(test_case.pkg), "case.odin", src)) > 0
+		src := fmt.tprintf("package %s\n%s\n", test_case.rule.pkg, test_case.src)
+		found := len(lint.scan(test_case.rule, "case.odin", src)) > 0
 		testing.expectf(
 			t,
 			found == test_case.caught,
 			"%s: %s: %s",
-			test_case.pkg,
+			test_case.rule.pkg,
 			test_case.src,
 			test_case.caught ? "not caught" : "caught, but allowed",
 		)
@@ -444,7 +347,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"import \"core:sys/posix\"\n", false},
 		{"c := intrinsics.read_cycle_counter()\n", true},
 		{"import \"core:time\"\n", false},
-		{"f :: proc() {\n\t@(static) hits: int\n}\n", false}, // state outside the block (sim keeps a schema cache)
+		{"f :: proc() {\n\t@(static) hits: int\n}\n", true}, // state outside the block
 		{"f :: proc() {\n\t@(thread_local) hits: int\n}\n", true},
 		{"f :: proc() {\n\tv: [4]f32 = ---\n}\n", true}, // uninitialised: differs per run
 		{"when ODIN_OS == .Windows {\n\tK :: 1\n}\n", true}, // a sim per platform or build
@@ -471,7 +374,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 			i,
 			test_case.src,
 		)
-		if test_case.no_imp || i == 11 {
+		if test_case.no_imp {
 			testing.expectf(
 				t,
 				len(lint.scan(sim_rule, "case.odin", src)) > 0,
@@ -488,8 +391,10 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 @(test)
 lint_bans_box3d_outside_physics :: proc(t: ^testing.T) {
 	rule := Rule {
-		pkg         = "extension",
-		ban_imports = lint.BOX3D,
+		pkg     = "extension",
+		kind    = .Host,
+		imports = lint.GAME_IMPORTS,
+		bans    = lint.BOX3D,
 	}
 	for src in ([]string{"import \"unified:b3\"\n", "import \"box3d:bindings\"\n"}) {
 		found := lint.scan(rule, "case.odin", fmt.tprintf("package extension\n%s", src))
