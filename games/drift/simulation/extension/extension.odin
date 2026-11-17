@@ -165,7 +165,7 @@ fill_frame :: proc(f: ^Frame) {
 	// (custom.x: the owner's slot, the view's colour index; -1 once the owner has left)
 	bullets := sim.iterate(&f.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		owner_slot, _ := sim.player_slot(&f.state.players, bullet.owner)
+		owner_slot := sim.player_slot(&f.state.players, bullet.owner)
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,

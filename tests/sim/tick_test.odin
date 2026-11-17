@@ -37,7 +37,7 @@ PROBE := Probe_Game {
 		t.world.seen = {}
 		players := sim.iterate_present(&t.state.players)
 		for _, player in sim.next(&players) {
-			slot, _ := sim.player_slot(&t.state.players, player)
+			slot := sim.player_slot(t, player)
 			for sent in sim.commands(t, player) {
 				t.world.seen[slot] += 1
 				switch command in sent {

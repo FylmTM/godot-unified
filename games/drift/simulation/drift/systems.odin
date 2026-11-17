@@ -29,18 +29,17 @@ tick :: proc(t: ^Tick) {
 presence :: proc(t: ^Tick) {
 	for player in t.player_changes.left {
 		// still known: the library never forgets a member on the tick it leaves
-		ship := sim.player_data(&t.state.players, player)
+		ship := sim.player_data(t, player)
 		physics.destroy_body(t.world.phys, &ship.body)
 		ship.thrust = false
 	}
-	for player in t.player_changes.joined do spawn_ship(t, player)
-	for player in t.player_changes.returned do spawn_ship(t, player)
+	for player in t.player_changes.arrived do spawn_ship(t, player)
 }
 
 // A joining player's ship, at their slot's spawn point.
 spawn_ship :: proc(t: ^Tick, player: sim.Player) {
-	slot, _ := sim.player_slot(&t.state.players, player)
-	create_ship(t.world, sim.player_data(&t.state.players, player), t.world.spawns[slot])
+	slot := sim.player_slot(t, player)
+	create_ship(t.world, sim.player_data(t, player), t.world.spawns[slot])
 	sim.emit(t, Event_Spawned{position = position_of(t.world.spawns[slot]), player = player})
 }
 
@@ -336,7 +335,7 @@ spawn_waves :: proc(t: ^Tick) {
 // Moves the phase on at the end of the tick: a match is over when the station's HP is 0, an over match resets after
 // OVER_HOLD_TICKS, and the world resets whenever nobody is present.
 advance_phase :: proc(t: ^Tick) {
-	if !anyone_present(t.state) {
+	if sim.present_count(t) == 0 {
 		if t.state.phase != .Lobby do reset(t)
 		return
 	}
@@ -353,12 +352,6 @@ advance_phase :: proc(t: ^Tick) {
 	}
 }
 
-anyone_present :: proc(state: ^State) -> bool {
-	players := sim.iterate_present(&state.players)
-	_, _, ok := sim.next(&players)
-	return ok
-}
-
 // Back to the lobby: rocks, bullets and gems cleared, the present ships at their slots' spawns, the station
 // repaired.
 reset :: proc(t: ^Tick) {
@@ -371,7 +364,7 @@ reset :: proc(t: ^Tick) {
 	for _, handle in sim.next(&gems) do sim.despawn(&t.state.gems, handle)
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
-		slot, _ := sim.player_slot(&t.state.players, player)
+		slot := sim.player_slot(t, player)
 		physics.body_set_transform_2d(t.world.phys, ship.body, t.world.spawns[slot], {0, -1})
 		physics.body_set_linear_velocity(t.world.phys, ship.body, {})
 		physics.body_set_angular_velocity(t.world.phys, ship.body, {})

@@ -23,7 +23,7 @@ step_with :: proc(simulation: ^survivor.Sim, present: sim.Slots, input: survivor
 join_free :: proc(simulation: ^survivor.Sim, inputs: ^survivor.Inputs, present: sim.Slots) {
 	inputs.present = present
 	for slot in present {
-		if sim.slot_player(simulation, slot) == {} {
+		if sim.player_in_slot(simulation, slot) == {} {
 			sim.join(inputs, slot, slot + 1)
 		}
 	}
@@ -31,14 +31,12 @@ join_free :: proc(simulation: ^survivor.Sim, inputs: ^survivor.Inputs, present: 
 
 // The character of whoever holds `slot` (nil: nobody).
 in_slot :: proc(simulation: ^survivor.Sim, slot: int) -> ^survivor.Character {
-	return sim.player_data(&simulation.state.players, sim.slot_player(simulation, slot))
+	return sim.player_data(&simulation.state.players, sim.player_in_slot(simulation, slot))
 }
 
 // Damages the players in `slots` between ticks, as a system would inside one (the events go nowhere).
 damage_players :: proc(simulation: ^survivor.Sim, amount: i32, slots: ..int) {
-	events := sim.Events {
-		type = survivor.Event,
-	}
+	events: sim.Events
 	defer delete(events.list)
 	tick := survivor.Tick {
 		state  = &simulation.state,
@@ -48,7 +46,7 @@ damage_players :: proc(simulation: ^survivor.Sim, amount: i32, slots: ..int) {
 		events = &events,
 	}
 	for slot in slots {
-		survivor.damage_player(&tick, sim.slot_player(simulation, slot), amount)
+		survivor.damage_player(&tick, sim.player_in_slot(simulation, slot), amount)
 	}
 }
 
@@ -86,7 +84,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	found := false
 	for &raw in sim.events_at(simulation, started) {
 		if event, ok := sim.event_value(&raw, survivor.Event).(survivor.Event_Match_Started); ok {
-			found ||= event.player == sim.slot_player(simulation, 0)
+			found ||= event.player == sim.player_in_slot(simulation, 0)
 		}
 	}
 	testing.expect(t, found)

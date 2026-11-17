@@ -141,11 +141,11 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	for tick in 1 ..= start + 20 {
 		inputs := headless.scripted(suite.game, simulation, tick, suite.players, &commands)
 		sim.step(simulation, &inputs)
-		if tick == 1 do first = sim.slot_player(simulation, 0)
+		if tick == 1 do first = sim.player_in_slot(simulation, 0)
 	}
-	newcomer := sim.slot_player(simulation, 0)
+	newcomer := sim.player_in_slot(simulation, 0)
 	testing.expectf(t, newcomer.id == NEWCOMER && newcomer != first, "%s: slot 0 holds %v", what, newcomer)
-	testing.expectf(t, sim.slot_player(simulation, back) == first, "%s: %v did not come back", what, first)
+	testing.expectf(t, sim.player_in_slot(simulation, back) == first, "%s: %v did not come back", what, first)
 	returned := false
 	joined_kind := sim.variant_kind(sim.part(G, sim.GAME_EVENT), sim.Event_Player_Joined)
 	for &raw in sim.events_at(simulation, start + 20) {

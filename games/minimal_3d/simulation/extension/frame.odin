@@ -49,7 +49,7 @@ fill_frame :: proc(f: ^Frame) {
 fill_frame_players :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {
-		slot, _ := sim.player_slot(&f.state.players, player)
+		slot := sim.player_slot(&f.state.players, player)
 		item := godot.View_Item(View) {
 			key    = view.Key(sim.player_key(player)),
 			kind   = .Player,
@@ -73,12 +73,8 @@ fill_frame_balls :: proc(f: ^Frame) {
 }
 
 fill_frame_hud :: proc(f: ^Frame) {
-	players := 0
-	present := sim.iterate_present(&f.state.players)
-	for _ in sim.next(&present) do players += 1
-
 	godot.push_data(f, Data_Hud {
-		players = u32(players),
+		players = u32(sim.present_count(&f.state.players)),
 		balls   = u32(f.state.balls.count),
 		color   = transmute(gd.Color)player_color(f, f.local_player),
 	})

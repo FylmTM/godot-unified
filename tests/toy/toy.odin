@@ -165,7 +165,7 @@ tick :: proc(t: ^Tick) {
 	for thing, handle in sim.next(&things) {
 		thing.life -= 1
 		if thing.life <= 0 {
-			if owner := sim.player_data(&t.state.players, thing.owner); owner != nil {
+			if owner := sim.player_data(t, thing.owner); owner != nil {
 				owner.score += 1
 			}
 			sim.emit(t, Event_Expired{thing = handle})

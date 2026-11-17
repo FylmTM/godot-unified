@@ -98,7 +98,6 @@ toy_tick :: proc(tick: ^Bug_Tick) {
 		inputs         = (^toy.Inputs)(tick.inputs),
 		events         = tick.events,
 		player_changes = tick.player_changes,
-		players_layout = tick.players_layout,
 		commands       = tick.commands,
 	}
 	toy.tick(&inner)

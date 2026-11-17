@@ -189,7 +189,7 @@ scripted :: proc(
 			continue
 		}
 		inputs.present += {slot}
-		if int(sim.slot_player(simulation, slot).id) != member {
+		if int(sim.player_in_slot(simulation, slot).id) != member {
 			sim.join(&inputs, slot, member)
 		}
 		inputs.input[slot] = headless.scripted_input(simulation.seed, slot, tick, &simulation.state)

@@ -131,9 +131,8 @@ a_slot_present_without_a_join_record_stays_absent :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sim.events_at(simulation, 1)), 1) // slot 0's join only
 	// An absent player's input reads as zero.
 	tick := toy.Tick {
-		state          = &simulation.state,
-		inputs         = &inputs,
-		players_layout = &simulation.players_layout,
+		state  = &simulation.state,
+		inputs = &inputs,
 	}
 	testing.expect_value(t, sim.input(&tick, sim.player_in_slot(players, 0)), inputs.input[0])
 	testing.expect_value(t, sim.input(&tick, sim.Player{index = 1, id = 2}), toy.Input{})
@@ -148,17 +147,6 @@ players_is_plain_at_any_player_count :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, toy.Input, 3))), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, [3]u8, 4))), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(u32, u8, 1))), "")
-	Two :: struct {
-		a, b: sim.Players(u8, toy.Input, 4),
-	}
-	_, reason := sim.players_layout_of(type_info_of(Two), 4, type_info_of(toy.Input))
-	testing.expect(t, reason != "", "two Players fields are refused")
-	_, reason = sim.players_layout_of(type_info_of(toy.Thing), 4, type_info_of(toy.Input))
-	testing.expect(t, reason != "", "a State without one is refused")
-	_, reason = sim.players_layout_of(type_info_of(toy.State), 3, type_info_of(toy.Input))
-	testing.expect(t, reason != "", "a Players for another player count is refused")
-	_, reason = sim.players_layout_of(type_info_of(toy.State), 4, type_info_of(u8))
-	testing.expect(t, reason != "", "a Players for another Input is refused")
 }
 
 // A member who left on a tick keeps its entry through that tick, so the game can clean up by its handle in
@@ -182,7 +170,7 @@ TIGHT := Tight_Game {
 	init = proc(t: ^sim.Tick(Tight_Game)) {},
 	tick = proc(t: ^sim.Tick(Tight_Game)) {
 		for player in t.player_changes.left {
-			assert(sim.player_data(&t.state.players, player) != nil, "a leaver's handle names its data on its tick")
+			assert(sim.player_data(t, player) != nil, "a leaver's handle names its data on its tick")
 		}
 	},
 }

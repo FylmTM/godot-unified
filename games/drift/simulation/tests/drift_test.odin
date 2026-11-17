@@ -58,7 +58,7 @@ step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Cmd = nil) {
 	for member, slot in run.seated {
 		if member == 0 do continue
 		inputs.present += {slot}
-		if int(sim.slot_player(run.simulation, slot).id) != member do sim.join(&inputs, slot, member)
+		if int(sim.player_in_slot(run.simulation, slot).id) != member do sim.join(&inputs, slot, member)
 	}
 	switch value in command {
 	case dr.Cmd_Start:
@@ -216,7 +216,7 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 		if run.warps > 0 do break
 	}
 	testing.expect_value(t, run.warps, 1)
-	testing.expect_value(t, run.last_warp.player, sim.slot_player(run.simulation, 0))
+	testing.expect_value(t, run.last_warp.player, sim.player_in_slot(run.simulation, 0))
 	testing.expect_value(t, run.last_warp.from_gate, 0)
 	testing.expect_value(t, run.last_warp.to_gate, 1)
 	pos := physics.body_position_2d(world.phys, ship.body)
@@ -238,7 +238,7 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 	run := start(2)
 	defer finish(&run)
 	state := &run.simulation.state
-	first := sim.slot_player(run.simulation, 0)
+	first := sim.player_in_slot(run.simulation, 0)
 	fire: [dr.PLAYERS]dr.Input
 	fire[0].buttons = {.Fire}
 	step(&run, fire)
@@ -258,14 +258,14 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 
 	run.seated[0] = 100 // someone new in A's slot
 	step(&run, {})
-	newcomer := sim.slot_player(run.simulation, 0)
+	newcomer := sim.player_in_slot(run.simulation, 0)
 	testing.expect(t, newcomer != {} && newcomer != first, "a new player in slot 0")
 	testing.expect_value(t, sim.player_data(&state.players, newcomer).shots, 0)
 	testing.expect_value(t, sim.get(&state.bullets, bullet).owner, first)
 
 	run.seated[2] = 1 // A comes back in another slot
 	step(&run, {})
-	testing.expect_value(t, sim.slot_player(run.simulation, 2), first)
+	testing.expect_value(t, sim.player_in_slot(run.simulation, 2), first)
 	ship := sim.player_data(&state.players, first)
 	testing.expect_value(t, ship.shots, 1)
 	testing.expect(t, ship.body != {}, "A's ship has a body again")

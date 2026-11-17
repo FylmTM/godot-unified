@@ -102,16 +102,15 @@ Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	dt:             f32, // seconds per tick: 1 / tick_hz, exact
 	inputs:         ^Inputs(G),
 	events:         ^Events, // what this tick emits (event.odin)
-	player_changes: Player_Changes, // who joined, came back or left this tick (the State's Players already shows it)
-	players_layout: ^Players_Layout, // where the State's Players is (input, commands)
+	player_changes: Player_Changes, // who arrived or left this tick (the State's Players already shows it)
 	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
 }
 
-// The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.joined`.
+// The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.arrived`.
 Player_Changes :: struct {
-	joined:   []Player, // new members present from this tick (zeroed data), in slot order
-	returned: []Player, // members back from this tick (their data as they left it), in slot order
-	left:     []Player, // members absent from this tick
+	arrived: []Player, // everyone present from this tick, new or back, in slot order
+	joined:  []Player, // those of them who are new members (zeroed data); the others come back with their data
+	left:    []Player, // members absent from this tick
 }
 
 // Rollback state that lives outside the block (physics). The harness calls `save`/`restore` with
@@ -165,7 +164,13 @@ Game :: struct(
 	$State, $Input, $World, $Event, $Cmd: typeid,
 	$PLAYERS: int,
 ) where PLAYERS >= 1 &&
-	PLAYERS <= MAX_PLAYERS {
+	PLAYERS <= MAX_PLAYERS,
+	intrinsics.type_has_field(State, "players"),
+	intrinsics.type_is_specialization_of(intrinsics.type_field_type(State, "players"), Players),
+	part(intrinsics.type_field_type(State, "players"), 1) ==
+	Input,
+	part(intrinsics.type_field_type(State, "players"), 2) ==
+	PLAYERS {
 	name:            string,
 	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
 	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
@@ -210,22 +215,21 @@ Ring_Slot :: struct($State: typeid) {
 }
 
 Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
-	game:           ^G,
-	seed:           u64,
-	content:        []u8, // borrowed: the caller of create keeps it alive
-	content_hash:   u64, // content_hash(content): recorded in input logs and snapshots
-	compat:         u64, // compat_of(game, content): recorded in snapshots
-	tick:           u32,
-	state:          part(G, GAME_STATE),
-	world:          ^part(G, GAME_WORLD),
-	extras:         []Extra,
-	ring:           []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
-	players_layout: Players_Layout, // the State's Players field
-	changes:        Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
-	commands:       Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
+	game:         ^G,
+	seed:         u64,
+	content:      []u8, // borrowed: the caller of create keeps it alive
+	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
+	compat:       u64, // compat_of(game, content): recorded in snapshots
+	tick:         u32,
+	state:        part(G, GAME_STATE),
+	world:        ^part(G, GAME_WORLD),
+	extras:       []Extra,
+	ring:         []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
+	changes:      Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
+	commands:     Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
-	hash_buf:       [dynamic]u8,
+	hash_buf:     [dynamic]u8,
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -315,9 +319,6 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 	if reason := union_violation(events, EVENT_MAX, EVENT_PREFIX, padding = true); reason != "" {
 		return fmt.tprintf("%s: events: %s", name, reason)
 	}
-	if variant_kind(events, Event_Player_Joined) < 0 || variant_kind(events, Event_Player_Left) < 0 {
-		return fmt.tprintf("%s: events: the union lists sim.Event_Player_Joined and sim.Event_Player_Left", name)
-	}
 	for variant in union_variants(events) {
 		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct) or_continue
 		for i in 0 ..< int(info.field_count) {
@@ -350,12 +351,7 @@ create :: proc(
 	if reason := game_violation(game.name, game.tick_hz, Cmd, Event); reason != "" {
 		panic(reason)
 	}
-	players_layout, reason := players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input))
-	if reason != "" {
-		panic(fmt.tprintf("%s: %s", game.name, reason))
-	}
 	simulation := new(Sim(G))
-	simulation.players_layout = players_layout
 	simulation.game = game
 	simulation.seed = seed
 	simulation.content = content
@@ -363,7 +359,6 @@ create :: proc(
 	simulation.compat = compat_of(game, content)
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
-		slot.events.type = Event
 		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
 		// session thread doesn't allocate the first time a ring slot gets some.
 		slot.events.list = make([dynamic]Raw_Event, 0, 8)
@@ -409,17 +404,17 @@ advance :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 	slot.valid = true
 	slot.saved = false
 	clear(&slot.events.list)
-	changes := &simulation.changes
-	players_update(players_view(&simulation.state, &simulation.players_layout), inputs, number, &slot.events, changes)
-	commands_decode(&simulation.commands, inputs)
 	tick := make_tick(simulation, number, inputs, &slot.events)
+	changes := &simulation.changes
+	players_update(&tick, changes)
 	tick.player_changes = {
-		joined   = changes.joined[:changes.joined_count],
-		returned = changes.returned[:changes.returned_count],
-		left     = changes.left[:changes.left_count],
+		arrived = changes.arrived[:changes.arrived_count],
+		joined  = changes.joined[:changes.joined_count],
+		left    = changes.left[:changes.left_count],
 	}
+	commands_decode(&simulation.commands, inputs)
 	simulation.game.tick(&tick)
-	players_remember(players_view(&simulation.state, &simulation.players_layout), inputs)
+	players_remember(&simulation.state.players, inputs)
 	simulation.tick = number
 }
 
@@ -427,15 +422,14 @@ advance :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 @(private)
 make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events: ^Events) -> Tick(G) {
 	return {
-		state          = &simulation.state,
-		world          = simulation.world,
-		number         = number,
-		seed           = simulation.seed,
-		dt             = 1 / f32(simulation.game.tick_hz),
-		inputs         = inputs,
-		events         = events,
-		players_layout = &simulation.players_layout,
-		commands       = &simulation.commands,
+		state    = &simulation.state,
+		world    = simulation.world,
+		number   = number,
+		seed     = simulation.seed,
+		dt       = 1 / f32(simulation.game.tick_hz),
+		inputs   = inputs,
+		events   = events,
+		commands = &simulation.commands,
 	}
 }
 

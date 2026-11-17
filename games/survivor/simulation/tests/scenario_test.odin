@@ -23,12 +23,12 @@ scenario_tick :: proc(t: ^survivor.Tick) {
 		}
 		if t.number % 37 == 0 {
 			slot := int(t.number / 37) % survivor.PLAYERS
-			survivor.damage_player(t, sim.player_in_slot(&t.state.players, slot), 1000)
+			survivor.damage_player(t, sim.player_in_slot(t, slot), 1000)
 		}
 		if t.number % 500 == 0 {
 			for slot in 0 ..< survivor.PLAYERS {
 				// everyone: match over, then a reset
-				survivor.damage_player(t, sim.player_in_slot(&t.state.players, slot), 1000)
+				survivor.damage_player(t, sim.player_in_slot(t, slot), 1000)
 			}
 		}
 	}

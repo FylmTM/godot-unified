@@ -29,13 +29,10 @@ main :: proc() {
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
 summary :: proc(state: ^friendslop.State) -> string {
-	present := 0
-	players := sim.iterate_present(&state.players)
-	for _ in sim.next(&players) do present += 1
 	return fmt.tprintf(
 		`"phase":"%v","players_present":%d,"grabs":%d,"throws":%d,"hits":%d,"pad_launches":%d,"runs":%d`,
 		state.phase,
-		present,
+		sim.present_count(&state.players),
 		state.grabs,
 		state.throws,
 		state.hits,

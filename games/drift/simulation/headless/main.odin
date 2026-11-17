@@ -30,13 +30,10 @@ main :: proc() {
 
 // A JSON fragment describing the state (for the CLI output; temp-allocated).
 summary :: proc(state: ^drift.State) -> string {
-	present := 0
-	players := sim.iterate_present(&state.players)
-	for _ in sim.next(&players) do present += 1
 	return fmt.tprintf(
 		`"phase":"%v","players_present":%d,"matches":%d,"waves":%d,"station_hp":%d,"score":%d,"rocks":%d`,
 		state.phase,
-		present,
+		sim.present_count(&state.players),
 		state.matches,
 		state.waves,
 		state.station_hp,

@@ -280,7 +280,7 @@ run :: proc(simulation: ^toy.Sim, ticks: u32, players := 4) {
 		inputs: toy.Inputs
 		for slot in 0 ..< players {
 			inputs.present += {slot}
-			if sim.slot_player(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
+			if sim.player_in_slot(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
 			inputs.input[slot] = toy.scripted_input(simulation.seed, slot, number)
 		}
 		sim.step(simulation, &inputs)
@@ -419,10 +419,6 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		sim.Event_Player_Joined,
 		sim.Event_Player_Left,
 	}
-	No_Leave :: union {
-		sim.Event_Player_Joined,
-		toy.Event_Expired,
-	}
 	Event_Ticked :: struct {
 		tick: u32, // every event carries its tick already (and its kind)
 	}
@@ -435,9 +431,7 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 	testing.expect(t, sim.game_violation("toy", 64, Big_Union, toy.Event) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
 	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, No_Leave) != "") // the library's join and leave are listed
 	testing.expect(t, strings.contains(sim.game_violation("toy", 64, nil, Reserved_Field), "`tick`"))
-	testing.expect(t, sim.game_violation("toy", 64, nil, nil) != "")
 	testing.expect(t, sim.game_violation("toy", 60, nil, toy.Event) != "") // not a power of two
 	testing.expect(t, sim.game_violation("toy", 256, nil, toy.Event) != "") // above 128
 	testing.expect(t, sim.game_violation("toy", 16, nil, toy.Event) != "") // below 32
@@ -728,7 +722,10 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 		dx, dy:  i8,
 		buttons: u16,
 	}
-	other_input := sim.Game(toy.State, Other_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
+	Other_State :: struct {
+		players: sim.Players(toy.Player_Data, Other_Input, toy.PLAYERS),
+	}
+	other_input := sim.Game(Other_State, Other_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 		name    = base.name,
 		version = base.version,
 		tick_hz = base.tick_hz,
@@ -741,7 +738,10 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	Float_Input :: struct {
 		x: f32,
 	}
-	a, b: sim.Inputs(sim.Game(toy.State, Float_Input, toy.World, toy.Event, toy.Cmd, 2))
+	Float_State :: struct {
+		players: sim.Players(u8, Float_Input, 2),
+	}
+	a, b: sim.Inputs(sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, 2))
 	a.present = {0}
 	b.present = {0}
 	b.replaced = {0}

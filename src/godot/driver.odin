@@ -332,9 +332,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	if reason := sim.game_violation(game.name, game.tick_hz, Cmd, Event); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
-	if _, reason := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input)); reason != "" {
-		append(&problems, strings.clone(reason))
-	}
 	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
 		append(&problems, fmt.aprintf("State: %s", reason))
 	}
@@ -414,12 +411,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
-		players_layout, _ := sim.players_layout_of(type_info_of(State), PLAYERS, type_info_of(Input))
 		for &frame in driver.frames.slots {
 			frame.views = make([]View_Out, max_views)
 			frame.multis = make([]Multi_Out, max_multi)
 			frame.data = make([]u8, data_bytes)
-			frame.members = make([]u64, players_layout.members)
+			frame.members = make([]u64, sim.MEMBERS_PER_SLOT * sim.part(G, sim.GAME_PLAYERS))
 		}
 		roster_reset()
 		pose_memory_init(&driver.poses, max_views, max_multi)
@@ -729,13 +725,13 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			out.verified = info.verified
 			out.tick_hz = u32(driver.game.tick_hz)
 			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
-			members, slots := sim.players_of(simulation, current)
+			slots := current.players.slots
 			local := client.slot >= 0 ? slots[client.slot] : {}
 			out.local_player = sim.player_key(local)
 			out.slots = {}
 			for holder, slot in slots do out.slots[slot] = sim.player_key(holder)
 			out.n_members = 0
-			for member, index in members {
+			for member, index in current.players.members {
 				if member.id != 0 && out.n_members < len(out.members) {
 					out.members[out.n_members] = sim.player_key({u16(index), member.id})
 					out.n_members += 1

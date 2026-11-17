@@ -21,7 +21,6 @@ Raw_Event :: struct {
 
 // A tick's events, in emission order.
 Events :: struct {
-	type: typeid, // the game's event union (Game.events)
 	list: [dynamic]Raw_Event,
 }
 
@@ -37,21 +36,6 @@ emit :: proc(tick: ^Tick($G), event: $E) where intrinsics.type_is_variant_of(par
 	}
 	copy(raw.data[:], ([^]u8)(&event)[:size_of(E)])
 	append(&tick.events.list, raw)
-}
-
-// Appends an event to a tick's list, the union known at run time (the harness's own join and leave events); E must
-// be one of the union's structs.
-emit_to :: proc(events: ^Events, event: $E) {
-	kind := variant_kind(events.type, E)
-	assert(kind >= 0, "sim.emit: not a variant of the game's event union")
-	event := event
-	raw := Raw_Event {
-		kind = u8(kind),
-		size = size_of(E),
-	}
-	#assert(size_of(E) <= EVENT_MAX)
-	copy(raw.data[:], ([^]u8)(&event)[:size_of(E)])
-	append(&events.list, raw)
 }
 
 // The event as the game's union (nil: a kind out of range or the wrong size).

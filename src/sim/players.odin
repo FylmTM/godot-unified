@@ -1,13 +1,11 @@
 // Players (src/sim/SPEC.md "Players"): a slot is an input index 0 ..< PLAYERS; a player is a session member, the
 // person, named by a Player handle that stays theirs when they leave and come back in any free slot. The game
-// keeps one Players field in its State: the member table, who holds each slot and the game's per-player struct.
-// The harness updates it before `tick` from the tick's presence and join records and emits the join and leave
-// events; the game reads it through handles.
+// keeps its Players in its State's field `players`: the member table, who holds each slot and the game's per-player
+// struct. The harness updates it before `tick` from the tick's presence and join records and emits the join and
+// leave events; the game reads it through handles.
 package sim
 
-import "base:runtime"
-import "core:fmt"
-import "core:strings"
+import "base:intrinsics"
 
 NO_SLOT :: u8(0xFF) // Member.slot of an absent member
 
@@ -26,11 +24,11 @@ Member :: struct {
 	since: u32, // the tick of the member's last join or leave
 }
 
-// Who is in the session: State holds exactly one (found by type at create). The session remembers 2 x PLAYERS
-// people (MEMBERS_PER_SLOT): a newcomer to a full table takes the entry of the longest-absent member, whose handles go
-// stale and who is new if they come back. `before` is each slot's Input of the tick before (input_before: presses
-// are the difference), kept in the state so a rollback, a snapshot and a replay carry it. The pads keep `before`
-// and `data` 8-aligned.
+// Who is in the session: the State's field `players` (sim.Game's where clause checks it). The session remembers
+// 2 x PLAYERS people (MEMBERS_PER_SLOT): a newcomer to a full table takes the entry of the longest-absent member,
+// whose handles go stale and who is new if they come back. `before` is each slot's Input of the tick before
+// (input_before: presses are the difference), kept in the state so a rollback, a snapshot and a replay carry it. The
+// pads keep `before` and `data` 8-aligned.
 Players :: struct($T: typeid, $Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player, // who holds each slot (Player{}: nobody)
@@ -71,12 +69,25 @@ player_of_key :: proc(key: u64) -> Player {
 	return {index = u16(key & 0xFFFF), id = u16(key >> 16)}
 }
 
+// The player queries below each take the tick being computed (`sim.player_data(t, player)`) or a State's Players
+// (`sim.player_data(&state.players, player)`, outside a tick: views, tests).
+
 // The player's data, or nil when the handle is nobody, stale or forgotten. Valid while the player is absent.
-player_data :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> ^T {
-	if !player_known(players, player) {
-		return nil
-	}
-	return &players.data[player.index]
+player_data :: proc {
+	player_data_of_players,
+	player_data_of_tick,
+}
+
+player_data_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> ^T {
+	return &players.data[player.index] if player_known(players, player) else nil
+}
+
+// The result is the T of the State's `players: sim.Players(T, Input, PLAYERS)`.
+player_data_of_tick :: proc(
+	tick: ^Tick($G),
+	player: Player,
+) -> ^part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0) {
+	return player_data_of_players(&tick.state.players, player)
 }
 
 // Whether the handle names a member the table still remembers (present or absent).
@@ -84,23 +95,79 @@ player_known :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) ->
 	return player.id != 0 && int(player.index) < len(players.members) && players.members[player.index].id == player.id
 }
 
-// The slot the player holds this tick (present), or -1 and false when absent or unknown.
-player_slot :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> (slot: int, present: bool) {
+// The slot the player holds this tick, or -1 (and false) when absent or unknown: `slot := sim.player_slot(t, player)`.
+player_slot :: proc {
+	player_slot_of_players,
+	player_slot_of_tick,
+}
+
+player_slot_of_players :: proc(
+	players: ^Players($T, $Input, $PLAYERS),
+	player: Player,
+) -> (
+	slot: int,
+	present: bool,
+) #optional_ok {
 	if !player_known(players, player) || players.members[player.index].slot == NO_SLOT {
 		return -1, false
 	}
 	return int(players.members[player.index].slot), true
 }
 
+player_slot_of_tick :: proc(tick: ^Tick($G), player: Player) -> (slot: int, present: bool) #optional_ok {
+	return player_slot_of_players(&tick.state.players, player)
+}
+
 // Whether the player holds a slot this tick.
-player_present :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
-	_, present := player_slot(players, player)
+player_present :: proc {
+	player_present_of_players,
+	player_present_of_tick,
+}
+
+player_present_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
+	_, present := player_slot_of_players(players, player)
 	return present
 }
 
-// Who holds `slot` (Player{}: nobody, or a slot out of range).
-player_in_slot :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> Player {
+player_present_of_tick :: proc(tick: ^Tick($G), player: Player) -> bool {
+	return player_present_of_players(&tick.state.players, player)
+}
+
+// Who holds `slot` (Player{}: nobody, or a slot out of range); also of a simulation's current state, for drivers
+// outside `tick` (a scripted run adds a join record only for a slot nobody holds).
+player_in_slot :: proc {
+	player_in_slot_of_players,
+	player_in_slot_of_tick,
+	player_in_slot_of_sim,
+}
+
+player_in_slot_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> Player {
 	return players.slots[slot] if slot >= 0 && slot < PLAYERS else {}
+}
+
+player_in_slot_of_tick :: proc(tick: ^Tick($G), slot: int) -> Player {
+	return player_in_slot_of_players(&tick.state.players, slot)
+}
+
+player_in_slot_of_sim :: proc(simulation: ^Sim($G), slot: int) -> Player {
+	return player_in_slot_of_players(&simulation.state.players, slot)
+}
+
+// How many players hold a slot this tick.
+present_count :: proc {
+	present_count_of_players,
+	present_count_of_tick,
+}
+
+present_count_of_players :: proc(players: ^Players($T, $Input, $PLAYERS)) -> (count: int) {
+	for holder in players.slots {
+		if holder.id != 0 do count += 1
+	}
+	return
+}
+
+present_count_of_tick :: proc(tick: ^Tick($G)) -> int {
+	return present_count_of_players(&tick.state.players)
 }
 
 // Walks the players with their data (iterate_present or iterate_known, then next):
@@ -154,7 +221,7 @@ players_next :: #force_inline proc(
 
 // The player's input this tick (zero when absent).
 input :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
-	slot := tick_slot(tick, player)
+	slot := player_slot_of_tick(tick, player)
 	return tick.inputs.input[slot] if slot >= 0 else {}
 }
 
@@ -163,11 +230,8 @@ input :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
 //
 //   pressed := sim.input(t, player).buttons - sim.input_before(t, player).buttons
 input_before :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
-	Input :: part(G, GAME_INPUT)
-	slot := tick_slot(tick, player)
-	if slot < 0 do return {}
-	view := players_view(tick.state, tick.players_layout)
-	return ([^]Input)(view.before)[slot]
+	slot := player_slot_of_tick(tick, player)
+	return tick.state.players.before[slot] if slot >= 0 else {}
 }
 
 // The commands `player` sent for this tick, decoded, in the order sent; empty when absent, never a nil entry (one
@@ -177,175 +241,43 @@ input_before :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
 //       switch command in sent { case Cmd_Pick: ... }
 //   }
 commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
-	slot := tick_slot(tick, player)
+	slot := player_slot_of_tick(tick, player)
 	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }
 
 // A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick.
 join :: proc(inputs: ^Inputs($G), slot: int, member: int) {
-	PLAYERS :: part(G, GAME_PLAYERS)
-	assert(slot >= 0 && slot < PLAYERS && member >= 1 && member <= 0xFFFF)
+	assert(slot >= 0 && slot < part(G, GAME_PLAYERS) && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
 	inputs.member[slot] = u16(member)
-}
-
-// Who holds `slot` in the simulation's current state (Player{}: nobody): for drivers outside `tick` (a scripted
-// run adds a join record only for a slot nobody holds).
-slot_player :: proc(simulation: ^Sim($G), slot: int) -> Player {
-	view := players_view(&simulation.state, &simulation.players_layout)
-	return view.slots[slot] if slot >= 0 && slot < part(G, GAME_PLAYERS) else {}
-}
-
-// The member table and who holds each slot in `state` (one of the simulation's: its current one, or a saved tick's
-// from state_at), for drivers outside `tick` that know the State only generically (a view host).
-players_of :: proc(
-	simulation: ^Sim($G),
-	state: ^$State,
-) -> (
-	members: []Member,
-	slots: []Player,
-) where State ==
-	part(G, GAME_STATE) {
-	view := players_view(state, &simulation.players_layout)
-	return view.members, view.slots
-}
-
-// The slot `player` holds in the tick being computed (-1: absent or unknown).
-@(private)
-tick_slot :: proc(tick: ^Tick($G), player: Player) -> int {
-	view := players_view(tick.state, tick.players_layout)
-	if player.id == 0 || int(player.index) >= len(view.members) {
-		return -1
-	}
-	member := view.members[player.index]
-	return int(member.slot) if member.id == player.id && member.slot != NO_SLOT else -1
-}
-
-// Where the State's Players field is, found by RTTI at create.
-Players_Layout :: struct {
-	offset:    int, // of the field in State
-	members:   int, // 2 x PLAYERS
-	slots:     int, // PLAYERS
-	slots_at:  int, // offset of `slots` in the Players
-	data_at:   int, // offset of `data`
-	data_size: int, // size_of(T)
-	before_at: int, // offset of `before`
-	input:     int, // size_of(its Input)
-}
-
-// The Players of a state block, untyped (the harness's view of it).
-@(private)
-Players_View :: struct {
-	members: []Member,
-	slots:   []Player,
-	data:    [^]u8,
-	stride:  int,
-	before:  [^]u8, // [slots]Input
-	input:   int, // size_of(Input)
-}
-
-@(private)
-players_view :: proc(state: rawptr, layout: ^Players_Layout) -> Players_View {
-	base := uintptr(state) + uintptr(layout.offset)
-	return {
-		members = ([^]Member)(rawptr(base))[:layout.members],
-		slots   = ([^]Player)(rawptr(base + uintptr(layout.slots_at)))[:layout.slots],
-		data    = ([^]u8)(rawptr(base + uintptr(layout.data_at))),
-		stride  = layout.data_size,
-		before  = ([^]u8)(rawptr(base + uintptr(layout.before_at))),
-		input   = layout.input,
-	}
-}
-
-// Finds the State's one Players field and checks it ("" and the layout when it is there and fits PLAYERS and the
-// game's Input).
-players_layout_of :: proc(
-	state: ^runtime.Type_Info,
-	players: int,
-	input: ^runtime.Type_Info,
-) -> (
-	layout: Players_Layout,
-	reason: string,
-) {
-	info, is_struct := runtime.type_info_base(state).variant.(runtime.Type_Info_Struct)
-	if !is_struct {
-		return {}, "State is not a struct"
-	}
-	found := 0
-	for i in 0 ..< int(info.field_count) {
-		field := info.types[i]
-		if !is_players(field) {
-			continue
-		}
-		found += 1
-		table := runtime.type_info_base(field).variant.(runtime.Type_Info_Struct)
-		layout.offset = int(info.offsets[i])
-		for j in 0 ..< int(table.field_count) {
-			array, is_array := runtime.type_info_base(table.types[j]).variant.(runtime.Type_Info_Array)
-			if !is_array do continue
-			switch table.names[j] {
-			case "members":
-				layout.members = array.count
-			case "slots":
-				layout.slots, layout.slots_at = array.count, int(table.offsets[j])
-			case "data":
-				layout.data_at, layout.data_size = int(table.offsets[j]), array.elem_size
-			case "before":
-				layout.before_at, layout.input = int(table.offsets[j]), array.elem_size
-				if array.elem.id != input.id do reason = fmt.tprintf("the State's Players is for the input %v, the game's is %v", array.elem.id, input.id)
-			}
-		}
-	}
-	switch {
-	case reason != "":
-	case found == 0:
-		reason = "State has no sim.Players field (the session's players: src/sim/SPEC.md, Players)"
-	case found > 1:
-		reason = fmt.tprintf("State has %d sim.Players fields (exactly one)", found)
-	case layout.slots != players:
-		reason = fmt.tprintf("the State's Players is for %d players, the game has %d", layout.slots, players)
-	}
-	return
-}
-
-// A sim.Players(T, Input, PLAYERS): its RTTI names it "Players($T=...)" in package sim.
-@(private)
-is_players :: proc(type: ^runtime.Type_Info) -> bool {
-	named, ok := type.variant.(runtime.Type_Info_Named)
-	return ok && named.pkg == "sim" && strings.has_prefix(named.name, "Players(")
 }
 
 // The changes of a tick's presence, for Tick.player_changes.
 @(private)
 Changes_Buffer :: struct($PLAYERS: int) {
-	joined, returned, left:                   [PLAYERS]Player,
-	joined_count, returned_count, left_count: int,
+	arrived, joined, left:                   [PLAYERS]Player,
+	arrived_count, joined_count, left_count: int,
 }
 
-// Applies a tick's presence and join records to the State's Players before `tick` (the harness, advance):
+// Applies a tick's presence and join records to the State's Players before the game's `tick` (the harness, step):
 // leaves first (a slot no longer present, or present with another member's join record), then joins in slot order
-// (a slot that becomes present with a join record; without one it stays absent).
+// (a slot that becomes present with a join record; without one it stays absent). Emits the join and leave events.
 @(private)
-players_update :: proc(
-	view: Players_View,
-	inputs: ^Inputs($G),
-	number: u32,
-	events: ^Events,
-	changes: ^Changes_Buffer($N),
-) {
-	PLAYERS :: part(G, GAME_PLAYERS)
+players_update :: proc(tick: ^Tick($G), changes: ^Changes_Buffer($PLAYERS)) {
+	players := &tick.state.players
+	inputs := tick.inputs
 	changes^ = {}
 	for slot in 0 ..< PLAYERS {
-		holder := view.slots[slot]
+		holder := players.slots[slot]
 		record := inputs.member[slot]
 		if holder.id == 0 || (slot in inputs.present && (record == 0 || record == holder.id)) {
 			continue
 		}
-		players_leave(view, slot, number, events, changes)
+		players_leave(tick, slot, changes)
 	}
 	for slot in 0 ..< PLAYERS {
 		record := inputs.member[slot]
-		if record == 0 || slot not_in inputs.present || view.slots[slot].id != 0 {
+		if record == 0 || slot not_in inputs.present || players.slots[slot].id != 0 {
 			continue
 		}
 		for other in 0 ..< slot {
@@ -353,7 +285,7 @@ players_update :: proc(
 			assert(other not_in inputs.present || inputs.member[other] != record, "one member in two join records")
 		}
 		index := -1
-		for member, i in view.members {
+		for member, i in players.members {
 			if member.id == record {
 				index = i
 				break
@@ -361,79 +293,71 @@ players_update :: proc(
 		}
 		returning := index >= 0
 		if returning {
-			if elsewhere := view.members[index].slot; elsewhere != NO_SLOT {
-				players_leave(view, int(elsewhere), number, events, changes) // the same person in two slots: the newest
+			if elsewhere := players.members[index].slot; elsewhere != NO_SLOT {
+				players_leave(tick, int(elsewhere), changes) // the same person in two slots: the newest
 			}
 		} else {
-			index = players_entry(view, number)
+			index = players_entry(players, tick.number)
 			if index < 0 {
 				continue // no entry to give: the slot stays absent (only a script's leave and join in one tick)
 			}
-			view.members[index] = {
+			players.members[index] = {
 				id = record,
 			}
-			runtime.memset(view.data[index * view.stride:], 0, view.stride)
+			players.data[index] = {}
 		}
-		member := &view.members[index]
+		member := &players.members[index]
 		member.slot = u8(slot)
-		member.since = number
-		runtime.memset(view.before[slot * view.input:], 0, view.input) // nothing held before their first tick here
+		member.since = tick.number
+		players.before[slot] = {} // nothing held before their first tick here
 		player := Player{u16(index), record}
-		view.slots[slot] = player
-		if returning {
-			changes.returned[changes.returned_count] = player
-			changes.returned_count += 1
-		} else {
+		players.slots[slot] = player
+		changes.arrived[changes.arrived_count] = player
+		changes.arrived_count += 1
+		if !returning {
 			changes.joined[changes.joined_count] = player
 			changes.joined_count += 1
 		}
-		emit_to(events, Event_Player_Joined{player = player, slot = u8(slot), returning = returning})
+		emit(tick, Event_Player_Joined{player = player, slot = u8(slot), returning = returning})
 	}
 }
 
 // After `tick`: each slot's input becomes its `before` for the next tick (zero for a slot nobody holds).
 @(private)
-players_remember :: proc(view: Players_View, inputs: ^Inputs($G)) {
-	Input :: part(G, GAME_INPUT)
-	PLAYERS :: part(G, GAME_PLAYERS)
-	before := ([^]Input)(view.before)
+players_remember :: proc(players: ^Players($T, $Input, $PLAYERS), inputs: ^Inputs($G)) {
 	for slot in 0 ..< PLAYERS {
-		before[slot] = inputs.input[slot] if view.slots[slot].id != 0 else {}
+		players.before[slot] = inputs.input[slot] if players.slots[slot].id != 0 else {}
 	}
 }
 
 @(private)
-players_leave :: proc(
-	view: Players_View,
-	slot: int,
-	number: u32,
-	events: ^Events,
-	changes: ^Changes_Buffer($PLAYERS),
-) {
-	holder := view.slots[slot]
-	member := &view.members[holder.index]
+players_leave :: proc(tick: ^Tick($G), slot: int, changes: ^Changes_Buffer($PLAYERS)) {
+	players := &tick.state.players
+	holder := players.slots[slot]
+	member := &players.members[holder.index]
 	member.slot = NO_SLOT
-	member.since = number
-	view.slots[slot] = {}
+	member.since = tick.number
+	players.slots[slot] = {}
 	changes.left[changes.left_count] = holder
 	changes.left_count += 1
-	emit_to(events, Event_Player_Left{player = holder, slot = u8(slot)})
+	emit(tick, Event_Player_Left{player = holder, slot = u8(slot)})
 }
 
 // The entry for a new member: the first free one, else the longest-absent member's (the lowest `since`; ties: the
 // lowest index), -1 when there is none. A member who left on this tick is never forgotten on it: its handle in
-// t.player_changes.left must still name its data while the game cleans up. (The relay never needs it: a slot it seats was free on
-// the tick before, so the members present then and the free or longer-absent entries always cover the joins.)
+// t.player_changes.left must still name its data while the game cleans up. (The relay never needs it: a slot it seats
+// was free on the tick before, so the members present then and the free or longer-absent entries always cover the
+// joins.)
 @(private)
-players_entry :: proc(view: Players_View, number: u32) -> int {
+players_entry :: proc(players: ^Players($T, $Input, $PLAYERS), number: u32) -> int {
 	oldest := -1
-	for member, i in view.members {
+	for member, i in players.members {
 		if member.id == 0 {
 			return i
 		}
 		if member.slot == NO_SLOT &&
 		   member.since != number &&
-		   (oldest < 0 || member.since < view.members[oldest].since) {
+		   (oldest < 0 || member.since < players.members[oldest].since) {
 			oldest = i
 		}
 	}

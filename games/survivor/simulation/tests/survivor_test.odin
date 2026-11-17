@@ -74,13 +74,13 @@ presence_joins_and_leaves :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 3)
 	defer sim.destroy(simulation)
 	step(simulation, {0})
-	first := sim.slot_player(simulation, 0)
+	first := sim.player_in_slot(simulation, 0)
 	testing.expect(t, first != {} && in_slot(simulation, 0).alive)
 	testing.expect(t, in_slot(simulation, 1) == nil)
 	_, joined := presence_event(simulation, 1, sim.Event_Player_Joined, first)
 	testing.expect(t, joined)
 	step(simulation, {0, 1})
-	second := sim.slot_player(simulation, 1)
+	second := sim.player_in_slot(simulation, 1)
 	testing.expect(t, second != {} && second != first)
 	_, joined = presence_event(simulation, 2, sim.Event_Player_Joined, second)
 	testing.expect(t, joined)
@@ -103,7 +103,7 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	inputs: survivor.Inputs
 	sim.join(&inputs, 0, 1)
 	sim.step(simulation, &inputs)
-	first := sim.slot_player(simulation, 0)
+	first := sim.player_in_slot(simulation, 0)
 	sim.player_data(players, first).level = 4
 	sim.player_data(players, first).damage_bonus = 6
 
@@ -112,7 +112,7 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	inputs = {}
 	sim.join(&inputs, 0, 2) // someone new takes slot 0
 	sim.step(simulation, &inputs)
-	second := sim.slot_player(simulation, 0)
+	second := sim.player_in_slot(simulation, 0)
 	testing.expect(t, second != {} && second != first)
 	testing.expect_value(t, in_slot(simulation, 0).level, 1)
 	testing.expect_value(t, in_slot(simulation, 0).damage_bonus, 0)
@@ -123,8 +123,8 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	inputs.present = {0}
 	sim.join(&inputs, 1, 1) // the first comes back, in slot 1
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, sim.slot_player(simulation, 1), first)
-	testing.expect_value(t, sim.slot_player(simulation, 0), second)
+	testing.expect_value(t, sim.player_in_slot(simulation, 1), first)
+	testing.expect_value(t, sim.player_in_slot(simulation, 0), second)
 	back := sim.player_data(players, first)
 	testing.expect_value(t, back.level, 4)
 	testing.expect_value(t, back.damage_bonus, 6)
