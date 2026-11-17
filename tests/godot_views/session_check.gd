@@ -4,8 +4,7 @@
 #    the start is accepted, waits for the goodbye (cut to 1 s) and connects.
 # 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
 # 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("disconnected").
-# 4. every start reads the same LAN token back from user://, kept as 32 hex digits (a restarted game is the same
-#    person to the relay).
+# (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
 #   godot --path tests/godot_views --headless -s res://session_check.gd -- [--idle-end S]
 # --idle-end S: stay S seconds with no session before quitting (to see the power activity released).
 # Prints one line per check and "SESSION TESTS: <n> failed"; exits with the failure count.
@@ -53,7 +52,6 @@ func _run() -> void:
 		check("bind the silent peer", false)
 		return _finish()
 	check("join the silent peer", s.join_direct("127.0.0.1:%d" % silent.get_local_port()))
-	var first_token := _own_token()
 	await _sleep(0.4)
 	_statuses.clear()
 	s.leave()
@@ -93,22 +91,10 @@ func _run() -> void:
 	await _sleep(0.3)
 	check("the cancelled start never ran", not s.is_running())
 
-	# 4. the LAN token, read back by every start
-	check("the LAN token is kept as hex", first_token.length() == 32 and first_token.is_valid_hex_number(), first_token)
-	check("every start reads the same token back", _own_token() == first_token, [first_token, _own_token()])
-
 	if idle_end > 0.0:
 		print("session_check: idle with no session for %.1f s" % idle_end)
 		await _sleep(idle_end)
 	_finish()
-
-
-## This process's LAN token as kept in user:// ("" when none).
-func _own_token() -> String:
-	for k in 8:
-		if FileAccess.get_file_as_string("user://unified_token_%d.pid" % k) == str(OS.get_process_id()):
-			return FileAccess.get_file_as_string("user://unified_token_%d" % k)
-	return ""
 
 
 func _sleep(sec: float) -> void:

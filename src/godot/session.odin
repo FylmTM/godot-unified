@@ -1,7 +1,6 @@
 // UnifiedSession: the GDScript-facing session node (src/godot/SPEC.md).
 package godot
 
-import "core:crypto"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
@@ -721,45 +720,6 @@ near_miss :: proc(name, flag: string) -> bool {
 		}
 	}
 	return rows[(len(name) + 1) % 3][len(flag)] <= limit
-}
-
-TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their own
-
-// What the relay knows this player by when they come back to a LAN session (netcode.Token): 16 random bytes kept in
-// user:// as hex (netcode.token_text), made on first use. Never sent past the relay. Each running copy of the game on
-// a machine (they share user://) is someone else: a copy keeps the token it claimed for all its sessions, and first
-// claims the first one whose `.pid` file names no running process, so a game restarted after a crash takes its own
-// token back, while a second window takes another.
-@(private)
-client_token :: proc() -> (token: netcode.Token) {
-	pid := gd.OS_get_process_id(gd.OS_singleton())
-	instance, free := -1, -1
-	for k in 0 ..< TOKEN_INSTANCES {
-		owner, _ := strconv.parse_int(gd.FileAccess_get_file_as_string(fmt.tprintf("user://unified_token_%d.pid", k)))
-		if owner == pid {
-			instance = k
-			break
-		}
-		if free < 0 && (owner == 0 || !process_alive(owner)) do free = k
-	}
-	if instance < 0 do instance = free if free >= 0 else TOKEN_INSTANCES - 1
-	path := fmt.tprintf("user://unified_token_%d", instance)
-	write_user_file(fmt.tprintf("%s.pid", path), fmt.tprintf("%d", pid))
-	if kept, ok := netcode.token_parse(strings.trim_space(gd.FileAccess_get_file_as_string(path))); ok {
-		return kept
-	}
-	crypto.rand_bytes(token[:])
-	write_user_file(path, netcode.token_text(token))
-	return
-}
-
-@(private)
-write_user_file :: proc(path, text: string) {
-	file := gd.FileAccess_open(path, .WRITE)
-	if file.ptr == nil do return
-	gd.FileAccess_store_string(file, text)
-	gd.FileAccess_close(file)
-	gd.unref(file)
 }
 
 // A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.
