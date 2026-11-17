@@ -60,17 +60,18 @@ func _color_slot(slot: int) -> void:
 	_label.modulate = color.lightened(0.35)
 
 
-func _sim_update(pos: Vector3, yaw: float, _alpha: float) -> void:
-	quaternion = Quaternion.IDENTITY  # the host may set the root's rotation; the body turns by yaw below
+func _sim_update(pos: Vector3, _sim_yaw: float, _alpha: float) -> void:
+	quaternion = Quaternion.IDENTITY  # the host may set the root's rotation; the body turns by its motion below
 	var dt := get_process_delta_time()
 	if _has_pos and dt > 0.0:
 		_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 20.0))
 	_has_pos = true
 	_last_pos = pos
-	_yaw = lerp_angle(_yaw, yaw, 1.0 - exp(-dt * 18.0))
 	var flat := Vector3(_vel.x, 0, _vel.z)
 	var speed := flat.length()
-	# Face the sim's yaw, lean into the motion (tilt about the axis perpendicular to it) and bob while walking.
+	if speed > 0.5:  # the sim keeps no facing: turn toward the motion, keep the last yaw while standing
+		_yaw = lerp_angle(_yaw, atan2(flat.x, flat.z), 1.0 - exp(-dt * 18.0))
+	# Face the motion, lean into it (tilt about the axis perpendicular to it) and bob while walking.
 	_body.basis = Basis.from_euler(Vector3(0, _yaw, 0))
 	var lean := flat.limit_length(8.0) * 0.035
 	if lean.length() > 0.001:

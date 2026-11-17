@@ -13,7 +13,7 @@ tick :: proc(t: ^Tick) {
 	for ship, player in sim.next(&ships) do pilot(t, ship, player)
 	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
 	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, t.state.phase == .Over ? 0 : STATION_SPIN)
-	physics.step(t.world.phys, t.dt, 4)
+	physics.step(t.world.phys, t.dt, SUBSTEPS)
 	move_bullets(t)
 	update_rocks(t)
 	warp_ships(t)
@@ -37,14 +37,15 @@ presence :: proc(t: ^Tick) {
 	for player in t.player_changes.returned do spawn_ship(t, player)
 }
 
-// Applies this tick's commands: `start` begins a match from the lobby, `restart` resets an over match at once.
-// Either is ignored outside its phase.
+// A joining player's ship, at their slot's spawn point.
 spawn_ship :: proc(t: ^Tick, player: sim.Player) {
 	slot, _ := sim.player_slot(&t.state.players, player)
 	create_ship(t.world, sim.player_data(&t.state.players, player), t.world.spawns[slot])
 	sim.emit(t, Event_Spawned{position = position_of(t.world.spawns[slot]), player = player})
 }
 
+// Applies this tick's commands: `start` begins a match from the lobby, `restart` resets an over match at once.
+// Either is ignored outside its phase.
 commands :: proc(t: ^Tick) {
 	players := sim.iterate_present(&t.state.players)
 	for _, player in sim.next(&players) {
@@ -76,7 +77,6 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	input := sim.input(t, player)
 	pos := physics.body_position_2d(t.world.phys, ship.body)
 	heading := physics.body_rotation_2d(t.world.phys, ship.body)
-	vel := physics.body_linear_velocity_2d(t.world.phys, ship.body)
 	mass := physics.body_mass(t.world.phys, ship.body)
 	move := dmath.stick(input.move_x, input.move_y)
 	ship.thrust = move != {}
@@ -94,8 +94,7 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 			spin = clamp(TURN_GAIN * cross, -TURN_MAX, TURN_MAX)
 		}
 	}
-	vel = physics.body_linear_velocity_2d(t.world.phys, ship.body)
-	physics.body_set_linear_velocity_2d(t.world.phys, ship.body, vel)
+	vel := physics.body_linear_velocity_2d(t.world.phys, ship.body) // after the thrust: what a bullet inherits
 	physics.body_set_angular_velocity_2d(t.world.phys, ship.body, spin)
 	if ship.boost_cooldown > 0 do ship.boost_cooldown -= 1
 	if ship.fire_cooldown > 0 do ship.fire_cooldown -= 1
@@ -254,13 +253,7 @@ warp_ships :: proc(t: ^Tick) {
 			if gate_def.pair < 0 || t.state.gates[gate].charge > 0 do continue
 			if dmath.dist_sq2(pos, gate_def.pos) > GATE_RADIUS * GATE_RADIUS do continue
 			to := t.world.gates[gate_def.pair].pos
-			vel := physics.body_linear_velocity_2d(t.world.phys, ship.body)
-			spin := physics.body_angular_velocity_2d(t.world.phys, ship.body)
-			physics.body_set_transform(t.world.phys, ship.body, v3(to), physics.quat_2d(rotation))
-			physics.body_set_linear_velocity(t.world.phys, ship.body, {})
-			physics.body_set_angular_velocity(t.world.phys, ship.body, {})
-			physics.body_set_linear_velocity_2d(t.world.phys, ship.body, vel)
-			physics.body_set_angular_velocity_2d(t.world.phys, ship.body, spin)
+			physics.body_set_transform_2d(t.world.phys, ship.body, to, rotation) // velocities kept
 			t.state.gates[gate].charge = GATE_CHARGE_TICKS
 			t.state.gates[gate_def.pair].charge = GATE_CHARGE_TICKS
 			ship.gate_cooldown = GATE_CHARGE_TICKS
@@ -379,7 +372,7 @@ reset :: proc(t: ^Tick) {
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
 		slot, _ := sim.player_slot(&t.state.players, player)
-		physics.body_set_transform(t.world.phys, ship.body, v3(t.world.spawns[slot]), physics.quat_2d({0, -1}))
+		physics.body_set_transform_2d(t.world.phys, ship.body, t.world.spawns[slot], {0, -1})
 		physics.body_set_linear_velocity(t.world.phys, ship.body, {})
 		physics.body_set_angular_velocity(t.world.phys, ship.body, {})
 		ship.fire_cooldown, ship.boost_cooldown, ship.gate_cooldown = 0, 0, 0

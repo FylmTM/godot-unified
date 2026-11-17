@@ -11,6 +11,7 @@ TICK_HZ :: 64
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 
 PLAYERS :: 4
+SUBSTEPS :: 4 // Box3D sub-steps per tick
 MAX_ROCKS :: 128
 MAX_BULLETS :: 256
 MAX_GEMS :: 64

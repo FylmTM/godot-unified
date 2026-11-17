@@ -3,8 +3,6 @@ extends Node3D
 ## facing (the root's rotation); everything else here is view-only: lean into motion, squash on jumps and landings,
 ## tip over while stunned or held, arms out while holding, a name tag and a throw-charge ring.
 
-const COLORS: Array[Color] = [Color(1.0, 0.55, 0.3), Color(0.4, 0.75, 1.0), Color(1.0, 0.5, 0.8), Color(0.6, 0.9, 0.4)]
-
 ## The sim's Player_View data (simulation/extension), set by the host when it changes.
 ## Stunned or held: the body tips over.
 var limp := false
@@ -29,7 +27,7 @@ var _t := 0.0
 
 func _ready() -> void:
 	var player := _view_marker.player
-	var c := COLORS[clampi(Game.player_slot(player), 0, COLORS.size() - 1)]
+	var c := UiTheme.player_color(Game.player_slot(player))  # the session panel's colour of this player
 	_body = Node3D.new()
 	add_child(_body)
 	var radius := Unified.constants.player_radius
