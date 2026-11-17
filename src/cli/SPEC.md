@@ -56,7 +56,7 @@ this repo's layout but `init --in-repo`.
 - **Shims** (POSIX sh and cmd, nothing else) read `pins.cfg`'s `[odin]` with shell builtins, then put the pinned
   release first on PATH: `<cache>/unified/odin/<tag>`, downloaded once when missing (curl), its SHA-256 checked
   against `pins.cfg` (`sha256sum`/`shasum`; `certutil`), unpacked next to its final directory (`tar`; the system
-  `tar.exe` reads the Windows zip; Git Bash: `unzip`) and renamed into place (60-160 MB, once per machine and pin).
+  `tar.exe` reads the Windows zip; Git Bash: `unzip`) and renamed into place (once per machine and pin).
   No other Odin is used. Then: if `.out/cli/current` names an existing binary, run it with the arguments; else `odin
   build tools -collection:unified=<unified>/src -o:minimal` into `.out/cli/uni-bootstrap`, with its dependency list,
   and run that; it installs itself as `uni-<hash>-<odin commit>`.
@@ -96,15 +96,15 @@ dependency, generated the Godot bindings, imported a project, or built something
 
 **Builds** go through manifests: an output's sizes and times of every source file and directory, the odin
 executable, and the command line as the key (an extension's build tag is outside it). Every command builds only what
-is stale, `build` included (`--force`: everything, the bindings too), and starts its builds at once.
+is stale, `build` included (it can be told to build everything), and starts its builds at once.
 
-**Windows.** `run` and `editor` take `--mute`, `--screen <n|left|right|primary>` (Godot's index, or one the CLI
-finds from the OS in Godot's order: Windows' monitors; macOS' displays through CoreGraphics, loaded only then;
-Linux' `xrandr --listmonitors`) and, for `run`, `--background`: the window never takes focus (Godot's
+**Windows.** A game window can be muted (Godot's dummy audio driver), placed on a screen (Godot's index, or left,
+right or primary, which the CLI finds from the OS in Godot's order: Windows' monitors; macOS' displays through
+CoreGraphics, loaded only then; Linux' `xrandr --listmonitors`) and kept from taking focus (Godot's
 `display/window/size/no_focus` through an `override.cfg` the CLI writes into the project for the run; on Windows it
-opens without activation; on macOS Godot activates itself anyway, so the CLI hands the focus straight back). A
-check's window (`tool --window`, `coop --window`, this repo's `view-bench --window`) is always all three. The editor
-ignores the override and takes focus.
+opens without activation; on macOS Godot activates itself anyway, so the CLI hands the focus straight back). `run`
+leaves each to its caller; a check's window (a tool script's, coop's, this repo's view bench) is always all three, on
+the leftmost screen. The editor ignores the override and takes focus.
 
 ## Local settings
 
@@ -138,17 +138,17 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
     Unit tests, the black-box tests, the end-to-end suites, the reference-run replays, the Box3D golden trace, the
     determinism and import lint. `--long` builds with `-define:UNIFIED_LONG_TESTS=true`. The binary runs under a
     watchdog (`testrun.odin`): Odin's runner freezes a crashed test's thread, so a lock it held stays held; the
-    watchdog kills the binary 3 s after a crash, or at the suite's CI allowance, and names the crashed and
+    watchdog kills the binary shortly after a crash, or at the suite's CI allowance, and names the crashed and
     still-running tests. A passing run prints the runner's `[WARN]`/`[ERROR]` lines and its `Finished` line; a
     failing one the whole output (kept in `<binary>.log`).
   - `box3d-debug`: the odin suite's binary again, copied next to Box3D's debug library (same file name and ABI),
     whose asserts trap what the release library lets through (a stale id destroying another body).
   - `godot` (beside): each game under headless Godot, the games in parallel (a child `uni test <game> --suite godot`
-    each), and with 16 cores or more a game's steps in two lanes (`editor`, `bake`, `tour` beside the rest; on fewer,
-    the doubled Godot processes gain nothing). Steps, each run when the game has
+    each), and on a machine with cores to spare a game's steps in two lanes (`editor`, `bake`, `tour` beside the
+    rest; on fewer, the doubled Godot processes gain nothing). Steps, each run when the game has
     what it needs: `import` (stale imports only; every Godot run first re-imports a stale class cache), `editor` (the
-    extension loads, no errors), `session` (a 64-tick headless session, `--long` 256; its checksums equal the offline
-    headless binary's), `bake` (`--check`, the view index too), then the tool scripts `validate`, `walk`
+    extension loads, no errors), `session` (a short headless session, longer with `--long`; its checksums equal the
+    offline headless binary's), `bake` (`--check`, the view index too), then the tool scripts `validate`, `walk`
     (`ui_walk.gd`), `tour` (quick). Its `prepare` makes current what the games share: Godot, the bindings, Box3D, the
     `session` step's release headless binaries. The tool scripts run without the EOS SDK, as on CI.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
@@ -179,7 +179,7 @@ API change that breaks a new game fails `verify`.
 
 ## Dependencies
 
-- **Downloads:** `curl` (HTTPS, retries, byte ranges: only the needed members of the 1.3 GB templates archive),
+- **Downloads:** `curl` (HTTPS, retries, byte ranges: only the needed members of the templates archive),
   SHA-256 in Odin, our own zip reader and writer (`core:compress`: stored and deflated members, Zip64 sizes, Unix
   modes and symlinks), written to a temp path and renamed into place.
 - **Godot:** the pinned editor in the per-user cache; `UNIFIED_GODOT` may name a local install that reports the exact

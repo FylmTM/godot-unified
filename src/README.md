@@ -66,8 +66,3 @@ whole sessions on a virtual clock in milliseconds. `headless session` runs a thr
 steps everything on one thread on the virtual clock (the end-to-end suites); the Godot host runs a session thread of
 its own (`src/godot/SPEC.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
 are serialised by a mutex.
-
-## Papercuts
-
-The Odin pitfalls (tests in their own packages, `-vet` and generic imports, package names, streaming XXH3, the
-Windows CRT, timers and UDP) are in `.claude/rules/odin.md`, which Claude loads when it touches an `.odin` file.

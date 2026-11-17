@@ -2,8 +2,8 @@
 
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 **Godot** as the host for rendering, audio, UI and the editor. Inspired by Photon Quantum's model (deterministic
-sim, input relay, prediction and rollback), built for speed, code-first workflows and AI-agent development. The first
-game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games follow.
+sim, input relay, prediction and rollback), built for speed, code-first workflows and AI-agent development. The
+games in `games/` prove it.
 
 ## Roles
 
@@ -56,31 +56,11 @@ game is `games/survivor/`, a co-op survivor prototype; larger 3D co-op games fol
 ## The board
 
 Planned work is on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per reviewable
-piece of work. Issues are the developer's memory of what to do; how a piece of work is handled (merge it or not) is
-said in chat, not with labels. The `board-work` skill has the statuses and the procedure. The rules:
+piece of work. The `board-work` skill has the statuses, the procedure and when a finding is filed.
 
-- **Agents take work only from Todo** (or what the developer hands them directly), never Backlog or Design items.
-- **Work the developer asks for in chat is done in that session**, not filed first.
-- **Every change is a PR** from its own branch. It says `Closes #N` for each issue it finishes (merging closes them)
-  and `Part of #N` for one it only advances. Agents push and open PRs without asking; only merging is gated.
-- **Done means closed.** An issue moved to Done is closed too (`./uni board set N --status Done` does both).
-- **Findings: do the work; file only what can't be done here.** What belongs to the current stream of work (a bug
-  next to it, a stale doc, a small cleanup or fix) is done in the same PR, not filed. File a Backlog issue only for a
-  new feature, or a fix or improvement big or risky enough to need its own PR and review. Feedback for later from
-  one stream of work (a review, a sitting, a batch) goes into as few issues as possible, each still on one topic.
-  Never notes in docs or reports.
-
-## Current phase: the foundations review
-
-- **No new features or big changes** until the review sittings are done (the `review` label, foundations up: #5
-  tooling, #6 sim, #7 physics, #8 netcode, #9 Godot host, then the games). Bugs, review follow-ups and small fixes
-  are fine; file ideas as Backlog issues.
-- A review sitting: the developer goes through one part of the project with an agent (explanation, a hands-on task,
-  decisions); its decisions and follow-ups are written into the issue. Check the issue's comments for notes added
-  since it was filed.
-- **A sitting's follow-ups ship as one PR per sitting** (or per large part of one): one side session on one branch
-  does them all while the next sitting continues. Its follow-ups are grouped into as few issues as possible (Findings,
-  above).
+- **Agents take work only from Todo**, or what the developer asks for in chat (done in that session, not filed first).
+- **Every change is a PR** from its own branch. Agents push and open PRs without asking; only merging is gated.
+- **Findings: do the work in the same PR; file only what can't be done here.** Never notes in docs or reports.
 
 ## Conventions
 
@@ -93,9 +73,11 @@ said in chat, not with labels. The `board-work` skill has the statuses and the p
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
   sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all in one compile.
-- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game. The line
-  under a spec's title is its status, `Status: signed off YYYY-MM-DD (#N)` or `Status: draft, pending #N`; the PR
-  that carries a sitting's decisions updates it.
+- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game. A spec
+  holds the API a consumer calls, how it works, and the decisions a reader could get wrong. No history (issue
+  numbers, dates, what it replaced), no measurements, no test lists, no command options, nothing unbuilt: byte
+  layouts live in the code's headers, numbers come from `uni bench`, options from `uni help`. The line under the
+  title is the one place a spec names an issue: `Status: signed off YYYY-MM-DD (#N)` or `Status: draft, pending #N`.
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
   options: `./uni help`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
@@ -125,6 +107,4 @@ back:
 - The board (above): current and upcoming work; decisions live in the specs.
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
 - `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/main.odin`: this repo's CLI.
-- `docs/EOS.md` (online setup), `docs/research/` (open research).
-- `docs/archive/`: phase 2 results kept for reference; the research on the stacks we didn't choose is in git
-  history (`docs/archive/README.md`).
+- `docs/EOS.md`: online setup.

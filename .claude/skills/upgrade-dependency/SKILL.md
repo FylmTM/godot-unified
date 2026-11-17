@@ -48,8 +48,7 @@ For every upgrade:
 - **Editor and export templates** (a patch release, same baseline): `[godot] version` and its three editor hashes,
   `[godot_templates]` (GitHub's asset digests for the new release:
   `gh api repos/godotengine/godot/releases/tags/<version>-stable --jq '.assets[] | [.name, .digest]'`; the
-  templates' hashes are of the files inside the `.tpz`). Update the version in the games' READMEs if they name it.
-  Check with `./uni test --suite godot,godot-bindings` and a local release build (`release` skill).
+  templates' hashes are of the files inside the `.tpz`). Check with `./uni test --suite godot,godot-bindings` and a local release build (`release` skill).
 - **The GDExtension API baseline** (a new minor version, e.g. 4.7 to 4.8): regenerate the committed dump in
   `src/gdext/api/` with the official standard build, from that folder, then regenerate the bindings:
 
