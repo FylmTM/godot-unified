@@ -201,12 +201,8 @@ read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> (files: []string, odi
 
 @(private)
 path_under :: proc(path, dir: string) -> bool {
-	norm :: proc(path: string) -> string {
-		slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
-		return strings.to_lower(slashed, context.temp_allocator)
-	}
-	trimmed := strings.trim_right(norm(dir), "/")
-	return trimmed != "" && strings.has_prefix(norm(path), trimmed)
+	under := path_key(dir)
+	return under != "" && strings.has_prefix(path_key(path), aprintf("%s/", under))
 }
 
 // The hash of the sources' contents (with their names relative to the project, so a moved checkout keeps it).

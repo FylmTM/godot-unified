@@ -20,12 +20,12 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 	opts: Selftest_Opts
 	cli.parse(&opts, args)
 	root := cli.state.project.root
-	st := cli.run_proc({
+	status := cli.run_proc({
 		cmd     = cli.strs("git", "-C", root, "status", "--porcelain"),
 		capture = true,
 		quiet   = true,
 	})
-	if strings.trim_space(st.stdout) != "" {
+	if strings.trim_space(status.stdout) != "" {
 		cli.fatal("selftest tests the committed HEAD: commit first")
 	}
 	work := cli.join(cli.state.project.out, "selftest")
@@ -152,37 +152,37 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		},
 	)
 	start := time.tick_now()
-	for s, i in steps {
-		t := time.tick_now()
-		cli.log("selftest: == %s", s.what)
-		r := cli.run_proc({
-			cmd     = s.cmd,
-			dir     = s.dir,
-			env     = s.env,
-			capture = s.expect != "",
+	for step, i in steps {
+		started := time.tick_now()
+		cli.log("selftest: == %s", step.what)
+		ran := cli.run_proc({
+			cmd     = step.cmd,
+			dir     = step.dir,
+			env     = step.env,
+			capture = step.expect != "",
 		})
-		if s.expect != "" {
-			cli.log("%s%s", r.stderr, r.stdout)
+		if step.expect != "" {
+			cli.log("%s%s", ran.stderr, ran.stdout)
 		}
-		if !r.ok {
+		if !ran.ok {
 			return {
 				ok      = false,
 				summary = cli.aprintf(
 					"selftest: %s failed (exit %d); the work is in %s",
-					s.what,
-					r.exit_code,
+					step.what,
+					ran.exit_code,
 					cli.rel(work),
 				),
 			}
 		}
-		if s.expect != "" && !strings.contains(r.stdout, s.expect) {
-			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", s.what, s.expect)}
+		if step.expect != "" && !strings.contains(ran.stdout, step.expect) {
+			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", step.what, step.expect)}
 		}
-		if s.check != nil {
-			if problem := s.check(game, head); problem != "" {
+		if step.check != nil {
+			if problem := step.check(game, head); problem != "" {
 				return {
 					ok      = false,
-					summary = cli.aprintf("selftest: %s: %s; the work is in %s", s.what, problem, cli.rel(work)),
+					summary = cli.aprintf("selftest: %s: %s; the work is in %s", step.what, problem, cli.rel(work)),
 				}
 			}
 		}
@@ -195,7 +195,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 				}
 			}
 		}
-		cli.log("selftest: %s: ok (%.1fs)", s.what, cli.seconds_since(t))
+		cli.log("selftest: %s: ok (%.1fs)", step.what, cli.seconds_since(started))
 	}
 	// The test watchdog: a test that crashes holding a lock another test waits for must fail the run within seconds,
 	// naming both (tests/cli/crash_test.odin, src/cli/testrun.odin).

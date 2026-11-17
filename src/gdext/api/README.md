@@ -1,7 +1,7 @@
 # Godot API dump
 
 `extension_api.json` and `gdextension_interface.json` are Godot's own description of its GDExtension API, dumped from
-the baseline Godot (4.7) and committed on purpose: builds, `vet` and CI generate the bindings (`uni godot-gen`)
+the baseline Godot (4.7) and committed on purpose: builds, `vet` and CI generate the bindings (when stale)
 without a Godot binary, and the baseline API is pinned. They are generated files (`.gitattributes` marks them
 `linguist-generated` and `-diff`); never edit them.
 

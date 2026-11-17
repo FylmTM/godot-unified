@@ -484,7 +484,7 @@ cmd_clean :: proc(args: []string) -> Result {
 			continue
 		}
 		if info.name == ".out" || info.name == ".godot" {
-			if !same_path(info.fullpath, project.out) {
+			if path_key(info.fullpath) != path_key(project.out) {
 				append(&targets, strings.clone(info.fullpath))
 			}
 			os.walker_skip_dir(&walker)
@@ -531,15 +531,4 @@ cmd_clean :: proc(args: []string) -> Result {
 		summary = summary,
 		data    = box(removed[:]),
 	}
-}
-
-// Whether two paths name the same place (slashes and, on Windows, case aside).
-@(private)
-same_path :: proc(first, second: string) -> bool {
-	norm :: proc(path: string) -> string {
-		slashed, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
-		slashed = strings.trim_right(slashed, "/")
-		return ODIN_OS == .Windows ? strings.to_lower(slashed, context.temp_allocator) : slashed
-	}
-	return norm(first) == norm(second)
 }

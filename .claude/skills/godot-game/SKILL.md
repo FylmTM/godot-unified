@@ -57,10 +57,10 @@ Commit the `.tscn` and the `.level` together; the `bake` step fails when they di
 ## Looking at it
 
 These need a display; they don't run in CI. **A window you start for the developer (to look at, or as a check)
-opens with `--mute --screen left` and never takes focus**: they may be typing on the main screen. `run`, `editor`,
-`tool --window` and `coop --window` all take both (`--screen` also takes Godot's index, `right`, `primary`). `tool`
-and `coop` windows never take focus (and keep running while not frontmost); `run` needs `--background`; the editor
-always takes focus, so open it only when asked. On macOS Godot activates itself as its window opens and `uni` hands
+opens muted on the leftmost screen and never takes focus**: they may be typing on the main screen. `tool --window`
+and `coop --window` always open that way (and keep running while not frontmost); `run` needs `--mute --screen left
+--background` (`--screen` also takes Godot's index, `right`, `primary`); the editor always takes focus, so open it
+only when asked. On macOS Godot activates itself as its window opens and `uni` hands
 the focus straight back (under half a second, twice per start); that a window there keeps running while not
 frontmost is unproven (#49). `--screen left|right|primary` reads the screens from the OS in Godot's order (macOS:
 CoreGraphics, checked by CI on a one-display Mac, two screens not yet confirmed, #231; Linux: `xrandr`, or pass

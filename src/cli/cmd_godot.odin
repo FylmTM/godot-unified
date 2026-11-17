@@ -50,12 +50,9 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			if !passed || state.verbose do log("uni: %s %s: %s (%.1fs)", game.name, step, passed ? "ok" : "FAILED", secs)
 			return passed
 		}
-		if has_extension(game) {
-			ensure_extension(game, .dev)
-		}
 		// whatever steps run: each starts Godot on the project, which needs a current class cache
 		import_start := time.tick_now()
-		ensure_imported(game.dir)
+		ensure_game(game)
 		if want(only, "import") {
 			pass(game, "import", true, seconds_since(import_start))
 		}
@@ -224,6 +221,15 @@ godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 	return ok
 }
 
+// Makes the game ready for a Godot run: its extension current (dev) and its project imported. Every command that
+// runs the game in Godot starts here (the editor imports by itself: `play`).
+ensure_game :: proc(game: Game) {
+	if has_extension(game) {
+		ensure_extension(game, .dev)
+	}
+	ensure_imported(game.dir)
+}
+
 // Whether the game runs the `session` step: it has an extension and a headless binary to compare with.
 @(private)
 has_session_step :: proc(game: Game) -> bool {
@@ -327,25 +333,14 @@ offline_checksums :: proc(game: Game, ticks, seed: int) -> map[int]string {
 			quiet   = true,
 			timeout = 120 * time.Second,
 		})
-	lines := strings.split_lines(result.stdout)
-	#reverse for line in lines {
-		trimmed := strings.trim_space(line)
-		if !strings.has_prefix(trimmed, "{") {
-			continue
+	if report, found := last_json_object(result.stdout); found {
+		if found_sums := checksums(report["checksums"]); len(found_sums) > 0 {
+			return found_sums
 		}
-		value, err := json.parse_string(trimmed)
-		if err != nil {
-			continue
-		}
-		if obj, ok := value.(json.Object); ok {
-			if found_sums := checksums(obj["checksums"]); len(found_sums) > 0 {
-				return found_sums
-			}
-			if final_sum, has := obj["final_checksum"]; has {
-				out := make(map[int]string)
-				out[ticks] = json_string(final_sum)
-				return out
-			}
+		if final_sum, has := report["final_checksum"]; has {
+			out := make(map[int]string)
+			out[ticks] = json_string(final_sum)
+			return out
 		}
 	}
 	log(
@@ -524,10 +519,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
 	}
-	if has_extension(selected) {
-		ensure_extension(selected, .dev)
-	}
-	ensure_imported(selected.dir)
+	ensure_game(selected)
 	if opts.cold {
 		clear_shader_cache(selected)
 	}
@@ -609,8 +601,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		}
 		return coop_default(selected)
 	}
-	ensure_extension(selected, .dev)
-	ensure_imported(selected.dir)
+	ensure_game(selected)
 	extra: [dynamic]string
 	if opts.rejoin {
 		append(&extra, "--rejoin")
@@ -786,17 +777,14 @@ godot_scenes :: proc(dir: string) -> []string {
 			append(&out, strings.clone(info.fullpath))
 		}
 	}
-	sort_strings(out[:])
+	slice.sort(out[:])
 	return out[:]
 }
 
 // Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
 // level scenes (src/level/SPEC.md). `quiet`: name only the levels that changed.
 bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
-	if has_extension(game) {
-		ensure_extension(game, .dev) // the game's scripts name its library's classes
-	}
-	ensure_imported(game.dir)
+	ensure_game(game) // the game's scripts name its library's classes
 	copy_file(
 		join(game.dir, ".out", "tools", "level_export.gd"),
 		join(state.project.unified, "src", "level", "godot", "level_export.gd"),
@@ -834,8 +822,7 @@ COOP_DEFAULT_TICKS :: 600
 // with scripted input, for COOP_DEFAULT_TICKS ticks; ok when both finish with the same checksums.
 @(private)
 coop_default :: proc(game: Game) -> Result {
-	ensure_extension(game, .dev)
-	ensure_imported(game.dir)
+	ensure_game(game)
 	port := free_udp_port()
 	common := []string{"--scripted", "--quit-at-end", "--no-settings"}
 	host_cmd, join_cmd: [dynamic]string

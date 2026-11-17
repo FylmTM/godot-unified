@@ -113,20 +113,25 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 		clients[i] = start(binary, work, cli.aprintf("client%d", i), timeout, ..args[:])
 	}
 	errors: [dynamic]string
-	finish :: proc(p: ^cli.Proc, name: string, errors: ^[dynamic]string) -> json.Object {
-		r := cli.wait(p)
-		if r.timed_out {
+	finish :: proc(child: ^cli.Proc, name: string, errors: ^[dynamic]string) -> json.Object {
+		ran := cli.wait(child)
+		if ran.timed_out {
 			append(errors, cli.aprintf("%s: timed out (killed)", name))
 			return nil
 		}
-		if r.exit_code != 0 {
+		if ran.exit_code != 0 {
 			append(
 				errors,
-				cli.aprintf("%s: exit code %d: %s", name, r.exit_code, strings.trim_space(cli.tail(r.stderr, 400))),
+				cli.aprintf(
+					"%s: exit code %d: %s",
+					name,
+					ran.exit_code,
+					strings.trim_space(cli.tail(ran.stderr, 400)),
+				),
 			)
 			return nil
 		}
-		obj, ok := cli.last_json_object(r.stdout)
+		obj, ok := cli.last_json_object(ran.stdout)
 		if !ok {
 			append(errors, cli.aprintf("%s: no JSON line on stdout", name))
 		}
@@ -136,34 +141,40 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 	for i in 0 ..< UDP_CLIENTS {
 		results[i] = finish(&clients[i], cli.aprintf("client%d", i), &errors)
 	}
-	rj := finish(&relay, "relay", &errors)
+	relay_report := finish(&relay, "relay", &errors)
 	if len(errors) > 0 {
 		return strings.join(errors[:], "; "), false
 	}
-	desyncs := cli.json_int(rj["desyncs"])
-	for c in results {
-		desyncs += max(0, cli.json_int(c["desyncs"]))
+	desyncs := cli.json_int(relay_report["desyncs"])
+	for report in results {
+		desyncs += max(0, cli.json_int(report["desyncs"]))
 	}
 	if desyncs > 0 {
 		return cli.aprintf("%d desync(s)", desyncs), false
 	}
 	ref: map[int]string
-	for c, i in results {
-		if cli.json_int(c["final_tick"]) != ticks {
-			return cli.aprintf("client %d verified up to tick %d of %d", i, cli.json_int(c["final_tick"]), ticks),
+	for report, i in results {
+		if cli.json_int(report["final_tick"]) != ticks {
+			return cli.aprintf("client %d verified up to tick %d of %d", i, cli.json_int(report["final_tick"]), ticks),
 				false
 		}
-		cs := cli.checksums(c["checksums"])
-		if len(cs) != ticks / 16 {
+		sums := cli.checksums(report["checksums"])
+		if len(sums) != ticks / 16 {
 			return cli.aprintf("client %d's checksums don't cover every 16th tick", i), false
 		}
 		if i == 0 {
-			ref = cs
+			ref = sums
 			continue
 		}
-		for t := 16; t <= ticks; t += 16 {
-			if cs[t] != ref[t] {
-				return cli.aprintf("client %d's checksum differs first at tick %d: %s vs %s", i, t, cs[t], ref[t]),
+		for tick := 16; tick <= ticks; tick += 16 {
+			if sums[tick] != ref[tick] {
+				return cli.aprintf(
+						"client %d's checksum differs first at tick %d: %s vs %s",
+						i,
+						tick,
+						sums[tick],
+						ref[tick],
+					),
 					false
 			}
 		}
@@ -216,20 +227,20 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		child: cli.Proc,
 	}
 	building: [dynamic]Started
-	for p, i in projects {
-		if i > 0 && p.pkg == projects[i - 1].pkg {
+	for project, i in projects {
+		if i > 0 && project.pkg == projects[i - 1].pkg {
 			continue
 		}
 		flags: [dynamic]string
 		append(&flags, "-build-mode:dll")
 		append(&flags, ..cli.mode_flags(.dev))
-		b := cli.Build {
-			pkg   = p.pkg,
-			out   = cli.join(p.dir, ".out", "bin", cli.lib_name(p.stem)),
+		build := cli.Build {
+			pkg   = project.pkg,
+			out   = cli.join(project.dir, ".out", "bin", cli.lib_name(project.stem)),
 			flags = flags[:],
 		}
-		if cli.stale(b) {
-			append(&building, Started{b, cli.start_build(b)})
+		if cli.stale(build) {
+			append(&building, Started{build, cli.start_build(build)})
 		}
 	}
 	for &started in building {
@@ -253,8 +264,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		capture = true,
 		timeout = DEBUGGER_ERROR_TIMEOUT,
 	}
-	for p, i in projects {
-		cli.write_extension_list_dir(p.dir)
+	for project, i in projects {
+		cli.write_extension_list_dir(project.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
 		runs[i] = {
 			cmd     = cli.strs(
@@ -262,9 +273,9 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"--headless",
 				"--verbose",
 				"--path",
-				p.dir,
+				project.dir,
 				"-s",
-				cli.aprintf("res://%s", p.script),
+				cli.aprintf("res://%s", project.script),
 				"--",
 				"--local-net",
 			),
@@ -273,12 +284,12 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		}
 	}
 	ok := true
-	for r, i in cli.run_all(runs) {
+	for ran, i in cli.run_all(runs) {
 		if i == len(projects) {
-			out := strings.concatenate({r.stdout, r.stderr})
+			out := strings.concatenate({ran.stdout, ran.stderr})
 			// (Godot's exit code after the prompt's `quit` is 0: a tool run fails on the error line, judge_tool)
 			passed :=
-				!r.timed_out &&
+				!ran.timed_out &&
 				strings.contains(out, "DEBUGGER ERROR: about to fail") &&
 				strings.contains(out, "SCRIPT ERROR") &&
 				!strings.contains(out, "not reached")
@@ -287,51 +298,57 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				cli.log(
 					"uni: tests/godot debugger_error.gd: FAILED: a script error under -d must end the run within %.0fs, failing, with the error printed%s",
 					time.duration_seconds(DEBUGGER_ERROR_TIMEOUT),
-					r.timed_out ? " (it timed out: the debugger prompt never quit)" : "",
+					ran.timed_out ? " (it timed out: the debugger prompt never quit)" : "",
 				)
 			} else if cli.state.verbose {
-				cli.log("uni: tests/godot debugger_error.gd: ok, ended at the debugger prompt (%.1fs)", r.seconds)
+				cli.log("uni: tests/godot debugger_error.gd: ok, ended at the debugger prompt (%.1fs)", ran.seconds)
 			}
 			ok = ok && passed
 			continue
 		}
-		p := projects[i]
-		out := strings.concatenate({r.stdout, r.stderr})
+		project := projects[i]
+		out := strings.concatenate({ran.stdout, ran.stderr})
 		errs: [dynamic]string
 		append(&errs, ..cli.godot_errors(out))
 		append(&errs, ..cli.lines_with(out, "Orphan StringName", "leaked at exit"))
-		if len(p.expected) > 0 {
-			provoked := make([]bool, len(p.expected), context.temp_allocator)
+		if len(project.expected) > 0 {
+			provoked := make([]bool, len(project.expected), context.temp_allocator)
 			kept: [dynamic]string
-			outer: for e in errs {
-				for expected, k in p.expected {
-					if strings.contains(e, expected) {
+			outer: for line in errs {
+				for expected, k in project.expected {
+					if strings.contains(line, expected) {
 						provoked[k] = true
 						continue outer
 					}
 				}
-				append(&kept, e)
+				append(&kept, line)
 			}
 			errs = kept
-			for expected, k in p.expected {
+			for expected, k in project.expected {
 				if !provoked[k] do append(&errs, cli.aprintf("no error line with %q: the test expects some", expected))
 			}
 		}
-		passed := r.ok && len(errs) == 0 && strings.contains(out, cli.aprintf("%s: 0 failed", p.summary))
+		passed := ran.ok && len(errs) == 0 && strings.contains(out, cli.aprintf("%s: 0 failed", project.summary))
 		if !passed {
 			cli.log("%s", strings.trim_right_space(out))
 		} else if cli.state.verbose {
-			for line in strings.split_lines(r.stdout) {
-				if strings.has_prefix(line, "PASS") || strings.has_prefix(line, p.summary) {
+			for line in strings.split_lines(ran.stdout) {
+				if strings.has_prefix(line, "PASS") || strings.has_prefix(line, project.summary) {
 					cli.log("%s", line)
 				}
 			}
 		}
-		for e in errs {
-			cli.log("godot: %s", e)
+		for line in errs {
+			cli.log("godot: %s", line)
 		}
 		if !passed || cli.state.verbose {
-			cli.log("uni: %s %s: %s (%.1fs)", cli.rel(p.dir), p.script, passed ? "ok" : "FAILED", r.seconds)
+			cli.log(
+				"uni: %s %s: %s (%.1fs)",
+				cli.rel(project.dir),
+				project.script,
+				passed ? "ok" : "FAILED",
+				ran.seconds,
+			)
 		}
 		ok = ok && passed
 	}

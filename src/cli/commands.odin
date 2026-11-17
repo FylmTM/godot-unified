@@ -138,30 +138,33 @@ public_commands :: proc() -> []Command {
 // The test suites every project has (`odin`, `box3d-debug`, `godot`); `run` puts them before the project's own
 // (`add_suites`).
 public_suites :: proc() -> []Suite {
-	return slice.clone([]Suite {
-		{
-			name        = "odin",
-			summary     = "every Odin test package in one compile (the inner loop); with a game named, that game's tests",
-			budget      = 6,
-			long_budget = 12,
-			run         = suite_odin,
+	return slice.clone(
+		[]Suite {
+			{
+				name        = "odin",
+				summary     = "every Odin test package in one compile (the inner loop); with a game named, that game's tests",
+				budget      = 6,
+				long_budget = 12,
+				run         = suite_odin,
+			},
+			{
+				name    = "box3d-debug",
+				summary = "the odin suite's binary again, against Box3D's debug library (its asserts trap a misused id)",
+				// its physics is unoptimised: several times the odin suite's run (CI's watchdog: 3x the budget)
+				budget  = 12,
+				run     = suite_box3d_debug,
+			},
+			{
+				name        = "godot",
+				summary     = "each game under headless Godot, the games in parallel",
+				budget      = 25,
+				long_budget = 30,
+				run         = suite_godot,
+				beside      = true,
+				prepare     = godot_prepare,
+			},
 		},
-		{
-			name    = "box3d-debug",
-			summary = "the odin suite's binary again, against Box3D's debug library (its asserts trap a misused id)",
-			budget  = 8,
-			run     = suite_box3d_debug,
-		},
-		{
-			name        = "godot",
-			summary     = "each game under headless Godot, the games in parallel",
-			budget      = 25,
-			long_budget = 30,
-			run         = suite_godot,
-			beside      = true,
-			prepare     = godot_prepare,
-		},
-	})
+	)
 }
 
 // --- test -------------------------------------------------------------------------------------------------------

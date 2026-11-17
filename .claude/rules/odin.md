@@ -21,8 +21,8 @@ paths:
 - `foreign import` takes no absolute path and no `#config` path; relative paths work (the `box3d:` bindings).
 - Windows sleeps round to ~15.6 ms without `timeBeginPeriod(1)` (headless startup calls it), and UDP `recvfrom`
   reports WSAECONNRESET after an ICMP port-unreachable: skip it, it isn't "no data".
-- Never edit `*.gen.odin`: `uni godot-gen` writes them. `.odin` files are formatted with odinfmt on every edit (a
-  hook); `uni fmt --check` is what CI runs.
+- Never edit `*.gen.odin`: every command that needs them generates them from the API dump when stale. `.odin`
+  files are formatted with odinfmt on every edit (a hook); `uni fmt --check` is what CI runs.
 
 # Names
 

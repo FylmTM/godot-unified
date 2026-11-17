@@ -132,7 +132,7 @@ A step-by-step guide to setting up and making a tiny game is planned
 
 - `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
 - [`src/README.md`](src/README.md): how the core works inside, across packages.
-- [`tools/README.md`](tools/README.md): this repo's CLI, `uni`, and its private commands.
+- [`tools/main.odin`](tools/main.odin): this repo's CLI, `uni`, and its private commands.
 - [`AGENTS.md`](AGENTS.md): the rules and workflow for working on unified, for people and agents alike.
 - [`docs/`](docs/): online setup (`EOS.md`), open research (`research/`) and earlier results (`archive/`).
 - [Issues](https://github.com/FylmTM/godot-unified/issues): current and upcoming work.
