@@ -191,7 +191,7 @@ read_commands :: proc(
 }
 
 // Reads a tick's join records written by write_joins into `member` (by slot, zeroed first); false when they are
-// malformed: cut short, a slot out of range, out of order or not present, or member 0.
+// malformed: cut short, a slot out of range, out of order or not present, member 0, or a member in two records.
 read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16) -> bool {
 	for &id in member do id = 0
 	joins := int(wire.r_u8(reader))
@@ -201,6 +201,9 @@ read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16) -> bool 
 		id := wire.r_u16(reader)
 		if !reader.ok || slot <= last || slot >= len(member) || slot not_in present || id == 0 {
 			return false
+		}
+		for other in member[:slot] {
+			if other == id do return false // one person in two slots: the relay never writes it (players_update can't take it)
 		}
 		member[slot] = id
 		last = slot

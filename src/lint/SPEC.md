@@ -27,28 +27,34 @@ check(t, Rule)                                 // lint every .odin file under ru
 check_game(t, simulation_dir, extra_imports) -> sim dirs   // a game's simulation/ by its layout (2026-11-10)
 scan(Rule, name, src) -> []string              // one line per violation (imports, identifiers, matrix, strict)
 scan_globals(Rule, name, src) -> []string      // tick packages: package-level variables not @(rodata)
-TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK
+TICK_IMPORTS, GAME_TICK_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, MATH, MATH_OK, BOX3D
 ```
 
 ## Rules
 
-- **Sim rule** (`sim_rule`): imports only `TICK_IMPORTS` (`unified:sim`, `physics`, `level`, `dmath`, `wire`,
-  `base:intrinsics`, `core:math/bits`; not `unified:b3`, which is physics' own, #236) plus `extra_imports` (exact, or a prefix ending in `/`); none of
-  `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex types, cycle counters, random generators,
-  `sim`'s file procs: `log_write`, `log_read`, `log_sink_file`, `write_file`, `read_file`);
-  no `matrix`; strict: no `foreign`, no `map`, no `x := 1.5` (an untyped float literal is f64); tick: every
+- **Sim rule** (`sim_rule`): imports only `GAME_TICK_IMPORTS` (`unified:sim`, `physics`, `level`, `dmath`; not
+  `unified:b3`, which is physics' own, #236) plus `extra_imports` (exact, or a prefix ending in `/`): a game lists
+  `unified:wire`, `base:intrinsics` or `core:math/bits` there to use them (unified's own tick packages have
+  `TICK_IMPORTS`, which includes them); none of `SIM_IDENTS` (f64/f16 types, fused multiply-add, quaternion/complex
+  types, cycle counters, random generators, `sim`'s file procs: `log_write`, `log_read`, `log_sink_file`,
+  `write_file`, `read_file`; `static` and `thread_local`: state outside the block; `ODIN_OS`, `ODIN_ARCH`,
+  `ODIN_DEBUG`: a sim per platform or build); no `matrix`; strict: no `foreign`, no `map`, no `---` (uninitialised
+  memory), no `#config`, no `x := 1.5` (an untyped float literal is f64); tick: every
   package-level variable is `@(rodata)` or listed in `allow_globals` (a write during a tick would be state outside
   the block: not rolled back, not hashed). unified's own tick packages name their exceptions with a reason
   (physics' `world_mutex`); `sim` and `physics` also import what the harness needs (RTTI, hashing, files, a mutex).
 - **What it can't see:** types. A float-to-int conversion goes through `dmath.to_i32_clamped` by convention (x86
-  and ARM convert out-of-range floats differently).
+  and ARM convert out-of-range floats differently), and `x := 1.5 * y` is f64 until a cast. Address-dependent
+  values (`uintptr(ptr)`, a transmuted pointer) are left to the end-to-end suites' desync detection.
 - **Game layout** (`check_game`): `headless/` gets the real-time rule (off `core:math`, no float traps),
-  `extension/` and `tests/` only the ban on `unified:b3` (host and test code reach Box3D through physics too), every
+  `extension/` and `tests/` only the ban on Box3D (`BOX3D`: `unified:b3` and the `box3d:` bindings; host and test
+  code reach Box3D through physics too), every
   other directory the sim rule. A new sim package
   is linted without editing a list.
 - **Imports:** `only_imports` entries match as written, an entry ending in `/` matches what is under it and one
   ending in `:` a whole collection (`core:`, `base:`, `system:` for a `foreign import`); `ban_imports` (with its
-  `allow_imports` exceptions) applies beside it, so a rule can allow `core:` and still ban `core:math`.
+  `allow_imports` exceptions) applies beside it, so a rule can allow `core:` and still ban `core:math`. A banned
+  path bans what is under it too, and one ending in `:` its whole collection (`box3d:`).
 - `tests/lint` holds unified's import graph: every package of `src/` has a rule with `only_imports` naming the
   `unified:` packages (and `box3d:`) it may import (a package without a rule fails), and lints every game under
   `games/` with `check_game` (and checks `tests/tests.odin` imports its tests).

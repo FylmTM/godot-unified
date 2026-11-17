@@ -16,7 +16,8 @@ GAMES_DIR :: #directory + "/../../games"
 Rule :: lint.Rule
 TICK_IMPORTS :: lint.TICK_IMPORTS
 SIM_IDENTS :: lint.SIM_IDENTS
-// sim's own ban list: lint.SIM_IDENTS without the file procs it defines (the last five).
+// sim's own ban list: lint.SIM_IDENTS without the file procs it defines and `static` (its schema cache, built once
+// under a lock, holds no tick state).
 SIM_HARNESS_IDENTS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -35,6 +36,10 @@ SIM_HARNESS_IDENTS :: []string {
 	"read_cycle_counter_frequency",
 	"random_generator",
 	"default_random_generator",
+	"thread_local",
+	"ODIN_OS",
+	"ODIN_ARCH",
+	"ODIN_DEBUG",
 }
 FLOAT_TRAPS :: lint.FLOAT_TRAPS
 MATH :: lint.MATH
@@ -217,7 +222,8 @@ games_follow_determinism_rules :: proc(t: ^testing.T) {
 }
 
 // Box3D is physics' implementation (src/physics/SPEC.md, The boundary): only src/physics and tests/b3 import
-// unified:b3 (and the physics bench, which reads Box3D's own counters), across the library, its tests and the games.
+// unified:b3 (and the physics bench, which reads Box3D's own counters), and only src/b3 and tests/b3 the bindings
+// (box3d:), across the library, its tests and the games.
 @(test)
 only_physics_imports_b3 :: proc(t: ^testing.T) {
 	ALLOWED :: []string{"src/physics", "src/b3", "tests/b3", "tests/physics/bench"}
@@ -243,6 +249,10 @@ only_physics_imports_b3 :: proc(t: ^testing.T) {
 						"%s imports unified:b3 (Box3D is reached through unified:physics)",
 						relative,
 					)
+				}
+				bindings_ok := strings.has_prefix(relative, "src/b3/") || strings.has_prefix(relative, "tests/b3/")
+				if !bindings_ok && strings.has_prefix(trimmed, "import") && strings.contains(trimmed, `"box3d:`) {
+					testing.expectf(t, false, "%s imports Box3D's bindings (box3d:)", relative)
 				}
 			}
 		}
@@ -373,9 +383,12 @@ D :: 1.5
 `
 	game_rule := lint.sim_rule("survivor", "")
 	testing.expect_value(t, len(lint.scan(game_rule, "bad.odin", bad)), 7)
-	for violation in lint.scan(game_rule, "clean.odin", clean) {
+	// the low-level imports a game lists to use (lint.GAME_TICK_IMPORTS)
+	listed := lint.sim_rule("survivor", "", {"core:math/bits", "base:intrinsics"})
+	for violation in lint.scan(listed, "clean.odin", clean) {
 		testing.expect(t, false, violation)
 	}
+	testing.expect_value(t, len(lint.scan(game_rule, "clean.odin", clean)), 2)
 
 	// Package-level variables in tick code: each mutable one is caught, by name.
 	bad_globals := `package survivor
@@ -460,6 +473,16 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"import \"core:sys/posix\"\n", false},
 		{"c := intrinsics.read_cycle_counter()\n", true},
 		{"import \"core:time\"\n", false},
+		{"f :: proc() {\n\t@(static) hits: int\n}\n", false}, // state outside the block (sim keeps a schema cache)
+		{"f :: proc() {\n\t@(thread_local) hits: int\n}\n", true},
+		{"f :: proc() {\n\tv: [4]f32 = ---\n}\n", true}, // uninitialised: differs per run
+		{"when ODIN_OS == .Windows {\n\tK :: 1\n}\n", true}, // a sim per platform or build
+		{"f :: proc() -> bool {\n\treturn ODIN_ARCH == .arm64\n}\n", true},
+		{"when ODIN_DEBUG {\n\tK :: 1\n}\n", true},
+		{"FAST :: #config(FAST, false)\n", true},
+		{"import \"base:intrinsics\"\n", false}, // a game lists the low-level imports it uses
+		{"import \"core:math/bits\"\n", false},
+		{"import \"unified:wire\"\n", false},
 	}
 	game_rule := lint.sim_rule("survivor", "")
 	sim_rule: Rule
@@ -489,6 +512,20 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 	}
 }
 
+// Box3D is reached through unified:physics only: a game's headless, extension and tests packages are linted with
+// lint.BOX3D (lint.check_game), which bans the bindings' collection too.
+@(test)
+lint_bans_box3d_outside_physics :: proc(t: ^testing.T) {
+	rule := Rule {
+		pkg         = "extension",
+		ban_imports = lint.BOX3D,
+	}
+	for src in ([]string{"import \"unified:b3\"\n", "import \"box3d:bindings\"\n"}) {
+		found := lint.scan(rule, "case.odin", fmt.tprintf("package extension\n%s", src))
+		testing.expectf(t, len(found) == 1, "not caught: %s", src)
+	}
+}
+
 // A game's own deterministic packages: banned by the sim rule until listed in extra_imports.
 @(test)
 lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
@@ -499,4 +536,37 @@ lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
 	own := "package mygame\nimport \"../sim\"\nimport \"../physics\"\n"
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", ""), "b.odin", own)), 2)
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../sim", "../physics"}), "b.odin", own)), 0)
+}
+
+// A game's export leaves out the tool scripts: its own (game/tools), the shared kit's and the library's (the
+// addons/unified mirror). Every preset's exclude_filter names them (Godot reads the filters per preset).
+@(test)
+game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
+	for game in game_dirs(t) {
+		presets, err := os.read_entire_file(
+			fmt.tprintf("%s/%s/export_presets.cfg", GAMES_DIR, game),
+			context.temp_allocator,
+		)
+		if err != nil do continue // no export
+		project, _ := os.read_entire_file(fmt.tprintf("%s/%s/project.godot", GAMES_DIR, game), context.temp_allocator)
+		tools := []string{"game/tools/*", "addons/unified/*", "addons/shared/tools/*"}
+		if !strings.contains(string(project), "res://addons/shared/") do tools = tools[:2]
+		filters := 0
+		text := string(presets)
+		for line in strings.split_lines_iterator(&text) {
+			if !strings.has_prefix(line, "exclude_filter=") do continue
+			filters += 1
+			for tool in tools {
+				testing.expectf(
+					t,
+					strings.contains(line, tool),
+					"%s: an export preset ships %s (%s)",
+					game,
+					tool,
+					line,
+				)
+			}
+		}
+		testing.expectf(t, filters > 0, "%s: export_presets.cfg has no exclude_filter", game)
+	}
 }

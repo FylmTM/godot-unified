@@ -261,7 +261,8 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 	testing.expect(t, honest.verified > 3 * toy.HZ)
 }
 
-// Malformed relay messages into a client (after a real Welcome); the client must not crash.
+// Malformed relay messages into a client (after a real Welcome); the client must not crash, and must still verify
+// valid ticks after them.
 @(test)
 fuzz_client_messages :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
@@ -278,6 +279,9 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
+	first := [1]toy.Inputs{finalized_of(1, 1)} // a running session: the client's clock is set from the relay's
+	fake_finalized(&fake, 1, first[:])
+	fake_step(&fake, client)
 	fuzz := Fuzz{0xC0FF_EE11}
 	writer := wire.writer_make(netcode.MAX_DATAGRAM)
 	defer delete(writer.buf)
@@ -285,8 +289,13 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	defer delete(buf)
 	for k in 0 ..< 4000 {
 		fuzz_bytes(&fuzz, &buf, client_samples(&writer, fuzz_below(&fuzz, 13)))
-		if fuzz_below(&fuzz, 13) == 0 {
-			continue // keep End and Reject rare: they end the session early
+		// What ends the session (End, Reject, a snapshot that does not load) is left out, mangled or not: the client
+		// would ignore everything after it.
+		if len(buf) > 0 {
+			#partial switch netcode.Msg(buf[0]) {
+			case .End, .Reject, .Snap_Begin, .Snap_Chunk:
+				continue
+			}
 		}
 		netcode.channel_send(
 			fake.channel,
@@ -302,5 +311,22 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	for _ in 0 ..< 100 {
 		fake_step(&fake, client)
 	}
-	testing.expect(t, client.status != .Idle)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	// Still a working client: valid finalized ticks after the fuzz are verified.
+	verified := client.verified
+	batch: [16]toy.Inputs
+	for first := verified + 1; first <= verified + 64; first += 16 {
+		for k in 0 ..< 16 do batch[k] = finalized_of(first + u32(k), 1)
+		fake_finalized(&fake, first, batch[:])
+		fake_step(&fake, client)
+		fake_step(&fake, client)
+	}
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	testing.expectf(
+		t,
+		client.verified > verified,
+		"verified %d before the valid ticks, %d after",
+		verified,
+		client.verified,
+	)
 }

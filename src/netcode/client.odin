@@ -374,7 +374,8 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAY
 	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
 	if echo > 0 {
 		sample := f64(now - echo - hold)
-		if sample > 0 {
+		// A sample past the disconnect timeout is no round trip: an echo of another clock (a previous occupant's).
+		if sample > 0 && sample < DISCONNECT_US {
 			if client.rtt_samples == 0 {
 				client.rtt_us = sample
 			} else {
@@ -395,8 +396,12 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAY
 	}
 	if rtt_ok {
 		offset := f64(relay_time) + client.rtt_us / 2 - f64(now)
-		client.offset_us = client.have_offset ? client.offset_us + (offset - client.offset_us) * 0.05 : offset
-		client.have_offset = true
+		if !client.have_offset {
+			client.offset_us = offset
+			client.have_offset = true
+		} else if abs(offset - client.offset_us) < DISCONNECT_US {
+			client.offset_us += (offset - client.offset_us) * 0.05
+		} // else not the relay's clock (a mangled time): taken, it would throw the local clock hours off
 	}
 	client.own_acked = max(client.own_acked, input_ack)
 	limit := fin_base(client) + FIN_RING - 64
@@ -490,6 +495,7 @@ handle_client_msg :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, 
 		on_welcome(client, &reader)
 	case .Reject:
 		why := Reject_Reason(wire.r_u8(&reader))
+		if !reader.ok do return
 		detail := "rejected"
 		#partial switch why {
 		case .Full:
@@ -1079,7 +1085,7 @@ client_step :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAYE
 	for event in channel_poll(client.ch, now) {
 		switch event.kind {
 		case .Message:
-			handle_client_msg(client, event.data, now)
+			if event.peer == client.relay do handle_client_msg(client, event.data, now) // not from another peer
 		case .Disconnected:
 			if event.peer == client.relay && client.end_us == 0 {
 				set_status(

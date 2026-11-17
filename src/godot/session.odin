@@ -1,7 +1,6 @@
 // UnifiedSession: the GDScript-facing session node (src/godot/SPEC.md).
 package godot
 
-import "core:crypto"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
@@ -25,7 +24,9 @@ Session_Node :: struct {
 	detail:      string,
 	args:        Args,
 	args_read:   bool,
-	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one)
+	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
+	ended:       bool, // the session's Result came: one more frame is taken (its last), then none
+	over:        bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
 	last_tick:   u32,
 	quit_at_end: bool,
 	sync_us:     f32,
@@ -331,6 +332,7 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 @(private)
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	session.frame = nil // it points into the finished session, which wait frees
+	session.ended, session.over = false, false
 	api.wait() // a finished session's thread
 	request := request
 	if request.mode == .Single do request.bench = session.args.bench
@@ -383,6 +385,7 @@ start_pending :: proc(session: ^Session_Node) {
 session_end :: proc(session: ^Session_Node) {
 	clear_pending(session)
 	if api.installed {
+		api.hurry() // a goodbye of at most 1 s on the main thread, not 3 (an unreachable peer)
 		api.stop()
 		api.wait()
 	}
@@ -420,8 +423,11 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	started := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
 	fresh := false
-	if api.installed {
+	if api.installed && !session.over {
 		session.frame, fresh = api.front()
+		session.over = session.ended
+	} else {
+		session.frame = nil
 	}
 	now := time.tick_now()
 	if session.frame != nil {
@@ -437,7 +443,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 			view_space_check(root)
 		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
-		if fresh do data_sync(frame)
+		if fresh && !session.ended do data_sync(frame) // data went back to zero at the Result
 	}
 	delivering := time.tick_now()
 	drain_events(session)
@@ -501,7 +507,10 @@ drain_messages :: proc(session: ^Session_Node) {
 			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
-			if !session.has_pending do data_reset()
+			if !session.has_pending {
+				data_reset()
+				session.ended = true
+			}
 			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)
 		}
 	}
@@ -721,45 +730,6 @@ near_miss :: proc(name, flag: string) -> bool {
 		}
 	}
 	return rows[(len(name) + 1) % 3][len(flag)] <= limit
-}
-
-TOKEN_INSTANCES :: 8 // copies of the game on one machine with tokens of their own
-
-// What the relay knows this player by when they come back to a LAN session (netcode.Token): 16 random bytes kept in
-// user:// as hex (netcode.token_text), made on first use. Never sent past the relay. Each running copy of the game on
-// a machine (they share user://) is someone else: a copy keeps the token it claimed for all its sessions, and first
-// claims the first one whose `.pid` file names no running process, so a game restarted after a crash takes its own
-// token back, while a second window takes another.
-@(private)
-client_token :: proc() -> (token: netcode.Token) {
-	pid := gd.OS_get_process_id(gd.OS_singleton())
-	instance, free := -1, -1
-	for k in 0 ..< TOKEN_INSTANCES {
-		owner, _ := strconv.parse_int(gd.FileAccess_get_file_as_string(fmt.tprintf("user://unified_token_%d.pid", k)))
-		if owner == pid {
-			instance = k
-			break
-		}
-		if free < 0 && (owner == 0 || !process_alive(owner)) do free = k
-	}
-	if instance < 0 do instance = free if free >= 0 else TOKEN_INSTANCES - 1
-	path := fmt.tprintf("user://unified_token_%d", instance)
-	write_user_file(fmt.tprintf("%s.pid", path), fmt.tprintf("%d", pid))
-	if kept, ok := netcode.token_parse(strings.trim_space(gd.FileAccess_get_file_as_string(path))); ok {
-		return kept
-	}
-	crypto.rand_bytes(token[:])
-	write_user_file(path, netcode.token_text(token))
-	return
-}
-
-@(private)
-write_user_file :: proc(path, text: string) {
-	file := gd.FileAccess_open(path, .WRITE)
-	if file.ptr == nil do return
-	gd.FileAccess_store_string(file, text)
-	gd.FileAccess_close(file)
-	gd.unref(file)
 }
 
 // A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.

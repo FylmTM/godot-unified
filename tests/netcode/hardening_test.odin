@@ -4,6 +4,7 @@
 package test_netcode
 
 import "core:net"
+import "core:slice"
 import "core:testing"
 import "core:time"
 
@@ -210,6 +211,10 @@ fake_step :: proc(fake: ^Fake_Relay, client: ^Client, elapsed_us: i64 = 1000) {
 
 fake_send :: proc(fake: ^Fake_Relay, delivery: netcode.Delivery = .Reliable) {
 	netcode.channel_send(fake.channel, fake.peer, fake.writer.buf[:], delivery, fake.now)
+}
+
+fake_send_bytes :: proc(fake: ^Fake_Relay, bytes: []u8) {
+	netcode.channel_send(fake.channel, fake.peer, bytes, .Reliable, fake.now)
 }
 
 fake_begin :: proc(fake: ^Fake_Relay, msg: netcode.Msg) -> ^wire.Writer {
@@ -532,4 +537,289 @@ other_library_build_is_refused :: proc(t: ^testing.T) {
 		testing.expectf(t, client.status == .Failed, "build %d: %v", i, client.status)
 		testing.expect_value(t, client.detail, "a different game build or level")
 	}
+}
+
+// A raw channel seated as `slot` in a session that has not started (a start player): a hostile client.
+Evil :: struct {
+	channel: ^netcode.Channel,
+	peer:    netcode.Peer,
+	writer:  wire.Writer,
+	slot:    u8,
+	acking:  bool, // acks the relay's finalized ticks (with no inputs), so it isn't dropped as too far behind
+}
+
+evil_seat :: proc(evil: ^Evil, session: ^Rnet, endpoint: int, slot: u8, token: netcode.Token = {}) {
+	token := token
+	evil.slot = slot
+	evil.channel = netcode.channel_make()
+	link_index := netcode.channel_add_link(evil.channel, netcode.loopback_link(session.hub, netcode.Peer(endpoint)))
+	evil.peer = netcode.channel_peer(evil.channel, link_index, 0)
+	evil.writer = wire.writer_make(64)
+	writer := evil_begin(evil, .Hello)
+	wire.w_u16(writer, netcode.PROTOCOL_VERSION)
+	wire.w_u8(writer, slot)
+	wire.w_u32(writer, 0)
+	wire.w_u64(writer, sim.compat_of(&toy.GAME))
+	wire.w_bytes(writer, token[:])
+	wire.w_u8(writer, 0)
+	evil_send(evil, session)
+}
+
+evil_begin :: proc(evil: ^Evil, msg: netcode.Msg) -> ^wire.Writer {
+	clear(&evil.writer.buf)
+	wire.w_u8(&evil.writer, u8(msg))
+	return &evil.writer
+}
+
+evil_send :: proc(evil: ^Evil, session: ^Rnet) {
+	netcode.channel_send(evil.channel, evil.peer, evil.writer.buf[:], .Reliable, session.clock.now)
+}
+
+// Runs the session and the evil channel for `seconds`; returns the first message the evil channel got of `kind`
+// (empty: none).
+evil_run :: proc(evil: ^Evil, session: ^Rnet, seconds: f64, kind := netcode.Msg(0)) -> (got: []u8) {
+	for _ in 0 ..< int(seconds * 100) {
+		netcode.channel_flush(evil.channel, session.clock.now)
+		for event in netcode.channel_poll(evil.channel, session.clock.now) {
+			if event.kind == .Message && got == nil && len(event.data) > 0 && netcode.Msg(event.data[0]) == kind {
+				got = slice.clone(event.data, context.temp_allocator)
+			}
+		}
+		if evil.acking {
+			writer := evil_begin(evil, .Inputs)
+			wire.w_u8(writer, evil.slot)
+			wire.w_u64(writer, u64(session.clock.now))
+			wire.w_u32(writer, session.relay.finalized)
+			wire.w_u32(writer, 0)
+			wire.w_u8(writer, 0) // no inputs
+			wire.w_u32(writer, 1)
+			wire.w_u8(writer, 0) // no commands
+			netcode.channel_send(evil.channel, evil.peer, writer.buf[:], .Unreliable, session.clock.now)
+		}
+		rnet_run(session, 0.01)
+	}
+	return
+}
+
+evil_destroy :: proc(evil: ^Evil) {
+	netcode.channel_destroy(evil.channel)
+	delete(evil.writer.buf)
+}
+
+// A client cannot switch desync detection off: checksums of ticks the relay has not finalized are dropped, so they
+// never take the ring's slots from the honest reports.
+@(test)
+future_checksums_are_dropped :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 2, 0)
+	defer rnet_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1)
+	defer evil_destroy(&evil)
+	rnet_join(&session, 0)
+	evil_run(&evil, &session, 1)
+	testing.expect(t, session.relay.started)
+	for k in 0 ..< u32(netcode.CHECK_RING) {
+		writer := evil_begin(&evil, .Checksum)
+		wire.w_u8(writer, 1)
+		wire.w_u32(writer, 0x8000_0000 + k * netcode.CHECKSUM_EVERY)
+		wire.w_u64(writer, 1)
+		evil_send(&evil, &session)
+	}
+	flooded := session.relay.finalized
+	evil_run(&evil, &session, 3) // past CHECK_WAIT_MS: the evil seat never reports, so a check is judged on its wait
+	testing.expect(t, session.relay.finalized > flooded + 2 * netcode.CHECKSUM_EVERY)
+	judged := false
+	for check in session.relay.checks {
+		testing.expectf(t, check.tick <= session.relay.finalized, "a checksum of tick %d was kept", check.tick)
+		judged ||= check.judged && check.tick > flooded
+	}
+	testing.expect(t, judged) // honest reports are still judged
+}
+
+// A joiner in a slot another player just left starts from its own clock: the relay's echo of the old occupant's
+// time (another machine's clock, here 4 hours behind) is not taken as a round trip.
+@(test)
+joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 1, 0)
+	defer rnet_destroy(&session)
+	rnet_join(&session, 0)
+	rnet_run(&session, 1)
+	old := rnet_join(&session)
+	rnet_run(&session, 3, proc(session: ^Rnet) -> bool {return session.clients[1].status == .Connected})
+	testing.expect_value(t, old.status, netcode.Status.Connected)
+	rnet_run(&session, 1)
+	netcode.client_stop(old, session.clock.now)
+	rnet_run(&session, 1)
+	testing.expect(t, !session.relay.connected[1])
+	netcode.client_destroy(pop(&session.clients))
+
+	AHEAD :: i64(4 * 3600) * 1_000_000 // the joiner's machine booted 4 hours earlier
+	joiner_clock := netcode.Virtual_Clock {
+		now = session.clock.now + AHEAD,
+	}
+	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 5), netcode.PROFILES[1], 5 * 7919, &joiner_clock)
+	joiner := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, name = "j", quiet = true},
+		link,
+		hooks_for(&session.watch[5]),
+	)
+	defer netcode.client_destroy(joiner)
+	for _ in 0 ..< 3 * 4000 {
+		session.clock.now += 250
+		joiner_clock.now = session.clock.now + AHEAD
+		netcode.relay_step(session.relay, session.clock.now)
+		for client in session.clients do netcode.client_step(client, session.clock.now)
+		netcode.client_step(joiner, joiner_clock.now)
+	}
+	testing.expect_value(t, joiner.status, netcode.Status.Connected)
+	testing.expect_value(t, joiner.slot, 1)
+	testing.expectf(t, joiner.rtt_us < 300_000, "rtt %.0f us", joiner.rtt_us)
+	testing.expectf(
+		t,
+		joiner.local < session.relay.clock + 64,
+		"joiner at %d, relay at %d",
+		joiner.local,
+		session.relay.clock,
+	)
+	testing.expect_value(t, joiner.own_replaced, 0)
+}
+
+// One ack that covers several datagrams measures the round trip of the newest one only: the older ones waited at
+// the receiver, and their samples would read the round trip that much longer.
+@(test)
+one_ack_of_several_datagrams_samples_the_newest :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	netcode.channel_add_link(sender, netcode.loopback_link(hub, 0))
+	netcode.channel_add_link(receiver, netcode.loopback_link(hub, 1))
+	to := netcode.channel_peer(sender, 0, 1)
+	start := i64(1_000_000)
+	for k in 0 ..< i64(3) { 	// three datagrams, 10 ms apart, that the receiver reads at once
+		netcode.channel_send(sender, to, {u8(k)}, .Reliable, start + k * 10_000)
+		netcode.channel_flush(sender, start + k * 10_000)
+	}
+	netcode.channel_poll(receiver, start + 30_000)
+	netcode.channel_flush(receiver, start + 30_000) // one datagram acks all three
+	netcode.channel_poll(sender, start + 30_000)
+	rtt, ok := netcode.channel_rtt(sender, to)
+	testing.expect(t, ok)
+	testing.expect_value(t, rtt, 10_000) // the newest, sent at +20 ms; the oldest would read 30 ms
+}
+
+// Newest wins only once the new connection is accepted: a Hello with a seated member's token that is then refused
+// (the slot it asks for is taken) leaves the seated connection alone.
+@(test)
+refused_hello_does_not_replace_the_seated_member :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 2, 0)
+	defer rnet_destroy(&session)
+	TOKEN :: netcode.Token{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	seated := netcode.client_create(
+		&toy.GAME,
+		{slot = 0, name = "a", token = TOKEN, quiet = true},
+		netcode.loopback_link(session.hub, 1),
+		hooks_for(&session.watch[1]),
+	)
+	append(&session.clients, seated)
+	other := netcode.client_create(
+		&toy.GAME,
+		{slot = 1, name = "b", quiet = true},
+		netcode.loopback_link(session.hub, 2),
+		hooks_for(&session.watch[2]),
+	)
+	append(&session.clients, other)
+	rnet_run(&session, 1)
+	testing.expect_value(t, seated.status, netcode.Status.Connected)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1, TOKEN) // seat 1 is the other player's
+	defer evil_destroy(&evil)
+	reject := evil_run(&evil, &session, 1, .Reject)
+	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Player_Taken)
+	testing.expect(t, session.relay.connected[0])
+	testing.expect_value(t, seated.status, netcode.Status.Connected)
+}
+
+// A Hello while the session ends gets End at once, not 30 s of silence.
+@(test)
+hello_while_ending_gets_end :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 1, 0)
+	defer rnet_destroy(&session)
+	rnet_join(&session, 0)
+	rnet_run(&session, 1)
+	netcode.relay_stop(session.relay, session.clock.now)
+	evil: Evil
+	evil_seat(&evil, &session, 7, netcode.ANY_PLAYER)
+	defer evil_destroy(&evil)
+	testing.expect(t, evil_run(&evil, &session, 0.5, .End) != nil)
+}
+
+// A snapshot provider that never sends one is replaced by another player after SNAP_STALL_US, and one whose
+// snapshot the relay can't use is replaced at once: the joiner doesn't hold its seat forever.
+@(test)
+silent_or_unusable_snapshot_provider_is_replaced :: proc(t: ^testing.T) {
+	for unusable in ([]bool{false, true}) {
+		session: Rnet
+		rnet_make(&session, 2, 0)
+		defer rnet_destroy(&session)
+		evil: Evil
+		evil_seat(&evil, &session, 7, 0) // the lowest seat: the first one asked for a snapshot
+		defer evil_destroy(&evil)
+		evil.acking = true
+		rnet_join(&session, 1)
+		evil_run(&evil, &session, 1)
+		joiner := rnet_join(&session)
+		evil_run(&evil, &session, 0.1)
+		testing.expect_value(t, session.relay.provider[2], 0)
+		if unusable {
+			writer := evil_begin(&evil, .Snap_Begin)
+			wire.w_u8(writer, 2)
+			wire.w_u32(writer, session.relay.finalized - 1) // not a checksum tick
+			wire.w_u32(writer, 100)
+			evil_send(&evil, &session)
+			evil_run(&evil, &session, 0.1)
+			testing.expect_value(t, session.relay.provider[2], 1)
+		}
+		evil_run(&evil, &session, f64(netcode.SNAP_STALL_US) / 1e6 + 3)
+		testing.expectf(t, joiner.status == .Connected, "unusable %v: the joiner is %v", unusable, joiner.status)
+		testing.expect(t, joiner.verified > joiner.first_tick)
+	}
+}
+
+// A client acts only on its relay's messages, and not on a Reject cut short.
+@(test)
+client_ignores_strangers_and_cut_rejects :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(3)
+	defer netcode.hub_destroy(hub)
+	fake: Fake_Relay
+	fake_make(&fake, hub)
+	defer fake_destroy(&fake)
+	watch: Watch
+	client := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, name = "c", quiet = true},
+		netcode.loopback_link(hub, 1),
+		hooks_for(&watch),
+	)
+	defer netcode.client_destroy(client)
+	defer delete(watch.statuses)
+	fake_welcome(&fake, client)
+	stranger := netcode.channel_make()
+	defer netcode.channel_destroy(stranger)
+	netcode.channel_add_link(stranger, netcode.loopback_link(hub, 2))
+	reject := []u8{u8(netcode.Msg.Reject), u8(netcode.Reject_Reason.Full)}
+	netcode.channel_send(stranger, netcode.channel_peer(stranger, 0, 1), reject, .Reliable, fake.now)
+	netcode.channel_flush(stranger, fake.now)
+	fake_send_bytes(&fake, reject[:1]) // a Reject without its reason
+	for _ in 0 ..< 10 {
+		fake_step(&fake, client)
+	}
+	testing.expect_value(t, client.status, netcode.Status.Connected)
 }

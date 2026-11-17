@@ -914,6 +914,15 @@ bind_dynamic_method :: proc(
 		}
 		if dynamic_method.result == .NIL {
 			gdi.variant_new_copy(cast(^Variant)ret, &result)
+		} else if dynamic_method.result == .OBJECT {
+			// the Variant's reference goes with it: a RefCounted's slot (a reference of Godot's) takes one of its own
+			object: rawptr
+			to_type(.OBJECT, &object, &result)
+			if object_cast(RefCounted, Object{object}, RefCounted_CLASS).ptr != nil {
+				gdi.ref_set_object(ret, object)
+			} else {
+				(^rawptr)(ret)^ = object
+			}
 		} else {
 			if is_opaque_builtin(dynamic_method.result) do builtin_destroy(dynamic_method.result, ret)
 			to_type(dynamic_method.result, ret, &result)

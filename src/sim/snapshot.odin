@@ -207,6 +207,7 @@ from_snapshot :: proc(
 	for &slot in simulation.ring {
 		slot.valid = false
 		slot.saved = false
+		clear(&slot.events.list) // init's (tick 0's), which save would make the snapshot tick's when they share a slot
 	}
 	save(simulation)
 	return simulation, .None

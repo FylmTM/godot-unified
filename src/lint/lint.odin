@@ -17,11 +17,11 @@ Rule :: struct {
 	pkg:           string, // the package's name, for messages (and the tests' rule table)
 	dir:           string, // the package's directory (subdirectories included); see `check`
 	only_imports:  []string, // when set: the only imports allowed, as written ("a/" allows a/*, "core:" all of core)
-	ban_imports:   []string, // import path prefixes
+	ban_imports:   []string, // import paths, each with what is under it ("a" bans a/*, "c:" all of collection c)
 	allow_imports: []string, // exceptions to ban_imports
 	ban_idents:    []string, // identifiers, e.g. types or intrinsics
 	ban_matrix:    bool,
-	strict:        bool, // also bans `foreign`, `map` and `x := 1.5` (an untyped float literal is f64)
+	strict:        bool, // also bans `foreign`, `map`, `---`, `#config` and `x := 1.5` (an untyped float literal is f64)
 	tick:          bool, // code inside a tick: package-level variables must be @(rodata) (see scan_globals)
 	allow_globals: []string, // package-level variables a tick package may keep: each needs a reason where listed
 }
@@ -40,8 +40,10 @@ FLOAT_TRAPS :: []string {
 	"complex128",
 }
 
-// Inside a tick: f32 only, no clocks, entropy or cycle counters, and none of sim's file procs (input logs, log
-// sinks, whole files: tools and tests use them; a tick that touched a file would do it again on every re-simulation).
+// Inside a tick: f32 only, no clocks, entropy or cycle counters, none of sim's file procs (input logs, log sinks,
+// whole files: tools and tests use them; a tick that touched a file would do it again on every re-simulation), no
+// state outside the block (`@(static)` and `@(thread_local)` variables: not rolled back, not hashed) and no code that
+// differs per platform or build (ODIN_OS, ODIN_ARCH, ODIN_DEBUG: peers would run different sims).
 SIM_IDENTS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -65,10 +67,15 @@ SIM_IDENTS :: []string {
 	"log_sink_file",
 	"write_file",
 	"read_file",
+	"static",
+	"thread_local",
+	"ODIN_OS",
+	"ODIN_ARCH",
+	"ODIN_DEBUG",
 }
 
-// What code inside a tick may import: the deterministic packages and the integer bit helpers. Not unified:b3:
-// Box3D is physics' (src/physics/SPEC.md, The boundary).
+// What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not
+// unified:b3: Box3D is physics' (src/physics/SPEC.md, The boundary).
 TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
@@ -79,14 +86,19 @@ TICK_IMPORTS :: []string {
 	"core:math/bits",
 }
 
-// The rule for a game's simulation package (the code inside its tick): only TICK_IMPORTS plus `extra_imports`
+// What a game's code inside a tick may import without listing it: TICK_IMPORTS but the encoding (unified:wire) and the
+// low-level helpers (base:intrinsics, whose SIMD, atomics and syscalls the identifier bans don't name; core:math/bits).
+// A game that needs one lists it in extra_imports.
+GAME_TICK_IMPORTS :: []string{"unified:sim", "unified:physics", "unified:level", "unified:dmath"}
+
+// The rule for a game's simulation package (the code inside its tick): only GAME_TICK_IMPORTS plus `extra_imports`
 // (the game's own deterministic packages as its code imports them, e.g. "../grid"; "a/" allows a/*), f32
 // only, no foreign code, no maps, no clocks, files or threads, no randomness besides the state's RNG, no
 // mutable package-level variables.
 sim_rule :: proc(pkg, dir: string, extra_imports: []string = nil, allocator := context.temp_allocator) -> Rule {
-	imports := make([]string, len(TICK_IMPORTS) + len(extra_imports), allocator)
-	copy(imports, TICK_IMPORTS)
-	copy(imports[len(TICK_IMPORTS):], extra_imports)
+	imports := make([]string, len(GAME_TICK_IMPORTS) + len(extra_imports), allocator)
+	copy(imports, GAME_TICK_IMPORTS)
+	copy(imports[len(GAME_TICK_IMPORTS):], extra_imports)
 	return {
 		pkg          = pkg,
 		dir          = dir,
@@ -110,7 +122,7 @@ check_sim_package :: proc(t: ^testing.T, dir: string, extra_imports: []string = 
 
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
 // core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none
-// of them imports unified:b3; every other directory is one of the game's sim packages, linted under `sim_rule`
+// of them imports Box3D (unified:b3, box3d:); every other directory is one of the game's sim packages, linted under `sim_rule`
 // with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories.
 check_game :: proc(
 	t: ^testing.T,
@@ -139,7 +151,7 @@ check_game :: proc(
 				}, loc)
 		case "extension", "tests":
 			// host side and test code: nothing inside a tick, but Box3D only through physics as everywhere in a game
-			check(t, {pkg = info.name, dir = info.fullpath, ban_imports = {B3}}, loc)
+			check(t, {pkg = info.name, dir = info.fullpath, ban_imports = BOX3D}, loc)
 		case:
 			check(t, sim_rule(info.name, info.fullpath, extra_imports), loc)
 			append(&out, info.fullpath)
@@ -152,11 +164,13 @@ check_game :: proc(
 @(private)
 float_traps := FLOAT_TRAPS
 
-// Box3D's bindings: physics' implementation, never imported by a game (src/physics/SPEC.md, The boundary).
+// Box3D's API and the bindings under it: physics' implementation, never imported by a game (src/physics/SPEC.md,
+// The boundary).
 B3 :: "unified:b3"
+BOX3D :: []string{B3, "box3d:"}
 
 @(private)
-HEADLESS_BANS :: []string{"core:math", B3}
+HEADLESS_BANS :: []string{"core:math", B3, "box3d:"}
 
 // Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,
 // and with `scan_globals` when `rule.tick`: one test failure per violation, and one when there are no files.
@@ -238,6 +252,10 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 			if rule.strict {
 				report(&out, tok, name, "`map` (unordered)", rule, allocator)
 			}
+		case .Undef:
+			if rule.strict {
+				report(&out, tok, name, "`---` (uninitialised memory differs per run)", rule, allocator)
+			}
 		case .Float:
 			after_colon_eq := prev[0] == .Eq && prev[1] == .Colon
 			signed := (prev[0] == .Sub || prev[0] == .Add) && prev[1] == .Eq && prev[2] == .Colon
@@ -248,6 +266,9 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 			if after_import {
 				prev = {tok.kind, prev[0], prev[1]}
 				continue // import alias
+			}
+			if rule.strict && prev[0] == .Hash && tok.text == "config" {
+				report(&out, tok, name, "`#config` (a build option: peers would run different sims)", rule, allocator)
 			}
 			for banned in rule.ban_idents {
 				if tok.text == banned {
@@ -432,7 +453,10 @@ banned_import :: proc(rule: Rule, path: string) -> bool {
 		}
 	}
 	for banned in rule.ban_imports {
-		if path == banned || strings.has_prefix(path, strings.concatenate({banned, "/"}, context.temp_allocator)) {
+		collection := strings.has_suffix(banned, ":") && strings.has_prefix(path, banned) // "box3d:": all of it
+		if collection ||
+		   path == banned ||
+		   strings.has_prefix(path, strings.concatenate({banned, "/"}, context.temp_allocator)) {
 			return true
 		}
 	}

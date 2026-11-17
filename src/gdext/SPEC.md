@@ -15,7 +15,8 @@ Odin bindings for Godot's GDExtension API: what `unified:godot` and a game's ext
 - **Extension classes.** `Class{name, parent, size, init, fini, notification, ready, process, input,
   runtime_only}`, then:
   - `bind_method(cls, name, proc(self: ^T, a: A, b: B) -> R, {"a", "b"})`, with 0–3 arguments and one typed
-    trampoline per signature;
+    trampoline per signature; a RefCounted result `R` says who owns it: `Ref(T)` hands the method's reference to
+    Godot, a bare `T` is borrowed (Godot takes a reference of its own), on the typed and the Variant path alike;
   - `bind_dynamic_method(cls, name, call, user, args, ret, static)`: one method whose arguments and result are
     Variants, described at run time (`unified:godot` registers its RTTI-built event, command, data and enum classes
     with it); an OBJECT argument or result may name its class (typed in GDScript); a `static` one is called on the

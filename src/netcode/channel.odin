@@ -380,17 +380,21 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 	return channel.events[:]
 }
 
+// Marks a datagram of ours received. Only the newest seq an ack names (`sample`) measures the round trip: the older
+// ones it covers waited at the receiver.
 @(private)
-seq_acked :: proc(conn: ^Conn, seq: u32, now: i64) {
+seq_acked :: proc(conn: ^Conn, seq: u32, now: i64, sample: bool) {
 	record := &conn.sent[seq % SENT_RING]
 	if !record.valid || record.seq != seq {
 		return
 	}
 	record.valid = false
-	sample := f64(now - record.at)
-	conn.srtt_us += (sample - conn.srtt_us) * 0.125
-	conn.rtt_last_us = sample
-	conn.rtt_seen = true
+	if sample {
+		rtt := f64(now - record.at)
+		conn.srtt_us += (rtt - conn.srtt_us) * 0.125
+		conn.rtt_last_us = rtt
+		conn.rtt_seen = true
+	}
 	for k in 0 ..< int(record.n_ids) {
 		id := record.ids[k]
 		for &message in conn.rel_out {
@@ -476,10 +480,10 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 @(private)
 take_acks :: proc(channel: ^Channel, conn: ^Conn, ack, ack_bits: u32, now: i64) {
 	conn.acked_max = max(conn.acked_max, min(ack, conn.next_seq - 1))
-	seq_acked(conn, ack, now)
+	seq_acked(conn, ack, now, true)
 	for bit in 0 ..< u32(32) {
 		if ack_bits & (1 << bit) != 0 && ack > bit + 1 {
-			seq_acked(conn, ack - bit - 1, now)
+			seq_acked(conn, ack - bit - 1, now, false)
 		}
 	}
 	k := 0

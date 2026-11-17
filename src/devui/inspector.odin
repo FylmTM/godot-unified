@@ -70,6 +70,7 @@ Inspector :: struct {
 	empty:   gd.TreeItem, // "nothing to inspect", until a root exists
 	roots:   [dynamic]Insp_Root,
 	nodes:   [dynamic]Insp_Node,
+	free:    [dynamic]int, // dead nodes, reused by new_node
 	by_item: map[rawptr]int,
 	pending: [dynamic]int, // expanded by a click: built next frame (a Tree refuses new rows inside its mouse handling)
 	dirty:   bool, // refresh next frame (rows were just built)
@@ -105,6 +106,7 @@ inspector_shutdown :: proc(inspector: ^Inspector) {
 	for &node in inspector.nodes do delete(node.children)
 	delete(inspector.roots)
 	delete(inspector.nodes)
+	delete(inspector.free)
 	delete(inspector.by_item)
 	delete(inspector.pending)
 }
@@ -247,7 +249,7 @@ row_remove :: proc(inspector: ^Inspector, node_index, row: int) {
 	ordered_remove(&inspector.nodes[node_index].children, row)
 }
 
-// A removed row and everything under it: out of the item map, marked dead.
+// A removed row and everything under it: out of the item map, marked dead and free for new_node.
 @(private)
 forget :: proc(inspector: ^Inspector, node_index: int) {
 	for child in inspector.nodes[node_index].children do forget(inspector, child)
@@ -256,6 +258,7 @@ forget :: proc(inspector: ^Inspector, node_index: int) {
 	inspector.nodes[node_index] = {
 		kind = .Dead,
 	}
+	append(&inspector.free, node_index)
 }
 
 // A node and its tree row (at `position` among its siblings, -1: last); a group or list gets a placeholder child
@@ -283,14 +286,20 @@ new_node :: proc(
 		gd.TreeItem_set_custom_color(item, 0, DIM)
 		gd.TreeItem_set_custom_font(item, 1, s.mono)
 	}
-	node_index := len(inspector.nodes)
-	append(&inspector.nodes, Insp_Node {
+	node := Insp_Node {
 		item = item,
 		rel  = rel,
 		type = type,
 		kind = kind,
 		list = list,
-	})
+	}
+	node_index := len(inspector.nodes)
+	if index, ok := pop_safe(&inspector.free); ok {
+		node_index = index
+		inspector.nodes[node_index] = node
+	} else {
+		append(&inspector.nodes, node)
+	}
 	inspector.by_item[item.ptr] = node_index
 	return node_index
 }

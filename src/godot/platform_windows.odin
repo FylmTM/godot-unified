@@ -53,12 +53,24 @@ session_power_end :: proc() {
 	win.timeEndPeriod(1)
 }
 
-// Whether a process with this id runs (any process, not only a child).
-process_alive :: proc(pid: int) -> bool {
-	if pid <= 0 do return false
-	SYNCHRONIZE :: 0x0010_0000
-	handle := win.OpenProcess(SYNCHRONIZE, false, win.DWORD(pid))
-	if handle == nil do return false
-	defer win.CloseHandle(handle)
-	return win.WaitForSingleObject(handle, 0) == win.WAIT_TIMEOUT
+// Opens `path` (made if missing) with no sharing: no other handle, in this process or another, opens it until
+// unlock_file or the process ends (a crash included). False when someone holds it.
+@(private)
+lock_file :: proc(path: string) -> (lock: Token_Lock, ok: bool) {
+	handle := win.CreateFileW(
+		win.utf8_to_wstring(path, context.temp_allocator),
+		win.GENERIC_READ | win.GENERIC_WRITE,
+		0, // no sharing
+		nil,
+		win.OPEN_ALWAYS,
+		win.FILE_ATTRIBUTE_NORMAL,
+		nil,
+	)
+	if handle == win.INVALID_HANDLE_VALUE do return 0, false
+	return Token_Lock(uintptr(handle)), true
+}
+
+@(private)
+unlock_file :: proc(lock: Token_Lock) {
+	win.CloseHandle(win.HANDLE(uintptr(lock)))
 }

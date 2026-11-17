@@ -38,6 +38,8 @@ func _initialize() -> void:
 	check("Callable from Odin", c.call(20, 22) == 42, c.call(20, 22))
 	check("vararg wrapper (Object.call)", t.call_add_via_vararg() == 7, t.call_add_via_vararg())
 	check("Ref ownership (Image round trip)", t.image_size() == 12, t.image_size())
+	check("returned Ref(Image) (Variant call)", t.new_image().get_width() == 2)
+	check("returned borrowed Image (Variant call)", t.kept_image().get_width() == 5)
 	check("interned StringName", t.sn_same())
 	check("nested callback keeps the caller's temp data", t.nested_temp())
 	# The same bindings through typed calls: GDScript ptrcalls a method whose types it knows at compile time.
@@ -53,6 +55,17 @@ func _initialize() -> void:
 	tt.value = 23
 	check("typed property", tt.value == 23, tt.value)
 	check("typed nested_temp", tt.nested_temp())
+	var owned: Image = tt.new_image()
+	check("typed returned Ref(Image)", owned.get_width() == 2)
+	owned = null
+	for i in 3:  # each borrowed result dropped: the instance's own reference must survive them
+		var kept: Image = tt.kept_image()
+		kept = null
+	check("typed returned borrowed Image", tt.kept_image().get_width() == 5)
+	for i in 3:  # the same through a dynamic method (bind_dynamic_method: a Variant result)
+		var kept: Image = tt.dynamic_kept_image()
+		kept = null
+	check("typed returned Image (dynamic method)", tt.dynamic_kept_image().get_width() == 5)
 	var after: Vector2i = tt.call_counts()
 	check("typed calls took ptrcall", after.y - before.y >= 10, [before, after])
 	await process_frame
@@ -62,6 +75,7 @@ func _initialize() -> void:
 	await process_frame
 	check("dev UI builds its controls", t.devui_items() > 0, t.devui_items())
 	check_devui_click()
+	await check_devui_inspector_rows(t)
 	check("one live instance", t.instances() == 1, t.instances())
 	t.queue_free()
 	check_level_export()
@@ -89,6 +103,51 @@ func check_devui_click() -> void:
 		check("dev UI: a click on it doesn't reach the game", not press_fires(on_ui), on_ui)
 		check("dev UI: a click elsewhere does", press_fires(Vector2(4, root.size.y - 4)), root.size)
 	InputMap.erase_action(&"test_fire")
+
+
+## The Inspector's rows of a list whose live element changes every frame are reused: the dev UI's count stays flat.
+func check_devui_inspector_rows(t: Node) -> void:
+	var layer := root.get_node_or_null(^"DevUI") as CanvasLayer
+	var churn: TreeItem = null
+	var inspect: Button = null
+	if layer != null:
+		for node: Node in layer.find_children("*", "Button", true, false):
+			if (node as Button).text == "inspect":
+				inspect = node as Button
+		for node: Node in layer.find_children("*", "Tree", true, false):
+			churn = find_item((node as Tree).get_root(), "churn") if churn == null else churn
+	check("dev UI: the Inspector shows the tester's churn list", inspect != null and churn != null)
+	if inspect == null or churn == null:
+		return
+	inspect.pressed.emit()  # the Inspector panel open: its rows refresh
+	churn.collapsed = false  # its rows built next frame
+	await create_timer(0.2).timeout
+	var before: int = t.devui_items()
+	await create_timer(0.4).timeout
+	check("dev UI: dead Inspector rows are reused", t.devui_items() == before, [before, t.devui_items()])
+	# A click on the frames line restarts it and leaves the stat lines alone.
+	var frames: Button = null
+	var processed: Label = null
+	for node: Node in layer.find_children("*", "Button", true, false):
+		if (node as Button).text.begins_with("p50"):
+			frames = node as Button
+	for node: Node in layer.find_children("*", "Label", true, false):
+		if (node as Label).text == "processed":
+			processed = node as Label
+	check("dev UI: the frames line and a stat line", frames != null and processed != null)
+	if frames != null and processed != null:
+		frames.pressed.emit()
+		check("dev UI: a click on the frames line keeps the stat lines", processed.is_visible_in_tree())
+
+
+func find_item(item: TreeItem, text: String) -> TreeItem:
+	if item == null or item.get_text(0) == text:
+		return item
+	for child: TreeItem in item.get_children():
+		var found := find_item(child, text)
+		if found != null:
+			return found
+	return null
 
 
 ## Presses and releases the left mouse button at `at`; whether the press left `test_fire` pressed.

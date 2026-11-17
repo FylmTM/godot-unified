@@ -152,7 +152,6 @@ init :: proc(t: ^Tick) {
 create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
 	body_def := physics.body_def_2d(.Dynamic_Body, at, {0, -1})
 	body_def.linear_damping = SHIP_DAMPING
-	body_def.is_bullet = false
 	ref := physics.create_body(world.phys, &body_def)
 	shape_def := physics.default_shape_def()
 	shape_def.density = SHIP_DENSITY

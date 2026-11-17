@@ -5,8 +5,8 @@ extends CanvasLayer
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
 ## Upgrade names, details and ids come from the sim (`Unified.constants.upgrades`), as does the "over" hold time.
-const KEYS := ["1", "2", "3"]
-const PAD_KEYS := ["X", "Y", "B"]
+const KEYS: Array[String] = ["1", "2", "3"]
+const PAD_KEYS: Array[String] = ["X", "Y", "B"]
 
 var _last_wave := 0
 var _last_phase := EnumPhase.LOBBY
@@ -206,7 +206,7 @@ func _on_match_over(time_s: float, wave: int, level: int, enemies: int) -> void:
 
 
 func _label_keys() -> void:
-	var keys: Array = PAD_KEYS if Game.using_pad else KEYS
+	var keys: Array[String] = PAD_KEYS if Game.using_pad else KEYS
 	var cards := Unified.constants.upgrades
 	for i in mini(_options.get_child_count(), cards.size()):
 		var card: Dictionary = cards[i]
