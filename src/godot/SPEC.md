@@ -31,7 +31,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 
 sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_z = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	input.buttons = godot.buttons(g.Buttons, {.Jump = "jump", .Grab = "grab"})
 }
 
@@ -88,7 +88,7 @@ input never presses twice), and a one-shot value is a command.
 - `input_value(name) -> [3]f32`: the latest value a script set with `UnifiedSession.set_input_value(name, value)`
   (a Vector3, a Vector2 with z = 0, or a float or bool in x): what only GDScript knows, such as a camera's look
   direction;
-- `axis_i8(x) -> i8`: −1..1 to −127..127 (`dmath.axis_i8`); a stick decodes with `dmath.stick` (clamped to length
+- An axis is `dmath.axis_i8(x)`: −1..1 to −127..127; a stick decodes with `dmath.stick` (clamped to length
   1), a direction is a `dmath.Dir2` / `Dir3` (`dmath.dir2(vec)`, 2 or 4 bytes; zero: none). An `Input` holds no bools
   and no floats (`sim.wire_violation`).
 

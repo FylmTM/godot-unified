@@ -101,7 +101,7 @@ ship_key :: proc(player: sim.Player) -> view.Key {
 // zero keeps the heading. A tap of fire or boost shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^dr.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
-	input.move_x, input.move_y = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	aim := godot.input_value("aim")
 	input.aim = dmath.dir2(aim.xy)
 	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})

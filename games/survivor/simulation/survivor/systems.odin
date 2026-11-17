@@ -219,8 +219,8 @@ sys_spawner :: proc(t: ^Tick) {
 		}
 		direction := sim.roll_below(t, 8, Roll.Spawn_Direction, index = i)
 		jitter := f32(sim.roll_below(t, 1000, Roll.Spawn_Jitter, index = i)) / 1000 * 2 - 1
-		x := 27 * dmath.DIR8_C[direction] + jitter
-		z := 27 * dmath.DIR8_S[direction] + jitter
+		x := 27 * dmath.DIR8[direction].x + jitter
+		z := 27 * dmath.DIR8[direction].y + jitter
 		spawn_enemy(t.state, kind_of_roll(sim.roll_below(t, 10, Roll.Spawn_Kind, index = i)), {x, z}, t.number)
 	}
 }
@@ -411,8 +411,8 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 		z := enemy.pos.y + enemy.vel.y * dt
 		radius := enemy.radius
 		for k in 0 ..< 8 {
-			pillar_x := 14 * dmath.DIR8_C[k]
-			pillar_z := 14 * dmath.DIR8_S[k]
+			pillar_x := 14 * dmath.DIR8[k].x
+			pillar_z := 14 * dmath.DIR8[k].y
 			extent := 1 + radius
 			dx := x - pillar_x
 			dz := z - pillar_z

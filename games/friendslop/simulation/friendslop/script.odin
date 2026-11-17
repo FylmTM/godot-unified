@@ -17,11 +17,11 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 	input: Input
 	if hash % 7 != 6 {
 		move := hash % 8
-		input.move_x = i8(dmath.DIR8_C[move] * 127)
-		input.move_z = i8(dmath.DIR8_S[move] * 127)
+		input.move_x = i8(dmath.DIR8[move].x * 127)
+		input.move_z = i8(dmath.DIR8[move].y * 127)
 	}
 	aim := (hash >> 4) % 8
-	input.aim = dmath.dir3({dmath.DIR8_C[aim] * 100, f32(int((hash >> 8) % 61) - 40), dmath.DIR8_S[aim] * 100})
+	input.aim = dmath.dir3({dmath.DIR8[aim].x * 100, f32(int((hash >> 8) % 61) - 40), dmath.DIR8[aim].y * 100})
 	if (hash >> 12) % 4 == 0 do input.buttons += {.Jump}
 	if (hash >> 14) % 3 == 0 && in_block < 4 do input.buttons += {.Grab}
 	// Throw: held for a whole block, released when the next block doesn't hold it.

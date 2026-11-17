@@ -19,9 +19,8 @@ how a table is laid out) is up to the implementation, as long as it's determinis
 
 - Ground: a static box, half extents (32, 0.5, 32) at (0, −0.5, 0). Walls: four static boxes enclosing the 60×60 arena
   (inner faces at x = ±30, z = ±30, height 3, thickness 1).
-- 8 static pillars: boxes half (1, 1.5, 1) at angles k·45° on a ring of radius 14: `(14·c_k, 1.5, 14·s_k)`. Use this
-  table (`dmath.DIR8_C/S`), not trig: `c = [1, 0.70710677, 0, −0.70710677, −1, −0.70710677, 0, 0.70710677]`, `s = [0, 0.70710677, 1,
-  0.70710677, 0, −0.70710677, −1, −0.70710677]`.
+- 8 static pillars: boxes half (1, 1.5, 1) at angles k·45° on a ring of radius 14: `(14·c_k, 1.5, 14·s_k)`, `{c_k, s_k}` the k-th
+  of `dmath.DIR8` (exact table values, not trig).
 - 32 crates (dynamic boxes, half 0.5, density 1) and 8 barrels (dynamic capsules r 0.4, center1 (0,−0.3,0),
   center2 (0,0.3,0), density 1), on a 5×8 grid. Item `i = 0..39`: `x = (i % 8)·4 − 14`, `z = (i / 8)·4 − 8`, y = 1,
   except the two spots inside the start circle: crate 19 at (−2, 12) and crate 20 at (2, −12).

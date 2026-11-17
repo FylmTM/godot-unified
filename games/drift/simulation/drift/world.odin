@@ -88,7 +88,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			world.gate_count += 1
 		case "rock_spawn":
 			assert(world.spawner_count < MAX_SPAWNERS, "drift: too many rock spawners")
-			dir := dmath.normalize2(level.prop_vec2(&marker, "dir", {0, 1}))
+			dir := dmath.normalize(level.prop_vec2(&marker, "dir", {0, 1}))
 			if dir == {} do dir = {0, 1}
 			world.spawners[world.spawner_count] = {pos, dir}
 			world.spawner_count += 1
@@ -122,7 +122,7 @@ rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
 	radius := ROCK_RADIUS[size]
 	for k in 0 ..< 8 {
 		reach := ROCK_SHAPES[variant][k] * radius
-		points[k] = {dmath.DIR8_C[k] * reach, dmath.DIR8_S[k] * reach}
+		points[k] = dmath.DIR8[k] * reach
 	}
 	return
 }

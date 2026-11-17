@@ -15,6 +15,12 @@ sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 }
 
 // The length of a 2D vector.
+// A vector's length, 2D or 3D.
+length :: proc {
+	length2,
+	length3,
+}
+
 length2 :: #force_inline proc "contextless" (vec: Vec2) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y)
 }
@@ -37,6 +43,12 @@ dot3 :: #force_inline proc "contextless" (a, b: Vec3) -> f32 {
 }
 
 // v / |v|, or zero when |v| <= eps.
+// A vector scaled to length 1 (2D or 3D; zero below `eps`).
+normalize :: proc {
+	normalize2,
+	normalize3,
+}
+
 normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
 	length := length2(vec)
 	if length <= eps {
@@ -99,8 +111,15 @@ to_i32_clamped :: proc "contextless" (x: f32, lo, hi: i32) -> i32 {
 	return i32(x)
 }
 
-// The 8 compass directions k·45°, as exact table values (no trig).
+// The 8 compass directions k·45° as unit vectors {cos, sin}, exact table values (no trig).
 @(rodata)
-DIR8_C := [8]f32{1, 0.70710677, 0, -0.70710677, -1, -0.70710677, 0, 0.70710677}
-@(rodata)
-DIR8_S := [8]f32{0, 0.70710677, 1, 0.70710677, 0, -0.70710677, -1, -0.70710677}
+DIR8 := [8]Vec2 {
+	{1, 0},
+	{0.70710677, 0.70710677},
+	{0, 1},
+	{-0.70710677, 0.70710677},
+	{-1, 0},
+	{-0.70710677, -0.70710677},
+	{0, -1},
+	{0.70710677, -0.70710677},
+}

@@ -100,8 +100,8 @@ walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe(
 	at := player_pos(run, slot)
 	offset := [2]f32{target.x - at.x, target.z - at.z}
 	input: fs.Input
-	if dmath.length2(offset) > near {
-		direction := dmath.normalize2(offset)
+	if dmath.length(offset) > near {
+		direction := dmath.normalize(offset)
 		input.move_x = i8_of(direction.x)
 		input.move_z = i8_of(direction.y)
 	}
@@ -110,7 +110,7 @@ walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe(
 
 aim_at :: proc(run: ^Run, slot: int, target: [3]f32, input: fs.Input) -> fs.Input {
 	input := input
-	aim := dmath.normalize3(target - (player_pos(run, slot) + {0, fs.HOLD_UP, 0}))
+	aim := dmath.normalize(target - (player_pos(run, slot) + {0, fs.HOLD_UP, 0}))
 	input.aim = dmath.dir3(aim)
 	return input
 }

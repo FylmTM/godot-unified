@@ -7,9 +7,9 @@ import "unified:dmath"
 
 @(test)
 helpers :: proc(t: ^testing.T) {
-	testing.expect_value(t, dmath.length2({3, 4}), 5)
-	testing.expect_value(t, dmath.normalize2({0, 0}), dmath.Vec2{})
-	testing.expect_value(t, dmath.normalize3({0, 0, 2}), dmath.Vec3{0, 0, 1})
+	testing.expect_value(t, dmath.length({3, 4}), 5)
+	testing.expect_value(t, dmath.normalize({0, 0}), dmath.Vec2{})
+	testing.expect_value(t, dmath.normalize({0, 0, 2}), dmath.Vec3{0, 0, 1})
 	testing.expect_value(t, dmath.clamp_length2({6, 8}, 5), dmath.Vec2{3, 4})
 	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), dmath.Vec2{0.6, 0.8})
 	testing.expect_value(t, dmath.dist_sq2({1, 1}, {4, 5}), 25)
@@ -22,7 +22,7 @@ helpers :: proc(t: ^testing.T) {
 	turned := dmath.quat_rotate({0, 0, 0.70710677, 0.70710677}, {1, 0, 0})
 	testing.expect(t, abs(turned.x) < 1e-6 && abs(turned.y - 1) < 1e-6 && turned.z == 0)
 	for k in 0 ..< 8 {
-		length := dmath.length2({dmath.DIR8_C[k], dmath.DIR8_S[k]})
+		length := dmath.length(dmath.DIR8[k])
 		testing.expect(t, length > 0.99999 && length < 1.00001)
 	}
 }
@@ -103,7 +103,7 @@ input_encodings :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.axis_i8(1), 127)
 	testing.expect_value(t, dmath.axis_i8(-2), -127)
 	testing.expect_value(t, dmath.axis_i8(0.5), 64)
-	testing.expect(t, dmath.length2(dmath.stick(127, 127)) <= 1)
+	testing.expect(t, dmath.length(dmath.stick(127, 127)) <= 1)
 	testing.expect_value(t, dmath.stick(127, 0), dmath.Vec2{1, 0})
 	testing.expect_value(t, dmath.dir2({}), 0)
 	testing.expect_value(t, dmath.dir2_vec(0), dmath.Vec2{})
@@ -116,22 +116,22 @@ input_encodings :: proc(t: ^testing.T) {
 		ring := dmath.sqrt(1 - u * u)
 		k := f32(i % 37) / 37 * 2 - 1
 		w := dmath.sqrt(max(1 - k * k, 0))
-		want3 := dmath.normalize3({ring * k, u, ring * w * (1 if i % 2 == 0 else -1)})
+		want3 := dmath.normalize({ring * k, u, ring * w * (1 if i % 2 == 0 else -1)})
 		got3 := dmath.dir3_vec(dmath.dir3(want3))
-		testing.expectf(t, dmath.length3(got3 - want3) < MAX_ERROR, "dir3 %v -> %v", want3, got3)
-		want2 := dmath.normalize2({k, w * (1 if i % 3 == 0 else -1)})
+		testing.expectf(t, dmath.length(got3 - want3) < MAX_ERROR, "dir3 %v -> %v", want3, got3)
+		want2 := dmath.normalize({k, w * (1 if i % 3 == 0 else -1)})
 		got2 := dmath.dir2_vec(dmath.dir2(want2))
-		testing.expectf(t, dmath.length2(got2 - want2) < MAX_ERROR, "dir2 %v -> %v", want2, got2)
+		testing.expectf(t, dmath.length(got2 - want2) < MAX_ERROR, "dir2 %v -> %v", want2, got2)
 	}
 	// the axes (the diamond's corners)
-	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({1, 0})) - {1, 0}) < MAX_ERROR)
-	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({0, -3})) - {0, -1}) < MAX_ERROR)
-	testing.expect(t, dmath.length2(dmath.dir2_vec(dmath.dir2({-1, 0})) - {-1, 0}) < MAX_ERROR)
-	testing.expect(t, dmath.length3(dmath.dir3_vec(dmath.dir3({0, 0, -2})) - {0, 0, -1}) < MAX_ERROR)
-	testing.expect(t, dmath.length3(dmath.dir3_vec(dmath.dir3({0, 1, 0})) - {0, 1, 0}) < MAX_ERROR)
+	testing.expect(t, dmath.length(dmath.dir2_vec(dmath.dir2({1, 0})) - {1, 0}) < MAX_ERROR)
+	testing.expect(t, dmath.length(dmath.dir2_vec(dmath.dir2({0, -3})) - {0, -1}) < MAX_ERROR)
+	testing.expect(t, dmath.length(dmath.dir2_vec(dmath.dir2({-1, 0})) - {-1, 0}) < MAX_ERROR)
+	testing.expect(t, dmath.length(dmath.dir3_vec(dmath.dir3({0, 0, -2})) - {0, 0, -1}) < MAX_ERROR)
+	testing.expect(t, dmath.length(dmath.dir3_vec(dmath.dir3({0, 1, 0})) - {0, 1, 0}) < MAX_ERROR)
 	// any bits: a unit vector
 	for raw in ([]u16{1, 2, 32767, 32768, 40000, 65535}) {
-		testing.expect(t, abs(dmath.length2(dmath.dir2_vec(dmath.Dir2(raw))) - 1) < 0.00001)
-		testing.expect(t, abs(dmath.length3(dmath.dir3_vec({raw, 65535 - raw})) - 1) < 0.00001)
+		testing.expect(t, abs(dmath.length(dmath.dir2_vec(dmath.Dir2(raw))) - 1) < 0.00001)
+		testing.expect(t, abs(dmath.length(dmath.dir3_vec({raw, 65535 - raw})) - 1) < 0.00001)
 	}
 }

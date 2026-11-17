@@ -11,7 +11,6 @@ package godot
 
 import "core:fmt"
 import "core:sync"
-import "unified:dmath"
 import gd "unified:gdext"
 
 MAX_INPUT_BYTES :: 256
@@ -153,9 +152,6 @@ set_game_input :: proc(on: bool) {
 input_value :: proc(name: string) -> [3]f32 {
 	return input_sample.values[name]
 }
-
-// −1..1 to an axis of −127..127 (dmath.axis decodes it).
-axis_i8 :: dmath.axis_i8
 
 // UnifiedSession.set_input_value (main thread).
 @(private)

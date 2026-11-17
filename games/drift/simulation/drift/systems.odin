@@ -139,7 +139,7 @@ move_bullets :: proc(t: ^Tick) {
 				if rock := sim.get(&t.state.rocks, rock_handle); rock != nil && rock.hp > 0 {
 					rock.hp -= 1
 					rock.hit_tick = t.number
-					direction := dmath.normalize2(bullet.vel)
+					direction := dmath.normalize(bullet.vel)
 					physics.body_apply_linear_impulse_to_center_2d(t.world.phys, rock.body, direction * BULLET_PUSH)
 					sim.emit(t, Event_Rock_Hit {
 						rock     = rock_handle,
@@ -209,7 +209,7 @@ update_rocks :: proc(t: ^Tick) {
 			size     = size,
 		})
 		child := Rock_Size(u8(size) - 1)
-		direction := dmath.normalize2(vel)
+		direction := dmath.normalize(vel)
 		if direction == {} do direction = {1, 0}
 		perpendicular := [2]f32{-direction.y, direction.x}
 		offset := perpendicular * (ROCK_RADIUS[child] * 0.9)
@@ -317,7 +317,7 @@ spawn_waves :: proc(t: ^Tick) {
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
 	// a little spread: the drift direction turned by up to ±0.25 rad (a small-angle rotation, renormalised)
 	turn := (sim.roll_f32(t, Roll.Rock_Turn) - 0.5) * 0.5
-	direction := dmath.normalize2({spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
+	direction := dmath.normalize({spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
 	spin := (sim.roll_f32(t, Roll.Rock_Spin) - 0.5) * 2
 	variant := int(sim.roll_below(t, ROCK_VARIANTS, Roll.Rock_Variant))
 	if _, ok := create_rock(t.state, t.world, .Large, variant, spawner.pos, direction * speed, spin); ok {

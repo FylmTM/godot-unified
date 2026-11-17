@@ -206,7 +206,7 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 		}
 	}
 	if best.kind == .None {
-		forward := dmath.normalize2({character.aim.x, character.aim.z})
+		forward := dmath.normalize({character.aim.x, character.aim.z})
 		if forward == {} do forward = character.facing
 		consider :: proc(
 			best: ^Target,
@@ -217,9 +217,9 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 			forward: [2]f32,
 		) {
 			if grab_point < 0 do return
-			distance := dmath.length3(offset) - radius
+			distance := dmath.length(offset) - radius
 			if distance > GRAB_RANGE || abs(offset.y) > 1.6 do return
-			flat := dmath.normalize2({offset.x, offset.z})
+			flat := dmath.normalize({offset.x, offset.z})
 			if distance > 0.4 && flat.x * forward.x + flat.y * forward.y < GRAB_CONE_COS do return
 			if distance < best.distance do best^ = {entity, grab_point, distance}
 		}
@@ -456,10 +456,10 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 	if character.respawn > 0 || character.held_by != {} || character.stun > 0 do return
 	move := dmath.stick(input.move_x, input.move_z)
 	if holding(character) {
-		facing := dmath.normalize2({character.aim.x, character.aim.z})
+		facing := dmath.normalize({character.aim.x, character.aim.z})
 		if facing != {} do character.facing = facing
 	} else if move.x * move.x + move.y * move.y > 0.01 {
-		character.facing = dmath.normalize2(move)
+		character.facing = dmath.normalize(move)
 	}
 	scale: f32 = 1
 	if holding(character) {
@@ -578,7 +578,7 @@ bumpers :: proc(t: ^Tick) {
 		for k in 0 ..< t.world.bumper_count {
 			bumper := &t.world.bumpers[k]
 			if !in_volume(bumper.volume, pos) do continue
-			direction := dmath.normalize2({pos.x - bumper.volume.pos.x, pos.z - bumper.volume.pos.z})
+			direction := dmath.normalize({pos.x - bumper.volume.pos.x, pos.z - bumper.volume.pos.z})
 			if direction == {} do direction = {-character.facing.x, -character.facing.y}
 			knock(t, player, direction, bumper.strength)
 			break
@@ -608,8 +608,8 @@ hits :: proc(t: ^Tick) {
 			own := item.thrown_by == player && item.thrown_ticks > THROWN_TAG_TICKS - THROWER_IGNORE_TICKS
 			if own || (item.thrown_ticks == 0 && hit.speed < HIT_SPEED) do continue
 			velocity := physics.body_linear_velocity(t.world.phys, item.body)
-			direction := dmath.normalize2({velocity.x, velocity.z})
-			if direction == {} do direction = dmath.normalize2({hit.normal.x, hit.normal.z})
+			direction := dmath.normalize({velocity.x, velocity.z})
+			if direction == {} do direction = dmath.normalize({hit.normal.x, hit.normal.z})
 			knock(t, player, direction, KNOCKBACK)
 			continue
 		}

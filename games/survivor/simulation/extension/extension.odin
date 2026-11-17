@@ -7,6 +7,7 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -78,7 +79,7 @@ GLUE := godot.Glue(survivor.Game, View, MultiView) {
 // Movement and the dash from the InputMap. The level-up pick is a command: the HUD sends it (a Pick).
 sample_input :: proc(input: ^survivor.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back") // +y = move_back = +Z
-	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_z = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	// the sim dashes on the press (sim.buttons); a tap shorter than a frame still counts
 	input.buttons = godot.buttons(survivor.Buttons, {.Dash = "dash"})
 }

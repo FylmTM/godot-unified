@@ -93,8 +93,8 @@ sample_input :: proc(input: ^fs.Input) {
 	flat_right := normalize2({right.x, right.z})
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	input.move_x = godot.axis_i8(flat_right.x * move.x - forward.x * move.y)
-	input.move_z = godot.axis_i8(flat_right.y * move.x - forward.y * move.y)
+	input.move_x = dmath.axis_i8(flat_right.x * move.x - forward.x * move.y)
+	input.move_z = dmath.axis_i8(flat_right.y * move.x - forward.y * move.y)
 	input.aim = dmath.dir3(look)
 	input.buttons = godot.buttons(fs.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
 }

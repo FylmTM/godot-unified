@@ -204,7 +204,7 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	add_static_box(world, {0, 1.5, 30.5}, {31, 1.5, 0.5})
 	add_static_box(world, {0, 1.5, -30.5}, {31, 1.5, 0.5})
 	for k in 0 ..< 8 {
-		add_static_box(world, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
+		add_static_box(world, {14 * dmath.DIR8[k].x, 1.5, 14 * dmath.DIR8[k].y}, {1, 1.5, 1})
 	}
 
 	return world
