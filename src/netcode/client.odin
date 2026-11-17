@@ -396,8 +396,12 @@ on_finalized :: proc(client: ^Client($State, $Input, $World, $Event, $Cmd, $PLAY
 	}
 	if rtt_ok {
 		offset := f64(relay_time) + client.rtt_us / 2 - f64(now)
-		client.offset_us = client.have_offset ? client.offset_us + (offset - client.offset_us) * 0.05 : offset
-		client.have_offset = true
+		if !client.have_offset {
+			client.offset_us = offset
+			client.have_offset = true
+		} else if abs(offset - client.offset_us) < DISCONNECT_US {
+			client.offset_us += (offset - client.offset_us) * 0.05
+		} // else not the relay's clock (a mangled time): taken, it would throw the local clock hours off
 	}
 	client.own_acked = max(client.own_acked, input_ack)
 	limit := fin_base(client) + FIN_RING - 64
