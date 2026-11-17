@@ -161,11 +161,15 @@ build_overlay :: proc() {
 	frames_key := label(overlay.grid, "frames")
 	gd.Control_set_theme_type_variation(frames_key, "DevKey")
 	gd.Control_add_theme_font_override(frames_key, "font", s.mono)
-	overlay.frames_button = button(overlay.grid, "", proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
+	overlay.frames_button = button(
+	overlay.grid,
+	"",
+	proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 		frames_reset()
-		stats_update()
+		frames_text() // not stats_update: the stat lines were cleared at the end of the last frame
 		return {}
-	})
+	},
+	)
 	gd.Control_set_theme_type_variation(overlay.frames_button, "DevTitleButton")
 	gd.Control_add_theme_font_override(overlay.frames_button, "font", s.mono)
 	gd.Button_set_text_alignment(overlay.frames_button, .HORIZONTAL_ALIGNMENT_LEFT)
@@ -215,11 +219,7 @@ overlay_place :: proc() {
 @(private)
 stats_update :: proc() {
 	overlay := &s.overlay
-	p50, p99 := frames_percentile(0.5), frames_percentile(0.99)
-	gd.Button_set_text(
-		overlay.frames_button,
-		overlay.hist_n == 0 ? "-" : fmt.tprintf("p50 %s  p99 %s  max %s ms", num(p50), num(p99), num(overlay.hist_max)),
-	)
+	frames_text()
 	for len(overlay.keys) < len(s.stats) {
 		key_label := label(overlay.grid, "")
 		gd.Control_set_theme_type_variation(key_label, "DevKey")
@@ -252,6 +252,17 @@ stats_update :: proc() {
 	for i in 0 ..< len(s.stats) do width = max(width, gd.Control_get_minimum_size(overlay.vals[i]).x)
 	overlay.val_w = max(overlay.val_w, width)
 	gd.Control_set_custom_minimum_size(overlay.frames_button, {overlay.val_w, 0})
+}
+
+// The frames line: p50, p99 and max since frames_reset.
+@(private)
+frames_text :: proc() {
+	overlay := &s.overlay
+	p50, p99 := frames_percentile(0.5), frames_percentile(0.99)
+	gd.Button_set_text(
+		overlay.frames_button,
+		overlay.hist_n == 0 ? "-" : fmt.tprintf("p50 %s  p99 %s  max %s ms", num(p50), num(p99), num(overlay.hist_max)),
+	)
 }
 
 // Restarts the frames line (p50, p99, max): the host calls it when a session starts; a click on the line does too.

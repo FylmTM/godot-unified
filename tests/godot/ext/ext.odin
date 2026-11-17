@@ -14,6 +14,7 @@ Tester :: struct {
 	readied:   bool,
 	processed: i64,
 	image:     gd.Ref(gd.Image), // kept_image's: the instance owns it
+	churn:     [16]i32, // a list for the Inspector whose live element changes every frame
 }
 
 tester: gd.Class
@@ -60,6 +61,8 @@ register :: proc() {
 		process = proc(instance: rawptr, dt: f64) {
 			self := (^Tester)(instance)
 			self.processed += 1
+			self.churn = {}
+			self.churn[self.processed % 16] = i32(self.processed)
 			devui.inspect("tester", self^)
 			devui.plot("dt ms", f32(dt * 1000))
 			devui.stat("processed", "%d", self.processed)

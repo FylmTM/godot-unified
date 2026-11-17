@@ -168,7 +168,8 @@ is_ready :: proc() -> bool {
 
 // Controls plus inspector rows the dev UI made, and its own time (frame()) in the last frame.
 frame_stats :: proc() -> (items: int, ui_ms: f32) {
-	return s.nodes + len(s.insp.nodes) + len(s.input.nodes), s.ui_ms
+	rows := len(s.insp.nodes) - len(s.insp.free) + len(s.input.nodes) - len(s.input.free)
+	return s.nodes + rows, s.ui_ms
 }
 
 // True while the cursor is over a panel or the overlay's buttons. Godot stops those clicks there, and the dev UI
