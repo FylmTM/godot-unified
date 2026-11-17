@@ -408,10 +408,10 @@ test_build :: proc(opts: Test_Options) -> Build {
 		append(&flags, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
 	}
 	return {
-		pkg = root,
-		out = join(state.project.out, "test", aprintf("%s_tests%s", name, EXE)),
+		pkg   = root,
+		out   = join(state.project.out, "test", aprintf("%s_tests%s", name, EXE)),
 		flags = flags[:],
-		own = true,
+		own   = true,
 	}
 }
 
