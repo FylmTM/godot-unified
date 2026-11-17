@@ -607,8 +607,8 @@ on_checksum :: proc(relay: ^Relay($Input, $PLAYERS), player: int, reader: ^wire.
 		}
 		return
 	}
-	if tick < relay.report_from[player] {
-		return
+	if tick < relay.report_from[player] || tick > relay.finalized {
+		return // a client verifies only finalized ticks: a later one would take a ring slot no honest report reaches
 	}
 	check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
 	if check.tick != tick {

@@ -533,3 +533,80 @@ other_library_build_is_refused :: proc(t: ^testing.T) {
 		testing.expect_value(t, client.detail, "a different game build or level")
 	}
 }
+
+// A raw channel seated as `slot` in a session that has not started (a start player): a hostile client.
+Evil :: struct {
+	channel: ^netcode.Channel,
+	peer:    netcode.Peer,
+	writer:  wire.Writer,
+}
+
+evil_seat :: proc(evil: ^Evil, session: ^Rnet, endpoint: int, slot: u8) {
+	evil.channel = netcode.channel_make()
+	link_index := netcode.channel_add_link(evil.channel, netcode.loopback_link(session.hub, netcode.Peer(endpoint)))
+	evil.peer = netcode.channel_peer(evil.channel, link_index, 0)
+	evil.writer = wire.writer_make(64)
+	writer := evil_begin(evil, .Hello)
+	wire.w_u16(writer, netcode.PROTOCOL_VERSION)
+	wire.w_u8(writer, slot)
+	wire.w_u32(writer, 0)
+	wire.w_u64(writer, sim.compat_of(&toy.GAME))
+	wire.w_bytes(writer, make([]u8, netcode.TOKEN_SIZE, context.temp_allocator))
+	wire.w_u8(writer, 0)
+	evil_send(evil, session)
+}
+
+evil_begin :: proc(evil: ^Evil, msg: netcode.Msg) -> ^wire.Writer {
+	clear(&evil.writer.buf)
+	wire.w_u8(&evil.writer, u8(msg))
+	return &evil.writer
+}
+
+evil_send :: proc(evil: ^Evil, session: ^Rnet) {
+	netcode.channel_send(evil.channel, evil.peer, evil.writer.buf[:], .Reliable, session.clock.now)
+}
+
+// Runs the session and the evil channel for `seconds`.
+evil_run :: proc(evil: ^Evil, session: ^Rnet, seconds: f64) {
+	for _ in 0 ..< int(seconds * 100) {
+		netcode.channel_flush(evil.channel, session.clock.now)
+		netcode.channel_poll(evil.channel, session.clock.now)
+		rnet_run(session, 0.01)
+	}
+}
+
+evil_destroy :: proc(evil: ^Evil) {
+	netcode.channel_destroy(evil.channel)
+	delete(evil.writer.buf)
+}
+
+// A client cannot switch desync detection off: checksums of ticks the relay has not finalized are dropped, so they
+// never take the ring's slots from the honest reports.
+@(test)
+future_checksums_are_dropped :: proc(t: ^testing.T) {
+	session: Rnet
+	rnet_make(&session, 2, 0)
+	defer rnet_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1)
+	defer evil_destroy(&evil)
+	rnet_join(&session, 0)
+	evil_run(&evil, &session, 1)
+	testing.expect(t, session.relay.started)
+	for k in 0 ..< u32(netcode.CHECK_RING) {
+		writer := evil_begin(&evil, .Checksum)
+		wire.w_u8(writer, 1)
+		wire.w_u32(writer, 0x8000_0000 + k * netcode.CHECKSUM_EVERY)
+		wire.w_u64(writer, 1)
+		evil_send(&evil, &session)
+	}
+	flooded := session.relay.finalized
+	evil_run(&evil, &session, 3) // past CHECK_WAIT_MS: the evil seat never reports, so a check is judged on its wait
+	testing.expect(t, session.relay.finalized > flooded + 2 * netcode.CHECKSUM_EVERY)
+	judged := false
+	for check in session.relay.checks {
+		testing.expectf(t, check.tick <= session.relay.finalized, "a checksum of tick %d was kept", check.tick)
+		judged ||= check.judged && check.tick > flooded
+	}
+	testing.expect(t, judged) // honest reports are still judged
+}
