@@ -18,8 +18,6 @@ Headless :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim
 	summary:       proc(state: ^sim.part(G, sim.GAME_STATE)) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
 	bench_prepare: proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
-	// `bench`: the current entity count, for entities_mean (optional).
-	bench_count:   proc(state: ^sim.part(G, sim.GAME_STATE)) -> int,
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
 	bench:         Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's

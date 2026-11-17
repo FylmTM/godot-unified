@@ -8,12 +8,10 @@ import "core:time"
 // packages each command covers, by convention (SPEC.md, Layout).
 
 VET :: []string{"-vet", "-strict-style", "-vet-tabs", "-warnings-as-errors"}
-// Tests build like dev: optimized enough that the sim tests take milliseconds, fast to compile.
-TEST_FLAGS :: []string{"-o:speed", "-use-separate-modules", "-debug"}
 VET_TARGETS :: []string{"darwin_arm64", "linux_amd64", "linux_arm64", "windows_amd64"}
 
 Mode :: enum {
-	dev, // optimized, the fastest to build: the everyday build
+	dev, // optimized, the fastest to build: the everyday build, and the tests' (the sim tests take milliseconds)
 	release, // one LLVM module: the fastest binary
 	debug, // unoptimized, for stepping in a debugger
 }
@@ -42,7 +40,8 @@ collection :: proc() -> []string {
 	return strs(unified)
 }
 
-// This repo (unified itself) rather than a game repo: its own tests, the toy game and the Godot test projects.
+// This repo (unified itself) rather than a game repo: where `init --in-repo` writes a game. What else this repo has
+// (its tests, the toy game, the Godot test projects) it registers with `configure`.
 is_unified_repo :: proc() -> bool {
 	return state.project.root == state.project.unified
 }
@@ -54,8 +53,8 @@ Headless :: struct {
 	box3d: bool, // links Box3D
 }
 
-// Every headless binary this project builds: each game's simulation/headless that exists, in this repo also
-// the toy's, with whether it links Box3D.
+// Every headless binary this project builds: each game's simulation/headless that exists, then the project's own
+// (Project_Config.headless), with whether it links Box3D (an extra one: when its parent directory's code does).
 headless_packages :: proc() -> []Headless {
 	out: [dynamic]Headless
 	for game in state.project.games {
@@ -63,11 +62,21 @@ headless_packages :: proc() -> []Headless {
 			append(&out, Headless{game.name, pkg, game_uses_box3d(game)})
 		}
 	}
-	if is_unified_repo() {
-		toy := join(state.project.root, "tests", "toy")
-		append(&out, Headless{"toy", join(toy, "headless"), sources_import(toy, `"unified:physics"`, `"box3d:`)})
+	for extra in state.config.headless {
+		pkg := join(state.project.root, extra.pkg)
+		append(&out, Headless{extra.name, pkg, sources_import(os.dir(pkg), `"unified:physics"`, `"box3d:`)})
 	}
 	return out[:]
+}
+
+// Whether `name` is one of the project's own headless binaries (Project_Config.headless) rather than a game.
+is_extra_headless :: proc(name: string) -> bool {
+	for extra in state.config.headless {
+		if extra.name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // The headless binary a command names: a game's, in this repo also the toy's; the only one when it names none.
@@ -98,7 +107,6 @@ ensure_headless :: proc(headless: Headless, mode: Mode) -> string {
 	}
 	if stale(build) {
 		odin_build(build, aprintf("building %s's headless binary", headless.name))
-		cold(aprintf("%s's headless binary", headless.name))
 	}
 	return build.out
 }
@@ -108,11 +116,19 @@ headless_path :: proc(name: string, mode: Mode) -> string {
 	return join(state.project.out, aprintf("%v", mode), aprintf("%s%s", name, EXE))
 }
 
-// The packages `test` compiles: this repo's tests/ (every package, the games' suites included), or a game repo's
+// The packages `test` compiles: the named game's simulation/tests; else the project's test root
+// (Project_Config.tests: this repo's tests/, every package, the games' suites included), or a game repo's
 // simulation/tests.
-test_root :: proc() -> string {
-	if is_unified_repo() {
-		return join(state.project.root, "tests")
+test_root :: proc(game_name := "") -> string {
+	if game_name != "" {
+		root := join(game(game_name).dir, "simulation", "tests")
+		if !os.is_directory(root) {
+			usage("%s has no simulation/tests", game_name)
+		}
+		return root
+	}
+	if state.config.tests != "" {
+		return join(state.project.root, state.config.tests)
 	}
 	return join(state.project.games[0].dir, "simulation", "tests")
 }
@@ -124,17 +140,16 @@ Vet_Package :: struct {
 	ext:   bool, // a GDExtension (also checked without the dev UI)
 }
 
-// The packages `vet` type-checks: the headless binaries, the tests, this repo's Godot test extensions, every
-// game's extension and the project's tools/.
+// The packages `vet` type-checks: the headless binaries, the tests, the project's own (Project_Config.vet: this
+// repo's Godot test extensions), every game's extension and the project's tools/.
 vet_packages :: proc() -> []Vet_Package {
 	out: [dynamic]Vet_Package
 	for headless in headless_packages() {
 		append(&out, Vet_Package{pkg = headless.pkg, entry = true})
 	}
 	append(&out, Vet_Package{pkg = test_root()})
-	if is_unified_repo() {
-		append(&out, Vet_Package{pkg = join(state.project.root, "tests", "godot", "ext")})
-		append(&out, Vet_Package{pkg = join(state.project.root, "tests", "godot_views", "ext")})
+	for pkg in state.config.vet {
+		append(&out, Vet_Package{pkg = join(state.project.root, pkg)})
 	}
 	for game in state.project.games {
 		if ext := join(game.dir, "simulation", "extension"); os.is_directory(ext) {
@@ -145,11 +160,11 @@ vet_packages :: proc() -> []Vet_Package {
 	return out[:]
 }
 
-// In this repo, `uni init`'s template is type-checked too: its Odin files, written for a game named template_game into
-// .out/template/, as the packages a new game repo has (one target: what breaks it is the library's API, which the
-// other packages check on every target).
+// With Project_Config.vet_template (this repo), `uni init`'s template is type-checked too: its Odin files, written
+// for a game named template_game into .out/template/, as the packages a new game repo has (one target: what breaks
+// it is the library's API, which the other packages check on every target).
 vet_template :: proc() -> []Vet_Package {
-	if !is_unified_repo() {
+	if !state.config.vet_template {
 		return nil
 	}
 	dir := join(state.project.out, "template")
@@ -173,26 +188,33 @@ vet_template :: proc() -> []Vet_Package {
 	return out[:]
 }
 
-// The directories `fmt` formats.
-fmt_dirs :: proc() -> []string {
+// The directories `fmt` formats in the project at `root` (default: this one): the project's own
+// (Project_Config.fmt), every game's simulation/ and tools/.
+fmt_dirs :: proc(root := "") -> []string {
+	project := root != "" ? root : state.project.root
 	out: [dynamic]string
-	if is_unified_repo() {
-		append(&out, join(state.project.root, "src"), join(state.project.root, "tests"))
+	for dir in state.config.fmt {
+		append(&out, join(project, dir))
 	}
-	for game in state.project.games {
+	for game in (root != "" ? find_games(root) : state.project.games) {
 		append(&out, join(game.dir, "simulation"))
 	}
-	append(&out, join(state.project.root, "tools"))
+	append(&out, join(project, "tools"))
 	return out[:]
 }
 
 // --- builds with manifests --------------------------------------------------------------------------------------
 
 Build :: struct {
-	pkg:   string,
-	out:   string,
-	flags: []string, // mode, defines, -build-mode:dll ...
-	dir:   string, // working directory ("": ours)
+	pkg:      string,
+	out:      string,
+	flags:    []string, // mode, defines, -build-mode:dll ...
+	unkeyed:  []string, // flags outside the manifest's key (an extension's build tag: it changes every build)
+	dir:      string, // working directory ("": ours)
+	// The command's own product (the test binary), held to its budget; any other build a command runs first makes
+	// the run cold (finish_build).
+	own:      bool,
+	manifest: string, // where its manifest goes ("": <out>.inputs; an extension builds to a temporary file)
 }
 
 // The full odin command line of a build.
@@ -201,6 +223,7 @@ build_cmd :: proc(build: Build, deps_file := "") -> []string {
 	append(&cmd, odin(), "build", build.pkg, aprintf("-out:%s", build.out))
 	append(&cmd, ..collection())
 	append(&cmd, ..build.flags)
+	append(&cmd, ..build.unkeyed)
 	append(&cmd, ..VET)
 	if deps_file != "" {
 		append(&cmd, "-export-dependencies:json", aprintf("-export-dependencies-file:%s", deps_file))
@@ -208,20 +231,29 @@ build_cmd :: proc(build: Build, deps_file := "") -> []string {
 	return cmd[:]
 }
 
-// The manifest key of a build: its command line (another mode or define is another build).
+// The manifest key of a build: its command line without the output path and the unkeyed flags (another mode or
+// define is another build).
 @(private)
 build_key :: proc(build: Build) -> string {
-	return sha256_hex(transmute([]byte)strings.join(build_cmd(build), "\x00", context.temp_allocator))
+	keyed := build
+	keyed.out = ""
+	keyed.unkeyed = nil
+	return sha256_hex(transmute([]byte)strings.join(build_cmd(keyed), "\x00", context.temp_allocator))
+}
+
+// Where a build's manifest goes.
+@(private)
+manifest_path :: proc(build: Build) -> string {
+	return build.manifest != "" ? build.manifest : aprintf("%s.inputs", build.out)
 }
 
 // Whether `out` is missing or older than its sources (by its manifest: sizes and times of every source file and
 // directory, the odin executable, the same command line).
-stale :: proc(build: Build, manifest := "") -> bool {
-	path := manifest != "" ? manifest : aprintf("%s.inputs", build.out)
+stale :: proc(build: Build) -> bool {
 	if !os.exists(build.out) {
 		return true
 	}
-	entries, key, ok := read_manifest(path)
+	entries, key, ok := read_manifest(manifest_path(build))
 	return !ok || key != build_key(build) || !entries_current(entries)
 }
 
@@ -232,22 +264,26 @@ start_build :: proc(build: Build) -> Proc {
 }
 
 // Waits for a build start_build started and, when it succeeded, writes its manifest from odin's dependency list
-// so `stale` can judge it next time. Returns how it ran: the caller decides what a failure means.
-finish_build :: proc(build: Build, child: ^Proc, manifest := "") -> Ran {
+// so `stale` can judge it next time. A build that ran makes the run cold unless it is the command's own (Build.own).
+// Returns how it ran: the caller decides what a failure means.
+finish_build :: proc(build: Build, child: ^Proc) -> Ran {
 	ran := wait(child)
 	deps := aprintf("%s.deps.json", build.out)
 	if ran.ok {
 		files, odin_path := read_deps(deps)
-		write_manifest(manifest != "" ? manifest : aprintf("%s.inputs", build.out), build_key(build), files, odin_path)
+		write_manifest(manifest_path(build), build_key(build), files, odin_path)
+		if !build.own {
+			cold(os.base(strings.trim_suffix(manifest_path(build), ".inputs")))
+		}
 	}
 	os.remove(deps)
 	return ran
 }
 
 // Builds one package now; a failure stops the command.
-odin_build :: proc(build: Build, what: string, manifest := "") -> f64 {
+odin_build :: proc(build: Build, what: string) -> f64 {
 	child := start_build(build)
-	ran := finish_build(build, &child, manifest)
+	ran := finish_build(build, &child)
 	if !ran.ok {
 		fatal("%s failed (exit %d)", what, ran.exit_code)
 	}
@@ -257,19 +293,16 @@ odin_build :: proc(build: Build, what: string, manifest := "") -> f64 {
 // --- the headless binaries --------------------------------------------------------------------------------------
 
 // Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
-// library beside them when one links it. Building stale ones makes the run cold (a suite or bench that needs them
+// library beside them when one links it. Building makes the run cold (finish_build: a suite or bench that needs them
 // isn't held to its budget for the build).
 build_headless :: proc(mode: Mode, force := false) -> (built: int) {
 	builds := start_headless(mode, force = force)
-	built = finish_headless(&builds)
-	if built > 0 && !force {
-		cold(aprintf("%d headless binar%s", built, built == 1 ? "y" : "ies"))
-	}
-	return
+	return finish_headless(&builds)
 }
 
 Headless_Builds :: struct {
 	running: [dynamic]Headless_Build,
+	current: int, // how many were current, not started
 }
 
 Headless_Build :: struct {
@@ -291,6 +324,8 @@ start_headless :: proc(mode: Mode, only := "", force := false) -> Headless_Build
 		}
 		if force || stale(build) {
 			append(&builds.running, Headless_Build{headless, build, start_build(build)})
+		} else {
+			builds.current += 1
 		}
 	}
 	return builds

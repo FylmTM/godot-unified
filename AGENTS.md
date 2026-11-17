@@ -49,9 +49,9 @@ games in `games/` prove it.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
 - **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a
-  check) starts muted on the leftmost screen and never takes focus: `--mute --screen left` (`tool --window` and
-  `coop --window` never take focus), plus `--background` on `run`; the `godot-game` skill. The editor always takes
-  focus: open it only when the developer asks.
+  check) starts muted on the leftmost screen and never takes focus: `tool --window` and `coop --window` always do;
+  `run` takes `--mute --screen left --background`; the `godot-game` skill. The editor always takes focus: open it
+  only when the developer asks.
 
 ## The board
 
@@ -94,10 +94,11 @@ back:
 ./uni fmt                      # odinfmt (pinned; a hook formats each .odin file Claude edits)
 ./uni vet                      # odin check, strict flags, every target
 ./uni test                     # the odin suite: every test package and end-to-end suite in one compile, the lint included
+./uni test <game>              # the inner loop of game work: that game's tests only
 ./uni test --suite net         # when netcode or the headless modes changed (real UDP, separate processes)
 ./uni bench                    # when the sim, physics or rollback changed: step and re-sim times
 ./uni test --suite godot       # when Godot-side code or GDScript changed (`--only <step>`, `uni tool` for one script)
-./uni verify                   # everything CI runs; before merging
+./uni verify                   # fmt --check, vet and every test suite (CI also runs bench); before merging
 ./uni test --long              # when a game's rules, physics, netcode or rollback changed: the full-length suites
 ```
 
@@ -105,5 +106,5 @@ back:
 
 - The board (above): current and upcoming work; decisions live in the specs.
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
-- `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/README.md`: the tools.
+- `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/main.odin`: this repo's CLI.
 - `docs/EOS.md`: online setup.

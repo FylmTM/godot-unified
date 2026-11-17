@@ -1,18 +1,19 @@
-// What `uni help` and each -h show against what the commands accept (cli.usage_problems; `uni vet` runs it over every
-// command, this project's own too), and what a passing test run prints.
+// What `uni help` and each -h show, made from the commands' options structs (cli.command_usage, cli.command_help),
+// and what a passing test run prints.
 package test_cli
 
 import "core:strings"
 import "core:testing"
 import "unified:cli"
 
-// Every public command's usage line names exactly the options it parses, with a value where one is taken.
+// Every public command's help has one usage line, and every option says what it does.
 @(test)
-public_commands_help_matches_their_options :: proc(t: ^testing.T) {
+public_commands_help_is_complete :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	for command in cli.public_commands() {
-		for problem in cli.usage_problems(command) {
-			testing.expect(t, false, problem)
+		testing.expectf(t, len(command.options) > 0, "uni %s names no options type", command.name)
+		for option in cli.command_options(command) {
+			testing.expectf(t, option.usage != "", "uni %s: %s has no usage text", command.name, option.name)
 		}
 		help := cli.command_help(command)
 		testing.expectf(
@@ -25,54 +26,47 @@ public_commands_help_matches_their_options :: proc(t: ^testing.T) {
 	}
 }
 
-Drift_Opts :: struct {
-	game:  string `args:"pos=0" usage:"the game"`,
-	mode:  string `usage:"dev or release"`,
-	check: bool `usage:"report only"`,
-	cold:  bool `usage:"start cold"`,
-	quiet: bool,
+Usage_Mode :: enum {
+	dev,
+	release,
 }
 
-// Each way a usage line can drift from its options is caught.
+Usage_Opts :: struct {
+	game:     string `args:"pos=0" usage:"the game"`,
+	mode:     Usage_Mode `usage:"the build"`,
+	screen:   string `hint:"n|left" usage:"the screen"`,
+	ref:      string `usage:"a ref"`,
+	check:    bool `usage:"report only"`,
+	box3d:    bool `args:"name=box3d-debug" usage:"renamed"`,
+	internal: bool `args:"hidden" usage:"not shown"`,
+	overflow: [dynamic]string `hint:"[-- args]" usage:"the rest"`,
+}
+
+Usage_Set_Opts :: struct {
+	issue: string `args:"pos=0,required" usage:"the issue"`,
+	tag:   string `args:"required" usage:"the tag"`,
+}
+
+// A usage line reads each option from its field: positionals by name, [..] unless required, enums by their names,
+// a `hint` as given, a renamed flag by its name; hidden fields stay out; forms joined with `|`.
 @(test)
-usage_problems_catch_drift :: proc(t: ^testing.T) {
+usage_lines_come_from_the_options :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	command := cli.Command {
-		name    = "drift",
-		// --mode shows no value, --check shows one, --cold and --quiet are left out, --gone is no option, no <game>
-		usage   = "[--mode] [--check now] [--gone]",
-		options = cli.option_types(Drift_Opts),
+		name    = "demo",
+		options = cli.option_types(Usage_Opts),
 	}
-	problems := strings.join(cli.usage_problems(command), "\n")
-	for want in ([]string {
-			"names --gone, which is no option",
-			"shows no value for --mode",
-			"shows a value for the switch --check",
-			"leaves out --cold",
-			"leaves out --quiet",
-			"quiet has no usage text",
-			"doesn't name the positional game",
-		}) {
-		testing.expectf(t, strings.contains(problems, want), "not caught: %s\n%s", want, problems)
-	}
-	command.usage = "[game] [--mode m] [--check] [--cold] [--quiet]"
-	testing.expect_value(t, len(cli.usage_problems(command)), 1) // quiet's missing usage text
-	testing.expect(t, len(cli.usage_problems(cli.Command{name = "bare"})) > 0, "a command must name its options")
-}
-
-@(test)
-usage_value_and_flags :: proc(t: ^testing.T) {
-	context.allocator = context.temp_allocator
-	usage := "[game] [--mode dev|release|debug] [--window [--mute] [--screen s]] [--no-eos] [--no-eosx X] | --hook"
-	testing.expect_value(t, cli.usage_value(usage, "mode"), "dev|release|debug")
-	testing.expect_value(t, cli.usage_value(usage, "window"), "")
-	testing.expect_value(t, cli.usage_value(usage, "screen"), "s")
-	testing.expect_value(t, cli.usage_value(usage, "no-eos"), "")
-	testing.expect_value(t, cli.usage_value(usage, "no-eosx"), "X")
-	testing.expect_value(t, cli.usage_value(usage, "hook"), "")
-	flags := cli.usage_flags(usage)
-	testing.expect_value(t, strings.join(flags, " "), "mode window mute screen no-eos no-eosx hook")
-	testing.expect_value(t, len(cli.usage_flags("<dir> -- args")), 0)
+	testing.expect_value(
+		t,
+		cli.command_usage(command),
+		"demo [game] [--mode dev|release] [--screen n|left] [--ref <ref>] [--check] [--box3d-debug] [-- args]",
+	)
+	command.options = cli.option_forms({"", Usage_Opts}, {"set", Usage_Set_Opts})
+	usage := cli.command_usage(command)
+	testing.expectf(t, strings.has_suffix(usage, " | demo set <issue> --tag <tag>"), "%s", usage)
+	help := cli.command_help(command)
+	testing.expect(t, strings.contains(help, "--mode dev|release  the build"), help)
+	testing.expect(t, !strings.contains(help, "internal"), help)
 }
 
 // A passing test run shows the runner's warnings with the lines under them, and its last line; nothing else.

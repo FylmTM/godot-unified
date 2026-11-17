@@ -3,7 +3,15 @@ package cli
 import "core:crypto/hash"
 import "core:encoding/hex"
 import "core:os"
+import "core:slice"
 import "core:strings"
+
+// A path to compare: / separators, no trailing one, and (on Windows) lowercase.
+path_key :: proc(path: string) -> string {
+	key, _ := strings.replace_all(path, "\\", "/")
+	key = strings.trim_right(key, "/")
+	return ODIN_OS == .Windows ? strings.to_lower(key) : key
+}
 
 // Writes a file whole through a temp file and a rename, so a reader never sees half of it. Creates the directory.
 write_file :: proc(path: string, data: []byte) -> bool {
@@ -118,6 +126,6 @@ find_files :: proc(dir, suffix: string) -> []string {
 			append(&out, strings.clone(info.fullpath))
 		}
 	}
-	sort_strings(out[:])
+	slice.sort(out[:]) // the same order on every OS
 	return out[:]
 }

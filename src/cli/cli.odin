@@ -19,20 +19,68 @@ import "core:time"
 // may take (0: none, and `no_budget` says why).
 Command :: struct {
 	name:      string,
-	usage:     string, // the arguments, for `help`: "[game] [--mode dev|release|debug]"; every option, each form
 	summary:   string,
 	budget:    f64,
 	no_budget: string,
-	// The options struct of each form the command parses (`option_types`; `parse` refuses another): -h lists their
-	// fields, and usage_problems (run by `vet` and a test) checks `usage` against them.
-	options:   []typeid,
+	// The options struct of each form the command parses (`option_types`, `option_forms`; `parse` refuses another):
+	// `help`'s usage line and -h's option table are made from their fields (command_usage).
+	options:   []Form,
 	details:   proc() -> string, // more for -h (nil: nothing): what the summary has no room for
 	run:       proc(args: []string) -> Result,
 }
 
-// A heap slice of option types, for Command.options.
-option_types :: proc(types: ..typeid) -> []typeid {
-	return slice.clone(types)
+// One way to call a command: its options struct, after a subcommand word when the command has several (`board
+// list`, `board set`; "": none). An options field's tags say how it reads: `usage` (what it does, for -h), `args`
+// (core:flags: `pos=N`, `required`, `name=...`, `hidden`) and `hint` (what -h shows for its value: `<url>`; an enum
+// shows its names, any other value `<name>`; the `overflow` field's whole text, e.g. `[-- args]`).
+Form :: struct {
+	word: string,
+	type: typeid,
+}
+
+// Command.options of a command with one form per type and no subcommand words (one type, nearly always).
+option_types :: proc(types: ..typeid) -> []Form {
+	forms := make([]Form, len(types))
+	for type, i in types {
+		forms[i] = {"", type}
+	}
+	return forms
+}
+
+// Command.options of a command with subcommands: each form's word and options type.
+option_forms :: proc(forms: ..Form) -> []Form {
+	return slice.clone(forms)
+}
+
+// What a project's tools/ adds to the conventions (SPEC.md, Layout), set with `configure` before `run`. A game repo
+// needs none of it; this repo registers its test root, its toy game and its Godot test extensions.
+Project_Config :: struct {
+	tests:        string, // the odin suite's root, relative to the project, compiled with -all-packages ("": the game's simulation/tests)
+	headless:     []Extra_Headless, // headless binaries besides the games' (`headless`, `build`, `record-reference`)
+	vet:          []string, // more packages `vet` checks (no entry point), relative to the project
+	fmt:          []string, // more directories `fmt` formats, relative to the project
+	uses_box3d:   bool, // something besides the games links Box3D (the tests root)
+	vet_template: bool, // `vet` also checks `uni init`'s template, written for a game named template_game
+	bench:        []Bench_Row, // more `bench` rows, after the games'
+}
+
+// A headless binary that is no game's (this repo's toy).
+Extra_Headless :: struct {
+	name:  string,
+	pkg:   string, // relative to the project
+	suite: string, // its end-to-end suite, for `record-reference <name>` ("": none)
+}
+
+// A `bench` row of the project's own: `run` measures (its files may go in `work`), logs its line and returns what
+// .out/bench.json's `rows` keeps under `name`.
+Bench_Row :: struct {
+	name: string,
+	run:  proc(work: string) -> (data: any, ok: bool),
+}
+
+// Registers a project's additions (call before `run`).
+configure :: proc(config: Project_Config) {
+	state.config = config
 }
 
 // A test suite of `test` (SPEC.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
@@ -51,10 +99,9 @@ Suite :: struct {
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
 Test_Options :: struct {
-	only:        []string, // tests (odin) or steps (godot)
-	long:        bool, // `--long`: the suites' long variants (SPEC.md, Test suites)
-	crash:       bool, // `--crash`: the tests that crash on purpose run (src/cli/testrun.odin)
-	box3d_debug: bool, // `--box3d-debug`: the odin suite links Box3D's debug library (its asserts on)
+	only: []string, // tests (odin) or steps (godot)
+	long: bool, // `--long`: the suites' long variants (SPEC.md, Test suites)
+	game: string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
 }
 
 // What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
@@ -71,6 +118,7 @@ CI_BUDGET_SCALE :: 3
 
 State :: struct {
 	project:  Project,
+	config:   Project_Config,
 	pins:     Config,
 	commands: [dynamic]Command,
 	command:  ^Command,
@@ -82,10 +130,6 @@ State :: struct {
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
 }
-
-// Set in the environment of a `uni` the CLI starts itself (the godot suite's one per game): that run leaves
-// .out/timings.json to its parent.
-CHILD_ENV :: "UNIFIED_CLI_CHILD"
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
 VERBOSE_ENV :: "UNIFIED_VERBOSE"
@@ -172,14 +216,14 @@ print_help :: proc() {
 		"Any command: --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
 	)
 	for command in state.commands {
-		fmt.printf("  %s %s\n      %s\n", command.name, command.usage, command.summary)
+		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
 	}
 	fmt.printf(
 		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
 		CI_BUDGET_SCALE,
 	)
 	fmt.printf(
-		"Odin: the release pins.cfg pins. The shims (./uni, uni.cmd) use the odin on PATH when it reports the pinned commit, else download that release once into the per-user cache and put it first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
+		"Odin: the release pins.cfg pins, downloaded once by the shims (./uni, uni.cmd) into the per-user cache and put first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
 		USER_CACHE,
 	)
 }
@@ -200,7 +244,11 @@ budget_text :: proc(command: Command) -> string {
 // everything after -- into an `overflow` field). -h prints the command's help and exits; a bad argument exits 2.
 // `Options` must be one of the command's `options` (the table is what -h and `vet` read).
 parse :: proc(opts: ^$Options, args: []string) {
-	if !slice.contains(state.command.options, typeid_of(Options)) {
+	named := false
+	for form in state.command.options {
+		named ||= form.type == typeid_of(Options)
+	}
+	if !named {
 		fatal(
 			"its command table entry doesn't name the options it parses (%v): add them to Command.options",
 			typeid_of(Options),
@@ -215,14 +263,14 @@ parse :: proc(opts: ^$Options, args: []string) {
 	}
 }
 
-// A command's -h: its one usage line (every form), summary and budget, each option of its `options` with what it
-// does, and its details.
+// A command's -h: its usage line (every form), summary and budget, each option of its `options` with what it does,
+// and its details.
 command_help :: proc(command: Command) -> string {
 	builder := strings.builder_make()
 	fmt.sbprintf(
 		&builder,
 		"usage: uni %s\n%s\n%s\n",
-		strings.trim_space(aprintf("%s %s", command.name, command.usage)),
+		strings.trim_space(command_usage(command)),
 		command.summary,
 		budget_text(command),
 	)
@@ -232,15 +280,9 @@ command_help :: proc(command: Command) -> string {
 	rows: [dynamic]Row
 	width := 0
 	for option in command_options(command) {
-		label := option.name
-		switch {
-		case option.overflow:
+		label := option.label
+		if option.overflow {
 			label = "..."
-		case option.positional:
-			label =
-				strings.contains(command.usage, aprintf("[%s", option.name)) ? aprintf("[%s]", option.name) : aprintf("<%s>", option.name)
-		case:
-			label = strings.trim_space(aprintf("--%s %s", option.name, usage_value(command.usage, option.name)))
 		}
 		seen := false
 		for row in rows {
@@ -263,130 +305,87 @@ command_help :: proc(command: Command) -> string {
 	return strings.to_string(builder)
 }
 
-// One field of a command's options, as core:flags reads it.
+// A command's usage line, made from its options: "name <pos> [pos] [--switch] [--flag hint] overflow", the forms
+// joined by " | " (a later form repeats the command's name: "board list ... | board set <issue> ...").
+command_usage :: proc(command: Command) -> string {
+	builder := strings.builder_make()
+	strings.write_string(&builder, command.name)
+	for form, i in command.options {
+		if i > 0 {
+			fmt.sbprintf(&builder, " | %s", command.name)
+		}
+		if form.word != "" {
+			fmt.sbprintf(&builder, " %s", form.word)
+		}
+		for option in form_options(form) {
+			fmt.sbprintf(&builder, " %s", option.usage_word)
+		}
+	}
+	return strings.to_string(builder)
+}
+
+// One field of a command's options, as core:flags reads it and help shows it.
 Option :: struct {
 	name:       string, // the flag (`args:"name=..."`, else the field's name with - for _) or the positional
 	usage:      string, // the `usage` tag
 	positional: bool, // `args:"pos=N"`
 	overflow:   bool, // the `overflow` field: positionals past the numbered ones and everything after --
-	takes:      bool, // a flag that takes a value (anything but a bool)
+	label:      string, // -h's: "[game]", "<issue>", "--mode dev|release|debug", "--check"
+	usage_word: string, // the usage line's: "[game]", "<issue>", "[--mode dev|release|debug]", "--tag <tag>"
 }
 
 // The fields of every options type the command names, in order.
 command_options :: proc(command: Command) -> []Option {
 	out: [dynamic]Option
-	for type in command.options {
-		for field in reflect.struct_fields_zipped(type) {
-			args_tag, _ := reflect.struct_tag_lookup(field.tag, "args")
-			if _, hidden := flags.get_subtag(string(args_tag), "hidden"); hidden {
-				continue
-			}
-			usage_tag, _ := reflect.struct_tag_lookup(field.tag, "usage")
-			option := Option {
-				usage = string(usage_tag),
-			}
-			option.name, _ = strings.replace_all(field.name, "_", "-")
-			if name, renamed := flags.get_subtag(string(args_tag), "name"); renamed {
-				option.name = name
-			}
-			_, option.positional = flags.get_subtag(string(args_tag), "pos")
-			option.overflow = field.name == "overflow"
-			option.takes = !reflect.is_boolean(field.type)
-			append(&out, option)
-		}
+	for form in command.options {
+		append(&out, ..form_options(form))
 	}
 	return out[:]
 }
 
-// What a command's usage line shows after `--flag`: its value ("--mode dev|release|debug" -> "dev|release|debug"),
-// or "" when the next word is another option, a bracket or nothing.
-usage_value :: proc(usage, flag: string) -> string {
-	rest := usage
-	needle := aprintf("--%s", flag)
-	for {
-		at := strings.index(rest, needle)
-		if at < 0 {
-			return ""
-		}
-		after := rest[at + len(needle):]
-		if len(after) > 0 && (after[0] == '-' || (after[0] >= 'a' && after[0] <= 'z')) {
-			rest = after // a longer flag that starts the same (--no-eos in --no-eosx)
+// The fields of one form's options type, in order (hidden ones left out).
+form_options :: proc(form: Form) -> []Option {
+	out: [dynamic]Option
+	for field in reflect.struct_fields_zipped(form.type) {
+		args_tag, _ := reflect.struct_tag_lookup(field.tag, "args")
+		if _, hidden := flags.get_subtag(string(args_tag), "hidden"); hidden {
 			continue
 		}
-		if !strings.has_prefix(after, " ") {
-			return ""
+		usage_tag, _ := reflect.struct_tag_lookup(field.tag, "usage")
+		hint_tag, _ := reflect.struct_tag_lookup(field.tag, "hint")
+		hint := string(hint_tag)
+		option := Option {
+			usage = string(usage_tag),
 		}
-		word := after[1:]
-		if end := strings.index_byte(word, ' '); end >= 0 {
-			word = word[:end]
+		option.name, _ = strings.replace_all(field.name, "_", "-")
+		if name, renamed := flags.get_subtag(string(args_tag), "name"); renamed {
+			option.name = name
 		}
-		word = strings.trim_right(word, "])")
-		if word == "" || word[0] == '-' || word[0] == '[' || word[0] == '|' {
-			return ""
-		}
-		return word
-	}
-}
-
-// The flags a usage line names ("--suite", "--box3d-debug"; not a bare --), each once, in order.
-usage_flags :: proc(usage: string) -> []string {
-	out: [dynamic]string
-	for i := 0; i + 2 < len(usage); i += 1 {
-		if usage[i] != '-' || usage[i + 1] != '-' || (i > 0 && usage[i - 1] != ' ' && usage[i - 1] != '[') {
-			continue
-		}
-		end := i + 2
-		for end < len(usage) &&
-		    (usage[end] == '-' ||
-				    (usage[end] >= 'a' && usage[end] <= 'z') ||
-				    (usage[end] >= '0' && usage[end] <= '9')) {
-			end += 1
-		}
-		if end > i + 2 && !slice.contains(out[:], usage[i + 2:end]) {
-			append(&out, usage[i + 2:end])
-		}
-	}
-	return out[:]
-}
-
-// Where a command's help disagrees with what it accepts (none: they agree): a usage line that names a flag no
-// option is, an option the usage line leaves out, a value shown for a switch or missing for a flag that takes one,
-// a positional the usage line doesn't name, an option without a `usage` text, a command with no options type.
-// `vet` runs it over every registered command; tests/cli over the public table.
-usage_problems :: proc(command: Command) -> []string {
-	out: [dynamic]string
-	if len(command.options) == 0 {
-		append(&out, aprintf("%s: Command.options names no options type", command.name))
-	}
-	options := command_options(command)
-	named := usage_flags(command.usage)
-	for flag in named {
-		found := false
-		for option in options {
-			found ||= !option.positional && !option.overflow && option.name == flag
-		}
-		if !found {
-			append(&out, aprintf("%s: the usage line names --%s, which is no option", command.name, flag))
-		}
-	}
-	for option in options {
-		if option.usage == "" {
-			append(&out, aprintf("%s: %s has no usage text", command.name, option.name))
-		}
+		_, option.positional = flags.get_subtag(string(args_tag), "pos")
+		_, required := flags.get_subtag(string(args_tag), "required")
+		option.overflow = field.name == "overflow"
 		switch {
 		case option.overflow:
+			option.label = hint != "" ? hint : "[args...]"
+			option.usage_word = option.label
 		case option.positional:
-			if !strings.contains(command.usage, aprintf("<%s", option.name)) &&
-			   !strings.contains(command.usage, aprintf("[%s", option.name)) {
-				append(&out, aprintf("%s: the usage line doesn't name the positional %s", command.name, option.name))
+			shown := hint != "" ? hint : option.name
+			option.label = required ? aprintf("<%s>", shown) : aprintf("[%s]", shown)
+			option.usage_word = option.label
+		case reflect.is_boolean(field.type):
+			option.label = aprintf("--%s", option.name)
+			option.usage_word = required ? option.label : aprintf("[%s]", option.label)
+		case:
+			if hint == "" {
+				hint = aprintf("<%s>", option.name)
+				if reflect.is_enum(field.type) {
+					hint = strings.join(reflect.enum_field_names(field.type.id), "|")
+				}
 			}
-		case !slice.contains(named, option.name):
-			append(&out, aprintf("%s: the usage line leaves out --%s", command.name, option.name))
-		case option.takes && usage_value(command.usage, option.name) == "":
-			append(&out, aprintf("%s: the usage line shows no value for --%s", command.name, option.name))
-		case !option.takes && usage_value(command.usage, option.name) != "":
-			append(&out, aprintf("%s: the usage line shows a value for the switch --%s", command.name, option.name))
+			option.label = aprintf("--%s %s", option.name, hint)
+			option.usage_word = required ? option.label : aprintf("[%s]", option.label)
 		}
+		append(&out, option)
 	}
 	return out[:]
 }
@@ -414,7 +413,7 @@ usage :: proc(format: string, args: ..any) -> ! {
 	os.exit(2)
 }
 
-// Ends the run: the result on stdout, the time against the budget on stderr and in .out/timings.json, the exit code.
+// Ends the run: the result on stdout, the time against the budget on stderr, the exit code.
 @(private)
 finish :: proc(result: Result) -> ! {
 	secs := time.duration_seconds(time.tick_since(state.start))
@@ -469,21 +468,8 @@ in_ci :: proc() -> bool {
 @(private)
 report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 	note := ""
-	Entry :: struct {
-		seconds: f64,
-		budget:  f64,
-		over:    bool,
-		cold:    []string,
-		ok:      bool,
-	}
-	entry := Entry {
-		seconds = round2(secs),
-		cold    = state.cold[:],
-		ok      = ok,
-	}
 	if budget > 0 {
 		allowed := budget * (in_ci() ? CI_BUDGET_SCALE : 1)
-		entry.budget = allowed
 		if len(state.cold) > 0 {
 			note = aprintf(
 				" (budget %.0fs; cold run, not held to it: %s)",
@@ -491,7 +477,6 @@ report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 				strings.join(state.cold[:], ", ", context.temp_allocator),
 			)
 		} else if secs > allowed {
-			entry.over = true
 			note = aprintf(" (budget %.0fs)", allowed)
 			log(
 				"uni: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
@@ -505,22 +490,9 @@ report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 	}
 	what := strings.join(state.argv, " ", context.temp_allocator)
 	log("uni: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
-	// .out/timings.json keeps each command line's last run (CI's job summary shows it).
-	if os.get_env(CHILD_ENV, context.temp_allocator) != "" {
-		return
-	}
-	path := join(state.project.out, "timings.json")
-	timings: map[string]Entry
-	if data, err := os.read_entire_file(path, context.allocator); err == nil {
-		_ = json.unmarshal(data, &timings)
-	}
-	timings[what] = entry
-	if data, err := json.marshal(timings, {pretty = true}); err == nil {
-		_ = write_file(path, data)
-	}
 }
 
-// Rounds seconds to two decimals for the reports (--json, .out/timings.json, the suites' results).
+// Rounds seconds to two decimals for the reports (--json, the suites' results).
 round2 :: proc(value: f64) -> f64 {
 	return f64(i64(value * 100 + 0.5)) / 100
 }
@@ -535,16 +507,6 @@ log :: proc(format: string, args: ..any) {
 box :: proc(value: $Value) -> any {
 	boxed := new_clone(value)
 	return boxed^
-}
-
-// Heap slices of commands and suites, for a project's tools/ to return.
-box_commands :: proc(commands: ..Command) -> []Command {
-	return slice.clone(commands)
-}
-
-// A heap slice of suites, for a project's tools/ to return its own test suites (see box_commands).
-box_suites :: proc(suites: ..Suite) -> []Suite {
-	return slice.clone(suites)
 }
 
 // A heap slice of strings.

@@ -14,7 +14,7 @@ main :: proc() {
 		content = #load("../../game/levels/park.level"),
 		summary = summary,
 		bench = {
-			what  = "friendslop on the park level (Box3D characters and joints), a rollback at the prediction cap every tick",
+			what  = "friendslop on the park level (Box3D characters and joints)",
 			ticks = 600,
 		},
 	})

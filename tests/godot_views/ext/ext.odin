@@ -120,7 +120,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	bench        = bench_prepare,
 }
 
-// The view-sync benchmark (view_bench.gd, `uni bench --views`): `-- --bench N` makes every frame N moving Multi3D
+// The view-sync benchmark (view_bench.gd, `uni view-bench`): `-- --bench N` makes every frame N moving Multi3D
 // instances and BENCH_SCENE_VIEWS moving plain3d views instead of the fixed items. Set on the session thread before
 // its first tick, read by fill_frame on the same thread.
 BENCH_SCENE_VIEWS :: 64

@@ -1,4 +1,4 @@
-# The main thread's view-sync benchmark, run by `uni bench --views` (one Godot process per instance count):
+# The main thread's view-sync benchmark, run by `uni view-bench` (one Godot process per instance count):
 #   godot [--headless] --path tests/godot_views -s res://view_bench.gd -- --bench N [--seconds S]
 # A single player toy session whose Glue (ext/ext.odin, bench_frame) makes every tick N moving instances of one
 # MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving plain3d scene views

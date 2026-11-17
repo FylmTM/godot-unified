@@ -6,5 +6,5 @@ import g "../__GAME__"
 import "unified:headless/modes"
 
 main :: proc() {
-	modes.run(&g.GAME, {bench = {what = "__GAME__ with 4 players, a rollback at the prediction cap every tick", ticks = 600}})
+	modes.run(&g.GAME, {bench = {what = "__GAME__ with 4 players", ticks = 600}})
 }

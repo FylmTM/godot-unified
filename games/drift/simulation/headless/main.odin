@@ -14,7 +14,7 @@ main :: proc() {
 		content = #load("../../game/levels/arena.level"),
 		summary = summary,
 		bench = {
-			what  = "drift on the arena (2D physics locked to a plane: ships, splitting rocks), a rollback at the prediction cap every tick",
+			what  = "drift on the arena (2D physics locked to a plane: ships, splitting rocks)",
 			ticks = 1800,
 		},
 	})

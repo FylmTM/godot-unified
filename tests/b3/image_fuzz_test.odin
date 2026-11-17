@@ -2,7 +2,7 @@
 // either refuses them, leaving the world as it was, or loads a world that hashes, saves, snapshots, restores and is
 // destroyed safely. Flips, 32-bit edge values, cuts and random bytes of real images of the golden scene. Stepping such
 // worlds is unified-box3d's own fuzz suite (asserts off, bounds checks on); here it would trip the debug library's
-// numeric asserts (`uni test --box3d-debug`) on worlds that are safe but simulate badly.
+// numeric asserts (the `box3d-debug` suite) on worlds that are safe but simulate badly.
 package test_b3
 
 import "core:log"

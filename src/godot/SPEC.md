@@ -198,7 +198,7 @@ for what is performance-critical or shared across games.
   `set_player_name(name)`, `get_status()`,
   `is_running()`, `get_tick()`, `toggle_devui()`, `is_devui_visible()`, `take_sync_stats()` (the main thread's
   view-sync cost since the last call, as a Dictionary: frames, events, and microseconds summed for the scene views,
-  the MultiMesh build and upload, the event delivery and the whole sync; `uni bench --views` reads it);
+  the MultiMesh build and upload, the event delivery and the whole sync; `uni view-bench` reads it);
 - players, by handle: a player reaches GDScript as its key (`sim.player_key`, an int; 0 is nobody), the same while
   they are in the session, whatever slot they hold. At the shown tick: `get_players()` (the present ones, slot
   order), `get_known_players()` (every one the state remembers, present or not), `get_local_player()` (0 until this

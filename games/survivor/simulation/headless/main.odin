@@ -17,9 +17,8 @@ main :: proc() {
 		{
 			summary = summary,
 			bench_prepare = survivor.bench_prepare,
-			bench_count = proc(state: ^survivor.State) -> int {return int(state.enemies.count)},
 			bench = {
-				what     = "survivor (stress tuning) holding 1000 enemies, a rollback at the prediction cap every tick",
+				what     = "survivor (stress tuning) holding 1000 enemies",
 				entities = 1000,
 				ticks    = 600,
 			},

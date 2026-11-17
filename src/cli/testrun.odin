@@ -207,13 +207,9 @@ test_output_warnings :: proc(output: string) -> []string {
 	return out[:]
 }
 
-// A suite's budget for a warm run (`--long`: its long budget; `--box3d-debug`: plus BOX3D_DEBUG_EXTRA_BUDGET).
+// A suite's budget for a warm run (`--long`: its long budget).
 suite_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
-	budget := opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
-	if suite.name == "odin" && opts.box3d_debug {
-		budget += BOX3D_DEBUG_EXTRA_BUDGET
-	}
-	return budget
+	return opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
 }
 
 // What CI allows the named suite (its budget, CI_BUDGET_SCALE times): a test binary still running then has hung.

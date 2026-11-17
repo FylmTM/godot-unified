@@ -82,6 +82,6 @@ A change to a sim, `src/physics`, `src/netcode` or the rollback path runs the be
 ./uni bench
 ```
 
-Target: forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) within 6 ms; `uni bench` also reports
-each game's session under `bad` (`net-bench`), which a netcode change should not make worse. A re-sim that disagrees with the forward run fails the
+Target: forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) within 6 ms at their p99; `uni bench`
+also reports each game's session under `bad` (`net-bench`), which a netcode change should not make worse. A re-sim that disagrees with the forward run fails the
 bench: that is a determinism bug, not a speed problem.
