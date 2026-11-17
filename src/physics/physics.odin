@@ -379,6 +379,13 @@ despawn :: proc(world: ^World, table: ^sim.Table($T, $N), handle: sim.Handle(T))
 	return sim.despawn(table, handle)
 }
 
+// Despawns every item of a table and frees what physics each refers to (destroy_refs, then sim.despawn_all).
+despawn_all :: proc(world: ^World, table: ^sim.Table($T, $N)) {
+	items := sim.iterate(table)
+	for item in sim.next(&items) do destroy_refs(world, item)
+	sim.despawn_all(table)
+}
+
 // ---- the plug-in
 
 // The Extra that makes the world part of the rollback state of a block of type State: a physics game's Game.extra

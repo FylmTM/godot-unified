@@ -87,7 +87,7 @@ Event :: union {
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
 // constant changes what a tick computes without changing the State or Input layout.
-SIM_VERSION :: "3" // 3: keyed rolls for the spawner (#252)
+SIM_VERSION :: "4"
 
 // The game as played (`play` tuning).
 @(rodata)

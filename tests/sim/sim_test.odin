@@ -109,6 +109,42 @@ iterator_walks_live_items_in_index_order :: proc(t: ^testing.T) {
 	empty: Small
 	none := sim.iterate(&empty)
 	for _, _ in sim.next(&none) do testing.fail(t)
+	// A walk covers the slots in use when it started: a spawn into a free slot ahead is visited, one into a fresh
+	// slot is not.
+	spawning: Small
+	_, gap, _ := sim.spawn(&spawning)
+	sim.spawn(&spawning)
+	sim.despawn(&spawning, gap)
+	visited := 0
+	walk := sim.iterate(&spawning)
+	for thing in sim.next(&walk) {
+		visited += 1
+		if thing.life == 0 {
+			thing.life = 1
+			sim.spawn(&spawning) // slot 0, behind the walk
+			sim.spawn(&spawning) // slot 2, fresh
+		}
+	}
+	testing.expect_value(t, visited, 1)
+	testing.expect_value(t, spawning.count, 3)
+}
+
+// despawn_all despawns everything and keeps the generations: spawns start again from slot 0, and no old handle or key
+// names a new item.
+@(test)
+despawn_all_keeps_the_generations :: proc(t: ^testing.T) {
+	table: Small
+	_, first, _ := sim.spawn(&table)
+	_, second, _ := sim.spawn(&table)
+	sim.despawn_all(&table)
+	testing.expect_value(t, table.count, 0)
+	testing.expect(t, sim.get(&table, first) == nil && sim.get(&table, second) == nil)
+	items := sim.iterate(&table)
+	for _ in sim.next(&items) do testing.fail(t)
+	_, again, _ := sim.spawn(&table)
+	testing.expect_value(t, again.index, first.index)
+	testing.expect(t, sim.handle_key(again) != sim.handle_key(first))
+	testing.expect(t, sim.get(&table, first) == nil && sim.get(&table, again) != nil)
 }
 
 // SplitMix64's reference outputs for seed 0 (Vigna's splitmix64.c), so a change to the mixer is caught.

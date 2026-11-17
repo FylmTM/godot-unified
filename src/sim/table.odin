@@ -41,7 +41,7 @@ spawn :: proc(table: ^Table($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) 
 	} else {
 		return
 	}
-	slot := &table.slots[index]
+	slot := &table.slots[index] // (generation: kept by despawn and despawn_all)
 	slot.generation += 1
 	if slot.generation == 0 {
 		slot.generation = 1
@@ -65,6 +65,19 @@ despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
 	table.free_head = i32(index) + 1
 	table.count -= 1
 	return true
+}
+
+// Despawns every live item, keeping each slot's generation: the next spawns start again from slot 0, and a handle
+// (or handle_key) from before the clear never names a new item. What a reset does to a table.
+despawn_all :: proc(table: ^Table($T, $N)) {
+	for &slot, index in table.slots[:table.high_water] {
+		if slot.alive do table.items[index] = {}
+		slot.alive = false
+		slot.next_free = 0
+	}
+	table.free_head = 0
+	table.high_water = 0
+	table.count = 0
 }
 
 // The item `handle` refers to, or nil for the null handle, an out-of-range index or a stale handle.
@@ -95,22 +108,23 @@ handle_of_key :: proc($T: typeid, key: u64) -> Handle(T) {
 //   coins := sim.iterate(&tick.state.coins)
 //   for coin, handle in sim.next(&coins) { ... }
 //
-// Despawning the current item is safe. An item spawned during the walk is visited when its slot is
-// still ahead (a fresh slot past the old high_water, or a reused one above the current index).
+// Despawning the current item is safe. The walk covers the slots in use when it started: an item spawned during it
+// is visited only when it reuses a free slot ahead of the walk, never when it takes a fresh one.
 Table_Iterator :: struct($T: typeid, $N: int) {
 	table: ^Table(T, N),
 	index: i32, // the next slot to look at
+	end:   i32, // the high-water mark when the walk started
 }
 
 // Starts a walk over the table's live items; `next` yields each one with its handle.
 iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
-	return {table = table}
+	return {table = table, end = table.high_water}
 }
 
-// The next live item of a table walk and its handle; ok is false once past the table's high-water mark.
+// The next live item of a table walk and its handle; ok is false once past the slots in use when it started.
 table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
 	table := iterator.table
-	for iterator.index < table.high_water {
+	for iterator.index < iterator.end {
 		index := iterator.index
 		iterator.index += 1
 		slot := &table.slots[index]

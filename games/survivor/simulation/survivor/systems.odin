@@ -114,9 +114,9 @@ reset_world :: proc(t: ^Tick) {
 			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
 	}
-	t.state.enemies = {}
-	t.state.projectiles = {}
-	t.state.gems = {}
+	sim.despawn_all(&t.state.enemies)
+	sim.despawn_all(&t.state.projectiles)
+	sim.despawn_all(&t.state.gems)
 	t.state.phase = .Lobby
 	t.state.circle_radius = START_RADIUS
 	t.state.match_tick = 0

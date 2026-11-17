@@ -164,12 +164,9 @@ move_bullets :: proc(t: ^Tick) {
 // into two of the next size, or, when small, is destroyed and every other one drops a gem.
 update_rocks :: proc(t: ^Tick) {
 	station := physics.body_position_2d(t.world.phys, t.state.station)
-	// one pass over the slots in use now: a split's rocks that reuse a free slot ahead of the walk are visited
-	// this tick, the ones past the high water mark (where the walk started it) the next
-	high_water := t.state.rocks.high_water
+	// a split's rocks that reuse a free slot ahead of the walk are visited this tick, the ones in fresh slots the next
 	rocks := sim.iterate(&t.state.rocks)
 	for rock, handle in sim.next(&rocks) {
-		if i32(handle.index) >= high_water do break
 		pos := physics.body_position_2d(t.world.phys, rock.body)
 		radius := ROCK_RADIUS[rock.size]
 		// touching the station (its corners' circle): damage, and the rock is gone
@@ -355,13 +352,9 @@ advance_phase :: proc(t: ^Tick) {
 // Back to the lobby: rocks, bullets and gems cleared, the present ships at their slots' spawns, the station
 // repaired.
 reset :: proc(t: ^Tick) {
-	rocks := sim.iterate(&t.state.rocks)
-	for _, handle in sim.next(&rocks) do kill_rock(t.state, t.world, handle)
-	// despawned one by one, not zeroed: the tables keep their generations, so views never see a key twice
-	bullets := sim.iterate(&t.state.bullets)
-	for _, handle in sim.next(&bullets) do sim.despawn(&t.state.bullets, handle)
-	gems := sim.iterate(&t.state.gems)
-	for _, handle in sim.next(&gems) do sim.despawn(&t.state.gems, handle)
+	physics.despawn_all(t.world.phys, &t.state.rocks)
+	sim.despawn_all(&t.state.bullets)
+	sim.despawn_all(&t.state.gems)
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
 		slot := sim.player_slot(t, player)
