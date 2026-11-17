@@ -22,9 +22,12 @@ Button_State :: struct($Set: typeid) {
 //   if .Throw in buttons.released { ... }
 //   if .Fire in buttons.down { ... }
 buttons :: proc(
-	t: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	t: ^Tick($G),
 	player: Player,
-) -> Button_State(intrinsics.type_field_type(Input, "buttons")) where intrinsics.type_has_field(Input, "buttons") {
+) -> Button_State(intrinsics.type_field_type(part(G, GAME_INPUT), "buttons")) where intrinsics.type_has_field(
+		part(G, GAME_INPUT),
+		"buttons",
+	) {
 	now := input(t, player).buttons
 	before := input_before(t, player).buttons
 	return {down = now, pressed = now - before, released = before - now}

@@ -39,22 +39,15 @@ Snap_Header :: struct {
 }
 
 // Encodes the ring snapshot of `tick` into a new byte slice.
-snapshot_encode :: proc(
-	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	tick: u32,
-	allocator := context.allocator,
-) -> []u8 {
+snapshot_encode :: proc(simulation: ^Sim($G), tick: u32, allocator := context.allocator) -> []u8 {
 	out := make([dynamic]u8, allocator)
 	return snapshot_encode_into(simulation, tick, &out)
 }
 
 // Encodes the ring snapshot of `tick` into `out`, replacing what it held and keeping its capacity: a snapshot taken
 // again and again (a client's kept desync images) allocates only when it outgrows the last one. Returns out's bytes.
-snapshot_encode_into :: proc(
-	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	tick: u32,
-	out: ^[dynamic]u8,
-) -> []u8 {
+snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8) -> []u8 {
+	State :: part(G, GAME_STATE)
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
 	assert(slot.saved && slot.tick == tick, "snapshot of a tick that is not in the ring")
@@ -173,13 +166,14 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 // this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
 // Build_Differs. `content` is borrowed like create's.
 from_snapshot :: proc(
-	game: ^Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	game: ^$G,
 	data: []u8,
 	content: []u8 = nil,
 ) -> (
-	^Sim(State, Input, World, Event, Cmd, PLAYERS),
+	^Sim(G),
 	Snap_Error,
-) {
+) where intrinsics.type_is_specialization_of(G, Game) {
+	State :: part(G, GAME_STATE)
 	header, block, reader, err := snap_read(data, size_of(State), layout_hash(State))
 	if err != .None {
 		return nil, err

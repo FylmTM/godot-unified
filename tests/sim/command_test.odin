@@ -121,7 +121,7 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sim.slot_commands(&inputs, 2)), 4)
 	testing.expect_value(t, len(sim.slot_commands(&inputs, 3)), 1)
 	// At most TICK_COMMANDS in all.
-	big: sim.Inputs(toy.Input, 8)
+	big: sim.Inputs(sim.Game(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, 8))
 	for k in 0 ..< 32 {
 		sim.add_command(&big, bump(k % 8, i32(k)))
 	}
@@ -299,7 +299,7 @@ malformed_tick_records_are_refused :: proc(t: ^testing.T) {
 // Mutated input logs never crash the decoder; whatever it accepts replays.
 @(test)
 fuzz_input_log_decoder :: proc(t: ^testing.T) {
-	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
+	input_log := sim.Input_Log(toy.Game) {
 		seed = 4,
 	}
 	defer sim.log_destroy(&input_log)
@@ -335,7 +335,7 @@ fuzz_input_log_decoder :: proc(t: ^testing.T) {
 				data[i] = u8(next(&state))
 			}
 		}
-		back, ok := sim.log_decode(data[:], toy.Input, toy.PLAYERS)
+		back, ok := sim.log_decode(data[:], toy.Game)
 		if ok {
 			accepted += 1
 			simulation := sim.create(&toy.GAME, back.seed)

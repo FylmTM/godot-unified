@@ -40,11 +40,9 @@ window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw
 }
 
 // Writes `tick` as its changes from `base`, the tick before it in the packet (nil: the empty tick).
-window_write_tick :: proc(
-	writer: ^wire.Writer,
-	tick: ^sim.Inputs($Input, $PLAYERS),
-	base: ^sim.Inputs(Input, PLAYERS),
-) {
+window_write_tick :: proc(writer: ^wire.Writer, tick: ^sim.Inputs($G), base: ^sim.Inputs(G)) {
+	Input :: sim.part(G, sim.GAME_INPUT)
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	zero: Input
 	base_present, base_replaced: sim.Slots
 	if base != nil {
@@ -96,7 +94,8 @@ window_write_tick :: proc(
 // are applied in place. False when it is malformed: unknown flags, a slot past PLAYERS (present, replaced or an
 // input) or a byte past the input's size, bad commands (sim.read_commands) or join records (sim.read_joins), or cut
 // short; the ticks after it can't be found.
-window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($Input, $PLAYERS)) -> bool {
+window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($G)) -> bool {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	KNOWN :: Window_Flags{.Presence, .Inputs, .Commands, .Joins}
 	flags := transmute(Window_Flags)wire.r_u8(reader)
 	if !reader.ok || flags - KNOWN != {} {

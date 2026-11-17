@@ -110,9 +110,9 @@ Event :: union {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
-Inputs :: sim.Inputs(Input, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
+Inputs :: sim.Inputs(Game)
+Tick :: sim.Tick(Game)
 
 GAME := Game {
 	name = "toy",

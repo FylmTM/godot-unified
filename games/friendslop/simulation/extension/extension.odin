@@ -44,9 +44,9 @@ View :: enum u8 {
 // No MultiMesh views.
 MultiView :: enum u8 {}
 
-Frame :: godot.Frame(fs.State, fs.World, View, MultiView)
+Frame :: godot.Frame(fs.Game, View, MultiView)
 
-GLUE := godot.Glue(fs.State, fs.Input, fs.World, fs.Cmd, View, MultiView) {
+GLUE := godot.Glue(fs.Game, View, MultiView) {
 	sample_input   = sample_input,
 	fill_frame     = fill_frame,
 	data           = Data,

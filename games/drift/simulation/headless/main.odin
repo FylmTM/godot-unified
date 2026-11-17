@@ -12,7 +12,7 @@ import "unified:sim"
 
 ARENA_LEVEL :: #load("../../game/levels/arena.level")
 
-HEADLESS := headless.Headless(drift.State, drift.Input, drift.World, drift.Event, drift.Cmd, drift.PLAYERS) {
+HEADLESS := headless.Headless(drift.Game) {
 	game = &drift.GAME,
 	scripted_input = drift.scripted_input,
 	scripted_commands = drift.scripted_commands,

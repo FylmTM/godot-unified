@@ -115,8 +115,8 @@ calls each one explicitly; tests are named for what they check; no platform assu
 ### API
 
 ```odin
-Suite :: struct($State, $Input, $World: typeid, $PLAYERS: int) {
-	game:    ^headless.Headless(State, Input, World, Event, Cmd, PLAYERS),
+Suite :: struct($G: typeid) {    // G: the game type, a sim.Game (scenarios.Suite(g.Game){...})
+	game:    ^headless.Headless(G),
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions

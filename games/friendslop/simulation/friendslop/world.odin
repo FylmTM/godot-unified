@@ -198,7 +198,7 @@ World :: struct {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
 
 @(rodata)
 GAME := Game {

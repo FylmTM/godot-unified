@@ -364,8 +364,8 @@ Field_World :: struct {
 }
 
 Field_Game :: sim.Game(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
-Field_Inputs :: sim.Inputs(Field_Input, 2)
-Field_Tick :: sim.Tick(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
+Field_Inputs :: sim.Inputs(Field_Game)
+Field_Tick :: sim.Tick(Field_Game)
 
 FIELD := Field_Game {
 	name = "field",

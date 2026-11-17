@@ -20,8 +20,8 @@ World :: struct {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
+Tick :: sim.Tick(Game)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
 // (y = 0) for enemies and gems, the body's centre for players and barrels. A `player` field names the player the

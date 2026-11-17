@@ -24,7 +24,7 @@ sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command
 
 // The commands of `player` in the relay's log, in tick order, with their ticks.
 logged_commands :: proc(
-	log: ^sim.Input_Log(toy.Input, toy.PLAYERS),
+	log: ^sim.Input_Log(toy.Game),
 	player: int,
 ) -> (
 	commands: [dynamic]sim.Raw_Command,

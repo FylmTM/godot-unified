@@ -22,8 +22,8 @@ Bug_World :: struct {
 }
 
 Bug_Game :: sim.Game(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
-Bug_Tick :: sim.Tick(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
-Bug_Headless :: headless.Headless(toy.State, toy.Input, Bug_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Bug_Tick :: sim.Tick(Bug_Game)
+Bug_Headless :: headless.Headless(Bug_Game)
 
 // Bug: the World keeps a count of the ticks it ran and the tick reads it. It is never rolled back, so a
 // re-simulated tick sees another count. Detector: rollback_every_tick (run_synctest).
@@ -95,7 +95,7 @@ toy_tick :: proc(tick: ^Bug_Tick) {
 		number         = tick.number,
 		seed           = tick.seed,
 		dt             = tick.dt,
-		inputs         = tick.inputs,
+		inputs         = (^toy.Inputs)(tick.inputs),
 		events         = tick.events,
 		player_changes = tick.player_changes,
 		players_layout = tick.players_layout,

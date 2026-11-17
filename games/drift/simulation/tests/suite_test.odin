@@ -12,14 +12,14 @@ import "unified:headless/scenarios"
 
 ARENA :: #load("../../game/levels/arena.level")
 
-HEADLESS := headless.Headless(dr.State, dr.Input, dr.World, dr.Event, dr.Cmd, dr.PLAYERS) {
+HEADLESS := headless.Headless(dr.Game) {
 	game              = &dr.GAME,
 	scripted_input    = dr.scripted_input,
 	scripted_commands = dr.scripted_commands,
 	content           = ARENA,
 }
 
-SUITE := scenarios.Suite(dr.State, dr.Input, dr.World, dr.Event, dr.Cmd, dr.PLAYERS) {
+SUITE := scenarios.Suite(dr.Game) {
 	game = &HEADLESS,
 	players = 4,
 	seed = 42,

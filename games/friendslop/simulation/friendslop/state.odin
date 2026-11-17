@@ -87,8 +87,8 @@ Input :: struct {
 }
 #assert(size_of(Input) == 8)
 
-Inputs :: sim.Inputs(Input, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Inputs :: sim.Inputs(Game)
+Tick :: sim.Tick(Game)
 
 Body_Ref :: physics.Body_Ref
 

@@ -13,11 +13,11 @@ import "unified:godot"
 View :: enum u8 {Player}            // scene view kinds: one scene each (found by the view index)
 MultiView :: enum u8 {Ball}         // MultiMesh view kinds
 Data :: union {Data_Hud}            // session data types: Unified.data.hud
-Frame :: godot.Frame(g.State, g.World, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 CONSTANTS := Data_Constants{speed = g.SPEED, ...} // Unified.constants: a package variable, copied at install
 
-GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
+GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional

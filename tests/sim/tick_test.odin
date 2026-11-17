@@ -18,7 +18,8 @@ Probe_World :: struct {
 }
 
 Probe_Game :: sim.Game(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, toy.PLAYERS)
-Probe_Tick :: sim.Tick(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Probe_Tick :: sim.Tick(Probe_Game)
+Probe_Inputs :: sim.Inputs(Probe_Game)
 
 PROBE := Probe_Game {
 	name = "probe",
@@ -58,7 +59,7 @@ init_gets_a_tick_and_every_tick_its_dt :: proc(t: ^testing.T) {
 	testing.expect_value(t, simulation.world.init_number, 0)
 	testing.expect_value(t, simulation.world.init_dt, 1.0 / 32)
 	testing.expect_value(t, len(sim.events_at(simulation, 0)), 1)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, simulation.world.tick_dt, 1.0 / 32)
 }
@@ -69,7 +70,7 @@ init_gets_a_tick_and_every_tick_its_dt :: proc(t: ^testing.T) {
 snapshot_restore_drops_init_events :: proc(t: ^testing.T) {
 	simulation := sim.create(&PROBE, 3)
 	defer sim.destroy(simulation)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	tick := u32(len(simulation.ring)) // ring slot 0
 	for _ in 0 ..< tick do sim.step(simulation, &inputs)
 	data := sim.snapshot_encode(simulation, tick)
@@ -86,10 +87,10 @@ snapshot_restore_drops_init_events :: proc(t: ^testing.T) {
 commands_yield_only_real_ones_by_player :: proc(t: ^testing.T) {
 	simulation := sim.create(&PROBE, 3)
 	defer sim.destroy(simulation)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	sim.join(&inputs, 0, 1)
 	sim.join(&inputs, 2, 3)
-	add :: proc(inputs: ^toy.Inputs, slot: int, raw: sim.Raw_Command) {
+	add :: proc(inputs: ^Probe_Inputs, slot: int, raw: sim.Raw_Command) {
 		raw := raw
 		raw.slot = u8(slot)
 		assert(sim.add_command(inputs, raw))
@@ -109,7 +110,7 @@ commands_yield_only_real_ones_by_player :: proc(t: ^testing.T) {
 	testing.expect_value(t, simulation.world.nil_seen, 0)
 	testing.expect_value(t, simulation.world.bump_sum, 3)
 	// The next tick has none: the buffer is the tick's.
-	next: toy.Inputs
+	next: Probe_Inputs
 	next.present = {0, 2}
 	sim.step(simulation, &next)
 	testing.expect_value(t, simulation.world.seen, [toy.PLAYERS]int{})

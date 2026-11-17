@@ -130,26 +130,12 @@ scenario_synctest :: proc(t: ^testing.T) {
 	}
 }
 
-Client :: netcode.Client(
-	survivor.State,
-	survivor.Input,
-	survivor.World,
-	survivor.Event,
-	survivor.Cmd,
-	survivor.PLAYERS,
-)
+Client :: netcode.Client(survivor.Game)
 
 @(test)
 scenario_networked :: proc(t: ^testing.T) {
 	TICKS :: 900
-	hooks := netcode.Hooks(
-		survivor.State,
-		survivor.Input,
-		survivor.World,
-		survivor.Event,
-		survivor.Cmd,
-		survivor.PLAYERS,
-	) {
+	hooks := netcode.Hooks(survivor.Game) {
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^survivor.State) -> survivor.Input {
 			return survivor.scripted_input(13, slot, tick, state)
 		},

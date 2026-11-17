@@ -8,7 +8,7 @@ PLAYERS :: 4 // input slots: who is in the session at once
 TICK_HZ :: 64 // a power of two: t.dt is exact
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(Game)
 
 @(rodata)
 GAME := Game {

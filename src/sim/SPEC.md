@@ -49,12 +49,13 @@ Five compile-time types, a count and a descriptor, `sim.Game(State, Input, World
   skill, and `box3d_pin()`, the `[box3d] tag` of `pins.cfg` embedded at compile time). An optional
   `Library{version, box3d}` computes another build's value (tests).
 
-Odin can't derive one generic type from another, so a game declares its aliases once:
+`sim.Game(...)` is the one place a game names its six types. Everything generic over a game takes the game type
+alone (`Sim(G)`, `Tick(G)`, `netcode.Client(G)`, `headless.Headless(G)`, `godot.Glue(G, View, MultiView)`) and
+derives the parts (`sim.part(G, sim.GAME_STATE)`, ..., the comment above `sim.Tick`). A game declares:
 
 ```odin
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYER_COUNT)
-Simulation :: sim.Sim(State, Input, World, Event, Cmd, PLAYER_COUNT)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYER_COUNT)
+Tick :: sim.Tick(Game)
 ```
 
 ## The tick
@@ -66,7 +67,7 @@ the step's presence changes, Players below). `init` gets one too (`number` 0, em
 helpers that need more than the block take it (`roll_below`, `emit`, `input`, `commands`). Systems
 take `tick` or narrower arguments, as the game prefers. Odin's implicit `context` carries no sim data.
 
-`Inputs(Input, PLAYERS) = {present: Slots, replaced: Slots, input: [PLAYERS]Input, member: [PLAYERS]u16,
+`Inputs(G) = {present: Slots, replaced: Slots, input: [PLAYERS]Input, member: [PLAYERS]u16,
 commands}`, by slot. `present` (a `Slots`, `bit_set[0 ..< 32; u32]`) is which slots are in the game this tick: joining and
 leaving are presence changes the relay decides, never flags in `Input`. `member` is a slot's **join record**: the
 relay's member id of who becomes present in it, non-zero only on that tick. `replaced` marks inputs the relay
@@ -265,7 +266,7 @@ Decided in #6 (D7). Two kinds, built on the same SplitMix64 mixing function, int
 
 ## The harness
 
-`Sim(State, Input, World, Event, Cmd, PLAYERS)` holds the tick counter, `state`, `world`, the extras and a ring of saved ticks
+`Sim(G)` holds the tick counter, `state`, `world`, the extras and a ring of saved ticks
 (the block copy, the extras' saves, the events that tick emitted). Ticks count from 1; tick 0 is the initial state.
 
 - **The ring** keeps about 250 ms of ticks at any rate: `ring_size(tick_hz) = tick_hz / 4` (8 at 32 Hz, 16 at 64,

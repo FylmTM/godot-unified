@@ -7,7 +7,7 @@ import "unified:view"
 
 import g "../minimal_3d"
 
-Frame :: godot.Frame(g.State, g.World, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 View :: enum u8 {
 	Player,

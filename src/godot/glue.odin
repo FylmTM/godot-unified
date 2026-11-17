@@ -2,6 +2,7 @@
 // src/godot/SPEC.md.
 package godot
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:sync"
@@ -39,9 +40,9 @@ Multi_View_Item :: struct($MultiView: typeid) {
 }
 
 // What fill_frame gets (session thread): the tick's state and world, and where the items go.
-Frame :: struct($State, $World, $View, $MultiView: typeid) {
-	state:        ^State,
-	world:        ^World, // at the frame's tick
+Frame :: struct($G, $View, $MultiView: typeid) {
+	state:        ^sim.part(G, sim.GAME_STATE),
+	world:        ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
 	tick:         u32,
 	local_player: sim.Player, // who this client plays at this tick ({}: nobody yet, e.g. before its join tick)
 	local_slot:   int, // the slot the relay gave this client (-1: none yet)
@@ -127,13 +128,13 @@ Frame_Data :: struct {
 	dropped:      int, // items push_view / push_multi_view / push_data refused (the Frame was full); warned once
 }
 
-// What a game provides, typed by its State, Input and World and its view kinds (enums).
-Glue :: struct($State, $Input, $World, $Cmd, $View, $MultiView: typeid) {
+// What a game provides, typed by its game (a sim.Game) and its view kinds (enums).
+Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
-	sample_input:      proc(input: ^Input),
+	sample_input:      proc(input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).
-	fill_frame:        proc(frame: ^Frame(State, World, View, MultiView)),
+	fill_frame:        proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:              typeid,
 	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
@@ -154,12 +155,23 @@ Glue :: struct($State, $Input, $World, $Cmd, $View, $MultiView: typeid) {
 	max_multi:         int,
 	view_data_bytes:   int,
 	// Session thread, optional: scripted input for headless checks (--scripted), the same as the offline binary's.
-	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
+	scripted_input:    proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^sim.part(G, sim.GAME_STATE),
+	) -> sim.part(G, sim.GAME_INPUT),
 	// Session thread, optional: the scripted commands that go with `scripted_input` (the offline binary's).
-	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)),
+	scripted_commands: proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^sim.part(G, sim.GAME_STATE),
+		out: ^sim.Command_Out(sim.part(G, sim.GAME_CMD)),
+	),
 	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
 	// entities). Single player only: it changes the initial state, which every peer would have to share.
-	bench:             proc(state: ^State, world: ^World, count: int),
+	bench:             proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
 	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
 	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
 	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
@@ -313,18 +325,14 @@ roster_reset :: proc() {
 }
 
 // Session thread (fill_frame): a scene view; false when the Frame is full (counted in `dropped`).
-push_view_item :: proc(
-	frame: ^Frame($State, $World, $View, $MultiView),
-	item: View_Item(View),
-	loc := #caller_location,
-) -> bool {
+push_view_item :: proc(frame: ^Frame($G, $View, $MultiView), item: View_Item(View), loc := #caller_location) -> bool {
 	return push_view_out(frame, item, nil, nil, loc)
 }
 
 // Session thread (fill_frame): a scene view with its data, set as the view's properties (a kind always pushes the
 // same data type).
 push_view_data :: proc(
-	frame: ^Frame($State, $World, $View, $MultiView),
+	frame: ^Frame($G, $View, $MultiView),
 	item: View_Item(View),
 	data: $T,
 	loc := #caller_location,
@@ -341,7 +349,7 @@ push_view :: proc {
 
 @(private)
 push_view_out :: proc(
-	frame: ^Frame($State, $World, $View, $MultiView),
+	frame: ^Frame($G, $View, $MultiView),
 	item: View_Item(View),
 	data_type: typeid,
 	data: []u8,
@@ -375,7 +383,7 @@ push_view_out :: proc(
 }
 
 // Session thread (fill_frame): one MultiMesh instance; false when the Frame is full (counted in `dropped`).
-push_multi_view :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: Multi_View_Item(MultiView)) -> bool {
+push_multi_view :: proc(frame: ^Frame($G, $View, $MultiView), item: Multi_View_Item(MultiView)) -> bool {
 	out := frame.out
 	if out.n_multis >= len(out.multis) {
 		out.dropped += 1
@@ -410,7 +418,7 @@ push_multi_view :: proc(frame: ^Frame($State, $World, $View, $MultiView), item: 
 // Session thread (fill_frame): the session data value of type T this tick (a `Data_` struct of Glue.data), set as
 // the properties of Unified.<name> when its bytes change. One value per type per frame (asserted); false when the
 // Frame is full (counted in `dropped`).
-push_data :: proc(frame: ^Frame($State, $World, $View, $MultiView), data: $T, loc := #caller_location) -> bool {
+push_data :: proc(frame: ^Frame($G, $View, $MultiView), data: $T, loc := #caller_location) -> bool {
 	kind := data_kind(T, loc)
 	out := frame.out
 	if out.data_pushed & (1 << uint(kind)) != 0 do panic("push_data: a data type pushed twice in one frame", loc)

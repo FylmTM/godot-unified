@@ -27,10 +27,8 @@ Events :: struct {
 
 // Emits an event from inside `tick`: `sim.emit(t, Event_Coin_Picked{coin = handle, player = player})`. A value
 // that is not a variant of the game's Event union does not compile.
-emit :: proc(
-	tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	event: $E,
-) where intrinsics.type_is_variant_of(Event, E) {
+emit :: proc(tick: ^Tick($G), event: $E) where intrinsics.type_is_variant_of(part(G, GAME_EVENT), E) {
+	Event :: part(G, GAME_EVENT)
 	#assert(size_of(E) <= EVENT_MAX)
 	event := event
 	raw := Raw_Event {

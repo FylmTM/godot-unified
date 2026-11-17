@@ -33,8 +33,8 @@ paths:
   (`x`, `y`, `z` components, `a`, `b`, `t` in `lerp(a, b, t)`), a test's `t: ^testing.T` (Odin's convention), and
   a sim's `t: ^Tick` and a glue's `f: ^Frame`: read their fields in place (`t.state.balls`), no local copies
   (`state := t.state`). Library code takes the style when it is touched.
-- Type parameters name their role: `$State, $Input, $World, $PLAYERS`. One letter only for a container's element
-  and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
+- Type parameters name their role: `$State, $Input, $World, $PLAYERS`; `$G` is the game type (a `sim.Game`). Otherwise one
+  letter only for a container's element and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
 - `player` is a `sim.Player` handle (a session member, the person) everywhere: fields, parameters, events, views;
   `players` the State's `sim.Players`. `slot` is the input index `0 ..< PLAYERS` a player holds while present
   (`Inputs`, commands, scripted input, the relay's seats). A ring's or a table's own slot is a `ring_slot` or a

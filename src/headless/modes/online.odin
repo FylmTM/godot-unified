@@ -68,11 +68,8 @@ online_known :: proc(args: ^Args, online: ^Online, own: ..string) {
 
 // The `<name>-host` mode: opens a lobby on the game's online transport, prints its code and hosts a scripted
 // session over it; ok once the host verified every tick, `--players` joined and nobody desynced.
-mode_online_host :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	online: ^Online,
-	args: ^Args,
-) -> bool {
+mode_online_host :: proc(headless: ^uheadless.Headless($G), online: ^Online, args: ^Args) -> bool {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	online_known(args, online, "ticks", "code-file", "log", "players", "wait-s", "bucket")
 	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
 	// --wait-s N: keep the lobby open up to N s until a remote player connects, then start the clock
@@ -119,7 +116,7 @@ mode_online_host :: proc(
 			time.duration_seconds(time.tick_since(waiting)),
 		)
 	}
-	scripted := uheadless.Scripted_User(State, Input, World, Event, Cmd, PLAYERS){headless, 1}
+	scripted := uheadless.Scripted_User(G){headless, 1}
 	host := netcode.host_create(headless.game, netcode.Host_Config {
 			seed      = 1,
 			ticks     = ticks,
@@ -166,11 +163,7 @@ mode_online_host :: proc(
 
 // The `<name>-client` mode: joins a `<name>-host` lobby by `--code` and plays a scripted remote player
 // to the end of the host's session.
-mode_online_client :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	online: ^Online,
-	args: ^Args,
-) -> bool {
+mode_online_client :: proc(headless: ^uheadless.Headless($G), online: ^Online, args: ^Args) -> bool {
 	online_known(args, online, "code", "ticks", "bucket")
 	code := opt_str(args, "code", required = true)
 	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
@@ -194,7 +187,7 @@ mode_online_client :: proc(
 	}
 	join_ms := time.duration_milliseconds(time.tick_since(started))
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", args.mode, status.code, status.local, status.host, join_ms)
-	scripted := uheadless.Scripted_User(State, Input, World, Event, Cmd, PLAYERS){headless, 1}
+	scripted := uheadless.Scripted_User(G){headless, 1}
 	client := netcode.client_create(headless.game, netcode.Client_Config {
 			slot    = -1,
 			name    = "client",
@@ -202,7 +195,7 @@ mode_online_client :: proc(
 		}, link, uheadless.scripted_hooks(&scripted))
 	link_ours = false
 	defer netcode.client_destroy(client)
-	task := uheadless.Client_Task(State, Input, World, Event, Cmd, PLAYERS) {
+	task := uheadless.Client_Task(G) {
 		client,
 		netcode.now_us() + i64((uheadless.session_timeout_s(ticks, headless.game.tick_hz) + 60) * 1e6),
 		false,

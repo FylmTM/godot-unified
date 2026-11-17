@@ -6,7 +6,7 @@ PLAYERS :: 4
 TICK_HZ :: 64
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Tick :: sim.Tick(Game)
 
 @(rodata)
 GAME := Game {

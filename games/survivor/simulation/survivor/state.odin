@@ -61,7 +61,7 @@ Input :: struct {
 	buttons: Buttons,
 }
 
-Inputs :: sim.Inputs(Input, PLAYERS)
+Inputs :: sim.Inputs(Game)
 
 // The level-up options, in the order the HUD shows them.
 Upgrade :: enum u8 {

@@ -153,7 +153,7 @@ players_next :: #force_inline proc(
 }
 
 // The player's input this tick (zero when absent).
-input :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> Input {
+input :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
 	slot := tick_slot(tick, player)
 	return tick.inputs.input[slot] if slot >= 0 else {}
 }
@@ -162,7 +162,8 @@ input :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), playe
 // absent): a button pressed this tick is down in `input` and not here.
 //
 //   pressed := sim.input(t, player).buttons - sim.input_before(t, player).buttons
-input_before :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> Input {
+input_before :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
+	Input :: part(G, GAME_INPUT)
 	slot := tick_slot(tick, player)
 	if slot < 0 do return {}
 	view := players_view(tick.state, tick.players_layout)
@@ -175,13 +176,14 @@ input_before :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS)
 //   for sent in sim.commands(t, player) {
 //       switch command in sent { case Cmd_Pick: ... }
 //   }
-commands :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> []Cmd {
+commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
 	slot := tick_slot(tick, player)
 	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }
 
 // A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick.
-join :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int, member: int) {
+join :: proc(inputs: ^Inputs($G), slot: int, member: int) {
+	PLAYERS :: part(G, GAME_PLAYERS)
 	assert(slot >= 0 && slot < PLAYERS && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
 	inputs.member[slot] = u16(member)
@@ -189,27 +191,28 @@ join :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int, member: int) {
 
 // Who holds `slot` in the simulation's current state (Player{}: nobody): for drivers outside `tick` (a scripted
 // run adds a join record only for a slot nobody holds).
-slot_player :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), slot: int) -> Player {
+slot_player :: proc(simulation: ^Sim($G), slot: int) -> Player {
 	view := players_view(&simulation.state, &simulation.players_layout)
-	return view.slots[slot] if slot >= 0 && slot < PLAYERS else {}
+	return view.slots[slot] if slot >= 0 && slot < part(G, GAME_PLAYERS) else {}
 }
 
 // The member table and who holds each slot in `state` (one of the simulation's: its current one, or a saved tick's
 // from state_at), for drivers outside `tick` that know the State only generically (a view host).
 players_of :: proc(
-	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	state: ^State,
+	simulation: ^Sim($G),
+	state: ^$State,
 ) -> (
 	members: []Member,
 	slots: []Player,
-) {
+) where State ==
+	part(G, GAME_STATE) {
 	view := players_view(state, &simulation.players_layout)
 	return view.members, view.slots
 }
 
 // The slot `player` holds in the tick being computed (-1: absent or unknown).
 @(private)
-tick_slot :: proc(tick: ^Tick($State, $Input, $World, $Event, $Cmd, $PLAYERS), player: Player) -> int {
+tick_slot :: proc(tick: ^Tick($G), player: Player) -> int {
 	view := players_view(tick.state, tick.players_layout)
 	if player.id == 0 || int(player.index) >= len(view.members) {
 		return -1
@@ -325,11 +328,12 @@ Changes_Buffer :: struct($PLAYERS: int) {
 @(private)
 players_update :: proc(
 	view: Players_View,
-	inputs: ^Inputs($Input, $PLAYERS),
+	inputs: ^Inputs($G),
 	number: u32,
 	events: ^Events,
-	changes: ^Changes_Buffer(PLAYERS),
+	changes: ^Changes_Buffer($N),
 ) {
+	PLAYERS :: part(G, GAME_PLAYERS)
 	changes^ = {}
 	for slot in 0 ..< PLAYERS {
 		holder := view.slots[slot]
@@ -389,7 +393,9 @@ players_update :: proc(
 
 // After `tick`: each slot's input becomes its `before` for the next tick (zero for a slot nobody holds).
 @(private)
-players_remember :: proc(view: Players_View, inputs: ^Inputs($Input, $PLAYERS)) {
+players_remember :: proc(view: Players_View, inputs: ^Inputs($G)) {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	before := ([^]Input)(view.before)
 	for slot in 0 ..< PLAYERS {
 		before[slot] = inputs.input[slot] if view.slots[slot].id != 0 else {}

@@ -63,30 +63,48 @@ Slots :: bit_set[0 ..< MAX_PLAYERS;u32]
 // one stays absent; sim.join). `replaced` marks inputs the relay substituted (the slot's last one) because the real
 // one came too late; it is informational, games should not branch on it. Commands are never repeated or
 // substituted: each arrives in one tick only.
-Inputs :: struct($Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
+Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	present:       Slots,
 	replaced:      Slots,
-	input:         [PLAYERS]Input,
-	member:        [PLAYERS]u16,
+	input:         [part(G, GAME_PLAYERS)]part(G, GAME_INPUT),
+	member:        [part(G, GAME_PLAYERS)]u16,
 	command_count: int,
 	commands:      [TICK_COMMANDS]Raw_Command, // ordered by slot, each slot's in the order sent (sim.commands)
 }
+
+// The game type. A game names its six types once, `Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)`, and
+// everything generic over a game (Sim, Tick, the netcode's Client, headless.Headless, godot.Glue, ...) takes that one
+// type, `$G`, and names a part of it with `part(G, GAME_<PART>)`:
+//
+//   part(G, GAME_STATE)    the State           part(G, GAME_EVENT)    the Event union
+//   part(G, GAME_INPUT)    the Input           part(G, GAME_CMD)      the Cmd union
+//   part(G, GAME_WORLD)    the World           part(G, GAME_PLAYERS)  PLAYERS, the slot count
+//
+// Inside a body, name the parts it uses once: `State :: sim.part(G, sim.GAME_STATE)`. Odin refuses `part` in a
+// proc's parameter list, so a parameter is a struct built from G (`^Sim($G)`, `^Tick(G)`, `^Inputs(G)`).
+part :: intrinsics.type_polymorphic_record_parameter_value
+GAME_STATE :: 0
+GAME_INPUT :: 1
+GAME_WORLD :: 2
+GAME_EVENT :: 3
+GAME_CMD :: 4
+GAME_PLAYERS :: 5
 
 // What `tick` gets: the harness builds one for each step, after it updated the State's Players (players.odin), and
 // one for `init` (number 0, no inputs, no changes). Per-tick helpers that need more than the block take it (emit,
 // roll_below, input, commands). Event and Cmd are the game's unions: emit and commands check against them at compile
 // time.
-Tick :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
-	state:          ^State,
-	world:          ^World,
+Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
+	state:          ^part(G, GAME_STATE),
+	world:          ^part(G, GAME_WORLD),
 	number:         u32, // the tick being computed: the state goes from tick number - 1 to number
 	seed:           u64, // the session's seed
 	dt:             f32, // seconds per tick: 1 / tick_hz, exact
-	inputs:         ^Inputs(Input, PLAYERS),
+	inputs:         ^Inputs(G),
 	events:         ^Events, // what this tick emits (event.odin)
 	player_changes: Player_Changes, // who joined, came back or left this tick (the State's Players already shows it)
 	players_layout: ^Players_Layout, // where the State's Players is (input, commands)
-	commands:       ^Commands(Cmd), // the tick's commands, decoded (command.odin)
+	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
 }
 
 // The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.joined`.
@@ -120,7 +138,7 @@ Extra :: struct {
 }
 
 // Every extra's check on the current state: "" when all agree with the block, else the first problem.
-check :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> string {
+check :: proc(simulation: ^Sim($G)) -> string {
 	for &extra in simulation.extras {
 		if extra.check == nil do continue
 		if reason := extra.check(extra.data, &simulation.state); reason != "" do return reason
@@ -143,7 +161,11 @@ seconds :: proc(ticks: $T, tick_hz: int) -> f32 where intrinsics.type_is_integer
 }
 
 // A game, as the harness, netcode and tools see it.
-Game :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
+Game :: struct(
+	$State, $Input, $World, $Event, $Cmd: typeid,
+	$PLAYERS: int,
+) where PLAYERS >= 1 &&
+	PLAYERS <= MAX_PLAYERS {
 	name:            string,
 	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
 	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
@@ -162,9 +184,9 @@ Game :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
 	extras:          proc(world: ^World) -> []Extra,
 	// Fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit, roll and
 	// create physics bodies.
-	init:            proc(t: ^Tick(State, Input, World, Event, Cmd, PLAYERS)),
+	init:            proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
-	tick:            proc(tick: ^Tick(State, Input, World, Event, Cmd, PLAYERS)),
+	tick:            proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
 }
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, PLAYERS).
@@ -187,20 +209,20 @@ Ring_Slot :: struct($State: typeid) {
 	events: Events, // emitted by the step that produced `tick`
 }
 
-Sim :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
-	game:           ^Game(State, Input, World, Event, Cmd, PLAYERS),
+Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
+	game:           ^G,
 	seed:           u64,
 	content:        []u8, // borrowed: the caller of create keeps it alive
 	content_hash:   u64, // content_hash(content): recorded in input logs and snapshots
 	compat:         u64, // compat_of(game, content): recorded in snapshots
 	tick:           u32,
-	state:          State,
-	world:          ^World,
+	state:          part(G, GAME_STATE),
+	world:          ^part(G, GAME_WORLD),
 	extras:         []Extra,
-	ring:           []Ring_Slot(State), // ring_size(game.tick_hz) slots, allocated at create
+	ring:           []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
 	players_layout: Players_Layout, // the State's Players field
-	changes:        Changes_Buffer(PLAYERS), // the step's joins and leaves (Tick.player_changes)
-	commands:       Commands(Cmd), // the step's commands, decoded (Tick.commands)
+	changes:        Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
+	commands:       Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
 	hash_buf:       [dynamic]u8,
@@ -222,10 +244,15 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 // the same simulation, as far as the build can tell. The content's hash goes in too, so peers with different
 // levels refuse to play together.
 compat_of :: proc(
-	game: ^Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	game: ^$G,
 	content: []u8 = nil,
 	library := Library{},
-) -> u64 {
+) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
+	State :: part(G, GAME_STATE)
+	Input :: part(G, GAME_INPUT)
+	Event :: part(G, GAME_EVENT)
+	Cmd :: part(G, GAME_CMD)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	Ids :: struct {
 		state, input, inputs, name, version, content, commands, events, box3d: u64,
 		players, tick_hz, library, _pad:                                       u32, // no padding: hashed as bytes
@@ -233,7 +260,7 @@ compat_of :: proc(
 	ids := Ids {
 		state    = layout_hash(State),
 		input    = layout_hash(Input),
-		inputs   = layout_hash(Inputs(Input, PLAYERS)),
+		inputs   = layout_hash(Inputs(G)),
 		name     = hash_bytes(transmute([]u8)game.name),
 		version  = hash_bytes(transmute([]u8)game.version),
 		content  = content_hash(content),
@@ -250,7 +277,9 @@ compat_of :: proc(
 // Whether two ticks' inputs are the same for the simulation: the same slots present, the same join
 // records, the same input bytes (what the checksum sees: -0.0 and +0.0 differ, a NaN equals itself) and the same
 // commands. `replaced` is informational and not compared.
-inputs_same :: proc(a, b: ^Inputs($Input, $PLAYERS)) -> bool {
+inputs_same :: proc(a, b: ^Inputs($G)) -> bool {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	if a.present != b.present ||
 	   a.member != b.member ||
 	   a.command_count != b.command_count ||
@@ -307,10 +336,15 @@ game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> 
 
 // Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it.
 create :: proc(
-	game: ^Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	game: ^$G,
 	seed: u64,
 	content: []u8 = nil,
-) -> ^Sim(State, Input, World, Event, Cmd, PLAYERS) {
+) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) {
+	State :: part(G, GAME_STATE)
+	Input :: part(G, GAME_INPUT)
+	Event :: part(G, GAME_EVENT)
+	Cmd :: part(G, GAME_CMD)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	check_plain(State)
 	check_wire(Input)
 	if reason := game_violation(game.name, game.tick_hz, Cmd, Event); reason != "" {
@@ -320,7 +354,7 @@ create :: proc(
 	if reason != "" {
 		panic(fmt.tprintf("%s: %s", game.name, reason))
 	}
-	simulation := new(Sim(State, Input, World, Event, Cmd, PLAYERS))
+	simulation := new(Sim(G))
 	simulation.players_layout = players_layout
 	simulation.game = game
 	simulation.seed = seed
@@ -339,7 +373,7 @@ create :: proc(
 	if game.extras != nil {
 		simulation.extras = game.extras(simulation.world)
 	}
-	inputs: Inputs(Input, PLAYERS)
+	inputs: Inputs(G)
 	slot := &simulation.ring[0]
 	slot.tick = 0
 	slot.valid = true
@@ -350,7 +384,7 @@ create :: proc(
 }
 
 // Frees a Sim made by create or from_snapshot: its ring, its events and the game's World (game.world_destroy).
-destroy :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
+destroy :: proc(simulation: ^Sim($G)) {
 	for &slot in simulation.ring {
 		delete(slot.events.list)
 	}
@@ -361,14 +395,14 @@ destroy :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)
 }
 
 // The ring slot of a tick.
-ring_slot :: #force_inline proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), tick: u32) -> int {
+ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 	return int(tick % u32(len(simulation.ring)))
 }
 
 // One tick without saving it (benchmarks time the two halves apart); step is advance + save. The slot is the
 // new tick's from the start, holding its events and no state: it never answers for the tick it held before. The
 // State's Players is updated first (players.odin) and its join and leave events emitted before the game's.
-advance :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
+advance :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
@@ -391,12 +425,7 @@ advance :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)
 
 // The Tick for computing tick `number` (no player changes: advance fills them).
 @(private)
-make_tick :: proc(
-	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	number: u32,
-	inputs: ^Inputs(Input, PLAYERS),
-	events: ^Events,
-) -> Tick(State, Input, World, Event, Cmd, PLAYERS) {
+make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events: ^Events) -> Tick(G) {
 	return {
 		state          = &simulation.state,
 		world          = simulation.world,
@@ -411,7 +440,7 @@ make_tick :: proc(
 }
 
 // Advances one tick with the given inputs and saves the new state into the ring.
-step :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
+step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 	advance(simulation, inputs)
 	save(simulation)
 }
@@ -419,15 +448,12 @@ step :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), i
 // Advances one tick and keeps its events in the ring, without saving its state: for ticks nothing will roll back
 // to (the netcode re-simulating ticks that are already final, #117). events_at answers for it; state_at, restore
 // and snapshot_encode don't.
-step_unsaved :: proc(
-	simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	inputs: ^Inputs(Input, PLAYERS),
-) {
+step_unsaved :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) {
 	advance(simulation, inputs)
 }
 
 // Saves the current state into its ring slot (keeping that slot's events).
-save :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
+save :: proc(simulation: ^Sim($G)) {
 	index := ring_slot(simulation, simulation.tick)
 	slot := &simulation.ring[index]
 	slot.state = simulation.state
@@ -443,7 +469,7 @@ save :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
 // fails, the block and the tick are left as they were and false comes back (the extras before it
 // may have been restored; the caller treats the sim as broken). The later ticks leave the ring: they are
 // another timeline's until they are stepped again.
-restore :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), tick: u32) -> bool {
+restore :: proc(simulation: ^Sim($G), tick: u32) -> bool {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]
 	if !slot.saved || slot.tick != tick {
@@ -466,25 +492,25 @@ restore :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)
 }
 
 // The saved state of `tick`, or nil when it is not in the ring.
-state_at :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), tick: u32) -> ^State {
+state_at :: proc(simulation: ^Sim($G), tick: u32) -> ^part(G, GAME_STATE) {
 	slot := &simulation.ring[ring_slot(simulation, tick)]
 	return &slot.state if slot.saved && slot.tick == tick else nil
 }
 
 // The events the step to `tick` emitted, in emission order (empty when the tick is not in the
 // ring). event_value reads one back as the game's union.
-events_at :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS), tick: u32) -> []Raw_Event {
+events_at :: proc(simulation: ^Sim($G), tick: u32) -> []Raw_Event {
 	slot := &simulation.ring[ring_slot(simulation, tick)]
 	return slot.events.list[:] if slot.valid && slot.tick == tick else nil
 }
 
 // XXH3-64 (seed 0) over the tick (u32 LE), the block's bytes (its canonical serialization, in
 // field order) and then each Extra's canonical bytes.
-checksum :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> u64 {
+checksum :: proc(simulation: ^Sim($G)) -> u64 {
 	clear(&simulation.hash_buf)
 	tick := transmute([4]u8)u32le(simulation.tick)
 	append(&simulation.hash_buf, ..tick[:])
-	append(&simulation.hash_buf, ..([^]u8)(&simulation.state)[:size_of(State)])
+	append(&simulation.hash_buf, ..([^]u8)(&simulation.state)[:size_of(simulation.state)])
 	for &extra in simulation.extras {
 		extra.hash(extra.data, &simulation.state, simulation.tick, &simulation.hash_buf)
 	}
@@ -497,8 +523,8 @@ DEEP_CHECKSUM_EVERY :: 16
 
 // Bytes each tick's save copies, measured on the current tick: the block and every extra's save of its slot (an
 // extra without `size` counts 0). What a tick costs in the ring, against snapshot_size's portable image.
-save_size :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> int {
-	size := size_of(State)
+save_size :: proc(simulation: ^Sim($G)) -> int {
+	size := size_of(simulation.state)
 	for &extra in simulation.extras {
 		if extra.size != nil {
 			size += extra.size(extra.data, ring_slot(simulation, simulation.tick))
@@ -508,8 +534,8 @@ save_size :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYER
 }
 
 // Size in bytes of a full snapshot of the current tick (block + extras' images).
-snapshot_size :: proc(simulation: ^Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> int {
-	size := size_of(State)
+snapshot_size :: proc(simulation: ^Sim($G)) -> int {
+	size := size_of(simulation.state)
 	for &extra in simulation.extras {
 		size += len(extra.image(extra.data, ring_slot(simulation, simulation.tick)))
 	}

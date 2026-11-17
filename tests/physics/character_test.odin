@@ -119,8 +119,8 @@ RIG_PATH := physics.Path {
 }
 
 Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
-Rig_Inputs :: sim.Inputs(Rig_Input, 2)
-Rig_Tick :: sim.Tick(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
+Rig_Inputs :: sim.Inputs(Rig_Game)
+Rig_Tick :: sim.Tick(Rig_Game)
 
 RIG := Rig_Game {
 	name = "rig",

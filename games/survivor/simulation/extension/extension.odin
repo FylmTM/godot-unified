@@ -55,7 +55,7 @@ MultiView :: enum u8 {
 #assert(int(MultiView.Runner) == int(survivor.Enemy_Kind.Runner))
 #assert(int(MultiView.Brute) == int(survivor.Enemy_Kind.Brute))
 
-Frame :: godot.Frame(survivor.State, survivor.World, View, MultiView)
+Frame :: godot.Frame(survivor.Game, View, MultiView)
 
 // The player view's data: set as its properties when it changes.
 Player_View :: struct {
@@ -65,7 +65,7 @@ Player_View :: struct {
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
 // instances, so their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, survivor.Cmd, View, MultiView) {
+GLUE := godot.Glue(survivor.Game, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	data              = Data,

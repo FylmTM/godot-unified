@@ -523,7 +523,7 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 
 @(test)
 input_log_round_trip :: proc(t: ^testing.T) {
-	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
+	input_log := sim.Input_Log(toy.Game) {
 		seed    = 99,
 		content = 0xC0FFEE,
 		compat  = 0xB111D,
@@ -552,7 +552,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
 	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES)
-	back, ok := sim.log_decode(data, toy.Input, toy.PLAYERS)
+	back, ok := sim.log_decode(data, toy.Game)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
 	testing.expect_value(t, back.seed, 99)
@@ -568,7 +568,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 			testing.expect(t, decoded.command_count == 2 && commands[0].slot == 0 && commands[1].slot == 1)
 		}
 	}
-	_, bad := sim.log_decode(data[:len(data) - 1], toy.Input, toy.PLAYERS)
+	_, bad := sim.log_decode(data[:len(data) - 1], toy.Game)
 	testing.expect(t, !bad)
 }
 
@@ -741,7 +741,7 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	Float_Input :: struct {
 		x: f32,
 	}
-	a, b: sim.Inputs(Float_Input, 2)
+	a, b: sim.Inputs(sim.Game(toy.State, Float_Input, toy.World, toy.Event, toy.Cmd, 2))
 	a.present = {0}
 	b.present = {0}
 	b.replaced = {0}
@@ -793,7 +793,7 @@ content_identity :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
 
 	// The current version round-trips; any other version is refused.
-	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
+	input_log := sim.Input_Log(toy.Game) {
 		seed    = 5,
 		content = sim.content_hash(level_a),
 	}
@@ -801,11 +801,11 @@ content_identity :: proc(t: ^testing.T) {
 	sim.log_append(&input_log, &inputs)
 	data := sim.log_encode(&input_log)
 	defer delete(data)
-	back, ok := sim.log_decode(data, toy.Input, toy.PLAYERS)
+	back, ok := sim.log_decode(data, toy.Game)
 	testing.expect(t, ok && back.seed == 5 && back.content == input_log.content && len(back.ticks) == 1)
 	sim.log_destroy(&back)
 	data[4] = u8(sim.LOG_VERSION - 1) // the version, little-endian, after the magic
-	_, ok = sim.log_decode(data, toy.Input, toy.PLAYERS)
+	_, ok = sim.log_decode(data, toy.Game)
 	testing.expect(t, !ok)
 	snap[4] = u8(sim.SNAP_VERSION - 1)
 	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)

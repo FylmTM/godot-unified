@@ -6,6 +6,7 @@
 // record count u8, then per record (in slot order): slot u8, member u16.
 package sim
 
+@(require) import "base:intrinsics" // only in a where clause
 import "core:os"
 
 import "unified:wire"
@@ -21,25 +22,25 @@ COMMAND_HEAD :: 3 // slot, kind, size: a command's bytes on the wire and in the 
 JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in the log
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
-Log_Tick :: struct($Input: typeid, $PLAYERS: int) {
+Log_Tick :: struct($G: typeid) {
 	present:       Slots,
 	replaced:      Slots,
-	input:         [PLAYERS]Input,
-	member:        [PLAYERS]u16, // join records
+	input:         [part(G, GAME_PLAYERS)]part(G, GAME_INPUT),
+	member:        [part(G, GAME_PLAYERS)]u16, // join records
 	first_command: u32, // index into Input_Log.commands
 	command_count: u32,
 }
 
-Input_Log :: struct($Input: typeid, $PLAYERS: int) {
+Input_Log :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	seed:     u64,
 	content:  u64, // content_hash of the session's content (0: none)
 	compat:   u64, // compat_of of the build that recorded it (0: unknown, e.g. a relay that accepts any build)
-	ticks:    [dynamic]Log_Tick(Input, PLAYERS), // ticks[k] holds tick k + 1
+	ticks:    [dynamic]Log_Tick(G), // ticks[k] holds tick k + 1
 	commands: [dynamic]Raw_Command, // every tick's commands, in tick order
 }
 
 // Frees the log's ticks and commands and leaves it empty, ready to append to again.
-log_destroy :: proc(input_log: ^Input_Log($Input, $PLAYERS)) {
+log_destroy :: proc(input_log: ^Input_Log($G)) {
 	delete(input_log.ticks)
 	delete(input_log.commands)
 	input_log.ticks = nil
@@ -47,8 +48,8 @@ log_destroy :: proc(input_log: ^Input_Log($Input, $PLAYERS)) {
 }
 
 // Appends a tick's inputs (the next tick).
-log_append :: proc(input_log: ^Input_Log($Input, $PLAYERS), inputs: ^Inputs(Input, PLAYERS)) {
-	append(&input_log.ticks, Log_Tick(Input, PLAYERS) {
+log_append :: proc(input_log: ^Input_Log($G), inputs: ^Inputs(G)) {
+	append(&input_log.ticks, Log_Tick(G) {
 		present       = inputs.present,
 		replaced      = inputs.replaced,
 		input         = inputs.input,
@@ -60,13 +61,13 @@ log_append :: proc(input_log: ^Input_Log($Input, $PLAYERS), inputs: ^Inputs(Inpu
 }
 
 // The commands of the log's tick k + 1.
-log_commands :: proc(input_log: ^Input_Log($Input, $PLAYERS), k: int) -> []Raw_Command {
+log_commands :: proc(input_log: ^Input_Log($G), k: int) -> []Raw_Command {
 	log_tick := &input_log.ticks[k]
 	return input_log.commands[log_tick.first_command:][:log_tick.command_count]
 }
 
 // The inputs of the log's tick k + 1, ready for sim.step.
-log_inputs :: proc(input_log: ^Input_Log($Input, $PLAYERS), k: int) -> (inputs: Inputs(Input, PLAYERS)) {
+log_inputs :: proc(input_log: ^Input_Log($G), k: int) -> (inputs: Inputs(G)) {
 	log_tick := &input_log.ticks[k]
 	inputs.present = log_tick.present
 	inputs.replaced = log_tick.replaced
@@ -212,7 +213,9 @@ read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16) -> bool 
 }
 
 // Writes a tick's inputs as write_tick does.
-inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($Input, $PLAYERS)) {
+inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($G)) {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	write_tick(
 		writer,
 		inputs.present,
@@ -224,7 +227,9 @@ inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($Input, $PLAYERS)) {
 }
 
 // Reads a tick's inputs written by inputs_write (or log_write_tick).
-inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($Input, $PLAYERS)) -> bool {
+inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($G)) -> bool {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	inputs^ = {}
 	input := ([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)]
 	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.member[:])
@@ -233,14 +238,18 @@ inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($Input, $PLAYERS)) -> 
 }
 
 // Writes the log's tick k + 1 as write_tick does.
-log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($Input, $PLAYERS), k: int) {
+log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($G), k: int) {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	log_tick := &input_log.ticks[k]
 	input := ([^]u8)(&log_tick.input)[:size_of([PLAYERS]Input)]
 	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k), log_tick.member[:])
 }
 
 // The log's bytes: the header, then the ticks.
-log_encode :: proc(input_log: ^Input_Log($Input, $PLAYERS), allocator := context.allocator) -> []u8 {
+log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) -> []u8 {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	size_hint :=
 		LOG_HEADER +
 		len(input_log.ticks) * tick_bytes(Input, PLAYERS, nil) +
@@ -261,9 +270,11 @@ log_encode :: proc(input_log: ^Input_Log($Input, $PLAYERS), allocator := context
 	return writer.buf[:]
 }
 
-// Parses log_encode's bytes into an Input_Log; false when the header does not match this Input and PLAYERS or
-// the bytes are malformed. A recording that never ended (tick count 0) is read to its end.
-log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Input_Log(Input, PLAYERS), ok: bool) {
+// Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input and
+// PLAYERS or the bytes are malformed. A recording that never ended (tick count 0) is read to its end.
+log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
+	Input :: part(G, GAME_INPUT)
+	PLAYERS :: part(G, GAME_PLAYERS)
 	header, body := decode_log(data) or_return
 	if header.players != PLAYERS ||
 	   header.input_size != size_of(Input) ||
@@ -273,9 +284,9 @@ log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 	input_log.seed = header.seed
 	input_log.content = header.content
 	input_log.compat = header.compat
-	input_log.ticks = make([dynamic]Log_Tick(Input, PLAYERS), 0, header.ticks)
+	input_log.ticks = make([dynamic]Log_Tick(G), 0, header.ticks)
 	reader := wire.reader_make(body)
-	inputs: Inputs(Input, PLAYERS)
+	inputs: Inputs(G)
 	// A recording whose writer never patched the count (it stopped without ending): every tick to the end.
 	unended := header.ticks == 0
 	for k := 0; unended ? wire.r_remaining(&reader) > 0 : k < header.ticks; k += 1 {
@@ -293,18 +304,18 @@ log_decode :: proc(data: []u8, $Input: typeid, $PLAYERS: int) -> (input_log: Inp
 }
 
 // Writes the log to a file (log_encode's bytes): the replay a headless run or a recorded session leaves.
-log_write :: proc(path: string, input_log: ^Input_Log($Input, $PLAYERS)) -> bool {
+log_write :: proc(path: string, input_log: ^Input_Log($G)) -> bool {
 	data := log_encode(input_log)
 	defer delete(data)
 	return write_file(path, data)
 }
 
 // Reads a log file written by log_write (or a relay's recording) for a replay; false when it is missing or does
-// not decode for this Input and PLAYERS.
-log_read :: proc(path: string, $Input: typeid, $PLAYERS: int) -> (input_log: Input_Log(Input, PLAYERS), ok: bool) {
+// not decode for game G.
+log_read :: proc(path: string, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
 	data := read_file(path) or_return
 	defer delete(data)
-	return log_decode(data, Input, PLAYERS)
+	return log_decode(data, G)
 }
 
 // Where a log goes as it grows (a relay's recording, src/netcode/SPEC.md): `write` puts bytes at an offset (the
@@ -419,7 +430,7 @@ log_stream_put :: proc(stream: ^Log_Stream) {
 }
 
 // Appends one tick's inputs to the recording (the relay calls it for each finalized tick).
-log_stream_tick :: proc(stream: ^Log_Stream, inputs: ^Inputs($Input, $PLAYERS)) {
+log_stream_tick :: proc(stream: ^Log_Stream, inputs: ^Inputs($G)) {
 	if stream.sink.write == nil {
 		return
 	}

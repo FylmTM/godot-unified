@@ -50,7 +50,7 @@ MultiView :: enum u8 {
 	Gem,
 }
 
-Frame :: godot.Frame(dr.State, dr.World, View, MultiView)
+Frame :: godot.Frame(dr.Game, View, MultiView)
 
 Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
@@ -68,7 +68,7 @@ Gate_View :: struct {
 // Keys (unique within a kind): a ship its player's key (ship_key: sim.player_key, the same while they are in the
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
-GLUE := godot.Glue(dr.State, dr.Input, dr.World, dr.Cmd, View, MultiView) {
+GLUE := godot.Glue(dr.Game, View, MultiView) {
 	sample_input      = sample_input,
 	fill_frame        = fill_frame,
 	data              = Data,

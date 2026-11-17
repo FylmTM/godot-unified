@@ -8,9 +8,9 @@ import "../toy"
 import "unified:netcode"
 import "unified:sim"
 
-Client :: netcode.Client(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
-Host :: netcode.Host(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
-Hooks :: netcode.Hooks(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS)
+Client :: netcode.Client(toy.Game)
+Host :: netcode.Host(toy.Game)
+Hooks :: netcode.Hooks(toy.Game)
 
 SEED :: 5
 
@@ -63,14 +63,14 @@ Net :: struct {
 	clients:   [dynamic]^Client,
 	watch:     [8]Watch,
 	recording: [dynamic]u8, // the relay's recording
-	log:       sim.Input_Log(toy.Input, toy.PLAYERS), // decoded by net_log
+	log:       sim.Input_Log(toy.Game), // decoded by net_log
 }
 
 // The relay's recording so far, decoded (valid until the next call).
-net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Input, toy.PLAYERS) {
+net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Game) {
 	sim.log_destroy(&session.log)
 	ok: bool
-	session.log, ok = sim.log_decode(session.recording[:], toy.Input, toy.PLAYERS)
+	session.log, ok = sim.log_decode(session.recording[:], toy.Game)
 	assert(ok, "the recording does not decode")
 	return &session.log
 }

@@ -6,7 +6,7 @@ import "unified:view"
 
 import g "../__GAME__"
 
-Frame :: godot.Frame(g.State, g.World, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 // The scene view kinds: each has a scene with a UnifiedView marker of that kind (game/views/).
 View :: enum u8 {

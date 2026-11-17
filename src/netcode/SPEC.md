@@ -5,7 +5,7 @@ Status: signed off 2026-11-14 (#8).
 Nobody sends game state: every client runs the whole deterministic sim, and the relay only orders inputs. The
 relay's input log is the session (seed + content + log replays to the same checksums anywhere).
 
-Generic over the game: `Relay(Input, PLAYERS)`, `Client(State, Input, World, PLAYERS)`, `Host(...)`. Nothing runs a
+Generic over the game: `Relay(G)`, `Client(G)`, `Host(G)` (`G` the game type, a `sim.Game`). Nothing runs a
 thread or loop of its own: the host application calls `*_step(now_us) -> wake_us` from its own loop (or one thread
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
 `sleep_until(wake_us)` (to the microsecond: a high-resolution waitable timer on Windows, whose `Sleep` takes whole
@@ -47,7 +47,7 @@ through `headless.session_run`).
   epoch, sent (and the peer's echoed) in every datagram: a restarted peer on the same address replaces its old
   connection at once, and a side still talking to a connection the other ended is told so at once instead of sitting
   half-open.
-- **Relay** (`relay_create(cfg, Input, PLAYERS)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
+- **Relay** (`relay_create(cfg, G)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
   `relay_clock`, `relay_tick`, `relay_end_recording`): owns the clock; finalizes ticks, broadcasts them, routes and
   checks late-join snapshots, judges checksums. Keeps the last `RELAY_RING` (512) finalized ticks; the whole
   session only in its optional recording. Serves all links at once. `ticks = 0` is an endless session.

@@ -20,9 +20,9 @@ Host_Config :: struct {
 	desync_detail: bool,
 }
 
-Host :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
-	relay:   ^Relay(Input, PLAYERS),
-	client:  ^Client(State, Input, World, Event, Cmd, PLAYERS),
+Host :: struct($G: typeid) {
+	relay:   ^Relay(G),
+	client:  ^Client(G),
 	hub:     ^Hub,
 	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
 	poll_us: i64, // the relay's poll once a remote link is added (until then nothing comes from outside)
@@ -34,12 +34,11 @@ SOLO_POLL_US :: 50_000
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
 // the host's client in slot 0.
-host_create :: proc(
-	game: ^sim.Game($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	cfg: Host_Config,
-	hooks: Hooks(State, Input, World, Event, Cmd, PLAYERS),
-) -> ^Host(State, Input, World, Event, Cmd, PLAYERS) {
-	host := new(Host(State, Input, World, Event, Cmd, PLAYERS))
+host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
+	State :: sim.part(G, sim.GAME_STATE)
+	Input :: sim.part(G, sim.GAME_INPUT)
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	host := new(Host(G))
 	host.hub = hub_create(2)
 	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game, cfg.content)
 	relay_config := Relay_Config {
@@ -56,7 +55,7 @@ host_create :: proc(
 		recording     = cfg.recording,
 		desync_diff   = cfg.desync_detail ? desync_diff_of(State) : nil,
 	}
-	host.relay = relay_create(relay_config, Input, PLAYERS)
+	host.relay = relay_create(relay_config, G)
 	relay_add_link(host.relay, loopback_link(host.hub, 0, cfg.account))
 	client_config := Client_Config {
 		slot        = 0,
@@ -75,7 +74,7 @@ host_create :: proc(
 // Adds a transport for remote players (the host owns it from now on). The relay serves it once the host's
 // own player is in (its clock started), so a remote Hello already waiting on the link (a player who connected
 // while the host waited for them) joins as a remote player instead of taking the host's player 0.
-host_add_link :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS), link: Link) {
+host_add_link :: proc(host: ^Host($G), link: Link) {
 	host.relay.cfg.poll_us = host.poll_us // datagrams from outside: poll for them
 	if host.relay.started {
 		relay_add_link(host.relay, link)
@@ -87,7 +86,7 @@ host_add_link :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS
 // Steps the relay and the host's client; returns the earlier of their wake times. What one of them sends the other
 // is taken in the same call (they talk in-process), so the host's own inputs and finalized ticks never wait for a
 // wake, and a single-player host wakes only at its deadlines (#263).
-host_step :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS), now: i64) -> i64 {
+host_step :: proc(host: ^Host($G), now: i64) -> i64 {
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
 	for _ in 0 ..< 4 { 	// inputs -> finalized tick -> its ack: a few rounds at most
@@ -108,19 +107,19 @@ host_step :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS), n
 }
 
 // Ends the session for everyone. Keep stepping until host_finished.
-host_stop :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS), now: i64) {
+host_stop :: proc(host: ^Host($G), now: i64) {
 	relay_stop(host.relay, now)
 }
 
 // Whether the session is over on both halves: the relay finished and the host's client disconnected or failed.
 // The loop that steps the host stops on it before host_destroy.
-host_finished :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> bool {
+host_finished :: proc(host: ^Host($G)) -> bool {
 	status := host.client.status
 	return relay_finished(host.relay) && (status == .Disconnected || status == .Failed)
 }
 
 // Frees the host: its client, its relay (ending its recording), every link they own and the loopback hub.
-host_destroy :: proc(host: ^Host($State, $Input, $World, $Event, $Cmd, $PLAYERS)) {
+host_destroy :: proc(host: ^Host($G)) {
 	for &link in host.waiting {
 		link_close(&link)
 	}
