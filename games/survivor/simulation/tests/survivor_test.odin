@@ -7,14 +7,6 @@ import "core:testing"
 import "../survivor"
 import "unified:sim"
 
-@(test)
-state_is_plain_data :: proc(t: ^testing.T) {
-	testing.expect_value(t, sim.plain_violation(type_info_of(survivor.State)), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(survivor.Input)), "")
-	testing.expect_value(t, size_of(survivor.Input), 3)
-	game := &survivor.GAME
-	testing.expect_value(t, sim.game_violation(game.name, game.tick_hz, survivor.Cmd, survivor.Event), "")
-}
 
 // GDScript sends commands and matches events by these names: renaming a type breaks the game's scripts.
 @(test)

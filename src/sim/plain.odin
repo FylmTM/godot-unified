@@ -98,19 +98,7 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats:
 }
 
 // Panics unless T is plain data (see plain_violation).
-check_plain :: proc($T: typeid) {
-	check_plain_of(type_info_of(T))
-}
-
-// Panics unless the type is plain data, for a type known only at run time (check_plain's RTTI form).
-@(private)
-check_plain_of :: proc(type: ^runtime.Type_Info) {
-	if reason := plain_violation(type, fmt.tprint(type.id)); reason != "" {
-		fmt.panicf("%v is not plain data: %s", type.id, reason)
-	}
-}
-
-// Panics unless T is plain data without bools or floats (see wire_violation): what create, the netcode client and the relay
+// Panics unless T is plain data without bools or floats (see wire_violation): what the netcode client and the relay
 // check an Input with.
 check_wire :: proc($T: typeid) {
 	if reason := wire_violation(type_info_of(T), fmt.tprint(typeid_of(T))); reason != "" {

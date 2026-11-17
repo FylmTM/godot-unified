@@ -329,14 +329,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	multi_names, multi_ok := enum_names(MultiView)
 	if !view_ok do append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
 	if !multi_ok do append(&problems, fmt.aprintf("the MultiView enum %v must count up from 0", typeid_of(MultiView)))
-	if reason := sim.game_violation(game.name, game.tick_hz, Cmd, Event); reason != "" {
+	if reason := sim.game_violation(game); reason != "" {
 		append(&problems, strings.clone(reason))
-	}
-	if reason := sim.plain_violation(type_info_of(State)); reason != "" {
-		append(&problems, fmt.aprintf("State: %s", reason))
-	}
-	if reason := sim.wire_violation(type_info_of(Input)); reason != "" {
-		append(&problems, fmt.aprintf("Input: %s", reason))
 	}
 	data_problems(glue.data, glue.constants.id, &problems)
 	if glue.constants.id != nil && glue.constants.data == nil do append(&problems, "Glue.constants holds no value")

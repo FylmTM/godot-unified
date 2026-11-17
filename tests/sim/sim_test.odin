@@ -407,14 +407,35 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		sim.Event_Player_Left,
 		Event_Ticked,
 	}
-	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, toy.Event), "")
-	testing.expect(t, sim.game_violation("toy", 64, Big_Union, toy.Event) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
-	testing.expect(t, strings.contains(sim.game_violation("toy", 64, nil, Reserved_Field), "`tick`"))
-	testing.expect(t, sim.game_violation("toy", 60, nil, toy.Event) != "") // not a power of two
-	testing.expect(t, sim.game_violation("toy", 256, nil, toy.Event) != "") // above 128
-	testing.expect(t, sim.game_violation("toy", 16, nil, toy.Event) != "") // below 32
+	testing.expect_value(t, sim.game_violation(&toy.GAME), "")
+	testing.expect(t, declared(Big_Union, toy.Event) != "")
+	testing.expect(t, declared(sim.No_Commands, Pointer_Union) != "")
+	testing.expect(t, declared(sim.No_Commands, No_Nil) != "")
+	testing.expect(t, strings.contains(declared(sim.No_Commands, Reserved_Field), "`tick`"))
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 60) != "") // not a power of two
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 256) != "") // above 128
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 16) != "") // below 32
+	Float_State :: struct {
+		players: sim.Players(u8, Float_Input, toy.PLAYERS),
+		at:      f64,
+	}
+	Float_Input :: struct {
+		x: f32,
+	}
+	floats := sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
+		name    = "floats",
+		tick_hz = 64,
+	}
+	testing.expect(t, strings.contains(sim.game_violation(&floats), "the State is not plain data"))
+}
+
+// sim.game_violation of a toy with these unions and this tick rate.
+declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
+	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, toy.PLAYERS) {
+		name    = "toy",
+		tick_hz = tick_hz,
+	}
+	return sim.game_violation(&game)
 }
 
 @(test)

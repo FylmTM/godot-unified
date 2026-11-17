@@ -314,11 +314,33 @@ content_hash :: proc(content: []u8) -> u64 {
 	return hash_bytes(content) if len(content) > 0 else 0
 }
 
-// Why a game's declaration can't be used ("" when it can): the tick rate, the command and event unions (the
-// events list sim.Event_Player_Joined and sim.Event_Player_Left).
-game_violation :: proc(name: string, tick_hz: int, commands, events: typeid) -> string {
+// Why a game can't run ("" when it can; temp-allocated): its tick rate, its State (plain data: plain_violation), its
+// Input (wire_violation), its command and event unions. create panics with it; the Godot host reports it. What the
+// compiler can check (the State's `players`, the library's events in the Event union) doesn't compile instead.
+game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specialization_of(G, Game) {
+	State :: part(G, GAME_STATE)
+	Input :: part(G, GAME_INPUT)
+	Cmd :: part(G, GAME_CMD)
+	Event :: part(G, GAME_EVENT)
+	return declaration_violation(game.name, game.tick_hz, type_info_of(State), type_info_of(Input), Cmd, Event)
+}
+
+// game_violation's body, for the types at run time (a non-generic home for its imports: -vet).
+@(private)
+declaration_violation :: proc(
+	name: string,
+	tick_hz: int,
+	state, input: ^runtime.Type_Info,
+	commands, events: typeid,
+) -> string {
 	if tick_hz < 32 || tick_hz > 128 || tick_hz & (tick_hz - 1) != 0 {
 		return fmt.tprintf("%s: tick_hz %d (a power of two, 32..128)", name, tick_hz)
+	}
+	if reason := plain_violation(state, fmt.tprint(state.id)); reason != "" {
+		return fmt.tprintf("%s: the State is not plain data: %s", name, reason)
+	}
+	if reason := wire_violation(input, fmt.tprint(input.id)); reason != "" {
+		return fmt.tprintf("%s: the Input can't be sent between machines: %s", name, reason)
 	}
 	if reason := union_violation(commands, COMMAND_MAX, COMMAND_PREFIX); reason != "" {
 		return fmt.tprintf("%s: commands: %s", name, reason)
@@ -353,9 +375,7 @@ create :: proc(
 	Event :: part(G, GAME_EVENT)
 	Cmd :: part(G, GAME_CMD)
 	PLAYERS :: part(G, GAME_PLAYERS)
-	check_plain(State)
-	check_wire(Input)
-	if reason := game_violation(game.name, game.tick_hz, Cmd, Event); reason != "" {
+	if reason := game_violation(game); reason != "" {
 		panic(reason)
 	}
 	simulation := new(Sim(G))

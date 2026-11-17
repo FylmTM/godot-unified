@@ -157,8 +157,8 @@ events_may_have_padding :: proc(t: ^testing.T) {
 	Padded_Commands :: union {
 		Event_Padded,
 	}
-	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, Padded_Events), "")
-	testing.expect(t, sim.game_violation("toy", 64, Padded_Commands, toy.Event) != "")
+	testing.expect_value(t, declared(toy.Cmd, Padded_Events), "")
+	testing.expect(t, declared(Padded_Commands, toy.Event) != "")
 	Event_Pointer :: struct {
 		at: ^int,
 	}
@@ -167,7 +167,7 @@ events_may_have_padding :: proc(t: ^testing.T) {
 		sim.Event_Player_Left,
 		Event_Pointer,
 	}
-	testing.expect(t, sim.game_violation("toy", 64, toy.Cmd, Pointer_Events) != "") // the other rules stand
+	testing.expect(t, declared(toy.Cmd, Pointer_Events) != "") // the other rules stand
 }
 
 // An extra whose check fails while `broken` is set.
