@@ -344,6 +344,10 @@ players_update :: proc(
 		if record == 0 || slot not_in inputs.present || view.slots[slot].id != 0 {
 			continue
 		}
+		for other in 0 ..< slot {
+			// read_joins refuses it; two would leave one slot twice, past changes.left
+			assert(other not_in inputs.present || inputs.member[other] != record, "one member in two join records")
+		}
 		index := -1
 		for member, i in view.members {
 			if member.id == record {

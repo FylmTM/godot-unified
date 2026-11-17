@@ -286,6 +286,14 @@ malformed_tick_records_are_refused :: proc(t: ^testing.T) {
 	sim.inputs_write(&writer, &five)
 	reader = wire.reader_make(writer.buf[:])
 	testing.expect(t, !sim.inputs_read(&reader, &back))
+	// One member in two join records (the relay never writes it; stepped, the second leave would overrun the tick's
+	// left list).
+	twice := inputs
+	twice.member[0], twice.member[1] = 9, 9
+	clear(&writer.buf)
+	sim.inputs_write(&writer, &twice)
+	reader = wire.reader_make(writer.buf[:])
+	testing.expect(t, !sim.inputs_read(&reader, &back))
 }
 
 // Mutated input logs never crash the decoder; whatever it accepts replays.
