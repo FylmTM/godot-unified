@@ -159,7 +159,9 @@ wide_inputs_arrive_in_time_on_a_bad_network :: proc(t: ^testing.T) {
 }
 
 // 4 players at 32, 64 and 128 Hz on `wan` and `bad`, with a late joiner that joins as a player does: everyone
-// verifies every tick, nobody desyncs, no input comes too late, and the joiner is in within its join's budget.
+// verifies every tick, nobody desyncs, no input comes too late, the joiner is in within its join's budget, and stalls
+// stay under 5% of the ticks (`bad`'s round trip is inside every rate's ceiling: the ring's floor gives 32 Hz the
+// same 250 ms of prediction as the others).
 @(test)
 sessions_play_at_32_64_and_128_hz :: proc(t: ^testing.T) {
 	for tick_hz in ([]int{32, 64, 128}) {
@@ -204,6 +206,15 @@ sessions_play_at_32_64_and_128_hz :: proc(t: ^testing.T) {
 			)
 			testing.expectf(
 				t,
+				stalls * 20 < 4 * int(cfg.ticks),
+				"%d Hz on %s: stall ticks %d of %d",
+				tick_hz,
+				cfg.profile.name,
+				stalls,
+				4 * int(cfg.ticks),
+			)
+			testing.expectf(
+				t,
 				result.join_us > 0 && result.join_us < 3_000_000,
 				"%d Hz on %s: the joiner in after %d ms",
 				tick_hz,
@@ -214,7 +225,7 @@ sessions_play_at_32_64_and_128_hz :: proc(t: ^testing.T) {
 	}
 }
 
-Plain_8x24 :: sim.Game(Plain_State(24, 8), Plain_Input(24), sim.No_World, Wide_Event, sim.No_Commands, 8)
+Plain_8x26 :: sim.Game(Plain_State(26, 8), Plain_Input(26), sim.No_World, Wide_Event, sim.No_Commands, 8)
 Plain_32x4 :: sim.Game(Plain_State(4, 32), Plain_Input(4), sim.No_World, Wide_Event, sim.No_Commands, 32)
 
 // The widest ticks the relay accepts (netcode.game_violation: TICKS_PER_MESSAGE_MIN of them per message), every Input
@@ -240,12 +251,17 @@ the_widest_accepted_ticks_play_on_a_bad_network :: proc(t: ^testing.T) {
 		ticks   = 900,
 		seed    = 1,
 	}
-	wide, wide_stalls := plain_session(Plain_8x24, 0, 64, cfg)
+	wide, wide_stalls := plain_session(Plain_8x26, 0, 64, cfg)
 	defer headless.session_result_destroy(&wide)
-	check(t, "8 x 24 B", &wide, wide_stalls, 8)
-	testing.expectf(t, wide.replaced == 0, "8 x 24 B: %d inputs replaced", wide.replaced)
+	check(t, "8 x 26 B", &wide, wide_stalls, 8)
+	testing.expectf(t, wide.replaced == 0, "8 x 26 B: %d inputs replaced", wide.replaced)
+	cfg.clients = 2
+	two, two_stalls := plain_session(Plain_2x116, 0, 64, cfg)
+	defer headless.session_result_destroy(&two)
+	check(t, "2 x 116 B", &two, two_stalls, 2)
+	testing.expectf(t, two.replaced == 0, "2 x 116 B: %d inputs replaced", two.replaced)
 	// (32 start players on `bad`: a Welcome lost and resent can come after the start lead, and a player's first
-	// inputs with it. That is the start, not the stream: inputs are not checked here.)
+	// inputs with it (the netcode spec, Start). That is the start, not the stream: inputs are not checked here.)
 	cfg.clients = 32
 	many, many_stalls := plain_session(Plain_32x4, 0, 64, cfg)
 	defer headless.session_result_destroy(&many)

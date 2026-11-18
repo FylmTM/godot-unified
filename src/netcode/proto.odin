@@ -78,8 +78,8 @@ Timing :: struct {
 	tolerance:      u32, // ticks
 	max_delay:      u32, // ticks
 	// How far a client may predict past its verified tick: sim.ring_size(tick_hz) - 2, the most the ring
-	// allows (a rollback target is always in it): ~250 ms of ring, so 187 ms at 32 Hz, 218 ms at 64, 234 ms
-	// at 128. A client runs about one round trip plus its input delay ahead of what it has verified, so this
+	// allows (a rollback target is always in it): 250 ms at 32 Hz (the ring's floor), 218 ms at 64, 234 ms at
+	// 128. A client runs about one round trip plus its input delay ahead of what it has verified, so this
 	// bounds the round trip it plays smoothly at (~300 ms at 64 Hz); past it the client stalls every tick.
 	prediction_cap: u32,
 }

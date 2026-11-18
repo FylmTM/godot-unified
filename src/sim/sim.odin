@@ -224,11 +224,12 @@ No_Commands :: union {}
 No_World :: struct {}
 
 @(private)
-MIN_RING_SIZE :: 8
+MIN_RING_SIZE :: 10
 MAX_RING_SIZE :: 32
 
-// The ring keeps about 250 ms of ticks at any rate: 8 at 32 Hz, 16 at 64, 32 at 128. It bounds
-// rollback: the netcode predicts at most ring_size - 2 ticks ahead.
+// The ring keeps about 250 ms of ticks at any rate: 16 at 64 Hz, 32 at 128. It bounds rollback: the netcode predicts
+// at most ring_size - 2 ticks ahead, so below 40 Hz the floor keeps that cap at 250 ms or more (10 at 32 Hz, a cap of
+// 8): at 32 Hz two ticks are 62 ms, and a ring of 250 ms left a cap of 188, short of a lossy path's round trip.
 ring_size :: proc(tick_hz: int) -> int {
 	return dmath.clamp(tick_hz / 4, MIN_RING_SIZE, MAX_RING_SIZE)
 }

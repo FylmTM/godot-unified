@@ -355,3 +355,57 @@ a_leave_inside_the_first_round_trip_leaves_no_member_behind :: proc(t: ^testing.
 		}
 	}
 }
+
+// A client stopped while a Connected was still on its way (a joiner between its checksum and the relay's Snap_Ok; a
+// start player before its Welcome) never reports Connected after client_stop, and finishes "left".
+@(test)
+a_leaving_client_never_reports_connected :: proc(t: ^testing.T) {
+	{
+		session: Net
+		net_make_relay(&session, 1, 0)
+		defer net_destroy(&session)
+		net_join(&session, 0, .Ideal)
+		net_run(&session, 1)
+		joiner := far_join(&session, 60)
+		// the relay checked its snapshot and sent Snap_Ok, which is on its way
+		net_run(&session, 5, proc(session: ^Net) -> bool {
+			return session.clients[1].checking && !session.relay.seats[1].checking
+		})
+		testing.expect(t, joiner.checking && session.relay.seats[1].connected)
+		netcode.client_stop(joiner, session.clock.now)
+		net_run(&session, 3)
+		statuses := session.watch[2].statuses[:]
+		testing.expectf(
+			t,
+			joiner.status == .Disconnected && joiner.detail == "left" && !slice_has(statuses, .Connected),
+			"a joiner stopped while checking: %v (%s), statuses %v",
+			joiner.status,
+			joiner.detail,
+			statuses,
+		)
+	}
+	{
+		session: Net
+		net_make_relay(&session, 1, 0)
+		defer net_destroy(&session)
+		start := far_join(&session, 120)
+		net_run(&session, 0.05) // its Hello is on its way: the relay starts the clock and welcomes it
+		netcode.client_stop(start, session.clock.now)
+		net_run(&session, 3)
+		statuses := session.watch[1].statuses[:]
+		testing.expectf(
+			t,
+			start.status == .Disconnected && start.detail == "left" && !slice_has(statuses, .Connected),
+			"a start player stopped before its Welcome: %v (%s), statuses %v, welcomed %v",
+			start.status,
+			start.detail,
+			statuses,
+			start.welcomed,
+		)
+	}
+}
+
+slice_has :: proc(statuses: []netcode.Status, wanted: netcode.Status) -> bool {
+	for status in statuses do if status == wanted do return true
+	return false
+}

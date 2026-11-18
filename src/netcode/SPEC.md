@@ -104,9 +104,10 @@ that doesn't validate never gets a connection (or a transport peer number).
 - **Seats**: one `Seat` per slot holds its connection, inputs, commands and late join. A seat is emptied with one
   assignment when its occupant leaves and before a new one sits down: nothing of a previous occupant carries over.
 - **Start**: the clock starts once the start players have connected: they get Welcome and tick 0 is due
-  `START_LEAD_MS` later, so a far start player's inputs for tick 1 arrive in time; during the lead the relay already
-  broadcasts, with a negative relay time. A host's relay skips the lead (`local_start`): its only start player is
-  in-process.
+  `START_LEAD_MS` later, so a far start player's inputs for tick 1 arrive in time; the lead covers the path, not a
+  lost Welcome: a start player whose Welcome is resent (on `bad`, about 375 ms later) has its first ticks' inputs
+  replaced, a moment of standing still that every peer agrees on. During the lead the relay already broadcasts, with a
+  negative relay time. A host's relay skips the lead (`local_start`): its only start player is in-process.
 - **Finalizing**: tick T is final once every present player's input for T is in, or the clock reaches T +
   tolerance (`TOLERANCE_MS`), never past the clock while nobody is present. A missing input repeats the player's last
   one (`replaced`). `present` = connected slots from their join tick; a slot's join tick carries its join record (the
@@ -117,11 +118,15 @@ that doesn't validate never gets a connection (or a transport peer number).
   up to `CATCHUP_TICKS` of them, in one message (as many as fit, ≤ `WINDOW_MAX`). When they don't fit, each broadcast
   carries on where the last one stopped and starts again at the oldest once one reached the newest: a message of ticks
   per broadcast, never one per round trip; while that cycle is behind ticks no broadcast carried yet, a second message
-  carries them. How wide a tick can be: a game's widest tick (every Input byte changed, every slot joining) must leave
-  `TICKS_PER_MESSAGE_MIN` (4) of them per message, which is Inputs up to 48 bytes at 4 players, 24 at 8, 8 at 16, 4 at
-  32. `relay_create` refuses a wider game (`game_violation`, which the Godot host reports with the sim's): fewer ticks
-  per message leave no room to make up a lost one, and clients on a lossy network stall on most ticks. A client whose
-  unacked ticks have left the ring is refused (`Too_Far_Behind`).
+  carries them. How wide a tick can be: a game's widest tick (every Input byte changed, every slot joining:
+  `1 + 3·⌈P/8⌉ + P·(B + ⌈B/8⌉) + 1 + 3·P` bytes for P players and a B-byte Input) must leave
+  `TICKS_PER_MESSAGE_MIN` (4) of them per message, a tick of at most 274 bytes: Inputs up to 116 bytes at 2 players,
+  76 at 3, 56 at 4, 26 at 8, 11 at 16, 4 at 32. `relay_create` refuses a wider game (`game_violation`, which the Godot
+  host reports with the sim's): fewer ticks per message leave no room to make up a lost one, and clients on a lossy
+  network stall on most ticks. A game at the bound costs its host: on a lossy path every unacked tick rides again each
+  broadcast, about 1 to 1.4 kB per client per tick, so the host's upstream is about 2 Mbit/s at 4 players and 21 at 32
+  at 64 Hz, twice that at 128 Hz (`uni bench` prints what a game sends). A client whose unacked ticks have left the
+  ring is refused (`Too_Far_Behind`).
 - **The window** (`window.odin`): each tick is written as its changes from the tick before it in the same packet,
   the first from the empty tick: a flags byte, then only what it says: present and replaced (a bit per slot); a bit
   per slot whose input changed and, per such slot, a bit per changed byte and those bytes; the commands; the join

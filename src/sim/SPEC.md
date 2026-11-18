@@ -245,8 +245,9 @@ Two kinds, on SplitMix64's mixing function, integer-only:
 save, the events). Ticks count from 1; tick 0 is the initial state.
 
 - `create(&GAME, seed, content = nil)` (World, Extra, `init`, tick 0 saved; nil content: `GAME.content`), `destroy`.
-- **The ring** keeps about 250 ms at any rate: `ring_size(tick_hz) = tick_hz / 4` (8..32 slots), allocated at
-  `create`. It bounds rollback: the netcode predicts at most ring − 2 ticks ahead.
+- **The ring** keeps about 250 ms at any rate: `ring_size(tick_hz) = tick_hz / 4` (10..32 slots), allocated at
+  `create`. It bounds rollback: the netcode predicts at most ring − 2 ticks ahead. The floor keeps that cap at 250 ms
+  or more below 40 Hz (at 32 Hz two ticks are 62 ms).
 - `step(simulation, &inputs, save := true)` builds the `Tick`, applies the presence, runs `tick` and saves. `save =
   false` keeps the tick's events but not its state (a tick nothing will roll back to): `events_at` answers for it,
   `state_at`, `restore` and `snapshot_encode` don't. `save(simulation)` saves the current tick again (a test that

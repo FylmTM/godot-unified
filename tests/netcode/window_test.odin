@@ -232,21 +232,26 @@ width_violation :: proc($PLAYERS: int, $B: int) -> string {
 	return netcode.game_violation(&game)
 }
 
-// The relay carries a game whose widest tick leaves TICKS_PER_MESSAGE_MIN of them per Finalized message, and refuses
-// the next width up: at 4 players Inputs to 48 bytes, at 8 to 24, at 16 to 8, at 32 to 4.
+// The relay carries a game whose widest tick leaves TICKS_PER_MESSAGE_MIN of them per Finalized message (a tick of
+// at most 274 bytes) and refuses one byte of Input wider, at each player count: 116 bytes at 2 players, 76 at 3, 56 at
+// 4, 26 at 8, 11 at 16, 4 at 32.
 @(test)
 the_relay_refuses_a_tick_too_wide_for_its_stream :: proc(t: ^testing.T) {
-	testing.expect_value(t, width_violation(4, 48), "")
-	testing.expect(t, width_violation(4, 64) != "")
-	testing.expect_value(t, width_violation(8, 24), "")
-	testing.expect(t, width_violation(8, 32) != "")
-	testing.expect_value(t, width_violation(16, 8), "")
-	testing.expect(t, width_violation(16, 16) != "")
+	testing.expect_value(t, width_violation(2, 116), "")
+	testing.expect(t, width_violation(2, 117) != "")
+	testing.expect_value(t, width_violation(3, 76), "")
+	testing.expect(t, width_violation(3, 77) != "")
+	testing.expect_value(t, width_violation(4, 56), "")
+	testing.expect(t, width_violation(4, 57) != "")
+	testing.expect_value(t, width_violation(8, 26), "")
+	testing.expect(t, width_violation(8, 27) != "")
+	testing.expect_value(t, width_violation(16, 11), "")
+	testing.expect(t, width_violation(16, 12) != "")
 	testing.expect_value(t, width_violation(32, 4), "")
 	testing.expect_value(
 		t,
-		width_violation(32, 8),
-		"width: a tick of 32 players with 8-byte Inputs takes up to 398 bytes, so 2 fit a message and the relay needs 4: fewer players or a narrower Input",
+		width_violation(32, 5),
+		"width: a tick of 32 players with 5-byte Inputs takes up to 302 bytes, so 3 fit a message and the relay needs 4: fewer players or a narrower Input",
 	)
 	testing.expect_value(t, netcode.game_violation(&toy.GAME), "")
 }
