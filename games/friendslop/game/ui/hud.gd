@@ -83,16 +83,16 @@ func _on_hud_changed() -> void:
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
 	_session.refresh(_session_rows(), h.phase == EnumPhase.HUB, "Walk through the start gate to start the run.")
 
-	var me := Game.local_player_info()
-	var holding: bool = me.get("holding", EnumHeldKind.NONE) != EnumHeldKind.NONE
-	var held: bool = me.get("held", false)
-	_charge.value = me.get("charge", 0.0)
+	var me := Game.local_player_info() as DataHudPlayer
+	var holding := me != null and me.holding != EnumHeldKind.NONE
+	var held := me != null and me.held
+	_charge.value = me.charge if me != null else 0.0
 	_charge.visible = holding and _charge.value > 0.0
 	if held:
 		_state.text = Game.hint("Mash Space to break free!", "Mash A to break free!")
-	elif me.get("fallen", false):
+	elif me != null and me.fallen:
 		_state.text = "Oops!"
-	elif me.get("stunned", false):
+	elif me != null and me.stunned:
 		_state.text = "Dazed"
 	else:
 		_state.text = ""
@@ -106,15 +106,16 @@ func _on_hud_changed() -> void:
 
 func _session_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	for p in Game.present_players():
+	for player: int in Game.present_players():
+		var p := Game.player_info(player) as DataHudPlayer
 		var tags: Array[String] = []
-		if p.get("held", false):
+		if p.held:
 			tags.append("held")
-		if p.get("stunned", false):
+		if p.stunned:
 			tags.append("dazed")
-		if p.get("fallen", false):
+		if p.fallen:
 			tags.append("fell")
-		rows.append({"player": p.player, "name": Game.player_name(p), "status": ", ".join(tags)})
+		rows.append({"player": player, "name": Game.player_name(player), "status": ", ".join(tags)})
 	return rows
 
 
@@ -132,15 +133,17 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 
 
 ## Verified events only (as the banners always were).
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	if event is EventRunStarted:
 		_show_banner("GO!", 1.5)
 	elif event is EventCheckpoint:
-		_show_banner("Checkpoint %d" % (event as EventCheckpoint).index, 1.5)
+		var checkpoint := event as EventCheckpoint
+		_show_banner("Checkpoint %d" % checkpoint.index, 1.5)
 	elif event is EventRunFinished:
-		var seconds := (event as EventRunFinished).seconds
+		var finished := event as EventRunFinished
+		var seconds := finished.seconds
 		_show_banner("Finished in %s" % _time(seconds), 4.0)
 		var saved: float = Settings.get_value(&"best_time")
 		if saved <= 0.0 or seconds < saved:

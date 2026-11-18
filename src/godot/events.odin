@@ -137,98 +137,101 @@ event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u64, entity
 	return
 }
 
-// ---- the main thread: fields converted by type (field_variant, below)
+// ---- the main thread: fields converted by type (field_kind, field_variant; command.odin write_value the other way)
 
 // The key of a sim.Player's bytes (sim.player_key: 0 for nobody).
 player_key_of :: proc(bytes: []u8) -> u64 {
 	return sim.player_key({index = u16(read_uint(bytes[:2])), id = u16(read_uint(bytes[2:4]))})
 }
 
-// A nested struct's fields into a Dictionary (fields named `_...` are padding, left out).
-struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
-	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
-	for i in 0 ..< int(info.field_count) {
-		name := info.names[i]
-		if strings.has_prefix(name, "_") do continue
-		field := info.types[i]
-		value := field_variant(field, data[info.offsets[i]:][:field.size], units)
-		dict_put(dict, name, &value)
+// The Variant type a field reads as, and its class name: an OBJECT's class (a nested struct's DataX), an ARRAY's
+// element type ("int", "Vector2", "DataHudPlayer"; "": untyped, an array of arrays). By shape: [2]/[3]/[4]f32 a
+// Vector2/3/4, [2]/[3]/[4]i32 a Vector2i/3i/4i, Color a Color, Quat a Quaternion, a sim.Position a Vector2 (2D) or
+// Vector3; a handle or a sim.Player an int (its key), an enum an int, a bit_set an Array[int], a nested struct an
+// object of its class (a Dictionary when it has none: a struct only view data uses).
+field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_name: string) {
+	switch {
+	case type.id == sim.Position:
+		return api.is_2d ? .VECTOR2 : .VECTOR3, ""
+	case is_handle(type) || type.id == sim.Player:
+		return .INT, ""
+	case type.id == Color:
+		return .COLOR, ""
+	case type.id == Quat:
+		return .QUATERNION, ""
 	}
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Integer, runtime.Type_Info_Enum:
+		return .INT, ""
+	case runtime.Type_Info_Float:
+		return .FLOAT, ""
+	case runtime.Type_Info_Boolean:
+		return .BOOL, ""
+	case runtime.Type_Info_String:
+		return .STRING, ""
+	case runtime.Type_Info_Bit_Set:
+		return .ARRAY, "int"
+	case runtime.Type_Info_Array:
+		if vector := vector_kind(info.elem, info.count); vector != .NIL do return vector, ""
+		return .ARRAY, element_type_name(info.elem)
+	case runtime.Type_Info_Enumerated_Array:
+		return .ARRAY, element_type_name(info.elem)
+	case runtime.Type_Info_Struct:
+		if nested := D.nested[type.id]; nested != nil do return .OBJECT, nested.name
+		return .DICTIONARY, ""
+	}
+	return .NIL, ""
 }
 
-// Moves `value` into dict[key].
-dict_put :: proc(dict: ^gd.Dictionary, key: string, value: ^gd.Variant) {
-	key_variant := gd.to_variant(key)
-	defer gdi.variant_destroy(&key_variant)
-	slot := (^gd.Variant)(gdi.dictionary_operator_index(dict, &key_variant))
-	gdi.variant_destroy(slot)
-	slot^ = value^
-	value^ = {}
+// [2]/[3]/[4] of f32 or i32 as a Godot vector type (NIL: none).
+vector_kind :: proc(elem: ^runtime.Type_Info, count: int) -> gdi.VariantType {
+	FLOATS :: [3]gdi.VariantType{.VECTOR2, .VECTOR3, .VECTOR4}
+	INTS :: [3]gdi.VariantType{.VECTOR2I, .VECTOR3I, .VECTOR4I}
+	if count < 2 || count > 4 do return .NIL
+	floats, ints := FLOATS, INTS
+	if elem.id == f32 do return floats[count - 2]
+	if elem.id == i32 do return ints[count - 2]
+	return .NIL
 }
 
-// A Godot math value from a field's bytes (copied: the frame's data has no alignment).
-math_variant :: proc($T: typeid, bytes: []u8) -> gd.Variant {
-	value: T
-	copy(([^]u8)(&value)[:size_of(T)], bytes)
-	return gd.to_variant(value)
+// The type name an array of `elem` is typed by in GDScript ("": untyped, an array of arrays).
+element_type_name :: proc(elem: ^runtime.Type_Info) -> string {
+	kind, class_name := field_kind(elem)
+	#partial switch kind {
+	case .ARRAY, .NIL:
+		return ""
+	case .OBJECT:
+		return class_name
+	}
+	return gd.variant_type_name(kind)
 }
 
 f32_at :: proc(bytes: []u8, i: int) -> f32 {
 	return transmute(f32)u32(read_uint(bytes[i * 4:][:4]))
 }
 
-// A field's value: a handle becomes its key (int), a sim.Player its key (sim.player_key, int: 0 for nobody), a
-// sim.Position a Vector2 (2D) or Vector3 (in view units already),
-// one of Godot's math types (gd.Color, gd.Vector4, gd.Quaternion, ...: a view's data may use them, the extension
-// imports gdext) itself, an enum its value (an int: its Enum* class names the members), a bit_set an Array of
-// ints, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary,
-// a string a String (constants), other numbers int or float.
+i32_at :: proc(bytes: []u8, i: int) -> i32 {
+	return i32(read_int(bytes[i * 4:][:4], true))
+}
+
+// A field's value (field_kind says as what), from bytes in `units` (.Sim: a sim.Position is mapped to view units).
 field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd.Variant {
-	if type.id == sim.Position {
+	switch {
+	case type.id == sim.Position:
 		point := [3]f32{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)}
 		if units == .Sim do point = to_view(point)
 		if api.is_2d do return gd.to_variant(gd.Vector2{point.x, point.y})
 		return gd.to_variant(gd.Vector3{point.x, point.y, point.z})
-	}
-	switch type.id {
-	case gd.Vector2:
-		return math_variant(gd.Vector2, bytes)
-	case gd.Vector2i:
-		return math_variant(gd.Vector2i, bytes)
-	case gd.Rect2:
-		return math_variant(gd.Rect2, bytes)
-	case gd.Rect2i:
-		return math_variant(gd.Rect2i, bytes)
-	case gd.Vector3:
-		return math_variant(gd.Vector3, bytes)
-	case gd.Vector3i:
-		return math_variant(gd.Vector3i, bytes)
-	case gd.Transform2D:
-		return math_variant(gd.Transform2D, bytes)
-	case gd.Vector4:
-		return math_variant(gd.Vector4, bytes)
-	case gd.Vector4i:
-		return math_variant(gd.Vector4i, bytes)
-	case gd.Plane:
-		return math_variant(gd.Plane, bytes)
-	case gd.Quaternion:
-		return math_variant(gd.Quaternion, bytes)
-	case gd.AABB:
-		return math_variant(gd.AABB, bytes)
-	case gd.Basis:
-		return math_variant(gd.Basis, bytes)
-	case gd.Transform3D:
-		return math_variant(gd.Transform3D, bytes)
-	case gd.Projection:
-		return math_variant(gd.Projection, bytes)
-	case gd.Color:
-		return math_variant(gd.Color, bytes)
-	}
-	if is_handle(type) {
+	case is_handle(type):
 		index, generation := read_uint(bytes[:4]), read_uint(bytes[4:])
 		return gd.to_variant(i64(generation << 32 | index))
+	case type.id == sim.Player:
+		return gd.to_variant(i64(player_key_of(bytes)))
+	case type.id == Color:
+		return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
+	case type.id == Quat:
+		return gd.to_variant(gd.Quaternion{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 	}
-	if type.id == sim.Player do return gd.to_variant(i64(player_key_of(bytes)))
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		return gd.to_variant(read_int(bytes, info.signed))
@@ -250,41 +253,27 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 			if bits & (1 << uint(bit)) == 0 do continue
 			gd.array_push(&array, i64(bit) + info.lower)
 		}
-		value := gd.to_variant(array)
-		gd.Array_destroy(&array)
-		return value
+		return array_variant(&array)
 	case runtime.Type_Info_Array:
-		if info.elem.id == f32 {
-			switch info.count {
-			case 2:
-				return gd.to_variant(gd.Vector2{f32_at(bytes, 0), f32_at(bytes, 1)})
-			case 3:
-				return gd.to_variant(gd.Vector3{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)})
-			case 4:
-				return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
-			}
+		#partial switch vector_kind(info.elem, info.count) {
+		case .VECTOR2:
+			return gd.to_variant(gd.Vector2{f32_at(bytes, 0), f32_at(bytes, 1)})
+		case .VECTOR3:
+			return gd.to_variant(gd.Vector3{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)})
+		case .VECTOR4:
+			return gd.to_variant(gd.Vector4{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
+		case .VECTOR2I:
+			return gd.to_variant(gd.Vector2i{i32_at(bytes, 0), i32_at(bytes, 1)})
+		case .VECTOR3I:
+			return gd.to_variant(gd.Vector3i{i32_at(bytes, 0), i32_at(bytes, 1), i32_at(bytes, 2)})
+		case .VECTOR4I:
+			return gd.to_variant(gd.Vector4i{i32_at(bytes, 0), i32_at(bytes, 1), i32_at(bytes, 2), i32_at(bytes, 3)})
 		}
-		array := typed_array(type)
-		for i in 0 ..< info.count {
-			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], units)
-			gd.Array_push_back(&array, element)
-			gdi.variant_destroy(&element)
-		}
-		value := gd.to_variant(array)
-		gd.Array_destroy(&array)
-		return value
+		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units)
 	case runtime.Type_Info_Enumerated_Array:
-		// [Enum]T: an Array by the enum's order
-		array := typed_array(type)
-		for i in 0 ..< info.count {
-			element := field_variant(info.elem, bytes[i * info.elem_size:][:info.elem.size], units)
-			gd.Array_push_back(&array, element)
-			gdi.variant_destroy(&element)
-		}
-		value := gd.to_variant(array)
-		gd.Array_destroy(&array)
-		return value
+		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units) // by the enum's order
 	case runtime.Type_Info_Struct:
+		if nested := D.nested[type.id]; nested != nil do return nested_variant(nested, bytes, units)
 		dict := gd.dict_new()
 		struct_fields(&dict, type, bytes, units)
 		value := gd.to_variant(dict)
@@ -294,87 +283,77 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 	return gd.variant_nil()
 }
 
-// The element type of an array field as GDScript types it (Array[int], Array[Vector2], Array[Dictionary] for
-// structs...); NIL: untyped (an array of arrays: GDScript has no nested typed arrays).
-array_element_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
-	element: gdi.VariantType
-	#partial switch info in runtime.type_info_base(type).variant {
-	case runtime.Type_Info_Bit_Set:
-		return .INT
-	case runtime.Type_Info_Array:
-		element = field_kind(info.elem)
-	case runtime.Type_Info_Enumerated_Array:
-		element = field_kind(info.elem)
-	case:
-		return .NIL
+// An array's or an enumerated array's elements as a typed Array.
+elements_variant :: proc(
+	type, elem: ^runtime.Type_Info,
+	elem_size, count: int,
+	bytes: []u8,
+	units: Units,
+) -> gd.Variant {
+	array := typed_array(type)
+	for i in 0 ..< count {
+		element := field_variant(elem, bytes[i * elem_size:][:elem.size], units)
+		gd.Array_push_back(&array, element)
+		gdi.variant_destroy(&element)
 	}
-	return element == .ARRAY ? .NIL : element
+	return array_variant(&array)
+}
+
+// A nested struct's value: a new object of its class holding a copy of the bytes, in view units (a script may set its
+// fields and put it into a command).
+nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Variant {
+	object := gd.Object{gd.construct_object_named(nested.class_sn)}
+	instance := (^Data_Object)(gd.instance_of(object, &nested.class))
+	copy(instance.bytes, bytes)
+	if units == .Sim {
+		for offset in nested.positions {
+			position := (^sim.Position)(&instance.bytes[offset])
+			position^ = sim.Position(to_view(([3]f32)(position^)))
+		}
+	}
+	// the Variant holds a reference and ours goes: the object lives as long as a script keeps it
+	value := gd.variant_from_any(object)
+	gd.unref(transmute(gd.RefCounted)object)
+	return value
+}
+
+// A struct only view data uses (it has no class): its fields into a Dictionary (`_` fields are padding).
+struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
+	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
+	for i in 0 ..< int(info.field_count) {
+		name := info.names[i]
+		if strings.has_prefix(name, "_") do continue
+		field := info.types[i]
+		value := field_variant(field, data[info.offsets[i]:][:field.size], units)
+		gd.dict_set(dict, name, value)
+		gdi.variant_destroy(&value)
+	}
 }
 
 // A new Array for an array field, typed by its elements when it can be.
 typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
 	array := gd.array_new()
-	if element := array_element_kind(type); element != .NIL do gd.array_set_typed(&array, element)
+	kind, element := field_kind(type)
+	if kind != .ARRAY || element == "" do return array
+	element_kind, _ := field_kind(array_elem(type))
+	#partial switch element_kind {
+	case .OBJECT:
+		gd.array_set_typed(&array, .OBJECT, element)
+	case:
+		gd.array_set_typed(&array, element_kind)
+	}
 	return array
 }
 
-// The property hint of a field: a typed Array names its element type.
-field_hint :: proc(type: ^runtime.Type_Info) -> (gd.Property_Hint, string) {
-	if field_kind(type) != .ARRAY do return .NONE, ""
-	element := array_element_kind(type)
-	if element == .NIL do return .NONE, ""
-	return .ARRAY_TYPE, variant_type_name(element)
-}
-
-// A Variant type's name in GDScript ("int", "Vector2"...).
-variant_type_name :: proc(kind: gdi.VariantType) -> string {
-	#partial switch kind {
-	case .BOOL:
-		return "bool"
-	case .INT:
-		return "int"
-	case .FLOAT:
-		return "float"
-	case .STRING:
-		return "String"
-	case .STRING_NAME:
-		return "StringName"
-	case .DICTIONARY:
-		return "Dictionary"
-	case .COLOR:
-		return "Color"
-	case .VECTOR2:
-		return "Vector2"
-	case .VECTOR2I:
-		return "Vector2i"
-	case .VECTOR3:
-		return "Vector3"
-	case .VECTOR3I:
-		return "Vector3i"
-	case .VECTOR4:
-		return "Vector4"
-	case .VECTOR4I:
-		return "Vector4i"
-	case .RECT2:
-		return "Rect2"
-	case .RECT2I:
-		return "Rect2i"
-	case .TRANSFORM2D:
-		return "Transform2D"
-	case .TRANSFORM3D:
-		return "Transform3D"
-	case .PLANE:
-		return "Plane"
-	case .QUATERNION:
-		return "Quaternion"
-	case .AABB:
-		return "AABB"
-	case .BASIS:
-		return "Basis"
-	case .PROJECTION:
-		return "Projection"
+// The element type of an array, enumerated array or bit_set (a bit_set's elements are ints).
+array_elem :: proc(type: ^runtime.Type_Info) -> ^runtime.Type_Info {
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Array:
+		return info.elem
+	case runtime.Type_Info_Enumerated_Array:
+		return info.elem
 	}
-	return "Variant"
+	return type_info_of(i64)
 }
 
 // An integer field's value (little-endian bytes), sign-extended when signed.

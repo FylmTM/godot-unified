@@ -26,7 +26,6 @@ input_sample: struct {
 	off:      bool, // UnifiedSession.game_input is false (main thread)
 	focused:  bool, // the window had the focus last frame
 	latches:  [dynamic]Latch,
-	values:   map[string][3]f32, // set_input_value (main thread only)
 }
 
 @(private)
@@ -141,33 +140,29 @@ buttons :: proc($Set: typeid/bit_set[$E;$U], actions: [E]string) -> (set: Set) {
 }
 
 // UnifiedSession.game_input (main thread): off, the action helpers read nothing (a pause menu, a chat field);
-// input_value still flows.
+// Unified.input still flows.
 @(private)
 set_game_input :: proc(on: bool) {
 	input_sample.off = !on
 }
 
-// Main thread (sample_input): the latest value a script set with UnifiedSession.set_input_value(name, value): a
-// Vector3, a Vector2 (z = 0), or a float or bool in x; zero until set.
-input_value :: proc(name: string) -> [3]f32 {
-	return input_sample.values[name]
+// Main thread (sample_input): the values scripts set on Unified.input, as the Glue's input values type `T`.
+//
+//   values := godot.input_values(Input_Values)
+//   input.look = dmath.dir3(values.look)
+input_values :: proc($T: typeid, loc := #caller_location) -> ^T {
+	if api.input_values.type == nil || api.input_values.type.id != T {
+		panic(fmt.tprintf("input_values: %v is not the Glue's input_values", typeid_of(T)), loc)
+	}
+	@(static) none: T // before the classes exist (a failed registration): zero
+	if D.input == nil || D.input.instance == nil do return &none
+	return (^T)(raw_data(D.input.instance.bytes))
 }
 
-// UnifiedSession.set_input_value (main thread).
-@(private)
-set_input_value :: proc(name: string, value: [3]f32) {
-	if name in input_sample.values {
-		input_sample.values[name] = value
-	} else {
-		input_sample.values[fmt.aprint(name)] = value
-	}
-}
 
 @(private)
 input_clear :: proc() {
 	for latch in input_sample.latches do delete(latch.action)
 	delete(input_sample.latches)
-	for name in input_sample.values do delete(name)
-	delete(input_sample.values)
-	input_sample.latches, input_sample.values = nil, nil
+	input_sample.latches = nil
 }

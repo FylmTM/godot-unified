@@ -20,11 +20,6 @@ func _ready() -> void:
 	_fx.camera = _camera
 
 
-func _exit_tree() -> void:
-	if Game.session.view_root == _views:
-		Game.session.view_root = null
-
-
 func _process(delta: float) -> void:
 	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
 	_circle_fade = move_toward(_circle_fade, 1.0 if lobby else 0.0, delta * 2.0)
@@ -34,7 +29,7 @@ func _process(delta: float) -> void:
 		_radius = r  # the sim reports 0 outside the lobby; keep the ring's size while it fades
 	var furthest := 0.0
 	if lobby:
-		for v in player_views():
+		for v: Node3D in Game.session.get_views("player"):
 			furthest = maxf(furthest, Vector2(v.position.x, v.position.z).length() / _radius)
 	start_urgency = move_toward(start_urgency, smoothstep(0.55, 1.0, furthest) if lobby else 0.0, delta * 4.0)
 	var mat := _circle.mesh.surface_get_material(0) as ShaderMaterial
@@ -43,31 +38,8 @@ func _process(delta: float) -> void:
 	mat.set_shader_parameter(&"urgency", start_urgency)
 
 
-## The players' views under the views root.
-func player_views() -> Array[SurvivorPlayerView]:
-	var out: Array[SurvivorPlayerView] = []
-	for v in _views.get_children():
-		var player_view := v as SurvivorPlayerView
-		if player_view != null:
-			out.append(player_view)
-	return out
-
-
-func local_player_view() -> SurvivorPlayerView:
-	var player := Game.local_player()
-	for v in player_views():
-		if v.player == player:
-			return v
-	return null
-
-
-func any_player_view() -> SurvivorPlayerView:
-	var views := player_views()
-	return views[0] if not views.is_empty() else null
-
-
 ## Effects play when an event is confirmed (its tick verified), never on a prediction.
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	if event is EventMatchStarted:

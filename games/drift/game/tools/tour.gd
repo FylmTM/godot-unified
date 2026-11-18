@@ -20,11 +20,14 @@ var _rock_seen_ms := 0
 
 
 func _run() -> void:
-	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
+	session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 		if state == UnifiedSession.EVENT_CONFIRMED:
-			_events[event.kind] = int(_events.get(event.kind, 0)) + 1
-		elif state == UnifiedSession.EVENT_EMITTED and event.kind in ["rock_hit", "rock_split"]:
-			_rock_seen = event.get(&"position")
+			_events[event.kind] = int(_events.get(event.kind, 0)) + 1  # by its name: the result's counts
+		elif state == UnifiedSession.EVENT_EMITTED and event is EventRockHit:
+			_rock_seen = (event as EventRockHit).position
+			_rock_seen_ms = Time.get_ticks_msec()
+		elif state == UnifiedSession.EVENT_EMITTED and event is EventRockSplit:
+			_rock_seen = (event as EventRockSplit).position
 			_rock_seen_ms = Time.get_ticks_msec())
 	result["events"] = _events
 	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
@@ -95,7 +98,7 @@ func _run() -> void:
 	await seconds(0.5)
 	await shot("r03_match")
 	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_multi_count(["bullet"]),
-		_multi_count(ROCK_KINDS), _multi_count(["gem"]), int(game.local_player_info().get("shots", 0))])
+		_multi_count(ROCK_KINDS), _multi_count(["gem"]), (game.local_player_info() as DataHudPlayer).shots])
 
 	await _hunt(flag("quick"))
 	if flag("end-in-match"):
@@ -156,10 +159,10 @@ func _hunt(quick: bool) -> void:
 func _warp() -> void:
 	if failed():
 		return
-	var gates: Array = current_scene.views_of("gate")
 	var at := _me().global_position
 	var gate: Node2D = null
-	for g: Node2D in gates:
+	for v in session.get_views("gate"):
+		var g := v as Node2D
 		if gate == null or at.distance_to(g.global_position) < at.distance_to(gate.global_position):
 			gate = g
 	var warps: int = _events.get("warped", 0)
@@ -199,13 +202,11 @@ func _camera_lag() -> float:
 
 
 func _me() -> Node2D:
-	if current_scene == null or not current_scene.has_method(&"local_ship_view"):
-		return null
-	return current_scene.local_ship_view()
+	return session.get_player_view("ship", session.local_player) as Node2D
 
 
 func _views(kind: String) -> int:
-	return current_scene.views_of(kind).size() if current_scene != null and current_scene.has_method(&"views_of") else 0
+	return session.get_views(kind).size()
 
 
 ## Instances the host drew this frame in the MultiMesh views of these kinds.

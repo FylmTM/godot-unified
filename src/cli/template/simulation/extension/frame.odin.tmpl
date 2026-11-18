@@ -15,7 +15,7 @@ View :: enum u8 {
 // The MultiMesh view kinds (a UnifiedMultiView marker each): none yet.
 MultiView :: enum u8 {}
 
-PLAYER_COLORS := [g.PLAYERS][4]f32 {
+PLAYER_COLORS := [g.PLAYERS]godot.Color {
 	{1, 0.4, 0.4, 1},
 	{0.7, 1, 0.4, 1},
 	{0.4, 1, 1, 1},
@@ -24,7 +24,7 @@ PLAYER_COLORS := [g.PLAYERS][4]f32 {
 
 // What a player view gets besides its pose: each field sets the view script's property of the same name.
 Player_View_Data :: struct {
-	color: [4]f32,
+	color: godot.Color,
 }
 
 // Session thread, every published tick: the views of the tick's state. The host interpolates between ticks.

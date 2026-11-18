@@ -17,48 +17,29 @@ func _ready() -> void:
 	Game.session.sim_event.connect(_on_sim_event)
 
 
-func _exit_tree() -> void:
-	if Game.session.view_root == _views:
-		Game.session.view_root = null
-
-
 ## The marker node for a sim view's entity (marker index + 1), or null.
 func marker(entity: int) -> Node3D:
 	var i := entity - 1
 	return markers[i] as Node3D if i >= 0 and i < markers.size() else null
 
 
-## The view of a player (its key: Game.local_player(), an event's `player`), or null.
-func player_view(player: int) -> Node3D:
-	for v: Node in _views.get_children():
-		var view_marker := v.get_node_or_null(^"UnifiedView") as UnifiedView
-		if view_marker != null and view_marker.kind == "player" and view_marker.player == player:
-			return v as Node3D
-	return null
-
-
-func local_player_view() -> Node3D:
-	return player_view(Game.local_player())
-
-
 ## Verified events only (predictions are the views' business).
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	match event.kind:
-		"run_started":
-			Sfx.play(&"start")
-		"run_finished":
-			Sfx.play(&"level")
-		"checkpoint":
-			Sfx.play(&"respawn")
-		"bell_rung":
-			Sfx.play(&"gem", 2.0, 0.6)
-		"plate_on", "switch_on":
-			Sfx.play(&"click", 0.0, 0.7)
-		"plate_off":
-			Sfx.play(&"click", -4.0, 0.5)
-		"hit":
-			var hit := event as EventHit
-			if hit.position.distance_to(camera_rig.global_position) < 18.0:
-				camera_rig.shake(0.25 if hit.speed > 7.0 else 0.15)
+	if event is EventRunStarted:
+		Sfx.play(&"start")
+	elif event is EventRunFinished:
+		Sfx.play(&"level")
+	elif event is EventCheckpoint:
+		Sfx.play(&"respawn")
+	elif event is EventBellRung:
+		Sfx.play(&"gem", 2.0, 0.6)
+	elif event is EventPlateOn or event is EventSwitchOn:
+		Sfx.play(&"click", 0.0, 0.7)
+	elif event is EventPlateOff:
+		Sfx.play(&"click", -4.0, 0.5)
+	elif event is EventHit:
+		var hit := event as EventHit
+		if hit.position.distance_to(camera_rig.global_position) < 18.0:
+			camera_rig.shake(0.25 if hit.speed > 7.0 else 0.15)

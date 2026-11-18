@@ -6,7 +6,6 @@ package friendslop_extension
 
 import "base:runtime"
 import "core:math"
-import "core:reflect"
 import "unified:dmath"
 import "unified:eos"
 import "unified:gdext/gdi"
@@ -49,6 +48,7 @@ GLUE := godot.Glue(fs.Game, View, MultiView) {
 	data         = Data,
 	constants    = CONSTANTS,
 	event_key    = event_key,
+	input_values = Input_Values,
 	level        = "res://game/levels/park.level",
 }
 
@@ -60,26 +60,24 @@ Data :: union {
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
 // where the default routing would send them to the item's or the switch's view. The rest: by their subject.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
-	value := sim.event_value(event, fs.Event)
-	fields := any{&value, reflect.union_variant_typeid(value)}
-	if player, is_player := reflect.struct_field_value_by_name(fields, "player").(sim.Player);
-	   is_player && player != {} {
-		return .Player, sim.player_key(player), .View
-	}
-	if entity, is_entity := reflect.struct_field_value_by_name(fields, "entity").(u64); is_entity && entity != 0 {
-		return .Marker, u64(entity - 1), .View // the marker index
-	}
+event_key :: proc(event: ^sim.Raw_Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+	if subject.player != {} do return .Player, sim.player_key(subject.player), .View
+	if subject.entity != 0 do return .Marker, subject.entity - 1, .View // the marker index
 	return
 }
 
 // ---- input (main thread): move relative to the camera, aim = the camera's look
 
-// The camera rig sets its look direction and its flat right every frame (UnifiedSession.set_input_value: &"look",
-// &"right"); movement is relative to them. A jump or grab tap shorter than a frame still counts (action_down).
+// What the camera rig sets every frame (Unified.input.look, .right): movement is relative to them.
+Input_Values :: struct {
+	look:  [3]f32, // the camera's look direction
+	right: [3]f32, // its flat right
+}
+
+// A jump or grab tap shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^fs.Input) {
-	look := godot.input_value("look")
-	right := godot.input_value("right")
+	values := godot.input_values(Input_Values)
+	look, right := values.look, values.right
 	if look == {} do look = {0, 0, -1}
 	if right == {} do right = {1, 0, 0}
 	forward := normalize2({look.x, look.z})
@@ -97,11 +95,6 @@ normalize2 :: proc(v: [2]f32) -> [2]f32 {
 	if length_sq < 1e-8 do return {0, -1}
 	scale := 1 / math.sqrt(length_sq)
 	return {v.x * scale, v.y * scale}
-}
-
-length3 :: proc(v: [3]f32) -> f32 {
-	length := math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-	return length > 1e-6 ? length : 1
 }
 
 // ---- the frame (session thread)

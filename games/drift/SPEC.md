@@ -100,8 +100,8 @@ Random numbers: the waves draw from the state's stream (`rng`), in order; nothin
   - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the colour of its owner's slot
     (custom.x; -1, a pale grey, once the owner has left). A bullet is owned by its player, not the slot.
   - `gem`: a spin and a pulse that squashes and stretches.
-- Session data `Data_Hud` (`Unified.data.hud`, pushed every frame): `tick`, `players` by slot (`player`: their key,
-  `present`, `shots`, `gems`), `phase` (`EnumPhase`), `wave`, `station_hp`, `station_max`, `score`, `matches`,
+- Session data `Data_Hud` (`Unified.data.hud`, pushed every frame): `players` by slot (`DataHudPlayer`: `shots`,
+  `gems`), `phase` (`EnumPhase`), `wave`, `station_hp`, `station_max`, `score`, `matches`,
   `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
 - Constants `Data_Constants` (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`,
   `station_hp`, `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, Vector2s:

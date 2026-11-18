@@ -129,9 +129,9 @@ func _process(delta: float) -> void:
 		start_button.text = "Restart"
 
 	var rows: Array[Dictionary] = []
-	for info in Game.present_players():
-		var gems: int = info.get("gems", 0)
-		rows.append({"player": info.player, "name": Game.player_name(info), "status": "%d gems" % gems})
+	for player in Game.present_players():
+		var info := Game.player_info(player) as DataHudPlayer
+		rows.append({"player": player, "name": Game.player_name(player), "status": "%d gems" % info.gems})
 	_session.refresh(rows, phase == EnumPhase.LOBBY, "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
 	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
@@ -172,7 +172,7 @@ func _show_banner(text: String, seconds := 2.0) -> void:
 
 
 ## Banners and the best time, once an event's tick is confirmed.
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	if event is EventMatchStarted:

@@ -10,9 +10,9 @@ func _check_contract() -> String:
 	if sizes.is_empty():
 		log_capture.add("Unified.constants.item_sizes is empty", ITEM_SCRIPT)
 	var drawn: Dictionary = (load(ITEM_SCRIPT) as Script).get_script_constant_map()["SIZES"]
-	for entry: Dictionary in sizes:
-		var kind := EnumItemKind.name(entry["kind"])
-		var size: Vector3 = entry["size"]
+	for entry: DataItemSize in sizes:
+		var kind := EnumItemKind.name(entry.kind)
+		var size := entry.size
 		if not drawn.has(kind):
 			log_capture.add("item kind %s has no size in item.gd" % kind, ITEM_SCRIPT)
 		elif not (drawn[kind] as Vector3).is_equal_approx(size):

@@ -117,7 +117,7 @@ register :: proc() {
 		proc(self: ^Tester, value: i64) {self.value = value},
 	)
 	gd.bind_property(cls, "doubled", proc(self: ^Tester) -> i64 {return self.value * 2}) 	// read-only
-	gd.bind_signal(cls, "fired", {"n", i64}, {"msg", string}, {"pos", gd.Vector3})
+	gd.bind_signal(cls, "fired", {{"n", .INT, ""}, {"msg", .STRING, ""}, {"pos", .VECTOR3, ""}}, doc = "Fired.")
 	gd.bind_constant(cls, "Mode", "MODE_SLOW", 0)
 	gd.bind_constant(cls, "Mode", "MODE_FAST", 7)
 	gd.bind_constant(cls, "", "ANSWER", 42)

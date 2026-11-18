@@ -24,6 +24,9 @@ paths:
   `@onready` vars, virtuals, public, private).
 - A tool script (`-s`) is compiled before the autoloads exist: it never names a script that uses `Game`,
   `Settings` or `Sfx` (reach them through the scene tree). Scripts the play scene loads never `preload()`.
+- Sim data is typed end to end: an event handler dispatches by class (`if event is EventRockHit: var hit := event
+  as EventRockHit`) with `state: UnifiedSession.EventState`, never on `event.kind`; nested data is read as its class
+  (`for p: DataHudPlayer in Unified.data.hud.players`), never with `.get("field")`.
 - GDScript belongs to the view layer only. It reads the sim and never writes it: input and commands are the only way
   in. Anything performance-critical is Odin.
 - After editing a level scene in `game/levels/`, run `./uni bake <game>` and commit both files.
