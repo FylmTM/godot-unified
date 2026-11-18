@@ -1,8 +1,13 @@
-// The physics row of `uni bench` (#260): Box3D through unified:physics on a fixed scene, apart from any game, so a
-// Box3D upgrade that slows one operation shows here rather than as a small shift in a game's total. A pile of boxes
-// kept awake on a ground slab; every tick: a step (4 substeps), a save into a ring slot (the in-process snapshot every
-// tick's save makes), the deep hash (the whole world, as on the ticks peers compare), a restore of that slot (what a
-// rollback starts with; it must give the same hash back) and a batch of rays down onto the pile. One JSON line.
+// The physics row of `uni bench`: unified:physics apart from any game, so a Box3D or physics change that slows one
+// operation shows here rather than as a small shift in a game's total. Everything goes through the plug-in, as the
+// netcode runs it (physics.extra: the body table with the snapshot, the hashes a session uses).
+//
+// A pile: boxes stacked like bricks (each layer offset by half a box), so every box rests on four below and contacts
+// cross the whole pile; kept awake. Every tick: a step, a save into a ring slot, the deep hash (the ticks peers
+// compare), the awake-bodies hash (the other ticks), a restore of that slot (it must give the same hash back), and a
+// batch of rays down onto the pile. Every IMAGE_EVERY ticks: a portable image of the slot and its load into a second
+// world (a late join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
+// tick, apart from the step. One JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -10,17 +15,20 @@ import "core:os"
 import "core:slice"
 import "core:time"
 
-import box3d "box3d:bindings"
 import "unified:physics"
+import "unified:sim"
 
-BODIES_SIDE :: 8 // an 8 x 8 x 8 stack: 512 boxes
+TICK_HZ :: 64
+BODIES_SIDE :: 8 // 8 layers of 8 x 8: 512 boxes
 BODIES :: BODIES_SIDE * BODIES_SIDE * BODIES_SIDE
-SETTLE_TICKS :: 64 // not measured: the stack falls and lands
+HALF :: f32(0.25)
+SETTLE_TICKS :: 64 // not measured: the pile lands
 TICKS :: 600
 RAYS :: 64 // per tick, straight down onto the pile
 RING :: 16
-DT :: f32(1.0 / 64)
-SUBSTEPS :: 4
+IMAGE_EVERY :: 16
+CHARACTERS :: 64
+CHARACTER_TICKS :: 300
 
 Stat :: struct {
 	mean, p99: f64,
@@ -33,83 +41,155 @@ stat_of :: proc(samples: []f64) -> Stat {
 	return {sum / f64(len(samples)), samples[max((99 * len(samples) + 99) / 100 - 1, 0)]}
 }
 
-stat_json :: proc(stat: Stat) -> string {
+stat_json :: proc(samples: []f64) -> string {
+	stat := stat_of(samples)
 	return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 }
 
-add_box :: proc(world: ^physics.World, pos, half: [3]f32, type: physics.Body_Type) {
-	body_def := physics.default_body_def()
-	body_def.type = type
-	body_def.position = pos
-	body_def.enable_sleep = false // every tick costs the same: the whole pile stays awake
-	body := physics.create_body(world, body_def)
-	shape_def := physics.default_shape_def()
-	hull := physics.make_box_hull(half)
-	physics.create_hull_shape(world, body, shape_def, &hull.base)
+micros :: proc(from, to: time.Tick) -> f64 {
+	return time.duration_microseconds(time.tick_diff(from, to))
 }
 
-main :: proc() {
-	world := physics.create({tick_hz = HZ})
-	defer physics.destroy(world)
-	add_box(world, {0, -0.5, 0}, {30, 0.5, 30}, .Static)
-	for x in 0 ..< BODIES_SIDE {
-		for y in 0 ..< BODIES_SIDE {
+// No block: every body is the World's (made before `extra`).
+No_State :: struct {}
+
+pile_world :: proc() -> ^physics.World {
+	world := physics.create({tick_hz = TICK_HZ})
+	physics.create_box(world, physics.body_def(.Static, {0, -0.5, 0}), physics.shape_def(1), {30, 0.5, 30})
+	shape_def := physics.shape_def(1)
+	shape_def.density = 1
+	for y in 0 ..< BODIES_SIDE {
+		offset := f32(y % 2) * HALF // bricks: each layer half a box over
+		for x in 0 ..< BODIES_SIDE {
 			for z in 0 ..< BODIES_SIDE {
-				pos := [3]f32{f32(x) * 0.8 - 2.8, 0.5 + f32(y) * 0.8, f32(z) * 0.8 - 2.8}
-				add_box(world, pos, {0.25, 0.25, 0.25}, .Dynamic)
+				pos := [3]f32{f32(x) * 2 * HALF - 2 + offset, HALF + f32(y) * 2 * HALF, f32(z) * 2 * HALF - 2 + offset}
+				body_def := physics.body_def(.Dynamic, pos)
+				body_def.enable_sleep = false // every tick costs the same: the whole pile stays awake
+				physics.create_box(world, body_def, shape_def, {HALF, HALF, HALF})
 			}
 		}
 	}
-	for _ in 0 ..< SETTLE_TICKS {
-		physics.step(world)
-	}
-	ring: [RING]box3d.WorldSnapshot
-	defer {
-		for &snapshot in ring do box3d.DestroyWorldSnapshot(&snapshot)
-	}
-	step_us, save_us, hash_us, restore_us, rays_us: [TICKS]f64
-	micros :: proc(from, to: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(from, to))}
-	mismatches, hits := 0, 0
+	return world
+}
+
+hash_of :: proc(extra: sim.Extra, tick: u32, buffer: ^[dynamic]u8) -> []u8 {
+	clear(buffer)
+	extra.hash(extra.data, tick, buffer)
+	return buffer[:]
+}
+
+main :: proc() {
+	world := pile_world()
+	defer physics.destroy(world)
+	extra := physics.extra(world, No_State)
+	late := pile_world() // the late joiner's world, loaded from images
+	defer physics.destroy(late)
+	late_extra := physics.extra(late, No_State)
+	for _ in 0 ..< SETTLE_TICKS do physics.step(world)
+
+	step_us, save_us, deep_us, shallow_us, restore_us, rays_us: [TICKS]f64
+	image_us, load_us: [(TICKS + IMAGE_EVERY - 1) / IMAGE_EVERY]f64
+	deep, again, loaded: [dynamic]u8
+	defer delete(deep)
+	defer delete(again)
+	defer delete(loaded)
+	mismatches, hits, image_bytes := 0, 0, 0
 	for tick in 0 ..< TICKS {
-		slot := &ring[tick % RING]
+		slot := tick % RING
 		start := time.tick_now()
 		physics.step(world)
 		stepped := time.tick_now()
-		box3d.World_SaveSnapshot(world.id, slot)
+		extra.save(extra.data, slot)
 		saved := time.tick_now()
-		hash := box3d.World_HashState(world.id)
-		hashed := time.tick_now()
-		restored_ok := box3d.World_RestoreSnapshot(world.id, slot)
+		hash_of(extra, 0, &deep) // a multiple of sim.DEEP_CHECKSUM_EVERY: the whole world
+		deep_hashed := time.tick_now()
+		hash_of(extra, 1, &again) // the awake bodies
+		shallow_hashed := time.tick_now()
+		restored_ok := extra.restore(extra.data, slot)
 		restored := time.tick_now()
 		for ray in 0 ..< RAYS {
-			origin := [3]f32{f32(ray % 8) * 0.8 - 2.8, 20, f32(ray / 8) * 0.8 - 2.8}
+			origin := [3]f32{f32(ray % 8) * 0.5 - 2, 20, f32(ray / 8) * 0.5 - 2}
 			if _, ok := physics.world_cast_ray_closest(world, origin, {0, -30, 0}); ok do hits += 1
 		}
-		raycast := time.tick_now()
-		if !restored_ok || box3d.World_HashState(world.id) != hash {
+		rays_done := time.tick_now()
+		if !restored_ok || !slice.equal(hash_of(extra, 0, &again), deep[:]) {
 			mismatches += 1 // a restore that doesn't give the saved world back
 		}
 		step_us[tick] = micros(start, stepped)
 		save_us[tick] = micros(stepped, saved)
-		hash_us[tick] = micros(saved, hashed)
-		restore_us[tick] = micros(hashed, restored)
-		rays_us[tick] = micros(restored, raycast)
+		deep_us[tick] = micros(saved, deep_hashed)
+		shallow_us[tick] = micros(deep_hashed, shallow_hashed)
+		restore_us[tick] = micros(shallow_hashed, restored)
+		rays_us[tick] = micros(restored, rays_done)
+		if tick % IMAGE_EVERY == 0 {
+			image_start := time.tick_now()
+			image := extra.image(extra.data, slot)
+			imaged := time.tick_now()
+			load_ok := late_extra.load(late_extra.data, image)
+			load_done := time.tick_now()
+			image_bytes = len(image)
+			if !load_ok || !slice.equal(hash_of(late_extra, 0, &loaded), deep[:]) do mismatches += 1
+			image_us[tick / IMAGE_EVERY] = micros(image_start, imaged)
+			load_us[tick / IMAGE_EVERY] = micros(imaged, load_done)
+		}
 	}
-	snapshot_bytes := ring[(TICKS - 1) % RING].size
+	snapshot_bytes := extra.size(extra.data, (TICKS - 1) % RING)
+	characters_us := run_characters()
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"substeps":%d,"rays":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"restore_us":%s,"rays_us":%s,"snapshot_bytes":%d,"ray_hits":%d,"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"mismatches":%d}}`,
 		BODIES,
 		TICKS,
-		SUBSTEPS,
 		RAYS,
-		stat_json(stat_of(step_us[:])),
-		stat_json(stat_of(save_us[:])),
-		stat_json(stat_of(hash_us[:])),
-		stat_json(stat_of(restore_us[:])),
-		stat_json(stat_of(rays_us[:])),
+		CHARACTERS,
+		stat_json(step_us[:]),
+		stat_json(save_us[:]),
+		stat_json(deep_us[:]),
+		stat_json(shallow_us[:]),
+		stat_json(restore_us[:]),
+		stat_json(rays_us[:]),
+		stat_json(image_us[:]),
+		stat_json(load_us[:]),
+		stat_json(characters_us[:]),
 		snapshot_bytes,
+		image_bytes,
 		hits,
 		mismatches,
 	)
 	if mismatches > 0 do os.exit(1)
+}
+
+// 64 characters on a slab, each walking its own circle and jumping now and then: the time of their
+// character_updates per tick (up to 9 rays each, joints made and destroyed), apart from the step.
+run_characters :: proc() -> (us: [CHARACTER_TICKS]f64) {
+	world := physics.create({tick_hz = TICK_HZ})
+	defer physics.destroy(world)
+	physics.create_box(world, physics.body_def(.Static, {0, -0.5, 0}), physics.shape_def(1), {40, 0.5, 40})
+	characters: [CHARACTERS]physics.Character
+	def := physics.CHARACTER_DEFAULT
+	def.category = 2
+	for &character, i in characters {
+		physics.character_create(world, &character, def, {f32(i % 8) * 4 - 14, 1.2, f32(i / 8) * 4 - 14})
+	}
+	// directions round a circle, from a fixed table: no trig
+	DIRECTIONS :: [8][2]f32 {
+		{1, 0},
+		{0.7071, 0.7071},
+		{0, 1},
+		{-0.7071, 0.7071},
+		{-1, 0},
+		{-0.7071, -0.7071},
+		{0, -1},
+		{0.7071, -0.7071},
+	}
+	directions := DIRECTIONS
+	for tick in 0 ..< CHARACTER_TICKS {
+		start := time.tick_now()
+		for &character, i in characters {
+			move := directions[(tick / 16 + i) % 8]
+			physics.character_update(world, &character, def, move, (tick + i * 7) % 96 == 0, 1)
+		}
+		us[tick] = micros(start, time.tick_now())
+		physics.step(world)
+	}
+	return
 }

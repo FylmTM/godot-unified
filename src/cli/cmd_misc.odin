@@ -90,7 +90,7 @@ Bench_Summary :: struct {
 	benchmarks: map[string]Bench_Report,
 	net:        map[string]Net_Report,
 	table:      Table_Report,
-	rows:       map[string]any, // the project's own (Project_Config.bench: this repo's physics)
+	rows:       map[string]json.Value, // the project's own (Project_Config.bench: this repo's physics), as JSON
 }
 
 @(private)
@@ -204,8 +204,11 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 	for row in state.config.bench {
 		data, ok := row.run(work)
-		if ok {
-			summary.rows[row.name] = data
+		// a row's report as JSON: json.marshal refuses a map of `any`
+		row_json, marshal_err := json.marshal(data)
+		value, parse_err := json.parse(row_json)
+		if ok && marshal_err == nil && parse_err == nil {
+			summary.rows[row.name] = value
 		} else {
 			append(&failed, row.name)
 		}
