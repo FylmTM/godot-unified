@@ -1,9 +1,4 @@
-package view
-
-// A deterministic spawn key from the sim (a handle's key, a player's key, an index), so a view survives rollbacks
-// that re-create its entity under the same key, and a re-used slot gets a new view. A host may make a set's key
-// wider (unified:godot keys views by kind and key).
-Key :: distinct u64
+package godot
 
 Phase :: enum u8 {
 	Alive,
@@ -16,10 +11,9 @@ Entry :: struct($V: typeid) {
 	seen:     u64, // set_begin counter when last seen
 	gone_at:  f64, // when it started lingering (seconds, the caller's clock)
 	linger_s: f64, // how long it lingers once gone (set by the caller when it spawns; 0: removed at once)
-	data:     u64, // free for the caller
 }
 
-// The views of one frame's entities, keyed by spawn key (`K`: a Key, or a wider key such as kind and key). Per
+// The views of one frame's entities, keyed by spawn key (`K`: a deterministic spawn key from the sim, so a view survives rollbacks that re-create its entity under the same key and a re-used slot gets a new view; the host keys views by kind and key). Per
 // render frame:
 //   set_begin; for each entity in the frame: set_see (spawned = create the view, set its linger_s); set_end ->
 //   despawned and removed lists (start the exit animation / destroy the view).

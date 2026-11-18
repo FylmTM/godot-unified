@@ -11,7 +11,6 @@ import "core:time"
 import "unified:godot"
 import "unified:netcode"
 import "unified:sim"
-import "unified:view"
 
 import "../toy"
 
@@ -378,7 +377,7 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	defer godot.pose_memory_destroy(&memory)
 	remember :: proc(memory: ^godot.Pose_Memory, tick: u32, x: f32, rollback := false) -> (f32, bool) {
 		godot.pose_memory_begin(memory, rollback)
-		previous, found := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, view.IDENTITY)
+		previous, found := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, godot.IDENTITY)
 		return previous.pos.x, found
 	}
 	_, found := remember(&memory, 10, 10)

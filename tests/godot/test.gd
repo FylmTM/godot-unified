@@ -4,15 +4,16 @@
 extends SceneTree
 
 var failed := 0
-var fired := []
+var fired: Array[Array] = []
 
-func check(name: String, ok: bool, detail = "") -> void:
+func check(name: String, ok: bool, detail: Variant = "") -> void:
 	print("%s %s %s" % ["PASS" if ok else "FAIL", name, str(detail)])
 	if not ok:
 		failed += 1
 
 func _initialize() -> void:
-	var t = load("res://sub.gd").new()
+	# Untyped on purpose: every call on `t` goes through Variant calls (the typed half below takes ptrcall).
+	var t: Variant = load("res://sub.gd").new()
 	root.add_child(t)
 	check("class registered", ClassDB.class_exists("Tester"))
 	check("parent class", t is Node3D)
@@ -25,20 +26,31 @@ func _initialize() -> void:
 	check("node_name (Object arg)", t.node_name(root) == "root", t.node_name(root))
 	t.value = 17
 	check("property", t.value == 17 and t.get("value") == 17, t.value)
-	t.fired.connect(func(n, msg, pos): fired.append([n, msg, pos]))
+	t.fired.connect(func(n: int, msg: String, pos: Vector3) -> void: fired.append([n, msg, pos]))
 	t.fire(5)
 	check("class constants (in an enum, and alone)", t.MODE_FAST == 7 and t.MODE_SLOW == 0 		and ClassDB.class_get_integer_constant(&"Tester", &"ANSWER") == 42 		and ClassDB.class_get_integer_constant_enum(&"Tester", &"MODE_FAST") == &"Mode",
 		[t.MODE_FAST, ClassDB.class_get_integer_constant(&"Tester", &"ANSWER")])
 	check("signal with args", fired == [[5, "fired 5", Vector3(5, 0, 0)]], fired)
 	t.call_back(9)
-	check("script virtual called from Odin", t.got == 9, t.got)
+	check("script method called from Odin", t.got == 9, t.got)
 	var c: Callable = t.callable()
 	check("Callable from Odin", c.call(20, 22) == 42, c.call(20, 22))
 	check("vararg wrapper (Object.call)", t.call_add_via_vararg() == 7, t.call_add_via_vararg())
 	check("Ref ownership (Image round trip)", t.image_size() == 12, t.image_size())
 	check("returned Ref(Image) (Variant call)", t.new_image().get_width() == 2)
 	check("returned borrowed Image (Variant call)", t.kept_image().get_width() == 5)
-	check("interned StringName", t.sn_same())
+	check("read-only property", t.doubled == 34 and not "set_doubled" in t, t.doubled)
+	check("dynamic method", t.dynamic_add(40, 2) == 42, t.dynamic_add(40, 2))
+	t.dynamic_value = 5
+	check("dynamic property", t.dynamic_value == 5, t.dynamic_value)
+	check("read-only dynamic property (typed Object)", t.dynamic_parent == root, t.dynamic_parent)
+	var ints: Array = t.typed_ints()
+	check("typed Array", ints.is_typed() and ints.get_typed_builtin() == TYPE_INT and ints == [4, 2], ints)
+	var child: Variant = ClassDB.instantiate(&"TesterChild")
+	check("subclass of an extension class", child is Tester and child is Node3D, child)
+	check("instance_of: ours and a subclass, not an engine object", t.is_tester(t) and t.is_tester(child)
+			and not t.is_tester(root), child)
+	child.free()
 	check("nested callback keeps the caller's temp data", t.nested_temp())
 	# The same bindings through typed calls: GDScript ptrcalls a method whose types it knows at compile time.
 	var tt: Tester = t
@@ -52,6 +64,12 @@ func _initialize() -> void:
 	check("typed node_name", tt.node_name(root) == "root", tt.node_name(root))
 	tt.value = 23
 	check("typed property", tt.value == 23, tt.value)
+	check("typed read-only property", tt.doubled == 46, tt.doubled)
+	check("typed dynamic method", tt.dynamic_add(1, 2) == 3, tt.dynamic_add(1, 2))
+	tt.dynamic_value = 9
+	check("typed dynamic property", tt.dynamic_value == 9, tt.dynamic_value)
+	check("typed read-only dynamic property", tt.dynamic_parent == root, tt.dynamic_parent)
+	check("typed instance_of", tt.is_tester(tt), tt)
 	check("typed nested_temp", tt.nested_temp())
 	var owned: Image = tt.new_image()
 	check("typed returned Ref(Image)", owned.get_width() == 2)
@@ -168,12 +186,12 @@ func press_fires(at: Vector2) -> bool:
 ## The level exporter, mirrored here as into a game (res://addons/unified/) and run in its own Godot process: the 2D
 ## fixture exports to the committed file (tests/level reads it), and an unsupported shape fails naming the node.
 func check_level_export() -> void:
-	var out := []
+	var out: Array = []
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
 			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
 			"--scene=res://levels/bad_2d.tscn"], out, true)
-	var data = null
-	for line in "".join(out).split("\n"):
+	var data: Variant = null
+	for line: String in "".join(out).split("\n"):
 		if line.begins_with("UNIFIED_RESULT "):
 			data = JSON.parse_string(line.trim_prefix("UNIFIED_RESULT "))
 	check("level export ran", data is Dictionary and code == 1, code)

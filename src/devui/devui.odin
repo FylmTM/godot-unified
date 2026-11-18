@@ -334,8 +334,7 @@ ours :: proc(control: gd.Control) -> bool {
 on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton");
-	   mouse_button.ptr != nil {
+	if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj); mouse_button.ptr != nil {
 		if window != nil { 	// a popped-out panel: every press there is the dev UI's
 			if gd.InputEvent_is_pressed(mouse_button) do release_actions(mouse_button)
 			return {}
@@ -351,12 +350,12 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 		return {}
 	}
 	if window == nil {
-		if mouse_event := gd.object_cast(gd.InputEventMouse, obj, "InputEventMouse"); mouse_event.ptr != nil {
+		if mouse_event := gd.object_cast(gd.InputEventMouse, obj); mouse_event.ptr != nil {
 			s.mouse = gd.InputEventMouse_get_position(mouse_event)
 			return {}
 		}
 	}
-	key_event := gd.object_cast(gd.InputEventKey, obj, "InputEventKey")
+	key_event := gd.object_cast(gd.InputEventKey, obj)
 	if key_event.ptr == nil || !gd.InputEvent_is_pressed(key_event) || gd.InputEvent_is_echo(key_event) do return {}
 	#partial switch gd.InputEventKey_get_keycode(key_event) {
 	case .KEY_F1:
@@ -448,10 +447,10 @@ on :: proc(obj: $Source, signal: string, fn: gd.Callable_Proc, user: rawptr = ni
 
 // The event of a signal's first argument, when it is a `T`.
 @(private)
-event_arg :: proc($Event: typeid, args: []^gd.Variant, class: string) -> Event {
+event_arg :: proc($Event: typeid, args: []^gd.Variant) -> Event {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	return gd.object_cast(Event, obj, class)
+	return gd.object_cast(Event, obj)
 }
 
 // Window pixels to points.

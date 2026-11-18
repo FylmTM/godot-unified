@@ -11,7 +11,7 @@ this file is how the deterministic core works across packages. The games built o
   and the leaf `wire`.
 - Real-time: `netcode` (input relay, prediction, rollback; it drives the sim but stays off `core:math`), `eos`
   (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary and the test helpers).
-- Host: `gdext` (Godot's API), `view` (interpolation and events, no Godot), `godot`, `devui`.
+- Host: `gdext` (Godot's API), `godot` (the host, its view logic included), `devui`.
 - Tools: `cli` (`uni`; it never links the sim) and `lint` (the determinism lint a game's tests run).
 
 A package exists only where determinism rules differ, a consumer needs one piece without another, or third-party code
@@ -36,7 +36,7 @@ a player's input travels and is logged as its bytes (a command as its struct's b
 "is POD" trait, so this is a startup check.
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only, no `matrix` types, no `core:math` in tick code
-(`src/dmath/SPEC.md` has the rest). Host code (`view`, `godot`, `devui`) may use it: nothing there feeds the sim.
+(`src/dmath/SPEC.md` has the rest). Host code (`godot`, `devui`) may use it: nothing there feeds the sim.
 Float→int casts only see clamped values.
 
 ## Box3D

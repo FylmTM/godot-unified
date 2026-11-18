@@ -14,6 +14,7 @@ import "core:reflect"
 import "unified:gdext/gdi"
 
 // The Variant type of an Odin type (NIL for Variant itself: "any").
+@(private)
 variant_type_of :: proc($T: typeid) -> gdi.VariantType {
 	when T == Variant {
 		return .NIL
@@ -110,6 +111,7 @@ builtin_variant_type :: proc(id: typeid) -> (gdi.VariantType, bool) {
 }
 
 // Builtins that own memory (need a destructor); the rest are plain values.
+@(private)
 is_opaque_builtin :: proc(kind: gdi.VariantType) -> bool {
 	#partial switch kind {
 	case .STRING, .STRING_NAME, .NODE_PATH, .CALLABLE, .SIGNAL, .DICTIONARY, .ARRAY:
@@ -119,6 +121,7 @@ is_opaque_builtin :: proc(kind: gdi.VariantType) -> bool {
 }
 
 // Runtime version of variant_type_of (for signal and script-virtual signatures given as typeids).
+@(private)
 variant_type_of_id :: proc(id: typeid) -> gdi.VariantType {
 	if id == Variant do return .NIL
 	if kind, ok := builtin_variant_type(id); ok do return kind
@@ -138,6 +141,7 @@ variant_type_of_id :: proc(id: typeid) -> gdi.VariantType {
 }
 
 // Class wrappers are structs whose `using` chain ends at Object{ptr}.
+@(private)
 is_object_type :: proc(id: typeid) -> bool {
 	cur := id
 	for {
@@ -166,13 +170,6 @@ variant_destroy :: proc(variant: ^Variant) {
 	gdi.variant_destroy(variant)
 }
 
-// An owned copy of a Variant. Arrays, Dictionaries and objects are shared by reference, not deep-copied.
-variant_copy :: proc(variant: ^Variant) -> Variant {
-	result: Variant
-	gdi.variant_new_copy(&result, variant)
-	return result
-}
-
 @(private)
 from_type :: proc(kind: gdi.VariantType, dst: ^Variant, src: rawptr) {
 	@(static) ctors: [gdi.VariantType]gdi.VariantFromTypeConstructorFunc
@@ -188,6 +185,7 @@ to_type :: proc(kind: gdi.VariantType, dst: rawptr, src: ^Variant) {
 }
 
 // Destroys an opaque builtin value of type `kind` in place.
+@(private)
 builtin_destroy :: proc(kind: gdi.VariantType, ptr: rawptr) {
 	@(static) dtors: [gdi.VariantType]gdi.PtrDestructor
 	if dtors[kind] == nil do dtors[kind] = gdi.variant_get_ptr_destructor(kind)
@@ -228,6 +226,7 @@ to_variant :: proc(value: $T) -> Variant {
 
 // An owned Variant holding a StringName (not a String) for `text`, for an argument Godot declares as StringName
 // (generated vararg wrappers) or an enum value that reaches scripts as its name (`&"name"`).
+@(private)
 variant_string_name :: proc(text: string) -> Variant {
 	result: Variant
 	name := string_name_from(text)
@@ -237,6 +236,7 @@ variant_string_name :: proc(text: string) -> Variant {
 }
 
 // An owned Variant holding a NodePath parsed from `text`, for an argument Godot declares as NodePath.
+@(private)
 variant_node_path :: proc(text: string) -> Variant {
 	result: Variant
 	path := node_path_from(text)
@@ -371,6 +371,7 @@ from_variant :: proc($T: typeid, variant: ^Variant) -> (result: T, ok: bool) {
 
 // Reads a ptrcall argument slot as `T` (the typed-call path of bound methods). Variants and builtins come back as
 // borrowed views; strings are copied into the temp allocator.
+@(private)
 from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 	when intrinsics.type_is_boolean(T) {
 		return (^u8)(ptr)^ != 0
@@ -389,6 +390,7 @@ from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 
 // Writes a return value into a ptrcall slot. Opaque builtins move into the (constructed) slot. A RefCounted's slot is a
 // reference of Godot's: a `Ref(T)` result hands ours over, a bare `T` is borrowed (the slot takes its own).
+@(private)
 to_ptr :: proc(value: $T, ptr: rawptr) {
 	when intrinsics.type_is_boolean(T) {
 		(^u8)(ptr)^ = u8(value)
@@ -418,6 +420,7 @@ to_ptr :: proc(value: $T, ptr: rawptr) {
 
 // Writes an owned return value into a Variant slot (moves opaque builtins; the Variant takes a reference of a
 // RefCounted of its own: a `Ref(T)` result's is dropped, a bare `T` is borrowed).
+@(private)
 to_variant_slot :: proc(value: $T, slot: ^Variant) {
 	gdi.variant_destroy(slot)
 	slot^ = to_variant(value)
@@ -440,6 +443,7 @@ to_variant_slot :: proc(value: $T, slot: ^Variant) {
 }
 
 // Releases a value produced by from_variant (opaque builtins only).
+@(private)
 release :: proc(value: ^$T) {
 	when T != Variant && T != string && !intrinsics.type_is_subtype_of(T, Object) {
 		when !intrinsics.type_is_boolean(
@@ -453,7 +457,7 @@ release :: proc(value: ^$T) {
 
 // ---- Dictionary and Array helpers (String keys, like GDScript literals)
 
-// A new, empty Dictionary the caller owns until it hands it on (returns it from a bound method, dict_set_move).
+// A new, empty Dictionary the caller owns until it hands it on (returns it from a bound method).
 dict_new :: proc() -> Dictionary {
 	return Dictionary_new0()
 }
@@ -468,13 +472,7 @@ dict_set :: proc(dict: ^Dictionary, key: string, value: $T) {
 	slot^ = to_variant(value)
 }
 
-// Moves an owned Dictionary/Array value into d[key].
-dict_set_move :: proc(dict: ^Dictionary, key: string, value: ^$T) {
-	dict_set(dict, key, value^)
-	release(value)
-}
-
-// A new, empty Array the caller owns until it hands it on (returns it from a bound method, array_push_move).
+// A new, empty Array the caller owns until it hands it on (returns it from a bound method).
 array_new :: proc() -> Array {
 	return Array_new0()
 }
@@ -484,12 +482,6 @@ array_push :: proc(array: ^Array, value: $T) {
 	variant := to_variant(value)
 	defer gdi.variant_destroy(&variant)
 	Array_push_back(array, variant)
-}
-
-// Moves an owned Dictionary/Array value onto the end of a.
-array_push_move :: proc(array: ^Array, value: ^$T) {
-	array_push(array, value^)
-	release(value)
 }
 
 // The number of elements in the Array.

@@ -10,6 +10,7 @@
 //     `Unified.session`, `Unified.tick_hz` and `Unified.view_scale`;
 //   - a class per enum type the event, command, data and constants types use (`Phase` -> EnumPhase) with its members
 //     as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
+#+private
 package godot
 
 import "base:runtime"
@@ -31,7 +32,6 @@ Data_Layout :: struct {
 }
 
 // A data or constants class and its one live instance.
-@(private)
 Data_Class :: struct {
 	using class: gd.Class,
 	layout:      Data_Layout,
@@ -41,14 +41,12 @@ Data_Class :: struct {
 }
 
 // An instance: the value's bytes (the newest frame's; zero outside a session).
-@(private)
 Data_Object :: struct {
 	using hdr: gd.Instance_Header,
 	bytes:     []u8,
 }
 
 // An enum type as a class of integer constants.
-@(private)
 Enum_Class :: struct {
 	using class: gd.Class,
 	type:        ^runtime.Type_Info,
@@ -57,7 +55,6 @@ Enum_Class :: struct {
 
 CONSTANTS_CLASS :: "UnifiedConstants"
 
-@(private)
 D: struct {
 	data:          [dynamic]^Data_Class, // by data kind (the union's order)
 	constants:     ^Data_Class, // UnifiedConstants (nil before registration, or on a clash)
@@ -77,7 +74,6 @@ data_layout :: proc(type: ^runtime.Type_Info) -> Data_Layout {
 }
 
 // `prefix` + a snake_case name in PascalCase (rock_hit -> RockHit).
-@(private)
 pascal_name :: proc(prefix, name: string) -> string {
 	builder := strings.builder_make(context.temp_allocator)
 	strings.write_string(&builder, prefix)
@@ -127,7 +123,6 @@ data_problems :: proc(data: typeid, constants: typeid, problems: ^[dynamic]strin
 
 // Registers the enum, data and constants classes and the Unified singleton. `constants` is the Glue's value (the
 // host copies its bytes; its strings must live as long as the process: literals).
-@(private)
 register_data_classes :: proc() {
 	context.allocator = runtime.heap_allocator()
 	if api.installed {
@@ -146,62 +141,44 @@ register_data_classes :: proc() {
 	D.holder = {
 		name   = "UnifiedData",
 		parent = "Object",
-		size   = size_of(gd.Instance_Header),
 	}
 	gd.register_class(&D.holder)
 	for data_class in D.data {
 		if data_class == nil do continue
-		getter := fmt.tprintf("get_%s", data_class.layout.property)
-		gd.bind_dynamic_method(
+		gd.bind_dynamic_property(
 			&D.holder,
-			getter,
+			{data_class.layout.property, .OBJECT, data_class.name},
 			object_getter,
-			data_class,
 			nil,
-			gd.Dynamic_Arg{"", .OBJECT, data_class.name},
+			data_class,
 		)
-		gd.bind_property_by_name(&D.holder, data_class.layout.property, .OBJECT, getter, "", data_class.name)
 	}
 	D.holder_object = {gd.construct_object("UnifiedData")}
 	D.unified = {
 		name   = "Unified",
 		parent = "Object",
-		size   = size_of(gd.Instance_Header),
 	}
 	gd.register_class(&D.unified)
-	gd.bind_dynamic_method(&D.unified, "get_session", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+	gd.bind_dynamic_property(&D.unified, {"session", .OBJECT, "UnifiedSession"}, proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
 		if active == nil do return gd.variant_nil()
 		return gd.variant_from_any(active.obj)
-	}, nil, nil, gd.Dynamic_Arg{"", .OBJECT, "UnifiedSession"})
-	gd.bind_property_by_name(&D.unified, "session", .OBJECT, "get_session", "", "UnifiedSession")
-	gd.bind_dynamic_method(&D.unified, "get_tick_hz", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
-		return gd.to_variant(i64(api.tick_hz))
-	}, nil, nil, gd.Dynamic_Arg{"", .INT, ""})
-	gd.bind_property_by_name(&D.unified, "tick_hz", .INT, "get_tick_hz")
-	gd.bind_dynamic_method(&D.unified, "get_view_scale", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
-		return gd.to_variant(f64(api.view_scale))
-	}, nil, nil, gd.Dynamic_Arg{"", .FLOAT, ""})
-	gd.bind_property_by_name(&D.unified, "view_scale", .FLOAT, "get_view_scale")
-	gd.bind_dynamic_method(&D.unified, "get_data", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
-		return gd.variant_from_any(D.holder_object)
-	}, nil, nil, gd.Dynamic_Arg{"", .OBJECT, "UnifiedData"})
-	gd.bind_property_by_name(&D.unified, "data", .OBJECT, "get_data", "", "UnifiedData")
+	})
+	gd.bind_property(&D.unified, "tick_hz", proc(_: ^gd.Instance_Header) -> i64 {return i64(api.tick_hz)})
+	gd.bind_property(&D.unified, "view_scale", proc(_: ^gd.Instance_Header) -> f64 {return f64(api.view_scale)})
+	gd.bind_dynamic_property(
+		&D.unified,
+		{"data", .OBJECT, "UnifiedData"},
+		proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+			return gd.variant_from_any(D.holder_object)
+		},
+	)
 	if D.constants != nil {
-		gd.bind_dynamic_method(
-			&D.unified,
-			"get_constants",
-			object_getter,
-			D.constants,
-			nil,
-			gd.Dynamic_Arg{"", .OBJECT, CONSTANTS_CLASS},
-		)
-		gd.bind_property_by_name(&D.unified, "constants", .OBJECT, "get_constants", "", CONSTANTS_CLASS)
+		gd.bind_dynamic_property(&D.unified, {"constants", .OBJECT, CONSTANTS_CLASS}, object_getter, nil, D.constants)
 	}
 	D.singleton = {gd.construct_object("Unified")}
 	gd.Engine_register_singleton(gd.Engine_singleton(), "Unified", D.singleton)
 }
 
-@(private)
 register_data_class :: proc(layout: Data_Layout, is_constants := false) -> ^Data_Class {
 	if gdi.classdb_get_class_tag(gd.sn(layout.class)) != nil {
 		gd.print_error(
@@ -231,17 +208,16 @@ register_data_class :: proc(layout: Data_Layout, is_constants := false) -> ^Data
 	gd.register_class(&data_class.class)
 	if layout.type != nil do data_class.fields = struct_sim_fields(layout.type)
 	for &field in data_class.fields {
-		getter := fmt.tprintf("get_%s", field.name)
-		gd.bind_dynamic_method(
-			&data_class.class,
-			getter,
-			data_field_get,
-			&field,
-			nil,
-			gd.Dynamic_Arg{"", field.kind, ""},
-		)
 		hint, hint_string := field_hint(field.type)
-		gd.bind_property_by_name(&data_class.class, field.name, field.kind, getter, "", "", hint, hint_string)
+		gd.bind_dynamic_property(
+			&data_class.class,
+			{field.name, field.kind, ""},
+			data_field_get,
+			nil,
+			&field,
+			hint,
+			hint_string,
+		)
 	}
 	if !is_constants do gd.bind_signal(&data_class.class, "changed")
 	data_class.object = {gd.construct_object(layout.class)}
@@ -249,15 +225,13 @@ register_data_class :: proc(layout: Data_Layout, is_constants := false) -> ^Data
 	return data_class
 }
 
-@(private)
 data_field_get :: proc(user: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Data_Object)(instance)
 	return field_variant(field.type, object.bytes[field.offset:][:field.type.size], .Sim)
 }
 
-// The properties of a struct's fields (`_` fields are padding, left out).
-@(private)
+// The properties of a struct's fields (`_` fields are padding, left out), kept as long as the process (main thread).
 struct_sim_fields :: proc(type: ^runtime.Type_Info) -> []Sim_Field {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	fields := make([dynamic]Sim_Field, runtime.heap_allocator())
@@ -265,10 +239,11 @@ struct_sim_fields :: proc(type: ^runtime.Type_Info) -> []Sim_Field {
 		name := info.names[i]
 		if strings.has_prefix(name, "_") do continue
 		append(&fields, Sim_Field {
-			name   = name,
-			type   = info.types[i],
-			offset = int(info.offsets[i]),
-			kind   = field_kind(info.types[i]),
+			name    = name,
+			name_sn = gd.sn(name),
+			type    = info.types[i],
+			offset  = int(info.offsets[i]),
+			kind    = field_kind(info.types[i]),
 		})
 	}
 	return fields[:]
@@ -300,14 +275,12 @@ enum_types_of :: proc(types: []^runtime.Type_Info, out: ^[dynamic]^runtime.Type_
 }
 
 // An enum's class: `Enum` + its type name in PascalCase (Phase -> EnumPhase, Rock_Size -> EnumRockSize).
-@(private)
 enum_class_name :: proc(type: ^runtime.Type_Info) -> string {
 	name := fmt.tprint(type.id)
 	if named, ok := type.variant.(runtime.Type_Info_Named); ok do name = named.name
 	return pascal_name("Enum", strings.to_lower(name, context.temp_allocator))
 }
 
-@(private)
 register_enum_class :: proc(type: ^runtime.Type_Info) {
 	name := enum_class_name(type)
 	if gdi.classdb_get_class_tag(gd.sn(name)) != nil {
@@ -318,7 +291,7 @@ register_enum_class :: proc(type: ^runtime.Type_Info) {
 	}
 	enum_class := new(Enum_Class)
 	enum_class^ = {
-		class = {name = strings.clone(name), parent = "Object", size = size_of(gd.Instance_Header)},
+		class = {name = strings.clone(name), parent = "Object"},
 		type = type,
 		info = runtime.type_info_base(type).variant.(runtime.Type_Info_Enum),
 	}
@@ -388,7 +361,6 @@ data_objects_free :: proc() {
 }
 
 // Every registered data class and the constants' class.
-@(private)
 data_classes :: proc() -> []^Data_Class {
 	all := make([dynamic]^Data_Class, context.temp_allocator)
 	for data_class in D.data do if data_class != nil do append(&all, data_class)
@@ -396,13 +368,9 @@ data_classes :: proc() -> []^Data_Class {
 	return all[:]
 }
 
-// Unregisters the singleton and the classes when the extension unloads (the instances are freed first).
-unregister_data_classes :: proc() {
-	data_objects_free()
-	gd.unregister_class(&D.unified)
-	gd.unregister_class(&D.holder)
-	for data_class in data_classes() do gd.unregister_class(&data_class.class)
-	#reverse for enum_class in D.enums do gd.unregister_class(&enum_class.class)
+// Forgets the data and enum classes once gd.shutdown has unregistered them (the extension unloads; a hot reload
+// registers anew). The classes themselves live as long as the process.
+data_classes_forget :: proc() {
 	clear(&D.data)
 	clear(&D.enums)
 	D.constants, D.singleton = nil, {}
