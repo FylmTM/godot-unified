@@ -25,8 +25,9 @@ bench_details :: proc() -> string {
 		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
 		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
 		"window + 64 ticks run untimed. The target: a step, a restore, that re-sim and a deep checksum within %.0f ms at\n" +
-		"their p99. A re-sim whose checksum differs fails the run. Then its `session` twice on the virtual clock: 4\n" +
-		"clients under `bad` (the stress case), and under `wan` (the common case) with the 4th connecting halfway and\n" +
+		"their p99. A re-sim whose checksum differs fails the run. Then its `session` twice on the virtual clock, 4\n" +
+		"clients whose inputs change every tick (--script churn: rollbacks on most ticks, a bound from above): under\n" +
+		"`bad` (the stress case), and under `wan` (the common case) with the 4th connecting halfway and\n" +
 		"joining as a player does (the join: Hello to playing, the bytes it took, the snapshot's transfer and the\n" +
 		"joiner's catch-up step). Each session row times every client step that stepped the sim (p99, worst): the\n" +
 		"measure the target models. Then the project's own rows. Reported in .out/bench.json, not gated by time.",
@@ -172,8 +173,8 @@ cmd_bench :: proc(args: []string) -> Result {
 			args: []string,
 			out:  ^Net_Report,
 		} {
-			{"bad", {"session", "--profile", "bad"}, &rows.bad},
-			{"wan", {"session", "--profile", "wan", "--late-join", "3@600"}, &rows.wan},
+			{"bad", {"session", "--profile", "bad", "--script", "churn"}, &rows.bad},
+			{"wan", {"session", "--profile", "wan", "--script", "churn", "--late-join", "3@600"}, &rows.wan},
 		}
 		net_ok := true
 		for session in sessions {

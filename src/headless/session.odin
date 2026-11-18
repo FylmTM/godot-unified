@@ -22,7 +22,14 @@ Session_Config :: struct {
 	// The late joiner connects once the relay's clock reaches late_tick and asks for no particular join tick, as a
 	// player does (its join then takes what a player waits); else it connects ahead, present from late_tick exactly.
 	late_as_player: bool,
+	// Every slot's scripted input is drawn afresh every tick (the game's script asked for tick × CHURN_SPREAD + slot):
+	// rollbacks on most ticks, the bound of real play from above (an analog stick changes every tick; the default
+	// script holds an input for its period, all slots switching together). Commands keep the script's ticks.
+	churn:          bool,
 }
+
+// How far apart churn asks the script for consecutive ticks: a fresh draw for any script period up to it.
+CHURN_SPREAD :: 4096
 
 Session_Result :: struct($G: typeid) {
 	ok:         bool, // every client verified every tick and disconnected cleanly, and nothing desynced
@@ -54,6 +61,7 @@ session_result_destroy :: proc(result: ^Session_Result($G)) {
 Scripted_User :: struct($G: typeid) {
 	headless: ^Headless(G),
 	seed:     u64,
+	churn:    bool, // Session_Config.churn
 }
 
 // Client hooks that sample the game's scripted input and commands for the client's slot, so a session's
@@ -66,7 +74,9 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 		user = scripted,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(G))(user)
-			return scripted.headless.game.scripted_input(scripted.seed, slot, tick, state)
+			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
+			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
+			return scripted.headless.game.scripted_input(scripted.seed, slot, asked, state)
 		},
 	}
 	if scripted.headless.game.scripted_commands != nil {
@@ -149,7 +159,7 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	netcode.relay_add_link(relay, netcode.loopback_link(hub, 0))
 	clients := make([]^netcode.Client(G), cfg.clients)
 	defer delete(clients)
-	scripted := Scripted_User(G){headless, cfg.seed}
+	scripted := Scripted_User(G){headless, cfg.seed, cfg.churn}
 	new_client :: proc(
 		headless: ^Headless(G),
 		cfg: Session_Config,
