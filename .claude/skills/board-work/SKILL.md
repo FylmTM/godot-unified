@@ -51,8 +51,8 @@ your own; an item in another column may get a comment with questions or findings
 
 ## Merging
 
-Only merging into `main` is gated. An agent merges a PR only after `./uni verify` passes and CI is green,
-and only when:
+Only merging into `main` is gated. An agent merges a PR only after `./uni verify` passes and CI is green
+(macOS aside: it never blocks a merge; `main`'s run after the merge covers it, per AGENTS.md), and only when:
 
 - **the developer asks for it in chat.** Then every issue the PR closes goes to Done (`board set <n> --status Done`,
   which also closes it if the merge hasn't). Issues it is only `Part of` stay open, back in the column they belong
