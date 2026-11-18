@@ -1,7 +1,7 @@
 // minimal_3d's tests: the standard scenarios of unified:headless/scenarios (src/headless/SPEC.md), the set every game
 // starts with, and unified's determinism lint. Its pinned reference run is in reference_test.odin, which `uni init`
-// leaves out of a new game: it pins its own once its rules settle (a file like that one; the first run's failure
-// prints the `ref` to paste).
+// leaves out of a new game: it pins its own once its rules settle (a `REFERENCE :: scenarios.Reference` with seed,
+// players, ticks and snapshot_tick, and a test calling reference_reproduces; the first run prints the rest to paste).
 package test_minimal_3d
 
 import "core:testing"

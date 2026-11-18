@@ -24,7 +24,7 @@ warp_ships :: proc(t: ^Tick) {
 			t.state.gates[gate_def.pair].charge = GATE_CHARGE_TICKS
 			ship.gate_cooldown = GATE_CHARGE_TICKS
 			sim.emit(t, Event_Warped {
-				position  = sim.position(to),
+				position  = sim.position_2d(to),
 				player    = player,
 				from_gate = u8(gate),
 				to_gate   = u8(gate_def.pair),

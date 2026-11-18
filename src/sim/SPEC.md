@@ -132,13 +132,14 @@ tick :: proc(t: ^Tick) {
 - **The library reports; the game decides** what an absent player's things do: an owner is a `Player`, never a
   slot. An absent member's `T` owns nothing outside the block (a body is destroyed at the leave and made again on the
   return), since the table may forget it before any `tick` runs.
-- Queries take the tick or a `Players` (views, tests), `iterate_present(t)` included: `player_data(t, player) -> ^T` (nil when nobody, stale or
-  forgotten; valid while absent), `player_slot(t, player) -> (slot, present)` (`slot := ...` is fine: -1 when
-  absent), `player_present`, `player_in_slot(t, slot)` (also on a `^Sim`, for drivers outside `tick`),
-  `present_count(t)`, `player_known(&players, player)`; `iterate_present` (slot order) and `iterate_known` (member
-  order) with `next`; `input(t, player)` (zero when absent), `input_before`, `buttons`, `commands`.
+- Queries take the tick, a `^Players` (views) or a `^Sim` (tests and drivers outside `tick`), every one of them:
+  `player_data(t, player) -> ^T` (nil when nobody, stale or forgotten; valid while absent),
+  `player_slot(t, player) -> (slot, present)` (`slot := ...` is fine: -1 when absent), `player_present`,
+  `player_in_slot(t, slot)`, `present_count(t)`, `player_known`; `iterate_present` (slot order) and `iterate_known`
+  (member order) with `next`. On the tick only: `input(t, player)` (zero when absent), `input_before`, `buttons`,
+  `commands`.
   `player_key(player) -> u64` (0 for nobody) names a player to views and GDScript; `player_of_key` reverses it.
-- `slot_data(t, slot) -> ^T` (also on a `^Players` or a `^Sim`): the data of whoever holds the slot (nil: nobody), a
+- `slot_data(t, slot) -> ^T`: the data of whoever holds the slot (nil: nobody), a
   HUD's row or a test's look at a slot.
 - Join records come from the relay. Tests, tools and bots write them with `seat(&inputs, sim_or_players, slot,
   member)`: the slot present, with a join record only when someone else holds it in the state the tick steps from (so
@@ -174,7 +175,8 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
   `CommandDropCoin`).
 - A tick holds at most `COMMANDS_PER_SLOT` of one slot and `TICK_COMMANDS` in all, inline in `Inputs`, so a record
   has a fixed size and fits a datagram; more wait for the next tick, in order. Tests and tools add one to a tick's
-  record with `add_command(&inputs, slot, value) -> bool`, typed by the game's `Cmd` (or `add_command(&inputs, raw)`).
+  record with `add_command(&inputs, slot, value) -> bool`, typed by the game's `Cmd`: one of its structs or the union
+  itself (or `add_command(&inputs, raw)`).
 - Sources send into a `Command_Out(Cmd)`: `send_command(out, value) -> bool` (false: its `cap` reached).
   `command_make(Cmd, value)` builds a raw one. Delivery: `src/netcode/SPEC.md`.
 
@@ -190,12 +192,13 @@ Event_Coin_Picked :: struct {coin: sim.Handle(Coin), player: sim.Player, positio
 sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, z}, value = coin.value})
 ```
 
-A `Position` is a point in sim units, which the view maps to its own (`Glue.view_scale`); a 2D game's point on the
-plane is `position(point: [2]f32) -> Position` (z = 0).
+A `Position` is a point in sim units, which the view maps to its own (`Glue.view_scale`). A `[2]f32` point names its
+plane: `position_2d(point)` is a 2D game's point on the XY plane (z = 0); `position_floor(point, height = 0)` a 3D
+game's floor point kept as (x, z), as `dmath.quat_yaw` reads a facing (y = `height`).
 
 A thing that is not a table's item (a level marker, an item of a fixed array) is named in events by an `Entity`
 (`distinct u64`): `entity(index)`, `entity_index(e) -> (index, ok)`; its zero value is none, so index 0 is a thing.
-The Godot host routes an event to the views keyed by its first handle's key or its first `Entity`'s index
+The Godot host routes an event to the views pushed with its first handle or its first `Entity` as their subject
 (`src/godot/SPEC.md`), found by type, whatever the field's name.
 
 Each tick's events are kept in the ring as kind + bytes (`Raw_Event`) and emitted again when the tick is

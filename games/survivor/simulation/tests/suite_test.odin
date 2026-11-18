@@ -10,20 +10,22 @@ import g "../survivor"
 import "unified:headless/scenarios"
 
 SUITE := scenarios.Suite(g.Game) {
-	game = &g.GAME_STRESS,
+	game    = &g.GAME_STRESS,
 	players = 4,
-	seed = 42,
-	ticks = scenarios.LONG ? 3600 : 600,
-	ref = {
-		seed          = 7,
-		players       = 4,
-		ticks         = 3600,
-		snapshot_tick = 1800,
-		checkpoints   = {0x8ecc3dfed447de08, 0xb0f40a276d268744, 0x749b4de73b7274c5, 0xb25497c2ab16d77c},
-		trace         = 0x6a918b583aebc4af,
-		snapshot      = 0xdef62f033d43a401,
-		log           = 0x159e278909cd2d0f,
-	},
+	seed    = 42,
+	ticks   = scenarios.LONG ? 3600 : 600,
+}
+
+// The reference run (src/headless/SPEC.md, Reference runs).
+REFERENCE :: scenarios.Reference {
+	seed          = 7,
+	players       = 4,
+	ticks         = 3600,
+	snapshot_tick = 1800,
+	checkpoints   = {0x8ecc3dfed447de08, 0xb0f40a276d268744, 0x749b4de73b7274c5, 0xb25497c2ab16d77c},
+	trace         = 0x6a918b583aebc4af,
+	snapshot      = 0xdef62f033d43a401,
+	log           = 0x159e278909cd2d0f,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
@@ -54,7 +56,7 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 	)}
 
 @(test)
-the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &g.GAME_STRESS, REFERENCE)}
 
 when scenarios.LONG {
 	@(test)

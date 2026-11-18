@@ -15,7 +15,7 @@ update_players :: proc(t: ^Tick) {
 	for player in t.player_changes.arrived {
 		spawn := t.world.spawns[sim.player_slot(t, player)]
 		create_ship(t.world, sim.player_data(t, player), spawn)
-		sim.emit(t, Event_Spawned{position = sim.position(spawn), player = player})
+		sim.emit(t, Event_Spawned{position = sim.position_2d(spawn), player = player})
 	}
 }
 
@@ -57,7 +57,7 @@ fly_ships :: proc(t: ^Tick) {
 		if .Boost in input.buttons && ship.boost_cooldown == 0 {
 			physics.body_apply_linear_impulse_to_center_2d(t.world.phys, ship.body, heading * (BOOST_SPEED * mass))
 			ship.boost_cooldown = BOOST_COOLDOWN_TICKS
-			sim.emit(t, Event_Boosted{position = sim.position(pos), player = player})
+			sim.emit(t, Event_Boosted{position = sim.position_2d(pos), player = player})
 		}
 		if .Fire in input.buttons && ship.fire_cooldown == 0 {
 			ship.fire_cooldown = FIRE_EVERY_TICKS
@@ -70,7 +70,7 @@ fly_ships :: proc(t: ^Tick) {
 					ttl   = BULLET_LIFE_TICKS,
 				}
 				ship.shots += 1
-				sim.emit(t, Event_Fired{position = sim.position(muzzle), player = player})
+				sim.emit(t, Event_Fired{position = sim.position_2d(muzzle), player = player})
 			}
 		}
 	}

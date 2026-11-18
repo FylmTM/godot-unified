@@ -13,6 +13,7 @@ Event_Layout :: struct {
 	player:            int, // offset of the first sim.Player field, -1: none
 	subject:           int, // offset of the first sim.Handle(T) or sim.Entity field; -1: none
 	subject_is_handle: bool,
+	subject_type:      typeid, // that field's type (a view takes it only when pushed with a subject of this type)
 }
 
 // The layouts of a game's event union, by kind (allocated for the process's lifetime).
@@ -35,9 +36,9 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 			case field.id == sim.Player:
 				if layout.player < 0 do layout.player = offset
 			case is_handle(field):
-				if layout.subject < 0 do layout.subject, layout.subject_is_handle = offset, true
+				if layout.subject < 0 do layout.subject, layout.subject_is_handle, layout.subject_type = offset, true, field.id
 			case field.id == sim.Entity:
-				if layout.subject < 0 do layout.subject = offset
+				if layout.subject < 0 do layout.subject, layout.subject_type = offset, sim.Entity
 			}
 		}
 	}

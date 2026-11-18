@@ -301,13 +301,20 @@ Run :: struct($G: typeid) {
 }
 
 // A run of `game` from tick 0, sync-tested `window` ticks back (1 ..= max_window(game)), on `content` (nil: the
-// game's, Game.content). Nobody is seated yet.
-run_begin :: proc(game: ^$G, seed: u64, content: []u8 = nil, window: u32 = 8) -> (run: Run(G)) {
+// game's, Game.content). `seated`: slots 0 ..< seated are seated (run_seat: slot i is member i + 1) and play one step
+// with zero inputs, so their players are present at tick 1; 0: nobody is seated yet, no step.
+run_begin :: proc(game: ^$G, seed: u64, content: []u8 = nil, window: u32 = 8, seated := 0) -> (run: Run(G)) {
 	assert(window >= 1 && int(window) <= max_window(game))
+	assert(seated >= 0 && seated <= sim.part(G, sim.GAME_PLAYERS), "seated: 0 to the game's player count")
 	run.simulation = sim.create(game, seed, content)
 	run.window = window
 	append(&run.recorded, sim.Inputs(G){})
 	append(&run.forward, sim.checksum(run.simulation))
+	if seated > 0 {
+		for slot in 0 ..< seated do run_seat(&run, slot, slot + 1)
+		inputs := run_inputs(&run)
+		run_step(&run, &inputs)
+	}
 	return
 }
 

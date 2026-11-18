@@ -11,20 +11,22 @@ import "../toy"
 import "unified:headless/scenarios"
 
 SUITE := scenarios.Suite(toy.Game) {
-	game = &toy.GAME,
+	game    = &toy.GAME,
 	players = 4,
-	seed = 42,
-	ticks = 3600,
-	ref = {
-		seed          = 7,
-		players       = 4,
-		ticks         = 1800,
-		snapshot_tick = 900,
-		checkpoints   = {0x3e4fda751648ba91, 0xe07675e224ea5791, 0xcf2f4bd1e72fb042, 0xb8798ac0bf4582d9},
-		trace         = 0x162619003528a2d6,
-		snapshot      = 0xbd9fb582a6207696,
-		log           = 0xcf443280d9c482b6,
-	},
+	seed    = 42,
+	ticks   = 3600,
+}
+
+// The reference run (src/headless/SPEC.md, Reference runs).
+REFERENCE :: scenarios.Reference {
+	seed          = 7,
+	players       = 4,
+	ticks         = 1800,
+	snapshot_tick = 900,
+	checkpoints   = {0x3e4fda751648ba91, 0xe07675e224ea5791, 0xcf2f4bd1e72fb042, 0xb8798ac0bf4582d9},
+	trace         = 0x162619003528a2d6,
+	snapshot      = 0xbd9fb582a6207696,
+	log           = 0xcf443280d9c482b6,
 }
 
 @(test)
@@ -59,4 +61,4 @@ four_clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenari
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUITE, .Wan, 3, 1200)}
 
 @(test)
-the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &toy.GAME, REFERENCE)}

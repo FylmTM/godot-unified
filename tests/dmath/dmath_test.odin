@@ -22,6 +22,14 @@ helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.quat_rotate({0, 0, 1, 0}, {1, 2, 3}), [3]f32{-1, -2, 3})
 	turned := dmath.quat_rotate({0, 0, 0.70710677, 0.70710677}, {1, 0, 0})
 	testing.expect(t, abs(turned.x) < 1e-6 && abs(turned.y - 1) < 1e-6 && turned.z == 0)
+	// quat_yaw: +Z is no turn, +X a quarter turn, -Z a half; zero (normalize's "none") is the identity, not a quarter
+	testing.expect_value(t, dmath.quat_yaw({0, 1}), [4]f32{0, 0, 0, 1})
+	testing.expect_value(t, dmath.quat_yaw({0, -1}), [4]f32{0, 1, 0, 0})
+	testing.expect_value(t, dmath.quat_yaw({}), [4]f32{0, 0, 0, 1})
+	testing.expect_value(t, dmath.quat_yaw({-0.0, -0.0}), [4]f32{0, 0, 0, 1})
+	testing.expect_value(t, dmath.quat_yaw(dmath.normalize([2]f32{0, 0})), [4]f32{0, 0, 0, 1})
+	right := dmath.quat_rotate(dmath.quat_yaw({1, 0}), {0, 0, 1})
+	testing.expect(t, abs(right.x - 1) < 1e-6 && abs(right.z) < 1e-6, "+Z turned toward +X")
 	for k in 0 ..< 8 {
 		length := dmath.length(dmath.DIR8[k])
 		testing.expect(t, length > 0.99999 && length < 1.00001)

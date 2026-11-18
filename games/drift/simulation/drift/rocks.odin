@@ -17,7 +17,7 @@ break_rocks :: proc(t: ^Tick) {
 		spin := physics.body_angular_velocity_2d(t.world.phys, rock.body)
 		physics.despawn(t.world.phys, &t.state.rocks, handle)
 		if size == .Small {
-			sim.emit(t, Event_Rock_Destroyed{rock = handle, position = sim.position(pos), size = size})
+			sim.emit(t, Event_Rock_Destroyed{rock = handle, position = sim.position_2d(pos), size = size})
 			t.state.gems_dropped += 1
 			if t.state.gems_dropped % GEM_DROP_EVERY == 1 {
 				if gem, _, ok := sim.spawn(&t.state.gems); ok {
@@ -30,7 +30,7 @@ break_rocks :: proc(t: ^Tick) {
 			}
 			continue
 		}
-		sim.emit(t, Event_Rock_Split{rock = handle, position = sim.position(pos), size = size})
+		sim.emit(t, Event_Rock_Split{rock = handle, position = sim.position_2d(pos), size = size})
 		half := Rock_Size(u8(size) - 1)
 		direction := dmath.normalize(vel)
 		if direction == {} do direction = {1, 0} // a rock at rest splits along x

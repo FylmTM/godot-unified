@@ -22,7 +22,7 @@ hit_station :: proc(t: ^Tick) {
 		if dmath.dist_sq(pos, station) >= reach * reach do continue
 		damage := ROCK_STATS[rock.size].station_damage
 		if t.state.phase == .Match do t.state.station_hp = dmath.max(t.state.station_hp - damage, 0)
-		sim.emit(t, Event_Station_Hit{position = sim.position(pos), damage = damage, size = rock.size})
+		sim.emit(t, Event_Station_Hit{position = sim.position_2d(pos), damage = damage, size = rock.size})
 		physics.despawn(t.world.phys, &t.state.rocks, handle)
 	}
 }

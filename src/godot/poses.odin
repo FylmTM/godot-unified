@@ -179,16 +179,37 @@ pose_remember :: proc(
 	}
 }
 
-// Each scene view kind's data type, learned from push_view (session thread): a kind always pushes the same type.
+// Each scene view kind's subject and data types, learned from push_view (session thread): a kind always pushes the
+// same two (so its keys, one subject's, are unique within it).
 @(private)
-view_data_types: [256]typeid
+View_Kind_Types :: struct {
+	pushed:    bool,
+	subject:   typeid,
+	data_type: typeid,
+}
 
 @(private)
-view_data_type :: proc(kind: u8, data_type: typeid, loc := #caller_location) {
-	known := view_data_types[kind]
-	if known == nil {
-		view_data_types[kind] = data_type
-	} else if known != data_type {
-		panic(fmt.tprintf("push_view: view kind %d pushed %v, before %v", kind, data_type, known), loc)
+view_kinds: [256]View_Kind_Types
+
+@(private)
+view_kind_types :: proc(kind: u8, subject, data_type: typeid, loc := #caller_location) {
+	known := &view_kinds[kind]
+	if !known.pushed {
+		known^ = {true, subject, data_type}
+		return
+	}
+	if known.data_type != data_type {
+		panic(fmt.tprintf("push_view: view kind %d pushed %v, before %v", kind, data_type, known.data_type), loc)
+	}
+	if known.subject != subject {
+		panic(
+			fmt.tprintf(
+				"push_view: view kind %d pushed a subject %v, before %v (nil: none)",
+				kind,
+				subject,
+				known.subject,
+			),
+			loc,
+		)
 	}
 }

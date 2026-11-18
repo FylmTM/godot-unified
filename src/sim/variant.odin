@@ -3,6 +3,7 @@
 // the union) and its struct's bytes; these helpers go between the two by RTTI.
 package sim
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:strings"
@@ -111,6 +112,26 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 		(^u64)(tag)^ = u64(kind + 1)
 	}
 	return
+}
+
+// The kind (variant index) a union value holds: union_value's inverse (-1: nil).
+@(private)
+union_kind :: proc(value: ^$U) -> int where intrinsics.type_is_union(U) {
+	info := runtime.type_info_base(type_info_of(U)).variant.(runtime.Type_Info_Union)
+	if len(info.variants) == 0 do return -1
+	tag := uintptr(value) + info.tag_offset
+	stored: u64
+	switch info.tag_type.size {
+	case 1:
+		stored = u64((^u8)(tag)^)
+	case 2:
+		stored = u64((^u16)(tag)^)
+	case 4:
+		stored = u64((^u32)(tag)^)
+	case:
+		stored = (^u64)(tag)^
+	}
+	return int(stored) - 1 // the tag of variant `kind` is kind + 1 (0 is nil)
 }
 
 // What a value from another machine is read as (wire_fix).

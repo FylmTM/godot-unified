@@ -98,11 +98,12 @@ command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.ty
 }
 
 // Adds a command to a tick's record (tests, tools, bots): a value of one of the game's command structs sent from `slot`
-// (`sim.add_command(&inputs, 2, Cmd_Pick{upgrade})`: another value does not compile), or a raw command from its own
-// slot. It goes after the commands that slot already has there. False at the limits (COMMANDS_PER_SLOT for the slot,
-// TICK_COMMANDS in all).
+// (`sim.add_command(&inputs, 2, Cmd_Pick{upgrade})`: another value does not compile), a value of the game's Cmd union
+// (whichever command it holds; nil: none, false), or a raw command from its own slot. It goes after the commands that
+// slot already has there. False at the limits (COMMANDS_PER_SLOT for the slot, TICK_COMMANDS in all).
 add_command :: proc {
 	add_command_value,
+	add_command_union,
 	add_raw_command,
 }
 
@@ -113,6 +114,16 @@ add_command_value :: proc(
 ) -> bool where intrinsics.type_is_variant_of(part(G, GAME_CMD), T) {
 	if slot < 0 || slot >= part(G, GAME_PLAYERS) do return false
 	raw := command_make(part(G, GAME_CMD), value)
+	raw.slot = u8(slot)
+	return add_raw_command(inputs, raw)
+}
+
+// The union itself only: a struct value goes to add_command_value.
+add_command_union :: proc(inputs: ^Inputs($G), slot: int, command: $Cmd) -> bool where Cmd == part(G, GAME_CMD) {
+	command := command
+	kind := union_kind(&command)
+	if kind < 0 || slot < 0 || slot >= part(G, GAME_PLAYERS) do return false
+	raw, _ := command_from_bytes(Cmd, kind, ([^]u8)(&command)[:union_variants(Cmd)[kind].size])
 	raw.slot = u8(slot)
 	return add_raw_command(inputs, raw)
 }

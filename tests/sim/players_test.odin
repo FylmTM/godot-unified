@@ -196,3 +196,28 @@ a_member_who_just_left_is_not_forgotten_on_that_tick :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.player_in_slot(players, 0).id, 5)
 	testing.expect_value(t, sim.player_in_slot(players, 1).id, 6)
 }
+
+// Every query answers the same on a simulation (tests and drivers hold a ^Sim) as on its state's Players.
+@(test)
+the_queries_take_a_simulation :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 3)
+	defer sim.destroy(simulation)
+	players := &simulation.state.players
+	presence_step(simulation, {0, 1}, {0, 11}, {1, 12})
+	presence_step(simulation, {1}) // slot 0's member leaves: known, not present
+	gone, here := sim.Player {
+			index = 0,
+			id    = 11,
+		}, sim.player_in_slot(simulation, 1)
+	testing.expect(t, sim.player_known(simulation, gone) && sim.player_known(players, gone))
+	testing.expect_value(t, sim.player_data(simulation, gone), sim.player_data(players, gone))
+	testing.expect_value(t, sim.player_slot(simulation, here), sim.player_slot(players, here))
+	testing.expect(t, sim.player_present(simulation, here) && !sim.player_present(simulation, gone))
+	testing.expect_value(t, sim.present_count(simulation), 1)
+	testing.expect_value(t, sim.slot_data(simulation, 1), sim.player_data(simulation, here))
+	present, known := sim.iterate_present(simulation), sim.iterate_known(simulation)
+	present_count, known_count := 0, 0
+	for _ in sim.next(&present) do present_count += 1
+	for _ in sim.next(&known) do known_count += 1
+	testing.expect(t, present_count == 1 && known_count == 2, "present 1, known 2")
+}
