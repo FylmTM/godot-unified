@@ -28,8 +28,8 @@ REFERENCE :: scenarios.Reference {
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
-// library): rollback every tick, a bad-network session, a session whose inputs change every tick, a late joiner and
-// the reference run, on short runs.
+// library): rollback every tick, players leaving and coming back (presence churn), a bad-network session, a session
+// whose inputs change every tick, a late joiner and the reference run, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
