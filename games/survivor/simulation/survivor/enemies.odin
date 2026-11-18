@@ -19,8 +19,11 @@ spawn_waves :: proc(t: ^Tick) {
 			break
 		}
 		direction := dmath.DIR8[sim.roll_below(t, 8, Roll.Spawn_Direction, index = i)]
-		jitter := f32(sim.roll_below(t, 1000, Roll.Spawn_Jitter, index = i)) / 1000 * 2 - 1
-		pos := direction * SPAWN_RING + jitter * SPAWN_JITTER
+		jitter := [2]f32 {
+			sim.roll_f32(t, Roll.Spawn_Jitter_X, index = i),
+			sim.roll_f32(t, Roll.Spawn_Jitter_Z, index = i),
+		}
+		pos := direction * SPAWN_RING + (jitter * 2 - 1) * SPAWN_JITTER
 		spawn_enemy(
 			t.state,
 			SPAWN_KINDS[sim.roll_below(t, len(SPAWN_KINDS), Roll.Spawn_Kind, index = i)],
@@ -72,7 +75,7 @@ steer_enemies :: proc(t: ^Tick) {
 				away := enemy.pos - other.pos
 				distance_sq := dmath.length_sq(away)
 				reach := enemy.radius + other.radius
-				if distance_sq < reach * reach && distance_sq > 1e-8 {
+				if distance_sq < reach * reach && distance_sq > SEPARATION_MIN_SQ {
 					separation += away * (SEPARATION / distance_sq)
 				}
 			}
@@ -111,7 +114,7 @@ push_out :: #force_inline proc(pos: [2]f32, box: Box2, radius: f32) -> [2]f32 {
 
 // Each alive item's position on the ground this tick, for standing_on_item.
 item_footprints :: proc(t: ^Tick) {
-	for &item, i in t.state.items {
+	for &item, i in t.state.items[:t.world.item_count] {
 		if item.alive {
 			t.world.scratch.items[i] = physics.body_position(t.world.phys, item.body).xz
 		}
@@ -122,8 +125,8 @@ item_footprints :: proc(t: ^Tick) {
 // item's footprint (its widest reach, however it lies) covers `pos`, so the result is the ray's every time.
 standing_on_item :: proc(t: ^Tick, pos: [2]f32) -> bool {
 	under := false
-	for &item, i in t.state.items {
-		reach: f32 = item.kind == .Barrel ? BARREL_RADIUS + BARREL_HALF_HEIGHT : CRATE_HALF * 1.7321
+	for &item, i in t.state.items[:t.world.item_count] {
+		reach: f32 = t.world.items[i].kind == .Barrel ? BARREL_REACH : CRATE_REACH
 		offset := pos - t.world.scratch.items[i]
 		if item.alive && abs(offset.x) <= reach && abs(offset.y) <= reach {
 			under = true
@@ -170,9 +173,8 @@ kill_enemies :: proc(t: ^Tick) {
 			continue
 		}
 		pos, xp := enemy.pos, ENEMY_STATS[enemy.kind].xp
-		sim.emit(t, Event_Enemy_Died{enemy = handle, position = {pos.x, 0, pos.y}, enemy_kind = enemy.kind})
+		sim.emit(t, Event_Enemy_Died{enemy = handle, position = sim.position_floor(pos), enemy_kind = enemy.kind})
 		sim.despawn(&t.state.enemies, handle)
-		t.state.kills += 1
 		if gem, _, ok := sim.spawn(&t.state.gems); ok {
 			gem^ = {
 				pos        = pos,
@@ -194,11 +196,10 @@ bench_prepare :: proc(state: ^State, world: ^World, count: int) {
 	state.tuning = TUNINGS[.Bench]
 	state.tuning.enemy_cap = u32(count)
 	state.phase = .Match // the spawner refills to `count` from tick 1 on
-	state.circle_radius = 0
 	rng := sim.rng_seed(u64(count))
 	for _ in 0 ..< count {
-		x := f32(sim.rng_below(&rng, 5600)) / 100 - 28
-		z := f32(sim.rng_below(&rng, 5600)) / 100 - 28
+		x := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF // whole centimetres
+		z := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF
 		if !spawn_enemy(state, SPAWN_KINDS[sim.rng_below(&rng, len(SPAWN_KINDS))], {x, z}, 0) {
 			break
 		}

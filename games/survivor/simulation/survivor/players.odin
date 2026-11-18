@@ -17,9 +17,6 @@ update_players :: proc(t: ^Tick) {
 	}
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.alive && character.hp <= 0 {
-			player_dies(t, character, player) // set from outside a tick (a test): damage_player kills at once
-		}
 		if character.dash_cooldown > 0 {
 			character.dash_cooldown -= 1
 		}
@@ -68,8 +65,6 @@ pick_upgrades :: proc(t: ^Tick) {
 				character.damage_bonus += DAMAGE_LEVELUP
 			case .Move_Speed:
 				character.speed += SPEED_LEVELUP
-			case:
-				continue // not an option
 			}
 			character.pending_levelups -= 1
 		}
@@ -109,7 +104,7 @@ collect_gems :: proc(t: ^Tick) {
 			character.xp += gem.value
 			sim.emit(t, Event_Gem_Collected {
 				gem      = handle,
-				position = {gem.pos.x, 0, gem.pos.y},
+				position = sim.position_floor(gem.pos),
 				xp       = gem.value,
 				player   = targets.players[k],
 			})

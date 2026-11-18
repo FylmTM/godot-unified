@@ -1,10 +1,14 @@
 class_name SurvivorPropView
 extends Node3D
-## Crates and barrels: the host sets position and the full physics rotation (they tumble); pop in when spawned
-## (barrels respawn after exploding), shrink away when despawned.
+## Crates and barrels: the sim's item views and the level's item markers. As a view the host sets position and the
+## full physics rotation (they tumble); it pops in when spawned (barrels respawn after exploding) and shrinks away
+## when despawned. Placed in a level (game/levels/arena.tscn) it is an `item` marker: the sim creates the item where it
+## stands, and the play scene removes it (the item's view draws it).
 
-## Scale up from nothing when spawned (off for static decoration, e.g. the menu backdrop).
-@export var pop_in := true
+const UNIFIED_KIND := "item"
+
+## The item's kind (the sim's Item_Kind, lowercased): set by each view scene, never on an instance.
+@export_enum("crate", "barrel") var kind := "crate"
 
 @onready var _body: Node3D = $Body
 var _age := 0.0
@@ -12,10 +16,7 @@ var _exit: Tween
 
 
 func _ready() -> void:
-	if pop_in:
-		_body.scale = Vector3.ONE * 0.01
-	else:
-		set_process(false)
+	_body.scale = Vector3.ONE * 0.01
 
 
 func _process(delta: float) -> void:

@@ -14,9 +14,12 @@ The arena is a level (`game/levels/arena.tscn`, baked to `arena.level`, `src/lev
 bodies, so the World also keeps what they move around: the pillars' boxes on the ground plane, and how far the walls'
 inner faces are from the centre.
 
-The 32 crates and 8 barrels (every item `i` with `i % 5 == 2`) are dynamic bodies tagged with their index, on a 5×8
-grid (`item_position`), two spots moved out of the start circle. Players are dynamic capsules with rotation locked,
-created at their slot's start spot (`PLAYER_START`) when they become present.
+The level also places the crates and barrels and the players' start spots. Its `item` markers are the view scenes
+themselves (`game/views/crate.tscn`, `barrel.tscn`; `prop_view.gd` declares the kind, each scene sets its `kind`):
+each is a dynamic body tagged with its index (the markers' scene order, at most `MAX_ITEMS`), created where the
+marker rests; the play scene removes the markers, the items' views draw them, and the menu backdrop shows the level
+as it is. Its `spawn` markers, one per slot in scene order (asserted), are the start spots: players are dynamic
+capsules with rotation locked, created at their slot's spot when they become present.
 
 ## Input and commands
 
@@ -25,7 +28,7 @@ created at their slot's start spot (`PLAYER_START`) when they become present.
   pending level-ups); someone new starts fresh; both get a body at their slot's start spot with full HP. Everything
   per player is by player, not slot.
 - `Cmd_Pick {upgrade}`: one pending level-up goes to `Fire_Rate`, `Damage` or `Move_Speed` (the HUD's card order). A
-  pick with nothing pending, or no Upgrade, is ignored.
+  pick with nothing pending is ignored.
 
 ## Phases
 
@@ -44,15 +47,15 @@ The pace of a match is state (`State.tuning`, a copy of a `TUNINGS` preset), so 
 `enemy_cap`; enemy HP `· (100 + hp_pct · wave) / 100`; the next level at `xp_first + (level − 1) · xp_step` XP.
 `play` is the game (`GAME`), `stress` the dense spawner the headless modes, the end-to-end suite and the bench run
 (`GAME_STRESS`), `bench` an endless match holding a fixed population (`bench_prepare`). The long suite checks `play`
-with the bot (`bot.odin`) over 8 seeds: each first level-up in 10–45 s, on average a survival past 120 s and wave 3.5.
+with the bot (`simulation/tests/bot.odin`) over 8 seeds: each first level-up in 10–45 s, on average a survival past 120 s and wave 3.5.
 
 ## Systems (`tick`, in this order)
 
 1. `update_players`: leaves, joins and returns; respawns (`PLAYER_RESPAWN_TICKS`, not while over); the stick times
    the player's speed, times `DASH_SPEEDUP` while dashing; y velocity kept from physics.
 2. `pick_upgrades`: each pick, in order.
-3. `spawn_waves` (match only): each enemy at `SPAWN_RING` in one of 8 directions plus jitter, its kind from
-   `SPAWN_KINDS`: keyed rolls (`sim.roll_below`) by its place in the burst.
+3. `spawn_waves` (match only): each enemy at `SPAWN_RING` in one of 8 directions plus up to `SPAWN_JITTER` on each
+   axis, its kind from `SPAWN_KINDS`: keyed rolls (`sim.roll_below`, `sim.roll_f32`) by its place in the burst.
 4. `steer_enemies`: from the old positions, each seeks the nearest alive player (lowest slot on ties) plus separation
    from the enemies in its 3×3 grid cells; blended (`ENEMY_STEER`), capped (`ENEMY_OVERSPEED`). Then each moves,
    pushed out of every pillar along its shallower axis and kept inside the walls. Every `CLIMB_CHECK_TICKS` an
@@ -84,8 +87,8 @@ gems.
 
 The game's scripted player (`script.odin`) is stateless: a hash of (seed, slot, 24-tick block) picks one of 8
 directions or none, a dash, and a pick at each block's start, so any tick can be asked for in any order and a session
-and an offline run agree. The bot is not the scripted player: it reads the state, which a session samples at another
-tick.
+and an offline run agree. The balance test's bot is not the scripted player: it reads the state, which a session
+samples at another tick, and lives with the tests.
 
 ## View contract (`simulation/extension`)
 
@@ -93,9 +96,11 @@ tick.
   item's index, posed with their physics rotation). A destroyed barrel's view goes; the one that comes back is new.
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.
-- Session data `Data_Hud` (`Unified.data.hud`): phase, match time, wave (1-based in a match), enemies alive, circle
-  radius, and per slot alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds.
-- Constants (`Unified.constants`): `over_hold_s`, `start_radius`, `blast_radius`, the three level-up cards, the item
-  grid (kinds and resting positions: the menu backdrop shows it).
+- Session data `Data_Hud` (`Unified.data.hud`): phase, match time, wave (1-based in a match), enemies alive, the
+  seconds until the reset (over), and per slot alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn
+  seconds.
+- Constants (`Unified.constants`): `start_radius`, `blast_radius`, the three level-up cards.
+- Events: effects, sounds, shake and rumble on EMITTED (a prediction too; a cancelled one is left as it played);
+  banners and the best time on CONFIRMED.
 - Input: the stick and the dash from the InputMap; the HUD sends the pick (`CommandPick`) on a key, pad button or
   click.

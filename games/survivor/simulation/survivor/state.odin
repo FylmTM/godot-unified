@@ -5,21 +5,17 @@ import "unified:sim"
 
 // The whole simulation state: one pointer-free block (checked by sim.create).
 State :: struct {
-	phase:         Phase,
-	_pad:          [3]u8,
-	match_tick:    u32, // the tick the current match started (0: lobby)
-	over_tick:     u32, // the tick it ended (0: not over)
-	wave:          u32, // 0-based wave of the current match
-	matches:       u32, // matches started since the session began
-	kills:         u32,
-	explosions:    u32,
-	circle_radius: f32, // the start circle while in the lobby, 0 otherwise
-	tuning:        Tuning, // the match's pace: a preset (init), lowered by the bench
-	players:       sim.Players(Character, Input, PLAYERS),
-	items:         [ITEM_COUNT]Item,
-	enemies:       sim.Table(Enemy, MAX_ENEMIES),
-	projectiles:   sim.Table(Projectile, MAX_PROJECTILES),
-	gems:          sim.Table(Gem, MAX_GEMS),
+	phase:       Phase,
+	_pad:        [3]u8,
+	match_tick:  u32, // the tick the current match started (0: lobby)
+	over_tick:   u32, // the tick it ended (0: not over)
+	wave:        u32, // 0-based wave of the current match
+	tuning:      Tuning, // the match's pace: a preset (init), lowered by the bench
+	players:     sim.Players(Character, Input, PLAYERS),
+	items:       [MAX_ITEMS]Item, // the level's items by index (World.items: item_count of them)
+	enemies:     sim.Table(Enemy, MAX_ENEMIES),
+	projectiles: sim.Table(Projectile, MAX_PROJECTILES),
+	gems:        sim.Table(Gem, MAX_GEMS),
 }
 
 // lobby: present players gather in the start circle, no enemies; the match starts on the tick a player's centre leaves
@@ -56,14 +52,13 @@ Item_Kind :: enum u8 {
 	Barrel,
 }
 
-// Crates and barrels, one per grid spot (item_position); the body's index tag is the item's.
+// A crate or barrel the level placed (its kind and spot: World.items); the body's index tag is the item's.
 Item :: struct {
 	body:         physics.Body_Ref,
 	hp:           i32, // barrels
 	respawn_tick: u32, // barrels: the tick a destroyed one comes back (0: none pending)
-	kind:         Item_Kind,
 	alive:        bool,
-	_pad:         u16,
+	_pad:         [3]u8,
 }
 
 Enemy_Kind :: enum u8 {

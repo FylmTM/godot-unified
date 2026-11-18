@@ -27,6 +27,7 @@ size = Vector3(1.04, 1.04, 0.16)
 
 [node name="Crate" type="Node3D"]
 script = ExtResource("1_view")
+kind = "crate"
 
 [node name="UnifiedView" type="UnifiedView" parent="."]
 unique_name_in_owner = true
