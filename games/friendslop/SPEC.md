@@ -114,9 +114,9 @@ about an item, plate, bell, switch or lock, `position` in metres, and its own va
   index + 1 (its events' `entity`); the view adopts its marker's visuals. An event about a player goes to that
   player's view, else one with an `entity` to that marker's view (`event_key`): grabbed, dropped and thrown stay with
   the holder.
-- Session data `Data_Hud` (`Unified.data.hud`, `hud.odin`, from the state alone): `phase`, `tick`, the run's and best
-  times, `runs`, `checkpoint`, the reset countdown, the active triggers (a bit each), and per slot `player`,
-  `present`, `holding`, `held`, `stunned`, `fallen`, `charge`.
+- Session data `Data_Hud` (`Unified.data.hud`, `hud.odin`, from the state alone): `phase`, the run's and best
+  times, `runs`, `checkpoint`, the reset countdown, the active triggers (a bit each), and per slot (`DataHudPlayer`)
+  `holding`, `held`, `stunned`, `fallen`, `charge`.
 - Constants `Data_Constants` (`Unified.constants`): the finish hold and respawn seconds, the player capsule (radius,
   half height, feet) and each item kind's size (`item_sizes`: `kind`, `size`; `validate` checks the level's item
   markers draw them so).

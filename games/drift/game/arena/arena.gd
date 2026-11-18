@@ -30,12 +30,6 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
-	if Game.session != null:
-		# positions come as Vector2s only while a Node2D is the view root: not after it is gone
-		if Game.session.sim_event.is_connected(_on_sim_event):
-			Game.session.sim_event.disconnect(_on_sim_event)
-		if Game.session.view_root == _views:
-			Game.session.view_root = null
 
 
 func _input(event: InputEvent) -> void:
@@ -53,29 +47,12 @@ func _process(_delta: float) -> void:
 		dir = get_global_mouse_position() - me.global_position
 	elif stick != Vector2.ZERO:
 		dir = stick
-	Game.session.set_input_value(&"aim", dir)  # world space (x right, y down); zero keeps the heading
+	Unified.input.aim = dir  # world space (x right, y down); zero keeps the heading
 
 
-## The scene views of one kind (ship, station, gate) under the views root.
-func views_of(kind: String) -> Array[Node2D]:
-	var out: Array[Node2D] = []
-	for v in _views.get_children():
-		var marker := v.get_node_or_null(^"UnifiedView") as UnifiedView
-		if v is Node2D and marker != null and marker.kind == kind:
-			out.append(v)
-	return out
-
-
-## A player's ship view (`player`: their key; 0 or no ship: null).
-func ship_view(player: int) -> Node2D:
-	for v in views_of("ship"):
-		if (v.get_node(^"UnifiedView") as UnifiedView).player == player:
-			return v
-	return null
-
-
+## The local player's ship view (null until they have one).
 func local_ship_view() -> Node2D:
-	return ship_view(Game.local_player())
+	return Game.session.get_player_view("ship", Game.local_player()) as Node2D
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.
@@ -102,49 +79,50 @@ static func level_bounds(level: Node) -> Rect2:
 	return r
 
 
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	# rock effects play when the event is emitted (a cancelled one has already played: left as is); the rest wait
 	# for the confirmed tick. Positions are in pixels, like the views (the host maps them: Glue.view_scale).
 	var rock_effect := event is EventRockHit or event is EventRockSplit or event is EventRockDestroyed
 	if state != (UnifiedSession.EVENT_EMITTED if rock_effect else UnifiedSession.EVENT_CONFIRMED):
 		return
-	var at: Vector2 = event.get(&"position") if &"position" in event else Vector2.ZERO
-	var near := at.distance_to(camera.get_screen_center_position()) < 900.0
-	match event.kind:
-		"rock_hit":
-			effects.sparks(at, 4, Color(1, 0.9, 0.7))
-			if near:
-				Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
-		"rock_split":
-			effects.debris(at, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
-			Sfx.play(&"pop", -6.0, 0.7 if (event as EventRockSplit).size == EnumRockSize.LARGE else 0.9)
-		"rock_destroyed":
-			effects.debris(at, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
-			effects.ring(at, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)
-			Sfx.play(&"boom", -12.0, 1.6)
-		"station_hit":
-			effects.debris(at, 14, UiTheme.BAD, 200.0, 4.0)
-			effects.ring(at, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
-			camera.shake(0.5 if (event as EventStationHit).damage >= 10 else 0.3)
-			Sfx.play(&"boom", -4.0)
-			Game.rumble(0.5, 0.7, 0.3)
-		"gem_picked":
-			effects.ring(at, 4.0, 28.0, 0.3, UiTheme.GOLD, 2.0)
-			Sfx.play(&"gem", -2.0)
-		"warped":
-			effects.ring(at, 8.0, 70.0, 0.45, UiTheme.CYAN, 3.0)
-		"spawned":
-			effects.ring(at, 8.0, 50.0, 0.5, Color.WHITE, 2.0)
-			Sfx.play(&"join", -6.0)
-		"wave":
-			Sfx.play(&"wave")
-		"match_started":
-			Sfx.play(&"start")
-		"match_over":
-			var station := views_of("station")
-			var c := station[0].global_position if not station.is_empty() else Vector2.ZERO
-			effects.debris(c, 40, UiTheme.BAD, 320.0, 5.0)
-			effects.ring(c, 20.0, 260.0, 1.0, UiTheme.BAD, 5.0)
-			camera.shake(1.0)
-			Sfx.play(&"over")
-			Sfx.play(&"boom")
+	if event is EventRockHit:
+		var hit := event as EventRockHit
+		effects.sparks(hit.position, 4, Color(1, 0.9, 0.7))
+		if hit.position.distance_to(camera.get_screen_center_position()) < 900.0:
+			Sfx.play(&"hit", -14.0, randf_range(1.2, 1.5))
+	elif event is EventRockSplit:
+		var split := event as EventRockSplit
+		effects.debris(split.position, 8, Color(0.62, 0.56, 0.5), 140.0, 4.0)
+		Sfx.play(&"pop", -6.0, 0.7 if split.size == EnumRockSize.LARGE else 0.9)
+	elif event is EventRockDestroyed:
+		var destroyed := event as EventRockDestroyed
+		effects.debris(destroyed.position, 10, Color(0.75, 0.68, 0.6), 170.0, 3.0)
+		effects.ring(destroyed.position, 6.0, 34.0, 0.35, Color(1, 0.9, 0.7, 0.8), 2.0)
+		Sfx.play(&"boom", -12.0, 1.6)
+	elif event is EventStationHit:
+		var station_hit := event as EventStationHit
+		effects.debris(station_hit.position, 14, UiTheme.BAD, 200.0, 4.0)
+		effects.ring(station_hit.position, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
+		camera.shake(0.5 if station_hit.damage >= 10 else 0.3)
+		Sfx.play(&"boom", -4.0)
+		Game.rumble(0.5, 0.7, 0.3)
+	elif event is EventGemPicked:
+		effects.ring((event as EventGemPicked).position, 4.0, 28.0, 0.3, UiTheme.GOLD, 2.0)
+		Sfx.play(&"gem", -2.0)
+	elif event is EventWarped:
+		effects.ring((event as EventWarped).position, 8.0, 70.0, 0.45, UiTheme.CYAN, 3.0)
+	elif event is EventSpawned:
+		effects.ring((event as EventSpawned).position, 8.0, 50.0, 0.5, Color.WHITE, 2.0)
+		Sfx.play(&"join", -6.0)
+	elif event is EventWave:
+		Sfx.play(&"wave")
+	elif event is EventMatchStarted:
+		Sfx.play(&"start")
+	elif event is EventMatchOver:
+		var station := Game.session.get_view("station", 0) as Node2D
+		var c := station.global_position if station != null else Vector2.ZERO
+		effects.debris(c, 40, UiTheme.BAD, 320.0, 5.0)
+		effects.ring(c, 20.0, 260.0, 1.0, UiTheme.BAD, 5.0)
+		camera.shake(1.0)
+		Sfx.play(&"over")
+		Sfx.play(&"boom")

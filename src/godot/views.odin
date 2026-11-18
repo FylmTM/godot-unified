@@ -9,6 +9,7 @@ package godot
 import "base:runtime"
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "core:time"
 import gd "unified:gdext"
@@ -21,7 +22,7 @@ INDEX_PATH :: "res://unified_index.tres" // the view index `uni bake` writes (me
 Root_Mode :: enum u8 {
 	Node3D,
 	Node2D,
-	Other, // data only: no pose, no _sim_update
+	Other, // data only: no pose
 }
 
 // A scene view is identified by its kind and key (a key is unique within its kind).
@@ -44,7 +45,6 @@ Scene_View :: struct {
 	verified:   bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
 	gone:       bool, // _sim_despawned was called (and no _sim_revived since)
 	track:      Track,
-	has_update: bool,
 	has_event:  bool,
 	callbacks:  [View_Callback]bool, // the root's script has them
 	data:       []u8, // the data last set as properties
@@ -65,7 +65,6 @@ VIEW_CALLBACK_NAMES := [View_Callback]string {
 
 // The names the host passes every frame or event, interned once at registration (gd.sn looks a name up by its text).
 NAMES: struct {
-	sim_update: ^gd.StringName, // a scene view's _sim_update
 	view_event: ^gd.StringName, // a scene view's _sim_event
 	sim_event:  ^gd.StringName, // UnifiedSession.sim_event (the signal)
 	callbacks:  [View_Callback]^gd.StringName,
@@ -121,7 +120,7 @@ Sync_Stats :: struct {
 	frames:       int,
 	fresh:        int, // frames that showed a new tick
 	events:       int, // event deliveries (one per event state)
-	scene:        time.Duration, // scene views: spawns, data, poses, _sim_update
+	scene:        time.Duration, // scene views: spawns, data, poses
 	multi_build:  time.Duration, // MultiMesh views: every instance interpolated and written into its buffer
 	multi_upload: time.Duration, // MultiMesh views: set_buffer, set_visible_instance_count
 	delivery:     time.Duration, // events: their objects, _sim_event, the sim_event signal
@@ -155,15 +154,18 @@ register_classes :: proc() {
 			gd.print_error(fmt.tprintf("unified: the game %s is not installed: %s", api.game_name, problem))
 		}
 	}
-	NAMES.sim_update, NAMES.view_event, NAMES.sim_event = gd.sn("_sim_update"), gd.sn("_sim_event"), gd.sn("sim_event")
+	NAMES.view_event, NAMES.sim_event = gd.sn("_sim_event"), gd.sn("sim_event")
 	for name, callback in VIEW_CALLBACK_NAMES do NAMES.callbacks[callback] = gd.sn(name)
 	register_session_class()
+	register_nested_classes() // before the classes whose fields hold them
 	register_sim_classes()
 	register_data_classes()
 	unified_view_class = {
 		name = "UnifiedView",
 		parent = "Node",
 		size = size_of(Unified_View_Node),
+		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
+		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host keeps [member entity] and [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
 	}
@@ -177,29 +179,35 @@ register_classes :: proc() {
 			delete(node.kind)
 			node.kind = strings.clone(kind)
 		},
+		doc = "The view kind (the game's View enum member, lowercased), set in the scene.",
 	)
 	gd.bind_property(
 		class,
 		"entity",
 		proc(node: ^Unified_View_Node) -> i64 {return node.entity},
 		proc(node: ^Unified_View_Node, entity: i64) {node.entity = entity},
+		doc = "The id the game's events carry for this view (unset in the game: its key).",
 	)
 	gd.bind_property(
 		class,
 		"player",
 		proc(node: ^Unified_View_Node) -> i64 {return node.player},
 		proc(node: ^Unified_View_Node, player: i64) {node.player = player},
+		doc = "The key of the player this view shows (0: none).",
 	)
 	gd.bind_property(
 		class,
 		"linger_s",
 		proc(node: ^Unified_View_Node) -> f64 {return node.linger_s},
 		proc(node: ^Unified_View_Node, linger_s: f64) {node.linger_s = max(linger_s, 0)},
+		doc = "How long the view stays once its key is gone (an exit animation), in seconds.",
 	)
 	unified_multi_view_class = {
 		name = "UnifiedMultiView",
 		parent = "Node",
 		size = size_of(Unified_Multi_View_Node),
+		doc_brief = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
+		doc = "The host owns the MultiMesh's instance count and buffer: position and rotation interpolated between ticks, scale, color ([code]use_colors[/code]) and custom data ([code]use_custom_data[/code]).",
 		fini = proc(instance: rawptr) {delete((^Unified_Multi_View_Node)(instance).kind)},
 		notification = proc(instance: rawptr, what: i32) {
 			node := (^Unified_Multi_View_Node)(instance)
@@ -221,12 +229,14 @@ register_classes :: proc() {
 			delete(node.kind)
 			node.kind = strings.clone(kind)
 		},
+		doc = "The kind (the game's MultiView enum member, lowercased).",
 	)
 	gd.bind_property(
 		class,
 		"smooth",
 		proc(node: ^Unified_Multi_View_Node) -> bool {return node.smooth},
 		proc(node: ^Unified_Multi_View_Node, smooth: bool) {node.smooth = smooth},
+		doc = "Rollback corrections glide like a scene view's instead of popping (state per instance).",
 	)
 }
 
@@ -374,7 +384,6 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
 		scene_view.linger_s = marker.linger_s
 	}
-	scene_view.has_update = scene_view.mode != .Other && gd.has_script_method(node, NAMES.sim_update)
 	scene_view.has_event = gd.has_script_method(node, NAMES.view_event)
 	for name, callback in NAMES.callbacks do scene_view.callbacks[callback] = gd.has_script_method(node, name)
 	set_pose(scene_view, {to_view(item.pos), item.rot})
@@ -627,19 +636,54 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		if scene_view == nil || scene_view.mode == .Other || !alive(scene_view.id) do continue
 		if entry.phase == .Lingering do continue // unpinned: an exit animation may move it
 		pose := track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing) // sim units
-		pose.pos = to_view(pose.pos) // the node's position and _sim_update's
-		set_pose(scene_view, pose)
-		if !scene_view.has_update do continue
-		result: gd.Variant
-		if scene_view.mode == .Node2D {
-			pos := gd.Vector2{pose.pos.x, pose.pos.y}
-			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(angle2d_of(pose.rot)), f64(alpha))
-		} else {
-			pos := gd.Vector3{pose.pos.x, pose.pos.y, pose.pos.z}
-			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(yaw_of(pose.rot)), f64(alpha))
-		}
-		gd.variant_destroy(&result)
+		pose.pos = to_view(pose.pos)
+		set_pose(scene_view, pose) // before every other node's _process (priority -1000): a view's script reads it
 	}
+}
+
+// ---- finding a view (UnifiedSession.get_view, get_player_view, get_views)
+
+// The kind of a View member's lowercased name (-1: none).
+view_kind_of :: proc(name: string) -> int {
+	for view_name, kind in api.view_names do if view_name == name do return kind
+	return -1
+}
+
+// A scene view that is in the sim (not lingering, its node alive): its root, else a null handle.
+live_view_node :: proc(entry: ^Entry(^Scene_View)) -> gd.Node {
+	if entry == nil || entry.view == nil || entry.phase != .Alive || !alive(entry.view.id) do return {}
+	return entry.view.node
+}
+
+// The scene view of a kind and key.
+view_of_key :: proc(kind_name: string, key: u64) -> gd.Node {
+	kind := view_kind_of(kind_name)
+	if kind < 0 do return {}
+	return live_view_node(set_get(&V.set, View_Id{u8(kind), key}))
+}
+
+// The scene view of a kind that shows a player (by key).
+view_of_player :: proc(kind_name: string, player: u64) -> gd.Node {
+	kind := view_kind_of(kind_name)
+	if kind < 0 || player == 0 do return {}
+	for id, &entry in V.set.entries {
+		if id.kind != u8(kind) || entry.view == nil || entry.view.player != player do continue
+		if node := live_view_node(&entry); node.ptr != nil do return node
+	}
+	return {}
+}
+
+// Every scene view of a kind that is in the sim, by key: an Array[Node].
+views_of_kind :: proc(kind_name: string) -> gd.Array {
+	views := gd.array_new()
+	gd.array_set_typed(&views, .OBJECT, "Node")
+	kind := view_kind_of(kind_name)
+	if kind < 0 do return views
+	keys := make([dynamic]u64, context.temp_allocator)
+	for id, &entry in V.set.entries do if id.kind == u8(kind) && live_view_node(&entry).ptr != nil do append(&keys, id.key)
+	slice.sort(keys[:])
+	for key in keys do gd.array_push(&views, live_view_node(set_get(&V.set, View_Id{u8(kind), key})))
+	return views
 }
 
 // An event to its subject's scene views (_sim_event(event, state) on the root's script): the view Glue.event_key
@@ -649,7 +693,8 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
 	player, entity := event_subject(layout, raw.data[:raw.size])
 	if api.event_key != nil {
-		kind, key, event_route := api.event_key(raw)
+		subject := Subject{sim.player_of_key(player), entity, layout.subject_is_handle}
+		kind, key, event_route := api.event_key(raw, subject)
 		switch event_route {
 		case .Subject:
 		case .View:

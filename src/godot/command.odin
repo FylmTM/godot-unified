@@ -70,41 +70,59 @@ position_to_sim :: proc(position: sim.Position) -> sim.Position {
 	return sim.Position(to_sim(([3]f32)(position)))
 }
 
-// One field: ints (range-checked), floats, bools, enums (a member's value: EnumPhase.LOBBY), bit_sets (an Array of
-// member values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color), a sim.Position (Vector2 in a 2D game, else
-// Vector3; in view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a
-// nested struct (a Dictionary of its fields by name; a field left out keeps its value).
+// One field, from what a script set (field_kind says as what): ints (range-checked), floats, bools, enums (a member's
+// value: EnumPhase.LOBBY), bit_sets (an Array of member values), a Vector2/3/4 or Vector2i/3i/4i ([2]/[3]/[4] of f32
+// or i32), a Color (godot.Color), a Quaternion (godot.Quat), a sim.Position (Vector2 in a 2D game, else Vector3; in
+// view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a nested struct
+// (an object of its class: DataArea.new()).
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
-	if type.id == sim.Position {
+	want, class_name := field_kind(type)
+	switch {
+	case type.id == sim.Position:
 		position: sim.Position
+		if variant_type != want do return fmt.tprintf("want a position (a %v), %s", want, got(variant_type))
 		if api.is_2d {
-			if variant_type != .VECTOR2 do return fmt.tprintf("want a position (a Vector2), %s", got(variant_type))
 			vector, _ := gd.from_variant(gd.Vector2, variant)
 			position = {vector.x, vector.y, 0}
 		} else {
-			if variant_type != .VECTOR3 do return fmt.tprintf("want a position (a Vector3), %s", got(variant_type))
 			vector, _ := gd.from_variant(gd.Vector3, variant)
 			position = {vector.x, vector.y, vector.z}
 		}
 		copy(out, ([^]u8)(&position)[:size_of(sim.Position)])
 		return ""
-	}
-	if is_handle(type) { 	// a handle's key (sim.handle_key: generation << 32 | index; 0: the null handle)
+	case is_handle(type):
+		// a handle's key (sim.handle_key: generation << 32 | index; 0: the null handle)
 		if variant_type != .INT do return fmt.tprintf("want a handle's key (an int), %s", got(variant_type))
 		key, _ := gd.from_variant(i64, variant)
 		handle := [2]u32{u32(u64(key) & 0xFFFF_FFFF), u32(u64(key) >> 32)} // index, generation
 		if key != 0 && handle[1] == 0 do return fmt.tprintf("%d is not a handle's key", key)
 		copy(out, ([^]u8)(&handle)[:8])
 		return ""
-	}
-	if type.id == sim.Player { 	// a player's key (sim.player_key; 0: nobody)
+	case type.id == sim.Player:
+		// a player's key (sim.player_key; 0: nobody)
 		if variant_type != .INT do return fmt.tprintf("want a player (an int), %s", got(variant_type))
 		key, _ := gd.from_variant(i64, variant)
 		player := sim.player_of_key(u64(key))
 		if key != 0 && player == {} do return fmt.tprintf("%d is not a player", key)
 		copy(out, ([^]u8)(&player)[:size_of(sim.Player)])
+		return ""
+	}
+	#partial switch want {
+	case .VECTOR2, .VECTOR3, .VECTOR4, .COLOR, .QUATERNION, .VECTOR2I, .VECTOR3I, .VECTOR4I:
+		if variant_type != want do return fmt.tprintf("want a %v, %s", want, got(variant_type))
+		value: [16]u8
+		gd.variant_to_bytes(variant, want, value[:len(out)])
+		copy(out, value[:len(out)])
+		return ""
+	case .OBJECT:
+		// a nested struct: an object of its class, copied (its positions are in view units already)
+		object, _ := gd.from_variant(gd.Object, variant)
+		nested := D.nested[type.id]
+		instance := (^Data_Object)(gd.instance_of(object, &nested.class)) if object.ptr != nil else nil
+		if instance == nil do return fmt.tprintf("want a %s, %s", class_name, got(variant_type))
+		copy(out, instance.bytes)
 		return ""
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
@@ -153,30 +171,6 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 			bits |= 1 << u64(value - info.lower)
 		}
 		put_int(out, i64(bits))
-	case runtime.Type_Info_Array:
-		if info.elem.id != f32 || info.count < 2 || info.count > 4 {
-			return fmt.tprintf("unsupported field type %v", type.id)
-		}
-		xyz: [4]f32
-		if info.count == 4 {
-			if variant_type != .COLOR do return fmt.tprintf("want a Color, %s", got(variant_type))
-			color, _ := gd.from_variant(gd.Color, variant)
-			xyz = {color.r, color.g, color.b, color.a}
-		} else if info.count == 2 {
-			if variant_type != .VECTOR2 do return fmt.tprintf("want a Vector2, %s", got(variant_type))
-			vector, _ := gd.from_variant(gd.Vector2, variant)
-			xyz.xy = {vector.x, vector.y}
-		} else {
-			if variant_type != .VECTOR3 do return fmt.tprintf("want a Vector3, %s", got(variant_type))
-			vector, _ := gd.from_variant(gd.Vector3, variant)
-			xyz.xyz = {vector.x, vector.y, vector.z}
-		}
-		copy(out, ([^]u8)(&xyz)[:4 * info.count])
-	case runtime.Type_Info_Struct:
-		if variant_type != .DICTIONARY do return fmt.tprintf("want a Dictionary of %v's fields, %s", type.id, got(variant_type))
-		dict, _ := gd.from_variant(gd.Dictionary, variant)
-		defer gd.Dictionary_destroy(&dict)
-		return write_struct(type, info, out, &dict)
 	case:
 		return fmt.tprintf("unsupported field type %v", type.id)
 	}
@@ -205,30 +199,4 @@ int_fits :: proc(value: i64, size: int, signed: bool) -> bool {
 put_int :: proc(out: []u8, value: i64) {
 	bytes := transmute([8]u8)i64le(value)
 	copy(out, bytes[:len(out)])
-}
-
-// A nested struct's fields from a Dictionary keyed by field name (a String): each key present is written, a field
-// left out keeps its value, a key that names no field is an error.
-write_struct :: proc(
-	type: ^runtime.Type_Info,
-	info: runtime.Type_Info_Struct,
-	out: []u8,
-	dict: ^gd.Dictionary,
-) -> string {
-	found := 0
-	for i in 0 ..< int(info.field_count) {
-		name := info.names[i]
-		if strings.has_prefix(name, "_") do continue
-		key := gd.to_variant(name)
-		defer gd.variant_destroy(&key)
-		if !gd.Dictionary_has(dict, key) do continue
-		found += 1
-		value := (^gd.Variant)(gdi.dictionary_operator_index(dict, &key))
-		field := info.types[i]
-		if err := write_value(field, out[info.offsets[i]:][:field.size], value); err != "" {
-			return fmt.tprintf("%s: %s", name, err)
-		}
-	}
-	if found != gd.Dictionary_size(dict) do return fmt.tprintf("a key names no field of %v", type.id)
-	return ""
 }

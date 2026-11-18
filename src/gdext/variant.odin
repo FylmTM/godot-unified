@@ -298,6 +298,15 @@ variant_from_any :: proc(value: any) -> Variant {
 	return result
 }
 
+// The bytes of a plain builtin value (a math type: Vector2, Vector3i, Color, Quaternion...) the Variant holds as `kind`,
+// into `out` (at most its size; the caller checked the Variant's type).
+variant_to_bytes :: proc(variant: ^Variant, kind: gdi.VariantType, out: []u8) {
+	assert(!is_opaque_builtin(kind) && kind != .OBJECT)
+	value: [64]u8 // the largest plain builtin (Projection) is 64 bytes
+	to_type(kind, &value, variant)
+	copy(out, value[:])
+}
+
 // ---- Variant -> Odin value (ints and floats convert into each other; ok = false on a mismatch)
 
 // Reads a Variant as `T`; ok is false when it holds another type. Ints, floats and bools convert into each other;

@@ -62,6 +62,8 @@ register_session_class :: proc() {
 		name = "UnifiedSession",
 		parent = "Node",
 		size = size_of(Session_Node),
+		doc_brief = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
+		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
 			session.seed = 1
@@ -97,48 +99,152 @@ register_session_class :: proc() {
 	}
 	class := &session_class
 	gd.register_class(class)
+	// what the next session starts with
 	gd.bind_property(
 		class,
 		"seed",
 		proc(session: ^Session_Node) -> i64 {return session.seed},
 		proc(session: ^Session_Node, value: i64) {session.seed = value},
+		doc = "The next session's seed.",
 	)
 	gd.bind_property(
 		class,
 		"ticks",
 		proc(session: ^Session_Node) -> i64 {return session.ticks},
 		proc(session: ^Session_Node, value: i64) {session.ticks = value},
+		doc = "The next session's length in ticks (0: endless).",
+	)
+	gd.bind_property(
+		class,
+		"local_name",
+		proc(session: ^Session_Node) -> string {return session.name},
+		proc(session: ^Session_Node, name: string) {
+			delete(session.name)
+			session.name = strings.clone(name)
+		},
+		doc = "The name the next session shows to other players.",
 	)
 	gd.bind_property(
 		class,
 		"game_input",
 		proc(session: ^Session_Node) -> bool {return !input_sample.off},
 		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
+		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, an action still held counts only once it is released.",
 	)
-	gd.bind_property(class, "view_root", effective_root, proc(session: ^Session_Node, node: gd.Node) {
+	gd.bind_property(class, "view_root", view_root_of, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
 			session.root_set = true
-		}, .NODE_TYPE, "Node")
+		}, .NODE_TYPE, "Node", doc = "Where scene views are made, as its children: set in the inspector or from a script; until it is set, the session's parent. Null, or a node outside the tree: no scene views.")
+	gd.bind_property(
+		class,
+		"devui_visible",
+		proc(session: ^Session_Node) -> bool {return dev_visible()},
+		proc(session: ^Session_Node, visible: bool) {dev_set_visible(visible)},
+		doc = "The dev UI is shown (F1 toggles it; always false in a build without it).",
+	)
+	// the running session, at the shown tick
+	gd.bind_property(
+		class,
+		"status",
+		proc(session: ^Session_Node) -> i64 {return i64(session.status)},
+		class_name = "UnifiedSession.Status",
+		doc = "The session's status ([signal status_changed] says when it changes).",
+	)
+	gd.bind_property(
+		class,
+		"running",
+		proc(session: ^Session_Node) -> bool {return api.installed && api.running()},
+		doc = "A session is running (until its thread ended, after a goodbye).",
+	)
+	gd.bind_property(
+		class,
+		"tick",
+		proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)},
+		doc = "The tick shown (the newest predicted one).",
+	)
+	gd.bind_property(class, "local_player", proc(session: ^Session_Node) -> i64 {
+			return session.frame != nil ? i64(session.frame.local_player) : 0
+		}, doc = "The local player's key at the shown tick (0 until it joins, and once the session is over).")
+	gd.bind_dynamic_method(class, "get_players", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			session := (^Session_Node)(instance)
+			players := player_array()
+			if session.frame != nil {
+				for key in session.frame.slots do if key != 0 do gd.array_push(&players, i64(key))
+			}
+			return array_variant(&players)
+		}, nil, nil, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The keys of the players present at the shown tick, in slot order.")
+	gd.bind_dynamic_method(class, "get_known_players", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			session := (^Session_Node)(instance)
+			players := player_array()
+			if session.frame != nil {
+				for key in session.frame.members[:session.frame.n_members] do gd.array_push(&players, i64(key))
+			}
+			return array_variant(&players)
+		}, nil, nil, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The keys of every player the session remembers at the shown tick, present or not.")
+	gd.bind_method(class, "get_player_slot", proc(session: ^Session_Node, player: i64) -> i64 {
+			return i64(shown_slot(session, player))
+		}, {"player"}, doc = "The slot (input index) [param player] holds at the shown tick; -1 when absent.")
+	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
+			entry, ok := roster_entry(player)
+			return ok ? strings.clone(netcode.text_string(&entry.name), context.temp_allocator) : ""
+		}, {
+			"player",
+		}, doc = "The name [param player] goes by in the session (\"\" when unknown); still answers after they left.")
+	gd.bind_method(class, "get_player_platform", proc(session: ^Session_Node, player: i64) -> string {
+			entry, ok := roster_entry(player)
+			return ok ? strings.clone(netcode.text_string(&entry.platform), context.temp_allocator) : ""
+		}, {
+			"player",
+		}, doc = "The platform of the account the lobby's link vouched for (\"eos\"); empty on LAN, in single player and in replays.")
+	gd.bind_method(class, "get_player_platform_id", proc(session: ^Session_Node, player: i64) -> string {
+			entry, ok := roster_entry(player)
+			return ok ? strings.clone(netcode.text_string(&entry.account), context.temp_allocator) : ""
+		}, {
+			"player",
+		}, doc = "The account id the lobby's link vouched for (EOS: the product user id); empty on LAN, in single player and in replays.")
+	// the scene views, from the host's own tables
+	gd.bind_method(
+		class,
+		"get_view",
+		proc(session: ^Session_Node, kind: string, key: i64) -> gd.Node {return view_of_key(kind, u64(key))},
+		{"kind", "key"},
+		doc = "The scene view of [param kind] (a View member, lowercased) and [param key], null when there is none (or it lingers, gone from the sim).",
+	)
+	gd.bind_method(
+		class,
+		"get_player_view",
+		proc(session: ^Session_Node, kind: string, player: i64) -> gd.Node {return view_of_player(kind, u64(player))},
+		{"kind", "player"},
+		doc = "The scene view of [param kind] that shows [param player] (its marker's [member UnifiedView.player]), null when there is none.",
+	)
+	gd.bind_dynamic_method(class, "get_views", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			kind, _ := gd.from_variant(string, args[0])
+			views := views_of_kind(kind)
+			return array_variant(&views)
+		}, nil, {{"kind", .STRING, ""}}, gd.Dynamic_Arg{"", .ARRAY, "Node"}, doc = "Every scene view of [param kind] that is in the sim (not lingering), by key.")
+	// starting, leaving, sending
 	gd.bind_method(
 		class,
 		"start_single",
 		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Single})},
+		doc = "Starts a single player session.",
 	)
 	gd.bind_method(
 		class,
 		"host_online",
 		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Host_Online})},
+		doc = "Hosts an online session through the game's lobby service; [signal lobby_code] gives the code to share.",
 	)
 	gd.bind_method(class, "host_direct", proc(session: ^Session_Node, port: i64) -> bool {
-		return session_start(session, {mode = .Host_Direct, port = int(port)})
-	}, {"port"})
+			return session_start(session, {mode = .Host_Direct, port = int(port)})
+		}, {"port"}, doc = "Hosts on a UDP port (LAN); 127.0.0.1 only when the process got [code]--local-net[/code].")
 	gd.bind_method(class, "join_online", proc(session: ^Session_Node, code: string) -> bool {
-		return session_start(session, {mode = .Join_Online, arg = code})
-	}, {"code"})
+			return session_start(session, {mode = .Join_Online, arg = code})
+		}, {"code"}, doc = "Joins an online session by its lobby code.")
 	gd.bind_method(class, "join_direct", proc(session: ^Session_Node, address: string) -> bool {
-		return session_start(session, {mode = .Join_Direct, arg = address})
-	}, {"address"})
+			return session_start(session, {mode = .Join_Direct, arg = address})
+		}, {"address"}, doc = "Joins a directly hosted session at [code]host:port[/code].")
 	gd.bind_method(
 		class,
 		"leave",
@@ -149,69 +255,84 @@ register_session_class :: proc() {
 			}
 			if api.installed do api.stop()
 		},
+		doc = "Ends the session: it says goodbye on its own thread. A start right after waits for it.",
 	)
+	gd.bind_dynamic_method(class, "send_command", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			command, _ := gd.from_variant(gd.Object, args[0])
+			return gd.to_variant(send_command(command))
+		}, nil, {{"command", .OBJECT, "UnifiedCommand"}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once. False, with an error, when it can't be sent.")
 	gd.bind_method(
 		class,
-		"send_command",
-		proc(session: ^Session_Node, command: gd.Object) -> bool {return send_command(command)},
-		{"command"},
+		"take_sync_stats",
+		take_sync_stats,
+		doc = "The main thread's view-sync cost since the last call, then counts anew: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's.",
 	)
-	gd.bind_method(class, "set_input_value", proc(session: ^Session_Node, name: gd.StringName, value: gd.Variant) {
-		name, value := name, value
-		set_input_value(gd.string_name_to_odin(&name), input_value_of(&value))
-	}, {"name", "value"})
-	gd.bind_method(class, "set_player_name", proc(session: ^Session_Node, name: string) {
-		delete(session.name)
-		session.name = strings.clone(name)
-	}, {"name"})
-	gd.bind_method(class, "get_status", proc(session: ^Session_Node) -> string {return STATUS_NAMES[session.status]})
-	// Players by key (sim.player_key), at the shown tick.
-	gd.bind_method(class, "get_local_player", proc(session: ^Session_Node) -> i64 {
-		return session.frame != nil ? i64(session.frame.local_player) : 0
-	})
-	gd.bind_method(class, "get_players", proc(session: ^Session_Node) -> gd.Array {
-		players := gd.array_new()
-		if session.frame != nil {
-			for key in session.frame.slots do if key != 0 do gd.array_push(&players, i64(key))
-		}
-		return players
-	})
-	gd.bind_method(class, "get_known_players", proc(session: ^Session_Node) -> gd.Array {
-		players := gd.array_new()
-		if session.frame != nil {
-			for key in session.frame.members[:session.frame.n_members] do gd.array_push(&players, i64(key))
-		}
-		return players
-	})
-	gd.bind_method(class, "get_player_slot", proc(session: ^Session_Node, player: i64) -> i64 {
-		return i64(shown_slot(session, player))
-	}, {"player"})
-	gd.bind_method(class, "is_player_present", proc(session: ^Session_Node, player: i64) -> bool {
-		return shown_slot(session, player) >= 0
-	}, {"player"})
-	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
-		entry, ok := roster_entry(player)
-		return ok ? strings.clone(netcode.text_string(&entry.name), context.temp_allocator) : ""
-	}, {"player"})
-	gd.bind_method(class, "get_player_platform", proc(session: ^Session_Node, player: i64) -> string {
-		entry, ok := roster_entry(player)
-		return ok ? strings.clone(netcode.text_string(&entry.platform), context.temp_allocator) : ""
-	}, {"player"})
-	gd.bind_method(class, "get_player_platform_id", proc(session: ^Session_Node, player: i64) -> string {
-		entry, ok := roster_entry(player)
-		return ok ? strings.clone(netcode.text_string(&entry.account), context.temp_allocator) : ""
-	}, {"player"})
-	gd.bind_method(class, "is_running", proc(session: ^Session_Node) -> bool {return api.installed && api.running()})
-	gd.bind_method(class, "get_tick", proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)})
-	gd.bind_method(class, "take_sync_stats", take_sync_stats)
-	gd.bind_method(class, "toggle_devui", proc(session: ^Session_Node) {dev_toggle()})
-	gd.bind_method(class, "is_devui_visible", proc(session: ^Session_Node) -> bool {return dev_visible()})
-	gd.bind_signal(class, "status_changed", {"status", string}, {"detail", string})
-	gd.bind_signal(class, "lobby_code", {"code", string})
-	gd.bind_signal(class, "desync", {"tick", i64}, {"detail", string})
-	gd.bind_signal(class, "sim_event", {"event", gd.RefCounted}, {"state", i64})
-	gd.bind_signal(class, "roster_changed")
-	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
+	gd.bind_signal(
+		class,
+		"status_changed",
+		{{"status", .INT, "UnifiedSession.Status"}, {"detail", .STRING, ""}},
+		doc = "The session's status changed; [param detail] says why (a failure's reason).",
+	)
+	gd.bind_signal(class, "lobby_code", {{"code", .STRING, ""}}, doc = "The code other players join with.")
+	gd.bind_signal(
+		class,
+		"desync",
+		{{"tick", .INT, ""}, {"detail", .STRING, ""}},
+		doc = "The players' checksums of [param tick] differ.",
+	)
+	gd.bind_signal(
+		class,
+		"sim_event",
+		{{"event", .OBJECT, "UnifiedEvent"}, {"state", .INT, "UnifiedSession.EventState"}},
+		doc = "Every sim event in every state: EVENT_EMITTED once, then EVENT_CONFIRMED or EVENT_CANCELLED once. Its subject's view gets it first ([code]_sim_event(event, state)[/code]). Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code].",
+	)
+	gd.bind_signal(
+		class,
+		"roster_changed",
+		doc = "A player's name, connection or account changed (the get_player_* methods).",
+	)
+	for name, status in STATUS_NAMES {
+		gd.bind_constant(
+			class,
+			"Status",
+			fmt.tprintf("STATUS_%s", strings.to_upper(name, context.temp_allocator)),
+			i64(status),
+			doc = STATUS_DOCS[status],
+		)
+	}
+	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
+}
+
+@(private)
+STATUS_DOCS := [Status_Kind]string {
+	.Idle         = "No session has started.",
+	.Connecting   = "A session is starting: hosting, joining, or waiting for the previous one's goodbye.",
+	.Connected    = "In the session.",
+	.Failed       = "The session could not start or ended on an error ([code]detail[/code] says which).",
+	.Disconnected = "The session ended: left, the host left, or the link was lost.",
+}
+
+@(private)
+EVENT_STATE_DOCS := [Event_Action]string {
+	.Emitted   = "The first time any simulation of its tick produced it (a prediction, or the verified tick): effects and sounds.",
+	.Confirmed = "Its tick is verified: what must be final (score, banners).",
+	.Cancelled = "A re-simulation no longer produces it: undo the effect its EVENT_EMITTED started (the same [member UnifiedEvent.id]).",
+}
+
+// An empty Array[int] of player keys.
+@(private)
+player_array :: proc() -> gd.Array {
+	array := gd.array_new()
+	gd.array_set_typed(&array, .INT)
+	return array
+}
+
+// An owned Array as a dynamic method's result (the Variant holds its own reference).
+@(private)
+array_variant :: proc(array: ^gd.Array) -> gd.Variant {
+	value := gd.to_variant(array^)
+	gd.Array_destroy(array)
+	return value
 }
 
 // `--lag MS`: the dev netsim on remote links, MS each way, a quarter of it jitter, 1% loss.
@@ -234,11 +355,20 @@ node_of :: proc(session: ^Session_Node) -> gd.Node {
 	return gd.cast_to(gd.Node, session.obj)
 }
 
-// Where scene views go: view_root once assigned (null, or a freed node: none), before that the session's parent.
+// view_root as set (null, or a freed node: none); before it is set, the session's parent.
 @(private)
-effective_root :: proc(session: ^Session_Node) -> gd.Node {
+view_root_of :: proc(session: ^Session_Node) -> gd.Node {
 	if session.root_set do return alive(session.root_id) ? session.view_root : {}
 	return gd.Node_get_parent(node_of(session))
+}
+
+// Where scene views go: view_root, unless it is outside the tree (its scene left: a play scene's teardown needs no
+// code).
+@(private)
+effective_root :: proc(session: ^Session_Node) -> gd.Node {
+	root := view_root_of(session)
+	if root.ptr != nil && !gd.Node_is_inside_tree(root) do return {}
+	return root
 }
 
 @(private)
@@ -408,7 +538,7 @@ emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string)
 	session.status = status
 	delete(session.detail)
 	session.detail = strings.clone(detail)
-	gd.emit_signal(session.obj, gd.sn("status_changed"), STATUS_NAMES[status], detail)
+	gd.emit_signal(session.obj, gd.sn("status_changed"), i64(status), detail)
 }
 
 @(private)
@@ -555,27 +685,6 @@ take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	gd.dict_set(&dict, "total_us", us(stats.total))
 	gd.dict_set(&dict, "total_max_us", us(stats.total_max))
 	return dict
-}
-
-// set_input_value's value as the [3]f32 input_value returns: a Vector3, a Vector2 (z = 0), or a number or bool in x.
-@(private)
-input_value_of :: proc(value: ^gd.Variant) -> [3]f32 {
-	#partial switch gd.variant_type(value) {
-	case .VECTOR3:
-		vector, _ := gd.from_variant(gd.Vector3, value)
-		return {vector.x, vector.y, vector.z}
-	case .VECTOR2:
-		vector, _ := gd.from_variant(gd.Vector2, value)
-		return {vector.x, vector.y, 0}
-	case .FLOAT, .INT:
-		number, _ := gd.from_variant(f64, value)
-		return {f32(number), 0, 0}
-	case .BOOL:
-		flag, _ := gd.from_variant(bool, value)
-		return {flag ? 1 : 0, 0, 0}
-	}
-	gd.print_error("unified: set_input_value: want a Vector3, Vector2, float, int or bool")
-	return {}
 }
 
 // ---- command line (user args after `--`)

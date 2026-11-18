@@ -6,7 +6,8 @@ var last_position := Vector3.INF
 var last_yaw := 0.0
 
 
-func _sim_update(position: Vector3, yaw: float, _alpha: float) -> void:
+# The host posed it before any other node's _process (its own runs at priority -1000).
+func _process(_delta: float) -> void:
 	updates += 1
 	last_position = position
-	last_yaw = yaw
+	last_yaw = rotation.y

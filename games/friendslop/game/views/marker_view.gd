@@ -33,11 +33,10 @@ func _process(delta: float) -> void:
 
 
 ## Effects play once, when the event is emitted (whether a prediction or the verified tick produced it).
-func _sim_event(event: UnifiedEvent, state: int) -> void:
+func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	match event.kind:
-		"bell_rung", "launched", "plate_on", "switch_on":
-			_pulse = 1.0
-		"thrown":
-			Sfx.play(&"pop", -3.0, 1.1)
+	if event is EventBellRung or event is EventLaunched or event is EventPlateOn or event is EventSwitchOn:
+		_pulse = 1.0
+	elif event is EventThrown:
+		Sfx.play(&"pop", -3.0, 1.1)

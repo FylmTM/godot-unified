@@ -26,10 +26,10 @@ func add_trauma(amount: float) -> void:
 
 
 func _process(delta: float) -> void:
-	var arena := get_parent() as SurvivorArena
-	var v: SurvivorPlayerView = arena.local_player_view() if arena != null else null
-	if v == null and arena != null:
-		v = arena.any_player_view()
+	var v := Game.session.get_player_view("player", Game.local_player()) as SurvivorPlayerView
+	if v == null:
+		var views := Game.session.get_views("player")
+		v = views[0] as SurvivorPlayerView if not views.is_empty() else null
 	var goal := Vector3(v.position.x, 0, v.position.z) if v != null else _target
 	var vel := v.velocity if v != null else Vector3.ZERO
 	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY

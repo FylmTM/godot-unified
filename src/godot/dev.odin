@@ -99,7 +99,7 @@ when DEVUI {
 	dev_visible :: proc() -> bool {return devui.visible}
 	// The session thread copies the newest state and inputs only while a panel shows them.
 	dev_wants_state :: proc() -> bool {return devui.panel_shown(.Inspector) || devui.panel_shown(.Input)}
-	dev_toggle :: proc() {devui.visible = !devui.visible}
+	dev_set_visible :: proc(visible: bool) {devui.visible = visible}
 
 	// A session starts: the frames line (p50, p99, max) starts over.
 	dev_session_started :: proc() {devui.frames_reset()}
@@ -348,7 +348,7 @@ when DEVUI {
 	dev_wants_keyboard :: proc() -> bool {return false}
 	dev_visible :: proc() -> bool {return false}
 	dev_wants_state :: proc() -> bool {return false}
-	dev_toggle :: proc() {}
+	dev_set_visible :: proc(visible: bool) {}
 	dev_session_started :: proc() {}
 	dev_event :: proc(tick: u32, id: u64, action: Event_Action, layout: ^Event_Layout, data: []u8) {}
 	dev_note :: proc(tick: u32, text: string) {}

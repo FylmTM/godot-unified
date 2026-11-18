@@ -30,7 +30,8 @@ Api :: struct {
 	data:            []Data_Layout, // the game's session data types (Glue.data), by kind
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // Glue.constants' value
-	enum_types:      []^runtime.Type_Info, // the enums the event, command, data and constants types use
+	input_values:    Data_Layout, // Glue.input_values (type nil: none)
+	enum_types:      []^runtime.Type_Info, // the enums the event, command, data, constants and input types use
 	sample_input:    proc(), // main thread: the game's sample_input into the host's sample
 	start:           proc(request: Start) -> (ok: bool, err: string),
 	stop:            proc(), // ask the session to end (it keeps running until it has said goodbye)
@@ -50,7 +51,7 @@ Api :: struct {
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
+	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
 	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
@@ -247,7 +248,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	if reason := sim.game_violation(game); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
-	data_problems(glue.data, glue.constants.id, &problems)
+	data_problems(glue.data, glue.constants.id, glue.input_values, &problems)
 	if glue.constants.id != nil && glue.constants.data == nil do append(&problems, "Glue.constants holds no value")
 	if len(problems) > 0 {
 		api = {
@@ -281,17 +282,19 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		api.constants = data_layout(type_info_of(glue.constants.id))
 		api.constants_bytes = slice.clone(([^]u8)(glue.constants.data)[:type_info_of(glue.constants.id).size])
 	}
+	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
 	enum_sources: [dynamic]^runtime.Type_Info
 	for layout in api.events do append(&enum_sources, layout.type)
 	for layout in api.commands do append(&enum_sources, layout.type)
 	for layout in api.data do append(&enum_sources, layout.type)
 	if api.constants.type != nil do append(&enum_sources, api.constants.type)
+	if api.input_values.type != nil do append(&enum_sources, api.input_values.type)
 	enums: [dynamic]^runtime.Type_Info
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
-		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, u64, Event_Route) {
-			kind, key, route := (^This_Glue)(g_glue).event_key(event)
+		api.event_key = proc(event: ^sim.Raw_Event, subject: Subject) -> (u8, u64, Event_Route) {
+			kind, key, route := (^This_Glue)(g_glue).event_key(event, subject)
 			return u8(kind), key, route
 		}
 	}

@@ -56,7 +56,7 @@ func _process(delta: float) -> void:
 	var local := view.player == Game.local_player()
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
-		var tag := Game.player_name({"player": view.player})  # the synced name, else "P<slot + 1>"
+		var tag := Game.player_name(view.player)  # the synced name, else "P<slot + 1>"
 		if _tag.text != tag:
 			_tag.text = tag
 		_tag.global_position = global_position + Vector2(-80, -_r - 26)
@@ -114,7 +114,7 @@ func _sim_revived() -> void:
 
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it). A cancelled
 ## shot is undone (its flash and sound: by its event id); the other effects are short and left as they played.
-func _sim_event(event: UnifiedEvent, state: int) -> void:
+func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	var local := view.player == Game.local_player()
 	if event is EventFired:  # predicted (a remote ship's trigger): a rollback may cancel it; undo the flash and sound
 		match state:
@@ -132,19 +132,18 @@ func _sim_event(event: UnifiedEvent, state: int) -> void:
 		return
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	match event.kind:
-		"boosted":
-			_squash = 1.0
-			Sfx.play(&"boost", -4.0 if local else -10.0)
-			if local:
-				Game.rumble(0.3, 0.2, 0.12)
-		"warped":
-			_warp = 1.0
-			Sfx.play(&"warp", -4.0)
-		"gem_picked":
-			_ready_pulse = 1.0
-		"spawned":
-			_warp = 1.0
+	if event is EventBoosted:
+		_squash = 1.0
+		Sfx.play(&"boost", -4.0 if local else -10.0)
+		if local:
+			Game.rumble(0.3, 0.2, 0.12)
+	elif event is EventWarped:
+		_warp = 1.0
+		Sfx.play(&"warp", -4.0)
+	elif event is EventGemPicked:
+		_ready_pulse = 1.0
+	elif event is EventSpawned:
+		_warp = 1.0
 
 
 ## The hull and tag in the colour of the slot the player holds (kept while they are away: the view lingers).

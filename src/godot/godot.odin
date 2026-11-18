@@ -72,7 +72,7 @@ on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	if level == .INITIALIZATION_EDITOR {
 		context = runtime.default_context()
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-		load_docs()
+		gd.load_docs() // the editor's help: each class's and member's doc from where it is bound
 		return
 	}
 	if level != .INITIALIZATION_SCENE do return

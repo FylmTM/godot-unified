@@ -36,7 +36,7 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	pos:    [3]f32,
 	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
-	color:  [4]f32, // the instance color (use_colors), RGBA; zero = white
+	color:  Color, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)
 }
 
@@ -124,6 +124,9 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
 	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
 	constants:       any,
+	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
+	// fields on Unified.input, sample_input reads them with input_values(T).
+	input_values:    typeid,
 	// Optional: the views' smoothing, in sim units (zero: SMOOTHING_DEFAULT, for a sim in metres).
 	smoothing:       Smoothing,
 	// Optional, the view space: the sim's XY plane is shown in Godot 2D (a sim.Position reaches GDScript as a
@@ -145,14 +148,30 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
 	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
 	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
-	// views). So a game handles only its special events. sim.event_value(event, Game_Event) reads it.
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: Event_Route),
+	// views). So a game handles only its special events, from the subject the host read (sim.event_value(event,
+	// Game_Event) reads the rest).
+	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: View, key: u64, route: Event_Route),
 	compat:          u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
 	// its content; every peer must have the same file.
 	level:           string,
 }
+
+// An event's subject as the host reads it (Glue.event_key): its first sim.Player field, and its first handle (as
+// sim.handle_key, is_handle) or u64 `entity` field ({}, 0: none).
+Subject :: struct {
+	player:    sim.Player,
+	entity:    u64,
+	is_handle: bool,
+}
+
+// An RGBA colour in sim-facing data (view and session data, events, commands, constants): a Color in GDScript. A
+// plain [4]f32 is a Vector4.
+Color :: distinct [4]f32
+
+// A rotation (a unit quaternion: x, y, z, w) in sim-facing data: a Quaternion in GDScript.
+Quat :: distinct [4]f32
 
 // Where Glue.event_key sends an event.
 Event_Route :: enum u8 {
@@ -335,7 +354,7 @@ push_multi_view :: proc(frame: ^Frame($G, $View, $MultiView), item: Multi_View_I
 		pos    = item.pos,
 		rot    = item.rot == {} ? IDENTITY : item.rot,
 		scale  = item.scale,
-		color  = item.color,
+		color  = ([4]f32)(item.color),
 		custom = item.custom,
 	}
 	if item.key != 0 {

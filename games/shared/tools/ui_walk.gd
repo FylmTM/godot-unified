@@ -22,7 +22,7 @@ func _run() -> void:
 
 	await click_menu("Single")
 	await wait_for_scene("Arena", 5.0)
-	await wait_for(func() -> bool: return game.local_player() >= 0 and not game.local_player_info().is_empty(), 5.0,
+	await wait_for(func() -> bool: return game.local_player() != 0 and game.local_player_info() != null, 5.0,
 		"the local player in the HUD")
 	expect(not _session_panel().visible, "no session panel in single player")
 	expect(_controls_panel().visible, "the controls list shows")
@@ -31,7 +31,7 @@ func _run() -> void:
 	await _walk_pause_menu()
 	await click(find(find(current_scene, ^"PauseMenu"), ^"%Leave") as Control)
 	await wait_for_scene("MainMenu", 5.0)
-	await wait_for(func() -> bool: return game.flow == game.Flow.MENU and game.status in ["idle", "disconnected"], 3.0,
+	await wait_for(func() -> bool: return game.flow == game.Flow.MENU and game.status in [UnifiedSession.STATUS_IDLE, UnifiedSession.STATUS_DISCONNECTED], 3.0,
 		"the flow back to MENU, the session ended")
 	step("left to the menu")
 
@@ -120,11 +120,11 @@ func _walk_pause_menu() -> void:
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	if failed():
 		return
-	var tick0 := Unified.data.hud.tick
+	var tick0: int = session.tick
 	await press_action(&"menu")
 	expect(pause.visible, "Esc opens the menu")
 	await seconds(0.3)
-	expect(Unified.data.hud.tick > tick0, "the sim keeps running under the menu")
+	expect(session.tick > tick0, "the sim keeps running under the menu")
 	await shot("03_pause_menu")
 	await press_action(&"menu")
 	expect(not pause.visible, "Esc closes the menu")

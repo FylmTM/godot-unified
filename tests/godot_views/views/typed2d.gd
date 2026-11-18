@@ -24,11 +24,12 @@ var dir := Vector2.ZERO
 var tint := Color.BLACK
 
 
-func _sim_update(position: Vector2, rotation_now: float, _alpha: float) -> void:
+# The host posed it before any other node's _process (its own runs at priority -1000).
+func _process(_delta: float) -> void:
 	updates += 1
 	last_position = position
-	last_rotation = rotation_now
+	last_rotation = rotation
 
 
-func _sim_event(event: UnifiedEvent, state: int) -> void:
+func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	events.append([event, state])

@@ -53,7 +53,7 @@ Units: metres, seconds, 64 Hz (`DT = 1/64`). The ground plane is the sim's x, y;
 
 ## Session data
 
-- **`Data_Hud`** (`Unified.data.hud`): `players` present, `balls` in the air, and `color` (a `gd.Color`, the local
+- **`Data_Hud`** (`Unified.data.hud`): `players` present, `balls` in the air, and `color` (a `godot.Color`, the local
   player's). `game/hud.tscn`, a Control in the main scene, redraws on its `changed` signal.
 
 ## Scripted runs (headless, tests)

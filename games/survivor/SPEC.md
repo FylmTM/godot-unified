@@ -251,11 +251,11 @@ reloads between matches.
   `sim.player_key` (`player` set; the view lives while the player is present, dead too, and its colour is its
   slot's), an item's index (`entity` = index + 1, `barrel_exploded`'s; a destroyed barrel's view goes, the respawned
   one is new). Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation,
-  which player views reset) and calls `_sim_update(position, yaw, alpha)`; `_sim_despawned()` plays the exit
+  which player views reset) before the view's own `_process`; `_sim_despawned()` plays the exit
   animation during the linger (the host no longer moves the view) and `_sim_revived()` undoes it.
 - View data: the player view's `hp` (`Player_View`; a drop flashes it).
 - Session data: `Data_Hud` (HUD above) as `Unified.data.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
-  `OVER`), `players` an Array of Dictionaries. The HUD reads it every frame.
+  `OVER`), `players` an Array[DataHudPlayer] by slot. The HUD reads it every frame.
 - MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `MultiViews` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
   3D transforms (enemies and projectiles face their velocity) + custom data (r = hit flash 0..1, g = age in s), no

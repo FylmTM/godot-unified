@@ -60,13 +60,13 @@ func _color_slot(slot: int) -> void:
 	_label.modulate = color.lightened(0.35)
 
 
-func _sim_update(pos: Vector3, _sim_yaw: float, _alpha: float) -> void:
-	quaternion = Quaternion.IDENTITY  # the host may set the root's rotation; the body turns by its motion below
-	var dt := get_process_delta_time()
+## The host has posed the root (the interpolated position) before this runs.
+func _process(dt: float) -> void:
+	quaternion = Quaternion.IDENTITY  # the host sets the root's rotation; the body turns by its motion below
 	if _has_pos and dt > 0.0:
-		_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 20.0))
+		_vel = _vel.lerp((position - _last_pos) / dt, 1.0 - exp(-dt * 20.0))
 	_has_pos = true
-	_last_pos = pos
+	_last_pos = position
 	var flat := Vector3(_vel.x, 0, _vel.z)
 	var speed := flat.length()
 	if speed > 0.5:  # the sim keeps no facing: turn toward the motion, keep the last yaw while standing
@@ -104,12 +104,11 @@ func _sim_revived() -> void:
 
 
 func _update_hud_state(dt: float) -> void:
-	var p := _hud_player()
-	if not p.is_empty():
-		_label.text = Game.player_name(p)
 	var slot := Game.player_slot(player)
-	if slot >= 0 and slot != _slot:
-		_color_slot(slot)
+	if slot >= 0:
+		_label.text = Game.player_name(player)
+		if slot != _slot:
+			_color_slot(slot)
 	if _flash > 0.0:
 		# Emission stays enabled in the scene's material and only its colour changes: toggling
 		# `emission_enabled` switches the shader variant and compiled a new shader on the first hit.
@@ -133,10 +132,6 @@ func _spawn_ghost() -> void:
 	tw.tween_property(m, "albedo_color:a", 0.0, 0.25)
 	tw.tween_property(g, "scale", Vector3.ONE * 0.7, 0.25)
 	tw.chain().tween_callback(g.queue_free)
-
-
-func _hud_player() -> Dictionary:
-	return Game.player_info(player)
 
 
 func _is_local() -> bool:

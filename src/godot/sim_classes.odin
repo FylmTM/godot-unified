@@ -27,11 +27,17 @@ Sim_Class :: struct {
 
 // A struct field as a Godot property (an event's or command's, a data class's, a view's data): struct_sim_fields.
 Sim_Field :: struct {
-	name:    string,
-	name_sn: ^gd.StringName, // interned: a view's data sets it by name
-	type:    ^runtime.Type_Info,
-	offset:  int,
-	kind:    gdi.VariantType,
+	name:       string,
+	name_sn:    ^gd.StringName, // interned: a view's data sets it by name
+	type:       ^runtime.Type_Info,
+	offset:     int,
+	kind:       gdi.VariantType,
+	class_name: string, // an OBJECT's class, an ARRAY's element type (field_kind)
+}
+
+// A field's line in the editor's help.
+field_doc :: proc(field: Sim_Field) -> string {
+	return fmt.tprintf("The field [code]%s[/code] (Odin [code]%v[/code]).", field.name, field.type.id)
 }
 
 // An instance: the event's or command's struct bytes.
@@ -70,62 +76,38 @@ rune_upper :: proc(r: rune) -> rune {
 	return r >= 'a' && r <= 'z' ? r - 'a' + 'A' : r
 }
 
-// The Variant type a field reads as (Position: Vector2 in a 2D game).
-field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
-	if type.id == sim.Position do return api.is_2d ? .VECTOR2 : .VECTOR3
-	if is_handle(type) || type.id == sim.Player do return .INT
-	if kind, is_builtin := gd.builtin_variant_type(type.id); is_builtin do return kind // Godot's math types
-	#partial switch info in runtime.type_info_base(type).variant {
-	case runtime.Type_Info_Integer:
-		return .INT
-	case runtime.Type_Info_Float:
-		return .FLOAT
-	case runtime.Type_Info_Boolean:
-		return .BOOL
-	case runtime.Type_Info_Enum:
-		return .INT
-	case runtime.Type_Info_String:
-		return .STRING
-	case runtime.Type_Info_Bit_Set:
-		return .ARRAY
-	case runtime.Type_Info_Array:
-		if info.elem.id == f32 {
-			switch info.count {
-			case 2:
-				return .VECTOR2
-			case 3:
-				return .VECTOR3
-			case 4:
-				return .COLOR
-			}
-		}
-		return .ARRAY
-	case runtime.Type_Info_Enumerated_Array:
-		return .ARRAY
-	case runtime.Type_Info_Struct:
-		return .DICTIONARY
-	}
-	return .NIL
-}
-
 // Registers UnifiedEvent, UnifiedCommand and a class per kind of the game's event and command unions (SCENE init).
 register_sim_classes :: proc() {
 	event_base_class = {
-		name   = "UnifiedEvent",
-		parent = "RefCounted",
-		size   = size_of(Sim_Object),
+		name      = "UnifiedEvent",
+		parent    = "RefCounted",
+		size      = size_of(Sim_Object),
+		doc_brief = "One of the game's sim events: the base of its event classes.",
+		doc       = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field. Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code].",
 	}
 	gd.register_class(&event_base_class)
-	gd.bind_property(&event_base_class, "tick", proc(object: ^Sim_Object) -> i64 {return object.tick})
-	gd.bind_property(&event_base_class, "id", proc(object: ^Sim_Object) -> i64 {return object.id})
+	gd.bind_property(
+		&event_base_class,
+		"tick",
+		proc(object: ^Sim_Object) -> i64 {return object.tick},
+		doc = "The tick that produced it.",
+	)
+	gd.bind_property(
+		&event_base_class,
+		"id",
+		proc(object: ^Sim_Object) -> i64 {return object.id},
+		doc = "The same in its EVENT_EMITTED and in its EVENT_CONFIRMED or EVENT_CANCELLED (each state is a new object): remember what an effect started by it, undo it on EVENT_CANCELLED, forget it on EVENT_CONFIRMED. Never repeats in the process; an event cancelled and produced again later is a new one.",
+	)
 	gd.bind_property(&event_base_class, "kind", proc(object: ^Sim_Object) -> string {
-		if object.class == &event_base_class do return ""
-		return api.events[(^Sim_Class)(object.class).kind].name
-	})
+			if object.class == &event_base_class do return ""
+			return api.events[(^Sim_Class)(object.class).kind].name
+		}, doc = "Its kind's name for logs: the type name without Event_, lowercased. Handlers dispatch by class (`is`), never by this.")
 	command_base_class = {
-		name   = "UnifiedCommand",
-		parent = "RefCounted",
-		size   = size_of(Sim_Object),
+		name      = "UnifiedCommand",
+		parent    = "RefCounted",
+		size      = size_of(Sim_Object),
+		doc_brief = "One of the game's commands: the base of its command classes.",
+		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
 	}
 	gd.register_class(&command_base_class)
 	for layout, kind in api.events do register_sim_class(layout.type, kind, true)
@@ -149,10 +131,12 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	sim_class := new(Sim_Class)
 	sim_class^ = {
 		class = {
-			name   = strings.clone(name),
-			parent = is_event ? "UnifiedEvent" : "UnifiedCommand",
-			native = "RefCounted",
-			size   = size_of(Sim_Object),
+			name      = strings.clone(name),
+			parent    = is_event ? "UnifiedEvent" : "UnifiedCommand",
+			native    = "RefCounted",
+			size      = size_of(Sim_Object),
+			doc_brief = fmt.aprintf("The game's %s %v.", is_event ? "event" : "command", variant.id),
+			doc       = is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
 		},
 		class_name = gd.sn(name),
 		type = variant,
@@ -162,16 +146,14 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	gd.register_class(&sim_class.class)
 	sim_class.fields = struct_sim_fields(variant)
 	for &field in sim_class.fields {
-		hint, hint_string := field_hint(field.type)
 		setter: gd.Dynamic_Proc = is_event ? nil : field_set
 		gd.bind_dynamic_property(
 			&sim_class.class,
-			{field.name, field.kind, ""},
+			{field.name, field.kind, field.class_name},
 			field_get,
 			setter,
 			&field,
-			hint,
-			hint_string,
+			doc = field_doc(field),
 		)
 	}
 	append(&sim_classes, sim_class)

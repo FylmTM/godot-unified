@@ -59,6 +59,6 @@ func _draw() -> void:
 		draw_arc(Vector2.ZERO, ring, -PI / 2.0, -PI / 2.0 + TAU * hp_frac, 64, hp_col, 4.0, true)
 
 
-func _sim_event(event: UnifiedEvent, state: int) -> void:
+func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if event is EventStationHit and state == UnifiedSession.EVENT_EMITTED:
 		_flash = 1.0
