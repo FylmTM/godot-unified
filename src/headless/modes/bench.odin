@@ -9,17 +9,20 @@ import "core:slice"
 import uheadless "unified:headless"
 @(require) import "unified:sim" // only in generic procs
 
+@(private)
 Stat :: struct {
 	mean: f64,
 	p99:  f64,
 }
 
 // A Stat as the modes print it: {"mean":..,"p99":..} (temp-allocated).
+@(private)
 stat_json :: proc(stat: Stat) -> string {
 	return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 }
 
 // The mean and nearest-rank p99 of timing samples (zeros for none); sorts `samples` in place.
+@(private)
 stat_of :: proc(samples: []f64) -> Stat {
 	if len(samples) == 0 {
 		return {}
@@ -33,6 +36,7 @@ stat_of :: proc(samples: []f64) -> Stat {
 	return {sum / f64(len(samples)), samples[max(rank - 1, 0)]}
 }
 
+@(private)
 Bench_Result :: struct {
 	step, save, restore, resim: Stat,
 	// The same re-sim of ticks that are all final (a catch-up burst), saving only the last one (what the netcode
@@ -54,6 +58,7 @@ Bench_Result :: struct {
 
 // The ticks a benchmark runs before it times anything, after the first `window` (which have no rollback that deep):
 // caches warm and a game's population settles (players joining, the first waves).
+@(private)
 BENCH_WARMUP :: 64
 
 // `bench`: prepares `entities` entities (the game holds that population), and every tick measures
@@ -63,6 +68,7 @@ BENCH_WARMUP :: 64
 // checksum is timed (deep ticks and the others apart). The first `window` + BENCH_WARMUP ticks run untimed (all of
 // them when the run is no longer). A rollback at the prediction cap every tick is the worst case the netcode
 // makes, not a typical frame: the bound the frame budget is checked against.
+@(private)
 run_bench :: proc(
 	headless: ^uheadless.Headless($G),
 	entities: int,

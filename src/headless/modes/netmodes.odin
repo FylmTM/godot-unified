@@ -18,6 +18,7 @@ import "unified:netcode"
 @(require) import "unified:sim"
 
 // The `--profile` option as a network profile (ideal, wan, bad); exits through die on an unknown name.
+@(private)
 profile_opt :: proc(args: ^Args, fallback: netcode.Network) -> netcode.Profile {
 	name := opt_str(args, "profile", netcode.PROFILES[fallback].name)
 	profile, ok := netcode.profile_by_name(name)
@@ -28,6 +29,7 @@ profile_opt :: proc(args: ^Args, fallback: netcode.Network) -> netcode.Profile {
 }
 
 // `--log F`: the relay's recording, streamed to F as ticks are finalized (none without the option).
+@(private)
 log_opt :: proc(args: ^Args) -> sim.Log_Sink {
 	path := opt_str(args, "log")
 	if path == "" {
@@ -49,6 +51,7 @@ console_logger :: proc(name: string) -> log.Logger {
 // The `session` mode: an in-process relay and `--clients` scripted clients on the virtual clock (session_run): the
 // netcode's cost (wall time is the clients' and the relay's CPU time), rollbacks, stalls, step times, bytes per
 // second, a late joiner's join; fails on a desync. `uni bench` runs it under `bad` and under `wan` with a late joiner.
+@(private)
 mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	cfg := uheadless.Session_Config {
@@ -165,6 +168,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The `relay` mode: a relay alone on a local UDP port, run until its session ends, for the multi-process test
 // (`uni test --suite net`) with `client` processes; fails on a desync.
+@(private)
 mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	context.logger = console_logger("relay")
@@ -197,6 +201,7 @@ mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
 // prints its result as the JSON line.
+@(private)
 mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	address := opt_str(args, "connect", required = true)

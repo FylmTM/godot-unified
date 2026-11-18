@@ -72,12 +72,15 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 	Cmd :: sim.part(G, sim.GAME_CMD)
 	hooks := netcode.Hooks(G) {
 		user = scripted,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
+	}
+	// No scripted player: the client sends zero Inputs (no sample hook).
+	if scripted.headless.game.scripted_input != nil {
+		hooks.sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(G))(user)
 			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
 			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
 			return scripted.headless.game.scripted_input(scripted.seed, slot, asked, state)
-		},
+		}
 	}
 	if scripted.headless.game.scripted_commands != nil {
 		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
