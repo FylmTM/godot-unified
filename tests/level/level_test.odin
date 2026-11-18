@@ -61,36 +61,12 @@ fixture :: proc() -> []u8 {
 		},
 	}
 	props := []level.Prop {
-		{
-			key  = "running",
-			type = .Bool,
-			b    = true,
-		},
-		{
-			key  = "count",
-			type = .Int,
-			i    = -3,
-		},
-		{
-			key  = "speed",
-			type = .Float,
-			f    = 2.5,
-		},
-		{
-			key  = "push",
-			type = .Vec3,
-			v    = {1, 2, 3},
-		},
-		{
-			key  = "label",
-			type = .String,
-			s    = "lift",
-		},
-		{
-			key  = "gate",
-			type = .Ref,
-			i    = 1,
-		},
+		{key = "running", value = true},
+		{key = "count", value = i32(-3)},
+		{key = "speed", value = f32(2.5)},
+		{key = "push", value = [3]f32{1, 2, 3}},
+		{key = "label", value = "lift"},
+		{key = "gate", value = level.Marker_Ref(1)},
 	}
 	path := [][3]f32{{0, 0, 0}, {0, 3, 0}}
 	markers := []level.Marker {
@@ -117,7 +93,7 @@ fixture :: proc() -> []u8 {
 			scale = {1, 1, 1},
 		},
 	}
-	return level.encode(bodies, markers)
+	return encode(bodies, markers)
 }
 
 @(test)
@@ -158,7 +134,7 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(platforms), 2)
 	if len(platforms) == 2 do testing.expect_value(t, platforms[1], "Ferry")
 	// Encoding what was read gives the same bytes.
-	again := level.encode(loaded.bodies, loaded.markers)
+	again := encode(loaded.bodies, loaded.markers)
 	defer delete(again)
 	testing.expect(t, string(again) == string(data))
 }
@@ -199,8 +175,7 @@ create_static_bodies :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
-	count, problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, count, 2)
+	problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, problem, "")
 	// A ray down at the origin hits the floor's top; the rotated box (pos (0,1,5) local (0,1,0)) is hit
 	// at y = 1.5; the sphere at (3,1,5) on top at y = 1.5; the capsule lies along x at (-3,1,5): top 1.25.
@@ -245,7 +220,6 @@ create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 	testing.expect(t, physics.create_level_shape(world, body, shape_def, &shapes[0]))
 	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[1]))
 	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[2]))
-	count, problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, count, 1)
+	problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, problem, `level body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)
 }

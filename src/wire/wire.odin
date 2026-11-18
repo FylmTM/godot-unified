@@ -40,6 +40,11 @@ w_u64 :: proc(writer: ^Writer, value: u64) {
 	append(&writer.buf, ..bytes[:])
 }
 
+// Appends an f32's bits, little-endian.
+w_f32 :: proc(writer: ^Writer, value: f32) {
+	w_u32(writer, transmute(u32)value)
+}
+
 
 // Bounds-checked reader: a short read sets ok = false and yields zeros, so a decoder can read a
 // whole message and check `ok` once at the end.
@@ -88,5 +93,8 @@ r_u16 :: proc(reader: ^Reader) -> u16 {return r_le(reader, u16)}
 r_u32 :: proc(reader: ^Reader) -> u32 {return r_le(reader, u32)}
 // Reads a little-endian u64; 0 when short.
 r_u64 :: proc(reader: ^Reader) -> u64 {return r_le(reader, u64)}
+
+// An f32 from its bits (0 when short).
+r_f32 :: proc(reader: ^Reader) -> f32 {return transmute(f32)r_le(reader, u32)}
 // The bytes left after pos: a decoder reads records until none are left, or rejects trailing bytes.
 r_remaining :: proc(reader: ^Reader) -> int {return len(reader.data) - reader.pos}

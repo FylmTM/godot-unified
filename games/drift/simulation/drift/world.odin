@@ -67,7 +67,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
 	world.level_data = loaded
 	world.phys = physics.create({tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
-	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
+	problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
 
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}

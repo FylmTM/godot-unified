@@ -13,6 +13,8 @@
 //            string u32 | ref i32: marker index, -1 none), then path point count u16, points 3f32 (world)
 package level
 
+import "base:runtime"
+
 import "unified:wire"
 
 MAGIC :: "UNLV"
@@ -46,6 +48,7 @@ Body :: struct {
 	shapes:      []Shape,
 }
 
+// A property's type tag in the file.
 Prop_Type :: enum u8 {
 	Bool,
 	Int,
@@ -55,15 +58,24 @@ Prop_Type :: enum u8 {
 	Ref,
 }
 
+// A marker property: an exported script property (a Vector2 is a [3]f32 with z = 0; a NodePath to another marker is
+// its Marker_Ref).
 Prop :: struct {
-	key:  string,
-	type: Prop_Type,
-	b:    bool,
-	i:    i32, // Int; Ref: the marker index (-1: none)
-	f:    f32,
-	v:    [3]f32,
-	s:    string,
+	key:   string,
+	value: Prop_Value,
 }
+
+Prop_Value :: union {
+	bool,
+	i32,
+	f32,
+	[3]f32,
+	string,
+	Marker_Ref,
+}
+
+// Another marker: its index in Level.markers (-1: none).
+Marker_Ref :: distinct i32
 
 Marker :: struct {
 	index: int, // in Level.markers (scene-tree order)
@@ -78,19 +90,21 @@ Marker :: struct {
 
 Level :: struct {
 	// A 2D level's pixels per metre (its view maps metres back to pixels with it); 0: a 3D level.
-	px_per_m: f32,
-	bodies:   []Body,
-	markers:  []Marker,
-	// Backing storage the slices above point into.
-	strings:  []string,
-	shapes:   []Shape,
-	props:    []Prop,
-	points:   [][3]f32,
+	px_per_m:  f32,
+	bodies:    []Body,
+	markers:   []Marker,
+	// Backing storage the slices above point into, and the allocator load made it with (destroy frees with it).
+	allocator: runtime.Allocator,
+	strings:   []string,
+	shapes:    []Shape,
+	props:     []Prop,
+	points:    [][3]f32,
 }
 
-// Frees the slices load allocated, through the context allocator (so under the one load was given), and zeroes
-// the Level. Its strings point into the file bytes, which the caller owns.
+// Frees the slices load allocated (with the allocator it was given) and zeroes the Level. Its strings point into the
+// file bytes, which the caller owns.
 destroy :: proc(level: ^Level) {
+	context.allocator = level.allocator
 	delete(level.bodies)
 	delete(level.markers)
 	delete(level.strings)
@@ -101,8 +115,8 @@ destroy :: proc(level: ^Level) {
 }
 
 @(private)
-Rd :: struct {
-	r:       wire.Reader,
+Decoder :: struct {
+	reader:  wire.Reader,
 	strings: []string,
 	shapes:  [dynamic]Shape,
 	props:   [dynamic]Prop,
@@ -111,42 +125,40 @@ Rd :: struct {
 }
 
 @(private)
-f32_ :: proc(decoder: ^Rd) -> f32 {
-	return transmute(f32)wire.r_u32(&decoder.r)
+read_vec3 :: proc(decoder: ^Decoder) -> [3]f32 {
+	return {wire.r_f32(&decoder.reader), wire.r_f32(&decoder.reader), wire.r_f32(&decoder.reader)}
 }
 
 @(private)
-v3_ :: proc(decoder: ^Rd) -> [3]f32 {
-	return {f32_(decoder), f32_(decoder), f32_(decoder)}
+read_quat :: proc(decoder: ^Decoder) -> [4]f32 {
+	reader := &decoder.reader
+	return {wire.r_f32(reader), wire.r_f32(reader), wire.r_f32(reader), wire.r_f32(reader)}
 }
 
+// A string by its index in the string table.
 @(private)
-q_ :: proc(decoder: ^Rd) -> [4]f32 {
-	return {f32_(decoder), f32_(decoder), f32_(decoder), f32_(decoder)}
-}
-
-@(private)
-str_ :: proc(decoder: ^Rd) -> string {
-	i := int(wire.r_u32(&decoder.r))
-	if i >= len(decoder.strings) {
+read_string :: proc(decoder: ^Decoder) -> string {
+	index := int(wire.r_u32(&decoder.reader))
+	if index >= len(decoder.strings) {
 		decoder.ok = false
 		return ""
 	}
-	return decoder.strings[i]
+	return decoder.strings[index]
 }
 
-// Points are read into one array; slices are fixed up at the end (it may grow while reading).
+// Where a list of points, shapes or props went in its backing array: slices are fixed up at the end (the arrays may
+// grow while reading).
 @(private)
 Span :: struct {
-	start, n: int,
+	start, count: int,
 }
 
 @(private)
-points_ :: proc(decoder: ^Rd) -> Span {
-	count := int(wire.r_u16(&decoder.r))
+read_points :: proc(decoder: ^Decoder) -> Span {
+	count := int(wire.r_u16(&decoder.reader))
 	span := Span{len(decoder.points), count}
 	for _ in 0 ..< count {
-		append(&decoder.points, v3_(decoder))
+		append(&decoder.points, read_vec3(decoder))
 	}
 	return span
 }
@@ -154,20 +166,20 @@ points_ :: proc(decoder: ^Rd) -> Span {
 // Parses a level file. The strings are views into `data`, which must outlive the Level.
 load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: bool) {
 	context.allocator = allocator
-	decoder := Rd {
-		r  = wire.reader_make(data),
-		ok = true,
+	decoder := Decoder {
+		reader = wire.reader_make(data),
+		ok     = true,
 	}
-	magic := wire.r_bytes(&decoder.r, 4)
-	version := wire.r_u16(&decoder.r)
-	if !decoder.r.ok || string(magic) != MAGIC || version != VERSION do return
-	px_per_m := f32_(&decoder)
-	string_count := int(wire.r_u32(&decoder.r))
+	magic := wire.r_bytes(&decoder.reader, 4)
+	version := wire.r_u16(&decoder.reader)
+	if !decoder.reader.ok || string(magic) != MAGIC || version != VERSION do return
+	px_per_m := wire.r_f32(&decoder.reader)
+	string_count := int(wire.r_u32(&decoder.reader))
 	if string_count > len(data) do return
 	string_table := make([]string, string_count)
 	for i in 0 ..< string_count {
-		count := int(wire.r_u16(&decoder.r))
-		string_table[i] = string(wire.r_bytes(&decoder.r, count))
+		count := int(wire.r_u16(&decoder.reader))
+		string_table[i] = string(wire.r_bytes(&decoder.reader, count))
 	}
 	decoder.strings = string_table
 
@@ -175,112 +187,114 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 	defer delete(shape_pts)
 	body_shapes: [dynamic]Span
 	defer delete(body_shapes)
-	body_count := int(wire.r_u32(&decoder.r))
+	body_count := int(wire.r_u32(&decoder.reader))
 	if body_count > len(data) do body_count = 0
 	bodies := make([]Body, body_count)
 	for &body in bodies {
-		body.name = str_(&decoder)
-		body.pos = v3_(&decoder)
-		body.rot = q_(&decoder)
-		body.friction = f32_(&decoder)
-		body.restitution = f32_(&decoder)
-		body.category = wire.r_u64(&decoder.r)
-		body.material = wire.r_u64(&decoder.r)
-		count := int(wire.r_u16(&decoder.r))
+		body.name = read_string(&decoder)
+		body.pos = read_vec3(&decoder)
+		body.rot = read_quat(&decoder)
+		body.friction = wire.r_f32(&decoder.reader)
+		body.restitution = wire.r_f32(&decoder.reader)
+		body.category = wire.r_u64(&decoder.reader)
+		body.material = wire.r_u64(&decoder.reader)
+		count := int(wire.r_u16(&decoder.reader))
 		append(&body_shapes, Span{len(decoder.shapes), count})
 		for _ in 0 ..< count {
 			shape := Shape {
-				kind = Shape_Kind(wire.r_u8(&decoder.r)),
-				pos  = v3_(&decoder),
-				rot  = q_(&decoder),
+				kind = Shape_Kind(wire.r_u8(&decoder.reader)),
+				pos  = read_vec3(&decoder),
+				rot  = read_quat(&decoder),
 			}
 			span: Span
 			switch shape.kind {
 			case .Box:
-				shape.half = v3_(&decoder)
+				shape.half = read_vec3(&decoder)
 			case .Sphere:
-				shape.radius = f32_(&decoder)
+				shape.radius = wire.r_f32(&decoder.reader)
 			case .Capsule:
-				shape.radius = f32_(&decoder)
-				shape.half_height = f32_(&decoder)
+				shape.radius = wire.r_f32(&decoder.reader)
+				shape.half_height = wire.r_f32(&decoder.reader)
 			case .Hull:
-				span = points_(&decoder)
+				span = read_points(&decoder)
 			case:
 				decoder.ok = false
 			}
 			append(&shape_pts, span)
 			append(&decoder.shapes, shape)
 		}
-		if !decoder.r.ok || !decoder.ok do break
+		if !decoder.reader.ok || !decoder.ok do break
 	}
 
 	marker_props: [dynamic]Span
 	defer delete(marker_props)
 	marker_path: [dynamic]Span
 	defer delete(marker_path)
-	marker_count := int(wire.r_u32(&decoder.r))
+	marker_count := int(wire.r_u32(&decoder.reader))
 	if marker_count > len(data) do marker_count = 0
 	markers := make([]Marker, marker_count)
 	for &marker, i in markers {
 		marker.index = i
-		marker.kind = str_(&decoder)
-		marker.name = str_(&decoder)
-		marker.pos = v3_(&decoder)
-		marker.rot = q_(&decoder)
-		marker.scale = v3_(&decoder)
-		prop_count := int(wire.r_u16(&decoder.r))
+		marker.kind = read_string(&decoder)
+		marker.name = read_string(&decoder)
+		marker.pos = read_vec3(&decoder)
+		marker.rot = read_quat(&decoder)
+		marker.scale = read_vec3(&decoder)
+		prop_count := int(wire.r_u16(&decoder.reader))
 		append(&marker_props, Span{len(decoder.props), prop_count})
 		for _ in 0 ..< prop_count {
 			property := Prop {
-				key  = str_(&decoder),
-				type = Prop_Type(wire.r_u8(&decoder.r)),
+				key = read_string(&decoder),
 			}
-			switch property.type {
+			switch Prop_Type(wire.r_u8(&decoder.reader)) {
 			case .Bool:
-				property.b = wire.r_u8(&decoder.r) != 0
-			case .Int, .Ref:
-				property.i = i32(wire.r_u32(&decoder.r))
+				property.value = wire.r_u8(&decoder.reader) != 0
+			case .Int:
+				property.value = i32(wire.r_u32(&decoder.reader))
+			case .Ref:
+				property.value = Marker_Ref(wire.r_u32(&decoder.reader))
 			case .Float:
-				property.f = f32_(&decoder)
+				property.value = wire.r_f32(&decoder.reader)
 			case .Vec3:
-				property.v = v3_(&decoder)
+				property.value = read_vec3(&decoder)
 			case .String:
-				property.s = str_(&decoder)
+				property.value = read_string(&decoder)
 			case:
 				decoder.ok = false
 			}
 			append(&decoder.props, property)
 		}
-		append(&marker_path, points_(&decoder))
-		if !decoder.r.ok || !decoder.ok do break
+		append(&marker_path, read_points(&decoder))
+		if !decoder.reader.ok || !decoder.ok do break
 	}
 
 	level = {
-		px_per_m = px_per_m,
-		bodies   = bodies,
-		markers  = markers,
-		strings  = string_table,
-		shapes   = decoder.shapes[:],
-		props    = decoder.props[:],
-		points   = decoder.points[:],
+		allocator = allocator,
+		px_per_m  = px_per_m,
+		bodies    = bodies,
+		markers   = markers,
+		strings   = string_table,
+		shapes    = decoder.shapes[:],
+		props     = decoder.props[:],
+		points    = decoder.points[:],
 	}
-	if !decoder.r.ok || !decoder.ok || decoder.r.pos != len(data) {
+	if !decoder.reader.ok || !decoder.ok || decoder.reader.pos != len(data) {
 		destroy(&level)
 		return {}, false
 	}
 	for &shape, i in level.shapes {
 		span := shape_pts[i]
-		shape.points = level.points[span.start:][:span.n]
+		shape.points = level.points[span.start:][:span.count]
 	}
 	for &body, i in level.bodies {
 		span := body_shapes[i]
-		body.shapes = level.shapes[span.start:][:span.n]
+		body.shapes = level.shapes[span.start:][:span.count]
 	}
 	for &marker, i in level.markers {
 		span := marker_props[i]
-		marker.props = level.props[span.start:][:span.n]
+		marker.props = level.props[span.start:][:span.count]
 		path_span := marker_path[i]
-		marker.path = level.points[path_span.start:][:path_span.n]
+		marker.path = level.points[path_span.start:][:path_span.count]
 	}
 	return level, true
 }
@@ -294,7 +308,8 @@ find_named :: proc(level: ^Level, name: string) -> ^Marker {
 	return nil
 }
 
-// The marker's property with this key (nil: none); the typed prop_* getters below read through it.
+// The marker's property with this key (nil: none); the typed prop_* getters read through it.
+@(private)
 prop :: proc(marker: ^Marker, key: string) -> ^Prop {
 	for &property in marker.props {
 		if property.key == key do return &property
@@ -307,53 +322,49 @@ prop :: proc(marker: ^Marker, key: string) -> ^Prop {
 prop_f32 :: proc(marker: ^Marker, key: string, default: f32 = 0) -> f32 {
 	property := prop(marker, key)
 	if property == nil do return default
-	#partial switch property.type {
-	case .Float:
-		return property.f
-	case .Int:
-		return f32(property.i)
+	#partial switch value in property.value {
+	case f32:
+		return value
+	case i32:
+		return f32(value)
 	}
 	return default
 }
 
+// The value of a property of type T, or `default` when the marker has none of that key and type.
+@(private)
+prop_value :: proc(marker: ^Marker, key: string, default: $T) -> T {
+	property := prop(marker, key)
+	if property == nil do return default
+	return property.value.(T) or_else default
+}
+
 // An Int property, or `default` when it is missing or of another type.
 prop_int :: proc(marker: ^Marker, key: string, default: int = 0) -> int {
-	property := prop(marker, key)
-	if property == nil || property.type != .Int do return default
-	return int(property.i)
+	return int(prop_value(marker, key, i32(default)))
 }
 
 // A Bool property, or `default` when it is missing or of another type.
 prop_bool :: proc(marker: ^Marker, key: string, default := false) -> bool {
-	property := prop(marker, key)
-	if property == nil || property.type != .Bool do return default
-	return property.b
+	return prop_value(marker, key, default)
 }
 
 // A Vector3 property, or `default` when it is missing or of another type.
 prop_vec3 :: proc(marker: ^Marker, key: string, default := [3]f32{}) -> [3]f32 {
-	property := prop(marker, key)
-	if property == nil || property.type != .Vec3 do return default
-	return property.v
+	return prop_value(marker, key, default)
 }
 
 // A Vector2 property: written as a Vec3 with z = 0, raw (not converted to metres).
 prop_vec2 :: proc(marker: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
-	property := prop(marker, key)
-	if property == nil || property.type != .Vec3 do return default
-	return property.v.xy
+	return prop_value(marker, key, [3]f32{default.x, default.y, 0}).xy
 }
 
 // A String property (pointing into the file bytes), or `default` when it is missing or of another type.
 prop_string :: proc(marker: ^Marker, key: string, default := "") -> string {
-	property := prop(marker, key)
-	if property == nil || property.type != .String do return default
-	return property.s
+	return prop_value(marker, key, default)
 }
 
 // A NodePath property pointing at another marker: its index, or -1.
 prop_ref :: proc(marker: ^Marker, key: string) -> int {
-	property := prop(marker, key)
-	if property == nil || property.type != .Ref do return -1
-	return int(property.i)
+	return int(prop_value(marker, key, Marker_Ref(-1)))
 }

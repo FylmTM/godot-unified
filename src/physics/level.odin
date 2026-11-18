@@ -7,19 +7,11 @@ import box3d "box3d:bindings"
 import "unified:dmath"
 import "unified:level"
 
-// Creates every static body of the level, in file order, and returns how many (the World's, when made before
-// `extra`: call it first in world_create). Shapes without a
-// category in the file get `default_category`. `problem` names the first level shape Box3D refused (a hull it
-// can't build: under 4 points, or past its 128 edges), "" when every shape was built: a refused shape is skipped,
-// a hole in the level's collision the game must not run with (the games assert on it).
-create_static :: proc(
-	world: ^World,
-	level_data: ^level.Level,
-	default_category: u64 = 1,
-) -> (
-	count: int,
-	problem: string,
-) {
+// Creates every static body of the level, in file order (the World's, when made before `extra`: call it first in
+// world_create). Shapes without a category in the file get `default_category`. `problem` names the first level shape
+// Box3D refused (a hull it can't build: under 4 points, or past its edge limit), "" when every shape was built: a
+// refused shape is skipped, a hole in the level's collision the game must not run with (the games assert on it).
+create_static :: proc(world: ^World, level_data: ^level.Level, default_category: u64 = 1) -> (problem: string) {
 	for &level_body, body_index in level_data.bodies {
 		body_def := transmute(Body_Def)box3d.DefaultBodyDef()
 		body_def.position = level_body.pos
@@ -44,7 +36,7 @@ create_static :: proc(
 			}
 		}
 	}
-	return len(level_data.bodies), problem
+	return problem
 }
 
 // Adds one level shape to a body (any type: games use it for their own level bodies too); false when Box3D refused

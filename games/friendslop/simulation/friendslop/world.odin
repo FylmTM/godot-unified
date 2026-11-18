@@ -233,7 +233,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 		hit_event_threshold = 2,
 		workers             = PHYSICS_WORKERS,
 	})
-	_, problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
+	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 1.5 - 2.25, 1.2, 0}
 	// Triggers first: platforms refer to them by marker index.
