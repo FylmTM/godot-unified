@@ -1,4 +1,4 @@
-package view
+package godot
 
 import "core:sync"
 
@@ -73,11 +73,6 @@ queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 	item = queue.items[head % u32(N)]
 	sync.atomic_store_explicit(&queue.head, head + 1, .Release)
 	return item, true
-}
-
-// The number of items waiting. Read from either thread it is a snapshot that may already be stale.
-queue_len :: proc(queue: ^Queue($T, $N)) -> int {
-	return int(sync.atomic_load(&queue.tail) - sync.atomic_load(&queue.head))
 }
 
 // ---- interpolation factor

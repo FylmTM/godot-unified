@@ -1,8 +1,9 @@
 // Views (src/godot/SPEC.md): scene views spawned per spawn key under the session's view_root from the scene the view
-// index maps their kind to, interpolated and smoothed with unified:view; and MultiMesh views whose buffers are
+// index maps their kind to, interpolated and smoothed (track.odin); and MultiMesh views whose buffers are
 // written natively. A scene view's scene holds a UnifiedView marker as a direct child of its root; a MultiMesh view
 // is a MultiMeshInstance3D / 2D holding a UnifiedMultiView marker. The root's class picks how it is shown: a
 // Node3D gets position and quaternion, a Node2D position and rotation, anything else (a Control HUD) only data.
+#+private
 package godot
 
 import "base:runtime"
@@ -13,12 +14,10 @@ import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
-import "unified:view"
 
 LINGER_S :: 0.25 // UnifiedView.linger_s's default: a despawned view stays this long (exit animation, or a rollback)
 INDEX_PATH :: "res://unified_index.tres" // the view index `uni bake` writes (metadata `views`: kind -> scene path)
 
-@(private)
 Root_Mode :: enum u8 {
 	Node3D,
 	Node2D,
@@ -26,13 +25,11 @@ Root_Mode :: enum u8 {
 }
 
 // A scene view is identified by its kind and key (a key is unique within its kind).
-@(private)
 View_Id :: struct {
 	kind: u8,
-	key:  view.Key,
+	key:  u64,
 }
 
-@(private)
 Scene_View :: struct {
 	node:       gd.Node, // the scene's root
 	mode:       Root_Mode,
@@ -46,7 +43,7 @@ Scene_View :: struct {
 	spawn_tick: u32, // the tick it first appeared at
 	verified:   bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
 	gone:       bool, // _sim_despawned was called (and no _sim_revived since)
-	track:      view.Track,
+	track:      Track,
 	has_update: bool,
 	has_event:  bool,
 	callbacks:  [View_Callback]bool, // the root's script has them
@@ -54,14 +51,12 @@ Scene_View :: struct {
 }
 
 // The root script's lifecycle callbacks.
-@(private)
 View_Callback :: enum u8 {
 	Despawned, // its key is gone: it lingers (linger_s; the host no longer sets its pose), then is freed
 	Revived, // a rollback brought it back while it lingered
 	Cancelled, // a rollback removed it before its spawn tick was verified: freed at once, never despawned
 }
 
-@(private)
 VIEW_CALLBACK_NAMES := [View_Callback]string {
 	.Despawned = "_sim_despawned",
 	.Revived   = "_sim_revived",
@@ -69,7 +64,6 @@ VIEW_CALLBACK_NAMES := [View_Callback]string {
 }
 
 // The names the host passes every frame or event, interned once at registration (gd.sn looks a name up by its text).
-@(private)
 NAMES: struct {
 	sim_update: ^gd.StringName, // a scene view's _sim_update
 	view_event: ^gd.StringName, // a scene view's _sim_event
@@ -77,18 +71,8 @@ NAMES: struct {
 	callbacks:  [View_Callback]^gd.StringName,
 }
 
-// One field of a view's data type, set as the view's property of the same name (converted like an event's fields:
-// events.odin field_variant).
-@(private)
-Data_Field :: struct {
-	name:   ^gd.StringName,
-	text:   string,
-	type:   ^runtime.Type_Info,
-	offset: int,
-}
 
 // A MultiMesh view: a MultiMeshInstance3D / 2D and its UnifiedMultiView marker.
-@(private)
 Multi_View :: struct {
 	marker:     gd.Node,
 	marker_id:  u64,
@@ -111,15 +95,13 @@ Multi_View :: struct {
 	tracks:     map[u64]Multi_Track, // smooth: by key
 }
 
-@(private)
 Multi_Track :: struct {
-	track: view.Track,
+	track: Track,
 	seen:  int, // the fresh frame that last had this key
 }
 
-@(private)
 V: struct {
-	set:         view.View_Set(View_Id, ^Scene_View),
+	set:         View_Set(View_Id, ^Scene_View),
 	scenes:      map[u8]gd.Ref(gd.PackedScene),
 	missing:     map[u8]bool, // kinds whose scene failed to load (reported once)
 	index:       map[string]string, // the view index: kind name -> scene path
@@ -128,14 +110,13 @@ V: struct {
 	frame:       int,
 	fresh_count: int,
 	clock:       time.Tick,
-	fields:      map[typeid][]Data_Field, // per data type, built on first use
+	fields:      map[typeid][]Sim_Field, // per view data type, built on first use
 	reported:    map[string]bool, // warnings and errors given once per process
 	stats:       Sync_Stats,
 }
 
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
 // the view-sync benchmark, tests/godot_views/view_bench.gd; a game's own performance readout).
-@(private)
 Sync_Stats :: struct {
 	frames:       int,
 	fresh:        int, // frames that showed a new tick
@@ -164,12 +145,10 @@ Unified_Multi_View_Node :: struct {
 	smooth:    bool,
 }
 
-@(private)
 unified_view_class, unified_multi_view_class: gd.Class
 
 // Registers every class the extension gives Godot (UnifiedSession, the event and command classes, UnifiedView,
 // UnifiedMultiView) at SCENE initialization.
-@(private)
 register_classes :: proc() {
 	if len(api.problems) > 0 {
 		for problem in api.problems {
@@ -251,17 +230,7 @@ register_classes :: proc() {
 	)
 }
 
-// Unregisters what register_classes registered, in reverse order, when the extension unloads.
-@(private)
-unregister_classes :: proc() {
-	gd.unregister_class(&unified_multi_view_class)
-	gd.unregister_class(&unified_view_class)
-	unregister_data_classes()
-	unregister_sim_classes()
-	gd.unregister_class(&session_class)
-}
 
-@(private)
 report_once :: proc(key, msg: string, error := true) {
 	if V.reported[key] do return
 	V.reported[strings.clone(key)] = true
@@ -274,7 +243,6 @@ report_once :: proc(key, msg: string, error := true) {
 
 // ---- the view index
 
-@(private)
 index_read :: proc() {
 	if V.index_read do return
 	V.index_read = true
@@ -332,7 +300,6 @@ views_check_index :: proc() {
 
 // ---- scene views
 
-@(private)
 scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 	if packed_scene, ok := V.scenes[kind]; ok do return packed_scene, true
 	if V.missing[kind] do return {}, false
@@ -354,7 +321,6 @@ scene_for :: proc(kind: u8) -> (gd.PackedScene, bool) {
 }
 
 // The scene root's UnifiedView marker: its first direct child of that class.
-@(private)
 find_marker :: proc(root: gd.Node) -> gd.Node {
 	for i in 0 ..< gd.Node_get_child_count(root, false) {
 		child := gd.Node_get_child(root, i, false)
@@ -363,7 +329,6 @@ find_marker :: proc(root: gd.Node) -> gd.Node {
 	return {}
 }
 
-@(private)
 spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene_View {
 	packed_scene, ok := scene_for(item.kind)
 	if !ok do return nil
@@ -372,9 +337,9 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	scene_view := new(Scene_View)
 	scene_view.node = node
 	switch {
-	case gd.object_cast(gd.Node3D, node, "Node3D").ptr != nil:
+	case gd.object_cast(gd.Node3D, node).ptr != nil:
 		scene_view.mode = .Node3D
-	case gd.object_cast(gd.Node2D, node, "Node2D").ptr != nil:
+	case gd.object_cast(gd.Node2D, node).ptr != nil:
 		scene_view.mode = .Node2D
 	case:
 		scene_view.mode = .Other
@@ -418,14 +383,14 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	if item.data_type != nil {
 		fields := data_fields(item.data_type)
 		for &field in fields {
-			property := gd.Object_get(node, field.name)
+			property := gd.Object_get(node, field.name_sn)
 			if gd.variant_type(&property) == .NIL {
 				report_once(
-					fmt.tprintf("prop:%s:%s", kind, field.text),
+					fmt.tprintf("prop:%s:%s", kind, field.name),
 					fmt.tprintf(
 						"unified: scene view %q has no property %q for its data (%v)",
 						kind,
-						field.text,
+						field.name,
 						item.data_type,
 					),
 				)
@@ -439,13 +404,12 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 
 // 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z. Other roots: nothing. The pose
 // is in view units (to_view).
-@(private)
-set_pose :: proc(scene_view: ^Scene_View, pose: view.Pose) {
+set_pose :: proc(scene_view: ^Scene_View, pose: Pose) {
 	switch scene_view.mode {
 	case .Node2D:
 		node2d := gd.cast_to(gd.Node2D, scene_view.node)
 		gd.Node2D_set_position(node2d, {pose.pos.x, pose.pos.y})
-		gd.Node2D_set_rotation(node2d, view.angle2d_of(pose.rot))
+		gd.Node2D_set_rotation(node2d, angle2d_of(pose.rot))
 	case .Node3D:
 		node3d := gd.cast_to(gd.Node3D, scene_view.node)
 		gd.Node3D_set_position(node3d, {pose.pos.x, pose.pos.y, pose.pos.z})
@@ -454,34 +418,22 @@ set_pose :: proc(scene_view: ^Scene_View, pose: view.Pose) {
 	}
 }
 
-// The fields of a view data type, built once (fields named `_...` are padding).
-@(private)
-data_fields :: proc(data_type: typeid) -> []Data_Field {
+// The fields of a view data type, built once (each set as the view's property of the same name, converted like an
+// event's: events.odin field_variant).
+data_fields :: proc(data_type: typeid) -> []Sim_Field {
 	if fields, ok := V.fields[data_type]; ok do return fields
-	out := make([dynamic]Data_Field)
-	type := runtime.type_info_base(type_info_of(data_type))
-	struct_info, is_struct := type.variant.(runtime.Type_Info_Struct)
-	if !is_struct {
-		gd.print_error(fmt.tprintf("unified: view data %v must be a struct", data_type))
+	fields: []Sim_Field
+	if _, is_struct := runtime.type_info_base(type_info_of(data_type)).variant.(runtime.Type_Info_Struct); is_struct {
+		fields = struct_sim_fields(type_info_of(data_type))
 	} else {
-		for i in 0 ..< int(struct_info.field_count) {
-			name := struct_info.names[i]
-			if strings.has_prefix(name, "_") do continue // padding
-			append(&out, Data_Field {
-				name   = gd.sn(name),
-				text   = name,
-				type   = struct_info.types[i],
-				offset = int(struct_info.offsets[i]),
-			})
-		}
+		gd.print_error(fmt.tprintf("unified: view data %v must be a struct", data_type))
 	}
-	V.fields[data_type] = out[:]
-	return out[:]
+	V.fields[data_type] = fields
+	return fields
 }
 
 // Sets every data field whose bytes changed (all of them on a fresh view) as a property.
-@(private)
-set_data :: proc(scene_view: ^Scene_View, fields: []Data_Field, data: []u8, fresh: bool) {
+set_data :: proc(scene_view: ^Scene_View, fields: []Sim_Field, data: []u8, fresh: bool) {
 	fresh := fresh
 	if len(scene_view.data) != len(data) {
 		delete(scene_view.data)
@@ -491,19 +443,17 @@ set_data :: proc(scene_view: ^Scene_View, fields: []Data_Field, data: []u8, fres
 	for &field in fields {
 		bytes := data[field.offset:][:field.type.size]
 		if !fresh && string(bytes) == string(scene_view.data[field.offset:][:len(bytes)]) do continue
-		set_prop(scene_view.node, field.name, field_variant(field.type, bytes, .Sim))
+		set_prop(scene_view.node, field.name_sn, field_variant(field.type, bytes, .Sim))
 	}
 	copy(scene_view.data, data)
 }
 
-@(private)
 set_prop :: proc(object: gd.Object, name: ^gd.StringName, value: gd.Variant) {
 	value := value
 	gd.Object_set(object, name, value)
 	gd.variant_destroy(&value)
 }
 
-@(private)
 free_view :: proc(scene_view: ^Scene_View) {
 	if scene_view == nil do return
 	if alive(scene_view.id) do gd.Node_queue_free(scene_view.node)
@@ -512,7 +462,6 @@ free_view :: proc(scene_view: ^Scene_View) {
 }
 
 // Calls one of the root script's lifecycle callbacks (_sim_despawned, _sim_revived, _sim_cancelled), if it has it.
-@(private)
 view_callback :: proc(scene_view: ^Scene_View, callback: View_Callback) {
 	if scene_view == nil || !scene_view.callbacks[callback] || !alive(scene_view.id) do return
 	result := gd.call_script(scene_view.node, NAMES.callbacks[callback])
@@ -520,7 +469,6 @@ view_callback :: proc(scene_view: ^Scene_View, callback: View_Callback) {
 }
 
 // Keeps the marker's entity and player current (they may change after the spawn).
-@(private)
 marker_update :: proc(scene_view: ^Scene_View) {
 	if !alive(scene_view.marker_id) do return
 	marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
@@ -529,10 +477,9 @@ marker_update :: proc(scene_view: ^Scene_View) {
 
 // Frees every scene view and MultiMesh binding and forgets the loaded scenes and the view index (main thread),
 // when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
-@(private)
 views_clear :: proc() {
 	for _, entry in V.set.entries do free_view(entry.view)
-	view.set_destroy(&V.set)
+	set_destroy(&V.set)
 	V.set = {}
 	for &multi in V.multis do multi_drop(&multi)
 	delete(V.multis)
@@ -555,13 +502,12 @@ views_clear :: proc() {
 // View space is view_root's local space; event and command positions are in it too, so a script that places an
 // effect at an event's position under another node, or sends the mouse's world position, is right only while
 // view_root sits at the world origin: warned once when it doesn't.
-@(private)
 view_space_check :: proc(root: gd.Node) {
 	at_origin := true
-	if node2d := gd.object_cast(gd.Node2D, root, "Node2D"); node2d.ptr != nil {
+	if node2d := gd.object_cast(gd.Node2D, root); node2d.ptr != nil {
 		transform := gd.CanvasItem_get_global_transform(gd.cast_to(gd.CanvasItem, root))
 		at_origin = transform == {x = {1, 0}, y = {0, 1}}
-	} else if node3d := gd.object_cast(gd.Node3D, root, "Node3D"); node3d.ptr != nil {
+	} else if node3d := gd.object_cast(gd.Node3D, root); node3d.ptr != nil {
 		transform := gd.Node3D_get_global_transform(node3d)
 		at_origin = transform == {basis = {x = {1, 0, 0}, y = {0, 1, 0}, z = {0, 0, 1}}}
 	}
@@ -575,7 +521,6 @@ view_space_check :: proc(root: gd.Node) {
 }
 
 // The game set or cleared view_root: drop every scene view (they lived under the old root).
-@(private)
 views_root_changed :: proc() {
 	for _, entry in V.set.entries do free_view(entry.view)
 	clear(&V.set.entries)
@@ -583,7 +528,6 @@ views_root_changed :: proc() {
 
 // Brings the scene views under `root` and the MultiMesh instances up to date with the newest frame (main thread,
 // every Godot frame): spawns, despawns, data and interpolated poses. A nil root drops the scene views.
-@(private)
 views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	V.frame += 1
 	started := time.tick_now()
@@ -601,7 +545,6 @@ views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 	V.stats.multi_upload += time.tick_since(built)
 }
 
-@(private)
 scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	if V.clock == {} do V.clock = time.tick_now()
 	now_s := time.duration_seconds(time.tick_since(V.clock))
@@ -616,12 +559,12 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				false,
 			)
 		}
-		view.set_begin(&V.set)
+		set_begin(&V.set)
 		for &item in frame.views[:frame.n_views] {
 			id := View_Id{item.kind, item.key}
-			old := view.set_get(&V.set, id)
+			old := set_get(&V.set, id)
 			revived := old != nil && old.phase == .Lingering
-			entry, spawned := view.set_see(&V.set, id)
+			entry, spawned := set_see(&V.set, id)
 			if spawned {
 				entry.view = spawn_view(root, &item, frame)
 				if entry.view != nil do entry.linger_s = entry.view.linger_s
@@ -646,14 +589,14 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				)
 			}
 			if scene_view.mode == .Other do continue
-			view.track_push_prev(
+			track_push_prev(
 				&scene_view.track,
 				frame.tick,
 				{item.prev_pos, item.prev_rot},
 				item.has_prev,
 				api.smoothing,
 			)
-			view.track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, api.smoothing)
+			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, api.smoothing)
 		}
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
 		cancelled := make([dynamic]View_Id, context.temp_allocator)
@@ -663,13 +606,13 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			}
 		}
 		for id in cancelled {
-			scene_view, _ := view.set_remove(&V.set, id)
+			scene_view, _ := set_remove(&V.set, id)
 			view_callback(scene_view, .Cancelled)
 			free_view(scene_view)
 		}
-		view.set_end(&V.set, now_s)
+		set_end(&V.set, now_s)
 		for id in V.set.despawned {
-			if entry := view.set_get(&V.set, id); entry != nil && entry.view != nil {
+			if entry := set_get(&V.set, id); entry != nil && entry.view != nil {
 				entry.view.gone = true
 				view_callback(entry.view, .Despawned)
 			}
@@ -683,17 +626,17 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		scene_view := entry.view
 		if scene_view == nil || scene_view.mode == .Other || !alive(scene_view.id) do continue
 		if entry.phase == .Lingering do continue // unpinned: an exit animation may move it
-		pose := view.track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing) // sim units
+		pose := track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing) // sim units
 		pose.pos = to_view(pose.pos) // the node's position and _sim_update's
 		set_pose(scene_view, pose)
 		if !scene_view.has_update do continue
 		result: gd.Variant
 		if scene_view.mode == .Node2D {
 			pos := gd.Vector2{pose.pos.x, pose.pos.y}
-			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(view.angle2d_of(pose.rot)), f64(alpha))
+			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(angle2d_of(pose.rot)), f64(alpha))
 		} else {
 			pos := gd.Vector3{pose.pos.x, pose.pos.y, pose.pos.z}
-			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(view.yaw_of(pose.rot)), f64(alpha))
+			result = gd.call_script(scene_view.node, NAMES.sim_update, pos, f64(yaw_of(pose.rot)), f64(alpha))
 		}
 		gd.variant_destroy(&result)
 	}
@@ -710,7 +653,7 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 		switch event_route {
 		case .Subject:
 		case .View:
-			if entry := view.set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state)
+			if entry := set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state)
 			return
 		case .No_View:
 			return
@@ -719,7 +662,7 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 	if layout.subject_is_handle && entity != 0 {
 		keyed := false // a view has the handle's key (whether or not it takes events): the event goes to those only
 		for kind in 0 ..< len(api.view_names) {
-			entry := view.set_get(&V.set, View_Id{u8(kind), view.Key(entity)})
+			entry := set_get(&V.set, View_Id{u8(kind), entity})
 			if entry == nil || entry.view == nil do continue
 			keyed = true
 			call_sim_event(entry.view, event, state)
@@ -736,7 +679,6 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 }
 
 // Calls the view root script's _sim_event, if it has one.
-@(private)
 call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64) {
 	if scene_view == nil || !scene_view.has_event || !alive(scene_view.id) do return
 	result := gd.call_script(scene_view.node, NAMES.view_event, event, state)
@@ -746,7 +688,6 @@ call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64) {
 // ---- MultiMesh views
 
 // A UnifiedMultiView entered the tree: its parent is the MultiMeshInstance it fills.
-@(private)
 multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 	if is_editor() do return
 	marker_id := gdi.object_get_instance_id(marker.ptr)
@@ -754,10 +695,9 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 	parent := gd.Node_get_parent(marker)
 	instance: gd.Node
 	is_2d := false
-	if instance3d := gd.object_cast(gd.MultiMeshInstance3D, parent, "MultiMeshInstance3D"); instance3d.ptr != nil {
+	if instance3d := gd.object_cast(gd.MultiMeshInstance3D, parent); instance3d.ptr != nil {
 		instance = instance3d
-	} else if instance2d := gd.object_cast(gd.MultiMeshInstance2D, parent, "MultiMeshInstance2D");
-	   instance2d.ptr != nil {
+	} else if instance2d := gd.object_cast(gd.MultiMeshInstance2D, parent); instance2d.ptr != nil {
 		instance, is_2d = instance2d, true
 	} else {
 		report_once(
@@ -791,7 +731,6 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 	})
 }
 
-@(private)
 multi_unregister :: proc(marker_id: u64) {
 	for i := len(V.multis) - 1; i >= 0; i -= 1 {
 		if V.multis[i].marker_id != marker_id do continue
@@ -800,7 +739,6 @@ multi_unregister :: proc(marker_id: u64) {
 	}
 }
 
-@(private)
 multi_drop :: proc(multi: ^Multi_View) {
 	if multi.mm.ptr != nil do gd.unref(multi.mm)
 	if multi.cap > 0 do gd.PackedFloat32Array_destroy(&multi.buf)
@@ -809,7 +747,6 @@ multi_drop :: proc(multi: ^Multi_View) {
 }
 
 // The view's MultiMesh, taken when it first has one; the buffer layout follows its own format.
-@(private)
 multi_mesh :: proc(multi: ^Multi_View) -> bool {
 	if multi.mm.ptr != nil do return true
 	if multi.is_2d {
@@ -843,7 +780,6 @@ multi_mesh :: proc(multi: ^Multi_View) -> bool {
 
 // One pass over the frame's MultiMesh items: counted per kind, then each written into the buffer of every view of
 // its kind (usually one).
-@(private)
 multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	if fresh do V.fresh_count += 1
 	counts: [256]int
@@ -876,8 +812,8 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		pos := item.pos
 		rot := item.rot
 		if item.has_prev {
-			pos = view.lerp3(item.prev_pos, item.pos, alpha)
-			rot = view.nlerp(item.prev_rot, item.rot, alpha) // the shorter arc
+			pos = lerp3(item.prev_pos, item.pos, alpha)
+			rot = nlerp(item.prev_rot, item.rot, alpha) // the shorter arc
 		}
 		scale := item.scale == {} ? [3]f32{1, 1, 1} : item.scale
 		for ; view_index >= 0; view_index = next[view_index] {
@@ -924,7 +860,6 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 }
 
 // Hands each MultiMesh view's buffer and bounds to Godot and forgets the smooth keys the frame no longer has.
-@(private)
 multi_upload :: proc(fresh: bool) {
 	for &multi in V.multis {
 		if multi.kind < 0 || !alive(multi.id) || multi.cap == 0 do continue
@@ -946,7 +881,6 @@ multi_upload :: proc(fresh: bool) {
 // Bounds holding every instance written this frame: their origins, grown by the mesh's farthest point from its own
 // origin times the largest scale factor (a rotation can turn it any way). Looser than the exact union, never
 // smaller; Godot culls the whole MultiMesh by it.
-@(private)
 multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
 	radius: f32
 	if mesh := gd.MultiMesh_get_mesh(multi.mm); mesh.ptr != nil {
@@ -964,7 +898,6 @@ multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
 }
 
 // A unit quaternion's rotation matrix, by rows.
-@(private)
 quat_basis :: proc(q: [4]f32) -> (basis: [3][3]f32) {
 	x, y, z, w := q.x, q.y, q.z, q.w
 	basis[0] = {1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}
@@ -974,7 +907,6 @@ quat_basis :: proc(q: [4]f32) -> (basis: [3][3]f32) {
 }
 
 // A smooth view's instance: its own Track by key, so a rollback correction glides like a scene view's.
-@(private)
 multi_smooth :: proc(
 	multi: ^Multi_View,
 	item: ^Multi_Out,
@@ -993,9 +925,9 @@ multi_smooth :: proc(
 	}
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
-		view.track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, api.smoothing)
-		view.track_push(&entry.track, tick, {item.pos, item.rot}, api.smoothing)
+		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, api.smoothing)
+		track_push(&entry.track, tick, {item.pos, item.rot}, api.smoothing)
 	}
-	pose := view.track_sample(&entry.track, tick, alpha, dt, api.smoothing)
+	pose := track_sample(&entry.track, tick, alpha, dt, api.smoothing)
 	return pose.pos, pose.rot
 }

@@ -20,7 +20,6 @@ package tests
 @(require) import "physics"
 @(require) import "scenarios"
 @(require) import "sim"
-@(require) import "view"
 @(require) import "wire"
 
 @(require) import drift_tests "../games/drift/simulation/tests"

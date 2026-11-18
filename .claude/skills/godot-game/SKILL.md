@@ -1,6 +1,6 @@
 ---
 name: godot-game
-description: Building, running and checking a Godot game under games/<game> (survivor, friendslop, drift, minimal_3d) - which step of the godot test suite proves what, the order to run them in, baking a level after editing it, and the windowed checks that need a display. Use after changing a game's GDScript, scenes, levels, extension or view contract, or src/godot, src/view or src/gdext, and when asked to run or look at a game.
+description: Building, running and checking a Godot game under games/<game> (survivor, friendslop, drift, minimal_3d) - which step of the godot test suite proves what, the order to run them in, baking a level after editing it, and the windowed checks that need a display. Use after changing a game's GDScript, scenes, levels, extension or view contract, or src/godot or src/gdext, and when asked to run or look at a game.
 ---
 
 # Working on a Godot game

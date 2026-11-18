@@ -11,7 +11,6 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:sim"
-import "unified:view"
 
 import "../../toy"
 
@@ -141,7 +140,7 @@ bench_frame :: proc(f: ^Frame) {
 			key  = u64(100 + i),
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
-			rot  = view.quat_yaw(angle),
+			rot  = godot.quat_yaw(angle),
 		})
 	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
@@ -151,7 +150,7 @@ bench_frame :: proc(f: ^Frame) {
 			key    = u64(i + 1),
 			kind   = .Multi3D,
 			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
-			rot    = view.quat_yaw(phase),
+			rot    = godot.quat_yaw(phase),
 			custom = {phase, 0, 0, 0},
 		}) or_break
 	}
@@ -173,8 +172,8 @@ fill_frame :: proc(f: ^Frame) {
 		bench_frame(f)
 		return
 	}
-	q2 := view.quat_angle2d(ANGLE_2D)
-	q3 := view.quat_yaw(YAW_3D)
+	q2 := godot.quat_angle2d(ANGLE_2D)
+	q3 := godot.quat_yaw(YAW_3D)
 	godot.push_view(f, {
 		key    = 1,
 		kind   = .Typed2D,
@@ -235,7 +234,7 @@ fill_frame :: proc(f: ^Frame) {
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha
-	angle := view.quat_angle2d(0.25)
+	angle := godot.quat_angle2d(0.25)
 	godot.push_multi_view(f, {
 		key    = 1,
 		kind   = .Multi2D,
@@ -251,7 +250,7 @@ fill_frame :: proc(f: ^Frame) {
 		key   = 2,
 		kind  = .Multi3D,
 		pos   = POS_3D / VIEW_SCALE,
-		rot   = view.qmul(q3, tumble),
+		rot   = godot.qmul(q3, tumble),
 		scale = {1, 2, 1},
 		color = {0, 1, 0, 1},
 	})

@@ -2,23 +2,21 @@
 // level): UnifiedSession, UnifiedView, UnifiedMultiView, UnifiedEvent, UnifiedCommand, the Unified singleton and the
 // game's event, command, data, constants and enum classes (sim_classes.odin, data.odin), so the editor's help and
 // autocompletion say what each one does.
+#+private
 package godot
 
 import "core:fmt"
 import "core:strings"
 import gd "unified:gdext"
 
-@(private)
 Doc_Method :: struct {
 	name, ret, params, text: string, // params: "name:Type, name:Type"
 }
 
-@(private)
 Doc_Member :: struct {
 	name, type, text: string,
 }
 
-@(private)
 Doc_Class :: struct {
 	name, inherits, brief, text: string,
 	methods:                     []Doc_Method,
@@ -28,7 +26,6 @@ Doc_Class :: struct {
 	constants_enum:              string, // the enum the constants belong to ("": none)
 }
 
-@(private)
 LIBRARY_DOCS := []Doc_Class {
 	{
 		name           = "UnifiedSession",
@@ -238,7 +235,6 @@ LIBRARY_DOCS := []Doc_Class {
 	},
 }
 
-@(private)
 doc_params :: proc(builder: ^strings.Builder, params: string) {
 	if params == "" do return
 	for param, i in strings.split(params, ", ", context.temp_allocator) {
@@ -253,7 +249,6 @@ doc_params :: proc(builder: ^strings.Builder, params: string) {
 	}
 }
 
-@(private)
 doc_xml :: proc(class: Doc_Class) -> string {
 	builder := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(
@@ -314,7 +309,6 @@ doc_xml :: proc(class: Doc_Class) -> string {
 }
 
 // The Godot type name of a Variant type, for a member's docs.
-@(private)
 doc_type :: proc(kind: Sim_Field) -> string {
 	#partial switch kind.kind {
 	case .INT:
@@ -344,7 +338,6 @@ doc_type :: proc(kind: Sim_Field) -> string {
 }
 
 // A struct's fields as doc members.
-@(private)
 doc_members :: proc(fields: []Sim_Field) -> []Doc_Member {
 	members := make([]Doc_Member, len(fields), context.temp_allocator)
 	for field, i in fields {
@@ -407,7 +400,6 @@ load_docs :: proc() {
 // What LIBRARY_DOCS and the library's classes disagree on (temp-allocated): a method, property, signal or constant
 // bound without an entry, or an entry for one that isn't bound. load_docs reports each as an error, which fails the
 // godot suite's `editor` step. UnifiedData is left out: its properties are the game's data types.
-@(private)
 docs_problems :: proc() -> []string {
 	problems := make([dynamic]string, context.temp_allocator)
 	classes := [?]^gd.Class {
@@ -427,7 +419,7 @@ docs_problems :: proc() -> []string {
 		}
 		documented :: proc(doc: ^Doc_Class, bound: gd.Bound) -> bool {
 			#partial switch bound.kind {
-			case .Method, .Script_Virtual:
+			case .Method:
 				for method in doc.methods do if method.name == bound.name do return true
 			case .Property:
 				for member in doc.members do if member.name == bound.name do return true
@@ -454,7 +446,7 @@ docs_problems :: proc() -> []string {
 		}
 		stale :: "unified: docs.odin documents %s.%s, which %s doesn't bind"
 		for method in doc.methods {
-			if !is_bound(class, method.name, {.Method, .Script_Virtual}) {
+			if !is_bound(class, method.name, {.Method}) {
 				append(&problems, fmt.tprintf(stale, class.name, method.name, class.name))
 			}
 		}

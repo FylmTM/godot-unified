@@ -4,6 +4,7 @@
 // each an object of its class (sim_classes.odin) and hands it to the subject's view and to the `sim_event` signal, as
 // Emitted, Confirmed or Cancelled. field_variant converts a field by type for the event classes and for the views'
 // and the session's data, mapping a sim.Position to view units (Glue.view_scale).
+#+private
 package godot
 
 import "base:runtime"
@@ -11,7 +12,6 @@ import "core:strings"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
-import "unified:view"
 
 // One event kind (a variant of the game's Event union), read by RTTI.
 Event_Layout :: struct {
@@ -23,7 +23,6 @@ Event_Layout :: struct {
 }
 
 // What the tracker identifies and the session thread posts: one event of one simulated tick.
-@(private)
 Tick_Event :: struct {
 	tick:   u32,
 	nth:    u32, // among the tick's events of the same kind and subject
@@ -32,8 +31,7 @@ Tick_Event :: struct {
 	raw:    sim.Raw_Event,
 }
 
-@(private)
-tick_event_id :: proc(event: Tick_Event) -> view.Event_Id {
+tick_event_id :: proc(event: Tick_Event) -> Event_Id {
 	return {
 		tick   = event.tick,
 		kind   = u32(event.raw.kind),
@@ -51,13 +49,11 @@ Units :: enum u8 {
 }
 
 // Sim units to view units (Glue.view_scale): where the host makes a Godot value from a point.
-@(private)
 to_view :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
 	return point * api.view_scale
 }
 
 // View units to sim units: a point a script set (a command's sim.Position).
-@(private)
 to_sim :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
 	return point / api.view_scale
 }
@@ -93,7 +89,6 @@ event_layouts :: proc(events: typeid) -> []Event_Layout {
 }
 
 // The offsets of a struct's sim.Position fields, in nested structs too (what crosses between sim and view units).
-@(private)
 position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int) {
 	info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	if !is_struct do return
@@ -108,19 +103,16 @@ position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int
 }
 
 // A sim.Handle(T): its RTTI names it "Handle($T=...)" in package sim.
-@(private)
 is_handle :: proc(type: ^runtime.Type_Info) -> bool {
 	named, ok := type.variant.(runtime.Type_Info_Named)
 	return ok && named.pkg == "sim" && strings.has_prefix(named.name, "Handle(") && type.size == 8
 }
 
-@(private)
 is_integer :: proc(type: ^runtime.Type_Info) -> bool {
 	_, ok := runtime.type_info_base(type).variant.(runtime.Type_Info_Integer)
 	return ok
 }
 
-@(private)
 read_uint :: proc(bytes: []u8) -> u64 {
 	value: u64
 	for i := len(bytes) - 1; i >= 0; i -= 1 do value = value << 8 | u64(bytes[i])
@@ -148,13 +140,11 @@ event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u64, entity
 // ---- the main thread: fields converted by type (field_variant, below)
 
 // The key of a sim.Player's bytes (sim.player_key: 0 for nobody).
-@(private)
 player_key_of :: proc(bytes: []u8) -> u64 {
 	return sim.player_key({index = u16(read_uint(bytes[:2])), id = u16(read_uint(bytes[2:4]))})
 }
 
 // A nested struct's fields into a Dictionary (fields named `_...` are padding, left out).
-@(private)
 struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	for i in 0 ..< int(info.field_count) {
@@ -167,7 +157,6 @@ struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8
 }
 
 // Moves `value` into dict[key].
-@(private)
 dict_put :: proc(dict: ^gd.Dictionary, key: string, value: ^gd.Variant) {
 	key_variant := gd.to_variant(key)
 	defer gdi.variant_destroy(&key_variant)
@@ -178,14 +167,12 @@ dict_put :: proc(dict: ^gd.Dictionary, key: string, value: ^gd.Variant) {
 }
 
 // A Godot math value from a field's bytes (copied: the frame's data has no alignment).
-@(private)
 math_variant :: proc($T: typeid, bytes: []u8) -> gd.Variant {
 	value: T
 	copy(([^]u8)(&value)[:size_of(T)], bytes)
 	return gd.to_variant(value)
 }
 
-@(private)
 f32_at :: proc(bytes: []u8, i: int) -> f32 {
 	return transmute(f32)u32(read_uint(bytes[i * 4:][:4]))
 }
@@ -196,7 +183,6 @@ f32_at :: proc(bytes: []u8, i: int) -> f32 {
 // imports gdext) itself, an enum its value (an int: its Enum* class names the members), a bit_set an Array of
 // ints, [2]f32 / [3]f32 / [4]f32 a Vector2 / Vector3 / Color, another array an Array, a nested struct a Dictionary,
 // a string a String (constants), other numbers int or float.
-@(private)
 field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd.Variant {
 	if type.id == sim.Position {
 		point := [3]f32{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)}
@@ -326,7 +312,6 @@ array_element_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
 }
 
 // A new Array for an array field, typed by its elements when it can be.
-@(private)
 typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
 	array := gd.array_new()
 	if element := array_element_kind(type); element != .NIL do gd.array_set_typed(&array, element)
@@ -342,7 +327,6 @@ field_hint :: proc(type: ^runtime.Type_Info) -> (gd.Property_Hint, string) {
 }
 
 // A Variant type's name in GDScript ("int", "Vector2"...).
-@(private)
 variant_type_name :: proc(kind: gdi.VariantType) -> string {
 	#partial switch kind {
 	case .BOOL:
@@ -394,7 +378,6 @@ variant_type_name :: proc(kind: gdi.VariantType) -> string {
 }
 
 // An integer field's value (little-endian bytes), sign-extended when signed.
-@(private)
 read_int :: proc(bytes: []u8, signed: bool) -> i64 {
 	value := read_uint(bytes)
 	if signed && len(bytes) < 8 && value >> (uint(len(bytes)) * 8 - 1) != 0 {
@@ -404,8 +387,8 @@ read_int :: proc(bytes: []u8, signed: bool) -> i64 {
 }
 
 // The event states as GDScript sees them: UnifiedSession.EVENT_EMITTED, EVENT_CONFIRMED, EVENT_CANCELLED (in the
-// enum UnifiedSession.EventState), the values of view.Event_Action.
-EVENT_STATE_NAMES := [view.Event_Action]string {
+// enum UnifiedSession.EventState), the values of Event_Action.
+EVENT_STATE_NAMES := [Event_Action]string {
 	.Emitted   = "EVENT_EMITTED",
 	.Confirmed = "EVENT_CONFIRMED",
 	.Cancelled = "EVENT_CANCELLED",

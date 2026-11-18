@@ -9,7 +9,6 @@ import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:netcode"
-import "unified:view"
 
 Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
@@ -215,6 +214,13 @@ register_session_class :: proc() {
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state))
 }
 
+// `--lag MS`: the dev netsim on remote links, MS each way, a quarter of it jitter, 1% loss.
+@(private)
+lag_settings :: proc(lag_ms: int) -> Netsim_Settings {
+	ms := f32(lag_ms)
+	return {true, {ms, ms / 4, 1}, {ms, ms / 4, 1}}
+}
+
 // The slot a player (by key) holds at the shown tick (-1: absent, unknown, or no frame yet).
 @(private)
 shown_slot :: proc(session: ^Session_Node, player: i64) -> int {
@@ -262,18 +268,10 @@ session_ready :: proc(session: ^Session_Node) {
 		if session.args.seed != 0 do session.seed = session.args.seed
 		if session.args.ticks != 0 do session.ticks = i64(session.args.ticks)
 		session.quit_at_end = session.args.quit
-		if session.args.lag_ms > 0 {
-			lag_ms := f32(session.args.lag_ms)
-			set_netsim({true, {lag_ms, lag_ms / 4, 1}, {lag_ms, lag_ms / 4, 1}})
-		}
+		if session.args.lag_ms > 0 do set_netsim(lag_settings(session.args.lag_ms))
 		read_app_version()
 	}
-	lag: Netsim_Settings
-	if session.args.lag_ms > 0 {
-		lag_ms := f32(session.args.lag_ms)
-		lag = {true, {lag_ms, lag_ms / 4, 1}, {lag_ms, lag_ms / 4, 1}}
-	}
-	dev_init(session.args.devui, lag)
+	dev_init(session.args.devui, session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {})
 	switch {
 	case session.args.autostart:
 		session_start(session, {mode = .Single, scripted = session.args.scripted})
@@ -434,7 +432,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		frame := session.frame
 		session.last_tick = frame.tick
 		tick_us := i64(1_000_000 / max(frame.tick_hz, 1))
-		alpha := view.alpha(now._nsec / 1000, frame.due_us, tick_us)
+		alpha := alpha(now._nsec / 1000, frame.due_us, tick_us)
 		root := effective_root(session)
 		root_id := root.ptr != nil ? gdi.object_get_instance_id(root.ptr) : 0
 		if root_id != session.synced_root {

@@ -326,7 +326,7 @@ build_note :: proc() {
 	gd.Control_set_v_size_flags(note.text, .SIZE_EXPAND_FILL)
 	// Enter sends, Ctrl+Enter is TextEdit's own new line. The signal comes before TextEdit handles the key.
 	on(note.text, "gui_input", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
-		key_event := event_arg(gd.InputEventKey, args, "InputEventKey")
+		key_event := event_arg(gd.InputEventKey, args)
 		if key_event.ptr == nil || !gd.InputEvent_is_pressed(key_event) do return {}
 		key := gd.InputEventKey_get_keycode(key_event)
 		if (key == .KEY_ENTER || key == .KEY_KP_ENTER) && !gd.InputEventWithModifiers_is_command_or_control_pressed(key_event) {

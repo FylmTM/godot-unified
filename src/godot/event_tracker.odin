@@ -1,4 +1,4 @@
-package view
+package godot
 
 import "core:slice"
 

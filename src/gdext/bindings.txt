@@ -59,12 +59,8 @@ SystemFont
 
 # Builtins that get method wrappers (all builtins get layouts; opaque ones also constructors/destructors).
 [builtins]
-String
-StringName
-NodePath
 Array
 Dictionary
-Callable
 PackedByteArray
 PackedInt32Array
 PackedFloat32Array

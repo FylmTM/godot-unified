@@ -13,7 +13,6 @@ import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
-import "unified:view"
 
 import "../survivor"
 
@@ -151,7 +150,7 @@ facing :: proc(dir: [2]f32) -> [4]f32 {
 	if length == 0 do return {}
 	cos_yaw, sin_yaw := dir.y / length, dir.x / length
 	if cos_yaw < -0.9999 do return {0, 1, 0, 0} // straight back: half a turn
-	return view.qnormalize({0, sin_yaw, 0, 1 + cos_yaw})
+	return godot.qnormalize({0, sin_yaw, 0, 1 + cos_yaw})
 }
 
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.

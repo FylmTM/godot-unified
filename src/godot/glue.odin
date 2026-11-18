@@ -8,7 +8,6 @@ import "core:fmt"
 import "core:sync"
 import "unified:netcode"
 import "unified:sim"
-import "unified:view"
 
 // The Frame's default capacities (Glue.max_views, max_multi, view_data_bytes override them per game). Memory only:
 // three Frames are allocated when a session starts; the per-frame cost follows what fill_frame pushes.
@@ -26,7 +25,7 @@ View_Item :: struct($View: typeid) {
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
 	entity: u64, // the id the game's events carry in a u64 `entity` field (0: the key): those events come here
 	pos:    [3]f32, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
-	rot:    [4]f32, // unit quaternion (x, y, z, w); view.quat_yaw, view.quat_angle2d (2D); zero = identity
+	rot:    [4]f32, // unit quaternion (x, y, z, w); quat_yaw, quat_angle2d (2D); zero = identity
 }
 
 // One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the
@@ -35,7 +34,7 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
 	pos:    [3]f32,
-	rot:    [4]f32, // unit quaternion like View_Item's (2D: view.quat_angle2d); zero = identity
+	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  [4]f32, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)
@@ -54,7 +53,7 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 
 // A scene view as published: the item, its previous pose (from the host's memory) and its data's place.
 View_Out :: struct {
-	key:         view.Key,
+	key:         u64,
 	kind:        u8,
 	has_prev:    bool,
 	player:      u64, // the player's key (sim.player_key; 0: none)
@@ -125,8 +124,8 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
 	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
 	constants:       any,
-	// Optional: the views' smoothing, in sim units (zero: view.SMOOTHING_DEFAULT, for a sim in metres).
-	smoothing:       view.Smoothing,
+	// Optional: the views' smoothing, in sim units (zero: SMOOTHING_DEFAULT, for a sim in metres).
+	smoothing:       Smoothing,
 	// Optional, the view space: the sim's XY plane is shown in Godot 2D (a sim.Position reaches GDScript as a
 	// Vector2, else a Vector3).
 	is_2d:           bool,
@@ -203,7 +202,7 @@ STATUS_NAMES := [Status_Kind]string {
 // Session thread -> main thread: an event in one of its states. Events have a queue of their own; one that finds it
 // full is dropped (counted: the dev UI shows it, the host warns once).
 Event_Message :: struct {
-	action: view.Event_Action, // Emitted, Confirmed or Cancelled
+	action: Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
 	id:     u64, // the same in its Emitted and its Confirmed or Cancelled; unique in the process (UnifiedEvent.id)
 	event:  sim.Raw_Event, // positions in sim units (the main thread maps them as scripts read them)
@@ -304,12 +303,12 @@ push_view_out :: proc(
 	view_out := &out.views[out.n_views]
 	out.n_views += 1
 	view_out^ = {
-		key         = view.Key(item.key if item.key != 0 || item.player == {} else sim.player_key(item.player)),
+		key         = u64(item.key if item.key != 0 || item.player == {} else sim.player_key(item.player)),
 		kind        = kind,
 		player      = sim.player_key(item.player),
 		entity      = item.entity != 0 ? item.entity : u64(item.key),
 		pos         = item.pos,
-		rot         = item.rot == {} ? view.IDENTITY : item.rot,
+		rot         = item.rot == {} ? IDENTITY : item.rot,
 		data_type   = data_type,
 		data_offset = u32(out.n_data),
 		data_size   = u32(len(data)),
@@ -334,7 +333,7 @@ push_multi_view :: proc(frame: ^Frame($G, $View, $MultiView), item: Multi_View_I
 		kind   = u8(item.kind),
 		key    = item.key,
 		pos    = item.pos,
-		rot    = item.rot == {} ? view.IDENTITY : item.rot,
+		rot    = item.rot == {} ? IDENTITY : item.rot,
 		scale  = item.scale,
 		color  = item.color,
 		custom = item.custom,

@@ -1,6 +1,7 @@
 // UnifiedSession.send_command(command): a command object (a class sim_classes.odin registered from the game's
 // command union) becomes the command's struct, then goes to the session thread, which hands it to the client
 // (driver.odin).
+#+private
 package godot
 
 import "base:runtime"
@@ -65,7 +66,6 @@ send_command :: proc(object: gd.Object) -> bool {
 }
 
 // A command's position, from view units (what the script set) to sim units (Glue.view_scale).
-@(private)
 position_to_sim :: proc(position: sim.Position) -> sim.Position {
 	return sim.Position(to_sim(([3]f32)(position)))
 }
@@ -74,7 +74,6 @@ position_to_sim :: proc(position: sim.Position) -> sim.Position {
 // member values), [2]f32 / [3]f32 / [4]f32 (Vector2 / Vector3 / Color), a sim.Position (Vector2 in a 2D game, else
 // Vector3; in view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a
 // nested struct (a Dictionary of its fields by name; a field left out keeps its value).
-@(private)
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
@@ -185,7 +184,6 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 }
 
 // An enum member's value (an int, one of the members: the Enum* class's constants).
-@(private)
 enum_value :: proc(type: ^runtime.Type_Info, info: runtime.Type_Info_Enum, variant: ^gd.Variant) -> (i64, string) {
 	if variant_type := gd.variant_type(variant); variant_type != .INT {
 		return 0, fmt.tprintf("want a %v value (an int), got %v", type.id, variant_type)
@@ -196,7 +194,6 @@ enum_value :: proc(type: ^runtime.Type_Info, info: runtime.Type_Info_Enum, varia
 	return 0, fmt.tprintf("%d is not a %v (%s)", integer, type.id, names)
 }
 
-@(private)
 int_fits :: proc(value: i64, size: int, signed: bool) -> bool {
 	if size >= 8 do return signed || value >= 0
 	bits := u32(size * 8)
@@ -205,7 +202,6 @@ int_fits :: proc(value: i64, size: int, signed: bool) -> bool {
 }
 
 // The low len(out) bytes of value, little-endian.
-@(private)
 put_int :: proc(out: []u8, value: i64) {
 	bytes := transmute([8]u8)i64le(value)
 	copy(out, bytes[:len(out)])
@@ -213,7 +209,6 @@ put_int :: proc(out: []u8, value: i64) {
 
 // A nested struct's fields from a Dictionary keyed by field name (a String): each key present is written, a field
 // left out keeps its value, a key that names no field is an error.
-@(private)
 write_struct :: proc(
 	type: ^runtime.Type_Info,
 	info: runtime.Type_Info_Struct,

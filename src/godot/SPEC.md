@@ -25,7 +25,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	bench, event_key, compat, level,
 	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
 	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space, below)
-	smoothing,                       // view.Smoothing in sim units (zero: the default, for metres)
+	smoothing,                       // godot.Smoothing in sim units (zero: the default, for metres)
 	max_views, max_multi, view_data_bytes, // the Frame's capacities (zero: 256, 16384, 16384)
 }
 
@@ -131,7 +131,7 @@ would be off by its transform). A 2D level is baked at the same scale (`src/leve
   `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
   `sim.handle_key`, a fixed thing's by its index. `player` is the
   `sim.Player` it shows (`{}`: none) and `entity` the u64 its events carry (0: the key): both route events to it.
-  `pos` and `rot` (a unit quaternion; zero is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units
+  `pos` and `rot` (a unit quaternion; zero is the identity; `godot.quat_yaw`, `godot.quat_angle2d`) are in the units
   the views use. `data` is any plain struct, converted like an event field (below: an enum is an int, an array of
   structs an Array of Dictionaries...; `_` fields are padding), and a field of Godot's own math types (`gd.Color`,
   `gd.Vector4`, `gd.Quaternion`, ...) as itself: the view gets each field as its script property of the same name,
@@ -148,7 +148,7 @@ pose: a view or instance seen at tick − 1 interpolates from it, so games never
 bodies interpolate like plain state. After a rollback the remembered tick − 1 pose is the old prediction, so the
 host sends an estimate of the corrected one (#284, measured under `--lag`): a re-filled tick moves its tick − 1 by
 the same correction; a rollback with a new tick, or a fill after skipped ticks, takes the new pose minus the last
-known one-tick motion. The views feed it into their error term (`view.track_push_prev`), and when a view's history
+known one-tick motion. The views feed it into their error term (`track_push_prev`), and when a view's history
 lacks tick − 1 (the main thread skipped a frame, or the sim several ticks) its last shown pose starts it: a
 correction glides over `tau`, it never pops.
 
@@ -288,7 +288,7 @@ its subject (the first `sim.Handle(T)` field, else a u64 field named `entity`) a
   prediction, or the verified tick itself), then exactly once either **Confirmed** (its tick is verified) or
   **Cancelled** (a re-simulation no longer produces it). One first produced when its tick is verified is Emitted and
   Confirmed in the same frame. Effects and sounds on EMITTED, what must be final (score, banners) on CONFIRMED,
-  undoing an effect on CANCELLED. The tracker (`view.Event_Tracker`) tells events apart by tick, kind, subject and
+  undoing an effect on CANCELLED. The tracker (`Event_Tracker`) tells events apart by tick, kind, subject and
   index among the tick's events of that kind and subject.
 - **Identity.** Each state arrives as a new object; its `id` (an int) is the same in an event's EMITTED and in its
   CONFIRMED or CANCELLED, and never repeats in the process (an event cancelled and produced again later is a new
@@ -346,12 +346,20 @@ scene and every indexed kind is a `View` member (an error names each one).
   carried (an SPSC queue, 256; full: dropped) and the recording (below, a mutex per verified tick).
 - **Main thread.** `UnifiedSession._process` runs at priority −1000, before every other node: `sample_input`, take
   the newest Frame, update the scene views (spawn by key into `view_root`, push poses of ticks P − 1 and P into each
-  view's `view.Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose (× `view_scale`), call
+  view's `Track`, sample at alpha = (now − P's due time) / tick with `Glue.smoothing`, set the pose (× `view_scale`), call
   `_sim_update`), write each MultiMesh's buffer (every instance interpolated at alpha) and bounds in one
   `set_custom_aabb` and one `set_buffer`, set the session data, route the events of the
   ticks the Frame shows, then statuses and the result, then the dev UI (`dev.odin`;
   `-define:UNIFIED_DEVUI=false` compiles it out, `src/devui/SPEC.md`). The screen runs one tick behind the newest
   prediction and never extrapolates.
+- **View logic** (`handoff.odin`, `track.odin`, `view_set.odin`, `event_tracker.odin`: no Godot calls, tested
+  without Godot in `tests/godot_driver`). Each view keeps the poses of its last 4 ticks; when a rollback re-publishes
+  a tick with a different pose, the difference goes into an error offset that decays as `exp(-dt / tau)` and the
+  samples after it are dropped (rotations the same with quaternions); a correction or a tick-to-tick move longer
+  than `teleport_dist` snaps. Views are keyed by the sim's spawn keys: a key missing from a frame lingers (an exit
+  animation, or a rollback that brings it back: revived, not respawned), a re-used slot gets a new key and a new
+  view. The event tracker sees every simulated tick (predicted, re-simulated, verified) and turns it into the states
+  under Events; re-simulations of ticks at or below the verified one are ignored, since they are final.
 - **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), on spawn and
   then only for fields whose bytes changed, before `_sim_update`; values are the newest tick's. A view whose root
   has no property for a data field is an error (reported once per kind and field).

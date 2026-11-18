@@ -3,12 +3,11 @@
 // prediction, so it sends an estimate of the corrected one instead (#284, measured under --lag): a tick re-filled
 // (the same tick again) moves its tick - 1 pose by the same correction; a rollback with a new tick, or a fill after
 // skipped ticks, takes the new pose minus the last known one-tick motion. The main thread feeds it into the view's
-// error term (view.track_push_prev), so a correction glides instead of popping. Two open-addressed tables, the last
+// error term (track_push_prev), so a correction glides instead of popping. Two open-addressed tables, the last
 // fill's and this one's, told apart by a stamp, so nothing is cleared per tick.
 package godot
 
 import "core:fmt"
-import "unified:view"
 
 Pose_Domain :: enum u8 {
 	View, // keys are unique among scene views
@@ -75,7 +74,7 @@ pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false) {
 step_back :: proc(pose: Remembered_Pose, last, prev: Remembered_Pose) -> Remembered_Pose {
 	return {
 		pos = pose.pos - (last.pos - prev.pos),
-		rot = view.qmul(view.qmul(prev.rot, view.qconj(last.rot)), pose.rot),
+		rot = qmul(qmul(prev.rot, qconj(last.rot)), pose.rot),
 	}
 }
 
@@ -84,7 +83,7 @@ step_back :: proc(pose: Remembered_Pose, last, prev: Remembered_Pose) -> Remembe
 shift :: proc(pose_prev, old, pose: Remembered_Pose) -> Remembered_Pose {
 	return {
 		pos = pose_prev.pos + (pose.pos - old.pos),
-		rot = view.qmul(view.qmul(pose.rot, view.qconj(old.rot)), pose_prev.rot),
+		rot = qmul(qmul(pose.rot, qconj(old.rot)), pose_prev.rot),
 	}
 }
 

@@ -12,7 +12,6 @@ import "core:sync"
 import "core:thread"
 import "unified:netcode"
 import "unified:sim"
-import "unified:view"
 
 // The game-independent face of the installed driver (main thread).
 Api :: struct {
@@ -22,7 +21,7 @@ Api :: struct {
 	tick_hz:         int,
 	view_names:      []string, // the View enum's members, lowercased, by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
-	smoothing:       view.Smoothing,
+	smoothing:       Smoothing,
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
@@ -51,7 +50,7 @@ Api :: struct {
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: view.Key, route: Event_Route), // Glue.event_key (nil: by subject)
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
 	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
@@ -121,14 +120,14 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	finished:  bool, // atomic
 	stopping:  bool,
 	stop_at:   i64,
-	frames:    view.Triple(Frame_Data),
+	frames:    Triple(Frame_Data),
 	poses:     Pose_Memory, // every keyed item's pose at the fill before (session thread)
-	states:    view.Triple(sim.part(G, sim.GAME_STATE)),
-	queue:     view.Queue(Message, 64), // statuses, the lobby code, desync reports, the result: never full in practice
-	events:    view.Queue(Event_Message, 4096), // full: dropped and counted
+	states:    Triple(sim.part(G, sim.GAME_STATE)),
+	queue:     Queue(Message, 64), // statuses, the lobby code, desync reports, the result: never full in practice
+	events:    Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:   int, // atomic: events that found `events` full
-	commands:  view.Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
-	tracker:   view.Event_Tracker(Tick_Event),
+	commands:  Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
+	tracker:   Event_Tracker(Tick_Event),
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
@@ -138,8 +137,8 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	net_gen:   u32,
 	roster:    u32, // the client's roster_changes last copied for the main thread
 	account:   [2]string, // the host player's platform account (Lobby.account): platform, id
-	inputs:    view.Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
-	confirmed: view.Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
+	inputs:    Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
+	confirmed: Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
 	recording: Recording, // the session so far, for F3 notes (dev UI builds)
 }
 
@@ -268,7 +267,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		tick_hz       = game.tick_hz,
 		view_names    = view_names,
 		multi_names   = multi_names,
-		smoothing     = glue.smoothing == {} ? view.SMOOTHING_DEFAULT : glue.smoothing,
+		smoothing     = glue.smoothing == {} ? SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
 		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,
 		events        = event_layouts(Event),
@@ -291,9 +290,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
-		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, Event_Route) {
+		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, u64, Event_Route) {
 			kind, key, route := (^This_Glue)(g_glue).event_key(event)
-			return u8(kind), view.Key(key), route
+			return u8(kind), key, route
 		}
 	}
 	api.sample_input = proc() {
@@ -317,7 +316,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		driver.req.arg = strings.clone(request.arg)
 		driver.req.name = strings.clone(request.name)
 		driver.req.content = slice.clone(request.content)
-		view.triple_init(&driver.frames)
+		triple_init(&driver.frames)
 		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
 		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
 		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
@@ -330,9 +329,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		roster_reset()
 		pose_memory_init(&driver.poses, max_views, max_multi)
 		input_sample_reset()
-		view.triple_init(&driver.states)
-		view.triple_init(&driver.inputs)
-		view.tracker_init(&driver.tracker, tick_event_id, event_serial) // ids never repeat in the process
+		triple_init(&driver.states)
+		triple_init(&driver.inputs)
+		tracker_init(&driver.tracker, tick_event_id, event_serial) // ids never repeat in the process
 		g_driver = driver
 		driver.thread = thread.create_and_start_with_poly_data(driver, driver_run)
 		return true, ""
@@ -355,7 +354,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		thread.join(driver.thread)
 		thread.destroy(driver.thread)
 		event_serial = driver.tracker.last_serial
-		view.tracker_destroy(&driver.tracker)
+		tracker_destroy(&driver.tracker)
 		for &frame in driver.frames.slots {
 			delete(frame.views)
 			delete(frame.multis)
@@ -381,19 +380,19 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	}
 	api.front = proc() -> (^Frame_Data, bool) {
 		if g_driver == nil do return nil, false
-		frame, fresh := view.triple_front(&(^This_Driver)(g_driver).frames)
+		frame, fresh := triple_front(&(^This_Driver)(g_driver).frames)
 		if frame.published == 0 do return nil, false
 		return frame, fresh
 	}
 	api.pop = proc() -> (Message, bool) {
 		if g_driver == nil do return {}, false
-		return view.queue_pop(&(^This_Driver)(g_driver).queue)
+		return queue_pop(&(^This_Driver)(g_driver).queue)
 	}
 	api.next_event = proc(shown: u32) -> (Event_Message, bool) {
 		if g_driver == nil do return {}, false
 		events := &(^This_Driver)(g_driver).events
-		if oldest := view.queue_peek(events); oldest == nil || oldest.tick > shown do return {}, false
-		return view.queue_pop(events)
+		if oldest := queue_peek(events); oldest == nil || oldest.tick > shown do return {}, false
+		return queue_pop(events)
 	}
 	api.events_dropped = proc() -> int {
 		if g_driver == nil do return 0
@@ -401,7 +400,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	}
 	api.send = proc(command: sim.Raw_Command) -> bool {
 		if g_driver == nil do return false
-		return view.queue_push(&(^This_Driver)(g_driver).commands, command)
+		return queue_push(&(^This_Driver)(g_driver).commands, command)
 	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
@@ -410,18 +409,18 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	api.state = proc() -> any {
 		if g_driver == nil do return nil
 		driver := (^This_Driver)(g_driver)
-		state, _ := view.triple_front(&driver.states)
+		state, _ := triple_front(&driver.states)
 		return state^
 	}
 	api.inputs = proc() -> any {
 		if g_driver == nil do return nil
 		driver := (^This_Driver)(g_driver)
-		inputs, _ := view.triple_front(&driver.inputs)
+		inputs, _ := triple_front(&driver.inputs)
 		return inputs^
 	}
 	api.next_confirmed = proc() -> (Command_Note, bool) {
 		if g_driver == nil do return {}, false
-		return view.queue_pop(&(^This_Driver)(g_driver).confirmed)
+		return queue_pop(&(^This_Driver)(g_driver).confirmed)
 	}
 	api.recording = proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool) {
 		if g_driver == nil do return
@@ -452,11 +451,10 @@ record_tick :: proc(
 		if sim.state_at(simulation, tick) == nil do return
 		recording.snapshot = sim.snapshot_encode(simulation, tick)
 		recording.from, recording.last = tick, tick
-		compat := driver.glue.compat != 0 ? driver.glue.compat : sim.compat_of(driver.game, driver.req.content)
 		header := sim.Log_Header {
 			seed       = simulation.seed,
 			content    = simulation.content_hash,
-			compat     = compat,
+			compat     = driver_compat(driver),
 			players    = PLAYERS,
 			input_size = size_of(Input),
 		}
@@ -518,7 +516,7 @@ enum_names :: proc($E: typeid) -> (names: []string, ok: bool) {
 @(private)
 post :: proc(driver: ^Driver($G, $View, $MultiView), message: Message) {
 	// 64 slots for a handful of messages per session: full only when the main thread stopped reading for good
-	_ = view.queue_push(&driver.queue, message)
+	_ = queue_push(&driver.queue, message)
 }
 
 @(private)
@@ -552,7 +550,7 @@ flush_events :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			event  = raw,
 		}
 		// full: the main thread is stalled; dropping an event beats blocking the sim (counted)
-		if !view.queue_push(&driver.events, message) do sync.atomic_add(&driver.dropped, 1)
+		if !queue_push(&driver.events, message) do sync.atomic_add(&driver.dropped, 1)
 	}
 	clear(&driver.tracker.out)
 }
@@ -560,7 +558,7 @@ flush_events :: proc(driver: ^Driver($G, $View, $MultiView)) {
 // Feeds one simulated tick's events to the tracker, numbering repeats of a kind and subject within the tick.
 @(private)
 track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []sim.Raw_Event) {
-	view.tracker_begin_tick(&driver.tracker, tick)
+	tracker_begin_tick(&driver.tracker, tick)
 	clear(&driver.scratch)
 	for &raw in events {
 		event := Tick_Event {
@@ -575,9 +573,9 @@ track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []
 			if same do event.nth += 1
 		}
 		append(&driver.scratch, event)
-		view.tracker_event(&driver.tracker, event)
+		tracker_event(&driver.tracker, event)
 	}
-	view.tracker_end_tick(&driver.tracker, tick)
+	tracker_end_tick(&driver.tracker, tick)
 }
 
 @(private)
@@ -607,7 +605,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				return
 			}
 			for len(out.list) < out.cap {
-				command := view.queue_pop(&driver.commands) or_break
+				command := queue_pop(&driver.commands) or_break
 				sim.push_command(out, command)
 			}
 		},
@@ -617,7 +615,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			flush_events(driver)
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
-			out := view.triple_back(&driver.frames)
+			out := triple_back(&driver.frames)
 			out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed, out.dropped = 0, 0, 0, 0, 0, 0
 			client := driver.client
 			driver.published += 1
@@ -651,12 +649,12 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				poses        = &driver.poses,
 			}
 			driver.glue.fill_frame(&frame)
-			view.triple_publish(&driver.frames)
+			triple_publish(&driver.frames)
 			if sync.atomic_load(&want_state) {
-				view.triple_back(&driver.states)^ = current^
-				view.triple_publish(&driver.states)
-				fill_inputs_view(view.triple_back(&driver.inputs), client, info, slots[:])
-				view.triple_publish(&driver.inputs)
+				triple_back(&driver.states)^ = current^
+				triple_publish(&driver.states)
+				fill_inputs_view(triple_back(&driver.inputs), client, info, slots[:])
+				triple_publish(&driver.inputs)
 			}
 		},
 		verified = proc(
@@ -668,11 +666,11 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		) {
 			driver := (^This_Driver)(user)
 			track_tick(driver, tick, events)
-			view.tracker_verified(&driver.tracker, tick)
+			tracker_verified(&driver.tracker, tick)
 			flush_events(driver)
 			when DEVUI {
 				for command in inputs.commands[:inputs.command_count] {
-					_ = view.queue_push(&driver.confirmed, Command_Note{tick, command})
+					_ = queue_push(&driver.confirmed, Command_Note{tick, command})
 				}
 				record_tick(driver, simulation, tick, inputs)
 			}
@@ -848,9 +846,18 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 // from the game and the level), the project's stamped version and the player count.
 @(private)
 lobby_build :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Lobby_Build {
-	compat := driver.glue.compat
-	if compat == 0 do compat = sim.compat_of(driver.game, driver.req.content)
-	return {game = driver.game.name, compat = compat, version = app_version, players = sim.part(G, sim.GAME_PLAYERS)}
+	return {
+		game    = driver.game.name,
+		compat  = driver_compat(driver),
+		version = app_version,
+		players = sim.part(G, sim.GAME_PLAYERS),
+	}
+}
+
+// The session's build id as the relay computes it: the glue's, else derived from the game and the level.
+@(private)
+driver_compat :: proc(driver: ^Driver($G, $View, $MultiView)) -> u64 {
+	return driver.glue.compat != 0 ? driver.glue.compat : sim.compat_of(driver.game, driver.req.content)
 }
 
 // Pumps the lobby (session thread): its code goes to the main thread once, a failure ends the session with its

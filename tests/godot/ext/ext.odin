@@ -1,5 +1,6 @@
-// The binding test extension: one class (`Tester : Node3D`) that exercises every binding feature of
-// unified:gdext; tests/godot/test.gd drives it under headless Godot (`uni test --suite godot-bindings`).
+// The binding test extension: a class (`Tester : Node3D`, and `TesterChild` extending it) that exercises every
+// binding feature of unified:gdext, typed and dynamic; tests/godot/test.gd drives it under headless Godot
+// (`uni test --suite godot-bindings`).
 package gdext_test_ext
 
 import "base:runtime"
@@ -9,15 +10,16 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 
 Tester :: struct {
-	using hdr: gd.Instance_Header,
-	value:     i64,
-	readied:   bool,
-	processed: i64,
-	image:     gd.Ref(gd.Image), // kept_image's: the instance owns it
-	churn:     [16]i32, // a list for the Inspector whose live element changes every frame
+	using hdr:     gd.Instance_Header,
+	value:         i64,
+	dynamic_value: i64, // the dynamic property's
+	readied:       bool,
+	processed:     i64,
+	image:         gd.Ref(gd.Image), // kept_image's: the instance owns it
+	churn:         [16]i32, // a list for the Inspector whose live element changes every frame
 }
 
-tester: gd.Class
+tester, tester_child: gd.Class
 
 @(export, link_name = "gdext_test_init")
 gdext_test_init :: proc "c" (
@@ -39,8 +41,7 @@ gdext_test_init :: proc "c" (
 		context = runtime.default_context()
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 		devui.shutdown()
-		gd.unregister_class(&tester)
-		gd.shutdown()
+		gd.shutdown() // unregisters both classes, the child first
 	}
 	return 1
 }
@@ -90,7 +91,8 @@ register :: proc() {
 		gd.array_push(&list, 1)
 		gd.array_push(&list, 2.5)
 		gd.array_push(&list, "x")
-		gd.dict_set_move(&dict, "list", &list)
+		gd.dict_set(&dict, "list", list)
+		gd.Array_destroy(&list)
 		return dict
 	})
 	gd.bind_method(cls, "sum_array", proc(self: ^Tester, array: gd.Array) -> f64 {
@@ -114,6 +116,7 @@ register :: proc() {
 		proc(self: ^Tester) -> i64 {return self.value},
 		proc(self: ^Tester, value: i64) {self.value = value},
 	)
+	gd.bind_property(cls, "doubled", proc(self: ^Tester) -> i64 {return self.value * 2}) 	// read-only
 	gd.bind_signal(cls, "fired", {"n", i64}, {"msg", string}, {"pos", gd.Vector3})
 	gd.bind_constant(cls, "Mode", "MODE_SLOW", 0)
 	gd.bind_constant(cls, "Mode", "MODE_FAST", 7)
@@ -127,7 +130,6 @@ register :: proc() {
 			gd.Vector3{f32(number), 0, 0},
 		)
 	}, {"n"})
-	gd.bind_script_virtual(cls, "_on_odin", {"x", i64})
 	gd.bind_method(cls, "call_back", proc(self: ^Tester, value: i64) {
 		result := gd.call_script(self.obj, gd.sn("_on_odin"), value)
 		gd.variant_destroy(&result)
@@ -170,7 +172,40 @@ register :: proc() {
 		nil,
 		gd.Dynamic_Arg{"", .OBJECT, "Image"},
 	)
-	gd.bind_method(cls, "sn_same", proc(self: ^Tester) -> bool {return gd.sn("abc") == gd.sn("abc")})
+	// The dynamic half: a method and properties described at run time, a typed Array, instance_of.
+	gd.bind_dynamic_method(cls, "dynamic_add", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+		left, _ := gd.from_variant(i64, args[0])
+		right, _ := gd.from_variant(i64, args[1])
+		return gd.to_variant(left + right)
+	}, nil, {{"a", .INT, ""}, {"b", .INT, ""}}, gd.Dynamic_Arg{"", .INT, ""})
+	gd.bind_dynamic_property(
+		cls,
+		{"dynamic_value", .INT, ""},
+		proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {return gd.to_variant(
+				(^Tester)(instance).dynamic_value,
+			)},
+		proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
+			(^Tester)(instance).dynamic_value, _ = gd.from_variant(i64, args[0])
+			return gd.variant_nil()
+		},
+	)
+	gd.bind_dynamic_property(
+		cls,
+		{"dynamic_parent", .OBJECT, "Node"},
+		proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			return gd.variant_from_any(gd.Node_get_parent(gd.cast_to(gd.Node, (^Tester)(instance).obj)))
+		},
+	)
+	gd.bind_method(cls, "typed_ints", proc(self: ^Tester) -> gd.Array {
+		ints := gd.array_new()
+		gd.array_set_typed(&ints, .INT)
+		gd.array_push(&ints, 4)
+		gd.array_push(&ints, 2)
+		return ints
+	})
+	gd.bind_method(cls, "is_tester", proc(self: ^Tester, object: gd.Object) -> bool {
+		return gd.instance_of(object, &tester) != nil
+	}, {"object"})
 	gd.bind_method(cls, "is_readied", proc(self: ^Tester) -> bool {return self.readied})
 	gd.bind_method(cls, "processed_count", proc(self: ^Tester) -> i64 {return self.processed})
 	gd.bind_method(cls, "devui_items", proc(self: ^Tester) -> i64 {
@@ -189,4 +224,12 @@ register :: proc() {
 		return {i32(gd.call_counts.variant), i32(gd.call_counts.ptrcall)}
 	})
 	gd.bind_method(cls, "instances", proc(self: ^Tester) -> i64 {return i64(tester.instances)})
+	// An extension class extending ours: built on the engine class (`native`), its instance a Tester.
+	tester_child = {
+		name   = "TesterChild",
+		parent = "Tester",
+		native = "Node3D",
+		size   = size_of(Tester),
+	}
+	gd.register_class(&tester_child)
 }

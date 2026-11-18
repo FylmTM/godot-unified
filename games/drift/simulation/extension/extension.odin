@@ -12,7 +12,6 @@ import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
-import "unified:view"
 
 import dr "../drift"
 
@@ -175,7 +174,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = plane(gem.pos),
-			rot    = view.quat_angle2d(age * 2),
+			rot    = godot.quat_angle2d(age * 2),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},
