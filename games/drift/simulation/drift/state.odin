@@ -18,7 +18,6 @@ State :: struct {
 	rocks_left:     u32, // of the current wave
 	spawner:        u32, // the next rock_spawn marker, in turn
 	score:          u32, // gems picked this match
-	matches:        u32, // matches started since the session began
 	gems_dropped:   u32, // small rocks destroyed, for GEM_DROP_EVERY
 	players:        sim.Players(Ship, Input, PLAYERS),
 	gates:          [MAX_GATES]Gate,
