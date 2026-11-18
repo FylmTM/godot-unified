@@ -856,13 +856,8 @@ bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 // and any other scene with its baked .level beside it (committed with it), wherever the game keeps it.
 level_scenes :: proc(dir: string) -> []string {
 	out: [dynamic]string
-	// The walk from the real path (symlinks resolved, as the walker reports its files: macOS's temp directory is
-	// /var -> /private/var), so every file is the root plus its path in the project.
-	root, root_err := os.get_absolute_path(dir, context.temp_allocator)
-	if root_err != nil do root = dir
-	for file in godot_scenes(root) {
-		if !strings.has_prefix(file, root) do continue
-		rel_path := strings.trim_prefix(file[len(root):], "/")
+	for file in godot_scenes(dir) {
+		rel_path := strings.trim_prefix(file[len(dir):], "/")
 		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
 		if strings.has_prefix(rel_path, "addons/") do continue
 		in_levels := strings.has_prefix(rel_path, "game/levels/") && strings.count(rel_path, "/") == 2
