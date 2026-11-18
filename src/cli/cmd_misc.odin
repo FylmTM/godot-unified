@@ -6,7 +6,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// bench, record-reference, setup, clean.
+// bench, setup, clean.
 
 // A forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) must fit here, both at their p99 (unified's
 // target, the frame budget's bad frames; each game owns its benchmark's setup).
@@ -282,74 +282,6 @@ last_json_object :: proc(text: string) -> (object: json.Object, ok: bool) {
 	line := last_json_line(text) or_return
 	value, _ := json.parse_string(line)
 	return value.(json.Object)
-}
-
-// --- record-reference -------------------------------------------------------------------------------------------
-
-@(private)
-Record_Reference_Opts :: struct {
-	game: string `args:"pos=0,required" usage:"the game (or a headless binary of the project's own with an end-to-end suite: this repo's toy)"`,
-}
-
-// Builds the game's end-to-end suite with -define:UNIFIED_REGEN=true and runs it: its reference test writes a new
-// reference run (ref.log, ref.trace, the snapshot, ref.json saying where it was made), checks it, and the files show
-// up in `git status`. Commit them with the change that made them necessary (the sim-change skill).
-@(private)
-cmd_record_reference :: proc(args: []string) -> Result {
-	opts: Record_Reference_Opts
-	parse(&opts, args)
-	pkg: string
-	needs_box3d: bool
-	for extra in state.config.headless {
-		if extra.name == opts.game && extra.suite != "" {
-			pkg = join(state.project.root, extra.suite)
-			needs_box3d = project_uses_box3d() // its suite may link it through the library
-		}
-	}
-	if pkg == "" {
-		selected := game(opts.game)
-		pkg = join(selected.dir, "simulation", "tests")
-		needs_box3d = game_uses_box3d(selected)
-	}
-	if !os.is_file(join(pkg, "suite_test.odin")) {
-		usage("%s has no end-to-end suite (suite_test.odin)", rel(pkg))
-	}
-	exe := join(state.project.out, "record-reference", aprintf("%s_suite%s", opts.game, EXE))
-	make_dirs(os.dir(exe))
-	if needs_box3d {
-		ensure_box3d()
-		stage_box3d(os.dir(exe))
-	}
-	commit := git_commit()
-	cmd: [dynamic]string
-	append(&cmd, odin(), "build", pkg, aprintf("-out:%s", exe), "-define:UNIFIED_REGEN=true")
-	append(&cmd, ..collection())
-	append(&cmd, aprintf("-define:UNIFIED_REGEN_COMMIT=%s", commit != "" ? commit : "unknown"))
-	append(&cmd, ..TEST_RUN_FLAGS)
-	append(&cmd, ..mode_flags(.dev))
-	append(&cmd, ..VET)
-	must_run({cmd = cmd[:]}, aprintf("record-reference %s: the build", opts.game))
-	if !run_test_binary(exe, time.Duration(state.command.budget * CI_BUDGET_SCALE * f64(time.Second))) {
-		fatal("record-reference %s: the suite failed", opts.game)
-	}
-	data := join(pkg, "testdata")
-	status := run_proc({
-		cmd     = strs(git(), "-C", state.project.root, "status", "--short", "--", data),
-		capture = true,
-		quiet   = true,
-	})
-	changed := strings.trim_space(status.stdout)
-	if changed == "" {
-		return {
-			ok      = true,
-			summary = aprintf("record-reference %s: reproduced byte for byte, nothing changed", opts.game),
-		}
-	}
-	log("%s", changed)
-	return {
-		ok      = true,
-		summary = aprintf("record-reference %s -> %s (commit the files above with the change)", opts.game, rel(data)),
-	}
 }
 
 // --- setup ------------------------------------------------------------------------------------------------------

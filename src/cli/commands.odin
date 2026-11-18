@@ -105,13 +105,6 @@ public_commands :: proc() -> []Command {
 			run     = cmd_bench,
 		},
 		{
-			name    = "record-reference",
-			summary = "record a game's reference run anew (the committed log, trace and snapshot test replays)",
-			budget  = 8,
-			options = option_types(Record_Reference_Opts),
-			run     = cmd_record_reference,
-		},
-		{
 			name      = "init",
 			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout, its tests imported in tests/tests.odin",
 			no_budget = "clones unified",

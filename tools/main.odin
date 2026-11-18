@@ -20,7 +20,7 @@ import "unified:cli"
 main :: proc() {
 	cli.configure({
 		tests        = "tests",
-		headless     = {{name = "toy", pkg = "tests/toy/headless", suite = "tests/scenarios"}},
+		headless     = {{name = "toy", pkg = "tests/toy/headless"}},
 		vet          = {"tests/godot/ext", "tests/godot_views/ext"},
 		fmt          = {"src", "tests"},
 		uses_box3d   = true,

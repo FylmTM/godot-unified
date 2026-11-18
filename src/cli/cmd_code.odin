@@ -137,10 +137,8 @@ cmd_vet :: proc(args: []string) -> Result {
 	for vet_pkg in template {
 		append(&jobs, Job{vet_pkg, VET_TARGETS[0], ""})
 	}
-	// the suites as record-reference builds them (unified:headless/scenarios writes reference runs)
-	// and as `test --long` builds them
+	// the suites as `test --long` builds them
 	if uses_scenarios(test_root()) {
-		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_REGEN=true"})
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_LONG_TESTS=true"})
 	}
 	runs := make([]Run, len(jobs))
@@ -378,8 +376,8 @@ fmt_hook :: proc() -> ! {
 
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
-// Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_REGEN and
-// UNIFIED_LONG_TESTS (odin rejects a -define nothing declares).
+// Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_LONG_TESTS (odin rejects a
+// -define nothing declares).
 @(private)
 uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)

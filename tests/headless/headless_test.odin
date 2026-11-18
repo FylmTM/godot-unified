@@ -83,9 +83,10 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	read_log, log_ok := headless.log_read(log_path, toy.Game)
 	defer sim.log_destroy(&read_log)
 	testing.expect(t, log_ok)
-	read_trace, trace_ok := headless.trace_read(trace_path)
-	defer headless.trace_destroy(&read_trace)
-	testing.expect(t, trace_ok && read_trace.first == 1 && slice.equal(read_trace.sums[:], trace.sums[:]))
+	trace_text, trace_err := os.read_entire_file(trace_path, context.temp_allocator)
+	trace_lines := strings.split_lines(strings.trim_space(string(trace_text)), context.temp_allocator)
+	testing.expect(t, trace_err == nil && len(trace_lines) == 300)
+	testing.expect_value(t, trace_lines[299], fmt.tprintf("%06d %016x", 300, trace.sums[299]))
 	replay_trace: headless.Trace
 	defer headless.trace_destroy(&replay_trace)
 	replay, replay_ok := headless.run_replay(&HEADLESS, &read_log, &replay_trace)

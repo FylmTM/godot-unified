@@ -1,7 +1,7 @@
 // The pinned library's results: a fixed scene (every body type, a stack that settles and sleeps, a spinning capsule, a
 // sphere), 240 ticks, hashed every 60, through unified:b3. The same on every platform. A library upgrade or a wrapper
 // change that alters any of these values fails here first, then the games' reference runs; if the change is
-// intended, update GOLDEN (and regenerate the reference runs, `uni record-reference <game>|toy`) in the same commit.
+// intended, update GOLDEN (and the reference runs' constants, the sim-change skill) in the same commit.
 package test_b3
 
 import "core:testing"

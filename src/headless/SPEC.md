@@ -105,9 +105,9 @@ calls each one explicitly; tests are named for what they check; no platform assu
 - **`unified:headless/scenarios`** (`src/headless/scenarios/`): the standard scenarios, one proc each. A test-only
   sub-package (it imports `core:testing`); game binaries never import it. The `headless` lint rule covers all three.
 - **Each game's suite:** `games/<game>/simulation/tests/suite_test.odin`: one `@(test)` per standard scenario call,
-  then the game's own scenarios. Its reference run stays in `simulation/tests/testdata/`.
-- **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests, with the toy's reference run in
-  `tests/scenarios/testdata/`. It is the template a game's suite copies: the standard part is identical in shape.
+  then the game's own scenarios, with its reference run's constants in its `Suite`.
+- **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests. It is the template a game's suite
+  copies: the standard part is identical in shape.
 - **The seeded-bug eval** (#123): `tests/scenarios/seeded_bugs_test.odin` plants runtime determinism bugs in the toy
   (World state not rolled back, state instances share, a value from an address) and checks that the detector meant
   for each (`rollback_every_tick`, `runs_match`, the netcode's desync detection) catches it. The static traps have
@@ -124,11 +124,15 @@ Suite :: struct($G: typeid) {    // G: the game type, a sim.Game (scenarios.Suit
 	ticks:   u32, // length of offline runs and sessions
 	ref:     Reference,
 }
-Reference :: struct {
-	dir:                  string, // #directory + "/testdata"
-	ticks, snapshot_tick: u32,    // ref.trace covers 1..ticks; ref-<snapshot_tick>.snap
-	seed:                 u64,
-	players:              int,
+Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pinned by hashes
+	seed:          u64,
+	players:       int,
+	ticks:         u32,
+	snapshot_tick: u32,           // the snapshot taken there resumes to `ticks`
+	checkpoints:   [4]u64,        // the checksum at ticks / 4, ticks / 2, 3 * ticks / 4 and ticks
+	trace:         u64,           // the hash of every tick's checksum
+	snapshot:      u64,           // the hash of the snapshot's bytes
+	log:           u64,           // the hash of the input log's bytes
 }
 ```
 
@@ -140,8 +144,7 @@ Reference :: struct {
 | `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
 | `session_log_replays(t, suite, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
 | `late_join_agrees(t, suite, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
-| `reference_replays(t, suite)` | replay of `ref.log` equals `ref.trace` |
-| `reference_resumes(t, suite)` | resume of the snapshot equals the rest of `ref.trace` |
+| `reference_reproduces(t, suite)` | the reference run's checkpoints and hashes are the suite's constants; its log decodes and replays, and its snapshot resumes, to the same checksums |
 
 `profile` is `scenarios.Profile` (`.Ideal`, `.Wan`, `.Bad`: the network profiles above). Sessions run on the virtual
 clock over loopback with the suite's seed and ticks; `late_join_agrees` runs `players` clients, `player` joining at
@@ -158,7 +161,7 @@ four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_ag
 
 The toy's suite calls `session_agrees` for 2 and 4 clients under `ideal`, `wan` and `bad`, and every other proc
 once: it proves the library. A game's suite runs the minimal set that proves the game (`rollback_every_tick`, 4
-clients under `bad`, a late joiner, `presence_churn`, the reference run's replay and resume) and puts the rest in
+clients under `bad`, a late joiner, `presence_churn`, the reference run) and puts the rest in
 `when scenarios.LONG`.
 
 ### Running
@@ -179,15 +182,14 @@ clients under `bad`, a late joiner, `presence_churn`, the reference run's replay
   on a release build (reported, not gated; target: forward step + a re-sim of the prediction cap, 14 ticks at 64 Hz,
   ≤ 6 ms at their p99), and CI's job summary shows them.
 
-### Reference runs (#61)
+### Reference runs
 
-A reference run is a committed run every platform must reproduce. `uni record-reference <game>|toy`, on any
-machine, runs that suite with `-define:UNIFIED_REGEN=true`: `reference_replays` then writes `ref.log`, `ref.trace`
-and the snapshot through `run_sim` and `run_snapshot`, checks them (replay, resume), and writes `ref.json` (where it
-was made: OS, architecture, Odin version, build flags, commit; when; the parameters) unless the log, trace and
-snapshot came out byte for byte as committed: then ref.json stays too, and `record-reference` reports "nothing
-changed" (re-recording is how to ask whether a change alters the sim). `reference_resumes` skips in
-that build (it would race the writes); the other scenarios run as usual. Regenerate only after a change that
-legitimately alters the simulation or the log or snapshot format, and commit the files with it, saying why. Nothing
-else in the tools, suites or docs names a platform, and every build is for the machine it runs on (no `--arch` in
-`uni build` or `uni setup`). CI runs both x64 and arm64, so it is the cross-architecture check.
+A reference run is a run every platform must reproduce, pinned in the suite as constants (`Reference`): the
+checksums at four checkpoints, the hash of every tick's checksum, and the hashes of the input log's and the
+snapshot's bytes, so this platform both computes and encodes what every other does. `reference_reproduces` also
+decodes the log and replays it, and resumes the snapshot, against the run's checksums. A mismatch names the first
+checkpoint that differs and prints the literal to paste; paste it only after a change that alters the simulation or
+the log or snapshot format, saying why (the `sim-change` skill). The log and snapshot carry compat, so a version or
+pin bump moves their hashes while the checkpoints and trace stay. To find the first tick that differs between two
+builds: `uni headless <game> -- sim --trace FILE` on both, then compare the files. Nothing in the tools, suites or
+docs names a platform; CI runs x64 and arm64, so it is the cross-architecture check.
