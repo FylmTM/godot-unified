@@ -1,6 +1,6 @@
 # `unified:netcode`: input relay, prediction, rollback
 
-Status: draft, pending #333.
+Status: signed off 2026-11-18 (#333)
 
 Nobody sends game state: every client runs the whole deterministic sim, and the relay only orders inputs. The
 relay's input log is the session (seed + content + log replays to the same checksums anywhere).
@@ -244,10 +244,3 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
   first desync the relay asks a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`:
   table by table, field by field, then each extra's image): "tick 4160: enemies[12].pos.x 3.25 vs 3.5". Later
   desyncs are its consequences and carry no detail.
-
-## Tests
-
-`tests/netcode` runs the relay, the host and clients on the toy over loopback links and the network simulator, on a
-virtual clock, from one thread; hostile peers are raw channels. The end-to-end suites run the same code through
-`unified:headless` (`src/headless/SPEC.md`), and `uni test --suite net` runs it in real time over UDP between
-processes.
