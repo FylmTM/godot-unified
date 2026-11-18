@@ -6,11 +6,12 @@ package test_friendslop
 
 import "core:testing"
 
-import fs "../friendslop"
 import "unified:headless/scenarios"
 
-SUITE := scenarios.Suite(fs.Game) {
-	game = &fs.GAME,
+import g "../friendslop"
+
+SUITE := scenarios.Suite(g.Game) {
+	game = &g.GAME,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
@@ -19,10 +20,10 @@ SUITE := scenarios.Suite(fs.Game) {
 		players       = 4,
 		ticks         = 1800,
 		snapshot_tick = 900,
-		checkpoints   = {0xcfe5b7db233845bc, 0x72eaab3d528709da, 0xc9d9cc9c501cc6eb, 0xbbdbe6b070bbe7e5},
-		trace         = 0x33a0269a4da98c71,
-		snapshot      = 0xf743469b7d1c0826,
-		log           = 0x5e69078d82296ed2,
+		checkpoints   = {0xcbcb1d0ca962d7f5, 0xf3a61eca3c251a74, 0xa03ad788e0772a1f, 0x581385160e917644},
+		trace         = 0x98547ea8b7480f89,
+		snapshot      = 0xa19e4ea26a9ddb8b,
+		log           = 0xc575dd80e6b73748,
 	},
 }
 

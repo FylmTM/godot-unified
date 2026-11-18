@@ -4,14 +4,13 @@
 // Built by `uni build friendslop`.
 package friendslop_extension
 
-import "core:math"
 import "unified:dmath"
 import "unified:eos"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
 
-import fs "../friendslop"
+import g "../friendslop"
 
 @(export, link_name = "friendslop_init")
 friendslop_init :: proc "c" (
@@ -20,10 +19,10 @@ friendslop_init :: proc "c" (
 	init: ^godot.Initialization,
 ) -> godot.Init_Result {
 	// online play: EOS lobbies and P2P
-	return godot.init(&fs.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
-/// ---- glue
+// ---- glue
 
 // Scene views (the view index: a scene per kind, with a UnifiedView marker). A player's view is keyed by
 // sim.player_key. Every sim object the level placed (items, platforms, bells, plates, switches) is a `marker` view
@@ -37,9 +36,9 @@ View :: enum u8 {
 // No MultiMesh views.
 MultiView :: enum u8 {}
 
-Frame :: godot.Frame(fs.Game, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
-GLUE := godot.Glue(fs.Game, View, MultiView) {
+GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
@@ -47,15 +46,10 @@ GLUE := godot.Glue(fs.Game, View, MultiView) {
 	input_values = Input_Values,
 }
 
-// The session data (Unified.data.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
-Data :: union {
-	fs.Data_Hud,
-}
-
 // An event about a player goes to that player's view. So grabbed, dropped and thrown stay with the holder's view, and
 // a switch a player touched with the player's, where the default routing would send them to the item's or the
 // switch's view (its `entity`: the marker view keyed by that marker's index). The rest: by their subject.
-event_key :: proc(_: fs.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(_: g.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	if subject.player != {} do return .Player, sim.player_key(subject.player), .View
 	return
 }
@@ -69,26 +63,19 @@ Input_Values :: struct {
 }
 
 // A jump or grab tap shorter than a frame still counts (action_down).
-sample_input :: proc(input: ^fs.Input) {
+sample_input :: proc(input: ^g.Input) {
 	values := godot.input_values(Input_Values)
 	look, right := values.look, values.right
 	if look == {} do look = {0, 0, -1}
 	if right == {} do right = {1, 0, 0}
-	forward := normalize2({look.x, look.z})
-	flat_right := normalize2({right.x, right.z})
+	forward := dmath.normalize(look.xz)
+	flat_right := dmath.normalize(right.xz)
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
 	input.move_x = dmath.axis_i8(flat_right.x * move.x - forward.x * move.y)
 	input.move_z = dmath.axis_i8(flat_right.y * move.x - forward.y * move.y)
 	input.aim = dmath.dir3(look)
-	input.buttons = godot.buttons(fs.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
-}
-
-normalize2 :: proc(v: [2]f32) -> [2]f32 {
-	length_sq := v.x * v.x + v.y * v.y
-	if length_sq < 1e-8 do return {0, -1}
-	scale := 1 / math.sqrt(length_sq)
-	return {v.x * scale, v.y * scale}
+	input.buttons = godot.buttons(g.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
 }
 
 // ---- the frame (session thread)
@@ -111,7 +98,7 @@ fill_frame :: proc(f: ^Frame) {
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
-			charge  = f32(character.charge) / f32(fs.THROW_CHARGE_TICKS),
+			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		})
 	}
 	add_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
@@ -136,14 +123,14 @@ fill_frame :: proc(f: ^Frame) {
 			rot  = f.world.level.markers[marker].rot,
 		})
 	}
-	godot.push_data(f, fs.hud(f.state, f.tick))
+	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
 // ---- constants for the scripts (Unified.constants), from the sim's own definitions
 
 // An item kind's size as the sim simulates it (a sphere: its diameter on every axis).
 Item_Size :: struct {
-	kind: fs.Item_Kind, // EnumItemKind
+	kind: g.Item_Kind, // EnumItemKind
 	_pad: [3]u8,
 	size: [3]f32,
 }
@@ -154,19 +141,19 @@ Data_Constants :: struct {
 	feet:               f32, // from the capsule centre down to the ground it stands on
 	player_radius:      f32,
 	player_half_height: f32,
-	item_sizes:         [len(fs.Item_Kind)]Item_Size, // by kind
+	item_sizes:         [len(g.Item_Kind)]Item_Size, // by kind
 }
 
-// godot.init calls it once: the item sizes come from fs.ITEM_SPECS.
+// godot.init calls it once: the item sizes come from g.ITEM_SPECS.
 constants :: proc() -> Data_Constants {
 	constants := Data_Constants {
-		finish_hold_s      = fs.FINISH_HOLD_S,
-		respawn_s          = fs.RESPAWN_S,
-		feet               = fs.FEET,
-		player_radius      = fs.PLAYER_RADIUS,
-		player_half_height = fs.PLAYER_HALF_HEIGHT,
+		finish_hold_s      = g.FINISH_HOLD_S,
+		respawn_s          = g.RESPAWN_S,
+		feet               = g.FEET,
+		player_radius      = g.PLAYER_RADIUS,
+		player_half_height = g.PLAYER_HALF_HEIGHT,
 	}
-	for spec, kind in fs.ITEM_SPECS {
+	for spec, kind in g.ITEM_SPECS {
 		size := spec.half == {} ? [3]f32{spec.radius, spec.radius, spec.radius} * 2 : spec.half * 2
 		constants.item_sizes[int(kind)] = {
 			kind = kind,

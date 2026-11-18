@@ -1,5 +1,3 @@
-// The World (outside the block): the physics world, the level file and what the sim reads from its
-// markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
 import "unified:dmath"
@@ -15,8 +13,6 @@ CAT_ITEM :: u64(1 << 2)
 CAT_PLATFORM :: u64(1 << 3)
 CAT_TRIGGER :: u64(1 << 4)
 
-GRAVITY :: 10.0 // Box3D's default, |g|
-
 Item_Kind :: enum u8 {
 	Crate,
 	Ball,
@@ -25,84 +21,6 @@ Item_Kind :: enum u8 {
 	Heavy, // too heavy for one: two handles
 	Trophy,
 }
-
-Item_Spec :: struct {
-	half:        [3]f32, // box half extents (zero: a sphere)
-	radius:      f32, // sphere radius; for boxes, the grab reach bonus
-	mass:        f32,
-	lift:        f32, // one holder's spring force cap, in multiples of the item's weight
-	friction:    f32,
-	restitution: f32,
-	grab_points: u8, // 1 = the centre, 2 = ±x ends
-	throwable:   bool,
-}
-
-@(rodata)
-ITEM_SPECS := [Item_Kind]Item_Spec {
-	.Crate = {
-		half        = {0.35, 0.35, 0.35},
-		radius      = 0.35,
-		mass        = 10,
-		lift        = 3,
-		friction    = 0.6,
-		restitution = 0.1,
-		grab_points = 1,
-		throwable   = true,
-	},
-	.Ball = {
-		radius      = 0.3,
-		mass        = 3,
-		lift        = 3,
-		friction    = 0.5,
-		restitution = 0.6,
-		grab_points = 1,
-		throwable   = true,
-	},
-	.Cube = {
-		half        = {0.4, 0.4, 0.4},
-		radius      = 0.4,
-		mass        = 20,
-		lift        = 2,
-		friction    = 0.7,
-		restitution = 0,
-		grab_points = 1,
-		throwable   = true,
-	},
-	.Key = {
-		half        = {0.15, 0.25, 0.15},
-		radius      = 0.25,
-		mass        = 3,
-		lift        = 3,
-		friction    = 0.6,
-		restitution = 0.1,
-		grab_points = 1,
-		throwable   = true,
-	},
-	.Heavy = {
-		half        = {0.7, 0.4, 0.45},
-		radius      = 0.7,
-		mass        = 50,
-		lift        = 0.6,
-		friction    = 0.6,
-		restitution = 0,
-		grab_points = 2,
-		throwable   = false,
-	},
-	.Trophy = {
-		half        = {0.25, 0.4, 0.25},
-		radius      = 0.4,
-		mass        = 5,
-		lift        = 3,
-		friction    = 0.6,
-		restitution = 0.1,
-		grab_points = 1,
-		throwable   = true,
-	},
-}
-
-// Holding a friend: the spring's cap is 2.5× a player's weight (a soft spring needs headroom to accelerate
-// the body, not just hold it: 1.4× only drags a friend along the floor).
-PLAYER_LIFT :: 2.5
 
 Platform_Mode :: enum u8 {
 	Ping_Pong,
@@ -165,6 +83,8 @@ Checkpoint_Def :: struct {
 	volume: Volume,
 }
 
+// The world outside the block: the physics world, the level and what the sim reads from its markers
+// (games/friendslop/SPEC.md "Level"), and per-tick scratch.
 World :: struct {
 	phys:             ^physics.World,
 	level:            level.Level,
@@ -188,23 +108,6 @@ World :: struct {
 	character_def:    physics.Character_Def, // the players' (world_create)
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(Game)
-
-@(rodata)
-GAME := Game {
-	name = "friendslop",
-	version = "4", // 4: plates, switches and locks are sensors (#236)
-	tick_hz = TICK_HZ,
-	content = #load("../../game/levels/park.level"), // the committed export of game/levels/park.tscn (uni bake)
-	world_create = world_create,
-	world_destroy = world_destroy,
-	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
-	init = init,
-	tick = tick,
-	scripted_input = scripted_input,
-}
-
 // Builds the world from the level (src/level/SPEC.md): static geometry, then the markers the sim uses.
 // Bodies the block owns (items, platforms, bells) are created by init, in this order.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
@@ -222,12 +125,12 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.character_def.pogo_rest = POGO_REST
 	world.phys = physics.create({
 		tick_hz             = TICK_HZ,
-		hit_event_threshold = 2,
+		hit_event_threshold = HIT_EVENT_SPEED,
 		workers             = PHYSICS_WORKERS,
 	})
 	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
-	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 1.5 - 2.25, 1.2, 0}
+	world.spawns = DEFAULT_SPAWNS
 	// Triggers first: platforms refer to them by marker index.
 	trigger_of := make([]int, len(world.level.markers), context.temp_allocator)
 	for &trigger in trigger_of do trigger = -1
@@ -328,8 +231,8 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 }
 
 // The sensor of a plate, switch or lock (bells are bodies of the block: init): a static box over its volume that
-// sees the bodies with sensor events on (items, characters). A plate's reaches 2.5 m above it (what stands on it); a
-// plate sees items, and players unless it is items_only; a switch sees players; a lock sees items.
+// sees the bodies with sensor events on (items, characters). A plate's reaches PLATE_REACH above it (what stands on
+// it); a plate sees items, and players unless it is items_only; a switch sees players; a lock sees items.
 @(private)
 create_trigger_sensor :: proc(world: ^World, index: int) {
 	def := &world.triggers[index]
@@ -339,7 +242,11 @@ create_trigger_sensor :: proc(world: ^World, index: int) {
 	case .Plate:
 		mask = def.items_only ? CAT_ITEM : CAT_ITEM | CAT_PLAYER
 		top := volume.pos.y + volume.half.y
-		volume = {{volume.pos.x, top + 1.15, volume.pos.z}, {volume.half.x, 1.35, volume.half.z}} // top - 0.2 .. top + 2.5
+		// top - PLATE_SINK .. top + PLATE_REACH
+		volume = {
+			{volume.pos.x, top + (PLATE_REACH - PLATE_SINK) / 2, volume.pos.z},
+			{volume.half.x, (PLATE_REACH + PLATE_SINK) / 2, volume.half.z},
+		}
 	case .Switch:
 		mask = CAT_PLAYER
 	case .Lock:
@@ -383,7 +290,7 @@ init :: proc(t: ^Tick) {
 		body_def := physics.body_def(.Kinematic, def.origin, def.rot)
 		body_def.enable_sleep = false
 		shape_def := physics.shape_def(CAT_PLATFORM)
-		shape_def.base_material.friction = 0.8
+		shape_def.base_material.friction = PLATFORM_FRICTION
 		ref, _ := physics.create_box(t.world.phys, body_def, shape_def, def.half, u64(i))
 		t.state.platforms[i] = {
 			body    = ref,
@@ -395,7 +302,7 @@ init :: proc(t: ^Tick) {
 		if def.kind != .Bell do continue
 		shape_def := physics.shape_def(CAT_TRIGGER)
 		shape_def.enable_hit_events = true
-		t.state.bodies[i], _ = physics.create_sphere(
+		t.state.bells[i], _ = physics.create_sphere(
 			t.world.phys,
 			physics.body_def(.Static, def.volume.pos),
 			shape_def,
@@ -405,37 +312,30 @@ init :: proc(t: ^Tick) {
 	}
 }
 
-// Creates an item's dynamic body at its level placement (a sphere or a box, its density set from the item's mass),
-// tagged with its index, with hit events on and sensor events on (plates and locks see it).
-create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
-	def := &world.items[index]
-	spec := &ITEM_SPECS[def.kind]
-	body_def := physics.body_def(.Dynamic, def.pos, def.rot)
-	shape_def := physics.shape_def(CAT_ITEM)
-	shape_def.base_material.friction = spec.friction
-	shape_def.base_material.restitution = spec.restitution
-	shape_def.enable_hit_events = true
-	shape_def.enable_sensor_events = true
-	ref: Body_Ref
-	if spec.half == {} {
-		shape_def.density = physics.sphere_density(spec.mass, spec.radius)
-		ref, _ = physics.create_sphere(world.phys, body_def, shape_def, spec.radius, u64(index))
-	} else {
-		shape_def.density = physics.box_density(spec.mass, spec.half)
-		ref, _ = physics.create_box(world.phys, body_def, shape_def, spec.half, u64(index))
+// What a body is, from a query's or a contact's category and tag: an item (its index) or a player (its handle).
+Body_Kind :: enum u8 {
+	Other,
+	Item,
+	Player,
+}
+
+Body :: struct {
+	kind:   Body_Kind,
+	item:   int, // .Item: the item index
+	player: sim.Player, // .Player
+}
+
+body_of :: proc(category, tag: u64) -> Body {
+	switch {
+	case category & CAT_ITEM != 0:
+		return {kind = .Item, item = int(tag)}
+	case category & CAT_PLAYER != 0:
+		return {kind = .Player, player = sim.player_of_key(tag)}
 	}
-	return ref
+	return {}
 }
 
-// The offset of an item's grab point `point` in the item's local frame.
-grab_point_offset :: proc(kind: Item_Kind, point: int) -> [3]f32 {
-	spec := &ITEM_SPECS[kind]
-	if spec.grab_points < 2 do return {}
-	x := spec.half.x + 0.05
-	return {point == 0 ? -x : x, 0, 0}
-}
-
-// Whether a point is inside an axis-aligned volume (pads, bumpers, plates, switches, checkpoints, start and finish).
+// Whether a point is inside an axis-aligned volume (pads, bumpers, checkpoints, start and finish).
 in_volume :: proc(volume: Volume, point: [3]f32) -> bool {
 	offset := point - volume.pos
 	return abs(offset.x) <= volume.half.x && abs(offset.y) <= volume.half.y && abs(offset.z) <= volume.half.z

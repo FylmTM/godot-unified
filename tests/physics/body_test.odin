@@ -65,6 +65,28 @@ body_velocities :: proc(t: ^testing.T) {
 	testing.expect(t, near(physics.body_world_point_velocity(world, body, {1, 0, 0}), {1, 0, -2}, 1e-6))
 }
 
+// A teleport moves the body and stops it; the rotation defaults to none.
+@(test)
+body_teleport_stops_it :: proc(t: ^testing.T) {
+	world := api_world()
+	defer physics.destroy(world)
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
+	physics.body_set_linear_velocity(world, body, {1, 2, 3})
+	physics.body_set_angular_velocity(world, body, {0, 2, 0})
+	physics.body_teleport(world, body, {4, 5, 6}, QUARTER_Y)
+	testing.expect_value(t, physics.body_transform(world, body), physics.Transform{{4, 5, 6}, QUARTER_Y})
+	testing.expect_value(t, physics.body_linear_velocity(world, body), [3]f32{})
+	testing.expect_value(t, physics.body_angular_velocity(world, body), [3]f32{})
+	physics.body_set_linear_velocity(world, body, {1, 0, 0})
+	physics.body_teleport(world, body, {7, 8, 9})
+	testing.expect_value(t, physics.body_transform(world, body), physics.Transform{{7, 8, 9}, {0, 0, 0, 1}})
+	testing.expect_value(t, physics.body_linear_velocity(world, body), [3]f32{})
+	// It falls from there as if dropped.
+	steps(world, 1)
+	velocity := physics.body_linear_velocity(world, body)
+	testing.expectf(t, velocity.x == 0 && velocity.z == 0 && velocity.y < 0, "after a step: %v", velocity)
+}
+
 @(test)
 body_forces_and_impulses :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})

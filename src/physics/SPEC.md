@@ -93,6 +93,7 @@ body_def(type, position, rotation := identity) -> Body_Def      shape_def(catego
 create_box(world, Body_Def, Shape_Def, half: [3]f32, tag := 0) -> (Body_Ref, Shape_Ref)   // create_box_shape on a new body
 create_sphere(world, Body_Def, Shape_Def, radius, tag := 0)  create_capsule(world, Body_Def, Shape_Def, Capsule, tag := 0)
 box_density(mass, half) / sphere_density(mass, radius) / capsule_density(mass, Capsule) -> f32  // Box3D's mass at density 1
+body_teleport(world, Body_Ref, position, rotation := identity)  // moves it and stops it (velocities zeroed): respawns, resets
 ```
 
 ## What physics covers

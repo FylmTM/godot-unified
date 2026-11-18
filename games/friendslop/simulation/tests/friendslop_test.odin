@@ -6,42 +6,39 @@ package test_friendslop
 
 import "core:testing"
 
-import fs "../friendslop"
 import "unified:dmath"
 import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:physics"
 import "unified:sim"
 
-// A sync-tested run (headless.Run) on the park (fs.GAME's level).
-Run :: struct {
-	using checked: headless.Run(fs.Game),
-	setup_index:   int, // a setup's arguments (tests run on several threads: no globals)
-	setup_pos:     [3]f32,
-}
+import g "../friendslop"
+
+// A sync-tested run on the park (g.GAME's level).
+Run :: headless.Run(g.Game)
 
 // A run with `players` slots present from the first tick (slot i is member i + 1).
 start :: proc(players: int) -> (run: Run) {
-	run.checked = headless.run_begin(&fs.GAME, 1)
-	for slot in 0 ..< players do headless.run_seat(&run.checked, slot, slot + 1)
+	run = headless.run_begin(&g.GAME, 1)
+	for slot in 0 ..< players do headless.run_seat(&run, slot, slot + 1)
 	step(&run, {}) // players join on the first tick: their bodies exist from here on
 	return
 }
 
 finish :: proc(run: ^Run) {
-	headless.run_end(&run.checked)
+	headless.run_end(run)
 }
 
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs (by slot).
-step :: proc(run: ^Run, inputs_by_slot: [fs.PLAYERS]fs.Input) {
-	inputs := headless.run_inputs(&run.checked)
+step :: proc(run: ^Run, inputs_by_slot: [g.PLAYERS]g.Input) {
+	inputs := headless.run_inputs(run)
 	inputs.input = inputs_by_slot
-	headless.run_step(&run.checked, &inputs)
+	headless.run_step(run, &inputs)
 }
 
 // How many events of type E the forward ticks emitted.
 event_count :: proc(run: ^Run, $E: typeid) -> int {
-	return headless.run_events(&run.checked, E)
+	return headless.run_events(run, E)
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {
@@ -53,7 +50,7 @@ item_pos :: proc(run: ^Run, item: int) -> [3]f32 {
 }
 
 // The nth item of a kind, in level order.
-item_of :: proc(run: ^Run, kind: fs.Item_Kind, nth := 0) -> int {
+item_of :: proc(run: ^Run, kind: g.Item_Kind, nth := 0) -> int {
 	seen := 0
 	for i in 0 ..< run.simulation.world.item_count {
 		if run.simulation.world.items[i].kind == kind {
@@ -65,10 +62,10 @@ item_of :: proc(run: ^Run, kind: fs.Item_Kind, nth := 0) -> int {
 }
 
 // Walks the player in `slot` towards `target` (stops within `near`), looking at `look` (default: the target).
-walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe([3]f32) = nil) -> fs.Input {
+walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe([3]f32) = nil) -> g.Input {
 	at := player_pos(run, slot)
 	offset := [2]f32{target.x - at.x, target.z - at.z}
-	input: fs.Input
+	input: g.Input
 	if dmath.length(offset) > near {
 		direction := dmath.normalize(offset)
 		input.move_x = dmath.axis_i8(direction.x)
@@ -77,9 +74,9 @@ walk :: proc(run: ^Run, slot: int, target: [3]f32, near: f32 = 0.3, look: Maybe(
 	return aim_at(run, slot, look.? or_else target, input)
 }
 
-aim_at :: proc(run: ^Run, slot: int, target: [3]f32, input: fs.Input) -> fs.Input {
+aim_at :: proc(run: ^Run, slot: int, target: [3]f32, input: g.Input) -> g.Input {
 	input := input
-	aim := dmath.normalize(target - (player_pos(run, slot) + {0, fs.HOLD_UP, 0}))
+	aim := dmath.normalize(target - (player_pos(run, slot) + {0, g.HOLD_UP, 0}))
 	input.aim = dmath.dir3(aim)
 	return input
 }
@@ -89,7 +86,7 @@ idle :: proc(run: ^Run, ticks: int) {
 }
 
 expect_clean :: proc(t: ^testing.T, run: ^Run, loc := #caller_location) {
-	scenarios.expect_synced(t, &run.checked, loc)
+	scenarios.expect_synced(t, run, loc)
 }
 
 @(test)
@@ -98,7 +95,7 @@ level_loads :: proc(t: ^testing.T) {
 	defer finish(&run)
 	idle(&run, 64)
 	// Players stand on the floor: centre at FEET above it.
-	testing.expectf(t, abs(player_pos(&run, 0).y - fs.FEET) < 0.05, "standing at %v", player_pos(&run, 0))
+	testing.expectf(t, abs(player_pos(&run, 0).y - g.FEET) < 0.05, "standing at %v", player_pos(&run, 0))
 	testing.expect(t, physics.character_grounded(&sim.slot_data(run.simulation, 0).controller))
 	expect_clean(t, &run)
 }
@@ -118,7 +115,7 @@ heavy_needs_two :: proc(t: ^testing.T) {
 	}
 	// P0 grabs alone and pulls up for 2 s: it stays on the floor.
 	step(&run, {aim_at(&run, 0, heavy_pos + {0, 1, 0}, {buttons = {.Grab}}), aim_at(&run, 1, heavy_pos, {}), {}, {}})
-	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Item)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, g.Held_Kind.Item)
 	for _ in 0 ..< 128 {
 		step(&run, {aim_at(&run, 0, heavy_pos + {0, 2, 0}, {}), aim_at(&run, 1, heavy_pos, {}), {}, {}})
 	}
@@ -131,7 +128,7 @@ heavy_needs_two :: proc(t: ^testing.T) {
 		{},
 		{},
 	})
-	testing.expect_value(t, sim.slot_data(run.simulation, 1).held_kind, fs.Held_Kind.Item)
+	testing.expect_value(t, sim.slot_data(run.simulation, 1).held_kind, g.Held_Kind.Item)
 	if sim.slot_data(run.simulation, 1).held_kind == .Item {
 		testing.expect(t, sim.slot_data(run.simulation, 1).grab_point != sim.slot_data(run.simulation, 0).grab_point)
 	}
@@ -168,19 +165,19 @@ throw_hits_friend :: proc(t: ^testing.T) {
 		step(&run, {walk(&run, 0, stand, 0.1, crate_pos), walk(&run, 1, friend, 0.1), {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = {.Grab}}), {}, {}, {}})
-	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Item)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, g.Held_Kind.Item)
 	for _ in 0 ..< 40 {
 		step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {buttons = {.Throw}}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {}), {}, {}, {}}) // release: throw
-	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
+	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
 	stunned := false
 	for _ in 0 ..< 96 {
 		step(&run, {})
 		stunned ||= sim.slot_data(run.simulation, 1).stun > 0
 	}
 	testing.expect(t, stunned)
-	testing.expectf(t, event_count(&run, fs.Event_Hit) >= 1, "no hit (thrown %d)", event_count(&run, fs.Event_Thrown))
+	testing.expectf(t, event_count(&run, g.Event_Hit) >= 1, "no hit (thrown %d)", event_count(&run, g.Event_Thrown))
 	idle(&run, 96)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).stun, 0)
 	testing.expect(t, .Limp not_in sim.slot_data(run.simulation, 1).controller.flags)
@@ -199,7 +196,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 	lift_at := world.platforms[lift].origin
 	ferry_at := world.platforms[ferry].origin
 	// Wait at the bottom: the lift comes back down every cycle.
-	cycle := int(physics.path_duration_ticks(&world.platforms[lift].path, fs.TICK_HZ))
+	cycle := int(physics.path_duration_ticks(&world.platforms[lift].path, g.TICK_HZ))
 	on_lift := false
 	top: f32 = 0
 	for _ in 0 ..< 2 * cycle {
@@ -231,9 +228,9 @@ pad_launches_player :: proc(t: ^testing.T) {
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, pad, 0.05), {}, {}, {}})
 		peak = max(peak, player_pos(&run, 0).y)
-		if event_count(&run, fs.Event_Launched) > 0 do break
+		if event_count(&run, g.Event_Launched) > 0 do break
 	}
-	testing.expect(t, event_count(&run, fs.Event_Launched) >= 1)
+	testing.expect(t, event_count(&run, g.Event_Launched) >= 1)
 	for _ in 0 ..< 160 {
 		step(&run, {})
 		peak = max(peak, player_pos(&run, 0).y)
@@ -253,7 +250,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		step(&run, {walk(&run, 0, player_pos(&run, 1) + {-1.2, 0, 0}, 0.1, player_pos(&run, 1)), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
-	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Player)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, g.Held_Kind.Player)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).held_by, sim.player_in_slot(run.simulation, 0))
 	start_y := player_pos(&run, 1).y
 	for _ in 0 ..< 48 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {0, 0.3, 2}, {}), {}, {}, {}})
@@ -273,7 +270,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 			{},
 		})
 	}
-	testing.expect_value(t, event_count(&run, fs.Event_Broke_Free), 1)
+	testing.expect_value(t, event_count(&run, g.Event_Broke_Free), 1)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).held_by, sim.Player{})
 	idle(&run, 96)
 	// Grab again and throw.
@@ -281,7 +278,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		step(&run, {walk(&run, 0, player_pos(&run, 1) + {-1.2, 0, 0}, 0.1, player_pos(&run, 1)), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
-	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Player)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, g.Held_Kind.Player)
 	for _ in 0 ..< 8 do step(&run, {
 		{aim = dmath.dir3({0, 40, 100}), buttons = {.Throw}},
 		{},
@@ -294,7 +291,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		{},
 		{},
 	})
-	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
+	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
 	testing.expect(t, sim.slot_data(run.simulation, 1).thrown)
 	idle(&run, 160)
 	testing.expect(t, !sim.slot_data(run.simulation, 1).thrown)
@@ -305,7 +302,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		sim.slot_data(run.simulation, 1).controller.flags,
 		player_pos(&run, 1),
 	)
-	testing.expect_value(t, event_count(&run, fs.Event_Fell), 0)
+	testing.expect_value(t, event_count(&run, g.Event_Fell), 0)
 	expect_clean(t, &run)
 }
 
@@ -321,23 +318,23 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	crate_pos := item_pos(&run, crate)
 	for _ in 0 ..< 200 do step(&run, {walk(&run, 0, crate_pos + {-1.3, 0, 0}, 0.1, crate_pos), {}, {}, {}})
 	step(&run, {aim_at(&run, 0, item_pos(&run, crate), {buttons = {.Grab}}), {}, {}, {}})
-	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Item)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, g.Held_Kind.Item)
 	thrower := sim.player_in_slot(run.simulation, 0)
 	for _ in 0 ..< 8 do step(&run, {{aim = dmath.dir3({0, 40, -100}), buttons = {.Throw}}, {}, {}, {}})
 	step(&run, {{aim = dmath.dir3({0, 40, -100})}, {}, {}, {}}) // release: throw
-	testing.expect_value(t, event_count(&run, fs.Event_Thrown), 1)
+	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower leaves; someone new (member 100) takes slot 0.
-	headless.run_seat(&run.checked, 0, 0)
+	headless.run_seat(&run, 0, 0)
 	step(&run, {})
-	headless.run_seat(&run.checked, 0, 100)
+	headless.run_seat(&run, 0, 100)
 	step(&run, {})
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower comes back in slot 2, and the crate is still theirs.
-	headless.run_seat(&run.checked, 2, 1)
+	headless.run_seat(&run, 2, 1)
 	step(&run, {})
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	testing.expect(t, items[crate].thrown_ticks > 0)
-	testing.expect_value(t, event_count(&run, fs.Event_Spawned), 4) // two at the start, the newcomer, the return
+	testing.expect_value(t, event_count(&run, g.Event_Spawned), 4) // two at the start, the newcomer, the return
 	expect_clean(t, &run)
 }

@@ -35,6 +35,15 @@ body_set_transform :: proc(world: ^World, ref: Body_Ref, position: [3]f32, rotat
 	box3d.Body_SetTransform(body_id(world, ref), transmute(box3d.Vec3)position, transmute(box3d.Quat)rotation)
 }
 
+// Moves the body and stops it: its velocities zeroed (respawns, resets, putting a thing back). A character has its own
+// (character_teleport).
+body_teleport :: proc(world: ^World, ref: Body_Ref, position: [3]f32, rotation := [4]f32{0, 0, 0, 1}) {
+	id := body_id(world, ref)
+	box3d.Body_SetTransform(id, transmute(box3d.Vec3)position, transmute(box3d.Quat)rotation)
+	box3d.Body_SetLinearVelocity(id, {})
+	box3d.Body_SetAngularVelocity(id, {})
+}
+
 // Sets a kinematic body's velocities so it reaches `target` in `time_step` (a moving platform's next pose: `t.dt`).
 body_set_target_transform :: proc(world: ^World, ref: Body_Ref, target: Transform, time_step: f32, wake := true) {
 	box3d.Body_SetTargetTransform(body_id(world, ref), transmute(box3d.Transform)target, time_step, wake)
