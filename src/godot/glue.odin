@@ -52,23 +52,6 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 	poses:        ^Pose_Memory, // every keyed item's pose at the fill before
 }
 
-Net_Stats :: struct {
-	rtt_ms:      f32,
-	delay:       u32, // input delay, ticks
-	rollbacks:   i32,
-	resim_ticks: i32,
-	depth_max:   i32,
-	// cumulative, for the dev UI's graphs (the host takes differences)
-	stalls:      i32, // ticks held back by the prediction cap
-	replaced:    i32, // ticks where the relay replaced our input (it arrived too late)
-	steps:       [3]i32, // ticks stepped: verified, re-simulated, predicted
-	step_us:     [3]i64, // time stepping them, µs
-	last_msg_us: i64, // when the relay's last message arrived (netcode.now_us)
-	bytes_in:    i64,
-	bytes_out:   i64,
-	desyncs:     i32, // the relay's desync reports so far
-}
-
 // A scene view as published: the item, its previous pose (from the host's memory) and its data's place.
 View_Out :: struct {
 	key:         view.Key,
@@ -114,7 +97,7 @@ Frame_Data :: struct {
 	due_us:       i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
 	local_player: u64, // the local player's key at `tick` (0: nobody yet)
 	published:    u64, // publish counter (0: nothing yet)
-	net:          Net_Stats,
+	net:          netcode.Client_Stats, // the local client's (netcode.client_stats)
 	slots:        [sim.MAX_PLAYERS]u64, // who holds each slot at `tick` (keys; 0: nobody)
 	members:      []u64, // every player the state remembers at `tick` (keys, member order): members[:n_members]
 	n_members:    int,
@@ -177,38 +160,6 @@ Event_Route :: enum u8 {
 	Subject, // the routing by its subject (the default)
 	View, // the scene view of the kind and key returned
 	No_View, // no scene view (the sim_event signal still gets it)
-}
-
-// Online transports (EOS P2P...) plug in here: the game's extension registers one with set_transport, so
-// unified:godot never imports a platform SDK. All procs run on the session thread.
-Transport :: struct {
-	name:       string,
-	user:       rawptr,
-	// Host: open the transport and return the link the relay serves remote players on. Report the join
-	// code with events.code (now or later, from pump). `compat` is the session's build id (what the relay
-	// checks): a transport that lists games can publish it, so a joiner on another build is told before joining.
-	open_host:  proc(user: rawptr, compat: u64, events: ^Transport_Events) -> (netcode.Link, bool),
-	// Join: return the link to the host's relay (packets may flow only once the transport connects). `compat`
-	// is this build's, to compare with the host's.
-	open_join:  proc(user: rawptr, code: string, compat: u64, events: ^Transport_Events) -> (netcode.Link, bool),
-	// Called every loop iteration while a session uses the transport (e.g. EOS_Platform_Tick).
-	pump:       proc(user: rawptr, events: ^Transport_Events),
-	// The session ended (its links are already closed).
-	close:      proc(user: rawptr),
-	// Optional, MAIN thread, every frame (e.g. pumping the macOS main run loop for the SDK's HTTP).
-	main_frame: proc(user: rawptr),
-	// Optional, MAIN thread, once when the extension unloads (game exit), after the session thread is gone:
-	// release the transport (an SDK left running at exit can crash in its own threads).
-	shutdown:   proc(user: rawptr),
-	// Optional: the local user's platform account (EOS: its product user id), once open_host succeeded: the host's
-	// own player's (UnifiedSession.get_player_platform_id). The strings are copied at once.
-	account:    proc(user: rawptr) -> (netcode.Account, bool),
-}
-
-Transport_Events :: struct {
-	ctx:  rawptr,
-	code: proc(ctx: rawptr, code: string), // the lobby code to show (lobby_code signal)
-	fail: proc(ctx: rawptr, reason: string), // ends the session with status "failed"
 }
 
 Mode :: enum u8 {

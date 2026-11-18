@@ -63,22 +63,19 @@ fuzz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
 
 // A valid client -> relay message of each kind, for mutation.
 @(private = "file")
-relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
+relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	clear(&writer.buf)
 	msg := netcode.Msg(1 + k % 13)
 	wire.w_u8(writer, u8(msg))
 	#partial switch msg {
 	case .Hello:
-		wire.w_u16(writer, netcode.PROTOCOL_VERSION)
-		wire.w_u8(writer, netcode.ANY_PLAYER)
+		wire.w_u8(writer, netcode.ANY_SLOT)
 		wire.w_u32(writer, 0)
 		wire.w_u64(writer, sim.compat_of(&toy.GAME))
 		wire.w_bytes(writer, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}) // token
 		wire.w_u8(writer, 3)
 		wire.w_bytes(writer, {'b', 'o', 't'})
 	case .Inputs:
-		wire.w_u8(writer, player)
-		wire.w_u64(writer, 1234)
 		wire.w_u32(writer, 10)
 		wire.w_u32(writer, 11)
 		wire.w_u8(writer, 2)
@@ -97,7 +94,6 @@ relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
 			wire.w_u8(writer, u8(i))
 		}
 	case .Checksum:
-		wire.w_u8(writer, player)
 		wire.w_u32(writer, 32)
 		wire.w_u64(writer, 99)
 	case .Snap_Begin:
@@ -108,9 +104,6 @@ relay_samples :: proc(writer: ^wire.Writer, k: int, player: u8) -> []u8 {
 		wire.w_u8(writer, 0)
 		wire.w_u32(writer, 0)
 		wire.w_bytes(writer, {1, 2, 3, 4})
-	case .Done:
-		wire.w_u8(writer, player)
-		wire.w_u32(writer, 64)
 	}
 	return writer.buf[:]
 }
@@ -131,9 +124,7 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_u32(writer, 1)
 		wire.w_u8(writer, 0)
 	case .Finalized:
-		for _ in 0 ..< 3 {
-			wire.w_u64(writer, 5000)
-		}
+		wire.w_u64(writer, 5000) // relay time
 		wire.w_u32(writer, 3) // input ack
 		wire.w_u32(writer, 1) // command ack
 		wire.w_u32(writer, 5)
@@ -179,11 +170,11 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 // real client; then the real session must still verify.
 @(test)
 fuzz_channel_datagrams :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	client := rnet_join(&session)
-	rnet_run(&session, 1)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	client := net_join(&session)
+	net_run(&session, 1)
 	fuzz := Fuzz{0x1234_5678}
 	writer := wire.writer_make(netcode.MAX_DATAGRAM)
 	defer delete(writer.buf)
@@ -205,10 +196,10 @@ fuzz_channel_datagrams :: proc(t: ^testing.T) {
 		}
 		netcode.link_send(&raws[k % 4], 0, buf[:])
 		if k % 8 == 0 {
-			rnet_run(&session, 0.001)
+			net_run(&session, 0.001)
 		}
 	}
-	rnet_run(&session, 2.5) // 4 s since Welcome, of which the relay's start lead (0.5 s) is before tick 1
+	net_run(&session, 2.5) // 4 s since Welcome, of which the relay's start lead (0.5 s) is before tick 1
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, client.verified > 3 * toy.HZ)
 }
@@ -217,11 +208,11 @@ fuzz_channel_datagrams :: proc(t: ^testing.T) {
 // players; the relay must neither crash nor stop serving the honest client.
 @(test)
 fuzz_relay_messages :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	honest := rnet_join(&session, 0)
-	rnet_run(&session, 1)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	honest := net_join(&session, 0)
+	net_run(&session, 1)
 	fuzz := Fuzz{0x9E37_79B9}
 	writer := wire.writer_make(netcode.MAX_DATAGRAM)
 	defer delete(writer.buf)
@@ -240,7 +231,7 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 	}
 	for k in 0 ..< 4000 {
 		attacker_index := k % 2
-		fuzz_bytes(&fuzz, &buf, relay_samples(&writer, fuzz_below(&fuzz, 13), u8(1 + attacker_index)))
+		fuzz_bytes(&fuzz, &buf, relay_samples(&writer, fuzz_below(&fuzz, 13)))
 		netcode.channel_send(
 			attackers[attacker_index],
 			peers[attacker_index],
@@ -253,10 +244,10 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 				netcode.channel_flush(attacker, session.clock.now)
 				netcode.channel_poll(attacker, session.clock.now)
 			}
-			rnet_run(&session, 0.002)
+			net_run(&session, 0.002)
 		}
 	}
-	rnet_run(&session, 3)
+	net_run(&session, 3)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
 	testing.expect(t, honest.verified > 3 * toy.HZ)
 }
@@ -272,9 +263,7 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	defer fake_destroy(&fake)
 	watch: Watch
 	client := netcode.client_create(&toy.GAME, {
-			slot  = -1,
-			name  = "c",
-			quiet = true,
+			slot = -1,
 		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)

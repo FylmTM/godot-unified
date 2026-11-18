@@ -47,8 +47,8 @@ fill_frame :: proc(f: ^Frame) {
 @(export, link_name = "<game>_init")
 <game>_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
 	context = runtime.default_context()
-	// the transport is optional: EOS online play (src/godot_eos/SPEC.md)
-	return godot.init(&g.GAME, GLUE, gpa, lib, init, godot_eos.transport("<game>"))
+	// the lobby is optional: EOS online play (src/eos/SPEC.md); without it, single player and LAN
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}))
 }
 ```
 
@@ -56,13 +56,13 @@ Glue procs are named procs, never inline lambdas. A game's extension fills frame
 through `unified:godot` helpers (the input helpers below), so it needs no Godot bindings of its own (`unified:gdext`
 binds what the library uses: src/gdext/SPEC.md).
 
-**Transports.** Online play goes through a `godot.Transport` the game sets (`glue.odin`): `open_host(user, compat,
-events)` and `open_join(user, code, compat, events)` return the link and get the session's build id (`compat`: the
-glue's, else `sim.compat_of(game, level)`), so a transport that lists games can publish it and tell a joiner on
-another build before it joins; `pump`, `close`, and the optional `account`, `main_frame` and `shutdown`.
-`unified:godot` never imports a transport: EOS is `unified:godot_eos`, the last argument of `godot.init`.
-`godot.init` is `install` (the game and its Glue; tests call it alone), `set_transport` and `entry` (the extension's
-callbacks for Godot), in their one valid order.
+**Online play** goes through the `netcode.Lobby` the game passes to `godot.init` (`eos.lobby({})`; `unified:godot`
+never imports a platform SDK). The session opens it with a `Lobby_Build`: the game's name, the session's build id
+(the glue's `compat`, else `sim.compat_of(game, level)`), the project's stamped version and the player count, so a
+joiner on another build is told before it joins; it pumps it every loop iteration (its code goes to the main thread
+once, its failure ends the session with the reason), closes it when the session ends, and calls its `main_frame` on
+the main thread every frame and its `shutdown` at exit. `godot.init` is `install` (the game and its Glue; tests call
+it alone), the lobby and `entry` (the extension's callbacks for Godot), in their one valid order.
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
@@ -207,7 +207,7 @@ for what is performance-critical or shared across games.
   client's join tick), `get_player_slot(player)` (-1 when absent), `is_player_present(player)`; none once the session
   is over (its views keep the last frame's pose, nothing is synced until the next start). From the relay's roster,
   still answering after the player left: `get_player_name(player)`, `get_player_platform(player)` and
-  `get_player_platform_id(player)` (the account the transport vouched for: "eos" and the product user id; empty on
+  `get_player_platform_id(player)` (the account the lobby's link vouched for: "eos" and the product user id; empty on
   LAN, in single player and in replays; a LAN token is never shown). A client's LAN token is kept in
   `user://unified_token_<n>` (each running copy of the game on a machine claims its own on its first session, by an
   OS file lock on `unified_token_<n>.lock` held for the process's life; a restarted one takes its token back);
@@ -355,8 +355,8 @@ scene and every indexed kind is a `View` member (an error names each one).
 - **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), on spawn and
   then only for fields whose bytes changed, before `_sim_update`; values are the newest tick's. A view whose root
   has no property for a data field is an error (reported once per kind and field).
-- **Remote links.** Each goes through a `Dev_Link`: straight to the transport while the dev UI's netsim is off,
-  through a `netcode.Net_Sim` while on.
+- **Remote links.** Each goes through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs:
+  ideal, and so straight through, while it is off.
 - **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`). Graph groups: `frame` (frame time; the
   main thread split views / dev ui / game / render), `sim` (sim thread ms by step kind, ticks ahead, the marks
   rollback, late input, stall, desync; the `ticks/s` line: `new` (each tick's first step: the tick rate while the
@@ -381,7 +381,7 @@ scene and every indexed kind is a `View` member (an error names each one).
   session is gone (the goodbye cut to 1 s); a `leave` before that cancels it.
 - **Editor.** Classes register at SCENE level (the `Unified` singleton too); nothing runs in the editor. Hot reload
   is editor-only. Godot's shutdown callback frees the `Unified` objects; `deinitialize` stops the session thread,
-  then calls the transport's optional `shutdown`.
+  then calls the lobby's optional `shutdown`.
 
 **Command-line flags** (after `--`): `--autostart` (single player at once), `--host-port N` (host directly on UDP
 port N), `--join host:port`, `--host-online`, `--join-code CODE`, `--local-net` (direct hosting listens on 127.0.0.1
@@ -429,7 +429,7 @@ resource first preloaded during a worker-thread load as leaked), the main scene 
 remembered players by key, the roster), previous poses from the host's memory and their estimates after a rollback
 or skipped ticks, the input sample, confirmed events, a tick's events held until its Frame is shown (a
 `fill_frame` held to force the race), the result, the commands verified ticks carried, the session's recording
-replaying offline to the session's own checksum, transport failure, a game with problems installing nothing, the
+replaying offline to the session's own checksum, a lobby failure, a game with problems installing nothing, the
 Dev_Link switch. `tests/godot` (the bindings suite) also checks that a press on a dev UI button leaves the action it
 is bound to released, and a press elsewhere doesn't.
 `tests/godot_views` (`uni test --suite godot-bindings`) runs a single-player toy session under headless Godot:

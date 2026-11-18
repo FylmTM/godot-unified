@@ -24,8 +24,9 @@ bench_details :: proc() -> string {
 		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
 		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
 		"window + 64 ticks run untimed. The target: a step plus that re-sim within %.0f ms at their p99. A re-sim whose\n" +
-		"checksum differs fails the run. Then its `net-bench` (4 clients under `bad` on the virtual clock), the sim's\n" +
-		"`table-bench` once, and the project's own rows. Reported in .out/bench.json, not gated by time.",
+		"checksum differs fails the run. Then its `session` twice on the virtual clock: 4 clients under `bad` (the\n" +
+		"stress case), and under `wan` (the common case) with the 4th joining halfway (the join: Hello to playing, and the\n" +
+		"bytes it took). Then the project's own rows. Reported in .out/bench.json, not gated by time.",
 		BENCH_TARGET_US / 1000,
 	)
 }
@@ -49,6 +50,7 @@ Bench_Report :: struct {
 	resim_final_us:         Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
 	checksum_us:            Bench_Stat, // sim.checksum of a tick peers don't compare
 	checksum_deep_us:       Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
+	snapshot_encode_us:     Bench_Stat, // a portable snapshot of a checksum tick (a kept desync image, a joiner's)
 	snapshot_bytes:         int,
 	save_bytes:             int, // what each tick's save copies (the block and the extras' saves)
 	mismatches:             int,
@@ -56,8 +58,9 @@ Bench_Report :: struct {
 	within_target:          bool,
 }
 
-// A game's `net-bench` report: its session of 4 clients under `bad` on the virtual clock.
+// A game's `session` report: clients on the virtual clock under a network profile.
 Net_Report :: struct {
+	clients:            int,
 	wall_ms:            f64,
 	rollbacks:          int,
 	rollback_depth_avg: f64,
@@ -71,15 +74,15 @@ Net_Report :: struct {
 	relay_bytes_per_s:  f64,
 	client_bytes_per_s: f64,
 	resends:            int,
+	late_join:          int, // the tick the last client joined at (0: none)
+	join_ms:            f64, // its Hello to playing (snapshot restored and checked), virtual ms
+	join_bytes:         int, // the bytes it received by then
 }
 
-// The `table-bench` report: the sim's sparse-table walk against a dense one, game-independent.
-Table_Report :: struct {
-	capacity:  int,
-	live:      int,
-	walks:     int,
-	sparse_us: Bench_Stat,
-	dense_us:  Bench_Stat,
+// A game's two sessions: the stress case and the common one with a late joiner.
+Net_Rows :: struct {
+	bad: Net_Report,
+	wan: Net_Report,
 }
 
 // .out/bench.json.
@@ -88,8 +91,7 @@ Bench_Summary :: struct {
 	commit:     string,
 	target_us:  f64,
 	benchmarks: map[string]Bench_Report,
-	net:        map[string]Net_Report,
-	table:      Table_Report,
+	net:        map[string]Net_Rows,
 	rows:       map[string]json.Value, // the project's own (Project_Config.bench: this repo's physics), as JSON
 }
 
@@ -123,7 +125,7 @@ cmd_bench :: proc(args: []string) -> Result {
 	for game in games {
 		// alone: nothing else runs meanwhile, so the timings are clean
 		bench: Bench_Report
-		if !run_report(headless_path(game.name, .release), "bench", join(work, game.name), 900, &bench) {
+		if !run_report(headless_path(game.name, .release), {"bench"}, join(work, game.name), 900, &bench) {
 			append(&failed, game.name)
 			continue
 		}
@@ -131,7 +133,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		bench.within_target = bench.step_plus_resim_p99_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes",
+			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us)",
 			game.name,
 			bench.step_us.p99,
 			bench.window,
@@ -148,59 +150,54 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.checksum_us.mean,
 			bench.checksum_deep_us.mean,
 			bench.snapshot_bytes,
+			bench.snapshot_encode_us.mean,
 		)
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}
-		net: Net_Report
-		if !run_report(
-			headless_path(game.name, .release),
-			"net-bench",
-			join(work, aprintf("%s-net", game.name)),
-			300,
-			&net,
-		) {
-			append(&failed, aprintf("%s net-bench", game.name))
-			continue
+		rows: Net_Rows
+		sessions := [2]struct {
+			name: string,
+			args: []string,
+			out:  ^Net_Report,
+		} {
+			{"bad", {"session", "--profile", "bad"}, &rows.bad},
+			{"wan", {"session", "--profile", "wan", "--late-join", "3@600"}, &rows.wan},
 		}
-		summary.net[game.name] = net
-		log(
-			"%-12s session (4 clients, bad, virtual clock) %.0f ms: %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.0f kB/s, client %.1f kB/s, %d resends",
-			"",
-			net.wall_ms,
-			net.rollbacks,
-			net.rollback_depth_avg,
-			f64(net.step_us.resim) / 1000,
-			net.stall_ticks,
-			net.replaced_inputs,
-			net.relay_bytes_per_s / 1000,
-			net.client_bytes_per_s / 1000,
-			net.resends,
-		)
-	}
-	if len(games) > 0 {
-		// any game's binary runs it; once is enough
-		if run_report(
-			headless_path(games[0].name, .release),
-			"table-bench",
-			join(work, "table"),
-			120,
-			&summary.table,
-		) {
-			table := summary.table
+		net_ok := true
+		for session in sessions {
+			if !run_report(
+				headless_path(game.name, .release),
+				session.args,
+				join(work, aprintf("%s-%s", game.name, session.name)),
+				300,
+				session.out,
+			) {
+				append(&failed, aprintf("%s session (%s)", game.name, session.name))
+				net_ok = false
+				continue
+			}
+			net := session.out^
+			join_text :=
+				net.late_join != 0 ? aprintf("; the 4th joined at tick %d in %.0f ms (%.0f kB)", net.late_join, net.join_ms, f64(net.join_bytes) / 1000) : ""
 			log(
-				"%-12s walk of a %d-slot table holding %d: %.1f us (p99 %.1f); the same %d dense: %.1f us",
-				"sim.table",
-				table.capacity,
-				table.live,
-				table.sparse_us.mean,
-				table.sparse_us.p99,
-				table.live,
-				table.dense_us.mean,
+				"%-12s session (%d clients, %s, virtual clock) %.0f ms: %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.1f kB/s, client %.1f kB/s, %d resends%s",
+				"",
+				net.clients,
+				session.name,
+				net.wall_ms,
+				net.rollbacks,
+				net.rollback_depth_avg,
+				f64(net.step_us.resim) / 1000,
+				net.stall_ticks,
+				net.replaced_inputs,
+				net.relay_bytes_per_s / 1000,
+				net.client_bytes_per_s / 1000,
+				net.resends,
+				join_text,
 			)
-		} else {
-			append(&failed, "table-bench")
 		}
+		if net_ok do summary.net[game.name] = rows
 	}
 	for row in state.config.bench {
 		data, ok := row.run(work)
@@ -234,15 +231,13 @@ cmd_bench :: proc(args: []string) -> Result {
 	}
 }
 
-// Runs a benchmark binary (`mode` its first argument, "" none) and reads its last JSON line into `report` (a struct in
-// the line's shape: what it names is read, the rest left). False, with its output's tail logged, when it failed or
-// printed no such line. Its output goes to `log_to` (.out/bench/).
-run_report :: proc(binary, mode, log_to: string, timeout_s: int, report: ^$Report) -> bool {
+// Runs a benchmark binary with `args` and reads its last JSON line into `report` (a struct in the line's shape: what it
+// names is read, the rest left). False, with its output's tail logged, when it failed or printed no such line. Its
+// output goes to `log_to` (.out/bench/).
+run_report :: proc(binary: string, args: []string, log_to: string, timeout_s: int, report: ^$Report) -> bool {
 	cmd: [dynamic]string
 	append(&cmd, binary)
-	if mode != "" {
-		append(&cmd, mode)
-	}
+	append(&cmd, ..args)
 	result := run_proc({
 		cmd     = cmd[:],
 		capture = true,
@@ -255,7 +250,7 @@ run_report :: proc(binary, mode, log_to: string, timeout_s: int, report: ^$Repor
 		log(
 			"uni: %s %s failed (exit %d):\n%s",
 			os.base(binary),
-			mode,
+			strings.join(args, " "),
 			result.exit_code,
 			tail(strings.concatenate({result.stdout, result.stderr}), 2000),
 		)

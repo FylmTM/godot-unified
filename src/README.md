@@ -10,8 +10,8 @@ this file is how the deterministic core works across packages. The games built o
   replay, events), `physics` (Box3D as rollback state, a plug-in: `sim` knows nothing about it), `dmath`, `level`,
   and the leaf `wire`.
 - Real-time: `netcode` (input relay, prediction, rollback; it drives the sim but stays off `core:math`), `eos`
-  (Epic Online Services as a transport), `headless` (a game's headless binary and the test helpers).
-- Host: `gdext` (Godot's API), `view` (interpolation and events, no Godot), `godot`, `devui`, `godot_eos`.
+  (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary and the test helpers).
+- Host: `gdext` (Godot's API), `view` (interpolation and events, no Godot), `godot`, `devui`.
 - Tools: `cli` (`uni`; it never links the sim) and `lint` (the determinism lint a game's tests run).
 
 A package exists only where determinism rules differ, a consumer needs one piece without another, or third-party code
@@ -62,7 +62,7 @@ in Box3D's shape structs, so it survives save/restore.
 
 The step API (`src/netcode/SPEC.md`): no package-level threads; the host application calls `*_step(now_us)` from
 its own loop and sleeps to the wake time it returns. Time-dependent code takes `now` as a parameter, so tests run
-whole sessions on a virtual clock in milliseconds. `headless session` runs a thread per client on the real clock or
-steps everything on one thread on the virtual clock (the end-to-end suites); the Godot host runs a session thread of
-its own (`src/godot/SPEC.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
+whole sessions on a virtual clock in milliseconds. `headless.session_run` steps a relay and its clients on one thread
+on the virtual clock (the end-to-end suites, the `session` mode); the `relay` and `client` modes run on the real
+clock in processes of their own, and the Godot host runs a session thread of its own (`src/godot/SPEC.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
 are serialised by a mutex.

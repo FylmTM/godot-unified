@@ -1,5 +1,6 @@
-// L2 netcode tests: a host (relay + its own client) and remote clients over loopback links with
-// the network simulator, all stepped from one thread on a virtual clock, on the toy game.
+// L2 netcode tests on the toy, over loopback links with the network simulator, every participant stepped from one
+// thread on a virtual clock (to the earliest wake any of them asks for). One harness: a host (relay + its own client in
+// slot 0) or a plain relay, and remote clients.
 package test_netcode
 
 import "core:testing"
@@ -10,6 +11,7 @@ import "unified:sim"
 
 Client :: netcode.Client(toy.Game)
 Host :: netcode.Host(toy.Game)
+Relay :: netcode.Relay(toy.Game)
 Hooks :: netcode.Hooks(toy.Game)
 
 SEED :: 5
@@ -26,22 +28,24 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 	watch.in_order = true
 	return {
 		user = watch,
-		sample = proc(user: rawptr, player: int, tick: u32, state: ^toy.State) -> toy.Input {
-			return toy.scripted_input(SEED, player, tick)
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+			return toy.scripted_input(SEED, slot, tick)
 		},
-		commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
-			toy.scripted_commands(SEED, player, tick, nil, out)
+		commands = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+			toy.burst_commands(SEED, slot, tick, nil, out)
 		},
 		frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
 			watch := (^Watch)(user)
 			watch.frames += 1
-			assert(
-				sim.state_at(simulation, frame.tick) != nil &&
-				frame.resim_from <= frame.tick &&
-				frame.verified <= frame.tick,
-			)
+			assert(simulation.tick == frame.tick && frame.resim_from <= frame.tick && frame.verified <= frame.tick)
 		},
-		verified = proc(user: rawptr, simulation: ^toy.Sim, tick: u32, events: []sim.Raw_Event) {
+		verified = proc(
+			user: rawptr,
+			simulation: ^toy.Sim,
+			tick: u32,
+			inputs: ^sim.Inputs(toy.Game),
+			events: []sim.Raw_Event,
+		) {
 			watch := (^Watch)(user)
 			if tick != watch.verified_upto + 1 && watch.verified_upto != 0 {
 				watch.in_order = false
@@ -59,9 +63,10 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 Net :: struct {
 	clock:     netcode.Virtual_Clock,
 	hub:       ^netcode.Hub, // remote side: endpoint 0 is the relay
-	host:      ^Host,
-	clients:   [dynamic]^Client,
-	watch:     [8]Watch,
+	host:      ^Host, // nil: a plain relay
+	relay:     ^Relay, // the host's, or the plain one
+	clients:   [dynamic]^Client, // the remote clients
+	watch:     [8]Watch, // [0]: the host's own client; [k]: the k-th remote
 	recording: [dynamic]u8, // the relay's recording
 	log:       sim.Input_Log(toy.Game), // decoded by net_log
 }
@@ -82,32 +87,40 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
 	session.host = netcode.host_create(&toy.GAME, {
 			seed          = SEED,
 			ticks         = ticks,
-			name          = "host",
 			player_name   = "Ada",
-			quiet         = true,
 			recording     = record ? sim.log_sink_memory(&session.recording) : {},
 			desync_detail = true,
 		}, hooks_for(&session.watch[0]))
+	session.relay = session.host.relay
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	for _ in 0 ..< remotes {
-		net_join(session, netcode.PROFILES[1])
+		net_join(session)
 	}
 }
 
-net_join :: proc(session: ^Net, profile: netcode.Profile, player := -1) -> ^Client {
+// A plain relay (no host player) whose clock starts once `start_players` clients connected.
+net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32) {
+	session.clock.now = 1_000_000
+	session.hub = netcode.hub_create(8)
+	session.relay = netcode.relay_create(&toy.GAME, {seed = SEED, ticks = ticks, start_players = start_players})
+	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
+}
+
+// A remote client asking for `slot` (-1: any) behind `profile`, playing `game` (default the toy).
+net_join :: proc(session: ^Net, slot := -1, profile := netcode.Network.Wan, game: ^toy.Game = nil) -> ^Client {
 	endpoint := len(session.clients) + 1
 	link := netcode.netsim_wrap(
 		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		profile,
+		netcode.PROFILES[profile],
 		u32(endpoint) * 7919,
 		&session.clock,
 	)
-	client := netcode.client_create(&toy.GAME, {
-			slot        = player,
-			name        = "remote",
-			player_name = endpoint == 1 ? "Grace" : "Linus",
-			quiet       = true,
-		}, link, hooks_for(&session.watch[endpoint]))
+	client := netcode.client_create(
+		game != nil ? game : &toy.GAME,
+		{slot = slot, player_name = endpoint == 1 ? "Grace" : "Linus"},
+		link,
+		hooks_for(&session.watch[endpoint]),
+	)
 	append(&session.clients, client)
 	return client
 }
@@ -117,7 +130,11 @@ net_destroy :: proc(session: ^Net) {
 		netcode.client_destroy(client)
 	}
 	delete(session.clients)
-	netcode.host_destroy(session.host)
+	if session.host != nil {
+		netcode.host_destroy(session.host)
+	} else {
+		netcode.relay_destroy(session.relay)
+	}
 	netcode.hub_destroy(session.hub)
 	for &watch in session.watch {
 		delete(watch.statuses)
@@ -126,53 +143,56 @@ net_destroy :: proc(session: ^Net) {
 	sim.log_destroy(&session.log)
 }
 
-// Steps everything every 250 µs of virtual time for `seconds`, or until `done` says so.
+// Steps everyone for `seconds` of virtual time, or until `done` says so: each round steps the relay (or host) and
+// every client, then jumps to the earliest wake any of them asked for.
 net_run :: proc(session: ^Net, seconds: f64, done: proc(session: ^Net) -> bool = nil) {
 	end := session.clock.now + i64(seconds * 1e6)
 	for session.clock.now < end {
-		session.clock.now += 250
-		netcode.host_step(session.host, session.clock.now)
+		now := session.clock.now
+		wake := session.host != nil ? netcode.host_step(session.host, now) : netcode.relay_step(session.relay, now)
 		for client in session.clients {
-			netcode.client_step(client, session.clock.now)
+			wake = min(wake, netcode.client_step(client, now))
 		}
 		if done != nil && done(session) {
 			return
 		}
+		session.clock.now = clamp(wake, now + 1, end)
 	}
 }
 
 all_done :: proc(session: ^Net) -> bool {
-	if !netcode.host_finished(session.host) {
-		return false
-	}
+	finished := session.host != nil ? netcode.host_finished(session.host) : netcode.relay_finished(session.relay)
 	for client in session.clients {
-		if client.status != .Disconnected && client.status != .Failed {
-			return false
-		}
+		finished &&= netcode.client_finished(client)
 	}
-	return true
+	return finished
 }
 
-// Every pair of clients agrees on every checksummed tick both verified.
+// Every pair of clients (the host's own among them) agrees on every checksummed tick both verified, and the relay saw
+// no desync.
 expect_agree :: proc(t: ^testing.T, session: ^Net) {
-	host_checksums := session.host.client.checksums[:]
-	testing.expect(t, len(host_checksums) > 0)
-	for client in session.clients {
-		for entry in client.checksums {
-			for host_entry in host_checksums {
-				if host_entry[0] == entry[0] {
-					testing.expectf(
-						t,
-						host_entry[1] == entry[1],
-						"player %d disagrees at tick %d",
-						client.slot,
-						entry[0],
-					)
+	clients := make([dynamic]^Client, context.temp_allocator)
+	if session.host != nil do append(&clients, session.host.client)
+	append(&clients, ..session.clients[:])
+	for client, i in clients {
+		for other in clients[i + 1:] {
+			for entry in client.checksums {
+				for other_entry in other.checksums {
+					if entry[0] == other_entry[0] {
+						testing.expectf(
+							t,
+							entry[1] == other_entry[1],
+							"slots %d and %d disagree at tick %d",
+							client.slot,
+							other.slot,
+							entry[0],
+						)
+					}
 				}
 			}
 		}
 	}
-	testing.expect_value(t, session.host.relay.desyncs, 0)
+	testing.expect_value(t, session.relay.desyncs, 0)
 }
 
 @(test)
@@ -190,7 +210,7 @@ host_and_two_remote_clients :: proc(t: ^testing.T) {
 		testing.expect(t, len(client.checksums) > 0 && client.checksums[0][0] >= u64(client.first_tick))
 	}
 	expect_agree(t, &session)
-	testing.expect(t, session.clients[0].rollbacks > 0) // wan profile: predictions miss
+	testing.expect(t, session.clients[0].stats.rollbacks > 0) // wan profile: predictions miss
 	for k in 0 ..= 2 {
 		watch := &session.watch[k]
 		testing.expect(t, watch.in_order)
@@ -222,7 +242,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	defer net_destroy(&session)
 	net_run(&session, 3)
 	testing.expect_value(t, session.clients[0].status, netcode.Status.Connected)
-	late := net_join(&session, netcode.PROFILES[1])
+	late := net_join(&session)
 	net_run(&session, 4)
 	testing.expect_value(t, late.status, netcode.Status.Connected)
 	testing.expect_value(t, late.slot, 2)
@@ -236,7 +256,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 		for name, k in names {
 			entry := netcode.client_member(client, u16(k + 1))
 			if !testing.expect(t, entry != nil) do continue
-			testing.expect_value(t, netcode.name_string(&entry.name), name)
+			testing.expect_value(t, netcode.text_string(&entry.name), name)
 			testing.expect(t, entry.connected && int(entry.slot) == k)
 		}
 		testing.expect(t, netcode.client_member(client, 4) == nil)
@@ -250,7 +270,7 @@ late_join_and_leave :: proc(t: ^testing.T) {
 	testing.expect(t, 1 not_in last.present)
 	testing.expect(t, 0 in last.present && 2 in last.present)
 	// Its player is free again for the next joiner.
-	again := net_join(&session, netcode.PROFILES[0])
+	again := net_join(&session, profile = .Ideal)
 	net_run(&session, 3)
 	testing.expect_value(t, again.slot, 1)
 	testing.expect_value(t, again.status, netcode.Status.Connected)
@@ -269,18 +289,18 @@ single_player_host :: proc(t: ^testing.T) {
 	net_run(&session, 10, all_done)
 	testing.expect(t, all_done(&session))
 	testing.expect_value(t, session.host.client.verified, 128)
-	testing.expect_value(t, session.host.client.rollbacks, 0)
+	testing.expect_value(t, session.host.client.stats.rollbacks, 0)
 	testing.expect_value(t, session.host.relay.replaced, 0)
 }
 
 // #263: a host with no remote links (single player) wakes at its deadlines only, about twice a tick (the relay's tick
 // and the client's), and verifies every tick on time: its relay and client hand each other datagrams in the same
-// host_step. Once a remote link is added it polls again (DEFAULT_POLL_US).
+// host_step. Once a remote link is added it polls again (POLL_US).
 @(test)
 single_player_wakes_at_its_deadlines :: proc(t: ^testing.T) {
 	watch: Watch
 	defer delete(watch.statuses)
-	host := netcode.host_create(&toy.GAME, {seed = SEED, name = "host", quiet = true}, hooks_for(&watch))
+	host := netcode.host_create(&toy.GAME, {seed = SEED}, hooks_for(&watch))
 	defer netcode.host_destroy(host)
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
@@ -304,19 +324,59 @@ single_player_wakes_at_its_deadlines :: proc(t: ^testing.T) {
 	testing.expectf(t, verified >= 4 * toy.GAME.tick_hz - 1, "%d ticks verified in 4 s", verified)
 	testing.expect_value(t, host.relay.replaced, 0)
 	testing.expect_value(t, host.client.delay, 1)
-	testing.expect_value(t, host.client.stall_ticks, 0)
+	testing.expect_value(t, host.client.stats.stall_ticks, 0)
 	netcode.host_add_link(host, netcode.loopback_link(hub, 0))
 	steps = run(host, &clock, 1)
 	testing.expectf(t, steps >= 900, "%d steps in 1 s with a remote link", steps)
 }
 
 @(test)
-taken_player_is_rejected :: proc(t: ^testing.T) {
+taken_slot_is_rejected :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	client := net_join(&session, netcode.PROFILES[0], player = 0) // the host's own player
+	client := net_join(&session, 0, .Ideal) // the host's own slot
 	net_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Failed)
-	testing.expect_value(t, client.detail, "that player is taken")
+	testing.expect_value(t, client.detail, "that slot is taken")
+}
+
+// A remote Hello already waiting when the host starts (a player who connected while the host waited for them) joins
+// as a remote player: the host's own player always gets slot 0.
+@(test)
+a_hello_before_the_host_starts_joins_as_a_remote :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	remote := net_join(&session, profile = .Ideal)
+	netcode.client_step(remote, session.clock.now) // its Hello waits on the relay's link before the host's first step
+	net_run(&session, 3)
+	testing.expect_value(t, session.host.client.slot, 0)
+	testing.expect_value(t, remote.slot, 1)
+	testing.expect_value(t, remote.status, netcode.Status.Connected)
+	expect_agree(t, &session)
+}
+
+// At the prediction cap a rollback's target is often a predicted tick that wasn't saved (every
+// PREDICTED_SAVE_EVERY-th is): the client restores the one before it, which the ring still holds at full depth, and
+// re-steps from there. A round trip past the cap keeps the client there for the whole run.
+@(test)
+rollbacks_at_the_cap_restore_past_unsaved_ticks :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	link := netcode.netsim_wrap(
+		netcode.loopback_link(session.hub, 1),
+		{name = "far", latency = 180_000, jitter = 20_000, loss = 20},
+		11,
+		&session.clock,
+	)
+	client := netcode.client_create(&toy.GAME, {slot = -1}, link, hooks_for(&session.watch[1]))
+	append(&session.clients, client)
+	net_run(&session, 12)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	testing.expect(t, client.stats.stall_ticks > 0, "never at the cap")
+	testing.expect_value(t, int(client.stats.depth_max), int(client.tm.prediction_cap))
+	testing.expect(t, client.stats.rollbacks > 50)
+	expect_agree(t, &session)
 }

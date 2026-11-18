@@ -7,9 +7,9 @@ package drift_extension
 import "base:runtime"
 import "core:math"
 import "unified:dmath"
+import "unified:eos"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
 import "unified:view"
@@ -24,7 +24,7 @@ drift_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_init()
-	return godot.init(&dr.GAME, GLUE, gpa, lib, init, godot_eos.transport("drift")) // online play: EOS lobbies and P2P
+	return godot.init(&dr.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
 }
 
 /// ---- the view contract

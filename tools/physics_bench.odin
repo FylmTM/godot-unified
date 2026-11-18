@@ -27,7 +27,7 @@ physics_bench :: proc(work: string) -> (data: any, ok: bool) {
 		.release,
 	)
 	report := new(Physics_Report)
-	if !cli.run_report(binary, "", cli.join(work, "physics"), 120, report) {
+	if !cli.run_report(binary, {}, cli.join(work, "physics"), 120, report) {
 		return nil, false
 	}
 	cli.log(

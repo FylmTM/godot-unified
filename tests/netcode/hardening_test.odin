@@ -13,116 +13,22 @@ import "unified:netcode"
 import "unified:sim"
 import "unified:wire"
 
-Relay :: netcode.Relay(toy.Game)
-
-// A plain relay (no host player) and remote clients over loopback, on a virtual clock.
-Rnet :: struct {
-	clock:   netcode.Virtual_Clock,
-	hub:     ^netcode.Hub,
-	relay:   ^Relay,
-	clients: [dynamic]^Client,
-	watch:   [8]Watch,
-}
-
-rnet_make :: proc(session: ^Rnet, start_players: int, ticks: u32) {
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	config := netcode.Relay_Config {
-		tick_hz       = toy.HZ,
-		seed          = SEED,
-		ticks         = ticks,
-		start_players = start_players,
-		compat        = sim.compat_of(&toy.GAME),
-		name          = "relay",
-		quiet         = true,
-	}
-	session.relay = netcode.relay_create(config, toy.Game)
-	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
-}
-
-// A client under the `wan` profile.
-rnet_join :: proc(session: ^Rnet, player := -1, game: ^toy.Game = nil) -> ^Client {
-	endpoint := len(session.clients) + 1
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[1],
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
-	client := netcode.client_create(game != nil ? game : &toy.GAME, {
-			slot  = player,
-			name  = "c",
-			quiet = true,
-		}, link, hooks_for(&session.watch[endpoint]))
-	append(&session.clients, client)
-	return client
-}
-
-rnet_run :: proc(session: ^Rnet, seconds: f64, until: proc(session: ^Rnet) -> bool = nil) {
-	end := session.clock.now + i64(seconds * 1e6)
-	for session.clock.now < end {
-		session.clock.now += 250
-		netcode.relay_step(session.relay, session.clock.now)
-		for client in session.clients {
-			netcode.client_step(client, session.clock.now)
-		}
-		if until != nil && until(session) {
-			return
-		}
-	}
-}
-
-rnet_destroy :: proc(session: ^Rnet) {
-	for client in session.clients {
-		netcode.client_destroy(client)
-	}
-	delete(session.clients)
-	netcode.relay_destroy(session.relay)
-	netcode.hub_destroy(session.hub)
-	for &watch in session.watch {
-		delete(watch.statuses)
-	}
-}
-
-// Every pair of clients that verified a checksummed tick agrees on it.
-rnet_agree :: proc(t: ^testing.T, session: ^Rnet) {
-	for client in session.clients {
-		for other in session.clients {
-			for entry in client.checksums {
-				for other_entry in other.checksums {
-					if entry[0] == other_entry[0] {
-						testing.expectf(
-							t,
-							entry[1] == other_entry[1],
-							"players %d and %d disagree at tick %d",
-							client.slot,
-							other.slot,
-							entry[0],
-						)
-					}
-				}
-			}
-		}
-	}
-	testing.expect_value(t, session.relay.desyncs, 0)
-}
-
 // With nobody left in the session the relay must not finalize ahead of its clock: an endless host
 // session whose players all leave (or whose own loopback peer times out) used to append ticks
 // until the session length (forever when endless) in one step. A player who comes back is refused: nobody is
 // left to send it a snapshot, and the relay keeps only its last RELAY_RING ticks (no replay from tick 0).
 @(test)
 relay_idles_when_everyone_left :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 1_000_000)
-	defer rnet_destroy(&session)
-	client := rnet_join(&session)
-	rnet_run(&session, 2)
+	session: Net
+	net_make_relay(&session, 1, 1_000_000)
+	defer net_destroy(&session)
+	client := net_join(&session)
+	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	netcode.client_stop(client, session.clock.now)
-	rnet_run(&session, 1)
+	net_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
-	testing.expect(t, !session.relay.connected[0])
+	testing.expect(t, !session.relay.seats[0].connected)
 	testing.expectf(
 		t,
 		session.relay.finalized <= session.relay.clock + 1,
@@ -130,8 +36,8 @@ relay_idles_when_everyone_left :: proc(t: ^testing.T) {
 		session.relay.finalized,
 		session.relay.clock,
 	)
-	again := rnet_join(&session)
-	rnet_run(&session, 2)
+	again := net_join(&session)
+	net_run(&session, 2)
 	testing.expect_value(t, again.status, netcode.Status.Failed)
 	testing.expect_value(t, again.detail, "no player can send this player a snapshot")
 	testing.expect(t, session.relay.finalized <= session.relay.clock + 1)
@@ -140,40 +46,40 @@ relay_idles_when_everyone_left :: proc(t: ^testing.T) {
 // The provider of a late joiner's snapshot leaves before sending it: the relay asks another player.
 @(test)
 snapshot_provider_leaves_another_steps_in :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 2, 0)
-	defer rnet_destroy(&session)
-	provider := rnet_join(&session, 0)
-	bystander := rnet_join(&session, 1)
-	rnet_run(&session, 2)
-	joiner := rnet_join(&session)
-	rnet_run(&session, 1, proc(session: ^Rnet) -> bool {return session.relay.provider[2] >= 0})
-	testing.expect_value(t, session.relay.provider[2], 0) // the lowest player that can provide: provider
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
+	provider := net_join(&session, 0)
+	bystander := net_join(&session, 1)
+	net_run(&session, 2)
+	joiner := net_join(&session)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[2].provider >= 0})
+	testing.expect_value(t, session.relay.seats[2].provider, 0) // the lowest player that can provide: provider
 	netcode.client_stop(provider, session.clock.now)
-	rnet_run(&session, 4)
+	net_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect_value(t, joiner.slot, 2)
 	testing.expect(t, joiner.verified > joiner.first_tick)
 	testing.expect_value(t, bystander.status, netcode.Status.Connected)
-	rnet_agree(t, &session)
+	expect_agree(t, &session)
 }
 
 // ... and with nobody else to ask, the joiner is refused and its seat is free again.
 @(test)
 snapshot_provider_leaves_joiner_is_refused :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	provider := rnet_join(&session, 0)
-	rnet_run(&session, 2)
-	joiner := rnet_join(&session)
-	rnet_run(&session, 1, proc(session: ^Rnet) -> bool {return session.relay.provider[1] >= 0})
-	testing.expect_value(t, session.relay.provider[1], 0)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	provider := net_join(&session, 0)
+	net_run(&session, 2)
+	joiner := net_join(&session)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[1].provider >= 0})
+	testing.expect_value(t, session.relay.seats[1].provider, 0)
 	netcode.client_stop(provider, session.clock.now)
-	rnet_run(&session, 4)
+	net_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Failed)
 	testing.expect_value(t, joiner.detail, "no player can send this player a snapshot")
-	testing.expect(t, !session.relay.connected[1])
+	testing.expect(t, !session.relay.seats[1].connected)
 }
 
 // A raw channel standing in for the relay, to send a client exactly the messages a test wants.
@@ -251,9 +157,7 @@ finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
 
 fake_finalized :: proc(fake: ^Fake_Relay, first: u32, ticks: []toy.Inputs) {
 	writer := fake_begin(fake, .Finalized)
-	wire.w_u64(writer, u64(fake.now))
-	wire.w_u64(writer, 0)
-	wire.w_u64(writer, 0)
+	wire.w_u64(writer, u64(fake.now)) // relay time
 	wire.w_u32(writer, 0) // input ack
 	wire.w_u32(writer, 0) // command ack
 	wire.w_u32(writer, first)
@@ -275,9 +179,7 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 	defer fake_destroy(&fake)
 	watch: Watch
 	client := netcode.client_create(&toy.GAME, {
-			slot  = -1,
-			name  = "c",
-			quiet = true,
+			slot = -1,
 		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
@@ -313,14 +215,15 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 // A raw datagram with reliable chunks of the given ids (1 byte each).
 reliable_datagram :: proc(writer: ^wire.Writer, epoch, seq: u32, ids: []u32) {
 	clear(&writer.buf)
-	wire.w_u8(writer, netcode.DGRAM_MAGIC)
-	wire.w_u8(writer, netcode.DGRAM_VERSION)
+	wire.w_u8(writer, netcode.DGRAM_TAG)
 	wire.w_u32(writer, epoch)
 	wire.w_u32(writer, 0)
 	wire.w_u32(writer, seq)
 	wire.w_u32(writer, 0)
 	wire.w_u32(writer, 0)
-	wire.w_u16(writer, u16(len(ids)))
+	wire.w_u8(writer, 0) // recent: the ack
+	wire.w_u16(writer, max(u16)) // no round-trip sample
+	wire.w_u8(writer, u8(len(ids)))
 	for id in ids {
 		wire.w_u8(writer, 1)
 		wire.w_u32(writer, id)
@@ -436,11 +339,11 @@ oversized_message_is_dropped :: proc(t: ^testing.T) {
 // Another player can't feed a late joiner a snapshot the relay didn't ask it for.
 @(test)
 only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0)
-	rnet_run(&session, 1)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0)
+	net_run(&session, 1)
 	// An attacker takes player 1 with a raw channel.
 	evil := netcode.channel_make()
 	defer netcode.channel_destroy(evil)
@@ -449,8 +352,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	writer := wire.writer_make(64)
 	defer delete(writer.buf)
 	wire.w_u8(&writer, u8(netcode.Msg.Hello))
-	wire.w_u16(&writer, netcode.PROTOCOL_VERSION)
-	wire.w_u8(&writer, netcode.ANY_PLAYER)
+	wire.w_u8(&writer, netcode.ANY_SLOT)
 	wire.w_u32(&writer, 0)
 	wire.w_u64(&writer, sim.compat_of(&toy.GAME))
 	wire.w_bytes(&writer, make([]u8, netcode.TOKEN_SIZE, context.temp_allocator))
@@ -459,12 +361,12 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	for _ in 0 ..< 20 {
 		netcode.channel_flush(evil, session.clock.now)
 		netcode.channel_poll(evil, session.clock.now)
-		rnet_run(&session, 0.01)
+		net_run(&session, 0.01)
 	}
-	testing.expect(t, session.relay.connected[1])
-	joiner := rnet_join(&session)
-	rnet_run(&session, 1, proc(session: ^Rnet) -> bool {return session.relay.provider[2] >= 0})
-	testing.expect_value(t, session.relay.provider[2], 0)
+	testing.expect(t, session.relay.seats[1].connected)
+	joiner := net_join(&session)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[2].provider >= 0})
+	testing.expect_value(t, session.relay.seats[2].provider, 0)
 	// The attacker sends a 5-byte "snapshot" for the joiner.
 	clear(&writer.buf)
 	wire.w_u8(&writer, u8(netcode.Msg.Snap_Begin))
@@ -481,7 +383,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	for _ in 0 ..< 300 {
 		netcode.channel_flush(evil, session.clock.now)
 		netcode.channel_poll(evil, session.clock.now)
-		rnet_run(&session, 0.01)
+		net_run(&session, 0.01)
 	}
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect(t, joiner.verified > joiner.first_tick)
@@ -491,21 +393,19 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 // instead of joining and desyncing; compat comes from the game by default.
 @(test)
 other_build_is_refused :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0)
-	rnet_run(&session, 1)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0)
+	net_run(&session, 1)
 	other := toy.GAME
 	other.version = "a version the toy never has"
 	link := netcode.loopback_link(session.hub, 6)
 	client := netcode.client_create(&other, {
-			slot  = -1,
-			name  = "other",
-			quiet = true,
+			slot = -1,
 		}, link, hooks_for(&session.watch[6]))
 	append(&session.clients, client)
-	rnet_run(&session, 1)
+	net_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Failed)
 	testing.expect_value(t, client.detail, "a different game build or level")
 }
@@ -520,20 +420,18 @@ other_library_build_is_refused :: proc(t: ^testing.T) {
 	for library, i in others {
 		compat := sim.compat_of(&toy.GAME, nil, library)
 		testing.expect(t, compat != this)
-		session: Rnet
-		rnet_make(&session, 1, 0)
-		defer rnet_destroy(&session)
-		rnet_join(&session, 0)
-		rnet_run(&session, 1)
+		session: Net
+		net_make_relay(&session, 1, 0)
+		defer net_destroy(&session)
+		net_join(&session, 0)
+		net_run(&session, 1)
 		link := netcode.loopback_link(session.hub, 6)
 		client := netcode.client_create(&toy.GAME, {
 				slot   = -1,
-				name   = "other",
-				quiet  = true,
 				compat = compat,
 			}, link, hooks_for(&session.watch[6]))
 		append(&session.clients, client)
-		rnet_run(&session, 1)
+		net_run(&session, 1)
 		testing.expectf(t, client.status == .Failed, "build %d: %v", i, client.status)
 		testing.expect_value(t, client.detail, "a different game build or level")
 	}
@@ -548,7 +446,7 @@ Evil :: struct {
 	acking:  bool, // acks the relay's finalized ticks (with no inputs), so it isn't dropped as too far behind
 }
 
-evil_seat :: proc(evil: ^Evil, session: ^Rnet, endpoint: int, slot: u8, token: netcode.Token = {}) {
+evil_seat :: proc(evil: ^Evil, session: ^Net, endpoint: int, slot: u8, token: netcode.Token = {}) {
 	token := token
 	evil.slot = slot
 	evil.channel = netcode.channel_make()
@@ -556,7 +454,6 @@ evil_seat :: proc(evil: ^Evil, session: ^Rnet, endpoint: int, slot: u8, token: n
 	evil.peer = netcode.channel_peer(evil.channel, link_index, 0)
 	evil.writer = wire.writer_make(64)
 	writer := evil_begin(evil, .Hello)
-	wire.w_u16(writer, netcode.PROTOCOL_VERSION)
 	wire.w_u8(writer, slot)
 	wire.w_u32(writer, 0)
 	wire.w_u64(writer, sim.compat_of(&toy.GAME))
@@ -571,13 +468,13 @@ evil_begin :: proc(evil: ^Evil, msg: netcode.Msg) -> ^wire.Writer {
 	return &evil.writer
 }
 
-evil_send :: proc(evil: ^Evil, session: ^Rnet) {
+evil_send :: proc(evil: ^Evil, session: ^Net) {
 	netcode.channel_send(evil.channel, evil.peer, evil.writer.buf[:], .Reliable, session.clock.now)
 }
 
 // Runs the session and the evil channel for `seconds`; returns the first message the evil channel got of `kind`
 // (empty: none).
-evil_run :: proc(evil: ^Evil, session: ^Rnet, seconds: f64, kind := netcode.Msg(0)) -> (got: []u8) {
+evil_run :: proc(evil: ^Evil, session: ^Net, seconds: f64, kind := netcode.Msg(0)) -> (got: []u8) {
 	for _ in 0 ..< int(seconds * 100) {
 		netcode.channel_flush(evil.channel, session.clock.now)
 		for event in netcode.channel_poll(evil.channel, session.clock.now) {
@@ -587,8 +484,6 @@ evil_run :: proc(evil: ^Evil, session: ^Rnet, seconds: f64, kind := netcode.Msg(
 		}
 		if evil.acking {
 			writer := evil_begin(evil, .Inputs)
-			wire.w_u8(writer, evil.slot)
-			wire.w_u64(writer, u64(session.clock.now))
 			wire.w_u32(writer, session.relay.finalized)
 			wire.w_u32(writer, 0)
 			wire.w_u8(writer, 0) // no inputs
@@ -596,7 +491,7 @@ evil_run :: proc(evil: ^Evil, session: ^Rnet, seconds: f64, kind := netcode.Msg(
 			wire.w_u8(writer, 0) // no commands
 			netcode.channel_send(evil.channel, evil.peer, writer.buf[:], .Unreliable, session.clock.now)
 		}
-		rnet_run(session, 0.01)
+		net_run(session, 0.01)
 	}
 	return
 }
@@ -610,18 +505,17 @@ evil_destroy :: proc(evil: ^Evil) {
 // never take the ring's slots from the honest reports.
 @(test)
 future_checksums_are_dropped :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 2, 0)
-	defer rnet_destroy(&session)
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
 	evil: Evil
 	evil_seat(&evil, &session, 7, 1)
 	defer evil_destroy(&evil)
-	rnet_join(&session, 0)
+	net_join(&session, 0)
 	evil_run(&evil, &session, 1)
 	testing.expect(t, session.relay.started)
 	for k in 0 ..< u32(netcode.CHECK_RING) {
 		writer := evil_begin(&evil, .Checksum)
-		wire.w_u8(writer, 1)
 		wire.w_u32(writer, 0x8000_0000 + k * netcode.CHECKSUM_EVERY)
 		wire.w_u64(writer, 1)
 		evil_send(&evil, &session)
@@ -637,35 +531,30 @@ future_checksums_are_dropped :: proc(t: ^testing.T) {
 	testing.expect(t, judged) // honest reports are still judged
 }
 
-// A joiner in a slot another player just left starts from its own clock: the relay's echo of the old occupant's
-// time (another machine's clock, here 4 hours behind) is not taken as a round trip.
+// A joiner in a slot another player just left, on a machine whose clock is 4 hours off the relay's, times its clock
+// from the relay and measures its own round trip (nothing of the previous occupant's is taken for it).
 @(test)
 joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0)
-	rnet_run(&session, 1)
-	old := rnet_join(&session)
-	rnet_run(&session, 3, proc(session: ^Rnet) -> bool {return session.clients[1].status == .Connected})
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0)
+	net_run(&session, 1)
+	old := net_join(&session)
+	net_run(&session, 3, proc(session: ^Net) -> bool {return session.clients[1].status == .Connected})
 	testing.expect_value(t, old.status, netcode.Status.Connected)
-	rnet_run(&session, 1)
+	net_run(&session, 1)
 	netcode.client_stop(old, session.clock.now)
-	rnet_run(&session, 1)
-	testing.expect(t, !session.relay.connected[1])
+	net_run(&session, 1)
+	testing.expect(t, !session.relay.seats[1].connected)
 	netcode.client_destroy(pop(&session.clients))
 
 	AHEAD :: i64(4 * 3600) * 1_000_000 // the joiner's machine booted 4 hours earlier
 	joiner_clock := netcode.Virtual_Clock {
 		now = session.clock.now + AHEAD,
 	}
-	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 5), netcode.PROFILES[1], 5 * 7919, &joiner_clock)
-	joiner := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, name = "j", quiet = true},
-		link,
-		hooks_for(&session.watch[5]),
-	)
+	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 5), netcode.PROFILES[.Wan], 5 * 7919, &joiner_clock)
+	joiner := netcode.client_create(&toy.GAME, {slot = -1}, link, hooks_for(&session.watch[5]))
 	defer netcode.client_destroy(joiner)
 	for _ in 0 ..< 3 * 4000 {
 		session.clock.now += 250
@@ -684,7 +573,7 @@ joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
 		joiner.local,
 		session.relay.clock,
 	)
-	testing.expect_value(t, joiner.own_replaced, 0)
+	testing.expect_value(t, joiner.stats.own_replaced, 0)
 }
 
 // One ack that covers several datagrams measures the round trip of the newest one only: the older ones waited at
@@ -708,8 +597,8 @@ one_ack_of_several_datagrams_samples_the_newest :: proc(t: ^testing.T) {
 	netcode.channel_poll(receiver, start + 30_000)
 	netcode.channel_flush(receiver, start + 30_000) // one datagram acks all three
 	netcode.channel_poll(sender, start + 30_000)
-	rtt, ok := netcode.channel_rtt(sender, to)
-	testing.expect(t, ok)
+	rtt, samples := netcode.channel_rtt(sender, to)
+	testing.expect_value(t, samples, 1)
 	testing.expect_value(t, rtt, 10_000) // the newest, sent at +20 ms; the oldest would read 30 ms
 }
 
@@ -717,46 +606,46 @@ one_ack_of_several_datagrams_samples_the_newest :: proc(t: ^testing.T) {
 // (the slot it asks for is taken) leaves the seated connection alone.
 @(test)
 refused_hello_does_not_replace_the_seated_member :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 2, 0)
-	defer rnet_destroy(&session)
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
 	TOKEN :: netcode.Token{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 	seated := netcode.client_create(
 		&toy.GAME,
-		{slot = 0, name = "a", token = TOKEN, quiet = true},
+		{slot = 0, token = TOKEN},
 		netcode.loopback_link(session.hub, 1),
 		hooks_for(&session.watch[1]),
 	)
 	append(&session.clients, seated)
 	other := netcode.client_create(
 		&toy.GAME,
-		{slot = 1, name = "b", quiet = true},
+		{slot = 1},
 		netcode.loopback_link(session.hub, 2),
 		hooks_for(&session.watch[2]),
 	)
 	append(&session.clients, other)
-	rnet_run(&session, 1)
+	net_run(&session, 1)
 	testing.expect_value(t, seated.status, netcode.Status.Connected)
 	evil: Evil
 	evil_seat(&evil, &session, 7, 1, TOKEN) // seat 1 is the other player's
 	defer evil_destroy(&evil)
 	reject := evil_run(&evil, &session, 1, .Reject)
-	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Player_Taken)
-	testing.expect(t, session.relay.connected[0])
+	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Slot_Taken)
+	testing.expect(t, session.relay.seats[0].connected)
 	testing.expect_value(t, seated.status, netcode.Status.Connected)
 }
 
 // A Hello while the session ends gets End at once, not 30 s of silence.
 @(test)
 hello_while_ending_gets_end :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 1, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0)
-	rnet_run(&session, 1)
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0)
+	net_run(&session, 1)
 	netcode.relay_stop(session.relay, session.clock.now)
 	evil: Evil
-	evil_seat(&evil, &session, 7, netcode.ANY_PLAYER)
+	evil_seat(&evil, &session, 7, netcode.ANY_SLOT)
 	defer evil_destroy(&evil)
 	testing.expect(t, evil_run(&evil, &session, 0.5, .End) != nil)
 }
@@ -766,18 +655,18 @@ hello_while_ending_gets_end :: proc(t: ^testing.T) {
 @(test)
 silent_or_unusable_snapshot_provider_is_replaced :: proc(t: ^testing.T) {
 	for unusable in ([]bool{false, true}) {
-		session: Rnet
-		rnet_make(&session, 2, 0)
-		defer rnet_destroy(&session)
+		session: Net
+		net_make_relay(&session, 2, 0)
+		defer net_destroy(&session)
 		evil: Evil
 		evil_seat(&evil, &session, 7, 0) // the lowest seat: the first one asked for a snapshot
 		defer evil_destroy(&evil)
 		evil.acking = true
-		rnet_join(&session, 1)
+		net_join(&session, 1)
 		evil_run(&evil, &session, 1)
-		joiner := rnet_join(&session)
+		joiner := net_join(&session)
 		evil_run(&evil, &session, 0.1)
-		testing.expect_value(t, session.relay.provider[2], 0)
+		testing.expect_value(t, session.relay.seats[2].provider, 0)
 		if unusable {
 			writer := evil_begin(&evil, .Snap_Begin)
 			wire.w_u8(writer, 2)
@@ -785,7 +674,7 @@ silent_or_unusable_snapshot_provider_is_replaced :: proc(t: ^testing.T) {
 			wire.w_u32(writer, 100)
 			evil_send(&evil, &session)
 			evil_run(&evil, &session, 0.1)
-			testing.expect_value(t, session.relay.provider[2], 1)
+			testing.expect_value(t, session.relay.seats[2].provider, 1)
 		}
 		evil_run(&evil, &session, f64(netcode.SNAP_STALL_US) / 1e6 + 3)
 		testing.expectf(t, joiner.status == .Connected, "unusable %v: the joiner is %v", unusable, joiner.status)
@@ -802,12 +691,7 @@ client_ignores_strangers_and_cut_rejects :: proc(t: ^testing.T) {
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, name = "c", quiet = true},
-		netcode.loopback_link(hub, 1),
-		hooks_for(&watch),
-	)
+	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
@@ -822,4 +706,94 @@ client_ignores_strangers_and_cut_rejects :: proc(t: ^testing.T) {
 		fake_step(&fake, client)
 	}
 	testing.expect_value(t, client.status, netcode.Status.Connected)
+}
+
+// Inputs a seat's previous occupant planted far ahead (a hostile or far-ahead client) are not the next occupant's:
+// a seat is emptied when its occupant leaves.
+@(test)
+a_reused_seat_starts_empty :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1)
+	defer evil_destroy(&evil)
+	net_join(&session, 0)
+	evil.acking = true
+	evil_run(&evil, &session, 1)
+	planted_from := session.relay.finalized + 100
+	writer := evil_begin(&evil, .Inputs)
+	wire.w_u32(writer, session.relay.finalized)
+	wire.w_u32(writer, planted_from)
+	wire.w_u8(writer, 32)
+	planted, base: toy.Input
+	planted.dx = 99 // never scripted (its dx is in -3..3)
+	for _ in 0 ..< 32 {
+		netcode.window_write_input(writer, &planted, &base)
+		base = planted
+	}
+	wire.w_u32(writer, 1)
+	wire.w_u8(writer, 0) // no commands
+	netcode.channel_send(evil.channel, evil.peer, writer.buf[:], .Unreliable, session.clock.now)
+	evil.acking = false
+	evil_begin(&evil, .Leave)
+	evil_send(&evil, &session)
+	evil_run(&evil, &session, 0.2)
+	testing.expect(t, !session.relay.seats[1].connected)
+	joiner := net_join(&session, 1)
+	net_run(
+		&session,
+		4,
+		proc(session: ^Net) -> bool {return(
+				session.relay.finalized > session.relay.clock - 2 &&
+				session.clients[1].status == .Connected \
+			)},
+	)
+	net_run(&session, 2)
+	testing.expect_value(t, joiner.status, netcode.Status.Connected)
+	testing.expect(t, joiner.first_tick < planted_from, "the joiner plays the planted ticks")
+	testing.expect(t, session.relay.finalized > planted_from + 32)
+	for tick in planted_from ..< planted_from + 32 {
+		inputs := netcode.relay_tick(session.relay, tick)
+		if inputs != nil && 1 in inputs.present {
+			testing.expectf(t, inputs.input[1].dx != 99, "tick %d has the previous occupant's input", tick)
+		}
+	}
+	expect_agree(t, &session)
+}
+
+// A peer on another protocol version never parses our datagrams: the relay answers its datagram with a notice of
+// its own version, and a client that gets one fails at once ("a different game build"), not after 30 s of silence.
+@(test)
+another_protocol_version_is_told_at_once :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	stranger := netcode.loopback_link(session.hub, 6)
+	defer netcode.link_close(&stranger)
+	old: [netcode.HEADER_BYTES + 8]u8
+	old[0] = 0x80 | u8(netcode.PROTOCOL_VERSION - 1)
+	old[1] = 7 // an epoch
+	netcode.link_send(&stranger, 0, old[:])
+	net_run(&session, 0.01)
+	buf: [netcode.MAX_DATAGRAM]u8
+	size, _, got := netcode.link_recv(&stranger, buf[:])
+	testing.expect(t, got && size == netcode.NOTICE_BYTES && buf[0] == netcode.DGRAM_TAG, "the relay's notice")
+	testing.expect(t, got && buf[1] | buf[2] | buf[3] | buf[4] == 0)
+
+	// A client gets a notice of another version from its relay's address.
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	relay_end := netcode.loopback_link(hub, 0)
+	defer netcode.link_close(&relay_end)
+	watch: Watch
+	defer delete(watch.statuses)
+	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(&watch))
+	defer netcode.client_destroy(client)
+	netcode.client_step(client, 1_000_000) // its Hello
+	notice := [netcode.NOTICE_BYTES]u8{0x80 | u8(netcode.PROTOCOL_VERSION + 1), 0, 0, 0, 0}
+	netcode.link_send(&relay_end, 1, notice[:])
+	netcode.client_step(client, 1_001_000)
+	testing.expect_value(t, client.status, netcode.Status.Failed)
+	testing.expect_value(t, client.detail, "a different game build (another protocol version)")
 }

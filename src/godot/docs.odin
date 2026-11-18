@@ -41,7 +41,7 @@ LIBRARY_DOCS := []Doc_Class {
 				"host_online",
 				"bool",
 				"",
-				"Hosts an online session through the game's transport; [signal lobby_code] gives the code to share.",
+				"Hosts an online session through the game's lobby service; [signal lobby_code] gives the code to share.",
 			},
 			{
 				"host_direct",
@@ -103,13 +103,13 @@ LIBRARY_DOCS := []Doc_Class {
 				"get_player_platform",
 				"String",
 				"player:int",
-				"The platform of the account the transport vouched for (\"eos\"); empty on LAN, in single player and in replays.",
+				"The platform of the account the lobby's link vouched for (\"eos\"); empty on LAN, in single player and in replays.",
 			},
 			{
 				"get_player_platform_id",
 				"String",
 				"player:int",
-				"The account id the transport vouched for (EOS: the product user id); empty on LAN, in single player and in replays.",
+				"The account id the lobby's link vouched for (EOS: the product user id); empty on LAN, in single player and in replays.",
 			},
 			{
 				"take_sync_stats",

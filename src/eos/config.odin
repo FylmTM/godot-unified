@@ -37,7 +37,7 @@ credentials_complete :: proc(credentials: Credentials) -> bool {
 }
 
 // Compiled-in values first, then the environment; each field independently. Strings are allocated with `allocator`.
-credentials_load :: proc(allocator := context.allocator) -> (credentials: Credentials, source: string) {
+credentials_load :: proc(allocator := context.allocator) -> (credentials: Credentials) {
 	credentials = {
 		product_id    = DEF_PRODUCT_ID,
 		sandbox_id    = DEF_SANDBOX_ID,
@@ -46,7 +46,7 @@ credentials_load :: proc(allocator := context.allocator) -> (credentials: Creden
 		client_secret = DEF_CLIENT_SECRET,
 	}
 	if credentials_complete(credentials) {
-		return credentials, "compiled in"
+		return credentials
 	}
 	fields := [5]^string {
 		&credentials.product_id,
@@ -61,5 +61,5 @@ credentials_load :: proc(allocator := context.allocator) -> (credentials: Creden
 			field^ = os.get_env(names[i], allocator)
 		}
 	}
-	return credentials, "environment"
+	return credentials
 }

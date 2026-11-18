@@ -8,9 +8,9 @@ import "base:runtime"
 import "core:math"
 import "core:reflect"
 import "unified:dmath"
+import "unified:eos"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
 
@@ -24,7 +24,7 @@ friendslop_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_fill()
-	return godot.init(&fs.GAME, GLUE, gpa, lib, init, godot_eos.transport("friendslop")) // online play: EOS lobbies and P2P
+	return godot.init(&fs.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
 }
 
 /// ---- glue

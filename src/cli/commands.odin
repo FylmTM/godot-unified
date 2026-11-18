@@ -33,7 +33,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "headless",
-			summary   = "the game's headless binary (built when stale), its JSON on stdout; modes: sim, synctest, replay, snapshot, resume, session, relay, client, bench, net-bench, table-bench (`-- help`: every mode's options)",
+			summary   = "the game's headless binary (built when stale), its JSON on stdout; modes: sim, synctest, replay, session, relay, client, bench, and a game's own (`-- help`: every mode and its options)",
 			no_budget = "the mode decides",
 			options   = option_types(Headless_Opts),
 			run       = cmd_headless,
@@ -98,7 +98,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bench",
-			summary = "each game's standard benchmark and its session on the virtual clock, alone, on a release build; the sim's sparse-table walk; the project's own rows",
+			summary = "each game's standard benchmark and its sessions on the virtual clock (bad; wan with a late joiner), alone, on a release build; the project's own rows",
 			budget  = 10,
 			options = option_types(Bench_Opts),
 			details = bench_details,

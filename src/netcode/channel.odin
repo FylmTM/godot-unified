@@ -1,13 +1,20 @@
-// The transport interface (src/netcode/SPEC.md): send(peer, bytes, unreliable|reliable), poll() -> events,
-// connect/disconnect events. A channel multiplexes any number of links (the relay serves its host's
-// in-process client and remote peers at once) and numbers every (link, link peer) pair as one
-// channel Peer. It runs the same minimal reliability protocol over every link:
+// The channel (src/netcode/SPEC.md): reliable and unreliable messages to peers over any number of links (the relay
+// serves its host's in-process client and remote peers at once), each (link, link peer) pair one channel Peer. It
+// runs the same minimal reliability protocol over every link:
 //
-//   datagram = u8 magic, u8 version, u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
-//              u16 chunk count, chunks
+//   datagram = u8 tag (0x80 | PROTOCOL_VERSION), u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
+//              u8 recent, u16 recent delay (ACK_DELAY_UNIT_US), u8 chunk count, chunks
 //   chunk    = u8 kind (0 unreliable, 1 reliable), [u32 message id if reliable], u16 len, bytes
+//   notice   = u8 tag, u32 0: "I run this protocol version", the answer to a datagram of another version
 //
-// Every datagram acks the peer's latest sequence number plus a 32-bit history. A reliable message
+// The tag carries the protocol version, so two builds never read each other's datagrams. A datagram whose tag has the
+// top bit but another version is answered with a notice (a notice never is: two versions can't ping-pong); a notice
+// from a peer is the channel's Incompatible event. The notice's five bytes never change across versions.
+//
+// Every datagram acks the peer's latest sequence number plus a 32-bit history, and names the datagram that arrived
+// last (`recent` back from the ack) with how long it waited before this one went out: the round trip measured from
+// it is the path's own. The last arrival, not the newest seq: under jitter the newest is the one that came fast, and
+// sampling only it would read the round trip short. A reliable message
 // rides in datagrams until one of them is acked, and is resent after a timeout derived from the
 // measured RTT. At most REL_IN_FLIGHT datagrams carrying reliable messages are in flight past the newest seq the
 // peer acked, so one ack (its seq and 32 more) covers a whole burst (a snapshot): the rest waits for that ack instead
@@ -40,6 +47,7 @@ Event_Kind :: enum u8 {
 	Connected,
 	Disconnected,
 	Message,
+	Incompatible, // the peer runs another protocol version (its notice came)
 }
 
 Event :: struct {
@@ -60,9 +68,10 @@ DISCONNECT_US :: 10_000_000 // silence from a peer that has answered before
 // search, the P2P connection and its retries), and the client's first hello goes out before that.
 FIRST_ANSWER_US :: 30_000_000
 KEEPALIVE_US :: 250_000
-DGRAM_MAGIC :: 0xA7
-DGRAM_VERSION :: 2
-HEADER_BYTES :: 24
+DGRAM_TAG :: u8(0x80 | PROTOCOL_VERSION) // a datagram's first byte
+NOTICE_BYTES :: 5 // the version notice: the tag and a zero epoch
+HEADER_BYTES :: 25
+ACK_DELAY_UNIT_US :: 16 // the ack delay's unit (a u16: up to ~1 s; longer saturates and measures nothing)
 CHUNK_OVERHEAD :: 7 // kind u8, id u32, len u16
 MAX_MESSAGE :: MAX_DATAGRAM - HEADER_BYTES - CHUNK_OVERHEAD // the largest message channel_send takes
 
@@ -118,11 +127,13 @@ Conn :: struct {
 	rel_seqs:    [REL_IN_FLIGHT]u32, // seqs of datagrams with reliable messages, newer than acked_max (a FIFO)
 	rel_first:   int,
 	rel_count:   int,
-	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_seen)
-	rtt_seen:    bool,
+	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_samples > 0)
+	rtt_samples: int, // round-trip samples taken (a new one each time it moves)
 	// receive side
 	have_recv:   bool,
 	recv_max:    u32,
+	recent:      u32, // the seq that arrived last (any, an old one too)
+	recent_at:   i64, // when it did (the delay we send with it)
 	recv_bits:   u32,
 	ack_pending: bool,
 	rel_next:    u32,
@@ -315,13 +326,14 @@ channel_send :: proc(channel: ^Channel, peer: Peer, data: []u8, delivery: Delive
 	return true
 }
 
-// The latest round-trip sample to `peer` (a datagram sent until its ack arrived; ok = false before the first ack).
-// Every datagram is acked within a few ms, so from the first answer on it is a fresh measure of the path.
-channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, ok: bool) {
-	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active || !channel.conns[peer].rtt_seen {
-		return 0, false
+// The latest round-trip sample to `peer` (a datagram sent until its ack came, less the time the peer held it) and how
+// many were taken (0: none yet; a caller averaging them takes one each time the count moves). The peer acks every
+// datagram with the next one it sends, so from its first answer on this is a fresh measure of the path.
+channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, samples: int) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active {
+		return 0, 0
 	}
-	return channel.conns[peer].rtt_last_us, true
+	return channel.conns[peer].rtt_last_us, channel.conns[peer].rtt_samples
 }
 
 // True when every reliable message to `peer` has been acknowledged.
@@ -355,8 +367,19 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 			}
 			header, header_ok := read_header(channel.rx[:size])
 			if !header_ok {
-				// Garbage: no connection for it, and an endpoint we don't know yet is forgotten.
-				if channel_find(channel, link_index, from) < 0 {
+				known := channel_find(channel, link_index, from)
+				switch version_check(channel.rx[:size]) {
+				case .Notice:
+					if known >= 0 {
+						append(&channel.events, Event{kind = .Incompatible, peer = known})
+					}
+				case .Other_Version:
+					notice := [NOTICE_BYTES]u8{DGRAM_TAG, 0, 0, 0, 0}
+					link_send(&link, from, notice[:])
+				case .Garbage:
+				}
+				// No connection for it, and an endpoint we don't know yet is forgotten.
+				if known < 0 {
 					link_forget(&link, from)
 				}
 				continue
@@ -380,20 +403,19 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 	return channel.events[:]
 }
 
-// Marks a datagram of ours received. Only the newest seq an ack names (`sample`) measures the round trip: the older
-// ones it covers waited at the receiver.
+// Marks a datagram of ours received. Only the one that arrived last at the peer measures the round trip (`held_us`:
+// how long the peer held it before acking; -1: no sample): the others an ack covers waited at the receiver.
 @(private)
-seq_acked :: proc(conn: ^Conn, seq: u32, now: i64, sample: bool) {
+seq_acked :: proc(conn: ^Conn, seq: u32, now: i64, held_us: i64) {
 	record := &conn.sent[seq % SENT_RING]
 	if !record.valid || record.seq != seq {
 		return
 	}
 	record.valid = false
-	if sample {
-		rtt := f64(now - record.at)
+	if rtt := f64(now - record.at - held_us); held_us >= 0 && rtt >= 0 {
 		conn.srtt_us += (rtt - conn.srtt_us) * 0.125
 		conn.rtt_last_us = rtt
-		conn.rtt_seen = true
+		conn.rtt_samples += 1
 	}
 	for k in 0 ..< int(record.n_ids) {
 		id := record.ids[k]
@@ -409,15 +431,17 @@ seq_acked :: proc(conn: ^Conn, seq: u32, now: i64, sample: bool) {
 @(private)
 Dgram_Header :: struct {
 	epoch, echo, seq, ack, ack_bits: u32,
+	recent:                          u32, // the seq that arrived last at the peer (0: none)
+	recent_us:                       i64, // how long it waited there (-1: no round-trip sample)
 	n_chunks:                        int,
 	body:                            int, // offset of the first chunk
 }
 
-// The datagram header, if it is one of ours.
+// The datagram header, if it is one of ours (this protocol version).
 @(private)
 read_header :: proc(bytes: []u8) -> (header: Dgram_Header, ok: bool) {
 	reader := wire.reader_make(bytes)
-	if wire.r_u8(&reader) != DGRAM_MAGIC || wire.r_u8(&reader) != DGRAM_VERSION {
+	if wire.r_u8(&reader) != DGRAM_TAG {
 		return
 	}
 	header.epoch = wire.r_u32(&reader)
@@ -425,9 +449,32 @@ read_header :: proc(bytes: []u8) -> (header: Dgram_Header, ok: bool) {
 	header.seq = wire.r_u32(&reader)
 	header.ack = wire.r_u32(&reader)
 	header.ack_bits = wire.r_u32(&reader)
-	header.n_chunks = int(wire.r_u16(&reader))
+	back := u32(wire.r_u8(&reader))
+	delay := wire.r_u16(&reader)
+	header.recent = header.ack - back
+	header.recent_us = delay == max(u16) || back > 32 ? -1 : i64(delay) * ACK_DELAY_UNIT_US
+	header.n_chunks = int(wire.r_u8(&reader))
 	header.body = reader.pos
 	return header, reader.ok && header.epoch != 0
+}
+
+@(private)
+Version_Check :: enum u8 {
+	Garbage, // not ours at all
+	Other_Version, // a datagram of another protocol version: answer with a notice
+	Notice, // a peer's notice of its version, which is not ours
+}
+
+// What a datagram read_header refused is: a version notice, a datagram of another version, or neither.
+@(private)
+version_check :: proc(bytes: []u8) -> Version_Check {
+	if len(bytes) < NOTICE_BYTES || bytes[0] & 0x80 == 0 || bytes[0] == DGRAM_TAG {
+		return .Garbage
+	}
+	if bytes[1] | bytes[2] | bytes[3] | bytes[4] == 0 {
+		return len(bytes) == NOTICE_BYTES ? .Notice : .Garbage
+	}
+	return .Other_Version
 }
 
 @(private)
@@ -439,9 +486,9 @@ handle_datagram :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, byt
 	channel.stats.datagrams_recv += 1
 	channel.stats.bytes_recv += len(bytes)
 	if header.ack != 0 {
-		take_acks(channel, conn, header.ack, header.ack_bits, now)
+		take_acks(channel, conn, header, now)
 	}
-	note_seq(conn, header.seq)
+	note_seq(conn, header.seq, now)
 	reader := wire.reader_make(bytes)
 	reader.pos = header.body
 	read_chunks(channel, conn, from, &reader, header.n_chunks)
@@ -478,12 +525,16 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 // Our sequence numbers that the peer has received: mark their reliable messages acked and drop the
 // acknowledged prefix of the reliable queue.
 @(private)
-take_acks :: proc(channel: ^Channel, conn: ^Conn, ack, ack_bits: u32, now: i64) {
+take_acks :: proc(channel: ^Channel, conn: ^Conn, header: Dgram_Header, now: i64) {
+	ack, ack_bits := header.ack, header.ack_bits
 	conn.acked_max = max(conn.acked_max, min(ack, conn.next_seq - 1))
-	seq_acked(conn, ack, now, true)
+	if header.recent_us >= 0 {
+		seq_acked(conn, header.recent, now, header.recent_us) // first: the one sample
+	}
+	seq_acked(conn, ack, now, -1)
 	for bit in 0 ..< u32(32) {
 		if ack_bits & (1 << bit) != 0 && ack > bit + 1 {
-			seq_acked(conn, ack - bit - 1, now, false)
+			seq_acked(conn, ack - bit - 1, now, -1)
 		}
 	}
 	k := 0
@@ -496,9 +547,10 @@ take_acks :: proc(channel: ^Channel, conn: ^Conn, ack, ack_bits: u32, now: i64) 
 	}
 }
 
-// Records the peer's sequence number for our acks.
+// Records the peer's sequence number for our acks (and when its newest arrived, for the ack delay).
 @(private)
-note_seq :: proc(conn: ^Conn, seq: u32) {
+note_seq :: proc(conn: ^Conn, seq: u32, now: i64) {
+	conn.recent, conn.recent_at = seq, now
 	if !conn.have_recv || seq > conn.recv_max {
 		shift := conn.have_recv ? seq - conn.recv_max : 33
 		conn.recv_bits = shift >= 32 ? 0 : (conn.recv_bits << shift)
@@ -575,24 +627,30 @@ Packet_Builder :: struct {
 }
 
 @(private)
-begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn) {
+begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn, now: i64) {
 	clear(&builder.w.buf)
 	builder.count = 0
 	builder.sp = {}
-	wire.w_u8(&builder.w, DGRAM_MAGIC)
-	wire.w_u8(&builder.w, DGRAM_VERSION)
+	back, delay := u8(0), max(u16) // no sample
+	if conn.have_recv && conn.recv_max - conn.recent <= 32 {
+		back = u8(conn.recv_max - conn.recent)
+		delay = u16(min((now - conn.recent_at) / ACK_DELAY_UNIT_US, i64(max(u16))))
+	}
+	wire.w_u8(&builder.w, DGRAM_TAG)
 	wire.w_u32(&builder.w, conn.epoch)
 	wire.w_u32(&builder.w, conn.peer_epoch)
 	wire.w_u32(&builder.w, conn.next_seq)
 	wire.w_u32(&builder.w, conn.have_recv ? conn.recv_max : 0)
 	wire.w_u32(&builder.w, conn.recv_bits)
-	wire.w_u16(&builder.w, 0) // chunk count, patched in end_packet
+	wire.w_u8(&builder.w, back)
+	wire.w_u16(&builder.w, delay)
+	wire.w_u8(&builder.w, 0) // chunk count, patched in end_packet
+	assert(len(builder.w.buf) == HEADER_BYTES)
 }
 
 @(private)
 end_packet :: proc(channel: ^Channel, builder: ^Packet_Builder, conn: ^Conn, peer: Peer, now: i64) {
-	builder.w.buf[HEADER_BYTES - 2] = u8(builder.count)
-	builder.w.buf[HEADER_BYTES - 1] = u8(builder.count >> 8)
+	builder.w.buf[HEADER_BYTES - 1] = u8(builder.count)
 	record := &conn.sent[conn.next_seq % SENT_RING]
 	record^ = builder.sp
 	record.seq = conn.next_seq
@@ -633,15 +691,16 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 		}
 		peer := Peer(i)
 		rto := i64(clamp(conn.srtt_us * 1.5 + 15_000, 30_000, 500_000))
-		begin_packet(&builder, &conn)
+		begin_packet(&builder, &conn, now)
 		fits :: proc(builder: ^Packet_Builder, size: int) -> bool {
-			return len(builder.w.buf) + size <= MAX_DATAGRAM
+			return len(builder.w.buf) + size <= MAX_DATAGRAM && builder.count < 255 // a u8 chunk count
 		}
 		for held in conn.unrel_out {
 			bytes := pool_bytes(&channel.pool, held)
 			if !fits(&builder, 3 + len(bytes)) {
 				end_packet(channel, &builder, &conn, peer, now)
-				begin_packet(&builder, &conn)
+				begin_packet(&builder, &conn, now)
+
 			}
 			wire.w_u8(&builder.w, 0)
 			wire.w_u16(&builder.w, u16(len(bytes)))
@@ -661,7 +720,8 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			data := pool_bytes(&channel.pool, message.data)
 			if !fits(&builder, CHUNK_OVERHEAD + len(data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
 				end_packet(channel, &builder, &conn, peer, now)
-				begin_packet(&builder, &conn)
+				begin_packet(&builder, &conn, now)
+
 			}
 			if builder.sp.n_ids == 0 && !rel_room(&conn) {
 				break // as many reliable datagrams in flight as one ack covers: wait for it

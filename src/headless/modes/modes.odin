@@ -1,6 +1,6 @@
-// A game's headless binary: the CLI of src/headless/SPEC.md (CLI), generic over the game, on top of the
-// in-memory runs of unified:headless. The game's `main` calls modes.run(&GAME, ...).
-// Every mode prints one JSON object as its last stdout line; a non-zero exit code means failure.
+// A game's headless binary: the CLI of src/headless/SPEC.md, generic over the game, on top of the in-memory runs of
+// unified:headless. The game's `main` calls modes.run(&GAME, ...). Every mode prints one JSON object as its last
+// stdout line; a non-zero exit code means failure. `help` lists the modes and their options.
 package modes
 
 // Used only inside generic procs (see netmodes.odin).
@@ -9,18 +9,108 @@ package modes
 
 // Imported as `uheadless`: the modes name their Headless parameter `headless`.
 import uheadless "unified:headless"
+import "unified:netcode"
 @(require) import "unified:sim" // only in generic procs
 
+// A mode of the binary: the library's, a lobby service's, or a game's own (run's `extra`).
+Mode :: struct($G: typeid) {
+	name:    string,
+	options: string, // its options as `help` shows them: every --name in it is an option it takes, the others fail
+	help:    string, // what it is for, one line
+	run:     proc(headless: ^uheadless.Headless(G), args: ^Args) -> bool,
+	lobby:   ^netcode.Lobby, // a lobby mode's service (Args.lobby)
+}
+
 // Runs the mode named on the command line on `game` (its scripted player plays the runs). `options`: the binary's
-// content, benchmark and summary (its `game` is `game`). `variants`: other variants of the game (e.g. other
-// tunings), picked with `--game NAME` (sim.Game.name) on any mode. `online`: a lobby transport for the
-// <name>-host and <name>-client modes (optional).
-run :: proc(game: ^$G, options: uheadless.Headless(G), variants: []^G = nil, online: ^Online = nil) {
+// content and benchmark (its `game` is `game`). `variants`: other variants of the game (e.g. other tunings), picked
+// with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the <name>-host and
+// <name>-client modes; a game opts in, and links the service's SDK. `extra`: the game's own modes.
+run :: proc(
+	game: ^$G,
+	options: uheadless.Headless(G),
+	variants: []^G = nil,
+	lobbies: []^netcode.Lobby = nil,
+	extra: []Mode(G) = nil,
+) {
 	options := options
 	options.game = game
 	headless := &options
 	platform_init()
-	args := parse_args()
+	table := make([dynamic]Mode(G), context.temp_allocator)
+	append(&table, Mode(G) {
+		name    = "sim",
+		options = "--ticks N [--seed S] [--players P] [--trace F] [--log F]",
+		help    = "an offline run with scripted inputs; writes its per-tick trace and its input log",
+		run     = mode_sim,
+	}, Mode(G) {
+		name    = "synctest",
+		options = "--ticks N --window W [--seed S] [--players P]",
+		help    = "an offline run that re-simulates the last W ticks every tick; fails on any tick that comes out differently",
+		run     = mode_synctest,
+	}, Mode(G) {
+		name    = "replay",
+		options = "--log F [--snapshot F] [--trace F]",
+		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note); fails on another build's",
+		run     = mode_replay,
+	}, Mode(G) {
+		name    = "session",
+		options = "[--clients N] [--ticks T] [--profile ideal|wan|bad] [--latency MS [--jitter MS] [--loss PERMILLE]] [--late-join P@T] [--log F] [--seed S]",
+		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, bytes per second, a late joiner's join",
+		run     = mode_session,
+	}, Mode(G) {
+		name    = "relay",
+		options = "--port P --players N --ticks T [--log F]",
+		help    = "a relay alone on a local UDP port until its session ends (uni test --suite net, with `client` processes)",
+		run     = mode_relay,
+	}, Mode(G) {
+		name    = "client",
+		options = "--connect HOST:PORT --slot I --ticks T [--profile ideal|wan|bad]",
+		help    = "one scripted client of a `relay` process over UDP, behind a network profile",
+		run     = mode_client,
+	}, Mode(G) {
+		name    = "bench",
+		options = "[--entities E] [--window W] [--ticks N] [--seed S] [--players P]",
+		help    = "times step, save, checksum, restore and a re-sim at the prediction cap every tick (the game's standard run without options)",
+		run     = mode_bench,
+	})
+	for lobby in lobbies {
+		append(&table, Mode(G) {
+			name    = fmt.tprintf("%s-host", lobby.name),
+			options = "--ticks T [--wait-s N] [--players N] [--bucket B] [--code-file F] [--log F]",
+			help    = fmt.tprintf("hosts a scripted session in a %s lobby and prints its code", lobby.name),
+			run     = mode_lobby_host,
+			lobby   = lobby,
+		}, Mode(G) {
+			name    = fmt.tprintf("%s-client", lobby.name),
+			options = "--code CODE --ticks T [--bucket B]",
+			help    = fmt.tprintf("joins a %s-host lobby by code and plays a scripted remote player", lobby.name),
+			run     = mode_lobby_client,
+			lobby   = lobby,
+		})
+	}
+	append(&table, ..extra)
+	argv := os.args[1:]
+	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" {
+		print_usage(table[:], len(argv) == 0 ? os.stderr : os.stdout)
+		os.exit(len(argv) == 0 ? 2 : 0)
+	}
+	mode: ^Mode(G)
+	for &entry in table {
+		if entry.name == argv[0] {
+			mode = &entry
+		}
+	}
+	if mode == nil {
+		fmt.eprintfln("unknown mode %q", argv[0])
+		print_usage(table[:], os.stderr)
+		os.exit(2)
+	}
+	if len(argv) == 2 && argv[1] == "--help" {
+		fmt.printfln("%s %s\n  %s\n%s", mode.name, mode.options, mode.help, ANY_MODE)
+		os.exit(0)
+	}
+	args := parse_options(mode.name, argv[1:])
+	args.lobby = mode.lobby
 	if name, has := args.opts["game"]; has {
 		delete_key(&args.opts, "game")
 		found := headless.game.name == name
@@ -42,41 +132,24 @@ run :: proc(game: ^$G, options: uheadless.Headless(G), variants: []^G = nil, onl
 		}
 		headless.content = data
 	}
-	ok := true
-	switch args.mode {
-	case "sim":
-		ok = mode_sim(headless, &args)
-	case "synctest":
-		ok = mode_synctest(headless, &args)
-	case "replay":
-		ok = mode_replay(headless, &args)
-	case "snapshot":
-		ok = mode_snapshot(headless, &args)
-	case "resume":
-		ok = mode_resume(headless, &args)
-	case "bench":
-		ok = mode_bench(headless, &args)
-	case "net-bench":
-		ok = mode_net_bench(headless, &args)
-	case "table-bench":
-		ok = mode_table_bench(&args)
-	case "session":
-		ok = mode_session(headless, &args)
-	case "relay":
-		ok = mode_relay(headless, &args)
-	case "client":
-		ok = mode_client(headless, &args)
-	case:
-		switch {
-		case online != nil && args.mode == fmt.tprintf("%s-host", online.name):
-			ok = mode_online_host(headless, online, &args)
-		case online != nil && args.mode == fmt.tprintf("%s-client", online.name):
-			ok = mode_online_client(headless, online, &args)
-		case:
-			usage()
-		}
+	check_known(&args, mode.options)
+	os.exit(mode.run(headless, &args) ? 0 : 1)
+}
+
+@(private)
+ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level FILE] the level file (default: the one the game embeds)"
+
+@(private)
+print_usage :: proc(table: []Mode($G), to: ^os.File) {
+	fmt.fprintfln(
+		to,
+		"usage: %s <mode> [options]   (<mode> --help: one mode)",
+		len(os.args) > 0 ? os.args[0] : "headless",
+	)
+	for mode in table {
+		fmt.fprintfln(to, "  %s %s\n      %s", mode.name, mode.options, mode.help)
 	}
-	os.exit(ok ? 0 : 1)
+	fmt.fprintln(to, ANY_MODE)
 }
 
 // The `--seed` option (default 1, at most u32 max), shared by every mode that takes one.
@@ -89,21 +162,20 @@ players_opt :: proc(args: ^Args, max_players: int) -> int {
 	return opt_int(args, "players", max_players, low = 1, high = max_players)
 }
 
-// `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window).
+// `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window); `fallback` (a game's
+// standard benchmark) must be in that range too.
 window_opt :: proc(headless: ^uheadless.Headless($G), args: ^Args, fallback := 0, required := false) -> u32 {
 	longest := uheadless.max_window(headless.game)
-	window := opt_int(args, "window", fallback, required, low = 1, high = longest)
-	if window < 1 || window > longest {
-		die("%s: the window must be in [1, %d] (the game's ring), got %d", args.mode, longest, window)
-	}
-	return u32(window)
+	assert(
+		required || (fallback >= 1 && fallback <= longest),
+		"the default rollback window is outside the game's ring",
+	)
+	return u32(opt_int(args, "window", fallback, required, low = 1, high = longest))
 }
 
 // The `sim` mode: an offline run with scripted inputs, writing the per-tick trace and the input log when asked.
 mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
-	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "ticks", "seed", "players", "trace", "log")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	seed := seed_opt(args)
 	players := players_opt(args, PLAYERS)
@@ -116,12 +188,11 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	ok := trace_path == "" || uheadless.trace_write(&trace, trace_path)
 	ok &&= log_path == "" || uheadless.log_write(log_path, &input_log)
 	fmt.printfln(
-		`{{"mode":"sim","ticks":%d,"seed":%d,"players":%d,"final_checksum":"%016x",%s"ok":%v}}`,
+		`{{"mode":"sim","ticks":%d,"seed":%d,"players":%d,"final_checksum":"%016x","ok":%v}}`,
 		result.final_tick,
 		seed,
 		players,
 		result.final_checksum,
-		result.summary != "" ? fmt.tprintf("%s,", result.summary) : "",
 		ok,
 	)
 	return ok
@@ -131,7 +202,6 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // tick that comes out differently.
 mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "ticks", "window", "seed", "players")
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	window := window_opt(headless, args, required = true)
 	seed := seed_opt(args)
@@ -160,9 +230,6 @@ mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
 // writing the trace when asked; fails on a log of another build.
 mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
-	Input :: sim.part(G, sim.GAME_INPUT)
-	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "log", "trace", "snapshot")
 	log_path := opt_str(args, "log", required = true)
 	input_log, log_ok := uheadless.log_read(log_path, G)
 	if !log_ok {
@@ -191,57 +258,10 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	return ok
 }
 
-// The `snapshot` mode: runs offline to `--ticks` and writes a portable snapshot of that tick to `--out`.
-mode_snapshot :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
-	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "ticks", "out", "seed", "players")
-	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
-	out := opt_str(args, "out", required = true)
-	data, checksum := uheadless.run_snapshot(headless, ticks, seed_opt(args), players_opt(args, PLAYERS))
-	defer delete(data)
-	ok := os.write_entire_file(out, data) == nil
-	fmt.printfln(
-		`{{"mode":"snapshot","tick":%d,"bytes":%d,"checksum":"%016x","ok":%v}}`,
-		ticks,
-		len(data),
-		checksum,
-		ok,
-	)
-	return ok
-}
-
-// The `resume` mode: restores a snapshot file and runs `--ticks` more, tracing them, so a test can compare
-// with the uninterrupted run.
-mode_resume :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
-	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "in", "ticks", "trace", "players")
-	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
-	in_path := opt_str(args, "in", required = true)
-	data, err := os.read_entire_file(in_path, context.allocator)
-	if err != nil {
-		die("resume: cannot read %s", in_path)
-	}
-	defer delete(data)
-	trace: uheadless.Trace
-	defer uheadless.trace_destroy(&trace)
-	result, ok := uheadless.run_resume(headless, data, ticks, players_opt(args, PLAYERS), &trace)
-	if path := opt_str(args, "trace"); ok && path != "" {
-		ok = uheadless.trace_write(&trace, path)
-	}
-	fmt.printfln(
-		`{{"mode":"resume","final_tick":%d,"final_checksum":"%016x","ok":%v}}`,
-		result.final_tick,
-		result.final_checksum,
-		ok,
-	)
-	return ok
-}
-
 // The `bench` mode: times step, save, restore and re-sim with `--entities` held (the game's standard benchmark
 // without options); `uni bench` reads its JSON.
 mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "entities", "window", "ticks", "seed", "players")
 	standard := headless.bench
 	if standard.ticks == 0 {
 		standard = {
@@ -266,7 +286,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		result.warmup,
 	)
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
 		what,
 		entities,
 		window,
@@ -279,6 +299,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		stat_json(result.resim_final),
 		stat_json(result.checksum),
 		stat_json(result.checksum_deep),
+		stat_json(result.snapshot_encode),
 		result.snapshot_bytes,
 		result.save_bytes,
 		result.mismatches,

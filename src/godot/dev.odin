@@ -46,7 +46,7 @@ when DEVUI {
 		prev_end:     time.Tick,
 		prev_sync_us: f32,
 		prev_ui_ms:   f32,
-		net:          Net_Stats, // the last frame's cumulative counters
+		net:          netcode.Client_Stats, // the last frame's cumulative counters
 		have_net:     bool,
 		bw_bytes:     [2]i64, // bandwidth window: bytes in, out
 		bw_us:        i64,
@@ -266,16 +266,18 @@ when DEVUI {
 	dev_sim_graphs :: proc(frame: ^Frame_Data, dt: f64) {
 		net := frame.net
 		prev := dev.net
-		if !dev.have_net || net.steps[0] < prev.steps[0] || net.bytes_in < prev.bytes_in { 	// a new session
+		if !dev.have_net ||
+		   net.steps[.Verified] < prev.steps[.Verified] ||
+		   net.net.bytes_recv < prev.net.bytes_recv { 	// a new session
 			prev = net
 			dev.have_net = true
 			dev.steps, dev.steps_us, dev.per_second = {}, 0, {}
 		}
 		dev.net = net
 		step_ms: [3]f32
-		for k in 0 ..< 3 {
-			step_ms[k] = f32(net.step_us[k] - prev.step_us[k]) / 1000
-			dev.steps[k] += i64(net.steps[k] - prev.steps[k])
+		for kind, k in netcode.Step_Kind {
+			step_ms[k] = f32(net.step_us[kind] - prev.step_us[kind]) / 1000
+			dev.steps[k] += i64(net.steps[kind] - prev.steps[kind])
 		}
 		// ticks stepped per second, over whole seconds
 		dev.steps_us += i64(dt * 1e6)
@@ -286,14 +288,14 @@ when DEVUI {
 		devui.stack("sim thread ms", step_ms[:], {"verified", "rollback", "predicted"}, "sim")
 		devui.plot("ticks ahead", f32(frame.tick) - f32(frame.verified), 0, 0, "sim")
 		if net.rollbacks > prev.rollbacks do devui.mark("sim events", "rollback", "sim")
-		if net.replaced > prev.replaced do devui.mark("sim events", "late input", "sim")
-		if net.stalls > prev.stalls do devui.mark("sim events", "stall", "sim")
+		if net.own_replaced > prev.own_replaced do devui.mark("sim events", "late input", "sim")
+		if net.stall_ticks > prev.stall_ticks do devui.mark("sim events", "stall", "sim")
 		if net.desyncs > prev.desyncs do devui.mark("sim events", "desync", "sim")
 
-		devui.plot("round trip ms", net.rtt_ms, 0, 0, "net")
+		devui.plot("round trip ms", f32(net.rtt_ms), 0, 0, "net")
 		// bandwidth over 250 ms windows
-		dev.bw_bytes[0] += net.bytes_in - prev.bytes_in
-		dev.bw_bytes[1] += net.bytes_out - prev.bytes_out
+		dev.bw_bytes[0] += i64(net.net.bytes_recv - prev.net.bytes_recv)
+		dev.bw_bytes[1] += i64(net.net.bytes_sent - prev.net.bytes_sent)
 		dev.bw_us += i64(dt * 1e6)
 		if dev.bw_us >= 250_000 {
 			for k in 0 ..< 2 do dev.bw[k] = f32(dev.bw_bytes[k]) / 1024 / (f32(dev.bw_us) / 1e6)
@@ -328,7 +330,7 @@ when DEVUI {
 			to_tick:    u32, // the log's last
 			check_tick: u32, // a tick the replay reaches, and the session's checksum of it (hex; check_tick 0: none)
 			checksum:   string,
-			net:        Net_Stats,
+			net:        netcode.Client_Stats,
 		}
 		out := Note_Json {
 			game      = api.game_name,

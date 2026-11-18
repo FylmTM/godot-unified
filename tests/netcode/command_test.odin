@@ -10,14 +10,14 @@ import "../toy"
 import "unified:netcode"
 import "unified:sim"
 
-// What toy.scripted_commands sends from `player` over ticks first..last, in order.
+// What toy.burst_commands sends from `player` over ticks first..last, in order.
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
 	out := sim.Command_Out(toy.Cmd) {
 		slot = player,
 		cap  = 1 << 20,
 	}
 	for tick in first ..= last {
-		toy.scripted_commands(SEED, player, tick, nil, &out)
+		toy.burst_commands(SEED, player, tick, nil, &out)
 	}
 	return out.list
 }
@@ -73,7 +73,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 	net_make(&session, TICKS, 0)
 	defer net_destroy(&session)
 	for _ in 0 ..< 3 {
-		net_join(&session, netcode.PROFILES[2]) // bad: 8% loss, 3% duplicates, 5% reordering
+		net_join(&session, profile = .Bad) // bad: 8% loss, 3% duplicates, 5% reordering
 	}
 	net_run(&session, 60, all_done)
 	testing.expect(t, all_done(&session))
@@ -171,18 +171,15 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	session.host = netcode.host_create(&toy.GAME, {
 			seed      = SEED,
 			ticks     = 0,
-			name      = "host",
-			quiet     = true,
 			recording = sim.log_sink_memory(&session.recording),
 		}, quiet_hooks(&session.watch[0]))
+	session.relay = session.host.relay
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	defer net_destroy(&session)
 	link, gate := gate_wrap(netcode.loopback_link(session.hub, 1))
 	sender: Sender
 	client := netcode.client_create(&toy.GAME, {
-			slot  = -1,
-			name  = "sender",
-			quiet = true,
+			slot = -1,
 		}, link, sender_hooks(&sender, &session.watch[1]))
 	append(&session.clients, client)
 	net_run(&session, 2)
@@ -199,12 +196,12 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	})
 	predicted := &client.pred_inputs[sent_for % netcode.PRED_RING]
 	testing.expect_value(t, len(sim.slot_commands(predicted, client.slot)), 1) // predicted at W
-	rollbacks := client.rollbacks
+	rollbacks := client.stats.rollbacks
 	net_run(&session, 0.3)
 	gate.block_out = false
 	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
-	testing.expect(t, client.rollbacks > rollbacks)
+	testing.expect(t, client.stats.rollbacks > rollbacks)
 	// The log: W replaced the sender's input and holds no command; the bump is in one later tick T, once.
 	log := net_log(&session)
 	testing.expect(t, client.slot in log.ticks[sent_for - 1].replaced)
@@ -251,7 +248,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 }
 
 // The host's own commands always arrive in time: each lands in the tick it was sent for, except that
-// a tick takes at most four of a player's (toy.scripted_commands sends six at tick 250: two wait for 251).
+// a tick takes at most four of a player's (toy.burst_commands sends six at tick 250: two wait for 251).
 @(test)
 the_fifth_command_of_a_tick_waits_for_the_next :: proc(t: ^testing.T) {
 	session: Net

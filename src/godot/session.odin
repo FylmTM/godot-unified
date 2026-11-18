@@ -192,7 +192,7 @@ register_session_class :: proc() {
 	}, {"player"})
 	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
 		entry, ok := roster_entry(player)
-		return ok ? strings.clone(netcode.name_string(&entry.name), context.temp_allocator) : ""
+		return ok ? strings.clone(netcode.text_string(&entry.name), context.temp_allocator) : ""
 	}, {"player"})
 	gd.bind_method(class, "get_player_platform", proc(session: ^Session_Node, player: i64) -> string {
 		entry, ok := roster_entry(player)
@@ -419,7 +419,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	dev_begin()
 	input_sample_begin(dev_wants_keyboard())
 	if api.installed do api.sample_input()
-	if transport != nil && transport.main_frame != nil && api.running() do transport.main_frame(transport.user)
+	if lobby != nil && lobby.main_frame != nil && api.running() do lobby.main_frame()
 	started := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers
 	fresh := false

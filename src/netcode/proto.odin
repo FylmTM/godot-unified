@@ -5,8 +5,10 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-// Bump on any change to what a message carries, the snapshots a late joiner gets included (sim.SNAP_VERSION).
-PROTOCOL_VERSION :: 14
+// Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
+// datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
+PROTOCOL_VERSION :: 15
+#assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
 ACCOUNT_MAX :: 63 // bytes of an account id (an EOS product user id: 32)
@@ -22,11 +24,11 @@ COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more
 WINDOW_MAX :: 32 // finalized ticks resent per relay packet (fewer when they don't fit)
 CHECKSUM_EVERY :: sim.DEEP_CHECKSUM_EVERY // the ticks whose checksums cover every extra's whole state
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
-SNAP_CHUNK :: 1000
+SNAP_CHUNK :: MAX_MESSAGE - 6 // a Snap_Chunk's bytes: what fits next to its type, target and offset
 RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay itself (a desync report's snapshot)
 DESYNC_IMAGES :: 8 // checksum-tick snapshots a client keeps for desync reports (Welcome's Keep_Images)
-DEFAULT_POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets
-ANY_PLAYER :: u8(0xFF) // Hello: any free slot
+POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets
+ANY_SLOT :: u8(0xFF) // Hello: any free slot
 NO_SLOT :: sim.NO_SLOT // a roster entry of a member not seated
 
 // What a client on a link that vouches for no account (LAN, direct UDP) is recognized by when it comes back: 16
@@ -123,27 +125,26 @@ want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 }
 
 Msg :: enum u8 {
-	// c->r R: protocol u16, slot u8 (ANY_PLAYER: any), join tick u32 (0: at start), compat u64, token [16]u8, name len
-	// u8 + bytes
+	// c->r R: slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, token [16]u8, name len u8 + bytes
 	Hello = 1,
 	// r->c R: slot u8, member u16, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32, flags u8
 	// (Welcome_Flags)
 	Welcome,
 	Reject, // r->c R: reason u8
-	// c->r U: player u8, client time i64 µs, finalized ack u32, first tick u32, count u8, inputs (window_write_input:
-	// each its changes from the one before, the first from the zero input); then the unacked commands: first seq u32,
-	// count u8, per command: wanted tick u32, kind u8, size u8, bytes
+	// c->r U: finalized ack u32, first tick u32, count u8, inputs (window_write_input: each its changes from the one
+	// before, the first from the zero input); then the unacked commands: first seq u32, count u8, per command: wanted
+	// tick u32, kind u8, size u8, bytes. The relay knows the sender's slot.
 	Inputs,
-	// r->c U: relay time i64, echo i64, hold i64, input ack u32, command ack u32, first u32, count u8, ticks
-	// (window_write_tick: each tick's changes from the one before it in the packet, and its join records)
+	// r->c U: relay time i64, input ack u32, command ack u32, first u32, count u8, ticks (window_write_tick: each
+	// tick's changes from the one before it in the packet, and its join records)
 	Finalized,
-	Checksum, // c->r R: player u8, tick u32, checksum u64 (a joiner's first: of its restored snapshot)
+	Checksum, // c->r R: tick u32, checksum u64 (a joiner's first: of its restored snapshot)
 	// r->c R: target u8 (a joiner, or RELAY_TARGET), min tick u32: for a joiner, the snapshot of the first checksum
 	// tick >= min the client verifies; for the relay, the kept snapshot of that checksum tick
 	Snap_Request,
 	Snap_Begin, // c->r(->c) R: target u8, tick u32, total bytes u32 (to the relay, 0: not kept)
 	Snap_Chunk, // c->r(->c) R: target u8, offset u32, bytes
-	Done, // c->r R: player u8, final tick u32 (fixed-length sessions)
+	Done, // c->r R: the client verified the last tick of a fixed-length session
 	End, // r->c R: the session is over (or the host left)
 	Leave, // c->r R: the client leaves its player
 	// r->c R: one member's entry: member u16, slot u8 (NO_SLOT: none), connected u8, name, platform, account id (each
@@ -159,42 +160,30 @@ Welcome_Flags :: bit_set[enum u8 {
 
 Reject_Reason :: enum u8 {
 	Full = 1,
-	Player_Taken,
+	Slot_Taken,
 	Incompatible,
-	Not_Started, // a player not among the starting ones asked to join before the clock started
+	Not_Started, // a slot not among the starting ones asked for before the clock started
 	No_Snapshot, // a joiner: no other player can send a snapshot (or the one who could left)
 	Bad_Snapshot, // a joiner: its snapshot differs from the other players' checksum, and nobody else can send one
 	Too_Far_Behind, // the client fell further behind than the relay keeps ticks (RELAY_RING)
 }
 
-// A player name as fixed bytes (plain data, no allocation).
-Player_Name :: struct {
-	len:   u8,
-	bytes: [NAME_MAX]u8,
-}
-
-// Packs a display name into a fixed-size Player_Name, cutting it at NAME_MAX bytes, so a Hello stays plain data.
-name_of :: proc(text: string) -> (name: Player_Name) {
-	name.len = u8(copy(name.bytes[:], text)) // a cut may split a UTF-8 sequence; names are display-only
-	return
-}
-
-// The name's text, a view into its bytes (valid while the Player_Name is).
-name_string :: proc(name: ^Player_Name) -> string {
-	return string(name.bytes[:name.len])
-}
-
-// Short text as fixed bytes: an account's platform and id in a roster entry.
+// Short text as fixed bytes (plain data, no allocation): a player's name, an account's platform and id.
 Text :: struct($N: int) {
 	len:   u8,
 	bytes: [N]u8,
 }
 
+// A player's display name.
+Player_Name :: Text(NAME_MAX)
+
+// Packs text into a Text(N), cut at N bytes (a cut may split a UTF-8 sequence: the texts are display-only).
 text_of :: proc($N: int, text: string) -> (out: Text(N)) {
 	out.len = u8(copy(out.bytes[:], text))
 	return
 }
 
+// The text, a view into its bytes (valid while the Text is).
 text_string :: proc(text: ^Text($N)) -> string {
 	return string(text.bytes[:text.len])
 }
@@ -210,28 +199,19 @@ Roster_Entry :: struct {
 }
 
 @(private)
-w_name :: proc(writer: ^wire.Writer, name: ^Player_Name) {
-	wire.w_u8(writer, name.len)
-	wire.w_bytes(writer, name.bytes[:name.len])
-}
-
-@(private)
-r_name :: proc(reader: ^wire.Reader) -> (name: Player_Name) {
-	size := min(int(wire.r_u8(reader)), NAME_MAX)
-	copy(name.bytes[:], wire.r_bytes(reader, size))
-	name.len = u8(size)
-	return
-}
-
-@(private)
 w_text :: proc(writer: ^wire.Writer, text: ^Text($N)) {
 	wire.w_u8(writer, text.len)
 	wire.w_bytes(writer, text.bytes[:text.len])
 }
 
+// A text longer than N fails the reader (never leaves bytes in the stream).
 @(private)
 r_text :: proc(reader: ^wire.Reader, $N: int) -> (text: Text(N)) {
-	size := min(int(wire.r_u8(reader)), N)
+	size := int(wire.r_u8(reader))
+	if size > N {
+		reader.ok = false
+		return
+	}
 	copy(text.bytes[:], wire.r_bytes(reader, size))
 	text.len = u8(size)
 	return
@@ -242,7 +222,7 @@ w_roster_entry :: proc(writer: ^wire.Writer, entry: ^Roster_Entry) {
 	wire.w_u16(writer, entry.member)
 	wire.w_u8(writer, entry.slot)
 	wire.w_u8(writer, u8(entry.connected))
-	w_name(writer, &entry.name)
+	w_text(writer, &entry.name)
 	w_text(writer, &entry.platform)
 	w_text(writer, &entry.account)
 }
@@ -252,7 +232,7 @@ r_roster_entry :: proc(reader: ^wire.Reader) -> (entry: Roster_Entry) {
 	entry.member = wire.r_u16(reader)
 	entry.slot = wire.r_u8(reader)
 	entry.connected = wire.r_u8(reader) != 0
-	entry.name = r_name(reader)
+	entry.name = r_text(reader, NAME_MAX)
 	entry.platform = r_text(reader, PLATFORM_MAX)
 	entry.account = r_text(reader, ACCOUNT_MAX)
 	return
@@ -275,8 +255,8 @@ r_i64 :: proc(reader: ^wire.Reader) -> i64 {
 	return i64(wire.r_u64(reader))
 }
 
-FINALIZED_HEAD :: 38 // type u8, relay time, echo, hold i64, input ack u32, command ack u32, first u32, count u8
-INPUTS_HEAD :: 19 // type u8, player u8, client time i64, finalized ack u32, first u32, count u8
+FINALIZED_HEAD :: 22 // type u8, relay time i64, input ack u32, command ack u32, first u32, count u8 (asserted in broadcast)
+INPUTS_HEAD :: 10 // type u8, finalized ack u32, first u32, count u8 (asserted in send_inputs)
 COMMANDS_HEAD :: 5 // first seq u32, count u8
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 

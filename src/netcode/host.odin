@@ -10,14 +10,10 @@ Host_Config :: struct {
 	ticks:         u32, // 0: endless
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
 	content:       []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
-	name:          string, // for log lines
 	player_name:   string, // the host player's display name
 	account:       Account, // optional: the host player's own platform account (borrowed for the host's lifetime)
-	poll_us:       i64, // the relay's poll for remote links (0: DEFAULT_POLL_US); with none, the host doesn't poll
-	quiet:         bool,
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
-	// Typed desync reports (dev builds): the relay diffs two players' snapshots of a desynced tick (Relay_Config.desync_diff).
-	desync_detail: bool,
+	desync_detail: bool, // typed desync reports (Relay_Config.desync_detail)
 }
 
 Host :: struct($G: typeid) {
@@ -25,7 +21,6 @@ Host :: struct($G: typeid) {
 	client:  ^Client(G),
 	hub:     ^Hub,
 	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
-	poll_us: i64, // the relay's poll once a remote link is added (until then nothing comes from outside)
 }
 
 // The steps' poll while a host has no remote links (single player): nothing arrives from outside, so a step runs at
@@ -35,39 +30,32 @@ SOLO_POLL_US :: 50_000
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
 // the host's client in slot 0.
 host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
-	State :: sim.part(G, sim.GAME_STATE)
-	Input :: sim.part(G, sim.GAME_INPUT)
-	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	host := new(Host(G))
 	host.hub = hub_create(2)
 	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game, cfg.content)
-	relay_config := Relay_Config {
-		tick_hz       = game.tick_hz,
+	host.relay = relay_create(
+	game,
+	{
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = 1,
+		content       = cfg.content,
 		compat        = compat,
-		content       = sim.content_hash(cfg.content),
-		name          = cfg.name,
-		poll_us       = SOLO_POLL_US,
-		quiet         = cfg.quiet,
 		local_start   = true, // the only start player is the host's own client
 		recording     = cfg.recording,
-		desync_diff   = cfg.desync_detail ? desync_diff_of(State) : nil,
-	}
-	host.relay = relay_create(relay_config, G)
+		desync_detail = cfg.desync_detail,
+	},
+	)
+	host.relay.poll_us = SOLO_POLL_US
 	relay_add_link(host.relay, loopback_link(host.hub, 0, cfg.account))
 	client_config := Client_Config {
 		slot        = 0,
 		compat      = compat,
 		content     = cfg.content,
-		name        = cfg.name,
 		player_name = cfg.player_name,
-		poll_us     = SOLO_POLL_US, // its only link is in-process: host_step hands it what the relay sends at once
-		quiet       = cfg.quiet,
 	}
 	host.client = client_create(game, client_config, loopback_link(host.hub, 1), hooks)
-	host.poll_us = cfg.poll_us > 0 ? cfg.poll_us : DEFAULT_POLL_US
+	host.client.poll_us = SOLO_POLL_US // its only link is in-process: host_step hands it what the relay sends at once
 	return host
 }
 
@@ -75,7 +63,7 @@ host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 // own player is in (its clock started), so a remote Hello already waiting on the link (a player who connected
 // while the host waited for them) joins as a remote player instead of taking the host's player 0.
 host_add_link :: proc(host: ^Host($G), link: Link) {
-	host.relay.cfg.poll_us = host.poll_us // datagrams from outside: poll for them
+	host.relay.poll_us = POLL_US // datagrams from outside: poll for them
 	if host.relay.started {
 		relay_add_link(host.relay, link)
 	} else {
@@ -114,8 +102,7 @@ host_stop :: proc(host: ^Host($G), now: i64) {
 // Whether the session is over on both halves: the relay finished and the host's client disconnected or failed.
 // The loop that steps the host stops on it before host_destroy.
 host_finished :: proc(host: ^Host($G)) -> bool {
-	status := host.client.status
-	return relay_finished(host.relay) && (status == .Disconnected || status == .Failed)
+	return relay_finished(host.relay) && client_finished(host.client)
 }
 
 // Frees the host: its client, its relay (ending its recording), every link they own and the loopback hub.

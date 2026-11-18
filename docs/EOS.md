@@ -44,3 +44,19 @@ test tools replace it: `uni coop`'s joiner makes a fresh one (`UNIFIED_EOS_FRESH
 machine are two players), and the headless `eos-host` / `eos-client` delete theirs at exit. So after a test the
 machine plays as a new anonymous player, and two EOS tests run at once on one machine can delete each other's
 identity: run one at a time. Nothing is stored per player across sessions, so this costs nothing yet (#307).
+
+## Testing over real EOS
+
+- **One machine, two processes**, the game's headless binary (survivor's opts into EOS lobbies):
+  `survivor eos-host --ticks 1920 --code-file F` and `UNIFIED_EOS_FRESH_DEVICE=1 survivor eos-client --code C --ticks
+  1920` (`UNIFIED_EOS_RELAYS=force` to go through Epic's relays). The fresh device gives the second process its own
+  Product User ID. A pass: both play to the end with 0 desyncs, direct and relayed. `uni coop survivor` does the
+  same with the game (`--rejoin`: a clean leave and rejoin; `--crash`: the joiner kills itself and rejoins).
+- **Crossplay (macOS ↔ Windows over the internet)**, by hand on two machines: a Mac hosts with the game itself,
+  `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`; Windows joins with
+  the release headless binary, `.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360` (the lobby's build
+  must be the binary's, else it says which version the host runs), or with the exported game from a release zip.
+  Joining after the host started is a late join with a snapshot. A run passes when every common verified checksum
+  of the two sides' result lines matches. The headless `eos-host --wait-s N` hosts too where the binary owns the
+  keychain entry (not on a Mac where Godot.app made the device ID). Each side labels the path (Direct, Relayed) from
+  its own P2P notification, so the two can disagree when EOS switches routes: the round trip is the better signal.

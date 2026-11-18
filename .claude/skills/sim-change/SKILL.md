@@ -52,23 +52,22 @@ tuning, `src/physics`, `src/netcode` or the rollback path also runs the long var
 
 ## Format and protocol changes
 
-- **State layout, input, commands, player count, tick rate, game name or version, or the `[box3d]` pin:**
-  `sim.compat_of` changes with them, so peers on different builds refuse each other at hello, and a replay or
-  snapshot from another build is refused. Nothing to bump by hand. Reference runs are regenerated (above), since the
-  log and snapshot carry compat.
-- **A game's rules or tuning** (it computes differently with the same layouts): bump that game's `Game.version`.
-- **The library's own simulation** (`src/sim`, `src/dmath`, `src/physics`): when a change makes a reference
-  run or a golden trace compute differently, bump `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) with a note on what
-  changed, in the same PR. A refactor, a comment or a tooling change that reproduces every reference run and golden
-  doesn't bump it.
-- **The netcode wire protocol** (anything a datagram, hello, snapshot transfer or command message carries):
-  bump `PROTOCOL_VERSION` in `src/netcode/proto.odin` with a note on what changed. Nothing else to bump: an EOS
-  lobby carries the build (`compat` and the protocol), so a joiner on another build is told so before joining
-  (`src/eos/SPEC.md`). Update `src/netcode/SPEC.md`. The datagram header has its own `DGRAM_VERSION`
-  (`src/netcode/channel.odin`).
-- **The snapshot or input log format:** bump `SNAP_VERSION` (`src/sim/snapshot.odin`) or `LOG_VERSION`
-  (`src/sim/log.odin`) with a note on what changed, then regenerate the reference runs. The level format has its own
-  `VERSION` (`src/level/level.odin`).
+What changed decides what is bumped; each constant's comment says it too. `sim.compat_of` covers the layouts, the
+input, command and event types, the player count, tick rate, game name and version, the library version and the
+`[box3d]` pin: peers on different builds refuse each other at hello, and a replay or snapshot of another build is
+refused. Nothing in it is bumped by hand.
+
+| Constant | Guards | Bump when |
+|---|---|---|
+| `Game.version` (the game's) | the game's results | its rules or tuning compute differently with the same layouts |
+| `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) | the library's results | `src/sim`, `src/dmath` or `src/physics` make a reference run or golden trace compute differently (not a refactor that reproduces them) |
+| `netcode.PROTOCOL_VERSION` (`src/netcode/proto.odin`) | the wire | anything a datagram, message, snapshot transfer or EOS packet carries changes; every datagram carries it, and an EOS lobby's build attribute too |
+| `sim.SNAP_VERSION` (`src/sim/snapshot.odin`) | the snapshot's bytes | the snapshot format changes |
+| `sim.LOG_VERSION` (`src/sim/log.odin`) | the input log's bytes | the log format changes |
+| `level.VERSION` (`src/level/level.odin`) | a `.level` file's bytes | the level format changes |
+
+A bump of any of the first two, or of the snapshot or log format, moves the reference runs' hashes: regenerate them
+(above). A protocol bump also updates `src/netcode/SPEC.md` (The wire).
 
 ## Speed
 
@@ -79,5 +78,6 @@ A change to a sim, `src/physics`, `src/netcode` or the rollback path runs the be
 ```
 
 Target: forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) within 6 ms at their p99; `uni bench`
-also reports each game's session under `bad` (`net-bench`), which a netcode change should not make worse. A re-sim that disagrees with the forward run fails the
+also reports each game's sessions (`session` under `bad`, and under `wan` with a late joiner), which a netcode change
+should not make worse. A re-sim that disagrees with the forward run fails the
 bench: that is a determinism bug, not a speed problem.

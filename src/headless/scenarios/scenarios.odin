@@ -46,20 +46,6 @@ headless_of :: proc(suite: ^Suite($G)) -> headless.Headless(G) {
 	return {game = suite.game, content = suite.content}
 }
 
-// The network profiles of src/headless/SPEC.md (CLI).
-Profile :: enum {
-	Ideal,
-	Wan,
-	Bad,
-}
-
-@(rodata)
-PROFILE_NAMES := [Profile]string {
-	.Ideal = "ideal",
-	.Wan   = "wan",
-	.Bad   = "bad",
-}
-
 // Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.
 // `window` is at most headless.max_window(game) (the game's ring).
 rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
@@ -175,35 +161,40 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 
 // A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same checksums, the
 // relay's input log replays offline to them, and rollbacks happen unless the network is ideal.
-session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
-	what := fmt.tprintf("session_agrees (%d clients, %s network; %s)", clients, PROFILE_NAMES[profile], params(suite))
+session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: netcode.Network) {
+	what := fmt.tprintf(
+		"session_agrees (%d clients, %s network; %s)",
+		clients,
+		netcode.PROFILES[profile].name,
+		params(suite),
+	)
 	result := session(suite, clients, profile)
 	defer headless.session_result_destroy(&result)
 	check_session(t, what, suite, &result, profile != .Ideal)
 }
 
-// A session of `suite.players` clients in which `player` joins at `tick` (from a snapshot handed over
+// A session of `suite.players` clients in which slot `slot` joins at `tick` (from a snapshot handed over
 // through the relay): no desyncs, and the joiner's checksums match the others' from its first
 // verified tick on.
-late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: Profile, player: int, tick: u32) {
+late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Network, slot: int, tick: u32) {
 	what := fmt.tprintf(
-		"late_join_agrees (player %d at tick %d, %s network; %s)",
-		player,
+		"late_join_agrees (slot %d at tick %d, %s network; %s)",
+		slot,
 		tick,
-		PROFILE_NAMES[profile],
+		netcode.PROFILES[profile].name,
 		params(suite),
 	)
 	if !testing.expectf(
 		t,
-		player >= 1 && player < suite.players && tick >= 2 && tick <= suite.ticks,
-		"%s: needs 1 <= player < players and 2 <= tick <= ticks",
+		slot >= 1 && slot < suite.players && tick >= 2 && tick <= suite.ticks,
+		"%s: needs 1 <= slot < players and 2 <= tick <= ticks",
 		what,
 	) {
 		return
 	}
-	result := session(suite, suite.players, profile, player, tick)
+	result := session(suite, suite.players, profile, slot, tick)
 	defer headless.session_result_destroy(&result)
-	check_session(t, what, suite, &result, false, player, tick)
+	check_session(t, what, suite, &result, false, slot, tick)
 }
 
 // The reference run reproduces on this platform: run_sim gives its checkpoints and every tick's checksums (`trace`),
@@ -356,22 +347,18 @@ first_wrong_tick :: proc(got, want: ^headless.Trace) -> (tick: u32, got_checksum
 session :: proc(
 	suite: ^Suite($G),
 	clients: int,
-	profile: Profile,
-	late_player := -1,
+	profile: netcode.Network,
+	late_slot := 0,
 	late_tick: u32 = 0,
 ) -> headless.Session_Result(G) {
 	runs := headless_of(suite)
-	network, ok := netcode.profile_by_name(PROFILE_NAMES[profile])
-	assert(ok)
 	return headless.session_run(&runs, {
-		clients     = clients,
-		transport   = "loopback",
-		virtual     = true,
-		profile     = network,
-		ticks       = suite.ticks,
-		seed        = suite.seed,
-		late_player = late_player,
-		late_tick   = late_tick,
+		clients   = clients,
+		profile   = netcode.PROFILES[profile],
+		ticks     = suite.ticks,
+		seed      = suite.seed,
+		late_slot = late_slot,
+		late_tick = late_tick,
 	})
 }
 
