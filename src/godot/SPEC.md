@@ -1,6 +1,6 @@
 # godot
 
-Status: draft, pending #358
+Status: signed off 2026-11-18 (#334)
 
 `unified:godot` is everything that touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is
 the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`) that installs its sim
@@ -27,7 +27,11 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 }
 
 @(export, link_name = "<game>_init")
-<game>_init :: proc "c" (gpa: godot.Get_Proc_Address, lib: godot.Class_Library, init: ^godot.Initialization) -> godot.Init_Result {
+<game>_init :: proc "c" (
+	gpa: godot.Get_Proc_Address,
+	lib: godot.Class_Library,
+	init: ^godot.Initialization,
+) -> godot.Init_Result {
 	// optional: the lobby (EOS online play) and the constants
 	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
@@ -77,15 +81,14 @@ reads input. A press on the dev UI never reaches the actions (`src/devui/SPEC.md
 
 ### View space
 
-The sim works in its own units and never converts; the views draw in Godot's (metres in 3D, pixels in 2D). The Glue
-says how they relate: `is_2d` (the sim's XY plane is Godot 2D, x right, y down) and `view_scale` (view units per sim
-unit; 1 when unset). Everything up to the hand-off is in sim units (fill_frame, the event queue; the views'
-smoothing suits a sim in metres). The host
-maps a point once, on the main thread, where it makes a Godot value from it: a scene view's position, a MultiMesh
-instance's origin (only the origin: a mesh is drawn in view units), and every `sim.Position` a script reads; the
-inverse for one a script sets in a command. Rotations, directions, lengths and input values are not mapped; a script
-scales a sim size with `Unified.view_scale`. View space is `view_root`'s local space (the host warns once when
-`view_root` is not at the world origin).
+The sim works in its own units and never converts; the views draw in Godot's (metres in 3D, pixels in 2D). The Glue says
+how they relate: `is_2d` (the sim's XY plane is Godot 2D, x right, y down) and `view_scale` (view units per sim unit; 1
+when unset). Everything up to the hand-off is in sim units (fill_frame, the event queue; the views' smoothing suits a
+sim in metres). The host maps a point once, on the main thread, where it makes a Godot value from it: a scene view's
+position, a MultiMesh instance's origin (only the origin: a mesh is drawn in view units), and every `sim.Position` a
+script reads; the inverse for one a script sets in a command. Rotations, directions, lengths and input values are not
+mapped; a script scales a sim size with `Unified.view_scale`. View space is `view_root`'s local space (the host warns
+once when `view_root` is not at the world origin).
 
 ### Filling a frame
 
@@ -96,8 +99,8 @@ scales a sim size with `Unified.view_scale`. View space is `view_root`'s local s
   its **kind and key** (a `u64`, unique within its kind; a new key is a new view). A player's view keyed by
   `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
   `sim.handle_key`, a fixed thing's by its index (its events carry `sim.entity(index)`). The key and `player` route
-  events to it (Events, below). `pos` is a `sim.Position` in sim units (2D: x, y). `rot` is a
-  unit quaternion (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle2d`). `data` is a plain struct set as the view's
+  events to it (Events, below). `pos` is a `sim.Position` in sim units (2D: x, y). `rot` is a unit quaternion
+  (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle2d`). `data` is a plain struct set as the view's
   properties of the same names, converted like any sim-facing field (Data and classes, below), on spawn and whenever
   its bytes change; one kind always pushes one data type.
 - `push_multi_view(f, Multi_View_Item{key, kind, pos, rot, scale, color, custom})`: one MultiMesh instance. `key`
@@ -111,13 +114,14 @@ so a view or instance seen at tick − 1 interpolates from it and games never pa
 remembered tick − 1 pose is the old prediction, so the host sends an estimate of the corrected one: a re-filled tick
 moves its tick − 1 by the same correction; a rollback with a new tick, or a fill after skipped ticks, takes the new
 pose minus the last known one-tick motion. A view's history lacking tick − 1 starts from its last shown pose: a
-correction glides over `tau`, it never pops.
+correction glides over `tau_s`, it never pops.
 
 ### Data and classes
 
 **Session data** (values that belong to no entity: a HUD's score, the wave) are the types of `Glue.data`, a union of
 plain `Data_*` structs, each pushed with `push_data`. **Constants** (what `godot.init`'s `constants` proc returns, a
-plain `Data_*` struct, strings allowed) are copied at install. **Input values** (`Glue.input_values`) are set by scripts.
+plain `Data_*` struct, strings allowed) are copied at install. **Input values** (`Glue.input_values`) are set by
+scripts.
 
 The host registers a class per such type at load, plus one per **nested struct** any of them or the event and command
 unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a
@@ -160,15 +164,15 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 
 ## Godot side
 
-**`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts,
-hosts, joins and leaves sessions; `status` (enum `Status`) and `status_changed`; the shown tick's `tick`,
-`local_player`, `get_players()`, `get_player_slot(player)` and the roster's names; `get_view(kind, key)`,
-`get_player_view(kind, player)`, `get_views(kind)` from the host's own tables (`kind`: an `EnumView` value,
-`session.get_view(EnumView.STATION, 0)`; one that is no member is an error once); `sim_event`; `view_root`, `seed`,
-`ticks`, `local_name`, `game_input`, `devui_visible`. Players are ints: a player's key, the same while they are in the
-session whatever slot they hold (0: nobody). Nothing about the session answers once it is over. A client's LAN token
-is kept in `user://unified_token_<n>`: each running copy of the game claims its own by an OS file lock held for the
-process's life, so a restarted one takes its token back.
+**`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts, hosts,
+joins and leaves sessions; `status` (enum `Status`) and `status_changed`; the shown tick's `tick`, `local_player`; the
+roster (`get_players()`, `get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`,
+`roster_changed`); `get_view(kind, key)`, `get_player_view(kind, player)`, `get_views(kind)` from the host's own tables
+(`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`; one that is no member is an error once);
+`sim_event`; `view_root`, `seed`, `ticks`, `local_name`, `game_input`, `devui_visible`. Players are ints: a player's
+key, the same while they are in the session whatever slot they hold (0: nobody). Nothing about the session answers once
+it is over. A client's LAN token is kept in `user://unified_token_<n>`: each running copy of the game claims its own by
+an OS file lock held for the process's life, so a restarted one takes its token back.
 
 The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMultiView`, whatever the game named them
 (members upper case, `name(value)` like any enum class).
@@ -176,8 +180,9 @@ The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMult
 **`UnifiedView`** (Node): the marker a scene view's scene holds as a direct child of its root, `kind` set in the
 scene (a View member's name, lowercased, which stays right when the enum is reordered; the inspector offers the
 names); the host sets its `key` and keeps its `player` (the key of the player it shows; 0: none) current. The root
-can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else only data, all before any other node's `_process` (the session runs at priority −1000), so a view's own `_process`
-sees the frame's pose. Its script may define `_sim_event(event, state)`, `_sim_despawned()` (its key is gone: it
+can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else only data, all
+before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the frame's
+pose. Its script may define `_sim_event(event, state)`, `_sim_despawned()` (its key is gone: it
 lingers `linger_s`, no longer posed, then is freed), `_sim_revived()` (a rollback brought it back while it lingered)
 and `_sim_cancelled()` (a rollback removed it before its spawn tick was verified: freed at once). A `view_root` that
 leaves the tree holds no views, so a play scene needs no teardown.
@@ -233,10 +238,11 @@ session the host checks that every `View` member has a scene and every indexed k
   newest prediction and never extrapolates; an input reaches the screen after the next tick sample, the input delay,
   and one tick of interpolation.
 - **View logic** (`handoff.odin`, `track.odin`, `view_set.odin`, `event_tracker.odin`: no Godot calls, tested without
-  Godot). Each view keeps the poses of its last 4 ticks; a rollback that re-publishes a tick with a different pose
-  puts the difference into an error offset that decays as `exp(-dt / tau)`; a correction or move longer than
-  `teleport_dist` snaps. A key missing from a frame lingers (an exit animation, or a rollback that brings it back: it
-  is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored, since they are final.
+  Godot). Each view keeps the poses of its last 4 ticks; a rollback that re-publishes a tick with a different pose puts
+  the difference into an error offset that decays as `exp(-dt / tau_s)`; a correction or move longer than
+  `teleport_dist` snaps (`track.odin`'s smoothing). A key missing from a frame lingers (an exit animation, or a rollback
+  that brings it back: it is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored,
+  since they are final.
 - **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), then only for
   fields whose bytes changed; a root without a property for a field is an error (once per kind and field).
 - **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
@@ -252,16 +258,14 @@ session the host checks that every `View` member has a scene and every indexed k
   `deinitialize` stops the session thread, calls the lobby's optional `shutdown`, then `gd.shutdown` unregisters
   every class.
 
-**Command-line flags** (after `--`): `--autostart`, `--host-port N`, `--join host:port`, `--host-online`,
-`--join-code CODE`, `--local-net`, `--quit-at-end`, and the dev flags `--scripted`, `--ticks N`, `--seed N`,
-`--devui`, `--lag MS`, `--bench N` (`Args` says what each does). The game and its tool scripts read their own flags
-from the same command line, so other flags pass through; a bad value of one of these, or a near miss of a name
-(`--tiks`), prints an error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning.
+**Command-line flags** (after `--`; `Args` lists them and says what each does): the game and its tool scripts read
+their own flags from the same command line, so other flags pass through; a bad value of one of ours, or a near miss of
+a name, prints an error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning.
 
 ## Library tooling
 
 `uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there): `level_export.gd`
-(`uni bake`'s level exporter), `tool.gd` (`UnifiedTool`, the base of every script `uni tool` runs: the result line,
-the strict error judgement, waits, input events, screenshots, `--frames`) and `validate.gd` (the godot suite's
-`validate` step: every script compiles with warnings as errors, every scene loads, the main scene runs; a game adds
-checks in `game/tools/validate.gd`).
+(`uni bake`'s level exporter), `tool.gd` (`UnifiedTool`, the base of every script `uni tool` runs: the result line, the strict
+error judgement, waits, input events, screenshots, frame-time reports; with its helpers `log_capture.gd` and
+`frame_log.gd`) and `validate.gd` (the godot suite's `validate` step: every script compiles with warnings as errors,
+every scene loads, the main scene runs; a game adds checks in `game/tools/validate.gd`).

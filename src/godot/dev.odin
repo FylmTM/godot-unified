@@ -28,6 +28,12 @@ import "unified:sim"
 
 DEVUI :: #config(UNIFIED_DEVUI, true)
 
+// One direction of the dev netsim.
+Netsim_Dir :: devui.Netsim_Dir
+
+// The dev netsim (the dev UI's Conditions panel, --lag): its settings are the panel's.
+Netsim_Settings :: devui.Netsim
+
 when DEVUI {
 	Dev :: struct {
 		begin, end:   time.Tick, // this session's _process, this frame

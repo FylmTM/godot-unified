@@ -11,7 +11,6 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import "unified:devui"
 import "unified:netcode"
 import "unified:sim"
 
@@ -88,14 +87,6 @@ lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil
 
 // The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
-
-// One direction of the dev netsim.
-@(private)
-Netsim_Dir :: devui.Netsim_Dir
-
-// The dev netsim (the dev UI's Conditions panel, --lag): its settings are the panel's.
-@(private)
-Netsim_Settings :: devui.Netsim
 
 // Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings
 // (set_netsim), the session thread applies them to every wrapped link.
