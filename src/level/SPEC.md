@@ -11,9 +11,11 @@ World is created. The scene is also the view: its meshes render as they are, its
   for spheres and capsules; any scale is baked into boxes and hulls. Friction and restitution come from the body's
   `PhysicsMaterial`, the filter category and user material from its metadata (`unified_category`,
   `unified_material`).
-- **Markers:** any node whose script has `const UNIFIED_KIND := "platform"` (or metadata `unified_kind`), in the
-  game's own vocabulary. The exporter writes the kind, the node's name and transform, every exported script property
-  (bool, int, float, Vector3, String, a NodePath to another marker), and the points of a `Path3D` child.
+- **Markers:** any node whose script has `const UNIFIED_KIND := "platform"` (a script for several kinds: a
+  `unified_kind` property; a node without a script: metadata `unified_kind`), in the game's own vocabulary. The
+  exporter writes the kind, the node's name and transform, every exported script property (bool, int, float, Vector3,
+  String, a NodePath to another marker), and the points of a `Path3D` child. Markers are in scene-tree order
+  (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the nodes in that order.
 
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
 scenes depend on no library script.

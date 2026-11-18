@@ -136,8 +136,6 @@ Item_Size :: struct {
 }
 
 Data_Constants :: struct {
-	finish_hold_s:      f32,
-	respawn_s:          f32,
 	feet:               f32, // from the capsule centre down to the ground it stands on
 	player_radius:      f32,
 	player_half_height: f32,
@@ -147,8 +145,6 @@ Data_Constants :: struct {
 // godot.init calls it once: the item sizes come from g.ITEM_SPECS.
 constants :: proc() -> Data_Constants {
 	constants := Data_Constants {
-		finish_hold_s      = g.FINISH_HOLD_S,
-		respawn_s          = g.RESPAWN_S,
 		feet               = g.FEET,
 		player_radius      = g.PLAYER_RADIUS,
 		player_half_height = g.PLAYER_HALF_HEIGHT,

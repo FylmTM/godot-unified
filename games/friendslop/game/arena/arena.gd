@@ -3,7 +3,7 @@ extends Node3D
 ## The play scene: the level (its meshes are the visuals; markers lend theirs to the sim's views), the views root
 ## handed to the session, the third-person camera and the HUD. Routes sim events to sounds and camera shake.
 
-## The level's markers in file order (LevelMarkers): marker views look themselves up here.
+## The level's markers in the level file's order (Unified.level_markers): marker views look themselves up here.
 var markers: Array[Node] = []
 
 @onready var camera_rig: CameraRig = $CameraRig
@@ -12,7 +12,7 @@ var markers: Array[Node] = []
 
 
 func _ready() -> void:
-	markers = LevelMarkers.collect(_level)
+	markers = Unified.level_markers(_level)
 	Game.session.view_root = _views
 	Game.session.sim_event.connect(_on_sim_event)
 

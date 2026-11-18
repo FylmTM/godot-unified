@@ -127,7 +127,9 @@ The host registers a class per such type at load, plus one per **nested struct**
 unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a
 command can take it). The engine singleton **`Unified`** holds them: `Unified.data.<name>` (`Data_Hud` -> `.hud`, a
 `DataHud` with a `changed` signal), `Unified.constants` (`UnifiedConstants`), `Unified.input` (`UnifiedInput`),
-`Unified.session`, `Unified.tick_hz`, `Unified.view_scale`. Session data is set from the newest predicted tick when
+`Unified.session`, `Unified.tick_hz`, `Unified.view_scale`, and `Unified.level_markers(root) -> Array[Node]`: a level
+scene's markers in the order its `.level` file holds them (`src/level/SPEC.md`), so a view keyed by a marker index
+finds its node. Session data is set from the newest predicted tick when
 its bytes change (no interpolation), after the views and before the frame's events, and goes back to zero (one
 `changed`) when a session ends; the objects live on, so connections survive. They are freed at Godot's shutdown
 callback, while scripting still runs.

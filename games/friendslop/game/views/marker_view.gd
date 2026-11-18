@@ -1,6 +1,6 @@
 extends Node3D
 ## A sim object the level placed (item, platform, bell, plate, switch): the view takes over its level marker's
-## visuals (key = marker index, LevelMarkers order), so the level scene is the only place
+## visuals (key = marker index, Unified.level_markers order), so the level scene is the only place
 ## they are authored. The sim moves the view; bells and plates also react to their events.
 
 var _visuals: Array[Node3D] = []
