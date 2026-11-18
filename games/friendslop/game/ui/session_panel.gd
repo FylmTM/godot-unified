@@ -62,7 +62,7 @@ func _ready() -> void:
 	visible = false
 
 
-## Called every frame by the game's HUD. `rows`: see `_rows`. `start_hint`: how a full lobby starts playing.
+## Called by the game's HUD when its data, the roster or the code changes. `rows`: see `_rows`. `start_hint`: how a full lobby starts playing.
 func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 	visible = Game.is_online() or (lobby and rows.size() > 1)
 	if not visible:
