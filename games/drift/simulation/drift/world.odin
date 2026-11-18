@@ -1,5 +1,3 @@
-// The World (outside the block): the physics world locked to the plane, the level and what the sim reads from
-// its markers, body creation, and the game descriptor.
 package drift
 
 import "unified:dmath"
@@ -14,19 +12,17 @@ CAT_ROCK :: u64(1 << 2)
 CAT_STATION :: u64(1 << 3)
 CAT_BULLET :: u64(1 << 4) // rays only
 
-Gate_Def :: struct {
-	pos:  [2]f32,
-	pair: int, // gate index
-}
+// The plane's up (its y points down): a ship's heading when it spawns.
+UP :: [2]f32{0, -1}
 
-Spawner_Def :: struct {
-	pos: [2]f32,
-	dir: [2]f32, // unit
-}
+// The station's hexagon at radius 1: corners at k × 60°, cos and sin as exact constants.
+@(rodata)
+HEXAGON := [6][2]f32{{1, 0}, {0.5, 0.8660254}, {-0.5, 0.8660254}, {-1, 0}, {-0.5, -0.8660254}, {0.5, -0.8660254}}
 
+// The world outside the block: the physics world and what the sim reads of the level's markers.
 World :: struct {
 	phys:          ^physics.World,
-	level_data:    level.Level,
+	level:         level.Level,
 	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
 	gates:         [MAX_GATES]Gate_Def,
@@ -35,23 +31,15 @@ World :: struct {
 	spawner_count: int,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(Game)
-Tick :: sim.Tick(Game)
+Gate_Def :: struct {
+	pos:  [2]f32,
+	pair: int, // the gate it warps to (-1: none)
+}
 
-@(rodata)
-GAME := Game {
-	name = "drift",
-	version = "3", // 3: keyed rolls for the rocks (#252)
-	tick_hz = TICK_HZ,
-	content = #load("../../game/levels/arena.level"), // the committed export of game/levels/arena.tscn (uni bake)
-	world_create = world_create,
-	world_destroy = world_destroy,
-	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
-	init = init,
-	tick = tick,
-	scripted_input = scripted_input,
-	scripted_commands = scripted_commands,
+// A rock_spawn marker: where a wave's rocks come from, and the way they drift.
+Spawner_Def :: struct {
+	pos: [2]f32,
+	dir: [2]f32, // unit
 }
 
 // What the keyed rolls are for (sim.roll_below, sim.roll_f32).
@@ -61,31 +49,34 @@ Roll :: enum u8 {
 	Rock_Variant,
 }
 
-// Builds the world from the level (src/level/SPEC.md, 2D levels): static geometry, then the markers. Bodies the block owns (the station, ships, rocks) are created by init and the tick.
+// The physics world with the level's static geometry (src/level/SPEC.md, 2D levels), then its markers: a `spawn` per
+// slot, the `station`, `gate`s (`pair`: the other gate) and `rock_spawn`s (`dir`: the drift direction). The bodies the
+// block owns (the station, ships, rocks) are made by init and the tick.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world := new(World)
 	loaded, ok := level.load(content)
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
-	world.level_data = loaded
+	world.level = loaded
 	world.phys = physics.create({tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
-	problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
+	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
 
-	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
-	for &marker in world.level_data.markers {
-		pos := [2]f32{marker.pos.x, marker.pos.y}
+	gate_markers: [MAX_GATES]int // each gate's marker index
+	for &marker in world.level.markers {
+		pos := marker.pos.xy
 		switch marker.kind {
 		case "spawn":
-			if spawn_count < PLAYERS {
-				world.spawns[spawn_count] = pos
-				spawn_count += 1
-			}
+			assert(spawn_count < PLAYERS, "drift: more spawn markers than slots")
+			world.spawns[spawn_count] = pos
+			spawn_count += 1
 		case "station":
 			world.station = pos
 		case "gate":
 			assert(world.gate_count < MAX_GATES, "drift: too many gates")
-			world.gates[world.gate_count] = {pos, level.prop_ref(&marker, "pair")} // a marker index for now
+			// `pair` is the other gate's marker index until every gate is known
+			world.gates[world.gate_count] = {pos, level.prop_ref(&marker, "pair")}
+			gate_markers[world.gate_count] = marker.index
 			world.gate_count += 1
 		case "rock_spawn":
 			assert(world.spawner_count < MAX_SPAWNERS, "drift: too many rock spawners")
@@ -95,17 +86,14 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			world.spawner_count += 1
 		}
 	}
+	assert(spawn_count == PLAYERS, "drift: the level needs a spawn marker per slot")
 	assert(world.spawner_count > 0, "drift: the level has no rock_spawn marker")
-	// gate pairs: marker index -> gate index
-	for i in 0 ..< world.gate_count {
-		pair := -1
-		gate_index := 0
-		for &marker in world.level_data.markers {
-			if marker.kind != "gate" do continue
-			if marker.index == world.gates[i].pair do pair = gate_index
-			gate_index += 1
+	for &gate in world.gates[:world.gate_count] {
+		pair_marker := gate.pair
+		gate.pair = -1
+		for marker_index, i in gate_markers[:world.gate_count] {
+			if marker_index == pair_marker do gate.pair = i
 		}
-		world.gates[i].pair = pair
 	}
 	return world
 }
@@ -113,61 +101,40 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 // Frees what world_create made: the physics world, the loaded level and the World itself.
 world_destroy :: proc(world: ^World) {
 	physics.destroy(world.phys)
-	level.destroy(&world.level_data)
+	level.destroy(&world.level)
 	free(world)
 }
 
-// The 8 corners of a rock's hull for a shape variant at a size, in metres around its centre. The sim builds rock
-// bodies from them and the GDExtension hands them to the view to draw the rock meshes.
-rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
-	radius := ROCK_RADIUS[size]
-	for k in 0 ..< 8 {
-		reach := ROCK_SHAPES[variant][k] * radius
-		points[k] = dmath.DIR8[k] * reach
-	}
-	return
-}
-
-// The station's hexagon (corners at k × 60°: cos/sin from exact constants).
-@(rodata)
-HEX_C := [6]f32{1, 0.5, -0.5, -1, -0.5, 0.5}
-@(rodata)
-HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
-
-// Sets up the tick-0 state (GAME.init): gives the station full HP and creates its turning kinematic hexagon at the
-// station marker.
+// The tick-0 state (GAME.init): the station at full HP, its kinematic hexagon at the station marker, turning.
 init :: proc(t: ^Tick) {
 	t.state.station_hp = STATION_HP
 	corners: [6][2]f32
-	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
-	body_def := physics.body_def_2d(.Kinematic, t.world.station)
+	for corner, k in HEXAGON do corners[k] = corner * STATION_RADIUS
 	t.state.station, _, _ = physics.create_polygon_2d(
 		t.world.phys,
-		body_def,
+		physics.body_def_2d(.Kinematic, t.world.station),
 		physics.shape_def(CAT_STATION),
 		corners[:],
-		ROCK_DEPTH,
+		BODY_DEPTH,
 	)
-	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
 	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, STATION_SPIN)
 }
 
 // A ship's body at `at`, nose up.
 create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
-	body_def := physics.body_def_2d(.Dynamic, at, {0, -1})
+	body_def := physics.body_def_2d(.Dynamic, at, UP)
 	body_def.linear_damping = SHIP_DAMPING
 	shape_def := physics.shape_def(CAT_SHIP)
 	shape_def.density = SHIP_DENSITY
-	shape_def.base_material.restitution = 0.5
-	shape_def.base_material.friction = 0.1
+	shape_def.base_material.restitution = SHIP_RESTITUTION
+	shape_def.base_material.friction = SHIP_FRICTION
 	ship.body, _ = physics.create_circle_2d(world.phys, body_def, shape_def, SHIP_RADIUS)
 }
 
 // A rock in the rocks table and its body (ok = false: the table is full), tagged with the rock's handle key, so a
-// bullet's ray finds it.
+// bullet's ray names it.
 create_rock :: proc(
-	state: ^State,
-	world: ^World,
+	t: ^Tick,
 	size: Rock_Size,
 	variant: int,
 	pos, vel: [2]f32,
@@ -177,27 +144,36 @@ create_rock :: proc(
 	ok: bool,
 ) {
 	rock: ^Rock
-	rock, handle = sim.spawn(&state.rocks) or_return
+	rock, handle = sim.spawn(&t.state.rocks) or_return
 	shape_def := physics.shape_def(CAT_ROCK)
-	shape_def.density = 1
-	shape_def.base_material.restitution = 0.4
-	shape_def.base_material.friction = 0.3
+	shape_def.density = ROCK_DENSITY
+	shape_def.base_material.restitution = ROCK_RESTITUTION
+	shape_def.base_material.friction = ROCK_FRICTION
 	points := rock_points(variant, size)
-	ref, _, _ := physics.create_polygon_2d(
-		world.phys,
+	body, _, _ := physics.create_polygon_2d(
+		t.world.phys,
 		physics.body_def_2d(.Dynamic, pos),
 		shape_def,
 		points[:],
-		ROCK_DEPTH,
+		BODY_DEPTH,
 		sim.handle_key(handle),
 	)
 	rock^ = {
-		body    = ref,
+		body    = body,
 		size    = size,
 		variant = u8(variant),
-		hp      = ROCK_HP[size],
+		hp      = ROCK_STATS[size].hp,
 	}
-	physics.body_set_linear_velocity_2d(world.phys, rock.body, vel)
-	physics.body_set_angular_velocity_2d(world.phys, rock.body, spin)
+	physics.body_set_linear_velocity_2d(t.world.phys, body, vel)
+	physics.body_set_angular_velocity_2d(t.world.phys, body, spin)
 	return handle, true
+}
+
+// The 8 corners of a rock's hull for a shape variant at a size, in metres around its centre. The sim builds rock
+// bodies from them and the GDExtension hands them to the view to draw the rock meshes.
+rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
+	for k in 0 ..< 8 {
+		points[k] = dmath.DIR8[k] * (ROCK_SHAPES[variant][k] * ROCK_STATS[size].radius)
+	}
+	return
 }

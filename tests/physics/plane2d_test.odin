@@ -334,19 +334,26 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	rot := physics.body_rotation_2d(world, tri)
 	testing.expectf(t, pos == {10, 0} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 
-	// Bullets: rays in the plane (z = 0) through world_cast_ray_closest.
-	hit, found := physics.world_cast_ray_closest(world, {-5, 0.2, 0}, {20, 0, 0})
+	// Bullets: rays in the plane (world_cast_ray_closest_2d), the 3D query's hits at z = 0.
+	hit, found := physics.world_cast_ray_closest_2d(world, {-5, 0.2}, {20, 0})
 	testing.expect(t, found && hit.body == physics.link(circle))
 	testing.expectf(t, hit.point.z == 0 && abs(hit.normal.z) < 1e-6 && hit.normal.x < -0.97, "circle hit %v", hit)
-	hit, found = physics.world_cast_ray_closest(world, {2, 0.2, 0}, {20, 0, 0})
+	hit_3d, found_3d := physics.world_cast_ray_closest(world, {-5, 0.2, 0}, {20, 0, 0})
+	testing.expect(t, found_3d && hit_3d == hit, "the same hit as the 3D query")
+	hit, found = physics.world_cast_ray_closest_2d(world, {2, 0.2}, {20, 0})
 	testing.expect(t, found && hit.body == physics.link(box_body))
 	testing.expectf(t, abs(hit.point.x - 4) < 1e-4 && hit.normal.x < -0.999, "box hit %v", hit)
 	// The triangle turned 90°: its apex (0, 1) points to −x, at x = 9; its base is at x = 11.
-	hit, found = physics.world_cast_ray_closest(world, {7, 0, 0}, {20, 0, 0})
+	hit, found = physics.world_cast_ray_closest_2d(world, {7, 0}, {20, 0})
 	testing.expect(t, found && hit.body == physics.link(tri))
 	testing.expectf(t, abs(hit.point.x - 9) < 1e-4, "triangle apex hit %v", hit)
-	hit, found = physics.world_cast_ray_closest(world, {20, 0.5, 0}, {-20, 0, 0})
+	hit, found = physics.world_cast_ray_closest_2d(world, {20, 0.5}, {-20, 0})
 	testing.expectf(t, found && abs(hit.point.x - 11) < 1e-4 && hit.normal.x > 0.999, "triangle base hit %v", hit)
+	// An ignored body, as the 3D query takes it; a ray that reaches nothing.
+	hit, found = physics.world_cast_ray_closest_2d(world, {0, 0}, {20, 0}, ignore = physics.link(circle))
+	testing.expect(t, found && hit.body == physics.link(box_body), "the ray starts inside the ignored circle")
+	_, found = physics.world_cast_ray_closest_2d(world, {-5, 5}, {20, 0})
+	testing.expect(t, !found)
 
 	// Velocities and impulses in the plane.
 	physics.body_set_linear_velocity_2d(world, circle, {1, 2})
@@ -493,10 +500,10 @@ field_tick :: proc(tick: ^Field_Tick) {
 		if player_input.fire != 0 && ship.cooldown == 0 {
 			ship.cooldown = 6
 			nose := pos + rot * 0.5
-			hit, ok := physics.world_cast_ray_closest(
+			hit, ok := physics.world_cast_ray_closest_2d(
 				world,
-				{nose.x, nose.y, 0},
-				{rot.x * 30, rot.y * 30, 0},
+				nose,
+				rot * 30,
 				{mask = CAT_ROCK | CAT_STATIC},
 				physics.link(ship.body),
 			)

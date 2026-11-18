@@ -1,16 +1,15 @@
 // drift's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game and its arena
 // (2D physics locked to a plane: ships, rocks that split, a kinematic station, ray-cast bullets, under
-// rollback), and its reference run. The game's own
-// scenarios are in drift_test.odin.
+// rollback), and its reference run. The game's own scenarios are in drift_test.odin.
 package test_drift
 
 import "core:testing"
 
-import dr "../drift"
+import g "../drift"
 import "unified:headless/scenarios"
 
-SUITE := scenarios.Suite(dr.Game) {
-	game = &dr.GAME,
+SUITE := scenarios.Suite(g.Game) {
+	game = &g.GAME,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
@@ -19,10 +18,10 @@ SUITE := scenarios.Suite(dr.Game) {
 		players       = 4,
 		ticks         = 1800,
 		snapshot_tick = 900,
-		checkpoints   = {0xba6a89930e805be5, 0xae97083fa432adc3, 0x3908e44b52dc7f7f, 0x2a45fbaee427f5cd},
-		trace         = 0xb178b6a29ea77843,
-		snapshot      = 0xc34b679803317f28,
-		log           = 0xf2dbad543310621e,
+		checkpoints   = {0xd9cde21c6814f694, 0x646a7afd0d777141, 0xc7c333693190be24, 0x46bdf5aa589a5044},
+		trace         = 0x15c256e80d3224a9,
+		snapshot      = 0x6d18f74c76e0941e,
+		log           = 0x5eb5b4f577b1732a,
 	},
 }
 

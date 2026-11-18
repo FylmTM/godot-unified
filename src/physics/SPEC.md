@@ -165,8 +165,8 @@ points, or past its edge limit) is never a silent hole: `problem` names it, and 
 2D axes (x right, y down), bodies at z = 0. A rotation is about +Z, +x toward +y (Godot's `Node2D.rotation`), held as
 a unit vector `(cos a, sin a)`, so no trig. Gravity is the world's (zero for top-down).
 
-The body's pose, velocities, forces and impulses and the shape and body creation procs have a `_2d` form; the rest
-(mass, tags, sleep, local and world point conversions, queries) take 3D values at z = 0:
+The body's pose, velocities, forces and impulses, the shape and body creation procs and the closest ray have a `_2d`
+form; the rest (mass, tags, sleep, local and world point conversions, the other queries) take 3D values at z = 0:
 
 ```odin
 body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> Body_Def  // z = 0, locks linear Z, angular X and Y
@@ -176,6 +176,7 @@ create_circle_shape_2d(world, Body_Ref, Shape_Def, radius, center: [2]f32 = {}) 
 create_box_shape_2d(world, Body_Ref, Shape_Def, half: [2]f32, depth) -> Shape_Ref                 // centred on the plane
 create_polygon_shape_2d(world, Body_Ref, Shape_Def, points: [][2]f32, depth) -> (Shape_Ref, bool) // convex hull of 3..32 points
 create_circle_2d, create_box_2d, create_polygon_2d(world, Body_Def, Shape_Def, ..., tag)  // a new body with that shape
+world_cast_ray_closest_2d(world, origin, translation: [2]f32, filter := {}, ignore: Body_Link = {}) -> (Hit, bool)
 ```
 
 The plane holds exactly: z, the quaternion's x and y, v.z, ω.x and ω.y stay ±0 (Box3D and unified-box3d zero them).

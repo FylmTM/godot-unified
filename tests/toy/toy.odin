@@ -28,8 +28,8 @@ Thing :: struct {
 	owner: sim.Player, // who spawned it: scores when it expires, whether present or not
 }
 
-// Commands: a bump (counted, summed and folded in order: exactly-once and order checks) and a mark (every
-// field kind the Godot host converts from a Dictionary: tests/godot_views).
+// Commands: a bump (counted, summed and folded in order: exactly-once and order checks), a mark (every
+// field kind the Godot host converts from a Dictionary: tests/godot_views) and an empty one (zero bytes).
 Cmd_Bump :: struct {
 	amount: i32,
 }
@@ -62,9 +62,13 @@ Mark_Area :: struct {
 	_pad:   [3]u8,
 }
 
+// A command without fields (zero bytes): the sender's bump counters start over.
+Cmd_Clear_Bumps :: struct {}
+
 Cmd :: union {
 	Cmd_Bump,
 	Cmd_Mark,
+	Cmd_Clear_Bumps,
 }
 
 // A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
@@ -141,6 +145,8 @@ tick :: proc(t: ^Tick) {
 			case Cmd_Mark:
 				data.marks += 1
 				data.last_mark = command
+			case Cmd_Clear_Bumps:
+				data.bumps, data.bump_sum, data.bump_fold = 0, 0, 0
 			case:
 				panic("sim.commands yielded a nil entry") // it never does: an undecodable command is left out
 			}
@@ -156,7 +162,7 @@ tick :: proc(t: ^Tick) {
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
 				thing    = handle,
-				position = {thing.pos.x, thing.pos.y, 0},
+				position = sim.position(thing.pos),
 				player   = player,
 				shape    = Shape(thing.life % 3),
 			})

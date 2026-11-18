@@ -132,6 +132,20 @@ body_apply_angular_impulse_2d :: proc(world: ^World, ref: Body_Ref, impulse: f32
 	box3d.Body_ApplyAngularImpulse(body_id(world, ref), transmute(box3d.Vec3)[3]f32{0, 0, impulse}, wake)
 }
 
+// world_cast_ray_closest in the plane: the closest hit along `translation` from `origin` (both at z = 0), skipping
+// sensors and the `ignore` body. The hit's point is on the plane: sim.Position(hit.point) is an event's position.
+world_cast_ray_closest_2d :: proc(
+	world: ^World,
+	origin, translation: [2]f32,
+	filter := Filter{},
+	ignore := Body_Link{},
+) -> (
+	hit: Hit,
+	ok: bool,
+) {
+	return world_cast_ray_closest(world, {origin.x, origin.y, 0}, {translation.x, translation.y, 0}, filter, ignore)
+}
+
 // A plane-locked body (body_def_2d) with one circle of `radius` at its origin.
 create_circle_2d :: proc(
 	world: ^World,

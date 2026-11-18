@@ -1,0 +1,69 @@
+package drift
+
+import "unified:dmath"
+import "unified:physics"
+import "unified:sim"
+
+// A rock out of HP: a large or medium one splits into two of the next size, which move apart across its velocity; a
+// small one is destroyed, and one in GEM_DROP_EVERY drops a gem.
+break_rocks :: proc(t: ^Tick) {
+	// a split's halves that reuse a free slot ahead of the walk are visited this tick, the ones in fresh slots the next
+	rocks := sim.iterate(&t.state.rocks)
+	for rock, handle in sim.next(&rocks) {
+		if rock.hp > 0 do continue
+		size, variant := rock.size, int(rock.variant)
+		pos := physics.body_position_2d(t.world.phys, rock.body)
+		vel := physics.body_linear_velocity_2d(t.world.phys, rock.body)
+		spin := physics.body_angular_velocity_2d(t.world.phys, rock.body)
+		physics.despawn(t.world.phys, &t.state.rocks, handle)
+		if size == .Small {
+			sim.emit(t, Event_Rock_Destroyed{rock = handle, position = sim.position(pos), size = size})
+			t.state.gems_dropped += 1
+			if t.state.gems_dropped % GEM_DROP_EVERY == 1 {
+				if gem, _, ok := sim.spawn(&t.state.gems); ok {
+					gem^ = {
+						pos        = pos,
+						vel        = vel * GEM_THROW,
+						spawn_tick = t.number,
+					}
+				}
+			}
+			continue
+		}
+		sim.emit(t, Event_Rock_Split{rock = handle, position = sim.position(pos), size = size})
+		half := Rock_Size(u8(size) - 1)
+		direction := dmath.normalize(vel)
+		if direction == {} do direction = {1, 0} // a rock at rest splits along x
+		across := [2]f32{-direction.y, direction.x}
+		offset := across * (ROCK_STATS[half].radius * ROCK_SPLIT_GAP)
+		apart := across * ROCK_SPLIT_SPEED
+		create_rock(t, half, variant, pos + offset, vel + apart, spin * ROCK_SPLIT_SPIN)
+		create_rock(t, half, (variant + 1) % ROCK_VARIANTS, pos - offset, vel - apart, -spin * ROCK_SPLIT_SPIN)
+	}
+}
+
+// During a match: a wave every WAVE_EVERY_TICKS, whose large rocks come one every ROCK_EVERY_TICKS from the
+// rock_spawn markers in turn, each with its direction turned a little, its spin and its shape from keyed rolls.
+spawn_waves :: proc(t: ^Tick) {
+	if t.state.phase != .Match do return
+	if t.number >= t.state.next_wave_tick {
+		t.state.rocks_left += WAVE_ROCKS + WAVE_ROCKS_MORE * u32(t.state.waves)
+		t.state.waves += 1
+		t.state.next_wave_tick = t.number + WAVE_EVERY_TICKS
+		t.state.next_rock_tick = t.number
+		sim.emit(t, Event_Wave{wave = t.state.waves})
+	}
+	if t.state.rocks_left == 0 || t.number < t.state.next_rock_tick do return
+	spawner := &t.world.spawners[t.state.spawner % u32(t.world.spawner_count)]
+	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
+	// the drift direction turned by up to ±ROCK_SPREAD (a small-angle rotation, renormalised)
+	turn := (sim.roll_f32(t, Roll.Rock_Turn) * 2 - 1) * ROCK_SPREAD
+	direction := dmath.normalize([2]f32{spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
+	spin := (sim.roll_f32(t, Roll.Rock_Spin) * 2 - 1) * ROCK_SPIN_MAX
+	variant := int(sim.roll_below(t, ROCK_VARIANTS, Roll.Rock_Variant))
+	if _, ok := create_rock(t, .Large, variant, spawner.pos, direction * speed, spin); ok {
+		t.state.spawner += 1
+		t.state.rocks_left -= 1
+	}
+	t.state.next_rock_tick = t.number + ROCK_EVERY_TICKS
+}

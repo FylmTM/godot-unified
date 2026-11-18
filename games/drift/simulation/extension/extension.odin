@@ -1,5 +1,5 @@
 // drift's GDExtension (game/drift.gdextension -> .out/bin/libdrift.*): the drift sim run by unified:godot,
-// plus the game's glue (the view contract, games/drift/SPEC.md "View"): 2D scene and MultiMesh views in pixels,
+// plus the game's glue (the view contract, games/drift/SPEC.md "View contract"): 2D scene and MultiMesh views,
 // typed view data, the HUD's session data (Unified.data.hud), the constants (Unified.constants), and how the InputMap
 // and the aim become an Input. Built by `uni build drift`.
 package drift_extension
@@ -11,7 +11,7 @@ import "unified:godot"
 import "unified:physics"
 import "unified:sim"
 
-import dr "../drift"
+import g "../drift"
 
 @(export, link_name = "drift_init")
 drift_init :: proc "c" (
@@ -20,7 +20,7 @@ drift_init :: proc "c" (
 	init: ^godot.Initialization,
 ) -> godot.Init_Result {
 	// online play: EOS lobbies and P2P
-	return godot.init(&dr.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
 /// ---- the view contract
@@ -44,7 +44,7 @@ MultiView :: enum u8 {
 	Gem,
 }
 
-Frame :: godot.Frame(dr.Game, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
@@ -62,7 +62,7 @@ Gate_View :: struct {
 // Keys (unique within a kind): a ship its player's key (a zero key with `player` set: the same while they are in the
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
-GLUE := godot.Glue(dr.Game, View, MultiView) {
+GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
@@ -74,9 +74,9 @@ GLUE := godot.Glue(dr.Game, View, MultiView) {
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: dr.Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(event: g.Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in event {
-	case dr.Event_Station_Hit:
+	case g.Event_Station_Hit:
 		return .Station, 0, .View
 	}
 	return
@@ -91,61 +91,59 @@ Input_Values :: struct {
 
 // The movement, fire and boost from the InputMap, and the aim. A tap of fire or boost shorter than a frame still
 // counts (action_down).
-sample_input :: proc(input: ^dr.Input) {
+sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	input.aim = dmath.dir2(godot.input_values(Input_Values).aim)
-	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
+	input.buttons = godot.buttons(g.Buttons, {.Fire = "fire", .Boost = "boost"})
 }
 
 // ---- the frame (session thread): everything in metres (the host maps positions to pixels: Glue.view_scale)
 
-// A point on the plane.
-plane :: #force_inline proc(point: [2]f32) -> sim.Position {
-	return {point.x, point.y, 0}
-}
+HIT_FLASH_S :: 0.125 // a hit rock's flash fades over this
+HIT_SQUASH :: 0.08 // a hit rock squashes by this much of its radius at the flash's height
+BULLET_SCALE :: [3]f32{1.6, 0.6, 1} // a bullet's quad, stretched along its velocity
+GEM_SPIN :: 2 // rad/s
+GEM_PULSE :: 0.18 // a gem's squash and stretch, at GEM_PULSE_RATE rad/s
+GEM_PULSE_RATE :: 6
+GEM_FADE_S :: 2 // a gem fades out over its last seconds
 
 fill_frame :: proc(f: ^Frame) {
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
-		pos := physics.body_position_2d(f.world.phys, ship.body)
-		rotation := physics.body_rotation_2d(f.world.phys, ship.body)
 		godot.push_view(f, {
 			kind   = .Ship,
 			player = player,
-			pos    = plane(pos),
-			rot    = physics.quat_2d(rotation),
-		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(dr.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
+			pos    = sim.position(physics.body_position_2d(f.world.phys, ship.body)),
+			rot    = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
+		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(g.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
-	{
-		pos := physics.body_position_2d(f.world.phys, f.state.station)
-		rotation := physics.body_rotation_2d(f.world.phys, f.state.station)
-		godot.push_view(f, {
-			kind = .Station,
-			pos  = plane(pos),
-			rot  = physics.quat_2d(rotation),
-		}, Station_View{hp_frac = f32(f.state.station_hp) / f32(dr.STATION_HP)})
-	}
-	for gate in 0 ..< f.world.gate_count {
+	godot.push_view(f, {
+		kind = .Station,
+		pos  = sim.position(physics.body_position_2d(f.world.phys, f.state.station)),
+		rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, f.state.station)),
+	}, Station_View{hp_frac = f32(f.state.station_hp) / g.STATION_HP})
+	for gate_def, gate in f.world.gates[:f.world.gate_count] {
 		godot.push_view(f, {
 			key  = u64(gate),
 			kind = .Gate,
-			pos  = plane(f.world.gates[gate].pos),
-		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})
+			pos  = sim.position(gate_def.pos),
+		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(g.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)
 	for rock, handle in sim.next(&rocks) {
-		pos := physics.body_position_2d(f.world.phys, rock.body)
-		rotation := physics.body_rotation_2d(f.world.phys, rock.body)
-		radius := dr.ROCK_RADIUS[rock.size] // the mesh is a radius-1 m rock
-		flash := rock.hit_tick > 0 && f.tick >= rock.hit_tick ? max(0, 1 - f32(f.tick - rock.hit_tick) / 8) : 0
+		radius := g.ROCK_STATS[rock.size].radius // the mesh is a radius-1 m rock
+		flash: f32 = 0
+		if rock.hit_tick > 0 && f.tick >= rock.hit_tick {
+			flash = max(0, 1 - sim.seconds(f.tick - rock.hit_tick, g.TICK_HZ) / HIT_FLASH_S)
+		}
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
-			pos    = plane(pos),
-			rot    = physics.quat_2d(rotation),
-			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
+			pos    = sim.position(physics.body_position_2d(f.world.phys, rock.body)),
+			rot    = physics.quat_2d(physics.body_rotation_2d(f.world.phys, rock.body)),
+			scale  = {radius * (1 + HIT_SQUASH * flash), radius * (1 - HIT_SQUASH * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
 		})
 	}
@@ -157,23 +155,24 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
-			pos    = plane(bullet.pos),
+			pos    = sim.position(bullet.pos),
 			rot    = physics.quat_2d(bullet.vel),
-			scale  = {1.6, 0.6, 1},
+			scale  = BULLET_SCALE,
 			custom = {f32(owner_slot), 0, 0, 0},
 		})
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
+	life := sim.seconds(g.GEM_LIFE_TICKS, g.TICK_HZ)
 	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		age := f32(f.tick - gem.spawn_tick) / dr.TICK_HZ
-		pulse := math.sin(age * 6) * 0.18
-		fade := clamp((f32(dr.GEM_LIFE_S) - age) / 2, 0, 1)
+		age := sim.seconds(f.tick - gem.spawn_tick, g.TICK_HZ)
+		pulse := math.sin(age * GEM_PULSE_RATE) * GEM_PULSE
+		fade := clamp((life - age) / GEM_FADE_S, 0, 1)
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
-			pos    = plane(gem.pos),
-			rot    = godot.quat_angle2d(age * 2),
+			pos    = sim.position(gem.pos),
+			rot    = godot.quat_angle2d(age * GEM_SPIN),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},
@@ -195,8 +194,8 @@ Hud_Player :: struct {
 }
 
 Data_Hud :: struct {
-	players:     [dr.PLAYERS]Hud_Player,
-	phase:       dr.Phase, // EnumPhase in GDScript
+	players:     [g.PLAYERS]Hud_Player,
+	phase:       g.Phase, // EnumPhase in GDScript
 	_pad:        u8,
 	wave:        u16,
 	station_hp:  i32,
@@ -209,25 +208,25 @@ Data_Hud :: struct {
 	reset_in_s:  f32, // over: until back to the lobby
 }
 
-hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
+hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	hud.wave = state.waves
 	hud.station_hp = state.station_hp
-	hud.station_max = dr.STATION_HP
+	hud.station_max = g.STATION_HP
 	hud.score = state.score
 	hud.matches = state.matches
 	hud.rocks = u32(state.rocks.count)
 	switch state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = f32(tick - state.match_tick) / dr.TICK_HZ
-		hud.next_wave_s = state.next_wave_tick > tick ? f32(state.next_wave_tick - tick) / dr.TICK_HZ : 0
+		hud.time_s = sim.seconds(tick - state.match_tick, g.TICK_HZ)
+		hud.next_wave_s = state.next_wave_tick > tick ? sim.seconds(state.next_wave_tick - tick, g.TICK_HZ) : 0
 	case .Over:
-		hud.time_s = f32(state.over_tick - state.match_tick) / dr.TICK_HZ
-		end := state.over_tick + dr.OVER_HOLD_TICKS
-		hud.reset_in_s = end > tick ? f32(end - tick) / dr.TICK_HZ : 0
+		hud.time_s = sim.seconds(state.over_tick - state.match_tick, g.TICK_HZ)
+		end := state.over_tick + g.OVER_HOLD_TICKS
+		hud.reset_in_s = end > tick ? sim.seconds(end - tick, g.TICK_HZ) : 0
 	}
-	for slot in 0 ..< dr.PLAYERS {
+	for slot in 0 ..< g.PLAYERS {
 		ship := sim.slot_data(&state.players, slot)
 		if ship == nil do continue
 		hud.players[slot] = {
@@ -248,23 +247,23 @@ Data_Constants :: struct {
 	station_hp:     i32,
 	over_hold_s:    f32,
 	wave_every_s:   f32,
-	rock_shapes:    [dr.ROCK_VARIANTS][8][2]f32, // per variant the 8 corners at radius 1 (an Array of Vector2s)
+	rock_shapes:    [g.ROCK_VARIANTS][8][2]f32, // per variant the 8 corners at radius 1 (an Array of Vector2s)
 }
 
 // godot.init calls it once. The rock shapes are the ones the sim builds its bodies from (their convex hull, scaled by
 // the rock's radius), at radius 1.
 constants :: proc() -> Data_Constants {
 	constants := Data_Constants {
-		ship_radius    = dr.SHIP_RADIUS,
-		station_radius = dr.STATION_RADIUS,
-		gate_radius    = dr.GATE_RADIUS,
-		station_hp     = dr.STATION_HP,
-		over_hold_s    = dr.OVER_HOLD_S,
-		wave_every_s   = dr.WAVE_EVERY_S,
+		ship_radius    = g.SHIP_RADIUS,
+		station_radius = g.STATION_RADIUS,
+		gate_radius    = g.GATE_RADIUS,
+		station_hp     = g.STATION_HP,
+		over_hold_s    = sim.seconds(g.OVER_HOLD_TICKS, g.TICK_HZ),
+		wave_every_s   = sim.seconds(g.WAVE_EVERY_TICKS, g.TICK_HZ),
 	}
-	small := dr.ROCK_RADIUS[.Small]
-	for variant in 0 ..< dr.ROCK_VARIANTS {
-		for corner, k in dr.rock_points(variant, .Small) do constants.rock_shapes[variant][k] = corner / small
+	small := g.ROCK_STATS[.Small].radius
+	for variant in 0 ..< g.ROCK_VARIANTS {
+		for corner, k in g.rock_points(variant, .Small) do constants.rock_shapes[variant][k] = corner / small
 	}
 	return constants
 }

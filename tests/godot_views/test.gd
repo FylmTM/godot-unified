@@ -412,6 +412,17 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 		[mark_area.corner, mark_area.layer])
 	check("by shape: [4]f32 a Vector4, Quat a Quaternion, [2]i32 a Vector2i", toy.tint == Vector4(1, 2, 3, 4) \
 		and toy.turn == Quaternion.IDENTITY and toy.cell == Vector2i(-3, 7), [toy.tint, toy.turn, toy.cell])
+	# a command without fields (zero bytes): the bumps start over, then one more
+	check("send_command ClearBumps", session.send_command(CommandClearBumps.new()))
+	var bump3 := CommandBump.new()
+	bump3.amount = 4
+	check("send_command a Bump after it", session.send_command(bump3))
+	for i in 100:
+		await create_timer(0.02).timeout
+		if toy.bumps == 1 and toy.bump_sum == 4:
+			break
+	check("a command without fields arrives, in order", toy.bumps == 1 and toy.bump_sum == 4,
+		[toy.bumps, toy.bump_sum])
 
 
 func finish(session: UnifiedSession) -> void:

@@ -12,6 +12,11 @@ EVENT_MAX :: 64 // bytes of one event's struct
 // A point in sim units (2D games: z = 0). The view maps fields of this type to its units (Glue.view_scale).
 Position :: distinct [3]f32
 
+// The Position of a point on a 2D game's plane: {x, y, 0}.
+position :: proc "contextless" (point: [2]f32) -> Position {
+	return {point.x, point.y, 0}
+}
+
 // A fixed thing in events and views (a level marker, an item of a fixed array): sim.entity(index). Its zero value is
 // none, so index 0 is a thing. Godot routes an event to the views keyed by its first sim.Entity field's index (a
 // table's item has a Handle instead).
