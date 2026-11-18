@@ -14,7 +14,7 @@ Box3D (any worker count steps identically), state in the block or in the Box3D w
 create(settings := Settings{}) -> ^World    // one Box3D world; mutex-guarded (Box3D's world table is global)
 destroy(world)
 Settings :: struct {workers: i32, gravity: Maybe([3]f32), hit_threshold: f32, anchor: bool}
-extra(world, State) -> sim.Extra            // the world as rollback state; finds every ref by RTTI once; make it last
+extra(world, State) -> sim.Extra            // the world as rollback state (a game's sim.Game.extra returns it)
 ```
 
 - `workers`: Box3D's threads for the step (0 or 1: the caller's thread). Results are bit-identical for any count;
@@ -72,8 +72,8 @@ rollback plumbing.
   release library doesn't check a joint's type). The generic `joint_*` procs take any of them; an untyped
   `Joint_Ref` (`body_joints`' results) converts with `joint_as(world, ref, Revolute_Joint_Ref) -> (ref, bool)`.
 - `check_refs(world, state) -> string`: every body, shape and joint ref in the block is valid, and **no body is an
-  orphan**: bodies created before `extra()` (level geometry, the anchor, trigger sensors: a game makes `extra` last in
-  `world_create`) are the World's; every
+  orphan**: bodies created before `extra()` (level geometry, the anchor, trigger sensors: the harness asks for the
+  extra right after `world_create`) are the World's; every
   body created after must be owned by a `Body_Ref` in the block. "" when all holds, else the first problem. It is the
   `Extra`'s `check`, so `scenarios.rollback_every_tick` runs it after every restore.
 
@@ -82,7 +82,8 @@ create_body(world, ^Body_Def, tag: u64 = 0) -> Body_Ref
 destroy_body(world, ^Body_Ref)        // checked: a stale ref is a no-op, never another body; zeroes the ref
 destroy_joint(world, ^$J)             // any typed joint ref, checked likewise (destroying a body destroys its joints)
 destroy_refs(world, ^$T)              // every body and joint ref inside a plain value, destroyed and zeroed (RTTI, cached)
-despawn(world, ^sim.Table(T, N), index | handle)    // destroy_refs on the item, then sim.despawn
+despawn(world, ^sim.Table(T, N), handle)    // destroy_refs on the item, then sim.despawn
+despawn_all(world, ^sim.Table(T, N))        // every item: destroy_refs, then sim.despawn_all
 body_valid(world, Body_Link) -> bool  joint_valid(world, $J) -> bool  resolve(world, Body_Link) -> (Body_Ref, bool)
 ```
 

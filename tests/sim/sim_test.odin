@@ -109,26 +109,42 @@ iterator_walks_live_items_in_index_order :: proc(t: ^testing.T) {
 	empty: Small
 	none := sim.iterate(&empty)
 	for _, _ in sim.next(&none) do testing.fail(t)
+	// A walk covers the slots in use when it started: a spawn into a free slot ahead is visited, one into a fresh
+	// slot is not.
+	spawning: Small
+	_, gap, _ := sim.spawn(&spawning)
+	sim.spawn(&spawning)
+	sim.despawn(&spawning, gap)
+	visited := 0
+	walk := sim.iterate(&spawning)
+	for thing in sim.next(&walk) {
+		visited += 1
+		if thing.life == 0 {
+			thing.life = 1
+			sim.spawn(&spawning) // slot 0, behind the walk
+			sim.spawn(&spawning) // slot 2, fresh
+		}
+	}
+	testing.expect_value(t, visited, 1)
+	testing.expect_value(t, spawning.count, 3)
 }
 
+// despawn_all despawns everything and keeps the generations: spawns start again from slot 0, and no old handle or key
+// names a new item.
 @(test)
-prev_item_needs_the_same_generation :: proc(t: ^testing.T) {
-	previous: Small
-	_, first, _ := sim.spawn(&previous)
-	sim.spawn(&previous)
-	current := previous
-	item, ok := sim.prev_item(&previous, &current, 0)
-	testing.expect(t, ok && item == &previous.items[0])
-	_, ok = sim.prev_item((^Small)(nil), &current, 0)
-	testing.expect(t, !ok)
-	sim.despawn(&current, first)
-	_, ok = sim.prev_item(&previous, &current, 0) // gone this tick
-	testing.expect(t, !ok)
-	sim.spawn(&current) // slot 0 reused: a different item
-	_, ok = sim.prev_item(&previous, &current, 0)
-	testing.expect(t, !ok)
-	_, ok = sim.prev_item(&previous, &current, 1)
-	testing.expect(t, ok)
+despawn_all_keeps_the_generations :: proc(t: ^testing.T) {
+	table: Small
+	_, first, _ := sim.spawn(&table)
+	_, second, _ := sim.spawn(&table)
+	sim.despawn_all(&table)
+	testing.expect_value(t, table.count, 0)
+	testing.expect(t, sim.get(&table, first) == nil && sim.get(&table, second) == nil)
+	items := sim.iterate(&table)
+	for _ in sim.next(&items) do testing.fail(t)
+	_, again, _ := sim.spawn(&table)
+	testing.expect_value(t, again.index, first.index)
+	testing.expect(t, sim.handle_key(again) != sim.handle_key(first))
+	testing.expect(t, sim.get(&table, first) == nil && sim.get(&table, again) != nil)
 }
 
 // SplitMix64's reference outputs for seed 0 (Vigna's splitmix64.c), so a change to the mixer is caught.
@@ -280,7 +296,7 @@ run :: proc(simulation: ^toy.Sim, ticks: u32, players := 4) {
 		inputs: toy.Inputs
 		for slot in 0 ..< players {
 			inputs.present += {slot}
-			if sim.slot_player(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
+			if sim.player_in_slot(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
 			inputs.input[slot] = toy.scripted_input(simulation.seed, slot, number)
 		}
 		sim.step(simulation, &inputs)
@@ -350,10 +366,10 @@ left_events :: proc(simulation: ^toy.Sim, tick: u32) -> (count: int) {
 	return
 }
 
-// A slot answers only for the tick whose contents it holds: between advance and save (and after step_unsaved)
-// it has the new tick's events and no state, and nothing of the tick it held a ring ago.
+// A slot answers only for the tick whose contents it holds: after a step that doesn't save, until save, it has the
+// new tick's events and no state, and nothing of the tick it held a ring ago.
 @(test)
-advance_takes_the_slot_over :: proc(t: ^testing.T) {
+an_unsaved_step_takes_the_slot_over :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 42)
 	defer sim.destroy(simulation)
 	ring := u32(len(simulation.ring))
@@ -361,7 +377,7 @@ advance_takes_the_slot_over :: proc(t: ^testing.T) {
 	tick := simulation.tick + 1
 	testing.expect(t, sim.state_at(simulation, tick - ring) != nil)
 	inputs: toy.Inputs
-	sim.advance(simulation, &inputs)
+	sim.step(simulation, &inputs, save = false)
 	testing.expect(t, sim.state_at(simulation, tick - ring) == nil)
 	testing.expect_value(t, len(sim.events_at(simulation, tick - ring)), 0)
 	testing.expect(t, sim.state_at(simulation, tick) == nil)
@@ -369,10 +385,10 @@ advance_takes_the_slot_over :: proc(t: ^testing.T) {
 	sim.save(simulation)
 	testing.expect(t, sim.state_at(simulation, tick) != nil)
 	testing.expect_value(t, left_events(simulation, tick), toy.PLAYERS)
-	// step_unsaved over a saved tick of an abandoned timeline: its own events, and no state.
+	// An unsaved step over a saved tick of an abandoned timeline: its own events, and no state.
 	testing.expect(t, sim.restore(simulation, tick - 1))
 	inputs.present = {0, 1, 2, 3}
-	sim.step_unsaved(simulation, &inputs)
+	sim.step(simulation, &inputs, save = false)
 	testing.expect(t, sim.state_at(simulation, tick) == nil && !sim.restore(simulation, tick))
 	testing.expect_value(t, left_events(simulation, tick), 0) // the same players as before: nobody left
 }
@@ -419,10 +435,6 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		sim.Event_Player_Joined,
 		sim.Event_Player_Left,
 	}
-	No_Leave :: union {
-		sim.Event_Player_Joined,
-		toy.Event_Expired,
-	}
 	Event_Ticked :: struct {
 		tick: u32, // every event carries its tick already (and its kind)
 	}
@@ -431,16 +443,35 @@ bad_declarations_are_refused :: proc(t: ^testing.T) {
 		sim.Event_Player_Left,
 		Event_Ticked,
 	}
-	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, toy.Event), "")
-	testing.expect(t, sim.game_violation("toy", 64, Big_Union, toy.Event) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, Pointer_Union) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, No_Nil) != "")
-	testing.expect(t, sim.game_violation("toy", 64, nil, No_Leave) != "") // the library's join and leave are listed
-	testing.expect(t, strings.contains(sim.game_violation("toy", 64, nil, Reserved_Field), "`tick`"))
-	testing.expect(t, sim.game_violation("toy", 64, nil, nil) != "")
-	testing.expect(t, sim.game_violation("toy", 60, nil, toy.Event) != "") // not a power of two
-	testing.expect(t, sim.game_violation("toy", 256, nil, toy.Event) != "") // above 128
-	testing.expect(t, sim.game_violation("toy", 16, nil, toy.Event) != "") // below 32
+	testing.expect_value(t, sim.game_violation(&toy.GAME), "")
+	testing.expect(t, declared(Big_Union, toy.Event) != "")
+	testing.expect(t, declared(sim.No_Commands, Pointer_Union) != "")
+	testing.expect(t, declared(sim.No_Commands, No_Nil) != "")
+	testing.expect(t, strings.contains(declared(sim.No_Commands, Reserved_Field), "`tick`"))
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 60) != "") // not a power of two
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 256) != "") // above 128
+	testing.expect(t, declared(sim.No_Commands, toy.Event, 16) != "") // below 32
+	Float_State :: struct {
+		players: sim.Players(u8, Float_Input, toy.PLAYERS),
+		at:      f64,
+	}
+	Float_Input :: struct {
+		x: f32,
+	}
+	floats := sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
+		name    = "floats",
+		tick_hz = 64,
+	}
+	testing.expect(t, strings.contains(sim.game_violation(&floats), "the State is not plain data"))
+}
+
+// sim.game_violation of a toy with these unions and this tick rate.
+declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
+	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, toy.PLAYERS) {
+		name    = "toy",
+		tick_hz = tick_hz,
+	}
+	return sim.game_violation(&game)
 }
 
 @(test)
@@ -523,7 +554,7 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 
 @(test)
 input_log_round_trip :: proc(t: ^testing.T) {
-	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
+	input_log := sim.Input_Log(toy.Game) {
 		seed    = 99,
 		content = 0xC0FFEE,
 		compat  = 0xB111D,
@@ -552,7 +583,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
 	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES)
-	back, ok := sim.log_decode(data, toy.Input, toy.PLAYERS)
+	back, ok := sim.log_decode(data, toy.Game)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
 	testing.expect_value(t, back.seed, 99)
@@ -562,13 +593,13 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 50 {
 		decoded, original := sim.log_inputs(&back, k), sim.log_inputs(&input_log, k)
 		testing.expect(t, sim.inputs_same(&decoded, &original) && decoded.replaced == original.replaced)
-		testing.expect_value(t, decoded.member[1], u16(k + 2) if k == 0 || k == 30 else 0)
+		testing.expect_value(t, decoded.joins[1], u16(k + 2) if k == 0 || k == 30 else 0)
 		if k % 5 == 0 {
 			commands := decoded.commands
 			testing.expect(t, decoded.command_count == 2 && commands[0].slot == 0 && commands[1].slot == 1)
 		}
 	}
-	_, bad := sim.log_decode(data[:len(data) - 1], toy.Input, toy.PLAYERS)
+	_, bad := sim.log_decode(data[:len(data) - 1], toy.Game)
 	testing.expect(t, !bad)
 }
 
@@ -596,29 +627,27 @@ portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, sim.Snap_Error.Checksum_Mismatch)
 }
 
+
+// The desync report walks the State: a table's item by index down to the leaf field, a slot's liveness, a global.
 @(test)
-schema_finds_tables :: proc(t: ^testing.T) {
-	schema := sim.schema_of(toy.State)
-	things: ^sim.Table_Info
-	for &table in schema.tables {
-		testing.expect(t, table.name != "pos") // [4][2]f32: an array, but not of structs
-		if table.name == "things" {
-			things = &table
-		}
-	}
-	if !testing.expect(t, things != nil) {
-		return
-	}
-	testing.expect_value(t, things.cap, 32)
-	testing.expect(t, things.elem.id == toy.Thing)
+snapshot_diff_names_the_fields :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 3)
 	defer sim.destroy(simulation)
 	_, handle, _ := sim.spawn(&simulation.state.things)
-	base := ([^]u8)(&simulation.state)
-	item := rawptr(&base[things.items_off + int(handle.index) * things.elem.size])
-	testing.expect(t, item == rawptr(sim.get(&simulation.state.things, handle)))
-	slot := (^sim.Slot)(&base[things.slots_off + int(handle.index) * size_of(sim.Slot)])
-	testing.expect(t, slot.alive)
+	sim.save(simulation)
+	before := sim.snapshot_encode(simulation, 0)
+	defer delete(before)
+	sim.get(&simulation.state.things, handle).pos.y = 2
+	simulation.state.spawned = 5
+	sim.spawn(&simulation.state.things)
+	sim.save(simulation)
+	after := sim.snapshot_encode(simulation, 0)
+	defer delete(after)
+	diff := sim.snapshot_diff(toy.State, before, after)
+	testing.expect(t, strings.contains(diff, "things[0].pos[1] 0 vs 2"), diff)
+	testing.expect(t, strings.contains(diff, "things[1]: its slot"), diff)
+	testing.expect(t, strings.contains(diff, "spawned 0 vs 5"), diff)
+	testing.expect_value(t, sim.snapshot_diff(toy.State, before, before), "")
 }
 
 // An extra state that can be told to fail its restore.
@@ -628,18 +657,16 @@ Flaky :: struct {
 
 flaky_game :: proc(flaky: rawptr) -> toy.Game {
 	game := toy.GAME
-	game.world_create = proc(seed: u64, _: []u8) -> ^toy.World {return new(toy.World)}
-	game.extras = proc(world: ^toy.World) -> []sim.Extra {
-		@(static) extra: [1]sim.Extra
-		extra[0] = {
+
+	game.extra = proc(world: ^toy.World) -> sim.Extra {
+		return {
 			data = g_flaky,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},
-			hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {},
+			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
 			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
 		}
-		return extra[:]
 	}
 	g_flaky = (^Flaky)(flaky)
 	return game
@@ -728,7 +755,10 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 		dx, dy:  i8,
 		buttons: u16,
 	}
-	other_input := sim.Game(toy.State, Other_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
+	Other_State :: struct {
+		players: sim.Players(toy.Player_Data, Other_Input, toy.PLAYERS),
+	}
+	other_input := sim.Game(Other_State, Other_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
 		name    = base.name,
 		version = base.version,
 		tick_hz = base.tick_hz,
@@ -741,7 +771,10 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	Float_Input :: struct {
 		x: f32,
 	}
-	a, b: sim.Inputs(Float_Input, 2)
+	Float_State :: struct {
+		players: sim.Players(u8, Float_Input, 2),
+	}
+	a, b: sim.Inputs(sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, 2))
 	a.present = {0}
 	b.present = {0}
 	b.replaced = {0}
@@ -793,7 +826,7 @@ content_identity :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, sim.Snap_Error.Build_Differs)
 
 	// The current version round-trips; any other version is refused.
-	input_log := sim.Input_Log(toy.Input, toy.PLAYERS) {
+	input_log := sim.Input_Log(toy.Game) {
 		seed    = 5,
 		content = sim.content_hash(level_a),
 	}
@@ -801,11 +834,11 @@ content_identity :: proc(t: ^testing.T) {
 	sim.log_append(&input_log, &inputs)
 	data := sim.log_encode(&input_log)
 	defer delete(data)
-	back, ok := sim.log_decode(data, toy.Input, toy.PLAYERS)
+	back, ok := sim.log_decode(data, toy.Game)
 	testing.expect(t, ok && back.seed == 5 && back.content == input_log.content && len(back.ticks) == 1)
 	sim.log_destroy(&back)
 	data[4] = u8(sim.LOG_VERSION - 1) // the version, little-endian, after the magic
-	_, ok = sim.log_decode(data, toy.Input, toy.PLAYERS)
+	_, ok = sim.log_decode(data, toy.Game)
 	testing.expect(t, !ok)
 	snap[4] = u8(sim.SNAP_VERSION - 1)
 	_, err = sim.from_snapshot(&toy.GAME, snap, level_a)

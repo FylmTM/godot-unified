@@ -61,7 +61,7 @@ BENCH_WARMUP :: 64
 // them when the run is no longer). A rollback at the prediction cap every tick is the worst case the netcode
 // makes, not a typical frame: the bound the frame budget is checked against.
 run_bench :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	headless: ^uheadless.Headless($G),
 	entities: int,
 	window, ticks: u32,
 	seed: u64,
@@ -69,6 +69,9 @@ run_bench :: proc(
 ) -> (
 	result: Bench_Result,
 ) {
+	State :: sim.part(G, sim.GAME_STATE)
+	Input :: sim.part(G, sim.GAME_INPUT)
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	assert(window >= 1 && int(window) <= uheadless.max_window(headless.game))
 	simulation := sim.create(headless.game, seed, headless.content)
 	defer sim.destroy(simulation)
@@ -84,9 +87,9 @@ run_bench :: proc(
 	resim_final_us := make([]f64, tick_count)
 	checksum_us := make([]f64, tick_count)
 	checksum_deep_us := make([]f64, tick_count)
-	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
+	recorded := make([]sim.Inputs(G), ticks + 1)
 	forward := make([]u64, ticks + 1)
-	commands: uheadless.Scripted_Commands(Cmd)
+	commands: uheadless.Scripted_Commands(G)
 	defer uheadless.scripted_commands_destroy(&commands)
 	defer {
 		delete(step_us)
@@ -110,7 +113,7 @@ run_bench :: proc(
 		timed := tick > warmup
 		recorded[tick] = uheadless.scripted(headless, simulation, tick, players, &commands)
 		step_start := time.tick_now()
-		sim.advance(simulation, &recorded[tick])
+		sim.step(simulation, &recorded[tick], save = false)
 		step_end := time.tick_now()
 		sim.save(simulation)
 		save_end := time.tick_now()
@@ -138,7 +141,7 @@ run_bench :: proc(
 		assert(ok)
 		final_start := time.tick_now()
 		for resim in base + 1 ..< tick {
-			sim.step_unsaved(simulation, &recorded[resim])
+			sim.step(simulation, &recorded[resim], save = false)
 		}
 		sim.step(simulation, &recorded[tick])
 		final_end := time.tick_now()
@@ -200,13 +203,16 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 	defer free(sparse)
 	defer free(dense)
 	// sparse: every slot used once, then all but `live` (spread evenly) despawned; dense: `live` items at the front
+	handles := make([]sim.Handle(Table_Bench_Item), TABLE_BENCH_CAPACITY)
+	defer delete(handles)
 	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		item, _, _ := sim.spawn(sparse)
+		item: ^Table_Bench_Item
+		item, handles[i], _ = sim.spawn(sparse)
 		item.life = i32(i)
 	}
 	keep_every := TABLE_BENCH_CAPACITY / live
 	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, i)
+		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, handles[i])
 	}
 	for i in 0 ..< live {
 		item, _, _ := sim.spawn(dense)
@@ -248,10 +254,8 @@ mode_table_bench :: proc(args: ^Args) -> bool {
 // and every client through test time, so the run is deterministic and its wall time is the clients' and relay's
 // CPU time): wall time, rollbacks and what they re-simulated, the time each kind of step took, and the bytes per
 // second on the wire.
-mode_net_bench :: proc(
-	headless: ^uheadless.Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	args: ^Args,
-) -> bool {
+mode_net_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	check_known(args, "clients", "ticks", "profile", "seed", "latency", "jitter", "loss")
 	cfg := uheadless.Session_Config {
 		clients     = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),

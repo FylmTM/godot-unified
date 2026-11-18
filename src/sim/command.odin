@@ -1,17 +1,16 @@
 // Commands (src/sim/SPEC.md "Commands"): one-shot actions a player sends, delivered exactly once, in order.
-// The game declares one plain struct per command and a union of them (Game.commands; kind = variant
+// The game declares one plain struct per command and a union of them (sim.Game's Cmd; kind = variant
 // index). A command is input, not state: part of the tick's input record (Inputs.commands; logged,
-// replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`
-// and `command_value`.
+// replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`.
 package sim
 
 import "base:intrinsics"
 
 COMMAND_MAX :: 64 // bytes of one command's struct
-COMMANDS_PER_PLAYER :: 4 // per player per tick: more wait for the next tick, in order
+COMMANDS_PER_SLOT :: 4 // per slot per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
 
-// One command in a tick's input record: its kind (the variant's index in Game.commands), the slot it
+// One command in a tick's input record: its kind (the variant's index in the Cmd union), the slot it
 // was sent from and its struct's bytes.
 Raw_Command :: struct {
 	kind: u8,
@@ -22,7 +21,7 @@ Raw_Command :: struct {
 
 // The commands sent from `slot` for this tick, in the order sent (inside `tick`, by player: sim.commands(t,
 // player), players.odin).
-slot_commands :: proc(inputs: ^Inputs($Input, $PLAYERS), slot: int) -> []Raw_Command {
+slot_commands :: proc(inputs: ^Inputs($G), slot: int) -> []Raw_Command {
 	count := inputs.command_count
 	low := 0
 	for low < count && int(inputs.commands[low].slot) < slot {
@@ -42,6 +41,7 @@ command_value :: proc(raw: ^Raw_Command, $Command: typeid) -> Command {
 }
 
 // A tick's commands, decoded once before `tick` (Tick.commands), each with its slot, in the record's order.
+@(private)
 Commands :: struct($Cmd: typeid) {
 	list:  [TICK_COMMANDS]Cmd,
 	slots: [TICK_COMMANDS]u8,
@@ -49,7 +49,8 @@ Commands :: struct($Cmd: typeid) {
 }
 
 // Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size).
-commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($Input, $PLAYERS)) {
+@(private)
+commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G)) {
 	commands.count = 0
 	when intrinsics.type_union_variant_count(Cmd) > 0 { 	// sim.No_Commands: nothing to decode
 		for &raw in inputs.commands[:inputs.command_count] {
@@ -63,6 +64,7 @@ commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($Input, $PLAY
 }
 
 // The decoded commands of `slot`.
+@(private)
 commands_of_slot :: proc(commands: ^Commands($Cmd), slot: int) -> []Cmd {
 	low := 0
 	for low < commands.count && int(commands.slots[low]) < slot {
@@ -96,12 +98,13 @@ command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.ty
 }
 
 // Adds a command to a tick's record, after the commands `raw.slot` already has there. False at the
-// limits (COMMANDS_PER_PLAYER for the slot, TICK_COMMANDS in all).
-add_command :: proc(inputs: ^Inputs($Input, $PLAYERS), raw: Raw_Command) -> bool {
+// limits (COMMANDS_PER_SLOT for the slot, TICK_COMMANDS in all).
+add_command :: proc(inputs: ^Inputs($G), raw: Raw_Command) -> bool {
+	PLAYERS :: part(G, GAME_PLAYERS)
 	count := inputs.command_count
 	if count >= TICK_COMMANDS ||
 	   int(raw.slot) >= PLAYERS ||
-	   len(slot_commands(inputs, int(raw.slot))) >= COMMANDS_PER_PLAYER {
+	   len(slot_commands(inputs, int(raw.slot))) >= COMMANDS_PER_SLOT {
 		return false
 	}
 	at := count

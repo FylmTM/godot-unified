@@ -3,7 +3,7 @@
 // stick is at most 1 long, a direction is unit length or zero.
 package dmath
 
-// −1..1 to an i8 axis (−127..127); NaN gives 0. What a client writes (godot.axis_i8 is this).
+// −1..1 to an i8 axis (−127..127); NaN gives 0. What a client writes.
 axis_i8 :: proc "contextless" (x: f32) -> i8 {
 	if !(x == x) do return 0
 	return i8(to_i32_clamped(x * 127 + (0.5 if x >= 0 else -0.5), -127, 127))

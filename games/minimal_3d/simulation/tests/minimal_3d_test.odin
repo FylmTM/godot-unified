@@ -7,16 +7,12 @@ import "unified:lint"
 
 import g "../minimal_3d"
 
-HEADLESS := headless.Headless(g.State, g.Input, g.World, g.Event, g.Cmd, g.PLAYERS) {
+HEADLESS := headless.Headless(g.Game) {
 	game = &g.GAME,
-	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
-		return g.scripted_input(seed, slot, tick)
-	},
-	scripted_commands = g.scripted_commands,
 }
 
-SUITE := scenarios.Suite(g.State, g.Input, g.World, g.Event, g.Cmd, g.PLAYERS) {
-	game    = &HEADLESS,
+SUITE := scenarios.Suite(g.Game) {
+	game    = &g.GAME,
 	players = g.PLAYERS,
 	seed    = 1,
 	ticks   = 600,

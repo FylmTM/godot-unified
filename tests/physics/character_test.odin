@@ -105,7 +105,6 @@ Rig :: struct {
 
 Rig_World :: struct {
 	phys:    ^physics.World,
-	extras:  [1]sim.Extra,
 	scratch: [dynamic]physics.Contact_Event,
 }
 
@@ -119,8 +118,8 @@ RIG_PATH := physics.Path {
 }
 
 Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
-Rig_Inputs :: sim.Inputs(Rig_Input, 2)
-Rig_Tick :: sim.Tick(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
+Rig_Inputs :: sim.Inputs(Rig_Game)
+Rig_Tick :: sim.Tick(Rig_Game)
 
 RIG := Rig_Game {
 	name = "rig",
@@ -132,7 +131,7 @@ RIG := Rig_Game {
 		delete(rig_world.scratch)
 		free(rig_world)
 	},
-	extras = proc(rig_world: ^Rig_World) -> []sim.Extra {return rig_world.extras[:]},
+	extra = proc(rig_world: ^Rig_World) -> sim.Extra {return physics.extra(rig_world.phys, Rig)},
 	init = proc(t: ^Rig_Tick) {
 		world := t.world.phys
 		for &character, i in t.state.characters {
@@ -163,7 +162,6 @@ rig_world_create :: proc(workers: i32) -> ^Rig_World {
 		})
 	ground(rig_world.phys)
 	box(rig_world.phys, {-4, 0.15, 0}, {1, 0.15, 1}) // a step
-	rig_world.extras[0] = physics.extra(rig_world.phys, Rig)
 	return rig_world
 }
 

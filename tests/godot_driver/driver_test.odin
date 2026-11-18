@@ -40,9 +40,9 @@ MultiView :: enum u8 {
 }
 
 @(private = "file")
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, View, MultiView) {
+GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
-	fill_frame = proc(frame: ^godot.Frame(toy.State, toy.World, View, MultiView)) {
+	fill_frame = proc(frame: ^godot.Frame(toy.Game, View, MultiView)) {
 		players := sim.iterate_present(&frame.state.players)
 		for data, player in sim.next(&players) {
 			godot.push_view(frame, {
@@ -138,7 +138,7 @@ recording_replays :: proc(t: ^testing.T) {
 	info, recorded := godot.api.recording(&snapshot, &log_bytes)
 	if !testing.expect(t, recorded, "the session was recorded") do return
 	testing.expectf(t, info.check_tick > info.from && info.check_tick <= info.to, "a tick to check: %v", info)
-	input_log, log_ok := sim.log_decode(log_bytes[:], toy.Input, toy.PLAYERS)
+	input_log, log_ok := sim.log_decode(log_bytes[:], toy.Game)
 	defer sim.log_destroy(&input_log)
 	testing.expect(t, log_ok, "the input log decodes")
 	testing.expect_value(t, len(input_log.ticks), int(info.to - info.from))
@@ -358,7 +358,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		Bad_View :: enum u8 {
 			Dot = 1,
 		}
-		bad := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, Bad_View, MultiView){}
+		bad := godot.Glue(toy.Game, Bad_View, MultiView){}
 		godot.install(&toy.GAME, bad)
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)

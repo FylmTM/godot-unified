@@ -44,16 +44,15 @@ View :: enum u8 {
 // No MultiMesh views.
 MultiView :: enum u8 {}
 
-Frame :: godot.Frame(fs.State, fs.World, View, MultiView)
+Frame :: godot.Frame(fs.Game, View, MultiView)
 
-GLUE := godot.Glue(fs.State, fs.Input, fs.World, fs.Cmd, View, MultiView) {
-	sample_input   = sample_input,
-	fill_frame     = fill_frame,
-	data           = Data,
-	constants      = CONSTANTS,
-	scripted_input = fs.scripted_input,
-	event_key      = event_key,
-	level          = "res://game/levels/park.level",
+GLUE := godot.Glue(fs.Game, View, MultiView) {
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	event_key    = event_key,
+	level        = "res://game/levels/park.level",
 }
 
 // The session data (Unified.data.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
@@ -94,8 +93,8 @@ sample_input :: proc(input: ^fs.Input) {
 	flat_right := normalize2({right.x, right.z})
 	// get_vector: x right, y back (Godot's forward is -Z); the camera's forward is `forward`.
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	input.move_x = godot.axis_i8(flat_right.x * move.x - forward.x * move.y)
-	input.move_z = godot.axis_i8(flat_right.y * move.x - forward.y * move.y)
+	input.move_x = dmath.axis_i8(flat_right.x * move.x - forward.x * move.y)
+	input.move_z = dmath.axis_i8(flat_right.y * move.x - forward.y * move.y)
 	input.aim = dmath.dir3(look)
 	input.buttons = godot.buttons(fs.Buttons, {.Jump = "jump", .Grab = "grab", .Throw = "throw"})
 }

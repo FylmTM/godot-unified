@@ -26,7 +26,6 @@ Spawner_Def :: struct {
 
 World :: struct {
 	phys:          ^physics.World,
-	extras:        [1]sim.Extra,
 	level_data:    level.Level,
 	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
@@ -37,8 +36,8 @@ World :: struct {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
+Tick :: sim.Tick(Game)
 
 @(rodata)
 GAME := Game {
@@ -47,9 +46,11 @@ GAME := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // What the keyed rolls are for (sim.roll_below, sim.roll_f32).
@@ -68,7 +69,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
-	world.extras[0] = physics.extra(world.phys, State) // after the level: its bodies are the World's
+
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 2 - 3, 6}
 	spawn_count := 0
 	for &marker in world.level_data.markers {
@@ -87,7 +88,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			world.gate_count += 1
 		case "rock_spawn":
 			assert(world.spawner_count < MAX_SPAWNERS, "drift: too many rock spawners")
-			dir := dmath.normalize2(level.prop_vec2(&marker, "dir", {0, 1}))
+			dir := dmath.normalize(level.prop_vec2(&marker, "dir", {0, 1}))
 			if dir == {} do dir = {0, 1}
 			world.spawners[world.spawner_count] = {pos, dir}
 			world.spawner_count += 1
@@ -121,7 +122,7 @@ rock_points :: proc(variant: int, size: Rock_Size) -> (points: [8][2]f32) {
 	radius := ROCK_RADIUS[size]
 	for k in 0 ..< 8 {
 		reach := ROCK_SHAPES[variant][k] * radius
-		points[k] = {dmath.DIR8_C[k] * reach, dmath.DIR8_S[k] * reach}
+		points[k] = dmath.DIR8[k] * reach
 	}
 	return
 }

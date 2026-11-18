@@ -29,18 +29,17 @@ tick :: proc(t: ^Tick) {
 presence :: proc(t: ^Tick) {
 	for player in t.player_changes.left {
 		// still known: the library never forgets a member on the tick it leaves
-		ship := sim.player_data(&t.state.players, player)
+		ship := sim.player_data(t, player)
 		physics.destroy_body(t.world.phys, &ship.body)
 		ship.thrust = false
 	}
-	for player in t.player_changes.joined do spawn_ship(t, player)
-	for player in t.player_changes.returned do spawn_ship(t, player)
+	for player in t.player_changes.arrived do spawn_ship(t, player)
 }
 
 // A joining player's ship, at their slot's spawn point.
 spawn_ship :: proc(t: ^Tick, player: sim.Player) {
-	slot, _ := sim.player_slot(&t.state.players, player)
-	create_ship(t.world, sim.player_data(&t.state.players, player), t.world.spawns[slot])
+	slot := sim.player_slot(t, player)
+	create_ship(t.world, sim.player_data(t, player), t.world.spawns[slot])
 	sim.emit(t, Event_Spawned{position = position_of(t.world.spawns[slot]), player = player})
 }
 
@@ -140,7 +139,7 @@ move_bullets :: proc(t: ^Tick) {
 				if rock := sim.get(&t.state.rocks, rock_handle); rock != nil && rock.hp > 0 {
 					rock.hp -= 1
 					rock.hit_tick = t.number
-					direction := dmath.normalize2(bullet.vel)
+					direction := dmath.normalize(bullet.vel)
 					physics.body_apply_linear_impulse_to_center_2d(t.world.phys, rock.body, direction * BULLET_PUSH)
 					sim.emit(t, Event_Rock_Hit {
 						rock     = rock_handle,
@@ -165,12 +164,9 @@ move_bullets :: proc(t: ^Tick) {
 // into two of the next size, or, when small, is destroyed and every other one drops a gem.
 update_rocks :: proc(t: ^Tick) {
 	station := physics.body_position_2d(t.world.phys, t.state.station)
-	// one pass over the slots in use now: a split's rocks that reuse a free slot ahead of the walk are visited
-	// this tick, the ones past the high water mark (where the walk started it) the next
-	high_water := t.state.rocks.high_water
+	// a split's rocks that reuse a free slot ahead of the walk are visited this tick, the ones in fresh slots the next
 	rocks := sim.iterate(&t.state.rocks)
 	for rock, handle in sim.next(&rocks) {
-		if i32(handle.index) >= high_water do break
 		pos := physics.body_position_2d(t.world.phys, rock.body)
 		radius := ROCK_RADIUS[rock.size]
 		// touching the station (its corners' circle): damage, and the rock is gone
@@ -213,7 +209,7 @@ update_rocks :: proc(t: ^Tick) {
 			size     = size,
 		})
 		child := Rock_Size(u8(size) - 1)
-		direction := dmath.normalize2(vel)
+		direction := dmath.normalize(vel)
 		if direction == {} do direction = {1, 0}
 		perpendicular := [2]f32{-direction.y, direction.x}
 		offset := perpendicular * (ROCK_RADIUS[child] * 0.9)
@@ -321,7 +317,7 @@ spawn_waves :: proc(t: ^Tick) {
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
 	// a little spread: the drift direction turned by up to ±0.25 rad (a small-angle rotation, renormalised)
 	turn := (sim.roll_f32(t, Roll.Rock_Turn) - 0.5) * 0.5
-	direction := dmath.normalize2({spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
+	direction := dmath.normalize({spawner.dir.x - spawner.dir.y * turn, spawner.dir.y + spawner.dir.x * turn})
 	spin := (sim.roll_f32(t, Roll.Rock_Spin) - 0.5) * 2
 	variant := int(sim.roll_below(t, ROCK_VARIANTS, Roll.Rock_Variant))
 	if _, ok := create_rock(t.state, t.world, .Large, variant, spawner.pos, direction * speed, spin); ok {
@@ -336,7 +332,7 @@ spawn_waves :: proc(t: ^Tick) {
 // Moves the phase on at the end of the tick: a match is over when the station's HP is 0, an over match resets after
 // OVER_HOLD_TICKS, and the world resets whenever nobody is present.
 advance_phase :: proc(t: ^Tick) {
-	if !anyone_present(t.state) {
+	if sim.present_count(t) == 0 {
 		if t.state.phase != .Lobby do reset(t)
 		return
 	}
@@ -353,25 +349,15 @@ advance_phase :: proc(t: ^Tick) {
 	}
 }
 
-anyone_present :: proc(state: ^State) -> bool {
-	players := sim.iterate_present(&state.players)
-	_, _, ok := sim.next(&players)
-	return ok
-}
-
 // Back to the lobby: rocks, bullets and gems cleared, the present ships at their slots' spawns, the station
 // repaired.
 reset :: proc(t: ^Tick) {
-	rocks := sim.iterate(&t.state.rocks)
-	for _, handle in sim.next(&rocks) do kill_rock(t.state, t.world, handle)
-	// despawned one by one, not zeroed: the tables keep their generations, so views never see a key twice
-	bullets := sim.iterate(&t.state.bullets)
-	for _, handle in sim.next(&bullets) do sim.despawn(&t.state.bullets, handle)
-	gems := sim.iterate(&t.state.gems)
-	for _, handle in sim.next(&gems) do sim.despawn(&t.state.gems, handle)
+	physics.despawn_all(t.world.phys, &t.state.rocks)
+	sim.despawn_all(&t.state.bullets)
+	sim.despawn_all(&t.state.gems)
 	ships := sim.iterate_present(&t.state.players)
 	for ship, player in sim.next(&ships) {
-		slot, _ := sim.player_slot(&t.state.players, player)
+		slot := sim.player_slot(t, player)
 		physics.body_set_transform_2d(t.world.phys, ship.body, t.world.spawns[slot], {0, -1})
 		physics.body_set_linear_velocity(t.world.phys, ship.body, {})
 		physics.body_set_angular_velocity(t.world.phys, ship.body, {})

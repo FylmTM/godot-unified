@@ -13,16 +13,16 @@ import "unified:godot"
 View :: enum u8 {Player}            // scene view kinds: one scene each (found by the view index)
 MultiView :: enum u8 {Ball}         // MultiMesh view kinds
 Data :: union {Data_Hud}            // session data types: Unified.data.hud
-Frame :: godot.Frame(g.State, g.World, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 CONSTANTS := Data_Constants{speed = g.SPEED, ...} // Unified.constants: a package variable, copied at install
 
-GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
+GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
 	data = Data, constants = CONSTANTS,
-	scripted_input, scripted_commands, bench, event_key, compat, level,
+	bench, event_key, compat, level,
 	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
 	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space, below)
 	smoothing,                       // view.Smoothing in sim units (zero: the default, for metres)
@@ -31,7 +31,7 @@ GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
 
 sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back")
-	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_z = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	input.buttons = godot.buttons(g.Buttons, {.Jump = "jump", .Grab = "grab"})
 }
 
@@ -88,7 +88,7 @@ input never presses twice), and a one-shot value is a command.
 - `input_value(name) -> [3]f32`: the latest value a script set with `UnifiedSession.set_input_value(name, value)`
   (a Vector3, a Vector2 with z = 0, or a float or bool in x): what only GDScript knows, such as a camera's look
   direction;
-- `axis_i8(x) -> i8`: −1..1 to −127..127 (`dmath.axis_i8`); a stick decodes with `dmath.stick` (clamped to length
+- An axis is `dmath.axis_i8(x)`: −1..1 to −127..127; a stick decodes with `dmath.stick` (clamped to length
   1), a direction is a `dmath.Dir2` / `Dir3` (`dmath.dir2(vec)`, 2 or 4 bytes; zero: none). An `Input` holds no bools
   and no floats (`sim.wire_violation`).
 
@@ -99,7 +99,7 @@ held counts only once it is released (the key that closed the menu, the click th
 An unfocused window still reads input: Godot releases what was held when it lost the focus, and tool runs drive
 windows that never take it. A press on the
 dev UI never reaches the actions (it releases the actions it triggered: `src/devui/SPEC.md`, Input).
-`scripted_input` replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
+The game's scripted player (`sim.Game.scripted_input`, `scripted_commands`) replaces the sample in `--scripted` runs. `Input` is what the player intends: interpreting it
 against the state is the sim's job.
 
 ### View space
@@ -333,7 +333,7 @@ scene and every indexed kind is a `View` member (an error names each one).
   `host_step` / `client_step` on its own thread (macOS: the real-time time-constraint class; while a session runs
   the process opts out of background throttling: an NSProcessInfo activity on macOS, `timeBeginPeriod(1)` and no
   power throttling on Windows). The netcode hooks run there: `sample` takes the main thread's newest Input (or
-  `scripted_input`); `commands` drains the command queue; `frame` feeds the re-simulated and new ticks' events to
+  the game's `scripted_input`); `commands` drains the command queue; `frame` feeds the re-simulated and new ticks' events to
   the tracker and calls `fill_frame`, then publishes the Frame; `verified` confirms or cancels events; `status` and
   `desync` post. Godot is only called from the main thread.
 - **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins), an SPSC event queue (4096;

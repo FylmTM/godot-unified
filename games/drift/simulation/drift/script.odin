@@ -13,27 +13,19 @@ SCRIPT_COMMAND_EVERY :: 256
 SCRIPT_START_AT :: 32 // in each SCRIPT_COMMAND_EVERY ticks
 SCRIPT_RESTART_AT :: 160
 
-// 32 bits from a hash of (seed, slot, block).
-scripted_bits :: proc(seed: u64, slot: int, block: u32) -> u32 {
-	x := seed * 0x9E3779B97F4A7C15 ~ u64(slot + 1) * 0xBF58476D1CE4E5B9 ~ u64(block + 1) * 0x94D049BB133111EB
-	x ~= x >> 31
-	x *= 0xD6E8FEB86659FD93
-	x ~= x >> 32
-	return u32(x)
-}
 
 // The scripted input of the player in `slot` for a tick, a pure function of (seed, slot, tick): the input the headless modes,
 // the end-to-end suite and a Godot scripted session feed the sim, identical wherever it is asked for.
 scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
-	bits := scripted_bits(seed, slot, (tick - 1) / SCRIPT_PERIOD)
+	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	input: Input
 	if bits % 5 != 4 {
 		move := bits % 8
-		input.move_x = i8(dmath.DIR8_C[move] * 127)
-		input.move_y = i8(dmath.DIR8_S[move] * 127)
+		input.move_x = dmath.axis_i8(dmath.DIR8[move].x)
+		input.move_y = dmath.axis_i8(dmath.DIR8[move].y)
 	}
 	aim := (bits >> 4) % 8
-	input.aim = dmath.dir2({dmath.DIR8_C[aim], dmath.DIR8_S[aim]})
+	input.aim = dmath.dir2(dmath.DIR8[aim])
 	if (bits >> 8) % 4 != 0 do input.buttons += {.Fire}
 	if (bits >> 10) % 6 == 0 do input.buttons += {.Boost}
 	return input

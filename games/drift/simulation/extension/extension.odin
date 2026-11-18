@@ -50,7 +50,7 @@ MultiView :: enum u8 {
 	Gem,
 }
 
-Frame :: godot.Frame(dr.State, dr.World, View, MultiView)
+Frame :: godot.Frame(dr.Game, View, MultiView)
 
 Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
@@ -68,17 +68,15 @@ Gate_View :: struct {
 // Keys (unique within a kind): a ship its player's key (ship_key: sim.player_key, the same while they are in the
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
-GLUE := godot.Glue(dr.State, dr.Input, dr.World, dr.Cmd, View, MultiView) {
-	sample_input      = sample_input,
-	fill_frame        = fill_frame,
-	data              = Data,
-	constants         = CONSTANTS,
-	is_2d             = true,
-	view_scale        = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
-	scripted_input    = dr.scripted_input,
-	scripted_commands = dr.scripted_commands,
-	event_key         = event_key,
-	level             = "res://game/levels/arena.level",
+GLUE := godot.Glue(dr.Game, View, MultiView) {
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	is_2d        = true,
+	view_scale   = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
+	event_key    = event_key,
+	level        = "res://game/levels/arena.level",
 }
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
@@ -103,7 +101,7 @@ ship_key :: proc(player: sim.Player) -> view.Key {
 // zero keeps the heading. A tap of fire or boost shorter than a frame still counts (action_down).
 sample_input :: proc(input: ^dr.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
-	input.move_x, input.move_y = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	aim := godot.input_value("aim")
 	input.aim = dmath.dir2(aim.xy)
 	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
@@ -165,7 +163,7 @@ fill_frame :: proc(f: ^Frame) {
 	// (custom.x: the owner's slot, the view's colour index; -1 once the owner has left)
 	bullets := sim.iterate(&f.state.bullets)
 	for bullet, handle in sim.next(&bullets) {
-		owner_slot, _ := sim.player_slot(&f.state.players, bullet.owner)
+		owner_slot := sim.player_slot(&f.state.players, bullet.owner)
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,

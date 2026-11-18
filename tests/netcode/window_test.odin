@@ -44,7 +44,7 @@ varied_ticks :: proc(ticks: []toy.Inputs) {
 		if i > 0 {
 			tick_inputs = ticks[i - 1]
 			tick_inputs.command_count = 0
-			tick_inputs.member = {} // join records are per tick
+			tick_inputs.joins = {} // join records are per tick
 		}
 		state ~= state << 13
 		state ~= state >> 17
@@ -53,7 +53,7 @@ varied_ticks :: proc(ticks: []toy.Inputs) {
 		case 0:
 			slot := int(state % toy.PLAYERS)
 			tick_inputs.present ~= {slot}
-			if slot in tick_inputs.present do tick_inputs.member[slot] = u16(i + 1) // a join record
+			if slot in tick_inputs.present do tick_inputs.joins[slot] = u16(i + 1) // a join record
 		case 3:
 			tick_inputs.replaced = state % 2 == 0 ? {} : tick_inputs.present
 		case 5:
@@ -104,7 +104,7 @@ window_sizes :: proc(t: ^testing.T) {
 	// Everything changed: presence, every byte of every input, commands, every slot joining.
 	full: [2]toy.Inputs
 	full[1].present = {0, 1, 2, 3}
-	full[1].member = {1, 2, 3, 4}
+	full[1].joins = {1, 2, 3, 4}
 	full[1].replaced = {2}
 	for &input in full[1].input {
 		input = {

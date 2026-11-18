@@ -4,20 +4,8 @@
 package main
 
 import "../../toy"
-import "unified:headless"
 import "unified:headless/modes"
-import "unified:sim"
-
-HEADLESS := headless.Headless(toy.State, toy.Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
-	game = &toy.GAME,
-	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
-		return toy.scripted_input(seed, slot, tick)
-	},
-	scripted_commands = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
-		toy.scripted_commands(seed, slot, tick, out)
-	},
-}
 
 main :: proc() {
-	modes.run(&HEADLESS)
+	modes.run(&toy.GAME, {})
 }

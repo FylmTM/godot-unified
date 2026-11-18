@@ -61,7 +61,7 @@ Input :: struct {
 	buttons: Buttons,
 }
 
-Inputs :: sim.Inputs(Input, PLAYERS)
+Inputs :: sim.Inputs(Game)
 
 // The level-up options, in the order the HUD shows them.
 Upgrade :: enum u8 {
@@ -76,7 +76,7 @@ Cmd_Pick :: struct {
 	upgrade: Upgrade,
 }
 
-// The commands players send (sim.Game.commands; kind = variant index, name = type name without Cmd_).
+// The commands players send (the Cmd of sim.Game; kind = variant index, name = type name without Cmd_).
 Cmd :: union {
 	Cmd_Pick,
 }

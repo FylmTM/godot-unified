@@ -51,7 +51,7 @@ in Box3D's shape structs, so it survives save/restore.
 
 - **The ring** (`sim.ring_size(tick_hz)`, about 250 ms of ticks): the block copy, the tick's events and every Extra's
   save (physics: a Box3D snapshot per slot, a memcpy of the world's arena), saved after every step (including tick
-  0). Restore = copy back + the extras' restores.
+  0). Restore = copy back + the Extra's restore.
 - **Portable snapshot** (`snapshot`/`resume`, late join): the block bytes and each Extra's image (physics: Box3D's
   canonical image with its geometry, the same bytes on every platform), with what proves they fit (format in
   `src/sim/SPEC.md`). The receiver builds the same initial world, saves tick 0, then loads the image.

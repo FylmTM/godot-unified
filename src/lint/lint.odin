@@ -1,6 +1,6 @@
 // The determinism lint (AGENTS.md "Deterministic simulation"): a token scan that fails on constructs a
 // simulation must not use. Cheap (a few ms), run from a test package: `tests/lint` runs it over unified and its
-// games, and a game outside the repo calls `check_sim_package` from its own sim tests. It can't prove determinism
+// games, and a game outside the repo calls `check_game` from its own sim tests. It can't prove determinism
 // (end-to-end suites and reference runs do); it stops the known traps from creeping in. src/lint/SPEC.md.
 package lint
 
@@ -8,28 +8,38 @@ import "base:runtime"
 import "core:fmt"
 import "core:odin/tokenizer"
 import "core:os"
-import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:testing"
 
+// What a package is, which says what it may not do:
+//
+//   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no `matrix`, `foreign`, `map`, `---`,
+//             `#config` or `x := 1.5` (an untyped float literal is f64), and no mutable package-level variables
+//             (scan_globals) but its allow_globals.
+//   Realtime  real-time code beside the sim (netcode, headless): Odin's own packages and its listed ones, but not
+//             core:math (core:math/bits is fine), FLOAT_TRAPS or `matrix`.
+//   Host      host-side code that never feeds back into the sim: Odin's own packages and its listed ones.
+Kind :: enum u8 {
+	Host,
+	Realtime,
+	Tick,
+}
+
 Rule :: struct {
 	pkg:           string, // the package's name, for messages (and the tests' rule table)
 	dir:           string, // the package's directory (subdirectories included); see `check`
-	only_imports:  []string, // when set: the only imports allowed, as written ("a/" allows a/*, "core:" all of core)
-	ban_imports:   []string, // import paths, each with what is under it ("a" bans a/*, "c:" all of collection c)
-	allow_imports: []string, // exceptions to ban_imports
-	ban_idents:    []string, // identifiers, e.g. types or intrinsics
-	ban_matrix:    bool,
-	strict:        bool, // also bans `foreign`, `map`, `---`, `#config` and `x := 1.5` (an untyped float literal is f64)
-	tick:          bool, // code inside a tick: package-level variables must be @(rodata) (see scan_globals)
-	allow_globals: []string, // package-level variables a tick package may keep: each needs a reason where listed
+	kind:          Kind,
+	// The imports allowed, as written ("a/" allows a/*, "c:" all of collection c): a Tick package's only ones; the
+	// others may also import Odin's own (core:, base:).
+	imports:       []string,
+	bans:          []string, // imports banned besides the kind's, each with what is under it ("c:": all of c)
+	allow_globals: []string, // package-level variables a Tick package may keep: each needs a reason where listed
 }
 
-// core:math (and linalg, rand, noise...) pulls in transcendentals and FMA-friendly code; only the
-// integer helpers of core:math/bits are allowed. `matrix` types multiply with fused operations.
-MATH :: []string{"core:math"}
-MATH_OK :: []string{"core:math/bits"}
+// What a Realtime package may not name: fused or complex arithmetic. (core:math, banned there too, pulls in
+// transcendentals and FMA-friendly code; only the integer helpers of core:math/bits are allowed. `matrix` types
+// multiply with fused operations.)
 FLOAT_TRAPS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -62,11 +72,6 @@ SIM_IDENTS :: []string {
 	"read_cycle_counter_frequency",
 	"random_generator",
 	"default_random_generator",
-	"log_write",
-	"log_read",
-	"log_sink_file",
-	"write_file",
-	"read_file",
 	"static",
 	"thread_local",
 	"ODIN_OS",
@@ -91,34 +96,45 @@ TICK_IMPORTS :: []string {
 // A game that needs one lists it in extra_imports.
 GAME_TICK_IMPORTS :: []string{"unified:sim", "unified:physics", "unified:level", "unified:dmath"}
 
-// The rule for a game's simulation package (the code inside its tick): only GAME_TICK_IMPORTS plus `extra_imports`
-// (the game's own deterministic packages as its code imports them, e.g. "../grid"; "a/" allows a/*), f32
-// only, no foreign code, no maps, no clocks, files or threads, no randomness besides the state's RNG, no
-// mutable package-level variables.
+// The rule for a game's simulation package (the code inside its tick): a Tick package importing only
+// GAME_TICK_IMPORTS plus `extra_imports` (the game's own deterministic packages as its code imports them, e.g.
+// "../grid"; "a/" allows a/*).
 sim_rule :: proc(pkg, dir: string, extra_imports: []string = nil, allocator := context.temp_allocator) -> Rule {
 	imports := make([]string, len(GAME_TICK_IMPORTS) + len(extra_imports), allocator)
 	copy(imports, GAME_TICK_IMPORTS)
 	copy(imports[len(GAME_TICK_IMPORTS):], extra_imports)
-	return {
-		pkg          = pkg,
-		dir          = dir,
-		only_imports = imports,
-		ban_idents   = sim_idents,
-		ban_matrix   = true,
-		strict       = true,
-		tick         = true,
-	}
+	return {pkg = pkg, dir = dir, kind = .Tick, imports = imports}
+}
+
+// The lists as variables: a constant slice in a returned Bans would point at the stack.
+@(private)
+sim_idents := SIM_IDENTS
+@(private)
+float_traps := FLOAT_TRAPS
+
+// What a rule bans, from its kind.
+@(private)
+Bans :: struct {
+	idents:       []string,
+	math:         bool, // core:math (but core:math/bits)
+	strict:       bool, // `foreign`, `map`, `---`, `#config`, `x := 1.5`; package-level variables
+	odin_allowed: bool, // core: and base: besides the listed imports
+	matrices:     bool,
 }
 
 @(private)
-sim_idents := SIM_IDENTS // a constant slice in a returned Rule would point at the stack
-
-// Lints a game's simulation package under `sim_rule`: every .odin file in `dir` (subdirectories included), one
-// test failure per violation. A game's sim tests call it on their sim package, e.g.
-// `lint.check_sim_package(t, #directory + "/../mygame")`.
-check_sim_package :: proc(t: ^testing.T, dir: string, extra_imports: []string = nil, loc := #caller_location) {
-	check(t, sim_rule(filepath.base(dir), dir, extra_imports), loc)
+bans_of :: proc(kind: Kind) -> Bans {
+	switch kind {
+	case .Tick:
+		return {idents = sim_idents, strict = true, matrices = true}
+	case .Realtime:
+		return {idents = float_traps, math = true, odin_allowed = true, matrices = true}
+	case .Host:
+		return {odin_allowed = true}
+	}
+	return {}
 }
+
 
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
 // core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none
@@ -141,17 +157,14 @@ check_game :: proc(
 		if info.type != .Directory do continue
 		switch info.name {
 		case "headless":
-			check(t, {
-					pkg           = "headless",
-					dir           = info.fullpath,
-					ban_imports   = HEADLESS_BANS,
-					allow_imports = MATH_OK,
-					ban_idents    = float_traps,
-					ban_matrix    = true,
-				}, loc)
+			check(
+				t,
+				{pkg = "headless", dir = info.fullpath, kind = .Realtime, imports = GAME_IMPORTS, bans = BOX3D},
+				loc,
+			)
 		case "extension", "tests":
 			// host side and test code: nothing inside a tick, but Box3D only through physics as everywhere in a game
-			check(t, {pkg = info.name, dir = info.fullpath, ban_imports = BOX3D}, loc)
+			check(t, {pkg = info.name, dir = info.fullpath, kind = .Host, imports = GAME_IMPORTS, bans = BOX3D}, loc)
 		case:
 			check(t, sim_rule(info.name, info.fullpath, extra_imports), loc)
 			append(&out, info.fullpath)
@@ -161,19 +174,17 @@ check_game :: proc(
 	return out[:]
 }
 
-@(private)
-float_traps := FLOAT_TRAPS
+// What a game's headless, extension and tests packages may import besides Odin's own: unified and the game's own
+// packages (relative paths). Box3D only through physics (BOX3D, banned).
+GAME_IMPORTS :: []string{"unified:", "../"}
 
 // Box3D's API and the bindings under it: physics' implementation, never imported by a game (src/physics/SPEC.md,
 // The boundary).
 B3 :: "unified:b3"
 BOX3D :: []string{B3, "box3d:"}
 
-@(private)
-HEADLESS_BANS :: []string{"core:math", B3, "box3d:"}
-
 // Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,
-// and with `scan_globals` when `rule.tick`: one test failure per violation, and one when there are no files.
+// and with `scan_globals` for a Tick package: one test failure per violation, and one when there are no files.
 check :: proc(t: ^testing.T, rule: Rule, loc := #caller_location) {
 	files := make([dynamic]string, context.temp_allocator)
 	if !testing.expectf(t, odin_files(rule.dir, &files), "lint: cannot list %s", rule.dir, loc = loc) {
@@ -187,7 +198,7 @@ check :: proc(t: ^testing.T, rule: Rule, loc := #caller_location) {
 		for violation in scan(rule, path, string(data)) {
 			testing.expect(t, false, violation, loc = loc)
 		}
-		if rule.tick {
+		if rule.kind == .Tick {
 			for violation in scan_globals(rule, path, string(data)) {
 				testing.expect(t, false, violation, loc = loc)
 			}
@@ -209,6 +220,7 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 		where_ := fmt.tprintf("%s(%d:%d)", name, tok.pos.line, tok.pos.column)
 		append(out, fmt.aprintf("%s: %s is banned in package %s", where_, what, rule.pkg, allocator = allocator))
 	}
+	bans := bans_of(rule.kind)
 	scanner: tokenizer.Tokenizer
 	tokenizer.init(&scanner, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
 	scanner.flags = {.Insert_Semicolon} // a newline ends a statement: `x := 1.5` is caught, `x := 1.5 * y` is not
@@ -241,25 +253,25 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 			prev = {tok.kind, prev[0], prev[1]}
 			continue
 		case .Matrix:
-			if rule.ban_matrix {
+			if bans.matrices {
 				report(&out, tok, name, "`matrix`", rule, allocator)
 			}
 		case .Foreign:
-			if rule.strict {
+			if bans.strict {
 				report(&out, tok, name, "`foreign`", rule, allocator)
 			}
 		case .Map:
-			if rule.strict {
+			if bans.strict {
 				report(&out, tok, name, "`map` (unordered)", rule, allocator)
 			}
 		case .Undef:
-			if rule.strict {
+			if bans.strict {
 				report(&out, tok, name, "`---` (uninitialised memory differs per run)", rule, allocator)
 			}
 		case .Float:
 			after_colon_eq := prev[0] == .Eq && prev[1] == .Colon
 			signed := (prev[0] == .Sub || prev[0] == .Add) && prev[1] == .Eq && prev[2] == .Colon
-			if rule.strict && (after_colon_eq || signed) {
+			if bans.strict && (after_colon_eq || signed) {
 				pending = tok
 			}
 		case .Ident:
@@ -267,10 +279,10 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 				prev = {tok.kind, prev[0], prev[1]}
 				continue // import alias
 			}
-			if rule.strict && prev[0] == .Hash && tok.text == "config" {
+			if bans.strict && prev[0] == .Hash && tok.text == "config" {
 				report(&out, tok, name, "`#config` (a build option: peers would run different sims)", rule, allocator)
 			}
-			for banned in rule.ban_idents {
+			for banned in bans.idents {
 				if tok.text == banned {
 					report(&out, tok, name, fmt.tprintf("`%s`", banned), rule, allocator)
 				}
@@ -431,36 +443,38 @@ report_globals :: proc(
 	}
 }
 
-// Whether `rule` forbids importing `path`: outside only_imports when that is set, or under a ban_imports prefix and
-// not an allow_imports exception (both apply: a host package lists its unified imports and allows "core:", while
-// still banning core:math). scan reports each import it bans.
+// Whether `rule` forbids importing `path`: not among its imports (Odin's own are allowed but in a Tick package), under one of its bans, or under core:math in a Realtime package (but core:math/bits). scan reports
+// each import it bans.
 banned_import :: proc(rule: Rule, path: string) -> bool {
-	if rule.only_imports != nil {
-		// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified
-		// package, so a game's `../sim` is not unified:sim and must be listed itself (extra_imports).
-		listed := false
-		for ok in rule.only_imports {
-			prefix := strings.has_suffix(ok, "/") || strings.has_suffix(ok, ":")
-			listed ||= path == ok || (prefix && strings.has_prefix(path, ok))
-		}
-		if !listed {
-			return true
-		}
+	bans := bans_of(rule.kind)
+	// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified package, so a
+	// game's `../sim` is not unified:sim and must be listed itself (extra_imports).
+	listed := bans.odin_allowed && (strings.has_prefix(path, "core:") || strings.has_prefix(path, "base:"))
+	for ok in rule.imports {
+		prefix := strings.has_suffix(ok, "/") || strings.has_suffix(ok, ":")
+		listed ||= path == ok || (prefix && strings.has_prefix(path, ok))
 	}
-	for ok in rule.allow_imports {
-		if path == ok {
-			return false
-		}
+	if !listed {
+		return true
 	}
-	for banned in rule.ban_imports {
-		collection := strings.has_suffix(banned, ":") && strings.has_prefix(path, banned) // "box3d:": all of it
-		if collection ||
-		   path == banned ||
-		   strings.has_prefix(path, strings.concatenate({banned, "/"}, context.temp_allocator)) {
-			return true
-		}
+	if bans.math && path != "core:math/bits" && under(path, "core:math") {
+		return true
+	}
+	for banned in rule.bans {
+		if under(path, banned) do return true
 	}
 	return false
+}
+
+// Whether an import path is `banned` or under it ("a" covers a/*, "c:" all of collection c).
+@(private)
+under :: proc(path, banned: string) -> bool {
+	collection := strings.has_suffix(banned, ":") && strings.has_prefix(path, banned)
+	return(
+		collection ||
+		path == banned ||
+		strings.has_prefix(path, strings.concatenate({banned, "/"}, context.temp_allocator)) \
+	)
 }
 
 // Every .odin file under `dir`, subdirectories (sub-packages) included.

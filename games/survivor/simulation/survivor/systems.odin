@@ -108,15 +108,15 @@ reset_world :: proc(t: ^Tick) {
 		item_reset(t.state, t.world, i)
 	}
 	for slot in 0 ..< PLAYERS {
-		player := sim.player_in_slot(&t.state.players, slot)
-		if character := sim.player_data(&t.state.players, player); character != nil {
+		player := sim.player_in_slot(t, slot)
+		if character := sim.player_data(t, player); character != nil {
 			character_spawn(t.world, character, slot)
 			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
 	}
-	t.state.enemies = {}
-	t.state.projectiles = {}
-	t.state.gems = {}
+	sim.despawn_all(&t.state.enemies)
+	sim.despawn_all(&t.state.projectiles)
+	sim.despawn_all(&t.state.gems)
 	t.state.phase = .Lobby
 	t.state.circle_radius = START_RADIUS
 	t.state.match_tick = 0
@@ -124,21 +124,21 @@ reset_world :: proc(t: ^Tick) {
 	t.state.wave = 0
 }
 
-// 1. Players: leaves and joins (the harness's t.player_changes.left, t.player_changes.joined, t.player_changes.returned), respawn, movement and dash.
+// 1. Players: leaves and arrivals (the harness's t.player_changes), respawn, movement and dash.
 @(private)
 sys_players :: proc(t: ^Tick) {
 	for player in t.player_changes.left {
-		character_leave(t.world, sim.player_data(&t.state.players, player))
+		character_leave(t.world, sim.player_data(t, player))
 	}
 	for player in t.player_changes.joined {
-		character_reset(sim.player_data(&t.state.players, player)) // someone new: fresh progress
+		character_reset(sim.player_data(t, player)) // someone new: fresh progress
+	}
+	for player in t.player_changes.arrived {
+		character_spawn(t.world, sim.player_data(t, player), sim.player_slot(t, player)) // one back keeps their progress
 	}
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
-		slot, _ := sim.player_slot(&t.state.players, player)
-		if arrived(t, player) {
-			character_spawn(t.world, character, slot) // a returning player keeps their progress
-		}
+		slot := sim.player_slot(t, player)
 		input := sim.input(t, player)
 		if character.dash_cooldown > 0 {
 			character.dash_cooldown -= 1
@@ -170,18 +170,6 @@ sys_players :: proc(t: ^Tick) {
 		velocity := physics.body_linear_velocity(t.world.phys, character.body)
 		physics.body_set_linear_velocity(t.world.phys, character.body, {vx, velocity.y, vz})
 	}
-}
-
-// Whether `player` joined or returned this tick.
-@(private)
-arrived :: proc(t: ^Tick, player: sim.Player) -> bool {
-	for arrival in t.player_changes.joined {
-		if arrival == player do return true
-	}
-	for arrival in t.player_changes.returned {
-		if arrival == player do return true
-	}
-	return false
 }
 
 // 2. Level-up picks (Cmd_Pick commands, each delivered once): each takes one pending level-up.
@@ -222,11 +210,7 @@ sys_spawner :: proc(t: ^Tick) {
 	if t.state.phase != .Match || (t.number - t.state.match_tick) % tune.spawn_every_ticks != 0 {
 		return
 	}
-	present: u32 = 0
-	players := sim.iterate_present(&t.state.players)
-	for _ in sim.next(&players) {
-		present += 1
-	}
+	present := u32(sim.present_count(t))
 	count := min(tune.spawn_base + t.state.wave * tune.spawn_per_wave, tune.spawn_cap)
 	count = count * (100 + tune.extra_player_pct * (max(present, 1) - 1)) / 100
 	for i in 0 ..< int(count) {
@@ -235,8 +219,8 @@ sys_spawner :: proc(t: ^Tick) {
 		}
 		direction := sim.roll_below(t, 8, Roll.Spawn_Direction, index = i)
 		jitter := f32(sim.roll_below(t, 1000, Roll.Spawn_Jitter, index = i)) / 1000 * 2 - 1
-		x := 27 * dmath.DIR8_C[direction] + jitter
-		z := 27 * dmath.DIR8_S[direction] + jitter
+		x := 27 * dmath.DIR8[direction].x + jitter
+		z := 27 * dmath.DIR8[direction].y + jitter
 		spawn_enemy(t.state, kind_of_roll(sim.roll_below(t, 10, Roll.Spawn_Kind, index = i)), {x, z}, t.number)
 	}
 }
@@ -427,8 +411,8 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 		z := enemy.pos.y + enemy.vel.y * dt
 		radius := enemy.radius
 		for k in 0 ..< 8 {
-			pillar_x := 14 * dmath.DIR8_C[k]
-			pillar_z := 14 * dmath.DIR8_S[k]
+			pillar_x := 14 * dmath.DIR8[k].x
+			pillar_z := 14 * dmath.DIR8[k].y
 			extent := 1 + radius
 			dx := x - pillar_x
 			dz := z - pillar_z
@@ -450,7 +434,7 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 // Damages an alive player (nobody, absent or dead: nothing); at HP <= 0 they die (body destroyed, respawn timer
 // set).
 damage_player :: proc(t: ^Tick, player: sim.Player, amount: i32) {
-	character := sim.player_data(&t.state.players, player)
+	character := sim.player_data(t, player)
 	if character == nil || !character.alive {
 		return
 	}

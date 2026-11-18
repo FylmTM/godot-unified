@@ -279,9 +279,9 @@ character_update :: proc(
 		best := max(f32)
 		for i in 0 ..< 8 {
 			skirt_offset := [3]f32 {
-				def.radius * (dmath.DIR8_C[i] * heading.x + dmath.DIR8_S[i] * side.x),
+				def.radius * (dmath.DIR8[i].x * heading.x + dmath.DIR8[i].y * side.x),
 				0,
-				def.radius * (dmath.DIR8_C[i] * heading.y + dmath.DIR8_S[i] * side.y),
+				def.radius * (dmath.DIR8[i].x * heading.y + dmath.DIR8[i].y * side.y),
 			}
 			skirt_hit, ok := world_cast_ray_closest(world, origin + skirt_offset, translation, query, self)
 			if ok && skirt_hit.normal.y >= def.min_ground_normal_y {

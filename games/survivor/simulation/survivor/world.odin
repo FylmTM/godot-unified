@@ -16,12 +16,11 @@ CAT_PLAYER :: u64(1 << 3)
 World :: struct {
 	phys:    ^physics.World,
 	scratch: Scratch,
-	extras:  [1]sim.Extra,
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
+Tick :: sim.Tick(Game)
 
 // Events (for the view; name = type name lowercased). Positions are in metres (sim units), on the ground
 // (y = 0) for enemies and gems, the body's centre for players and barrels. A `player` field names the player the
@@ -88,7 +87,7 @@ Event :: union {
 
 // The simulation's version (sim.Game.version, part of the netcode's compat): bump it when a rule or
 // constant changes what a tick computes without changing the State or Input layout.
-SIM_VERSION :: "3" // 3: keyed rolls for the spawner (#252)
+SIM_VERSION :: "4"
 
 // The game as played (`play` tuning).
 @(rodata)
@@ -98,9 +97,11 @@ GAME := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -111,12 +112,14 @@ GAME_STRESS := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = proc(t: ^Tick) {
 		init(t)
 		set_tuning(t.state, .Stress)
 	},
 	tick = tick,
+	scripted_input = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // Start spots by slot, inside the start circle.
@@ -201,9 +204,9 @@ world_create :: proc(seed: u64, _: []u8) -> ^World {
 	add_static_box(world, {0, 1.5, 30.5}, {31, 1.5, 0.5})
 	add_static_box(world, {0, 1.5, -30.5}, {31, 1.5, 0.5})
 	for k in 0 ..< 8 {
-		add_static_box(world, {14 * dmath.DIR8_C[k], 1.5, 14 * dmath.DIR8_S[k]}, {1, 1.5, 1})
+		add_static_box(world, {14 * dmath.DIR8[k].x, 1.5, 14 * dmath.DIR8[k].y}, {1, 1.5, 1})
 	}
-	world.extras[0] = physics.extra(world.phys, State) // last: the bodies above are the World's
+
 	return world
 }
 

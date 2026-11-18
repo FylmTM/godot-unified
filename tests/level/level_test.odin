@@ -150,9 +150,13 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, level.prop_ref(marker, "nope"), -1)
 	testing.expect_value(t, level.prop_f32(marker, "nope", 9), 9)
 	testing.expect_value(t, len(marker.path), 2)
-	plats := level.find_all(&loaded, "platform")
-	testing.expect_value(t, len(plats), 2)
-	if len(plats) == 2 do testing.expect_value(t, plats[1].name, "Ferry")
+	platforms: [dynamic]string
+	defer delete(platforms)
+	for &each in loaded.markers {
+		if each.kind == "platform" do append(&platforms, each.name)
+	}
+	testing.expect_value(t, len(platforms), 2)
+	if len(platforms) == 2 do testing.expect_value(t, platforms[1], "Ferry")
 	// Encoding what was read gives the same bytes.
 	again := level.encode(loaded.bodies, loaded.markers)
 	defer delete(again)

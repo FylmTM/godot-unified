@@ -13,7 +13,7 @@ import "unified:netcode"
 import "unified:sim"
 import "unified:wire"
 
-Relay :: netcode.Relay(toy.Input, toy.PLAYERS)
+Relay :: netcode.Relay(toy.Game)
 
 // A plain relay (no host player) and remote clients over loopback, on a virtual clock.
 Rnet :: struct {
@@ -36,7 +36,7 @@ rnet_make :: proc(session: ^Rnet, start_players: int, ticks: u32) {
 		name          = "relay",
 		quiet         = true,
 	}
-	session.relay = netcode.relay_create(config, toy.Input, toy.PLAYERS)
+	session.relay = netcode.relay_create(config, toy.Game)
 	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 }
 
@@ -242,7 +242,7 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 
 finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
 	inputs.present = {0}
-	if tick == 1 do inputs.member[0] = 1 // the join record
+	if tick == 1 do inputs.joins[0] = 1 // the join record
 	inputs.input[0] = {
 		dx = dx,
 	}

@@ -10,7 +10,7 @@ paths:
 - Package names must be unique program-wide and must avoid Odin's own (`net`, `log`, `bytes`, ...): `core:net` is
   package `net`, which is why ours is `netcode`.
 - Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
-  package that doesn't call them. Keep such imports behind small non-generic helpers (`sim.write_file`,
+  package that doesn't call them. Keep such imports behind small non-generic helpers (`headless.write_file`,
   `sim.hash_bytes`, ...), or in a package of their own (`unified:headless/modes`: the game suites import
   `unified:headless` and never instantiate the CLI modes).
 - A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's
@@ -33,8 +33,8 @@ paths:
   (`x`, `y`, `z` components, `a`, `b`, `t` in `lerp(a, b, t)`), a test's `t: ^testing.T` (Odin's convention), and
   a sim's `t: ^Tick` and a glue's `f: ^Frame`: read their fields in place (`t.state.balls`), no local copies
   (`state := t.state`). Library code takes the style when it is touched.
-- Type parameters name their role: `$State, $Input, $World, $PLAYERS`. One letter only for a container's element
-  and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
+- Type parameters name their role: `$State, $Input, $World, $PLAYERS`; `$G` is the game type (a `sim.Game`). Otherwise one
+  letter only for a container's element and size (`Table($T, $N)`, `Queue($T, $N)`, `Handle($T)`).
 - `player` is a `sim.Player` handle (a session member, the person) everywhere: fields, parameters, events, views;
   `players` the State's `sim.Players`. `slot` is the input index `0 ..< PLAYERS` a player holds while present
   (`Inputs`, commands, scripted input, the relay's seats). A ring's or a table's own slot is a `ring_slot` or a

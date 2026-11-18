@@ -19,8 +19,8 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 	pos := dmath.Vec2{character.pos.x, character.pos.z}
 	if state.phase == .Lobby {
 		direction := slot * 2 % 8 // walk out of the start circle, each slot its own way
-		input.move_x = i8(dmath.DIR8_C[direction] * 127)
-		input.move_z = i8(dmath.DIR8_S[direction] * 127)
+		input.move_x = dmath.axis_i8(dmath.DIR8[direction].x)
+		input.move_z = dmath.axis_i8(dmath.DIR8[direction].y)
 		return
 	}
 	// Flee: the sum of (pos - enemy) / d², for enemies in sight.
@@ -46,19 +46,19 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 		distance2 := toward.x * toward.x + toward.y * toward.y
 		if distance2 < best {
 			best = distance2
-			to_gem = dmath.normalize2(toward)
+			to_gem = dmath.normalize(toward)
 		}
 	}
 	// Orbit the centre at BOT_ORBIT (tangent + radial correction), away from walls and pillars.
-	radius := dmath.length2(pos)
-	radial := dmath.normalize2(pos)
+	radius := dmath.length(pos)
+	radial := dmath.normalize(pos)
 	tangent := dmath.Vec2{-radial.y, radial.x}
 	if slot % 2 == 1 {
 		tangent = -tangent
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - radius) * 0.15)
 	for k in 0 ..< 8 {
-		away := pos - dmath.Vec2{14 * dmath.DIR8_C[k], 14 * dmath.DIR8_S[k]}
+		away := pos - 14 * dmath.DIR8[k]
 		distance2 := away.x * away.x + away.y * away.y
 		if distance2 < 9 {
 			orbit += away * (1.5 / (distance2 + 0.25))
@@ -77,7 +77,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 		}
 	}
 	direction := orbit * 0.6 + flee * 2.5 + to_gem * 0.8
-	direction = dmath.normalize2(direction)
+	direction = dmath.normalize(direction)
 	input.move_x = i8(direction.x * 127)
 	input.move_z = i8(direction.y * 127)
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
@@ -107,7 +107,7 @@ bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_
 		}
 		inputs.input[slot] = bot_input(state, slot, tick)
 		out.slot = slot
-		out.cap = sim.COMMANDS_PER_PLAYER
+		out.cap = sim.COMMANDS_PER_SLOT
 		clear(&out.list)
 		bot_commands(state, slot, tick, out)
 		for raw in out.list {

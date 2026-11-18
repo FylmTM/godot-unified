@@ -2,6 +2,7 @@
 // memory (the CLI, unified:headless/modes, does the file I/O).
 package headless
 
+import "base:intrinsics"
 import "core:fmt"
 import "core:os"
 import "core:strconv"
@@ -11,27 +12,21 @@ import "core:strings"
 import "unified:sim"
 
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
-Headless :: struct($State, $Input, $World, $Event, $Cmd: typeid, $PLAYERS: int) {
-	game:              ^sim.Game(State, Input, World, Event, Cmd, PLAYERS),
-	// Scripted input of the player in `slot` for a tick; `state` is the caller's current state (nil if none).
-	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
-	// Optional: the scripted commands of the player in `slot` for a tick (sim.send_command(out, command)); called
-	// right after `scripted_input` for the same tick, in offline runs and by every client of a session.
-	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)),
+Headless :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
+	game:          ^G, // its scripted player (Game.scripted_input, scripted_commands) plays the runs
 	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
-	summary:           proc(state: ^State) -> string,
+	summary:       proc(state: ^sim.part(G, sim.GAME_STATE)) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
-	bench_prepare:     proc(state: ^State, world: ^World, count: int),
+	bench_prepare: proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
-	bench:             Bench,
+	bench:         Bench,
 	// The game's content (its level file, src/level/SPEC.md), e.g. embedded with #load; the CLI's
 	// `--level FILE` replaces it.
-	content:           []u8,
+	content:       []u8,
 }
 
 // A benchmark's setup: `entities` entities held (with bench_prepare), a `window`-tick rollback every tick, for
-// `ticks` ticks. `what` is the game's part of the description ("survivor (stress tuning) holding 1000 enemies"); the
-// bench mode adds the rollback and the ticks it actually ran.
+// `ticks` ticks. `what` says what it measures.
 Bench :: struct {
 	what:     string,
 	entities: int,
@@ -40,12 +35,12 @@ Bench :: struct {
 }
 
 // The longest rollback window a game's ring allows (sim.ring_size(tick_hz) - 1).
-max_window :: proc(game: ^sim.Game($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> int {
+max_window :: proc(game: ^$G) -> int {
 	return sim.ring_size(game.tick_hz) - 1
 }
 
 // The deepest rollback the netcode makes: its prediction cap, sim.ring_size(tick_hz) - 2 (14 ticks at 64 Hz).
-prediction_window :: proc(game: ^sim.Game($State, $Input, $World, $Event, $Cmd, $PLAYERS)) -> int {
+prediction_window :: proc(game: ^$G) -> int {
 	return sim.ring_size(game.tick_hz) - 2
 }
 
@@ -129,19 +124,19 @@ Seat :: struct {
 }
 
 // The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats`
-// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_PLAYER of a
+// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_SLOT of a
 // slot go in one tick and the rest follow in order, a script's send fails once netcode.COMMAND_QUEUE of its
 // commands wait, and a player's waiting commands go when they leave.
-Scripted_Commands :: struct($Cmd: typeid) {
+Scripted_Commands :: struct($G: typeid) {
 	waiting: [sim.MAX_PLAYERS][dynamic]sim.Raw_Command,
-	out:     sim.Command_Out(Cmd),
+	out:     sim.Command_Out(sim.part(G, sim.GAME_CMD)),
 	seats:   []Seat, // borrowed
 	holder:  [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
 	seated:  bool, // holder is set
 }
 
 // Frees the waiting command queues and the output list of an offline run's scripted commands.
-scripted_commands_destroy :: proc(commands: ^Scripted_Commands($Cmd)) {
+scripted_commands_destroy :: proc(commands: ^Scripted_Commands($G)) {
 	for &queue in commands.waiting {
 		delete(queue)
 	}
@@ -151,14 +146,15 @@ scripted_commands_destroy :: proc(commands: ^Scripted_Commands($Cmd)) {
 // Scripted inputs and commands of a tick: slots < `players` present (slot i is member i + 1), then as
 // `commands.seats` say. A slot whose member the sim doesn't have there yet gets its join record.
 scripted :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	simulation: ^sim.Sim(State, Input, World, Event, Cmd, PLAYERS),
+	headless: ^Headless($G),
+	simulation: ^sim.Sim(G),
 	tick: u32,
 	players: int,
-	commands: ^Scripted_Commands(Cmd),
+	commands: ^Scripted_Commands(G),
 ) -> (
-	inputs: sim.Inputs(Input, PLAYERS),
+	inputs: sim.Inputs(G),
 ) {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	if !commands.seated {
 		for slot in 0 ..< players do commands.holder[slot] = slot + 1
 		commands.seated = true
@@ -175,11 +171,11 @@ scripted :: proc(
 			continue
 		}
 		inputs.present += {slot}
-		if int(sim.slot_player(simulation, slot).id) != member {
+		if int(sim.player_in_slot(simulation, slot).id) != member {
 			sim.join(&inputs, slot, member)
 		}
-		inputs.input[slot] = headless.scripted_input(simulation.seed, slot, tick, &simulation.state)
-		if headless.scripted_commands == nil {
+		inputs.input[slot] = headless.game.scripted_input(simulation.seed, slot, tick, &simulation.state)
+		if headless.game.scripted_commands == nil {
 			continue
 		}
 		queue := &commands.waiting[slot]
@@ -187,7 +183,7 @@ scripted :: proc(
 		out.slot = slot
 		out.cap = netcode.COMMAND_QUEUE - len(queue)
 		clear(&out.list)
-		headless.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
+		headless.game.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
 		append(queue, ..out.list[:])
 		added := 0
 		for added < len(queue) && sim.add_command(&inputs, queue[added]) {
@@ -198,21 +194,21 @@ scripted :: proc(
 	return
 }
 
-// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `trace` and its inputs
-// into `input_log` (each optional).
+// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `trace` and its inputs into `input_log`
+// (each optional).
 run_sim :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	headless: ^Headless($G),
 	ticks: u32,
 	seed: u64,
 	players: int,
 	trace: ^Trace = nil,
-	input_log: ^sim.Input_Log(Input, PLAYERS) = nil,
+	input_log: ^sim.Input_Log(G) = nil,
 ) -> (
 	result: Run_Result,
 ) {
 	simulation := sim.create(headless.game, seed, headless.content)
 	defer sim.destroy(simulation)
-	commands: Scripted_Commands(Cmd)
+	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
 	if input_log != nil {
 		input_log.seed = seed
@@ -250,22 +246,15 @@ Interleaved_Result :: struct {
 // tick per tick of the first, half a run behind; the first is destroyed and the second runs the rest
 // alone. Every tick of the second is compared with the first's. Catches state that instances share (a
 // global, a library's static, reset or shared at world creation), which two back-to-back runs miss.
-run_interleaved :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	ticks: u32,
-	seed: u64,
-	players: int,
-) -> (
-	result: Interleaved_Result,
-) {
+run_interleaved :: proc(headless: ^Headless($G), ticks: u32, seed: u64, players: int) -> (result: Interleaved_Result) {
 	first := sim.create(headless.game, seed, headless.content)
-	commands: Scripted_Commands(Cmd)
+	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
-	input_log: sim.Input_Log(Input, PLAYERS)
+	input_log: sim.Input_Log(G)
 	defer sim.log_destroy(&input_log)
 	forward := make([]u64, ticks + 1)
 	defer delete(forward)
-	second: ^sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+	second: ^sim.Sim(G)
 	result.second_start = max(ticks / 2, 1)
 	for tick in 1 ..= ticks {
 		inputs := scripted(headless, first, tick, players, &commands)
@@ -293,8 +282,8 @@ run_interleaved :: proc(
 // The second sim's next tick, from the log, compared with the first run's checksum of it.
 @(private)
 interleaved_step :: proc(
-	second: ^sim.Sim($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	input_log: ^sim.Input_Log(Input, PLAYERS),
+	second: ^sim.Sim($G),
+	input_log: ^sim.Input_Log(G),
 	forward: []u64,
 	result: ^Interleaved_Result,
 ) {
@@ -311,74 +300,133 @@ interleaved_step :: proc(
 Synctest_Result :: struct {
 	mismatches:     int,
 	resimulated:    int, // ticks re-simulated
-	final_checksum: u64,
+	final_checksum: u64, // the last forward tick's
 	first_tick:     u32, // the first mismatching tick (0: none)
 	first_at:       u32, // the tick whose rollback re-simulated it differently
-	check:          string, // the first problem sim.check found after a restore ("": none; temp-allocated)
+	check:          string, // the first problem sim.check_extra found after a restore ("": none; temp-allocated)
 	check_tick:     u32, // the tick it was restored to
+	events:         [256]int, // what the forward ticks emitted, by event kind (run_events)
 }
 
-// `synctest`: every tick, once `window` ticks exist, restore `window` ticks back, run every extra's check
-// (sim.check), re-simulate with the recorded inputs and compare each tick's checksum with the forward one. `window` is at most
-// max_window(game) (the ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
+// A sync-tested run its caller steps: each step is a forward tick, then a restore `window` ticks back (never before
+// a pinned tick), the extra's check (sim.check_extra) and a re-simulation with the recorded inputs, each tick's
+// checksum compared with the forward one. A game test drives it with its own inputs (run_step) or the game's scripted
+// player (run_scripted), changes the state between steps (run_pin) and asserts `mismatches == 0`, `check == ""`
+// and its own facts. `simulation` is at the newest tick between steps.
+//
+//   run := headless.run_begin(&g.GAME, seed, LEVEL)
+//   defer headless.run_end(&run)
+//   for _ in 1 ..= 600 do headless.run_scripted(&run, 4)
+Run :: struct($G: typeid) {
+	using result: Synctest_Result,
+	simulation:   ^sim.Sim(G),
+	window:       u32,
+	recorded:     [dynamic]sim.Inputs(G), // recorded[tick]: the inputs of that tick
+	forward:      [dynamic]u64, // forward[tick]: its checksum
+	floor:        u32, // never restored before (run_pin)
+	commands:     Scripted_Commands(G), // run_scripted's
+}
+
+// A run of `game` from tick 0, sync-tested `window` ticks back (1 ..= max_window(game)).
+run_begin :: proc(game: ^$G, seed: u64, content: []u8 = nil, window: u32 = 8) -> (run: Run(G)) {
+	assert(window >= 1 && int(window) <= max_window(game))
+	run.simulation = sim.create(game, seed, content)
+	run.window = window
+	append(&run.recorded, sim.Inputs(G){})
+	append(&run.forward, sim.checksum(run.simulation))
+	return
+}
+
+// Frees the run's sim and records.
+run_end :: proc(run: ^Run($G)) {
+	sim.destroy(run.simulation)
+	delete(run.recorded)
+	delete(run.forward)
+	scripted_commands_destroy(&run.commands)
+}
+
+// One forward tick with `inputs`, then its sync-test.
+run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
+	simulation := run.simulation
+	append(&run.recorded, inputs^)
+	sim.step(simulation, inputs)
+	tick := simulation.tick
+	append(&run.forward, sim.checksum(simulation))
+	run.final_checksum = run.forward[tick]
+	for event in sim.events_at(simulation, tick) do run.events[event.kind] += 1
+	if tick < run.window do return
+	from := max(tick - run.window, run.floor)
+	if from == tick do return
+	if !sim.restore(simulation, from) {
+		if run.mismatches == 0 {
+			run.first_tick, run.first_at = from, tick
+		}
+		run.mismatches += 1
+		return
+	}
+	if reason := sim.check_extra(simulation); reason != "" && run.check == "" {
+		run.check, run.check_tick = reason, from
+	}
+	for resim in from + 1 ..= tick {
+		sim.step(simulation, &run.recorded[resim])
+		run.resimulated += 1
+		if sim.checksum(simulation) != run.forward[resim] {
+			if run.mismatches == 0 {
+				run.first_tick, run.first_at = resim, tick
+			}
+			run.mismatches += 1
+		}
+	}
+}
+
+// One forward tick played by the game's scripted player, then its sync-test: slots < `players` present (slot i is
+// member i + 1), then as `seats` say (taken on the first call), as run_sim plays.
+run_scripted :: proc(run: ^Run($G), players: int, seats: []Seat = nil) {
+	if !run.commands.seated do run.commands.seats = seats
+	runs := Headless(G) {
+		game    = run.simulation.game,
+		content = run.simulation.content,
+	}
+	inputs := scripted(&runs, run.simulation, run.simulation.tick + 1, players, &run.commands)
+	run_step(run, &inputs)
+}
+
+// The test changed the state (or the World) at the current tick: save it again, and never restore before it.
+run_pin :: proc(run: ^Run($G)) {
+	simulation := run.simulation
+	sim.save(simulation)
+	run.forward[simulation.tick] = sim.checksum(simulation)
+	run.floor = simulation.tick
+}
+
+// How many events of type E (a variant of the game's Event union) the forward ticks emitted.
+run_events :: proc(
+	run: ^Run($G),
+	$E: typeid,
+) -> int where intrinsics.type_is_variant_of(sim.part(G, sim.GAME_EVENT), E) {
+	return run.events[intrinsics.type_variant_index_of(sim.part(G, sim.GAME_EVENT), E)]
+}
+
+// `synctest`: run_scripted for `ticks` ticks, rolling back `window` ticks every tick (at most max_window(game), the
+// ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
 run_synctest :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	headless: ^Headless($G),
 	ticks, window: u32,
 	seed: u64,
 	players: int,
 	seats: []Seat = nil,
-) -> (
-	result: Synctest_Result,
-) {
-	assert(window >= 1 && int(window) <= max_window(headless.game))
-	simulation := sim.create(headless.game, seed, headless.content)
-	defer sim.destroy(simulation)
-	commands := Scripted_Commands(Cmd) {
-		seats = seats,
-	}
-	defer scripted_commands_destroy(&commands)
-	recorded := make([]sim.Inputs(Input, PLAYERS), ticks + 1)
-	forward := make([]u64, ticks + 1)
-	defer delete(recorded)
-	defer delete(forward)
-	for tick in 1 ..= ticks {
-		recorded[tick] = scripted(headless, simulation, tick, players, &commands)
-		sim.step(simulation, &recorded[tick])
-		forward[tick] = sim.checksum(simulation)
-		if tick < window {
-			continue
-		}
-		base := tick - window
-		if !sim.restore(simulation, base) {
-			if result.mismatches == 0 {
-				result.first_tick, result.first_at = base, tick
-			}
-			result.mismatches += 1
-			continue
-		}
-		if reason := sim.check(simulation); reason != "" && result.check == "" {
-			result.check, result.check_tick = reason, base
-		}
-		for resim in base + 1 ..= tick {
-			sim.step(simulation, &recorded[resim])
-			result.resimulated += 1
-			if sim.checksum(simulation) != forward[resim] {
-				if result.mismatches == 0 {
-					result.first_tick, result.first_at = resim, tick
-				}
-				result.mismatches += 1
-			}
-		}
-	}
-	result.final_checksum = forward[ticks] if ticks > 0 else 0
-	return
+) -> Synctest_Result {
+	run := run_begin(headless.game, seed, headless.content, window)
+	defer run_end(&run)
+	for _ in 1 ..= ticks do run_scripted(&run, players, seats)
+	return run.result
 }
 
 // `replay`: re-simulates an input log, recording every tick's checksum into `trace` (optional). Fails
 // when the log was recorded with other content (another level) or by another build (its compat; 0: unknown, any).
 run_replay :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	input_log: ^sim.Input_Log(Input, PLAYERS),
+	headless: ^Headless($G),
+	input_log: ^sim.Input_Log(G),
 	trace: ^Trace = nil,
 	snapshot: []u8 = nil,
 ) -> (
@@ -401,7 +449,7 @@ run_replay :: proc(
 		)
 		return
 	}
-	simulation: ^sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+	simulation: ^sim.Sim(G)
 	if snapshot != nil {
 		// the log starts after the snapshot's tick (a session recorded from a joiner's join: an F3 note)
 		err: sim.Snap_Error
@@ -427,18 +475,10 @@ run_replay :: proc(
 }
 
 // `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick (the caller owns `data`).
-run_snapshot :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
-	ticks: u32,
-	seed: u64,
-	players: int,
-) -> (
-	data: []u8,
-	checksum: u64,
-) {
+run_snapshot :: proc(headless: ^Headless($G), ticks: u32, seed: u64, players: int) -> (data: []u8, checksum: u64) {
 	simulation := sim.create(headless.game, seed, headless.content)
 	defer sim.destroy(simulation)
-	commands: Scripted_Commands(Cmd)
+	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
 	for tick in 1 ..= ticks {
 		inputs := scripted(headless, simulation, tick, players, &commands)
@@ -450,7 +490,7 @@ run_snapshot :: proc(
 // `resume`: restores a portable snapshot and continues the scripted run for `ticks` ticks with
 // `players` players present, recording every tick's checksum into `trace` (optional).
 run_resume :: proc(
-	headless: ^Headless($State, $Input, $World, $Event, $Cmd, $PLAYERS),
+	headless: ^Headless($G),
 	data: []u8,
 	ticks: u32,
 	players: int,
@@ -466,7 +506,7 @@ run_resume :: proc(
 	}
 	defer sim.destroy(simulation)
 	// commands still waiting at the snapshot's tick are not in it (they are input)
-	commands: Scripted_Commands(Cmd)
+	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
 	start := simulation.tick
 	for tick in start + 1 ..= start + ticks {

@@ -18,14 +18,13 @@ Probe_World :: struct {
 }
 
 Probe_Game :: sim.Game(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, toy.PLAYERS)
-Probe_Tick :: sim.Tick(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Probe_Tick :: sim.Tick(Probe_Game)
+Probe_Inputs :: sim.Inputs(Probe_Game)
 
 PROBE := Probe_Game {
 	name = "probe",
 	version = "1",
 	tick_hz = 32,
-	world_create = proc(seed: u64, _: []u8) -> ^Probe_World {return new(Probe_World)},
-	world_destroy = proc(world: ^Probe_World) {free(world)},
 	init = proc(t: ^Probe_Tick) {
 		t.world.init_number = t.number
 		t.world.init_dt = t.dt
@@ -36,7 +35,7 @@ PROBE := Probe_Game {
 		t.world.seen = {}
 		players := sim.iterate_present(&t.state.players)
 		for _, player in sim.next(&players) {
-			slot, _ := sim.player_slot(&t.state.players, player)
+			slot := sim.player_slot(t, player)
 			for sent in sim.commands(t, player) {
 				t.world.seen[slot] += 1
 				switch command in sent {
@@ -58,7 +57,7 @@ init_gets_a_tick_and_every_tick_its_dt :: proc(t: ^testing.T) {
 	testing.expect_value(t, simulation.world.init_number, 0)
 	testing.expect_value(t, simulation.world.init_dt, 1.0 / 32)
 	testing.expect_value(t, len(sim.events_at(simulation, 0)), 1)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, simulation.world.tick_dt, 1.0 / 32)
 }
@@ -69,7 +68,7 @@ init_gets_a_tick_and_every_tick_its_dt :: proc(t: ^testing.T) {
 snapshot_restore_drops_init_events :: proc(t: ^testing.T) {
 	simulation := sim.create(&PROBE, 3)
 	defer sim.destroy(simulation)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	tick := u32(len(simulation.ring)) // ring slot 0
 	for _ in 0 ..< tick do sim.step(simulation, &inputs)
 	data := sim.snapshot_encode(simulation, tick)
@@ -86,10 +85,10 @@ snapshot_restore_drops_init_events :: proc(t: ^testing.T) {
 commands_yield_only_real_ones_by_player :: proc(t: ^testing.T) {
 	simulation := sim.create(&PROBE, 3)
 	defer sim.destroy(simulation)
-	inputs: toy.Inputs
+	inputs: Probe_Inputs
 	sim.join(&inputs, 0, 1)
 	sim.join(&inputs, 2, 3)
-	add :: proc(inputs: ^toy.Inputs, slot: int, raw: sim.Raw_Command) {
+	add :: proc(inputs: ^Probe_Inputs, slot: int, raw: sim.Raw_Command) {
 		raw := raw
 		raw.slot = u8(slot)
 		assert(sim.add_command(inputs, raw))
@@ -109,7 +108,7 @@ commands_yield_only_real_ones_by_player :: proc(t: ^testing.T) {
 	testing.expect_value(t, simulation.world.nil_seen, 0)
 	testing.expect_value(t, simulation.world.bump_sum, 3)
 	// The next tick has none: the buffer is the tick's.
-	next: toy.Inputs
+	next: Probe_Inputs
 	next.present = {0, 2}
 	sim.step(simulation, &next)
 	testing.expect_value(t, simulation.world.seen, [toy.PLAYERS]int{})
@@ -158,8 +157,8 @@ events_may_have_padding :: proc(t: ^testing.T) {
 	Padded_Commands :: union {
 		Event_Padded,
 	}
-	testing.expect_value(t, sim.game_violation("toy", 64, toy.Cmd, Padded_Events), "")
-	testing.expect(t, sim.game_violation("toy", 64, Padded_Commands, toy.Event) != "")
+	testing.expect_value(t, declared(toy.Cmd, Padded_Events), "")
+	testing.expect(t, declared(Padded_Commands, toy.Event) != "")
 	Event_Pointer :: struct {
 		at: ^int,
 	}
@@ -168,7 +167,7 @@ events_may_have_padding :: proc(t: ^testing.T) {
 		sim.Event_Player_Left,
 		Event_Pointer,
 	}
-	testing.expect(t, sim.game_violation("toy", 64, toy.Cmd, Pointer_Events) != "") // the other rules stand
+	testing.expect(t, declared(toy.Cmd, Pointer_Events) != "") // the other rules stand
 }
 
 // An extra whose check fails while `broken` is set.
@@ -179,31 +178,30 @@ Checked :: struct {
 g_checked: ^Checked
 
 @(test)
-check_runs_every_extras_check :: proc(t: ^testing.T) {
+check_extra_runs_the_extras_check :: proc(t: ^testing.T) {
 	checked: Checked
 	g_checked = &checked
 	defer g_checked = nil
+	plain := sim.create(&toy.GAME, 7)
+	defer sim.destroy(plain)
+	testing.expect_value(t, sim.check_extra(plain), "") // no extra: nothing to disagree
 	game := toy.GAME
-	game.extras = proc(world: ^toy.World) -> []sim.Extra {
-		@(static) extras: [2]sim.Extra
-		quiet := sim.Extra {
+	game.extra = proc(world: ^toy.World) -> sim.Extra {
+		return {
+			data = g_checked,
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return true},
-			hash = proc(data: rawptr, state: rawptr, tick: u32, out: ^[dynamic]u8) {},
+			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
 			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
+			check = proc(data: rawptr, state: rawptr) -> string {
+				return "a broken ref" if (^Checked)(data).broken else ""
+			},
 		}
-		extras[0] = quiet // no check: always agrees
-		extras[1] = quiet
-		extras[1].data = g_checked
-		extras[1].check = proc(data: rawptr, state: rawptr) -> string {
-			return "a broken ref" if (^Checked)(data).broken else ""
-		}
-		return extras[:]
 	}
 	simulation := sim.create(&game, 7)
 	defer sim.destroy(simulation)
-	testing.expect_value(t, sim.check(simulation), "")
+	testing.expect_value(t, sim.check_extra(simulation), "")
 	checked.broken = true
-	testing.expect_value(t, sim.check(simulation), "a broken ref")
+	testing.expect_value(t, sim.check_extra(simulation), "a broken ref")
 }

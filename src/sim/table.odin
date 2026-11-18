@@ -41,7 +41,7 @@ spawn :: proc(table: ^Table($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) 
 	} else {
 		return
 	}
-	slot := &table.slots[index]
+	slot := &table.slots[index] // (generation: kept by despawn and despawn_all)
 	slot.generation += 1
 	if slot.generation == 0 {
 		slot.generation = 1
@@ -52,30 +52,32 @@ spawn :: proc(table: ^Table($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) 
 	return &table.items[index], {u32(index), slot.generation}, true
 }
 
-// Frees the item at `index` (it must be alive) and zeroes it, so equal states hash equal.
-despawn_index :: proc(table: ^Table($T, $N), index: int) {
+// Frees the item `handle` refers to and zeroes it, so equal states hash equal; false for a stale or null handle.
+despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
+	if get(table, handle) == nil {
+		return false
+	}
+	index := int(handle.index)
 	slot := &table.slots[index]
-	assert(slot.alive, "despawn of a dead slot")
 	table.items[index] = {}
 	slot.alive = false
 	slot.next_free = table.free_head
 	table.free_head = i32(index) + 1
 	table.count -= 1
-}
-
-// Frees the item `handle` refers to; returns false for a stale or null handle.
-despawn_handle :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
-	if get(table, handle) == nil {
-		return false
-	}
-	despawn_index(table, int(handle.index))
 	return true
 }
 
-// Frees an item by slot index or by handle (despawn_index, despawn_handle).
-despawn :: proc {
-	despawn_index,
-	despawn_handle,
+// Despawns every live item, keeping each slot's generation: the next spawns start again from slot 0, and a handle
+// (or handle_key) from before the clear never names a new item. What a reset does to a table.
+despawn_all :: proc(table: ^Table($T, $N)) {
+	for &slot, index in table.slots[:table.high_water] {
+		if slot.alive do table.items[index] = {}
+		slot.alive = false
+		slot.next_free = 0
+	}
+	table.free_head = 0
+	table.high_water = 0
+	table.count = 0
 }
 
 // The item `handle` refers to, or nil for the null handle, an out-of-range index or a stale handle.
@@ -87,15 +89,6 @@ get :: proc(table: ^Table($T, $N), handle: Handle(T)) -> ^T {
 	return &table.items[handle.index] if slot.alive && slot.generation == handle.generation else nil
 }
 
-// Whether the slot at `index` holds a live item.
-alive :: #force_inline proc(table: ^Table($T, $N), index: int) -> bool {
-	return table.slots[index].alive
-}
-
-// Handle of the (alive) item at `index`.
-handle :: proc(table: ^Table($T, $N), index: int) -> Handle(T) {
-	return {u32(index), table.slots[index].generation}
-}
 
 // A u64 key unique among the live and past items of one table (generation << 32 | index): what views
 // key an entity by, matching it across predicted and verified frames.
@@ -109,44 +102,36 @@ handle_of_key :: proc($T: typeid, key: u64) -> Handle(T) {
 	return {index = u32(key & 0xFFFF_FFFF), generation = u32(key >> 32)}
 }
 
-// The same item one tick earlier, for views that interpolate: `previous` is the table in the previous
-// tick's state (nil when that state is not available); found when the item at `index` is alive in both
-// with the same generation (not a reused slot).
-prev_item :: proc(previous, current: ^Table($T, $N), index: int) -> (^T, bool) {
-	if previous == nil do return nil, false
-	before, now := previous.slots[index], current.slots[index]
-	if !before.alive || !now.alive || before.generation != now.generation do return nil, false
-	return &previous.items[index], true
-}
 
 // Walks a table's live items in index order (iterate, then next):
 //
 //   coins := sim.iterate(&tick.state.coins)
 //   for coin, handle in sim.next(&coins) { ... }
 //
-// Despawning the current item is safe. An item spawned during the walk is visited when its slot is
-// still ahead (a fresh slot past the old high_water, or a reused one above the current index).
+// Despawning the current item is safe. The walk covers the slots in use when it started: an item spawned during it
+// is visited only when it reuses a free slot ahead of the walk, never when it takes a fresh one.
 Table_Iterator :: struct($T: typeid, $N: int) {
 	table: ^Table(T, N),
 	index: i32, // the next slot to look at
+	end:   i32, // the high-water mark when the walk started
 }
 
 // Starts a walk over the table's live items; `next` yields each one with its handle.
 iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
-	return {table = table}
+	return {table = table, end = table.high_water}
 }
 
-// The next live item of a table walk and its handle; ok is false once past the table's high-water mark.
+// The next live item of a table walk and its handle; ok is false once past the slots in use when it started.
 table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
 	table := iterator.table
-	for iterator.index < table.high_water {
-		index := iterator.index
-		iterator.index += 1
+	for index := iterator.index; index < iterator.end; index += 1 {
 		slot := &table.slots[index]
 		if slot.alive {
+			iterator.index = index + 1
 			return &table.items[index], {u32(index), slot.generation}, true
 		}
 	}
+	iterator.index = iterator.end
 	return
 }
 

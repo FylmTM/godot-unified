@@ -7,6 +7,7 @@ package survivor_extension
 import "base:runtime"
 import "core:fmt"
 import "core:math"
+import "unified:dmath"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:godot_eos"
@@ -55,7 +56,7 @@ MultiView :: enum u8 {
 #assert(int(MultiView.Runner) == int(survivor.Enemy_Kind.Runner))
 #assert(int(MultiView.Brute) == int(survivor.Enemy_Kind.Brute))
 
-Frame :: godot.Frame(survivor.State, survivor.World, View, MultiView)
+Frame :: godot.Frame(survivor.Game, View, MultiView)
 
 // The player view's data: set as its properties when it changes.
 Player_View :: struct {
@@ -65,14 +66,12 @@ Player_View :: struct {
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
 // instances, so their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, survivor.Cmd, View, MultiView) {
-	sample_input      = sample_input,
-	fill_frame        = fill_frame,
-	data              = Data,
-	constants         = CONSTANTS,
-	scripted_input    = survivor.scripted_input,
-	scripted_commands = survivor.scripted_commands,
-	bench             = survivor.bench_prepare,
+GLUE := godot.Glue(survivor.Game, View, MultiView) {
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
+	constants    = CONSTANTS,
+	bench        = survivor.bench_prepare,
 }
 
 // ---- input (main thread, the one local player)
@@ -80,7 +79,7 @@ GLUE := godot.Glue(survivor.State, survivor.Input, survivor.World, survivor.Cmd,
 // Movement and the dash from the InputMap. The level-up pick is a command: the HUD sends it (a Pick).
 sample_input :: proc(input: ^survivor.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back") // +y = move_back = +Z
-	input.move_x, input.move_z = godot.axis_i8(move.x), godot.axis_i8(move.y)
+	input.move_x, input.move_z = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	// the sim dashes on the press (sim.buttons); a tap shorter than a frame still counts
 	input.buttons = godot.buttons(survivor.Buttons, {.Dash = "dash"})
 }

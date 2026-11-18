@@ -26,7 +26,7 @@ MultiView :: enum u8 {
 	Multi3D,
 }
 
-Frame :: godot.Frame(toy.State, toy.World, View, MultiView)
+Frame :: godot.Frame(toy.Game, View, MultiView)
 
 // The typed2d view's data: set as its properties, each when its bytes change. The script leaves out `pad_check` on
 // purpose: the host reports the missing property as an error the suite expects.
@@ -109,7 +109,7 @@ TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a fu
 BLINK_FROM :: 20 // the blink view (plain2d key 5) exists for ticks BLINK_FROM ..< BLINK_TO
 BLINK_TO :: 40
 
-GLUE := godot.Glue(toy.State, toy.Input, toy.World, toy.Cmd, View, MultiView) {
+GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,

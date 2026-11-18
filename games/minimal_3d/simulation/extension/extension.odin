@@ -6,16 +6,10 @@ import "unified:godot"
 
 import g "../minimal_3d"
 
-GLUE := godot.Glue(g.State, g.Input, g.World, g.Cmd, View, MultiView) {
-	sample_input      = sample_input,
-	fill_frame        = fill_frame,
-	data              = Data,
-	scripted_input    = scripted_input,
-	scripted_commands = g.scripted_commands,
-}
-
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> g.Input {
-	return g.scripted_input(seed, slot, tick)
+GLUE := godot.Glue(g.Game, View, MultiView) {
+	sample_input = sample_input,
+	fill_frame   = fill_frame,
+	data         = Data,
 }
 
 @(export, link_name = "minimal_3d_init")

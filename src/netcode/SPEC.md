@@ -5,7 +5,7 @@ Status: signed off 2026-11-14 (#8).
 Nobody sends game state: every client runs the whole deterministic sim, and the relay only orders inputs. The
 relay's input log is the session (seed + content + log replays to the same checksums anywhere).
 
-Generic over the game: `Relay(Input, PLAYERS)`, `Client(State, Input, World, PLAYERS)`, `Host(...)`. Nothing runs a
+Generic over the game: `Relay(G)`, `Client(G)`, `Host(G)` (`G` the game type, a `sim.Game`). Nothing runs a
 thread or loop of its own: the host application calls `*_step(now_us) -> wake_us` from its own loop (or one thread
 on a `Virtual_Clock` in tests, which makes whole sessions deterministic and fast) and sleeps with
 `sleep_until(wake_us)` (to the microsecond: a high-resolution waitable timer on Windows, whose `Sleep` takes whole
@@ -47,7 +47,7 @@ through `headless.session_run`).
   epoch, sent (and the peer's echoed) in every datagram: a restarted peer on the same address replaces its old
   connection at once, and a side still talking to a connection the other ended is told so at once instead of sitting
   half-open.
-- **Relay** (`relay_create(cfg, Input, PLAYERS)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
+- **Relay** (`relay_create(cfg, G)`, `relay_add_link`, `relay_step`, `relay_stop`, `relay_finished`,
   `relay_clock`, `relay_tick`, `relay_end_recording`): owns the clock; finalizes ticks, broadcasts them, routes and
   checks late-join snapshots, judges checksums. Keeps the last `RELAY_RING` (512) finalized ticks; the whole
   session only in its optional recording. Serves all links at once. `ticks = 0` is an endless session.
@@ -146,7 +146,7 @@ person, not a slot.
 - **Stamp lead** `s = ceil((RTT/2 + 8 ms) / tick)`: an input reaches the relay 8 ms or so before its tick is due.
 - **Input delay** (the lag a player feels, #8 D3) `k = clamp(ceil((RTT⁺ + 8 ms)/tick) + 1 − cap, k_min, k_max)`:
   the least delay that keeps the prediction depth inside the cap. RTT⁺ = RTT + 4 × its mean deviation (jitter);
-  `k_min` is the game's `sim.Game.min_input_delay` (0: 1), `k_max` 100 ms (7 ticks at 64 Hz). It rises at once
+  `k_min` 1 tick, `k_max` 100 ms (7 ticks at 64 Hz). It rises at once
   and falls a tick per second.
 - **The clock**: L runs `s − k` ticks ahead of the relay clock (behind, when negative), slewed ±2% towards it (a
   jump when more than 4 ticks behind). Own inputs are sampled for L + k on every clock tick, also while the sim
@@ -164,7 +164,7 @@ person, not a slot.
 - Frames: V (newest verified), P (newest predicted), L (the clock). Predicted ticks use own inputs and commands and
   the others' last finalized inputs repeated. A finalized tick that differs from its prediction (presence, input
   bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P. Re-simulated ticks that are
-  already final are not saved (#117, `sim.step_unsaved`), except V (the next rollback's target), V − 1 when nothing
+  already final are not saved (`sim.step(.., save = false)`), except V (the next rollback's target), V − 1 when nothing
   is predicted past V (the view interpolates between P and P − 1), and a checksum tick a snapshot is wanted of.
 - The clock starts at the first Finalized after Welcome (during the start lead: once L's tick 0 is due), timed by
   the channel's latest RTT sample until the relay echoes an Inputs packet, so a joiner's inputs for its join tick

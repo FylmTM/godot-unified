@@ -285,14 +285,6 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 	return level, true
 }
 
-// The markers of one kind, in file order (temp-allocated by default).
-find_all :: proc(level: ^Level, kind: string, allocator := context.temp_allocator) -> []^Marker {
-	out := make([dynamic]^Marker, 0, 8, allocator)
-	for &marker in level.markers {
-		if marker.kind == kind do append(&out, &marker)
-	}
-	return out[:]
-}
 
 // The first marker with this name (nil: none).
 find_named :: proc(level: ^Level, name: string) -> ^Marker {

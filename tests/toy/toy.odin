@@ -1,5 +1,5 @@
 // A tiny deterministic game for the library's own tests: players move dots, a table of things they own is
-// spawned and despawned from the state's RNG, events are emitted, commands are counted. No physics
+// spawned and despawned (each thing's life a keyed roll), events are emitted, commands are counted. No physics
 // (tests/physics covers the Extra), so it is fast enough to run sessions on a virtual clock inside
 // `odin test`.
 package toy
@@ -110,18 +110,17 @@ Event :: union {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
-Inputs :: sim.Inputs(Input, PLAYERS)
-Tick :: sim.Tick(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
+Inputs :: sim.Inputs(Game)
+Tick :: sim.Tick(Game)
 
 GAME := Game {
-	name = "toy",
-	version = "2", // 2: a thing's life is a keyed roll
-	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^World {return new(World)},
-	world_destroy = proc(world: ^World) {free(world)},
-	init = proc(t: ^Tick) {},
-	tick = tick,
+	name              = "toy",
+	version           = "2", // 2: a thing's life is a keyed roll
+	tick_hz           = HZ,
+	tick              = tick,
+	scripted_input    = scripted_input,
+	scripted_commands = scripted_commands,
 }
 
 // What the toy's keyed rolls are for (sim.roll_below).
@@ -165,7 +164,7 @@ tick :: proc(t: ^Tick) {
 	for thing, handle in sim.next(&things) {
 		thing.life -= 1
 		if thing.life <= 0 {
-			if owner := sim.player_data(&t.state.players, thing.owner); owner != nil {
+			if owner := sim.player_data(t, thing.owner); owner != nil {
 				owner.score += 1
 			}
 			sim.emit(t, Event_Expired{thing = handle})
@@ -180,7 +179,7 @@ in_slot :: proc(state: ^State, slot: int) -> ^Player_Data {
 }
 
 // Scripted input: a hash of (seed, slot, tick / 8), so any tick can be asked for in any order.
-scripted_input :: proc(seed: u64, slot: int, tick: u32) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State = nil) -> Input {
 	x := u32(seed) * 0x9E3779B1 ~ u32(slot + 1) * 0x85EBCA77 ~ (tick / 8) * 0xC2B2AE3D
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
@@ -200,7 +199,7 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 // Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every
 // 16th tick, a burst of 6 bumps every 200th tick (tick % 200 == 50: two of them wait for the next tick), a
 // mark every 64th.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd)) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	x := u32(seed) * 0x85EBCA77 ~ u32(slot + 1) * 0x9E3779B1 ~ tick * 0x27D4EB2F
 	x ~= x >> 15
 	x *= 0x2C1B3C6D

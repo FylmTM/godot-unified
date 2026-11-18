@@ -121,7 +121,7 @@ Button :: enum u8 {
 
 Buttons :: bit_set[Button;u8]
 
-Inputs :: sim.Inputs(Input, PLAYERS)
+Inputs :: sim.Inputs(Game)
 
 // Commands (src/sim/SPEC.md): one-shot actions, each delivered exactly once. A command's name is its type's
 // without `Cmd_`, lowercased ("start", "restart"): what GDScript's send_command uses.

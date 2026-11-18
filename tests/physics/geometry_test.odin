@@ -222,7 +222,7 @@ geometry_mass_and_bounds :: proc(t: ^testing.T) {
 api_deep_hash :: proc(extra: ^sim.Extra) -> u64 {
 	buffer: [dynamic]u8
 	defer delete(buffer)
-	extra.hash(extra.data, nil, 0, &buffer)
+	extra.hash(extra.data, 0, &buffer)
 	return sim.hash_bytes(buffer[:])
 }
 

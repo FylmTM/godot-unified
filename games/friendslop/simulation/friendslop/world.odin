@@ -176,7 +176,6 @@ Checkpoint_Def :: struct {
 
 World :: struct {
 	phys:             ^physics.World,
-	extras:           [1]sim.Extra,
 	level:            level.Level,
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
@@ -198,7 +197,7 @@ World :: struct {
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
-Sim :: sim.Sim(State, Input, World, Event, Cmd, PLAYERS)
+Sim :: sim.Sim(Game)
 
 @(rodata)
 GAME := Game {
@@ -207,9 +206,10 @@ GAME := Game {
 	tick_hz = TICK_HZ,
 	world_create = world_create,
 	world_destroy = world_destroy,
-	extras = proc(world: ^World) -> []sim.Extra {return world.extras[:]},
+	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
 	init = init,
 	tick = tick,
+	scripted_input = scripted_input,
 }
 
 @(rodata)
@@ -364,7 +364,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	for i in 0 ..< world.trigger_count {
 		create_trigger_sensor(world, i)
 	}
-	world.extras[0] = physics.extra(world.phys, State) // last: the level and the sensors are the World's
+
 	return world
 }
 
