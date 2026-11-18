@@ -287,3 +287,37 @@ sources_import_reads_import_lines :: proc(t: ^testing.T) {
 	testing.expect(t, cli.scan_imports(dir, {`"unified:physics"`}), "an attributed import counts")
 	testing.expect(t, !cli.scan_imports(dir, {`"unified:eos"`}))
 }
+
+// The level scenes uni bake exports: every scene in game/levels/, and any other one with its .level beside it, never
+// one under a hidden or .gdignore'd directory or addons/ (src/level/SPEC.md, Baking).
+@(test)
+level_scenes_are_found_wherever_a_game_keeps_them :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	dir, temp_err := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	files := []string {
+		"game/levels/arena.tscn", // the default place: baked even before its first .level
+		"game/levels/props/crate.tscn", // a scene below it, no .level: not a level
+		"maps/yard.tscn",
+		"maps/yard.level", // a level kept elsewhere
+		"maps/menu.tscn", // no .level beside it: not a level
+		"addons/tool/demo.tscn",
+		"addons/tool/demo.level",
+		".hidden/x.tscn",
+		".hidden/x.level",
+		"vendor/.gdignore",
+		"vendor/v.tscn",
+		"vendor/v.level",
+	}
+	for file in files {
+		path := cli.join(dir, file)
+		os.make_directory_all(cli.join(dir, file[:strings.last_index(file, "/")]))
+		testing.expect(t, cli.write_file(path, transmute([]byte)string("x")), path)
+	}
+	testing.expect_value(
+		t,
+		strings.join(cli.level_scenes(dir), " "),
+		"res://game/levels/arena.tscn res://maps/yard.tscn",
+	)
+}

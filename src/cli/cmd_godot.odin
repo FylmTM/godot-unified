@@ -112,9 +112,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		if want(only, "bake") {
 			start := time.tick_now()
 			baked := bake_view_index(game, check = true, quiet = !state.verbose)
-			if os.is_directory(join(game.dir, "game", "levels")) {
-				baked = bake(game, check = true, quiet = !state.verbose).ok && baked
-			}
+			baked = bake(game, check = true, quiet = !state.verbose).ok && baked
 			ok = pass(game, "bake", baked, seconds_since(start)) && ok
 		}
 		Script_Step :: struct {
@@ -727,9 +725,7 @@ cmd_bake :: proc(args: []string) -> Result {
 	count := 0
 	for game in games_or_all(opts.game) {
 		ok = bake_view_index(game, opts.check) && ok
-		if os.is_directory(join(game.dir, "game", "levels")) {
-			ok = bake(game, opts.check).ok && ok
-		}
+		ok = bake(game, opts.check).ok && ok
 		count += 1
 	}
 	if opts.game == "" {
@@ -847,10 +843,28 @@ godot_files :: proc(dir, suffix: string) -> []string {
 }
 
 // Runs unified's level exporter (src/godot/tools/level_export.gd, mirrored as res://addons/unified/) on the game's
-// level scenes (src/level/SPEC.md). `quiet`: name only the levels that changed.
+// level scenes (level_scenes; none: nothing to do). `quiet`: name only the levels that changed.
 bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
+	scenes := level_scenes(game.dir)
+	if len(scenes) == 0 do return {ok = true}
 	ensure_game(game) // the game's scripts name its library's classes, and the exporter reads its view_scale
-	return bake_project(game.dir, nil, check, quiet)
+	return bake_project(game.dir, scenes, check, quiet)
+}
+
+// A game's level scenes (src/level/SPEC.md), as res:// paths: every scene in game/levels/ (where a new level goes),
+// and any other scene with its baked .level beside it (committed with it), wherever the game keeps it.
+level_scenes :: proc(dir: string) -> []string {
+	out: [dynamic]string
+	for file in godot_scenes(dir) {
+		rel_path := strings.trim_prefix(file[len(dir):], "/")
+		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
+		if strings.has_prefix(rel_path, "addons/") do continue
+		in_levels := strings.has_prefix(rel_path, "game/levels/") && strings.count(rel_path, "/") == 2
+		if in_levels || os.is_file(aprintf("%s.level", strings.trim_suffix(file, ".tscn"))) {
+			append(&out, aprintf("res://%s", rel_path))
+		}
+	}
+	return out[:]
 }
 
 // Runs the level exporter on a Godot project (imported first): `scenes` (res:// paths), or every

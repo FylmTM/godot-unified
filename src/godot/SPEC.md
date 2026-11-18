@@ -178,9 +178,11 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 ## Godot side
 
 **`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts, hosts,
-joins and leaves sessions; `running` (a session's thread is alive, until its goodbye ends), `status` (enum `Status`) and
-`status_changed`; `mode` (enum `Mode`: single player, hosting or joining, online or direct); `lobby_code` (the code
-others join with) and `desync(tick, detail)`; `input_wanted` (Input, above); the shown tick's `tick`, `local_player`; the roster (`get_players()`,
+joins and leaves sessions; `running` (a session's thread is alive, until its goodbye ends), `status` (enum `Status`:
+`STATUS_LEFT` when this player ended it with `leave`, `STATUS_DISCONNECTED` when it ended otherwise) and
+`status_changed`; `mode` (enum `Mode`: single player, hosting or joining, online or direct); `join_code` and
+`join_code_changed` (what others join a hosted session with: the lobby code online, this machine's private IPv4
+address and port hosting direct); `desync(tick, detail)`; `input_wanted` (Input, above); the shown tick's `tick`, `local_player`; the roster (`get_players()`,
 `get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`, `roster_changed`; a name is
 the one the player gave, else "P" and their slot from 1); `get_view(kind, key)`, `get_player_view(kind, player)`,
 `get_views(kind)` from the host's own tables (`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`;
@@ -240,7 +242,8 @@ first `sim.Handle(T)` or `sim.Entity` field), found by type, whatever the fields
 
 `uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind
 name to its scene's path), committed next to the game; every build of the game's library refreshes it, and the godot
-suite's `bake` step fails when the committed one is stale. Games keep their scenes wherever they like. At the first
+suite's `bake` step fails when the committed one is stale. Games keep their scenes wherever they like (a level scene
+outside `game/levels/` by its committed `.level`: `src/level/SPEC.md`, Baking). At the first
 session the host checks that every `View` member has a scene and every indexed kind is a member.
 
 ## How it works
@@ -252,7 +255,7 @@ session the host checks that every `View` member has a scene and every indexed k
   or cancels events. Godot is only called from the main thread.
 - **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins); an SPSC event queue (full: the
   event is dropped, never blocking the sim, counted and warned once); a small queue of its own for what must never be
-  lost (statuses, the lobby code, desync reports, the result); a command queue; the input sample under a short mutex.
+  lost (statuses, the join code, desync reports, the result); a command queue; the input sample under a short mutex.
 - **Main thread.** `UnifiedSession._process` runs before every other node: `sample_input`, take the newest Frame,
   spawn and pose the scene views (ticks P − 1 and P pushed into each view's track, sampled at alpha = (now − P's due
   time) / tick, × `view_scale`), write each MultiMesh's buffer and bounds in one `set_buffer`, set the session data,
@@ -294,8 +297,8 @@ game's menus: a game drives its own UI from its own tool scripts (`game/tools/`)
   waits, input events, screenshots, frame-time reports (with its helpers `log_capture.gd` and `frame_log.gd`), the
   session (`Unified.session`) and `player_names()`. The run ends through the game's `Game` autoload's
   `quit_app(exit_code)` when it has one, else `quit()`.
-- `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step: every script compiles with warnings as
-  errors, every scene loads, the main scene runs, no script of the play scene (`_play_scene()`, the main scene unless
+- `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step, over the whole project (`res://` but hidden
+  and `.gdignore`d directories and `addons/unified/`): every script compiles with warnings as errors, every scene loads, the main scene runs, no script of the play scene (`_play_scene()`, the main scene unless
   the game says otherwise) preloads; a game adds `_check_contract()` in `game/tools/validate.gd`.
 - `coop.gd` (`UnifiedCoop`): `uni coop`'s host and joiner, each session started by its session flags; `--rejoin`
   (the joiner leaves and joins again) and `--crash` (it kills itself and a second one joins as the same player); a

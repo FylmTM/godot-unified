@@ -204,7 +204,8 @@ Status_Kind :: enum u8 {
 	Connecting,
 	Connected,
 	Failed,
-	Disconnected,
+	Disconnected, // the first five are netcode.Status's, in its order (the driver's status hook converts)
+	Left,
 }
 
 @(private)
@@ -214,6 +215,7 @@ STATUS_NAMES := [Status_Kind]string {
 	.Connected    = "connected",
 	.Failed       = "failed",
 	.Disconnected = "disconnected",
+	.Left         = "left",
 }
 
 // Session thread -> main thread: an event in one of its states. Events have a queue of their own; one that finds it
@@ -225,12 +227,12 @@ Event_Message :: struct {
 	event:  sim.Raw_Event, // positions in sim units (the main thread maps them as scripts read them)
 }
 
-// Session thread -> main thread: what must never be lost (statuses, the lobby code, desync reports, the result),
+// Session thread -> main thread: what must never be lost (statuses, the join code, desync reports, the result),
 // in a small queue of its own.
 Message :: struct {
 	kind:   enum u8 {
 		Status,
-		Lobby_Code,
+		Join_Code, // UnifiedSession.join_code
 		Result,
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 	},

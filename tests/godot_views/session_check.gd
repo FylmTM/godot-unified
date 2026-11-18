@@ -3,7 +3,7 @@
 # 1. join a silent UDP peer (the client lingers up to 2 s for its Leave's ack), leave, start single player at once:
 #    the start is accepted, waits for the goodbye (cut to 1 s) and connects.
 # 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
-# 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("disconnected").
+# 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
 #   godot --path tests/godot_views --headless -s res://session_check.gd -- [--idle-end S]
@@ -64,8 +64,9 @@ func _run() -> void:
 		return _finish()
 	var waited := Time.get_ticks_msec() - t
 	check("the goodbye was cut short", waited < 2000, "%d ms" % waited)
-	check("no failed/disconnected status reaches the game",
-		not _statuses.has("failed") and not _statuses.any(func(x: String) -> bool: return x.begins_with("disconnected")), _statuses)
+	check("no failed/disconnected/left status reaches the game",
+		not _statuses.has("failed") and not _statuses.any(func(x: String) -> bool:
+			return x.begins_with("disconnected") or x.begins_with("left")), _statuses)
 	silent.close()
 
 	# 2. host, leave, host on the same port at once
@@ -87,7 +88,7 @@ func _run() -> void:
 	s.leave()
 	check("host right after leave (to be cancelled)", s.host_direct(PORT))
 	s.leave()
-	check("a cancelled start reports disconnected", s.status == UnifiedSession.STATUS_DISCONNECTED, s.status)
+	check("a cancelled start reports left", s.status == UnifiedSession.STATUS_LEFT, s.status)
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "no session runs after the cancel"):
 		return _finish()
 	await _sleep(0.3)
@@ -141,4 +142,6 @@ func _status_name(status: UnifiedSession.Status) -> String:
 			return "failed"
 		UnifiedSession.STATUS_DISCONNECTED:
 			return "disconnected"
+		UnifiedSession.STATUS_LEFT:
+			return "left"
 	return "idle"

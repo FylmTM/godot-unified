@@ -2,8 +2,9 @@ class_name UnifiedValidate
 extends UnifiedTool
 ## The headless project check, no editor (the godot suite's `validate` step):
 ##   godot --headless -d --path games/<game> -s <this script> -- --no-settings [--frames=N]
-## 1. compiles every script under res://game and res://addons (`-d` makes Godot print GDScript warnings; uni
-## fails on them), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown
+## 1. compiles every script of the project (`-d` makes Godot print GDScript warnings; uni fails on them): all of
+## res:// but hidden directories, those with a .gdignore and res://addons/unified (unified's own, checked by its
+## suites), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
@@ -11,13 +12,13 @@ extends UnifiedTool
 ## says otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project
 ## keeps GDScript strictly typed. unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
 
-const ROOTS: Array[String] = ["res://game", "res://addons"]
+## Left out of the walk besides hidden and .gdignore'd directories: unified's tool scripts.
+const SKIP_DIRS: Array[String] = ["res://addons/unified"]
 
 
 func _run() -> void:
 	var files: Array[String] = []
-	for dir in ROOTS:
-		_walk(dir, files)
+	_walk("res://", files)
 	var t0 := Time.get_ticks_usec()
 	var scripts := 0
 	for f in files:
@@ -150,9 +151,10 @@ static func _ms(usec: int) -> int:
 
 
 static func _walk(dir: String, out: Array[String]) -> void:
-	if not DirAccess.dir_exists_absolute(dir):
+	if not DirAccess.dir_exists_absolute(dir) or dir in SKIP_DIRS or FileAccess.file_exists(dir.path_join(".gdignore")):
 		return
 	for f in DirAccess.get_files_at(dir):
 		out.append(dir.path_join(f))
 	for d in DirAccess.get_directories_at(dir):
-		_walk(dir.path_join(d), out)
+		if not d.begins_with("."):
+			_walk(dir.path_join(d), out)

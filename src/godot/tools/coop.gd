@@ -72,12 +72,10 @@ func _host() -> void:
 	DirAccess.remove_absolute(_played_file())
 	var code := ""
 	if arg("host-port") != "":
-		code = "127.0.0.1:%s" % arg("host-port")
+		code = "127.0.0.1:%s" % arg("host-port")  # the joiner runs on this machine
 	else:
-		var codes: Array[String] = []
-		session.lobby_code.connect(func(c: String) -> void: codes.append(c))
-		await wait_for(func() -> bool: return not codes.is_empty() and codes.back() != "", 30.0, "a lobby code")
-		code = codes.back() if not codes.is_empty() else ""
+		await wait_for(func() -> bool: return session.join_code != "", 30.0, "a lobby code")
+		code = session.join_code
 	await wait_for(_connected, 20.0, "the host's session")
 	if failed():
 		return
@@ -158,7 +156,7 @@ func _join() -> void:
 
 func _wait_host_left() -> void:
 	await wait_for(func() -> bool: return session.status in [UnifiedSession.STATUS_DISCONNECTED,
-		UnifiedSession.STATUS_FAILED], 60.0, "the host leaves: the session ends")
+		UnifiedSession.STATUS_FAILED], 60.0, "the host leaves: the session ends")  # not STATUS_LEFT: the host ended it
 	if failed():
 		return
 	step("host left: the session ended (%s)" % status_detail)

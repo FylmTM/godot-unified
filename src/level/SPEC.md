@@ -74,4 +74,6 @@ gets the bytes from `world_create(seed, content)`.
 ## Baking
 
 The exported file is committed next to its scene (headless runs and CI need no Godot). `uni bake` writes it and
-checks that it is current (`uni help`).
+checks that it is current (`uni help`). A game's level scenes are those in `game/levels/` (not its subfolders: they
+hold the parts a level instances), where a new one goes, and any other scene with its `.level` beside it, wherever
+the game keeps it.

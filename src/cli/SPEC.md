@@ -122,6 +122,10 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
   (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new tool script is copied
   back). A game's own Godot code is all in the game: nothing else is mirrored. `bake` without a game also exports the project's
   own level scenes (`Project_Config.bake`; this repo: the 2D fixture `tests/level` reads).
+- **A game's Godot paths**: everything else is where the game likes it. Two places are fixed: its own tool
+  scripts are `game/tools/<name>.gd` (below), and a new level scene goes in `game/levels/` (a level elsewhere is
+  found by the `.level` committed beside it; `src/level/SPEC.md`, Baking). `validate` checks the whole project
+  (`res://` but hidden and `.gdignore`d directories and `addons/unified/`).
 - **Tool scripts** are a game's `game/tools/<name>.gd`, else unified's
   `src/godot/tools/<name>.gd`; run with Godot's `-s`. Each prints one `UNIFIED_RESULT {json}` line (`ok`, `errors`,
   its own data). Headless runs have the debugger on (`-d`, which prints GDScript warnings); a child's stdin holds
