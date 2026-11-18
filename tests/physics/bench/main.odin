@@ -33,8 +33,8 @@ RING :: 16
 IMAGE_EVERY :: 16
 CHARACTERS :: 64
 CHARACTER_TICKS :: 300
-// The capacity pile: 125 boxes (the cost per body is flat from 64 to 216), for enough ticks that the p99 leaves out the
-// slowest one (a preempted sample on a busy machine).
+// The capacity pile: 125 boxes (the cost per body is flat from 64 to 216), for enough ticks that the p90 the capacity
+// scales from leaves out the slowest ten (preempted samples on a busy machine).
 ROLLBACK_SIDE :: 5
 ROLLBACK_TICKS :: 100
 CAP :: 14 // the netcode's prediction cap at 64 Hz (headless.prediction_window): the deepest rollback it makes
@@ -185,8 +185,10 @@ main :: proc() {
 
 // The pile of ROLLBACK_SIDE³ boxes on `workers` threads: each tick a forward step and its save, then the rollback the
 // netcode makes at its cap: restore the tick CAP back, step CAP ticks saving every 2nd (and the last), deep-hash the
-// result, which must be the forward tick's. Returns {"step_us","rollback_us","step_plus_rollback_p99_us"} and the
-// ticks whose re-simulation hashed otherwise.
+// result, which must be the forward tick's. Returns {"step_us","rollback_us","step_plus_rollback_p99_us",
+// "step_plus_rollback_p90_us"} and the ticks whose re-simulation hashed otherwise. The p90 of each tick's step plus its
+// rollback is what the capacity scales from: the p99 of 100 ticks is their second slowest, which two preempted samples
+// on a busy machine decide.
 run_rollback :: proc(workers: i32) -> (json: string, mismatches: int) {
 	world := pile_world(ROLLBACK_SIDE, workers)
 	defer physics.destroy(world)
@@ -199,7 +201,7 @@ run_rollback :: proc(workers: i32) -> (json: string, mismatches: int) {
 	forward, again: [dynamic]u8
 	defer delete(forward)
 	defer delete(again)
-	step_us, rollback_us: [ROLLBACK_TICKS]f64
+	step_us, rollback_us, both_us: [ROLLBACK_TICKS]f64
 	for k in 0 ..< ROLLBACK_TICKS {
 		tick := CAP + 1 + k
 		start := time.tick_now()
@@ -218,15 +220,18 @@ run_rollback :: proc(workers: i32) -> (json: string, mismatches: int) {
 		if !slice.equal(again[:], forward[:]) do mismatches += 1
 		step_us[k] = micros(start, stepped)
 		rollback_us[k] = micros(resumed, done)
+		both_us[k] = step_us[k] + rollback_us[k]
 	}
 	step, rollback := stat_of(step_us[:]), stat_of(rollback_us[:])
+	slice.sort(both_us[:])
 	return fmt.tprintf(
-			`{{"step_us":{{"mean":%.2f,"p99":%.2f}},"rollback_us":{{"mean":%.2f,"p99":%.2f}},"step_plus_rollback_p99_us":%.2f}}`,
+			`{{"step_us":{{"mean":%.2f,"p99":%.2f}},"rollback_us":{{"mean":%.2f,"p99":%.2f}},"step_plus_rollback_p99_us":%.2f,"step_plus_rollback_p90_us":%.2f}}`,
 			step.mean,
 			step.p99,
 			rollback.mean,
 			rollback.p99,
 			step.p99 + rollback.p99,
+			both_us[(90 * ROLLBACK_TICKS + 99) / 100 - 1],
 		),
 		mismatches
 }

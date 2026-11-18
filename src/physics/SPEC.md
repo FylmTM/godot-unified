@@ -27,11 +27,12 @@ slot put in the world and the live state put back after, the current tick's from
 tick (`keep`) is the slot's Box3D snapshot bytes and body table copied aside; `image_kept` images it like a past slot.
 `load` keeps the world on a refusal.
 
-**Capacity.** A rollback at the prediction cap re-steps the whole world, so physics bounds what a tick may hold: on
-one worker, about 200 awake bodies in dense contact (a pile) fit a step plus that rollback in the frame budget;
-`uni bench`'s physics row times it on a smaller pile, on 1 and 4 workers, and says how many bodies fit (the cost per
-body is about flat). One worker is the default, since more take CPU from Godot and
-the netcode and help only worlds several times that size: a physics-heavy game measures 2 to 4.
+**Capacity.** A rollback at the prediction cap re-steps the whole world, so physics bounds what a tick may hold: on one
+worker, a few hundred awake bodies in dense contact (a pile) fit a step plus that rollback in the frame budget; `uni
+bench`'s physics row times it on a smaller pile, on 1 and 4 workers, and says how many bodies fit (the cost per body is
+about flat), scaled from the p90 of a tick's step plus its rollback: a busy machine's preempted samples decide a p99 of
+100 ticks. One worker is the default, since more take CPU from Godot and the netcode and help only worlds several times
+that size: a physics-heavy game measures 2 to 4.
 
 ## The boundary
 
