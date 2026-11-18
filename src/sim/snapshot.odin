@@ -60,12 +60,78 @@ snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8)
 	if extra := &simulation.extra; extra.image != nil {
 		image = extra.image(extra.data, index, tick == simulation.tick)
 	}
+	return snap_write(header, ([^]u8)(&slot.state)[:size_of(State)], image, out)
+}
+
+// Keeps `tick`'s ring snapshot aside in keep slot `index` (0 ..< KEEP_SLOTS), replacing what the slot held: the block
+// and the Extra's save, copied (Extra.keep), so the portable snapshot is encoded only if it is wanted
+// (snapshot_encode_kept), after the ring moved on. An Extra without keep images at once. False when `tick` is not in
+// the ring (or `index` is out of range). The first call allocates the slots.
+snapshot_keep :: proc(simulation: ^Sim($G), tick: u32, index: int) -> bool {
+	State :: part(G, GAME_STATE)
+	ring_index := ring_slot(simulation, tick)
+	slot := &simulation.ring[ring_index]
+	if index < 0 || index >= KEEP_SLOTS || !slot.saved || slot.tick != tick {
+		return false
+	}
+	if simulation.kept == nil {
+		simulation.kept = make([]Kept_Tick(State), KEEP_SLOTS)
+	}
+	kept := &simulation.kept[index]
+	kept.tick = tick
+	kept.kept = true
+	kept.state = slot.state
+	clear(&kept.image)
+	if extra := &simulation.extra; extra.image != nil {
+		if extra.keep != nil && extra.image_kept != nil {
+			extra.keep(extra.data, ring_index, index)
+		} else {
+			append(&kept.image, ..extra.image(extra.data, ring_index, tick == simulation.tick))
+		}
+	}
+	return true
+}
+
+// The portable snapshot of keep slot `index` into `out` (as snapshot_encode_into): the same bytes snapshot_encode_into
+// gave for its tick while the ring held it. ok = false when the slot holds nothing.
+snapshot_encode_kept :: proc(
+	simulation: ^Sim($G),
+	index: int,
+	out: ^[dynamic]u8,
+) -> (
+	bytes: []u8,
+	tick: u32,
+	ok: bool,
+) {
+	State :: part(G, GAME_STATE)
+	if index < 0 || index >= len(simulation.kept) || !simulation.kept[index].kept {
+		return
+	}
+	kept := &simulation.kept[index]
+	header := Snap_Header {
+		seed    = simulation.seed,
+		content = simulation.content_hash,
+		tick    = kept.tick,
+		block   = size_of(State),
+		layout  = simulation.layout,
+		compat  = simulation.compat,
+	}
+	image := kept.image[:]
+	if extra := &simulation.extra; extra.image != nil && extra.keep != nil && extra.image_kept != nil {
+		image = extra.image_kept(extra.data, index)
+	}
+	return snap_write(header, ([^]u8)(&kept.state)[:size_of(State)], image, out), kept.tick, true
+}
+
+// A snapshot's bytes into `out` (replacing what it held, keeping its capacity): the header, the block, the image.
+@(private)
+snap_write :: proc(header: Snap_Header, block: []u8, image: []u8, out: ^[dynamic]u8) -> []u8 {
 	writer := wire.Writer {
 		buf = out^,
 	}
 	clear(&writer.buf)
-	reserve(&writer.buf, SNAP_HEADER + size_of(State) + 4 + len(image))
-	snap_begin(&writer, header, ([^]u8)(&slot.state)[:size_of(State)])
+	reserve(&writer.buf, SNAP_HEADER + len(block) + 4 + len(image))
+	snap_begin(&writer, header, block)
 	wire.w_u32(&writer, u32(len(image)))
 	wire.w_bytes(&writer, image)
 	bytes := snap_end(&writer)

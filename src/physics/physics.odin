@@ -45,6 +45,9 @@ World :: struct {
 	scratch:      box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
 	image:        ^box3d.WorldState, // the last Box3D image `image` built
 	image_bytes:  [dynamic]u8, // the last portable image: Box3D's, then the body table
+	// Kept ticks (sim.snapshot_keep): a ring slot's snapshot bytes and body table, copied, imaged only when wanted.
+	kept:         [sim.KEEP_SLOTS][dynamic]u8,
+	kept_bodies:  [sim.KEEP_SLOTS][dynamic]Body_Entry,
 	bodies:       [dynamic]Body_Entry, // by body index (rolled back: body_ring)
 	sealed:       bool, // `extra` was made: bodies created from now on are the block's
 	refs:         Ref_Layout, // the State's (extra)
@@ -89,6 +92,21 @@ create :: proc(settings := Settings{}) -> ^World {
 	return world
 }
 
+// The portable image in world.image_bytes: the size of Box3D's image (`size` bytes of world.image), the image, then
+// the body table `bodies`.
+@(private)
+image_bytes :: proc(world: ^World, size: i32, bodies: []Body_Entry) -> []u8 {
+	clear(&world.image_bytes)
+	size_bytes := transmute([4]u8)u32le(u32(size))
+	append(&world.image_bytes, ..size_bytes[:])
+	append(
+		&world.image_bytes,
+		..(box3d.WorldState_GetData(world.image)[:box3d.WorldState_GetSize(world.image)])[:size],
+	)
+	append(&world.image_bytes, ..entries_bytes(bodies))
+	return world.image_bytes[:]
+}
+
 // Destroys the world with its snapshots and image.
 destroy :: proc(world: ^World) {
 	sync.guard(&world_mutex)
@@ -111,6 +129,10 @@ destroy :: proc(world: ^World) {
 	delete(world.visitors)
 	delete(world.sort_scratch)
 	delete(world.image_bytes)
+	for k in 0 ..< sim.KEEP_SLOTS {
+		delete(world.kept[k])
+		delete(world.kept_bodies[k])
+	}
 	free(world)
 }
 
@@ -173,15 +195,31 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 			if !live {
 				box3d.World_RestoreSnapshot(world.id, &world.scratch)
 			}
-			clear(&world.image_bytes)
-			size_bytes := transmute([4]u8)u32le(u32(size))
-			append(&world.image_bytes, ..size_bytes[:])
-			append(
-				&world.image_bytes,
-				..(box3d.WorldState_GetData(world.image)[:box3d.WorldState_GetSize(world.image)])[:size],
-			)
-			append(&world.image_bytes, ..entries_bytes(world.body_ring[slot][:]))
-			return world.image_bytes[:]
+			return image_bytes(world, size, world.body_ring[slot][:])
+		},
+		// A ring slot's save copied aside (two memcpys), for an image later (image_kept).
+		keep = proc(data: rawptr, slot: int, index: int) {
+			world := (^World)(data)
+			snapshot := &world.ring[slot]
+			resize(&world.kept[index], snapshot.size)
+			copy(world.kept[index][:], snapshot.data[:snapshot.size])
+			resize(&world.kept_bodies[index], len(world.body_ring[slot]))
+			copy(world.kept_bodies[index][:], world.body_ring[slot][:])
+		},
+		// A kept copy's image, as `image` of the slot it was kept from: the copy is put in the world for the time it
+		// takes (Box3D's restore only reads the snapshot's bytes) and the live state put back after.
+		image_kept = proc(data: rawptr, index: int) -> []u8 {
+			world := (^World)(data)
+			kept := box3d.WorldSnapshot {
+				data     = raw_data(world.kept[index]),
+				size     = len(world.kept[index]),
+				capacity = len(world.kept[index]),
+			}
+			box3d.World_SaveSnapshot(world.id, &world.scratch)
+			box3d.World_RestoreSnapshot(world.id, &kept)
+			size := box3d.World_SaveImage(world.id, world.image, true)
+			box3d.World_RestoreSnapshot(world.id, &world.scratch)
+			return image_bytes(world, size, world.kept_bodies[index][:])
 		},
 		size = proc(data: rawptr, slot: int) -> int {
 			world := (^World)(data)

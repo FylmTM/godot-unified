@@ -691,3 +691,35 @@ field_golden :: proc(t: ^testing.T, game: ^Field_Game) {
 		GOLDEN_FIELD,
 	)
 }
+
+// A physics world's kept ticks (sim.snapshot_keep: a copy of the slot's Box3D snapshot and body table) encode, long
+// after the ring moved on, to the bytes snapshot_encode gave while the ring held them, and imaging one leaves the
+// live world as it was.
+@(test)
+a_kept_tick_images_as_the_slot_did :: proc(t: ^testing.T) {
+	session := sim.create(&FIELD, 3)
+	defer sim.destroy(session)
+	wanted: [sim.KEEP_SLOTS][]u8
+	defer for bytes in wanted do delete(bytes)
+	out: [dynamic]u8
+	defer delete(out)
+	kept := 0
+	for tick in u32(1) ..= FIELD_TICKS {
+		inputs := field_inputs(tick)
+		sim.step(session, &inputs)
+		if tick % 64 == 0 && kept < sim.KEEP_SLOTS {
+			wanted[kept] = sim.snapshot_encode(session, tick)
+			testing.expect(t, sim.snapshot_keep(session, tick, kept))
+			kept += 1
+		}
+	}
+	testing.expect_value(t, kept, sim.KEEP_SLOTS)
+	before := sim.checksum(session)
+	for k in 0 ..< sim.KEEP_SLOTS {
+		bytes, tick, ok := sim.snapshot_encode_kept(session, k, &out)
+		testing.expect(t, ok && tick == u32(64 * (k + 1)))
+		testing.expectf(t, string(bytes) == string(wanted[k]), "keep slot %d (tick %d): other bytes", k, tick)
+	}
+	testing.expect_value(t, sim.checksum(session), before)
+	field_did_its_job(t, session)
+}

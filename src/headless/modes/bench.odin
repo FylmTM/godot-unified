@@ -41,9 +41,11 @@ Bench_Result :: struct {
 	// sim.checksum of the stepped tick: on the ticks peers compare (sim.DEEP_CHECKSUM_EVERY: every extra's whole
 	// state) and on the others (an extra's cheaper summary)
 	checksum_deep, checksum:    Stat,
-	// sim.snapshot_encode_into of a checksum tick into a reused buffer: what a client pays for each kept desync image
-	// (Welcome's Keep_Images, 4 a second at 64 Hz) and for each snapshot a joiner gets
+	// Of a checksum tick the sim has moved past (a client verifies behind its prediction): sim.snapshot_encode_into
+	// into a reused buffer, what a joiner's snapshot costs its provider; sim.snapshot_keep (a copy of the block and
+	// the Extra's save), what typed desync reports cost a client on every checksum tick (Welcome's Keep_Images)
 	snapshot_encode:            Stat,
+	snapshot_keep:              Stat,
 	snapshot_bytes:             int,
 	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
 	warmup:                     int, // the first ticks, left out of the timings
@@ -80,6 +82,9 @@ run_bench :: proc(
 		headless.bench_prepare(&simulation.state, simulation.world, entities)
 		sim.save(simulation)
 	}
+	for k in 0 ..< sim.KEEP_SLOTS {
+		sim.snapshot_keep(simulation, 0, k) // the keep slots and their buffers, at the population's size
+	}
 	tick_count := int(ticks)
 	step_us := make([]f64, tick_count)
 	save_us := make([]f64, tick_count)
@@ -89,6 +94,7 @@ run_bench :: proc(
 	checksum_us := make([]f64, tick_count)
 	checksum_deep_us := make([]f64, tick_count)
 	snapshot_encode_us := make([]f64, tick_count)
+	snapshot_keep_us := make([]f64, tick_count)
 	image: [dynamic]u8
 	recorded := make([]sim.Inputs(G), ticks + 1)
 	forward := make([]u64, ticks + 1)
@@ -103,6 +109,7 @@ run_bench :: proc(
 		delete(checksum_us)
 		delete(checksum_deep_us)
 		delete(snapshot_encode_us)
+		delete(snapshot_keep_us)
 		delete(image)
 		delete(recorded)
 		delete(forward)
@@ -128,8 +135,11 @@ run_bench :: proc(
 			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
 				checksum_deep_us[deep_checksums] = micros(save_end, checksum_end)
 				encode_start := time.tick_now()
-				_ = sim.snapshot_encode_into(simulation, tick, &image)
-				snapshot_encode_us[deep_checksums] = micros(encode_start, time.tick_now())
+				_ = sim.snapshot_encode_into(simulation, tick - 1, &image)
+				encode_end := time.tick_now()
+				snapshot_encode_us[deep_checksums] = micros(encode_start, encode_end)
+				_ = sim.snapshot_keep(simulation, tick - 1, deep_checksums % sim.KEEP_SLOTS)
+				snapshot_keep_us[deep_checksums] = micros(encode_end, time.tick_now())
 				deep_checksums += 1
 			} else {
 				checksum_us[checksums] = micros(save_end, checksum_end)
@@ -182,6 +192,7 @@ run_bench :: proc(
 	result.checksum = stat_of(checksum_us[:checksums])
 	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
 	result.snapshot_encode = stat_of(snapshot_encode_us[:deep_checksums])
+	result.snapshot_keep = stat_of(snapshot_keep_us[:deep_checksums])
 	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	return

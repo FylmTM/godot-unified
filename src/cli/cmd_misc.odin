@@ -54,7 +54,8 @@ Bench_Report :: struct {
 	resim_final_us:     Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
 	checksum_us:        Bench_Stat, // sim.checksum of a tick peers don't compare
 	checksum_deep_us:   Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
-	snapshot_encode_us: Bench_Stat, // a portable snapshot of a checksum tick (a kept desync image, a joiner's)
+	snapshot_encode_us: Bench_Stat, // a portable snapshot of a checksum tick (a joiner's, a desync report's)
+	snapshot_keep_us:   Bench_Stat, // a checksum tick kept for a desync report (every checksum tick, every client)
 	snapshot_bytes:     int,
 	save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
 	mismatches:         int,
@@ -143,7 +144,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us)",
+			"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us)",
 			game.name,
 			bench.step_us.p99,
 			bench.restore_us.p99,
@@ -163,6 +164,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.checksum_deep_us.mean,
 			bench.snapshot_bytes,
 			bench.snapshot_encode_us.mean,
+			bench.snapshot_keep_us.mean,
 		)
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
