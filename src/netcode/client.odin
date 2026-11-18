@@ -418,6 +418,10 @@ on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		if !client.have_offset {
 			client.offset_us = offset
 			client.have_offset = true
+		} else if !client.started && offset > client.offset_us && offset - client.offset_us < DISCONNECT_US {
+			// Until the clock starts, the fastest Finalized's: one that came late would start the clock late, and the
+			// first inputs with it.
+			client.offset_us = offset
 		} else if abs(offset - client.offset_us) < DISCONNECT_US {
 			client.offset_us += (offset - client.offset_us) * 0.05
 		} // else not the relay's clock (a mangled time): taken, it would throw the local clock hours off

@@ -73,7 +73,7 @@ host_add_link :: proc(host: ^Host($G), link: Link) {
 
 // Steps the relay and the host's client; returns the earlier of their wake times. What one of them sends the other
 // is taken in the same call (they talk in-process), so the host's own inputs and finalized ticks never wait for a
-// wake, and a single-player host wakes only at its deadlines (#263).
+// wake, and a single-player host wakes only at its deadlines.
 host_step :: proc(host: ^Host($G), now: i64) -> i64 {
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)

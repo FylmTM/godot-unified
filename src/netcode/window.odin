@@ -1,9 +1,9 @@
-// The finalized ticks of a relay packet (#192): each tick as its changes from the tick before it in the same
+// The finalized ticks of a relay packet: each tick as its changes from the tick before it in the same
 // packet, the first from the empty tick (nobody present, zero inputs, no commands). A packet decodes on its own, so
 // losing one costs what it did before: the next packet repeats the ticks the client hasn't acked. Per tick:
 //
 //   flags u8 (Window_Flags)
-//   .Presence: present u32, replaced u32
+//   .Presence: present, then replaced, each a bit per slot (ceil(PLAYERS / 8) bytes)
 //   .Inputs:   the players whose input changed (a bit per player, ceil(PLAYERS / 8) bytes), then per such player,
 //              in order, its input as window_write_input writes it: the bytes that changed (a bit per byte,
 //              ceil(size_of(Input) / 8) bytes) and their new values
@@ -12,7 +12,7 @@
 //              carried over from the tick before)
 //
 // A tick like the one before it, without commands, is one byte. The input log keeps sim.write_tick's format. A
-// client's Inputs packet writes its own unacked inputs the same way (#245), each from the one before it.
+// client's Inputs packet writes its own unacked inputs the same way, each from the one before it.
 package netcode
 
 import "unified:sim"
@@ -28,7 +28,7 @@ Window_Flags :: bit_set[Window_Flag;u8]
 
 // The most bytes window_write_tick writes for a tick with `commands`: every field changed, every slot joining.
 window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw_Command) -> int {
-	size := 1 + 8 + mask_bytes(PLAYERS) + PLAYERS * window_input_max_bytes(Input)
+	size := 1 + 3 * mask_bytes(PLAYERS) + PLAYERS * window_input_max_bytes(Input)
 	size += 1 + PLAYERS * sim.JOIN_BYTES
 	if len(commands) > 0 {
 		size += 1
@@ -70,14 +70,11 @@ window_write_tick :: proc(writer: ^wire.Writer, tick: ^sim.Inputs($G), base: ^si
 	}
 	wire.w_u8(writer, transmute(u8)flags)
 	if .Presence in flags {
-		wire.w_u32(writer, transmute(u32)tick.present)
-		wire.w_u32(writer, transmute(u32)tick.replaced)
+		write_slots(writer, tick.present, PLAYERS)
+		write_slots(writer, tick.replaced, PLAYERS)
 	}
 	if .Inputs in flags {
-		players := transmute(u32)changed
-		for i in 0 ..< mask_bytes(PLAYERS) {
-			wire.w_u8(writer, u8(players >> uint(8 * i)))
-		}
+		write_slots(writer, changed, PLAYERS)
 		for player in changed {
 			window_write_input(writer, &tick.input[player], base != nil ? &base.input[player] : &zero)
 		}
@@ -102,22 +99,20 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($G)) -> bool {
 		return false
 	}
 	if .Presence in flags {
-		tick.present = transmute(sim.Slots)wire.r_u32(reader)
-		tick.replaced = transmute(sim.Slots)wire.r_u32(reader)
-		if (transmute(u32)tick.present | transmute(u32)tick.replaced) >> uint(PLAYERS) != 0 {
+		present, present_ok := read_slots(reader, PLAYERS)
+		replaced, replaced_ok := read_slots(reader, PLAYERS)
+		if !present_ok || !replaced_ok {
 			return false
 		}
+		tick.present, tick.replaced = present, replaced
 	}
 	if .Inputs in flags {
-		players: u64
-		for i in 0 ..< mask_bytes(PLAYERS) {
-			players |= u64(wire.r_u8(reader)) << uint(8 * i)
-		}
-		if !reader.ok || players >> uint(PLAYERS) != 0 {
+		changed, changed_ok := read_slots(reader, PLAYERS)
+		if !changed_ok {
 			return false
 		}
-		for player in 0 ..< PLAYERS {
-			if players & (1 << uint(player)) != 0 && !window_read_input(reader, &tick.input[player]) {
+		for slot in changed {
+			if !window_read_input(reader, &tick.input[slot]) {
 				return false
 			}
 		}
@@ -177,6 +172,28 @@ window_read_input :: proc(reader: ^wire.Reader, input: ^$Input) -> bool {
 		}
 	}
 	return reader.ok
+}
+
+// A set of slots as a bit per slot, ceil(players / 8) bytes.
+@(private)
+write_slots :: proc(writer: ^wire.Writer, slots: sim.Slots, players: int) {
+	bits := transmute(u32)slots
+	for i in 0 ..< mask_bytes(players) {
+		wire.w_u8(writer, u8(bits >> uint(8 * i)))
+	}
+}
+
+// A set of slots write_slots wrote: false when cut short or naming a slot past `players`.
+@(private)
+read_slots :: proc(reader: ^wire.Reader, players: int) -> (slots: sim.Slots, ok: bool) {
+	bits: u64
+	for i in 0 ..< mask_bytes(players) {
+		bits |= u64(wire.r_u8(reader)) << uint(8 * i)
+	}
+	if !reader.ok || bits >> uint(players) != 0 {
+		return
+	}
+	return transmute(sim.Slots)u32(bits), true
 }
 
 @(private)

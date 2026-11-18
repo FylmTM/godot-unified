@@ -99,7 +99,7 @@ Loop_Datagram :: struct {
 }
 
 // Datagrams waiting for one endpoint: their headers and bytes, appended by senders and swapped out whole by the
-// receiver, so a datagram costs no allocation once the buffers have grown (#262).
+// receiver, so a datagram costs no allocation once the buffers have grown.
 @(private)
 Loop_Queue :: struct {
 	datagrams: [dynamic]Loop_Datagram,

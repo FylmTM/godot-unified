@@ -95,11 +95,11 @@ window_sizes :: proc(t: ^testing.T) {
 	ticks[1] = ticks[0]
 	ticks[2] = ticks[0]
 	ticks[2].input[1].buttons = {.Spawn}
-	// 1 flag + 8 presence + 1 player mask + (1 byte mask + 2 bytes) for player 0
-	testing.expect_value(t, expect_round_trip(t, ticks[:1]), 13)
-	testing.expect_value(t, expect_round_trip(t, ticks[:2]), 13 + 1)
-	// 1 flag + 1 player mask + (1 byte mask + 1 byte) for player 1
-	testing.expect_value(t, expect_round_trip(t, ticks[:3]), 13 + 1 + 4)
+	// 1 flag + 2 presence (a bit per slot, present and replaced) + 1 slot mask + (1 byte mask + 2 bytes) for slot 0
+	testing.expect_value(t, expect_round_trip(t, ticks[:1]), 7)
+	testing.expect_value(t, expect_round_trip(t, ticks[:2]), 7 + 1)
+	// 1 flag + 1 slot mask + (1 byte mask + 1 byte) for slot 1
+	testing.expect_value(t, expect_round_trip(t, ticks[:3]), 7 + 1 + 4)
 
 	// Everything changed: presence, every byte of every input, commands, every slot joining.
 	full: [2]toy.Inputs
@@ -138,14 +138,14 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 	}
 	expect_refused(t, {0x10}, "an unknown flag")
 	expect_refused(t, {0x80}, "an unknown flag")
-	expect_refused(t, {0x01, 0x10, 0, 0, 0, 0, 0, 0, 0}, "slot 4 of 4 present") // .Presence {4}
-	expect_refused(t, {0x01, 0x01, 0, 0, 0, 0, 0, 0, 0x80}, "slot 31 of 4 replaced") // .Presence {0}, replaced {31}
+	expect_refused(t, {0x01, 0x10, 0}, "slot 4 of 4 present") // .Presence {4}
+	expect_refused(t, {0x01, 0x01, 0x80}, "slot 7 of 4 replaced") // .Presence {0}, replaced {7}
 	expect_refused(t, {0x02, 0x10, 0x01, 7}, "player 4 of 4") // .Inputs, players {4}
 	expect_refused(t, {0x02, 0x01, 0x10, 7}, "byte 4 of a 4-byte input") // .Inputs, players {0}, bytes {4}
 	expect_refused(t, {0x04, 17}, "17 commands")
 	expect_refused(t, {0x04, 1, 4, 0, 4, 1, 2, 3, 4}, "a command of player 4")
 	expect_refused(t, {0x08, 1, 0, 1, 0}, "a join record for a slot not present") // .Joins, slot 0, member 1
-	expect_refused(t, {0x09, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}, "a join record of member 0") // .Presence {0}
+	expect_refused(t, {0x09, 1, 0, 1, 0, 0, 0}, "a join record of member 0") // .Presence {0}
 
 	ticks: [12]toy.Inputs
 	varied_ticks(ticks[:])

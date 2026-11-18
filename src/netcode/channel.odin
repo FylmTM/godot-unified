@@ -285,7 +285,7 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 			conn.sent = make([]Sent_Packet, SENT_RING)
 		} else {
 			for &record in conn.sent {
-				record.valid = false
+				record = {} // a seq of the previous connection is not one of this one's
 			}
 		}
 		conn.last_recv = now
@@ -403,20 +403,31 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 	return channel.events[:]
 }
 
-// Marks a datagram of ours received. Only the one that arrived last at the peer measures the round trip (`held_us`:
-// how long the peer held it before acking; -1: no sample): the others an ack covers waited at the receiver.
+// A round-trip sample: our datagram `seq` arrived last at the peer, which held it `held_us` before sending the
+// datagram that says so. Taken from every datagram that names one, acked before or not: under jitter a datagram of
+// the peer's that comes late names an arrival a faster one already acked, and skipping those would keep only the
+// fast return paths (a round trip read short).
 @(private)
-seq_acked :: proc(conn: ^Conn, seq: u32, now: i64, held_us: i64) {
+rtt_sample :: proc(conn: ^Conn, seq: u32, now: i64, held_us: i64) {
+	record := &conn.sent[seq % SENT_RING]
+	if seq == 0 || record.seq != seq {
+		return // never sent on this connection, or too old for the ring
+	}
+	if rtt := f64(now - record.at - held_us); rtt >= 0 {
+		conn.srtt_us += (rtt - conn.srtt_us) * 0.125
+		conn.rtt_last_us = rtt
+		conn.rtt_samples += 1
+	}
+}
+
+// Marks a datagram of ours received: its reliable messages are delivered.
+@(private)
+seq_acked :: proc(conn: ^Conn, seq: u32) {
 	record := &conn.sent[seq % SENT_RING]
 	if !record.valid || record.seq != seq {
 		return
 	}
 	record.valid = false
-	if rtt := f64(now - record.at - held_us); held_us >= 0 && rtt >= 0 {
-		conn.srtt_us += (rtt - conn.srtt_us) * 0.125
-		conn.rtt_last_us = rtt
-		conn.rtt_samples += 1
-	}
 	for k in 0 ..< int(record.n_ids) {
 		id := record.ids[k]
 		for &message in conn.rel_out {
@@ -529,12 +540,12 @@ take_acks :: proc(channel: ^Channel, conn: ^Conn, header: Dgram_Header, now: i64
 	ack, ack_bits := header.ack, header.ack_bits
 	conn.acked_max = max(conn.acked_max, min(ack, conn.next_seq - 1))
 	if header.recent_us >= 0 {
-		seq_acked(conn, header.recent, now, header.recent_us) // first: the one sample
+		rtt_sample(conn, header.recent, now, header.recent_us)
 	}
-	seq_acked(conn, ack, now, -1)
+	seq_acked(conn, ack)
 	for bit in 0 ..< u32(32) {
 		if ack_bits & (1 << bit) != 0 && ack > bit + 1 {
-			seq_acked(conn, ack - bit - 1, now, -1)
+			seq_acked(conn, ack - bit - 1)
 		}
 	}
 	k := 0
