@@ -68,8 +68,7 @@ register_session_class :: proc() {
 		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
-			session.seed = 1
-			session.name = strings.clone("player")
+			session.seed = 1 // local_name stays "": the roster shows "P" and the slot from 1
 		},
 		fini = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
@@ -124,7 +123,7 @@ register_session_class :: proc() {
 			delete(session.name)
 			session.name = strings.clone(name)
 		},
-		doc = "The name the next session shows to other players.",
+		doc = "The name the next session shows to other players (\"\", the default: \"P\" and the player's slot from 1).",
 	)
 	gd.bind_property(
 		class,

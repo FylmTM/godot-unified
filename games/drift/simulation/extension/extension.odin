@@ -172,7 +172,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = sim.position(gem.pos),
-			rot    = godot.quat_angle2d(age * GEM_SPIN),
+			rot    = godot.quat_angle_2d(age * GEM_SPIN),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},

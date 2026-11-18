@@ -205,11 +205,11 @@ func _aim_and_thrust() -> void:
 func _fire_and_hunt() -> void:
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
-	await wait_for(func() -> bool: return multi_count(&"bullet") > 0, 2.0, "bullets in the bullet multi view")
+	await wait_for(func() -> bool: return multi_count(EnumMultiView.BULLET) > 0, 2.0, "bullets in the bullet multi view")
 	await wait_for(func() -> bool: return _rocks_drawn() > 0, 6.0, "rocks in the rock multi views")
 	Input.action_release(&"aim_up")
 	await shot("03_match")
-	step("match: %d bullets, %d rocks drawn" % [multi_count(&"bullet"), _rocks_drawn()])
+	step("match: %d bullets, %d rocks drawn" % [multi_count(EnumMultiView.BULLET), _rocks_drawn()])
 
 	var start := Time.get_ticks_msec()
 	await wait_for(func() -> bool: return _rock_hits > 0 or _hunt_steer(start), HUNT_S,
@@ -241,7 +241,7 @@ func _me() -> Node2D:
 func _rocks_drawn() -> int:
 	var n := 0
 	for v in (Unified.constants.rock_shapes as Array).size():
-		n += multi_count("rock_%d" % v)
+		n += multi_count(EnumMultiView.ROCK_0 + v)
 	return n
 
 

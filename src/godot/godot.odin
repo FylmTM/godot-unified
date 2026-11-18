@@ -144,6 +144,7 @@ is_editor :: proc() -> bool {
 // The game's version: the project setting application/config/version, which a release build stamps from its
 // tag. Read on the main thread when the session node is ready, before any session starts, so a lobby can
 // report it (EOS product_version) from the session thread.
+@(private)
 app_version: string
 
 @(private)

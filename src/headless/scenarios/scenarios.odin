@@ -234,7 +234,7 @@ reference_reproduces :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	if !testing.expectf(
 		t,
 		reference.ticks >= 4 && reference.snapshot_tick > 0 && reference.snapshot_tick < reference.ticks,
-		"%s: needs 4 ticks and a snapshot tick inside the run",
+		"%s: set the Reference's seed, players, ticks (4 or more) and snapshot_tick (inside the run); the run then prints the rest to paste",
 		what,
 	) {
 		return

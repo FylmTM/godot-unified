@@ -201,6 +201,64 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 	testing.expectf(t, worst < 0.05, "circles overlap by %v m", worst)
 }
 
+// A kinematic body turning on the plane (a spinning station) stays on it, exactly, and so do the dynamic bodies it
+// knocks away: its turn is set every tick, stopped and reversed, as a game drives one.
+@(test)
+kinematic_spinner_stays_on_plane :: proc(t: ^testing.T) {
+	world := zero_g()
+	defer physics.destroy(world)
+	arena_walls(world, ARENA)
+	HEXAGON :: [6][2]f32{{2, 0}, {1, 1.7320508}, {-1, 1.7320508}, {-2, 0}, {-1, -1.7320508}, {1, -1.7320508}}
+	corners := HEXAGON
+	spinner, _, ok := physics.create_polygon_2d(
+		world,
+		physics.body_def_2d(.Kinematic, {0, 0}),
+		physics.shape_def(CAT_STATIC),
+		corners[:],
+		DEPTH_2D,
+	)
+	testing.expect(t, ok, "the hexagon is a valid hull")
+	bodies := make([dynamic]physics.Body_Ref, context.temp_allocator)
+	append(&bodies, spinner)
+	// rocks and circles drifting into it from every side
+	for k in 0 ..< 8 {
+		dir := unit_of(f32(k) * 0.5 - 2)
+		pos := dir * 6
+		if k % 2 == 0 {
+			append(&bodies, rock_body(world, pos, dir, -dir * 4, 1, 1))
+		} else {
+			append(&bodies, circle_body(world, pos, -dir * 5, 0.4, restitution = 0.5))
+		}
+	}
+	off_plane, off_velocity, still_turning := 0, 0, 0
+	stopped_drift: f32
+	for tick in 1 ..= 640 {
+		spin: f32 = tick < 400 ? 2.5 : tick < 480 ? 0 : -4 // turning, stopped (a match over), reversed
+		physics.body_set_angular_velocity_2d(world, spinner, spin)
+		before := physics.body_rotation_2d(world, spinner)
+		steps(world, 1)
+		delta := physics.body_rotation_2d(world, spinner) - before
+		if spin != 0 && delta == {} do still_turning += 1
+		if spin == 0 do stopped_drift = max(stopped_drift, abs(delta.x), abs(delta.y)) // the last bit may flip
+		for body in bodies {
+			if !on_plane(world, body) do off_plane += 1
+			if !in_plane_velocity(world, body) do off_velocity += 1
+		}
+		pos := physics.body_position_2d(world, spinner)
+		testing.expectf(t, pos == {0, 0}, "tick %d: the kinematic spinner moved to %v", tick, pos)
+		if pos != {0, 0} do return
+	}
+	testing.expectf(t, off_plane == 0, "%d body-ticks left the plane (z or quaternion x/y not zero)", off_plane)
+	testing.expectf(
+		t,
+		off_velocity == 0,
+		"%d body-ticks reported off-plane velocity (v.z, ω.x or ω.y)",
+		off_velocity,
+	)
+	testing.expectf(t, still_turning == 0, "the spinner stood still on %d ticks it spun", still_turning)
+	testing.expectf(t, stopped_drift < 1e-6, "stopped, the spinner turned by %v", stopped_drift)
+}
+
 // Unit vectors without trig: (1 − t², 2t) / (1 + t²) turns by 2·atan(t), so t → ±∞ approaches ±180°.
 unit_of :: proc(t: f32) -> [2]f32 {
 	denom := 1 + t * t

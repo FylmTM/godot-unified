@@ -73,13 +73,14 @@ is_integer :: proc(type: ^runtime.Type_Info) -> bool {
 // The Variant type a field reads as, and its class name: an OBJECT's class (a nested struct's DataX), an ARRAY's
 // element type ("int", "Vector2", "DataHudPlayer"; "": untyped, an array of arrays). By shape: [2]/[3]/[4]f32 a
 // Vector2/3/4, [2]/[3]/[4]i32 a Vector2i/3i/4i, Color a Color, Quat a Quaternion, a sim.Position a Vector2 (2D) or
-// Vector3; a handle or a sim.Player an int (its key), an enum an int, a bit_set an Array[int], a nested struct an
-// object of its class (a Dictionary when it has none: a struct only view data uses).
+// Vector3; a handle or a sim.Player an int (its key), a sim.Entity an int (its index, -1: none), an enum an int, a
+// bit_set an Array[int], a nested struct an object of its class (a Dictionary when it has none: a struct only view
+// data uses).
 field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_name: string) {
 	switch {
 	case type.id == sim.Position:
 		return api.is_2d ? .VECTOR2 : .VECTOR3, ""
-	case is_handle(type) || type.id == sim.Player:
+	case is_handle(type) || type.id == sim.Player || type.id == sim.Entity:
 		return .INT, ""
 	case type.id == Color:
 		return .COLOR, ""
@@ -153,6 +154,10 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 		return gd.to_variant(i64(generation << 32 | index))
 	case type.id == sim.Player:
 		return gd.to_variant(i64(player_key_of(bytes)))
+	case type.id == sim.Entity:
+		// its index, the number its views are keyed by and Unified.level_markers is indexed by (-1: none)
+		index, ok := sim.entity_index(sim.Entity(read_uint(bytes)))
+		return gd.to_variant(i64(ok ? index : -1))
 	case type.id == Color:
 		return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 	case type.id == Quat:

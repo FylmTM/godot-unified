@@ -175,6 +175,7 @@ qmul :: proc(a, b: [4]f32) -> [4]f32 {
 }
 
 // Scales a quaternion to unit length; a near-zero one becomes the identity (the zero rotation a game leaves unset).
+@(private)
 qnormalize :: proc(q: [4]f32) -> [4]f32 {
 	length_sq := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
 	if length_sq < 1e-12 do return IDENTITY
@@ -189,22 +190,17 @@ nlerp :: proc(a, b: [4]f32, t: f32) -> [4]f32 {
 	return qnormalize(a + (b - a) * t)
 }
 
-// Rotation about +Y by `yaw` radians (Godot's up axis).
-quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
-	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
-}
-
 // The yaw (radians about +Y) of a rotation.
 yaw_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
 
 // Rotation about +Z by `angle` radians: a 2D angle (Godot's Node2D.rotation: 0 = +x, positive turns +x toward +y).
-quat_angle2d :: proc(angle: f32) -> [4]f32 {
+quat_angle_2d :: proc(angle: f32) -> [4]f32 {
 	return {0, 0, math.sin(angle * 0.5), math.cos(angle * 0.5)}
 }
 
 // The 2D angle (radians about +Z) of a rotation.
-angle2d_of :: proc(q: [4]f32) -> f32 {
+angle_2d_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 }

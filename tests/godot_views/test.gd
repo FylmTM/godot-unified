@@ -86,6 +86,7 @@ func _initialize() -> void:
 	var views := Node2D.new()
 	world.add_child(views)
 	var session := UnifiedSession.new()
+	session.local_name = "player"
 	root.add_child(session)
 	var events: Array[Array] = []  # [event, state]
 	session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
@@ -210,6 +211,14 @@ func _initialize() -> void:
 	var input: UnifiedInput = Unified.input
 	input.drift = 3.0
 	check("Unified.input reads back as set", near(input.drift, 3.0), input.drift)
+	check("a sim.Entity as its index (-1: none)", toy.lamp == 4 and toy.no_lamp == -1, [toy.lamp, toy.no_lamp])
+	check("an Entity field starts as none", input.pick == -1, input.pick)
+	input.pick = 2
+	var picked := input.pick
+	input.pick = -2  # no thing's index: refused with an error line, the value kept
+	check("an Entity set as its index reads back; below -1 refused", picked == 2 and input.pick == 2, [picked, input.pick])
+	input.pick = -1
+	check("an Entity set to -1 is none", input.pick == -1, input.pick)
 	var y0 := toy.y
 	for i in 20:
 		await create_timer(0.02).timeout
@@ -262,10 +271,10 @@ func check_players(session: UnifiedSession, me: int, roster_changes: int) -> voi
 	check("mode: the session started single player", session.mode == UnifiedSession.MODE_SINGLE 		and UnifiedSession.MODE_JOIN_DIRECT == 4, [session.mode, UnifiedSession.MODE_JOIN_DIRECT])
 
 
-# A player who gave no name goes by "P" and their slot counted from 1.
+# A player who gave no name (local_name's default) goes by "P" and their slot counted from 1.
 func check_unnamed() -> void:
 	var session := UnifiedSession.new()
-	session.local_name = ""
+	check("local_name defaults to none", session.local_name == "", session.local_name)
 	root.add_child(session)
 	session.start_single()
 	for i in 150:
