@@ -5,6 +5,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
+import uheadless "unified:headless"
 import "unified:netcode"
 
 // A mode's `--key value` options (after the mode's name), and the lobby service of a lobby mode.
@@ -12,6 +13,7 @@ Args :: struct {
 	mode:  string,
 	opts:  map[string]string,
 	lobby: ^netcode.Lobby, // <name>-host and <name>-client: the service they run on
+	bench: uheadless.Bench, // the game's standard benchmark (run's `bench`), for the `bench` mode
 }
 
 // Prints a formatted error to stderr and exits with code 2, the way every mode (and a game's own modes) rejects a bad

@@ -59,9 +59,9 @@ session_result_destroy :: proc(result: ^Session_Result($G)) {
 
 // Scripted hooks: every client samples the game's scripted input (and commands) for its slot.
 Scripted_User :: struct($G: typeid) {
-	headless: ^Headless(G),
-	seed:     u64,
-	churn:    bool, // Session_Config.churn
+	game:  ^G,
+	seed:  u64,
+	churn: bool, // Session_Config.churn
 }
 
 // Client hooks that sample the game's scripted input and commands for the client's slot, so a session's
@@ -74,18 +74,18 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 		user = scripted,
 	}
 	// No scripted player: the client sends zero Inputs (no sample hook).
-	if scripted.headless.game.scripted_input != nil {
+	if scripted.game.scripted_input != nil {
 		hooks.sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(G))(user)
 			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
 			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
-			return scripted.headless.game.scripted_input(scripted.seed, slot, asked, state)
+			return scripted.game.scripted_input(scripted.seed, slot, asked, state)
 		}
 	}
-	if scripted.headless.game.scripted_commands != nil {
+	if scripted.game.scripted_commands != nil {
 		hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 			scripted := (^Scripted_User(G))(user)
-			scripted.headless.game.scripted_commands(scripted.seed, slot, tick, state, out)
+			scripted.game.scripted_commands(scripted.seed, slot, tick, state, out)
 		}
 	}
 	return hooks
@@ -141,7 +141,7 @@ session_timeout_s :: proc(ticks: u32, tick_hz: int) -> f64 {
 
 // Runs a whole session in this process on a virtual clock: a relay and `cfg.clients` scripted clients over loopback,
 // each behind the netsim profile. The `session` mode and the end-to-end scenarios use it.
-session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Session_Result(G)) {
+session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G)) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	assert(cfg.clients >= 1 && cfg.clients <= PLAYERS)
 	assert(cfg.late_tick == 0 || (cfg.late_slot >= 1 && cfg.late_slot < cfg.clients && cfg.late_tick >= 2))
@@ -150,7 +150,7 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	}
 	recording: [dynamic]u8
 	defer delete(recording)
-	relay := netcode.relay_create(headless.game, {
+	relay := netcode.relay_create(game, {
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = cfg.clients - (cfg.late_tick != 0 ? 1 : 0),
@@ -161,9 +161,9 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	netcode.relay_add_link(relay, netcode.loopback_link(hub, 0))
 	clients := make([]^netcode.Client(G), cfg.clients)
 	defer delete(clients)
-	scripted := Scripted_User(G){headless, cfg.seed, cfg.churn}
+	scripted := Scripted_User(G){game, cfg.seed, cfg.churn}
 	new_client :: proc(
-		headless: ^Headless(G),
+		game: ^G,
 		cfg: Session_Config,
 		hub: ^netcode.Hub,
 		clock: ^netcode.Virtual_Clock,
@@ -177,15 +177,15 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 			slot      = slot,
 			join_tick = join,
 		}
-		return netcode.client_create(headless.game, client_cfg, link, scripted_hooks(scripted))
+		return netcode.client_create(game, client_cfg, link, scripted_hooks(scripted))
 	}
 	for slot in 0 ..< cfg.clients {
 		if cfg.late_tick == 0 || slot != cfg.late_slot {
-			clients[slot] = new_client(headless, cfg, hub, &clock, &scripted, slot, 0)
+			clients[slot] = new_client(game, cfg, hub, &clock, &scripted, slot, 0)
 		}
 	}
-	deadline := clock.now + i64(session_timeout_s(cfg.ticks, headless.game.tick_hz) * 1e6)
-	lead := u32(headless.game.tick_hz * 3 / 2) // a joiner connects ~1.5 s before its join tick
+	deadline := clock.now + i64(session_timeout_s(cfg.ticks, game.tick_hz) * 1e6)
+	lead := u32(game.tick_hz * 3 / 2) // a joiner connects ~1.5 s before its join tick
 	join_from: i64
 	result.ok = true
 	for {
@@ -193,7 +193,7 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 		   clients[cfg.late_slot] == nil &&
 		   relay.clock + (cfg.late_as_player ? 0 : lead) >= cfg.late_tick {
 			join := cfg.late_as_player ? 0 : cfg.late_tick
-			clients[cfg.late_slot] = new_client(headless, cfg, hub, &clock, &scripted, cfg.late_slot, join)
+			clients[cfg.late_slot] = new_client(game, cfg, hub, &clock, &scripted, cfg.late_slot, join)
 			join_from = clock.now
 		}
 		wake := netcode.relay_step(relay, clock.now)

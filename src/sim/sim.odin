@@ -77,7 +77,7 @@ Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game)
 }
 
 // The game type. A game names its six types once, `Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)`, and
-// everything generic over a game (Sim, Tick, the netcode's Client, headless.Headless, godot.Glue, ...) takes that one
+// everything generic over a game (Sim, Tick, the netcode's Client, the headless runs, godot.Glue, ...) takes that one
 // type, `$G`, and names a part of it with `part(G, GAME_<PART>)`:
 //
 //   part(G, GAME_STATE)    the State           part(G, GAME_EVENT)    the Event union

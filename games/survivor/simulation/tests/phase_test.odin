@@ -144,13 +144,10 @@ when scenarios.LONG {
 			defer sim.destroy(simulation)
 			state := &simulation.state
 			first_level: f32 = -1
-			bots := headless.Headless(g.Game) {
-				game = &game,
-			}
 			commands: headless.Scripted_Commands(g.Game)
 			defer headless.scripted_commands_destroy(&commands)
 			for simulation.tick < 200 * g.TICK_HZ && state.phase != .Over {
-				inputs := headless.scripted(&bots, simulation, simulation.tick + 1, 1, &commands)
+				inputs := headless.scripted(&game, simulation, simulation.tick + 1, 1, &commands)
 				sim.step(simulation, &inputs)
 				if first_level < 0 && sim.slot_data(simulation, 0).level > 1 {
 					first_level = sim.seconds(simulation.tick - state.match_tick, g.TICK_HZ)

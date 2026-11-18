@@ -2,6 +2,7 @@
 // host's lobby link and endpoint 1 the joiner's. Real time, two threads, as two processes over EOS would run them.
 package test_headless
 
+import "../toy"
 import "base:runtime"
 import "core:testing"
 import "core:thread"
@@ -50,11 +51,11 @@ Mode_Task :: struct {
 @(private = "file")
 run_mode :: proc(task: ^Mode_Task) {
 	context.allocator = task.allocator
-	headless := HEADLESS
+	game := toy.GAME
 	if task.host {
-		task.ok = modes.mode_lobby_host(&headless, &task.args)
+		task.ok = modes.mode_lobby_host(&game, &task.args)
 	} else {
-		task.ok = modes.mode_lobby_client(&headless, &task.args)
+		task.ok = modes.mode_lobby_client(&game, &task.args)
 	}
 }
 
@@ -87,8 +88,8 @@ lobby_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	thread.destroy(joiner_thread)
 	testing.expect(t, host.ok, "the host failed")
 	testing.expect(t, joiner.ok, "the joiner failed")
-	testing.expect_value(t, g_opened[0].game, HEADLESS.game.name)
-	testing.expect_value(t, g_opened[1].game, HEADLESS.game.name)
+	testing.expect_value(t, g_opened[0].game, toy.GAME.name)
+	testing.expect_value(t, g_opened[1].game, toy.GAME.name)
 	testing.expect(t, g_opened[0].compat != 0 && g_opened[0].compat == g_opened[1].compat, "the same build id")
 	testing.expect_value(t, g_opened[0].players, 4)
 }

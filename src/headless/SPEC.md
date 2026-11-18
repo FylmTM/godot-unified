@@ -10,7 +10,8 @@ suites use; `unified:headless/modes`, a game's headless binary (only binaries im
 
 ## The binary
 
-A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {bench}, variants, lobbies, own_modes)`: a run can pick
+A game's `simulation/headless/main.odin` calls `modes.run(&GAME, bench, variants, lobbies, own_modes)` (all but the
+game optional: `modes.run(&GAME, bench = {what, entities, ticks})`): a run can pick
 one of the `variants` (another tuning) by name, `--level FILE` plays a copy of the game on that level instead of
 `GAME.content`, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `own_modes` adds the game's own modes
 (`modes.Mode{name, options, help, run}`, parsed and checked like the library's). `uni headless` builds it when stale
@@ -25,7 +26,7 @@ The runs are played by the game's scripted player (`sim.Game.scripted_input`, `s
   rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second, a late joiner's join (its
   snapshot's transfer, its catch-up step); a desync fails it. `uni bench` runs it.
 - `relay`, `client`: separate processes over local UDP on the real clock.
-- `bench`: the game's standard benchmark (`Headless.bench`, `sim.Game.bench_prepare` holding its population): step, save,
+- `bench`: the game's standard benchmark (`modes.run`'s `bench`, `sim.Game.bench_prepare` holding its population): step, save,
   checksum, a portable snapshot's encode, a restore and a re-sim at the prediction cap every tick. `uni bench` runs
   it; a game without one (a small example) has no row.
 - `<lobby>-host`, `<lobby>-client` (a game that opts in): a scripted session over the lobby service, two processes
@@ -43,7 +44,7 @@ Conventions:
 
 ## Runs
 
-`Headless{game, bench}` describes a game's runs (on `game.content`). In an offline run (`run_sim`, `run_synctest`,
+Every run takes the game (`^G`, a `sim.Game`), played on `game.content`. In an offline run (`run_sim`, `run_synctest`,
 `run_interleaved`, `run_replay`, `run_snapshot`, `run_resume`, the stepped `Run`) slot i is member i + 1 from tick 1,
 joining with its join record (`src/sim/SPEC.md`, Players); `seats` (`Seat{tick, slot, member}`, member 0: nobody)
 change who holds a slot. A tick takes the commands each slot's script sends for it; a script that sends more than a
@@ -68,7 +69,7 @@ scenarios.expect_synced(t, &run)            // every re-simulation agreed: no mi
 
 `run_events(&run, Event_X)` counts the events of one kind the forward ticks emitted.
 
-`session_run(&headless, Session_Config{clients, profile, ticks, seed, late_tick, late_slot, late_as_player, churn})`
+`session_run(&GAME, Session_Config{clients, profile, ticks, seed, late_tick, late_slot, late_as_player, churn})`
 runs a relay and scripted clients over loopback on one thread through virtual time (as fast as it computes,
 deterministically); a `late_tick` of 0 means everyone starts together. A late joiner is present from `late_tick`
 exactly (the suites compare its checksums from there), or with `late_as_player` connects when the clock reaches it

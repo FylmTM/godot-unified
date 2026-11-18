@@ -7,5 +7,5 @@ import "../../toy"
 import "unified:headless/modes"
 
 main :: proc() {
-	modes.run(&toy.GAME, {})
+	modes.run(&toy.GAME)
 }

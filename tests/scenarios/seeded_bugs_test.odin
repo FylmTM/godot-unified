@@ -23,10 +23,7 @@ seeded_world_state_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) {
 		toy.tick(tick)
 		if data := toy.in_slot(tick.state, 0); data != nil do data.score += i32(tick.world.ticks_run % 3)
 	}
-	bugged := headless.Headless(toy.Game) {
-		game = &game,
-	}
-	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
+	result := headless.run_synctest(&game, 120, 8, SUITE.seed, 2)
 	testing.expectf(t, result.mismatches > 0, "a World count read by tick: synctest saw no mismatch")
 }
 
@@ -43,10 +40,7 @@ seeded_world_state_in_an_event_is_caught_by_rollback_every_tick :: proc(t: ^test
 			sim.emit(tick, toy.Event_Expired{thing = {index = u32(tick.world.ticks_run % 32)}})
 		}
 	}
-	bugged := headless.Headless(toy.Game) {
-		game = &game,
-	}
-	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
+	result := headless.run_synctest(&game, 120, 8, SUITE.seed, 2)
 	testing.expectf(
 		t,
 		result.mismatches > 0 && strings.contains(result.problem, "emitted other events"),
@@ -67,10 +61,7 @@ seeded_nan_in_the_block_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) 
 			data.pos.y = data.pos.x * 0 / (data.pos.x - data.pos.x) // 0/0 at run time
 		}
 	}
-	bugged := headless.Headless(toy.Game) {
-		game = &game,
-	}
-	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
+	result := headless.run_synctest(&game, 120, 8, SUITE.seed, 2)
 	testing.expectf(
 		t,
 		strings.has_prefix(result.problem, "tick 50: players.data[") &&
@@ -98,14 +89,11 @@ seeded_shared_state_is_caught_by_runs_match :: proc(t: ^testing.T) {
 		shared_ticks += 1
 		if data := toy.in_slot(tick.state, 0); data != nil do data.score += i32(shared_ticks % 3)
 	}
-	bugged := headless.Headless(toy.Game) {
-		game = &game,
-	}
 	// back to back, each run alone looks deterministic: why runs_match interleaves its two runs
-	first := headless.run_sim(&bugged, 120, SUITE.seed, 2)
-	second := headless.run_sim(&bugged, 120, SUITE.seed, 2)
+	first := headless.run_sim(&game, 120, SUITE.seed, 2)
+	second := headless.run_sim(&game, 120, SUITE.seed, 2)
 	testing.expect_value(t, second.final_checksum, first.final_checksum)
-	result := headless.run_interleaved(&bugged, 120, SUITE.seed, 2)
+	result := headless.run_interleaved(&game, 120, SUITE.seed, 2)
 	testing.expectf(t, result.mismatches > 0, "state shared by two instances: the interleaved runs agreed")
 }
 
@@ -118,11 +106,8 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 		address := u64(uintptr(t.world))
 		t.state.spawned = u32(address ~ address >> 32)
 	}
-	bugged := headless.Headless(toy.Game) {
-		game = &game,
-	}
 	network, _ := netcode.profile_by_name("ideal")
-	result := headless.session_run(&bugged, {
+	result := headless.session_run(&game, {
 		clients = 2,
 		profile = network,
 		ticks   = 120,
@@ -142,16 +127,13 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 		toy.tick(tick)
 		if data := toy.in_slot(tick.state, 0); tick.world.ticks_run % 50 == 0 && data != nil do data.score += 1
 	}
-	reads_world := headless.Headless(toy.Game) {
-		game = &game,
-	}
 	cfg := headless.Session_Config {
 		clients = 3,
 		profile = netcode.PROFILES[.Wan], // wan: rollbacks, so `tick` runs a different number of times
 		ticks   = 640,
 		seed    = 1,
 	}
-	result := headless.session_run(&reads_world, cfg)
+	result := headless.session_run(&game, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.desyncs > 0)
 	testing.expect(t, !result.ok) // a desync fails the session
@@ -173,7 +155,7 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 		testing.expect(t, !client.ok)
 	}
 	cfg.profile = netcode.PROFILES[.Ideal]
-	ideal := headless.session_run(&reads_world, cfg)
+	ideal := headless.session_run(&game, cfg)
 	defer headless.session_result_destroy(&ideal)
 	testing.expect_value(t, ideal.desyncs, 0)
 	testing.expect(t, ideal.ok)

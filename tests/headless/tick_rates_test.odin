@@ -67,10 +67,7 @@ plain_session :: proc(
 	stalls: int,
 ) {
 	game := plain_game(G, CHANGING, tick_hz)
-	plain := headless.Headless(G) {
-		game = &game,
-	}
-	result = headless.session_run(&plain, cfg)
+	result = headless.session_run(&game, cfg)
 	for client in result.clients do stalls += client.stall_ticks
 	return
 }

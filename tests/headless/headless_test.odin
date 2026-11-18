@@ -14,11 +14,6 @@ import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-// Read-only: the runs only read it, so the tests share it.
-HEADLESS := headless.Headless(toy.Game) {
-	game = &toy.GAME,
-}
-
 temp_path :: proc(name: string) -> string {
 	dir := os.temp_directory(context.temp_allocator) or_else "."
 	path, _ := filepath.join(
@@ -41,8 +36,8 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	defer headless.trace_destroy(&trace)
 	input_log: sim.Input_Log(toy.Game)
 	defer sim.log_destroy(&input_log)
-	run := headless.run_sim(&HEADLESS, 300, 7, 3, &trace, &input_log)
-	synctest := headless.run_synctest(&HEADLESS, 300, 8, 7, 3)
+	run := headless.run_sim(&toy.GAME, 300, 7, 3, &trace, &input_log)
+	synctest := headless.run_synctest(&toy.GAME, 300, 8, 7, 3)
 	testing.expect_value(t, synctest.final_checksum, run.final_checksum)
 	testing.expect(t, headless.log_write(log_path, &input_log) && headless.trace_write(&trace, trace_path))
 	trace_text, trace_err := os.read_entire_file(trace_path, context.temp_allocator)
@@ -53,10 +48,10 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	defer sim.log_destroy(&read_log)
 	testing.expect(t, log_ok && read_log.compat == sim.compat_of(&toy.GAME))
 	read_log.compat ~= 1
-	_, other_build_ok := headless.run_replay(&HEADLESS, &read_log)
+	_, other_build_ok := headless.run_replay(&toy.GAME, &read_log)
 	testing.expect(t, !other_build_ok)
 	read_log.compat = 0
-	unknown, unknown_ok := headless.run_replay(&HEADLESS, &read_log)
+	unknown, unknown_ok := headless.run_replay(&toy.GAME, &read_log)
 	testing.expect(t, unknown_ok && unknown.final_checksum == run.final_checksum)
 }
 
@@ -66,13 +61,10 @@ a_game_without_a_scripted_player_runs :: proc(t: ^testing.T) {
 	game := toy.GAME
 	game.scripted_input = nil
 	game.scripted_commands = nil
-	runs := headless.Headless(toy.Game) {
-		game = &game,
-	}
-	result := headless.run_synctest(&runs, 64, 8, 1, 2)
+	result := headless.run_synctest(&game, 64, 8, 1, 2)
 	testing.expect_value(t, result.mismatches, 0)
 	testing.expect(t, result.resimulated > 0 && result.final_checksum != 0)
-	session := headless.session_run(&runs, {clients = 2, profile = netcode.PROFILES[.Wan], ticks = 160, seed = 1})
+	session := headless.session_run(&game, {clients = 2, profile = netcode.PROFILES[.Wan], ticks = 160, seed = 1})
 	defer headless.session_result_destroy(&session)
 	testing.expect(t, session.ok, "a session of players without a script")
 }
@@ -86,9 +78,9 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 		ticks   = 320,
 		seed    = 3,
 	}
-	first := headless.session_run(&HEADLESS, cfg)
+	first := headless.session_run(&toy.GAME, cfg)
 	defer headless.session_result_destroy(&first)
-	second := headless.session_run(&HEADLESS, cfg)
+	second := headless.session_run(&toy.GAME, cfg)
 	defer headless.session_result_destroy(&second)
 	testing.expect(t, first.ok && second.ok)
 	// Wall time, the one thing that may differ (how many client steps stepped the sim may not).
@@ -132,7 +124,7 @@ far_start_players_keep_their_first_inputs :: proc(t: ^testing.T) {
 				ticks   = 192,
 				seed    = seed,
 			}
-			result := headless.session_run(&HEADLESS, cfg)
+			result := headless.session_run(&toy.GAME, cfg)
 			defer headless.session_result_destroy(&result)
 			testing.expectf(t, result.ok, "%s, seed %d: the session failed", profile.name, seed)
 			first_replaced := -1
