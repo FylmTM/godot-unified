@@ -144,13 +144,15 @@ net_destroy :: proc(session: ^Net) {
 }
 
 // Steps everyone for `seconds` of virtual time, or until `done` says so: each round steps the relay (or host) and
-// every client, then jumps to the earliest wake any of them asked for.
-net_run :: proc(session: ^Net, seconds: f64, done: proc(session: ^Net) -> bool = nil) {
+// every client, then jumps to the earliest wake any of them asked for. Remote client `hitched` (an index into
+// session.clients) is not stepped: its process hitches, what arrives waits in its socket.
+net_run :: proc(session: ^Net, seconds: f64, done: proc(session: ^Net) -> bool = nil, hitched := -1) {
 	end := session.clock.now + i64(seconds * 1e6)
 	for session.clock.now < end {
 		now := session.clock.now
 		wake := session.host != nil ? netcode.host_step(session.host, now) : netcode.relay_step(session.relay, now)
-		for client in session.clients {
+		for client, i in session.clients {
+			if i == hitched do continue
 			wake = min(wake, netcode.client_step(client, now))
 		}
 		if done != nil && done(session) {

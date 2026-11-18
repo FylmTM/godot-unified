@@ -112,8 +112,10 @@ instead of sitting half-open. A datagram that doesn't validate never gets a conn
 - **Broadcast**: newly finalized ticks, at most once per `BROADCAST_GAP` of a tick (under jitter each player's input
   arriving can finalize a tick), and a heartbeat when nothing was finalized for a tick (the clients time their clocks
   from it). Each Finalized carries the relay time, the input and command acks, and the client's unacked finalized
-  ticks (as many as fit, ≤ `WINDOW_MAX`); a longer backlog, up to `CATCHUP_TICKS`, goes out one window per broadcast
-  in turn. A client whose unacked ticks have left the ring is refused (`Too_Far_Behind`).
+  ticks, up to `CATCHUP_TICKS` of them, in one message (as many as fit, ≤ `WINDOW_MAX`). When they don't fit, each
+  broadcast carries on where the last one stopped and starts again at the oldest once one reached the newest: a
+  message of ticks per broadcast, never one per round trip, however wide a tick. A client whose unacked ticks have
+  left the ring is refused (`Too_Far_Behind`).
 - **The window** (`window.odin`): each tick is written as its changes from the tick before it in the same packet,
   the first from the empty tick: a flags byte, then only what it says: present and replaced (a bit per slot); a bit
   per slot whose input changed and, per such slot, a bit per changed byte and those bytes; the commands; the join
@@ -225,7 +227,8 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
   (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
   through the relay in reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the
   joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
-  replaced by another. Until it plays the joiner holds finalized ticks only up to `FIN_RING − 64` past S, so it is
+  replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
+  holds from it on, and acks of them may reach the relay after the new Snap_Begin). Until it plays the joiner holds finalized ticks only up to `FIN_RING − 64` past S, so it is
   refused as too far behind when it isn't in within that plus `RELAY_RING` ticks of S (64 s at 64 Hz): the time a
   large world's snapshot has to arrive.
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the

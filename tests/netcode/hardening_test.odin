@@ -474,10 +474,20 @@ evil_send :: proc(evil: ^Evil, session: ^Net) {
 	netcode.channel_send(evil.channel, evil.peer, evil.writer.buf[:], .Reliable, session.clock.now)
 }
 
-// Runs the session and the evil channel for `seconds`; returns the first message the evil channel got of `kind`
-// (empty: none).
-evil_run :: proc(evil: ^Evil, session: ^Net, seconds: f64, kind := netcode.Msg(0)) -> (got: []u8) {
-	for _ in 0 ..< int(seconds * 100) {
+// Runs the session and the evil channel for `seconds`, in rounds of `round` seconds, or until `done` says so; returns
+// the first message the evil channel got of `kind` (empty: none). `hitched`: as net_run's.
+evil_run :: proc(
+	evil: ^Evil,
+	session: ^Net,
+	seconds: f64,
+	kind := netcode.Msg(0),
+	round := 0.01,
+	hitched := -1,
+	done: proc(session: ^Net) -> bool = nil,
+) -> (
+	got: []u8,
+) {
+	for _ in 0 ..< int(seconds / round + 0.5) {
 		netcode.channel_flush(evil.channel, session.clock.now)
 		for event in netcode.channel_poll(evil.channel, session.clock.now) {
 			if event.kind == .Message && got == nil && len(event.data) > 0 && netcode.Msg(event.data[0]) == kind {
@@ -493,7 +503,8 @@ evil_run :: proc(evil: ^Evil, session: ^Net, seconds: f64, kind := netcode.Msg(0
 			wire.w_u8(writer, 0) // no commands
 			netcode.channel_send(evil.channel, evil.peer, writer.buf[:], .Unreliable, session.clock.now)
 		}
-		net_run(session, 0.01)
+		net_run(session, round, hitched = hitched)
+		if done != nil && done(session) do return
 	}
 	return
 }

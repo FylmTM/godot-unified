@@ -21,12 +21,13 @@ padded_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string 
 	return plain_check(type, path, bools = true, floats = true, padding = true)
 }
 
-// plain_violation without bools or floats: the rule for a tick's Input, which comes from another machine and is
-// compared and logged as raw bytes. A bool's byte can hold values other than 0 and 1 there, which Odin's bool
-// operations don't define (a u8 of flags or a bit_set says the same with every byte value defined); a float can be
-// a NaN or an infinity a sim never expects (quantize: an i8 axis, dmath's direction encodings).
+// plain_violation without bools or floats, and every enum with a member of value 0: the rule for a tick's Input,
+// which comes from another machine and is compared and logged as raw bytes. A bool's byte can hold values other than
+// 0 and 1 there, which Odin's bool operations don't define (a u8 of flags or a bit_set says the same with every byte
+// value defined); a float can be a NaN or an infinity a sim never expects (quantize: an i8 axis, dmath's direction
+// encodings). An undeclared enum value reads as 0, and an absent player's input is all zeros: 0 must be declared.
 wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
-	return plain_check(type, path, bools = false, floats = false)
+	return plain_check(type, path, bools = false, floats = false, zero_enums = true)
 }
 
 @(private)
@@ -36,11 +37,12 @@ plain_check :: proc(
 	bools: bool,
 	floats: bool,
 	padding := false,
+	zero_enums := false, // every enum declares a member of value 0
 	named: ^runtime.Type_Info = nil, // the named type, when `type` is its base: the padding errors name it
 ) -> string {
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_check(variant.base, path, bools, floats, padding, type)
+		return plain_check(variant.base, path, bools, floats, padding, zero_enums, type)
 	case runtime.Type_Info_Integer:
 		if type.id == int || type.id == uint || type.id == uintptr {
 			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
@@ -68,19 +70,26 @@ plain_check :: proc(
 		}
 		return ""
 	case runtime.Type_Info_Enum:
-		return plain_check(variant.base, path, bools, floats, padding)
+		if zero_enums && !enum_declares(variant, 0) {
+			return fmt.tprintf(
+				"%s: %v declares no member of value 0 (an undeclared value from another machine, and an absent player's input, read as 0)",
+				path,
+				named != nil ? named.id : type.id,
+			)
+		}
+		return plain_check(variant.base, path, bools, floats, padding, zero_enums)
 	case runtime.Type_Info_Bit_Set:
 		if variant.underlying == nil {
 			return fmt.tprintf("%s: bit_set without an explicit backing integer", path)
 		}
-		return plain_check(variant.underlying, path, bools, floats, padding)
+		return plain_check(variant.underlying, path, bools, floats, padding, zero_enums)
 	case runtime.Type_Info_Array:
-		return plain_check(variant.elem, path, bools, floats, padding)
+		return plain_check(variant.elem, path, bools, floats, padding, zero_enums)
 	case runtime.Type_Info_Enumerated_Array:
 		if variant.is_sparse {
 			return fmt.tprintf("%s: sparse enumerated array", path)
 		}
-		return plain_check(variant.elem, path, bools, floats, padding)
+		return plain_check(variant.elem, path, bools, floats, padding, zero_enums)
 	case runtime.Type_Info_Struct:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
@@ -98,7 +107,7 @@ plain_check :: proc(
 					variant.offsets[i] - end,
 				)
 			}
-			if reason := plain_check(variant.types[i], name, bools, floats, padding); reason != "" {
+			if reason := plain_check(variant.types[i], name, bools, floats, padding, zero_enums); reason != "" {
 				return reason
 			}
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
