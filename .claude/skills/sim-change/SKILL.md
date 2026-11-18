@@ -38,7 +38,8 @@ gh workflow run ci.yml --ref <branch> -f macos=true
 ```
 
 The goldens and reference runs must reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64, and a PR's own CI
-skips macOS (it runs nightly on main). Wait for the run to pass and link it in the PR.
+skips macOS. Wait for the run to pass on the other three and link it in the PR; macOS doesn't block the merge (its
+runners often never start). After the merge, `main`'s run covers macOS: if it fails there, fix it first.
 
 ## The long suites
 
