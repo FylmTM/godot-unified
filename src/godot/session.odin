@@ -33,7 +33,7 @@ Session_Node :: struct {
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
 	has_pending: bool,
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
-	mode:        Mode, // the session started last (the dev UI: no netsim in single player; catch-up only joining)
+	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
 }
 
 @(private)
@@ -155,6 +155,13 @@ register_session_class :: proc() {
 	)
 	gd.bind_property(
 		class,
+		"mode",
+		proc(session: ^Session_Node) -> i64 {return i64(session.mode)},
+		class_name = "UnifiedSession.Mode",
+		doc = "How the session started last began (single player, hosting or joining), whoever started it: a script, the menus or the command line's flags. Read it once [member status] leaves STATUS_IDLE.",
+	)
+	gd.bind_property(
+		class,
 		"running",
 		proc(session: ^Session_Node) -> bool {return api.installed && api.running()},
 		doc = "A session is running (until its thread ended, after a goodbye).",
@@ -188,11 +195,10 @@ register_session_class :: proc() {
 			return i64(shown_slot(session, player))
 		}, {"player"}, doc = "The slot (input index) [param player] holds at the shown tick; -1 when absent.")
 	gd.bind_method(class, "get_player_name", proc(session: ^Session_Node, player: i64) -> string {
-			entry, ok := roster_entry(player)
-			return ok ? strings.clone(netcode.text_string(&entry.name), context.temp_allocator) : ""
+			return player_name(session, player)
 		}, {
 			"player",
-		}, doc = "The name [param player] goes by in the session (\"\" when unknown); still answers after they left.")
+		}, doc = "The name [param player] goes by in the session: the one they gave, else \"P\" and their slot counted from 1 while they hold one (\"\" for a player the session doesn't know); still answers after they left.")
 	gd.bind_method(class, "get_player_platform", proc(session: ^Session_Node, player: i64) -> string {
 			entry, ok := roster_entry(player)
 			return ok ? strings.clone(netcode.text_string(&entry.platform), context.temp_allocator) : ""
@@ -302,6 +308,7 @@ register_session_class :: proc() {
 			doc = STATUS_DOCS[status],
 		)
 	}
+	for name, mode in MODE_NAMES do gd.bind_constant(class, "Mode", name, i64(mode), doc = MODE_DOCS[mode])
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
 }
 
@@ -312,6 +319,34 @@ STATUS_DOCS := [Status_Kind]string {
 	.Connected    = "In the session.",
 	.Failed       = "The session could not start or ended on an error ([code]detail[/code] says which).",
 	.Disconnected = "The session ended: left, the host left, or the link was lost.",
+}
+
+@(private)
+MODE_NAMES := [Mode]string {
+	.Single      = "MODE_SINGLE",
+	.Host_Online = "MODE_HOST_ONLINE",
+	.Host_Direct = "MODE_HOST_DIRECT",
+	.Join_Online = "MODE_JOIN_ONLINE",
+	.Join_Direct = "MODE_JOIN_DIRECT",
+}
+
+@(private)
+MODE_DOCS := [Mode]string {
+	.Single      = "Single player ([method start_single], [code]--autostart[/code]).",
+	.Host_Online = "Hosting through the game's lobby service ([method host_online], [code]--host-online[/code]): [signal lobby_code] gives the code.",
+	.Host_Direct = "Hosting on a UDP port ([method host_direct], [code]--host-port[/code]): [signal lobby_code] gives the port.",
+	.Join_Online = "Joining by a lobby code ([method join_online], [code]--join-code[/code]).",
+	.Join_Direct = "Joining a host:port ([method join_direct], [code]--join[/code]).",
+}
+
+// The name a player goes by: theirs, else "P<slot + 1>" while they hold a slot ("" for one the session doesn't know).
+@(private)
+player_name :: proc(session: ^Session_Node, player: i64) -> string {
+	if entry, ok := roster_entry(player); ok {
+		if name := netcode.text_string(&entry.name); name != "" do return strings.clone(name, context.temp_allocator)
+	}
+	slot := shown_slot(session, player)
+	return slot >= 0 ? fmt.tprintf("P%d", slot + 1) : ""
 }
 
 @(private)
@@ -452,6 +487,7 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 		session.pending = request
 		session.pending.arg = strings.clone(request.arg)
 		session.has_pending = true
+		session.mode = request.mode
 		api.hurry()
 		emit_status(session, .Connecting, "")
 		return true

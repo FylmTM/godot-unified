@@ -217,6 +217,7 @@ func _initialize() -> void:
 	await check_commands(session, toy)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
+	await check_unnamed()
 	print("VIEWS TESTS: %d failed" % failed)
 	quit(failed)
 
@@ -258,6 +259,28 @@ func check_players(session: UnifiedSession, me: int, roster_changes: int) -> voi
 	check("no platform account in single player", session.get_player_platform(me) == "" \
 		and session.get_player_platform_id(me) == "", [session.get_player_platform(me), session.get_player_platform_id(me)])
 	check("roster_changed when the roster came", roster_changes > 0, roster_changes)
+	check("mode: the session started single player", session.mode == UnifiedSession.MODE_SINGLE 		and UnifiedSession.MODE_JOIN_DIRECT == 4, [session.mode, UnifiedSession.MODE_JOIN_DIRECT])
+
+
+# A player who gave no name goes by "P" and their slot counted from 1.
+func check_unnamed() -> void:
+	var session := UnifiedSession.new()
+	session.local_name = ""
+	root.add_child(session)
+	session.start_single()
+	for i in 150:
+		if session.local_player != 0:
+			break
+		await create_timer(0.02).timeout
+	check("no name given: P<slot + 1>", session.get_player_name(session.local_player) == "P1",
+		session.get_player_name(session.local_player))
+	session.leave()
+	for i in 50:
+		if not session.running:
+			break
+		await create_timer(0.02).timeout
+	session.queue_free()
+	await process_frame
 
 
 # The events: every one on the sim_event signal as an object of its class, EMITTED once and then CONFIRMED or

@@ -54,6 +54,7 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
 	session = UnifiedSession.new()
 	session.name = &"UnifiedSession"
+	session.local_name = Settings.get_value(&"player_name")  # before it enters the tree: flags start it there
 	add_child(session)
 	session.status_changed.connect(_on_status_changed)
 	session.lobby_code.connect(_on_lobby_code)
@@ -270,6 +271,9 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 	status_detail = detail
 	status_changed.emit(new_status, detail)
 	match new_status:
+		UnifiedSession.STATUS_CONNECTING:
+			if flow == Flow.MENU:
+				_adopt()
 		UnifiedSession.STATUS_CONNECTED:
 			if flow == Flow.CONNECTING:
 				_hide_connect_overlay()
@@ -283,12 +287,29 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 			leave_to_menu(detail if detail != "" else "Connection failed.")
 		UnifiedSession.STATUS_DISCONNECTED:
 			if flow != Flow.MENU:
-				leave_to_menu("Disconnected" + (": " + detail if detail != "" else "."))
+				# "left": this player left through the session (a tool, say), not through the menus
+				leave_to_menu("" if detail == "left" else "Disconnected" + (": " + detail if detail != "" else "."))
+
+
+## A session the menus didn't start (the command line's session flags, a tool) is the app's too: the flow follows it.
+func _adopt() -> void:
+	match session.mode:
+		UnifiedSession.MODE_SINGLE:
+			_begin(Mode.SINGLE)
+		UnifiedSession.MODE_HOST_ONLINE:
+			_begin(Mode.HOST)
+		UnifiedSession.MODE_HOST_DIRECT:
+			_begin(Mode.HOST_LAN)
+		_:
+			_begin(Mode.JOIN)
 
 
 func _on_lobby_code(code: String) -> void:
 	if mode == Mode.HOST_LAN:
-		return  # the native LAN host reports its port here; friends need the address (lan_address)
+		# the native LAN host reports its port here; friends need the address
+		var ips := _lan_ips()
+		lan_address = "%s:%s" % [ips[0] if not ips.is_empty() else "127.0.0.1", code]
+		return
 	lobby_code = code
 	if mode == Mode.HOST and code != "":
 		clipboard_set(code)  # the host's next move is pasting it to a friend

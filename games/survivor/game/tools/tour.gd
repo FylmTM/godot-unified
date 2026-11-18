@@ -1,4 +1,4 @@
-extends UnifiedTool
+extends MenuTool
 ## A tour of the real game with the native session, driven by input actions:
 ##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--frames]
 ## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the

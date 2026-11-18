@@ -7,6 +7,10 @@ const MULTI_KINDS: Array[String] = ["brute", "gem", "grunt", "projectile", "runn
 const MENU_SCRIPT := "res://game/ui/main_menu.gd"
 
 
+func _play_scene() -> String:
+	return "res://game/arena/arena.tscn"
+
+
 func _check_contract() -> String:
 	var constants := Unified.constants
 	var cards := constants.upgrades
@@ -21,12 +25,12 @@ func _check_contract() -> String:
 		var kind: String = EnumItemKind.name(item.kind)
 		if not ResourceLoader.exists("res://game/views/%s.tscn" % kind) or not rest_y.has(item.kind):
 			log_capture.add("item kind %s has no view scene or rest height" % kind, MENU_SCRIPT)
-	var arena := (load(game.PLAY_SCENE) as PackedScene).instantiate()
+	var arena := (load(_play_scene()) as PackedScene).instantiate()
 	var kinds: Array[String] = []
 	for b in arena.get_node(^"MultiViews").get_children():
 		kinds.append((b.get_node(^"UnifiedMultiView") as UnifiedMultiView).kind)
 	kinds.sort()
 	if kinds != MULTI_KINDS:
-		log_capture.add("MultiMesh views %s, the sim's kinds %s" % [kinds, MULTI_KINDS], game.PLAY_SCENE)
+		log_capture.add("MultiMesh views %s, the sim's kinds %s" % [kinds, MULTI_KINDS], _play_scene())
 	arena.free()
 	return "ok"

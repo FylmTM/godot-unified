@@ -1,5 +1,5 @@
 extends UnifiedCoop
-## friendslop's co-op play (the flow is the shared one, UnifiedCoop): the host walks over to the friend and picks
+## friendslop's co-op play (the flow is the library's, UnifiedCoop): the host walks over to the friend and picks
 ## them up; the friend mashes jump and breaks free.
 
 const Steering := preload("res://game/tools/steering.gd")
@@ -33,5 +33,14 @@ func _join_play() -> void:
 
 ## Someone holds this player (false while they hold no slot).
 func _held(player: int) -> bool:
-	var info := game.player_info(player) as DataHudPlayer
-	return info != null and info.held
+	var slot := session.get_player_slot(player)
+	return slot >= 0 and (Unified.data.hud.players[slot] as DataHudPlayer).held
+
+
+## The host left: the friend lands on the main menu, which says why.
+func _host_left() -> void:
+	await wait_for_scene("MainMenu", 10.0)
+	var error := find(current_scene, ^"Menu/%ErrorMessage") as Label
+	if failed():
+		return
+	step("on the menu: %s" % (error.text if error.is_visible_in_tree() else "(no error shown)"))

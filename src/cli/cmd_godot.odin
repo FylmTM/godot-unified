@@ -577,9 +577,11 @@ Coop_Opts :: struct {
 	lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 }
 
-// A host (windowed with --window, else headless) and a headless joiner with a fresh EOS device id, as two Godot
-// processes running the coop tool script; the host hands the lobby code over through a file. The joiner is always
-// reaped, also when the host fails: an orphan would stay connected to EOS.
+// A host (windowed with --window, else headless) and a headless joiner, as two Godot processes running the coop tool
+// script (the game's game/tools/coop.gd, else unified's): each side's session starts from its session flags, the
+// joiner's once the host has written its lobby code (or address) to a file. Online, the joiner has a fresh EOS
+// device id (a second player); --crash starts a second joiner with the first one's. Every joiner is reaped, also
+// when the host fails: an orphan would stay connected to EOS.
 @(private)
 cmd_coop :: proc(args: []string) -> Result {
 	opts: Coop_Opts
@@ -591,76 +593,122 @@ cmd_coop :: proc(args: []string) -> Result {
 	if !has_extension(selected) {
 		usage("%s has no extension", selected.name)
 	}
-	script := tool_script(selected, "coop")
-	if script == "" {
-		// no coop tool script (no menus to drive): unified's default, a host and a joiner over direct UDP
-		if !opts.lan || opts.rejoin || opts.crash || opts.window {
-			usage(
-				"%s has no coop tool script: its default runs with --lan only (a host and a joiner, headless)",
-				selected.name,
-			)
-		}
-		return coop_default(selected)
-	}
 	ensure_game(selected)
-	extra: [dynamic]string
-	if opts.rejoin {
-		append(&extra, "--rejoin")
-	}
-	if opts.crash {
-		append(&extra, "--crash")
-	}
-	if opts.lan {
-		// a free port: two runs at once (parallel agents) never meet in each other's lobby
-		append(&extra, "--lan", aprintf("--lan-port=%d", free_udp_port()))
-	}
-	code := join(selected.dir, ".out", "coop_code.txt")
-	os.remove(code)
-	join_args: [dynamic]string
-	append(&join_args, "--role=join", "--code-file=res://.out/coop_code.txt")
-	append(&join_args, ..extra[:])
-	joiner_run := Tool_Run {
-		dir     = selected.dir,
-		script  = script,
-		args    = join_args[:],
-		timeout = 210,
-		env     = env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1"),
-	}
-	joiner := start({
-		cmd     = tool_cmd(joiner_run),
-		capture = true,
-		timeout = 210 * time.Second,
-		env     = joiner_run.env,
-		log_to  = join(selected.dir, ".out", "coop_join"),
-	})
+	script := tool_script(selected, "coop")
+	code_path := join(selected.dir, ".out", "coop_code.txt")
+	os.remove(code_path)
+	os.remove(aprintf("%s.played", code_path))
+	common: [dynamic]string
+	append(&common, "--code-file=res://.out/coop_code.txt")
+	if opts.rejoin do append(&common, "--rejoin")
+	if opts.crash do append(&common, "--crash")
+	// --lan: a free port, so two runs at once (parallel agents) never meet in each other's lobby
+	port := opts.lan ? free_udp_port() : 0
 	host_args: [dynamic]string
-	append(&host_args, "--role=host", "--code-file=res://.out/coop_code.txt")
-	append(&host_args, ..extra[:])
-	if opts.crash {
-		return coop_crash(selected, script, &joiner, host_args[:], opts.lan, opts.window, AGENT_WINDOW)
+	append(&host_args, "--role=host")
+	append(&host_args, ..common[:])
+	if opts.lan {
+		append(&host_args, "--host-port", aprintf("%d", port))
+	} else {
+		append(&host_args, "--host-online")
 	}
-	host := run_tool({
-		dir     = selected.dir,
-		script  = script,
-		args    = host_args[:],
-		window  = opts.window,
-		shots   = opts.window ? "coop" : "",
-		place   = AGENT_WINDOW,
-		timeout = 180,
+	host_run := Tool_Run {
+		dir    = selected.dir,
+		script = script,
+		args   = host_args[:],
+		window = opts.window,
+		shots  = opts.window ? "coop" : "",
+		place  = AGENT_WINDOW,
+	}
+	cleanup := opts.window ? with_window(selected.dir, AGENT_WINDOW) : no_cleanup
+	defer cleanup(selected.dir)
+	host := start({
+		cmd     = tool_cmd(host_run),
+		capture = true,
+		timeout = 300 * time.Second,
+		log_to  = join(selected.dir, ".out", "coop_host"),
 	})
-	joiner_result := wait(&joiner)
-	log("uni: the joiner:")
-	join := judge_tool(joiner_result, true)
-	ok := host.ok && join.ok
+	code := ""
+	for code == "" && !done(&host) && !past_timeout(&host) {
+		time.sleep(100 * time.Millisecond)
+		code, _ = read_text(code_path)
+		code = strings.trim_space(code)
+	}
+	if code == "" {
+		log("uni: the host wrote no lobby code:")
+		judge_tool(wait(&host), true)
+		return {ok = false, summary = aprintf("coop %s: the host never hosted", selected.name)}
+	}
+	joiner_args: [dynamic]string
+	append(&joiner_args, "--role=join")
+	append(&joiner_args, ..common[:])
+	if opts.lan {
+		append(&joiner_args, "--join", code)
+	} else {
+		append(&joiner_args, "--join-code", code)
+	}
+	friend := env_with("USER=Friend", "USERNAME=Friend") // the second player's default name
+	fresh := opts.lan ? friend : env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1")
+	joiner := start_joiner(selected, script, joiner_args[:], fresh, "coop_join")
+	if !opts.crash {
+		join_ran := wait(&joiner)
+		log("uni: the host:")
+		host_result := judge_tool(wait(&host), true)
+		log("uni: the joiner:")
+		join_result := judge_tool(join_ran, true)
+		ok := host_result.ok && join_result.ok
+		return {
+			ok      = ok,
+			summary = aprintf(
+				"coop %s: host %s, joiner %s",
+				selected.name,
+				host_result.ok ? "ok" : "FAILED",
+				join_result.ok ? "ok" : "FAILED",
+			),
+		}
+	}
+	// --crash: the first joiner kills itself mid-match; then a second one with the same identity (online: no fresh
+	// device, the first one's) joins with the same code. Both coop scripts report the times.
+	first := wait(&joiner)
+	log("uni: the first joiner (it kills itself mid-match):")
+	out := strings.concatenate({first.stdout, first.stderr})
+	for line in strings.split_lines(out) do if strings.contains(line, " ok ") || strings.contains(line, "FAIL") do log("%s", line)
+	crashed := strings.contains(out, "crashing (the process kills itself")
+	append(&joiner_args, "--after-crash")
+	second := start_joiner(selected, script, joiner_args[:], friend, "coop_rejoin")
+	log("uni: the host:")
+	host_result := judge_tool(wait(&host), true)
+	log("uni: the same player again:")
+	rejoin_result := judge_tool(wait(&second), true)
+	ok := crashed && host_result.ok && rejoin_result.ok
 	return {
 		ok      = ok,
 		summary = aprintf(
-			"coop %s: host %s, joiner %s",
+			"coop %s --crash: host %s, first joiner %s, the same player again %s",
 			selected.name,
-			host.ok ? "ok" : "FAILED",
-			join.ok ? "ok" : "FAILED",
+			host_result.ok ? "ok" : "FAILED",
+			crashed ? "crashed as planned" : "DID NOT CRASH",
+			rejoin_result.ok ? "ok" : "FAILED",
 		),
 	}
+}
+
+// A headless joiner of `uni coop`, its output kept in <game>/.out/<log_name>.
+@(private)
+start_joiner :: proc(game: Game, script: string, args: []string, env: []string, log_name: string) -> Proc {
+	joiner_run := Tool_Run {
+		dir    = game.dir,
+		script = script,
+		args   = args,
+		env    = env,
+	}
+	return start({
+		cmd     = tool_cmd(joiner_run),
+		capture = true,
+		timeout = 240 * time.Second,
+		env     = env,
+		log_to  = join(game.dir, ".out", log_name),
+	})
 }
 
 // --- bake -------------------------------------------------------------------------------------------------------
@@ -837,165 +885,6 @@ bake_project :: proc(dir: string, scenes: []string, check: bool, quiet := false)
 		}
 	}
 	return result
-}
-
-COOP_DEFAULT_TICKS :: 600
-
-// A game without a coop tool script: a host (`--host-port`, 127.0.0.1 only) and a joiner (`--join`), both headless
-// with scripted input, for COOP_DEFAULT_TICKS ticks; ok when both finish with the same checksums.
-@(private)
-coop_default :: proc(game: Game) -> Result {
-	ensure_game(game)
-	port := free_udp_port()
-	common := []string{"--scripted", "--quit-at-end", "--no-settings"}
-	host_cmd, join_cmd: [dynamic]string
-	append(
-		&host_cmd,
-		godot(),
-		"--headless",
-		"--path",
-		game.dir,
-		"--",
-		"--host-port",
-		aprintf("%d", port),
-		"--local-net",
-	)
-	append(&host_cmd, ..common)
-	append(&host_cmd, "--ticks", aprintf("%d", COOP_DEFAULT_TICKS))
-	append(&join_cmd, godot(), "--headless", "--path", game.dir, "--", "--join", aprintf("127.0.0.1:%d", port))
-	append(&join_cmd, ..common)
-	timeout := time.Duration(COOP_DEFAULT_TICKS / 64 + 60) * time.Second
-	host := start({
-		cmd     = host_cmd[:],
-		capture = true,
-		timeout = timeout,
-		log_to  = join(game.dir, ".out", "coop_host"),
-	})
-	time.sleep(500 * time.Millisecond) // the host listens before the joiner says hello
-	joiner := start({
-		cmd     = join_cmd[:],
-		capture = true,
-		timeout = timeout,
-		log_to  = join(game.dir, ".out", "coop_join"),
-	})
-	host_ran, join_ran := wait(&host), wait(&joiner)
-	ok := true
-	results: [2]map[int]string
-	for ran, i in ([]Ran{host_ran, join_ran}) {
-		role := i == 0 ? "host" : "joiner"
-		out := strings.concatenate({ran.stdout, ran.stderr})
-		for line in godot_errors(out) {
-			log("uni: coop %s %s: %s", game.name, role, line)
-			ok = false
-		}
-		report, has := last_json_after(ran.stdout, "unified: result ").(json.Object)
-		if !has {
-			log("%s", tail(out, 2000))
-			log("uni: coop %s %s: no result line", game.name, role)
-			ok = false
-			continue
-		}
-		results[i] = checksums(report["checksums"])
-		log(
-			"uni: coop %s %s: %d checksums, final tick %d",
-			game.name,
-			role,
-			len(results[i]),
-			json_int(report["final_tick"]),
-		)
-	}
-	compared := 0
-	for tick, host_sum in results[0] {
-		if join_sum, found := results[1][tick]; found {
-			compared += 1
-			if join_sum != host_sum {
-				log("uni: coop %s: checksum at tick %d: host %s, joiner %s", game.name, tick, host_sum, join_sum)
-				ok = false
-			}
-		}
-	}
-	if compared == 0 {
-		log("uni: coop %s: no checksum both sides report", game.name)
-		ok = false
-	}
-	return {
-		ok      = ok,
-		summary = aprintf(
-			"coop %s (default, port %d): %d checksums compared, %s",
-			game.name,
-			port,
-			compared,
-			ok ? "ok" : "FAILED",
-		),
-	}
-}
-
-// `coop --crash`: the host runs alongside; the first joiner kills itself mid-match; then a second joiner with the
-// same EOS identity (no fresh device: the first one's) enters the same code. Both coop.gd sides report the times.
-@(private)
-coop_crash :: proc(
-	game: Game,
-	script: string,
-	joiner: ^Proc,
-	host_args: []string,
-	lan: bool,
-	window: bool,
-	place: Window_Opts,
-) -> Result {
-	host_run := Tool_Run {
-		dir    = game.dir,
-		script = script,
-		args   = host_args,
-		window = window,
-		shots  = window ? "coop" : "",
-		place  = place,
-	}
-	cleanup := window ? with_window(game.dir, place) : no_cleanup
-	defer cleanup(game.dir)
-	host := start({
-		cmd     = tool_cmd(host_run),
-		capture = true,
-		timeout = 300 * time.Second,
-		log_to  = join(game.dir, ".out", "coop_host"),
-	})
-	first := wait(joiner)
-	log("uni: the first joiner (it kills itself mid-match):")
-	out := strings.concatenate({first.stdout, first.stderr})
-	for line in strings.split_lines(out) do if strings.contains(line, " ok ") || strings.contains(line, "FAIL") do log("%s", line)
-	crashed := strings.contains(out, "crashing (the process kills itself")
-	second_args: [dynamic]string
-	append(&second_args, "--role=join", "--code-file=res://.out/coop_code.txt", "--after-crash")
-	if lan {
-		append(&second_args, "--lan") // it enters the address, as the first joiner did
-	}
-	second_run := Tool_Run {
-		dir    = game.dir,
-		script = script,
-		args   = second_args[:],
-		env    = env_with("USER=Friend", "USERNAME=Friend"), // the first joiner's device ID: the same player
-	}
-	second := start({
-		cmd     = tool_cmd(second_run),
-		capture = true,
-		timeout = 240 * time.Second,
-		env     = second_run.env,
-		log_to  = join(game.dir, ".out", "coop_rejoin"),
-	})
-	log("uni: the host:")
-	host_result := judge_tool(wait(&host), true)
-	log("uni: the same player again:")
-	rejoin_result := judge_tool(wait(&second), true)
-	ok := crashed && host_result.ok && rejoin_result.ok
-	return {
-		ok      = ok,
-		summary = aprintf(
-			"coop %s --crash: host %s, first joiner %s, the same player again %s",
-			game.name,
-			host_result.ok ? "ok" : "FAILED",
-			crashed ? "crashed as planned" : "DID NOT CRASH",
-			rejoin_result.ok ? "ok" : "FAILED",
-		),
-	}
 }
 
 // A UDP port free on 127.0.0.1 right now (the OS picks it).

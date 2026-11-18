@@ -8,19 +8,21 @@ extends SceneTree
 ## `step()`, `expect()` and `fail()`, and may `finish()` early. A failure ends the run at once: every wait returns
 ## and every input helper does nothing after it. The result carries `ok`, `ms`, `steps`, `failed`, `errors` and
 ## what the script adds to `result`. The run ends through the game's own quit when it has a Game autoload with
-## `quit_app` (the demo games'), else `quit()`. unified's library tooling (src/godot/SPEC.md), mirrored into every
-## game as res://addons/unified/; the few helpers that name the demo games' menus (`menu`, `click_menu`,
-## `player_names`, `setting`) only work in a game that has them.
+## `quit_app(exit_code)`, else `quit()`. unified's library tooling (src/godot/SPEC.md), mirrored into every game as
+## res://addons/unified/. It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
 ## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run) and `--frames` (frame times and first-use hitches,
 ## UnifiedFrameLog; a script tags its own moments with `frame_tag()`).
 
-## The Game autoload, when the game has one (the demo games' UnifiedGame). Untyped on purpose: a `-s` script
-## compiles before the autoloads exist, so it names no script that uses them.
+## The Game autoload, when the game has one. Untyped on purpose: a `-s` script compiles before the autoloads exist,
+## so it names no script that uses them.
 var game: Node
-## The game's UnifiedSession (the Game autoload's, else the first one in the tree), found when the run starts.
-var session: UnifiedSession
+## The game's UnifiedSession (`Unified.session`: null until a session node is in the tree, e.g. before the main
+## scene of a game that keeps it there is loaded).
+var session: UnifiedSession:
+	get:
+		return Unified.session
 ## Engine and script errors and warnings, collected in-process.
 var log_capture := UnifiedLogCapture.new()
 ## Where `shot()` saves PNGs (`--shots=<dir>`, a windowed run); empty: no shots.
@@ -264,22 +266,12 @@ func scene_is(scene_name: String) -> bool:
 	return current_scene != null and current_scene.name == scene_name
 
 
-## The main menu's UI (the shared MainMenu), when the menu is the current scene.
-func menu() -> CanvasLayer:
-	return current_scene.get_node_or_null(^"Menu") as CanvasLayer if scene_is("MainMenu") else null
-
-
 ## A node by path from `from`; fails when it isn't there.
 func find(from: Node, path: NodePath) -> Node:
 	var n := from.get_node_or_null(path) if from != null else null
 	if n == null and not failed():
 		fail("node not found: %s" % path)
 	return n
-
-
-## Clicks the menu's button or field by its unique name (Single, Host, Join, JoinAddress, HostLan, CodeJoin, ...).
-func click_menu(unique_name: String) -> void:
-	await click(find(menu(), "%" + unique_name) as Control)
 
 
 ## The scene views of `kind` (an EnumView value) in the sim (their roots), by key: UnifiedSession.get_views.
@@ -307,26 +299,25 @@ func multi_count(kind: StringName) -> int:
 	return count
 
 
-## A player setting (the Settings autoload's value).
-func setting(key: StringName) -> Variant:
-	return root.get_node(^"Settings").get_value(key)
-
-
-## "slot:name, ..." of the present players.
+## "slot:name, ..." of the present players ("" without a session).
 func player_names() -> String:
 	var out: Array[String] = []
-	for player: int in session.get_players():
-		out.append("%d:%s" % [session.get_player_slot(player), game.call(&"player_name", player)])
+	if session != null:
+		for player: int in session.get_players():
+			out.append("%d:%s" % [session.get_player_slot(player), session.get_player_name(player)])
 	return ", ".join(out)
+
+
+## Loads the main scene, unless a session is already up (a game that keeps its session in an autoload): a game that
+## keeps it in its main scene gets it this way. Waits until there is one.
+func load_session(timeout_s := 5.0) -> void:
+	if session == null:
+		change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
+	await wait_for(func() -> bool: return session != null, timeout_s, "a UnifiedSession in the tree")
 
 
 func _start() -> void:
 	game = root.get_node_or_null(^"Game")
-	if game != null:
-		session = game.get(&"session") as UnifiedSession
-	if session == null:
-		var found := root.find_children("*", "UnifiedSession", true, false)
-		session = found[0] as UnifiedSession if not found.is_empty() else null
 	if frame_log != null and session != null:
 		session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 			if state == UnifiedSession.EVENT_CONFIRMED:

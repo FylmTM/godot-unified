@@ -7,8 +7,8 @@ extends UnifiedTool
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
-## Also: no preload() in the scripts the play scene loads (the Game autoload's PLAY_SCENE, else the main scene).
-## unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
+## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate
+## says otherwise). unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
 
 const ROOTS: Array[String] = ["res://game", "res://addons"]
 
@@ -52,15 +52,18 @@ func _run() -> void:
 		"ms": {"scripts": _ms(t1 - t0), "resources": _ms(t2 - t1), "run": _ms(Time.get_ticks_usec() - t3)}}
 
 
+## The scene the game plays in (default: the main scene). A game whose menu is its main scene returns its play scene
+## here (its game/tools/validate.gd), so the checks below cover it.
+func _play_scene() -> String:
+	return ProjectSettings.get_setting("application/run/main_scene")
+
+
 ## The scripts the play scene loads (its scenes' scripts, recursively) use no preload(): a play scene loaded on a
-## worker thread (the demo games' menu does) leaks, in Godot 4.7, a resource a script first preloads there at exit.
-## They load() what they need when they need it.
+## worker thread (a menu that loads it in the background) leaks, in Godot 4.7, a resource a script first preloads
+## there at exit. They load() what they need when they need it.
 func _check_play_scene_preloads() -> void:
 	var seen := {}
-	var play_scene: String = ProjectSettings.get_setting("application/run/main_scene")
-	if game != null and &"PLAY_SCENE" in game:
-		play_scene = game.get(&"PLAY_SCENE")
-	var todo: Array[String] = [play_scene]
+	var todo: Array[String] = [_play_scene()]
 	while not todo.is_empty():
 		var path: String = todo.pop_back()
 		if seen.has(path):
