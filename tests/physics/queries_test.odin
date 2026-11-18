@@ -27,13 +27,13 @@ mover_scene :: proc() -> (scene: Mover_Scene) {
 	scene.world = api_world()
 	shape_def := physics.default_shape_def()
 	shape_def.filter.category = API_CAT_GROUND
-	scene.ground, _ = api_box(scene.world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &shape_def)
+	scene.ground, _ = box(scene.world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, shape_def)
 	shape_def.filter.category = API_CAT_WALL
 	shape_def.base_material.user_material_id = 77
-	scene.wall, scene.face = api_box(scene.world, {3, 2, 0}, {0.5, 2, 2}, .Static, API_WALL_TAG, &shape_def)
+	scene.wall, scene.face = box(scene.world, {3, 2, 0}, {0.5, 2, 2}, .Static, API_WALL_TAG, shape_def)
 	sensor_def := physics.default_shape_def()
 	sensor_def.is_sensor = true
-	scene.sensor, _ = api_box(scene.world, {-3, 2, 0}, {0.5, 2, 2}, .Static, 9, &sensor_def)
+	scene.sensor, _ = box(scene.world, {-3, 2, 0}, {0.5, 2, 2}, .Static, 9, sensor_def)
 	return
 }
 
@@ -166,8 +166,8 @@ mover_shape_queries :: proc(t: ^testing.T) {
 	mesh_def.base_material.user_material_id = 1
 	body_def := physics.default_body_def()
 	body_def.position = {0, 10, 0}
-	floor_body := physics.create_body(world, &body_def)
-	floor := physics.create_mesh_shape(world, floor_body, &mesh_def, mesh)
+	floor_body := physics.create_body(world, body_def)
+	floor := physics.create_mesh_shape(world, floor_body, mesh_def, mesh)
 	seen: bit_set[0 ..< 2]
 	for x in ([]f32{-1.5, -0.5, 0.5, 1.5}) {
 		for z in ([]f32{-1.5, -0.5, 0.5, 1.5}) {
@@ -183,9 +183,9 @@ mover_shape_queries :: proc(t: ^testing.T) {
 contact_data_sorted_and_replaced :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
-	near, near_shape := api_box(world, {0, 0.5, 0}, {0.5, 0.5, 0.5}, tag = 2)
-	far, _ := api_box(world, {5, 0.5, 0}, {0.5, 0.5, 0.5}, tag = 3)
+	ground, _ := box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
+	near, near_shape := box(world, {0, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic, tag = 2)
+	far, _ := box(world, {5, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic, tag = 3)
 	steps(world, 10)
 	contacts: [dynamic]physics.Contact_Data
 	defer delete(contacts)
@@ -219,13 +219,13 @@ contact_data_sorted_and_replaced :: proc(t: ^testing.T) {
 body_and_joint_events :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
-	falling, _ := api_box(world, {0, 0.6, 0}, {0.5, 0.5, 0.5}, tag = 2)
-	hanging, _ := api_box(world, {5, 3, 0}, {0.5, 0.5, 0.5}, tag = 3)
+	ground, _ := box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
+	falling, _ := box(world, {0, 0.6, 0}, {0.5, 0.5, 0.5}, .Dynamic, tag = 2)
+	hanging, _ := box(world, {5, 3, 0}, {0.5, 0.5, 0.5}, .Dynamic, tag = 3)
 	weld_def := physics.default_weld_joint_def()
 	weld_def.base.local_frame_a = {{5, 3.5, 0}, {0, 0, 0, 1}} // the ground's origin is 0.5 m down
 	weld_def.base.force_threshold = 1 // its 1 kg holds it up with ~10 N
-	weld := physics.create_weld_joint(world, physics.link(ground), physics.link(hanging), &weld_def)
+	weld := physics.create_weld_joint(world, physics.link(ground), physics.link(hanging), weld_def)
 
 	moves: [dynamic]physics.Body_Move_Event
 	defer delete(moves)
@@ -266,11 +266,11 @@ body_and_joint_events :: proc(t: ^testing.T) {
 // proc replaces its `out` (a stale result can't carry over into another tick).
 @(test)
 queries_filter_ignore_and_replace :: proc(t: ^testing.T) {
-	world := physics.create({hit_event_threshold = 1})
+	world := physics.create({tick_hz = HZ, hit_event_threshold = 1})
 	defer physics.destroy(world)
 	ground(world)
-	faller := box(world, {0, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic, cat = CAT_BOX, hit = true)
-	side_box := box(world, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic, cat = CAT_BOX)
+	faller, _ := box(world, {0, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic, category = CAT_BOX, hit = true)
+	side_box, _ := box(world, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic, category = CAT_BOX)
 	// A ray from inside a body skips it when told to, and finds the ground under it.
 	hit, ok := physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0}, {}, physics.link(faller))
 	testing.expect(t, ok && abs(hit.point.y) < 1e-4 && hit.normal.y > 0.99)
@@ -321,7 +321,7 @@ tag_world :: proc(block: ^Tag_Block) -> (world: ^physics.World, extra: sim.Extra
 	ground_def := physics.default_shape_def()
 	ground_def.enable_contact_events = true
 	ground_def.filter.category = API_CAT_GROUND
-	api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &ground_def)
+	box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, ground_def)
 	extra = physics.extra(world, Tag_Block)
 	ball_def := physics.default_shape_def()
 	ball_def.enable_hit_events = true
@@ -329,12 +329,12 @@ tag_world :: proc(block: ^Tag_Block) -> (world: ^physics.World, extra: sim.Extra
 	ball_def.enable_sensor_events = true
 	ball_def.filter.category = API_CAT_BALL
 	for x, i in ([2]f32{0, 5}) {
-		block.balls[i], _ = api_box(world, {x, 3, 0}, {0.25, 0.25, 0.25}, .Dynamic, u64(21 + i), &ball_def)
+		block.balls[i], _ = box(world, {x, 3, 0}, {0.25, 0.25, 0.25}, .Dynamic, u64(21 + i), ball_def)
 	}
 	sensor_def := physics.default_shape_def()
 	sensor_def.is_sensor = true
 	sensor_def.enable_sensor_events = true
-	block.sensor, _ = api_box(world, {0, 1.5, 0}, {1, 0.25, 1}, .Static, 30, &sensor_def)
+	block.sensor, _ = box(world, {0, 1.5, 0}, {1, 0.25, 1}, .Static, 30, sensor_def)
 	return
 }
 
@@ -436,7 +436,7 @@ tags_roll_back_and_cross_in_an_image :: proc(t: ^testing.T) {
 	ground_def := physics.default_shape_def()
 	ground_def.enable_contact_events = true
 	ground_def.filter.category = API_CAT_GROUND
-	api_box(late, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &ground_def)
+	box(late, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, ground_def)
 	late_extra := physics.extra(late, Tag_Block)
 	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0)))
 	testing.expect_value(t, physics.check_refs(late, &block), "")
@@ -463,9 +463,9 @@ Item_Block :: struct {
 
 // An item: a ball hinged to the ground.
 item_make :: proc(world: ^physics.World, ground: physics.Body_Ref, item: ^Item, x: f32, tag: u64) {
-	item.body, item.shape = api_box(world, {x, 1, 0}, {0.25, 0.25, 0.25}, tag = tag)
+	item.body, item.shape = box(world, {x, 1, 0}, {0.25, 0.25, 0.25}, .Dynamic, tag = tag)
 	hinge_def := physics.default_revolute_joint_def()
-	item.hinge = physics.create_revolute_joint(world, physics.link(ground), physics.link(item.body), &hinge_def)
+	item.hinge = physics.create_revolute_joint(world, physics.link(ground), physics.link(item.body), hinge_def)
 }
 
 @(test)
@@ -473,7 +473,7 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	block: Item_Block
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static)
+	ground, _ := box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static)
 	_ = physics.extra(world, Item_Block)
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 	first, first_handle, _ := sim.spawn(&block.items)
@@ -484,7 +484,7 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 
 	// An orphan: a body made after extra that no ref in the block owns.
-	orphan, _ := api_box(world, {8, 1, 0}, {0.25, 0.25, 0.25}, tag = 44)
+	orphan, _ := box(world, {8, 1, 0}, {0.25, 0.25, 0.25}, .Dynamic, tag = 44)
 	problem := physics.check_refs(world, &block)
 	testing.expectf(t, strings.contains(problem, "orphan") && strings.contains(problem, "tag 44"), "%q", problem)
 	physics.destroy_body(world, &orphan)

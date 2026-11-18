@@ -251,7 +251,7 @@ Box3d_Scene :: struct {
 }
 
 box3d_scene_make :: proc(scene: ^Box3d_Scene) {
-	scene.phys = physics.create()
+	scene.phys = physics.create({tick_hz = HZ})
 	scene.world = scene.phys.id
 	append(&scene.bodies, box3d_box(scene.world, .staticBody, {0, -0.5, 0}, {20, 0.5, 20}))
 	kinematic := box3d_box(scene.world, .kinematicBody, {-6, 1, 0}, {1, 0.25, 1})
@@ -342,7 +342,7 @@ Box3d_Stack :: struct {
 
 box3d_stack_make :: proc(workers: i32) -> Box3d_Stack {
 	stack := Box3d_Stack {
-		phys = physics.create({workers = workers}),
+		phys = physics.create({tick_hz = HZ, workers = workers}),
 	}
 	box3d_box(stack.phys.id, .staticBody, {0, -0.5, 0}, {10, 0.5, 10})
 	for &body, i in stack.boxes {
@@ -442,7 +442,7 @@ Counts :: struct {
 @(private = "file")
 fuzz_try :: proc(t: ^testing.T, bytes: []u8, counts: ^Counts, state: ^box3d.WorldState) {
 	counts.tried += 1
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	before := box3d.World_HashState(world.id)
 	if !box3d.World_LoadImage(world.id, raw_data(bytes), i32(len(bytes))) {

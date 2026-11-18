@@ -191,7 +191,7 @@ create_static_2d :: proc(t: ^testing.T) {
 	defer level.destroy(&loaded)
 	testing.expect(t, ok)
 	if !ok do return
-	world := physics.create()
+	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
 	count, problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, count, 4)

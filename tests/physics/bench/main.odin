@@ -42,14 +42,14 @@ add_box :: proc(world: ^physics.World, pos, half: [3]f32, type: physics.Body_Typ
 	body_def.type = type
 	body_def.position = pos
 	body_def.enable_sleep = false // every tick costs the same: the whole pile stays awake
-	body := physics.create_body(world, &body_def)
+	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
-	hull := physics.make_box_hull(half.x, half.y, half.z)
-	physics.create_hull_shape(world, body, &shape_def, &hull.base)
+	hull := physics.make_box_hull(half)
+	physics.create_hull_shape(world, body, shape_def, &hull.base)
 }
 
 main :: proc() {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	add_box(world, {0, -0.5, 0}, {30, 0.5, 30}, .Static)
 	for x in 0 ..< BODIES_SIDE {
@@ -61,7 +61,7 @@ main :: proc() {
 		}
 	}
 	for _ in 0 ..< SETTLE_TICKS {
-		physics.step(world, DT, SUBSTEPS)
+		physics.step(world)
 	}
 	ring: [RING]box3d.WorldSnapshot
 	defer {
@@ -73,7 +73,7 @@ main :: proc() {
 	for tick in 0 ..< TICKS {
 		slot := &ring[tick % RING]
 		start := time.tick_now()
-		physics.step(world, DT, SUBSTEPS)
+		physics.step(world)
 		stepped := time.tick_now()
 		box3d.World_SaveSnapshot(world.id, slot)
 		saved := time.tick_now()

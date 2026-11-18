@@ -37,19 +37,19 @@ make_cube_hull :: proc(half_width: f32) -> Box_Hull {
 	return box3d.MakeCubeHull(half_width)
 }
 
-// A box hull with the given half extents, centred on the origin.
-make_box_hull :: proc(hx, hy, hz: f32) -> Box_Hull {
-	return box3d.MakeBoxHull(hx, hy, hz)
+// A box hull with the given half extents, centred on the origin (`&box.base` is the hull).
+make_box_hull :: proc(half: [3]f32) -> Box_Hull {
+	return box3d.MakeBoxHull(half.x, half.y, half.z)
 }
 
 // A box hull with the given half extents, centred on `offset`.
-make_offset_box_hull :: proc(hx, hy, hz: f32, offset: [3]f32) -> Box_Hull {
-	return box3d.MakeOffsetBoxHull(hx, hy, hz, transmute(box3d.Vec3)offset)
+make_offset_box_hull :: proc(half, offset: [3]f32) -> Box_Hull {
+	return box3d.MakeOffsetBoxHull(half.x, half.y, half.z, transmute(box3d.Vec3)offset)
 }
 
 // A box hull with the given half extents, moved by `transform`.
-make_transformed_box_hull :: proc(hx, hy, hz: f32, transform: Transform) -> Box_Hull {
-	return box3d.MakeTransformedBoxHull(hx, hy, hz, transmute(box3d.Transform)transform)
+make_transformed_box_hull :: proc(half: [3]f32, transform: Transform) -> Box_Hull {
+	return box3d.MakeTransformedBoxHull(half.x, half.y, half.z, transmute(box3d.Transform)transform)
 }
 
 // A box hull with the given half extents, moved by `transform`, then scaled by `post_scale` (which may shear it
@@ -90,8 +90,9 @@ make_mesh_def :: proc(vertices: [][3]f32, indices: []i32, material_indices: []u8
 
 // A triangle mesh (a BVH) from a definition; nothing in the def is kept. The indices of degenerate triangles (left
 // out) go into `degenerate_triangles`, as many as fit. Nil when the mesh can't be built. Free with destroy_mesh.
-create_mesh :: proc(def: ^Mesh_Def, degenerate_triangles: []i32 = nil) -> ^Mesh_Data {
-	return box3d.CreateMesh((^box3d.MeshDef)(def), raw_data(degenerate_triangles), i32(len(degenerate_triangles)))
+create_mesh :: proc(def: Mesh_Def, degenerate_triangles: []i32 = nil) -> ^Mesh_Data {
+	def := def
+	return box3d.CreateMesh((^box3d.MeshDef)(&def), raw_data(degenerate_triangles), i32(len(degenerate_triangles)))
 }
 
 // A closed box mesh centred on `center` with half extents `extent`. Free with destroy_mesh.
@@ -128,8 +129,9 @@ destroy_mesh :: proc(mesh: ^Mesh_Data) {
 // ---- height fields
 
 // A height field from a definition (nothing in it is kept). Free with destroy_height_field.
-create_height_field :: proc(def: ^Height_Field_Def) -> ^Height_Field_Data {
-	return box3d.CreateHeightField((^box3d.HeightFieldDef)(def))
+create_height_field :: proc(def: Height_Field_Def) -> ^Height_Field_Data {
+	def := def
+	return box3d.CreateHeightField((^box3d.HeightFieldDef)(&def))
 }
 
 // A flat height field of row_count × column_count points, scaled; `make_holes` punches a pattern of holes. Free with
@@ -147,8 +149,9 @@ destroy_height_field :: proc(height_field: ^Height_Field_Data) {
 
 // A baked compound from a definition (every child copied in: one broad-phase shape for many children). Free with
 // destroy_compound.
-create_compound :: proc(def: ^Compound_Def) -> ^Compound_Data {
-	return box3d.CreateCompound((^box3d.CompoundDef)(def))
+create_compound :: proc(def: Compound_Def) -> ^Compound_Data {
+	def := def
+	return box3d.CreateCompound((^box3d.CompoundDef)(&def))
 }
 
 // Frees a compound.
@@ -159,6 +162,23 @@ destroy_compound :: proc(compound: ^Compound_Data) {
 // ---- mass and bounds
 
 // A sphere's mass data at a density (kg/m³).
+// The density that gives a box of half extents `half` the mass `mass` (kg), by Box3D's own mass computation (so the
+// body's mass is `mass`).
+box_density :: proc(mass: f32, half: [3]f32) -> f32 {
+	hull := make_box_hull(half)
+	return mass / compute_hull_mass(&hull.base, 1).mass
+}
+
+// The density that gives a sphere of `radius` the mass `mass` (kg), by Box3D's own mass computation.
+sphere_density :: proc(mass, radius: f32) -> f32 {
+	return mass / compute_sphere_mass({{}, radius}, 1).mass
+}
+
+// The density that gives a capsule the mass `mass` (kg), by Box3D's own mass computation.
+capsule_density :: proc(mass: f32, capsule: Capsule) -> f32 {
+	return mass / compute_capsule_mass(capsule, 1).mass
+}
+
 compute_sphere_mass :: proc(sphere: Sphere, density: f32) -> Mass_Data {
 	sphere := sphere
 	return transmute(Mass_Data)box3d.ComputeSphereMass((^box3d.Sphere)(&sphere), density)

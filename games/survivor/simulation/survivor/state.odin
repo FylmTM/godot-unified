@@ -6,7 +6,6 @@ import "unified:sim"
 
 TICK_HZ :: 64
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
-SUBSTEPS :: 4
 PLAYERS :: 4 // input slots: the most players in the game at once
 MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512

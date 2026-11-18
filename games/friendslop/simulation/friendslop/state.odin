@@ -7,7 +7,6 @@ import "unified:sim"
 
 TICK_HZ :: 64
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
-SUBSTEPS :: 4
 PLAYERS :: 4
 CHARACTERS :: PLAYERS * sim.MEMBERS_PER_SLOT // a character body per member the session remembers (sim.Players)
 MAX_ITEMS :: 64

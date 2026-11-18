@@ -66,7 +66,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	loaded, ok := level.load(content)
 	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
 	world.level_data = loaded
-	world.phys = physics.create({gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
+	world.phys = physics.create({tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
 	_, problem := physics.create_static(world.phys, &world.level_data, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
 
@@ -137,14 +137,16 @@ HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 // station marker.
 init :: proc(t: ^Tick) {
 	t.state.station_hp = STATION_HP
-	body_def := physics.body_def_2d(.Kinematic, t.world.station)
-	ref := physics.create_body(t.world.phys, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = CAT_STATION
 	corners: [6][2]f32
 	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
-	physics.create_polygon_shape_2d(t.world.phys, ref, &shape_def, corners[:], ROCK_DEPTH)
-	t.state.station = ref
+	body_def := physics.body_def_2d(.Kinematic, t.world.station)
+	t.state.station, _, _ = physics.create_polygon_2d(
+		t.world.phys,
+		body_def,
+		physics.shape_def(CAT_STATION),
+		corners[:],
+		ROCK_DEPTH,
+	)
 	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
 	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, STATION_SPIN)
 }
@@ -153,14 +155,11 @@ init :: proc(t: ^Tick) {
 create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
 	body_def := physics.body_def_2d(.Dynamic, at, {0, -1})
 	body_def.linear_damping = SHIP_DAMPING
-	ref := physics.create_body(world.phys, &body_def)
-	shape_def := physics.default_shape_def()
+	shape_def := physics.shape_def(CAT_SHIP)
 	shape_def.density = SHIP_DENSITY
 	shape_def.base_material.restitution = 0.5
 	shape_def.base_material.friction = 0.1
-	shape_def.filter.category = CAT_SHIP
-	physics.create_circle_shape_2d(world.phys, ref, &shape_def, SHIP_RADIUS)
-	ship.body = ref
+	ship.body, _ = physics.create_circle_2d(world.phys, body_def, shape_def, SHIP_RADIUS)
 }
 
 // A rock in the rocks table and its body (ok = false: the table is full), tagged with the rock's handle key, so a
@@ -178,15 +177,19 @@ create_rock :: proc(
 ) {
 	rock: ^Rock
 	rock, handle = sim.spawn(&state.rocks) or_return
-	body_def := physics.body_def_2d(.Dynamic, pos)
-	ref := physics.create_body(world.phys, &body_def, tag = sim.handle_key(handle))
-	shape_def := physics.default_shape_def()
+	shape_def := physics.shape_def(CAT_ROCK)
 	shape_def.density = 1
 	shape_def.base_material.restitution = 0.4
 	shape_def.base_material.friction = 0.3
-	shape_def.filter.category = CAT_ROCK
 	points := rock_points(variant, size)
-	physics.create_polygon_shape_2d(world.phys, ref, &shape_def, points[:], ROCK_DEPTH)
+	ref, _, _ := physics.create_polygon_2d(
+		world.phys,
+		physics.body_def_2d(.Dynamic, pos),
+		shape_def,
+		points[:],
+		ROCK_DEPTH,
+		sim.handle_key(handle),
+	)
 	rock^ = {
 		body    = ref,
 		size    = size,

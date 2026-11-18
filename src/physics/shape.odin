@@ -9,31 +9,104 @@ import box3d "box3d:bindings"
 
 // ---- creation
 
+// A shape definition: Box3D's default with its collision category and mask (every category by default). Set any other
+// field (density, material, events, sensor) before creating the shape.
+shape_def :: proc(category: u64, mask: u64 = max(u64)) -> Shape_Def {
+	def := default_shape_def()
+	def.filter.category = category
+	def.filter.mask = mask
+	return def
+}
+
+// A body with one box of half extents `half` (create_body, then create_box_shape): what a game makes most.
+create_box :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	half: [3]f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	Body_Ref,
+	Shape_Ref,
+) {
+	ref := create_body(world, body, tag, loc)
+	return ref, create_box_shape(world, ref, shape, half, loc)
+}
+
+// A body with one sphere of `radius` at its origin.
+create_sphere :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	radius: f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	Body_Ref,
+	Shape_Ref,
+) {
+	ref := create_body(world, body, tag, loc)
+	return ref, create_sphere_shape(world, ref, shape, {{}, radius}, loc)
+}
+
+// A body with one capsule (body-local).
+create_capsule :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	capsule: Capsule,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	Body_Ref,
+	Shape_Ref,
+) {
+	ref := create_body(world, body, tag, loc)
+	return ref, create_capsule_shape(world, ref, shape, capsule, loc)
+}
+
+// Adds a box of half extents `half`, centred on the body, to a body (make_box_hull, then create_hull_shape).
+create_box_shape :: proc(
+	world: ^World,
+	ref: Body_Ref,
+	def: Shape_Def,
+	half: [3]f32,
+	loc := #caller_location,
+) -> Shape_Ref {
+	hull := make_box_hull(half)
+	return create_hull_shape(world, ref, def, &hull.base, loc)
+}
+
 // Adds a sphere to a body. The def's user_data and name stay unset (pointers).
 create_sphere_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	sphere: Sphere,
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
 	sphere := sphere
-	return shape_ref_of(box3d.CreateSphereShape(body_id(world, ref), (^box3d.ShapeDef)(def), (^box3d.Sphere)(&sphere)))
+	return shape_ref_of(
+		box3d.CreateSphereShape(body_id(world, ref), (^box3d.ShapeDef)(&def), (^box3d.Sphere)(&sphere)),
+	)
 }
 
 // Adds a capsule (two centres and a radius, body-local) to a body.
 create_capsule_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	capsule: Capsule,
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
 	capsule := capsule
 	return shape_ref_of(
-		box3d.CreateCapsuleShape(body_id(world, ref), (^box3d.ShapeDef)(def), (^box3d.Capsule)(&capsule)),
+		box3d.CreateCapsuleShape(body_id(world, ref), (^box3d.ShapeDef)(&def), (^box3d.Capsule)(&capsule)),
 	)
 }
 
@@ -41,29 +114,31 @@ create_capsule_shape :: proc(
 create_hull_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	hull: ^Hull_Data,
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
-	return shape_ref_of(box3d.CreateHullShape(body_id(world, ref), (^box3d.ShapeDef)(def), hull))
+	return shape_ref_of(box3d.CreateHullShape(body_id(world, ref), (^box3d.ShapeDef)(&def), hull))
 }
 
 // Adds a hull moved by `transform` (body-local) and scaled to a body (Box3D copies the result).
 create_transformed_hull_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	hull: ^Hull_Data,
 	transform: Transform,
 	scale := [3]f32{1, 1, 1},
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
 	return shape_ref_of(
 		box3d.CreateTransformedHullShape(
 			body_id(world, ref),
-			(^box3d.ShapeDef)(def),
+			(^box3d.ShapeDef)(&def),
 			hull,
 			transmute(box3d.Transform)transform,
 			transmute(box3d.Vec3)scale,
@@ -76,14 +151,15 @@ create_transformed_hull_shape :: proc(
 create_mesh_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	mesh: ^Mesh_Data,
 	scale := [3]f32{1, 1, 1},
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
 	return shape_ref_of(
-		box3d.CreateMeshShape(body_id(world, ref), (^box3d.ShapeDef)(def), mesh, transmute(box3d.Vec3)scale),
+		box3d.CreateMeshShape(body_id(world, ref), (^box3d.ShapeDef)(&def), mesh, transmute(box3d.Vec3)scale),
 	)
 }
 
@@ -91,12 +167,13 @@ create_mesh_shape :: proc(
 create_height_field_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	height_field: ^Height_Field_Data,
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
-	return shape_ref_of(box3d.CreateHeightFieldShape(body_id(world, ref), (^box3d.ShapeDef)(def), height_field))
+	return shape_ref_of(box3d.CreateHeightFieldShape(body_id(world, ref), (^box3d.ShapeDef)(&def), height_field))
 }
 
 // Adds a baked compound to a static body. Kept by pointer (and the compound keeps its meshes'): they must live as
@@ -104,12 +181,13 @@ create_height_field_shape :: proc(
 create_baked_compound_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	compound: ^Compound_Data,
 	loc := #caller_location,
 ) -> Shape_Ref {
+	def := def
 	check_shape_def(def, loc)
-	return shape_ref_of(box3d.CreateBakedCompoundShape(body_id(world, ref), (^box3d.ShapeDef)(def), compound))
+	return shape_ref_of(box3d.CreateBakedCompoundShape(body_id(world, ref), (^box3d.ShapeDef)(&def), compound))
 }
 
 // Destroys the shape (if it is still alive: destroying a body destroys its shapes) and clears the ref;
@@ -308,7 +386,7 @@ shape_apply_wind :: proc(world: ^World, shape: Shape_Ref, wind: [3]f32, drag, li
 }
 
 @(private)
-check_shape_def :: proc(def: ^Shape_Def, loc: runtime.Source_Code_Location) {
+check_shape_def :: proc(def: Shape_Def, loc: runtime.Source_Code_Location) {
 	assert(def.user_data == nil, "physics: a shape def's user_data stays unset (a pointer in rollback state)", loc)
 }
 

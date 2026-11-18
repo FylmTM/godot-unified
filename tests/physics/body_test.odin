@@ -9,31 +9,8 @@ import "unified:physics"
 
 // A world with Box3D's defaults (gravity nil) or the given gravity.
 api_world :: proc(gravity: Maybe([3]f32) = nil, hit_event_threshold: f32 = 0) -> ^physics.World {
-	return physics.create({gravity = gravity, hit_event_threshold = hit_event_threshold})
+	return physics.create({tick_hz = HZ, gravity = gravity, hit_event_threshold = hit_event_threshold})
 }
-
-// A body with one box shape (density 1, Box3D's default being water's 1000, unless the def says otherwise).
-api_box :: proc(
-	world: ^physics.World,
-	pos, half: [3]f32,
-	type: physics.Body_Type = .Dynamic,
-	tag: u64 = 0,
-	shape_def: ^physics.Shape_Def = nil,
-) -> (
-	body: physics.Body_Ref,
-	shape: physics.Shape_Ref,
-) {
-	body_def := physics.default_body_def()
-	body_def.type = type
-	body_def.position = pos
-	body = physics.create_body(world, &body_def, tag)
-	default_def := physics.default_shape_def()
-	default_def.density = 1
-	hull := physics.make_box_hull(half.x, half.y, half.z)
-	shape = physics.create_hull_shape(world, body, shape_def != nil ? shape_def : &default_def, &hull.base)
-	return
-}
-
 
 // A quarter turn about +y: x goes to −z.
 QUARTER_Y :: [4]f32{0, 0.70710677, 0, 0.70710677}
@@ -42,7 +19,7 @@ QUARTER_Y :: [4]f32{0, 0.70710677, 0, 0.70710677}
 body_type_and_set_type :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	body, _ := api_box(world, {}, {0.5, 0.5, 0.5}, .Static)
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Static)
 	testing.expect_value(t, physics.body_type(world, body), physics.Body_Type.Static)
 	physics.body_set_type(world, body, .Kinematic)
 	testing.expect_value(t, physics.body_type(world, body), physics.Body_Type.Kinematic)
@@ -55,7 +32,7 @@ body_type_and_set_type :: proc(t: ^testing.T) {
 body_transform_points_and_vectors :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})
 	defer physics.destroy(world)
-	body, _ := api_box(world, {}, {0.5, 0.5, 0.5})
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_set_transform(world, body, {1, 2, 3}, QUARTER_Y)
 	testing.expect_value(t, physics.body_position(world, body), [3]f32{1, 2, 3})
 	testing.expect_value(t, physics.body_rotation(world, body), QUARTER_Y)
@@ -66,7 +43,7 @@ body_transform_points_and_vectors :: proc(t: ^testing.T) {
 	testing.expect(t, near(physics.body_local_point(world, body, {1, 2, 2}), {1, 0, 0}, 1e-6))
 
 	// A kinematic body reaches its target in the step it was given.
-	platform, _ := api_box(world, {}, {1, 0.1, 1}, .Kinematic)
+	platform, _ := box(world, {}, {1, 0.1, 1}, .Kinematic)
 	physics.body_set_target_transform(world, platform, {{2, 0, 0}, {0, 0, 0, 1}}, DT)
 	testing.expect(t, near(physics.body_linear_velocity(world, platform), {2 / DT, 0, 0}, 1e-2))
 	steps(world, 1)
@@ -78,7 +55,7 @@ body_transform_points_and_vectors :: proc(t: ^testing.T) {
 body_velocities :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})
 	defer physics.destroy(world)
-	body, _ := api_box(world, {}, {0.5, 0.5, 0.5})
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_set_linear_velocity(world, body, {1, 0, 0})
 	physics.body_set_angular_velocity(world, body, {0, 2, 0})
 	testing.expect_value(t, physics.body_linear_velocity(world, body), [3]f32{1, 0, 0})
@@ -93,26 +70,26 @@ body_forces_and_impulses :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})
 	defer physics.destroy(world)
 	// Unit cubes at density 1: mass 1, so an impulse is the velocity it adds.
-	pushed, _ := api_box(world, {0, 0, 0}, {0.5, 0.5, 0.5})
+	pushed, _ := box(world, {0, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_linear_impulse_to_center(world, pushed, {0, 0, 3})
 	testing.expect(t, near(physics.body_linear_velocity(world, pushed), {0, 0, 3}))
 	testing.expect_value(t, physics.body_angular_velocity(world, pushed), [3]f32{})
 
-	off_center, _ := api_box(world, {5, 0, 0}, {0.5, 0.5, 0.5})
+	off_center, _ := box(world, {5, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_linear_impulse(world, off_center, {1, 0, 0}, {5, 0.5, 0})
 	testing.expect(t, near(physics.body_linear_velocity(world, off_center), {1, 0, 0}))
 	testing.expect(t, physics.body_angular_velocity(world, off_center).z < 0, "pushed above its centre: it tips")
 
-	spun, _ := api_box(world, {10, 0, 0}, {0.5, 0.5, 0.5})
+	spun, _ := box(world, {10, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_angular_impulse(world, spun, {0, 1, 0})
 	// A unit cube's inertia is m(1² + 1²)/12 = 1/6.
 	testing.expect(t, near(physics.body_angular_velocity(world, spun), {0, 6, 0}, 1e-3))
 
-	forced, _ := api_box(world, {15, 0, 0}, {0.5, 0.5, 0.5})
+	forced, _ := box(world, {15, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_force_to_center(world, forced, {0, 64, 0})
-	tipped, _ := api_box(world, {20, 0, 0}, {0.5, 0.5, 0.5})
+	tipped, _ := box(world, {20, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_force(world, tipped, {64, 0, 0}, {20, 0.5, 0})
-	twisted, _ := api_box(world, {25, 0, 0}, {0.5, 0.5, 0.5})
+	twisted, _ := box(world, {25, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_apply_torque(world, twisted, {0, 64, 0})
 	steps(world, 1)
 	// A force F over one step adds F · dt.
@@ -129,7 +106,7 @@ body_forces_and_impulses :: proc(t: ^testing.T) {
 body_mass_inertia_and_mass_data :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})
 	defer physics.destroy(world)
-	body, _ := api_box(world, {0, 3, 0}, {1, 0.5, 0.5}) // 2 × 1 × 1 at density 1: mass 2
+	body, _ := box(world, {0, 3, 0}, {1, 0.5, 0.5}, .Dynamic) // 2 × 1 × 1 at density 1: mass 2
 	testing.expect(t, near_f32(physics.body_mass(world, body), 2))
 	testing.expect(t, near_f32(physics.body_inverse_mass(world, body), 0.5))
 	// Box inertia: m(b² + c²)/12 per axis, full sizes (2, 1, 1).
@@ -168,7 +145,7 @@ body_mass_inertia_and_mass_data :: proc(t: ^testing.T) {
 body_damping_and_gravity_scale :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	body, _ := api_box(world, {}, {0.5, 0.5, 0.5})
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_set_linear_damping(world, body, 0.25)
 	physics.body_set_angular_damping(world, body, 0.75)
 	physics.body_set_gravity_scale(world, body, -0.5)
@@ -183,8 +160,8 @@ body_damping_and_gravity_scale :: proc(t: ^testing.T) {
 body_sleep_and_enable :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	body, _ := api_box(world, {}, {0.5, 0.5, 0.5})
-	other, _ := api_box(world, {5, 0, 0}, {0.5, 0.5, 0.5})
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
+	other, _ := box(world, {5, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	testing.expect(t, physics.body_is_awake(world, body))
 	physics.body_set_awake(world, body, false)
 	testing.expect(t, !physics.body_is_awake(world, body))
@@ -211,7 +188,7 @@ body_sleep_and_enable :: proc(t: ^testing.T) {
 body_motion_flags :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	body, shape := api_box(world, {}, {0.5, 0.5, 0.5})
+	body, shape := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
 	locks := physics.Motion_Locks {
 		linear_x  = true,
 		angular_z = true,
@@ -242,14 +219,14 @@ body_shapes_joints_and_extents :: proc(t: ^testing.T) {
 	body_def := physics.default_body_def()
 	body_def.type = .Dynamic
 	body_def.position = {0, 5, 0}
-	body := physics.create_body(world, &body_def)
+	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
 	shape_def.density = 1
-	hull := physics.make_offset_box_hull(1, 0.5, 0.5, {0, 1, 0})
+	hull := physics.make_offset_box_hull({1, 0.5, 0.5}, {0, 1, 0})
 	made: [3]physics.Shape_Ref
-	made[0] = physics.create_hull_shape(world, body, &shape_def, &hull.base)
-	made[1] = physics.create_sphere_shape(world, body, &shape_def, {{0, 1, 0}, 0.25})
-	made[2] = physics.create_capsule_shape(world, body, &shape_def, {{0, 0.75, 0}, {0, 1.25, 0}, 0.25})
+	made[0] = physics.create_hull_shape(world, body, shape_def, &hull.base)
+	made[1] = physics.create_sphere_shape(world, body, shape_def, {{0, 1, 0}, 0.25})
+	made[2] = physics.create_capsule_shape(world, body, shape_def, {{0, 0.75, 0}, {0, 1.25, 0}, 0.25})
 	testing.expect_value(t, physics.body_shape_count(world, body), 3)
 	shapes: [dynamic]physics.Shape_Ref
 	defer delete(shapes)
@@ -261,12 +238,12 @@ body_shapes_joints_and_extents :: proc(t: ^testing.T) {
 		testing.expect(t, shapes[0] == made[0] && shapes[1] == made[1] && shapes[2] == made[2])
 	}
 
-	other, _ := api_box(world, {3, 5, 0}, {0.5, 0.5, 0.5})
+	other, _ := box(world, {3, 5, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	testing.expect_value(t, physics.body_joint_count(world, body), 0)
 	joint_def := physics.default_motor_joint_def()
-	first := physics.create_motor_joint(world, physics.link(body), physics.link(other), &joint_def)
+	first := physics.create_motor_joint(world, physics.link(body), physics.link(other), joint_def)
 	joint_def = physics.default_motor_joint_def()
-	second := physics.create_motor_joint(world, physics.link(other), physics.link(body), &joint_def)
+	second := physics.create_motor_joint(world, physics.link(other), physics.link(body), joint_def)
 	testing.expect_value(t, physics.body_joint_count(world, body), 2)
 	joints: [dynamic]physics.Joint_Ref
 	defer delete(joints)
@@ -324,12 +301,12 @@ body_and_shape_names :: proc(t: ^testing.T) {
 	extra := physics.extra(world, Named)
 	body_def := physics.default_body_def()
 	body_def.name = "crate"
-	named.body = physics.create_body(world, &body_def)
+	named.body = physics.create_body(world, body_def)
 	testing.expect_value(t, string(physics.body_name(world, named.body)), "crate")
 	shape_def := physics.default_shape_def()
 	shape_def.name = "lid"
-	hull := physics.make_box_hull(0.5, 0.5, 0.5)
-	shape := physics.create_hull_shape(world, named.body, &shape_def, &hull.base)
+	hull := physics.make_box_hull({0.5, 0.5, 0.5})
+	shape := physics.create_hull_shape(world, named.body, shape_def, &hull.base)
 	testing.expect_value(t, string(physics.shape_name(world, shape)), "lid")
 	extra.save(extra.data, 0)
 	physics.body_set_name(world, named.body, "barrel")

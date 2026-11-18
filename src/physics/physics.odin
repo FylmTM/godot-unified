@@ -12,6 +12,8 @@ import "unified:sim"
 
 // World options. Results are bit-identical for any worker count (unified-box3d tests it).
 Settings :: struct {
+	tick_hz:             int, // the game's (Game.tick_hz): a step is 1 / tick_hz seconds; required
+	substeps:            int, // solver substeps per step; 0: 4
 	// Threads for Box3D's built-in scheduler; 0 or 1: none, the step runs on the caller's thread.
 	workers:             i32,
 	gravity:             Maybe([3]f32), // nil: Box3D's default
@@ -33,6 +35,9 @@ Body_Flag :: enum u8 {
 
 World :: struct {
 	id:          box3d.WorldId,
+	tick_hz:     int, // Settings.tick_hz
+	dt:          f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
+	substeps:    int,
 	// In-process snapshots (Box3D's world arena: a memcpy) and the body table, one per ring slot.
 	ring:        [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
 	body_ring:   [sim.MAX_RING_SIZE][dynamic]Body_Entry,
@@ -56,7 +61,11 @@ world_mutex: sync.Mutex
 
 // Creates a world set up for determinism (Settings); `destroy` frees it. Mutex-guarded (Box3D's world table is global).
 create :: proc(settings := Settings{}) -> ^World {
+	assert(settings.tick_hz > 0, "physics: Settings.tick_hz is the game's tick rate (Game.tick_hz)")
 	world := new(World)
+	world.tick_hz = settings.tick_hz
+	world.dt = 1 / f32(settings.tick_hz)
+	world.substeps = settings.substeps if settings.substeps > 0 else 4
 	sync.guard(&world_mutex)
 	world_def := box3d.DefaultWorldDef()
 	world.workers = max(1, settings.workers)
@@ -102,9 +111,9 @@ destroy :: proc(world: ^World) {
 	free(world)
 }
 
-// Advances the world one tick: `substeps` solver substeps (`t.dt` for `dt`).
-step :: proc(world: ^World, dt: f32, substeps: int) {
-	box3d.World_Step(world.id, dt, i32(substeps))
+// Advances the world one tick (Settings: 1 / tick_hz seconds in `substeps` solver substeps).
+step :: proc(world: ^World) {
+	box3d.World_Step(world.id, world.dt, i32(world.substeps))
 }
 
 // The Extra that makes the world part of the rollback state of a block of type State: a physics game's Game.extra

@@ -9,11 +9,6 @@ import "core:testing"
 import "unified:physics"
 import "unified:sim"
 
-CAT_STATIC :: u64(1 << 0)
-CAT_CHARACTER :: u64(1 << 1)
-CAT_BOX :: u64(1 << 2)
-CAT_PLATFORM :: u64(1 << 3)
-
 // The sample's defaults with the category, material and events the tests check.
 character_def :: proc() -> physics.Character_Def {
 	def := physics.CHARACTER_DEFAULT
@@ -25,36 +20,12 @@ character_def :: proc() -> physics.Character_Def {
 
 // ---- world building
 
-box :: proc(
-	world: ^physics.World,
-	pos, half: [3]f32,
-	type: physics.Body_Type = .Static,
-	rot := [4]f32{0, 0, 0, 1},
-	cat := CAT_STATIC,
-	density: f32 = 1,
-	hit := false,
-) -> physics.Body_Ref {
-	body_def := physics.default_body_def()
-	body_def.type = type
-	body_def.position = {pos.x, pos.y, pos.z}
-	body_def.rotation = rot
-	if type == .Kinematic do body_def.enable_sleep = false
-	ref := physics.create_body(world, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.density = density
-	shape_def.filter.category = cat
-	shape_def.enable_hit_events = hit
-	hull := physics.make_box_hull(half.x, half.y, half.z)
-	physics.create_hull_shape(world, ref, &shape_def, &hull.base)
-	return ref
-}
-
 ground :: proc(world: ^physics.World) {
 	box(world, {0, -0.5, 0}, {30, 0.5, 30})
 }
 
 new_world :: proc(workers: i32 = 1) -> ^physics.World {
-	return physics.create({workers = workers})
+	return physics.create({tick_hz = HZ, workers = workers})
 }
 
 
@@ -114,10 +85,17 @@ RIG := Rig_Game {
 			physics.character_create(world, &character, character_def(), {f32(i) * 2, 1.2, 0})
 		}
 		for &box_ref, i in t.state.boxes {
-			t.state.boxes[i] = box(world, {f32(i) - 1.5, 0.5, 2}, {0.3, 0.3, 0.3}, .Dynamic, cat = CAT_BOX, hit = true)
+			t.state.boxes[i], _ = box(
+				world,
+				{f32(i) - 1.5, 0.5, 2},
+				{0.3, 0.3, 0.3},
+				.Dynamic,
+				category = CAT_BOX,
+				hit = true,
+			)
 			_ = box_ref
 		}
-		t.state.platform = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, cat = CAT_PLATFORM)
+		t.state.platform, _ = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, category = CAT_PLATFORM)
 	},
 	tick = rig_tick,
 }
@@ -125,9 +103,10 @@ RIG := Rig_Game {
 rig_world_create :: proc(workers: i32) -> ^Rig_World {
 	rig_world := new(Rig_World)
 	rig_world.phys = physics.create({
-		hit_event_threshold = 1,
-		workers             = workers,
-	})
+			tick_hz             = HZ,
+			hit_event_threshold = 1,
+			workers             = workers,
+		})
 	ground(rig_world.phys)
 	box(rig_world.phys, {-4, 0.15, 0}, {1, 0.15, 1}) // a step
 	return rig_world
@@ -143,7 +122,7 @@ rig_on_4_workers :: proc() -> Rig_Game {
 rig_tick :: proc(tick: ^Rig_Tick) {
 	state, rig_world, number := tick.state, tick.world, tick.number
 	world := rig_world.phys
-	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, number, HZ), HZ)
+	physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, number, HZ))
 	for &character, player in state.characters {
 		player_input := tick.inputs.input[player]
 		move := [2]f32{f32(player_input.mx) / 127, f32(player_input.mz) / 127}
@@ -154,7 +133,6 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 			move,
 			player_input.jump != 0 && !state.prev[player],
 			1,
-			DT,
 		) {
 			state.jumps += 1
 		}
@@ -177,7 +155,7 @@ rig_tick :: proc(tick: ^Rig_Tick) {
 			world,
 			physics.link(state.characters[0].body),
 			physics.link(box_ref),
-			&joint_def,
+			joint_def,
 		)
 		state.held = (number / 40) % 4 + 1
 	} else if phase == 30 && state.hold != {} {
@@ -262,7 +240,7 @@ solo :: proc(pos: [3]f32) -> Solo {
 run :: proc(scene: ^Solo, ticks: int, move := [2]f32{}, jump_at := -1) -> (peak: f32) {
 	peak = -1e9
 	for i in 0 ..< ticks {
-		physics.character_update(scene.world, &scene.character, character_def(), move, i == jump_at, 1, DT)
+		physics.character_update(scene.world, &scene.character, character_def(), move, i == jump_at, 1)
 		steps(scene.world, 1)
 		peak = max(peak, physics.body_position(scene.world, scene.character.body).y)
 	}
@@ -333,12 +311,12 @@ character_slides_off_a_steep_slope :: proc(t: ^testing.T) {
 character_rides_platforms :: proc(t: ^testing.T) {
 	scene := solo({0, 1.6, 6})
 	defer physics.destroy(scene.world)
-	plat := box(scene.world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, cat = CAT_PLATFORM)
+	plat, _ := box(scene.world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, category = CAT_PLATFORM)
 	cycle := int(physics.path_duration_ticks(&RIG_PATH, HZ))
 	worst: f32 = 0
 	for i in 0 ..< 2 * cycle {
-		physics.drive_kinematic(scene.world, plat, physics.path_sample(&RIG_PATH, u32(i + 1), HZ), HZ)
-		physics.character_update(scene.world, &scene.character, character_def(), {}, false, 1, DT)
+		physics.drive_kinematic(scene.world, plat, physics.path_sample(&RIG_PATH, u32(i + 1), HZ))
+		physics.character_update(scene.world, &scene.character, character_def(), {}, false, 1)
 		steps(scene.world, 1)
 		if i > 32 {
 			plat_pos := physics.body_position(scene.world, plat)
@@ -366,7 +344,7 @@ character_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
 	run(&scene, 64)
 	x0 := physics.body_position(scene.world, scene.character.body).x
 	// A heavy box (86 kg, about the character's mass) at 14 m/s: the drive's force cap gives way.
-	thrown := box(scene.world, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic, cat = CAT_BOX, density = 400)
+	thrown, _ := box(scene.world, {-3, 1.4, 0}, {0.3, 0.3, 0.3}, .Dynamic, category = CAT_BOX, density = 400)
 	physics.body_set_linear_velocity(scene.world, thrown, {14, 0, 0})
 	run(&scene, 64)
 	pushed := physics.body_position(scene.world, scene.character.body).x - x0
@@ -380,8 +358,8 @@ character_is_pushed_and_stands_on_another :: proc(t: ^testing.T) {
 		physics.body_position(scene.world, scene.character.body) + [3]f32{0, 2.2, 0},
 	)
 	for _ in 0 ..< 160 {
-		physics.character_update(scene.world, &scene.character, character_def(), {}, false, 1, DT)
-		physics.character_update(scene.world, &top, character_def(), {}, false, 1, DT)
+		physics.character_update(scene.world, &scene.character, character_def(), {}, false, 1)
+		physics.character_update(scene.world, &top, character_def(), {}, false, 1)
 		steps(scene.world, 1)
 	}
 	lo := physics.body_position(scene.world, scene.character.body)
@@ -440,12 +418,12 @@ kinematic_drive_does_not_drift :: proc(t: ^testing.T) {
 	world := new_world()
 	defer physics.destroy(world)
 	path := RIG_PATH
-	plat := box(world, path.points[0], {1, 0.25, 1}, .Kinematic, cat = CAT_PLATFORM)
+	plat, _ := box(world, path.points[0], {1, 0.25, 1}, .Kinematic, category = CAT_PLATFORM)
 	cycle := physics.path_duration_ticks(&path, HZ)
 	worst: f32 = 0
 	for i in u32(1) ..= 10 * cycle {
 		target := physics.path_sample(&path, i, HZ)
-		physics.drive_kinematic(world, plat, target, HZ)
+		physics.drive_kinematic(world, plat, target)
 		steps(world, 1)
 		plat_pos := physics.body_position(world, plat)
 		worst = max(worst, abs(plat_pos.x - target.x), abs(plat_pos.y - target.y), abs(plat_pos.z - target.z))

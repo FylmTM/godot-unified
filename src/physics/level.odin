@@ -52,12 +52,13 @@ create_static :: proc(
 create_level_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	shape: ^level.Shape,
 	loc := #caller_location,
 ) -> bool {
 	check_shape_def(def, loc)
-	return level_shape(body_id(world, ref), def, shape)
+	def := def
+	return level_shape(body_id(world, ref), &def, shape)
 }
 
 @(private)

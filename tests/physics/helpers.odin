@@ -9,11 +9,10 @@ import "unified:sim"
 
 HZ :: 64
 DT: f32 : 1.0 / HZ
-SUBSTEPS :: 4
 
 // `count` ticks of `world`.
 steps :: proc(world: ^physics.World, count: int) {
-	for _ in 0 ..< count do physics.step(world, DT, SUBSTEPS)
+	for _ in 0 ..< count do physics.step(world)
 }
 
 near :: proc(a, b: [3]f32, tolerance: f32 = 1e-4) -> bool {
@@ -23,6 +22,38 @@ near :: proc(a, b: [3]f32, tolerance: f32 = 1e-4) -> bool {
 
 near_f32 :: proc(a, b: f32, tolerance: f32 = 1e-4) -> bool {
 	return abs(a - b) <= tolerance
+}
+
+CAT_STATIC :: u64(1 << 0) // Box3D's default category
+CAT_CHARACTER :: u64(1 << 1)
+CAT_BOX :: u64(1 << 2)
+CAT_PLATFORM :: u64(1 << 3)
+
+// A body with one box (physics.create_box). Its shape: category CAT_STATIC (Box3D's default) and density 1 (Box3D's
+// default is water's 1000), or `shape_def` as given. A kinematic box never sleeps.
+box :: proc(
+	world: ^physics.World,
+	pos, half: [3]f32,
+	type: physics.Body_Type = .Static,
+	tag: u64 = 0,
+	shape_def: Maybe(physics.Shape_Def) = nil,
+	rot := [4]f32{0, 0, 0, 1},
+	category := CAT_STATIC,
+	density: f32 = 1,
+	hit := false,
+) -> (
+	body: physics.Body_Ref,
+	shape: physics.Shape_Ref,
+) {
+	body_def := physics.body_def(type, pos, rot)
+	if type == .Kinematic do body_def.enable_sleep = false
+	def, given := shape_def.?
+	if !given {
+		def = physics.shape_def(category)
+		def.density = density
+		def.enable_hit_events = hit
+	}
+	return physics.create_box(world, body_def, def, half, tag)
 }
 
 SYNC_WINDOW :: 8

@@ -53,121 +53,132 @@ world_anchor :: proc(world: ^World) -> Body_Link {
 create_distance_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Distance_Joint_Def,
+	def: Distance_Joint_Def,
 	loc := #caller_location,
 ) -> Distance_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateDistanceJoint(world.id, (^box3d.DistanceJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateDistanceJoint(world.id, (^box3d.DistanceJointDef)(&def)))}
 }
 
 // Creates a filter joint between two bodies (it only stops them colliding).
 create_filter_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Filter_Joint_Def,
+	def: Filter_Joint_Def,
 	loc := #caller_location,
 ) -> Filter_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateFilterJoint(world.id, (^box3d.FilterJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateFilterJoint(world.id, (^box3d.FilterJointDef)(&def)))}
 }
 
 // Creates a motor joint between two bodies.
 create_motor_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Motor_Joint_Def,
+	def: Motor_Joint_Def,
 	loc := #caller_location,
 ) -> Motor_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateMotorJoint(world.id, (^box3d.MotorJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateMotorJoint(world.id, (^box3d.MotorJointDef)(&def)))}
 }
 
 // Creates a mover joint between two bodies.
 create_mover_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Mover_Joint_Def,
+	def: Mover_Joint_Def,
 	loc := #caller_location,
 ) -> Mover_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateMoverJoint(world.id, (^box3d.MoverJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateMoverJoint(world.id, (^box3d.MoverJointDef)(&def)))}
 }
 
 // Creates a parallel joint between two bodies.
 create_parallel_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Parallel_Joint_Def,
+	def: Parallel_Joint_Def,
 	loc := #caller_location,
 ) -> Parallel_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateParallelJoint(world.id, (^box3d.ParallelJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateParallelJoint(world.id, (^box3d.ParallelJointDef)(&def)))}
 }
 
 // Creates a pogo joint between two bodies.
 create_pogo_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Pogo_Joint_Def,
+	def: Pogo_Joint_Def,
 	loc := #caller_location,
 ) -> Pogo_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreatePogoJoint(world.id, (^box3d.PogoJointDef)(def)))}
+	return {joint_ref_of(box3d.CreatePogoJoint(world.id, (^box3d.PogoJointDef)(&def)))}
 }
 
 // Creates a prismatic joint between two bodies.
 create_prismatic_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Prismatic_Joint_Def,
+	def: Prismatic_Joint_Def,
 	loc := #caller_location,
 ) -> Prismatic_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreatePrismaticJoint(world.id, (^box3d.PrismaticJointDef)(def)))}
+	return {joint_ref_of(box3d.CreatePrismaticJoint(world.id, (^box3d.PrismaticJointDef)(&def)))}
 }
 
 // Creates a revolute joint between two bodies.
 create_revolute_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Revolute_Joint_Def,
+	def: Revolute_Joint_Def,
 	loc := #caller_location,
 ) -> Revolute_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateRevoluteJoint(world.id, (^box3d.RevoluteJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateRevoluteJoint(world.id, (^box3d.RevoluteJointDef)(&def)))}
 }
 
 // Creates a spherical joint between two bodies.
 create_spherical_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Spherical_Joint_Def,
+	def: Spherical_Joint_Def,
 	loc := #caller_location,
 ) -> Spherical_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateSphericalJoint(world.id, (^box3d.SphericalJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateSphericalJoint(world.id, (^box3d.SphericalJointDef)(&def)))}
 }
 
 // Creates a weld joint between two bodies.
 create_weld_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Weld_Joint_Def,
+	def: Weld_Joint_Def,
 	loc := #caller_location,
 ) -> Weld_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateWeldJoint(world.id, (^box3d.WeldJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateWeldJoint(world.id, (^box3d.WeldJointDef)(&def)))}
 }
 
 // Creates a wheel joint between two bodies.
 create_wheel_joint :: proc(
 	world: ^World,
 	body_a, body_b: Body_Link,
-	def: ^Wheel_Joint_Def,
+	def: Wheel_Joint_Def,
 	loc := #caller_location,
 ) -> Wheel_Joint_Ref {
+	def := def
 	set_joint_bodies(world, &def.base, body_a, body_b, loc)
-	return {joint_ref_of(box3d.CreateWheelJoint(world.id, (^box3d.WheelJointDef)(def)))}
+	return {joint_ref_of(box3d.CreateWheelJoint(world.id, (^box3d.WheelJointDef)(&def)))}
 }
 
 @(private)

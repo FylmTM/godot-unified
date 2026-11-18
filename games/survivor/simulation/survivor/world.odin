@@ -145,47 +145,39 @@ item_kind :: proc(i: int) -> Item_Kind {
 
 @(private)
 add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
-	body_def := physics.default_body_def()
-	body_def.position = pos
-	body := physics.create_body(world.phys, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = CAT_STATIC
-	hull := physics.make_box_hull(half.x, half.y, half.z)
-	physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
+	physics.create_box(world.phys, physics.body_def(.Static, pos), physics.shape_def(CAT_STATIC), half)
 }
 
 // Creates the body of item i (a crate or a barrel) at its grid spot, tagged with i.
 create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
-	body_def := physics.default_body_def()
-	body_def.type = .Dynamic
-	body_def.position = item_position(i)
-	ref := physics.create_body(world.phys, &body_def, tag = u64(i))
-	shape_def := physics.default_shape_def()
-	shape_def.density = 1
+	body_def := physics.body_def(.Dynamic, item_position(i))
 	if item_kind(i) == .Barrel {
-		shape_def.filter.category = CAT_BARREL
-		physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.3, 0}, {0, 0.3, 0}, 0.4})
-	} else {
-		shape_def.filter.category = CAT_CRATE
-		hull := physics.make_box_hull(0.5, 0.5, 0.5)
-		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
+		shape_def := physics.shape_def(CAT_BARREL)
+		shape_def.density = 1
+		ref, _ := physics.create_capsule(world.phys, body_def, shape_def, {{0, -0.3, 0}, {0, 0.3, 0}, 0.4}, u64(i))
+		return ref
 	}
+	shape_def := physics.shape_def(CAT_CRATE)
+	shape_def.density = 1
+	ref, _ := physics.create_box(world.phys, body_def, shape_def, {0.5, 0.5, 0.5}, u64(i))
 	return ref
 }
 
 // Creates a player's body at the start spot of `slot`.
 create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
-	body_def := physics.default_body_def()
-	body_def.type = .Dynamic
-	body_def.position = PLAYER_START[slot]
-	body_def.motion_locks.angular_x = true
-	body_def.motion_locks.angular_y = true
-	body_def.motion_locks.angular_z = true
+	body_def := physics.body_def(.Dynamic, PLAYER_START[slot])
+	body_def.motion_locks = {
+		angular_x = true,
+		angular_y = true,
+		angular_z = true,
+	}
 	body_def.enable_sleep = false
-	ref := physics.create_body(world.phys, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = CAT_PLAYER
-	physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.45, 0}, {0, 0.45, 0}, 0.45})
+	ref, _ := physics.create_capsule(
+		world.phys,
+		body_def,
+		physics.shape_def(CAT_PLAYER),
+		{{0, -0.45, 0}, {0, 0.45, 0}, 0.45},
+	)
 	return ref
 }
 
@@ -197,7 +189,7 @@ destroy_body :: proc(world: ^World, ref: ^Body_Ref) {
 // The physics world with its static geometry (games/survivor/SPEC.md creation order: ground, walls, pillars).
 world_create :: proc(seed: u64, _: []u8) -> ^World {
 	world := new(World)
-	world.phys = physics.create({workers = PHYSICS_WORKERS})
+	world.phys = physics.create({tick_hz = TICK_HZ, workers = PHYSICS_WORKERS})
 	add_static_box(world, {0, -0.5, 0}, {ARENA_HALF, 0.5, ARENA_HALF}) // ground
 	add_static_box(world, {30.5, 1.5, 0}, {0.5, 1.5, 31}) // walls: inner faces at x, z = ±30
 	add_static_box(world, {-30.5, 1.5, 0}, {0.5, 1.5, 31})

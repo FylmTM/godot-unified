@@ -197,7 +197,7 @@ create_static_bodies :: proc(t: ^testing.T) {
 	loaded, ok := level.load(data)
 	defer level.destroy(&loaded)
 	testing.expect(t, ok)
-	world := physics.create()
+	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
 	count, problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, count, 2)
@@ -219,7 +219,7 @@ create_static_bodies :: proc(t: ^testing.T) {
 // A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_static names the first one (#149).
 @(test)
 create_static_names_a_refused_shape :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
 	// 3 points: no hull. A cube's 7 x 7 x 7 surface lattice pushed onto a sphere: past Box3D's 128 hull edges at
 	// the 64-vertex cap.
@@ -240,11 +240,11 @@ create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 		bodies = bodies,
 	}
 	body_def := physics.default_body_def()
-	body := physics.create_body(world, &body_def)
+	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
-	testing.expect(t, physics.create_level_shape(world, body, &shape_def, &shapes[0]))
-	testing.expect(t, !physics.create_level_shape(world, body, &shape_def, &shapes[1]))
-	testing.expect(t, !physics.create_level_shape(world, body, &shape_def, &shapes[2]))
+	testing.expect(t, physics.create_level_shape(world, body, shape_def, &shapes[0]))
+	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[1]))
+	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[2]))
 	count, problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, count, 1)
 	testing.expect_value(t, problem, `level body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)

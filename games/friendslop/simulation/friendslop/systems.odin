@@ -25,7 +25,7 @@ tick :: proc(t: ^Tick) {
 	platforms(t)
 	pads(t)
 	bumpers(t)
-	physics.step(t.world.phys, t.dt, SUBSTEPS)
+	physics.step(t.world.phys)
 	hits(t)
 	plates_and_switches(t)
 	stuns(t)
@@ -354,7 +354,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		t.world.phys,
 		physics.link(character.controller.body),
 		physics.link(held_body),
-		&joint_def,
+		joint_def,
 	)
 	character.held_kind = target.kind
 	character.held_item = u8(target.item)
@@ -475,7 +475,7 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 		scale = HOLD_SLOW
 		if character.held_kind == .Item && t.world.items[character.held_item].kind == .Heavy do scale = HOLD_SLOW_HEAVY
 	}
-	if physics.character_update(t.world.phys, &character.controller, t.world.character_def, move, jump, scale, t.dt) {
+	if physics.character_update(t.world.phys, &character.controller, t.world.character_def, move, jump, scale) {
 		sim.emit(t, Event_Jumped{position = sim.Position(player_pos(t, player)), player = player})
 	}
 }
@@ -500,7 +500,7 @@ platforms :: proc(t: ^Tick) {
 			if !active && platform.phase > 0 do platform.phase -= 1
 		}
 		target := def.origin + (physics.path_sample(&def.path, platform.phase, TICK_HZ) - def.path.points[0])
-		physics.drive_kinematic(t.world.phys, platform.body, target, TICK_HZ)
+		physics.drive_kinematic(t.world.phys, platform.body, target)
 	}
 }
 
