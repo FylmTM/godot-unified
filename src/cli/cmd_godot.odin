@@ -822,22 +822,23 @@ godot_scenes :: proc(dir: string) -> []string {
 }
 
 // The files ending in `suffix` that Godot sees in the project at `dir`, sorted: not under a hidden directory, nor one
-// with a .gdignore (a game repo's unified/ submodule has one).
+// with a .gdignore (a game repo's unified/ submodule has one). Each path is `dir` as given joined with the file's path
+// in the project, so callers cut `dir` off to get it: a directory walker may return resolved paths (macOS: /var is
+// /private/var), which don't start with it.
 godot_files :: proc(dir, suffix: string) -> []string {
-	out: [dynamic]string
-	walker := os.walker_create(dir)
-	defer os.walker_destroy(&walker)
-	for info in os.walker_walk(&walker) {
-		if info.type == .Directory {
-			if strings.has_prefix(info.name, ".") || os.is_file(join(info.fullpath, ".gdignore")) {
-				os.walker_skip_dir(&walker)
+	walk :: proc(out: ^[dynamic]string, dir, suffix: string) {
+		entries, _ := os.read_all_directory_by_path(dir, context.temp_allocator)
+		for entry in entries {
+			path := join(dir, entry.name)
+			if entry.type == .Directory {
+				if !strings.has_prefix(entry.name, ".") && !os.is_file(join(path, ".gdignore")) do walk(out, path, suffix)
+			} else if entry.type == .Regular && strings.has_suffix(entry.name, suffix) {
+				append(out, path)
 			}
-			continue
-		}
-		if info.type == .Regular && strings.has_suffix(info.name, suffix) {
-			append(&out, strings.clone(info.fullpath))
 		}
 	}
+	out: [dynamic]string
+	walk(&out, dir, suffix)
 	slice.sort(out[:])
 	return out[:]
 }
