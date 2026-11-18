@@ -2,7 +2,7 @@ class_name DriftArena
 extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
 ## handed to the session (ships, the station, gates), the multi views (rocks, bullets, gems), the camera following the
-## local ship, effects and the HUD. Turns the mouse or the right stick into the aim every frame, and routes the
+## local ship, effects and the HUD. Turns the mouse or the right stick into the aim for every input sample, and routes the
 ## sim's events (sim_event) to effects, sounds and camera shake: rock effects as soon as an event is first shown
 ## (predicted), the rest once its tick is confirmed.
 
@@ -20,11 +20,11 @@ var _mouse_aim := false
 
 
 func _ready() -> void:
-	process_priority = -1001  # the aim is set before UnifiedSession (-1000) samples the input: never a frame late
 	bounds = level_bounds(_level)
 	camera.set_bounds(bounds)
-	Game.session.view_root = _views
-	Game.session.sim_event.connect(_on_sim_event)
+	Unified.session.view_root = _views
+	Unified.session.sim_event.connect(_on_sim_event)
+	Unified.session.input_wanted.connect(_set_aim)  # this frame's sample takes the aim: never a frame late
 	Input.set_default_cursor_shape(Input.CURSOR_CROSS)
 
 
@@ -37,7 +37,7 @@ func _input(event: InputEvent) -> void:
 		_mouse_aim = true
 
 
-func _process(_delta: float) -> void:
+func _set_aim() -> void:
 	var stick := Input.get_vector(&"aim_left", &"aim_right", &"aim_up", &"aim_down")
 	if stick.length() > 0.3:
 		_mouse_aim = false
@@ -52,7 +52,7 @@ func _process(_delta: float) -> void:
 
 ## The local player's ship view (null until they have one).
 func local_ship_view() -> Node2D:
-	return Game.session.get_player_view(EnumView.SHIP, Unified.session.local_player) as Node2D
+	return Unified.session.get_player_view(EnumView.SHIP, Unified.session.local_player) as Node2D
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.
@@ -103,7 +103,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		var station_hit := event as EventStationHit
 		effects.debris(station_hit.position, 14, UiTheme.BAD, 200.0, 4.0)
 		effects.ring(station_hit.position, 10.0, 60.0, 0.5, UiTheme.BAD, 3.0)
-		camera.shake(0.5 if station_hit.damage >= 10 else 0.3)
+		camera.shake(0.5 if station_hit.size == EnumRockSize.LARGE else 0.3)
 		Sfx.play(&"boom", -4.0)
 		Game.rumble(0.5, 0.7, 0.3)
 	elif event is EventGemPicked:
@@ -119,7 +119,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	elif event is EventMatchStarted:
 		Sfx.play(&"start")
 	elif event is EventMatchOver:
-		var station := Game.session.get_view(EnumView.STATION, 0) as Node2D
+		var station := Unified.session.get_view(EnumView.STATION, 0) as Node2D
 		var c := station.global_position if station != null else Vector2.ZERO
 		effects.debris(c, 40, UiTheme.BAD, 320.0, 5.0)
 		effects.ring(c, 20.0, 260.0, 1.0, UiTheme.BAD, 5.0)

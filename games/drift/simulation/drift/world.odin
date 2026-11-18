@@ -54,12 +54,14 @@ Roll :: enum u8 {
 // block owns (the station, ships, rocks) are made by init and the tick.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world := new(World)
-	loaded, ok := level.load(content)
-	assert(ok && loaded.px_per_m > 0, "drift: the level file is missing or not a 2D level (src/level/SPEC.md)")
-	world.level = loaded
-	world.phys = physics.create({tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS})
-	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
-	assert(problem == "", problem) // a hole in the level's collision
+	problem: string
+	world.phys, world.level, problem = physics.create_with_level(
+		{tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS},
+		content,
+		CAT_STATIC,
+	)
+	assert(problem == "", problem) // a missing level, or a hole in its collision
+	assert(world.level.px_per_m > 0, "drift: the level is not a 2D level (src/level/SPEC.md)")
 
 	spawn_count := 0
 	gate_markers: [MAX_GATES]int // each gate's marker index
@@ -100,8 +102,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 
 // Frees what world_create made: the physics world, the loaded level and the World itself.
 world_destroy :: proc(world: ^World) {
-	physics.destroy(world.phys)
-	level.destroy(&world.level)
+	physics.destroy_with_level(world.phys, &world.level)
 	free(world)
 }
 

@@ -1,8 +1,8 @@
 extends Node2D
 ## The station: a Node2D view with a UnifiedView marker. The host sets its
 ## position and rotation (it turns slowly), and `hp_frac` from Station_View; it flashes when that drops. Drawn in
-## code: the hexagon the sim simulates (corners at k × 60°, radius `station_radius`), and an HP ring that stays
-## upright. Also the menu's backdrop decoration (no session there).
+## code: the hexagon the sim simulates (Unified.constants.station_shape at radius `station_radius`), and an HP ring
+## that stays upright. Also the menu's backdrop decoration (no session there).
 
 ## Station_View (simulation/extension), set by the host when it changes: 0..1.
 var hp_frac := 1.0:
@@ -30,10 +30,9 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var hex := PackedVector2Array()
 	var inner := PackedVector2Array()
-	for k in 6:
-		var a := k * TAU / 6.0
-		hex.append(Vector2(cos(a), sin(a)) * _r)
-		inner.append(Vector2(cos(a), sin(a)) * _r * 0.55)
+	for corner: Vector2 in Unified.constants.station_shape:
+		hex.append(corner * _r)
+		inner.append(corner * _r * 0.55)
 	var hurt := 1.0 - hp_frac
 	var fill := Color("1f2a3a").lerp(Color("3a1f26"), hurt * 0.8)
 	draw_colored_polygon(hex, fill.lerp(Color.WHITE, _flash * 0.6))
@@ -44,7 +43,7 @@ func _draw() -> void:
 	var inner_loop := inner.duplicate()
 	inner_loop.append(inner[0])
 	draw_polyline(inner_loop, Color(edge, 0.5), 2.0, true)
-	for k in 6:
+	for k in hex.size():
 		draw_line(inner[k], hex[k], Color(edge, 0.35), 1.5, true)
 	# the core pulses faster as the station weakens
 	var pulse := 0.5 + 0.5 * sin(_t * (2.0 + 6.0 * hurt))
