@@ -1,3 +1,4 @@
+// Players: members come and go by join records, keep their handle and data, the longest-absent is forgotten first.
 package test_sim
 
 import "core:testing"
