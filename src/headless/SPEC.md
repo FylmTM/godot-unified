@@ -139,11 +139,10 @@ Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pi
 | Proc | Passes when |
 |---|---|
 | `rollback_every_tick(t, suite, window = 8)` | restoring `window` (at most `headless.max_window(game)`) ticks back and re-simulating, every tick: 0 mismatches |
-| `presence_churn(t, suite, window = 8)` | players come and go under `rollback_every_tick` (slot 0's player leaves, someone new takes slot 0, a slot empties and the first player comes back there): 0 mismatches, the newcomer is someone else, the one who came back has their handle and a returning join event |
+| `presence_churn(t, suite, window = 8)` | players come and go under `rollback_every_tick` (slot 0's player leaves, someone new takes slot 0, a slot empties and the first player comes back there): 0 mismatches, the Extra agrees after every restore |
 | `runs_match(t, suite)` | two scripted runs alive at once (`run_interleaved`: the second created halfway through the first, then stepped alongside it and on after it is destroyed): every tick equal. Catches state instances share (a global, a library's static), which back-to-back runs miss |
-| `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, rollbacks > 0 unless `ideal` |
-| `session_log_replays(t, suite, clients, profile)` | its own session; the relay's input log replays offline to every verified checksum |
-| `late_join_agrees(t, suite, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick |
+| `session_agrees(t, suite, clients, profile)` | virtual-clock session: 0 desyncs, every client's verified checksums equal, all reach `ticks`, the relay's input log replays offline to them, rollbacks > 0 unless `ideal` |
+| `late_join_agrees(t, suite, profile, player, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick; the log replays to them |
 | `reference_reproduces(t, suite)` | the reference run's checkpoints and hashes are the suite's constants; its log decodes and replays, and its snapshot resumes, to the same checksums |
 
 `profile` is `scenarios.Profile` (`.Ideal`, `.Wan`, `.Bad`: the network profiles above). Sessions run on the virtual

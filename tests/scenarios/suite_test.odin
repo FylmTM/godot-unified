@@ -48,8 +48,6 @@ four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, 
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
 
 @(test)
-a_bad_session_log_replays :: proc(t: ^testing.T) {scenarios.session_log_replays(t, &SUITE, 4, .Bad)}
-@(test)
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUITE, .Wan, 3, 1200)}
 
 @(test)

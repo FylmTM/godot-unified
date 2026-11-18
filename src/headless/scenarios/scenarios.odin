@@ -120,7 +120,8 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
 // player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
-// tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.
+// tick matches the forward run and the Extra agrees after every restore. (What the presence itself does, handles and
+// join events, is sim.Players', proven in tests/sim; a game proves what its own things do.)
 presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	runs := headless_of(suite)
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
@@ -151,31 +152,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		result.first_tick,
 		result.first_at,
 	)
-	// Forward, the handles: the newcomer is someone else, the one who came back is who they were.
-	simulation := sim.create(suite.game, suite.seed, suite.content)
-	defer sim.destroy(simulation)
-	commands := headless.Scripted_Commands(G) {
-		seats = seats,
-	}
-	defer headless.scripted_commands_destroy(&commands)
-	first: sim.Player
-	for tick in 1 ..= start + 20 {
-		inputs := headless.scripted(&runs, simulation, tick, suite.players, &commands)
-		sim.step(simulation, &inputs)
-		if tick == 1 do first = sim.player_in_slot(simulation, 0)
-	}
-	newcomer := sim.player_in_slot(simulation, 0)
-	testing.expectf(t, newcomer.id == NEWCOMER && newcomer != first, "%s: slot 0 holds %v", what, newcomer)
-	testing.expectf(t, sim.player_in_slot(simulation, back) == first, "%s: %v did not come back", what, first)
-	returned := false
-	joined_kind := sim.variant_kind(sim.part(G, sim.GAME_EVENT), sim.Event_Player_Joined)
-	for &raw in sim.events_at(simulation, start + 20) {
-		if int(raw.kind) == joined_kind {
-			joined := (^sim.Event_Player_Joined)(&raw.data[0])^
-			returned ||= joined.player == first && joined.returning && int(joined.slot) == back
-		}
-	}
-	testing.expectf(t, returned, "%s: no returning join event for %v", what, first)
+	testing.expectf(t, result.check == "", "%s: after restoring tick %d: %s", what, result.check_tick, result.check)
 }
 
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
@@ -196,61 +173,13 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	)
 }
 
-// A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same
-// checksums, and rollbacks happen unless the network is ideal.
+// A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same checksums, the
+// relay's input log replays offline to them, and rollbacks happen unless the network is ideal.
 session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
 	what := fmt.tprintf("session_agrees (%d clients, %s network; %s)", clients, PROFILE_NAMES[profile], params(suite))
 	result := session(suite, clients, profile)
 	defer headless.session_result_destroy(&result)
 	check_session(t, what, suite, &result, profile != .Ideal)
-}
-
-// A session's official input log (the relay's) replays offline to every checksum each client
-// verified.
-session_log_replays :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
-	runs := headless_of(suite)
-	what := fmt.tprintf(
-		"session_log_replays (%d clients, %s network; %s)",
-		clients,
-		PROFILE_NAMES[profile],
-		params(suite),
-	)
-	result := session(suite, clients, profile)
-	defer headless.session_result_destroy(&result)
-	if !testing.expectf(t, result.ok, "%s: the session did not complete", what) ||
-	   !testing.expectf(
-			   t,
-			   len(result.log.ticks) == int(suite.ticks),
-			   "%s: the log has %d ticks",
-			   what,
-			   len(result.log.ticks),
-		   ) {
-		return
-	}
-	trace: headless.Trace
-	defer headless.trace_destroy(&trace)
-	if _, ok := headless.run_replay(&runs, &result.log, &trace);
-	   !testing.expectf(t, ok, "%s: the log does not replay", what) {
-		return
-	}
-	for client in result.clients {
-		for verified in client.checksums {
-			got, _ := headless.trace_at(&trace, u32(verified[0]))
-			if got != verified[1] {
-				testing.expectf(
-					t,
-					false,
-					"%s: the replay differs from client %d first at tick %d: %016x vs verified %016x",
-					what,
-					client.slot,
-					verified[0],
-					got,
-					verified[1],
-				)
-				break
-			}
-		}
-	}
 }
 
 // A session of `suite.players` clients in which `player` joins at `tick` (from a snapshot handed over
@@ -448,7 +377,8 @@ session :: proc(
 
 // A session's results agree: no desyncs; every client verified every tick; the starting clients'
 // checksums cover every 16th tick and are equal; a late joiner's are contiguous from its first one
-// (at or after its join tick) and equal the others'; rollbacks happened if `need_rollbacks`.
+// (at or after its join tick) and equal the others'; the relay's input log replays offline to every checksum a
+// client verified; rollbacks happened if `need_rollbacks`.
 @(private)
 check_session :: proc(
 	t: ^testing.T,
@@ -512,6 +442,7 @@ check_session :: proc(
 		}
 	}
 	testing.expectf(t, result.ok, "%s: the session did not complete cleanly", what)
+	expect_log_replays(t, what, suite, result)
 	if joiner < 0 || baseline < 0 || joiner >= len(result.clients) || !result.clients[joiner].ok {
 		return
 	}
@@ -544,6 +475,45 @@ check_session :: proc(
 				expected[1],
 			)
 			return
+		}
+	}
+}
+
+// The relay's input log of a session replays offline to every checksum each client verified.
+@(private)
+expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), result: ^headless.Session_Result(G)) {
+	runs := headless_of(suite)
+	if !testing.expectf(
+		t,
+		len(result.log.ticks) == int(suite.ticks),
+		"%s: the relay's log has %d ticks",
+		what,
+		len(result.log.ticks),
+	) {
+		return
+	}
+	trace: headless.Trace
+	defer headless.trace_destroy(&trace)
+	if _, ok := headless.run_replay(&runs, &result.log, &trace);
+	   !testing.expectf(t, ok, "%s: the relay's log does not replay", what) {
+		return
+	}
+	for client in result.clients {
+		for verified in client.checksums {
+			got, _ := headless.trace_at(&trace, u32(verified[0]))
+			if got != verified[1] {
+				testing.expectf(
+					t,
+					false,
+					"%s: the log's replay differs from client %d first at tick %d: %016x vs verified %016x",
+					what,
+					client.slot,
+					verified[0],
+					got,
+					verified[1],
+				)
+				break
+			}
 		}
 	}
 }
