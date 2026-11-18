@@ -199,7 +199,7 @@ set_lifetimes :: proc(t: ^testing.T) {
 	frame :: proc(view_set: ^godot.View_Set(u64, int), keys: []u64, now: f64, next: ^int) -> (spawned: int) {
 		godot.set_begin(view_set)
 		for key in keys {
-			entry, is_new := godot.set_see(view_set, key)
+			entry, is_new, _ := godot.set_see(view_set, key)
 			if is_new {
 				entry.view = next^
 				entry.linger_s = 0.5
@@ -249,9 +249,9 @@ set_wider_keys :: proc(t: ^testing.T) {
 	view_set: godot.View_Set(Id, int)
 	defer godot.set_destroy(&view_set)
 	godot.set_begin(&view_set)
-	a, spawned_a := godot.set_see(&view_set, Id{0, 7})
+	a, spawned_a, _ := godot.set_see(&view_set, Id{0, 7})
 	a.view = 1
-	b, spawned_b := godot.set_see(&view_set, Id{1, 7})
+	b, spawned_b, _ := godot.set_see(&view_set, Id{1, 7})
 	b.view = 2
 	godot.set_end(&view_set, 0)
 	testing.expect(t, spawned_a && spawned_b)
@@ -275,7 +275,8 @@ event_id :: proc(event: Ev) -> godot.Event_Id {
 	}
 }
 
-sim_tick :: proc(tracker: ^godot.Event_Tracker(Ev), tick: u32, events: ..Ev) {
+// One simulation of `tick` producing `events`, in order.
+sim_tick :: proc(tracker: ^godot.Event_Tracker($E), tick: u32, events: ..E) {
 	godot.tracker_begin_tick(tracker, tick)
 	for event in events do godot.tracker_event(tracker, event)
 	godot.tracker_end_tick(tracker, tick)
@@ -283,9 +284,7 @@ sim_tick :: proc(tracker: ^godot.Event_Tracker(Ev), tick: u32, events: ..Ev) {
 
 // The tick being verified, then the verification (what a session's verified hook does).
 verify_tick :: proc(tracker: ^godot.Event_Tracker(Ev), tick: u32, events: ..Ev) {
-	godot.tracker_begin_tick(tracker, tick)
-	for event in events do godot.tracker_event(tracker, event)
-	godot.tracker_end_tick(tracker, tick)
+	sim_tick(tracker, tick, ..events)
 	godot.tracker_verified(tracker, tick)
 }
 
@@ -348,28 +347,22 @@ hit_id :: proc(hit: Hit) -> godot.Event_Id {
 	return {tick = hit.tick, entity = hit.entity}
 }
 
-hit_tick :: proc(tracker: ^godot.Event_Tracker(Hit), tick: u32, hits: ..Hit) {
-	godot.tracker_begin_tick(tracker, tick)
-	for hit in hits do godot.tracker_event(tracker, hit)
-	godot.tracker_end_tick(tracker, tick)
-}
-
 @(test)
 events_keep_their_serial :: proc(t: ^testing.T) {
 	tracker: godot.Event_Tracker(Hit)
 	godot.tracker_init(&tracker, hit_id, 100)
 	defer godot.tracker_destroy(&tracker)
-	hit_tick(&tracker, 3, Hit{3, 1, 0.5}, Hit{3, 2, 0.5})
+	sim_tick(&tracker, 3, Hit{3, 1, 0.5}, Hit{3, 2, 0.5})
 	testing.expect_value(t, tracker.out[0], godot.Tracked(Hit){.Emitted, Hit{3, 1, 0.5}, 101})
 	testing.expect_value(t, tracker.out[1], godot.Tracked(Hit){.Emitted, Hit{3, 2, 0.5}, 102})
 	clear(&tracker.out)
 	// a rollback: the same hit lands elsewhere (same id, new data); the other one is gone
-	hit_tick(&tracker, 3, Hit{3, 1, 0.75})
+	sim_tick(&tracker, 3, Hit{3, 1, 0.75})
 	testing.expect_value(t, len(tracker.out), 1)
 	testing.expect_value(t, tracker.out[0], godot.Tracked(Hit){.Cancelled, Hit{3, 2, 0.5}, 102})
 	clear(&tracker.out)
 	// and back: the cancelled one is produced again, a new event
-	hit_tick(&tracker, 3, Hit{3, 1, 0.75}, Hit{3, 2, 0.5})
+	sim_tick(&tracker, 3, Hit{3, 1, 0.75}, Hit{3, 2, 0.5})
 	testing.expect_value(t, len(tracker.out), 1)
 	testing.expect_value(t, tracker.out[0], godot.Tracked(Hit){.Emitted, Hit{3, 2, 0.5}, 103})
 	clear(&tracker.out)
@@ -379,7 +372,7 @@ events_keep_their_serial :: proc(t: ^testing.T) {
 	next: godot.Event_Tracker(Hit)
 	godot.tracker_init(&next, hit_id, tracker.last_serial)
 	defer godot.tracker_destroy(&next)
-	hit_tick(&next, 1, Hit{1, 1, 0})
+	sim_tick(&next, 1, Hit{1, 1, 0})
 	testing.expect_value(t, next.out[0].serial, 104)
 }
 

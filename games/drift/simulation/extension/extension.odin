@@ -152,7 +152,7 @@ fill_frame :: proc(f: ^Frame) {
 			rot    = physics.quat_2d(rotation),
 			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
-		}) or_break
+		})
 	}
 	// bullets: turned to and stretched along their velocity (quat_2d normalises it), tinted with the owner's colour
 	// (custom.x: the owner's slot, the view's colour index; -1 once the owner has left)
@@ -166,7 +166,7 @@ fill_frame :: proc(f: ^Frame) {
 			rot    = physics.quat_2d(bullet.vel),
 			scale  = {1.6, 0.6, 1},
 			custom = {f32(owner_slot), 0, 0, 0},
-		}) or_break
+		})
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
 	gems := sim.iterate(&f.state.gems)
@@ -182,7 +182,7 @@ fill_frame :: proc(f: ^Frame) {
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},
-		}) or_break
+		})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))
 }

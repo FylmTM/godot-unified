@@ -118,7 +118,7 @@ fill_frame :: proc(f: ^Frame) {
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
 			rot    = facing(enemy.vel),
 			custom = {hit_flash(f.tick, enemy.hit_tick), age_s(f.tick, enemy.spawn_tick), 0, 0},
-		}) or_break
+		})
 	}
 	projectiles := sim.iterate(&f.state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
@@ -127,7 +127,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Projectile,
 			pos  = {projectile.pos.x, 0, projectile.pos.z},
 			rot  = facing(projectile.vel.xz),
-		}) or_break
+		})
 	}
 	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
@@ -136,7 +136,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind   = .Gem,
 			pos    = {gem.pos.x, 0, gem.pos.y},
 			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
-		}) or_break
+		})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))
 }

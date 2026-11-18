@@ -14,8 +14,8 @@ paths:
 - Godot 4 (the version pinned in `pins.cfg`), standard (non-.NET) build. Check APIs against 4.x docs, not Godot 3: training data mixes them.
 - Edit `.gd`, `.tscn`, `.tres` and `project.godot` as text. A hand-written scene: `[gd_scene format=3]`,
   `ext_resource` by `path` with a short `id`.
-- GDScript is typed: every declaration has a type (`untyped_declaration` is a warning, and every tool-script run
-  fails on warnings).
+- GDScript is typed: every declaration has a type (the games make `untyped_declaration` an error, and every
+  tool-script run fails on warnings).
 - Godot writes a `.uid` file next to every new script and shader: commit it with the file.
 - Never edit `.godot/` or `.import` files; they are Godot's cache.
 - A game's `addons/shared/` is a copy of `games/shared` (the demo games' shared Godot code, its SPEC.md), refreshed

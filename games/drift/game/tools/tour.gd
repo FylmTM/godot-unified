@@ -1,11 +1,12 @@
 extends UnifiedTool
 ## A tour of the real game with the native session (the game library must be built), driven by input actions as
 ## a player would (the right stick aims, so the tour needs no mouse):
-##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick] [--end-in-match]
+##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--end-in-match]
 ## menu -> single player -> lobby (the ship, the station and both gates are there) -> click Start (the `start`
 ## command) -> match: aim with the stick (the ship turns to it), thrust (it moves, the camera follows), fire
 ## (bullets in the multi view) while the first wave's rocks drift in (rock multi views) -> hunt rocks (_hunt) until
-## one is hit (`--quick`) or splits or is destroyed -> without `--quick`, warp through a gate -> leave to the menu.
+## one splits or is destroyed -> warp through a gate -> leave to the menu. By hand (`uni tool drift tour`; the godot
+## suite's walk covers the match up to the first rock hit).
 ## `--end-in-match`: the run ends after the hunt, fire held, so the app quits mid-match with sounds playing (in a
 ## window with `--shots` the quit leaked their playbacks before Sfx.close, #302).
 ## The result adds the sim events seen.
@@ -100,11 +101,10 @@ func _run() -> void:
 	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_multi_count(["bullet"]),
 		_multi_count(ROCK_KINDS), _multi_count(["gem"]), (game.local_player_info() as DataHudPlayer).shots])
 
-	await _hunt(flag("quick"))
+	await _hunt()
 	if flag("end-in-match"):
 		return  # fire still held: the run quits mid-match, with sounds playing (Game.quit_app frees them)
-	if not flag("quick"):
-		await _warp()
+	await _warp()
 	Input.action_release(&"fire")
 
 	game.leave_to_menu()
@@ -113,18 +113,15 @@ func _run() -> void:
 	step("left to the menu")
 
 
-## Fires at rocks: aims at the nearest one (read back from the rock multi views) and thrusts into range. Headless (no
-## renderer holds the multi views' transforms to read back) it sweeps the aim around while the rocks drift at the
-## station, and aims at the last rock hit for a second after each hit. Quick: until the first hit, 15 s at most.
-## Otherwise until a rock splits or is destroyed, 40 s at most.
-func _hunt(quick: bool) -> void:
-	var budget_s := 15 if quick else 40
+## Fires at rocks: aims at the nearest one (read back from the rock multi views) and thrusts into range; with none
+## drawn, aims at the last rock hit for a second after each hit, else sweeps the aim around while the rocks drift at
+## the station. Until a rock splits or is destroyed, 40 s at most.
+func _hunt() -> void:
+	var budget_s := 40
 	var start := Time.get_ticks_msec()
 	var end := start + budget_s * 1000
-	var shot_mid := quick
+	var shot_mid := false
 	while not failed() and Time.get_ticks_msec() < end:
-		if quick and _events.get("rock_hit", 0) > 0:
-			break
 		if shot_mid and _events.get("rock_split", 0) + _events.get("rock_destroyed", 0) > 0:
 			break
 		var at := _me().global_position
@@ -145,12 +142,11 @@ func _hunt(quick: bool) -> void:
 	await seconds(0.3)
 	await shot("r05_hunt")
 	var broke: int = _events.get("rock_split", 0) + _events.get("rock_destroyed", 0)
-	step("hunt (%s): %d rock hits, %d splits, %d destroyed, %d station hits, score %d" % [
-		"aimed" if not _headless() else "swept", _events.get("rock_hit", 0), _events.get("rock_split", 0),
+	step("hunt: %d rock hits, %d splits, %d destroyed, %d station hits, score %d" % [_events.get("rock_hit", 0), _events.get("rock_split", 0),
 		_events.get("rock_destroyed", 0), _events.get("station_hit", 0), Unified.data.hud.score])
 	if _events.get("rock_hit", 0) == 0:
 		fail("no bullet hit a rock in %d s of firing at them" % budget_s)
-	elif not quick and broke == 0:
+	elif broke == 0:
 		fail("no rock split or was destroyed in %d s of firing at them" % budget_s)
 
 
@@ -217,27 +213,24 @@ func _multi_count(kinds: Array) -> int:
 	return n
 
 
-## The nearest rock's position, read back from the rock multi views' instance transforms (what the host wrote), or
-## Vector2.INF when there is none or nothing to read back: headless, the renderer keeps no MultiMesh buffer and
-## every transform reads as the origin.
+## The nearest rock's position, read back from the rock multi views' buffers (what the host wrote), or Vector2.INF
+## when none is drawn.
 func _nearest_rock(from: Vector2) -> Vector2:
 	var best := Vector2.INF
-	if _headless():
-		return best
 	for b in current_scene.get_node(^"MultiViews").get_children():
 		var mmi := b as MultiMeshInstance2D
 		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
 		if mmi == null or mmi.multimesh == null or marker == null or not (marker.kind in ROCK_KINDS):
 			continue
-		for i in maxi(mmi.multimesh.visible_instance_count, 0):
-			var p := mmi.multimesh.get_instance_transform_2d(i).origin
+		var mm := mmi.multimesh
+		var buffer := mm.buffer  # the dummy renderer (headless) keeps the buffer, not the instance transforms
+		var stride := 8 + (4 if mm.use_colors else 0) + (4 if mm.use_custom_data else 0)  # a 2D transform: 2x4
+		for i in mini(maxi(mm.visible_instance_count, 0), buffer.size() / stride):
+			var at := i * stride
+			var p := mmi.global_transform * Vector2(buffer[at + 3], buffer[at + 7])
 			if best == Vector2.INF or from.distance_to(p) < from.distance_to(best):
 				best = p
 	return best
-
-
-static func _headless() -> bool:
-	return DisplayServer.get_name() == "headless"
 
 
 ## The right stick, as Input actions (what Input.get_vector reads).

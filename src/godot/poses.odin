@@ -4,14 +4,16 @@
 // (the same tick again) moves its tick - 1 pose by the same correction; a rollback with a new tick, or a fill after
 // skipped ticks, takes the new pose minus the last known one-tick motion. The main thread feeds it into the view's
 // error term (track_push_prev), so a correction glides instead of popping. Two open-addressed tables, the last
-// fill's and this one's, told apart by a stamp, so nothing is cleared per tick.
+// fill's and this one's, told apart by a stamp, so nothing is cleared per tick; both grow (rehashed) when a fill
+// would make its own more than half full.
 package godot
 
+import "base:runtime"
 import "core:fmt"
 
 Pose_Domain :: enum u8 {
-	View, // keys are unique among scene views
-	Multi, // keys are per Multi kind
+	View, // keys are unique within a scene view kind (the hash takes the kind)
+	Multi, // keys are unique within a MultiMesh kind
 }
 
 @(private)
@@ -27,27 +29,30 @@ Pose_Entry :: struct {
 
 Remembered_Pose :: struct {
 	pos: [3]f32,
-	rot: [4]f32, // a scene view's quaternion; a MultiMesh instance's yaw in rot.x
+	rot: [4]f32, // a unit quaternion
 }
 
 @(private)
 Pose_Table :: struct {
 	entries: [2][]Pose_Entry, // by fill parity
 	mask:    int,
+	count:   int, // entries this fill wrote
 }
 
 Pose_Memory :: struct {
 	tables:   [Pose_Domain]Pose_Table,
 	fill:     u32, // the current fill (starts at 1)
 	rollback: bool, // this fill's tick - 1 was re-simulated (a rollback landed with it)
+	alloc:    runtime.Allocator,
 }
 
-// Room for `views` scene views and `multis` MultiMesh instances per fill.
+// Room for `views` scene views and `multis` MultiMesh instances per fill to start with (they grow).
 pose_memory_init :: proc(memory: ^Pose_Memory, views, multis: int) {
 	sizes := [Pose_Domain]int {
 		.View  = views,
 		.Multi = multis,
 	}
+	memory.alloc = context.allocator
 	for &table, domain in memory.tables {
 		capacity := 16
 		for capacity < 2 * sizes[domain] do capacity *= 2
@@ -59,7 +64,7 @@ pose_memory_init :: proc(memory: ^Pose_Memory, views, multis: int) {
 
 // Frees the pose tables when the session's driver is torn down.
 pose_memory_destroy :: proc(memory: ^Pose_Memory) {
-	for &table in memory.tables do for entries in table.entries do delete(entries)
+	for &table in memory.tables do for entries in table.entries do delete(entries, memory.alloc)
 	memory^ = {}
 }
 
@@ -67,6 +72,26 @@ pose_memory_destroy :: proc(memory: ^Pose_Memory) {
 pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false) {
 	memory.fill += 1
 	memory.rollback = rollback
+	for &table in memory.tables do table.count = 0
+}
+
+// Doubles a table, rehashing the last fill's entries and this one's.
+@(private)
+pose_table_grow :: proc(memory: ^Pose_Memory, table: ^Pose_Table) {
+	capacity := 2 * (table.mask + 1)
+	for parity in 0 ..< 2 {
+		old := table.entries[parity]
+		grown := make([]Pose_Entry, capacity, memory.alloc)
+		for entry in old {
+			if entry.stamp != memory.fill && entry.stamp != memory.fill - 1 do continue
+			i := pose_slot(entry.key, entry.kind, capacity - 1)
+			for grown[i].stamp != 0 do i = (i + 1) & (capacity - 1)
+			grown[i] = entry
+		}
+		delete(old, memory.alloc)
+		table.entries[parity] = grown
+	}
+	table.mask = capacity - 1
 }
 
 // The pose one tick before `pose`, moved by the motion from `prev` to `last` (rotations: the same turn).
@@ -129,6 +154,11 @@ pose_remember :: proc(
 		}
 		break
 	}
+	if 2 * (table.count + 1) > table.mask + 1 {
+		pose_table_grow(memory, table)
+		current = table.entries[memory.fill & 1]
+		slot = pose_slot(key, kind, table.mask)
+	}
 	for i := slot;; i = (i + 1) & table.mask {
 		entry := &current[i]
 		if entry.stamp == memory.fill {
@@ -144,6 +174,7 @@ pose_remember :: proc(
 			pose     = {pos, rot},
 			prev     = previous,
 		}
+		table.count += 1
 		return
 	}
 }

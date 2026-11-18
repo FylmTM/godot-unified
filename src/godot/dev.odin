@@ -28,13 +28,6 @@ import "unified:sim"
 
 DEVUI :: #config(UNIFIED_DEVUI, true)
 
-// How a command fared, for the Commands panel.
-Command_Log :: enum u8 {
-	Sent,
-	Confirmed,
-	Refused,
-}
-
 when DEVUI {
 	Dev :: struct {
 		begin, end:   time.Tick, // this session's _process, this frame
@@ -57,11 +50,9 @@ when DEVUI {
 	dev: Dev
 
 	dev_init :: proc(visible: bool, lag: Netsim_Settings) {
-		if lag.enabled {
-			devui.netsim = {true, dir_to_ui(lag.up), dir_to_ui(lag.down)}
-		}
+		if lag.enabled do devui.netsim = lag
 		if devui.is_ready() do return
-		devui.init({visible = visible, on_feedback = dev_feedback})
+		devui.init(visible, dev_feedback)
 		rendering_server := gd.RenderingServer_singleton()
 		dev.draw[0] = gd.callable_create(proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 				dev.pre = time.tick_now()
@@ -90,15 +81,12 @@ when DEVUI {
 		dev = {}
 	}
 
-	dir_to_ui :: proc(dir: Netsim_Dir) -> devui.Netsim_Dir {return {dir.latency_ms, dir.jitter_ms, dir.loss_pct}}
-	dir_from_ui :: proc(dir: devui.Netsim_Dir) -> Netsim_Dir {return {dir.latency_ms, dir.jitter_ms, dir.loss_pct}}
-
 	// Godot routes the dev UI's events itself, and a press on the dev UI releases the actions it triggered; only
 	// the polled game input needs telling that a dev text field has the keyboard.
 	dev_wants_keyboard :: proc() -> bool {return devui.wants_keyboard()}
 	dev_visible :: proc() -> bool {return devui.visible}
 	// The session thread copies the newest state and inputs only while a panel shows them.
-	dev_wants_state :: proc() -> bool {return devui.panel_shown(.Inspector) || devui.panel_shown(.Input)}
+	dev_wants_state :: proc() -> bool {return devui.wants_state()}
 	dev_set_visible :: proc(visible: bool) {devui.visible = visible}
 
 	// A session starts: the frames line (p50, p99, max) starts over.
@@ -125,16 +113,7 @@ when DEVUI {
 	}
 
 	// A command to the Commands panel: its struct and fields (a command of another build: its kind).
-	dev_command :: proc(tick: u32, how: Command_Log, player: u64, command: ^sim.Raw_Command) {
-		state: devui.Log_State
-		switch how {
-		case .Sent:
-			state = .Sent
-		case .Confirmed:
-			state = .Confirmed
-		case .Refused:
-			state = .Refused
-		}
+	dev_command :: proc(tick: u32, state: devui.Log_State, player: u64, command: ^sim.Raw_Command) {
 		if int(command.kind) >= len(api.commands) {
 			devui.command(tick, state, "player %d  command kind %d", player, command.kind)
 			return
@@ -226,8 +205,7 @@ when DEVUI {
 		dev.end = time.tick_now()
 		if devui.netsim_changed {
 			devui.netsim_changed = false
-			netsim := devui.netsim
-			set_netsim({netsim.enabled, dir_from_ui(netsim.up), dir_from_ui(netsim.down)})
+			set_netsim(devui.netsim)
 		}
 	}
 
@@ -241,7 +219,7 @@ when DEVUI {
 		ui := min(dev.prev_ui_ms, host)
 		game := ms(dev.prev_end, dev.pre)
 		render := ms(dev.pre, dev.post)
-		devui.stack("main thread ms", {host - ui, ui, game, render}, {"views", "dev ui", "game", "render"}, "frame")
+		devui.stack("frame", "main thread ms", {host - ui, ui, game, render}, {"views", "dev ui", "game", "render"})
 	}
 
 	dev_sim_graphs :: proc(frame: ^Frame_Data, dt: f64) {
@@ -266,14 +244,14 @@ when DEVUI {
 			for k in 0 ..< 3 do dev.per_second[k] = f32(dev.steps[k]) / (f32(dev.steps_us) / 1e6)
 			dev.steps, dev.steps_us = {}, 0
 		}
-		devui.stack("sim thread ms", step_ms[:], {"verified", "rollback", "predicted"}, "sim")
-		devui.plot("ticks ahead", f32(frame.tick) - f32(frame.verified), 0, 0, "sim")
-		if net.rollbacks > prev.rollbacks do devui.mark("sim events", "rollback", "sim")
-		if net.own_replaced > prev.own_replaced do devui.mark("sim events", "late input", "sim")
-		if net.stall_ticks > prev.stall_ticks do devui.mark("sim events", "stall", "sim")
-		if net.desyncs > prev.desyncs do devui.mark("sim events", "desync", "sim")
+		devui.stack("sim", "sim thread ms", step_ms[:], {"verified", "rollback", "predicted"})
+		devui.plot("sim", "ticks ahead", f32(frame.tick) - f32(frame.verified))
+		if net.rollbacks > prev.rollbacks do devui.mark("sim", "sim events", "rollback")
+		if net.own_replaced > prev.own_replaced do devui.mark("sim", "sim events", "late input")
+		if net.stall_ticks > prev.stall_ticks do devui.mark("sim", "sim events", "stall")
+		if net.desyncs > prev.desyncs do devui.mark("sim", "sim events", "desync")
 
-		devui.plot("round trip ms", f32(net.rtt_ms), 0, 0, "net")
+		devui.plot("net", "round trip ms", f32(net.rtt_ms))
 		// bandwidth over 250 ms windows
 		dev.bw_bytes[0] += i64(net.net.bytes_recv - prev.net.bytes_recv)
 		dev.bw_bytes[1] += i64(net.net.bytes_sent - prev.net.bytes_sent)
@@ -282,15 +260,15 @@ when DEVUI {
 			for k in 0 ..< 2 do dev.bw[k] = f32(dev.bw_bytes[k]) / 1024 / (f32(dev.bw_us) / 1e6)
 			dev.bw_bytes, dev.bw_us = {}, 0
 		}
-		devui.lines("bandwidth kB/s", dev.bw[:], {"in", "out"}, 0, 0, "net")
+		devui.lines("net", "bandwidth kB/s", dev.bw[:], {"in", "out"})
 		since: f32
 		if net.last_msg_us != 0 do since = f32(netcode.now_us() - net.last_msg_us) / 1000
-		devui.plot("relay silence ms", since, 0, 0, "net")
+		devui.plot("net", "relay silence ms", since)
 	}
 
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
 	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json.
-	dev_feedback :: proc(dir: string, note: string, tag_bug: bool, user: rawptr) {
+	dev_feedback :: proc(dir: string, tag_bug: bool) {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)
 		defer delete(input_log)
@@ -352,7 +330,7 @@ when DEVUI {
 	dev_session_started :: proc() {}
 	dev_event :: proc(tick: u32, id: u64, action: Event_Action, layout: ^Event_Layout, data: []u8) {}
 	dev_note :: proc(tick: u32, text: string) {}
-	dev_command :: proc(tick: u32, how: Command_Log, player: u64, command: ^sim.Raw_Command) {}
+	dev_command :: proc(tick: u32, state: devui.Log_State, player: u64, command: ^sim.Raw_Command) {}
 	dev_begin :: proc() {}
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
 }

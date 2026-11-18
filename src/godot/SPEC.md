@@ -24,11 +24,9 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
 	data = Data, constants = CONSTANTS, input_values = Input_Values,
-	bench, event_key, compat, level,
+	bench, event_key, level,
 	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
 	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space)
-	smoothing,                       // godot.Smoothing in sim units (zero: the default, for metres)
-	max_views, max_multi, view_data_bytes, // the Frame's capacities (zero: 256, 16384, 16384)
 }
 
 @(export, link_name = "<game>_init")
@@ -42,8 +40,8 @@ Glue procs are named procs, never inline lambdas. A game's extension fills frame
 through `unified:godot` helpers, so it never imports `unified:gdext`.
 
 **Online play** goes through the `netcode.Lobby` the game passes to `godot.init` (`unified:godot` never imports a
-platform SDK). The session opens it with a `Lobby_Build` (the game's name, the build id: the glue's `compat`, else
-`sim.compat_of(game, level)`, the project's stamped version, the player count), so a joiner on another build is told
+platform SDK). The session opens it with a `Lobby_Build` (the game's name, the build id `sim.compat_of(game,
+level)`, the project's stamped version, the player count), so a joiner on another build is told
 before it joins. `godot.init` is `install` (the game and its Glue; tests call it alone), the lobby and `entry` (the
 extension's callbacks for Godot), in their one valid order.
 
@@ -77,7 +75,8 @@ reads input. A press on the dev UI never reaches the actions (`src/devui/SPEC.md
 
 The sim works in its own units and never converts; the views draw in Godot's (metres in 3D, pixels in 2D). The Glue
 says how they relate: `is_2d` (the sim's XY plane is Godot 2D, x right, y down) and `view_scale` (view units per sim
-unit; 1 when unset). Everything up to the hand-off is in sim units (fill_frame, smoothing, the event queue). The host
+unit; 1 when unset). Everything up to the hand-off is in sim units (fill_frame, the event queue; the views'
+smoothing suits a sim in metres). The host
 maps a point once, on the main thread, where it makes a Godot value from it: a scene view's position, a MultiMesh
 instance's origin (only the origin: a mesh is drawn in view units), and every `sim.Position` a script reads; the
 inverse for one a script sets in a command. Rotations, directions, lengths and input values are not mapped; a script
@@ -101,7 +100,8 @@ scales a sim size with `Unified.view_scale`. View space is `view_root`'s local s
   axis (zero: 1), `color` (zero: white), `custom` the shader's custom data.
 - `push_data(f, Data_Hud{...})`: the session data value of one type of `Glue.data` this tick (one per type, asserted).
 
-Each returns false when the Frame is full (counted; the host warns once). The host remembers every keyed item's pose,
+A Frame grows to what a fill pushes (on the session thread, which owns the slot it fills; a fill past the hard
+limits is a runaway loop and panics). The host remembers every keyed item's pose,
 so a view or instance seen at tick − 1 interpolates from it and games never pass previous poses. After a rollback the
 remembered tick − 1 pose is the old prediction, so the host sends an estimate of the corrected one: a re-filled tick
 moves its tick − 1 by the same correction; a rollback with a new tick, or a fill after skipped ticks, takes the new

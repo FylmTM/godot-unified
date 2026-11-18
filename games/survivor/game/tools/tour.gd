@@ -1,9 +1,9 @@
 extends UnifiedTool
 ## A tour of the real game with the native session, driven by input actions:
-##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick] [--frames]
+##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--frames]
 ## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the
-## match is lost -> over -> back to the lobby -> leave. `--quick` stops after the match has enemies (a headless
-## smoke check of the real flow, a few seconds). With `--frames` it also tags the first show of each HUD panel and
+## match is lost -> over -> back to the lobby -> leave: a whole match, by hand (`uni tool survivor tour`; the
+## godot suite's walk covers the start of a match). With `--frames` it also tags the first show of each HUD panel and
 ## banner size, the first hit on the player and a barrel explosion, for the first-use hitches.
 
 const HUD_PANELS: Array[NodePath] = [^"LevelUp", ^"GameOver", ^"Respawn"]
@@ -50,8 +50,6 @@ func _run() -> void:
 	await shot("r03_match_start")  # shockwave + flash
 	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive > 0, 8.0, "enemies spawn")
 	step("enemies: %d" % Unified.data.hud.enemies_alive)
-	if flag("quick"):
-		return
 
 	var leveled := false
 	var shot_fight := false

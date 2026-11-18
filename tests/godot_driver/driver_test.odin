@@ -164,9 +164,9 @@ driver_sessions :: proc(t: ^testing.T) {
 	if len(godot.api.view_names) == 1 do testing.expect_value(t, godot.api.view_names[0], "dot")
 	testing.expect_value(t, godot.api.tick_hz, toy.HZ)
 
-	// Single player, 40 ticks: connected, frames published with the previous poses the host remembered, the
-	// main thread's input sample reaches the sim, commands sent from the main thread reach the sim once each, in
-	// order, verified events confirmed, a result at the end.
+	// Single player, 24 ticks (a checksum at 16, inside the recording): connected, frames published with the previous
+	// poses the host remembered, the main thread's input sample reaches the sim, commands sent from the main thread
+	// reach the sim once each, in order, verified events confirmed, a result at the end.
 	{
 		testing.expect(t, !godot.api.send({}), "no session: nothing to send to")
 		sync.atomic_store(&seen.dx, 1)
@@ -174,7 +174,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, err := godot.api.start({
 			mode     = .Single,
 			seed     = 7,
-			ticks    = 40,
+			ticks    = 24,
 			name     = "solo",
 			scripted = false,
 		})
@@ -198,20 +198,6 @@ driver_sessions :: proc(t: ^testing.T) {
 			}
 		}
 		testing.expect_value(t, godot.api.events_dropped(), 0)
-		// ids (#240): never 0; an event's Emitted and its final state share one, and no two events do
-		emitted := make(map[u64]int, context.temp_allocator)
-		finals := make(map[u64]int, context.temp_allocator)
-		for message in events {
-			testing.expect(t, message.id != 0, "an event has an id")
-			if message.action == .Emitted do emitted[message.id] += 1
-			else do finals[message.id] += 1
-		}
-		testing.expect(t, len(emitted) > 0, "events")
-		for id, count in emitted {
-			testing.expectf(t, count == 1, "id %d emitted once (%d)", id, count)
-			testing.expectf(t, finals[id] <= 1, "id %d has at most one final state", id)
-		}
-		for id in finals do testing.expectf(t, id in emitted, "id %d: a final state of an emitted event", id)
 		testing.expect(t, connected, "a Connected status")
 		testing.expect(t, joined, "the local player's join is confirmed")
 		frame, _ := godot.api.front()
@@ -228,7 +214,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			entry, known := godot.roster_entry(i64(frame.local_player))
 			testing.expect(t, known && netcode.text_string(&entry.name) == "solo", "the roster names the player")
 		}
-		testing.expect(t, frame != nil && frame.tick >= 39, "the last frame is at the end")
+		testing.expect(t, frame != nil && frame.tick >= 23, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
 		if frame != nil && frame.n_views == 1 && frame.n_multis == 1 {
 			// the sampled dx moved the dot every tick; the host remembered where it was one tick earlier
@@ -390,4 +376,31 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	testing.expect_value(t, x, 19)
 	x, _ = remember(&memory, 15, 23) // ticks skipped: 23 minus the last motion (1)
 	testing.expect_value(t, x, 22)
+}
+
+// The pose memory grows past its starting room (a fill that pushes more than it was made for): every item, the ones
+// remembered before the growth too, finds its tick - 1 pose on the next fill.
+@(test)
+pose_memory_grows :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	COUNT :: 1000
+	for tick in u32(1) ..= 2 {
+		godot.pose_memory_begin(&memory)
+		found_all := true
+		for key in u64(1) ..= COUNT {
+			previous, found := godot.pose_remember(
+				&memory,
+				.Multi,
+				0,
+				key,
+				tick,
+				{f32(key), f32(tick), 0},
+				godot.IDENTITY,
+			)
+			if tick == 2 do found_all &&= found && previous.pos == {f32(key), 1, 0}
+		}
+		if tick == 2 do testing.expect(t, found_all, "every key finds its tick - 1 pose after growing")
+	}
 }

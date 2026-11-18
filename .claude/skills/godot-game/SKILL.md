@@ -22,8 +22,9 @@ leak at exit or a GDScript warning fails a step.
   (`game/tools/validate.gd`, where a game has one). After every GDScript or scene change. It stops at the first strict error; to list them
   all, run `godot --headless --path games/<game> -s res://addons/unified/validate.gd -- --no-settings --frames=5`
   and read its `Parse Error` lines.
-- `walk`: a scripted walk through the menus and flows with real input events.
-- `tour`: the real game, headless, through lobby and match.
+- `walk`: a scripted walk through the menus and flows with real input events, and the game's own play smoke
+  (`_walk_play()` in its `game/tools/ui_walk.gd`).
+- `uni tool <game> tour` (not a suite step): the real game through a whole match, by hand or with `--frames`.
 
 Before handing back any Godot-side change: `./uni test --suite godot,godot-bindings` (every game, plus the binding
 and host-view tests: what CI's Godot job runs).

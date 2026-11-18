@@ -1,10 +1,10 @@
 extends UnifiedTool
 ## A tour of the real game, driven by input actions and the camera rig (it steers by turning the camera and holding
 ## forward, as a player would):
-##   godot --path games/friendslop -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick]
+##   godot --path games/friendslop -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>]
 ## menu -> single player -> hub: walk to a crate, grab it, charge and throw it, walk onto the jump pad and get
-## launched onto the high ledge, then leave. `--quick` stops after the throw (a headless smoke check, a few
-## seconds).
+## launched onto the high ledge. The whole route, by hand (`uni tool friendslop tour`; the godot suite's walk covers
+## the throw).
 
 const Steering := preload("res://game/tools/steering.gd")
 
@@ -47,8 +47,6 @@ func _run() -> void:
 		moved = maxf(moved, (after.get(k, before[k]) as Vector3).distance_to(before[k]))
 	step("threw it %.1f m" % moved)
 	expect(moved >= 2.0, "the thrown crate moves at least 2 m (%.1f m)" % moved)
-	if flag("quick"):
-		return
 
 	var jump_pad := _marker("Pad")
 	await Steering.walk_to(self, func() -> Vector3: return jump_pad, 10.0, 0.3)
