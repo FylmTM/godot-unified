@@ -772,9 +772,14 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 	return ok
 }
 
-// The .tscn files Godot sees in the project at `dir`, sorted: not under a hidden directory, nor one with a .gdignore
-// (a game repo's unified/ submodule has one).
+// The .tscn files Godot sees in the project at `dir`, sorted (godot_files).
 godot_scenes :: proc(dir: string) -> []string {
+	return godot_files(dir, ".tscn")
+}
+
+// The files ending in `suffix` that Godot sees in the project at `dir`, sorted: not under a hidden directory, nor one
+// with a .gdignore (a game repo's unified/ submodule has one).
+godot_files :: proc(dir, suffix: string) -> []string {
 	out: [dynamic]string
 	walker := os.walker_create(dir)
 	defer os.walker_destroy(&walker)
@@ -785,7 +790,7 @@ godot_scenes :: proc(dir: string) -> []string {
 			}
 			continue
 		}
-		if info.type == .Regular && strings.has_suffix(info.name, ".tscn") {
+		if info.type == .Regular && strings.has_suffix(info.name, suffix) {
 			append(&out, strings.clone(info.fullpath))
 		}
 	}

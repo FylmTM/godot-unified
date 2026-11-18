@@ -137,7 +137,10 @@ scripted :: proc(
 		if int(sim.player_in_slot(simulation, slot).id) != member {
 			sim.join(&inputs, slot, member)
 		}
-		inputs.input[slot] = headless.game.scripted_input(simulation.seed, slot, tick, &simulation.state)
+		// No scripted player: one who sends zero Inputs (as the Godot driver plays it).
+		if headless.game.scripted_input != nil {
+			inputs.input[slot] = headless.game.scripted_input(simulation.seed, slot, tick, &simulation.state)
+		}
 		if headless.game.scripted_commands == nil {
 			continue
 		}

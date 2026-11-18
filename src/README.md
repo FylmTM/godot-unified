@@ -6,11 +6,12 @@ this file is how the deterministic core works across packages. The games built o
 
 ## Packages
 
-- Deterministic (the tick runs them): `sim` (the harness: state tables, the snapshot ring, checksum, sync-test,
-  replay, events), `physics` (Box3D as rollback state, a plug-in: `sim` knows nothing about it), `dmath`, `level`,
+- Deterministic (the tick runs them): `sim` (the harness: state tables, the snapshot ring, checksum, events,
+  commands, the input log), `physics` (Box3D as rollback state, a plug-in: `sim` knows nothing about it), `dmath`, `level`,
   and the leaf `wire`.
 - Real-time: `netcode` (input relay, prediction, rollback; it drives the sim but stays off `core:math`), `eos`
-  (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary and the test helpers).
+  (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary, the sync-test, replay and
+  the other offline runs, and the end-to-end suites).
 - Host: `gdext` (Godot's API), `godot` (the host, its view logic included), `devui`.
 - Tools: `cli` (`uni`; it never links the sim) and `lint` (the determinism lint a game's tests run).
 
@@ -49,13 +50,13 @@ in Box3D's shape structs, so it survives save/restore.
 
 ## Snapshots and the checksum
 
-- **The ring** (`sim.ring_size(tick_hz)`, about 250 ms of ticks): the block copy, the tick's events and every Extra's
-  save (physics: a Box3D snapshot per slot, a memcpy of the world's arena), saved after every step (including tick
+- **The ring** (`sim.ring_size(tick_hz)`, about 250 ms of ticks): the block copy, the tick's events and the Extra's
+  save (a game has at most one) (physics: a Box3D snapshot per slot, a memcpy of the world's arena), saved after every step (including tick
   0). Restore = copy back + the Extra's restore.
-- **Portable snapshot** (`snapshot`/`resume`, late join): the block bytes and each Extra's image (physics: Box3D's
+- **Portable snapshot** (`sim.snapshot_encode` / `sim.from_snapshot`, late join): the block bytes and the Extra's image (physics: Box3D's
   canonical image with its geometry, the same bytes on every platform), with what proves they fit (format in
   `src/sim/SPEC.md`). The receiver builds the same initial world, saves tick 0, then loads the image.
-- **Checksum:** XXH3-64 over the tick, the block bytes, then each Extra's hash (physics: Box3D's whole-world hash on
+- **Checksum:** XXH3-64 over the tick, the block bytes, then the Extra's hash (physics: Box3D's whole-world hash on
   the ticks peers compare, the awake bodies' otherwise; `src/physics/SPEC.md`).
 
 ## Netcode

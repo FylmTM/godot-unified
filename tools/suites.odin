@@ -215,7 +215,12 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			"views_test",
 			"test.gd",
 			"VIEWS TESTS",
-			{"unified: send_command: ", "unified: CommandMark.", `has no property "pad_check"`},
+			{
+				"unified: send_command: ",
+				"unified: CommandMark.",
+				`has no property "pad_check"`,
+				"is not a member of the game's View enum",
+			},
 		},
 		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", nil},
 	}

@@ -131,7 +131,8 @@ Character_Def :: struct {radius, half_height, density, category, mask, material,
 CHARACTER_DEFAULT                           // the sample's tuning: a game starts from it and sets its own fields
 character_create(world, ^Character, Character_Def, pos, tag: u64 = 0)      character_destroy(world, ^Character)
 character_update(world, ^Character, Character_Def, move: [2]f32, jump: bool, speed_scale) -> (jumped: bool)
-                                           // before the step; move: the wanted (x, z) direction, ≤ 1; jump: a fresh press
+                                           // before the step; move: the wanted (x, z) direction, ≤ 1; jump: a fresh press;
+                                           // speed_scale scales max_speed (1: as tuned)
 character_launch(world, ^Character)        // an outside impulse lifts it (pads, hits): no pogo pull-down until it lands
 character_set_limp(world, ^Character, bool) // no drive, no pogo (held, stunned)
 character_teleport(world, ^Character, pos)  // respawn
@@ -161,7 +162,8 @@ points, or past its edge limit) is never a silent hole: `problem` names it, and 
 2D axes (x right, y down), bodies at z = 0. A rotation is about +Z, +x toward +y (Godot's `Node2D.rotation`), held as
 a unit vector `(cos a, sin a)`, so no trig. Gravity is the world's (zero for top-down).
 
-Every proc whose vectors differ in 2D has a `_2d` form; the rest (mass, tags, sleep, queries at z = 0) are shared:
+The body's pose, velocities, forces and impulses and the shape and body creation procs have a `_2d` form; the rest
+(mass, tags, sleep, local and world point conversions, queries) take 3D values at z = 0:
 
 ```odin
 body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> Body_Def  // z = 0, locks linear Z, angular X and Y

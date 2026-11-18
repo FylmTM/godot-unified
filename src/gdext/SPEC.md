@@ -1,6 +1,6 @@
 # gdext
 
-Status: draft, pending #334
+Status: draft, pending #358
 
 Odin bindings for Godot's GDExtension API: what `unified:godot` and a game's extension call Godot through.
 
@@ -47,11 +47,5 @@ Odin bindings for Godot's GDExtension API: what `unified:godot` and a game's ext
 - **Callbacks.** Every Godot -> Odin callback opens a temp-allocator guard: a nested callback (Odin calls Godot,
   Godot calls back into Odin) never frees its caller's temp data.
 - **Who calls Godot.** The library's bindings are the only ones: a game's extension fills frames, and its Godot calls
-  go in GDScript or through `unified:godot` helpers (no game's extension calls a Godot class method today). Per-game
-  binding lists (a game's `bindings.txt` merged at generation, the trim test scanning library plus games) come only
-  if a real need appears (#287).
+  go in GDScript or through `unified:godot` helpers (no game's extension calls a Godot class method).
 - **Value conversions.** `to_variant`, `from_variant`, `variant_from_any`, and the `dict_*` / `array_*` helpers.
-- **Tests.** `uni test --suite godot-bindings` runs a test class (`tests/godot`) under headless Godot (`--verbose`;
-  an orphan StringName or a leak at exit fails it): the typed and the dynamic bindings through Variant calls and
-  again through typed calls (checked to take ptrcall), a subclass of an extension class, a nested callback, plus a
-  dev UI smoke test.

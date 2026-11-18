@@ -43,7 +43,24 @@ plain_data_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.wire_violation(type_info_of(toy.Input)), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(Sized)), "")
 	testing.expect(t, sim.wire_violation(type_info_of(Sized)) != "", "Sized holds an f32: not an Input")
-	testing.expect(t, sim.plain_violation(type_info_of(Padded)) != "")
+	// A padding error names the struct and the bytes, inside the field that holds it too.
+	testing.expect_value(
+		t,
+		sim.plain_violation(type_info_of(Padded), "Padded"),
+		"Padded.large: Padded has 3 bytes of implicit padding before this field (add `_pad: [3]u8` before it, or reorder)",
+	)
+	End_Padded :: struct {
+		large: u32,
+		small: u8,
+	}
+	Holder :: struct {
+		items: [2]End_Padded,
+	}
+	testing.expect_value(
+		t,
+		sim.plain_violation(type_info_of(Holder), "State"),
+		"State.items: End_Padded has 3 bytes of implicit padding at its end (add `_pad: [3]u8` as its last field)",
+	)
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
 	// Platform-sized integers and any float but f32, also inside an enum, a bit_set or an array.

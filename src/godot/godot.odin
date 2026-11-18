@@ -21,6 +21,7 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:netcode"
 
+@(private)
 BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 
 // A game's GDExtension entry point in one call: installs the game and its Glue, takes its lobby service for online

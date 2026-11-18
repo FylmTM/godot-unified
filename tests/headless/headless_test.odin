@@ -60,6 +60,20 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	testing.expect(t, unknown_ok && unknown.final_checksum == run.final_checksum)
 }
 
+// A game without a scripted player (Game.scripted_input is optional): its players send zero Inputs.
+@(test)
+a_game_without_a_scripted_player_runs :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.scripted_input = nil
+	game.scripted_commands = nil
+	runs := headless.Headless(toy.Game) {
+		game = &game,
+	}
+	result := headless.run_synctest(&runs, 64, 8, 1, 2)
+	testing.expect_value(t, result.mismatches, 0)
+	testing.expect(t, result.resimulated > 0 && result.final_checksum != 0)
+}
+
 // The same session twice on the virtual clock: identical, to the byte.
 @(test)
 virtual_sessions_repeat :: proc(t: ^testing.T) {

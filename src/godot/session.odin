@@ -10,6 +10,7 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:netcode"
 
+@(private)
 Session_Node :: struct {
 	using hdr:   gd.Instance_Header,
 	view_root:   gd.Node, // where scene views are spawned, as its children (once root_set; before: the session's parent)
@@ -35,6 +36,7 @@ Session_Node :: struct {
 	mode:        Mode, // the session started last (the dev UI: no netsim in single player; catch-up only joining)
 }
 
+@(private)
 Args :: struct {
 	autostart: bool, // start single player at once (headless checks)
 	join:      string, // join_direct this address at once

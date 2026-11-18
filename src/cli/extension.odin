@@ -243,9 +243,9 @@ timestamp :: proc(moment: time.Time) -> string {
 
 // --- Godot's extension list ---------------------------------------------------------------------------------------
 
-// The .gdextension files of a Godot project (not in hidden directories such as .godot/ and .out/).
+// The .gdextension files of a Godot project (godot_files: not in .godot/, .out/ or a game repo's unified/).
 gdextensions :: proc(dir: string) -> []string {
-	return find_files(dir, ".gdextension")
+	return godot_files(dir, ".gdextension")
 }
 
 when ODIN_OS == .Windows {

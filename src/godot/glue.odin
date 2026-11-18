@@ -11,11 +11,17 @@ import "unified:sim"
 
 // A Frame's room when a session starts: each grows (on the session thread, which owns the slot it fills) when a push
 // does not fit, so it settles after a few frames. Past the hard limits a fill_frame is a runaway loop: a panic.
+@(private)
 FRAME_VIEWS :: 64
+@(private)
 FRAME_MULTIS :: 1024
+@(private)
 FRAME_DATA_BYTES :: 4096
+@(private)
 FRAME_VIEWS_LIMIT :: 1 << 16
+@(private)
 FRAME_MULTIS_LIMIT :: 1 << 22
+@(private)
 FRAME_DATA_LIMIT :: 1 << 26
 
 // A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to. A view is
@@ -175,6 +181,7 @@ Event_Route :: enum u8 {
 	No_View, // no scene view (the sim_event signal still gets it)
 }
 
+@(private)
 Mode :: enum u8 {
 	Single,
 	Host_Online,
@@ -183,6 +190,7 @@ Mode :: enum u8 {
 	Join_Direct, // UDP to host:port
 }
 
+@(private)
 Start :: struct {
 	mode:     Mode,
 	arg:      string, // join code or host:port
@@ -197,6 +205,7 @@ Start :: struct {
 	token:    netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
 }
 
+@(private)
 Status_Kind :: enum u8 {
 	Idle,
 	Connecting,
@@ -205,6 +214,7 @@ Status_Kind :: enum u8 {
 	Disconnected,
 }
 
+@(private)
 STATUS_NAMES := [Status_Kind]string {
 	.Idle         = "idle",
 	.Connecting   = "connecting",
@@ -327,7 +337,7 @@ push_view_out :: proc(
 	}
 	copy(out.data[out.n_data:], data)
 	out.n_data += len(data)
-	previous, found := pose_remember(frame.poses, .View, kind, u64(item.key), frame.tick, view_out.pos, view_out.rot)
+	previous, found := pose_remember(frame.poses, .View, kind, view_out.key, frame.tick, view_out.pos, view_out.rot)
 	if found do view_out.has_prev, view_out.prev_pos, view_out.prev_rot = true, previous.pos, previous.rot
 }
 

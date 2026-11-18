@@ -18,6 +18,7 @@ union_variants :: proc(type: typeid) -> []^runtime.Type_Info {
 }
 
 // A variant's kind (its index in the union), -1 when `variant` is not one of them.
+@(private)
 variant_kind :: proc(type: typeid, variant: typeid) -> int {
 	for candidate, i in union_variants(type) {
 		if candidate.id == variant do return i
@@ -57,6 +58,7 @@ event_names :: proc(events: typeid, allocator := context.allocator) -> []string 
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union
 // (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation; events: padding allowed,
 // padded_violation) of 1..max_size bytes, names unique.
+@(private)
 union_violation :: proc(type: typeid, max_size: int, prefix: string, padding := false) -> string {
 	if type == nil do return ""
 	info, ok := runtime.type_info_base(type_info_of(type)).variant.(runtime.Type_Info_Union)

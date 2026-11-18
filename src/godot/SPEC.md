@@ -1,6 +1,6 @@
 # godot
 
-Status: draft, pending #334
+Status: draft, pending #358
 
 `unified:godot` is everything that touches Godot for a game built on `unified`; `unified:gdext` (its own SPEC.md) is
 the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`) that installs its sim
@@ -62,7 +62,9 @@ from the tick before; a one-shot value is a command).
   `action_strength(action)`, `action_vector(negative_x, positive_x, negative_y, positive_y)` (y is "back"): analog.
 - `input_values(Input_Values) -> ^Input_Values`: what only scripts know (a camera's look direction). `Glue.input_values`
   names a plain struct; scripts set its fields on `Unified.input` (class `UnifiedInput`, typed like data, below), and
-  `sample_input` reads the latest values.
+  `sample_input` reads the latest values. The session samples at process priority −1000: a value set in a node's
+  `_process` at a later priority (the default 0) reaches the next frame's sample; set it from a node below −1000 or
+  from `_input`.
 - An axis is `dmath.axis_i8(x)`; a direction a `dmath.Dir2` / `Dir3`. An `Input` holds no bools and no floats.
 
 **Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
@@ -254,9 +256,3 @@ from the same command line, so other flags pass through; a bad value of one of t
 the strict error judgement, waits, input events, screenshots, `--frames`) and `validate.gd` (the godot suite's
 `validate` step: every script compiles with warnings as errors, every scene loads, the main scene runs; a game adds
 checks in `game/tools/validate.gd`).
-
-## Tests
-
-`tests/godot_driver` tests the driver and the view logic without Godot; `tests/godot_views` runs the toy game's
-session, views, data, events and commands under headless Godot (`uni test --suite godot-bindings`); each game's
-godot suite (`uni test <game> --suite godot`) proves the game.
