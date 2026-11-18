@@ -28,7 +28,7 @@ make_world :: proc(state: ^State) -> ^physics.World {
 	physics.create_hull_shape(world, ground, &shape_def, &hull.base)
 	for &crate, i in state.crates {
 		crate_body_def := physics.default_body_def()
-		crate_body_def.type = .Dynamic_Body
+		crate_body_def.type = .Dynamic
 		crate_body_def.position = {f32(i) * 2 - 2, 2 + f32(i), 0}
 		crate.body = physics.create_body(world, &crate_body_def)
 		crate_hull := physics.make_box_hull(0.5, 0.5, 0.5)
@@ -91,10 +91,10 @@ create_body_and_a_stale_destroy :: proc(t: ^testing.T) {
 	world := physics.create()
 	defer physics.destroy(world)
 	body_def := physics.default_body_def()
-	body_def.type = .Dynamic_Body
+	body_def.type = .Dynamic
 	first := physics.create_body(world, &body_def)
 	testing.expect(t, physics.body_valid(world, physics.link(first)))
-	testing.expect_value(t, physics.body_type(world, first), physics.Body_Type.Dynamic_Body)
+	testing.expect_value(t, physics.body_type(world, first), physics.Body_Type.Dynamic)
 	stale := first
 	physics.destroy_body(world, &first)
 	testing.expect(t, first == physics.Body_Ref{})

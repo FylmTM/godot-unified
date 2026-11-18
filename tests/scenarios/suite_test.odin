@@ -22,8 +22,8 @@ SUITE := scenarios.Suite(toy.Game) {
 		snapshot_tick = 900,
 		checkpoints   = {0xd6f4c3443165afc9, 0x8678c73bbeb489b6, 0x676bc6d44ad35dbc, 0x48a986280a0d734e},
 		trace         = 0x14efb83fc39f344b,
-		snapshot      = 0x5c5eb54055b38ce1,
-		log           = 0xe2301237ad4788e5,
+		snapshot      = 0xc506773b3ebae257,
+		log           = 0xcdfe0e43ee4a837f,
 	},
 }
 

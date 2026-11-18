@@ -3,7 +3,7 @@
 // about +Z, so nothing here needs trig.
 package physics
 
-import "unified:b3"
+import box3d "box3d:bindings"
 import "unified:dmath"
 
 // The most points create_polygon_shape_2d takes (its prism stays well inside Box3D's hull limits).
@@ -12,7 +12,7 @@ POLYGON_2D_MAX :: 32
 // A body definition locked to the plane: z = 0, no linear z motion, rotation only about Z.
 // `rot` is any non-zero direction (normalised here); zero means no rotation.
 body_def_2d :: proc(type: Body_Type, pos: [2]f32, rot := [2]f32{1, 0}) -> Body_Def {
-	body_def := b3.default_body_def()
+	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
 	body_def.type = type
 	body_def.position = {pos.x, pos.y, 0}
 	body_def.rotation = quat_2d(rot)
@@ -49,69 +49,87 @@ rot_2d :: proc "contextless" (quat: [4]f32) -> [2]f32 {
 
 // A plane-locked body's position in the plane.
 body_position_2d :: proc(world: ^World, ref: Body_Ref) -> [2]f32 {
-	position := b3.body_get_position(body_id(world, ref))
+	position := transmute([3]f32)box3d.Body_GetPosition(body_id(world, ref))
 	return {position.x, position.y}
 }
 
 // A plane-locked body's rotation as a unit vector (cos a, sin a) about +Z.
 body_rotation_2d :: proc(world: ^World, ref: Body_Ref) -> [2]f32 {
-	return rot_2d(b3.body_get_rotation(body_id(world, ref)))
+	return rot_2d(transmute([4]f32)box3d.Body_GetRotation(body_id(world, ref)))
 }
 
 // Moves a plane-locked body (teleports it); `rot` as body_def_2d's. Its velocities are kept.
 body_set_transform_2d :: proc(world: ^World, ref: Body_Ref, pos: [2]f32, rot := [2]f32{1, 0}) {
-	b3.body_set_transform(body_id(world, ref), {pos.x, pos.y, 0}, quat_2d(rot))
+	box3d.Body_SetTransform(
+		body_id(world, ref),
+		transmute(box3d.Vec3)[3]f32{pos.x, pos.y, 0},
+		transmute(box3d.Quat)quat_2d(rot),
+	)
 }
 
 // A plane-locked body's linear velocity in the plane (m/s).
 body_linear_velocity_2d :: proc(world: ^World, ref: Body_Ref) -> [2]f32 {
-	velocity := b3.body_get_linear_velocity(body_id(world, ref))
+	velocity := transmute([3]f32)box3d.Body_GetLinearVelocity(body_id(world, ref))
 	return {velocity.x, velocity.y}
 }
 
 // A plane-locked body's angular velocity about +Z (rad/s, positive turns +x toward +y).
 body_angular_velocity_2d :: proc(world: ^World, ref: Body_Ref) -> f32 {
-	return b3.body_get_angular_velocity(body_id(world, ref)).z
+	return box3d.Body_GetAngularVelocity(body_id(world, ref)).z
 }
 
 // Sets a plane-locked body's linear velocity in the plane.
 body_set_linear_velocity_2d :: proc(world: ^World, ref: Body_Ref, velocity: [2]f32) {
-	b3.body_set_linear_velocity(body_id(world, ref), {velocity.x, velocity.y, 0})
+	box3d.Body_SetLinearVelocity(body_id(world, ref), transmute(box3d.Vec3)[3]f32{velocity.x, velocity.y, 0})
 }
 
 // Sets a plane-locked body's angular velocity about +Z.
 body_set_angular_velocity_2d :: proc(world: ^World, ref: Body_Ref, velocity: f32) {
-	b3.body_set_angular_velocity(body_id(world, ref), {0, 0, velocity})
+	box3d.Body_SetAngularVelocity(body_id(world, ref), transmute(box3d.Vec3)[3]f32{0, 0, velocity})
 }
 
 // Adds a force (N) in the plane at a point of the plane for the next step.
 body_apply_force_2d :: proc(world: ^World, ref: Body_Ref, force: [2]f32, point: [2]f32, wake := true) {
-	b3.body_apply_force(body_id(world, ref), {force.x, force.y, 0}, {point.x, point.y, 0}, wake)
+	box3d.Body_ApplyForce(
+		body_id(world, ref),
+		transmute(box3d.Vec3)[3]f32{force.x, force.y, 0},
+		transmute(box3d.Vec3)[3]f32{point.x, point.y, 0},
+		wake,
+	)
 }
 
 // Adds a force (N) in the plane at the centre of mass for the next step.
 body_apply_force_to_center_2d :: proc(world: ^World, ref: Body_Ref, force: [2]f32, wake := true) {
-	b3.body_apply_force_to_center(body_id(world, ref), {force.x, force.y, 0}, wake)
+	box3d.Body_ApplyForceToCenter(body_id(world, ref), transmute(box3d.Vec3)[3]f32{force.x, force.y, 0}, wake)
 }
 
 // Adds a torque (N·m) about +Z for the next step.
 body_apply_torque_2d :: proc(world: ^World, ref: Body_Ref, torque: f32, wake := true) {
-	b3.body_apply_torque(body_id(world, ref), {0, 0, torque}, wake)
+	box3d.Body_ApplyTorque(body_id(world, ref), transmute(box3d.Vec3)[3]f32{0, 0, torque}, wake)
 }
 
 // Adds an impulse (N·s) in the plane at a point of the plane.
 body_apply_linear_impulse_2d :: proc(world: ^World, ref: Body_Ref, impulse: [2]f32, point: [2]f32, wake := true) {
-	b3.body_apply_linear_impulse(body_id(world, ref), {impulse.x, impulse.y, 0}, {point.x, point.y, 0}, wake)
+	box3d.Body_ApplyLinearImpulse(
+		body_id(world, ref),
+		transmute(box3d.Vec3)[3]f32{impulse.x, impulse.y, 0},
+		transmute(box3d.Vec3)[3]f32{point.x, point.y, 0},
+		wake,
+	)
 }
 
 // Adds an impulse (N·s) in the plane at the centre of mass. A force F over one tick is F · dt.
 body_apply_linear_impulse_to_center_2d :: proc(world: ^World, ref: Body_Ref, impulse: [2]f32, wake := true) {
-	b3.body_apply_linear_impulse_to_center(body_id(world, ref), {impulse.x, impulse.y, 0}, wake)
+	box3d.Body_ApplyLinearImpulseToCenter(
+		body_id(world, ref),
+		transmute(box3d.Vec3)[3]f32{impulse.x, impulse.y, 0},
+		wake,
+	)
 }
 
 // Adds an angular impulse (N·m·s) about +Z.
 body_apply_angular_impulse_2d :: proc(world: ^World, ref: Body_Ref, impulse: f32, wake := true) {
-	b3.body_apply_angular_impulse(body_id(world, ref), {0, 0, impulse}, wake)
+	box3d.Body_ApplyAngularImpulse(body_id(world, ref), transmute(box3d.Vec3)[3]f32{0, 0, impulse}, wake)
 }
 
 // A circle: a sphere centred in the plane.
@@ -135,7 +153,7 @@ create_box_shape_2d :: proc(
 	depth: f32,
 	loc := #caller_location,
 ) -> Shape_Ref {
-	hull := b3.make_box_hull(half.x, half.y, depth * 0.5)
+	hull := box3d.MakeBoxHull(half.x, half.y, depth * 0.5)
 	return create_hull_shape(world, ref, def, &hull.base, loc)
 }
 
@@ -159,8 +177,12 @@ create_polygon_shape_2d :: proc(
 		hull_points[2 * i] = {point.x, point.y, -half_depth}
 		hull_points[2 * i + 1] = {point.x, point.y, half_depth}
 	}
-	hull := b3.create_hull(hull_points[:2 * len(points)], 2 * POLYGON_2D_MAX)
+	hull := box3d.CreateHull(
+		([^]box3d.Vec3)(raw_data(hull_points[:2 * len(points)])),
+		i32(len(hull_points[:2 * len(points)])),
+		2 * POLYGON_2D_MAX,
+	)
 	if hull == nil do return {}, false
-	defer b3.destroy_hull(hull)
+	defer box3d.DestroyHull(hull)
 	return create_hull_shape(world, ref, def, hull, loc), true
 }

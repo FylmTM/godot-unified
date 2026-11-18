@@ -263,7 +263,7 @@ box3d_defines :: proc(mode: Mode, uses: bool) -> []string {
 
 // Whether a game's Odin code uses Box3D (through unified's physics, or directly): only then is it fetched for it.
 game_uses_box3d :: proc(game: Game) -> bool {
-	return sources_import(join(game.dir, "simulation"), `"unified:physics"`, `"unified:b3"`, `"box3d:`)
+	return sources_import(join(game.dir, "simulation"), `"unified:physics"`, `"box3d:`)
 }
 
 // Whether anything this project builds links Box3D (Project_Config.uses_box3d: this repo's tests always do).

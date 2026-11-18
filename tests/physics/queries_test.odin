@@ -26,14 +26,14 @@ Mover_Scene :: struct {
 mover_scene :: proc() -> (scene: Mover_Scene) {
 	scene.world = api_world()
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = API_CAT_GROUND
-	scene.ground, _ = api_box(scene.world, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body, 1, &shape_def)
-	shape_def.filter.category_bits = API_CAT_WALL
+	shape_def.filter.category = API_CAT_GROUND
+	scene.ground, _ = api_box(scene.world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &shape_def)
+	shape_def.filter.category = API_CAT_WALL
 	shape_def.base_material.user_material_id = 77
-	scene.wall, scene.face = api_box(scene.world, {3, 2, 0}, {0.5, 2, 2}, .Static_Body, API_WALL_TAG, &shape_def)
+	scene.wall, scene.face = api_box(scene.world, {3, 2, 0}, {0.5, 2, 2}, .Static, API_WALL_TAG, &shape_def)
 	sensor_def := physics.default_shape_def()
 	sensor_def.is_sensor = true
-	scene.sensor, _ = api_box(scene.world, {-3, 2, 0}, {0.5, 2, 2}, .Static_Body, 9, &sensor_def)
+	scene.sensor, _ = api_box(scene.world, {-3, 2, 0}, {0.5, 2, 2}, .Static, 9, &sensor_def)
 	return
 }
 
@@ -46,7 +46,7 @@ mover_world_queries :: proc(t: ^testing.T) {
 	defer physics.destroy(scene.world)
 	// Sweeping +x, the capsule (front at x + 0.4) meets the wall's face at 2.5: 2.1 of 5.
 	fraction := physics.world_cast_mover(scene.world, {0, 0, 0}, MOVER, {5, 0, 0})
-	testing.expectf(t, api_near_f32(fraction, 0.42, 2e-3), "fraction %v", fraction) // Box3D stops a little short
+	testing.expectf(t, near_f32(fraction, 0.42, 2e-3), "fraction %v", fraction) // Box3D stops a little short
 	testing.expect_value(
 		t,
 		physics.world_cast_mover(scene.world, {0, 0, 0}, MOVER, {5, 0, 0}, ignore = physics.link(scene.wall)),
@@ -67,10 +67,10 @@ mover_world_queries :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(planes), 2)
 	if len(planes) == 2 {
 		testing.expect(t, planes[0].body == physics.link(scene.ground) && planes[0].tag == 1)
-		testing.expect(t, api_near(planes[0].plane.normal, {0, 1, 0}, 1e-4) && planes[0].category == API_CAT_GROUND)
+		testing.expect(t, near(planes[0].plane.normal, {0, 1, 0}, 1e-4) && planes[0].category == API_CAT_GROUND)
 		testing.expect(t, planes[1].body == physics.link(scene.wall) && planes[1].shape == scene.face)
 		testing.expect(t, planes[1].tag == API_WALL_TAG && planes[1].category == API_CAT_WALL)
-		testing.expect(t, api_near(planes[1].plane.normal, {-1, 0, 0}, 1e-4))
+		testing.expect(t, near(planes[1].plane.normal, {-1, 0, 0}, 1e-4))
 	}
 	physics.world_collide_mover(scene.world, {2.2, -0.2, 0}, MOVER, &planes, ignore = physics.link(scene.ground))
 	testing.expect(t, len(planes) == 1 && planes[0].body == physics.link(scene.wall))
@@ -86,10 +86,7 @@ mover_body_queries :: proc(t: ^testing.T) {
 	hit, ok := physics.body_cast_ray(world, scene.wall, {0, 1, 0}, {5, 0, 0})
 	testing.expect(t, ok && hit.body == physics.link(scene.wall) && hit.shape == scene.face)
 	testing.expect(t, hit.tag == API_WALL_TAG && hit.category == API_CAT_WALL && hit.material == 77)
-	testing.expect(
-		t,
-		api_near(hit.point, {2.5, 1, 0}) && api_near(hit.normal, {-1, 0, 0}) && api_near_f32(hit.fraction, 0.5),
-	)
+	testing.expect(t, near(hit.point, {2.5, 1, 0}) && near(hit.normal, {-1, 0, 0}) && near_f32(hit.fraction, 0.5))
 	_, ok = physics.body_cast_ray(world, scene.wall, {0, 1, 0}, {5, 0, 0}, max_fraction = 0.4)
 	testing.expect(t, !ok)
 	_, ok = physics.body_cast_ray(
@@ -105,27 +102,27 @@ mover_body_queries :: proc(t: ^testing.T) {
 
 	ball := physics.make_proxy([][3]f32{{}}, 0.25)
 	hit, ok = physics.body_cast_shape(world, scene.wall, {0, 1, 0}, ball, {5, 0, 0})
-	testing.expectf(t, ok && api_near_f32(hit.fraction, 0.45, 2e-3) && hit.tag == API_WALL_TAG, "%v", hit)
+	testing.expectf(t, ok && near_f32(hit.fraction, 0.45, 2e-3) && hit.tag == API_WALL_TAG, "%v", hit)
 	testing.expect(t, physics.body_overlap_shape(world, scene.wall, {2.4, 1, 0}, ball))
 	testing.expect(t, !physics.body_overlap_shape(world, scene.wall, {2, 1, 0}, ball))
 	point, distance := physics.body_closest_point(world, scene.wall, {0, 1, 0})
-	testing.expect(t, api_near(point, {2.5, 1, 0}) && api_near_f32(distance, 2.5))
+	testing.expect(t, near(point, {2.5, 1, 0}) && near_f32(distance, 2.5))
 
 	planes: [dynamic]physics.Mover_Plane
 	defer delete(planes)
 	append(&planes, physics.Mover_Plane{}, physics.Mover_Plane{})
 	physics.body_collide_mover(world, scene.wall, {2.2, -0.2, 0}, MOVER, &planes)
 	testing.expect_value(t, len(planes), 1)
-	if len(planes) == 1 do testing.expect(t, planes[0].shape == scene.face && planes[0].tag == API_WALL_TAG && api_near(planes[0].plane.normal, {-1, 0, 0}, 1e-4))
+	if len(planes) == 1 do testing.expect(t, planes[0].shape == scene.face && planes[0].tag == API_WALL_TAG && near(planes[0].plane.normal, {-1, 0, 0}, 1e-4))
 
 	hit, ok = physics.body_time_of_impact_mover(world, scene.wall, {0, 0, 0}, MOVER, {5, 0, 0})
 	testing.expectf(
 		t,
-		ok && api_near_f32(hit.fraction, 0.42, 2e-3) && hit.shape == scene.face && hit.tag == API_WALL_TAG,
+		ok && near_f32(hit.fraction, 0.42, 2e-3) && hit.shape == scene.face && hit.tag == API_WALL_TAG,
 		"%v",
 		hit,
 	)
-	testing.expect(t, api_near(hit.normal, {-1, 0, 0}, 1e-3) && hit.material == 77)
+	testing.expect(t, near(hit.normal, {-1, 0, 0}, 1e-3) && hit.material == 77)
 	// The wall coming 1 m closer during the sweep meets the mover earlier.
 	at := physics.body_transform(world, scene.wall)
 	closer := at
@@ -151,10 +148,10 @@ mover_shape_queries :: proc(t: ^testing.T) {
 	world := scene.world
 	hit, ok := physics.shape_ray_cast(world, scene.face, {0, 1, 0}, {5, 0, 0})
 	testing.expect(t, ok && hit.shape == scene.face && hit.tag == API_WALL_TAG && hit.material == 77)
-	testing.expect(t, api_near(hit.point, {2.5, 1, 0}) && api_near_f32(hit.fraction, 0.5))
+	testing.expect(t, near(hit.point, {2.5, 1, 0}) && near_f32(hit.fraction, 0.5))
 	_, ok = physics.shape_ray_cast(world, scene.face, {0, 1, 0}, {-5, 0, 0})
 	testing.expect(t, !ok)
-	testing.expect(t, api_near(physics.shape_closest_point(world, scene.face, {0, 1, 0}), {2.5, 1, 0}))
+	testing.expect(t, near(physics.shape_closest_point(world, scene.face, {0, 1, 0}), {2.5, 1, 0}))
 
 	// On a mesh, the material is the hit triangle's.
 	mesh := physics.create_grid_mesh(4, 4, 1, material_count = 2)
@@ -186,10 +183,10 @@ mover_shape_queries :: proc(t: ^testing.T) {
 contact_data_sorted_and_replaced :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body, 1)
+	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
 	near, near_shape := api_box(world, {0, 0.5, 0}, {0.5, 0.5, 0.5}, tag = 2)
 	far, _ := api_box(world, {5, 0.5, 0}, {0.5, 0.5, 0.5}, tag = 3)
-	api_steps(world, 10)
+	steps(world, 10)
 	contacts: [dynamic]physics.Contact_Data
 	defer delete(contacts)
 	append(&contacts, physics.Contact_Data{}, physics.Contact_Data{}, physics.Contact_Data{})
@@ -213,7 +210,7 @@ contact_data_sorted_and_replaced :: proc(t: ^testing.T) {
 		testing.expect(t, pair[0].tag + pair[1].tag == 3) // the ground (1) and near (2)
 	}
 	physics.body_set_transform(world, near, {0, 10, 0}, {0, 0, 0, 1})
-	api_steps(world, 1)
+	steps(world, 1)
 	physics.body_contact_data(world, near, &contacts)
 	testing.expect_value(t, len(contacts), 0)
 }
@@ -222,7 +219,7 @@ contact_data_sorted_and_replaced :: proc(t: ^testing.T) {
 body_and_joint_events :: proc(t: ^testing.T) {
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body, 1)
+	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1)
 	falling, _ := api_box(world, {0, 0.6, 0}, {0.5, 0.5, 0.5}, tag = 2)
 	hanging, _ := api_box(world, {5, 3, 0}, {0.5, 0.5, 0.5}, tag = 3)
 	weld_def := physics.default_weld_joint_def()
@@ -236,7 +233,7 @@ body_and_joint_events :: proc(t: ^testing.T) {
 	defer delete(joints)
 	append(&moves, physics.Body_Move_Event{tag = 99})
 	append(&joints, physics.Joint_Ref{index1 = 99})
-	api_steps(world, 1)
+	steps(world, 1)
 	physics.world_body_events(world, &moves)
 	testing.expect_value(t, len(moves), 2)
 	tags: u64
@@ -252,7 +249,7 @@ body_and_joint_events :: proc(t: ^testing.T) {
 	physics.joint_set_force_threshold(world, weld, 1000)
 	fell_asleep := false
 	for _ in 0 ..< 600 {
-		api_steps(world, 1)
+		steps(world, 1)
 		physics.world_joint_events(world, &joints)
 		testing.expect_value(t, len(joints), 0)
 		physics.world_body_events(world, &moves)
@@ -260,9 +257,54 @@ body_and_joint_events :: proc(t: ^testing.T) {
 		if fell_asleep do break
 	}
 	testing.expect(t, fell_asleep, "the box settles and reports it")
-	api_steps(world, 1)
+	steps(world, 1)
 	physics.world_body_events(world, &moves)
 	for move in moves do testing.expect(t, move.body != physics.link(falling), "a sleeping body doesn't move")
+}
+
+// What the tag test doesn't cover: a ray skips its `ignore` body and filters by category, misses, and every collecting
+// proc replaces its `out` (a stale result can't carry over into another tick).
+@(test)
+queries_filter_ignore_and_replace :: proc(t: ^testing.T) {
+	world := physics.create({hit_event_threshold = 1})
+	defer physics.destroy(world)
+	ground(world)
+	faller := box(world, {0, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic, cat = CAT_BOX, hit = true)
+	side_box := box(world, {3, 0.5, 0}, {0.5, 0.5, 0.5}, .Dynamic, cat = CAT_BOX)
+	// A ray from inside a body skips it when told to, and finds the ground under it.
+	hit, ok := physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0}, {}, physics.link(faller))
+	testing.expect(t, ok && abs(hit.point.y) < 1e-4 && hit.normal.y > 0.99)
+	hit, ok = physics.world_cast_ray_closest(world, {0, 2, 0}, {0, -5, 0})
+	testing.expect(t, ok && hit.body == physics.link(faller))
+	hit, ok = physics.world_cast_ray_closest(world, {0, 5, 0}, {0, -8, 0}, {mask = CAT_STATIC})
+	testing.expect(t, ok && abs(hit.point.y) < 1e-4)
+	_, ok = physics.world_cast_ray_closest(world, {0, 10, 0}, {0, 1, 0})
+	testing.expect(t, !ok)
+	got: [dynamic]physics.Overlap
+	defer delete(got)
+	append(&got, physics.Overlap{body = physics.link(faller)}, physics.Overlap{body = physics.link(faller)})
+	physics.world_overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX})
+	testing.expect_value(t, len(got), 2)
+	if len(got) == 2 do testing.expect(t, got[0].body.index1 < got[1].body.index1 && got[1].body == physics.link(side_box))
+	physics.world_overlap_aabb(world, {10, 10, 10}, {11, 11, 11}, &got)
+	testing.expect_value(t, len(got), 0)
+	// The landing's hit events, then none at rest, and never the stale entry `events` held.
+	events: [dynamic]physics.Contact_Event
+	defer delete(events)
+	append(&events, physics.Contact_Event{kind = .Hit, speed = -1})
+	hits := 0
+	for _ in 0 ..< 64 {
+		steps(world, 1)
+		physics.world_contact_events(world, &events)
+		for event in events {
+			testing.expect(t, event.speed >= 0)
+			hits += int(event.kind == .Hit)
+		}
+	}
+	testing.expect(t, hits >= 1)
+	steps(world, 1)
+	physics.world_contact_events(world, &events)
+	testing.expect_value(t, len(events), 0)
 }
 
 // ---- tags
@@ -278,21 +320,21 @@ tag_world :: proc(block: ^Tag_Block) -> (world: ^physics.World, extra: sim.Extra
 	world = api_world(nil, 0.5)
 	ground_def := physics.default_shape_def()
 	ground_def.enable_contact_events = true
-	ground_def.filter.category_bits = API_CAT_GROUND
-	api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body, 1, &ground_def)
+	ground_def.filter.category = API_CAT_GROUND
+	api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &ground_def)
 	extra = physics.extra(world, Tag_Block)
 	ball_def := physics.default_shape_def()
 	ball_def.enable_hit_events = true
 	ball_def.enable_contact_events = true
 	ball_def.enable_sensor_events = true
-	ball_def.filter.category_bits = API_CAT_BALL
+	ball_def.filter.category = API_CAT_BALL
 	for x, i in ([2]f32{0, 5}) {
-		block.balls[i], _ = api_box(world, {x, 3, 0}, {0.25, 0.25, 0.25}, .Dynamic_Body, u64(21 + i), &ball_def)
+		block.balls[i], _ = api_box(world, {x, 3, 0}, {0.25, 0.25, 0.25}, .Dynamic, u64(21 + i), &ball_def)
 	}
 	sensor_def := physics.default_shape_def()
 	sensor_def.is_sensor = true
 	sensor_def.enable_sensor_events = true
-	block.sensor, _ = api_box(world, {0, 1.5, 0}, {1, 0.25, 1}, .Static_Body, 30, &sensor_def)
+	block.sensor, _ = api_box(world, {0, 1.5, 0}, {1, 0.25, 1}, .Static, 30, &sensor_def)
 	return
 }
 
@@ -305,7 +347,7 @@ tags_in_every_result :: proc(t: ^testing.T) {
 
 	hit, ok := physics.world_cast_ray_closest(world, {5, 10, 0}, {0, -20, 0})
 	testing.expect(t, ok && hit.tag == 22 && hit.category == API_CAT_BALL)
-	hits: [dynamic]physics.Ray_Hit
+	hits: [dynamic]physics.Hit
 	defer delete(hits)
 	physics.world_cast_ray(world, {0, 10, 0}, {0, -20, 0}, &hits)
 	testing.expect(t, len(hits) == 2 && hits[0].tag == 21 && hits[1].tag == 1, "sensors skipped, ball then ground")
@@ -333,7 +375,7 @@ tags_in_every_result :: proc(t: ^testing.T) {
 	sensor_begins: int
 	inside_tag: u64
 	for _ in 0 ..< 90 {
-		api_steps(world, 1)
+		steps(world, 1)
 		physics.world_contact_events(world, &contacts)
 		for event in contacts {
 			testing.expect(t, event.a.tag == 1 || event.b.tag == 1, "a ball and the ground")
@@ -393,8 +435,8 @@ tags_roll_back_and_cross_in_an_image :: proc(t: ^testing.T) {
 	defer physics.destroy(late)
 	ground_def := physics.default_shape_def()
 	ground_def.enable_contact_events = true
-	ground_def.filter.category_bits = API_CAT_GROUND
-	api_box(late, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body, 1, &ground_def)
+	ground_def.filter.category = API_CAT_GROUND
+	api_box(late, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, &ground_def)
 	late_extra := physics.extra(late, Tag_Block)
 	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0)))
 	testing.expect_value(t, physics.check_refs(late, &block), "")
@@ -431,7 +473,7 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	block: Item_Block
 	world := api_world()
 	defer physics.destroy(world)
-	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static_Body)
+	ground, _ := api_box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static)
 	_ = physics.extra(world, Item_Block)
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 	first, first_handle, _ := sim.spawn(&block.items)

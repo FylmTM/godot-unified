@@ -24,11 +24,11 @@ import "core:strings"
 
 MAX_PLAYERS :: 32
 
-// The library's own simulation (src/sim, src/dmath, src/physics, src/b3): bump it in a change that makes a reference
+// The library's own simulation (src/sim, src/dmath, src/physics): bump it in a change that makes a reference
 // run or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
 // its Game.version.
-LIBRARY_VERSION :: 3
+LIBRARY_VERSION :: 4
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {

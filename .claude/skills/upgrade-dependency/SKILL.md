@@ -24,16 +24,17 @@ For every upgrade:
 - Box3D is a release of [unified-box3d](https://github.com/FylmTM/unified-box3d) (Box3D ported to Odin, a shared
   library with its bindings). Pins in `[box3d]`: `tag` (`<upstream commit>-r<revision>`) and each platform's zip
   hash, from the release's `SHA256SUMS`: `gh release download <tag> -R FylmTM/unified-box3d -p SHA256SUMS -O -`.
-- The bindings come with the release: `src/b3` mirrors them, and `tests/b3` checks every mirrored struct's layout
-  and each wrapper against the library. Update `src/b3` until `./uni vet` and those tests pass.
-- `tests/b3`'s golden trace (`GOLDEN`) pins the library's results. If it or a reference run changes, the simulation
-  changed: update `GOLDEN` and regenerate the reference runs deliberately (`sim-change`).
+- The bindings come with the release: `src/physics/box3d_types.odin` mirrors their structs, and
+  `tests/physics/box3d_test.odin` checks every mirror's layout and enum against them. Update `src/physics` (the
+  mirrors, and a wrapper per new or changed Box3D proc) until `./uni vet` and those tests pass.
+- `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed: update
+  it and regenerate the reference runs deliberately (`sim-change`).
 - The `tag` is part of `sim.compat_of` (builds on other releases refuse each other), so every reference run's log and
   snapshot carry a new compat: paste each suite's new `ref` literal (the games' and the toy's), with the bump. The
   results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim
   change.
 - CI on all four platforms proves each platform's library (they must agree on every golden value and reference run):
-  the run of step 4 is required before merging, as for any PR touching `src/physics`, `src/b3` or a game's sim
+  the run of step 4 is required before merging, as for any PR touching `src/physics` or a game's sim
   (`sim-change`, Full CI before merging). `verify` also runs the odin suite against the release's debug library
   (the `box3d-debug` suite), whose asserts catch misused ids.
 - Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: step, save, restore, deep hash and
@@ -42,7 +43,7 @@ For every upgrade:
   re-sim. A slower operation is found and explained before the bump merges.
 - Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
   there (`src/cli/SPEC.md`, Dependencies). Pin the release before merging.
-- What we use: `src/b3/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
+- What we use: `src/physics/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
 
 ## Godot
 

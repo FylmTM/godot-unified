@@ -3,7 +3,7 @@ package physics
 
 import "core:fmt"
 
-import "unified:b3"
+import box3d "box3d:bindings"
 import "unified:dmath"
 import "unified:level"
 
@@ -21,16 +21,16 @@ create_static :: proc(
 	problem: string,
 ) {
 	for &level_body, body_index in level_data.bodies {
-		body_def := b3.default_body_def()
+		body_def := transmute(Body_Def)box3d.DefaultBodyDef()
 		body_def.position = level_body.pos
 		body_def.rotation = level_body.rot
-		id := b3.create_body(world.id, &body_def)
+		id := box3d.CreateBody(world.id, (^box3d.BodyDef)(&body_def))
 		body_created(world, id, 0)
-		shape_def := b3.default_shape_def()
+		shape_def := transmute(Shape_Def)box3d.DefaultShapeDef()
 		shape_def.base_material.friction = level_body.friction
 		shape_def.base_material.restitution = level_body.restitution
 		shape_def.base_material.user_material_id = level_body.material
-		shape_def.filter.category_bits = level_body.category if level_body.category != 0 else default_category
+		shape_def.filter.category = level_body.category if level_body.category != 0 else default_category
 		for &shape, shape_index in level_body.shapes {
 			if !level_shape(id, &shape_def, &shape) && problem == "" {
 				problem = fmt.tprintf(
@@ -61,33 +61,37 @@ create_level_shape :: proc(
 }
 
 @(private)
-level_shape :: proc(body: b3.Body_Id, shape_def: ^b3.Shape_Def, shape: ^level.Shape) -> bool {
+level_shape :: proc(body: box3d.BodyId, shape_def: ^Shape_Def, shape: ^level.Shape) -> bool {
 	identity := shape.rot == {0, 0, 0, 1}
-	id: b3.Shape_Id
+	id: box3d.ShapeId
 	switch shape.kind {
 	case .Box:
-		hull := b3.make_box_hull(shape.half.x, shape.half.y, shape.half.z)
+		hull := box3d.MakeBoxHull(shape.half.x, shape.half.y, shape.half.z)
 		if identity && shape.pos == {} {
-			id = b3.create_hull_shape(body, shape_def, &hull.base)
+			id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), &hull.base)
 		} else {
-			transformed := b3.clone_and_transform_hull(&hull.base, {shape.pos, shape.rot}, {1, 1, 1})
+			transformed := box3d.CloneAndTransformHull(
+				&hull.base,
+				transmute(box3d.Transform)Transform{shape.pos, shape.rot},
+				transmute(box3d.Vec3)[3]f32{1, 1, 1},
+			)
 			if transformed == nil do return false
-			id = b3.create_hull_shape(body, shape_def, transformed)
-			b3.destroy_hull(transformed)
+			id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), transformed)
+			box3d.DestroyHull(transformed)
 		}
 	case .Sphere:
-		sphere := b3.Sphere{shape.pos, shape.radius}
-		id = b3.create_sphere_shape(body, shape_def, &sphere)
+		sphere := Sphere{shape.pos, shape.radius}
+		id = box3d.CreateSphereShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Sphere)(&sphere))
 	case .Capsule:
 		axis := dmath.quat_rotate(shape.rot, {0, shape.half_height, 0})
-		capsule := b3.Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
-		id = b3.create_capsule_shape(body, shape_def, &capsule)
+		capsule := Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
+		id = box3d.CreateCapsuleShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Capsule)(&capsule))
 	case .Hull:
 		if len(shape.points) < 4 do return false
-		hull := b3.create_hull(shape.points, 64)
+		hull := box3d.CreateHull(([^]box3d.Vec3)(raw_data(shape.points)), i32(len(shape.points)), 64)
 		if hull == nil do return false
-		id = b3.create_hull_shape(body, shape_def, hull)
-		b3.destroy_hull(hull)
+		id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), hull)
+		box3d.DestroyHull(hull)
 	}
 	return id.index1 != 0
 }

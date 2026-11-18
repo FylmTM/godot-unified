@@ -31,7 +31,7 @@ geometry_hulls :: proc(t: ^testing.T) {
 	if hull == nil do return
 	defer physics.destroy_hull(hull)
 	testing.expect_value(t, hull.vertexCount, 8) // the inner point is dropped
-	testing.expect(t, api_near_f32(hull.volume, 8, 1e-3))
+	testing.expect(t, near_f32(hull.volume, 8, 1e-3))
 	flat := [][3]f32{{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}}
 	testing.expect(t, physics.create_hull(flat) == nil, "collinear points make no hull")
 
@@ -40,20 +40,20 @@ geometry_hulls :: proc(t: ^testing.T) {
 	testing.expect(t, clone != hull && clone.vertexCount == 8 && clone.volume == hull.volume)
 	moved := physics.clone_and_transform_hull(hull, {{5, 0, 0}, {0, 0, 0, 1}}, {2, 1, 1})
 	defer physics.destroy_hull(moved)
-	testing.expect(t, api_near_f32(moved.volume, 16, 1e-3) && api_near(api_vec(moved.center), {5, 0, 0}))
+	testing.expect(t, near_f32(moved.volume, 16, 1e-3) && near(api_vec(moved.center), {5, 0, 0}))
 
 	cube := physics.make_cube_hull(0.5)
-	testing.expect(t, api_near_f32(cube.base.volume, 1, 1e-4))
+	testing.expect(t, near_f32(cube.base.volume, 1, 1e-4))
 	box := physics.make_box_hull(1, 2, 3)
-	testing.expect(t, api_near_f32(box.base.volume, 48, 1e-3))
+	testing.expect(t, near_f32(box.base.volume, 48, 1e-3))
 	offset := physics.make_offset_box_hull(1, 1, 1, {0, 3, 0})
-	testing.expect(t, api_near(api_vec(offset.base.center), {0, 3, 0}))
+	testing.expect(t, near(api_vec(offset.base.center), {0, 3, 0}))
 	transformed := physics.make_transformed_box_hull(1, 1, 1, {{0, 0, 4}, QUARTER_Y})
-	testing.expect(t, api_near(api_vec(transformed.base.center), {0, 0, 4}))
+	testing.expect(t, near(api_vec(transformed.base.center), {0, 0, 4}))
 	scaled := physics.make_scaled_box_hull({1, 1, 1}, {{1, 0, 0}, {0, 0, 0, 1}}, {2, 1, 1})
 	testing.expectf(
 		t,
-		api_near_f32(scaled.base.volume, 16, 1e-3) && api_near(api_vec(scaled.base.center), {2, 0, 0}),
+		near_f32(scaled.base.volume, 16, 1e-3) && near(api_vec(scaled.base.center), {2, 0, 0}),
 		"%v %v",
 		scaled.base.volume,
 		scaled.base.center,
@@ -91,12 +91,7 @@ geometry_meshes :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, mesh.materialCount, 2)
 	aabb := physics.compute_mesh_aabb(mesh, {{0, 1, 0}, {0, 0, 0, 1}}, {2, 1, 1})
-	testing.expectf(
-		t,
-		api_near(aabb.lower_bound, {0, 1, 0}, 0.01) && api_near(aabb.upper_bound, {2, 1, 1}, 0.01),
-		"%v",
-		aabb,
-	)
+	testing.expectf(t, near(aabb.lower_bound, {0, 1, 0}, 0.01) && near(aabb.upper_bound, {2, 1, 1}, 0.01), "%v", aabb)
 
 	box := physics.create_box_mesh({0, 1, 0}, {1, 1, 1})
 	defer physics.destroy_mesh(box)
@@ -132,7 +127,7 @@ geometry_height_fields :: proc(t: ^testing.T) {
 	aabb := physics.compute_height_field_aabb(field, {{0, 1, 0}, {0, 0, 0, 1}})
 	testing.expectf(
 		t,
-		api_near(aabb.lower_bound, {0, 1, 0}, 0.01) && api_near(aabb.upper_bound, {4, 1.5, 4}, 0.01),
+		near(aabb.lower_bound, {0, 1, 0}, 0.01) && near(aabb.upper_bound, {4, 1.5, 4}, 0.01),
 		"%v",
 		aabb,
 	)
@@ -153,7 +148,7 @@ geometry_compounds :: proc(t: ^testing.T) {
 	aabb := physics.compute_compound_aabb(compound, {{0, 10, 0}, {0, 0, 0, 1}})
 	testing.expectf(
 		t,
-		api_near(aabb.lower_bound, {-3, 9, -0.5}, 0.01) && api_near(aabb.upper_bound, {3, 11.5, 0.5}, 0.01),
+		near(aabb.lower_bound, {-3, 9, -0.5}, 0.01) && near(aabb.upper_bound, {3, 11.5, 0.5}, 0.01),
 		"%v",
 		aabb,
 	)
@@ -189,33 +184,25 @@ geometry_mass_and_bounds :: proc(t: ^testing.T) {
 	PI :: f32(3.14159265)
 	sphere := physics.Sphere{{1, 0, 0}, 1}
 	sphere_mass := physics.compute_sphere_mass(sphere, 3)
-	testing.expectf(
-		t,
-		api_near_f32(sphere_mass.mass, 4 * PI, 1e-3) && sphere_mass.center == {1, 0, 0},
-		"%v",
-		sphere_mass,
-	)
+	testing.expectf(t, near_f32(sphere_mass.mass, 4 * PI, 1e-3) && sphere_mass.center == {1, 0, 0}, "%v", sphere_mass)
 	capsule := physics.Capsule{{0, -1, 0}, {0, 1, 0}, 0.5}
 	capsule_mass := physics.compute_capsule_mass(capsule, 1)
 	// A cylinder 2 long plus a ball: π r² · 2 + 4/3 π r³.
-	testing.expectf(t, api_near_f32(capsule_mass.mass, PI * 0.5 + PI / 6, 1e-3), "%v", capsule_mass.mass)
+	testing.expectf(t, near_f32(capsule_mass.mass, PI * 0.5 + PI / 6, 1e-3), "%v", capsule_mass.mass)
 	cube := physics.make_cube_hull(0.5)
 	hull_mass := physics.compute_hull_mass(&cube.base, 2)
-	testing.expect(t, api_near_f32(hull_mass.mass, 2, 1e-4) && api_near_f32(hull_mass.inertia.cx.x, 2.0 / 6, 1e-4))
+	testing.expect(t, near_f32(hull_mass.mass, 2, 1e-4) && near_f32(hull_mass.inertia.cx.x, 2.0 / 6, 1e-4))
 
 	at := physics.Transform{{0, 5, 0}, {0, 0, 0, 1}}
 	sphere_aabb := physics.compute_sphere_aabb(sphere, at)
-	testing.expect(t, api_near(sphere_aabb.lower_bound, {0, 4, -1}) && api_near(sphere_aabb.upper_bound, {2, 6, 1}))
+	testing.expect(t, near(sphere_aabb.lower_bound, {0, 4, -1}) && near(sphere_aabb.upper_bound, {2, 6, 1}))
 	capsule_aabb := physics.compute_capsule_aabb(capsule, at)
 	testing.expect(
 		t,
-		api_near(capsule_aabb.lower_bound, {-0.5, 3.5, -0.5}) && api_near(capsule_aabb.upper_bound, {0.5, 6.5, 0.5}),
+		near(capsule_aabb.lower_bound, {-0.5, 3.5, -0.5}) && near(capsule_aabb.upper_bound, {0.5, 6.5, 0.5}),
 	)
 	hull_aabb := physics.compute_hull_aabb(&cube.base, at)
-	testing.expect(
-		t,
-		api_near(hull_aabb.lower_bound, {-0.5, 4.5, -0.5}) && api_near(hull_aabb.upper_bound, {0.5, 5.5, 0.5}),
-	)
+	testing.expect(t, near(hull_aabb.lower_bound, {-0.5, 4.5, -0.5}) && near(hull_aabb.upper_bound, {0.5, 5.5, 0.5}))
 }
 
 // The deep (whole world) hash of a physics Extra.
@@ -235,7 +222,7 @@ Geometry_Block :: struct {
 // A world with a static floor made before `extra`, as both sides of a late join have it.
 geometry_world :: proc() -> (world: ^physics.World, extra: sim.Extra) {
 	world = api_world()
-	api_box(world, {0, -10, 0}, {50, 0.5, 50}, .Static_Body)
+	api_box(world, {0, -10, 0}, {50, 0.5, 50}, .Static)
 	extra = physics.extra(world, Geometry_Block)
 	return
 }
@@ -278,19 +265,19 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 
 	for x, i in ([3]f32{-10, 0, 10}) {
 		ball_def := physics.default_body_def()
-		ball_def.type = .Dynamic_Body
+		ball_def.type = .Dynamic
 		ball_def.position = {x + 0.2, 3, 0.1}
 		block.balls[i] = physics.create_body(world, &ball_def, u64(200 + i))
 		physics.create_sphere_shape(world, block.balls[i], &shape_def, {{}, 0.3})
 	}
 	testing.expect_value(t, physics.check_refs(world, &block), "")
-	testing.expect_value(t, physics.shape_type(world, block.shapes[0]), physics.Shape_Type.Mesh_Shape)
-	testing.expect_value(t, physics.shape_type(world, block.shapes[1]), physics.Shape_Type.Height_Shape)
-	testing.expect_value(t, physics.shape_type(world, block.shapes[2]), physics.Shape_Type.Compound_Shape)
+	testing.expect_value(t, physics.shape_type(world, block.shapes[0]), physics.Shape_Type.Mesh)
+	testing.expect_value(t, physics.shape_type(world, block.shapes[1]), physics.Shape_Type.Height)
+	testing.expect_value(t, physics.shape_type(world, block.shapes[2]), physics.Shape_Type.Compound)
 	testing.expect(t, physics.shape_mesh(world, block.shapes[0]).data == mesh, "the caller's mesh, not a copy")
 	testing.expect(t, physics.shape_height_field(world, block.shapes[1]) == field)
 	testing.expect(t, physics.shape_compound(world, block.shapes[2]) == compound)
-	api_steps(world, 10)
+	steps(world, 10)
 	extra.save(extra.data, 0)
 	image := extra.image(extra.data, 0)
 
@@ -307,8 +294,8 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 	late_mesh := physics.shape_mesh(late, block.shapes[0])
 	testing.expect(t, late_mesh.data != nil && late_mesh.data != mesh && late_mesh.data.triangleCount == 12)
 	for _ in 0 ..< 60 {
-		api_steps(world, 1)
-		api_steps(late, 1)
+		steps(world, 1)
+		steps(late, 1)
 	}
 	testing.expect_value(t, api_deep_hash(&late_extra), api_deep_hash(&extra))
 	for ball in block.balls {
@@ -317,7 +304,7 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 	}
 	// Rays down onto each piece hit the same point of the same shape, with its body's tag.
 	RAYS :: [?]f32{-11.5, -10, -1.5, 0, 7.6, 10, 12.5}
-	hits: [len(RAYS)]physics.Ray_Hit
+	hits: [len(RAYS)]physics.Hit
 	for x, i in RAYS {
 		ok: bool
 		hits[i], ok = physics.world_cast_ray_closest(world, {x, 5, 0.45}, {0, -20, 0})
@@ -336,5 +323,5 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 		late_hit, late_ok := physics.world_cast_ray_closest(late, {x, 5, 0.45}, {0, -20, 0})
 		testing.expect(t, late_ok && late_hit == hits[i])
 	}
-	api_steps(late, 10)
+	steps(late, 10)
 }

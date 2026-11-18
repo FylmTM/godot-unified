@@ -194,6 +194,7 @@ World :: struct {
 	finish:           Volume, // the trophy in it ends the run
 	overlaps:         [dynamic]physics.Overlap, // scratch
 	contacts:         [dynamic]physics.Contact_Event, // scratch
+	character_def:    physics.Character_Def, // the players' (world_create)
 }
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
@@ -212,35 +213,6 @@ GAME := Game {
 	scripted_input = scripted_input,
 }
 
-@(rodata)
-CHARACTER_DEF := physics.Character_Def {
-	radius                 = PLAYER_RADIUS,
-	half_height            = PLAYER_HALF_HEIGHT,
-	density                = 200,
-	category               = CAT_PLAYER,
-	hit_events             = true,
-	sensor_events          = true, // plates and switches see players
-	max_speed              = WALK_SPEED,
-	min_speed              = 0.1,
-	stop_speed             = 3,
-	accelerate             = 20,
-	friction               = 8,
-	air_steer              = 0.25,
-	jump_speed             = 7,
-	gravity_scale          = 1.5,
-	max_ground_force       = 6000,
-	max_air_force          = 1500,
-	pogo_rest              = POGO_REST,
-	pogo_hertz             = 3,
-	pogo_damping           = 0.8,
-	pogo_compression_scale = 100,
-	pogo_tension_scale     = 100,
-	min_ground_normal_y    = 0.7,
-	slide_s                = 0.2,
-	coyote_s               = 0.125,
-	jump_buffer_s          = 0.125,
-}
-
 // Builds the world from the level (src/level/SPEC.md): static geometry, then the markers the sim uses.
 // Bodies the block owns (items, platforms, bells) are created by init, in this order.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
@@ -248,10 +220,17 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	loaded, ok := level.load(content)
 	assert(ok, "friendslop: the level file is missing or not a level (src/level/SPEC.md)")
 	world.level = loaded
+	world.character_def = physics.CHARACTER_DEFAULT
+	world.character_def.radius = PLAYER_RADIUS
+	world.character_def.half_height = PLAYER_HALF_HEIGHT
+	world.character_def.category = CAT_PLAYER
+	world.character_def.hit_events = true
+	world.character_def.sensor_events = true // plates and switches see players
+	world.character_def.max_speed = WALK_SPEED
+	world.character_def.pogo_rest = POGO_REST
 	world.phys = physics.create({
-		anchor        = true,
-		hit_threshold = 2,
-		workers       = PHYSICS_WORKERS,
+		hit_event_threshold = 2,
+		workers             = PHYSICS_WORKERS,
 	})
 	_, problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
@@ -394,8 +373,8 @@ create_trigger_sensor :: proc(world: ^World, index: int) {
 	shape_def := physics.default_shape_def()
 	shape_def.is_sensor = true
 	shape_def.enable_sensor_events = true
-	shape_def.filter.category_bits = CAT_TRIGGER
-	shape_def.filter.mask_bits = mask
+	shape_def.filter.category = CAT_TRIGGER
+	shape_def.filter.mask = mask
 	hull := physics.make_box_hull(volume.half.x, volume.half.y, volume.half.z)
 	def.sensor = physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
 }
@@ -422,13 +401,13 @@ init :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.platform_count {
 		def := &t.world.platforms[i]
 		body_def := physics.default_body_def()
-		body_def.type = .Kinematic_Body
+		body_def.type = .Kinematic
 		body_def.position = def.origin
 		body_def.rotation = def.rot
 		body_def.enable_sleep = false
 		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
 		shape_def := physics.default_shape_def()
-		shape_def.filter.category_bits = CAT_PLATFORM
+		shape_def.filter.category = CAT_PLATFORM
 		shape_def.base_material.friction = 0.8
 		hull := physics.make_box_hull(def.half.x, def.half.y, def.half.z)
 		physics.create_hull_shape(t.world.phys, ref, &shape_def, &hull.base)
@@ -444,7 +423,7 @@ init :: proc(t: ^Tick) {
 		body_def.position = def.volume.pos
 		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
 		shape_def := physics.default_shape_def()
-		shape_def.filter.category_bits = CAT_TRIGGER
+		shape_def.filter.category = CAT_TRIGGER
 		shape_def.enable_hit_events = true
 		physics.create_sphere_shape(t.world.phys, ref, &shape_def, {{}, def.radius})
 		t.state.bodies[i] = ref
@@ -457,12 +436,12 @@ create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 	def := &world.items[index]
 	spec := &ITEM_SPECS[def.kind]
 	body_def := physics.default_body_def()
-	body_def.type = .Dynamic_Body
+	body_def.type = .Dynamic
 	body_def.position = def.pos
 	body_def.rotation = def.rot
 	ref := physics.create_body(world.phys, &body_def, tag = u64(index))
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = CAT_ITEM
+	shape_def.filter.category = CAT_ITEM
 	shape_def.base_material.friction = spec.friction
 	shape_def.base_material.restitution = spec.restitution
 	shape_def.enable_hit_events = true

@@ -8,10 +8,8 @@ import "core:testing"
 
 import "unified:physics"
 
-JOINT_SUBSTEPS :: 4
-
 // A sphere body (radius 0.25, density 1) at `pos`: bodies 1 m apart don't touch.
-joint_body :: proc(world: ^physics.World, pos: [3]f32, type: physics.Body_Type = .Dynamic_Body) -> physics.Body_Ref {
+joint_body :: proc(world: ^physics.World, pos: [3]f32, type: physics.Body_Type = .Dynamic) -> physics.Body_Ref {
 	body_def := physics.default_body_def()
 	body_def.type = type
 	body_def.position = pos
@@ -24,21 +22,14 @@ joint_body :: proc(world: ^physics.World, pos: [3]f32, type: physics.Body_Type =
 
 // A static body A at `pos` and a dynamic body B 1 m along +x: the pair every joint below connects.
 joint_pair :: proc(world: ^physics.World, pos: [3]f32) -> (body_a, body_b: physics.Body_Ref) {
-	return joint_body(world, pos, .Static_Body), joint_body(world, pos + {1, 0, 0})
+	return joint_body(world, pos, .Static), joint_body(world, pos + {1, 0, 0})
 }
 
-joint_steps :: proc(world: ^physics.World, count: int) {
-	for _ in 0 ..< count do physics.step(world, DT, JOINT_SUBSTEPS)
-}
 
 joint_finite :: proc(value: f32) -> bool {
 	return value == value && abs(value) < 1e30
 }
 
-joint_near :: proc(a, b: [3]f32, tolerance: f32) -> bool {
-	delta := a - b
-	return delta.x * delta.x + delta.y * delta.y + delta.z * delta.z <= tolerance * tolerance
-}
 
 joint_length :: proc(vector: [3]f32) -> f32 {
 	return math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
@@ -51,7 +42,7 @@ JOINT_FRAME_AT_B :: physics.Transform{{1, 0, 0}, {0, 0, 0, 1}}
 // second: each is alive, of its type, on its bodies; the rigid ones hold B, the filter joint lets it fall.
 @(test)
 joint_every_type_steps :: proc(t: ^testing.T) {
-	world := physics.create({anchor = true})
+	world := physics.create()
 	defer physics.destroy(world)
 	anchor := physics.world_anchor(world)
 	testing.expect(t, physics.body_valid(world, anchor))
@@ -116,19 +107,19 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 	wheel_def.base.local_frame_a = JOINT_FRAME_AT_B
 	wheel := physics.create_wheel_joint(world, physics.link(wheel_a), physics.link(wheel_b), &wheel_def)
 
-	joint_steps(world, 32)
+	steps(world, 32)
 
-	testing.expect_value(t, physics.joint_type(world, distance), physics.Joint_Type.Distance_Joint)
-	testing.expect_value(t, physics.joint_type(world, filter), physics.Joint_Type.Filter_Joint)
-	testing.expect_value(t, physics.joint_type(world, motor), physics.Joint_Type.Motor_Joint)
-	testing.expect_value(t, physics.joint_type(world, mover), physics.Joint_Type.Mover_Joint)
-	testing.expect_value(t, physics.joint_type(world, parallel), physics.Joint_Type.Parallel_Joint)
-	testing.expect_value(t, physics.joint_type(world, pogo), physics.Joint_Type.Pogo_Joint)
-	testing.expect_value(t, physics.joint_type(world, prismatic), physics.Joint_Type.Prismatic_Joint)
-	testing.expect_value(t, physics.joint_type(world, revolute), physics.Joint_Type.Revolute_Joint)
-	testing.expect_value(t, physics.joint_type(world, spherical), physics.Joint_Type.Spherical_Joint)
-	testing.expect_value(t, physics.joint_type(world, weld), physics.Joint_Type.Weld_Joint)
-	testing.expect_value(t, physics.joint_type(world, wheel), physics.Joint_Type.Wheel_Joint)
+	testing.expect_value(t, physics.joint_type(world, distance), physics.Joint_Type.Distance)
+	testing.expect_value(t, physics.joint_type(world, filter), physics.Joint_Type.Filter)
+	testing.expect_value(t, physics.joint_type(world, motor), physics.Joint_Type.Motor)
+	testing.expect_value(t, physics.joint_type(world, mover), physics.Joint_Type.Mover)
+	testing.expect_value(t, physics.joint_type(world, parallel), physics.Joint_Type.Parallel)
+	testing.expect_value(t, physics.joint_type(world, pogo), physics.Joint_Type.Pogo)
+	testing.expect_value(t, physics.joint_type(world, prismatic), physics.Joint_Type.Prismatic)
+	testing.expect_value(t, physics.joint_type(world, revolute), physics.Joint_Type.Revolute)
+	testing.expect_value(t, physics.joint_type(world, spherical), physics.Joint_Type.Spherical)
+	testing.expect_value(t, physics.joint_type(world, weld), physics.Joint_Type.Weld)
+	testing.expect_value(t, physics.joint_type(world, wheel), physics.Joint_Type.Wheel)
 	for joint in ([]physics.Joint_Ref {
 			distance.joint,
 			filter.joint,
@@ -156,22 +147,13 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 		start := [3]f32{f32(24 + 4 * i) + 1, 5, 0}
 		testing.expectf(
 			t,
-			joint_near(physics.body_position(world, body), start, 0.05),
+			near(physics.body_position(world, body), start, 0.05),
 			"body %d: %v",
 			i,
 			physics.body_position(world, body),
 		)
 	}
 	testing.expect(t, physics.body_position(world, filter_b).y < 4.5)
-}
-
-// A world without the anchor has none to give.
-@(test)
-joint_world_anchor_without_one :: proc(t: ^testing.T) {
-	world := physics.create()
-	defer physics.destroy(world)
-	testing.expect_value(t, physics.world_anchor(world), physics.Body_Link{})
-	testing.expect(t, !physics.body_valid(world, physics.world_anchor(world)))
 }
 
 // joint_as converts an untyped ref to its own type only, and never a zero or dead one.
@@ -230,7 +212,7 @@ joint_generic_procs :: proc(t: ^testing.T) {
 	physics.joint_set_torque_threshold(world, untyped, 7.25)
 	testing.expect_value(t, physics.joint_torque_threshold(world, untyped), 7.25)
 
-	joint_steps(world, 16)
+	steps(world, 16)
 	weight := physics.body_mass(world, body_b) * 10
 	force := joint_length(physics.joint_constraint_force(world, weld))
 	torque := joint_length(physics.joint_constraint_torque(world, weld))
@@ -243,7 +225,7 @@ joint_generic_procs :: proc(t: ^testing.T) {
 
 	// Held still, B falls asleep; waking the joint wakes it.
 	testing.expect(t, physics.joint_is_awake(world, weld))
-	joint_steps(world, 128)
+	steps(world, 128)
 	testing.expect(t, !physics.joint_is_awake(world, weld))
 	physics.joint_wake_bodies(world, untyped)
 	testing.expect(t, physics.joint_is_awake(world, untyped))
@@ -286,7 +268,7 @@ joint_distance_procs :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.distance_joint_motor_speed(world, joint), 0.25)
 	physics.distance_joint_set_max_motor_force(world, joint, 30)
 	testing.expect_value(t, physics.distance_joint_max_motor_force(world, joint), 30)
-	joint_steps(world, 4)
+	steps(world, 4)
 	between := physics.body_position(world, body_b) - physics.body_position(world, body_a)
 	current := physics.distance_joint_current_length(world, joint)
 	testing.expectf(t, abs(current - joint_length(between)) < 1e-3, "current %v, between %v", current, between)
@@ -325,7 +307,7 @@ joint_motor_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_mover_procs :: proc(t: ^testing.T) {
-	world := physics.create({anchor = true})
+	world := physics.create()
 	defer physics.destroy(world)
 	body := joint_body(world, {0, 1, 0})
 	def := physics.default_mover_joint_def()
@@ -353,7 +335,7 @@ joint_parallel_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_pogo_procs :: proc(t: ^testing.T) {
-	world := physics.create({anchor = true})
+	world := physics.create()
 	defer physics.destroy(world)
 	body := joint_body(world, {0, 1, 0})
 	def := physics.default_pogo_joint_def()
@@ -372,7 +354,7 @@ joint_pogo_procs :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.pogo_joint_max_compression_force(world, joint), 200)
 	physics.pogo_joint_set_normal(world, joint, {0, 1, 0})
 	testing.expect_value(t, physics.pogo_joint_normal(world, joint), [3]f32{0, 1, 0})
-	joint_steps(world, 4)
+	steps(world, 4)
 	testing.expect(t, joint_finite(physics.pogo_joint_current_length(world, joint)))
 	testing.expect(t, joint_finite(physics.pogo_joint_current_speed(world, joint)))
 	testing.expect(t, joint_finite(physics.pogo_joint_impulse(world, joint)))
@@ -411,7 +393,7 @@ joint_prismatic_procs :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.prismatic_joint_motor_speed(world, joint), 0.1)
 	physics.prismatic_joint_set_max_motor_force(world, joint, 25)
 	testing.expect_value(t, physics.prismatic_joint_max_motor_force(world, joint), 25)
-	joint_steps(world, 8)
+	steps(world, 8)
 	translation := physics.prismatic_joint_translation(world, joint)
 	testing.expectf(t, translation > 0 && translation <= 0.51, "translation %v", translation)
 	testing.expect(t, joint_finite(physics.prismatic_joint_speed(world, joint)))
@@ -453,7 +435,7 @@ joint_revolute_procs :: proc(t: ^testing.T) {
 	physics.revolute_joint_set_max_motor_torque(world, joint, 5)
 	testing.expect_value(t, physics.revolute_joint_max_motor_torque(world, joint), 5)
 	// The motor turns B about the hinge (z) at 1 rad/s, up to the limit.
-	joint_steps(world, 16)
+	steps(world, 16)
 	angle := physics.revolute_joint_angle(world, joint)
 	testing.expectf(t, angle > 0.1 && angle <= 0.51, "angle %v", angle)
 	motor_torque := physics.revolute_joint_motor_torque(world, joint)
@@ -501,7 +483,7 @@ joint_spherical_procs :: proc(t: ^testing.T) {
 	physics.spherical_joint_set_max_motor_torque(world, joint, 3)
 	testing.expect_value(t, physics.spherical_joint_max_motor_torque(world, joint), 3)
 	// The motor turns B about z, the cone's axis: a twist, up to the twist limit.
-	joint_steps(world, 16)
+	steps(world, 16)
 	cone_angle := physics.spherical_joint_cone_angle(world, joint)
 	twist_angle := physics.spherical_joint_twist_angle(world, joint)
 	testing.expectf(t, joint_finite(cone_angle) && cone_angle >= 0 && cone_angle <= 0.71, "cone %v", cone_angle)
@@ -583,7 +565,7 @@ joint_wheel_procs :: proc(t: ^testing.T) {
 	physics.wheel_joint_set_target_steering_angle(world, joint, 0.2)
 	testing.expect_value(t, physics.wheel_joint_target_steering_angle(world, joint), 0.2)
 	// The spin motor spins the wheel up; the steering spring turns it towards its target.
-	joint_steps(world, 16)
+	steps(world, 16)
 	spin_speed := physics.wheel_joint_spin_speed(world, joint)
 	testing.expectf(t, spin_speed > 0 && spin_speed <= 2.01, "spin speed %v", spin_speed)
 	spin_torque := physics.wheel_joint_spin_torque(world, joint)
@@ -616,7 +598,7 @@ joint_save_restore :: proc(t: ^testing.T) {
 	defer physics.destroy(world)
 	block: Joint_Block
 	extra := physics.extra(world, Joint_Block)
-	block.base = joint_body(world, {0, 5, 0}, .Static_Body)
+	block.base = joint_body(world, {0, 5, 0}, .Static)
 	block.arm = joint_body(world, {1, 5, 0})
 	block.bob = joint_body(world, {0, 3.5, 0})
 	hinge_def := physics.default_revolute_joint_def()
@@ -628,7 +610,7 @@ joint_save_restore :: proc(t: ^testing.T) {
 	rope_def := physics.default_distance_joint_def()
 	rope_def.length = 1.5
 	block.rope = physics.create_distance_joint(world, physics.link(block.base), physics.link(block.bob), &rope_def)
-	joint_steps(world, 4)
+	steps(world, 4)
 	testing.expect_value(t, extra.check(extra.data, &block), "")
 	extra.save(extra.data, 0)
 	saved := block
@@ -641,14 +623,14 @@ joint_save_restore :: proc(t: ^testing.T) {
 	testing.expect_value(t, weld.index1, stale_rope.index1) // Box3D reused the index
 	testing.expect(t, !physics.joint_valid(world, stale_rope))
 	physics.revolute_joint_set_motor_speed(world, block.hinge, -5)
-	joint_steps(world, 8)
+	steps(world, 8)
 
 	testing.expect(t, extra.restore(extra.data, 0))
 	block = saved
 	testing.expect_value(t, extra.check(extra.data, &block), "")
 	testing.expect(t, physics.joint_valid(world, block.rope))
 	testing.expect(t, !physics.joint_valid(world, weld))
-	testing.expect_value(t, physics.joint_type(world, block.rope), physics.Joint_Type.Distance_Joint)
+	testing.expect_value(t, physics.joint_type(world, block.rope), physics.Joint_Type.Distance)
 	testing.expect_value(t, physics.distance_joint_length(world, block.rope), 1.5)
 	testing.expect_value(t, physics.joint_body_b(world, block.rope), physics.link(block.bob))
 	testing.expect_value(t, physics.revolute_joint_motor_speed(world, block.hinge), 2)

@@ -8,7 +8,7 @@ this file is how the deterministic core works across packages. The games built o
 
 - Deterministic (the tick runs them): `sim` (the harness: state tables, the snapshot ring, checksum, sync-test,
   replay, events), `physics` (Box3D as rollback state, a plug-in: `sim` knows nothing about it), `dmath`, `level`,
-  and the leaves `wire` and `b3` (Box3D's API).
+  and the leaf `wire`.
 - Real-time: `netcode` (input relay, prediction, rollback; it drives the sim but stays off `core:math`), `eos`
   (Epic Online Services as a transport), `headless` (a game's headless binary and the test helpers).
 - Host: `gdext` (Godot's API), `view` (interpolation and events, no Godot), `godot`, `devui`, `godot_eos`.
@@ -43,8 +43,8 @@ Float→int casts only see clamped values.
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin; upstream's C API plus our snapshots and canonical
 images), pinned in `pins.cfg` and unpacked by `uni` into `.out/unified-box3d/`, whose Odin bindings are the
-`box3d:` collection. Unified's code goes through `unified:b3` (`src/b3/SPEC.md`): Odin names, `[3]f32`/`[4]f32`,
-mirrored defs, Odin callbacks; conversions only. Shape data a game sets (filter categories, user material ids) lives
+`box3d:` collection. Only `unified:physics` imports them (`src/physics/SPEC.md`, The boundary): Odin names,
+`[3]f32`/`[4]f32`, mirrored defs, one wrapper per Box3D proc. Shape data a game sets (filter categories, user material ids) lives
 in Box3D's shape structs, so it survives save/restore.
 
 ## Snapshots and the checksum

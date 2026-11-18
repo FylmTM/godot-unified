@@ -21,16 +21,14 @@ TICK_IMPORTS :: lint.TICK_IMPORTS
 RULES := []Rule {
 	// Library code inside a tick: the same rules as game code (lint.sim_rule).
 	{pkg = "dmath", kind = .Tick, imports = TICK_IMPORTS},
-	// physics walks RTTI (base:runtime) and serializes Box3D world creation across threads with world_mutex
-	// (core:sync; b3CreateWorld), which no tick touches.
+	// physics wraps Box3D (the `box3d:` collection, unified-box3d's bindings: foreign code outside src/), carries the
+	// caller's context through Box3D's C callbacks and walks RTTI (base:runtime), and serializes Box3D world creation
+	// across threads with world_mutex (core:sync; b3CreateWorld), which no tick touches.
 	{pkg = "physics", kind = .Tick, imports = PHYSICS_IMPORTS, allow_globals = {"world_mutex"}},
 	// Levels: parsed when a World is created; plain data, through unified:wire.
 	{pkg = "level", kind = .Tick, imports = {"unified:wire"}},
 	// The harness: also walks RTTI, hashes and formats errors.
 	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS},
-	// The Box3D API (src/b3/SPEC.md), called inside a tick. base:runtime carries the caller's context through the
-	// library's C callbacks; the `box3d:` collection (unified-box3d's bindings) is foreign code outside src/.
-	{pkg = "b3", kind = .Tick, imports = {"box3d:bindings", "base:runtime"}},
 	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK
 	// bindings need f64 fields and system: libraries), the headless library, modes and scenarios, the lint itself.
 	{pkg = "wire", kind = .Realtime},
@@ -53,7 +51,7 @@ PHYSICS_IMPORTS :: []string {
 	"unified:sim",
 	"unified:level",
 	"unified:dmath",
-	"unified:b3",
+	"box3d:bindings",
 	"base:intrinsics",
 	"base:runtime",
 	"core:fmt", // create_static names the level shape Box3D refused
@@ -103,12 +101,11 @@ games_follow_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
-// Box3D is physics' implementation (src/physics/SPEC.md, The boundary): only src/physics and tests/b3 import
-// unified:b3 (and the physics bench, which reads Box3D's own counters), and only src/b3 and tests/b3 the bindings
-// (box3d:), across the library, its tests and the games.
+// Box3D is physics' implementation (src/physics/SPEC.md, The boundary): only src/physics and tests/physics import its
+// bindings (box3d:), across the library, its tests and the games.
 @(test)
-only_physics_imports_b3 :: proc(t: ^testing.T) {
-	ALLOWED :: []string{"src/physics", "src/b3", "tests/b3", "tests/physics/bench"}
+only_physics_imports_box3d :: proc(t: ^testing.T) {
+	ALLOWED :: []string{"src/physics", "tests/physics"}
 	clean, _ := filepath.clean(SRC_DIR + "/..", context.temp_allocator)
 	root, _ := strings.replace_all(clean, "\\", "/", context.temp_allocator)
 	for top in ([]string{"src", "tests", "games"}) {
@@ -124,17 +121,13 @@ only_physics_imports_b3 :: proc(t: ^testing.T) {
 			text := string(data)
 			for line in strings.split_lines_iterator(&text) {
 				trimmed := strings.trim_space(line)
-				if strings.has_prefix(trimmed, "import") && strings.contains(trimmed, `"unified:b3"`) {
+				if strings.has_prefix(trimmed, "import") && strings.contains(trimmed, `"box3d:`) {
 					testing.expectf(
 						t,
 						false,
-						"%s imports unified:b3 (Box3D is reached through unified:physics)",
+						"%s imports Box3D's bindings (box3d:): Box3D is reached through unified:physics",
 						relative,
 					)
-				}
-				bindings_ok := strings.has_prefix(relative, "src/b3/") || strings.has_prefix(relative, "tests/b3/")
-				if !bindings_ok && strings.has_prefix(trimmed, "import") && strings.contains(trimmed, `"box3d:`) {
-					testing.expectf(t, false, "%s imports Box3D's bindings (box3d:)", relative)
 				}
 			}
 		}
@@ -387,7 +380,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 }
 
 // Box3D is reached through unified:physics only: a game's headless, extension and tests packages are linted with
-// lint.BOX3D (lint.check_game), which bans the bindings' collection too.
+// lint.BOX3D (lint.check_game), which bans the bindings' collection.
 @(test)
 lint_bans_box3d_outside_physics :: proc(t: ^testing.T) {
 	rule := Rule {
@@ -396,10 +389,8 @@ lint_bans_box3d_outside_physics :: proc(t: ^testing.T) {
 		imports = lint.GAME_IMPORTS,
 		bans    = lint.BOX3D,
 	}
-	for src in ([]string{"import \"unified:b3\"\n", "import \"box3d:bindings\"\n"}) {
-		found := lint.scan(rule, "case.odin", fmt.tprintf("package extension\n%s", src))
-		testing.expectf(t, len(found) == 1, "not caught: %s", src)
-	}
+	found := lint.scan(rule, "case.odin", "package extension\nimport box3d \"box3d:bindings\"\n")
+	testing.expectf(t, len(found) == 1, "an import of Box3D's bindings is not caught: %v", found)
 }
 
 // A game's own deterministic packages: banned by the sim rule until listed in extra_imports.

@@ -45,10 +45,10 @@ TICK_IMPORTS, GAME_TICK_IMPORTS, GAME_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, B3, BOX3
   `../sim` is not `unified:sim` and must be listed. `bans` (`BOX3D`) apply beside the imports, to what is under them
   too.
 - **A game's sim package** (`sim_rule`) is a Tick package importing `GAME_TICK_IMPORTS` (`unified:sim`, `physics`,
-  `level`, `dmath`; not `unified:b3`, which is physics' own) plus its `extra_imports`: a game lists
+  `level`, `dmath`; not Box3D's bindings, which are physics' own) plus its `extra_imports`: a game lists
   `unified:wire`, `base:intrinsics` or `core:math/bits` there to use them.
 - **A game's layout** (`check_game`): `headless/` is Realtime, `extension/` and `tests/` are Host, all three importing
-  `GAME_IMPORTS` (unified and the game's own packages) but not Box3D (`BOX3D`: `unified:b3` and the `box3d:`
+  `GAME_IMPORTS` (unified and the game's own packages) but not Box3D (`BOX3D`: the `box3d:`
   bindings); every other directory is a sim package. A new sim package is linted without editing a list.
 - **What it can't see:** types. A float-to-int conversion goes through `dmath.to_i32_clamped` by convention, and
   `x := 1.5 * y` is f64 until a cast. Address-dependent values are left to the end-to-end suites' desync detection.

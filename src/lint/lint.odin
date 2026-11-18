@@ -79,8 +79,8 @@ SIM_IDENTS :: []string {
 	"ODIN_DEBUG",
 }
 
-// What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not
-// unified:b3: Box3D is physics' (src/physics/SPEC.md, The boundary).
+// What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not Box3D's
+// bindings: Box3D is physics' (src/physics/SPEC.md, The boundary).
 TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
@@ -138,7 +138,7 @@ bans_of :: proc(kind: Kind) -> Bans {
 
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
 // core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none
-// of them imports Box3D (unified:b3, box3d:); every other directory is one of the game's sim packages, linted under `sim_rule`
+// of them imports Box3D's bindings (box3d:); every other directory is one of the game's sim packages, linted under `sim_rule`
 // with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories.
 check_game :: proc(
 	t: ^testing.T,
@@ -178,10 +178,8 @@ check_game :: proc(
 // packages (relative paths). Box3D only through physics (BOX3D, banned).
 GAME_IMPORTS :: []string{"unified:", "../"}
 
-// Box3D's API and the bindings under it: physics' implementation, never imported by a game (src/physics/SPEC.md,
-// The boundary).
-B3 :: "unified:b3"
-BOX3D :: []string{B3, "box3d:"}
+// Box3D's bindings: physics' implementation, never imported by a game (src/physics/SPEC.md, The boundary).
+BOX3D :: []string{"box3d:"}
 
 // Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,
 // and with `scan_globals` for a Tick package: one test failure per violation, and one when there are no files.

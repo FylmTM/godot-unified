@@ -83,7 +83,7 @@ Tuning_Scene :: struct {
 
 tuning_scene :: proc() -> (scene: Tuning_Scene) {
 	scene.world = api_world()
-	api_box(scene.world, {0, -0.5, 0}, {10, 0.5, 10}, .Static_Body)
+	api_box(scene.world, {0, -0.5, 0}, {10, 0.5, 10}, .Static)
 	scene.bodies[0], _ = api_box(scene.world, {0, 0.3, 0}, {0.5, 0.5, 0.5})
 	scene.bodies[1], _ = api_box(scene.world, {0.25, 2, 0}, {0.5, 0.5, 0.5})
 	physics.body_set_linear_velocity(scene.world, scene.bodies[1], {0, -40, 0})
@@ -92,7 +92,7 @@ tuning_scene :: proc() -> (scene: Tuning_Scene) {
 }
 
 tuning_outcome :: proc(scene: ^Tuning_Scene) -> (outcome: [4][3]f32) {
-	api_steps(scene.world, 20)
+	steps(scene.world, 20)
 	for body, i in scene.bodies {
 		outcome[2 * i] = physics.body_position(scene.world, body)
 		outcome[2 * i + 1] = physics.body_linear_velocity(scene.world, body)
@@ -123,7 +123,7 @@ world_explode_bounds_and_awake_count :: proc(t: ^testing.T) {
 	left, _ := api_box(world, {-2, 0, 0}, {0.5, 0.5, 0.5})
 	right, _ := api_box(world, {2, 0, 0}, {0.5, 0.5, 0.5})
 	far, _ := api_box(world, {0, 0, 50}, {0.5, 0.5, 0.5})
-	api_box(world, {0, -20, 0}, {1, 1, 1}, .Static_Body)
+	api_box(world, {0, -20, 0}, {1, 1, 1}, .Static)
 	explosion := physics.default_explosion_def()
 	explosion.position = {}
 	explosion.radius = 3

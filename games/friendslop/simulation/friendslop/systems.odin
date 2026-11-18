@@ -105,7 +105,13 @@ appear :: proc(t: ^Tick, player: sim.Player) {
 		aim    = {0, 0, 1},
 	}
 	at := respawn_point(t, sim.player_slot(t, player))
-	physics.character_create(t.world.phys, &character.controller, &CHARACTER_DEF, at, tag = sim.player_key(player))
+	physics.character_create(
+		t.world.phys,
+		&character.controller,
+		t.world.character_def,
+		at,
+		tag = sim.player_key(player),
+	)
 	sim.emit(t, Event_Spawned{position = sim.Position(at), player = player})
 }
 
@@ -336,7 +342,10 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		held_body = held.controller.body
 		joint_def.base.local_frame_b = {{}, {0, 0, 0, 1}}
 		joint_def.max_spring_force =
-			PLAYER_LIFT * physics.body_mass(t.world.phys, held.controller.body) * GRAVITY * CHARACTER_DEF.gravity_scale
+			PLAYER_LIFT *
+			physics.body_mass(t.world.phys, held.controller.body) *
+			GRAVITY *
+			t.world.character_def.gravity_scale
 		joint_def.max_spring_torque = 0
 	case .None:
 		return
@@ -466,7 +475,7 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 		scale = HOLD_SLOW
 		if character.held_kind == .Item && t.world.items[character.held_item].kind == .Heavy do scale = HOLD_SLOW_HEAVY
 	}
-	if physics.character_update(t.world.phys, &character.controller, &CHARACTER_DEF, move, jump, scale, t.dt) {
+	if physics.character_update(t.world.phys, &character.controller, t.world.character_def, move, jump, scale, t.dt) {
 		sim.emit(t, Event_Jumped{position = sim.Position(player_pos(t, player)), player = player})
 	}
 }
