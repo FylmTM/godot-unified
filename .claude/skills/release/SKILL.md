@@ -72,9 +72,10 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
   `uni release` fails if one is missing.
 - The presets export Godot resources only (`all_resources`): files the game reads raw (`FileAccess`, e.g. `.level`
   files) must match the presets' `include_filter`, or the export silently leaves them out.
-- The extension prints `unified: extension initialized` when it loads; the smoke test requires that line, exit 0
-  and no `ERROR` lines. With the `--smoke-test` user argument the game starts single player and fails (an `ERROR`
-  line, exit 1) if the session fails to start.
+- The smoke test runs a single-player session with unified's own flags (`-- --autostart --ticks N --quit-at-end`),
+  nothing of the game's: it requires the extension's `unified: extension initialized` line, the session's result
+  line at tick N, exit 0 and no `ERROR` lines. A game whose main scene starts a session of its own must leave
+  `--autostart` to the library (`UnifiedSession.running` is true by the time its scripts are ready).
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `uni release`
   fails if one is missing from the export. Box3D (unified-box3d's shared library, `libbox3d.dylib` / `box3d.dll`)
   is linked: an extension that uses physics doesn't load without it. `uni build` writes the section from what the

@@ -5,10 +5,11 @@ import "unified:sim"
 Event :: union {
 	sim.Event_Player_Joined,
 	sim.Event_Player_Left,
-	Event_Ball_Dropped,
+	Event_Ball_Thrown,
 }
 
-Event_Ball_Dropped :: struct {
+// A ball left `player`'s hand at `speed` metres per second.
+Event_Ball_Thrown :: struct {
 	player: sim.Player,
 	speed:  u8,
 }

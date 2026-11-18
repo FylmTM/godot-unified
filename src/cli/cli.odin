@@ -134,6 +134,7 @@ State :: struct {
 	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
+	on_fatal: proc(), // undoes a command's half-done work when it fails (fatal); runs once
 }
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
@@ -451,6 +452,10 @@ finish :: proc(result: Result) -> ! {
 // Stops the command as failed: the message on stderr (and in the --json result).
 fatal :: proc(format: string, args: ..any) -> ! {
 	msg := aprintf(format, ..args)
+	if undo := state.on_fatal; undo != nil {
+		state.on_fatal = nil
+		undo()
+	}
 	if state.command == nil {
 		log("uni: %s", msg)
 		os.exit(1)

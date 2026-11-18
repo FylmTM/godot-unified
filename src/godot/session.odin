@@ -787,7 +787,7 @@ FLAGS := [?]struct {
 	{"--local-net", false, false},
 	{"--quit-at-end", false, false},
 	{"--scripted", false, true},
-	{"--ticks", true, true},
+	{"--ticks", true, false},
 	{"--seed", true, true},
 	{"--devui", false, true},
 	{"--lag", true, true},

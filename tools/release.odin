@@ -1,6 +1,7 @@
 package main
 
 import "core:encoding/endian"
+import "core:encoding/json"
 import "core:os"
 import "core:strings"
 import "core:time"
@@ -22,8 +23,10 @@ import "unified:cli"
 //      restored byte for byte after); the export must carry it (.pck, macOS Info.plist),
 //   4. headless import, then --export-release with the game's preset; any error line fails,
 //   5. macOS: arm64 only (lipo), ad-hoc codesign, verify, ditto zip; Windows: our zip, the same folder layout,
-//   6. smoke test: the unpacked zip runs headless for ~5 s (`-- --smoke-test`): exit 0, no error line, and the
-//      extension's `unified: extension initialized` line, which says whether the dev UI is in (`dev ui on|off`).
+//   6. smoke test: the unpacked zip runs a single-player session headless with unified's own session flags
+//      (`-- --autostart --ticks N --quit-at-end`): exit 0, no error line, the extension's
+//      `unified: extension initialized` line, which says whether the dev UI is in (`dev ui on|off`), and the
+//      session's result line, its final tick N. Every game passes it as it is: it needs nothing of the game's.
 
 Release_Host :: struct {
 	preset:       string,
@@ -53,7 +56,8 @@ when ODIN_OS == .Darwin {
 }
 
 SMOKE_MARKER :: "unified: extension initialized"
-SMOKE_FRAMES :: 300 // at --max-fps 60: ~5 s
+SMOKE_TICKS :: 256 // the smoke test's session: ~4 s at 64 Hz
+SMOKE_FRAMES :: 1200 // at --max-fps 60, ~20 s: the session must have ended (and quit) well before
 
 Release_Opts :: struct {
 	game:     string `args:"pos=0" usage:"the game (default: the tag's, or the only one)"`,
@@ -650,7 +654,7 @@ sign_and_zip :: proc(target, zip: string) {
 	cli.log("release: %s (%.1f MB) in %.1fs", os.base(zip), f64(info.size) / 1e6, cli.seconds_since(started))
 }
 
-// Unpacks the zip (what a tester gets) and runs the game headless for a few seconds.
+// Unpacks the zip (what a tester gets) and runs a single-player session of the game headless for a few seconds.
 smoke :: proc(zip, name: string, no_devui: bool) {
 	started := step("smoke test")
 	tmp := cli.join(cli.state.project.out, "tmp", cli.aprintf("smoke-%d", os.get_pid()))
@@ -683,7 +687,10 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 			"--quit-after",
 			cli.aprintf("%d", SMOKE_FRAMES),
 			"--",
-			"--smoke-test",
+			"--autostart",
+			"--ticks",
+			cli.aprintf("%d", SMOKE_TICKS),
+			"--quit-at-end",
 		),
 		dir     = tmp,
 		capture = true,
@@ -708,11 +715,17 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 	} else if devui := no_devui ? "dev ui off" : "dev ui on"; !strings.contains(out, devui) {
 		append(&problems, cli.aprintf("the extension did not say %q", devui))
 	}
+	report, has_report := cli.last_json_after(out, "unified: result ").(json.Object)
+	if !has_report {
+		append(&problems, "no session result line (the session did not end)")
+	} else if final := cli.json_int(report["final_tick"]); final != SMOKE_TICKS {
+		append(&problems, cli.aprintf("the session ended at tick %d, not %d", final, SMOKE_TICKS))
+	}
 	if len(problems) > 0 {
 		cli.log("%s", cli.tail(out, 20000))
 		cli.fatal("smoke test failed: %s", strings.join(problems[:], ", "))
 	}
-	cli.log("release: smoke test ok (%d frames, exit 0, no errors) in %.1fs", SMOKE_FRAMES, cli.seconds_since(started))
+	cli.log("release: smoke test ok (%d ticks, exit 0, no errors) in %.1fs", SMOKE_TICKS, cli.seconds_since(started))
 }
 
 // --- notes ------------------------------------------------------------------------------------------------------

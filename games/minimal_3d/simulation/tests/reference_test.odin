@@ -1,5 +1,5 @@
 // minimal_3d's reference run (the sim-change skill): its results, pinned. `uni init` leaves this file out of a new
-// game.
+// game, which pins its own once its rules settle (suite_test.odin's header says how).
 package test_minimal_3d
 
 import "core:testing"
@@ -12,10 +12,10 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 1200,
 	snapshot_tick = 600,
-	checkpoints   = {0x42a3951c90e38b9a, 0x99efa65f5f630340, 0x5bd1941b324d3885, 0x58892f035f607d56},
-	trace         = 0x6630ceb22a81e9e0,
-	snapshot      = 0x1f8270d52bc087d8,
-	log           = 0xaa6e87c1d75a5b79,
+	checkpoints   = {0xc04448ef566e3b89, 0x64ca9c9adb555bfc, 0xff798ee3ee62846c, 0xc70783ea69134b20},
+	trace         = 0x417390c50dac143c,
+	snapshot      = 0xb3a71cb58b3b6305,
+	log           = 0x710b75c8cdd18c63,
 }
 
 @(test)

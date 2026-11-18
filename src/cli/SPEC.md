@@ -175,15 +175,17 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
 
 `init` adds unified as a git submodule at `unified/`, from `--unified` or this checkout's `origin`, a GitHub SSH URL
 rewritten to HTTPS (unified is public: anyone and any CI clones it without keys). It pins the source's default branch
-at its current commit, or `--ref` (a commit, tag or branch, fetched by name); a pushed commit, never a local one, so
-the game repo clones anywhere. Then it writes the game and the shims from that submodule, never from this checkout,
+at its current commit, or `--ref`: any commit-ish (a full or short hash, a tag, a branch; a commit no branch reaches
+is fetched by its full hash); a pushed commit, never a local one, so the game repo clones anywhere. Then it writes the game and the shims from that submodule, never from this checkout,
 so they always match the library they build against.
 
 The game is a copy of `games/minimal_3d` (its git-tracked files), `minimal_3d` replaced by the game's name (the
-directory's: lowercase letters, digits and `_`) in paths and text, LF whatever the checkout has. It leaves out the
-spec, the `.uid` files (Godot writes new ones) and the pinned reference run (`reference_test.odin`: a new game pins
-its own once its rules settle). So a new game is the game CI builds, tests and runs on every push, and passes its
-own `verify` at once. `template/repo/` is a game repo's own (a README, `.gitattributes`, `.gitignore`,
+directory's: lowercase letters, digits and `_`) in paths and text, LF whatever the checkout has. It copies the `.uid`
+files with their scripts (the scenes name scripts by UID, and UIDs are per project), and leaves out the spec and the
+pinned reference run (`reference_test.odin`: a new game pins its own once its rules settle). In the spec's place it
+writes a draft skeleton (`template/SPEC.md.tmpl`: the headings the games' specs share). So a new game is the game CI
+builds, tests and runs on every push, and passes its own `verify` at once. A failed `init` removes what it wrote, so
+a retry starts clean. `template/repo/` is a game repo's own (a README, `.gitattributes`, `.gitignore`,
 `tools/main.odin`, each a `.tmpl` with `__GAME__` for the name); `--in-repo` leaves it out. The Odin files are
 formatted after the name is put in, and the view index is written by the build's own code, so the first build
 rewrites nothing.
