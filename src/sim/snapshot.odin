@@ -53,12 +53,12 @@ snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8)
 		content = simulation.content_hash,
 		tick    = tick,
 		block   = size_of(State),
-		layout  = layout_hash(State),
+		layout  = simulation.layout,
 		compat  = simulation.compat,
 	}
 	image: []u8
 	if extra := &simulation.extra; extra.image != nil {
-		image = extra.image(extra.data, index)
+		image = extra.image(extra.data, index, tick == simulation.tick)
 	}
 	writer := wire.Writer {
 		buf = out^,
@@ -162,14 +162,15 @@ from_snapshot :: proc(
 	Snap_Error,
 ) where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
-	header, block, reader, err := snap_read(data, size_of(State), layout_hash(State))
+	layout := layout_hash(State)
+	header, block, reader, err := snap_read(data, size_of(State), layout)
 	if err != .None {
 		return nil, err
 	}
 	if header.content != content_hash(content) {
 		return nil, .Content_Differs
 	}
-	if header.compat != compat_of(game, content) {
+	if header.compat != compat_with(game, layout, content, {}) {
 		return nil, .Build_Differs
 	}
 	simulation := create(game, header.seed, content)

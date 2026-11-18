@@ -5,8 +5,9 @@
 // A pile: boxes stacked like bricks (each layer offset by half a box), so every box rests on four below and contacts
 // cross the whole pile; kept awake. Every tick: a step, a save into a ring slot, the deep hash (the ticks peers
 // compare), the awake-bodies hash (the other ticks), a restore of that slot (it must give the same hash back), and a
-// batch of rays down onto the pile. Every IMAGE_EVERY ticks: a portable image of the slot and its load into a second
-// world (a late join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
+// batch of rays down onto the pile. Every IMAGE_EVERY ticks: a portable image of the slot as of a past tick (the world
+// swapped out and back) and as the live tick (no swap; the same bytes), and its load into a second world (a late
+// join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
 // tick, apart from the step. One JSON line.
 package physics_bench
 
@@ -88,11 +89,12 @@ main :: proc() {
 	for _ in 0 ..< SETTLE_TICKS do physics.step(world)
 
 	step_us, save_us, deep_us, shallow_us, restore_us, rays_us: [TICKS]f64
-	image_us, load_us: [(TICKS + IMAGE_EVERY - 1) / IMAGE_EVERY]f64
-	deep, again, loaded: [dynamic]u8
+	image_us, image_live_us, load_us: [(TICKS + IMAGE_EVERY - 1) / IMAGE_EVERY]f64
+	deep, again, loaded, past: [dynamic]u8
 	defer delete(deep)
 	defer delete(again)
 	defer delete(loaded)
+	defer delete(past)
 	mismatches, hits, image_bytes := 0, 0, 0
 	for tick in 0 ..< TICKS {
 		slot := tick % RING
@@ -123,20 +125,27 @@ main :: proc() {
 		rays_us[tick] = micros(restored, rays_done)
 		if tick % IMAGE_EVERY == 0 {
 			image_start := time.tick_now()
-			image := extra.image(extra.data, slot)
+			swapped := extra.image(extra.data, slot, false)
 			imaged := time.tick_now()
+			clear(&past)
+			append(&past, ..swapped)
+			live_start := time.tick_now()
+			image := extra.image(extra.data, slot, true)
+			live_imaged := time.tick_now()
 			load_ok := late_extra.load(late_extra.data, image)
 			load_done := time.tick_now()
 			image_bytes = len(image)
+			if !slice.equal(past[:], image) do mismatches += 1 // the live image must be the slot's
 			if !load_ok || !slice.equal(hash_of(late_extra, 0, &loaded), deep[:]) do mismatches += 1
 			image_us[tick / IMAGE_EVERY] = micros(image_start, imaged)
-			load_us[tick / IMAGE_EVERY] = micros(imaged, load_done)
+			image_live_us[tick / IMAGE_EVERY] = micros(live_start, live_imaged)
+			load_us[tick / IMAGE_EVERY] = micros(live_imaged, load_done)
 		}
 	}
 	snapshot_bytes := extra.size(extra.data, (TICKS - 1) % RING)
 	characters_us := run_characters()
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"mismatches":%d}}`,
 		BODIES,
 		TICKS,
 		RAYS,
@@ -148,6 +157,7 @@ main :: proc() {
 		stat_json(restore_us[:]),
 		stat_json(rays_us[:]),
 		stat_json(image_us[:]),
+		stat_json(image_live_us[:]),
 		stat_json(load_us[:]),
 		stat_json(characters_us[:]),
 		snapshot_bytes,
