@@ -20,6 +20,21 @@ Physics_Report :: struct {
 	characters_us:  cli.Bench_Stat, // that many character_updates in one tick
 	snapshot_bytes: int,
 	image_bytes:    int,
+	// The capacity against the frame budget: a smaller pile's forward step and its rollback at the prediction cap
+	// (restore, `cap` steps saving every 2nd tick, a deep hash), on 1 and 4 workers.
+	rollback:       struct {
+		bodies:    int,
+		cap:       int,
+		workers_1: Physics_Rollback,
+		workers_4: Physics_Rollback,
+	},
+}
+
+Physics_Rollback :: struct {
+	step_us:                   cli.Bench_Stat,
+	rollback_us:               cli.Bench_Stat,
+	step_plus_rollback_p99_us: f64,
+	within_target:             bool,
 }
 
 physics_bench :: proc(work: string) -> (data: any, ok: bool) {
@@ -50,6 +65,25 @@ physics_bench :: proc(work: string) -> (data: any, ok: bool) {
 		report.load_us.mean,
 		report.characters,
 		report.characters_us.mean,
+	)
+	for &row in ([]^Physics_Rollback{&report.rollback.workers_1, &report.rollback.workers_4}) {
+		row.within_target = row.step_plus_rollback_p99_us <= cli.BENCH_TARGET_US
+	}
+	one, four := report.rollback.workers_1, report.rollback.workers_4
+	cli.log(
+		"%-12s %d boxes: step + %d-tick rollback %.2f ms at p99 on 1 worker (target <= %.0f ms: %s; means %.0f + %.0f us), %.2f ms on 4 (%s; means %.0f + %.0f us)",
+		"",
+		report.rollback.bodies,
+		report.rollback.cap,
+		one.step_plus_rollback_p99_us / 1000,
+		cli.BENCH_TARGET_US / 1000,
+		one.within_target ? "yes" : "NO",
+		one.step_us.mean,
+		one.rollback_us.mean,
+		four.step_plus_rollback_p99_us / 1000,
+		four.within_target ? "yes" : "NO",
+		four.step_us.mean,
+		four.rollback_us.mean,
 	)
 	return report^, true
 }

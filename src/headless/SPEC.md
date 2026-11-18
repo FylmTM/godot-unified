@@ -87,7 +87,7 @@ Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pi
 
 | Proc | Passes when |
 |---|---|
-| `rollback_every_tick(t, suite, window = 8)` | restoring `window` ticks back and re-simulating, every tick: 0 mismatches |
+| `rollback_every_tick(t, suite, window = 8)` | restoring `window` ticks back and re-simulating, every tick: 0 mismatches (each re-simulated tick's checksum and events as the first run's), no NaN in the block |
 | `presence_churn(t, suite, window = 8)` | players come and go under `rollback_every_tick`: 0 mismatches, the Extra agrees after every restore |
 | `runs_match(t, suite)` | two runs alive at once (the second created halfway through the first): every tick equal. Catches state instances share, which back-to-back runs miss |
 | `session_agrees(t, suite, clients, network, churn = false)` | a virtual-clock session: 0 desyncs, every client's checksums equal, all reach `ticks`, the relay's log replays to them, rollbacks > 0 unless `.Ideal`; `churn`: inputs change every tick (`Session_Config.churn`), every client rolls back on most ticks |

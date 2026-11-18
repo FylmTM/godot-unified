@@ -188,7 +188,7 @@ sys_levelup :: proc(t: ^Tick) {
 				}
 				switch command.upgrade {
 				case .Fire_Rate:
-					character.fire_interval = max(
+					character.fire_interval = dmath.max(
 						character.fire_interval - FIRE_LEVELUP_TICKS,
 						FIRE_INTERVAL_MIN_TICKS,
 					)
@@ -214,8 +214,8 @@ sys_spawner :: proc(t: ^Tick) {
 		return
 	}
 	present := u32(sim.present_count(t))
-	count := min(tune.spawn_base + t.state.wave * tune.spawn_per_wave, tune.spawn_cap)
-	count = count * (100 + tune.extra_player_pct * (max(present, 1) - 1)) / 100
+	count := dmath.min(tune.spawn_base + t.state.wave * tune.spawn_per_wave, tune.spawn_cap)
+	count = count * (100 + tune.extra_player_pct * (dmath.max(present, 1) - 1)) / 100
 	for i in 0 ..< int(count) {
 		if u32(t.state.enemies.count) >= t.state.enemy_cap {
 			break
@@ -430,7 +430,7 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 			}
 		}
 		limit := 30 - radius
-		enemy.pos = {clamp(x, -limit, limit), clamp(z, -limit, limit)}
+		enemy.pos = {dmath.clamp(x, -limit, limit), dmath.clamp(z, -limit, limit)}
 	}
 }
 
@@ -779,5 +779,5 @@ prespawn_enemies :: proc(state: ^State, count: int) {
 // XP needed for the next level from `level` (levels start at 1).
 xp_next :: proc(state: ^State, level: i32) -> i32 {
 	tune := tuning(state)
-	return tune.xp_first + (max(level, 1) - 1) * tune.xp_step
+	return tune.xp_first + (dmath.max(level, 1) - 1) * tune.xp_step
 }

@@ -269,14 +269,17 @@ Synctest_Result :: struct {
 	first_at:       u32, // the tick whose rollback re-simulated it differently
 	check:          string, // the first problem sim.check_extra found after a restore ("": none; temp-allocated)
 	check_tick:     u32, // the tick it was restored to
+	// The first other problem ("": none; temp-allocated): a NaN in the state block after a forward tick (sim.find_nan),
+	// or a re-simulated tick that emitted other events than the first run (counted in `mismatches` too).
+	problem:        string,
 	events:         [256]int, // what the forward ticks emitted, by event kind (run_events)
 }
 
-// A sync-tested run its caller steps: each step is a forward tick, then a restore `window` ticks back (never before
-// a pinned tick), the extra's check (sim.check_extra) and a re-simulation with the recorded inputs, each tick's
-// checksum compared with the forward one. A game test drives it with its own inputs (run_step) or the game's scripted
-// player (run_scripted), changes the state between steps (run_pin) and asserts `mismatches == 0`, `check == ""`
-// and its own facts. `simulation` is at the newest tick between steps.
+// A sync-tested run its caller steps: each step is a forward tick and a NaN scan of its block (sim.find_nan), then a
+// restore `window` ticks back (never before a pinned tick), the extra's check (sim.check_extra) and a re-simulation
+// with the recorded inputs, each tick's checksum and events compared with the forward one's. A game test drives it
+// with its own inputs (run_step) or the game's scripted player (run_scripted), changes the state between steps
+// (run_pin) and asserts `mismatches == 0`, `check == ""`, `problem == ""` and its own facts. `simulation` is at the newest tick between steps.
 //
 //   run := headless.run_begin(&g.GAME, seed, LEVEL)
 //   defer headless.run_end(&run)
@@ -289,6 +292,8 @@ Run :: struct($G: typeid) {
 	forward:      [dynamic]u64, // forward[tick]: its checksum
 	floor:        u32, // never restored before (run_pin)
 	commands:     Scripted_Commands(G), // run_scripted's
+	kept_events:  [sim.MAX_RING_SIZE][dynamic]sim.Raw_Event, // each forward tick's events, by tick % MAX_RING_SIZE
+	floats:       [dynamic]u32, // the State's float offsets (sim.find_nan)
 }
 
 // A run of `game` from tick 0, sync-tested `window` ticks back (1 ..= max_window(game)).
@@ -307,6 +312,8 @@ run_end :: proc(run: ^Run($G)) {
 	delete(run.recorded)
 	delete(run.forward)
 	scripted_commands_destroy(&run.commands)
+	for &events in run.kept_events do delete(events)
+	delete(run.floats)
 }
 
 // One forward tick with `inputs`, then its sync-test.
@@ -317,7 +324,13 @@ run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	tick := simulation.tick
 	append(&run.forward, sim.checksum(simulation))
 	run.final_checksum = run.forward[tick]
-	for event in sim.events_at(simulation, tick) do run.events[event.kind] += 1
+	kept := &run.kept_events[tick % sim.MAX_RING_SIZE]
+	clear(kept)
+	for event in sim.events_at(simulation, tick) {
+		run.events[event.kind] += 1
+		append(kept, event)
+	}
+	if run.problem == "" do run.problem = sim.find_nan(simulation, &run.floats)
 	if tick < run.window do return
 	from := max(tick - run.window, run.floor)
 	if from == tick do return
@@ -334,7 +347,15 @@ run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	for resim in from + 1 ..= tick {
 		sim.step(simulation, &run.recorded[resim])
 		run.resimulated += 1
-		if sim.checksum(simulation) != run.forward[resim] {
+		events := sim.events_diff(
+			sim.events_at(simulation, resim),
+			run.kept_events[resim % sim.MAX_RING_SIZE][:],
+			sim.part(G, sim.GAME_EVENT),
+		)
+		if events != "" && run.problem == "" {
+			run.problem = fmt.tprintf("tick %d re-simulated at tick %d emitted other events: %s", resim, tick, events)
+		}
+		if sim.checksum(simulation) != run.forward[resim] || events != "" {
 			if run.mismatches == 0 {
 				run.first_tick, run.first_at = resim, tick
 			}

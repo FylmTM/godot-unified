@@ -1,6 +1,6 @@
 // Input log (the replay file): "UNIL", version u16, seed u64, content hash u64 (the level, 0: none), compat u64
-// (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to the
-// end), then per tick (write_tick, also the netcode's finalized tick):
+// (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to its
+// last whole tick), then per tick (write_tick, also the netcode's finalized tick):
 // present u32, replaced u32, players × the input's bytes (plain data, so its memory is its little-endian
 // serialization), command count u8, then per command: slot u8, kind u8, size u8, the struct's bytes; then the join
 // record count u8, then per record (in slot order): slot u8, member u16.
@@ -274,7 +274,8 @@ log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) ->
 }
 
 // Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input and
-// PLAYERS or the bytes are malformed. A recording that never ended (tick count 0) is read to its end.
+// PLAYERS or the bytes are malformed. A recording that never ended (tick count 0) is read to its last whole tick (a
+// cut one after it is left out).
 log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
 	Input :: part(G, GAME_INPUT)
 	PLAYERS :: part(G, GAME_PLAYERS)
@@ -290,10 +291,12 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	input_log.ticks = make([dynamic]Log_Tick(G), 0, header.ticks)
 	reader := wire.reader_make(body)
 	inputs: Inputs(G)
-	// A recording whose writer never patched the count (it stopped without ending): every tick to the end.
+	// A recording whose writer never patched the count (it stopped without ending): every whole tick to the end. Its
+	// last tick may be cut (a torn write, a copy of a growing file): the ticks before it are the recording.
 	unended := header.ticks == 0
 	for k := 0; unended ? wire.r_remaining(&reader) > 0 : k < header.ticks; k += 1 {
 		if !inputs_read(&reader, &inputs) {
+			if unended do return input_log, true
 			log_destroy(&input_log)
 			return {}, false
 		}

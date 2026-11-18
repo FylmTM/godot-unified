@@ -8,7 +8,10 @@
 // batch of rays down onto the pile. Every IMAGE_EVERY ticks: a portable image of the slot as of a past tick (the world
 // swapped out and back) and as the live tick (no swap; the same bytes), and its load into a second world (a late
 // join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
-// tick, apart from the step. One JSON line.
+// tick, apart from the step. Then the capacity against the frame budget: a smaller pile (ROLLBACK_SIDE³ boxes, sized
+// to the bench's time) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
+// CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. One
+// JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -30,6 +33,9 @@ RING :: 16
 IMAGE_EVERY :: 16
 CHARACTERS :: 64
 CHARACTER_TICKS :: 300
+ROLLBACK_SIDE :: 6 // 216 boxes: about what fits a rollback at the cap on one worker
+ROLLBACK_TICKS :: 64
+CAP :: 14 // the netcode's prediction cap at 64 Hz (headless.prediction_window): the deepest rollback it makes
 
 Stat :: struct {
 	mean, p99: f64,
@@ -54,15 +60,15 @@ micros :: proc(from, to: time.Tick) -> f64 {
 // No block: every body is the World's (made before `extra`).
 No_State :: struct {}
 
-pile_world :: proc() -> ^physics.World {
-	world := physics.create({tick_hz = TICK_HZ})
+pile_world :: proc(side := BODIES_SIDE, workers: i32 = 1) -> ^physics.World {
+	world := physics.create({tick_hz = TICK_HZ, workers = workers})
 	physics.create_box(world, physics.body_def(.Static, {0, -0.5, 0}), physics.shape_def(1), {30, 0.5, 30})
 	shape_def := physics.shape_def(1)
 	shape_def.density = 1
-	for y in 0 ..< BODIES_SIDE {
+	for y in 0 ..< side {
 		offset := f32(y % 2) * HALF // bricks: each layer half a box over
-		for x in 0 ..< BODIES_SIDE {
-			for z in 0 ..< BODIES_SIDE {
+		for x in 0 ..< side {
+			for z in 0 ..< side {
 				pos := [3]f32{f32(x) * 2 * HALF - 2 + offset, HALF + f32(y) * 2 * HALF, f32(z) * 2 * HALF - 2 + offset}
 				body_def := physics.body_def(.Dynamic, pos)
 				body_def.enable_sleep = false // every tick costs the same: the whole pile stays awake
@@ -144,8 +150,11 @@ main :: proc() {
 	}
 	snapshot_bytes := extra.size(extra.data, (TICKS - 1) % RING)
 	characters_us := run_characters()
+	one, one_mismatches := run_rollback(1)
+	four, four_mismatches := run_rollback(4)
+	mismatches += one_mismatches + four_mismatches
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"mismatches":%d}}`,
 		BODIES,
 		TICKS,
 		RAYS,
@@ -163,9 +172,61 @@ main :: proc() {
 		snapshot_bytes,
 		image_bytes,
 		hits,
+		ROLLBACK_SIDE * ROLLBACK_SIDE * ROLLBACK_SIDE,
+		CAP,
+		one,
+		four,
 		mismatches,
 	)
 	if mismatches > 0 do os.exit(1)
+}
+
+// The pile of ROLLBACK_SIDE³ boxes on `workers` threads: each tick a forward step and its save, then the rollback the
+// netcode makes at its cap: restore the tick CAP back, step CAP ticks saving every 2nd (and the last), deep-hash the
+// result, which must be the forward tick's. Returns {"step_us","rollback_us","step_plus_rollback_p99_us"} and the
+// ticks whose re-simulation hashed otherwise.
+run_rollback :: proc(workers: i32) -> (json: string, mismatches: int) {
+	world := pile_world(ROLLBACK_SIDE, workers)
+	defer physics.destroy(world)
+	extra := physics.extra(world, No_State)
+	for _ in 0 ..< SETTLE_TICKS do physics.step(world)
+	for tick in 0 ..= CAP {
+		physics.step(world)
+		extra.save(extra.data, tick % RING)
+	}
+	forward, again: [dynamic]u8
+	defer delete(forward)
+	defer delete(again)
+	step_us, rollback_us: [ROLLBACK_TICKS]f64
+	for k in 0 ..< ROLLBACK_TICKS {
+		tick := CAP + 1 + k
+		start := time.tick_now()
+		physics.step(world)
+		extra.save(extra.data, tick % RING)
+		stepped := time.tick_now()
+		hash_of(extra, 0, &forward)
+		resumed := time.tick_now()
+		if !extra.restore(extra.data, (tick - CAP) % RING) do mismatches += 1
+		for back in 1 ..= CAP {
+			physics.step(world)
+			if back % 2 == 0 || back == CAP do extra.save(extra.data, (tick - CAP + back) % RING)
+		}
+		hash_of(extra, 0, &again)
+		done := time.tick_now()
+		if !slice.equal(again[:], forward[:]) do mismatches += 1
+		step_us[k] = micros(start, stepped)
+		rollback_us[k] = micros(resumed, done)
+	}
+	step, rollback := stat_of(step_us[:]), stat_of(rollback_us[:])
+	return fmt.tprintf(
+			`{{"step_us":{{"mean":%.2f,"p99":%.2f}},"rollback_us":{{"mean":%.2f,"p99":%.2f}},"step_plus_rollback_p99_us":%.2f}}`,
+			step.mean,
+			step.p99,
+			rollback.mean,
+			rollback.p99,
+			step.p99 + rollback.p99,
+		),
+		mismatches
 }
 
 // 64 characters on a slab, each walking its own circle and jumping now and then: the time of their

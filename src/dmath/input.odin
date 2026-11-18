@@ -11,7 +11,7 @@ axis_i8 :: proc "contextless" (x: f32) -> i8 {
 
 // An i8 axis as −1..1 (−128 reads as −1).
 axis :: #force_inline proc "contextless" (x: i8) -> f32 {
-	return f32(max(x, -127)) / 127
+	return f32(x if x > -127 else -127) / 127
 }
 
 // Two i8 axes as a stick: each −1..1, the length at most 1 (a corner (127, 127) from a modified client moves no

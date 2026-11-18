@@ -14,9 +14,10 @@ import "core:testing"
 
 // What a package is, which says what it may not do:
 //
-//   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no `matrix`, `foreign`, `map`, `---`,
-//             `#config` or `x := 1.5` (an untyped float literal is f64), and no mutable package-level variables
-//             (scan_globals) but its allow_globals.
+//   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no call of BUILTIN_CALLS with two or
+//             more arguments (dmath's instead), no field of SIM_FIELDS but its allow_fields, no `matrix`, `foreign`,
+//             `map`, `---`, `#config` or `x := 1.5` (an untyped float literal is f64), and no mutable package-level
+//             variables (scan_globals) but its allow_globals.
 //   Realtime  real-time code beside the sim (netcode, headless): Odin's own packages and its listed ones, but not
 //             core:math (core:math/bits is fine), FLOAT_TRAPS or `matrix`.
 //   Host      host-side code that never feeds back into the sim: Odin's own packages and its listed ones.
@@ -35,6 +36,7 @@ Rule :: struct {
 	imports:       []string,
 	bans:          []string, // imports banned besides the kind's, each with what is under it ("c:": all of c)
 	allow_globals: []string, // package-level variables a Tick package may keep: each needs a reason where listed
+	allow_fields:  []string, // SIM_FIELDS a Tick package may read (the harness that fills them): a reason where listed
 }
 
 // What a Realtime package may not name: fused or complex arithmetic. (core:math, banned there too, pulls in
@@ -79,6 +81,17 @@ SIM_IDENTS :: []string {
 	"ODIN_DEBUG",
 }
 
+// The builtins a tick may not call with two or more arguments: on floats they lower to instructions free to return
+// either zero when -0 meets +0, and x64 and arm64, debug and release builds, even two inlined calls of one build pick
+// differently. dmath has compare-and-select ones of the same names (dmath.min, dmath.max, dmath.clamp), for integers
+// too: the lint can't see types. One argument, a type's bound (`max(u16)`), is a constant and allowed.
+BUILTIN_CALLS :: []string{"min", "max", "clamp"}
+
+// The fields a tick may not read (`x.name`): they differ between peers computing the same tick. `replaced`
+// (sim.Inputs): the relay substituted a late input; a peer that predicted it right steps the tick without it, a
+// peer catching up or replaying the log with it.
+SIM_FIELDS :: []string{"replaced"}
+
 // What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not Box3D's
 // bindings: Box3D is physics' (src/physics/SPEC.md, The boundary).
 TICK_IMPORTS :: []string {
@@ -111,11 +124,17 @@ sim_rule :: proc(pkg, dir: string, extra_imports: []string = nil, allocator := c
 sim_idents := SIM_IDENTS
 @(private)
 float_traps := FLOAT_TRAPS
+@(private)
+builtin_calls := BUILTIN_CALLS
+@(private)
+sim_fields := SIM_FIELDS
 
 // What a rule bans, from its kind.
 @(private)
 Bans :: struct {
 	idents:       []string,
+	calls:        []string, // builtins not to call with two or more arguments
+	fields:       []string, // fields not to read (`x.name`)
 	math:         bool, // core:math (but core:math/bits)
 	strict:       bool, // `foreign`, `map`, `---`, `#config`, `x := 1.5`; package-level variables
 	odin_allowed: bool, // core: and base: besides the listed imports
@@ -126,7 +145,7 @@ Bans :: struct {
 bans_of :: proc(kind: Kind) -> Bans {
 	switch kind {
 	case .Tick:
-		return {idents = sim_idents, strict = true, matrices = true}
+		return {idents = sim_idents, calls = builtin_calls, fields = sim_fields, strict = true, matrices = true}
 	case .Realtime:
 		return {idents = float_traps, math = true, odin_allowed = true, matrices = true}
 	case .Host:
@@ -285,6 +304,32 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 					report(&out, tok, name, fmt.tprintf("`%s`", banned), rule, allocator)
 				}
 			}
+			if prev[0] == .Period &&
+			   slice.contains(bans.fields, tok.text) &&
+			   !slice.contains(rule.allow_fields, tok.text) {
+				report(
+					&out,
+					tok,
+					name,
+					fmt.tprintf("`.%s` (it differs between peers computing the same tick)", tok.text),
+					rule,
+					allocator,
+				)
+			}
+			if prev[0] != .Period && slice.contains(bans.calls, tok.text) && call_with_arguments(scanner) {
+				report(
+					&out,
+					tok,
+					name,
+					fmt.tprintf(
+						"the builtin `%s` with two or more arguments (-0 against +0 differs per platform and build: dmath.%s)",
+						tok.text,
+						tok.text,
+					),
+					rule,
+					allocator,
+				)
+			}
 		case .String:
 			if after_import {
 				path := strings.trim(tok.text, "\"`")
@@ -297,6 +342,27 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 		prev = {tok.kind, prev[0], prev[1]}
 	}
 	return out[:]
+}
+
+// Whether the tokens after a name (`scanner` is right after it) are a call with two or more arguments: `(`, then a
+// comma outside any nested bracket before its `)`. Scans a copy: the caller's position doesn't move.
+@(private)
+call_with_arguments :: proc(scanner: tokenizer.Tokenizer) -> bool {
+	ahead := scanner
+	if tokenizer.scan(&ahead).kind != .Open_Paren do return false
+	depth := 1
+	for tok := tokenizer.scan(&ahead); tok.kind != .EOF; tok = tokenizer.scan(&ahead) {
+		#partial switch tok.kind {
+		case .Open_Paren, .Open_Bracket, .Open_Brace:
+			depth += 1
+		case .Close_Paren, .Close_Bracket, .Close_Brace:
+			depth -= 1
+			if depth == 0 do return false
+		case .Comma:
+			if depth == 1 do return true
+		}
+	}
+	return false
 }
 
 // Returns one line per package-level variable in `src` that is neither `@(rodata)` nor in

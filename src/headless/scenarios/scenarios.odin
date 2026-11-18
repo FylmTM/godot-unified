@@ -82,6 +82,14 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	)
 	testing.expectf(
 		t,
+		result.problem == "",
+		"rollback_every_tick (window %d; %s): %s",
+		window,
+		params(suite),
+		result.problem,
+	)
+	testing.expectf(
+		t,
 		suite.ticks < window || result.resimulated > 0,
 		"rollback_every_tick (%s): nothing re-simulated",
 		params(suite),
@@ -101,7 +109,8 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 		loc = loc,
 	)
 	agreed := testing.expectf(t, run.check == "", "after restoring tick %d: %s", run.check_tick, run.check, loc = loc)
-	return synced && agreed
+	clean := testing.expectf(t, run.problem == "", "%s", run.problem, loc = loc)
+	return synced && agreed && clean
 }
 
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
@@ -139,6 +148,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		result.first_at,
 	)
 	testing.expectf(t, result.check == "", "%s: after restoring tick %d: %s", what, result.check_tick, result.check)
+	testing.expectf(t, result.problem == "", "%s: %s", what, result.problem)
 }
 
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the

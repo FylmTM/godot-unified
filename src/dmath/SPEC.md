@@ -10,6 +10,7 @@ fused into a multiply-add.
 ```odin
 Vec2 :: [2]f32    Vec3 :: [3]f32
 sqrt(x)                                   // hardware, IEEE-exact
+min(a, b) / max(a, b) / clamp(x, lo, hi)  // compare and select, any number type: the same zero on a ±0 tie everywhere
 length(v)                                 // 2D or 3D (length2, length3)
 normalize(v, eps)                         // 2D or 3D, zero when |v| <= eps (normalize2, normalize3)
 dot3(a, b)
@@ -32,6 +33,15 @@ Dir3 ({u, v: u16}) / dir3(v) / dir3_vec(d) // a 3D direction in 4 bytes (octahed
   and array arithmetic alike, on every target, so `position += direction * (SPEED * DT)` on `[2]f32` computes the
   same bits as x and y written out. The lint bans `fused_mul_add`, `matrix` and `core:math`; `tests/dmath`'s canary
   fails with the reason if a compiler upgrade or flag starts fusing.
+- **`min`, `max`, `clamp` are dmath's.** Odin's builtins on floats lower to instructions free to return either zero
+  when -0 meets +0: x64 and arm64, debug and release builds, even two inlined calls of one build differ, and a
+  `max(dot(v, n), 0)` stores another block. dmath's compare and select (`a if a < b else b`; a tie or a NaN first
+  operand gives the second), for integers too, since the lint can't see types: it bans the builtins with two or more
+  arguments in tick code (`max(u16)`, a type's bound, stays). `tests/dmath`'s canary pins the ties.
+- **No NaN reaches the state block.** A NaN made at run time has each platform's bits (`ffc00000` on x64, `7fc00000`
+  on arm64), so a NaN in the block gives peers on different CPUs different checksums. Guard every division and
+  `sqrt` whose operand can be 0/0 or negative (`normalize` has its `eps`). The sync-test fails on a NaN in the block
+  with its field and tick (`sim.find_nan`); `tests/dmath` pins the bits per platform.
 - **Float to int:** x86 and ARM convert out-of-range floats differently, so a conversion that can be out of range
   goes through `to_i32_clamped` (a convention: the lint can't see types).
 - **No transcendentals.** Fixed tables (`DIR8`) and unit vectors stand in for angles (physics keeps a 2D rotation as
