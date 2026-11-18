@@ -5,12 +5,13 @@ package test_survivor
 import "core:testing"
 
 import "../survivor"
+@(require) import "unified:headless" // the balance test (LONG only)
 import "unified:headless/scenarios"
 import "unified:sim"
 
 // Steps with fixed inputs for the present slots: the player in slot i is member i + 1, as in scripted runs (so a
 // slot emptied and filled again brings its member back).
-step_with :: proc(simulation: ^survivor.Sim, present: sim.Slots, input: survivor.Input) {
+step_with :: proc(simulation: ^sim.Sim(survivor.Game), present: sim.Slots, input: survivor.Input) {
 	inputs: survivor.Inputs
 	for slot in present {
 		sim.seat(&inputs, simulation, slot, slot + 1)
@@ -115,7 +116,7 @@ levels_start_at_one :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
 	testing.expect_value(
 		t,
-		survivor.xp_next(&simulation.state, sim.slot_data(simulation, 0).level),
+		survivor.xp_next(&simulation.state.tuning, sim.slot_data(simulation, 0).level),
 		survivor.TUNINGS[.Play].xp_first,
 	)
 }
@@ -128,24 +129,28 @@ no_items_inside_the_start_circle :: proc(t: ^testing.T) {
 	}
 }
 
-// The `play` tuning with the bot policy (games/survivor/simulation/survivor/bot.odin) over 8 seeds: guards the
-// tuning's targets (games/survivor/SPEC.md) as a population, so one unlucky seed can't fail it or pass it: every
-// seed's first level-up comes in 10..45 s, and on average the bot survives past 120 s and reaches wave 3.5. `survivor
-// bot` measures more seeds. A balance check, not a correctness one: `uni test --long` only.
+// The `play` tuning played by the bot (games/survivor/simulation/survivor/bot.odin) over 8 seeds: guards the tuning's targets as a population, so one unlucky seed can't fail it or pass it: every seed's first
+// level-up comes in 10..45 s, and on average the bot survives past 120 s and reaches wave 3.5. A balance check, not a
+// correctness one: `uni test --long` only.
 when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {
 		SEEDS :: 8
 		survived_sum, wave_sum: f32
 		for seed in 1 ..= u64(SEEDS) {
-			simulation := sim.create(&survivor.GAME, seed)
+			game := survivor.GAME
+			game.scripted_input, game.scripted_commands = survivor.bot_input, survivor.bot_commands
+			simulation := sim.create(&game, seed)
 			defer sim.destroy(simulation)
 			state := &simulation.state
 			first_level: f32 = -1
-			out: sim.Command_Out(survivor.Cmd)
-			defer delete(out.list)
+			bots := headless.Headless(survivor.Game) {
+				game = &game,
+			}
+			commands: headless.Scripted_Commands(survivor.Game)
+			defer headless.scripted_commands_destroy(&commands)
 			for simulation.tick < 200 * survivor.TICK_HZ && state.phase != .Over {
-				inputs := survivor.bot_tick(state, 1, simulation.tick + 1, &out)
+				inputs := headless.scripted(&bots, simulation, simulation.tick + 1, 1, &commands)
 				sim.step(simulation, &inputs)
 				if first_level < 0 && sim.slot_data(simulation, 0).level > 1 {
 					first_level = sim.seconds(simulation.tick - state.match_tick, survivor.TICK_HZ)
@@ -172,5 +177,19 @@ when scenarios.LONG {
 			SEEDS,
 		)
 		testing.expectf(t, wave_sum / SEEDS >= 3.5, "mean wave %.2f over %d seeds", wave_sum / SEEDS, SEEDS)
+	}
+}
+
+// The arena is the level's (game/levels/arena.tscn): its eight pillars on a 14 m ring and the walls' inner faces at
+// 30 m, which keep the enemies (they are no physics bodies).
+@(test)
+the_world_reads_the_arena_from_the_level :: proc(t: ^testing.T) {
+	world := survivor.world_create(1, survivor.GAME.content)
+	defer survivor.world_destroy(world)
+	testing.expect_value(t, world.pillar_count, 8)
+	testing.expect_value(t, world.arena_inner, 30)
+	for pillar in world.pillars[:world.pillar_count] {
+		ring := pillar.center.x * pillar.center.x + pillar.center.y * pillar.center.y
+		testing.expectf(t, abs(ring - 14 * 14) < 0.01 && pillar.half == {1, 1}, "pillar %v", pillar)
 	}
 }

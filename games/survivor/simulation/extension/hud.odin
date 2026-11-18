@@ -58,7 +58,7 @@ hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Data_Hud) {
 			hp               = max(character.hp, 0),
 			hp_max           = survivor.PLAYER_HP,
 			xp               = character.xp,
-			xp_next          = survivor.xp_next(state, character.level),
+			xp_next          = survivor.xp_next(&state.tuning, character.level),
 			level            = character.level,
 			pending_levelups = character.pending_levelups,
 			respawn_s        = character.alive ? 0 : sim.seconds(character.respawn, survivor.TICK_HZ),
