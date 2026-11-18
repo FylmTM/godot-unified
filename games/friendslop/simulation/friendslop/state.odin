@@ -9,11 +9,9 @@ State :: struct {
 	players:     sim.Players(Character, Input, PLAYERS),
 	items:       [MAX_ITEMS]Item,
 	platforms:   [MAX_PLATFORMS]Platform,
-	bells:       [MAX_TRIGGERS]physics.Body_Ref, // a bell's static body, by trigger index (other triggers: none)
 	triggers:    [MAX_TRIGGERS]Trigger,
 	run_tick:    u32, // the tick the current run started
 	finish_tick: u32, // the tick the trophy arrived (Finished)
-	runs:        u32,
 	best_ticks:  u32, // the best run (0: none)
 	checkpoint:  i32, // the team's last checkpoint index (-1: the hub)
 	phase:       Phase,
@@ -62,8 +60,6 @@ Item :: struct {
 	thrown_by:    sim.Player, // the last thrower (while thrown_ticks > 0), whether still here or not
 	thrown_ticks: u16,
 	pad_cooldown: u16,
-	alive:        bool,
-	_pad:         [3]u8,
 }
 
 // A moving platform: its pose is a pure function of `phase` (physics.path_sample).

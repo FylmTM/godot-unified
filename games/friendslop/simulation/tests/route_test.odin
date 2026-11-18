@@ -53,8 +53,8 @@ platform_y :: proc(run: ^Run, platform: int) -> f32 {
 
 @(test)
 route_start_checkpoint_respawn :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	idle(&run, 16)
 	// Walk north out of the hub through the start gate.
 	for _ in 0 ..< 400 {
@@ -62,7 +62,7 @@ route_start_checkpoint_respawn :: proc(t: ^testing.T) {
 		if run.simulation.state.phase == .Run do break
 	}
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Run)
-	testing.expect_value(t, event_count(&run, g.Event_Run_Started), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Run_Started), 1)
 	// Teleport to checkpoint 3's landing and fall off the side: respawn there.
 	check3 := marker_named(&run, "Check3")
 	put_player(&run, 0, check3.pos)
@@ -70,11 +70,11 @@ route_start_checkpoint_respawn :: proc(t: ^testing.T) {
 	testing.expect_value(t, run.simulation.state.checkpoint, 3)
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, check3.pos + {10, 0, 0}, 0.1), {}, {}, {}})
-		if event_count(&run, g.Event_Fell) > 0 do break
+		if headless.run_events(&run, g.Event_Fell) > 0 do break
 	}
-	testing.expect_value(t, event_count(&run, g.Event_Fell), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Fell), 1)
 	idle(&run, 120)
-	testing.expect_value(t, event_count(&run, g.Event_Respawned), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Respawned), 1)
 	at := player_pos(&run, 0)
 	testing.expectf(
 		t,
@@ -88,8 +88,8 @@ route_start_checkpoint_respawn :: proc(t: ^testing.T) {
 
 @(test)
 route_plate_holds_gate :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	gate := platform_at_marker(&run, "PlateGate")
 	plate := marker_named(&run, "Plate")
 	cube := item_at_marker(&run, "WeightCube")
@@ -98,20 +98,20 @@ route_plate_holds_gate :: proc(t: ^testing.T) {
 	closed := platform_y(&run, gate)
 	put_item(&run, cube, plate.pos + {0, 0.6, 0})
 	idle(&run, 96)
-	testing.expect(t, event_count(&run, g.Event_Plate_On) >= 1)
+	testing.expect(t, headless.run_events(&run, g.Event_Plate_On) >= 1)
 	testing.expectf(t, platform_y(&run, gate) < closed - 4, "gate at %v (closed %v)", platform_y(&run, gate), closed)
 	// Take the cube away: the gate closes again.
 	put_item(&run, cube, plate.pos + {3, 0.6, 0})
 	idle(&run, 96)
-	testing.expect(t, event_count(&run, g.Event_Plate_Off) >= 1)
+	testing.expect(t, headless.run_events(&run, g.Event_Plate_Off) >= 1)
 	testing.expectf(t, abs(platform_y(&run, gate) - closed) < 0.01, "gate didn't close: %v", platform_y(&run, gate))
 	expect_clean(t, &run)
 }
 
 @(test)
 route_bell_bridge :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	bridge := platform_at_marker(&run, "Bridge")
 	bell := marker_named(&run, "Bell")
 	ball := item_at_marker(&run, "Ball1")
@@ -124,7 +124,7 @@ route_bell_bridge :: proc(t: ^testing.T) {
 	physics.body_set_linear_velocity(run.simulation.world.phys, body, {0, 0, -9})
 	headless.run_pin(&run)
 	idle(&run, 32)
-	testing.expect_value(t, event_count(&run, g.Event_Bell_Rung), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Bell_Rung), 1)
 	idle(&run, 160)
 	bridge_x_after := physics.body_position(run.simulation.world.phys, run.simulation.state.platforms[bridge].body).x
 	testing.expectf(
@@ -139,8 +139,8 @@ route_bell_bridge :: proc(t: ^testing.T) {
 
 @(test)
 route_key_lock_and_scale :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	key := item_at_marker(&run, "Key")
 	lock := marker_named(&run, "Lock")
 	lock_gate := platform_at_marker(&run, "LockGate")
@@ -172,8 +172,8 @@ route_key_lock_and_scale :: proc(t: ^testing.T) {
 // Toss: a friend thrown up onto the perch touches the switch, which lowers the gate.
 @(test)
 route_toss_friend_to_switch :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	gate := platform_at_marker(&run, "TossGate")
 	toss_switch := marker_named(&run, "TossSwitch")
 	testing.expect(t, gate >= 0 && toss_switch != nil)
@@ -193,18 +193,18 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 		step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {buttons = {.Throw}}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 1.3, 0}, {}), {}, {}, {}})
-	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
 	idle(&run, 96)
-	if event_count(&run, g.Event_Switch_On) == 0 {
+	if headless.run_events(&run, g.Event_Switch_On) == 0 {
 		// Landed on the perch but short of the switch: walk to it.
 		for _ in 0 ..< 160 {
 			step(&run, {{}, walk(&run, 1, toss_switch.pos, 0.1), {}, {}})
-			if event_count(&run, g.Event_Switch_On) > 0 do break
+			if headless.run_events(&run, g.Event_Switch_On) > 0 do break
 		}
 	}
 	testing.expectf(
 		t,
-		event_count(&run, g.Event_Switch_On) == 1,
+		headless.run_events(&run, g.Event_Switch_On) == 1,
 		"the friend never reached the switch (at %v)",
 		player_pos(&run, 1),
 	)
@@ -215,8 +215,8 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 
 @(test)
 route_finish_and_reset :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	for _ in 0 ..< 400 {
 		step(&run, {walk(&run, 0, {0, 0, -20}, 0.3), {}, {}, {}})
 		if run.simulation.state.phase == .Run do break
@@ -227,7 +227,7 @@ route_finish_and_reset :: proc(t: ^testing.T) {
 	put_item(&run, trophy, finish_marker.pos)
 	idle(&run, 4)
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Finished)
-	testing.expect_value(t, event_count(&run, g.Event_Run_Finished), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Run_Finished), 1)
 	testing.expect(t, run.simulation.state.best_ticks > 0)
 	idle(&run, int(g.FINISH_HOLD_TICKS) + 8)
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Hub)
@@ -248,8 +248,8 @@ route_finish_and_reset :: proc(t: ^testing.T) {
 // When the last player leaves, the run ends there: back to the hub, the checkpoint cleared (like drift and survivor).
 @(test)
 route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	put_player(&run, 0, marker_named(&run, "Check3").pos)
 	run.simulation.state.phase = .Run
 	run.simulation.state.run_tick = run.simulation.tick

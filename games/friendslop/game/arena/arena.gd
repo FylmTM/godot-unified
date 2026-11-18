@@ -13,8 +13,8 @@ var markers: Array[Node] = []
 
 func _ready() -> void:
 	markers = Unified.level_markers(_level)
-	Game.session.view_root = _views
-	Game.session.sim_event.connect(_on_sim_event)
+	Unified.session.view_root = _views
+	Unified.session.sim_event.connect(_on_sim_event)
 
 
 ## The marker node for a marker view's key (its marker index), or null.
@@ -41,4 +41,4 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	elif event is EventHit:
 		var hit := event as EventHit
 		if hit.position.distance_to(camera_rig.global_position) < 18.0:
-			camera_rig.shake(0.25 if hit.speed > 7.0 else 0.15)
+			camera_rig.shake(0.25 if hit.bumper else 0.15)

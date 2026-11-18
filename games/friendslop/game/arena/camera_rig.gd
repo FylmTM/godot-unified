@@ -1,9 +1,9 @@
 class_name CameraRig
 extends Node3D
 ## The third-person orbit camera behind the local player: the mouse (captured while playing) or the right stick turn
-## it, it pulls in when the level is in the way, and every frame it tells the session where it looks
-## (Unified.input: `look` = the look direction, `right` = flat right), which the input sampler turns into
-## camera-relative movement and the aim.
+## it, it pulls in when the level is in the way, and every frame, just before the session samples the input
+## (input_wanted), it tells the session where it looks (Unified.input: `look` = the look direction, `right` = flat
+## right), which the input sampler turns into camera-relative movement and the aim.
 
 const DISTANCE := 6.0
 ## The orbit's pivot above the player's centre.
@@ -25,17 +25,30 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.seed = 7
+	Unified.session.input_wanted.connect(_turn)
+
+
+## Before the session samples this frame's input: the stick turns the camera, and the session learns where it looks.
+func _turn() -> void:
+	var delta := get_process_delta_time()
+	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
+	yaw -= stick.x * 2.6 * delta
+	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
+	Unified.input.look = _look()
+	Unified.input.right = Vector3(-cos(yaw), 0, sin(yaw))  # flat right of the look
+
+
+## The look direction: from the pivot to the target.
+func _look() -> Vector3:
+	return Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
 
 
 func _process(delta: float) -> void:
 	_capture_mouse()
-	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
-	yaw -= stick.x * 2.6 * delta
-	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
-	var me := Game.session.get_player_view(EnumView.PLAYER, Unified.session.local_player) as Node3D
+	var me := Unified.session.get_player_view(EnumView.PLAYER, Unified.session.local_player) as Node3D
 	if me != null:
 		_pivot = _pivot.lerp(me.global_position + Vector3(0, HEIGHT, 0), 1.0 - exp(-delta * 12.0))
-	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))  # from the pivot to the target
+	var dir := _look()
 	var dist := DISTANCE
 	var hit := get_world_3d().direct_space_state.intersect_ray(
 		PhysicsRayQueryParameters3D.create(_pivot, _pivot - dir * DISTANCE))
@@ -47,8 +60,6 @@ func _process(delta: float) -> void:
 	var jitter := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), 0) * _shake * 0.3
 	_camera.global_position = global_position + global_transform.basis * jitter
 	_camera.look_at(_pivot + dir * 2.0, Vector3.UP)
-	Unified.input.look = dir
-	Unified.input.right = Vector3(-cos(yaw), 0, sin(yaw))  # flat right of `dir`
 
 
 func _unhandled_input(event: InputEvent) -> void:

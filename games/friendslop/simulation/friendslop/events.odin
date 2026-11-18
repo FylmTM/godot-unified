@@ -2,9 +2,9 @@ package friendslop
 
 import "unified:sim"
 
-// Events (for the view; GDScript matches them by the type name, lowercased). `player` is the player the event is about
-// (the Godot host routes it to their view), `entity` the level marker (sim.entity of its index) of an item, plate,
-// bell, switch or lock, `position` where it happened (metres). Joins and leaves are the library's.
+// Events (for the view: GDScript gets each as its class, Event_Hit as EventHit). `player` is the player the event is
+// about (the Godot host routes it to their view), `entity` the level marker (sim.entity of its index) of an item,
+// plate, bell, switch or lock, `position` where it happened (metres). Joins and leaves are the library's.
 
 // A player's body appeared (they joined or came back).
 Event_Spawned :: struct {
@@ -53,6 +53,8 @@ Event_Hit :: struct {
 	position: sim.Position,
 	speed:    f32, // the knockback's horizontal speed
 	player:   sim.Player,
+	bumper:   bool, // a bumper knocked them (false: an item)
+	_pad:     [3]u8,
 }
 
 Event_Broke_Free :: struct {
@@ -85,9 +87,9 @@ Event_Run_Started :: struct {
 
 // The trophy (entity) reached the pedestal.
 Event_Run_Finished :: struct {
-	entity:   sim.Entity,
-	position: sim.Position, // the finish volume's
-	seconds:  f32, // the run's time
+	entity:     sim.Entity,
+	position:   sim.Position, // the finish volume's
+	duration_s: f32, // the run's time
 }
 
 Event_Plate_On :: struct {

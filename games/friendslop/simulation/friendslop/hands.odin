@@ -95,7 +95,6 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 			if distance < best.distance do best^ = {body, grab_point, distance}
 		}
 		for i in 0 ..< t.world.item_count {
-			if !t.state.items[i].alive do continue
 			item := Body {
 				kind = .Item,
 				item = i,
@@ -134,7 +133,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Body, chest: [3]f32, onl
 	switch target.kind {
 	case .Item:
 		item := &t.state.items[target.item]
-		if !item.alive || (only_thrown && item.thrown_ticks == 0) do return -1
+		if only_thrown && item.thrown_ticks == 0 do return -1
 		kind := t.world.items[target.item].kind
 		spec := &ITEM_SPECS[kind]
 		best, best_distance_sq := -1, max(f32)

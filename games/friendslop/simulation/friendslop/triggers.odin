@@ -39,7 +39,7 @@ press_triggers :: proc(t: ^Tick) {
 			physics.shape_sensor_data(t.world.phys, def.sensor, &t.world.overlaps)
 			for visitor in t.world.overlaps {
 				index := int(visitor.tag)
-				if t.world.items[index].kind != .Key || !t.state.items[index].alive do continue
+				if t.world.items[index].kind != .Key do continue
 				trigger.active = true
 				sim.emit(t, Event_Switch_On{entity = entity, position = position})
 				break

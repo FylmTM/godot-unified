@@ -22,10 +22,6 @@ PLATFORM_FRICTION :: 0.8
 PLATE_REACH :: 2.5 // a plate's sensor reaches this far above its top (what stands on it)
 PLATE_SINK :: 0.2 // ... and this far below it
 
-// Hub spawns by slot, where the level places none (spawn markers).
-@(rodata)
-DEFAULT_SPAWNS := [PLAYERS][3]f32{{-2.25, 1.2, 0}, {-0.75, 1.2, 0}, {0.75, 1.2, 0}, {2.25, 1.2, 0}}
-
 // ---- players
 
 WALK_SPEED :: 5.5
@@ -39,6 +35,7 @@ CHECKPOINT_SPREAD :: 0.9 // players respawn at a checkpoint this far apart along
 PARK_Y :: -60 // a fallen player's body waits this far down ...
 PARK_SPACING :: 4 // ... this far apart along x, by slot
 STUN_TICKS :: u16(0.75 * TICK_HZ) // a hit player is limp this long
+TURN_STICK :: 0.1 // a player turns to face the stick when it is pushed further than this
 LANDING_PROBE :: 0.25 // a thrown player has landed when ground is within this below their feet
 
 // ---- hands: grab, hold, throw

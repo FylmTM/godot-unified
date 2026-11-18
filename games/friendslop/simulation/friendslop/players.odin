@@ -62,7 +62,7 @@ move_players :: proc(t: ^Tick) {
 		if holding {
 			facing := dmath.normalize(character.aim.xz)
 			if facing != {} do character.facing = facing
-		} else if dmath.length_sq(move) > 0.01 {
+		} else if dmath.length_sq(move) > TURN_STICK * TURN_STICK {
 			character.facing = dmath.normalize(move)
 		}
 		speed_scale: f32 = 1
