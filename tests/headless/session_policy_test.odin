@@ -3,9 +3,12 @@
 // tests/scenarios, the seeded-bug eval.)
 package test_headless
 
+import "core:log"
 import "core:testing"
 
 import "unified:headless"
+import "unified:netcode"
+import "unified:sim"
 
 // Past the round-trip ceiling (400 ms, 200 ms each way: the prediction needs ~26 ticks, the window allows 14) the
 // sim stalls, but the inputs are sampled and sent on the clock, so they reach the relay in time.
@@ -43,4 +46,71 @@ input_delay_stays_at_the_floor_within_the_window :: proc(t: ^testing.T) {
 		testing.expect_value(t, client.delay, 1)
 		testing.expect_value(t, client.stats.stall_ticks, 0)
 	}
+}
+
+// A game whose tick is wide: 4 players with a 16-byte Input, every byte changing every tick (an analog stick and an
+// aim each, in full). A round trip of its ticks takes more than one Finalized message on `bad`.
+Wide_Input :: struct {
+	bytes: [16]u8,
+}
+
+Wide_Data :: struct {
+	sum: u32,
+}
+
+Wide_State :: struct {
+	players: sim.Players(Wide_Data, Wide_Input, 4),
+}
+
+Wide_Event :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
+}
+
+Wide_Game :: sim.Game(Wide_State, Wide_Input, sim.No_World, Wide_Event, sim.No_Commands, 4)
+
+WIDE_GAME := Wide_Game {
+	name = "wide",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Wide_Game)) {
+		players := sim.iterate_present(t)
+		for data, player in sim.next(&players) {
+			for b in sim.input(t, player).bytes do data.sum += u32(b)
+		}
+	},
+	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^Wide_State) -> (input: Wide_Input) {
+		for &b, i in input.bytes {
+			b = u8((u32(seed) + u32(slot) * 977 + tick * 131 + u32(i) * 17) * 2654435761 >> 24)
+		}
+		return
+	},
+}
+
+// Finalized ticks that don't fit one message still reach a client every tick, not one message of them per round
+// trip: on `bad` (a round trip is ~16 ticks, 70 bytes each here) a client keeps up instead of stalling on most ticks.
+@(test)
+a_wide_tick_keeps_up_on_a_bad_network :: proc(t: ^testing.T) {
+	wide := headless.Headless(Wide_Game) {
+		game = &WIDE_GAME,
+	}
+	cfg := headless.Session_Config {
+		clients = 4,
+		profile = netcode.PROFILES[.Bad],
+		ticks   = 900,
+		seed    = 1,
+		churn   = true,
+	}
+	result := headless.session_run(&wide, cfg)
+	defer headless.session_result_destroy(&result)
+	testing.expect(t, result.ok)
+	stalls := 0
+	for client in result.clients do stalls += client.stall_ticks
+	log.infof(
+		"stall ticks: %d of %d client ticks; relay sent %d bytes",
+		stalls,
+		4 * cfg.ticks,
+		result.relay_net.bytes_sent,
+	)
+	testing.expectf(t, stalls < 100, "%d stall ticks of %d client ticks", stalls, 4 * cfg.ticks)
 }

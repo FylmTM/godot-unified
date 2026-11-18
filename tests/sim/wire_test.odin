@@ -223,3 +223,46 @@ fuzz_inputs_read_as_declared :: proc(t: ^testing.T) {
 		if !testing.expectf(t, got == want, "input %d: %v read as %v, want %v", k, sent, got, want) do return
 	}
 }
+
+// An Input's enum must declare a member of value 0: an undeclared value reads as 0, and an absent player's input is
+// all zeros. Without one, `tick` would read a value of no member (indexing an enumerated array with it is out of
+// bounds), so the game is refused. The state's enums may start anywhere.
+@(test)
+an_input_enum_needs_a_zero_member :: proc(t: ^testing.T) {
+	Stance :: enum u8 {
+		Stand  = 1,
+		Crouch = 2,
+	}
+	Stance_Input :: struct {
+		stance: Stance,
+		_pad:   [3]u8,
+	}
+	Stance_Data :: struct {
+		unused: u32,
+	}
+	Stance_State :: struct {
+		players: sim.Players(Stance_Data, Stance_Input, 2),
+		last:    Stance,
+		_pad:    [3]u8,
+	}
+	Stance_Event :: union {
+		sim.Event_Player_Joined,
+		sim.Event_Player_Left,
+	}
+	Stance_Game :: sim.Game(Stance_State, Stance_Input, sim.No_World, Stance_Event, sim.No_Commands, 2)
+	game := Stance_Game {
+		name = "stance",
+		version = "1",
+		tick_hz = 64,
+		tick = proc(t: ^sim.Tick(Stance_Game)) {},
+	}
+	testing.expect_value(
+		t,
+		sim.game_violation(&game),
+		"stance: the Input can't be sent between machines: Stance_Input.stance: Stance declares no member of value 0 (an undeclared value from another machine, and an absent player's input, read as 0)",
+	)
+	testing.expect_value(t, sim.plain_violation(type_info_of(Stance_State)), "")
+	// Inside an array or a nested struct too; a bit_set of such an enum is fine (its zero value is empty).
+	testing.expect(t, sim.wire_violation(type_info_of([2]Stance)) != "")
+	testing.expect_value(t, sim.wire_violation(type_info_of(bit_set[Stance;u8])), "")
+}

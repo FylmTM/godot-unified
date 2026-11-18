@@ -98,7 +98,10 @@ FIN_RING :: 2048
 #assert(CATCHUP_TICKS <= FIN_RING - 64) // a relay never streams ticks the ring would refuse
 OWN_RING :: 512
 PRED_RING :: 64
-CHK_RING :: 64
+// The checksums of verified checksum ticks, until reported: a joiner's first step verifies every finalized tick it
+// holds, up to FIN_RING of them.
+CHK_RING :: FIN_RING / CHECKSUM_EVERY
+#assert(CHK_RING * CHECKSUM_EVERY >= FIN_RING)
 CHECKSUMS_KEPT :: 64 // an endless session's client keeps its last this many checksums (Client.checksums)
 // Predicted ticks are saved every 2nd tick (and a checksum tick a snapshot is wanted of): a rollback restores the
 // nearest saved tick at or before its target, at most one tick back, which the ring still holds at the prediction cap
@@ -479,14 +482,21 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		client.checking = false
 		client.verified, client.predicted = 0, 0
 	}
+	// The relay streams finalized ticks (again) from the snapshot tick on. Those an earlier snapshot's stream left in
+	// the ring are the same facts and stay: the relay forwards no snapshot older than the one before (an ack the
+	// relay gets after this Snap_Begin may name them). An older one, from no honest relay, starts the ring over (a
+	// held tick past it would leave a gap).
+	if tick < client.snap_tick {
+		client.fin_tick = {}
+	}
 	client.snap_tick = tick
 	client.snap_total = total
 	client.snap_begin_us = now
 	clear(&client.snap_buf)
-	// The relay streams finalized ticks (again) from the snapshot tick on: what an earlier snapshot's stream left in
-	// the ring counts for nothing (an older snapshot after a newer one's Snap_Begin would leave a gap).
-	client.fin_tick = {}
 	client.fin_upto = client.snap_tick - 1
+	for fin_have(client, client.fin_upto + 1) {
+		client.fin_upto += 1
+	}
 }
 
 @(private)

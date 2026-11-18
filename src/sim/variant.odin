@@ -117,7 +117,7 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 @(private)
 Wire_Kind :: enum u8 {
 	Command, // an enum outside its values or a non-finite float rejects the whole command
-	Input, // an enum outside its values reads as its zero value (an Input holds no floats or bools)
+	Input, // an enum outside its values reads as 0, a declared member (wire_violation; an Input holds no floats or bools)
 }
 
 // Reads a plain value from another machine the way every peer reads it, in place when `apply`: a bool as 0 or 1, a
