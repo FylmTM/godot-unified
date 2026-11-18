@@ -12,7 +12,6 @@ extends MenuTool
 ## follows), fire (bullets in the multi view) while the first wave's rocks drift in -> hunt rocks until a bullet hits
 ## one. Splitting and destroying rocks and warping through a gate: the full tour (`uni tool drift tour`).
 
-const ROCK_KINDS: Array[StringName] = [&"rock_0", &"rock_1", &"rock_2", &"rock_3"]
 const HUNT_S := 20
 ## How far the hunt shoots (pixels): well inside a bullet's reach (BULLET_SPEED × BULLET_LIFE_S ≈ 500 px), so a rock
 ## drifting while a bullet flies is still hit.
@@ -241,8 +240,8 @@ func _me() -> Node2D:
 
 func _rocks_drawn() -> int:
 	var n := 0
-	for kind in ROCK_KINDS:
-		n += multi_count(kind)
+	for v in (Unified.constants.rock_shapes as Array).size():
+		n += multi_count("rock_%d" % v)
 	return n
 
 
@@ -272,7 +271,7 @@ func _rock_positions() -> Array[Vector2]:
 	for b in current_scene.get_node(^"MultiViews").get_children():
 		var mmi := b as MultiMeshInstance2D
 		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
-		if mmi == null or mmi.multimesh == null or marker == null or not (StringName(marker.kind) in ROCK_KINDS):
+		if mmi == null or mmi.multimesh == null or marker == null or not marker.kind.begins_with("rock_"):
 			continue
 		var mm := mmi.multimesh
 		var buffer := mm.buffer

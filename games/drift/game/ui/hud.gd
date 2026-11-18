@@ -1,152 +1,38 @@
 extends CanvasLayer
-## In-game HUD, built in code: the phase and wave, the match time, the station's HP bar, the score; the lobby's
-## start prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
+## The in-game HUD (hud.tscn): the phase and wave, the match time, the station's HP bar, the score; the lobby's start
+## prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
 ## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
-## controls list.
+## controls list. It follows the HUD data (`changed`), the roster and the input device.
 
-## The prompt's button (Start in the lobby, Restart when over); the tour clicks it.
-var start_button: Button
-var _phase: Label
-var _time: Label
-var _hp: ProgressBar
-var _hp_label: Label
-var _score: Label
-var _prompt: PanelContainer
-var _prompt_text: Label
-var _prompt_sub: Label
-var _banner: Label
-var _banner_t := 0.0
-var _hp_shown := 1.0
-var _session: SessionPanel
-var _controls: ControlsPanel
+var _phase_shown := -1  ## the phase the controls list is for
+var _hp_target := 1.0  ## the fraction the HP bar eases to
+var _hp_tween: Tween
+
+## The prompt's button (Start in the lobby, Restart when over); the tools click it.
+@onready var start_button: Button = %Start
+@onready var _phase: Label = %Phase
+@onready var _time: Label = %Time
+@onready var _hp: ProgressBar = %StationHp
+@onready var _hp_label: Label = %StationHpLabel
+@onready var _hp_fill := _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
+@onready var _score: Label = %Score
+@onready var _prompt: Control = %Prompt
+@onready var _prompt_text: Label = %PromptText
+@onready var _prompt_sub: Label = %PromptSub
+@onready var _banner: Banner = %Banner
+@onready var _session: SessionPanel = %Session
+@onready var _controls: ControlsPanel = %Controls
 
 
 func _ready() -> void:
-	var root := Control.new()
-	root.name = &"Root"
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(root)
-	var top := VBoxContainer.new()
-	top.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	top.position = Vector2(-210, 12)
-	top.custom_minimum_size = Vector2(420, 0)
-	top.add_theme_constant_override(&"separation", 4)
-	top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(top)
-	_phase = _label(top, &"Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	_time = _label(top, &"Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_hp = ProgressBar.new()
-	_hp.custom_minimum_size = Vector2(420, 16)
-	_hp.show_percentage = false
-	_hp.max_value = 1.0
-	_hp.value = 1.0
-	_hp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(_hp)
-	_hp_label = _label(_hp, &"", HORIZONTAL_ALIGNMENT_CENTER)
-	_hp_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)  # added already: offsets too
-	_hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_hp_label.add_theme_font_size_override(&"font_size", 12)
-	_score = _label(top, &"Dim", HORIZONTAL_ALIGNMENT_CENTER)
-
-	var bottom := CenterContainer.new()  # centres the prompt at whatever size its text gives it
-	bottom.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom.offset_top = -200.0
-	bottom.offset_bottom = -40.0
-	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(bottom)
-	_prompt = PanelContainer.new()
-	_prompt.name = &"Prompt"
-	bottom.add_child(_prompt)
-	var pv := VBoxContainer.new()
-	pv.add_theme_constant_override(&"separation", 8)
-	_prompt.add_child(pv)
-	_prompt_text = _label(pv, &"Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_prompt_text.add_theme_font_size_override(&"font_size", 22)
-	_prompt_sub = _label(pv, &"Dim", HORIZONTAL_ALIGNMENT_CENTER)
-	start_button = Button.new()
-	start_button.name = &"Start"
-	start_button.theme_type_variation = &"PrimaryButton"
-	start_button.focus_mode = Control.FOCUS_NONE  # Space fires: never "press the focused button"
-	start_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	start_button.custom_minimum_size = Vector2(180, 0)
 	start_button.pressed.connect(_start_or_restart)
-	pv.add_child(start_button)
-
-	_banner = _label(root, &"Heading", HORIZONTAL_ALIGNMENT_CENTER)
-	_banner.add_theme_font_size_override(&"font_size", 44)
-	_banner.visible = false
-	# 600 px wide, 170 px above the centre (anchors first, then the offsets: `position` would put it off screen)
-	_banner.set_anchors_preset(Control.PRESET_CENTER)
-	_banner.offset_left = -300.0
-	_banner.offset_right = 300.0
-	_banner.offset_top = -170.0
-	_banner.offset_bottom = -110.0
-	_session = SessionPanel.new()
-	root.add_child(_session)
-	_controls = ControlsPanel.new()
-	root.add_child(_controls)
-	Game.session.sim_event.connect(_on_sim_event)
-
-
-func _process(delta: float) -> void:
-	var h: DataHud = Unified.data.hud
-	var phase := h.phase
-	var wave := h.wave
-	match phase:
-		EnumPhase.MATCH:
-			_phase.text = "WAVE %d  ·  next wave in %d s" % [wave, ceili(h.next_wave_s)]
-			_time.text = _time_text(h.time_s)
-		EnumPhase.OVER:
-			_phase.text = "STATION LOST  ·  wave %d" % wave
-			_time.text = _time_text(h.time_s)
-		_:
-			_phase.text = "LOBBY"
-			_time.text = ""
-	var hp := h.station_hp
-	var hp_max := maxi(h.station_max, 1)
-	var frac := clampf(float(hp) / hp_max, 0.0, 1.0)
-	_hp_shown = lerpf(_hp_shown, frac, 1.0 - exp(-delta * 10.0))
-	_hp.value = _hp_shown
-	_hp_label.text = "STATION  %d / %d" % [maxi(hp, 0), hp_max]
-	var fill := UiTheme.GOOD if frac > 0.5 else (UiTheme.GOLD if frac > 0.25 else UiTheme.BAD)
-	var sb := _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
-	if sb != null and sb.bg_color != fill:
-		_hp.add_theme_stylebox_override(&"fill", UiTheme.box(fill, 6, 0))
-	var best := Settings.best_time
-	_score.text = "score %d  ·  rocks %d%s" % [h.score, h.rocks,
-		("  ·  best %s" % _time_text(best)) if best > 0.0 else ""]
-
-	_prompt.visible = phase == EnumPhase.LOBBY or phase == EnumPhase.OVER
-	var keys := Game.hint("Enter", "X")
-	if phase == EnumPhase.LOBBY:
-		_prompt_text.text = "Press %s or click Start to start" % keys
-		_prompt_sub.text = "Rocks drift in from the edges in waves. Keep them off the station."
-		start_button.text = "Start"
-	elif phase == EnumPhase.OVER:
-		_prompt_text.text = "The station is lost: you held out %s" % _time_text(h.time_s)
-		_prompt_sub.text = "Back to the lobby in %d s" % ceili(h.reset_in_s)
-		start_button.text = "Restart"
-
-	var rows: Array[Dictionary] = []
-	for player in Unified.session.get_players():
-		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": "%d gems" % info.gems})
-	_session.refresh(rows, phase == EnumPhase.LOBBY, "Press %s or click Start when everyone is in." % keys)
-	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
-	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
-	if phase == EnumPhase.LOBBY:
-		kb.append(["Enter", "Start"])
-		pad.append(["X", "Start"])
-	elif phase == EnumPhase.OVER:
-		kb.append(["Enter", "Restart"])
-		pad.append(["X", "Restart"])
-	kb.append(["Esc", "Menu"])
-	pad.append(["Start", "Menu"])
-	_controls.refresh(kb, pad)
-	_banner_t = maxf(_banner_t - delta, 0.0)
-	_banner.visible = _banner_t > 0.0
-	_banner.modulate.a = clampf(_banner_t, 0.0, 1.0)
+	Unified.data.hud.changed.connect(_on_hud_changed)
+	Unified.session.roster_changed.connect(_refresh_players)
+	Unified.session.sim_event.connect(_on_sim_event)
+	Game.input_device_changed.connect(_on_input_device_changed)
+	Game.lobby_code_changed.connect(_on_lobby_code_changed)
+	get_viewport().size_changed.connect(_refresh_controls)  # the controls list keeps to the bottom-right corner
+	_on_hud_changed()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -166,9 +52,82 @@ func _start_or_restart() -> void:
 			Unified.session.send_command(CommandRestart.new())
 
 
-func _show_banner(text: String, seconds := 2.0) -> void:
-	_banner.text = text
-	_banner_t = seconds
+func _on_hud_changed() -> void:
+	var h: DataHud = Unified.data.hud
+	var keys := Game.hint("Enter", "X")
+	match h.phase:
+		EnumPhase.MATCH:
+			_phase.text = "WAVE %d  ·  next wave in %d s" % [h.wave, ceili(h.next_wave_s)]
+			_time.text = UiTheme.clock(h.time_s)
+		EnumPhase.OVER:
+			_phase.text = "STATION LOST  ·  wave %d" % h.wave
+			_time.text = UiTheme.clock(h.time_s)
+			_prompt_text.text = "The station is lost: you held out %s" % UiTheme.clock(h.time_s)
+			_prompt_sub.text = "Back to the lobby in %d s" % ceili(h.reset_in_s)
+			start_button.text = "Restart"
+		_:
+			_phase.text = "LOBBY"
+			_time.text = ""
+			_prompt_text.text = "Press %s or click Start to start" % keys
+			_prompt_sub.text = "Rocks drift in from the edges in waves. Keep them off the station."
+			start_button.text = "Start"
+	_prompt.visible = h.phase != EnumPhase.MATCH
+	_show_station_hp(h.station_hp)
+	var best := Settings.best_time
+	_score.text = "score %d  ·  rocks %d%s" % [h.score, h.rocks,
+		("  ·  best %s" % UiTheme.clock(best)) if best > 0.0 else ""]
+	_refresh_players()
+	if h.phase != _phase_shown:
+		_phase_shown = h.phase
+		_refresh_controls()
+
+
+## The bar eases to the station's HP and takes its colour (good, gold, bad).
+func _show_station_hp(hp: int) -> void:
+	var full := Unified.constants.station_hp
+	var fraction := float(hp) / full
+	_hp_label.text = "STATION  %d / %d" % [hp, full]
+	if fraction == _hp_target:
+		return
+	_hp_target = fraction
+	_hp_fill.bg_color = UiTheme.health_color(fraction)
+	if _hp_tween != null:
+		_hp_tween.kill()
+	_hp_tween = create_tween()
+	_hp_tween.tween_property(_hp, "value", fraction, 0.3).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+
+
+func _on_input_device_changed(_pad: bool) -> void:
+	_on_hud_changed()
+	_refresh_controls()
+
+
+func _on_lobby_code_changed(_code: String) -> void:
+	_refresh_players()
+
+
+## The session panel: every player with their gems.
+func _refresh_players() -> void:
+	var slots := Unified.data.hud.players
+	var rows: Array[Dictionary] = []
+	for player in Unified.session.get_players():
+		var info := slots[Unified.session.get_player_slot(player)] as DataHudPlayer
+		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": "%d gems" % info.gems})
+	_session.refresh(rows, Unified.data.hud.phase == EnumPhase.LOBBY,
+		"Press %s or click Start when everyone is in." % Game.hint("Enter", "X"))
+
+
+## The controls list for the phase and the device in use.
+func _refresh_controls() -> void:
+	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
+	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
+	if _phase_shown != EnumPhase.MATCH:
+		var start := "Start" if _phase_shown == EnumPhase.LOBBY else "Restart"
+		kb.append(["Enter", start])
+		pad.append(["X", start])
+	kb.append(["Esc", "Menu"])
+	pad.append(["Start", "Menu"])
+	_controls.refresh(kb, pad)
 
 
 ## Banners and the best time, once an event's tick is confirmed.
@@ -176,27 +135,13 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	if event is EventMatchStarted:
-		_show_banner("Defend the station!", 2.0)
+		_banner.show_message("Defend the station!")
 	elif event is EventWave:
 		var wave := (event as EventWave).wave
 		if wave > 1:
-			_show_banner("Wave %d" % wave, 2.0)
+			_banner.show_message("Wave %d" % wave)
 	elif event is EventMatchOver:
-		_show_banner("Station lost", 3.0)
+		_banner.show_message("Station lost", UiTheme.TEXT, 2.5)
 		var survived := (event as EventMatchOver).seconds_survived
-		var best := Settings.best_time
-		if survived > best:
+		if survived > Settings.best_time:
 			Settings.best_time = survived
-
-
-static func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:
-	var l := Label.new()
-	l.theme_type_variation = variation
-	l.horizontal_alignment = align
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(l)
-	return l
-
-
-static func _time_text(s: float) -> String:
-	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]

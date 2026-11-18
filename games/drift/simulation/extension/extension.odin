@@ -198,10 +198,8 @@ Data_Hud :: struct {
 	phase:       g.Phase, // EnumPhase in GDScript
 	_pad:        u8,
 	wave:        u16,
-	station_hp:  i32,
-	station_max: i32,
+	station_hp:  i32, // of Unified.constants.station_hp
 	score:       u32,
-	matches:     u32,
 	rocks:       u32,
 	time_s:      f32, // match time (over: survived)
 	next_wave_s: f32, // match: until the next wave
@@ -212,9 +210,7 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	hud.wave = state.waves
 	hud.station_hp = state.station_hp
-	hud.station_max = g.STATION_HP
 	hud.score = state.score
-	hud.matches = state.matches
 	hud.rocks = u32(state.rocks.count)
 	switch state.phase {
 	case .Lobby:
@@ -244,9 +240,8 @@ Data_Constants :: struct {
 	ship_radius:    f32,
 	station_radius: f32,
 	gate_radius:    f32,
-	station_hp:     i32,
-	over_hold_s:    f32,
-	wave_every_s:   f32,
+	station_hp:     i32, // full: the HUD's bar
+	station_spin:   f32, // rad/s: the menu's station turns like the match's
 	rock_shapes:    [g.ROCK_VARIANTS][8][2]f32, // per variant the 8 corners at radius 1 (an Array of Vector2s)
 }
 
@@ -258,8 +253,7 @@ constants :: proc() -> Data_Constants {
 		station_radius = g.STATION_RADIUS,
 		gate_radius    = g.GATE_RADIUS,
 		station_hp     = g.STATION_HP,
-		over_hold_s    = sim.seconds(g.OVER_HOLD_TICKS, g.TICK_HZ),
-		wave_every_s   = sim.seconds(g.WAVE_EVERY_TICKS, g.TICK_HZ),
+		station_spin   = g.STATION_SPIN,
 	}
 	small := g.ROCK_STATS[.Small].radius
 	for variant in 0 ..< g.ROCK_VARIANTS {
