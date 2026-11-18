@@ -13,12 +13,15 @@ import "unified:netcode"
 @(require) import "unified:sim"
 
 Session_Config :: struct {
-	clients:   int,
-	profile:   netcode.Profile, // every client's link, both ways
-	ticks:     u32,
-	seed:      u64,
-	late_tick: u32, // the tick slot `late_slot` joins at (0: everyone starts together)
-	late_slot: int,
+	clients:        int,
+	profile:        netcode.Profile, // every client's link, both ways
+	ticks:          u32,
+	seed:           u64,
+	late_tick:      u32, // the tick slot `late_slot` joins at (0: everyone starts together)
+	late_slot:      int,
+	// The late joiner connects once the relay's clock reaches late_tick and asks for no particular join tick, as a
+	// player does (its join then takes what a player waits); else it connects ahead, present from late_tick exactly.
+	late_as_player: bool,
 }
 
 Session_Result :: struct($G: typeid) {
@@ -30,7 +33,8 @@ Session_Result :: struct($G: typeid) {
 	log:        sim.Input_Log(G), // the relay's official input log (its recording, in memory)
 	relay_net:  netcode.Channel_Stats,
 	// The late joiner's join (late_tick != 0): from its Hello to Connected (its snapshot restored and checked),
-	// virtual µs, and the bytes it received by then (its snapshot, the finalized ticks since it).
+	// virtual µs, and the bytes it received by then (its snapshot, the finalized ticks since it). Its client result
+	// has the snapshot's transfer (snapshot_bytes, snapshot_us) and its catch-up (client_steps.max_us).
 	join_us:    i64,
 	join_bytes: int,
 }
@@ -174,8 +178,11 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	join_from: i64
 	result.ok = true
 	for {
-		if cfg.late_tick != 0 && clients[cfg.late_slot] == nil && relay.clock + lead >= cfg.late_tick {
-			clients[cfg.late_slot] = new_client(headless, cfg, hub, &clock, &scripted, cfg.late_slot, cfg.late_tick)
+		if cfg.late_tick != 0 &&
+		   clients[cfg.late_slot] == nil &&
+		   relay.clock + (cfg.late_as_player ? 0 : lead) >= cfg.late_tick {
+			join := cfg.late_as_player ? 0 : cfg.late_tick
+			clients[cfg.late_slot] = new_client(headless, cfg, hub, &clock, &scripted, cfg.late_slot, join)
 			join_from = clock.now
 		}
 		wake := netcode.relay_step(relay, clock.now)

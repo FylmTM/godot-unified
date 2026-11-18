@@ -155,9 +155,11 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap), ticks), which its `bench` mode runs: every tick a step, a
   save, a checksum, then a rollback at the window and a re-sim (the worst case the netcode makes: a bound, not a
-  typical frame). The first window + 64 ticks run untimed. unified's target: a step plus that re-sim within 6 ms at
-  their p99. `bench` also runs each game's `session` on the virtual clock twice, 4 clients under `bad` (the stress
-  case) and under `wan` with the 4th joining halfway (the common case and a late join), and the project's own rows
+  typical frame). The first window + 64 ticks run untimed. unified's target: a step, a restore, that re-sim and a
+  deep checksum within 6 ms at their p99. `bench` also runs each game's `session` on the virtual clock twice, 4
+  clients under `bad` (the stress case) and under `wan` with the 4th connecting halfway and joining as a player does
+  (the common case and a late join), each row timing every client step that stepped the sim (the measure the target
+  models), and the project's own rows
   (this repo: Box3D on a fixed scene, `tests/physics/bench`, what a Box3D upgrade compares); `.out/bench.json`, not
   gated by time.
 

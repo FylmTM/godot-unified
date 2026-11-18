@@ -30,7 +30,7 @@ Relay_Config :: struct {
 	desync_detail: bool,
 }
 
-RELAY_RING :: 512 // finalized ticks the relay keeps: a client further behind can't be streamed to
+RELAY_RING :: 2048 // finalized ticks the relay keeps: a client further behind can't be streamed to (FIN_RING)
 #assert(CATCHUP_TICKS < RELAY_RING)
 INPUT_RING :: 256
 CHECK_RING :: 64
@@ -118,39 +118,42 @@ Seat :: struct($Input: typeid) {
 
 // The relay, generic over the game type G (only its Input, PLAYERS and tick rate matter).
 Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
-	cfg:          Relay_Config,
-	compat:       u64,
-	desync_diff:  proc(a, b: []u8) -> string, // cfg.desync_detail: the game State's snapshot diff
-	tm:           Timing,
-	ch:           ^Channel,
-	w:            wire.Writer,
-	poll_us:      i64, // how often relay_step wants to run between deadlines (a host's: none until a remote link)
-	seats:        [sim.part(G, sim.GAME_PLAYERS)]Seat(sim.part(G, sim.GAME_INPUT)),
-	slot_of:      [MAX_PEERS]int, // a channel peer's slot (-1: none)
-	checks:       [CHECK_RING]Check(sim.part(G, sim.GAME_PLAYERS)),
-	started:      bool, // Welcome sent to the start players
-	welcome_us:   i64,
-	lead:         u32, // ticks from Welcome to the clock's tick 0
-	beats:        u32, // ticks since Welcome, the lead included
-	clock:        u32, // beats - lead (0 during the lead)
-	finalized:    u32,
-	ring:         [RELAY_RING]sim.Inputs(G), // finalized tick T in ring[T % RELAY_RING]
-	recording:    sim.Log_Stream,
-	members:      [dynamic]Relay_Member, // every person of the session, by member id - 1
-	broadcast_us: i64, // when the last broadcast went out
-	broadcast_to: u32, // the newest finalized tick when it did
-	desyncs:      int, // desync reports (a checksum tick on which some slots differ from the majority)
-	reports:      [dynamic]Desync_Report, // waiting to go out while a typed report gathers its snapshots
-	pending:      [2]Pending_Image, // the typed report's snapshots: a majority slot's, a diverged one's
-	pending_on:   bool,
-	pending_tick: u32,
-	pending_us:   i64,
-	detailed:     bool, // the session's first desync got its typed report (later ones are its consequences)
-	first_desync: Desync_Report, // the first desync reported (its detail owned by the relay)
-	replaced:     int,
-	ending:       bool,
-	end_us:       i64,
-	finished:     bool,
+	cfg:                 Relay_Config,
+	compat:              u64,
+	desync_diff:         proc(a, b: []u8) -> string, // cfg.desync_detail: the game State's snapshot diff
+	tm:                  Timing,
+	ch:                  ^Channel,
+	w:                   wire.Writer,
+	poll_us:             i64, // how often relay_step wants to run between deadlines (a host's: none until a remote link)
+	seats:               [sim.part(G, sim.GAME_PLAYERS)]Seat(sim.part(G, sim.GAME_INPUT)),
+	slot_of:             [MAX_PEERS]int, // a channel peer's slot (-1: none)
+	checks:              [CHECK_RING]Check(sim.part(G, sim.GAME_PLAYERS)),
+	started:             bool, // Welcome sent to the start players
+	welcome_us:          i64,
+	lead:                u32, // ticks from Welcome to the clock's tick 0
+	beats:               u32, // ticks since Welcome, the lead included
+	clock:               u32, // beats - lead (0 during the lead)
+	finalized:           u32,
+	ring:                [RELAY_RING]sim.Inputs(G), // finalized tick T in ring[T % RELAY_RING]
+	recording:           sim.Log_Stream,
+	members:             [dynamic]Relay_Member, // every person of the session, by member id - 1
+	broadcast_us:        i64, // when the last broadcast went out
+	broadcast_to:        u32, // the newest finalized tick when it did
+	desyncs:             int, // desync reports (a checksum tick on which some slots differ from the majority)
+	reports:             [dynamic]Desync_Report, // waiting to go out while a typed report gathers its snapshots
+	pending:             [2]Pending_Image, // the typed report's snapshots: a majority slot's, a diverged one's
+	pending_on:          bool,
+	pending_tick:        u32,
+	pending_us:          i64,
+	detailed:            bool, // the session's first desync got its typed report (later ones are its consequences)
+	first_desync:        Desync_Report, // the first desync reported (its detail owned by the relay)
+	replaced:            int, // inputs that came too late, replaced by the slot's previous one
+	// Late joiners let in unchecked: no other player's checksum of their snapshot's tick came (src/netcode/SPEC.md,
+	// Late join).
+	unchecked_snapshots: int,
+	ending:              bool,
+	end_us:              i64,
+	finished:            bool,
 }
 
 // Creates a relay for `game` with no links yet (relay_add_link), starting its recording if cfg has one. The clock
@@ -555,6 +558,7 @@ on_inputs :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) 
 		seat.inputs[tick % INPUT_RING] = input
 		seat.input_tick[tick % INPUT_RING] = tick
 	}
+	seat.recv_upto = max(seat.recv_upto, relay.finalized) // a finalized tick's input is no longer waited for
 	for have_input(seat, seat.recv_upto + 1) {
 		seat.recv_upto += 1
 	}
@@ -713,6 +717,7 @@ judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 			// Nobody reported the tick (or it left the ring): nothing to compare with.
 			log.infof("slot %d: snapshot of tick %d not checked: no other checksum of it", joiner, tick)
 			majority = seat.snap_value
+			relay.unchecked_snapshots += 1
 		}
 		if seat.snap_value != majority {
 			seat.refused += {seat.snap_from}
@@ -1040,6 +1045,12 @@ seat_left :: proc(relay: ^Relay($G), slot: int, why: string, now: i64) {
 
 @(private)
 handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
+	// A message of a connection that ended earlier in this poll (a Leave before it in one datagram, a new epoch's
+	// Hello after the old one's Leave): nothing behind it to seat or answer. A Hello dropped here is reliable and
+	// comes again on the peer's new connection.
+	if !channel_connected(relay.ch, peer) {
+		return
+	}
 	reader := wire.reader_make(data)
 	kind := Msg(wire.r_u8(&reader))
 	if kind == .Hello {

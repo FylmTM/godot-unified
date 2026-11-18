@@ -319,3 +319,107 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 		client.verified,
 	)
 }
+
+// A joiner fed snapshots by a relay that may be hostile: Snap_Begins for different ticks in any order, chunks of two
+// genuine snapshots, Finalized ticks and Snap_Oks, each sent as is or mangled. Whatever arrives, the joiner loads a
+// snapshot, fails with a reason, or waits: never an assert (src/netcode/SPEC.md: a crafted snapshot can do no more
+// than fail to load). A client that failed is replaced by a new joiner.
+@(test)
+fuzz_joiner_snapshots :: proc(t: ^testing.T) {
+	JOIN_TICK :: 33
+	// Genuine snapshots of checksum ticks 32 and 48 of the session the fake relay streams.
+	simulation := sim.create(&toy.GAME, SEED)
+	defer sim.destroy(simulation)
+	snapshots: [2][]u8
+	for tick in u32(1) ..= 48 {
+		inputs := finalized_of(tick, 1)
+		sim.step(simulation, &inputs)
+		if tick % 16 == 0 && tick >= 32 do snapshots[tick / 16 - 2] = sim.snapshot_encode(simulation, tick)
+	}
+	defer for snapshot in snapshots do delete(snapshot)
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	fake: Fake_Relay
+	fake_make(&fake, hub)
+	defer fake_destroy(&fake)
+	watch: Watch
+	defer delete(watch.statuses)
+	join :: proc(fake: ^Fake_Relay, hub: ^netcode.Hub, watch: ^Watch) -> ^Client {
+		client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(watch))
+		fake.peer = -1
+		for fake.peer < 0 {
+			fake_step(fake, client)
+		}
+		writer := fake_begin(fake, .Welcome)
+		wire.w_u8(writer, 1) // slot
+		wire.w_u16(writer, 2) // member
+		wire.w_u64(writer, SEED)
+		wire.w_u16(writer, toy.HZ)
+		wire.w_u32(writer, 0) // endless
+		wire.w_u32(writer, JOIN_TICK)
+		wire.w_u8(writer, 0)
+		fake_send(fake)
+		fake_step(fake, client)
+		return client
+	}
+	client := join(&fake, hub, &watch)
+	defer netcode.client_destroy(client)
+	fuzz := Fuzz{0x5EED_CAFE}
+	buf: [dynamic]u8
+	defer delete(buf)
+	loads, joiners := 0, 1
+	for k in 0 ..< 4000 {
+		which := fuzz_below(&fuzz, 2)
+		snapshot := snapshots[which]
+		tick := u32(32 + 16 * which)
+		writer: ^wire.Writer
+		switch fuzz_below(&fuzz, 5) {
+		case 0:
+			writer = fake_begin(&fake, .Snap_Begin)
+			wire.w_u8(writer, 1)
+			wire.w_u32(writer, tick)
+			wire.w_u32(writer, u32(len(snapshot)))
+		case 1, 2:
+			offset := min(
+				fuzz_below(&fuzz, 4) * netcode.SNAP_CHUNK,
+				(len(snapshot) - 1) / netcode.SNAP_CHUNK * netcode.SNAP_CHUNK,
+			)
+			writer = fake_begin(&fake, .Snap_Chunk)
+			wire.w_u8(writer, 1)
+			wire.w_u32(writer, u32(offset))
+			wire.w_bytes(writer, snapshot[offset:min(offset + netcode.SNAP_CHUNK, len(snapshot))])
+		case 3:
+			first := u32(16 + fuzz_below(&fuzz, 64))
+			batch: [8]toy.Inputs
+			for &inputs, i in batch do inputs = finalized_of(first + u32(i), 1)
+			writer = fake_begin(&fake, .Finalized)
+			wire.w_u64(writer, u64(fake.now))
+			wire.w_u32(writer, 0)
+			wire.w_u32(writer, 0)
+			wire.w_u32(writer, first)
+			wire.w_u8(writer, u8(len(batch)))
+			for &inputs, i in batch do netcode.window_write_tick(writer, &inputs, i > 0 ? &batch[i - 1] : nil)
+		case:
+			writer = fake_begin(&fake, .Snap_Ok)
+			wire.w_u32(writer, tick)
+		}
+		if fuzz_below(&fuzz, 2) == 0 {
+			fuzz_bytes(&fuzz, &buf, writer.buf[:])
+			fake_send_bytes(&fake, buf[:])
+		} else {
+			fake_send(&fake)
+		}
+		if k % 2 == 0 {
+			fake_step(&fake, client)
+		}
+		if client.sim != nil && client.checking {
+			loads += 1
+		}
+		if netcode.client_finished(client) {
+			netcode.client_destroy(client)
+			client = join(&fake, hub, &watch)
+			joiners += 1
+		}
+	}
+	testing.expectf(t, loads > 0 && joiners > 1, "%d snapshots loaded, %d joiners", loads, joiners)
+}

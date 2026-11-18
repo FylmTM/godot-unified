@@ -74,7 +74,10 @@ virtual_sessions_repeat :: proc(t: ^testing.T) {
 	second := headless.session_run(&HEADLESS, cfg)
 	defer headless.session_result_destroy(&second)
 	testing.expect(t, first.ok && second.ok)
-	first.clients[0].step_us, second.clients[0].step_us = {}, {} // wall time, the one thing that may differ
+	// Wall time, the one thing that may differ (how many client steps stepped the sim may not).
+	testing.expect_value(t, first.clients[0].client_steps.count, second.clients[0].client_steps.count)
+	first.clients[0].step_us, second.clients[0].step_us = {}, {}
+	first.clients[0].client_steps, second.clients[0].client_steps = {}, {}
 	json := netcode.client_json(first.clients[0]) // what the CLI prints
 	testing.expect(
 		t,

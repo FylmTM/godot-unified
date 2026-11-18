@@ -97,11 +97,15 @@ Kept_Image :: struct {
 	data: [dynamic]u8, // empty: nothing kept
 }
 
-FIN_RING :: 512
+// Finalized ticks a client holds ahead of its verified tick (a joiner: of its snapshot's). A joiner accepts them only
+// up to FIN_RING - 64 past its snapshot until it plays, so it must be in within that plus RELAY_RING ticks of the
+// snapshot (64 s at 64 Hz) or be refused as too far behind: the time a large world's snapshot may take to arrive.
+FIN_RING :: 2048
 #assert(CATCHUP_TICKS <= FIN_RING - 64) // a relay never streams ticks the ring would refuse
 OWN_RING :: 512
 PRED_RING :: 64
 CHK_RING :: 64
+CHECKSUMS_KEPT :: 64 // an endless session's client keeps its last this many checksums (Client.checksums)
 // Predicted ticks are saved every 2nd tick (and a checksum tick a snapshot is wanted of): a rollback restores the
 // nearest saved tick at or before its target, at most one tick back, which the ring still holds at the prediction cap
 // (P - V <= ring - 2). Checksum ticks are multiples of it, so always saved.
@@ -119,21 +123,27 @@ Step_Kind :: enum u8 {
 // A client's counters (cumulative: the dev UI takes differences) and its live estimates, copied whole by
 // client_stats.
 Client_Stats :: struct {
-	rollbacks:     int,
-	depth_sum:     int, // rollback depths summed (their average: depth_sum / rollbacks)
-	depth_max:     int,
-	stall_ticks:   int, // clock ticks the prediction cap held the sim back
-	resim_ticks:   int,
-	delay_changes: int,
-	desyncs:       int, // desync reports from the relay
-	own_replaced:  int, // finalized ticks where the relay replaced our input (it arrived too late)
-	steps:         [Step_Kind]int, // ticks stepped, by kind
-	step_us:       [Step_Kind]i64, // time spent stepping them (saves included), µs
-	last_msg_us:   i64, // when the relay's last message arrived (now_us; 0: none yet)
+	rollbacks:      int,
+	depth_sum:      int, // rollback depths summed (their average: depth_sum / rollbacks)
+	depth_max:      int,
+	stall_ticks:    int, // clock ticks the prediction cap held the sim back
+	resim_ticks:    int,
+	delay_changes:  int,
+	desyncs:        int, // desync reports from the relay
+	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
+	steps:          [Step_Kind]int, // ticks stepped, by kind
+	step_us:        [Step_Kind]i64, // time spent stepping them (saves included), µs
+	// The client_steps that stepped the sim: each one's time verifying (rolling back, re-simulating, the checksums,
+	// the snapshots joiners wait for, the verified hook), advancing the clock and predicting. What the frame budget is
+	// about.
+	client_steps:   Durations,
+	snapshot_bytes: int, // a joiner: the snapshot it restored
+	snapshot_us:    i64, // ... from its Snap_Begin to its last chunk
+	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
 	// live, filled by client_stats
-	rtt_ms:        f64, // the round trip the clock and input delay use
-	delay:         u32, // the input delay, ticks
-	net:           Channel_Stats,
+	rtt_ms:         f64, // the round trip the clock and input delay use
+	delay:          u32, // the input delay, ticks
+	net:            Channel_Stats,
 }
 
 Client :: struct($G: typeid) {
@@ -197,6 +207,7 @@ Client :: struct($G: typeid) {
 	snap_buf:       [dynamic]u8,
 	snap_total:     int,
 	snap_tick:      u32,
+	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
 	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
 	images:         [DESYNC_IMAGES]Kept_Image,
 	// end
@@ -204,7 +215,9 @@ Client :: struct($G: typeid) {
 	end_us:         i64, // when End arrived or stop was called (0: not ending)
 	leaving:        bool, // client_stop was called
 	// results
-	checksums:      [dynamic][2]u64, // (tick, checksum) of verified ticks divisible by 16, from J on
+	// (tick, checksum) of verified ticks divisible by 16, from J on, oldest first: all of a fixed-length session's,
+	// the last CHECKSUMS_KEPT of an endless one's.
+	checksums:      [dynamic][2]u64,
 	stats:          Client_Stats, // the counters (client_stats fills the live fields)
 	first_desync:   Desync_Report, // the first desync report (its detail owned by the client)
 	// the relay's roster: every member of the session, by member id - 1 (departed ones stay)
@@ -363,9 +376,8 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	client.keep_images = .Keep_Images in flags
 	client.own_last = first - 1
 	client.own_acked = first - 1
-	if ticks != 0 {
-		reserve(&client.checksums, int(ticks / CHECKSUM_EVERY) + 1) // no growing on the session thread
-	}
+	// No growing on the session thread.
+	reserve(&client.checksums, ticks != 0 ? int(ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
 	if first == 1 {
 		client.sim = usim.create(client.game, seed, client.cfg.content)
 		set_status(client, .Connected, "")
@@ -452,7 +464,7 @@ on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 }
 
 @(private)
-on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader) {
+on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	_ = wire.r_u8(reader)
 	tick := wire.r_u32(reader)
 	total := int(wire.r_u32(reader))
@@ -471,12 +483,12 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	}
 	client.snap_tick = tick
 	client.snap_total = total
+	client.snap_begin_us = now
 	clear(&client.snap_buf)
-	// Finalized ticks are streamed from the snapshot tick on.
-	client.fin_upto = max(client.fin_upto, client.snap_tick - 1)
-	for fin_have(client, client.fin_upto + 1) {
-		client.fin_upto += 1
-	}
+	// The relay streams finalized ticks (again) from the snapshot tick on: what an earlier snapshot's stream left in
+	// the ring counts for nothing (an older snapshot after a newer one's Snap_Begin would leave a gap).
+	client.fin_tick = {}
+	client.fin_upto = client.snap_tick - 1
 }
 
 @(private)
@@ -545,10 +557,19 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		if target == RELAY_TARGET {
 			send_image(client, tick, now)
 		} else {
-			append(&client.snap_reqs, Snap_Req{int(target), tick})
+			// One request per joiner's slot: the relay asks a provider again only for a new occupant (the one it
+			// asked before left), so a newer request replaces the one it holds.
+			known := false
+			for &request in client.snap_reqs {
+				if request.joiner == int(target) {
+					request.min_tick = tick
+					known = true
+				}
+			}
+			if !known do append(&client.snap_reqs, Snap_Req{int(target), tick})
 		}
 	case .Snap_Begin:
-		on_snap_begin(client, &reader)
+		on_snap_begin(client, &reader, now)
 	case .Snap_Chunk:
 		_ = wire.r_u8(&reader)
 		offset := int(wire.r_u32(&reader))
@@ -603,6 +624,8 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 		return
 	}
 	client.sim = sim
+	client.stats.snapshot_bytes = len(client.snap_buf)
+	client.stats.snapshot_us = now - client.snap_begin_us
 	client.verified = client.sim.tick
 	client.predicted = client.verified
 	client.own_last = max(client.own_last, client.verified)
@@ -615,7 +638,8 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
 	log.infof("restored snapshot of tick %d (%d bytes)", tick, len(client.snap_buf))
-	clear(&client.snap_buf)
+	delete(client.snap_buf) // a snapshot's size, needed again only if this one fails the check
+	client.snap_buf = nil
 }
 
 // Inputs for predicting `tick`: own input and commands, the others' latest finalized input repeated
@@ -883,6 +907,10 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 		if tick < client.first_tick {
 			continue
 		}
+		if client.ticks == 0 && len(client.checksums) == CHECKSUMS_KEPT {
+			copy(client.checksums[:], client.checksums[1:])
+			pop(&client.checksums)
+		}
 		append(&client.checksums, [2]u64{u64(tick), entry.value})
 		writer := msg_begin(&client.w, .Checksum)
 		wire.w_u32(writer, tick)
@@ -1117,9 +1145,13 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	}
 	client.resim_from = 0
 	if !client.leaving {
+		work_start := time.tick_now()
 		advance_verified(client, now)
 		advanced := schedule(client, now)
 		predict(client)
+		if client.resim_from != 0 {
+			durations_add(&client.stats.client_steps, i64(time.duration_microseconds(time.tick_since(work_start))))
+		}
 		if client.resim_from != 0 && client.hooks.frame != nil {
 			client.hooks.frame(
 				client.hooks.user,
@@ -1158,7 +1190,7 @@ Client_Result :: struct {
 	member:      int, // the relay's member id
 	join_tick:   u32, // the first tick the player is present
 	final_tick:  u32, // the last verified tick (= the session's ticks on success)
-	checksums:   [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
+	checksums:   [][2]u64, // Client.checksums: an endless session's last CHECKSUMS_KEPT
 	// Did not fail and was told of no desync; a fixed-length session's client also verified every tick of it.
 	ok:          bool,
 	using stats: Client_Stats,
@@ -1190,11 +1222,16 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&checksums, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, entry[0], entry[1]))
 	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
 		string(checksums[:]),
+		durations_percentile(result.client_steps, 99),
+		result.client_steps.max_us,
+		result.client_steps.count,
+		result.snapshot_bytes,
+		f64(result.snapshot_us) / 1000,
 		result.rollbacks,
 		result.rollbacks > 0 ? f64(result.depth_sum) / f64(result.rollbacks) : 0,
 		result.depth_max,

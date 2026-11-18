@@ -38,7 +38,7 @@ Stage :: enum u8 {
 	Failed, // see detail; `leave` returns to Idle
 }
 
-MAX_REMOTES :: 16
+MAX_REMOTES :: netcode.MAX_PEERS // a host's peers 1.. (a joiner's peer 0 is its host)
 TICK_EVERY_US :: 500 // the link ticks EOS at most this often when it finds no packet
 SOCKET_PREFIX :: "unified-"
 SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in searches
@@ -57,6 +57,9 @@ Remote :: struct {
 	connected: bool,
 	forgotten: bool, // host: closed by link_forget; its close notification is ours, not news for the netcode
 	heard:     bool, // a packet came in on this connection since it came up
+	// Host: the netcode got a packet from this peer and hasn't forgotten it since (link_forget). A remote whose user
+	// left the lobby is freed once the netcode doesn't know it: its number goes to the next new user.
+	known:     bool,
 }
 
 // What keeps builds apart (netcode.Lobby_Build). Lobbies are found per game (the bucket is the game's name); the
@@ -1151,7 +1154,11 @@ on_member_status :: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info)
 		for &remote, i in online.remotes {
 			if remote.used && cstr(remote.id_str[:]) == cstr(buf[:]) {
 				remote.connected = false
-				push_event(online, netcode.Peer(i), false)
+				if remote.known {
+					push_event(online, netcode.Peer(i), false) // the netcode forgets it: link_forget frees it then
+				} else {
+					free_remote(online, i)
+				}
 			}
 		}
 	}
@@ -1455,6 +1462,7 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 			}
 			online.received += 1
 			online.remotes[i].heard = true
+			online.remotes[i].known = true
 			if int(written) > len(buf) {
 				continue // larger than any netcode datagram: not ours
 			}
@@ -1476,8 +1484,9 @@ link_close :: proc(data: rawptr) {
 
 // Host: the netcode is done with a peer (10 s of silence, a goodbye, or garbage). Close our side of its P2P
 // connection: after a crash, EOS would otherwise hold the dead connection for its 30 s reconnect window, and the same
-// user's restarted game couldn't connect until then (#32). The peer number stays the user's; its next connection
-// request (a member's) opens a fresh connection.
+// user's restarted game couldn't connect until then (#32). While the user is a lobby member the peer number stays
+// theirs: its next connection request opens a fresh connection on it. A user who left the lobby too is freed: the
+// number goes to the next new user, so a long-lived lobby serves any number of people over time.
 @(private)
 link_forget :: proc(data: rawptr, peer: netcode.Peer) {
 	online := (^Online)(data)
@@ -1488,6 +1497,10 @@ link_forget :: proc(data: rawptr, peer: netcode.Peer) {
 	remote := &online.remotes[peer]
 	if !remote.used {
 		return
+	}
+	remote.known = false
+	defer if user_index(online, online.members[:], remote.id) < 0 {
+		free_remote(online, int(peer))
 	}
 	close_options := P2P_Accept_Connection_Options {
 		api_version    = P2P_CLOSECONNECTION_API_LATEST,
@@ -1554,6 +1567,13 @@ remote_index :: proc(online: ^Online, id: Product_User_Id, add: bool) -> int {
 		}
 	}
 	return -1
+}
+
+// Host: frees remote `i` (its user left the lobby and the netcode forgot the peer): the next new user gets it.
+@(private)
+free_remote :: proc(online: ^Online, i: int) {
+	log_line("peer %d (%s) freed: left the lobby, forgotten by the session", i, cstr(online.remotes[i].id_str[:]))
+	online.remotes[i] = {}
 }
 
 // The index of `id` among `users`, or -1.

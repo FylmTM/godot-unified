@@ -58,7 +58,9 @@ authenticated): the relay knows a returning player by it (`src/netcode/SPEC.md`,
 - **P2P link.** Socket `unified-<code>`, channel 0, unreliable-unordered packets for everything: the netcode's channel
   provides acks, resends and ordering, the same as over UDP. A netcode datagram always fits one EOS packet
   (`#assert(netcode.MAX_DATAGRAM <= P2P_MAX_PACKET)`), so datagrams go as they are. Host peers 1, 2, … are joiners in
-  order of their first packet; a joiner's peer 0 is the host. The host accepts P2P only from its lobby's members: a
+  order of their first packet; a joiner's peer 0 is the host. A peer number stays its user's while the user is a
+  lobby member; once the user left the lobby and the netcode forgot the peer it goes to the next new user (any number
+  of people may pass through a lobby, `netcode.MAX_PEERS` - 1 at a time). The host accepts P2P only from its lobby's members: a
   request that comes before the lobby says its user joined is held and accepted when it does (the last 8 such
   requests are held), a stranger's never is, and a member who left must join again. The lobby is the only way in.
   The joiner's first packet makes the connection request; if the connection isn't up `CONNECT_WAIT_US` after joining,

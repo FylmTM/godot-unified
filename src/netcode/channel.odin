@@ -216,6 +216,12 @@ channel_account :: proc(channel: ^Channel, peer: Peer) -> (account: Account, ok:
 	return link_account(&channel.links[conn.link], conn.lpeer)
 }
 
+// Whether `peer`'s connection is open: false once it ended (timed out, dropped after a goodbye) until the peer opens a
+// new one.
+channel_connected :: proc(channel: ^Channel, peer: Peer) -> bool {
+	return int(peer) >= 0 && int(peer) < MAX_PEERS && channel.conns[peer].active
+}
+
 // Forgets a peer at once (no Disconnected event): after it said goodbye.
 channel_drop :: proc(channel: ^Channel, peer: Peer) {
 	if int(peer) >= 0 && int(peer) < MAX_PEERS {

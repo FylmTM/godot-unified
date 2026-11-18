@@ -56,3 +56,30 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	testing.expect_value(t, client.stats.desyncs, 1)
 	testing.expect(t, !netcode.client_result(client, context.temp_allocator).ok)
 }
+
+// With two players a checksum vote is a tie: the lowest slot's value is the majority (with 2 players, the host's), and
+// the other slot is the one that diverged, whichever of them computed wrong.
+@(test)
+a_checksum_tie_goes_to_the_lowest_slot :: proc(t: ^testing.T) {
+	for evil_slot in ([]u8{0, 1}) {
+		session: Net
+		net_make_relay(&session, 2, 0)
+		defer net_destroy(&session)
+		evil: Evil
+		evil_seat(&evil, &session, 7, evil_slot)
+		defer evil_destroy(&evil)
+		evil.acking = true
+		net_join(&session, 1 - int(evil_slot))
+		evil_run(&evil, &session, 1)
+		testing.expect(t, session.relay.started)
+		tick := (session.relay.finalized / netcode.CHECKSUM_EVERY) * netcode.CHECKSUM_EVERY
+		writer := evil_begin(&evil, .Checksum)
+		wire.w_u32(writer, tick)
+		wire.w_u64(writer, 1) // not what the honest client computes
+		evil_send(&evil, &session)
+		evil_run(&evil, &session, 2)
+		testing.expectf(t, session.relay.desyncs == 1, "evil slot %d: %d desyncs", evil_slot, session.relay.desyncs)
+		testing.expect_value(t, session.relay.first_desync.tick, tick)
+		testing.expect_value(t, session.relay.first_desync.diverged, sim.Slots{1})
+	}
+}
