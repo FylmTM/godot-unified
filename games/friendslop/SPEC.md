@@ -161,8 +161,8 @@ checkpoints. Sounds synthesized at boot, as in the survivor.
   session under the `bad` profile.
 - A headless binary with the `src/headless/SPEC.md` CLI modes; sync-test and session runs for friendslop in its
   end-to-end suite (`uni test`).
-- The `godot` suite's `validate` and `tour` steps and `uni coop friendslop`, as for the survivor; `tour` drives a
-  scripted bot through the route.
+- The `godot` suite's `validate` and `walk` steps (its play smoke: grab and throw a crate) and `uni coop friendslop`,
+  as for the survivor; `uni tool friendslop tour` drives a scripted bot through the route.
 - Budget (to be measured, then set): forward step ≤ 0.5 ms with 4 players and ~60 dynamic bodies; an 8-tick re-sim
   ≤ 4 ms.
 

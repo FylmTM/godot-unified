@@ -1,6 +1,6 @@
 # gdext
 
-Status: signed off 2026-11-15 (#9).
+Status: draft, pending #334
 
 Odin bindings for Godot's GDExtension API: what `unified:godot` and a game's extension call Godot through.
 

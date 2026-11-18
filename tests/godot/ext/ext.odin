@@ -57,7 +57,7 @@ register :: proc() {
 		},
 		ready = proc(instance: rawptr) {
 			(^Tester)(instance).readied = true
-			devui.init({visible = true})
+			devui.init(true)
 		},
 		process = proc(instance: rawptr, dt: f64) {
 			self := (^Tester)(instance)
@@ -65,7 +65,7 @@ register :: proc() {
 			self.churn = {}
 			self.churn[self.processed % 16] = i32(self.processed)
 			devui.inspect("tester", self^)
-			devui.plot("dt ms", f32(dt * 1000))
+			devui.plot("game", "dt ms", f32(dt * 1000))
 			devui.stat("processed", "%d", self.processed)
 			devui.log(u32(self.processed), .None, "frame %d", self.processed)
 			devui.frame(dt)

@@ -10,7 +10,7 @@ import "core:time"
 // The godot suite and the commands that run a game in Godot: run, editor, tool, coop, bake.
 
 // The godot suite's steps, in order; each runs when the game has what it needs.
-GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk", "tour"}
+GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk"}
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
 SESSION_TICKS :: 64
@@ -23,7 +23,7 @@ SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
 // The godot suite's steps that run in a lane of their own, beside the others (a child `uni test <game> --suite godot
 // --only ...`), chosen so the two lanes take about as long. Each tool run passes --no-settings, so the lanes share
 // nothing they write but Godot's import cache, current before either starts.
-GODOT_LANE_APART :: []string{"editor", "bake", "tour"}
+GODOT_LANE_APART :: []string{"editor", "bake"}
 
 // The lanes pay off only with cores to spare: every game already runs in parallel, so two lanes each double the Godot
 // processes (no gain measured on CI's 4-core runners; a quarter of the suite's time on 28 threads).
@@ -122,17 +122,13 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			args:         []string,
 			timeout:      f64,
 		}
-		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}, {"tour", "tour", {"--quick"}, 60}}) {
+		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}}) {
 			if !want(only, script_step.step) {
 				continue
 			}
 			script := tool_script(game, script_step.script)
 			if script == "" {
 				skip(game, script_step.step, aprintf("no %s tool script", script_step.script))
-				continue
-			}
-			if script_step.step == "tour" && !has_extension(game) {
-				skip(game, script_step.step, "the tour needs the game's extension")
 				continue
 			}
 			result := run_tool({

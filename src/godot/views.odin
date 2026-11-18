@@ -32,22 +32,30 @@ View_Id :: struct {
 }
 
 Scene_View :: struct {
-	node:       gd.Node, // the scene's root
-	mode:       Root_Mode,
-	id:         u64,
-	marker:     gd.Node, // its UnifiedView (nil: the scene has none)
-	marker_id:  u64,
-	kind:       u8,
-	player:     u64, // the player's key (sim.player_key; 0: none)
-	entity:     u64,
-	linger_s:   f64, // its marker's
-	spawn_tick: u32, // the tick it first appeared at
-	verified:   bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
-	gone:       bool, // _sim_despawned was called (and no _sim_revived since)
-	track:      Track,
-	has_event:  bool,
-	callbacks:  [View_Callback]bool, // the root's script has them
-	data:       []u8, // the data last set as properties
+	node:        gd.Node, // the scene's root
+	mode:        Root_Mode,
+	id:          u64,
+	marker:      gd.Node, // its UnifiedView (nil: the scene has none)
+	marker_id:   u64,
+	kind:        u8,
+	player:      u64, // the player's key (sim.player_key; 0: none)
+	entity:      u64,
+	linger_s:    f64, // its marker's
+	spawn_tick:  u32, // the tick it first appeared at
+	verified:    bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
+	gone:        bool, // _sim_despawned was called (and no _sim_revived since)
+	track:       Track,
+	shown:       Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
+	posed:       bool,
+	using hooks: View_Hooks, // the root's script's
+	data:        []u8, // the data last set as properties
+}
+
+// Which optional callbacks a view kind's root script has: looked up at the kind's first spawn (every view of a kind
+// is its scene's instance).
+View_Hooks :: struct {
+	has_event: bool,
+	callbacks: [View_Callback]bool,
 }
 
 // The root script's lifecycle callbacks.
@@ -90,6 +98,9 @@ Multi_View :: struct {
 	bounds:     bool, // the host sets custom_aabb (the game set none): Godot needn't recompute it from the buffer
 	low, high:  [3]f32, // this frame's instance origins (bounds)
 	reach:      f32, // this frame's largest scale factor (bounds)
+	live:       bool, // its node is alive this frame (checked once, by multi_sync)
+	mesh:       rawptr, // the mesh `mesh_reach` was measured on
+	mesh_reach: f32, // the mesh's farthest point from its origin
 	ptr:        [^]f32,
 	tracks:     map[u64]Multi_Track, // smooth: by key
 }
@@ -110,6 +121,7 @@ V: struct {
 	fresh_count: int,
 	clock:       time.Tick,
 	fields:      map[typeid][]Sim_Field, // per view data type, built on first use
+	hooks:       map[u8]View_Hooks, // per scene view kind, at its first spawn
 	reported:    map[string]bool, // warnings and errors given once per process
 	stats:       Sync_Stats,
 }
@@ -384,8 +396,13 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
 		scene_view.linger_s = marker.linger_s
 	}
-	scene_view.has_event = gd.has_script_method(node, NAMES.view_event)
-	for name, callback in NAMES.callbacks do scene_view.callbacks[callback] = gd.has_script_method(node, name)
+	hooks, known := V.hooks[item.kind]
+	if !known {
+		hooks.has_event = gd.has_script_method(node, NAMES.view_event)
+		for name, callback in NAMES.callbacks do hooks.callbacks[callback] = gd.has_script_method(node, name)
+		V.hooks[item.kind] = hooks
+	}
+	scene_view.hooks = hooks
 	set_pose(scene_view, {to_view(item.pos), item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
@@ -499,7 +516,8 @@ views_clear :: proc() {
 	V.scenes, V.missing = nil, nil
 	for _, fields in V.fields do delete(fields)
 	delete(V.fields)
-	V.fields = nil
+	delete(V.hooks)
+	V.fields, V.hooks = nil, nil
 	for kind, path in V.index {
 		delete(kind)
 		delete(path)
@@ -558,22 +576,10 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 	if V.clock == {} do V.clock = time.tick_now()
 	now_s := time.duration_seconds(time.tick_since(V.clock))
 	if fresh {
-		if frame.dropped > 0 {
-			report_once(
-				"dropped",
-				fmt.tprintf(
-					"unified: a frame had more items than it holds (%d dropped; raise Glue.max_views, max_multi or view_data_bytes)",
-					frame.dropped,
-				),
-				false,
-			)
-		}
 		set_begin(&V.set)
 		for &item in frame.views[:frame.n_views] {
 			id := View_Id{item.kind, item.key}
-			old := set_get(&V.set, id)
-			revived := old != nil && old.phase == .Lingering
-			entry, spawned := set_see(&V.set, id)
+			entry, spawned, revived := set_see(&V.set, id)
 			if spawned {
 				entry.view = spawn_view(root, &item, frame)
 				if entry.view != nil do entry.linger_s = entry.view.linger_s
@@ -603,9 +609,9 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				frame.tick,
 				{item.prev_pos, item.prev_rot},
 				item.has_prev,
-				api.smoothing,
+				SMOOTHING_DEFAULT,
 			)
-			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, api.smoothing)
+			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, SMOOTHING_DEFAULT)
 		}
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
 		cancelled := make([dynamic]View_Id, context.temp_allocator)
@@ -631,13 +637,18 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			free_view(scene_view)
 		}
 	}
+	decay := track_decay(dt, SMOOTHING_DEFAULT) // the same for every view this frame
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
-		if scene_view == nil || scene_view.mode == .Other || !alive(scene_view.id) do continue
-		if entry.phase == .Lingering do continue // unpinned: an exit animation may move it
-		pose := track_sample(&scene_view.track, frame.tick, alpha, dt, api.smoothing) // sim units
+		if scene_view == nil || scene_view.mode == .Other || entry.phase == .Lingering do continue // lingering: unpinned, an exit animation may move it
+		if !alive(scene_view.id) do continue
+		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay, SMOOTHING_DEFAULT) // sim units
 		pose.pos = to_view(pose.pos)
-		set_pose(scene_view, pose) // before every other node's _process (priority -1000): a view's script reads it
+		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
+		// rest, a level marker) isn't set again: each set dirties the root's whole subtree.
+		if scene_view.posed && pose == scene_view.shown do continue
+		set_pose(scene_view, pose)
+		scene_view.shown, scene_view.posed = pose, true
 	}
 }
 
@@ -836,7 +847,8 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	for i := len(V.multis) - 1; i >= 0; i -= 1 {
 		multi := &V.multis[i]
 		next[i] = -1
-		if multi.kind < 0 || !alive(multi.id) || !multi_mesh(multi) do continue
+		multi.live = multi.kind >= 0 && alive(multi.id)
+		if !multi.live || !multi_mesh(multi) do continue
 		count := counts[multi.kind]
 		if count > multi.cap {
 			new_cap := max(count, 64, multi.cap * 2)
@@ -907,7 +919,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 // Hands each MultiMesh view's buffer and bounds to Godot and forgets the smooth keys the frame no longer has.
 multi_upload :: proc(fresh: bool) {
 	for &multi in V.multis {
-		if multi.kind < 0 || !alive(multi.id) || multi.cap == 0 do continue
+		if !multi.live || multi.cap == 0 do continue
 		if multi.count > 0 {
 			// the bounds first: without a custom_aabb, set_buffer transforms the mesh's AABB by every instance
 			if multi.bounds do gd.MultiMesh_set_custom_aabb(multi.mm, multi_bounds(&multi))
@@ -927,17 +939,20 @@ multi_upload :: proc(fresh: bool) {
 // origin times the largest scale factor (a rotation can turn it any way). Looser than the exact union, never
 // smaller; Godot culls the whole MultiMesh by it.
 multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
-	radius: f32
-	if mesh := gd.MultiMesh_get_mesh(multi.mm); mesh.ptr != nil {
-		box := gd.Mesh_get_aabb(mesh)
-		gd.unref(mesh)
-		lo := [3]f32{box.position.x, box.position.y, box.position.z}
-		hi := lo + {box.size.x, box.size.y, box.size.z}
-		far: [3]f32 // per axis, the face farther from the origin
-		for axis in 0 ..< 3 do far[axis] = max(abs(lo[axis]), abs(hi[axis]))
-		radius = math.sqrt(far.x * far.x + far.y * far.y + far.z * far.z)
+	mesh := gd.MultiMesh_get_mesh(multi.mm)
+	if mesh.ptr != multi.mesh { 	// measured once per mesh
+		multi.mesh, multi.mesh_reach = mesh.ptr, 0
+		if mesh.ptr != nil {
+			box := gd.Mesh_get_aabb(mesh)
+			lo := [3]f32{box.position.x, box.position.y, box.position.z}
+			hi := lo + {box.size.x, box.size.y, box.size.z}
+			far: [3]f32 // per axis, the face farther from the origin
+			for axis in 0 ..< 3 do far[axis] = max(abs(lo[axis]), abs(hi[axis]))
+			multi.mesh_reach = math.sqrt(far.x * far.x + far.y * far.y + far.z * far.z)
+		}
 	}
-	grow := radius * multi.reach
+	gd.unref(mesh)
+	grow := multi.mesh_reach * multi.reach
 	low, high := multi.low - grow, multi.high + grow
 	return {position = {low.x, low.y, low.z}, size = {high.x - low.x, high.y - low.y, high.z - low.z}}
 }
@@ -970,9 +985,9 @@ multi_smooth :: proc(
 	}
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
-		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, api.smoothing)
-		track_push(&entry.track, tick, {item.pos, item.rot}, api.smoothing)
+		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, SMOOTHING_DEFAULT)
+		track_push(&entry.track, tick, {item.pos, item.rot}, SMOOTHING_DEFAULT)
 	}
-	pose := track_sample(&entry.track, tick, alpha, dt, api.smoothing)
+	pose := track_sample(&entry.track, tick, alpha, dt, SMOOTHING_DEFAULT)
 	return pose.pos, pose.rot
 }

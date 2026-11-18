@@ -265,7 +265,7 @@ register_session_class :: proc() {
 		class,
 		"take_sync_stats",
 		take_sync_stats,
-		doc = "The main thread's view-sync cost since the last call, then counts anew: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's.",
+		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing), fill_max_us the slowest.",
 	)
 	gd.bind_signal(
 		class,
@@ -665,10 +665,11 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
 }
 
-// The main thread's view-sync cost since the last call (Sync_Stats), and starts counting anew: `frames` and
+// The view sync's cost since the last call, and starts counting anew. The main thread's (Sync_Stats): `frames` and
 // `fresh` (frames that showed a new tick), `events` (deliveries), and in microseconds summed over the frames
 // `scene_us`, `multi_build_us`, `multi_upload_us`, `delivery_us`, `total_us`, plus the slowest frame's
-// `total_max_us`.
+// `total_max_us`. The session thread's frame hook (its events tracked, fill_frame, the Frame published): `fills`,
+// `fill_us` summed and the slowest `fill_max_us`.
 @(private)
 take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	stats := V.stats
@@ -684,6 +685,10 @@ take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	gd.dict_set(&dict, "delivery_us", us(stats.delivery))
 	gd.dict_set(&dict, "total_us", us(stats.total))
 	gd.dict_set(&dict, "total_max_us", us(stats.total_max))
+	fill := api.take_fill_stats() if api.installed else {}
+	gd.dict_set(&dict, "fills", i64(fill.frames))
+	gd.dict_set(&dict, "fill_us", f64(fill.total_ns) / 1000)
+	gd.dict_set(&dict, "fill_max_us", f64(fill.max_ns) / 1000)
 	return dict
 }
 

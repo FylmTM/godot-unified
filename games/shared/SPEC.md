@@ -24,7 +24,7 @@ a directory with `project.godot` and `simulation/` as one.
   `HUD` whose `Root` control holds the session panel and controls list, and the shared `PauseMenu`); session data
   `Data_Hud` (`Unified.data.hud`) with `players`, a row of the game's own fields per slot (who holds a slot, the
   names and the tick come from the session); the input actions `menu`,
-  `toggle_devui`, `ui_accept`, `ui_cancel` and the audio buses Master and SFX; the autoloads `LibraryCheck` (first),
+  `ui_accept`, `ui_cancel` and the audio buses Master and SFX; the autoloads `LibraryCheck` (first),
   `Settings`, `Sfx`, `Game`.
 
 ## API

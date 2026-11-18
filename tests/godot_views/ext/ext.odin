@@ -126,6 +126,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 // instances and BENCH_SCENE_VIEWS moving plain3d views instead of the fixed items. Set on the session thread before
 // its first tick, read by fill_frame on the same thread.
 BENCH_SCENE_VIEWS :: 64
+BENCH_STATIC_VIEWS :: 64 // and as many at rest (a level's markers, a crate on the floor)
 bench_instances: int
 
 bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
@@ -146,6 +147,9 @@ bench_frame :: proc(f: ^Frame) {
 			rot  = godot.quat_yaw(angle),
 		})
 	}
+	for i in 0 ..< BENCH_STATIC_VIEWS {
+		godot.push_view(f, {key = u64(200 + i), kind = .Plain3D, pos = {f32(i % 8), 2, f32(i / 8)}})
+	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
 	for i in 0 ..< bench_instances {
 		phase := seconds + f32(i) * 0.01
@@ -155,7 +159,7 @@ bench_frame :: proc(f: ^Frame) {
 			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
 			rot    = godot.quat_yaw(phase),
 			custom = {phase, 0, 0, 0},
-		}) or_break
+		})
 	}
 }
 

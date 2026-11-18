@@ -280,9 +280,8 @@ reloads between matches.
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
 scripts read (the cards, a view scene and a rest height per item kind) and that the arena has one MultiMesh
 view per `MultiView` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
-drawn, the auto-attack firing) and a `CommandPick` the session accepts; `tour` plays the real game headless: menu → single
-→ lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to
-the lobby; `play_check`: minutes of play with frame times by enemy count).
+drawn, the auto-attack firing) and a `CommandPick` the session accepts; `uni tool survivor tour` plays a whole match
+by hand: a level-up, game over and back to the lobby.
 
 ### Feel
 

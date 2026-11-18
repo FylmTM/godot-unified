@@ -22,9 +22,10 @@ view_bench_details :: proc() -> string {
 	return(
 		"The Godot host's main-thread view sync per frame, the cost every rendered frame pays on top of the game's\n" +
 		"own: a single player session of the view test game (tests/godot_views/view_bench.gd) making every tick N\n" +
-		"moving MultiMesh instances (N = 1k, 4k, 16k; one Godot run each), 64 moving scene views and a few events a\n" +
-		"second. Prints per frame the MultiMesh build (every instance interpolated into its buffer) and upload\n" +
-		"(set_buffer), the scene views, the event delivery (and per event), into .out/view_bench.json. Headless,\n" +
+		"moving MultiMesh instances (N = 1k, 4k, 16k; one Godot run each), 64 moving and 64 resting scene views and a\n" +
+		"few events a second. Prints per frame the MultiMesh build (every instance interpolated into its buffer) and\n" +
+		"upload (set_buffer), the scene views, the event delivery (and per event), and per published tick the session\n" +
+		"thread's half (its events tracked, fill_frame, the Frame published), into .out/view_bench.json. Headless,\n" +
 		"set_buffer reaches Godot's dummy renderer: --window measures the real one (frames paced by the display)." \
 	)
 }
@@ -42,6 +43,8 @@ View_Bench_Line :: struct {
 	total_max_us:    f64,
 	events:          int,
 	event_us:        f64, // per event delivered
+	fill_us:         f64, // the session thread, per published tick
+	fill_max_us:     f64,
 }
 
 cmd_view_bench :: proc(args: []string) -> cli.Result {
@@ -86,7 +89,7 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 		}
 		append(&lines, line)
 		cli.log(
-			"%6d instances  %5.1f µs/frame: multimesh build %5.1f + upload %5.1f, %d scene views %5.1f, events %4.1f (%4.1f µs each); slowest frame %5.0f µs; %.0f fps",
+			"%6d instances  %5.1f µs/frame: multimesh build %5.1f + upload %5.1f, %d scene views %5.1f, events %4.1f (%4.1f µs each); slowest frame %5.0f µs; %.0f fps; session thread %5.1f µs/tick (slowest %5.0f)",
 			line.instances,
 			line.total_us,
 			line.multi_build_us,
@@ -97,6 +100,8 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 			line.event_us,
 			line.total_max_us,
 			line.fps,
+			line.fill_us,
+			line.fill_max_us,
 		)
 	}
 	file := opts.window ? "view_bench_window.json" : "view_bench.json"

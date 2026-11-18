@@ -10,6 +10,8 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:time"
+import "unified:devui"
 import "unified:netcode"
 import "unified:sim"
 
@@ -21,7 +23,6 @@ Api :: struct {
 	tick_hz:         int,
 	view_names:      []string, // the View enum's members, lowercased, by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
-	smoothing:       Smoothing,
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
@@ -45,6 +46,8 @@ Api :: struct {
 	// queued for the frame that shows their tick.
 	next_event:      proc(shown: u32) -> (event: Event_Message, ok: bool),
 	events_dropped:  proc() -> int, // events that found their queue full, this session
+	// The session thread's frame hook since the last call (events tracked, fill_frame, the Frame published), reset.
+	take_fill_stats: proc() -> Fill_Stats,
 	state:           proc() -> any, // the newest predicted state, for the inspector (while want_state)
 	inputs:          proc() -> any, // an Inputs_View of the newest frame, for the Input panel (while want_state)
 	// The oldest command a verified tick carried that the dev UI hasn't logged yet, taken (dev UI builds).
@@ -58,23 +61,36 @@ Api :: struct {
 }
 
 api: Api
+
+// The session thread's frame hook (tracking the ticks' events, fill_frame, publishing the Frame), summed until the main
+// thread takes it (UnifiedSession.take_sync_stats).
+Fill_Stats :: struct {
+	frames:   u64,
+	total_ns: u64,
+	max_ns:   u64,
+}
+
+@(private)
+fill_stats_add :: proc(stats: ^Fill_Stats, took: time.Duration) {
+	ns := u64(max(took, 0))
+	sync.atomic_add(&stats.frames, 1)
+	sync.atomic_add(&stats.total_ns, ns)
+	for {
+		seen := sync.atomic_load(&stats.max_ns)
+		if ns <= seen do break
+		if _, ok := sync.atomic_compare_exchange_weak(&stats.max_ns, seen, ns); ok do break
+	}
+}
 lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil: Host_Online/Join_Online fail
 
 // The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
 
 // One direction of the dev netsim.
-Netsim_Dir :: struct {
-	latency_ms: f32,
-	jitter_ms:  f32,
-	loss_pct:   f32,
-}
+Netsim_Dir :: devui.Netsim_Dir
 
-Netsim_Settings :: struct {
-	enabled: bool,
-	up:      Netsim_Dir, // to the relay
-	down:    Netsim_Dir, // from it
-}
+// The dev netsim (the dev UI's Conditions panel, --lag): its settings are the panel's.
+Netsim_Settings :: devui.Netsim
 
 // Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings
 // (set_netsim), the session thread applies them to every wrapped link.
@@ -127,6 +143,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	queue:     Queue(Message, 64), // statuses, the lobby code, desync reports, the result: never full in practice
 	events:    Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:   int, // atomic: events that found `events` full
+	fill:      Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
 	commands:  Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
 	tracker:   Event_Tracker(Tick_Event),
 	published: u64,
@@ -268,7 +285,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		tick_hz       = game.tick_hz,
 		view_names    = view_names,
 		multi_names   = multi_names,
-		smoothing     = glue.smoothing == {} ? SMOOTHING_DEFAULT : glue.smoothing,
 		is_2d         = glue.is_2d,
 		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,
 		events        = event_layouts(Event),
@@ -320,17 +336,15 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		driver.req.name = strings.clone(request.name)
 		driver.req.content = slice.clone(request.content)
 		triple_init(&driver.frames)
-		max_views := glue.max_views > 0 ? glue.max_views : DEFAULT_MAX_VIEWS
-		max_multi := glue.max_multi > 0 ? glue.max_multi : DEFAULT_MAX_MULTI
-		data_bytes := glue.view_data_bytes > 0 ? glue.view_data_bytes : DEFAULT_VIEW_DATA_BYTES
 		for &frame in driver.frames.slots {
-			frame.views = make([]View_Out, max_views)
-			frame.multis = make([]Multi_Out, max_multi)
-			frame.data = make([]u8, data_bytes)
+			frame.alloc = context.allocator
+			frame.views = make([]View_Out, FRAME_VIEWS)
+			frame.multis = make([]Multi_Out, FRAME_MULTIS)
+			frame.data = make([]u8, FRAME_DATA_BYTES)
 			frame.members = make([]u64, sim.MEMBERS_PER_SLOT * sim.part(G, sim.GAME_PLAYERS))
 		}
 		roster_reset()
-		pose_memory_init(&driver.poses, max_views, max_multi)
+		pose_memory_init(&driver.poses, FRAME_VIEWS, FRAME_MULTIS)
 		input_sample_reset()
 		triple_init(&driver.states)
 		triple_init(&driver.inputs)
@@ -359,9 +373,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		event_serial = driver.tracker.last_serial
 		tracker_destroy(&driver.tracker)
 		for &frame in driver.frames.slots {
-			delete(frame.views)
-			delete(frame.multis)
-			delete(frame.data)
+			delete(frame.views, frame.alloc)
+			delete(frame.multis, frame.alloc)
+			delete(frame.data, frame.alloc)
 			delete(frame.members)
 		}
 		for text in driver.account do delete(text)
@@ -400,6 +414,15 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	api.events_dropped = proc() -> int {
 		if g_driver == nil do return 0
 		return sync.atomic_load(&(^This_Driver)(g_driver).dropped)
+	}
+	api.take_fill_stats = proc() -> Fill_Stats {
+		if g_driver == nil do return {}
+		fill := &(^This_Driver)(g_driver).fill
+		return {
+			frames   = sync.atomic_exchange(&fill.frames, 0),
+			total_ns = sync.atomic_exchange(&fill.total_ns, 0),
+			max_ns   = sync.atomic_exchange(&fill.max_ns, 0),
+		}
 	}
 	api.send = proc(command: sim.Raw_Command) -> bool {
 		if g_driver == nil do return false
@@ -614,12 +637,13 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		},
 		frame = proc(user: rawptr, simulation: ^sim.Sim(G), info: netcode.Frame_Info) {
 			driver := (^This_Driver)(user)
+			started := time.tick_now()
 			for tick in info.resim_from ..= info.tick do track_tick(driver, tick, sim.events_at(simulation, tick))
 			flush_events(driver)
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
 			out := triple_back(&driver.frames)
-			out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed, out.dropped = 0, 0, 0, 0, 0, 0
+			out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
 			client := driver.client
 			driver.published += 1
 			out.published = driver.published
@@ -647,12 +671,12 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				world        = simulation.world,
 				tick         = info.tick,
 				local_player = local,
-				local_slot   = client.slot,
 				out          = out,
 				poses        = &driver.poses,
 			}
 			driver.glue.fill_frame(&frame)
 			triple_publish(&driver.frames)
+			fill_stats_add(&driver.fill, time.tick_since(started))
 			if sync.atomic_load(&want_state) {
 				triple_back(&driver.states)^ = current^
 				triple_publish(&driver.states)
@@ -763,14 +787,12 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		player_name   = request.name,
 		seed          = request.seed,
 		ticks         = request.ticks,
-		compat        = driver.glue.compat,
 		content       = request.content,
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,
 		slot        = -1,
 		token       = request.token,
-		compat      = driver.glue.compat,
 		content     = request.content,
 	}
 	switch request.mode {
@@ -857,10 +879,10 @@ lobby_build :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Lobby_Bui
 	}
 }
 
-// The session's build id as the relay computes it: the glue's, else derived from the game and the level.
+// The session's build id as the relay computes it: from the game and the level.
 @(private)
 driver_compat :: proc(driver: ^Driver($G, $View, $MultiView)) -> u64 {
-	return driver.glue.compat != 0 ? driver.glue.compat : sim.compat_of(driver.game, driver.req.content)
+	return sim.compat_of(driver.game, driver.req.content)
 }
 
 // Pumps the lobby (session thread): its code goes to the main thread once, a failure ends the session with its

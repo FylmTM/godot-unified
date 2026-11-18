@@ -39,11 +39,12 @@ set_begin :: proc(view_set: ^View_Set($K, $V)) {
 	clear(&view_set.removed)
 }
 
-// Marks `key` present this frame. `spawned`: the key is new (fill entry.view now). A lingering key that shows up
-// again is revived (spawned = false, phase back to Alive).
-set_see :: proc(view_set: ^View_Set($K, $V), key: K) -> (entry: ^Entry(V), spawned: bool) {
+// Marks `key` present this frame (one map lookup). `spawned`: the key is new (fill entry.view now). `revived`: it was
+// lingering and shows up again (phase back to Alive).
+set_see :: proc(view_set: ^View_Set($K, $V), key: K) -> (entry: ^Entry(V), spawned: bool, revived: bool) {
 	_, entry, spawned, _ = map_entry(&view_set.entries, key)
 	if spawned do entry^ = {}
+	revived = entry.phase == .Lingering
 	entry.seen = view_set.frame
 	entry.phase = .Alive
 	return

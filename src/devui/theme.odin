@@ -45,10 +45,10 @@ theme_init :: proc() {
 	flat(theme, "panel", "DevOverlay", {0.06, 0.065, 0.08, 0.92}, 2, {5, 4, 5, 4}, LINE)
 	gd.Theme_set_type_variation(theme, "DevTitleLabel", "Label")
 	gd.Theme_set_color(theme, "font_color", "DevTitleLabel", DIM)
-	// graph titles and legends, over the graph
 	// the stat grid's keys
 	gd.Theme_set_type_variation(theme, "DevKey", "Label")
 	gd.Theme_set_color(theme, "font_color", "DevKey", DIM)
+	// graph titles and legends, over the graph
 	gd.Theme_set_type_variation(theme, "DevGraphLabel", "Label")
 	gd.Theme_set_font_size(theme, "font_size", "DevGraphLabel", 10)
 	gd.Theme_set_color(theme, "font_color", "DevGraphLabel", DIM)

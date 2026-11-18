@@ -302,8 +302,8 @@ func multi_count(kind: StringName) -> int:
 			mm = (parent as MultiMeshInstance3D).multimesh
 		elif parent is MultiMeshInstance2D:
 			mm = (parent as MultiMeshInstance2D).multimesh
-		if mm != null:
-			count += mm.visible_instance_count
+		if mm != null:  # -1 draws every instance
+			count += mm.instance_count if mm.visible_instance_count < 0 else mm.visible_instance_count
 	return count
 
 

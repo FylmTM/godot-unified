@@ -394,8 +394,8 @@ note_send :: proc() {
 	)
 	stamp, _ = strings.replace_all(stamp, ":", "", context.temp_allocator)
 	stamp, _ = strings.replace_all(stamp, "T", "-", context.temp_allocator)
-	dir := fmt.tprintf("%s/%s", s.cfg.feedback_dir, stamp)
-	for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", s.cfg.feedback_dir, stamp, n)
+	dir := fmt.tprintf("%s/%s", s.feedback_dir, stamp)
+	for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", s.feedback_dir, stamp, n)
 	if err := os.make_directory_all(dir); err != nil {
 		gd.print_error(fmt.tprintf("devui: cannot create %s: %v", dir, err))
 		return
@@ -408,7 +408,7 @@ note_send :: proc() {
 		}
 	}
 	_ = os.write_entire_file(fmt.tprintf("%s/note.txt", dir), transmute([]u8)body)
-	if s.cfg.on_feedback != nil do s.cfg.on_feedback(dir, text, tag_bug, s.cfg.user)
+	if s.on_feedback != nil do s.on_feedback(dir, tag_bug)
 	gd.print(fmt.tprintf("devui: feedback saved to %s", dir))
 	note.sent += 1
 	gd.Label_set_text(note.sent_l, fmt.tprintf("sent %d", note.sent))
