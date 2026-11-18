@@ -5,7 +5,7 @@
 package scenarios
 
 import "core:fmt"
-import "core:slice"
+@(require) import "core:slice" // only in reference_reproduces (generic)
 import "core:testing"
 
 import "unified:headless"

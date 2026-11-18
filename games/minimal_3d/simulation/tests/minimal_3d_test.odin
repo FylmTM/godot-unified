@@ -1,44 +1,41 @@
+// minimal_3d's tests: the standard scenarios of unified:headless/scenarios (src/headless/SPEC.md), the set every game
+// starts with, and unified's determinism lint.
 package test_minimal_3d
 
 import "core:testing"
-import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:lint"
 
 import g "../minimal_3d"
 
-HEADLESS := headless.Headless(g.Game) {
-	game = &g.GAME,
-}
-
 SUITE := scenarios.Suite(g.Game) {
-	game    = &g.GAME,
+	game = &g.GAME,
 	players = g.PLAYERS,
-	seed    = 1,
-	ticks   = 600,
+	seed = 1,
+	ticks = 600,
+	ref = {
+		seed          = 7,
+		players       = 4,
+		ticks         = 1200,
+		snapshot_tick = 600,
+		checkpoints   = {0x42a3951c90e38b9a, 0x99efa65f5f630340, 0x5bd1941b324d3885, 0x58892f035f607d56},
+		trace         = 0x6630ceb22a81e9e0,
+		snapshot      = 0x5de059e5e4e6b6bb,
+		log           = 0x5c4b41b314b29b37,
+	},
 }
 
 @(test)
-rollback_resimulates_the_same :: proc(t: ^testing.T) {
-	result := headless.run_synctest(&HEADLESS, 600, 8, 1, g.PLAYERS)
-	testing.expect_value(t, result.mismatches, 0)
-}
-
-// A player leaves, someone new takes the slot, and the first player comes back in another one, under rollback on
-// every tick: the newcomer is someone else, the one who came back has their handle (and balls) again.
+rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
 @(test)
-presence_churn :: proc(t: ^testing.T) {
-	scenarios.presence_churn(t, &SUITE)
-}
-
+presence_churn :: proc(t: ^testing.T) {scenarios.presence_churn(t, &SUITE)}
 @(test)
-same_seed_same_run :: proc(t: ^testing.T) {
-	first := headless.run_sim(&HEADLESS, 600, 7, 2)
-	second := headless.run_sim(&HEADLESS, 600, 7, 2)
-	testing.expect_value(t, first.final_checksum, second.final_checksum)
-}
-
+two_runs_match :: proc(t: ^testing.T) {scenarios.runs_match(t, &SUITE)}
 @(test)
-determinism_lint :: proc(t: ^testing.T) {
-	lint.check_game(t, #directory + "/..")
-}
+four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
+@(test)
+a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUITE, .Wan, 3, 300)}
+@(test)
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
+@(test)
+determinism_lint :: proc(t: ^testing.T) {lint.check_game(t, #directory + "/..")}
