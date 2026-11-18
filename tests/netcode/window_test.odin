@@ -203,3 +203,50 @@ window_own_inputs :: proc(t: ^testing.T) {
 	past := wire.reader_make({0x10, 7}) // byte 4 of a 4-byte input
 	testing.expect(t, !netcode.window_read_input(&past, &back))
 }
+
+@(private = "file")
+Width_Input :: struct($B: int) {
+	bytes: [B]u8,
+}
+
+@(private = "file")
+Width_State :: struct($B: int, $PLAYERS: int) {
+	players: sim.Players(struct {
+			sum: u32,
+		}, Width_Input(B), PLAYERS),
+}
+
+@(private = "file")
+Width_Event :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
+}
+
+// netcode.game_violation of a game of PLAYERS players with a B-byte Input.
+@(private = "file")
+width_violation :: proc($PLAYERS: int, $B: int) -> string {
+	G :: sim.Game(Width_State(B, PLAYERS), Width_Input(B), sim.No_World, Width_Event, sim.No_Commands, PLAYERS)
+	game := G {
+		name = "width",
+	}
+	return netcode.game_violation(&game)
+}
+
+// The relay carries a game whose widest tick leaves TICKS_PER_MESSAGE_MIN of them per Finalized message, and refuses
+// the next width up: at 4 players Inputs to 48 bytes, at 8 to 24, at 16 to 8, at 32 to 4.
+@(test)
+the_relay_refuses_a_tick_too_wide_for_its_stream :: proc(t: ^testing.T) {
+	testing.expect_value(t, width_violation(4, 48), "")
+	testing.expect(t, width_violation(4, 64) != "")
+	testing.expect_value(t, width_violation(8, 24), "")
+	testing.expect(t, width_violation(8, 32) != "")
+	testing.expect_value(t, width_violation(16, 8), "")
+	testing.expect(t, width_violation(16, 16) != "")
+	testing.expect_value(t, width_violation(32, 4), "")
+	testing.expect_value(
+		t,
+		width_violation(32, 8),
+		"width: a tick of 32 players with 8-byte Inputs takes up to 398 bytes, so 2 fit a message and the relay needs 4: fewer players or a narrower Input",
+	)
+	testing.expect_value(t, netcode.game_violation(&toy.GAME), "")
+}

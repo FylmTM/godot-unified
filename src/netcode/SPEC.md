@@ -111,11 +111,15 @@ instead of sitting half-open. A datagram that doesn't validate never gets a conn
   member seated there). Slots go lowest-free. A tick can be final before it is due.
 - **Broadcast**: newly finalized ticks, at most once per `BROADCAST_GAP` of a tick (under jitter each player's input
   arriving can finalize a tick), and a heartbeat when nothing was finalized for a tick (the clients time their clocks
-  from it). Each Finalized carries the relay time, the input and command acks, and the client's unacked finalized
-  ticks, up to `CATCHUP_TICKS` of them, in one message (as many as fit, ≤ `WINDOW_MAX`). When they don't fit, each
-  broadcast carries on where the last one stopped and starts again at the oldest once one reached the newest: a
-  message of ticks per broadcast, never one per round trip, however wide a tick. A client whose unacked ticks have
-  left the ring is refused (`Too_Far_Behind`).
+  from it). Each Finalized carries the relay time, the input and command acks, and the client's unacked finalized ticks,
+  up to `CATCHUP_TICKS` of them, in one message (as many as fit, ≤ `WINDOW_MAX`). When they don't fit, each broadcast
+  carries on where the last one stopped and starts again at the oldest once one reached the newest: a message of ticks
+  per broadcast, never one per round trip; while that cycle is behind ticks no broadcast carried yet, a second message
+  carries them. How wide a tick can be: a game's widest tick (every Input byte changed, every slot joining) must leave
+  `TICKS_PER_MESSAGE_MIN` (4) of them per message, which is Inputs up to 48 bytes at 4 players, 24 at 8, 8 at 16, 4 at
+  32. `relay_create` refuses a wider game (`game_violation`, which the Godot host reports with the sim's): fewer ticks
+  per message leave no room to make up a lost one, and clients on a lossy network stall on most ticks. A client whose
+  unacked ticks have left the ring is refused (`Too_Far_Behind`).
 - **The window** (`window.odin`): each tick is written as its changes from the tick before it in the same packet,
   the first from the empty tick: a flags byte, then only what it says: present and replaced (a bit per slot); a bit
   per slot whose input changed and, per such slot, a bit per changed byte and those bytes; the commands; the join

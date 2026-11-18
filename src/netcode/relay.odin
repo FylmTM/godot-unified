@@ -106,6 +106,7 @@ Seat :: struct($Input: typeid) {
 	recv_upto:   u32, // every input up to this tick is in
 	client_ack:  u32, // the newest finalized tick the client acked
 	resume:      u32, // the tick after the last one a broadcast that stopped short carried (0: start at the oldest)
+	sent_upto:   u32, // the newest tick a broadcast carried to this client (from its snapshot's on)
 	cmd_recv:    u32, // the command ack: every seq up to this one is received
 	cmd_wait:    [dynamic]Wait_Command, // received, not finalized yet, in seq order (its buffer outlives resets)
 	// late join: who sends the joiner its snapshot, and the check of the snapshot before the joiner plays
@@ -171,6 +172,9 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	sim.check_wire(Input)
+	if reason := game_violation(game); reason != "" {
+		panic(reason)
+	}
 	_ = tick_command_budget(Input, PLAYERS) // asserts a tick with a command fits a datagram
 	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
 	relay := new(Relay(G))
@@ -972,51 +976,67 @@ broadcast :: proc(relay: ^Relay($G), now: i64) {
 		if !seat.welcomed || !seat.connected {
 			continue
 		}
-		writer := msg_begin(&relay.w, .Finalized)
-		// Relay time: when tick 0 was due, so negative during the lead.
-		w_i64(writer, i64(f64(now - relay.welcome_us) - f64(relay.lead) * relay.tm.tick_us))
-		wire.w_u32(writer, max(seat.recv_upto, relay.finalized))
-		wire.w_u32(writer, seat.cmd_recv)
+		if !seat.base_known {
+			finalized_message(relay, slot, seat.client_ack + 1, seat.client_ack, now) // the relay time and acks only
+			seat.resume = 0
+			continue
+		}
+		// The unacked ticks, up to CATCHUP_TICKS of them. When they don't fit one message (WINDOW_MAX ticks, or
+		// MAX_MESSAGE bytes), each broadcast carries on where the one before stopped, and starts again at the oldest
+		// once one reached the newest: the client gets a message of ticks per broadcast, not one per round trip (its
+		// ack is what moves the oldest).
+		newest := min(relay.finalized, seat.client_ack + CATCHUP_TICKS) // the newest tick this client is streamed
 		first := seat.client_ack + 1
-		last := first - 1
-		newest := last // the newest tick this client is streamed
-		if seat.base_known {
-			// The unacked ticks, up to CATCHUP_TICKS of them. When they don't fit one message (WINDOW_MAX ticks, or
-			// MAX_MESSAGE bytes), each broadcast carries on where the one before stopped, and starts again at the
-			// oldest once one reached the newest: the client gets a message of ticks per broadcast, not one per round
-			// trip (its ack is what moves the oldest).
-			newest = min(relay.finalized, seat.client_ack + CATCHUP_TICKS)
-			if seat.resume > first && seat.resume <= newest {
-				first = seat.resume
-			}
-			last = min(newest, first + WINDOW_MAX - 1)
+		if seat.resume > first && seat.resume <= newest {
+			first = seat.resume
 		}
-		wire.w_u32(writer, first)
-		count_at := len(writer.buf)
-		assert(count_at + 1 == FINALIZED_HEAD)
-		wire.w_u8(writer, 0)
-		written: u32 = 0
-		base: ^sim.Inputs(G) // the tick before in this packet (nil: the empty tick)
-		for tick := first; tick <= last; tick += 1 {
-			tick_inputs := relay_tick(relay, tick)
-			if tick_inputs == nil {
-				break
-			}
-			// Ticks with commands or many changes are larger: stop at the message limit (every tick alone
-			// fits, see tick_command_budget), the rest goes in the next broadcast.
-			before := len(writer.buf)
-			window_write_tick(writer, tick_inputs, base)
-			if len(writer.buf) > MAX_MESSAGE {
-				resize(&writer.buf, before)
-				break
-			}
-			base = tick_inputs
-			written += 1
+		carried := first + finalized_message(relay, slot, first, newest, now) - 1 // the newest tick it carried
+		seat.resume = carried < newest ? carried + 1 : 0
+		// Ticks no broadcast carried yet wait for the cycle to come round to them, a broadcast per message of
+		// backlog: while the cycle is behind them, a second message carries them now.
+		fresh := max(seat.sent_upto, seat.client_ack) + 1
+		if fresh > carried && fresh <= newest {
+			carried = max(carried, fresh + finalized_message(relay, slot, fresh, newest, now) - 1)
 		}
-		writer.buf[count_at] = u8(written)
-		seat.resume = first + written <= newest ? first + written : 0
-		relay_send(relay, slot, writer, .Unreliable, now)
+		seat.sent_upto = max(seat.sent_upto, carried)
 	}
+}
+
+// Sends `slot` a Finalized with the relay time, its acks and the ticks from `first` on, up to `newest` (none when
+// newest < first): as many as fit one message. Returns how many it carried.
+@(private)
+finalized_message :: proc(relay: ^Relay($G), slot: int, first, newest: u32, now: i64) -> (written: u32) {
+	seat := &relay.seats[slot]
+	writer := msg_begin(&relay.w, .Finalized)
+	// Relay time: when tick 0 was due, so negative during the lead.
+	w_i64(writer, i64(f64(now - relay.welcome_us) - f64(relay.lead) * relay.tm.tick_us))
+	wire.w_u32(writer, max(seat.recv_upto, relay.finalized))
+	wire.w_u32(writer, seat.cmd_recv)
+	wire.w_u32(writer, first)
+	count_at := len(writer.buf)
+	assert(count_at + 1 == FINALIZED_HEAD)
+	wire.w_u8(writer, 0)
+	base: ^sim.Inputs(G) // the tick before in this packet (nil: the empty tick)
+	last := min(newest, first + WINDOW_MAX - 1)
+	for tick := first; newest >= first && tick <= last; tick += 1 {
+		tick_inputs := relay_tick(relay, tick)
+		if tick_inputs == nil {
+			break
+		}
+		// Ticks with commands or many changes are larger: stop at the message limit (every tick alone fits, see
+		// tick_command_budget), the rest goes in the next broadcast.
+		before := len(writer.buf)
+		window_write_tick(writer, tick_inputs, base)
+		if len(writer.buf) > MAX_MESSAGE {
+			resize(&writer.buf, before)
+			break
+		}
+		base = tick_inputs
+		written += 1
+	}
+	writer.buf[count_at] = u8(written)
+	relay_send(relay, slot, writer, .Unreliable, now)
+	return
 }
 
 // Sends a member's roster entry to every connected client (or only to slot `to`).
@@ -1151,6 +1171,7 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 		// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the joiner's
 		// prediction of the others).
 		seat.client_ack = tick - 1
+		seat.sent_upto = tick - 1
 		seat.base_known = true
 		log.infof("forwarding slot %d's snapshot of tick %d to slot %d", slot, tick, joiner)
 	} else {
