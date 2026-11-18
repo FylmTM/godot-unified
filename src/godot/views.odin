@@ -654,9 +654,13 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 
 // ---- finding a view (UnifiedSession.get_view, get_player_view, get_views)
 
-// The kind of a View member's lowercased name (-1: none).
-view_kind_of :: proc(name: string) -> int {
+// The kind of a View member's lowercased name (-1: none, reported once: a typo would otherwise read as "no view now").
+view_kind_of :: proc(name: string, caller: string) -> int {
 	for view_name, kind in api.view_names do if view_name == name do return kind
+	report_once(
+		fmt.tprintf("view-kind:%s", name),
+		fmt.tprintf("unified: %s: %q is not a member of the game's View enum", caller, name),
+	)
 	return -1
 }
 
@@ -668,14 +672,14 @@ live_view_node :: proc(entry: ^Entry(^Scene_View)) -> gd.Node {
 
 // The scene view of a kind and key.
 view_of_key :: proc(kind_name: string, key: u64) -> gd.Node {
-	kind := view_kind_of(kind_name)
+	kind := view_kind_of(kind_name, "get_view")
 	if kind < 0 do return {}
 	return live_view_node(set_get(&V.set, View_Id{u8(kind), key}))
 }
 
 // The scene view of a kind that shows a player (by key).
 view_of_player :: proc(kind_name: string, player: u64) -> gd.Node {
-	kind := view_kind_of(kind_name)
+	kind := view_kind_of(kind_name, "get_player_view")
 	if kind < 0 || player == 0 do return {}
 	for id, &entry in V.set.entries {
 		if id.kind != u8(kind) || entry.view == nil || entry.view.player != player do continue
@@ -688,7 +692,7 @@ view_of_player :: proc(kind_name: string, player: u64) -> gd.Node {
 views_of_kind :: proc(kind_name: string) -> gd.Array {
 	views := gd.array_new()
 	gd.array_set_typed(&views, .OBJECT, "Node")
-	kind := view_kind_of(kind_name)
+	kind := view_kind_of(kind_name, "get_views")
 	if kind < 0 do return views
 	keys := make([dynamic]u64, context.temp_allocator)
 	for id, &entry in V.set.entries do if id.kind == u8(kind) && live_view_node(&entry).ptr != nil do append(&keys, id.key)

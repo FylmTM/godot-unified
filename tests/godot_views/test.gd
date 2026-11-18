@@ -402,7 +402,8 @@ func finish(session: UnifiedSession) -> void:
 	await process_frame
 
 
-# The view lookup: by kind and key, by kind and player, and every view of a kind (UnifiedSession.get_view...).
+# The view lookup: by kind and key, by kind and player, and every view of a kind (UnifiedSession.get_view...). An
+# unknown kind is null or empty, with an error line once (the suite expects it).
 func check_view_lookup(session: UnifiedSession, typed: Node, plain: Node, me: int) -> void:
 	check("get_view by kind and key", session.get_view("plain2d", 2) == plain and session.get_view("plain2d", 99) == null \
 		and session.get_view("nothing", 2) == null, session.get_view("plain2d", 2))

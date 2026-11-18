@@ -1,6 +1,6 @@
 # devui
 
-Status: draft, pending #334
+Status: draft, pending #358
 
 The in-game dev UI, built from Godot's own controls and driven from Odin (`src/devui`). Game-agnostic: the host passes
 its values; it knows nothing about any game. `unified:godot` reaches it only through `godot/dev.odin`, which also
@@ -77,6 +77,3 @@ devui.wants_state()                                 // the Inspector or Input pa
   `screenshot.png` and `note.txt` (`[note]` or `[bug]`, then the text), then calls `on_feedback`, where the host adds
   the session's recording so the note replays (`src/godot/SPEC.md`). Notes are a local tool: nothing is sent
   anywhere.
-- **Tests.** `uni test --suite godot-bindings` builds it under headless Godot (its controls exist), checks that a
-  press on an overlay button leaves an action bound to it released while a press elsewhere presses it, that dead
-  Inspector rows are reused, and that a click on the frames line keeps the stat lines.

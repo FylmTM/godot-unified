@@ -30,10 +30,17 @@ wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 }
 
 @(private)
-plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats: bool, padding := false) -> string {
+plain_check :: proc(
+	type: ^runtime.Type_Info,
+	path: string,
+	bools: bool,
+	floats: bool,
+	padding := false,
+	named: ^runtime.Type_Info = nil, // the named type, when `type` is its base: the padding errors name it
+) -> string {
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_check(variant.base, path, bools, floats, padding)
+		return plain_check(variant.base, path, bools, floats, padding, type)
 	case runtime.Type_Info_Integer:
 		if type.id == int || type.id == uint || type.id == uintptr {
 			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
@@ -78,11 +85,18 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
 		}
+		struct_name := named != nil ? fmt.tprint(named.id) : "the struct"
 		end := uintptr(0)
 		for i in 0 ..< int(variant.field_count) {
 			name := fmt.tprintf("%s.%s", path, variant.names[i])
 			if !padding && variant.offsets[i] != end {
-				return fmt.tprintf("%s: implicit padding before this field", name)
+				return fmt.tprintf(
+					"%s: %s has %d bytes of implicit padding before this field (add `_pad: [%d]u8` before it, or reorder)",
+					name,
+					struct_name,
+					variant.offsets[i] - end,
+					variant.offsets[i] - end,
+				)
 			}
 			if reason := plain_check(variant.types[i], name, bools, floats, padding); reason != "" {
 				return reason
@@ -90,7 +104,13 @@ plain_check :: proc(type: ^runtime.Type_Info, path: string, bools: bool, floats:
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
 		}
 		if !padding && end != uintptr(type.size) {
-			return fmt.tprintf("%s: implicit padding at the end", path)
+			return fmt.tprintf(
+				"%s: %s has %d bytes of implicit padding at its end (add `_pad: [%d]u8` as its last field)",
+				path,
+				struct_name,
+				uintptr(type.size) - end,
+				uintptr(type.size) - end,
+			)
 		}
 		return ""
 	}

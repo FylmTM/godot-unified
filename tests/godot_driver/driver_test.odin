@@ -378,6 +378,48 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	testing.expect_value(t, x, 22)
 }
 
+// Players' views pushed with a zero key (the key is then the player's): each finds its own tick - 1 pose, not the
+// first pushed one's.
+@(test)
+zero_key_player_views_remember_their_own_poses :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	data := godot.Frame_Data {
+		alloc = context.allocator,
+	}
+	defer {
+		delete(data.views)
+		delete(data.data)
+	}
+	frame := godot.Frame(toy.Game, View, MultiView) {
+		out   = &data,
+		poses = &memory,
+	}
+	first := sim.Player {
+		index = 0,
+		id    = 1,
+	}
+	second := sim.Player {
+		index = 1,
+		id    = 2,
+	}
+	for tick in u32(10) ..= 11 {
+		godot.pose_memory_begin(&memory)
+		data.n_views = 0
+		data.n_data = 0
+		frame.tick = tick
+		godot.push_view(&frame, {kind = .Dot, player = first, pos = {f32(tick), 0, 0}})
+		godot.push_view(&frame, {kind = .Dot, player = second, pos = {100 + f32(tick), 0, 0}})
+	}
+	for player, i in ([2]sim.Player{first, second}) {
+		view := data.views[i]
+		testing.expect_value(t, view.key, sim.player_key(player))
+		testing.expect(t, view.has_prev, "each player's view has its tick - 1 pose")
+		testing.expect_value(t, view.prev_pos.x, f32(100 * i + 10)) // its own, not the first player's
+	}
+}
+
 // The pose memory grows past its starting room (a fill that pushes more than it was made for): every item, the ones
 // remembered before the growth too, finds its tick - 1 pose on the next fill.
 @(test)

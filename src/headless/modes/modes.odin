@@ -153,17 +153,20 @@ print_usage :: proc(table: []Mode($G), to: ^os.File) {
 }
 
 // The `--seed` option (default 1, at most u32 max), shared by every mode that takes one.
+@(private)
 seed_opt :: proc(args: ^Args) -> u64 {
 	return u64(opt_int(args, "seed", 1, low = 0, high = int(max(u32))))
 }
 
 // The `--players` option, 1 to the game's PLAYERS (its default).
+@(private)
 players_opt :: proc(args: ^Args, max_players: int) -> int {
 	return opt_int(args, "players", max_players, low = 1, high = max_players)
 }
 
 // `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window); `fallback` (a game's
 // standard benchmark) must be in that range too.
+@(private)
 window_opt :: proc(headless: ^uheadless.Headless($G), args: ^Args, fallback := 0, required := false) -> u32 {
 	longest := uheadless.max_window(headless.game)
 	assert(
@@ -174,6 +177,7 @@ window_opt :: proc(headless: ^uheadless.Headless($G), args: ^Args, fallback := 0
 }
 
 // The `sim` mode: an offline run with scripted inputs, writing the per-tick trace and the input log when asked.
+@(private)
 mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
@@ -200,6 +204,7 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The `synctest` mode: an offline run that re-simulates the last `--window` ticks every tick and fails on any
 // tick that comes out differently.
+@(private)
 mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
@@ -232,6 +237,7 @@ mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
 // writing the trace when asked; fails on a log of another build.
+@(private)
 mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	log_path := opt_str(args, "log", required = true)
 	input_log, log_ok := uheadless.log_read(log_path, G)
@@ -263,6 +269,7 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The `bench` mode: times step, save, restore and re-sim with `--entities` held (the game's standard benchmark
 // without options); `uni bench` reads its JSON.
+@(private)
 mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	standard := headless.bench

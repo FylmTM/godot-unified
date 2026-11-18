@@ -13,6 +13,7 @@ import "core:fmt"
 import "core:sync"
 import gd "unified:gdext"
 
+@(private)
 MAX_INPUT_BYTES :: 256
 
 @(private)

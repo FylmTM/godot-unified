@@ -106,11 +106,13 @@ track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing 
 }
 
 // How much of a correction is left after a render frame of `dt_s`: the same for every view in a frame.
+@(private)
 track_decay :: proc(dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> f32 {
 	return smoothing.tau_s > 0 ? math.exp(-max(dt_s, 0) / smoothing.tau_s) : 0
 }
 
 // track_sample with the frame's track_decay computed once for all views.
+@(private)
 track_sample_decayed :: proc(
 	track: ^Track,
 	tick: u32,
@@ -151,11 +153,13 @@ length :: proc(vec: [3]f32) -> f32 {
 }
 
 // Linear interpolation between two positions (t 0: a, 1: b).
+@(private)
 lerp3 :: #force_inline proc(a, b: [3]f32, t: f32) -> [3]f32 {
 	return a + (b - a) * t
 }
 
 // The conjugate of a quaternion: the inverse rotation of a unit quaternion.
+@(private)
 qconj :: proc(q: [4]f32) -> [4]f32 {
 	return {-q.x, -q.y, -q.z, q.w}
 }
@@ -178,6 +182,7 @@ qnormalize :: proc(q: [4]f32) -> [4]f32 {
 }
 
 // Normalized lerp along the shorter arc.
+@(private)
 nlerp :: proc(a, b: [4]f32, t: f32) -> [4]f32 {
 	b := b
 	if a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0 do b = -b

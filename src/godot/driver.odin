@@ -16,6 +16,7 @@ import "unified:netcode"
 import "unified:sim"
 
 // The game-independent face of the installed driver (main thread).
+@(private)
 Api :: struct {
 	installed:       bool, // false: no game, or `problems` say why it wasn't installed
 	problems:        []string, // what install found wrong with the game (reported at load; nothing registered)
@@ -64,6 +65,7 @@ api: Api
 
 // The session thread's frame hook (tracking the ticks' events, fill_frame, publishing the Frame), summed until the main
 // thread takes it (UnifiedSession.take_sync_stats).
+@(private)
 Fill_Stats :: struct {
 	frames:   u64,
 	total_ns: u64,
@@ -87,9 +89,11 @@ lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil
 want_state: bool
 
 // One direction of the dev netsim.
+@(private)
 Netsim_Dir :: devui.Netsim_Dir
 
 // The dev netsim (the dev UI's Conditions panel, --lag): its settings are the panel's.
+@(private)
 Netsim_Settings :: devui.Netsim
 
 // Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings
@@ -122,6 +126,7 @@ netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile 
 	}
 }
 
+@(private)
 Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	game:      ^G,
 	glue:      ^Glue(G, View, MultiView),
@@ -161,6 +166,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
+@(private)
 Inputs_View :: struct($G: typeid) {
 	predicted_tick: u32,
 	own:            sim.part(G, sim.GAME_INPUT), // the local player's input in the newest predicted tick (zero: no slot)
@@ -168,6 +174,7 @@ Inputs_View :: struct($G: typeid) {
 	slots:          [sim.part(G, sim.GAME_PLAYERS)]Input_Slot(sim.part(G, sim.GAME_INPUT)), // the verified tick's inputs, by slot (nobody's: all zero)
 }
 
+@(private)
 Input_Slot :: struct($Input: typeid) {
 	player:   u64, // who holds the slot at the predicted tick (sim.player_key; 0: nobody)
 	present:  bool,
@@ -176,6 +183,7 @@ Input_Slot :: struct($Input: typeid) {
 }
 
 // A command a verified tick carried (any player's), for the dev UI's Commands panel.
+@(private)
 Command_Note :: struct {
 	tick:    u32,
 	command: sim.Raw_Command,
@@ -184,6 +192,7 @@ Command_Note :: struct {
 // The session recorded for F3 notes (dev UI builds): a portable snapshot of the first verified tick the ring still
 // held, and the input log (UNIL) of every verified tick after it. A host records from its first tick, a joiner from
 // its join. The session thread appends; the main thread copies it under the lock (api.recording).
+@(private)
 Recording :: struct {
 	mu:       sync.Mutex,
 	snapshot: []u8, // nil until the first verified tick whose state was saved
@@ -194,6 +203,7 @@ Recording :: struct {
 	stream:   sim.Log_Stream,
 }
 
+@(private)
 Recording_Info :: struct {
 	from, to:   u32, // the snapshot's tick, the log's last
 	check_tick: u32, // a tick the log reaches and its checksum, to check a replay against (0: none yet)
@@ -727,7 +737,9 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 
 // How long a stopping session may say goodbye (peers that don't answer: the relay's 3 s End timeout), and the
 // cap when a new session waits for it (a reachable peer acks in one round trip; the rest time out).
+@(private)
 GOODBYE_US :: 3_000_000
+@(private)
 HURRY_US :: 1_000_000
 
 @(private)

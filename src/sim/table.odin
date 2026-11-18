@@ -1,5 +1,5 @@
 // Fixed-capacity entity tables with generational handles (src/sim/SPEC.md "Tables and handles"): the game
-// owns typed tables inside its State; tooling discovers them by RTTI (schema.odin).
+// owns typed tables inside its State; tooling reads them like the rest of the block, by RTTI.
 package sim
 
 // Per-slot bookkeeping, kept apart from the items so `items` holds only game data.
