@@ -4,7 +4,7 @@ extends MultiMeshInstance2D
 ## pixels (Unified.view_scale), the same hull the sim's bodies have; the host scales it by each rock's radius in
 ## metres (squashed for a moment on a hit). The shader shades by size (custom.x) and flashes on a hit (custom.y).
 
-## Loaded in _ready, not preloaded: the play scene loads on a thread (games/shared/SPEC.md, Play scene).
+## Loaded in _ready, not preloaded: the play scene loads on a thread (game/ui/menu.gd).
 const SHADER := "res://game/shaders/rock.gdshader"
 
 

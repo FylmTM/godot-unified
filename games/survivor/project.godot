@@ -21,14 +21,14 @@ config/icon="res://game/icon.svg"
 
 [audio]
 
-buses/default_bus_layout="res://addons/shared/audio/bus_layout.tres"
+buses/default_bus_layout="res://game/app/bus_layout.tres"
 
 [autoload]
 
-LibraryCheck="*res://addons/shared/autoload/library_check.gd"
-Settings="*res://game/autoload/settings.gd"
-Sfx="*res://game/autoload/sfx.gd"
-Game="*res://addons/shared/autoload/game.gd"
+LibraryCheck="*res://game/app/library_check.gd"
+Settings="*res://game/app/settings.gd"
+Sfx="*res://game/app/sfx.gd"
+Game="*res://game/app/game.gd"
 
 [debug]
 

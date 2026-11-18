@@ -342,11 +342,11 @@ when ODIN_OS == .Windows {
 // writes it for a fresh checkout, listing only extensions whose library for this host exists: a missing library is
 // an error on every run (a game without its library shows its "library failed to load" screen). Returns the list.
 write_extension_list :: proc(game: Game) -> []string {
-	sync_shared(game.dir)
+	sync_tools(game.dir)
 	return write_extension_list_dir(game.dir)
 }
 
-// write_extension_list for any Godot project directory, without mirroring the shared code first: also
+// write_extension_list for any Godot project directory, without mirroring the tool scripts first: also
 // for the test projects (ensure_imported mirrors it itself).
 write_extension_list_dir :: proc(dir: string) -> []string {
 	listed: [dynamic]string

@@ -1,5 +1,5 @@
 extends UnifiedValidate
-## drift's project check (the shared one, UnifiedValidate) and its view contract (simulation/extension): every
+## drift's project check (the library's UnifiedValidate) and its view contract (simulation/extension): every
 ## rock shape (Unified.constants.rock_shapes) a polygon, a rock MultiMesh view (rock_<v>) in the arena per rock shape variant, every
 ## MultiMesh kind present once, and the level's scale. The level export being current is the godot suite's `bake` step.
 

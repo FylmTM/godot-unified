@@ -165,12 +165,12 @@ import_signature :: proc(dir: string) -> string {
 	return strings.join(parts[:], "\n")
 }
 
-// Refreshes Godot's import cache (.godot/) when it is missing or stale, after mirroring the shared Godot code and
+// Refreshes Godot's import cache (.godot/) when it is missing or stale, after mirroring unified's tool scripts and
 // writing the extension list (so the import sees the extension's classes). Returns the extensions listed. Every
 // command that starts Godot on a project calls it first but the editor, which imports by itself: a script that
 // names a class Godot hasn't cached stops at `Could not find base class` and hangs until its timeout.
 ensure_imported :: proc(dir: string) -> []string {
-	sync_shared(dir)
+	sync_tools(dir)
 	exts := write_extension_list_dir(dir)
 	if import_current(dir) {
 		return exts
@@ -326,14 +326,11 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	return report
 }
 
-// A tool script by name: the game's game/tools/<name>.gd, else the shared code's tools/<name>.gd when the game uses
-// it, else unified's (src/godot/tools, mirrored as res://addons/unified/) ("" when none has it).
+// A tool script by name: the game's game/tools/<name>.gd, else unified's (src/godot/tools, mirrored as
+// res://addons/unified/) ("" when neither has it).
 tool_script :: proc(game: Game, name: string) -> string {
 	if os.is_file(join(game.dir, "game", "tools", aprintf("%s.gd", name))) {
 		return aprintf("res://game/tools/%s.gd", name)
-	}
-	if uses_shared(game.dir) && os.is_file(join(state.project.root, SHARED_SOURCE, "tools", aprintf("%s.gd", name))) {
-		return aprintf("res://%s/tools/%s.gd", SHARED_DIR, name)
 	}
 	if os.is_file(join(state.project.unified, TOOLS_SOURCE, aprintf("%s.gd", name))) {
 		return aprintf("res://%s/%s.gd", TOOLS_DIR, name)

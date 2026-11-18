@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## The in-game HUD, built in code: the run timer and the best time, the checkpoint, a crosshair, the local player's
-## state (holding, charge, held, stunned, fallen), the shared session panel and controls list, and banners for
+## state (holding, charge, held, stunned, fallen), the session panel and controls list, and banners for
 ## run events. Redrawn when the session data (Unified.data.hud) changes.
 
 const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]
@@ -83,7 +83,7 @@ func _on_hud_changed() -> void:
 	_best.text = "best %s" % _time(best) if best > 0.0 else ""
 	_session.refresh(_session_rows(), h.phase == EnumPhase.HUB, "Walk through the start gate to start the run.")
 
-	var me := Game.local_player_info() as DataHudPlayer
+	var me := _local_row()
 	var holding := me != null and me.holding != EnumHeldKind.NONE
 	var held := me != null and me.held
 	_charge.value = me.charge if me != null else 0.0
@@ -106,8 +106,8 @@ func _on_hud_changed() -> void:
 
 func _session_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	for player: int in Game.present_players():
-		var p := Game.player_info(player) as DataHudPlayer
+	for player: int in Unified.session.get_players():
+		var p := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var tags: Array[String] = []
 		if p.held:
 			tags.append("held")
@@ -115,13 +115,13 @@ func _session_rows() -> Array[Dictionary]:
 			tags.append("dazed")
 		if p.fallen:
 			tags.append("fell")
-		rows.append({"player": player, "name": Game.player_name(player), "status": ", ".join(tags)})
+		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": ", ".join(tags)})
 	return rows
 
 
 ## The better of this session's best (the sim's) and the personal best kept in the settings; 0 when neither.
 static func _best_time(session_best: float) -> float:
-	var saved: float = Settings.get_value(&"best_time")
+	var saved := Settings.best_time
 	if saved <= 0.0 or (session_best > 0.0 and session_best < saved):
 		return session_best
 	return saved
@@ -145,9 +145,9 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		var finished := event as EventRunFinished
 		var seconds := finished.seconds
 		_show_banner("Finished in %s" % _time(seconds), 4.0)
-		var saved: float = Settings.get_value(&"best_time")
+		var saved := Settings.best_time
 		if saved <= 0.0 or seconds < saved:
-			Settings.set_value(&"best_time", seconds)
+			Settings.best_time = seconds
 
 
 ## Places a control at `rect` relative to the screen centre.
@@ -170,3 +170,9 @@ static func _label(parent: Control, variation: StringName) -> Label:
 
 static func _time(s: float) -> String:
 	return "%d:%04.1f" % [floori(s / 60.0), fmod(s, 60.0)]
+
+
+## The local player's row of the HUD data (null until they hold a slot).
+func _local_row() -> DataHudPlayer:
+	var slot := Unified.session.get_player_slot(Unified.session.local_player)
+	return Unified.data.hud.players[slot] as DataHudPlayer if slot >= 0 else null

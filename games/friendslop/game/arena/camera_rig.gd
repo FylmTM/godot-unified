@@ -32,7 +32,7 @@ func _process(delta: float) -> void:
 	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
 	yaw -= stick.x * 2.6 * delta
 	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
-	var me := Game.session.get_player_view(EnumView.PLAYER, Game.local_player()) as Node3D
+	var me := Game.session.get_player_view(EnumView.PLAYER, Unified.session.local_player) as Node3D
 	if me != null:
 		_pivot = _pivot.lerp(me.global_position + Vector3(0, HEIGHT, 0), 1.0 - exp(-delta * 12.0))
 	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))  # from the pivot to the target
@@ -54,8 +54,8 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	var motion := event as InputEventMouseMotion
 	if motion != null and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var s: float = Settings.get_value(&"mouse_sensitivity")
-		var invert := -1.0 if Settings.get_value(&"invert_y") else 1.0
+		var s := Settings.mouse_sensitivity
+		var invert := -1.0 if Settings.invert_y else 1.0
 		yaw -= motion.relative.x * 0.004 * s
 		pitch = clampf(pitch - motion.relative.y * 0.004 * s * invert, PITCH_MIN, PITCH_MAX)
 
@@ -68,5 +68,5 @@ func shake(amount: float) -> void:
 func _capture_mouse() -> void:
 	var free := _pause_menu.visible or DisplayServer.get_name() == "headless"
 	var want := Input.MOUSE_MODE_VISIBLE if free else Input.MOUSE_MODE_CAPTURED
-	if Input.mouse_mode != want and Game.flow == UnifiedGame.Flow.PLAYING:
+	if Input.mouse_mode != want and Game.flow == Game.Flow.PLAYING:
 		Input.mouse_mode = want

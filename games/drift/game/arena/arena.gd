@@ -52,7 +52,7 @@ func _process(_delta: float) -> void:
 
 ## The local player's ship view (null until they have one).
 func local_ship_view() -> Node2D:
-	return Game.session.get_player_view(EnumView.SHIP, Game.local_player()) as Node2D
+	return Game.session.get_player_view(EnumView.SHIP, Unified.session.local_player) as Node2D
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.

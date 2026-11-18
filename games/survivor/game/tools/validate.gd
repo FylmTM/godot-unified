@@ -1,5 +1,5 @@
 extends UnifiedValidate
-## survivor's project check (the shared one, UnifiedValidate) and its view contract (simulation/extension): the
+## survivor's project check (the library's UnifiedValidate) and its view contract (simulation/extension): the
 ## constants the scripts read (Unified.constants: the level-up cards, the item grid with a view scene and a rest
 ## height per kind), and every MultiMesh kind present once in the arena.
 

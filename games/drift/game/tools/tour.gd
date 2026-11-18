@@ -99,7 +99,7 @@ func _run() -> void:
 	await seconds(0.5)
 	await shot("r03_match")
 	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_multi_count(["bullet"]),
-		_multi_count(ROCK_KINDS), _multi_count(["gem"]), (game.local_player_info() as DataHudPlayer).shots])
+		_multi_count(ROCK_KINDS), _multi_count(["gem"]), (local_row()).shots])
 
 	await _hunt()
 	if flag("end-in-match"):

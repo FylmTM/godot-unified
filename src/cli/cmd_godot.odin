@@ -515,7 +515,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	}
 	script := tool_script(selected, name)
 	if script == "" {
-		usage("%s has no tool script %s (game/tools/ or games/shared/tools/)", selected.name, name)
+		usage("%s has no tool script %s (game/tools/ or unified's src/godot/tools/)", selected.name, name)
 	}
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")

@@ -71,7 +71,7 @@ func play(event: UnifiedEvent) -> void:
 	elif event is EventPlayerDied:
 		var dead := event as EventPlayerDied
 		var local := _is_local(dead.player)
-		var c := UiTheme.player_color(Game.player_slot(dead.player))
+		var c := UiTheme.player_color(Unified.session.get_player_slot(dead.player))
 		_burst(dead.position + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
 		_ring(dead.position + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 		_shake(0.45 if local else 0.2)
@@ -181,7 +181,7 @@ func _ring(pos: Vector3, color: Color, radius: float, time: float) -> void:
 
 ## Whether `player` (a key, 0: none) is the local player.
 func _is_local(player: int) -> bool:
-	return player != 0 and player == Game.local_player()
+	return player != 0 and player == Unified.session.local_player
 
 
 func _shake(amount: float) -> void:
