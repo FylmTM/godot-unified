@@ -32,8 +32,7 @@ mesh = SubResource("ball_mesh")
 [node name="Main" type="Node3D" unique_id=103334146]
 script = ExtResource("1")
 
-[node name="UnifiedSession" type="UnifiedSession" parent="." unique_id=1936576675 node_paths=PackedStringArray("view_root")]
-view_root = NodePath("..")
+[node name="UnifiedSession" type="UnifiedSession" parent="." unique_id=1936576675]
 unique_name_in_owner = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1997504787]

@@ -8,7 +8,8 @@ extends UnifiedTool
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
 ## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate
-## says otherwise), and the play scene draws every MultiMesh kind of the game (EnumMultiView) once. unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
+## says otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project
+## keeps GDScript strictly typed. unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
 
 const ROOTS: Array[String] = ["res://game", "res://addons"]
 
@@ -38,6 +39,7 @@ func _run() -> void:
 	var t2 := Time.get_ticks_usec()
 	_check_play_scene_preloads()
 	_check_multi_views()
+	_check_strict_typing()
 	var errors_before := log_capture.errors.size()
 	var contract := _check_contract()
 	if contract == "ok" and log_capture.errors.size() > errors_before:
@@ -74,6 +76,20 @@ func _check_play_scene_preloads() -> void:
 			log_capture.add("a script of the play scene preloads (load() it instead: it loads on a thread)", path)
 		for dep in ResourceLoader.get_dependencies(path):
 			todo.append(dep.get_slice("::", 2) if dep.contains("::") else dep)
+
+
+## The project makes untyped and unsafe GDScript an error (every unified game does; a copied project.godot must not
+## lose it).
+const STRICT_WARNINGS: Array[String] = ["untyped_declaration", "unsafe_property_access", "unsafe_method_access",
+	"unsafe_cast", "unsafe_call_argument"]
+
+
+func _check_strict_typing() -> void:
+	for warning in STRICT_WARNINGS:
+		var setting := "debug/gdscript/warnings/" + warning
+		if int(ProjectSettings.get_setting(setting, 0)) != 2:
+			log_capture.add("%s is not an error (2) in project.godot: unified games are strictly typed" % setting,
+				"res://project.godot")
 
 
 ## Every MultiView member of the game (EnumMultiView) has one UnifiedMultiView in the play scene, under a
