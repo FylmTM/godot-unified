@@ -744,6 +744,8 @@ session_state_machine :: proc(t: ^testing.T) {
 			count += 1
 		}
 	}
+	// The join above may have closed a try of its own before it left (CONNECT_WAIT_MS is short; under load it passes).
+	fake.closed_to_owner = 0
 	join_link, join_ok := eos.open_join(BUILD, "ABCDEF")
 	testing.expect(t, join_ok)
 	stage, _, _ = pump_until(.Ready)

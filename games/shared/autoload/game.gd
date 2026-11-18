@@ -3,15 +3,16 @@ extends Node
 ## The app's flow, the base of a game's `Game` autoload: owns the session for the app's lifetime and switches scenes
 ## on its status.
 ##
-##   MENU --start/host/join--> CONNECTING --"connected"--> PLAYING --leave--> MENU
-##                                  \--"failed"--> MENU (error shown)      \--"failed"/"disconnected"--> MENU
+##   MENU --start/host/join--> CONNECTING --CONNECTED--> PLAYING --leave--> MENU
+##                                  \--FAILED--> MENU (error shown)      \--FAILED/DISCONNECTED--> MENU
 ##
 ## The session is the native `UnifiedSession` from the game library (without the library the LibraryCheck autoload
-## shows a fatal screen instead). The sim's game-wide values are the game's session data, `Unified.data.hud` (every demo
-## game's `Data_Hud` has `tick` and `players`), and its fixed numbers `Unified.constants`.
+## shows a fatal screen instead). Who plays (players, slots, names, the local player, the tick) comes from it; the
+## sim's game-wide values are the game's session data, `Unified.data.hud` (every demo game's `players` row by slot),
+## and its fixed numbers `Unified.constants`.
 
 signal flow_changed(flow: Flow)
-signal status_changed(status: String, detail: String)
+signal status_changed(status: UnifiedSession.Status, detail: String)
 signal lobby_code_changed(code: String)
 ## The last input came from a gamepad (true) or keyboard and mouse (false): hints and key labels follow it.
 signal input_device_changed(pad: bool)
@@ -28,7 +29,7 @@ const CONNECT_OVERLAY := preload("res://addons/shared/ui/connect_overlay.tscn")
 var session: UnifiedSession
 var flow := Flow.MENU
 var mode := Mode.SINGLE
-var status := "idle"
+var status := UnifiedSession.STATUS_IDLE
 var status_detail := ""
 var lobby_code := ""
 ## The port Host on LAN listens on (a tool may pick another, so parallel runs don't collide).
@@ -128,7 +129,7 @@ func join_direct(address: String) -> void:
 ## Leaves the match (or cancels connecting) and returns to the main menu, showing `error` there when given.
 func leave_to_menu(error := "") -> void:
 	last_error = error
-	if status != "idle":
+	if status != UnifiedSession.STATUS_IDLE:
 		session.leave()
 	lobby_code = ""
 	lan_address = ""
@@ -145,7 +146,7 @@ func quit_app(exit_code := 0) -> void:
 	if _quitting:
 		return
 	_quitting = true
-	if session != null and status != "idle":
+	if session != null and status != UnifiedSession.STATUS_IDLE:
 		session.leave()
 	Sfx.close()
 	var playbacks: Array[WeakRef] = []
@@ -173,7 +174,7 @@ func is_online() -> bool:
 ## The local player (its key: the same while they are in the session, whatever slot they hold), 0 until the session
 ## has one.
 func local_player() -> int:
-	return session.get_local_player()
+	return session.local_player
 
 
 ## The slot (0..) a player holds at the shown tick, -1 when absent: what per-slot looks (colours, "P<n>") follow.
@@ -181,33 +182,24 @@ func player_slot(player: int) -> int:
 	return session.get_player_slot(player)
 
 
-## A player's entry in the HUD data's `players` ({} when there is none).
-func player_info(player: int) -> Dictionary:
-	if player == 0:
-		return {}
-	for info: Dictionary in Unified.data.hud.players:
-		if int(info.get("player", 0)) == player:
-			return info
-	return {}
+## A player's row of the HUD data's `players` (the game's DataHudPlayer; null when they hold no slot).
+func player_info(player: int) -> RefCounted:
+	var slot := session.get_player_slot(player)
+	return Unified.data.hud.players[slot] if slot >= 0 else null
 
 
-## The local player's entry in the HUD's `players` ({} until the session assigns one).
-func local_player_info() -> Dictionary:
+## The local player's row of the HUD's `players` (null until the session assigns one).
+func local_player_info() -> RefCounted:
 	return player_info(local_player())
 
 
-## The HUD's players that are present, in slot order.
-func present_players() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
-	for p: Dictionary in Unified.data.hud.players:
-		if p.get("present", false):
-			out.append(p)
-	return out
+## The players present at the shown tick (their keys), in slot order.
+func present_players() -> Array[int]:
+	return session.get_players()
 
 
-## A HUD player's display name: the synced name when the session has one, else "P<slot + 1>".
-func player_name(info: Dictionary) -> String:
-	var player := int(info.get("player", 0))
+## A player's display name: the synced name when the session has one, else "P<slot + 1>".
+func player_name(player: int) -> String:
 	var name := session.get_player_name(player)
 	return name if name != "" else "P%d" % (player_slot(player) + 1)
 
@@ -251,7 +243,7 @@ func _begin(m: Mode) -> void:
 	last_error = ""
 	lobby_code = ""
 	lan_address = ""
-	session.set_player_name(Settings.get_value(&"player_name"))
+	session.local_name = Settings.get_value(&"player_name")
 	_set_flow(Flow.CONNECTING)
 	if m != Mode.SINGLE:
 		_show_connect_overlay()
@@ -273,23 +265,23 @@ func _set_flow(f: Flow) -> void:
 	flow_changed.emit(f)
 
 
-func _on_status_changed(new_status: String, detail: String) -> void:
+func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> void:
 	status = new_status
 	status_detail = detail
 	status_changed.emit(new_status, detail)
 	match new_status:
-		"connected":
+		UnifiedSession.STATUS_CONNECTED:
 			if flow == Flow.CONNECTING:
 				_hide_connect_overlay()
 				_set_flow(Flow.PLAYING)
 				get_tree().change_scene_to_file(PLAY_SCENE)
-		"failed":
+		UnifiedSession.STATUS_FAILED:
 			if _smoke_test():
 				push_error("%s: smoke test: the session failed: %s" % [_game_name(), detail])  # uni release fails on it
 				quit_app.call_deferred(1)
 				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")
-		"disconnected":
+		UnifiedSession.STATUS_DISCONNECTED:
 			if flow != Flow.MENU:
 				leave_to_menu("Disconnected" + (": " + detail if detail != "" else "."))
 
@@ -319,7 +311,7 @@ func _on_setting_changed(key: StringName, value: Variant) -> void:
 	if key == &"show_fps":
 		_fps_label.visible = value
 	elif key == &"player_name":
-		session.set_player_name(value)  # takes effect when the next session starts
+		session.local_name = value  # takes effect when the next session starts
 
 
 ## macOS Retina: the project size is in pixels, so a 1280x720 window opens at half size. Scales it once at boot.

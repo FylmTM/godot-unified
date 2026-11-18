@@ -53,7 +53,7 @@ Cmd_Mark :: struct {
 	_pad:   [3]u8,
 	target: sim.Handle(Thing), // its key
 	place:  sim.Position, // a Vector2 in the 2D host (view units)
-	area:   Mark_Area, // a Dictionary
+	area:   Mark_Area, // a nested struct: an object of its class (DataMarkArea)
 }
 
 Mark_Area :: struct {

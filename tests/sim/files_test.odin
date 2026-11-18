@@ -1,6 +1,7 @@
 // Input logs and portable snapshots: round trips, the desync diff, every Snap_Error.
 package test_sim
 
+import "base:runtime"
 import "core:slice"
 import "core:strings"
 import "core:testing"
@@ -83,6 +84,61 @@ portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, sim.Snap_Error.Checksum_Mismatch)
 }
 
+// A snapshot taken again and again into one buffer (a client's kept desync images) allocates nothing once the buffer
+// has its size, on the heap or the temp allocator (the State's layout hash is derived once, at create), and carries
+// that layout hash.
+@(test)
+snapshot_encode_into_allocates_nothing :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 7)
+	defer sim.destroy(simulation)
+	run(simulation, 40, 3)
+	out: [dynamic]u8
+	defer delete(out)
+	sim.snapshot_encode_into(simulation, 40, &out)
+	heap := Counting {
+		inner = context.allocator,
+	}
+	temp := Counting {
+		inner = context.temp_allocator,
+	}
+	context.allocator = {counting_proc, &heap}
+	context.temp_allocator = {counting_proc, &temp}
+	for _ in 0 ..< 8 {
+		run(simulation, 1, 3)
+		sim.snapshot_encode_into(simulation, simulation.tick, &out)
+	}
+	sim.snapshot_encode_into(simulation, simulation.tick - 3, &out)
+	testing.expect_value(t, heap.allocs, 0)
+	testing.expect_value(t, temp.allocs, 0)
+	layout := (^u64le)(&out[4 + 2 + 8 + 8 + 4 + 4])^ // after the magic, version, seed, content, tick and block size
+	testing.expect_value(t, u64(layout), sim.layout_hash(toy.State))
+}
+
+// Counts the allocations (and resizes) that go through it to the allocator it wraps.
+Counting :: struct {
+	inner:  runtime.Allocator,
+	allocs: int,
+}
+
+counting_proc :: proc(
+	data: rawptr,
+	mode: runtime.Allocator_Mode,
+	size, alignment: int,
+	old_memory: rawptr,
+	old_size: int,
+	location := #caller_location,
+) -> (
+	[]byte,
+	runtime.Allocator_Error,
+) {
+	counting := (^Counting)(data)
+	#partial switch mode {
+	case .Alloc, .Alloc_Non_Zeroed, .Resize, .Resize_Non_Zeroed:
+		counting.allocs += 1
+	}
+	return counting.inner.procedure(counting.inner.data, mode, size, alignment, old_memory, old_size, location)
+}
+
 // The desync report walks the State: a table's item by index down to the leaf field, a slot's liveness, a global.
 @(test)
 snapshot_diff_names_the_fields :: proc(t: ^testing.T) {
@@ -115,7 +171,7 @@ imaging_game :: proc() -> toy.Game {
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return true},
 			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
-			image = proc(data: rawptr, slot: int) -> []u8 {return extra_image[:]},
+			image = proc(data: rawptr, slot: int, live: bool) -> []u8 {return extra_image[:]},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return len(bytes) == len(extra_image)},
 		}
 	}

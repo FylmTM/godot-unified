@@ -125,7 +125,7 @@ flaky_game :: proc(flaky: rawptr) -> toy.Game {
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return !(^Flaky)(data).fail},
 			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
-			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
+			image = proc(data: rawptr, slot: int, live: bool) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
 		}
 	}
@@ -174,7 +174,7 @@ check_extra_runs_the_extras_check :: proc(t: ^testing.T) {
 			save = proc(data: rawptr, slot: int) {},
 			restore = proc(data: rawptr, slot: int) -> bool {return true},
 			hash = proc(data: rawptr, tick: u32, out: ^[dynamic]u8) {},
-			image = proc(data: rawptr, slot: int) -> []u8 {return nil},
+			image = proc(data: rawptr, slot: int, live: bool) -> []u8 {return nil},
 			load = proc(data: rawptr, bytes: []u8) -> bool {return true},
 			check = proc(data: rawptr, state: rawptr) -> string {
 				return "a broken ref" if (^Checked)(data).broken else ""

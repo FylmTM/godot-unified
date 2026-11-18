@@ -1,9 +1,9 @@
 extends UnifiedTool
 ## A tour of the real game with the native session, driven by input actions:
-##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--quick] [--frames]
+##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--frames]
 ## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the
-## match is lost -> over -> back to the lobby -> leave. `--quick` stops after the match has enemies (a headless
-## smoke check of the real flow, a few seconds). With `--frames` it also tags the first show of each HUD panel and
+## match is lost -> over -> back to the lobby -> leave: a whole match, by hand (`uni tool survivor tour`; the
+## godot suite's walk covers the start of a match). With `--frames` it also tags the first show of each HUD panel and
 ## banner size, the first hit on the player and a barrel explosion, for the first-use hitches.
 
 const HUD_PANELS: Array[NodePath] = [^"LevelUp", ^"GameOver", ^"Respawn"]
@@ -50,8 +50,6 @@ func _run() -> void:
 	await shot("r03_match_start")  # shockwave + flash
 	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive > 0, 8.0, "enemies spawn")
 	step("enemies: %d" % Unified.data.hud.enemies_alive)
-	if flag("quick"):
-		return
 
 	var leveled := false
 	var shot_fight := false
@@ -69,7 +67,7 @@ func _run() -> void:
 		if not shot_fight and Unified.data.hud.enemies_alive > 25:
 			shot_fight = true
 			await shot("r04_fight")
-		if int(game.local_player_info().get("pending_levelups", 0)) > 0 and not leveled:
+		if _me() != null and _me().pending_levelups > 0 and not leveled:
 			leveled = true
 			await seconds(0.3)
 			await shot("r05_levelup")
@@ -77,14 +75,14 @@ func _run() -> void:
 			step("level-up offered and chosen (key 2)")
 		if (leveled and shot_fight and i > 150) or Unified.data.hud.phase != EnumPhase.MATCH or failed():
 			break
-		if not game.local_player_info().get("alive", true) and not shot_dead:
+		if _me() != null and not _me().alive and not shot_dead:
 			shot_dead = true
 			await seconds(0.25)
 			await shot("r05b_down")
 	_release_all()
 	await shot("r06_fight_later")
 	step("fight: wave %d, %d enemies, level %d" % [Unified.data.hud.wave, Unified.data.hud.enemies_alive,
-		game.local_player_info().get("level", 0)])
+		_me().level if _me() != null else 0])
 
 	# Stand still until the horde wins.
 	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.OVER, 90.0, "the match is lost")
@@ -98,6 +96,11 @@ func _run() -> void:
 	game.leave_to_menu()
 	await wait_for_scene("MainMenu", 5.0)
 	step("left to the menu")
+
+
+## The local player's HUD row (null until the session assigns one).
+func _me() -> DataHudPlayer:
+	return game.local_player_info() as DataHudPlayer
 
 
 func _release_all() -> void:
@@ -135,7 +138,7 @@ func _watch_hud() -> void:
 	var banner: Label = hud.get_node(^"Banner")
 	if banner.is_visible_in_tree() and banner.modulate.a > 0.0:
 		frame_tag("banner %dpx" % banner.get_theme_font_size(&"font_size"))
-	var hp: float = game.local_player_info().get("hp", -1.0)
+	var hp := float(_me().hp) if _me() != null else -1.0
 	if _last_hp >= 0.0 and hp < _last_hp - 0.01:
 		frame_tag("player hit")  # the hit flash
 	_last_hp = hp

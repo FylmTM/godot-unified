@@ -2,7 +2,7 @@ class_name CameraRig
 extends Node3D
 ## The third-person orbit camera behind the local player: the mouse (captured while playing) or the right stick turn
 ## it, it pulls in when the level is in the way, and every frame it tells the session where it looks
-## (UnifiedSession.set_input_value: &"look" = the look direction, &"right" = flat right), which the input sampler turns into
+## (Unified.input: `look` = the look direction, `right` = flat right), which the input sampler turns into
 ## camera-relative movement and the aim.
 
 const DISTANCE := 6.0
@@ -32,7 +32,7 @@ func _process(delta: float) -> void:
 	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
 	yaw -= stick.x * 2.6 * delta
 	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
-	var me := _arena.local_player_view()
+	var me := Game.session.get_player_view("player", Game.local_player()) as Node3D
 	if me != null:
 		_pivot = _pivot.lerp(me.global_position + Vector3(0, HEIGHT, 0), 1.0 - exp(-delta * 12.0))
 	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))  # from the pivot to the target
@@ -47,8 +47,8 @@ func _process(delta: float) -> void:
 	var jitter := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), 0) * _shake * 0.3
 	_camera.global_position = global_position + global_transform.basis * jitter
 	_camera.look_at(_pivot + dir * 2.0, Vector3.UP)
-	Game.session.set_input_value(&"look", dir)
-	Game.session.set_input_value(&"right", Vector3(-cos(yaw), 0, sin(yaw)))  # flat right of `dir`
+	Unified.input.look = dir
+	Unified.input.right = Vector3(-cos(yaw), 0, sin(yaw))  # flat right of `dir`
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -12,7 +12,6 @@ import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
-import "unified:view"
 
 import dr "../drift"
 
@@ -74,12 +73,13 @@ GLUE := godot.Glue(dr.Game, View, MultiView) {
 	is_2d        = true,
 	view_scale   = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
 	event_key    = event_key,
+	input_values = Input_Values,
 	level        = "res://game/levels/arena.level",
 }
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(event: ^sim.Raw_Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
 		return .Station, 0, .View
@@ -89,14 +89,17 @@ event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.
 
 // ---- input (main thread, the one local player)
 
-// The movement, fire and boost from the InputMap, and the aim: a world-space direction the arena's script sets
-// (UnifiedSession.set_input_value(&"aim", ...)) from the mouse (relative to the local ship) or the right stick;
-// zero keeps the heading. A tap of fire or boost shorter than a frame still counts (action_down).
+// What the arena's script sets every frame (Unified.input.aim).
+Input_Values :: struct {
+	aim: [2]f32, // a world-space direction from the mouse (relative to the local ship) or the right stick; zero: keep
+}
+
+// The movement, fire and boost from the InputMap, and the aim. A tap of fire or boost shorter than a frame still
+// counts (action_down).
 sample_input :: proc(input: ^dr.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
-	aim := godot.input_value("aim")
-	input.aim = dmath.dir2(aim.xy)
+	input.aim = dmath.dir2(godot.input_values(Input_Values).aim)
 	input.buttons = godot.buttons(dr.Buttons, {.Fire = "fire", .Boost = "boost"})
 }
 
@@ -149,7 +152,7 @@ fill_frame :: proc(f: ^Frame) {
 			rot    = physics.quat_2d(rotation),
 			scale  = {radius * (1 + 0.08 * flash), radius * (1 - 0.08 * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
-		}) or_break
+		})
 	}
 	// bullets: turned to and stretched along their velocity (quat_2d normalises it), tinted with the owner's colour
 	// (custom.x: the owner's slot, the view's colour index; -1 once the owner has left)
@@ -163,7 +166,7 @@ fill_frame :: proc(f: ^Frame) {
 			rot    = physics.quat_2d(bullet.vel),
 			scale  = {1.6, 0.6, 1},
 			custom = {f32(owner_slot), 0, 0, 0},
-		}) or_break
+		})
 	}
 	// gems: spin, a squash-and-stretch pulse, fading before they expire
 	gems := sim.iterate(&f.state.gems)
@@ -175,32 +178,28 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = plane(gem.pos),
-			rot    = view.quat_angle2d(age * 2),
+			rot    = godot.quat_angle2d(age * 2),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},
-		}) or_break
+		})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
-// ---- the session data: the HUD (Unified.data.hud; games/shared reads its `tick` and `players`)
+// ---- the session data: the HUD (Unified.data.hud)
 
 Data :: union {
 	Data_Hud,
 }
 
-// A slot's player (`player`: their key in GDScript; 0 and not `present` for an empty slot).
+// A slot's player (zero for an empty slot: who holds it, UnifiedSession.get_players).
 Hud_Player :: struct {
-	player:  sim.Player,
-	present: bool,
-	_pad:    [3]u8,
-	shots:   u32,
-	gems:    u32,
+	shots: u32,
+	gems:  u32,
 }
 
 Data_Hud :: struct {
-	tick:        u32,
 	players:     [dr.PLAYERS]Hud_Player,
 	phase:       dr.Phase, // EnumPhase in GDScript
 	_pad:        u8,
@@ -217,7 +216,6 @@ Data_Hud :: struct {
 
 hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
-	hud.tick = tick
 	hud.wave = state.waves
 	hud.station_hp = state.station_hp
 	hud.station_max = dr.STATION_HP
@@ -239,10 +237,8 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 		ship := sim.player_data(&state.players, player)
 		if ship == nil do continue
 		hud.players[slot] = {
-			player  = player,
-			present = true,
-			shots   = ship.shots,
-			gems    = ship.gems,
+			shots = ship.shots,
+			gems  = ship.gems,
 		}
 	}
 	return

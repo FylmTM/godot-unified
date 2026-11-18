@@ -4,15 +4,12 @@ package friendslop
 
 import "unified:sim"
 
-// A slot's player (players[slot]; present false: the slot is empty).
+// A slot's player (players[slot]; zero while the slot is empty: who holds it, UnifiedSession.get_players).
 Hud_Player :: struct {
-	player:  sim.Player, // GDScript gets its key
-	present: bool,
 	holding: Held_Kind,
 	held:    bool, // someone holds this player
 	stunned: bool,
 	fallen:  bool,
-	_pad:    [3]u8,
 	charge:  f32, // 0..1
 }
 
@@ -20,7 +17,6 @@ Hud_Player :: struct {
 Data_Hud :: struct {
 	phase:      Phase,
 	_pad:       [3]u8,
-	tick:       u32,
 	run_s:      f32, // the current run's time (Run), or the finished run's (Finished)
 	best_s:     f32, // 0: none
 	runs:       u32,
@@ -33,7 +29,6 @@ Data_Hud :: struct {
 // The HUD data for a tick, derived from the state alone; the GDExtension pushes it every frame.
 hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 	result.phase = state.phase
-	result.tick = tick
 	result.runs = state.runs
 	result.best_s = sim.seconds(state.best_ticks, TICK_HZ)
 	result.checkpoint = state.checkpoint
@@ -53,8 +48,6 @@ hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 		character := sim.player_data(&state.players, player)
 		if character == nil do continue
 		result.players[slot] = {
-			player  = player,
-			present = true,
 			holding = character.held_kind,
 			held    = character.held_by != {},
 			stunned = character.stun > 0,

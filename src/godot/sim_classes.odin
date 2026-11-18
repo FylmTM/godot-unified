@@ -3,6 +3,7 @@
 // `Command` + the Odin type in PascalCase (EventRockHit, CommandDrop: class_name_of), with a typed property per
 // field. Events reach GDScript as instances (session.odin, views.odin); scripts make commands with
 // `CommandDrop.new()` and send them with UnifiedSession.send_command (command.odin).
+#+private
 package godot
 
 import "base:runtime"
@@ -24,13 +25,19 @@ Sim_Class :: struct {
 	fields:      []Sim_Field,
 }
 
-// One property of a Sim_Class: a field of the struct.
-@(private)
+// A struct field as a Godot property (an event's or command's, a data class's, a view's data): struct_sim_fields.
 Sim_Field :: struct {
-	name:   string,
-	type:   ^runtime.Type_Info,
-	offset: int,
-	kind:   gdi.VariantType,
+	name:       string,
+	name_sn:    ^gd.StringName, // interned: a view's data sets it by name
+	type:       ^runtime.Type_Info,
+	offset:     int,
+	kind:       gdi.VariantType,
+	class_name: string, // an OBJECT's class, an ARRAY's element type (field_kind)
+}
+
+// A field's line in the editor's help.
+field_doc :: proc(field: Sim_Field) -> string {
+	return fmt.tprintf("The field [code]%s[/code] (Odin [code]%v[/code]).", field.name, field.type.id)
 }
 
 // An instance: the event's or command's struct bytes.
@@ -42,9 +49,7 @@ Sim_Object :: struct {
 	data:      [sim.EVENT_MAX]u8,
 }
 
-@(private)
 event_base_class, command_base_class: gd.Class
-@(private)
 sim_classes: [dynamic]^Sim_Class
 
 // The class of an object made from one of the game's event or command classes (nil otherwise).
@@ -57,99 +62,58 @@ sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
 }
 
 // The class of an event or command kind: `Event` or `Command`, then the Odin type name in PascalCase (an event's
-// `Event_` and a command's `Cmd_` dropped): Rock_Hit and Event_Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop. Godot has no namespaces for classes (an
-// extension class can't nest, nor can GDScript alias one as a constant), so the prefix groups them.
-@(private)
+// `Event_` and a command's `Cmd_` dropped): Rock_Hit and Event_Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop.
+// Godot has no namespaces for classes (an extension class can't nest, nor can GDScript alias one as a constant), so
+// the prefix groups them.
 class_name_of :: proc(variant: ^runtime.Type_Info, is_event: bool) -> string {
 	name := fmt.tprint(variant.id)
 	if named, ok := variant.variant.(runtime.Type_Info_Named); ok do name = named.name
 	name = strings.trim_prefix(name, is_event ? sim.EVENT_PREFIX : sim.COMMAND_PREFIX)
-	builder := strings.builder_make(context.temp_allocator)
-	strings.write_string(&builder, is_event ? "Event" : "Command")
-	upper := true
-	for r in name {
-		if r == '_' {
-			upper = true
-			continue
-		}
-		strings.write_rune(&builder, upper ? rune_upper(r) : r)
-		upper = false
-	}
-	return strings.to_string(builder)
+	return pascal_name(is_event ? "Event" : "Command", name)
 }
 
-@(private)
 rune_upper :: proc(r: rune) -> rune {
 	return r >= 'a' && r <= 'z' ? r - 'a' + 'A' : r
-}
-
-// The Variant type a field reads as (Position: Vector2 in a 2D game).
-@(private)
-field_kind :: proc(type: ^runtime.Type_Info) -> gdi.VariantType {
-	if type.id == sim.Position do return api.is_2d ? .VECTOR2 : .VECTOR3
-	if is_handle(type) || type.id == sim.Player do return .INT
-	if kind, is_builtin := gd.builtin_variant_type(type.id); is_builtin do return kind // Godot's math types
-	#partial switch info in runtime.type_info_base(type).variant {
-	case runtime.Type_Info_Integer:
-		return .INT
-	case runtime.Type_Info_Float:
-		return .FLOAT
-	case runtime.Type_Info_Boolean:
-		return .BOOL
-	case runtime.Type_Info_Enum:
-		return .INT
-	case runtime.Type_Info_String:
-		return .STRING
-	case runtime.Type_Info_Bit_Set:
-		return .ARRAY
-	case runtime.Type_Info_Array:
-		if info.elem.id == f32 {
-			switch info.count {
-			case 2:
-				return .VECTOR2
-			case 3:
-				return .VECTOR3
-			case 4:
-				return .COLOR
-			}
-		}
-		return .ARRAY
-	case runtime.Type_Info_Enumerated_Array:
-		return .ARRAY
-	case runtime.Type_Info_Struct:
-		return .DICTIONARY
-	}
-	return .NIL
 }
 
 // Registers UnifiedEvent, UnifiedCommand and a class per kind of the game's event and command unions (SCENE init).
 register_sim_classes :: proc() {
 	event_base_class = {
-		name   = "UnifiedEvent",
-		parent = "RefCounted",
-		size   = size_of(Sim_Object),
+		name      = "UnifiedEvent",
+		parent    = "RefCounted",
+		size      = size_of(Sim_Object),
+		doc_brief = "One of the game's sim events: the base of its event classes.",
+		doc       = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field. Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code].",
 	}
 	gd.register_class(&event_base_class)
-	gd.bind_method(&event_base_class, "get_tick", proc(object: ^Sim_Object) -> i64 {return object.tick})
-	gd.bind_property_by_name(&event_base_class, "tick", .INT, "get_tick")
-	gd.bind_method(&event_base_class, "get_id", proc(object: ^Sim_Object) -> i64 {return object.id})
-	gd.bind_property_by_name(&event_base_class, "id", .INT, "get_id")
-	gd.bind_method(&event_base_class, "get_kind", proc(object: ^Sim_Object) -> string {
-		if object.class == &event_base_class do return ""
-		return api.events[(^Sim_Class)(object.class).kind].name
-	})
-	gd.bind_property_by_name(&event_base_class, "kind", .STRING, "get_kind")
+	gd.bind_property(
+		&event_base_class,
+		"tick",
+		proc(object: ^Sim_Object) -> i64 {return object.tick},
+		doc = "The tick that produced it.",
+	)
+	gd.bind_property(
+		&event_base_class,
+		"id",
+		proc(object: ^Sim_Object) -> i64 {return object.id},
+		doc = "The same in its EVENT_EMITTED and in its EVENT_CONFIRMED or EVENT_CANCELLED (each state is a new object): remember what an effect started by it, undo it on EVENT_CANCELLED, forget it on EVENT_CONFIRMED. Never repeats in the process; an event cancelled and produced again later is a new one.",
+	)
+	gd.bind_property(&event_base_class, "kind", proc(object: ^Sim_Object) -> string {
+			if object.class == &event_base_class do return ""
+			return api.events[(^Sim_Class)(object.class).kind].name
+		}, doc = "Its kind's name for logs: the type name without Event_, lowercased. Handlers dispatch by class (`is`), never by this.")
 	command_base_class = {
-		name   = "UnifiedCommand",
-		parent = "RefCounted",
-		size   = size_of(Sim_Object),
+		name      = "UnifiedCommand",
+		parent    = "RefCounted",
+		size      = size_of(Sim_Object),
+		doc_brief = "One of the game's commands: the base of its command classes.",
+		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
 	}
 	gd.register_class(&command_base_class)
 	for layout, kind in api.events do register_sim_class(layout.type, kind, true)
 	for layout, kind in api.commands do register_sim_class(layout.type, kind, false)
 }
 
-@(private)
 register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: bool) {
 	context.allocator = runtime.heap_allocator()
 	name := class_name_of(variant, is_event)
@@ -167,10 +131,12 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	sim_class := new(Sim_Class)
 	sim_class^ = {
 		class = {
-			name   = strings.clone(name),
-			parent = is_event ? "UnifiedEvent" : "UnifiedCommand",
-			native = "RefCounted",
-			size   = size_of(Sim_Object),
+			name      = strings.clone(name),
+			parent    = is_event ? "UnifiedEvent" : "UnifiedCommand",
+			native    = "RefCounted",
+			size      = size_of(Sim_Object),
+			doc_brief = fmt.aprintf("The game's %s %v.", is_event ? "event" : "command", variant.id),
+			doc       = is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
 		},
 		class_name = gd.sn(name),
 		type = variant,
@@ -178,35 +144,21 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 		is_event = is_event,
 	}
 	gd.register_class(&sim_class.class)
-	info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct)
-	fields := make([dynamic]Sim_Field)
-	for i in 0 ..< int(info.field_count) {
-		field_name := info.names[i]
-		if strings.has_prefix(field_name, "_") do continue
-		field_type := info.types[i]
-		append(&fields, Sim_Field {
-			name   = field_name,
-			type   = field_type,
-			offset = int(info.offsets[i]),
-			kind   = field_kind(field_type),
-		})
-	}
-	sim_class.fields = fields[:]
+	sim_class.fields = struct_sim_fields(variant)
 	for &field in sim_class.fields {
-		getter := fmt.tprintf("get_%s", field.name)
-		gd.bind_dynamic_method(&sim_class.class, getter, field_get, &field, nil, gd.Dynamic_Arg{"", field.kind, ""})
-		setter := ""
-		if !is_event {
-			setter = fmt.tprintf("set_%s", field.name)
-			gd.bind_dynamic_method(&sim_class.class, setter, field_set, &field, {{"value", field.kind, ""}})
-		}
-		hint, hint_string := field_hint(field.type)
-		gd.bind_property_by_name(&sim_class.class, field.name, field.kind, getter, setter, "", hint, hint_string)
+		setter: gd.Dynamic_Proc = is_event ? nil : field_set
+		gd.bind_dynamic_property(
+			&sim_class.class,
+			{field.name, field.kind, field.class_name},
+			field_get,
+			setter,
+			&field,
+			doc = field_doc(field),
+		)
 	}
 	append(&sim_classes, sim_class)
 }
 
-@(private)
 field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Sim_Object)(instance)
@@ -218,7 +170,6 @@ field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Var
 	)
 }
 
-@(private)
 field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Sim_Object)(instance)
@@ -229,17 +180,7 @@ field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Var
 	return gd.variant_nil()
 }
 
-// Unregisters the event and command classes, the per-kind ones before their bases, when the extension unloads.
-@(private)
-unregister_sim_classes :: proc() {
-	#reverse for sim_class in sim_classes do gd.unregister_class(&sim_class.class)
-	gd.unregister_class(&command_base_class)
-	gd.unregister_class(&event_base_class)
-	clear(&sim_classes) // the classes themselves live as long as the process (hot reload registers anew)
-}
-
 // An event in a new object of its class (main thread; the first Variant made of it holds its reference).
-@(private)
 new_event_object :: proc(kind: int, tick: u32, id: u64, data: []u8) -> gd.Object {
 	for sim_class in sim_classes {
 		if !sim_class.is_event || sim_class.kind != kind do continue

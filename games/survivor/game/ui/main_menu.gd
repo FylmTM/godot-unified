@@ -11,9 +11,9 @@ const REST_Y := {EnumItemKind.CRATE: 0.5, EnumItemKind.BARREL: 0.7}
 func _ready() -> void:
 	var items := Unified.constants.items
 	for i in items.size():
-		var item: Dictionary = items[i]
-		var pos: Vector3 = item.position
-		var kind: int = item.kind
+		var item: DataItemSpot = items[i]
+		var pos := item.position
+		var kind := item.kind
 		var rest_y: float = REST_Y.get(kind, 0.5)
 		var scene := "res://game/views/%s.tscn" % EnumItemKind.name(kind)  # the view kind is named like the item kind
 		var view := (load(scene) as PackedScene).instantiate() as SurvivorPropView

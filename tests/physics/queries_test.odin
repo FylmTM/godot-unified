@@ -438,7 +438,7 @@ tags_roll_back_and_cross_in_an_image :: proc(t: ^testing.T) {
 	ground_def.filter.category = API_CAT_GROUND
 	box(late, {0, -0.5, 0}, {20, 0.5, 20}, .Static, 1, ground_def)
 	late_extra := physics.extra(late, Tag_Block)
-	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0)))
+	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0, false)))
 	testing.expect_value(t, physics.check_refs(late, &block), "")
 	testing.expect_value(t, physics.body_tag(late, block.balls[0]), 21)
 	testing.expect_value(t, physics.body_tag(late, block.balls[1]), 22)

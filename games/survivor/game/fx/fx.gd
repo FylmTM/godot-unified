@@ -47,38 +47,41 @@ func _warm_up() -> void:
 
 
 ## Plays the effect of a sim event (the session's `sim_event`, an object of the event's class). Sounds and rumble
-## for the local player's own pickups, level-ups and death. `player` is the player's key (0: none).
+## for the local player's own pickups, level-ups and death.
 func play(event: UnifiedEvent) -> void:
-	var pos: Vector3 = event.get(&"position") if &"position" in event else Vector3.ZERO
-	var player: int = event.get(&"player") if &"player" in event else 0
-	var local := player != 0 and player == Game.local_player()
 	if event is EventEnemyDied:
-		var kind := (event as EventEnemyDied).enemy_kind
-		var color := ENEMY_COLORS[clampi(kind, 0, ENEMY_COLORS.size() - 1)]
-		_burst(pos + Vector3(0, 0.5, 0), color, 22 if kind == EnumEnemyKind.BRUTE else 10, 4.0, 0.45, 0.8)
+		var died := event as EventEnemyDied
+		var color := ENEMY_COLORS[clampi(died.enemy_kind, 0, ENEMY_COLORS.size() - 1)]
+		_burst(died.position + Vector3(0, 0.5, 0), color, 22 if died.enemy_kind == EnumEnemyKind.BRUTE else 10, 4.0,
+			0.45, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
 	elif event is EventBarrelExploded:
-		explosion(pos, EXPLOSION_RADIUS)
+		explosion((event as EventBarrelExploded).position, EXPLOSION_RADIUS)
 	elif event is EventGemCollected:
-		_burst(pos + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
-		if local:
+		var gem := event as EventGemCollected
+		_burst(gem.position + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
+		if _is_local(gem.player):
 			Sfx.play(&"gem", -6.0, randf_range(0.95, 1.15))
 	elif event is EventLevelUp:
-		_ring(pos + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
-		_burst(pos + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
-		if local:
+		var level_up := event as EventLevelUp
+		_ring(level_up.position + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
+		_burst(level_up.position + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
+		if _is_local(level_up.player):
 			Sfx.play(&"level")
 	elif event is EventPlayerDied:
-		var c := UiTheme.player_color(Game.player_slot(player))
-		_burst(pos + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
-		_ring(pos + Vector3(0, 0.1, 0), c, 4.0, 0.5)
+		var dead := event as EventPlayerDied
+		var local := _is_local(dead.player)
+		var c := UiTheme.player_color(Game.player_slot(dead.player))
+		_burst(dead.position + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
+		_ring(dead.position + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 		_shake(0.45 if local else 0.2)
 		Sfx.play(&"die")
 		if local:
 			Game.rumble(0.6, 1.0, 0.5)
 	elif event is EventPlayerRespawned:
-		_ring(pos + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
-		_burst(pos + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
+		var respawned := event as EventPlayerRespawned
+		_ring(respawned.position + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
+		_burst(respawned.position + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
 		Sfx.play(&"respawn", -4.0)
 	elif event is EventMatchStarted:
 		Sfx.play(&"start")
@@ -174,6 +177,11 @@ func _ring(pos: Vector3, color: Color, radius: float, time: float) -> void:
 		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_property(m, "albedo_color:a", 0.0, time)
 	tw.chain().tween_callback(r.queue_free)
+
+
+## Whether `player` (a key, 0: none) is the local player.
+func _is_local(player: int) -> bool:
+	return player != 0 and player == Game.local_player()
 
 
 func _shake(amount: float) -> void:

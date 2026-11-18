@@ -1000,7 +1000,6 @@ gen_api :: proc(api: json.Object, class_list, builtin_list: []string) -> string 
 		} else {
 			fmt.sbprintf(&builder, "%s :: struct {{ using %s: %s }}\n", class_name, snake_field(parent), parent)
 		}
-		fmt.sbprintf(&builder, "%s_CLASS :: \"%s\"\n", class_name, class_name)
 		if jbool(class_object, "is_instantiable") && !singletons[class_name] {
 			type_name := is_refcounted(class_name) ? fmt.aprintf("Ref(%s)", class_name) : class_name
 			fmt.sbprintf(

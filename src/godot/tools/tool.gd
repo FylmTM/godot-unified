@@ -282,17 +282,11 @@ func click_menu(unique_name: String) -> void:
 	await click(find(menu(), "%" + unique_name) as Control)
 
 
-## The scene views of `kind` (their roots) under the session's view_root.
+## The scene views of `kind` in the sim (their roots), by key: UnifiedSession.get_views.
 func views(kind: StringName) -> Array[Node]:
-	var out: Array[Node] = []
-	var view_root := session.view_root if session != null else null
-	if view_root != null:
-		for v in view_root.get_children():
-			for child in v.get_children():
-				var marker := child as UnifiedView
-				if marker != null and marker.kind == String(kind) and not v.is_queued_for_deletion():
-					out.append(v)
-	return out
+	if session == null:
+		return []
+	return session.get_views(kind)
 
 
 ## The instances the MultiMesh views of `kind` draw (0 without one).
@@ -308,8 +302,8 @@ func multi_count(kind: StringName) -> int:
 			mm = (parent as MultiMeshInstance3D).multimesh
 		elif parent is MultiMeshInstance2D:
 			mm = (parent as MultiMeshInstance2D).multimesh
-		if mm != null:
-			count += mm.visible_instance_count
+		if mm != null:  # -1 draws every instance
+			count += mm.instance_count if mm.visible_instance_count < 0 else mm.visible_instance_count
 	return count
 
 
@@ -321,8 +315,8 @@ func setting(key: StringName) -> Variant:
 ## "slot:name, ..." of the present players.
 func player_names() -> String:
 	var out: Array[String] = []
-	for p: Dictionary in game.call(&"present_players"):
-		out.append("%d:%s" % [game.call(&"player_slot", p.player), game.call(&"player_name", p)])
+	for player: int in session.get_players():
+		out.append("%d:%s" % [session.get_player_slot(player), game.call(&"player_name", player)])
 	return ", ".join(out)
 
 
@@ -334,7 +328,7 @@ func _start() -> void:
 		var found := root.find_children("*", "UnifiedSession", true, false)
 		session = found[0] as UnifiedSession if not found.is_empty() else null
 	if frame_log != null and session != null:
-		session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void:
+		session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 			if state == UnifiedSession.EVENT_CONFIRMED:
 				frame_tag(event.get_class()))
 		# A window that loses focus or gets covered can stall a frame in the driver: tag it, not to blame the game.

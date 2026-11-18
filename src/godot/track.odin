@@ -1,4 +1,4 @@
-package view
+package godot
 
 import "core:math"
 
@@ -102,6 +102,22 @@ track_at :: proc(track: ^Track, tick: u32) -> (Pose, bool) {
 // The pose to display: between ticks `tick - 1` and `tick` at `alpha`, plus the decaying correction error.
 // `dt_s` is the render frame's duration (drives the decay).
 track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> Pose {
+	return track_sample_decayed(track, tick, alpha, track_decay(dt_s, smoothing), smoothing)
+}
+
+// How much of a correction is left after a render frame of `dt_s`: the same for every view in a frame.
+track_decay :: proc(dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> f32 {
+	return smoothing.tau_s > 0 ? math.exp(-max(dt_s, 0) / smoothing.tau_s) : 0
+}
+
+// track_sample with the frame's track_decay computed once for all views.
+track_sample_decayed :: proc(
+	track: ^Track,
+	tick: u32,
+	alpha: f32,
+	decay: f32,
+	smoothing := SMOOTHING_DEFAULT,
+) -> Pose {
 	current, ok := track_at(track, tick)
 	if !ok {
 		if track.n == 0 do return track.out
@@ -115,7 +131,6 @@ track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing 
 		}
 	}
 	if smoothing.tau_s > 0 {
-		decay := math.exp(-max(dt_s, 0) / smoothing.tau_s)
 		track.err_pos *= decay
 		track.err_rot = nlerp(IDENTITY, err_rot_or_identity(track), decay)
 		if length(track.err_pos) < 1e-4 do track.err_pos = {}

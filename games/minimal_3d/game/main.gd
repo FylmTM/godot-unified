@@ -5,7 +5,7 @@ extends Node3D
 
 func _ready() -> void:
 	session.sim_event.connect(_on_sim_event)
-	if not session.is_running():
+	if not session.running:
 		session.start_single()
 
 

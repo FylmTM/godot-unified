@@ -115,13 +115,13 @@ GRIP_COLOR :: gd.Color{0.6, 0.65, 0.75, 0.8}
 // Left-button drags on a title bar or grip: `apply` gets each motion (in points).
 @(private)
 drag :: proc(panel: ^Panel, args: []^gd.Variant, active: ^bool, apply: proc(panel: ^Panel, delta: gd.Vector2)) {
-	if mouse_button := event_arg(gd.InputEventMouseButton, args, "InputEventMouseButton"); mouse_button.ptr != nil {
+	if mouse_button := event_arg(gd.InputEventMouseButton, args); mouse_button.ptr != nil {
 		if gd.InputEventMouseButton_get_button_index(mouse_button) != .MOUSE_BUTTON_LEFT do return
 		active^ = gd.InputEvent_is_pressed(mouse_button)
 		if active^ do gd.Node_move_child(s.layer, panel.frame, -1) // raise
 		return
 	}
-	if motion := event_arg(gd.InputEventMouseMotion, args, "InputEventMouseMotion"); motion.ptr != nil && active^ {
+	if motion := event_arg(gd.InputEventMouseMotion, args); motion.ptr != nil && active^ {
 		apply(panel, gd.InputEventMouseMotion_get_relative(motion))
 	}
 }
