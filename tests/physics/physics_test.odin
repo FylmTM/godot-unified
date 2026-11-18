@@ -20,21 +20,21 @@ State :: struct {
 }
 
 make_world :: proc(state: ^State) -> ^physics.World {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	body_def := physics.default_body_def()
-	ground := physics.create_body(world, &body_def)
+	ground := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
-	hull := physics.make_box_hull(10, 0.5, 10)
-	physics.create_hull_shape(world, ground, &shape_def, &hull.base)
+	hull := physics.make_box_hull({10, 0.5, 10})
+	physics.create_hull_shape(world, ground, shape_def, &hull.base)
 	for &crate, i in state.crates {
 		crate_body_def := physics.default_body_def()
 		crate_body_def.type = .Dynamic
 		crate_body_def.position = {f32(i) * 2 - 2, 2 + f32(i), 0}
-		crate.body = physics.create_body(world, &crate_body_def)
-		crate_hull := physics.make_box_hull(0.5, 0.5, 0.5)
+		crate.body = physics.create_body(world, crate_body_def)
+		crate_hull := physics.make_box_hull({0.5, 0.5, 0.5})
 		crate_shape_def := physics.default_shape_def()
 		crate_shape_def.density = 1
-		physics.create_hull_shape(world, crate.body, &crate_shape_def, &crate_hull.base)
+		physics.create_hull_shape(world, crate.body, crate_shape_def, &crate_hull.base)
 	}
 	return world
 }
@@ -56,7 +56,7 @@ save_restore_hash :: proc(t: ^testing.T) {
 	extra.save(extra.data, 0)
 	hash_0 := checksum(&state, &extra)
 	for _ in 0 ..< 30 {
-		physics.step(world, 1.0 / 64, 4)
+		physics.step(world)
 	}
 	hash_30 := checksum(&state, &extra)
 	testing.expect(t, hash_30 != hash_0)
@@ -88,17 +88,17 @@ save_restore_hash :: proc(t: ^testing.T) {
 // Box3D does last in, first out) leaves the new body alone. The release library wouldn't stop it.
 @(test)
 create_body_and_a_stale_destroy :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_def := physics.default_body_def()
 	body_def.type = .Dynamic
-	first := physics.create_body(world, &body_def)
+	first := physics.create_body(world, body_def)
 	testing.expect(t, physics.body_valid(world, physics.link(first)))
 	testing.expect_value(t, physics.body_type(world, first), physics.Body_Type.Dynamic)
 	stale := first
 	physics.destroy_body(world, &first)
 	testing.expect(t, first == physics.Body_Ref{})
-	second := physics.create_body(world, &body_def)
+	second := physics.create_body(world, body_def)
 	testing.expect_value(t, second.index1, stale.index1)
 	testing.expect(t, !physics.body_valid(world, physics.link(stale)))
 	physics.destroy_body(world, &stale)

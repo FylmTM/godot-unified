@@ -132,11 +132,65 @@ body_apply_angular_impulse_2d :: proc(world: ^World, ref: Body_Ref, impulse: f32
 	box3d.Body_ApplyAngularImpulse(body_id(world, ref), transmute(box3d.Vec3)[3]f32{0, 0, impulse}, wake)
 }
 
+// A plane-locked body (body_def_2d) with one circle of `radius` at its origin.
+create_circle_2d :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	radius: f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	Body_Ref,
+	Shape_Ref,
+) {
+	ref := create_body(world, body, tag, loc)
+	return ref, create_circle_shape_2d(world, ref, shape, radius, loc = loc)
+}
+
+// A plane-locked body with one box centred on it, `depth` thick along z.
+create_box_2d :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	half: [2]f32,
+	depth: f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	Body_Ref,
+	Shape_Ref,
+) {
+	ref := create_body(world, body, tag, loc)
+	return ref, create_box_shape_2d(world, ref, shape, half, depth, loc)
+}
+
+// A plane-locked body with one convex polygon (create_polygon_shape_2d). Not ok: the polygon can't be built, and no
+// body was made.
+create_polygon_2d :: proc(
+	world: ^World,
+	body: Body_Def,
+	shape: Shape_Def,
+	points: [][2]f32,
+	depth: f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) -> (
+	ref: Body_Ref,
+	shape_ref: Shape_Ref,
+	ok: bool,
+) {
+	ref = create_body(world, body, tag, loc)
+	shape_ref, ok = create_polygon_shape_2d(world, ref, shape, points, depth, loc)
+	if !ok do destroy_body(world, &ref)
+	return
+}
+
 // A circle: a sphere centred in the plane.
 create_circle_shape_2d :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	radius: f32,
 	center := [2]f32{},
 	loc := #caller_location,
@@ -148,7 +202,7 @@ create_circle_shape_2d :: proc(
 create_box_shape_2d :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	half: [2]f32,
 	depth: f32,
 	loc := #caller_location,
@@ -162,7 +216,7 @@ create_box_shape_2d :: proc(
 create_polygon_shape_2d :: proc(
 	world: ^World,
 	ref: Body_Ref,
-	def: ^Shape_Def,
+	def: Shape_Def,
 	points: [][2]f32,
 	depth: f32,
 	loc := #caller_location,

@@ -413,7 +413,9 @@ Signed off in the #10 sitting (D9). Built in this order: F3 notes that replay (d
 
 ## Library tooling
 
-`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there): `tool.gd`
+`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there): `level_export.gd`
+(`uni bake`'s level exporter, `src/level/SPEC.md`; a plain SceneTree script, since it also runs without unified's
+extension), `tool.gd`
 (`UnifiedTool`, the base of every tool script `uni tool` runs: the `UNIFIED_RESULT` line, the strict error and
 warning judgement, waits, real input events, screenshots, `--frames`) with `log_capture.gd` and `frame_log.gd`, and
 `validate.gd` (the godot suite's `validate` step: every script compiles with warnings as errors, every scene loads

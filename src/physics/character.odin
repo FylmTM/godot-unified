@@ -228,16 +228,16 @@ character_update :: proc(
 	move: [2]f32,
 	jump: bool,
 	speed_scale: f32,
-	dt: f32,
 ) -> (
 	jumped: bool,
 ) {
+	dt := world.dt
 	if .Limp in character.flags do return false
 	body := body_id(world, character.body)
 
 	// Jump (from the previous update's ground state), with coyote time and a buffer.
 	if jump {
-		character.jump_buffer = ticks_u16(def.jump_buffer_s, dt)
+		character.jump_buffer = ticks_u16(def.jump_buffer_s, world.tick_hz)
 	}
 	if character.jump_buffer > 0 && character.coyote > 0 && .Jumping not_in character.flags {
 		surface_vy: f32 = 0
@@ -322,7 +322,7 @@ character_update :: proc(
 		character.time_sliding = max(character.time_sliding - dt, 0)
 	}
 	if .On_Ground in character.flags && .Walkable in character.flags {
-		character.coyote = ticks_u16(def.coyote_s, dt)
+		character.coyote = ticks_u16(def.coyote_s, world.tick_hz)
 	} else if character.coyote > 0 {
 		character.coyote -= 1
 	}
@@ -442,9 +442,8 @@ character_update :: proc(
 	return
 }
 
-// Seconds as whole ticks of `dt` (sim.ticks: rounded), clamped to u16.
+// Seconds as whole ticks (sim.ticks: rounded), clamped to u16.
 @(private)
-ticks_u16 :: proc(seconds, dt: f32) -> u16 {
-	tick_hz := int(dmath.to_i32_clamped(1 / dt + 0.5, 1, 1 << 20))
+ticks_u16 :: proc(seconds: f32, tick_hz: int) -> u16 {
 	return u16(min(sim.ticks(seconds, tick_hz), u32(max(u16))))
 }

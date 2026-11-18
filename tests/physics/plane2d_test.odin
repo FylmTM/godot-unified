@@ -26,11 +26,13 @@ arena_walls :: proc(world: ^physics.World, half: [2]f32) {
 		{{half.x + HALF_THICK, 0}, {HALF_THICK, half.y}},
 	}
 	for wall in walls {
-		body_def := physics.body_def_2d(.Static, wall[0])
-		id := physics.create_body(world, &body_def)
-		shape_def := physics.default_shape_def()
-		shape_def.filter.category = CAT_STATIC
-		physics.create_box_shape_2d(world, id, &shape_def, wall[1], DEPTH_2D)
+		physics.create_box_2d(
+			world,
+			physics.body_def_2d(.Static, wall[0]),
+			physics.shape_def(CAT_STATIC),
+			wall[1],
+			DEPTH_2D,
+		)
 	}
 }
 
@@ -42,37 +44,32 @@ rock_body :: proc(world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: 
 	body_def := physics.body_def_2d(.Dynamic, pos, rot)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
 	body_def.angular_velocity = {0, 0, ang}
-	id := physics.create_body(world, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = CAT_ROCK
 	scaled: [len(ROCK_POINTS)][2]f32
 	for point, i in ROCK_POINTS {
 		scaled[i] = point * ROCK_RADIUS[size]
 	}
-	_, ok := physics.create_polygon_shape_2d(world, id, &shape_def, scaled[:], DEPTH_2D)
+	ref, _, ok := physics.create_polygon_2d(world, body_def, physics.shape_def(CAT_ROCK), scaled[:], DEPTH_2D)
 	assert(ok)
-	return id
+	return ref
 }
 
 circle_body :: proc(
 	world: ^physics.World,
 	pos, vel: [2]f32,
 	radius: f32,
-	cat := CAT_SHIP,
+	category := CAT_SHIP,
 	restitution: f32 = 0,
 ) -> physics.Body_Ref {
 	body_def := physics.body_def_2d(.Dynamic, pos)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
-	id := physics.create_body(world, &body_def)
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = cat
+	shape_def := physics.shape_def(category)
 	shape_def.base_material.restitution = restitution
-	physics.create_circle_shape_2d(world, id, &shape_def, radius)
-	return id
+	ref, _ := physics.create_circle_2d(world, body_def, shape_def, radius)
+	return ref
 }
 
 zero_g :: proc(workers: i32 = 1) -> ^physics.World {
-	return physics.create({gravity = [3]f32{0, 0, 0}, workers = workers})
+	return physics.create({tick_hz = HZ, gravity = [3]f32{0, 0, 0}, workers = workers})
 }
 
 // Whether a dynamic body sits exactly on the plane: z, and the quaternion's x and y, are zero (±0).
@@ -126,15 +123,9 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 			case .Box:
 				body_def := physics.body_def_2d(.Dynamic, pos, rot)
 				body_def.linear_velocity = {vel.x, vel.y, 0}
-				id := physics.create_body(world, &body_def)
+				id := physics.create_body(world, body_def)
 				shape_def := physics.default_shape_def()
-				physics.create_box_shape_2d(
-					world,
-					id,
-					&shape_def,
-					{rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)},
-					DEPTH_2D,
-				)
+				physics.create_box_shape_2d(world, id, shape_def, {rnd(&rng, 0.3, 0.8), rnd(&rng, 0.2, 0.6)}, DEPTH_2D)
 				item.body = id
 			case .Rock:
 				item.body = rock_body(world, pos, rot, vel, ang, 1 + u32(grid_x % 3))
@@ -262,9 +253,9 @@ forces_and_impulses_2d :: proc(t: ^testing.T) {
 	world := zero_g()
 	defer physics.destroy(world)
 	body_def := physics.body_def_2d(.Dynamic, {0, 0})
-	body := physics.create_body(world, &body_def)
+	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
-	physics.create_circle_shape_2d(world, body, &shape_def, 1)
+	physics.create_circle_shape_2d(world, body, shape_def, 1)
 	mass := physics.body_mass(world, body)
 	physics.body_set_transform_2d(world, body, {3, 4}, {0, 1})
 	pos, rot := physics.body_position_2d(world, body), physics.body_rotation_2d(world, body)
@@ -290,7 +281,7 @@ forces_and_impulses_2d :: proc(t: ^testing.T) {
 	physics.body_set_linear_velocity_2d(world, body, {})
 	physics.body_set_angular_velocity_2d(world, body, 0)
 	physics.body_apply_force_to_center_2d(world, body, {mass / DT, 0})
-	physics.step(world, DT, 4)
+	physics.step(world)
 	testing.expectf(
 		t,
 		near(physics.body_linear_velocity(world, body), {1, 0, 0}, 1e-3),
@@ -299,12 +290,12 @@ forces_and_impulses_2d :: proc(t: ^testing.T) {
 	)
 	physics.body_set_linear_velocity_2d(world, body, {})
 	physics.body_apply_torque_2d(world, body, -1)
-	physics.step(world, DT, 4)
+	physics.step(world)
 	testing.expectf(t, physics.body_angular_velocity_2d(world, body) < 0, "torque")
 	center := physics.body_position_2d(world, body)
 	physics.body_set_angular_velocity_2d(world, body, 0)
 	physics.body_apply_force_2d(world, body, {0, -mass / DT}, center + {1, 0}) // −y at the +x edge: clockwise
-	physics.step(world, DT, 4)
+	physics.step(world)
 	testing.expectf(t, physics.body_angular_velocity_2d(world, body) < 0, "force off the centre")
 	testing.expectf(t, physics.body_linear_velocity_2d(world, body).y < -0.9, "force off the centre")
 	testing.expect(t, on_plane(world, body) && in_plane_velocity(world, body))
@@ -318,14 +309,14 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	shape_def.density = 2
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
 	circle_body_def := physics.body_def_2d(.Dynamic, {0, 0})
-	circle := physics.create_body(world, &circle_body_def)
-	physics.create_circle_shape_2d(world, circle, &shape_def, 1)
+	circle := physics.create_body(world, circle_body_def)
+	physics.create_circle_shape_2d(world, circle, shape_def, 1)
 	box_body_def := physics.body_def_2d(.Dynamic, {5, 0})
-	box_body := physics.create_body(world, &box_body_def)
-	physics.create_box_shape_2d(world, box_body, &shape_def, {1, 0.5}, 0.4)
+	box_body := physics.create_body(world, box_body_def)
+	physics.create_box_shape_2d(world, box_body, shape_def, {1, 0.5}, 0.4)
 	tri_body_def := physics.body_def_2d(.Dynamic, {10, 0}, {0, 1})
-	tri := physics.create_body(world, &tri_body_def)
-	_, ok := physics.create_polygon_shape_2d(world, tri, &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
+	tri := physics.create_body(world, tri_body_def)
+	_, ok := physics.create_polygon_shape_2d(world, tri, shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
 	testing.expectf(
 		t,
@@ -369,12 +360,12 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(lin.x - 2) < 1e-5 && abs(lin.y - 1) < 1e-5, "after the impulse %v", lin)
 
 	// polygon_2d refuses what has no area or too many points.
-	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, {{0, 0}, {1, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, shape_def, {{0, 0}, {1, 0}}, 1)
 	testing.expect(t, !ok)
-	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, shape_def, {{0, 0}, {1, 0}, {2, 0}}, 1)
 	testing.expect(t, !ok, "collinear points made a hull")
 	many: [physics.POLYGON_2D_MAX + 1][2]f32
-	_, ok = physics.create_polygon_shape_2d(world, tri, &shape_def, many[:], 1)
+	_, ok = physics.create_polygon_shape_2d(world, tri, shape_def, many[:], 1)
 	testing.expect(t, !ok)
 }
 

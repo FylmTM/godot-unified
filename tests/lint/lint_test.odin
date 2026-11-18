@@ -25,8 +25,9 @@ RULES := []Rule {
 	// caller's context through Box3D's C callbacks and walks RTTI (base:runtime), and serializes Box3D world creation
 	// across threads with world_mutex (core:sync; b3CreateWorld), which no tick touches.
 	{pkg = "physics", kind = .Tick, imports = PHYSICS_IMPORTS, allow_globals = {"world_mutex"}},
-	// Levels: parsed when a World is created; plain data, through unified:wire.
-	{pkg = "level", kind = .Tick, imports = {"unified:wire"}},
+	// Levels: parsed when a World is created; plain data, through unified:wire; the Level keeps its allocator
+	// (base:runtime).
+	{pkg = "level", kind = .Tick, imports = {"unified:wire", "base:runtime"}},
 	// The harness: also walks RTTI, hashes and formats errors.
 	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS},
 	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK

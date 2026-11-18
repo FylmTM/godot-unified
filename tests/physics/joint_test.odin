@@ -10,13 +10,9 @@ import "unified:physics"
 
 // A sphere body (radius 0.25, density 1) at `pos`: bodies 1 m apart don't touch.
 joint_body :: proc(world: ^physics.World, pos: [3]f32, type: physics.Body_Type = .Dynamic) -> physics.Body_Ref {
-	body_def := physics.default_body_def()
-	body_def.type = type
-	body_def.position = pos
-	ref := physics.create_body(world, &body_def)
 	shape_def := physics.default_shape_def()
 	shape_def.density = 1
-	physics.create_sphere_shape(world, ref, &shape_def, {radius = 0.25})
+	ref, _ := physics.create_sphere(world, physics.body_def(type, pos), shape_def, 0.25)
 	return ref
 }
 
@@ -42,7 +38,7 @@ JOINT_FRAME_AT_B :: physics.Transform{{1, 0, 0}, {0, 0, 0, 1}}
 // second: each is alive, of its type, on its bodies; the rigid ones hold B, the filter joint lets it fall.
 @(test)
 joint_every_type_steps :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	anchor := physics.world_anchor(world)
 	testing.expect(t, physics.body_valid(world, anchor))
@@ -50,27 +46,27 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 	distance_a, distance_b := joint_pair(world, {0, 5, 0})
 	distance_def := physics.default_distance_joint_def()
 	distance_def.length = 1
-	distance := physics.create_distance_joint(world, physics.link(distance_a), physics.link(distance_b), &distance_def)
+	distance := physics.create_distance_joint(world, physics.link(distance_a), physics.link(distance_b), distance_def)
 
 	filter_a, filter_b := joint_pair(world, {4, 5, 0})
 	filter_def := physics.default_filter_joint_def()
-	filter := physics.create_filter_joint(world, physics.link(filter_a), physics.link(filter_b), &filter_def)
+	filter := physics.create_filter_joint(world, physics.link(filter_a), physics.link(filter_b), filter_def)
 
 	motor_b := joint_body(world, {8, 5, 0})
 	motor_def := physics.default_motor_joint_def()
-	motor := physics.create_motor_joint(world, anchor, physics.link(motor_b), &motor_def)
+	motor := physics.create_motor_joint(world, anchor, physics.link(motor_b), motor_def)
 
 	mover_b := joint_body(world, {12, 5, 0})
 	mover_def := physics.default_mover_joint_def()
-	mover := physics.create_mover_joint(world, anchor, physics.link(mover_b), &mover_def)
+	mover := physics.create_mover_joint(world, anchor, physics.link(mover_b), mover_def)
 
 	parallel_a, parallel_b := joint_pair(world, {16, 5, 0})
 	parallel_def := physics.default_parallel_joint_def()
-	parallel := physics.create_parallel_joint(world, physics.link(parallel_a), physics.link(parallel_b), &parallel_def)
+	parallel := physics.create_parallel_joint(world, physics.link(parallel_a), physics.link(parallel_b), parallel_def)
 
 	pogo_b := joint_body(world, {20, 5, 0})
 	pogo_def := physics.default_pogo_joint_def()
-	pogo := physics.create_pogo_joint(world, anchor, physics.link(pogo_b), &pogo_def)
+	pogo := physics.create_pogo_joint(world, anchor, physics.link(pogo_b), pogo_def)
 
 	prismatic_a, prismatic_b := joint_pair(world, {24, 5, 0})
 	prismatic_def := physics.default_prismatic_joint_def()
@@ -79,13 +75,13 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 		world,
 		physics.link(prismatic_a),
 		physics.link(prismatic_b),
-		&prismatic_def,
+		prismatic_def,
 	)
 
 	revolute_a, revolute_b := joint_pair(world, {28, 5, 0})
 	revolute_def := physics.default_revolute_joint_def()
 	revolute_def.base.local_frame_a = JOINT_FRAME_AT_B
-	revolute := physics.create_revolute_joint(world, physics.link(revolute_a), physics.link(revolute_b), &revolute_def)
+	revolute := physics.create_revolute_joint(world, physics.link(revolute_a), physics.link(revolute_b), revolute_def)
 
 	spherical_a, spherical_b := joint_pair(world, {32, 5, 0})
 	spherical_def := physics.default_spherical_joint_def()
@@ -94,18 +90,18 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 		world,
 		physics.link(spherical_a),
 		physics.link(spherical_b),
-		&spherical_def,
+		spherical_def,
 	)
 
 	weld_a, weld_b := joint_pair(world, {36, 5, 0})
 	weld_def := physics.default_weld_joint_def()
 	weld_def.base.local_frame_a = JOINT_FRAME_AT_B
-	weld := physics.create_weld_joint(world, physics.link(weld_a), physics.link(weld_b), &weld_def)
+	weld := physics.create_weld_joint(world, physics.link(weld_a), physics.link(weld_b), weld_def)
 
 	wheel_a, wheel_b := joint_pair(world, {40, 5, 0})
 	wheel_def := physics.default_wheel_joint_def()
 	wheel_def.base.local_frame_a = JOINT_FRAME_AT_B
-	wheel := physics.create_wheel_joint(world, physics.link(wheel_a), physics.link(wheel_b), &wheel_def)
+	wheel := physics.create_wheel_joint(world, physics.link(wheel_a), physics.link(wheel_b), wheel_def)
 
 	steps(world, 32)
 
@@ -159,11 +155,11 @@ joint_every_type_steps :: proc(t: ^testing.T) {
 // joint_as converts an untyped ref to its own type only, and never a zero or dead one.
 @(test)
 joint_as_checks_the_type :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_revolute_joint_def()
-	hinge := physics.create_revolute_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	hinge := physics.create_revolute_joint(world, physics.link(body_a), physics.link(body_b), def)
 	untyped := hinge.joint
 	as_revolute, is_revolute := physics.joint_as(world, untyped, physics.Revolute_Joint_Ref)
 	testing.expect(t, is_revolute)
@@ -180,13 +176,13 @@ joint_as_checks_the_type :: proc(t: ^testing.T) {
 // The generic procs, on a typed ref and an untyped one alike.
 @(test)
 joint_generic_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {0, 5, 0})
 	// The weld point is A's origin, 1 m from B's centre: it holds B's weight with a force and a torque.
 	def := physics.default_weld_joint_def()
 	def.base.local_frame_b = {{-1, 0, 0}, {0, 0, 0, 1}}
-	weld := physics.create_weld_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	weld := physics.create_weld_joint(world, physics.link(body_a), physics.link(body_b), def)
 	untyped := weld.joint
 
 	frame_a := physics.Transform{{0.5, 0, 0}, {0, 0, 0, 1}}
@@ -233,12 +229,12 @@ joint_generic_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_distance_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {0, 5, 0})
 	def := physics.default_distance_joint_def()
 	def.length = 1
-	joint := physics.create_distance_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_distance_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.distance_joint_set_length(world, joint, 1.5)
 	testing.expect_value(t, physics.distance_joint_length(world, joint), 1.5)
 	physics.distance_joint_enable_spring(world, joint, false)
@@ -278,11 +274,11 @@ joint_distance_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_motor_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_motor_joint_def()
-	joint := physics.create_motor_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_motor_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.motor_joint_set_linear_velocity(world, joint, {1, 0, 0})
 	testing.expect_value(t, physics.motor_joint_linear_velocity(world, joint), [3]f32{1, 0, 0})
 	physics.motor_joint_set_angular_velocity(world, joint, {0, 1, 0})
@@ -307,11 +303,11 @@ joint_motor_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_mover_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body := joint_body(world, {0, 1, 0})
 	def := physics.default_mover_joint_def()
-	joint := physics.create_mover_joint(world, physics.world_anchor(world), physics.link(body), &def)
+	joint := physics.create_mover_joint(world, physics.world_anchor(world), physics.link(body), def)
 	physics.mover_joint_set_linear_velocity(world, joint, {0, 0, 2})
 	testing.expect_value(t, physics.mover_joint_linear_velocity(world, joint), [3]f32{0, 0, 2})
 	physics.mover_joint_set_max_velocity_force(world, joint, 75)
@@ -320,11 +316,11 @@ joint_mover_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_parallel_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_parallel_joint_def()
-	joint := physics.create_parallel_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_parallel_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.parallel_joint_set_spring_hertz(world, joint, 2)
 	testing.expect_value(t, physics.parallel_joint_spring_hertz(world, joint), 2)
 	physics.parallel_joint_set_spring_damping_ratio(world, joint, 0.5)
@@ -335,13 +331,13 @@ joint_parallel_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_pogo_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body := joint_body(world, {0, 1, 0})
 	def := physics.default_pogo_joint_def()
 	def.rest_length = 1
 	def.max_compression_force = 1000
-	joint := physics.create_pogo_joint(world, physics.world_anchor(world), physics.link(body), &def)
+	joint := physics.create_pogo_joint(world, physics.world_anchor(world), physics.link(body), def)
 	physics.pogo_joint_set_rest_length(world, joint, 0.8)
 	testing.expect_value(t, physics.pogo_joint_rest_length(world, joint), 0.8)
 	physics.pogo_joint_set_spring_hertz(world, joint, 3)
@@ -362,12 +358,12 @@ joint_pogo_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_prismatic_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {0, 5, 0})
 	def := physics.default_prismatic_joint_def()
 	def.base.local_frame_a = JOINT_FRAME_AT_B
-	joint := physics.create_prismatic_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_prismatic_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.prismatic_joint_enable_spring(world, joint, false)
 	testing.expect(t, !physics.prismatic_joint_is_spring_enabled(world, joint))
 	physics.prismatic_joint_enable_spring(world, joint, true)
@@ -403,12 +399,12 @@ joint_prismatic_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_revolute_procs :: proc(t: ^testing.T) {
-	world := physics.create({gravity = [3]f32{}})
+	world := physics.create({tick_hz = HZ, gravity = [3]f32{}})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_revolute_joint_def()
 	def.base.local_frame_a = JOINT_FRAME_AT_B
-	joint := physics.create_revolute_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_revolute_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.revolute_joint_enable_spring(world, joint, true)
 	testing.expect(t, physics.revolute_joint_is_spring_enabled(world, joint))
 	physics.revolute_joint_enable_spring(world, joint, false)
@@ -444,12 +440,12 @@ joint_revolute_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_spherical_procs :: proc(t: ^testing.T) {
-	world := physics.create({gravity = [3]f32{}})
+	world := physics.create({tick_hz = HZ, gravity = [3]f32{}})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_spherical_joint_def()
 	def.base.local_frame_a = JOINT_FRAME_AT_B
-	joint := physics.create_spherical_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_spherical_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.spherical_joint_enable_cone_limit(world, joint, false)
 	testing.expect(t, !physics.spherical_joint_is_cone_limit_enabled(world, joint))
 	physics.spherical_joint_enable_cone_limit(world, joint, true)
@@ -499,11 +495,11 @@ joint_spherical_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_weld_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {})
 	def := physics.default_weld_joint_def()
-	joint := physics.create_weld_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_weld_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.weld_joint_set_linear_hertz(world, joint, 5)
 	testing.expect_value(t, physics.weld_joint_linear_hertz(world, joint), 5)
 	physics.weld_joint_set_linear_damping_ratio(world, joint, 0.7)
@@ -516,12 +512,12 @@ joint_weld_procs :: proc(t: ^testing.T) {
 
 @(test)
 joint_wheel_procs :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	body_a, body_b := joint_pair(world, {0, 5, 0})
 	def := physics.default_wheel_joint_def()
 	def.base.local_frame_a = JOINT_FRAME_AT_B
-	joint := physics.create_wheel_joint(world, physics.link(body_a), physics.link(body_b), &def)
+	joint := physics.create_wheel_joint(world, physics.link(body_a), physics.link(body_b), def)
 	physics.wheel_joint_enable_suspension(world, joint, false)
 	testing.expect(t, !physics.wheel_joint_is_suspension_enabled(world, joint))
 	physics.wheel_joint_enable_suspension(world, joint, true)
@@ -594,7 +590,7 @@ Joint_Block :: struct {
 // save are back, alive and with their settings, after the restore, and the new joint is gone.
 @(test)
 joint_save_restore :: proc(t: ^testing.T) {
-	world := physics.create()
+	world := physics.create({tick_hz = HZ})
 	defer physics.destroy(world)
 	block: Joint_Block
 	extra := physics.extra(world, Joint_Block)
@@ -606,10 +602,10 @@ joint_save_restore :: proc(t: ^testing.T) {
 	hinge_def.enable_motor = true
 	hinge_def.max_motor_torque = 100
 	hinge_def.motor_speed = 2
-	block.hinge = physics.create_revolute_joint(world, physics.link(block.base), physics.link(block.arm), &hinge_def)
+	block.hinge = physics.create_revolute_joint(world, physics.link(block.base), physics.link(block.arm), hinge_def)
 	rope_def := physics.default_distance_joint_def()
 	rope_def.length = 1.5
-	block.rope = physics.create_distance_joint(world, physics.link(block.base), physics.link(block.bob), &rope_def)
+	block.rope = physics.create_distance_joint(world, physics.link(block.base), physics.link(block.bob), rope_def)
 	steps(world, 4)
 	testing.expect_value(t, extra.check(extra.data, &block), "")
 	extra.save(extra.data, 0)
@@ -619,7 +615,7 @@ joint_save_restore :: proc(t: ^testing.T) {
 	stale_rope := block.rope
 	physics.destroy_joint(world, &block.rope)
 	weld_def := physics.default_weld_joint_def()
-	weld := physics.create_weld_joint(world, physics.link(block.arm), physics.link(block.bob), &weld_def)
+	weld := physics.create_weld_joint(world, physics.link(block.arm), physics.link(block.bob), weld_def)
 	testing.expect_value(t, weld.index1, stale_rope.index1) // Box3D reused the index
 	testing.expect(t, !physics.joint_valid(world, stale_rope))
 	physics.revolute_joint_set_motor_speed(world, block.hinge, -5)

@@ -115,11 +115,11 @@ path_sample :: proc(path: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
 }
 
 // Sets a kinematic body's velocity so the next step lands it on `target`, measured from where it
-// is now: no drift, and exactly still during waits. `tick_hz` is the step rate.
-drive_kinematic :: proc(world: ^World, ref: Body_Ref, target: [3]f32, tick_hz: int) {
+// is now: no drift, and exactly still during waits.
+drive_kinematic :: proc(world: ^World, ref: Body_Ref, target: [3]f32) {
 	id := body_id(world, ref)
 	pos := transmute([3]f32)box3d.Body_GetPosition(id)
-	hz := f32(tick_hz)
+	hz := f32(world.tick_hz)
 	box3d.Body_SetLinearVelocity(
 		id,
 		transmute(box3d.Vec3)[3]f32{(target.x - pos.x) * hz, (target.y - pos.y) * hz, (target.z - pos.z) * hz},

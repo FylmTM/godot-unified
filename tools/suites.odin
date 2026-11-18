@@ -248,6 +248,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			cli.fatal("building %s failed", cli.rel(started.build.pkg))
 		}
 	}
+	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first)
+	cli.ensure_imported(projects[0].dir)
 	// One more run beside them: a script error under the debugger (-d, as `uni tool` runs headless) must end the run
 	// at once through the `quit` on its stdin, with the error printed (tests/godot/debugger_error.gd).
 	runs := make([]cli.Run, len(projects) + 1)

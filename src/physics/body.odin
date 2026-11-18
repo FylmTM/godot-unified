@@ -373,13 +373,24 @@ body_name :: proc(world: ^World, ref: Body_Ref) -> cstring {
 	return box3d.Body_GetName(body_id(world, ref))
 }
 
+// A body definition: Box3D's default with its type and pose (the rotation x, y, z, w; identity by default). Set any
+// other field before create_body.
+body_def :: proc(type: Body_Type, position: [3]f32, rotation := [4]f32{0, 0, 0, 1}) -> Body_Def {
+	def := default_body_def()
+	def.type = type
+	def.position = position
+	def.rotation = rotation
+	return def
+}
+
 // Creates a body from a definition and returns the block's reference to it, tagged `tag` (the game's: an entity's
 // handle_key, a player's player_key; every query and event reports it). Box3D hands out indices in creation order,
 // so a game creates the bodies its block owns in a fixed order. The def's user_data stays unset (a pointer); a name
 // is copied into the world (its state: hashed, imaged).
-create_body :: proc(world: ^World, def: ^Body_Def, tag: u64 = 0, loc := #caller_location) -> Body_Ref {
+create_body :: proc(world: ^World, def: Body_Def, tag: u64 = 0, loc := #caller_location) -> Body_Ref {
+	def := def
 	assert(def.user_data == nil, "physics: a body def's user_data stays unset (a pointer in rollback state)", loc)
-	id := box3d.CreateBody(world.id, (^box3d.BodyDef)(def))
+	id := box3d.CreateBody(world.id, (^box3d.BodyDef)(&def))
 	body_created(world, id, tag)
 	return ref_of(id)
 }

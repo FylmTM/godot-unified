@@ -31,11 +31,7 @@ round_trip_2d :: proc(t: ^testing.T) {
 		},
 	}
 	props := []level.Prop {
-		{
-			key  = "dir",
-			type = .Vec3,
-			v    = {1.5, -2, 0},
-		},
+		{key = "dir", value = [3]f32{1.5, -2, 0}},
 	}
 	markers := []level.Marker {
 		{
@@ -46,7 +42,7 @@ round_trip_2d :: proc(t: ^testing.T) {
 			props = props,
 		},
 	}
-	data := level.encode(bodies, markers, 64)
+	data := encode(bodies, markers, 64)
 	defer delete(data)
 	loaded, ok := level.load(data)
 	defer level.destroy(&loaded)
@@ -57,7 +53,7 @@ round_trip_2d :: proc(t: ^testing.T) {
 	testing.expect(t, level.prop_vec2(marker, "dir") == {1.5, -2})
 	testing.expect(t, level.prop_vec3(marker, "dir") == {1.5, -2, 0})
 	testing.expect(t, level.prop_vec2(marker, "nope", {7, 8}) == {7, 8})
-	again := level.encode(loaded.bodies, loaded.markers, loaded.px_per_m)
+	again := encode(loaded.bodies, loaded.markers, loaded.px_per_m)
 	defer delete(again)
 	testing.expect(t, string(again) == string(data))
 }
@@ -191,10 +187,9 @@ create_static_2d :: proc(t: ^testing.T) {
 	defer level.destroy(&loaded)
 	testing.expect(t, ok)
 	if !ok do return
-	world := physics.create()
+	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
-	count, problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, count, 4)
+	problem := physics.create_static(world, &loaded)
 	testing.expect_value(t, problem, "")
 	// A ray into the plane (+z) at (x, y): the front face it hits (z = -depth/2 for boxes and hulls).
 	front :: proc(world: ^physics.World, x, y: f32) -> (z: f32, hit: physics.Hit, ok: bool) {

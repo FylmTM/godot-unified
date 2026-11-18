@@ -44,7 +44,7 @@ tick :: proc(t: ^Tick) {
 	sys_projectiles(t.state, t.world, t.number, t.dt)
 	sys_barrels(t)
 	sys_deaths(t)
-	physics.step(t.world.phys, t.dt, SUBSTEPS)
+	physics.step(t.world.phys)
 	read_back(t.state, t.world)
 	sys_phase(t)
 }

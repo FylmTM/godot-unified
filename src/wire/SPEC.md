@@ -10,12 +10,12 @@ snapshots, netcode messages.
 ```odin
 Writer { buf: [dynamic]u8 }
 writer_make(cap := 256, allocator := context.allocator) -> Writer
-w_bytes(^Writer, []u8)    w_u8 / w_u16 / w_u32 / w_u64(^Writer, v)       // appended little-endian
+w_bytes(^Writer, []u8)    w_u8 / w_u16 / w_u32 / w_u64 / w_f32(^Writer, v) // appended little-endian (f32: its bits)
 
 Reader { data: []u8, pos: int, ok: bool }
 reader_make([]u8) -> Reader
 r_bytes(^Reader, n) -> []u8                // a view into data; nil when fewer than n bytes are left
-r_u8 / r_u16 / r_u32 / r_u64(^Reader) -> v // 0 when short
+r_u8 / r_u16 / r_u32 / r_u64 / r_f32(^Reader) -> v // 0 when short
 r_remaining(^Reader) -> int                // bytes left after pos
 ```
 

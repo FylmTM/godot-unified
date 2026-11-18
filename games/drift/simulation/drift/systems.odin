@@ -13,7 +13,7 @@ tick :: proc(t: ^Tick) {
 	for ship, player in sim.next(&ships) do pilot(t, ship, player)
 	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
 	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, t.state.phase == .Over ? 0 : STATION_SPIN)
-	physics.step(t.world.phys, t.dt, SUBSTEPS)
+	physics.step(t.world.phys)
 	move_bullets(t)
 	update_rocks(t)
 	warp_ships(t)

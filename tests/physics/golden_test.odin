@@ -44,7 +44,7 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	ground(world)
 	box(world, {-4, 0.15, 0}, {1, 0.15, 1}) // a 0.3 m step on the walker's way
 	state: Golden
-	state.platform = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, cat = CAT_PLATFORM)
+	state.platform, _ = box(world, RIG_PATH.points[0], {1.5, 0.25, 1.5}, .Kinematic, category = CAT_PLATFORM)
 	physics.character_create(world, &state.rider, character_def(), {0, 1.6, 6})
 	physics.character_create(world, &state.walker, character_def(), {-8, 1.5, 0})
 	physics.character_create(world, &state.target, character_def(), {4, 1.5, -2})
@@ -55,15 +55,15 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	jumped, rode := false, true
 	target_x0: f32
 	for tick in 1 ..= GOLDEN_TICKS {
-		physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, u32(tick), HZ), HZ)
-		physics.character_update(world, &state.rider, character_def(), {}, false, 1, DT)
+		physics.drive_kinematic(world, state.platform, physics.path_sample(&RIG_PATH, u32(tick), HZ))
+		physics.character_update(world, &state.rider, character_def(), {}, false, 1)
 		// The walker heads +x over the step, jumps twice, then turns back.
 		walk := tick < 300 ? [2]f32{0.6, 0} : [2]f32{-0.6, 0.3}
-		physics.character_update(world, &state.walker, character_def(), walk, tick == 160 || tick == 360, 1, DT)
-		physics.character_update(world, &state.target, character_def(), {}, false, 1, DT)
+		physics.character_update(world, &state.walker, character_def(), walk, tick == 160 || tick == 360, 1)
+		physics.character_update(world, &state.target, character_def(), {}, false, 1)
 		if tick == 64 {
 			// A heavy box (about the character's mass) at 14 m/s: the drive's force cap gives way.
-			state.thrown = box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic, cat = CAT_BOX, density = 400)
+			state.thrown, _ = box(world, {1, 1.4, -2}, {0.3, 0.3, 0.3}, .Dynamic, category = CAT_BOX, density = 400)
 			physics.body_set_linear_velocity(world, state.thrown, {14, 0, 0})
 			target_x0 = physics.body_position(world, state.target.body).x
 		}

@@ -44,11 +44,11 @@ geometry_hulls :: proc(t: ^testing.T) {
 
 	cube := physics.make_cube_hull(0.5)
 	testing.expect(t, near_f32(cube.base.volume, 1, 1e-4))
-	box := physics.make_box_hull(1, 2, 3)
+	box := physics.make_box_hull({1, 2, 3})
 	testing.expect(t, near_f32(box.base.volume, 48, 1e-3))
-	offset := physics.make_offset_box_hull(1, 1, 1, {0, 3, 0})
+	offset := physics.make_offset_box_hull({1, 1, 1}, {0, 3, 0})
 	testing.expect(t, near(api_vec(offset.base.center), {0, 3, 0}))
-	transformed := physics.make_transformed_box_hull(1, 1, 1, {{0, 0, 4}, QUARTER_Y})
+	transformed := physics.make_transformed_box_hull({1, 1, 1}, {{0, 0, 4}, QUARTER_Y})
 	testing.expect(t, near(api_vec(transformed.base.center), {0, 0, 4}))
 	scaled := physics.make_scaled_box_hull({1, 1, 1}, {{1, 0, 0}, {0, 0, 0, 1}}, {2, 1, 1})
 	testing.expectf(
@@ -78,7 +78,7 @@ geometry_meshes :: proc(t: ^testing.T) {
 	def := physics.make_mesh_def(vertices, indices, materials)
 	testing.expect(t, def.vertex_count == 5 && def.triangle_count == 3)
 	degenerate: [4]i32
-	mesh := physics.create_mesh(&def, degenerate[:])
+	mesh := physics.create_mesh(def, degenerate[:])
 	testing.expect(t, mesh != nil)
 	if mesh == nil do return
 	defer physics.destroy_mesh(mesh)
@@ -120,7 +120,7 @@ geometry_height_fields :: proc(t: ^testing.T) {
 		global_minimum_height = 0,
 		global_maximum_height = 1,
 	}
-	field := physics.create_height_field(&def)
+	field := physics.create_height_field(def)
 	testing.expect(t, field != nil)
 	if field == nil do return
 	defer physics.destroy_height_field(field)
@@ -176,7 +176,7 @@ make_compound :: proc() -> (^physics.Compound_Data, ^physics.Mesh_Data) {
 		meshes        = &meshes[0],
 		mesh_count    = 1,
 	}
-	return physics.create_compound(&def), mesh
+	return physics.create_compound(def), mesh
 }
 
 @(test)
@@ -222,7 +222,7 @@ Geometry_Block :: struct {
 // A world with a static floor made before `extra`, as both sides of a late join have it.
 geometry_world :: proc() -> (world: ^physics.World, extra: sim.Extra) {
 	world = api_world()
-	api_box(world, {0, -10, 0}, {50, 0.5, 50}, .Static)
+	box(world, {0, -10, 0}, {50, 0.5, 50}, .Static)
 	extra = physics.extra(world, Geometry_Block)
 	return
 }
@@ -240,8 +240,8 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 	// Unlike hulls, these shapes keep a pointer to the caller's geometry: it lives as long as the world.
 	mesh := physics.create_box_mesh({}, {2, 0.5, 2})
 	body_def.position = {-10, 0, 0}
-	block.terrain[0] = physics.create_body(world, &body_def, 100)
-	block.shapes[0] = physics.create_mesh_shape(world, block.terrain[0], &shape_def, mesh, {1, 1, 1})
+	block.terrain[0] = physics.create_body(world, body_def, 100)
+	block.shapes[0] = physics.create_mesh_shape(world, block.terrain[0], shape_def, mesh, {1, 1, 1})
 
 	heights := [9]f32{0, 0, 0, 0, 0.5, 0, 0, 0, 0}
 	cells := [4]u8{}
@@ -253,22 +253,22 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 		count_z               = 3,
 		global_maximum_height = 1,
 	}
-	field := physics.create_height_field(&field_def)
+	field := physics.create_height_field(field_def)
 	body_def.position = {-2, 0, -2}
-	block.terrain[1] = physics.create_body(world, &body_def, 101)
-	block.shapes[1] = physics.create_height_field_shape(world, block.terrain[1], &shape_def, field)
+	block.terrain[1] = physics.create_body(world, body_def, 101)
+	block.shapes[1] = physics.create_height_field_shape(world, block.terrain[1], shape_def, field)
 
 	compound, compound_mesh := make_compound()
 	body_def.position = {10, 0, 0}
-	block.terrain[2] = physics.create_body(world, &body_def, 102)
-	block.shapes[2] = physics.create_baked_compound_shape(world, block.terrain[2], &shape_def, compound)
+	block.terrain[2] = physics.create_body(world, body_def, 102)
+	block.shapes[2] = physics.create_baked_compound_shape(world, block.terrain[2], shape_def, compound)
 
 	for x, i in ([3]f32{-10, 0, 10}) {
 		ball_def := physics.default_body_def()
 		ball_def.type = .Dynamic
 		ball_def.position = {x + 0.2, 3, 0.1}
-		block.balls[i] = physics.create_body(world, &ball_def, u64(200 + i))
-		physics.create_sphere_shape(world, block.balls[i], &shape_def, {{}, 0.3})
+		block.balls[i] = physics.create_body(world, ball_def, u64(200 + i))
+		physics.create_sphere_shape(world, block.balls[i], shape_def, {{}, 0.3})
 	}
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 	testing.expect_value(t, physics.shape_type(world, block.shapes[0]), physics.Shape_Type.Mesh)

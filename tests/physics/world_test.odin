@@ -83,9 +83,9 @@ Tuning_Scene :: struct {
 
 tuning_scene :: proc() -> (scene: Tuning_Scene) {
 	scene.world = api_world()
-	api_box(scene.world, {0, -0.5, 0}, {10, 0.5, 10}, .Static)
-	scene.bodies[0], _ = api_box(scene.world, {0, 0.3, 0}, {0.5, 0.5, 0.5})
-	scene.bodies[1], _ = api_box(scene.world, {0.25, 2, 0}, {0.5, 0.5, 0.5})
+	box(scene.world, {0, -0.5, 0}, {10, 0.5, 10}, .Static)
+	scene.bodies[0], _ = box(scene.world, {0, 0.3, 0}, {0.5, 0.5, 0.5}, .Dynamic)
+	scene.bodies[1], _ = box(scene.world, {0.25, 2, 0}, {0.5, 0.5, 0.5}, .Dynamic)
 	physics.body_set_linear_velocity(scene.world, scene.bodies[1], {0, -40, 0})
 	scene.extra = physics.extra(scene.world, World_Block)
 	return
@@ -120,10 +120,10 @@ world_contact_tuning_rolls_back :: proc(t: ^testing.T) {
 world_explode_bounds_and_awake_count :: proc(t: ^testing.T) {
 	world := api_world([3]f32{})
 	defer physics.destroy(world)
-	left, _ := api_box(world, {-2, 0, 0}, {0.5, 0.5, 0.5})
-	right, _ := api_box(world, {2, 0, 0}, {0.5, 0.5, 0.5})
-	far, _ := api_box(world, {0, 0, 50}, {0.5, 0.5, 0.5})
-	api_box(world, {0, -20, 0}, {1, 1, 1}, .Static)
+	left, _ := box(world, {-2, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
+	right, _ := box(world, {2, 0, 0}, {0.5, 0.5, 0.5}, .Dynamic)
+	far, _ := box(world, {0, 0, 50}, {0.5, 0.5, 0.5}, .Dynamic)
+	box(world, {0, -20, 0}, {1, 1, 1}, .Static)
 	explosion := physics.default_explosion_def()
 	explosion.position = {}
 	explosion.radius = 3

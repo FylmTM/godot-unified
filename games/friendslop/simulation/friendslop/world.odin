@@ -229,10 +229,11 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world.character_def.max_speed = WALK_SPEED
 	world.character_def.pogo_rest = POGO_REST
 	world.phys = physics.create({
+		tick_hz             = TICK_HZ,
 		hit_event_threshold = 2,
 		workers             = PHYSICS_WORKERS,
 	})
-	_, problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
+	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
 	assert(problem == "", problem) // a hole in the level's collision
 	for slot in 0 ..< PLAYERS do world.spawns[slot] = {f32(slot) * 1.5 - 2.25, 1.2, 0}
 	// Triggers first: platforms refer to them by marker index.
@@ -367,16 +368,16 @@ create_trigger_sensor :: proc(world: ^World, index: int) {
 	case .Bell:
 		return
 	}
-	body_def := physics.default_body_def()
-	body_def.position = volume.pos
-	body := physics.create_body(world.phys, &body_def, tag = u64(index))
-	shape_def := physics.default_shape_def()
+	shape_def := physics.shape_def(CAT_TRIGGER, mask)
 	shape_def.is_sensor = true
 	shape_def.enable_sensor_events = true
-	shape_def.filter.category = CAT_TRIGGER
-	shape_def.filter.mask = mask
-	hull := physics.make_box_hull(volume.half.x, volume.half.y, volume.half.z)
-	def.sensor = physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
+	_, def.sensor = physics.create_box(
+		world.phys,
+		physics.body_def(.Static, volume.pos),
+		shape_def,
+		volume.half,
+		u64(index),
+	)
 }
 
 // Frees what world_create made: the physics world, the loaded level, the scratch lists and the World itself.
@@ -400,17 +401,11 @@ init :: proc(t: ^Tick) {
 	}
 	for i in 0 ..< t.world.platform_count {
 		def := &t.world.platforms[i]
-		body_def := physics.default_body_def()
-		body_def.type = .Kinematic
-		body_def.position = def.origin
-		body_def.rotation = def.rot
+		body_def := physics.body_def(.Kinematic, def.origin, def.rot)
 		body_def.enable_sleep = false
-		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
-		shape_def := physics.default_shape_def()
-		shape_def.filter.category = CAT_PLATFORM
+		shape_def := physics.shape_def(CAT_PLATFORM)
 		shape_def.base_material.friction = 0.8
-		hull := physics.make_box_hull(def.half.x, def.half.y, def.half.z)
-		physics.create_hull_shape(t.world.phys, ref, &shape_def, &hull.base)
+		ref, _ := physics.create_box(t.world.phys, body_def, shape_def, def.half, u64(i))
 		t.state.platforms[i] = {
 			body    = ref,
 			running = def.trigger < 0,
@@ -419,14 +414,15 @@ init :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.trigger_count {
 		def := &t.world.triggers[i]
 		if def.kind != .Bell do continue
-		body_def := physics.default_body_def()
-		body_def.position = def.volume.pos
-		ref := physics.create_body(t.world.phys, &body_def, tag = u64(i))
-		shape_def := physics.default_shape_def()
-		shape_def.filter.category = CAT_TRIGGER
+		shape_def := physics.shape_def(CAT_TRIGGER)
 		shape_def.enable_hit_events = true
-		physics.create_sphere_shape(t.world.phys, ref, &shape_def, {{}, def.radius})
-		t.state.bodies[i] = ref
+		t.state.bodies[i], _ = physics.create_sphere(
+			t.world.phys,
+			physics.body_def(.Static, def.volume.pos),
+			shape_def,
+			def.radius,
+			u64(i),
+		)
 	}
 }
 
@@ -435,26 +431,19 @@ init :: proc(t: ^Tick) {
 create_item_body :: proc(world: ^World, index: int) -> Body_Ref {
 	def := &world.items[index]
 	spec := &ITEM_SPECS[def.kind]
-	body_def := physics.default_body_def()
-	body_def.type = .Dynamic
-	body_def.position = def.pos
-	body_def.rotation = def.rot
-	ref := physics.create_body(world.phys, &body_def, tag = u64(index))
-	shape_def := physics.default_shape_def()
-	shape_def.filter.category = CAT_ITEM
+	body_def := physics.body_def(.Dynamic, def.pos, def.rot)
+	shape_def := physics.shape_def(CAT_ITEM)
 	shape_def.base_material.friction = spec.friction
 	shape_def.base_material.restitution = spec.restitution
 	shape_def.enable_hit_events = true
 	shape_def.enable_sensor_events = true
+	ref: Body_Ref
 	if spec.half == {} {
-		radius := spec.radius
-		shape_def.density = spec.mass / (4.0 / 3.0 * 3.1415927 * radius * radius * radius)
-		physics.create_sphere_shape(world.phys, ref, &shape_def, {{}, radius})
+		shape_def.density = physics.sphere_density(spec.mass, spec.radius)
+		ref, _ = physics.create_sphere(world.phys, body_def, shape_def, spec.radius, u64(index))
 	} else {
-		half := spec.half
-		shape_def.density = spec.mass / (8 * half.x * half.y * half.z)
-		hull := physics.make_box_hull(half.x, half.y, half.z)
-		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
+		shape_def.density = physics.box_density(spec.mass, spec.half)
+		ref, _ = physics.create_box(world.phys, body_def, shape_def, spec.half, u64(index))
 	}
 	return ref
 }

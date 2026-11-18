@@ -223,7 +223,7 @@ export_presets.cfg     "macOS" (universal, thinned by `uni release`) and "Window
                        the tool scripts are excluded
 unified_index.tres     the view index (`uni bake survivor`): each scene view kind's scene
 addons/shared/         games/shared, mirrored by uni (git-ignored): flow, settings, menus, HUD panels, tools
-addons/unified/        src/godot/tools, mirrored by uni (git-ignored): UnifiedTool, UnifiedValidate
+addons/unified/        src/godot/tools, mirrored by uni (git-ignored): UnifiedTool, UnifiedValidate, the level exporter
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
 game/autoload/         the shared Settings (+ render scale, best time) and Sfx (+ survivor's sounds); Game is the
                        shared one
