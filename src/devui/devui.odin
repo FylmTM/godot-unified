@@ -1,20 +1,6 @@
 // The dev UI, built from Godot's own controls, game-agnostic. F1 shows/hides it, F3 opens/closes the feedback note.
 //
-//   devui.init({feedback_dir = ..., on_feedback = ...})   main thread, once the scene tree exists
-//   every frame, before devui.frame(dt):
-//     devui.inspect("state", &frame_state)     RTTI tree of any value (read-only)
-//     devui.inputs("verified", &inputs)         the Input panel's RTTI tree
-//     devui.plot("ping ms", ping, 0, 300, "net")  a line graph sample (group "net"; groups are toggled in the overlay)
-//     devui.lines("kB/s", {i, o}, {"in", "out"}) several lines in one graph
-//     devui.stack("sim ms", {v, r}, {"verified", "resim"})   stacked bars
-//     devui.mark("events", "rollback")         a mark in a strip (a lane per name)
-//     devui.stat("tick", "%d", tick)            a line in the overlay
-//     devui.log(tick, .Confirmed, "barrel exploded")   a row in the Events panel (kept across frames)
-//     devui.command(tick, .Sent, "Cmd_Build {...}")   a row in the Commands panel
-//   devui.frame(dt)                            updates the panels (and the frame-time graph from dt)
-//   devui.shutdown()
-//
-// Graphs share the frame graph's time axis (overlay.odin). Retained: the controls are built once, frame() updates values (text at 10 Hz, graphs every frame). Sizes are in
+// Its API is src/devui/SPEC.md's. Graphs share the frame graph's time axis (overlay.odin). Retained: the controls are built once, frame() updates values (text at 10 Hz, graphs every frame). Sizes are in
 // screen points whatever the game's stretch: the layer undoes the root viewport's canvas stretch. Godot routes the
 // input: a click on a panel stops there, the overlay lets clicks through, a focused text field takes the keyboard
 // (wants_keyboard tells the host, whose game input is polled).
@@ -24,18 +10,15 @@
 package devui
 
 import "core:fmt"
-import "core:strings"
 import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 
-Config :: struct {
-	feedback_dir: string, // absolute; default: Godot's user data dir + /feedback
-	on_feedback:  proc(dir: string, note: string, tag_bug: bool, user: rawptr),
-	user:         rawptr,
-	layer:        i32, // CanvasLayer index (default 128: above the game's UI)
-	visible:      bool, // start shown
-}
+// Called on the main thread once an F3 note was written into `dir` (the host adds its own files there).
+Feedback_Proc :: #type proc(dir: string, tag_bug: bool)
+
+@(private)
+LAYER :: 128 // the dev UI's CanvasLayer: above the game's UI
 
 // One direction of the network simulation.
 Netsim_Dir :: struct {
@@ -57,35 +40,36 @@ netsim_applies := true // false: the session has no remote links (single player)
 
 @(private)
 State :: struct {
-	cfg:       Config,
-	inited:    bool,
-	root:      gd.Window,
-	root_id:   u64,
-	layer:     gd.CanvasLayer,
-	layer_id:  u64,
-	rs:        gd.RenderingServer,
-	theme:     gd.Ref(gd.Theme),
-	mono:      gd.Ref(gd.SystemFont),
-	shown:     bool, // on screen (visible is what F1 or the host asked for)
-	scale:     f32, // window pixels per point (HiDPI)
-	stretch:   f32, // the game's canvas stretch, undone by the layer
-	view:      gd.Vector2, // the game window in points
-	panels:    [Panel_Kind]Panel,
-	overlay:   Overlay,
-	insp:      Inspector,
-	input:     Inspector, // the Input panel
-	events:    Log_Panel,
-	commands:  Log_Panel,
-	cond:      Conditions_Panel,
-	note:      Note,
-	stats:     [dynamic][2]string, // this frame's stat lines: key, value
-	ui_ms:     f32,
-	last_slow: time.Tick,
-	hotkeys:   gd.Callable,
-	note_req:  bool,
-	mouse:     gd.Vector2, // the cursor in window pixels (from window_input: Godot stops tracking it over GUI)
-	want_key:  bool,
-	nodes:     int, // controls created (frame_stats)
+	feedback_dir: string, // Godot's user data dir + /feedback
+	on_feedback:  Feedback_Proc,
+	inited:       bool,
+	root:         gd.Window,
+	root_id:      u64,
+	layer:        gd.CanvasLayer,
+	layer_id:     u64,
+	rs:           gd.RenderingServer,
+	theme:        gd.Ref(gd.Theme),
+	mono:         gd.Ref(gd.SystemFont),
+	shown:        bool, // on screen (visible is what F1 or the host asked for)
+	scale:        f32, // window pixels per point (HiDPI)
+	stretch:      f32, // the game's canvas stretch, undone by the layer
+	view:         gd.Vector2, // the game window in points
+	panels:       [Panel_Kind]Panel,
+	overlay:      Overlay,
+	insp:         Inspector,
+	input:        Inspector, // the Input panel
+	events:       Log_Panel,
+	commands:     Log_Panel,
+	cond:         Conditions_Panel,
+	note:         Note,
+	stats:        [dynamic][2]string, // this frame's stat lines: key, value
+	ui_ms:        f32,
+	last_slow:    time.Tick,
+	hotkeys:      gd.Callable,
+	note_req:     bool,
+	mouse:        gd.Vector2, // the cursor in window pixels (from window_input: Godot stops tracking it over GUI)
+	want_key:     bool,
+	nodes:        int, // controls created (frame_stats)
 }
 
 @(private)
@@ -96,22 +80,17 @@ SLOW_MS :: 100 // text and the inspector update at 10 Hz
 
 // Builds the dev UI's controls on their own CanvasLayer and hooks its hotkeys; call on the main thread once the
 // scene tree exists. A second call does nothing.
-init :: proc(config: Config) {
+init :: proc(shown: bool, on_feedback: Feedback_Proc = nil) {
 	if s.inited do return
-	s.cfg = config
-	if s.cfg.layer == 0 do s.cfg.layer = 128
-	if s.cfg.feedback_dir == "" {
-		s.cfg.feedback_dir = fmt.aprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
-	} else {
-		s.cfg.feedback_dir = strings.clone(s.cfg.feedback_dir)
-	}
-	visible = config.visible
+	s.on_feedback = on_feedback
+	s.feedback_dir = fmt.aprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
+	visible = shown
 	s.rs = gd.RenderingServer_singleton()
 	tree := gd.cast_to(gd.SceneTree, gd.Engine_get_main_loop(gd.Engine_singleton()))
 	s.root = gd.SceneTree_get_root(tree)
 	s.root_id = gdi.object_get_instance_id(s.root.ptr)
 	s.layer = gd.CanvasLayer_new()
-	gd.CanvasLayer_set_layer(s.layer, int(s.cfg.layer))
+	gd.CanvasLayer_set_layer(s.layer, LAYER)
 	gd.Node_set_name(s.layer, "DevUI")
 	gd.CanvasLayer_set_visible(s.layer, false)
 	s.layer_id = gdi.object_get_instance_id(s.layer.ptr)
@@ -152,7 +131,7 @@ shutdown :: proc() {
 	gd.unref(s.theme)
 	gd.unref(s.mono)
 	delete(s.stats)
-	delete(s.cfg.feedback_dir)
+	delete(s.feedback_dir)
 	s = {}
 }
 
@@ -172,19 +151,15 @@ frame_stats :: proc() -> (items: int, ui_ms: f32) {
 	return s.nodes + rows, s.ui_ms
 }
 
-// True while the cursor is over a panel or the overlay's buttons. Godot stops those clicks there, and the dev UI
-// releases the actions a press on it triggered, so polled game input never sees it (release_actions).
-wants_mouse :: proc() -> bool {
-	return s.inited && (s.shown || s.panels[.Note].open) && over_ui(points(s.mouse))
-}
-
 // True while a dev UI text field (or a popped-out panel window) has the keyboard: polled game input should
 // ignore keys then. Godot routes the events themselves.
 wants_keyboard :: proc() -> bool {return s.inited && s.want_key}
 
-// Whether `kind`'s panel is open while the dev UI is shown: the host feeds a panel only then (a copy of the state
-// for the Inspector and the Input panel costs the sim thread every tick).
-panel_shown :: proc(kind: Panel_Kind) -> bool {return s.inited && visible && s.panels[kind].open}
+// Whether the Inspector or the Input panel is open while the dev UI is shown: the host feeds them only then (a copy
+// of the state costs the sim thread every tick).
+wants_state :: proc() -> bool {
+	return s.inited && visible && (s.panels[.Inspector].open || s.panels[.Input].open)
+}
 
 // Shows `data` (any value, read by RTTI) in the Inspector this frame.
 inspect :: proc(name: string, data: any) {
@@ -198,27 +173,27 @@ inputs :: proc(name: string, data: any) {
 	inspector_set(&s.input, name, data)
 }
 
-// This frame's sample of the line graph `name` in `group` (created on first use; lo == hi: from 0 to a round value
-// above the largest shown).
-plot :: proc(name: string, value: f32, lo: f32 = 0, hi: f32 = 0, group := "game") {
+// This frame's sample of the line graph `name` in `group` (both created on first use; the overlay toggles a group),
+// scaled from 0 to a round value above the largest shown.
+plot :: proc(group, name: string, value: f32) {
 	if !s.inited do return
-	graph_lines(name, {value}, nil, lo, hi, group)
+	graph_lines(name, {value}, nil, group)
 }
 
 // Up to 4 lines in one graph, named by `legend`.
-lines :: proc(name: string, values: []f32, legend: []string, lo: f32 = 0, hi: f32 = 0, group := "game") {
+lines :: proc(group, name: string, values: []f32, legend: []string) {
 	if !s.inited do return
-	graph_lines(name, values, legend, lo, hi, group)
+	graph_lines(name, values, legend, group)
 }
 
 // Up to 4 parts stacked bottom up, named by `legend` (each frame's bar as tall as their sum).
-stack :: proc(name: string, parts: []f32, legend: []string, group := "game") {
+stack :: proc(group, name: string, parts: []f32, legend: []string) {
 	if !s.inited do return
 	graph_stack(name, parts, legend, group)
 }
 
 // A mark this frame in the strip `strip`, lane `lane` (up to 4 lanes, created on first use).
-mark :: proc(strip, lane: string, group := "game") {
+mark :: proc(group, strip, lane: string) {
 	if !s.inited do return
 	graph_mark(strip, lane, group)
 }
@@ -334,8 +309,7 @@ ours :: proc(control: gd.Control) -> bool {
 on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj, "InputEventMouseButton");
-	   mouse_button.ptr != nil {
+	if mouse_button := gd.object_cast(gd.InputEventMouseButton, obj); mouse_button.ptr != nil {
 		if window != nil { 	// a popped-out panel: every press there is the dev UI's
 			if gd.InputEvent_is_pressed(mouse_button) do release_actions(mouse_button)
 			return {}
@@ -351,12 +325,12 @@ on_window_input :: proc(window: rawptr, args: []^gd.Variant) -> gd.Variant {
 		return {}
 	}
 	if window == nil {
-		if mouse_event := gd.object_cast(gd.InputEventMouse, obj, "InputEventMouse"); mouse_event.ptr != nil {
+		if mouse_event := gd.object_cast(gd.InputEventMouse, obj); mouse_event.ptr != nil {
 			s.mouse = gd.InputEventMouse_get_position(mouse_event)
 			return {}
 		}
 	}
-	key_event := gd.object_cast(gd.InputEventKey, obj, "InputEventKey")
+	key_event := gd.object_cast(gd.InputEventKey, obj)
 	if key_event.ptr == nil || !gd.InputEvent_is_pressed(key_event) || gd.InputEvent_is_echo(key_event) do return {}
 	#partial switch gd.InputEventKey_get_keycode(key_event) {
 	case .KEY_F1:
@@ -448,10 +422,10 @@ on :: proc(obj: $Source, signal: string, fn: gd.Callable_Proc, user: rawptr = ni
 
 // The event of a signal's first argument, when it is a `T`.
 @(private)
-event_arg :: proc($Event: typeid, args: []^gd.Variant, class: string) -> Event {
+event_arg :: proc($Event: typeid, args: []^gd.Variant) -> Event {
 	if len(args) < 1 do return {}
 	obj, _ := gd.from_variant(gd.Object, args[0])
-	return gd.object_cast(Event, obj, class)
+	return gd.object_cast(Event, obj)
 }
 
 // Window pixels to points.

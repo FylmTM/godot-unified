@@ -182,20 +182,16 @@ func _enter_code(code: String) -> void:
 	step("joining %s" % code)
 
 
-## The first present player other than the local one (-1: none).
+## The first present player other than the local one (0: none).
 func _friend_player() -> int:
-	for info: Dictionary in game.present_players():
-		var player := int(info.get("player", 0))
+	for player: int in game.present_players():
 		if player != game.local_player():
 			return player
 	return 0
 
 
 func _is_present(player: int) -> bool:
-	for info: Dictionary in game.present_players():
-		if int(info.get("player", 0)) == player:
-			return true
-	return false
+	return player in game.present_players()
 
 
 ## Written by the host once its play is done: the joiner's cue to leave (--rejoin) or crash (--crash).

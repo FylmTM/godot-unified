@@ -1,8 +1,8 @@
 # The main thread's view-sync benchmark, run by `uni view-bench` (one Godot process per instance count):
 #   godot [--headless] --path tests/godot_views -s res://view_bench.gd -- --bench N [--seconds S]
 # A single player toy session whose Glue (ext/ext.odin, bench_frame) makes every tick N moving instances of one
-# MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving plain3d scene views
-# with _sim_update, and the local player's typed2d view; ui_accept is down on even ticks and up on odd ones, so the
+# MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving and 64 resting plain3d scene views
+# with a _process script, and the local player's typed2d view; ui_accept is down on even ticks and up on odd ones, so the
 # toy spawns a thing every other tick and expires as many (events to the player's view and the sim_event signal).
 # After a second of warm-up it reads UnifiedSession.take_sync_stats over S seconds (default 2) and prints one line,
 # "VIEW BENCH {json}": the per-frame means in microseconds and the per-event cost. Headless, set_buffer reaches
@@ -53,7 +53,7 @@ func _initialize() -> void:
 	while true:
 		await process_frame
 		var now := Time.get_ticks_msec()
-		var down := session.get_tick() % 2 == 0
+		var down := session.tick % 2 == 0
 		if down != Input.is_action_pressed(&"ui_accept"):
 			if down:
 				Input.action_press(&"ui_accept")
@@ -65,7 +65,7 @@ func _initialize() -> void:
 				quit(1)
 				return
 			session.take_sync_stats()
-			tick0 = session.get_tick()
+			tick0 = session.tick
 			started_ms = now
 			phase = 1
 		elif phase == 1 and now - started_ms >= seconds * 1000.0:
@@ -78,7 +78,7 @@ func _initialize() -> void:
 		"frames": stats.frames,
 		"fresh": stats.fresh,
 		"fps": snappedf(stats.frames * 1000.0 / maxf(Time.get_ticks_msec() - started_ms, 1), 0.1),
-		"ticks": session.get_tick() - tick0,
+		"ticks": session.tick - tick0,
 		"scene_us": snappedf(stats.scene_us / frames, 0.1),
 		"multi_build_us": snappedf(stats.multi_build_us / frames, 0.1),
 		"multi_upload_us": snappedf(stats.multi_upload_us / frames, 0.1),
@@ -87,6 +87,8 @@ func _initialize() -> void:
 		"total_max_us": snappedf(stats.total_max_us, 0.1),
 		"events": stats.events,
 		"event_us": snappedf(stats.delivery_us / maxf(stats.events, 1), 0.01),
+		"fill_us": snappedf(stats.fill_us / maxf(stats.fills, 1), 0.1),
+		"fill_max_us": snappedf(stats.fill_max_us, 0.1),
 	}
 	print("VIEW BENCH ", JSON.stringify(out))
 	session.leave()

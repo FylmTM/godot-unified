@@ -145,12 +145,12 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
   - `box3d-debug`: the odin suite's binary again, copied next to Box3D's debug library (same file name and ABI),
     whose asserts trap what the release library lets through (a stale id destroying another body).
   - `godot` (beside): each game under headless Godot, the games in parallel (a child `uni test <game> --suite godot`
-    each), and on a machine with cores to spare a game's steps in two lanes (`editor`, `bake`, `tour` beside the
+    each), and on a machine with cores to spare a game's steps in two lanes (`editor` and `bake` beside the
     rest; on fewer, the doubled Godot processes gain nothing). Steps, each run when the game has
     what it needs: `import` (stale imports only; every Godot run first re-imports a stale class cache), `editor` (the
     extension loads, no errors), `session` (a short headless session, longer with `--long`; its checksums equal the
     offline headless binary's), `bake` (`--check`, the view index too), then the tool scripts `validate`, `walk`
-    (`ui_walk.gd`), `tour` (quick). Its `prepare` makes current what the games share: Godot, the bindings, Box3D, the
+    (`ui_walk.gd`: menus, flows and the game's own play smoke, `_walk_play()`). Its `prepare` makes current what the games share: Godot, the bindings, Box3D, the
     `session` step's release headless binaries. The tool scripts run without the EOS SDK, as on CI.
 - **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
   rollback window (default: the netcode's prediction cap), ticks), which its `bench` mode runs: every tick a step, a

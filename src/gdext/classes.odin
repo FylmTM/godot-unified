@@ -5,8 +5,8 @@
 //                           ready = proc(i: rawptr) {...}, process = proc(i: rawptr, dt: f64) {...}}
 //   gdext.register_class(&my_class)
 //   gdext.bind_method(&my_class, "jump", proc(n: ^My_Node, height: f32) -> bool {...}, {"height"})
-//   gdext.bind_property(&my_class, "speed", get_speed, set_speed)
-//   gdext.bind_signal(&my_class, "landed", {"height", f32})
+//   gdext.bind_property(&my_class, "speed", get_speed, set_speed) // no setter: read-only
+//   gdext.bind_signal(&my_class, "landed", {{"height", .FLOAT, ""}}, doc = "Touched the ground.")
 //
 // Methods are bound from typed Odin procs (0-3 arguments, optional result): a trampoline per signature
 // converts Variants (GDScript calls) and ptrcall slots (typed calls) with variant.odin. Engine virtuals
@@ -24,6 +24,7 @@ Instance_Header :: struct {
 	class: ^Class,
 }
 
+@(private)
 Virtual :: enum u8 {
 	Ready,
 	Process,
@@ -46,8 +47,9 @@ Virtual_Call :: struct {
 Class :: struct {
 	name, parent:       string,
 	native:             string, // the engine class an instance is built on when `parent` is one of ours ("": parent)
-	size:               int, // instance size; the instance struct starts with an Instance_Header
+	size:               int, // instance size; the instance struct starts with an Instance_Header (0: the header alone)
 	runtime_only:       bool, // ClassDB "runtime" class: a placeholder in the editor, never runs there
+	doc_brief, doc:     string, // the editor's help: a one-line summary and the description (docs.odin)
 	init:               proc(inst: rawptr), // after the header is set (also after a hot reload)
 	fini:               proc(inst: rawptr),
 	notification:       proc(inst: rawptr, what: i32),
@@ -60,37 +62,8 @@ Class :: struct {
 	native_sn:          StringName,
 	instances:          int,
 	vcalls:             [Virtual]Virtual_Call,
-	bound:              [dynamic]Bound, // what the bind_* procs registered, in order (checks such as the docs')
-}
-
-// One member a bind_* proc registered on a class. A property's get_/set_ methods are its accessors.
-Bound :: struct {
-	kind: Bound_Kind,
-	name: string,
-}
-
-Bound_Kind :: enum u8 {
-	Method,
-	Accessor,
-	Property,
-	Signal,
-	Constant,
-	Script_Virtual,
-}
-
-@(private)
-record_bound :: proc(cls: ^Class, kind: Bound_Kind, name: string) {
-	append(&cls.bound, Bound{kind, strings.clone(name)})
-}
-
-// Marks the methods a property reads and writes through as its accessors.
-@(private)
-record_accessors :: proc(cls: ^Class, getter, setter: string) {
-	for &bound in cls.bound {
-		if bound.kind == .Method && (bound.name == getter || (setter != "" && bound.name == setter)) {
-			bound.kind = .Accessor
-		}
-	}
+	bound:              [dynamic]Bound, // what the bind_* procs registered, in order, with their docs
+	methods:            [dynamic]^Method, // its bound methods (freed by shutdown)
 }
 
 @(private)
@@ -197,8 +170,11 @@ cls_virtual_call :: proc "c" (
 	}
 }
 
-// Registers `cls` (which must outlive the extension) with ClassDB. Call at the SCENE init level.
+// Registers `cls` (which must outlive the extension) with ClassDB. Call at the SCENE init level, a class after its
+// parent; `shutdown` unregisters every one in reverse. A `size` of 0 is the header alone.
 register_class :: proc(cls: ^Class) {
+	if cls.size == 0 do cls.size = size_of(Instance_Header)
+	assert(cls.size >= size_of(Instance_Header), "Class.size: the instance struct starts with an Instance_Header")
 	cls.name_sn = string_name_from(cls.name)
 	cls.parent_sn = string_name_from(cls.parent)
 	if cls.native != "" do cls.native_sn = string_name_from(cls.native)
@@ -215,27 +191,53 @@ register_class :: proc(cls: ^Class) {
 		class_userdata              = cls,
 	}
 	gdi.classdb_register_extension_class6(library, &cls.name_sn, &cls.parent_sn, &info)
+	append(&registered, cls)
 }
 
-// Removes `cls` from ClassDB and frees its names. Call at the SCENE deinit level, subclasses before their parent
-// (the reverse of registration).
+// Every class register_class registered, in order (shutdown unregisters them in reverse).
+@(private)
+registered: [dynamic]^Class
+
+// Removes `cls` from ClassDB and frees its names and bound methods (shutdown, subclasses before their parent).
+@(private)
 unregister_class :: proc(cls: ^Class) {
 	gdi.classdb_unregister_extension_class(library, &cls.name_sn)
 	StringName_destroy(&cls.name_sn)
 	StringName_destroy(&cls.parent_sn)
 	if cls.native != "" do StringName_destroy(&cls.native_sn)
-	for bound in cls.bound do delete(bound.name)
+	for &bound in cls.bound do bound_free(&bound)
 	delete(cls.bound)
 	cls.bound = nil
+	for method in cls.methods {
+		delete(method.types)
+		free(method)
+	}
+	delete(cls.methods)
+	cls.methods = nil
 }
 
-// ---- typed methods
+// ---- methods
 
+// A bound method: a typed one (`fn`, its trampolines made per signature) or a dynamic one (`dynamic_proc`, its
+// arguments converted by their declared Variant types).
+@(private)
 Method :: struct {
-	fn:      rawptr,
-	nargs:   int,
-	call:    proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstVariantPtr, ret: gdi.VariantPtr, err: ^gdi.CallError),
-	ptrcall: proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr),
+	fn:           rawptr,
+	nargs:        int,
+	call:         proc(
+		m: ^Method,
+		inst: rawptr,
+		args: [^]gdi.ConstVariantPtr,
+		ret: gdi.VariantPtr,
+		err: ^gdi.CallError,
+	),
+	ptrcall:      proc(m: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr),
+	// a dynamic method's
+	dynamic_proc: Dynamic_Proc,
+	user:         rawptr,
+	types:        []gdi.VariantType,
+	result:       gdi.VariantType,
+	has_result:   bool,
 }
 
 // Debug builds count bound-method calls by path (tests check that typed GDScript calls take ptrcall).
@@ -290,27 +292,89 @@ arg :: proc($T: typeid, args: [^]gdi.ConstVariantPtr, i: int, err: ^gdi.CallErro
 	return v, ok
 }
 
-Arg :: struct {
-	name: string,
-	type: typeid,
+// One argument, result, property or signal argument: its name and Variant type (NIL: any Variant), and
+// `class_name`: for an OBJECT its class, for an INT its enum ("UnifiedSession.Status"), for an ARRAY its element type
+// ("int", "Node": Array[Node]) (typed in GDScript; "": none).
+Dynamic_Arg :: struct {
+	name:       string,
+	type:       gdi.VariantType,
+	class_name: string,
+}
+
+// An Odin type as a Dynamic_Arg: an engine class wrapper (gd.Node, Ref(gd.Image)) names its class.
+@(private)
+typed_arg :: proc(name: string, type_id: typeid) -> Dynamic_Arg {
+	kind := variant_type_of_id(type_id)
+	return {name, kind, kind == .OBJECT ? class_name_of(type_id) : ""}
+}
+
+// The engine class an Odin class wrapper stands for: the wrapper is named after it (gd.Node3D: "Node3D"), a Ref(T)
+// after its T.
+@(private)
+class_name_of :: proc(type_id: typeid) -> string {
+	named, is_named := type_info_of(type_id).variant.(runtime.Type_Info_Named)
+	if !is_named do return ""
+	if struct_info, is_struct := named.base.variant.(runtime.Type_Info_Struct);
+	   is_struct && strings.has_prefix(named.name, "Ref(") {
+		return class_name_of(struct_info.types[0].id)
+	}
+	return named.name
 }
 
 @(private)
-property_info :: proc(
-	type_id: typeid,
-	name: ^StringName,
-	empty_sn: ^StringName,
-	hint: ^String,
-	usage: u32 = 6,
-) -> gdi.PropertyInfo {
-	kind := variant_type_of_id(type_id)
+PROPERTY_USAGE_DEFAULT :: 6 // saved and shown in the inspector
+@(private)
+PROPERTY_USAGE_READ_ONLY :: 8192 // not saved, not in the inspector, no default in the editor's help
+@(private)
+PROPERTY_USAGE_CLASS_IS_ENUM :: 65536
+@(private)
+PROPERTY_USAGE_NIL_IS_VARIANT :: 131072
+
+// The Godot strings a PropertyInfo points at, made for one registration call (arg_names_destroy).
+@(private)
+Arg_Names :: struct {
+	name, class: StringName,
+	hint:        String,
+}
+
+@(private)
+arg_names_make :: proc(arg: Dynamic_Arg, hint_string := "") -> Arg_Names {
+	is_array := arg.type == .ARRAY
 	return {
-		type_       = kind,
-		name        = name,
-		class_name  = empty_sn,
-		hint_string = hint,
-		usage       = kind == .NIL ? usage | 131072 : usage, // PROPERTY_USAGE_NIL_IS_VARIANT
+		name  = string_name_from(arg.name),
+		class = string_name_from(is_array ? "" : arg.class_name),
+		hint  = string_from(hint_string != "" ? hint_string : is_array ? arg.class_name : ""),
 	}
+}
+
+@(private)
+arg_names_destroy :: proc(names: ^Arg_Names) {
+	StringName_destroy(&names.name)
+	StringName_destroy(&names.class)
+	String_destroy(&names.hint)
+}
+
+// The PropertyInfo of `arg` (its strings in `names`): an ARRAY with an element type is typed, an INT with an enum is
+// that enum.
+@(private)
+arg_info :: proc(
+	arg: Dynamic_Arg,
+	names: ^Arg_Names,
+	hint := Property_Hint.NONE,
+	usage: u32 = PROPERTY_USAGE_DEFAULT,
+) -> gdi.PropertyInfo {
+	info := gdi.PropertyInfo {
+		type_       = arg.type,
+		name        = &names.name,
+		class_name  = &names.class,
+		hint        = u32(hint),
+		hint_string = &names.hint,
+		usage       = usage,
+	}
+	if arg.type == .NIL do info.usage |= PROPERTY_USAGE_NIL_IS_VARIANT
+	if arg.type == .ARRAY && arg.class_name != "" && hint == .NONE do info.hint = u32(Property_Hint.ARRAY_TYPE)
+	if arg.type == .INT && arg.class_name != "" do info.usage |= PROPERTY_USAGE_CLASS_IS_ENUM
+	return info
 }
 
 @(private)
@@ -332,41 +396,84 @@ arg_metadata :: proc(type_id: typeid) -> gdi.ClassMethodArgumentMetadata {
 	return .NONE
 }
 
+// Registers a method of `cls`, typed or dynamic, with ClassDB: its arguments and result (nil: none), and for a typed
+// one the metadata of each argument and of the result (`metas[len(args)]`). The class frees `method` at shutdown.
 @(private)
-register_method :: proc(cls: ^Class, name: string, method: ^Method, names: []string, types: []typeid, ret: typeid) {
-	assert(len(names) == len(types))
+register_method_info :: proc(
+	cls: ^Class,
+	name: string,
+	method: ^Method,
+	args: []Dynamic_Arg,
+	result: Maybe(Dynamic_Arg),
+	metas: []gdi.ClassMethodArgumentMetadata = nil,
+	static := false,
+	doc := "",
+) {
+	append(&cls.methods, method)
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
-	count := len(types)
-	sns := make([]StringName, count, context.temp_allocator)
+	count := len(args)
+	names := make([]Arg_Names, count + 1, context.temp_allocator)
 	infos := make([]gdi.PropertyInfo, count + 1, context.temp_allocator)
-	metas := make([]gdi.ClassMethodArgumentMetadata, count + 1, context.temp_allocator)
-	for type_id, i in types {
-		sns[i] = string_name_from(names[i])
-		infos[i] = property_info(type_id, &sns[i], &empty_sn, &empty_s)
-		metas[i] = arg_metadata(type_id)
+	all_metas := make([]gdi.ClassMethodArgumentMetadata, count + 1, context.temp_allocator)
+	copy(all_metas, metas)
+	for argument, i in args {
+		names[i] = arg_names_make(argument)
+		infos[i] = arg_info(argument, &names[i])
 	}
-	defer for &string_name in sns do StringName_destroy(&string_name)
-	ret_info := property_info(ret == nil ? typeid_of(Variant) : ret, &empty_sn, &empty_sn, &empty_s)
+	declared, has_result := result.?
+	declared.name = ""
+	names[count] = arg_names_make(declared)
+	defer for &arg_names in names do arg_names_destroy(&arg_names)
+	ret_info := arg_info(declared, &names[count])
 	method_info := gdi.ClassMethodInfo {
 		name                  = &name_sn,
 		method_userdata       = method,
 		call_func             = method_call,
 		ptrcall_func          = method_ptrcall,
-		method_flags          = u32(gdi.ClassMethodFlags.FLAGS_DEFAULT),
-		has_return_value      = ret != nil ? 1 : 0,
+		method_flags          = u32(static ? gdi.ClassMethodFlags.FLAG_STATIC : gdi.ClassMethodFlags.FLAGS_DEFAULT),
+		has_return_value      = has_result ? 1 : 0,
 		return_value_info     = &ret_info,
-		return_value_metadata = ret != nil ? arg_metadata(ret) : .NONE,
+		return_value_metadata = all_metas[count],
 		argument_count        = u32(count),
 		arguments_info        = count > 0 ? &infos[0] : nil,
-		arguments_metadata    = count > 0 ? &metas[0] : nil,
+		arguments_metadata    = count > 0 ? &all_metas[0] : nil,
 	}
 	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
-	record_bound(cls, .Method, name)
+	record_bound(cls, {
+		kind   = .Method,
+		name   = name,
+		doc    = doc,
+		type   = has_result ? doc_type(declared) : {"void", ""},
+		args   = record_args(args),
+		static = static,
+	})
+}
+
+// A typed method's registration: its argument and result types are the proc's.
+@(private)
+register_typed :: proc(
+	cls: ^Class,
+	name: string,
+	method: ^Method,
+	names: []string,
+	types: []typeid,
+	ret: typeid,
+	doc: string,
+) {
+	assert(len(names) == len(types))
+	args := make([]Dynamic_Arg, len(types), context.temp_allocator)
+	metas := make([]gdi.ClassMethodArgumentMetadata, len(types) + 1, context.temp_allocator)
+	for type_id, i in types {
+		args[i] = typed_arg(names[i], type_id)
+		metas[i] = arg_metadata(type_id)
+	}
+	result: Maybe(Dynamic_Arg)
+	if ret != nil {
+		result = typed_arg("", ret)
+		metas[len(types)] = arg_metadata(ret)
+	}
+	register_method_info(cls, name, method, args, result, metas, doc = doc)
 }
 
 @(private)
@@ -379,7 +486,8 @@ new_method :: proc(fn: rawptr, nargs: int) -> ^Method {
 
 // bind_method for a proc with no arguments and no result. Each signature gets its own pair of trampolines: a
 // Variant call (GDScript, untyped calls) and a ptrcall (typed calls).
-method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self)) {
+@(private)
+method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self), doc := "") {
 	method := new_method(rawptr(f), 0)
 	method.call = proc(
 		method: ^Method,
@@ -393,11 +501,12 @@ method_0 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self)) {
 	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
 		(proc(_: ^Self))(method.fn)((^Self)(inst))
 	}
-	register_method(cls, name, method, nil, nil, nil)
+	register_typed(cls, name, method, nil, nil, nil, doc)
 }
 
 // bind_method for a proc with no arguments and a result (bind_property's getter).
-method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result) {
+@(private)
+method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result, doc := "") {
 	method := new_method(rawptr(f), 0)
 	method.call = proc(
 		method: ^Method,
@@ -412,11 +521,12 @@ method_0r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self) -> $Result) {
 	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
 		to_ptr((proc(_: ^Self) -> Result)(method.fn)((^Self)(inst)), ret)
 	}
-	register_method(cls, name, method, nil, nil, Result)
+	register_typed(cls, name, method, nil, nil, Result, doc)
 }
 
 // bind_method for a proc with one argument and no result (bind_property's setter).
-method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), names: [1]string) {
+@(private)
+method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), names: [1]string, doc := "") {
 	method := new_method(rawptr(f), 1)
 	method.call = proc(
 		method: ^Method,
@@ -434,11 +544,18 @@ method_1 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0), 
 		(proc(_: ^Self, _: Arg0))(method.fn)((^Self)(inst), from_ptr(Arg0, args[0]))
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0}, nil)
+	register_typed(cls, name, method, names[:], {Arg0}, nil, doc)
 }
 
 // bind_method for a proc with one argument and a result.
-method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0) -> $Result, names: [1]string) {
+@(private)
+method_1r :: proc(
+	cls: ^Class,
+	name: string,
+	f: proc(self: ^$Self, arg0: $Arg0) -> $Result,
+	names: [1]string,
+	doc := "",
+) {
 	method := new_method(rawptr(f), 1)
 	method.call = proc(
 		method: ^Method,
@@ -457,11 +574,18 @@ method_1r :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0) 
 		to_ptr((proc(_: ^Self, _: Arg0) -> Result)(method.fn)((^Self)(inst), from_ptr(Arg0, args[0])), ret)
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0}, Result)
+	register_typed(cls, name, method, names[:], {Arg0}, Result, doc)
 }
 
 // bind_method for a proc with two arguments and no result.
-method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1), names: [2]string) {
+@(private)
+method_2 :: proc(
+	cls: ^Class,
+	name: string,
+	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1),
+	names: [2]string,
+	doc := "",
+) {
 	method := new_method(rawptr(f), 2)
 	method.call = proc(
 		method: ^Method,
@@ -482,15 +606,17 @@ method_2 :: proc(cls: ^Class, name: string, f: proc(self: ^$Self, arg0: $Arg0, a
 		(proc(_: ^Self, _: Arg0, _: Arg1))(method.fn)((^Self)(inst), from_ptr(Arg0, args[0]), from_ptr(Arg1, args[1]))
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0, Arg1}, nil)
+	register_typed(cls, name, method, names[:], {Arg0, Arg1}, nil, doc)
 }
 
 // bind_method for a proc with two arguments and a result.
+@(private)
 method_2r :: proc(
 	cls: ^Class,
 	name: string,
 	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1) -> $Result,
 	names: [2]string,
+	doc := "",
 ) {
 	method := new_method(rawptr(f), 2)
 	method.call = proc(
@@ -520,15 +646,17 @@ method_2r :: proc(
 		)
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0, Arg1}, Result)
+	register_typed(cls, name, method, names[:], {Arg0, Arg1}, Result, doc)
 }
 
 // bind_method for a proc with three arguments and no result.
+@(private)
 method_3 :: proc(
 	cls: ^Class,
 	name: string,
 	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1, arg2: $Arg2),
 	names: [3]string,
+	doc := "",
 ) {
 	method := new_method(rawptr(f), 3)
 	method.call = proc(
@@ -558,15 +686,17 @@ method_3 :: proc(
 		)
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0, Arg1, Arg2}, nil)
+	register_typed(cls, name, method, names[:], {Arg0, Arg1, Arg2}, nil, doc)
 }
 
 // bind_method for a proc with three arguments and a result.
+@(private)
 method_3r :: proc(
 	cls: ^Class,
 	name: string,
 	f: proc(self: ^$Self, arg0: $Arg0, arg1: $Arg1, arg2: $Arg2) -> $Result,
 	names: [3]string,
+	doc := "",
 ) {
 	method := new_method(rawptr(f), 3)
 	method.call = proc(
@@ -598,7 +728,7 @@ method_3r :: proc(
 		to_ptr(result, ret)
 	}
 	names := names
-	register_method(cls, name, method, names[:], {Arg0, Arg1, Arg2}, Result)
+	register_typed(cls, name, method, names[:], {Arg0, Arg1, Arg2}, Result, doc)
 }
 
 // Binds a method callable from GDScript (and typed calls from other extensions): the Odin proc takes the
@@ -622,36 +752,43 @@ Property_Hint :: enum u32 {
 	NODE_TYPE  = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
 }
 
-// An inspector-visible, saved property backed by get_<name>/set_<name> methods. An Object property's class is its
-// hint_string (NODE_TYPE: "Node").
+// A property backed by get_<name>/set_<name> methods made from `get` and `set`. With a setter it is saved and shown in
+// the inspector; without one (nil) it is read-only. An Object property is typed by its class (gd.Node: "Node");
+// `class_name` overrides it, or names an int property's enum ("UnifiedSession.Status").
 bind_property :: proc(
 	cls: ^Class,
 	name: string,
 	get: proc(self: ^$Self) -> $Value,
-	set: proc(self: ^Self, value: Value),
+	set: proc(self: ^Self, value: Value) = nil,
 	hint := Property_Hint.NONE,
 	hint_string := "",
+	class_name := "",
+	doc := "",
 ) {
 	getter, setter := accessor_names(name)
 	method_0r(cls, getter, get)
-	method_1(cls, setter, set, {"value"})
-	name_sn := string_name_from(name)
-	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	hint_text := string_from(hint_string)
-	defer String_destroy(&hint_text)
-	getter_name := string_name_from(getter)
-	defer StringName_destroy(&getter_name)
-	setter_name := string_name_from(setter)
-	defer StringName_destroy(&setter_name)
-	class_sn := string_name_from(hint_string if variant_type_of_id(Value) == .OBJECT else "")
-	defer StringName_destroy(&class_sn)
-	info := property_info(Value, &name_sn, &class_sn, &hint_text)
-	info.hint = u32(hint)
-	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
-	record_bound(cls, .Property, name)
-	record_accessors(cls, getter, setter)
+	if set != nil do method_1(cls, setter, set, {"value"})
+	property := typed_arg(name, Value)
+	if class_name != "" do property.class_name = class_name
+	register_property(cls, property, getter, set != nil ? setter : "", hint, hint_string, doc)
+}
+
+// A property whose type is known at run time (e.g. from RTTI), backed by the dynamic methods get_<name> (`get`, no
+// arguments) and set_<name> (`set`, the value; nil: read-only). `user` goes to both.
+bind_dynamic_property :: proc(
+	cls: ^Class,
+	property: Dynamic_Arg,
+	get: Dynamic_Proc,
+	set: Dynamic_Proc = nil,
+	user: rawptr = nil,
+	hint := Property_Hint.NONE,
+	hint_string := "",
+	doc := "",
+) {
+	getter, setter := accessor_names(property.name)
+	bind_dynamic_method(cls, getter, get, user, nil, Dynamic_Arg{"", property.type, property.class_name})
+	if set != nil do bind_dynamic_method(cls, setter, set, user, {{"value", property.type, property.class_name}})
+	register_property(cls, property, getter, set != nil ? setter : "", hint, hint_string, doc)
 }
 
 @(private)
@@ -659,75 +796,55 @@ accessor_names :: proc(name: string) -> (getter, setter: string) {
 	return fmt.tprintf("get_%s", name), fmt.tprintf("set_%s", name)
 }
 
+// A property over methods already bound (`setter` "": read-only, neither saved nor shown in the inspector, so the
+// editor's help computes no default value for it).
 @(private)
-arg_infos :: proc(
-	args: []Arg,
-	empty_sn: ^StringName,
-	empty_s: ^String,
-) -> (
-	sns: []StringName,
-	infos: []gdi.PropertyInfo,
+register_property :: proc(
+	cls: ^Class,
+	property: Dynamic_Arg,
+	getter: string,
+	setter: string,
+	hint: Property_Hint,
+	hint_string: string,
+	doc: string,
 ) {
-	sns = make([]StringName, len(args), context.temp_allocator)
-	infos = make([]gdi.PropertyInfo, max(len(args), 1), context.temp_allocator)
-	for argument, i in args {
-		sns[i] = string_name_from(argument.name)
-		infos[i] = property_info(argument.type, &sns[i], empty_sn, empty_s)
-	}
-	return
+	names := arg_names_make(property, hint_string)
+	defer arg_names_destroy(&names)
+	getter_name := string_name_from(getter)
+	defer StringName_destroy(&getter_name)
+	setter_name := string_name_from(setter)
+	defer StringName_destroy(&setter_name)
+	usage: u32 = setter == "" ? PROPERTY_USAGE_READ_ONLY : PROPERTY_USAGE_DEFAULT
+	info := arg_info(property, &names, hint, usage)
+	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
+	record_bound(cls, {kind = .Property, name = property.name, doc = doc, type = doc_type(property)})
+	record_accessors(cls, getter, setter)
 }
 
 // Declares a signal; GDScript connects to it like to any engine signal.
-bind_signal :: proc(cls: ^Class, name: string, args: ..Arg) {
+bind_signal :: proc(cls: ^Class, name: string, args: []Dynamic_Arg = nil, doc := "") {
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
-	sns, infos := arg_infos(args, &empty_sn, &empty_s)
-	defer for &string_name in sns do StringName_destroy(&string_name)
+	names := make([]Arg_Names, len(args), context.temp_allocator)
+	infos := make([]gdi.PropertyInfo, max(len(args), 1), context.temp_allocator)
+	for argument, i in args {
+		names[i] = arg_names_make(argument)
+		infos[i] = arg_info(argument, &names[i])
+	}
+	defer for &arg_names in names do arg_names_destroy(&arg_names)
 	gdi.classdb_register_extension_class_signal(library, &cls.name_sn, &name_sn, &infos[0], i64(len(args)))
-	record_bound(cls, .Signal, name)
+	record_bound(cls, {kind = .Signal, name = name, doc = doc, args = record_args(args)})
 }
 
 // Declares an integer constant of the class, in the enum `enum_name` ("" for none): scripts read it as
 // `Class.NAME` (and an enum's as `Class.Enum.NAME`, which can type a GDScript variable).
-bind_constant :: proc(cls: ^Class, enum_name, name: string, value: i64) {
+bind_constant :: proc(cls: ^Class, enum_name, name: string, value: i64, doc := "") {
 	enum_sn := string_name_from(enum_name)
 	defer StringName_destroy(&enum_sn)
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
 	gdi.classdb_register_extension_class_integer_constant(library, &cls.name_sn, &enum_sn, &name_sn, value, 0)
-	record_bound(cls, .Constant, name)
-}
-
-// Declares a virtual that scripts may implement (docs, autocomplete); Odin calls it with call_script.
-bind_script_virtual :: proc(cls: ^Class, name: string, args: ..Arg) {
-	name_sn := string_name_from(name)
-	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
-	sns, infos := arg_infos(args, &empty_sn, &empty_s)
-	defer for &string_name in sns do StringName_destroy(&string_name)
-	metas := make([]gdi.ClassMethodArgumentMetadata, max(len(args), 1), context.temp_allocator)
-	virtual_info := gdi.ClassVirtualMethodInfo {
-		name = &name_sn,
-		method_flags = u32(gdi.ClassMethodFlags.FLAG_VIRTUAL),
-		return_value = {
-			type_       = .NIL,
-			name        = &empty_sn,
-			class_name  = &empty_sn,
-			hint_string = &empty_s,
-		},
-		argument_count = u32(len(args)),
-		arguments = &infos[0],
-		arguments_metadata = &metas[0],
-	}
-	gdi.classdb_register_extension_class_virtual_method(library, &cls.name_sn, &virtual_info)
-	record_bound(cls, .Script_Virtual, name)
+	record_bound(cls, {kind = .Constant, name = name, doc = doc, value = value, enum_name = strings.clone(enum_name)})
 }
 
 // ---- calling into Godot with Variants
@@ -838,24 +955,6 @@ connect :: proc(obj: Object, signal: string, callable: Callable, flags: u32 = 0)
 // Godot). `user` is the pointer given to bind_dynamic_method; `inst` the class instance.
 Dynamic_Proc :: #type proc(user: rawptr, inst: rawptr, args: []^Variant) -> Variant
 
-// One argument or the result of a dynamic method: its name and Variant type (NIL: any Variant), and for an OBJECT
-// its class (typed in GDScript; "": any Object).
-Dynamic_Arg :: struct {
-	name:       string,
-	type:       gdi.VariantType,
-	class_name: string,
-}
-
-@(private)
-Dynamic_Method :: struct {
-	using method: Method,
-	call_proc:    Dynamic_Proc,
-	user:         rawptr,
-	types:        []gdi.VariantType,
-	result:       gdi.VariantType,
-	has_result:   bool,
-}
-
 // Binds a method built at run time (e.g. from RTTI): GDScript and typed calls both reach `fn`, ptrcall
 // arguments converted to Variants by their declared types. A `static` method is called on the class
 // (`Class.name(...)`), with a nil instance.
@@ -867,38 +966,33 @@ bind_dynamic_method :: proc(
 	args: []Dynamic_Arg,
 	result: Maybe(Dynamic_Arg) = nil,
 	static := false,
+	doc := "",
 ) {
-	dynamic_method := new(Dynamic_Method)
-	dynamic_method.call_proc = fn
-	dynamic_method.user = user
-	dynamic_method.nargs = len(args)
-	dynamic_method.types = make([]gdi.VariantType, len(args))
-	for argument, i in args do dynamic_method.types[i] = argument.type
-	result_class := ""
-	if declared, ok := result.?; ok {
-		dynamic_method.result, dynamic_method.has_result = declared.type, true
-		result_class = declared.class_name
-	}
-	dynamic_method.call = proc(
+	method := new(Method)
+	method.dynamic_proc = fn
+	method.user = user
+	method.nargs = len(args)
+	method.types = make([]gdi.VariantType, len(args))
+	for argument, i in args do method.types[i] = argument.type
+	if declared, ok := result.?; ok do method.result, method.has_result = declared.type, true
+	method.call = proc(
 		method: ^Method,
 		inst: rawptr,
 		args: [^]gdi.ConstVariantPtr,
 		ret: gdi.VariantPtr,
 		err: ^gdi.CallError,
 	) {
-		dynamic_method := (^Dynamic_Method)(method)
-		result := dynamic_method.call_proc(dynamic_method.user, inst, ([^]^Variant)(args)[:method.nargs])
-		if dynamic_method.has_result {
+		result := method.dynamic_proc(method.user, inst, ([^]^Variant)(args)[:method.nargs])
+		if method.has_result {
 			(^Variant)(ret)^ = result
 		} else {
 			variant_destroy(&result)
 		}
 	}
-	dynamic_method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
-		dynamic_method := (^Dynamic_Method)(method)
+	method.ptrcall = proc(method: ^Method, inst: rawptr, args: [^]gdi.ConstTypePtr, ret: gdi.TypePtr) {
 		variants := make([]Variant, method.nargs, context.temp_allocator)
 		pointers := make([]^Variant, method.nargs, context.temp_allocator)
-		for kind, i in dynamic_method.types {
+		for kind, i in method.types {
 			if kind == .NIL {
 				gdi.variant_new_copy(&variants[i], cast(^Variant)args[i])
 			} else {
@@ -906,120 +1000,37 @@ bind_dynamic_method :: proc(
 			}
 			pointers[i] = &variants[i]
 		}
-		result := dynamic_method.call_proc(dynamic_method.user, inst, pointers)
+		result := method.dynamic_proc(method.user, inst, pointers)
 		for &variant in variants do variant_destroy(&variant)
-		if !dynamic_method.has_result {
+		if !method.has_result {
 			variant_destroy(&result)
 			return
 		}
-		if dynamic_method.result == .NIL {
+		if method.result == .NIL {
 			gdi.variant_new_copy(cast(^Variant)ret, &result)
-		} else if dynamic_method.result == .OBJECT {
+		} else if method.result == .OBJECT {
 			// the Variant's reference goes with it: a RefCounted's slot (a reference of Godot's) takes one of its own
 			object: rawptr
 			to_type(.OBJECT, &object, &result)
-			if object_cast(RefCounted, Object{object}, RefCounted_CLASS).ptr != nil {
+			if object_cast(RefCounted, Object{object}).ptr != nil {
 				gdi.ref_set_object(ret, object)
 			} else {
 				(^rawptr)(ret)^ = object
 			}
 		} else {
-			if is_opaque_builtin(dynamic_method.result) do builtin_destroy(dynamic_method.result, ret)
-			to_type(dynamic_method.result, ret, &result)
+			if is_opaque_builtin(method.result) do builtin_destroy(method.result, ret)
+			to_type(method.result, ret, &result)
 		}
 		variant_destroy(&result)
 	}
-	name_sn := string_name_from(name)
-	defer StringName_destroy(&name_sn)
-	empty_sn := string_name_from("")
-	defer StringName_destroy(&empty_sn)
-	empty_s := string_from("")
-	defer String_destroy(&empty_s)
-	count := len(args)
-	sns := make([]StringName, count, context.temp_allocator)
-	infos := make([]gdi.PropertyInfo, count + 1, context.temp_allocator)
-	metas := make([]gdi.ClassMethodArgumentMetadata, count + 1, context.temp_allocator)
-	classes := make([]StringName, count + 1, context.temp_allocator)
-	for argument, i in args {
-		sns[i] = string_name_from(argument.name)
-		classes[i] = string_name_from(argument.class_name)
-		infos[i] = dynamic_property_info(argument.type, &sns[i], &classes[i], &empty_s)
-	}
-	classes[count] = string_name_from(result_class)
-	defer for &string_name in sns do StringName_destroy(&string_name)
-	defer for &string_name in classes do StringName_destroy(&string_name)
-	ret_info := dynamic_property_info(dynamic_method.result, &empty_sn, &classes[count], &empty_s)
-	flags := gdi.ClassMethodFlags.FLAGS_DEFAULT
-	if static do flags = .FLAG_STATIC
-	method_info := gdi.ClassMethodInfo {
-		name               = &name_sn,
-		method_userdata    = &dynamic_method.method,
-		call_func          = method_call,
-		ptrcall_func       = method_ptrcall,
-		method_flags       = u32(flags),
-		has_return_value   = dynamic_method.has_result ? 1 : 0,
-		return_value_info  = &ret_info,
-		argument_count     = u32(count),
-		arguments_info     = count > 0 ? &infos[0] : nil,
-		arguments_metadata = count > 0 ? &metas[0] : nil,
-	}
-	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
-	record_bound(cls, .Method, name)
+	register_method_info(cls, name, method, args, result, static = static, doc = doc)
 }
 
-@(private)
-dynamic_property_info :: proc(
-	kind: gdi.VariantType,
-	name: ^StringName,
-	class_name: ^StringName,
-	hint: ^String,
-) -> gdi.PropertyInfo {
-	usage: u32 = 6 // PROPERTY_USAGE_DEFAULT
-	if kind == .NIL do usage |= 131072 // PROPERTY_USAGE_NIL_IS_VARIANT
-	return {
-		type_       = kind,
-		name        = name,
-		class_name  = class_name,
-		hint_string = hint,
-		usage       = usage,
-	}
-}
-
-// A property over methods already bound (`setter` "" for a read-only one), of Variant type `kind` (an OBJECT one of
-// class `class_name`, typed in GDScript; a typed ARRAY: hint .ARRAY_TYPE and the element type). A read-only one is
-// neither saved nor shown in the inspector, so the editor's help computes no default value for it.
-bind_property_by_name :: proc(
-	cls: ^Class,
-	name: string,
-	kind: gdi.VariantType,
-	getter: string,
-	setter := "",
-	class_name := "",
-	hint := Property_Hint.NONE,
-	hint_string := "",
-) {
-	name_sn := string_name_from(name)
-	defer StringName_destroy(&name_sn)
-	class_sn := string_name_from(class_name)
-	defer StringName_destroy(&class_sn)
-	hint_text := string_from(hint_string)
-	defer String_destroy(&hint_text)
-	getter_name := string_name_from(getter)
-	defer StringName_destroy(&getter_name)
-	setter_name := string_name_from(setter)
-	defer StringName_destroy(&setter_name)
-	info := dynamic_property_info(kind, &name_sn, &class_sn, &hint_text)
-	info.hint = u32(hint)
-	if setter == "" do info.usage = 8192 // PROPERTY_USAGE_READ_ONLY: not saved, not in the inspector, no doc default
-	gdi.classdb_register_extension_class_property(library, &cls.name_sn, &info, &setter_name, &getter_name)
-	record_bound(cls, .Property, name)
-	record_accessors(cls, getter, setter)
-}
-
-// Makes an empty Array typed: only elements of Variant type `kind` (Array[int]...).
-array_set_typed :: proc(array: ^Array, kind: gdi.VariantType) {
+// Makes an empty Array typed: only elements of Variant type `kind` (Array[int]...), an OBJECT of `class_name`
+// (Array[Node]).
+array_set_typed :: proc(array: ^Array, kind: gdi.VariantType, class_name := "") {
 	nil_variant := variant_nil()
-	gdi.array_set_typed(array, kind, sn(""), &nil_variant)
+	gdi.array_set_typed(array, kind, sn(class_name), &nil_variant)
 }
 
 // The Odin instance behind an object of `cls` (one of this extension's classes) or a class extending it; nil for
@@ -1027,12 +1038,4 @@ array_set_typed :: proc(array: ^Array, kind: gdi.VariantType) {
 instance_of :: proc(obj: Object, cls: ^Class) -> rawptr {
 	if obj.ptr == nil || !Object_is_class(obj, &cls.name_sn) do return nil
 	return gdi.object_get_instance_binding(obj.ptr, library, &binding_callbacks)
-}
-
-// Loads class reference XML (Godot's doc format) into the editor's help. Call at the EDITOR init level;
-// a game (no editor) skips it.
-load_class_docs :: proc(xml: string) {
-	if gdi.editor_help_load_xml_from_utf8_chars_and_len == nil do return
-	text := strings.clone_to_cstring(xml, context.temp_allocator)
-	gdi.editor_help_load_xml_from_utf8_chars_and_len(text, gdi.Int(len(xml)))
 }

@@ -1,6 +1,5 @@
 package extension
 
-import gd "unified:gdext"
 import "unified:godot"
 import "unified:sim"
 
@@ -16,17 +15,17 @@ MultiView :: enum u8 {
 	Ball,
 }
 
-PLAYER_COLORS := [g.PLAYERS][4]f32 {
+PLAYER_COLORS := [g.PLAYERS]godot.Color {
 	{1, 0.4, 0.4, 1},
 	{0.7, 1, 0.4, 1},
 	{0.4, 1, 1, 1},
 	{0.7, 0.4, 1, 1},
 }
 
-GONE_COLOR :: [4]f32{0.5, 0.5, 0.5, 1}
+GONE_COLOR :: godot.Color{0.5, 0.5, 0.5, 1}
 
 Player_View_Data :: struct {
-	color: [4]f32,
+	color: godot.Color,
 }
 
 Data :: union {
@@ -36,7 +35,7 @@ Data :: union {
 Data_Hud :: struct {
 	players: u32,
 	balls:   u32,
-	color:   gd.Color,
+	color:   godot.Color,
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -74,11 +73,11 @@ fill_frame_hud :: proc(f: ^Frame) {
 	godot.push_data(f, Data_Hud {
 		players = u32(sim.present_count(&f.state.players)),
 		balls   = u32(f.state.balls.count),
-		color   = transmute(gd.Color)player_color(f, f.local_player),
+		color   = player_color(f, f.local_player),
 	})
 }
 
-player_color :: proc(f: ^Frame, player: sim.Player) -> [4]f32 {
+player_color :: proc(f: ^Frame, player: sim.Player) -> godot.Color {
 	slot, present := sim.player_slot(&f.state.players, player)
 	return PLAYER_COLORS[slot] if present else GONE_COLOR
 }

@@ -251,11 +251,11 @@ reloads between matches.
   `sim.player_key` (`player` set; the view lives while the player is present, dead too, and its colour is its
   slot's), an item's index (`entity` = index + 1, `barrel_exploded`'s; a destroyed barrel's view goes, the respawned
   one is new). Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation,
-  which player views reset) and calls `_sim_update(position, yaw, alpha)`; `_sim_despawned()` plays the exit
+  which player views reset) before the view's own `_process`; `_sim_despawned()` plays the exit
   animation during the linger (the host no longer moves the view) and `_sim_revived()` undoes it.
 - View data: the player view's `hp` (`Player_View`; a drop flashes it).
 - Session data: `Data_Hud` (HUD above) as `Unified.data.hud`: `phase` an `EnumPhase` value (`EnumPhase.LOBBY`, `MATCH`,
-  `OVER`), `players` an Array of Dictionaries. The HUD reads it every frame.
+  `OVER`), `players` an Array[DataHudPlayer] by slot. The HUD reads it every frame.
 - MultiMesh views (`MultiView`): five `MultiMeshInstance3D`s under the arena's `MultiViews` node, each with a
   `UnifiedMultiView` marker: `grunt`, `runner`, `brute` (Enemy_Kind's order), `projectile`, `gem`; keyed by handle.
   3D transforms (enemies and projectiles face their velocity) + custom data (r = hit flash 0..1, g = age in s), no
@@ -280,9 +280,8 @@ reloads between matches.
 Survivor's own part of the Godot checks (the rest: the `godot-game` skill): `validate` checks the constants the
 scripts read (the cards, a view scene and a rest height per item kind) and that the arena has one MultiMesh
 view per `MultiView` kind; `walk` adds to the shared walk the lobby (circle and hint), walking out, the match (enemies
-drawn, the auto-attack firing) and a `CommandPick` the session accepts; `tour` plays the real game headless: menu → single
-→ lobby → walk out → match with enemies (`uni tool survivor tour`: a whole match, a level-up, game over and back to
-the lobby; `play_check`: minutes of play with frame times by enemy count).
+drawn, the auto-attack firing) and a `CommandPick` the session accepts; `uni tool survivor tour` plays a whole match
+by hand: a level-up, game over and back to the lobby.
 
 ### Feel
 

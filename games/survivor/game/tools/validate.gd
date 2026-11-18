@@ -12,12 +12,12 @@ func _check_contract() -> String:
 	var cards := constants.upgrades
 	if cards.size() != 3:
 		log_capture.add("Unified.constants.upgrades has %d cards, the HUD shows 3" % cards.size(), "res://game/ui/hud.gd")
-	for card: Dictionary in cards:
+	for card: DataUpgradeCard in cards:
 		if card.name == "" or card.detail == "":
 			log_capture.add("upgrade card %s has no name or detail" % EnumUpgrade.name(card.upgrade),
 				"res://game/ui/hud.gd")
 	var rest_y: Dictionary = (load(MENU_SCRIPT) as Script).get_script_constant_map()["REST_Y"]
-	for item: Dictionary in constants.items:
+	for item: DataItemSpot in constants.items:
 		var kind: String = EnumItemKind.name(item.kind)
 		if not ResourceLoader.exists("res://game/views/%s.tscn" % kind) or not rest_y.has(item.kind):
 			log_capture.add("item kind %s has no view scene or rest height" % kind, MENU_SCRIPT)

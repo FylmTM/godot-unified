@@ -86,21 +86,20 @@ func _process(delta: float) -> void:
 func _refresh(delta: float) -> void:
 	var hud := Unified.data.hud
 	var phase := hud.phase
-	var me := Game.local_player_info()
+	var me := Game.local_player_info() as DataHudPlayer
 	var lobby := phase == EnumPhase.LOBBY
 	var wave := hud.wave
-	var alive: bool = me.get("alive", false)
-	var hp: float = me.get("hp", 1)
-	var hp_full: float = me.get("hp_max", 1)
-	var hp_max := maxf(hp_full, 1.0)
-	var xp: int = me.get("xp", 0)
-	var xp_next: int = me.get("xp_next", 1)
-	var level: int = me.get("level", 0)
+	var alive := me != null and me.alive
+	var hp := float(me.hp) if me != null else 1.0
+	var hp_max := maxf(me.hp_max if me != null else 1, 1.0)
+	var xp := me.xp if me != null else 0
+	var xp_next := me.xp_next if me != null else 1
+	var level := me.level if me != null else 0
 
 	# Local player card.
-	if not me.is_empty():
-		var player: int = me.get("player", 0)
-		_card_name.text = Game.player_name(me)
+	if me != null:
+		var player := Game.local_player()
+		_card_name.text = Game.player_name(player)
 		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(Game.player_slot(player)))
 		_card_level.text = "LV %d" % level
 		_hp.max_value = hp_max
@@ -146,14 +145,13 @@ func _refresh(delta: float) -> void:
 	_session.refresh(_session_rows(lobby), lobby, "Anyone walking out of the circle starts the match.")
 
 	# Respawn countdown.
-	var dead_in_match := phase == EnumPhase.MATCH and not me.is_empty() and not alive
+	var dead_in_match := phase == EnumPhase.MATCH and me != null and not alive
 	_respawn.visible = dead_in_match
 	if dead_in_match:
-		var respawn_s: float = me.get("respawn_s", 0.0)
-		_respawn.text = "Respawning in %.1f s" % respawn_s
+		_respawn.text = "Respawning in %.1f s" % me.respawn_s
 
 	# Level-up choice.
-	var pending: int = me.get("pending_levelups", 0)
+	var pending := me.pending_levelups if me != null else 0
 	var show_levelup := pending > 0 and phase == EnumPhase.MATCH and alive
 	_levelup_hold = maxf(_levelup_hold - delta, 0.0)
 	if show_levelup and not _levelup.visible:
@@ -209,7 +207,7 @@ func _label_keys() -> void:
 	var keys: Array[String] = PAD_KEYS if Game.using_pad else KEYS
 	var cards := Unified.constants.upgrades
 	for i in mini(_options.get_child_count(), cards.size()):
-		var card: Dictionary = cards[i]
+		var card: DataUpgradeCard = cards[i]
 		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, keys[i]]
 
 
@@ -239,22 +237,18 @@ func _update_controls(choosing: bool) -> void:
 ## The session panel's rows: everyone present, with their level and HP in a match.
 func _session_rows(lobby: bool) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	for p in Game.present_players():
+	for player in Game.present_players():
+		var info := Game.player_info(player) as DataHudPlayer
 		var status := "ready"
 		if not lobby:
-			var alive: bool = p.get("alive", false)
-			var respawn_s: float = p.get("respawn_s", 0.0)
-			var level: int = p.get("level", 0)
-			status = "down %.0fs" % ceilf(respawn_s) if not alive else "LV %d" % level
-		var hp: float = p.get("hp", 0)
-		var hp_max: float = p.get("hp_max", 1)
-		var bar := -1.0 if lobby else hp / maxf(hp_max, 1.0)
-		rows.append({"player": p.get("player", 0), "name": Game.player_name(p), "status": status, "bar": bar})
+			status = "down %.0fs" % ceilf(info.respawn_s) if not info.alive else "LV %d" % info.level
+		var bar := -1.0 if lobby else float(info.hp) / maxf(info.hp_max, 1.0)
+		rows.append({"player": player, "name": Game.player_name(player), "status": status, "bar": bar})
 	return rows
 
 
 ## Banners show when an event is confirmed (its tick verified), never on a prediction.
-func _on_sim_event(event: UnifiedEvent, state: int) -> void:
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	var local := Game.local_player()
@@ -299,7 +293,7 @@ func _choose(option: int) -> void:
 	var cards := Unified.constants.upgrades
 	if option - 1 >= cards.size():
 		return
-	var card: Dictionary = cards[option - 1]
+	var card: DataUpgradeCard = cards[option - 1]
 	var pick := CommandPick.new()
 	pick.upgrade = card.upgrade
 	Game.send_command(pick)

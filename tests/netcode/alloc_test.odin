@@ -1,5 +1,6 @@
-// #262: the session's steady state allocates nothing on the heap: queued messages, loopback datagrams, the
-// netsim's delayed datagrams and early reliable messages live in reused buffers, the kept desync images reuse theirs.
+// #262: the session's steady state allocates nothing, on the heap or the temp allocator: queued messages, loopback
+// datagrams, the netsim's delayed datagrams and early reliable messages live in reused buffers, the kept desync
+// images reuse theirs.
 package test_netcode
 
 import "base:runtime"
@@ -44,6 +45,10 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 			inner = context.allocator,
 		}
 		context.allocator = {counting_proc, &counting}
+		temp := Counting {
+			inner = context.temp_allocator,
+		}
+		context.temp_allocator = {counting_proc, &temp}
 		session: Net
 		// A host and two remote clients under `wan` (loss, duplicates, reordering), the toy's commands, typed desync
 		// reports (every client keeps a snapshot of every checksum tick). No recording: an in-memory log grows by
@@ -53,6 +58,7 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 		net_run(&session, 8) // everyone in, every buffer at its size
 		testing.expect(t, len(session.clients) == 2 && session.clients[1].status == .Connected)
 		counting.allocs, counting.frees = 0, 0
+		temp.allocs, temp.frees = 0, 0
 		from := session.host.relay.finalized
 		// The endless one runs past the checksums its clients keep.
 		net_run(&session, ticks == 0 ? 16 : 8)
@@ -60,6 +66,7 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 		testing.expectf(t, ran > 400, "ticks %d: only %d ticks", ticks, ran)
 		testing.expectf(t, counting.allocs == 0, "ticks %d: %d allocations", ticks, counting.allocs)
 		testing.expectf(t, counting.frees == 0, "ticks %d: %d frees", ticks, counting.frees)
+		testing.expectf(t, temp.allocs == 0, "ticks %d: %d temp allocations", ticks, temp.allocs)
 		if ticks == 0 {
 			kept := session.clients[0].checksums[:]
 			testing.expect_value(t, len(kept), netcode.CHECKSUMS_KEPT)

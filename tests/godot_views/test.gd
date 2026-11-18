@@ -1,6 +1,6 @@
 # unified:godot view tests: run headless by `uni test --suite godot-bindings`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that scene views with a UnifiedView marker spawn from
-# the view index (2D and 3D, identified by kind and key), get their pose, _sim_update and typed data as properties,
+# the view index (2D and 3D, identified by kind and key), get their pose, their pose before their own _process and typed data as properties,
 # and their lifecycle callbacks; that MultiMesh views get their buffers; that session data reaches Unified.data.toy and
 # the constants Unified.constants; that enums are ints with Enum* classes; that events reach the views and the
 # sim_event signal as objects of their classes in each state; that commands made from their classes reach the sim
@@ -88,7 +88,8 @@ func _initialize() -> void:
 	var session := UnifiedSession.new()
 	root.add_child(session)
 	var events: Array[Array] = []  # [event, state]
-	session.sim_event.connect(func(event: UnifiedEvent, state: int) -> void: events.append([event, state]))
+	session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
+		events.append([event, state]))
 	check_constants()
 	var toy: DataToy = Unified.data.toy
 	var toy_changes := [0]
@@ -98,7 +99,8 @@ func _initialize() -> void:
 	check("view_root before it is set: the session's parent", session.view_root == root)
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
-	check("no session: no local player", session.get_local_player() == 0 and session.get_players().is_empty())
+	check("no session: no local player", session.local_player == 0 and session.get_players().is_empty() \
+		and session.status == UnifiedSession.STATUS_IDLE and not session.running, [session.local_player, session.status])
 	var early := CommandBump.new()
 	early.amount = 1
 	check("send_command without a session: false", not session.send_command(early))
@@ -138,9 +140,11 @@ func _initialize() -> void:
 	var marker := typed.get("marker") as UnifiedView
 	check("2D position = pos.xy", (typed as Node2D).position.is_equal_approx(POS_2D), (typed as Node2D).position)
 	check("2D rotation = angle about Z", near((typed as Node2D).rotation, ANGLE_2D), (typed as Node2D).rotation)
-	check("_sim_update(Vector2, rotation, alpha)", typed.get("last_position").is_equal_approx(POS_2D) \
+	check("a view's _process sees the pose of the frame", typed.get("last_position").is_equal_approx(POS_2D) \
 		and near(typed.get("last_rotation"), ANGLE_2D), [typed.get("last_position"), typed.get("last_rotation")])
-	var me := session.get_local_player()
+	var me := session.local_player
+	check("status and tick properties", session.status == UnifiedSession.STATUS_CONNECTED and session.running \
+		and session.tick > 0, [session.status, session.tick])
 	check("the marker: kind from the scene, player (its key) and entity (unset: the key) from the host", me != 0 \
 		and marker.player == me and marker.kind == "typed2d" and marker.entity == 1,
 		[me, marker.player, marker.kind, marker.entity])
@@ -168,6 +172,7 @@ func _initialize() -> void:
 		[typed.get("hp_sets"), typed.get("ticks_sets")])
 	check("one latched press spawned one thing", toy.spawned == 1, toy.spawned)
 	check_players(session, me, roster_changes[0])
+	check_view_lookup(session, typed, plain, me)
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -202,11 +207,13 @@ func _initialize() -> void:
 	check("2D bounds hold every instance", bounds2d.has_surface() and bounds2d.grow(0.001).has_point(Vector3(30, 40, 0)) 		and bounds2d.grow(0.001).has_point(Vector3(-5, 7.5, 0)) and bounds2d.size.x > 35 + 2 * sqrt(0.5) * 3 - 0.01, bounds2d)
 	check("a game's own custom_aabb is kept", plain_multi.custom_aabb == GAME_BOUNDS, plain_multi.custom_aabb)
 	await check_game_input(session, toy)
-	session.set_input_value(&"drift", 3.0)
+	var input: UnifiedInput = Unified.input
+	input.drift = 3.0
+	check("Unified.input reads back as set", near(input.drift, 3.0), input.drift)
 	var y0 := toy.y
 	for i in 20:
 		await create_timer(0.02).timeout
-	check("set_input_value reaches sample_input", toy.y > y0, [y0, toy.y])
+	check("Unified.input reaches sample_input", toy.y > y0, [y0, toy.y])
 	await check_commands(session, toy)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
@@ -217,10 +224,14 @@ func _initialize() -> void:
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.
 func check_constants() -> void:
 	var constants: UnifiedConstants = Unified.constants
+	var limits: DataLimits = constants.limits
 	check("constants: typed, strings and nested values", near(constants.speed, 4.5) and constants.name == "toy" \
-		and constants.favorite == EnumShape.RING and constants.sizes == [1, 2, 3] \
-		and constants.limits == {"low": -1, "high": 9} and constants.by_shape == [0.5, 1.0, 2.0],
-		[constants.speed, constants.name, constants.favorite, constants.sizes, constants.limits])
+		and constants.favorite == EnumShape.RING and constants.sizes == [1, 2, 3, 4, 5] \
+		and limits.low == -1 and limits.high == 9 and constants.by_shape == [0.5, 1.0, 2.0],
+		[constants.speed, constants.name, constants.favorite, constants.sizes, limits.low, limits.high])
+	var ranges: Array[DataLimits] = constants.ranges  # typed by its class: assigning it would fail otherwise
+	check("an array of nested structs: an Array of their class", ranges.size() == 2 and ranges[1].low == 2 \
+		and ranges[1].high == 3 and ranges.get_typed_class_name() == &"DataLimits", ranges)
 	var sizes: Array[int] = constants.sizes  # a typed Array: assigning it to Array[int] would fail otherwise
 	var by_shape: Array[float] = constants.by_shape
 	check("constants: arrays typed by their elements", sizes.get_typed_builtin() == TYPE_INT 		and by_shape.get_typed_builtin() == TYPE_FLOAT, [sizes.get_typed_builtin(), by_shape.get_typed_builtin()])
@@ -237,8 +248,9 @@ func check_constants() -> void:
 func check_players(session: UnifiedSession, me: int, roster_changes: int) -> void:
 	check("get_players / get_known_players: the local player", session.get_players() == [me] \
 		and session.get_known_players() == [me], [session.get_players(), session.get_known_players()])
-	check("get_player_slot / is_player_present", session.get_player_slot(me) == 0 and session.is_player_present(me) \
-		and session.get_player_slot(me + 1) == -1 and not session.is_player_present(0),
+	var players: Array[int] = session.get_players()  # typed: assigning it to Array[int] would fail otherwise
+	check("get_player_slot", players == [me] and session.get_player_slot(me) == 0 \
+		and session.get_player_slot(me + 1) == -1 and session.get_player_slot(0) == -1,
 		[session.get_player_slot(me), session.get_player_slot(me + 1)])
 	var nobody := me + 0x10000  # another member id: nobody the session knows
 	check("the local player's name from the roster", session.get_player_name(me) == "player" \
@@ -326,6 +338,9 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	bump2.amount = -2
 	check("send_command another Bump", session.send_command(bump2))
 	var mark := CommandMark.new()
+	var area := DataMarkArea.new()
+	area.corner = Vector2(1, 2)
+	area.layer = 3
 	mark.at = Vector2(1.5, -2)
 	mark.normal = Vector3(0, 1, 0)
 	mark.weight = 0.25
@@ -335,7 +350,7 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	mark.loud = true
 	mark.target = (7 << 32) | 3  # a handle's key: generation 7, index 3
 	mark.place = Vector2(30, 40)  # view units (pixels): the sim gets them in its units
-	mark.area = {"corner": Vector2(1, 2), "layer": 3}  # a nested struct; `_pad` is left out
+	mark.area = area  # a nested struct: an object of its class; `_pad` is left out
 	check("a position reads back as it was set", mark.place == Vector2(30, 40), mark.place)
 	check("send_command Mark", session.send_command(mark))
 	# refused: an error line names the problem, and send_command is false for a command holding a bad value
@@ -349,9 +364,11 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 	bad_handle.target = 3  # generation 0: no handle's key
 	check("not a handle's key: refused", not session.send_command(bad_handle))
 	var bad_area := CommandMark.new()
-	bad_area.area = {"corner": Vector2(1, 2), "depth": 1}
-	check("a key that names no field: refused", not session.send_command(bad_area))
-	check("an event is not a command", not session.send_command(EventPlayerJoined.new()))
+	var limits: Variant = DataLimits.new()  # untyped: the parser would refuse it
+	bad_area.area = limits
+	check("another struct's object: refused", not session.send_command(bad_area))
+	var event: Variant = EventPlayerJoined.new()  # untyped: the parser would refuse it
+	check("an event is not a command", not session.send_command(event))
 	for i in 100:
 		await create_timer(0.02).timeout
 		if toy.bumps >= 2 and toy.marks >= 1:
@@ -367,18 +384,29 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 		and shapes == [EnumShape.DOT, EnumShape.STAR], [toy.mark_shape, toy.mark_shapes])
 	check("a handle as its key", toy.mark_target == (7 << 32) | 3, toy.mark_target)
 	check("a position in sim units", toy.mark_place == Vector3(3, 4, 0), toy.mark_place)
-	check("a nested struct from a Dictionary", toy.mark_area == {"corner": Vector2(1, 2), "layer": 3},
-		toy.mark_area)
-	check("Godot's own types as they are", toy.tint == Vector4(1, 2, 3, 4) and toy.turn == Quaternion.IDENTITY,
-		[toy.tint, toy.turn])
+	var mark_area: DataMarkArea = toy.mark_area
+	check("a nested struct: an object of its class", mark_area.corner == Vector2(1, 2) and mark_area.layer == 3,
+		[mark_area.corner, mark_area.layer])
+	check("by shape: [4]f32 a Vector4, Quat a Quaternion, [2]i32 a Vector2i", toy.tint == Vector4(1, 2, 3, 4) \
+		and toy.turn == Quaternion.IDENTITY and toy.cell == Vector2i(-3, 7), [toy.tint, toy.turn, toy.cell])
 
 
 func finish(session: UnifiedSession) -> void:
 	session.leave()
 	for i in 50:
-		if not session.is_running():
+		if not session.running:
 			break
 		await create_timer(0.02).timeout
 	root.get_child(0).queue_free()
 	session.queue_free()
 	await process_frame
+
+
+# The view lookup: by kind and key, by kind and player, and every view of a kind (UnifiedSession.get_view...).
+func check_view_lookup(session: UnifiedSession, typed: Node, plain: Node, me: int) -> void:
+	check("get_view by kind and key", session.get_view("plain2d", 2) == plain and session.get_view("plain2d", 99) == null \
+		and session.get_view("nothing", 2) == null, session.get_view("plain2d", 2))
+	check("get_player_view by kind and player", session.get_player_view("typed2d", me) == typed \
+		and session.get_player_view("typed2d", 0) == null, session.get_player_view("typed2d", me))
+	var plains: Array[Node] = session.get_views("plain2d")  # typed: assigning it to Array[Node] would fail otherwise
+	check("get_views: every view of a kind", plains.has(plain) and session.get_views("nothing").is_empty(), plains)

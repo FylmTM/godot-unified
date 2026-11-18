@@ -53,7 +53,6 @@ Graph :: struct {
 	kind:    Graph_Kind,
 	group:   int,
 	n:       int, // lines, parts or lanes
-	lo, hi:  f32, // Lines: the scale (lo == hi: from 0 to a round value above the largest shown)
 	ring:    [FRAME_HIST][MAX_PARTS]f32, // by frame index (Marks: 1 = set)
 	written: int, // the frame index last written (a frame without a sample reads 0)
 	ctl:     gd.Control,
@@ -395,11 +394,10 @@ graph_names :: proc(graph: ^Graph, legend: []string) {
 }
 
 @(private)
-graph_lines :: proc(name: string, values: []f32, legend: []string, lo, hi: f32, group: string) {
+graph_lines :: proc(name: string, values: []f32, legend: []string, group: string) {
 	graph := graph_find(name)
 	if graph == nil {
 		graph = graph_make(name, .Lines, group, len(values))
-		graph.lo, graph.hi = lo, hi
 		graph_names(graph, legend)
 	}
 	row := graph_slot(graph)
@@ -660,8 +658,7 @@ draw_lines :: proc(graph: ^Graph) {
 			has[column] = true
 		}
 	}
-	lo, hi := graph.lo, graph.hi
-	if lo == hi do lo, hi = 0, nice_ceil(top)
+	top = nice_ceil(top) // from 0 to a round value above the largest shown
 	gd.RenderingServer_canvas_item_clear(s.rs, graph.ci)
 	graph_back(graph)
 	gd.PackedColorArray_resize(&overlay.colors, 1)
@@ -671,8 +668,7 @@ draw_lines :: proc(graph: ^Graph) {
 		count := 0
 		for column in 0 ..< overlay.w {
 			if !has[column] do continue
-			value := clamp(vals[column][part], lo, hi)
-			pts[count] = {f32(column), LEGEND_H + GRAPH_H - (value - lo) / (hi - lo) * (GRAPH_H - 1)}
+			pts[count] = {f32(column), LEGEND_H + GRAPH_H - vals[column][part] / top * (GRAPH_H - 1)}
 			count += 1
 		}
 		if count < 2 do continue
@@ -702,32 +698,27 @@ draw_marks :: proc(graph: ^Graph) {
 // ---- batched quads: one triangle array per graph per frame
 
 @(private)
+Quad :: struct {
+	rect:  [4]f32, // x, y, width, height
+	color: gd.Color,
+}
+
+// This graph's quads (at most one per column and part), gathered first so the packed arrays are sized once: a graph
+// that draws as many quads as last frame resizes nothing.
+@(private)
+quads: [MAX_W * MAX_PARTS]Quad
+@(private)
 quad_n: int
 
 @(private)
 quads_begin :: proc() {
 	quad_n = 0
-	overlay := &s.overlay
-	gd.PackedVector2Array_resize(&overlay.points, MAX_W * MAX_PARTS * 4)
-	gd.PackedColorArray_resize(&overlay.colors, MAX_W * MAX_PARTS * 4)
-	gd.PackedInt32Array_resize(&overlay.indices, MAX_W * MAX_PARTS * 6)
 }
 
-// At most MAX_W * MAX_PARTS per graph (one per column and part).
 @(private)
 quad :: proc(x, y, width, height: f32, color: gd.Color) {
-	overlay := &s.overlay
-	if quad_n >= MAX_W * MAX_PARTS do return
-	pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&overlay.points, 0))
-	colors := ([^]gd.Color)(gdi.packed_color_array_operator_index(&overlay.colors, 0))
-	indices := ([^]i32)(gdi.packed_int32_array_operator_index(&overlay.indices, 0))
-	vertex := quad_n * 4
-	pts[vertex + 0], pts[vertex + 1], pts[vertex + 2], pts[vertex + 3] =
-		{x, y}, {x + width, y}, {x + width, y + height}, {x, y + height}
-	for k in 0 ..< 4 do colors[vertex + k] = color
-	base := i32(vertex)
-	indices[quad_n * 6 + 0], indices[quad_n * 6 + 1], indices[quad_n * 6 + 2] = base, base + 1, base + 2
-	indices[quad_n * 6 + 3], indices[quad_n * 6 + 4], indices[quad_n * 6 + 5] = base, base + 2, base + 3
+	if quad_n >= len(quads) do return
+	quads[quad_n] = {{x, y, width, height}, color}
 	quad_n += 1
 }
 
@@ -737,9 +728,24 @@ quads_end :: proc(graph: ^Graph) {
 	gd.RenderingServer_canvas_item_clear(s.rs, graph.ci)
 	graph_back(graph)
 	if quad_n == 0 do return
-	gd.PackedVector2Array_resize(&overlay.points, quad_n * 4)
-	gd.PackedColorArray_resize(&overlay.colors, quad_n * 4)
-	gd.PackedInt32Array_resize(&overlay.indices, quad_n * 6)
+	if int(gd.PackedVector2Array_size(&overlay.points)) != quad_n * 4 {
+		gd.PackedVector2Array_resize(&overlay.points, quad_n * 4)
+		gd.PackedColorArray_resize(&overlay.colors, quad_n * 4)
+		gd.PackedInt32Array_resize(&overlay.indices, quad_n * 6)
+	}
+	pts := ([^]gd.Vector2)(gdi.packed_vector2_array_operator_index(&overlay.points, 0))
+	colors := ([^]gd.Color)(gdi.packed_color_array_operator_index(&overlay.colors, 0))
+	indices := ([^]i32)(gdi.packed_int32_array_operator_index(&overlay.indices, 0))
+	for item, n in quads[:quad_n] {
+		x, y, width, height := item.rect[0], item.rect[1], item.rect[2], item.rect[3]
+		vertex := n * 4
+		pts[vertex + 0], pts[vertex + 1], pts[vertex + 2], pts[vertex + 3] =
+			{x, y}, {x + width, y}, {x + width, y + height}, {x, y + height}
+		for k in 0 ..< 4 do colors[vertex + k] = item.color
+		base := i32(vertex)
+		indices[n * 6 + 0], indices[n * 6 + 1], indices[n * 6 + 2] = base, base + 1, base + 2
+		indices[n * 6 + 3], indices[n * 6 + 4], indices[n * 6 + 5] = base, base + 2, base + 3
+	}
 	gd.RenderingServer_canvas_item_add_triangle_array(
 		s.rs,
 		graph.ci,

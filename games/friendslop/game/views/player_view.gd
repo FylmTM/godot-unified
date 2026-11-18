@@ -73,15 +73,14 @@ func _ready() -> void:
 	_last_pos = position
 
 
-func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
-	var dt := get_process_delta_time()
-	if dt <= 0.0:
+func _process(delta: float) -> void:
+	if delta <= 0.0:
 		return
-	_t += dt
-	_vel = _vel.lerp((pos - _last_pos) / dt, 1.0 - exp(-dt * 10.0))
-	_last_pos = pos
-	_tip = move_toward(_tip, 1.0 if limp else 0.0, dt * (6.0 if limp else 3.0))
-	_squash = move_toward(_squash, 0.0, dt * 4.0)
+	_t += delta
+	_vel = _vel.lerp((position - _last_pos) / delta, 1.0 - exp(-delta * 10.0))
+	_last_pos = position
+	_tip = move_toward(_tip, 1.0 if limp else 0.0, delta * (6.0 if limp else 3.0))
+	_squash = move_toward(_squash, 0.0, delta * 4.0)
 	# Lean into the horizontal motion (in the root's frame, which turns with the facing).
 	var local_v := global_transform.basis.inverse() * Vector3(_vel.x, 0, _vel.z)
 	var lean := Vector3(clampf(local_v.z * 0.04, -0.3, 0.3), 0, clampf(-local_v.x * 0.04, -0.3, 0.3))
@@ -92,40 +91,37 @@ func _sim_update(pos: Vector3, _yaw: float, _alpha: float) -> void:
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
 	var player := _view_marker.player
-	var info := Game.player_info(player)
-	var player_name := Game.player_name(info) if not info.is_empty() else "P%d" % (Game.player_slot(player) + 1)
+	var player_name := Game.player_name(player)
 	if _tag.text != player_name:
 		_tag.text = player_name
 	_tag.visible = player != Game.local_player()
 
 
 ## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
-func _sim_event(event: UnifiedEvent, state: int) -> void:
+func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
-	var local := _view_marker.player == Game.local_player()
-	match event.kind:
-		"jumped":
-			_squash = -0.6
-			Sfx.play(&"pop", -6.0, 1.4)
-		"launched":
-			_squash = -1.0
-			Sfx.play(&"start", -2.0, 1.6)
-		"grabbed":
-			Sfx.play(&"click", -2.0, 1.3)
-		"dropped":
-			Sfx.play(&"click", -4.0, 0.8)
-		"thrown":
-			Sfx.play(&"pop", 0.0, 0.8)
-		"hit":
-			_squash = 0.8
-			Sfx.play(&"hit")
-			if local:
-				Game.rumble(0.4, 0.6, 0.25)
-		"broke_free":
-			Sfx.play(&"pop", 0.0, 1.8)
-		"fell":
-			Sfx.play(&"die", -3.0)
-		"respawned":
-			_squash = 0.5
-			Sfx.play(&"respawn", -4.0)
+	if event is EventJumped:
+		_squash = -0.6
+		Sfx.play(&"pop", -6.0, 1.4)
+	elif event is EventLaunched:
+		_squash = -1.0
+		Sfx.play(&"start", -2.0, 1.6)
+	elif event is EventGrabbed:
+		Sfx.play(&"click", -2.0, 1.3)
+	elif event is EventDropped:
+		Sfx.play(&"click", -4.0, 0.8)
+	elif event is EventThrown:
+		Sfx.play(&"pop", 0.0, 0.8)
+	elif event is EventHit:
+		_squash = 0.8
+		Sfx.play(&"hit")
+		if _view_marker.player == Game.local_player():
+			Game.rumble(0.4, 0.6, 0.25)
+	elif event is EventBrokeFree:
+		Sfx.play(&"pop", 0.0, 1.8)
+	elif event is EventFell:
+		Sfx.play(&"die", -3.0)
+	elif event is EventRespawned:
+		_squash = 0.5
+		Sfx.play(&"respawn", -4.0)

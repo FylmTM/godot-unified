@@ -34,7 +34,8 @@ func _initialize() -> void:
 	s = ClassDB.instantiate("UnifiedSession")
 	s.view_root = null  # status checks only: no scene views (unset, they would go under the session's parent)
 	root.add_child(s)
-	s.status_changed.connect(func(st: String, detail: String) -> void: _statuses.append(st + (":" + detail if detail != "" else "")))
+	s.status_changed.connect(func(st: UnifiedSession.Status, detail: String) -> void:
+		_statuses.append(_status_name(st) + (":" + detail if detail != "" else "")))
 
 
 func _process(_delta: float) -> bool:
@@ -58,8 +59,8 @@ func _run() -> void:
 	s.leave()
 	var t := Time.get_ticks_msec()
 	check("start_single right after leave is accepted", s.start_single())
-	check("status is connecting while the goodbye runs", s.get_status() == "connecting", s.get_status())
-	if not await _wait_for(func() -> bool: return s.get_status() == "connected" and s.get_tick() > 10, 5.0, "single player runs"):
+	check("status is connecting while the goodbye runs", s.status == UnifiedSession.STATUS_CONNECTING, s.status)
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 10, 5.0, "single player runs"):
 		return _finish()
 	var waited := Time.get_ticks_msec() - t
 	check("the goodbye was cut short", waited < 2000, "%d ms" % waited)
@@ -69,15 +70,15 @@ func _run() -> void:
 
 	# 2. host, leave, host on the same port at once
 	s.leave()
-	if not await _wait_for(func() -> bool: return not s.is_running(), 5.0, "single player ends"):
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "single player ends"):
 		return _finish()
 	check("host on port %d" % PORT, s.host_direct(PORT))
-	if not await _wait_for(func() -> bool: return s.get_status() == "connected" and s.get_tick() > 5, 5.0, "hosting"):
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 5, 5.0, "hosting"):
 		return _finish()
 	_statuses.clear()
 	s.leave()
 	check("host again on the same port right after leave", s.host_direct(PORT))
-	if not await _wait_for(func() -> bool: return s.get_status() == "connected" and s.get_tick() > 5, 5.0, "hosting again"):
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 5, 5.0, "hosting again"):
 		return _finish()
 	check("the port was free", not _statuses.has("failed:cannot listen on UDP port %d" % PORT), _statuses)
 
@@ -86,21 +87,21 @@ func _run() -> void:
 	s.leave()
 	check("host right after leave (to be cancelled)", s.host_direct(PORT))
 	s.leave()
-	check("a cancelled start reports disconnected", s.get_status() == "disconnected", s.get_status())
-	if not await _wait_for(func() -> bool: return not s.is_running(), 5.0, "no session runs after the cancel"):
+	check("a cancelled start reports disconnected", s.status == UnifiedSession.STATUS_DISCONNECTED, s.status)
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "no session runs after the cancel"):
 		return _finish()
 	await _sleep(0.3)
-	check("the cancelled start never ran", not s.is_running())
+	check("the cancelled start never ran", not s.running)
 
 	# 4. a session that ends on its own: its last frame stays on screen, nothing answers from it
 	s.ticks = 40
 	check("start a 40-tick single player", s.start_single())
-	if not await _wait_for(func() -> bool: return s.get_local_player() != 0, 5.0, "the short session runs"):
+	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the short session runs"):
 		return _finish()
-	if not await _wait_for(func() -> bool: return not s.is_running(), 5.0, "the short session ends"):
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the short session ends"):
 		return _finish()
 	await _sleep(0.2)
-	check("an ended session has no local player", s.get_local_player() == 0, s.get_local_player())
+	check("an ended session has no local player", s.local_player == 0, s.local_player)
 	s.ticks = 0
 
 	if idle_end > 0.0:
@@ -128,3 +129,16 @@ func _finish() -> void:
 	s.leave()
 	print("SESSION TESTS: %d failed" % failed)
 	quit(failed)
+
+
+func _status_name(status: UnifiedSession.Status) -> String:
+	match status:
+		UnifiedSession.STATUS_CONNECTING:
+			return "connecting"
+		UnifiedSession.STATUS_CONNECTED:
+			return "connected"
+		UnifiedSession.STATUS_FAILED:
+			return "failed"
+		UnifiedSession.STATUS_DISCONNECTED:
+			return "disconnected"
+	return "idle"

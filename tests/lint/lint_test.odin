@@ -37,11 +37,10 @@ RULES := []Rule {
 	{pkg = "eos", kind = .Realtime, imports = {"unified:netcode", "system:"}},
 	{pkg = "headless", kind = .Realtime, imports = {"unified:headless", "unified:sim", "unified:netcode"}},
 	{pkg = "lint", kind = .Realtime},
-	// Host side (Godot bindings, view, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
+	// Host side (Godot bindings and views, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
 	// its gdi sub-package relatively; the CLI imports Odin's own only, so editing the rest of the library never
 	// rebuilds it.
 	{pkg = "gdext", kind = .Host, imports = {"unified:gdext/gdi", "gdi"}},
-	{pkg = "view", kind = .Host},
 	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
 	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
 	{pkg = "cli", kind = .Host},
@@ -72,7 +71,6 @@ SIM_IMPORTS :: []string {
 GODOT_IMPORTS :: []string {
 	"unified:sim",
 	"unified:netcode",
-	"unified:view",
 	"unified:dmath",
 	"unified:gdext",
 	"unified:gdext/gdi",
@@ -192,7 +190,7 @@ lint_catches_unlisted_imports :: proc(t: ^testing.T) {
 	host := Rule {
 		pkg     = "host",
 		kind    = .Host,
-		imports = {"unified:view", "system:"},
+		imports = {"unified:godot", "system:"},
 	}
 	realtime := Rule {
 		pkg     = "realtime",
@@ -203,7 +201,7 @@ lint_catches_unlisted_imports :: proc(t: ^testing.T) {
 		{host, `import "unified:sim"`, true},
 		{host, `import "vendor:darwin/AppKit"`, true},
 		{host, `import "core:math"`, false},
-		{host, `import v "unified:view"`, false},
+		{host, `import v "unified:godot"`, false},
 		{host, `foreign import kernel32 "system:Kernel32.lib"`, false},
 		{realtime, `import "core:math"`, true},
 		{realtime, `import "core:math/linalg"`, true},
@@ -334,7 +332,7 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"f :: proc() {\n\tx := 1.5\n\ty := -2.0\n}\n", true},
 		{"f :: proc(m: map[int]int) {\n\tfor k in m {}\n}\n", true},
 		{"v: f64le\n", true},
-		{"import \"unified:view\"\n", false},
+		{"import \"unified:godot\"\n", false},
 		{"import \"base:runtime\"\ng := runtime.random_generator\n", true},
 		{"import \"core:crypto\"\n", false},
 		{"import \"core:sys/posix\"\n", false},

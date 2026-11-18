@@ -9,7 +9,7 @@ static func walk_to(tool: UnifiedTool, target: Callable, timeout_s: float, near:
 	var end := Time.get_ticks_msec() + int(timeout_s * 1000.0)
 	Input.action_press(&"move_forward")
 	while not tool.failed():
-		var at: Vector3 = arena.local_player_view().global_position
+		var at := player_view(tool, tool.session.local_player).global_position
 		var t: Vector3 = target.call()
 		var d := Vector2(t.x - at.x, t.z - at.z)
 		if d.length() < near:
@@ -26,10 +26,15 @@ static func walk_to(tool: UnifiedTool, target: Callable, timeout_s: float, near:
 ## Turns the camera towards `at`, at `pitch`.
 static func face(tool: UnifiedTool, at: Vector3, pitch: float) -> void:
 	var arena: Node3D = tool.current_scene
-	var me: Vector3 = arena.local_player_view().global_position
+	var me := player_view(tool, tool.session.local_player).global_position
 	arena.camera_rig.yaw = atan2(at.x - me.x, at.z - me.z)
 	arena.camera_rig.pitch = pitch
 	await tool.seconds(0.3)
+
+
+## A player's view (by key), or null while the sim shows none.
+static func player_view(tool: UnifiedTool, player: int) -> Node3D:
+	return tool.session.get_player_view("player", player) as Node3D
 
 
 static func fmt(p: Vector3) -> String:

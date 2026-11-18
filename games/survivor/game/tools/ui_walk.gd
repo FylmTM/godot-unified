@@ -2,7 +2,7 @@ extends UnifiedUiWalk
 ## The shared UI walk (UnifiedUiWalk) plus survivor's own play scene, on the real session (single player): the lobby
 ## (the start circle and hint) -> walk out -> the match (enemies render; it walks towards the nearest until the
 ## auto-attack fires; a Pick command is accepted). The level-up choice and the match-over panel take a real match to
-## reach: the full tour (`uni tool survivor tour`) and `play_check` walk them.
+## reach: the full tour (`uni tool survivor tour`) walks them.
 
 
 func _walk_play() -> void:

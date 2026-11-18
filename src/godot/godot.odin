@@ -1,20 +1,17 @@
 // unified:godot: everything that touches Godot for a game built on unified (src/godot/SPEC.md). A game's GDExtension
-// entry calls `install` with its sim.Game and a Glue (how Godot's input becomes its Input, and its State views),
-// then `entry`, which registers:
+// entry calls `init` with its sim.Game and a Glue (how Godot's input becomes its Input, and its State views), which
+// registers:
 //
 //   UnifiedSession (Node)       one per app: runs a session (single player, host, join) on its own thread, samples
 //                               input, syncs the views at process priority -1000, routes events, hosts the dev UI.
 //   UnifiedView (Node)          the marker of a scene view's scene (a direct child of its root).
 //   UnifiedMultiView (Node)     the marker under a MultiMeshInstance3D / 2D the host fills.
 //   UnifiedEvent, UnifiedCommand (RefCounted) and a class per kind of the game's event and command unions.
+//   Unified (the engine singleton), UnifiedData, UnifiedConstants, a class per session data type and per enum.
 //
 // Threads: the session thread (macOS: the real-time thread class) is the only one that touches the sim; it
 // publishes Frames through a triple buffer and events/status through SPSC queues. Godot is called only from the
 // main thread. Nothing runs in the editor (extension classes run there like @tool scripts).
-//
-// Files: glue.odin (what a game provides, the Frame), driver.odin (the generic session driver), poses.odin (the
-// previous poses), session.odin (UnifiedSession), views.odin (views and markers), sim_classes.odin (event and
-// command classes), command.odin, events.odin, input.odin, docs.odin (the editor's help), platform*.odin.
 package godot
 
 import "base:runtime"
@@ -75,7 +72,7 @@ on_initialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	if level == .INITIALIZATION_EDITOR {
 		context = runtime.default_context()
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-		load_docs()
+		gd.load_docs() // the editor's help: each class's and member's doc from where it is bound
 		return
 	}
 	if level != .INITIALIZATION_SCENE do return
@@ -103,9 +100,11 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	delete(app_version)
 	app_version = ""
 	if lobby != nil && lobby.shutdown != nil do lobby.shutdown()
-	unregister_classes()
+	data_objects_free()
 	input_clear()
-	gd.shutdown()
+	gd.shutdown() // unregisters every class, in reverse
+	data_classes_forget()
+	clear(&sim_classes) // the classes themselves live as long as the process (a hot reload registers anew)
 }
 
 // Whether the extension runs inside the Godot editor, where the session node and views stay inert: the editor

@@ -7,11 +7,9 @@ package views_test_ext
 
 import "base:runtime"
 import "core:math"
-import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:sim"
-import "unified:view"
 
 import "../../toy"
 
@@ -38,7 +36,7 @@ Typed2D_Data :: struct {
 	ticks:     u32, // the frame's tick: changes every frame
 	charge:    f32,
 	dir:       [2]f32,
-	tint:      [4]f32,
+	tint:      godot.Color,
 	pad_check: f32,
 }
 
@@ -71,8 +69,9 @@ Data_Toy :: struct {
 	x:           f32,
 	y:           f32,
 	spawned:     u32,
-	tint:        gd.Vector4, // Godot's own types: as they are (a plain [4]f32 is a Color)
-	turn:        gd.Quaternion,
+	tint:        [4]f32, // by shape: a Vector4 (godot.Color is a Color)
+	turn:        godot.Quat, // a Quaternion
+	cell:        [2]i32, // a Vector2i
 }
 
 // The constants (Unified.constants), copied at install.
@@ -80,8 +79,9 @@ Data_Constants :: struct {
 	speed:    f32,
 	name:     string,
 	favorite: toy.Shape,
-	sizes:    [3]i32,
-	limits:   Limits, // a nested struct: a Dictionary
+	sizes:    [5]i32, // an Array[int] ([2]/[3]/[4]i32 would be a Vector2i/3i/4i)
+	limits:   Limits, // a nested struct: an object of its class (DataLimits)
+	ranges:   [2]Limits, // an Array[DataLimits]
 	by_shape: [toy.Shape]f32, // an enumerated array: an Array in the enum's order
 }
 
@@ -93,8 +93,9 @@ CONSTANTS := Data_Constants {
 	speed = 4.5,
 	name = "toy",
 	favorite = .Ring,
-	sizes = {1, 2, 3},
+	sizes = {1, 2, 3, 4, 5},
 	limits = {low = -1, high = 9},
+	ranges = {{low = 0, high = 1}, {low = 2, high = 3}},
 	by_shape = {.Dot = 0.5, .Ring = 1, .Star = 2},
 }
 
@@ -117,6 +118,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	is_2d        = true,
 	view_scale   = VIEW_SCALE,
 	event_key    = event_key,
+	input_values = Input_Values,
 	bench        = bench_prepare,
 }
 
@@ -124,6 +126,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 // instances and BENCH_SCENE_VIEWS moving plain3d views instead of the fixed items. Set on the session thread before
 // its first tick, read by fill_frame on the same thread.
 BENCH_SCENE_VIEWS :: 64
+BENCH_STATIC_VIEWS :: 64 // and as many at rest (a level's markers, a crate on the floor)
 bench_instances: int
 
 bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
@@ -141,8 +144,11 @@ bench_frame :: proc(f: ^Frame) {
 			key  = u64(100 + i),
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
-			rot  = view.quat_yaw(angle),
+			rot  = godot.quat_yaw(angle),
 		})
+	}
+	for i in 0 ..< BENCH_STATIC_VIEWS {
+		godot.push_view(f, {key = u64(200 + i), kind = .Plain3D, pos = {f32(i % 8), 2, f32(i / 8)}})
 	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
 	for i in 0 ..< bench_instances {
@@ -151,19 +157,24 @@ bench_frame :: proc(f: ^Frame) {
 			key    = u64(i + 1),
 			kind   = .Multi3D,
 			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
-			rot    = view.quat_yaw(phase),
+			rot    = godot.quat_yaw(phase),
 			custom = {phase, 0, 0, 0},
-		}) or_break
+		})
 	}
 }
 
 // The player drifts right; pressing ui_accept spawns one thing (on the press: held, it doesn't repeat), a `Spawned`
-// event with a handle, a position, the player and an enum, which expires a few dozen ticks later; the input value
-// "drift" moves it down.
+// event with a handle, a position, the player and an enum, which expires a few dozen ticks later; Unified.input.drift
+// moves it down.
 sample_input :: proc(input: ^toy.Input) {
 	input.dx = 2
-	input.dy = i8(godot.input_value("drift").x)
+	input.dy = i8(godot.input_values(Input_Values).drift)
 	input.buttons = godot.buttons(toy.Buttons, {.Spawn = "ui_accept"})
+}
+
+// What test.gd sets on Unified.input.
+Input_Values :: struct {
+	drift: f32,
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -173,8 +184,8 @@ fill_frame :: proc(f: ^Frame) {
 		bench_frame(f)
 		return
 	}
-	q2 := view.quat_angle2d(ANGLE_2D)
-	q3 := view.quat_yaw(YAW_3D)
+	q2 := godot.quat_angle2d(ANGLE_2D)
+	q3 := godot.quat_yaw(YAW_3D)
 	godot.push_view(f, {
 		key    = 1,
 		kind   = .Typed2D,
@@ -232,10 +243,11 @@ fill_frame :: proc(f: ^Frame) {
 		spawned     = f.state.spawned,
 		tint        = {1, 2, 3, 4},
 		turn        = {0, 0, 0, 1},
+		cell        = {-3, 7},
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha
-	angle := view.quat_angle2d(0.25)
+	angle := godot.quat_angle2d(0.25)
 	godot.push_multi_view(f, {
 		key    = 1,
 		kind   = .Multi2D,
@@ -251,7 +263,7 @@ fill_frame :: proc(f: ^Frame) {
 		key   = 2,
 		kind  = .Multi3D,
 		pos   = POS_3D / VIEW_SCALE,
-		rot   = view.qmul(q3, tumble),
+		rot   = godot.qmul(q3, tumble),
 		scale = {1, 2, 1},
 		color = {0, 1, 0, 1},
 	})
@@ -259,7 +271,7 @@ fill_frame :: proc(f: ^Frame) {
 
 // Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
 // subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(event: ^sim.Raw_Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in sim.event_value(event, toy.Event) {
 	case toy.Event_Expired:
 		return .Plain2D, 2, .View
