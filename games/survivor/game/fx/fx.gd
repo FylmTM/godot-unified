@@ -8,8 +8,6 @@ const ENEMY_COLORS: Array[Color] = [Color("4a80c7"), Color("2ec7cc"), Color("734
 const GEM_COLOR := Color("5dffb1")
 const FIRE := Color("ffb347")
 const GOLD := Color("ffd23f")
-## The sim's blast radius (m): the explosion's light and fire.
-const EXPLOSION_RADIUS := 5.0
 
 var camera: SurvivorCamera
 var _cube: BoxMesh
@@ -56,7 +54,7 @@ func play(event: UnifiedEvent) -> void:
 			0.45, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
 	elif event is EventBarrelExploded:
-		explosion((event as EventBarrelExploded).position, EXPLOSION_RADIUS)
+		explosion((event as EventBarrelExploded).position, Unified.constants.blast_radius)
 	elif event is EventGemCollected:
 		var gem := event as EventGemCollected
 		_burst(gem.position + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)

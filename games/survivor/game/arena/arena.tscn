@@ -5,7 +5,6 @@
 [ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="3_circle"]
 [ext_resource type="Shader" path="res://game/shaders/multi.gdshader" id="4_multi"]
 [ext_resource type="Shader" path="res://game/shaders/gem.gdshader" id="5_gem"]
-[ext_resource type="Script" path="res://game/views/multi_view.gd" id="6_multi"]
 [ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="7_camera"]
 [ext_resource type="Script" path="res://game/fx/fx.gd" id="8_fx"]
 [ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="9_hud"]
@@ -114,21 +113,18 @@ script = ExtResource("2_arena")
 
 [node name="Grunts" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("grunt_mm")
-script = ExtResource("6_multi")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Grunts"]
 kind = "grunt"
 
 [node name="Runners" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("runner_mm")
-script = ExtResource("6_multi")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Runners"]
 kind = "runner"
 
 [node name="Brutes" type="MultiMeshInstance3D" parent="MultiViews"]
 multimesh = SubResource("brute_mm")
-script = ExtResource("6_multi")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Brutes"]
 kind = "brute"
@@ -136,7 +132,6 @@ kind = "brute"
 [node name="Projectiles" type="MultiMeshInstance3D" parent="MultiViews"]
 cast_shadow = 0
 multimesh = SubResource("projectile_mm")
-script = ExtResource("6_multi")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Projectiles"]
 kind = "projectile"
@@ -144,7 +139,6 @@ kind = "projectile"
 [node name="Gems" type="MultiMeshInstance3D" parent="MultiViews"]
 cast_shadow = 0
 multimesh = SubResource("gem_mm")
-script = ExtResource("6_multi")
 
 [node name="UnifiedMultiView" type="UnifiedMultiView" parent="MultiViews/Gems"]
 kind = "gem"

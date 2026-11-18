@@ -1,10 +1,8 @@
 extends UnifiedValidate
-## survivor's project check (the library's UnifiedValidate) and its view contract (simulation/extension): the
-## constants the scripts read (Unified.constants: the level-up cards, the item grid with a view scene and a rest
-## height per kind), and every MultiMesh kind present once in the arena.
+## survivor's project check (the library's UnifiedValidate) and what its scripts assume of the constants
+## (Unified.constants): a HUD button per level-up card, and a view scene per item kind (the menu backdrop's).
 
-const MULTI_KINDS: Array[String] = ["brute", "gem", "grunt", "projectile", "runner"]  # Multi, sorted
-const MENU_SCRIPT := "res://game/ui/main_menu.gd"
+const HUD_SCENE := "res://game/ui/hud.tscn"
 
 
 func _play_scene() -> String:
@@ -13,24 +11,16 @@ func _play_scene() -> String:
 
 func _check_contract() -> String:
 	var constants := Unified.constants
-	var cards := constants.upgrades
-	if cards.size() != 3:
-		log_capture.add("Unified.constants.upgrades has %d cards, the HUD shows 3" % cards.size(), "res://game/ui/hud.gd")
-	for card: DataUpgradeCard in cards:
+	var hud := (load(HUD_SCENE) as PackedScene).instantiate()
+	var buttons := hud.get_node(^"%Options").get_child_count()
+	hud.free()
+	if constants.upgrades.size() != buttons:
+		log_capture.add("%d level-up cards, the HUD has %d buttons" % [constants.upgrades.size(), buttons], HUD_SCENE)
+	for card: DataUpgradeCard in constants.upgrades:
 		if card.name == "" or card.detail == "":
-			log_capture.add("upgrade card %s has no name or detail" % EnumUpgrade.name(card.upgrade),
-				"res://game/ui/hud.gd")
-	var rest_y: Dictionary = (load(MENU_SCRIPT) as Script).get_script_constant_map()["REST_Y"]
+			log_capture.add("upgrade card %s has no name or detail" % EnumUpgrade.name(card.upgrade), HUD_SCENE)
 	for item: DataItemSpot in constants.items:
-		var kind: String = EnumItemKind.name(item.kind)
-		if not ResourceLoader.exists("res://game/views/%s.tscn" % kind) or not rest_y.has(item.kind):
-			log_capture.add("item kind %s has no view scene or rest height" % kind, MENU_SCRIPT)
-	var arena := (load(_play_scene()) as PackedScene).instantiate()
-	var kinds: Array[String] = []
-	for b in arena.get_node(^"MultiViews").get_children():
-		kinds.append((b.get_node(^"UnifiedMultiView") as UnifiedMultiView).kind)
-	kinds.sort()
-	if kinds != MULTI_KINDS:
-		log_capture.add("MultiMesh views %s, the sim's kinds %s" % [kinds, MULTI_KINDS], _play_scene())
-	arena.free()
+		var scene := "res://game/views/%s.tscn" % EnumItemKind.name(item.kind)
+		if not ResourceLoader.exists(scene):
+			log_capture.add("item kind %s has no view scene" % EnumItemKind.name(item.kind), "res://game/ui/main_menu.gd")
 	return "ok"

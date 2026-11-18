@@ -71,7 +71,10 @@ func _run() -> void:
 			leveled = true
 			await seconds(0.3)
 			await shot("r05_levelup")
-			_tap(&"levelup_2")
+			var pending := _me().pending_levelups
+			await press_action(&"levelup_2")  # an input event: the HUD picks in _unhandled_input
+			await wait_for(func() -> bool: return _me() == null or _me().pending_levelups < pending, 2.0,
+				"key 2 picks an upgrade")
 			step("level-up offered and chosen (key 2)")
 		if (leveled and shot_fight and i > 150) or Unified.data.hud.phase != EnumPhase.MATCH or failed():
 			break
@@ -104,7 +107,7 @@ func _me() -> DataHudPlayer:
 
 
 func _release_all() -> void:
-	for a: StringName in MOVES + [&"dash", &"levelup_1", &"levelup_2", &"levelup_3"]:
+	for a: StringName in MOVES + [&"dash"]:
 		Input.action_release(a)
 
 
@@ -135,9 +138,9 @@ func _watch_hud() -> void:
 	for p in HUD_PANELS:
 		if (hud.get_node(p) as CanvasItem).is_visible_in_tree() and not frame_log.seen("show " + str(p)):
 			frame_tag("show " + str(p))
-	var banner: Label = hud.get_node(^"Banner")
-	if banner.is_visible_in_tree() and banner.modulate.a > 0.0:
-		frame_tag("banner %dpx" % banner.get_theme_font_size(&"font_size"))
+	for banner: Label in [hud.get_node(^"Banner"), hud.get_node(^"Notice")]:
+		if banner.is_visible_in_tree() and banner.modulate.a > 0.0:
+			frame_tag("banner %dpx" % banner.get_theme_font_size(&"font_size"))
 	var hp := float(_me().hp) if _me() != null else -1.0
 	if _last_hp >= 0.0 and hp < _last_hp - 0.01:
 		frame_tag("player hit")  # the hit flash

@@ -54,7 +54,8 @@ Frame :: godot.Frame(g.Game, View, MultiView)
 
 // The player view's data: set as its properties when it changes.
 Player_View :: struct {
-	hp: i32,
+	hp:      i32,
+	dashing: bool, // the dash's speed-up is on (the view's after-image trail)
 }
 
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
@@ -88,7 +89,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind   = .Player,
 			player = player,
 			pos    = sim.Position(character.pos),
-		}, Player_View{hp = max(character.hp, 0)})
+		}, Player_View{hp = max(character.hp, 0), dashing = character.dash_ticks > 0})
 	}
 	for i in 0 ..< g.ITEM_COUNT {
 		item := &f.state.items[i]
@@ -151,13 +152,13 @@ age_s :: proc(tick, spawn_tick: u32) -> f32 {
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions
 
-// What the scripts read: the "over" hold, the arena and start circle sizes, the level-up cards and the item grid.
+// What the scripts read: the "over" hold, the start circle and blast sizes, the level-up cards and the item grid.
 Data_Constants :: struct {
 	over_hold_s:  f32,
-	arena_half:   f32,
 	start_radius: f32,
+	blast_radius: f32, // a barrel's explosion reaches this far (m): the effect's size
 	upgrades:     [len(g.Upgrade)]Upgrade_Card, // in g.Upgrade order: the HUD's cards
-	items:        [g.ITEM_COUNT]Item_Spot, // the item grid as the match starts (the menu backdrop shows it)
+	items:        [g.ITEM_COUNT]Item_Spot, // the item grid at rest (the menu backdrop shows it)
 }
 
 // A level-up card: its Pick's `upgrade` (an EnumUpgrade value), name and detail.
@@ -168,7 +169,7 @@ Upgrade_Card :: struct {
 }
 
 Item_Spot :: struct {
-	position: [3]f32, // the body's centre at spawn
+	position: [3]f32, // the body's centre resting on the floor at its grid spot (it spawns higher and drops)
 	kind:     g.Item_Kind, // an EnumItemKind value
 }
 
@@ -177,8 +178,8 @@ Item_Spot :: struct {
 constants :: proc() -> (constants: Data_Constants) {
 	constants = {
 		over_hold_s  = g.OVER_HOLD_S,
-		arena_half   = g.ARENA_HALF,
 		start_radius = g.START_RADIUS,
+		blast_radius = g.BLAST_RADIUS,
 		upgrades     = {
 			{upgrade = .Fire_Rate, name = "Fire rate", detail = "Shoot more often"},
 			{upgrade = .Damage, name = "Damage"},
@@ -196,7 +197,9 @@ constants :: proc() -> (constants: Data_Constants) {
 		allocator = runtime.heap_allocator(),
 	)
 	for &spot, i in constants.items {
-		spot = {g.item_position(i), g.item_kind(i)}
+		spot.kind = g.item_kind(i)
+		spot.position = g.item_position(i)
+		spot.position.y = spot.kind == .Barrel ? g.BARREL_RADIUS + g.BARREL_HALF_HEIGHT : g.CRATE_HALF
 	}
 	return
 }
