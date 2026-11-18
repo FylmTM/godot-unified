@@ -37,8 +37,9 @@ For every upgrade:
   the run of step 4 is required before merging, as for any PR touching `src/physics` or a game's sim
   (`sim-change`, Full CI before merging). `verify` also runs the odin suite against the release's debug library
   (the `box3d-debug` suite), whose asserts catch misused ids.
-- Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: step, save, restore, deep hash and
-  rays on a fixed pile of 512 awake boxes, `tests/physics/bench`) on the old pin and the new one, on the same
+- Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: through the plug-in, step, save,
+  restore, both hashes, image and load, and rays on a pile of 512 awake boxes, plus 64 character updates;
+  `tests/physics/bench`) on the old pin and the new one, on the same
   machine (`git worktree add --detach .out/old-pin origin/main` for the old one), and each game's step, save and
   re-sim. A slower operation is found and explained before the bump merges.
 - Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
