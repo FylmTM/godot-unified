@@ -89,7 +89,9 @@ false). A keepalive keeps idle peers connected; a peer is dropped after `DISCONN
 `FIRST_ANSWER_US` for one that never answered (a transport like EOS sets up its path after the first hello). Each
 side's connection has an epoch, sent (and the peer's echoed) in every datagram: a restarted peer on the same address
 replaces its old connection at once, and a side still talking to a connection the other ended is told so at once
-instead of sitting half-open. A datagram that doesn't validate never gets a connection (or a transport peer number).
+instead of sitting half-open. A connection dropped after a goodbye (or replaced) never comes back: its last datagram
+acks the goodbye, and a datagram of it arriving later (a Hello resent before the Leave) is never read. A datagram
+that doesn't validate never gets a connection (or a transport peer number).
 
 ## Relay
 
@@ -127,7 +129,9 @@ instead of sitting half-open. A datagram that doesn't validate never gets a conn
   packet decodes on its own, so losing one costs nothing more (the next repeats what wasn't acked). A tick's commands
   are budgeted so it fits a packet alone however much it changed (`window_tick_max_bytes`). A client's Inputs writes
   its newest unacked inputs the same way, each from the one before, as many as fit beside a command with every byte
-  changed (`inputs_window`): each input rides in that many consecutive packets, whatever the round trip.
+  changed (`inputs_window`): each input rides in that many consecutive packets, whatever the round trip. A step that
+  generates more inputs than that (the clock's first step samples the input delay's ticks; a jump of the delay or
+  the clock) sends the burst in messages of its own beside the next that many packets.
 - **Recording**: `Relay_Config.recording` (a `sim.Log_Sink`) gets the session's input log (`src/sim/SPEC.md`) as ticks
   are finalized: the header with a tick count of 0, each tick, the count when it ends (`relay_end_recording`, or
   `relay_destroy`); a recording that never ended still reads to its last tick. A shipped game leaves it off, or

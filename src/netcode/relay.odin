@@ -406,7 +406,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	if replaced >= 0 {
 		old_peer := relay.seats[replaced].peer
 		seat_left(relay, replaced, "replaced by a new connection", now)
-		channel_drop(relay.ch, old_peer)
+		channel_drop(relay.ch, old_peer, now)
 	}
 	if known < 0 {
 		append(&relay.members, Relay_Member{key = strings.clone(key)})
@@ -1109,7 +1109,7 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 		relay.seats[slot].done = true
 	case .Leave:
 		seat_left(relay, slot, "left", now)
-		channel_drop(relay.ch, peer)
+		channel_drop(relay.ch, peer, now)
 	}
 }
 
