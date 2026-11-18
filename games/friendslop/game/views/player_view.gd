@@ -1,7 +1,8 @@
 extends Node3D
-## A player: a wobbly capsule with googly eyes, built in code (greybox). The sim gives the capsule's centre and the
-## facing (the root's rotation); everything else here is view-only: lean into motion, squash on jumps and landings,
-## tip over while stunned or held, arms out while holding, a name tag and a throw-charge ring.
+## A player: a wobbly capsule with googly eyes (player.tscn, greybox), sized to the sim's capsule and coloured as their
+## slot. The sim gives the capsule's centre and the facing (the root's rotation); everything else here is view-only:
+## lean into motion, squash on jumps and landings, tip over while stunned or held, arms out while holding, a name tag
+## and a throw-charge ring.
 
 ## The sim's Player_View data (simulation/extension), set by the host when it changes.
 ## Stunned or held: the body tips over.
@@ -10,11 +11,6 @@ var holding := false
 ## The throw charge, 0..1.
 var charge := 0.0
 
-## Everything that leans and squashes.
-var _body: Node3D
-var _arms: Node3D
-var _tag: Label3D
-var _ring: MeshInstance3D
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
 var _tip := 0.0
@@ -23,53 +19,32 @@ var _t := 0.0
 
 ## The view's marker: `player` is the key of the player it shows.
 @onready var _view_marker: UnifiedView = %UnifiedView
+## Everything that leans and squashes.
+@onready var _body: Node3D = %Body
+@onready var _capsule: MeshInstance3D = %Capsule
+@onready var _feet: Node3D = %Feet
+@onready var _eyes: Node3D = %Eyes
+@onready var _arms: Node3D = %Arms
+@onready var _tag: Label3D = %Tag
+@onready var _ring: MeshInstance3D = %ChargeRing
 
 
 func _ready() -> void:
-	var player := _view_marker.player
-	var c := UiTheme.player_color(Unified.session.get_player_slot(player))  # the session panel's colour of this player
-	_body = Node3D.new()
-	add_child(_body)
 	var radius := Unified.constants.player_radius
 	var half := Unified.constants.player_half_height
-	var cap := CapsuleMesh.new()
-	cap.radius = radius
-	cap.height = (half + radius) * 2.0
-	Greybox.set_mesh(_body, cap, c)
 	var feet := Unified.constants.feet
-	for side: int in [-1, 1]:
-		var foot := Greybox.set_mesh(_body, Greybox.sphere(0.13), c.darkened(0.35),
-			Vector3(0.15 * side, -feet + 0.12, 0.05), 0.0, "Foot%d" % (side + 1))
-		foot.scale = Vector3(1, 0.7, 1.4)
-		var eye := Greybox.set_mesh(_body, Greybox.sphere(0.11), Color.WHITE,
-			Vector3(0.13 * side, 0.45, radius - 0.03), 0.0,
-			"Eye%d" % (side + 1))
-		var pupil := Greybox.set_mesh(eye, Greybox.sphere(0.05), Color(0.05, 0.05, 0.08), Vector3(0, 0, 0.08), 0.0,
-			"Pupil")
-		pupil.set_meta(&"wobble", side)
-	_arms = Node3D.new()
-	_body.add_child(_arms)
-	for side: int in [-1, 1]:
-		var arm := CapsuleMesh.new()
-		arm.radius = 0.08
-		arm.height = 0.6
-		var a := Greybox.set_mesh(_arms, arm, c.darkened(0.15), Vector3(0.3 * side, 0.15, 0.3), 0.0,
-			"Arm%d" % (side + 1))
-		a.rotation.x = PI / 2.0
-	_arms.visible = false
-	_tag = Label3D.new()
-	_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_tag.position = Vector3(0, half + radius + 0.45, 0)
-	_tag.font_size = 40
-	_tag.outline_size = 10
+	var capsule := _capsule.mesh as CapsuleMesh
+	capsule.radius = radius
+	capsule.height = (half + radius) * 2.0
+	_feet.position.y = -feet
+	_eyes.position.z = radius
+	_ring.position.y = 0.05 - feet
+	_tag.position.y = half + radius + 0.45
+	var c := UiTheme.player_color(Unified.session.get_player_slot(_view_marker.player))  # as in the session panel
+	_capsule.material_override = Greybox.material(c)
+	_paint(_feet, c.darkened(0.35))
+	_paint(_arms, c.darkened(0.15))
 	_tag.modulate = c.lightened(0.3)
-	_tag.no_depth_test = true
-	add_child(_tag)
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.45
-	torus.outer_radius = 0.55
-	_ring = Greybox.set_mesh(self, torus, Color(1, 0.9, 0.3), Vector3(0, -feet + 0.05, 0), 1.5, "ChargeRing")
-	_ring.visible = false
 	_last_pos = position
 
 
@@ -125,3 +100,10 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	elif event is EventRespawned:
 		_squash = 0.5
 		Sfx.play(&"respawn", -4.0)
+
+
+## Colours every mesh under `group` alike.
+static func _paint(group: Node, color: Color) -> void:
+	var material := Greybox.material(color)
+	for part: MeshInstance3D in group.get_children():
+		part.material_override = material

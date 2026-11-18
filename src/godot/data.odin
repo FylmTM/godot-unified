@@ -265,6 +265,11 @@ register_data_classes :: proc() {
 		proc(_: ^gd.Instance_Header) -> f64 {return f64(api.view_scale)},
 		doc = "View units per sim unit (the game's Glue.view_scale; 1 unless set): positions arrive scaled already; multiply a sim size (a radius from the constants) by it.",
 	)
+	gd.bind_dynamic_method(&D.unified, "level_markers", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			root, _ := gd.from_variant(gd.Node, args[0])
+			markers := level_markers(root)
+			return array_variant(&markers)
+		}, nil, {{"root", .OBJECT, "Node"}}, gd.Dynamic_Arg{"", .ARRAY, "Node"}, doc = "The level markers under [param root] (a level scene's root) in the order its [code].level[/code] file holds them (depth-first, parents before children, every node that declares a marker kind), so marker index i is element i.")
 	gd.bind_dynamic_property(
 		&D.unified,
 		{"data", .OBJECT, "UnifiedData"},

@@ -27,16 +27,13 @@ Data_Hud :: struct {
 	_pad:       [3]u8,
 	run_s:      f32, // the current run's time (Run), or the finished run's (Finished)
 	best_s:     f32, // 0: none
-	runs:       u32,
 	checkpoint: i32,
 	reset_in_s: f32, // Finished: seconds until everyone is back in the hub
-	triggers:   u32, // bit i: trigger i is active
 	players:    [g.PLAYERS]Hud_Player,
 }
 
 hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	hud.phase = state.phase
-	hud.runs = state.runs
 	hud.best_s = sim.seconds(state.best_ticks, g.TICK_HZ)
 	hud.checkpoint = state.checkpoint
 	switch state.phase {
@@ -49,9 +46,6 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 			g.FINISH_HOLD_TICKS - dmath.min(tick - state.finish_tick, g.FINISH_HOLD_TICKS),
 			g.TICK_HZ,
 		)
-	}
-	for trigger, i in state.triggers {
-		if trigger.active do hud.triggers |= 1 << u32(i)
 	}
 	for slot in 0 ..< g.PLAYERS {
 		character := sim.slot_data(&state.players, slot)

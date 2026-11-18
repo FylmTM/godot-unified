@@ -11,8 +11,6 @@ extends MenuTool
 ## window with `--shots` the quit leaked their playbacks before Sfx.close, #302).
 ## The result adds the sim events seen.
 
-const ROCK_KINDS: Array[String] = ["rock_0", "rock_1", "rock_2", "rock_3"]
-
 ## Sim event name -> count of confirmed events, from sim_event.
 var _events: Dictionary[String, int] = {}
 ## Where a bullet last hit or split a rock (pixels) and when (msec): what a headless hunt aims at.
@@ -90,16 +88,16 @@ func _run() -> void:
 	# fire while the first wave drifts in
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
-	await wait_for(func() -> bool: return _multi_count(["bullet"]) > 0, 2.0, "bullets in the bullet multi view")
-	await wait_for(func() -> bool: return _multi_count(ROCK_KINDS) > 0, 6.0, "rocks in the rock multi views")
+	await wait_for(func() -> bool: return multi_count(&"bullet") > 0, 2.0, "bullets in the bullet multi view")
+	await wait_for(func() -> bool: return _rocks_drawn() > 0, 6.0, "rocks in the rock multi views")
 	Input.action_release(&"aim_up")
 	if failed():
 		Input.action_release(&"fire")
 		return
 	await seconds(0.5)
 	await shot("r03_match")
-	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [_multi_count(["bullet"]),
-		_multi_count(ROCK_KINDS), _multi_count(["gem"]), (local_row()).shots])
+	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [multi_count(&"bullet"),
+		_rocks_drawn(), multi_count(&"gem"), (local_row()).shots])
 
 	await _hunt()
 	if flag("end-in-match"):
@@ -205,11 +203,11 @@ func _views(kind: int) -> int:
 	return session.get_views(kind).size()
 
 
-## Instances the host drew this frame in the MultiMesh views of these kinds.
-func _multi_count(kinds: Array) -> int:
+## Rocks the host drew this frame: the rock multi views, one per shape variant (rock_0, rock_1, ...).
+func _rocks_drawn() -> int:
 	var n := 0
-	for kind: String in kinds:
-		n += multi_count(kind)
+	for v in (Unified.constants.rock_shapes as Array).size():
+		n += multi_count("rock_%d" % v)
 	return n
 
 
@@ -220,7 +218,7 @@ func _nearest_rock(from: Vector2) -> Vector2:
 	for b in current_scene.get_node(^"MultiViews").get_children():
 		var mmi := b as MultiMeshInstance2D
 		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
-		if mmi == null or mmi.multimesh == null or marker == null or not (marker.kind in ROCK_KINDS):
+		if mmi == null or mmi.multimesh == null or marker == null or not marker.kind.begins_with("rock_"):
 			continue
 		var mm := mmi.multimesh
 		var buffer := mm.buffer  # the dummy renderer (headless) keeps the buffer, not the instance transforms

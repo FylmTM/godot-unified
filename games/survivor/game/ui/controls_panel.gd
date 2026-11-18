@@ -29,12 +29,14 @@ func _ready() -> void:
 	_grid.add_theme_constant_override(&"v_separation", 2)
 	add_child(_grid)
 	minimum_size_changed.connect(_place)  # the new rows' size is known a frame after they are added
+	get_viewport().size_changed.connect(_place)
 
 
-## Called every frame by the game's HUD with [[key, action], ...] for each device; shows the one in use.
+## Called by the game's HUD when the context or the input device changes, with [[key, action], ...] for each device;
+## shows the one in use. The panel keeps its corner when the window is resized.
 func refresh(keys: Array, pad: Array) -> void:
 	var want: Array = pad if Game.using_pad else keys
-	_place()  # every frame too: the window may have been resized
+	_place()
 	if want == _shown:
 		return
 	_shown = want.duplicate(true)

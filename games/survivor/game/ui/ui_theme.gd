@@ -160,6 +160,18 @@ static func player_color(slot: int) -> Color:
 	return PLAYER_COLORS[clampi(slot, 0, PLAYER_COLORS.size() - 1)]
 
 
+## A match clock: "m:ss".
+static func clock(seconds: float) -> String:
+	var whole := maxi(int(seconds), 0)
+	@warning_ignore("integer_division")
+	return "%d:%02d" % [whole / 60, whole % 60]
+
+
+## A health bar's colour by the fraction left: good above a half, gold above a quarter, bad below.
+static func health_color(fraction: float) -> Color:
+	return GOOD if fraction > 0.5 else (GOLD if fraction > 0.25 else BAD)
+
+
 static func _dot(size: int, color: Color) -> ImageTexture:
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	var c := (size - 1) / 2.0

@@ -1,6 +1,155 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://game/ui/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://game/ui/banner.gd" id="2_banner"]
+[ext_resource type="Script" path="res://game/ui/session_panel.gd" id="3_session"]
+[ext_resource type="Script" path="res://game/ui/controls_panel.gd" id="4_controls"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_fill"]
+resource_local_to_scene = true
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+bg_color = Color(0.364706, 1, 0.694118, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Top" type="VBoxContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -210.0
+offset_top = 12.0
+offset_right = 210.0
+offset_bottom = 12.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 4
+
+[node name="Phase" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Dim"
+horizontal_alignment = 1
+
+[node name="Time" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Heading"
+horizontal_alignment = 1
+
+[node name="StationHp" type="ProgressBar" parent="Root/Top"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 16)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/fill = SubResource("StyleBoxFlat_fill")
+max_value = 1.0
+value = 1.0
+show_percentage = false
+
+[node name="StationHpLabel" type="Label" parent="Root/Top/StationHp"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Score" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Dim"
+horizontal_alignment = 1
+
+[node name="Bottom" type="CenterContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -200.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="Prompt" type="PanelContainer" parent="Root/Bottom"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="Root/Bottom/Prompt"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PromptText" type="Label" parent="Root/Bottom/Prompt/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Heading"
+theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
+
+[node name="PromptSub" type="Label" parent="Root/Bottom/Prompt/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Dim"
+horizontal_alignment = 1
+
+[node name="Start" type="Button" parent="Root/Bottom/Prompt/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+theme_type_variation = &"PrimaryButton"
+text = "Start"
+
+[node name="Banner" type="Label" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -170.0
+offset_right = 300.0
+offset_bottom = -110.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_type_variation = &"Heading"
+theme_override_font_sizes/font_size = 44
+horizontal_alignment = 1
+vertical_alignment = 1
+script = ExtResource("2_banner")
+
+[node name="Session" type="PanelContainer" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 0
+script = ExtResource("3_session")
+
+[node name="Controls" type="PanelContainer" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 0
+script = ExtResource("4_controls")

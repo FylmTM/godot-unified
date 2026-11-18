@@ -162,6 +162,8 @@ func _where(n: Node) -> String:
 	return str(_root.get_path_to(n))
 
 
+## Bodies and markers depth-first, parents before children: the marker order Unified.level_markers (Odin) returns
+## too (tests/godot_views/markers_check.gd compares them).
 func _collect(n: Node, bodies: Array[Node], markers: Array[Node]) -> void:
 	var is_2d := _ppm > 0.0
 	if n is StaticBody3D or n is StaticBody2D or (n is TileMapLayer and _tile_collision(n)):

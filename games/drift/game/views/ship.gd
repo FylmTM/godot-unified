@@ -16,7 +16,7 @@ var boost_ready := 1.0:  ## 0 just boosted .. 1 ready
 		boost_ready = v
 var thrust := false
 
-var _r := 16.0  ## the sim's ship radius, in pixels
+var _r: float  ## the sim's ship radius, in pixels
 var _color := Color.WHITE
 var _slot := -1  ## the slot _color is for
 var _squash := 0.0  ## > 0 stretches along the heading, < 0 squashes

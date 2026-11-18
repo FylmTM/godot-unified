@@ -2,9 +2,129 @@
 
 [ext_resource type="Script" path="res://game/views/player_view.gd" id="1_player"]
 
+[sub_resource type="CapsuleMesh" id="body_mesh"]
+radius = 0.35
+height = 1.6
+
+[sub_resource type="SphereMesh" id="foot_mesh"]
+radius = 0.13
+height = 0.26
+
+[sub_resource type="SphereMesh" id="eye_mesh"]
+radius = 0.11
+height = 0.22
+
+[sub_resource type="StandardMaterial3D" id="eye_mat"]
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.85
+rim_enabled = true
+rim = 0.25
+
+[sub_resource type="SphereMesh" id="pupil_mesh"]
+radius = 0.05
+height = 0.1
+
+[sub_resource type="StandardMaterial3D" id="pupil_mat"]
+albedo_color = Color(0.05, 0.05, 0.08, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.85
+rim_enabled = true
+rim = 0.25
+
+[sub_resource type="CapsuleMesh" id="arm_mesh"]
+radius = 0.08
+height = 0.6
+
+[sub_resource type="TorusMesh" id="ring_mesh"]
+inner_radius = 0.45
+outer_radius = 0.55
+
+[sub_resource type="StandardMaterial3D" id="ring_mat"]
+albedo_color = Color(1, 0.9, 0.3, 1)
+diffuse_mode = 3
+specular_mode = 1
+roughness = 0.85
+rim_enabled = true
+rim = 0.25
+emission_enabled = true
+emission = Color(1, 0.9, 0.3, 1)
+emission_energy_multiplier = 1.5
+
 [node name="Player" type="Node3D"]
 script = ExtResource("1_player")
 
 [node name="UnifiedView" type="UnifiedView" parent="."]
 unique_name_in_owner = true
 kind = "player"
+
+[node name="Body" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Capsule" type="MeshInstance3D" parent="Body"]
+unique_name_in_owner = true
+mesh = SubResource("body_mesh")
+
+[node name="Feet" type="Node3D" parent="Body"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.95, 0)
+
+[node name="Foot1" type="MeshInstance3D" parent="Body/Feet"]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0, 0, 0, 1.4, -0.15, 0.12, 0.05)
+mesh = SubResource("foot_mesh")
+
+[node name="Foot2" type="MeshInstance3D" parent="Body/Feet"]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0, 0, 0, 1.4, 0.15, 0.12, 0.05)
+mesh = SubResource("foot_mesh")
+
+[node name="Eyes" type="Node3D" parent="Body"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.35)
+
+[node name="Eye1" type="MeshInstance3D" parent="Body/Eyes"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.13, 0.45, -0.03)
+mesh = SubResource("eye_mesh")
+surface_material_override/0 = SubResource("eye_mat")
+
+[node name="Pupil" type="MeshInstance3D" parent="Body/Eyes/Eye1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.08)
+mesh = SubResource("pupil_mesh")
+surface_material_override/0 = SubResource("pupil_mat")
+
+[node name="Eye2" type="MeshInstance3D" parent="Body/Eyes"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.13, 0.45, -0.03)
+mesh = SubResource("eye_mesh")
+surface_material_override/0 = SubResource("eye_mat")
+
+[node name="Pupil" type="MeshInstance3D" parent="Body/Eyes/Eye2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.08)
+mesh = SubResource("pupil_mesh")
+surface_material_override/0 = SubResource("pupil_mat")
+
+[node name="Arms" type="Node3D" parent="Body"]
+unique_name_in_owner = true
+visible = false
+
+[node name="Arm1" type="MeshInstance3D" parent="Body/Arms"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -0.3, 0.15, 0.3)
+mesh = SubResource("arm_mesh")
+
+[node name="Arm2" type="MeshInstance3D" parent="Body/Arms"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.3, 0.15, 0.3)
+mesh = SubResource("arm_mesh")
+
+[node name="Tag" type="Label3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.25, 0)
+billboard = 1
+no_depth_test = true
+font_size = 40
+outline_size = 10
+
+[node name="ChargeRing" type="MeshInstance3D" parent="."]
+unique_name_in_owner = true
+visible = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.9, 0)
+mesh = SubResource("ring_mesh")
+surface_material_override/0 = SubResource("ring_mat")

@@ -1,18 +1,9 @@
 @tool
 extends Node3D
-## Level marker: a dynamic item the sim owns (kinds and sizes: ITEM_SPECS in simulation/friendslop/world.odin).
-## Its visuals move to the item's sim view at runtime.
+## Level marker: a dynamic item the sim owns, drawn at the size the sim simulates it (Unified.constants.item_sizes,
+## from the sim's ITEM_SPECS). Its visuals move to the item's sim view at runtime.
 
 const UNIFIED_KIND := "item"
-## Must match the sim's ITEM_SPECS (validate compares them with Unified.constants.item_sizes).
-const SIZES := {
-	"crate": Vector3(0.7, 0.7, 0.7),
-	"ball": Vector3(0.6, 0.6, 0.6),
-	"cube": Vector3(0.8, 0.8, 0.8),
-	"key": Vector3(0.3, 0.5, 0.3),
-	"heavy": Vector3(1.4, 0.8, 0.9),
-	"trophy": Vector3(0.5, 0.8, 0.5),
-}
 const COLORS := {
 	"crate": Greybox.CRATE,
 	"ball": Greybox.BALL,
@@ -34,7 +25,10 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	var size: Vector3 = SIZES.get(kind, Vector3.ONE)
+	var size := Vector3.ONE
+	for entry: DataItemSize in Unified.constants.item_sizes:
+		if EnumItemKind.name(entry.kind) == kind:
+			size = entry.size
 	var c: Color = COLORS.get(kind, Color.WHITE)
 	if kind == "ball":
 		Greybox.set_mesh(self, Greybox.sphere(size.x * 0.5), c)

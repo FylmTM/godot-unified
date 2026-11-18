@@ -109,10 +109,9 @@ session and an offline run agree.
     grey, once the owner has left).
   - `gem`: a spin and a squash-and-stretch pulse, fading before it expires; custom.x its age in seconds.
 - Session data `Data_Hud` (`Unified.data.hud`): `players` by slot (`shots`, `gems`), `phase` (`EnumPhase`), `wave`,
-  `station_hp`, `station_max`, `score`, `matches`, `rocks`, `time_s` (the match time; over: survived),
-  `next_wave_s`, `reset_in_s`.
-- Constants (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`, `station_hp`,
-  `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, the rock meshes).
+  `station_hp`, `score`, `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
+- Constants (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`, `station_hp` (full),
+  `station_spin` (the menu's station), and `rock_shapes` (per variant the 8 corners at radius 1, the rock meshes).
 - Events go to the ship's view by `player`, `station_hit` to the station (`Glue.event_key`). Rock effects play when
   an event is emitted (a prediction shows them at once), the rest, like the HUD's banners, once confirmed; a shot a
   rollback cancels loses its muzzle flash and sound (the ship view, by the event's `id`).

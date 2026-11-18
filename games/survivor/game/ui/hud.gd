@@ -1,250 +1,153 @@
 extends CanvasLayer
-## The in-game HUD, driven by `Unified.data.hud` (the session data, simulation/extension/hud.odin) every frame: the local
-## player card (HP, XP, level), wave, time and enemies, the session panel and controls list, the start hint,
-## banners, the level-up choice and the match-over panel.
-## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
+## The in-game HUD: the local player card (HP, XP, level), wave, time and enemies, the session panel and controls
+## list, the start hint, banners, the level-up choice and the match-over panel. It follows the session data
+## (`Unified.data.hud`, simulation/extension/hud.odin) when it changes, the roster for names and the input device for
+## key labels; `_process` only animates. In-game buttons never take focus: Space and pad A are the dash.
 
-## Upgrade names, details and ids come from the sim (`Unified.constants.upgrades`), as does the "over" hold time.
+## The level-up picks by card (Unified.constants.upgrades order), and their keys as each device labels them.
+const PICKS: Array[StringName] = [&"levelup_1", &"levelup_2", &"levelup_3"]
 const KEYS: Array[String] = ["1", "2", "3"]
 const PAD_KEYS: Array[String] = ["X", "Y", "B"]
+## The level-up panel stays up this long after a pick, so the picked card can be seen.
+const PICK_HOLD_S := 0.35
 
-var _last_wave := 0
-var _last_phase := EnumPhase.LOBBY
 var _t := 0.0
-var _last_hp := -1.0
+var _last_phase := EnumPhase.LOBBY
+var _last_wave := 0
+var _last_hp := -1
 var _last_xp := -1
-## The red edge flash after taking damage, 0..1, decaying.
+var _named_slot := -1
+## The red edges: the hurt flash (0..0.6, decaying) and the low-HP pulse's strength (0: none).
 var _hurt := 0.0
-## Keeps the panel up briefly after a choice, so the picked card can be seen.
-var _levelup_hold := 0.0
+var _low_hp := 0.0
+var _choosing := false
+var _hold_until := 0.0
 var _over_since := 0.0
-var _new_best := false
-var _session: SessionPanel
-var _controls: ControlsPanel
+var _arena: SurvivorArena
 
 @onready var _root: Control = $Root
-@onready var _card_name: Label = $Root/PlayerCard/VBox/Top/Name
-@onready var _card_level: Label = $Root/PlayerCard/VBox/Top/Level
-@onready var _hp: ProgressBar = $Root/PlayerCard/VBox/HP
-@onready var _hp_text: Label = $Root/PlayerCard/VBox/HP/Text
-@onready var _xp: ProgressBar = $Root/PlayerCard/VBox/XP
-@onready var _xp_text: Label = $Root/PlayerCard/VBox/XPText
-@onready var _top: Control = $Root/Top
-@onready var _wave: Label = $Root/Top/Wave
-@onready var _time: Label = $Root/Top/Time
-@onready var _enemies: Label = $Root/Top/Enemies
-@onready var _hint: Control = $Root/Hint
-@onready var _respawn: Label = $Root/Respawn
-@onready var _banner: Label = $Root/Banner
-@onready var _levelup: PanelContainer = $Root/LevelUp
-@onready var _pending: Label = $Root/LevelUp/VBox/Pending
-@onready var _over: Control = $Root/GameOver
-@onready var _over_panel: Control = $Root/GameOver/Center/Panel
-@onready var _over_title: Label = $Root/GameOver/Center/Panel/VBox/Title
-@onready var _over_survived: Label = $Root/GameOver/Center/Panel/VBox/Survived
-@onready var _over_stats: Label = $Root/GameOver/Center/Panel/VBox/Stats
-@onready var _over_best: Label = $Root/GameOver/Center/Panel/VBox/Best
-@onready var _over_back: Label = $Root/GameOver/Center/Panel/VBox/Back
-@onready var _over_leave: Button = $Root/GameOver/Center/Panel/VBox/Leave
-@onready var _over_menu_hint: Label = $Root/GameOver/Center/Panel/VBox/MenuHint
+@onready var _vignette: ShaderMaterial = (%Vignette as ColorRect).material as ShaderMaterial
+@onready var _flash: ColorRect = %Flash
+@onready var _player_name: Label = %PlayerName
+@onready var _level: Label = %Level
+@onready var _hp: ProgressBar = %HP
 @onready var _hp_fill: StyleBoxFlat = _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
-@onready var _vignette: ShaderMaterial = ($Root/Vignette as ColorRect).material as ShaderMaterial
-@onready var _flash: ColorRect = $Root/Flash
-@onready var _hint_main: Label = $Root/Hint/Main
-@onready var _options: HBoxContainer = $Root/LevelUp/VBox/Options
+@onready var _hp_text: Label = %HPText
+@onready var _xp: ProgressBar = %XP
+@onready var _xp_text: Label = %XPText
+@onready var _top: Control = %Top
+@onready var _wave: Label = %Wave
+@onready var _time: Label = %Time
+@onready var _enemies: Label = %Enemies
+@onready var _hint: Control = %Hint
+@onready var _start_hint: Label = %StartHint
+@onready var _respawn: Label = %Respawn
+@onready var _banner: Banner = %Banner
+@onready var _notice: Banner = %Notice
+@onready var _levelup: Control = %LevelUp
+@onready var _pending: Label = %Pending
+@onready var _options: Control = %Options
+@onready var _over: Control = %GameOver
+@onready var _over_panel: Control = %OverPanel
+@onready var _survived: Label = %Survived
+@onready var _stats: Label = %Stats
+@onready var _best: Label = %Best
+@onready var _back: Label = %Back
+@onready var _menu_hint: Label = %MenuHint
+@onready var _session: SessionPanel = %Session
+@onready var _controls: ControlsPanel = %Controls
 
 
 func _ready() -> void:
-	for i in 3:
-		var b := Button.new()
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size = Vector2(200, 112)
-		b.add_theme_font_size_override(&"font_size", 18)
-		b.pressed.connect(_choose.bind(i + 1))
-		_options.add_child(b)
-	Game.input_device_changed.connect(func(_pad: bool) -> void: _label_keys())
-	_label_keys()
-	_session = SessionPanel.new()
-	_root.add_child(_session)
-	_controls = ControlsPanel.new()
-	_root.add_child(_controls)
-	_over_leave.pressed.connect(func() -> void:
+	_arena = get_parent() as SurvivorArena
+	for i in _options.get_child_count():
+		(_options.get_child(i) as Button).pressed.connect(_choose.bind(i))
+	(%Leave as Button).pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
-	Game.session.sim_event.connect(_on_sim_event)
-	_refresh(0.0)
+	Unified.data.hud.changed.connect(_on_hud_changed)
+	Unified.session.roster_changed.connect(_on_roster_changed)
+	Unified.session.sim_event.connect(_on_sim_event)
+	Game.input_device_changed.connect(func(_pad: bool) -> void: _label_keys())
+	Game.lobby_code_changed.connect(func(_code: String) -> void: _show_session())
+	_root.resized.connect(_show_controls)  # the controls list places itself in the window's corner
+	_label_keys()
+	_on_hud_changed()
 
 
 func _process(delta: float) -> void:
 	_t += delta
-	for i in 3:
-		if Input.is_action_just_pressed(StringName("levelup_%d" % (i + 1))) and _levelup.visible:
-			_choose(i + 1)
-	_refresh(delta)
-
-
-func _refresh(delta: float) -> void:
-	var hud := Unified.data.hud
-	var phase := hud.phase
-	var me := _local_row()
-	var lobby := phase == EnumPhase.LOBBY
-	var wave := hud.wave
-	var alive := me != null and me.alive
-	var hp := float(me.hp) if me != null else 1.0
-	var hp_max := maxf(me.hp_max if me != null else 1, 1.0)
-	var xp := me.xp if me != null else 0
-	var xp_next := me.xp_next if me != null else 1
-	var level := me.level if me != null else 0
-
-	# Local player card.
-	if me != null:
-		var player := Unified.session.local_player
-		_card_name.text = Unified.session.get_player_name(player)
-		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(Unified.session.get_player_slot(player)))
-		_card_level.text = "LV %d" % level
-		_hp.max_value = hp_max
-		_hp.value = hp
-		_hp_text.text = "%d / %d" % [ceili(hp), roundi(hp_max)]
-		var r := hp / hp_max
-		_hp_fill.bg_color = UiTheme.GOOD if r > 0.5 else (UiTheme.GOLD if r > 0.25 else UiTheme.BAD)
-		_xp.max_value = maxi(xp_next, 1)
-		_xp.value = xp
-		_xp_text.text = "XP %d / %d" % [xp, xp_next]
-		# Feedback: red edges and a rumble when hurt; the XP bar flashes on a gem.
-		if _last_hp >= 0.0 and hp < _last_hp - 0.01 and alive:
-			_hurt = minf(_hurt + 0.25 + (_last_hp - hp) / hp_max * 1.5, 0.6)
-			Game.rumble(0.25, 0.35, 0.12)
-		_last_hp = hp
-		if _last_xp >= 0 and xp > _last_xp:
-			_xp.modulate = Color(2.2, 2.2, 2.2)
-			_xp.create_tween().tween_property(_xp, "modulate", Color.WHITE, 0.3)
-		_last_xp = xp
-	var hp_ratio := hp / hp_max
-	var pulse_low := hp_ratio < 0.3 and alive and phase == EnumPhase.MATCH
-	var low := (0.25 + 0.15 * sin(_t * 6.0)) * (1.0 - hp_ratio / 0.3) if pulse_low else 0.0
-	_hurt = maxf(_hurt - delta * 2.5, 0.0) if alive else 0.0
+	_hurt = maxf(_hurt - delta * 2.5, 0.0)
+	var low := (0.25 + 0.15 * sin(_t * 6.0)) * _low_hp
 	_vignette.set_shader_parameter(&"intensity", clampf(maxf(_hurt, low), 0.0, 0.6))
-
-	# Wave, time, enemies.
-	_top.visible = not lobby
-	_wave.text = "WAVE %d" % wave
-	var time_s := hud.time_s
-	_time.text = _clock(time_s)
-	var n := hud.enemies_alive
-	_enemies.text = "%d %s" % [n, "enemy" if n == 1 else "enemies"]
-
-	# Start hint: warms up as a player nears the circle's edge.
-	_hint.visible = lobby
-	if lobby:
-		var arena := get_parent() as SurvivorArena
-		var urgency := arena.start_urgency if arena != null else 0.0
-		_hint_main.text = "Step out to start the match!" if urgency > 0.5 else "Walk out of the circle to start"
-		_hint_main.add_theme_color_override(&"font_color", UiTheme.CYAN.lerp(UiTheme.ACCENT, urgency))
+	_levelup.visible = _choosing or _t < _hold_until
+	if _hint.visible:  # warms up as a player nears the circle's edge
+		var urgency := _arena.start_urgency if _arena != null else 0.0
+		_start_hint.text = "Step out to start the match!" if urgency > 0.5 else "Walk out of the circle to start"
+		_start_hint.self_modulate = UiTheme.CYAN.lerp(UiTheme.ACCENT, urgency)
 		_hint.modulate.a = lerpf(0.65 + 0.35 * sin(_t * 3.0), 1.0, urgency)
+	if _over.visible:
+		var left := ceilf(Unified.constants.over_hold_s - (_t - _over_since))
+		_back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
+		_back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
 
-	_session.refresh(_session_rows(lobby), lobby, "Anyone walking out of the circle starts the match.")
 
-	# Respawn countdown.
-	var dead_in_match := phase == EnumPhase.MATCH and me != null and not alive
-	_respawn.visible = dead_in_match
-	if dead_in_match:
+func _unhandled_input(event: InputEvent) -> void:
+	if not _choosing:
+		return
+	for i in PICKS.size():
+		if event.is_action_pressed(PICKS[i]):
+			get_viewport().set_input_as_handled()
+			_choose(i)
+			return
+
+
+func _on_hud_changed() -> void:
+	var hud := Unified.data.hud
+	var me := _local_row()
+	var lobby := hud.phase == EnumPhase.LOBBY
+	var playing := hud.phase == EnumPhase.MATCH
+	var alive := me != null and me.alive
+	if me != null:
+		_show_player(me, playing)
+	if not alive:
+		_hurt = 0.0
+		_low_hp = 0.0
+
+	_top.visible = not lobby
+	_wave.text = "WAVE %d" % hud.wave
+	_time.text = UiTheme.clock(hud.time_s)
+	_enemies.text = "%d %s" % [hud.enemies_alive, "enemy" if hud.enemies_alive == 1 else "enemies"]
+	_hint.visible = lobby
+	_respawn.visible = playing and me != null and not alive
+	if _respawn.visible:
 		_respawn.text = "Respawning in %.1f s" % me.respawn_s
 
-	# Level-up choice.
 	var pending := me.pending_levelups if me != null else 0
-	var show_levelup := pending > 0 and phase == EnumPhase.MATCH and alive
-	_levelup_hold = maxf(_levelup_hold - delta, 0.0)
-	if show_levelup and not _levelup.visible:
-		for b: Button in _options.get_children():
-			b.modulate = Color.WHITE
-			b.scale = Vector2.ONE
-		_levelup.scale = Vector2(0.9, 0.9)
-		_levelup.pivot_offset = _levelup.size / 2.0
-		_levelup.create_tween().tween_property(_levelup, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK)
-	_levelup.visible = show_levelup or _levelup_hold > 0.0
-	_update_controls(show_levelup)
+	var choosing := pending > 0 and playing and alive
+	if choosing and not _levelup.visible:
+		_pop_levelup()
+	if choosing != _choosing:
+		_choosing = choosing
+		_show_controls()
 	_pending.text = "Choose an upgrade" + ("  ·  %d pending" % pending if pending > 1 else "")
 
-	# Match over.
-	var over := phase == EnumPhase.OVER
+	var over := hud.phase == EnumPhase.OVER
 	if over and _last_phase != EnumPhase.OVER:
-		_on_match_over(time_s, wave, level, n)
+		_on_match_over(hud, me)
 	_over.visible = over
 	_banner.visible = not over
-	if over:
-		var hold_s := Unified.constants.over_hold_s
-		var left := ceilf(hold_s - (_t - _over_since))
-		_over_back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
-		_over_back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
-		_over_menu_hint.text = Game.hint("Esc: menu", "Start: menu")
-
-	if phase == EnumPhase.MATCH and wave > _last_wave and _last_wave > 0:
-		_show_banner("WAVE %d" % wave, UiTheme.CYAN)
-	_last_wave = wave if phase == EnumPhase.MATCH else 0
-	_last_phase = phase
+	_notice.visible = not over
+	if playing and hud.wave > _last_wave and _last_wave > 0:
+		_banner.show_message("WAVE %d" % hud.wave, UiTheme.CYAN)
+	_last_wave = hud.wave if playing else 0
+	_last_phase = hud.phase
+	_show_session()
 
 
-func _on_match_over(time_s: float, wave: int, level: int, enemies: int) -> void:
-	_over_since = _t
-	_over_title.text = "GAME OVER"
-	_over_survived.text = "You survived %s" % _clock(time_s)
-	_over_stats.text = "Wave %d  ·  level %d  ·  %d enemies left" % [wave, level, enemies]
-	var best := Settings.best_time
-	_new_best = time_s > best + 0.01
-	if _new_best:
-		Settings.best_time = time_s
-	_over_best.text = "New best!" if _new_best else "Best: %s" % _clock(best)
-	_over_best.add_theme_color_override(&"font_color", UiTheme.GOLD if _new_best else UiTheme.TEXT_DIM)
-	_over_panel.pivot_offset = _over_panel.size / 2.0
-	_over_panel.scale = Vector2(0.85, 0.85)
-	_over_panel.modulate.a = 0.0
-	var tw := _over_panel.create_tween().set_parallel()
-	tw.tween_property(_over_panel, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_over_panel, "modulate:a", 1.0, 0.25)
-
-
-func _label_keys() -> void:
-	var keys: Array[String] = PAD_KEYS if Game.using_pad else KEYS
-	var cards := Unified.constants.upgrades
-	for i in mini(_options.get_child_count(), cards.size()):
-		var card: DataUpgradeCard = cards[i]
-		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, keys[i]]
-
-
-## Visual feedback for a level-up pick (key, pad button or click): pop the card, hold the panel a moment.
-func _picked(i: int) -> void:
-	var b := _options.get_child(i) as Button
-	b.pivot_offset = b.size / 2.0
-	b.modulate = Color(1.6, 1.4, 0.6)
-	var tw := b.create_tween()
-	tw.tween_property(b, "scale", Vector2(1.12, 1.12), 0.08)
-	tw.tween_property(b, "scale", Vector2.ONE, 0.12)
-	_levelup_hold = 0.35
-	Sfx.play(&"click")
-
-
-func _update_controls(choosing: bool) -> void:
-	var keys := [["WASD / arrows", "Move"], ["Space", "Dash"]]
-	var pad := [["Left stick", "Move"], ["A", "Dash"]]
-	if choosing:
-		keys.append(["1  2  3", "Pick an upgrade"])
-		pad.append(["X  Y  B", "Pick an upgrade"])
-	keys.append(["Esc", "Menu"])
-	pad.append(["Start", "Menu"])
-	_controls.refresh(keys, pad)
-
-
-## The session panel's rows: everyone present, with their level and HP in a match.
-func _session_rows(lobby: bool) -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
-	for player in Unified.session.get_players():
-		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
-		var status := "ready"
-		if not lobby:
-			status = "down %.0fs" % ceilf(info.respawn_s) if not info.alive else "LV %d" % info.level
-		var bar := -1.0 if lobby else float(info.hp) / maxf(info.hp_max, 1.0)
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status, "bar": bar})
-	return rows
+func _on_roster_changed() -> void:
+	_show_name()
+	_show_session()
 
 
 ## Banners show when an event is confirmed (its tick verified), never on a prediction.
@@ -253,61 +156,143 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		return
 	var local := Unified.session.local_player
 	if event is EventMatchStarted:
-		_show_banner("SURVIVE!", UiTheme.ACCENT)
+		_banner.show_message("SURVIVE!", UiTheme.ACCENT)
 		_flash.color.a = 0.12
 		_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
 	elif event is EventLevelUp:
 		var level_up := event as EventLevelUp
 		if level_up.player == local:
-			_show_banner("LEVEL %d" % level_up.level, UiTheme.GOLD)
+			_banner.show_message("LEVEL %d" % level_up.level, UiTheme.GOLD)
 	elif event is EventPlayerJoined:
 		# Your own join is not news; nor is a join before the session knows your player (yours, or one before you).
 		var joined := event as EventPlayerJoined
 		if local != 0 and joined.player != local:
 			var what := "IS BACK" if joined.returning else "JOINED"
-			_show_banner("%s %s" % [_name_of(joined.player, joined.slot).to_upper(), what], UiTheme.GOOD, 32)
+			_notice.show_message("%s %s" % [_name_of(joined.player, joined.slot).to_upper(), what], UiTheme.GOOD)
 	elif event is EventPlayerLeft:
 		var left := event as EventPlayerLeft
 		if local != 0 and left.player != local:
-			_show_banner("%s LEFT" % _name_of(left.player, left.slot).to_upper(), UiTheme.TEXT_DIM, 32)
+			_notice.show_message("%s LEFT" % _name_of(left.player, left.slot).to_upper(), UiTheme.TEXT_DIM)
 
 
-func _show_banner(text: String, color: Color, size := 60) -> void:
-	_banner.text = text
-	_banner.add_theme_color_override(&"font_color", color)
-	_banner.add_theme_font_size_override(&"font_size", size)
-	_banner.pivot_offset = _banner.size / 2.0
-	var tw := _banner.create_tween()
-	_banner.modulate.a = 0.0
-	_banner.scale = Vector2(1.4, 1.4)
-	tw.set_parallel()
-	tw.tween_property(_banner, "modulate:a", 1.0, 0.15)
-	tw.tween_property(_banner, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.chain().tween_interval(1.0)
-	tw.chain().tween_property(_banner, "modulate:a", 0.0, 0.4)
+## The local player's card, with feedback on a change: red edges and a rumble when hurt, a flash of the XP bar on a gem.
+func _show_player(me: DataHudPlayer, playing: bool) -> void:
+	if Unified.session.get_player_slot(Unified.session.local_player) != _named_slot:
+		_show_name()
+	var hp_max := maxi(me.hp_max, 1)
+	var fraction := float(me.hp) / hp_max
+	_level.text = "LV %d" % me.level
+	_hp.max_value = hp_max
+	_hp.value = me.hp
+	_hp_text.text = "%d / %d" % [me.hp, hp_max]
+	_hp_fill.bg_color = UiTheme.health_color(fraction)
+	_xp.max_value = maxi(me.xp_next, 1)
+	_xp.value = me.xp
+	_xp_text.text = "XP %d / %d" % [me.xp, me.xp_next]
+	if _last_hp >= 0 and me.hp < _last_hp and me.alive:
+		_hurt = minf(_hurt + 0.25 + float(_last_hp - me.hp) / hp_max * 1.5, 0.6)
+		Game.rumble(0.25, 0.35, 0.12)
+	_last_hp = me.hp
+	if _last_xp >= 0 and me.xp > _last_xp:
+		_xp.modulate = Color(2.2, 2.2, 2.2)
+		_xp.create_tween().tween_property(_xp, "modulate", Color.WHITE, 0.3)
+	_last_xp = me.xp
+	_low_hp = 1.0 - fraction / 0.3 if fraction < 0.3 and playing else 0.0
 
 
-## A level-up pick (key, pad button or click): the `pick` command with card i's upgrade (Unified.constants.upgrades).
-func _choose(option: int) -> void:
-	_picked(option - 1)
+func _show_name() -> void:
+	var player := Unified.session.local_player
+	_named_slot = Unified.session.get_player_slot(player)
+	_player_name.text = Unified.session.get_player_name(player)
+	_player_name.add_theme_color_override(&"font_color", UiTheme.player_color(_named_slot))
+
+
+## The session panel's rows: everyone present, with their level and HP in a match.
+func _show_session() -> void:
+	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
+	var rows: Array[Dictionary] = []
+	for player in Unified.session.get_players():
+		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
+		var status := "ready"
+		if not lobby:
+			status = "down %.0fs" % ceilf(info.respawn_s) if not info.alive else "LV %d" % info.level
+		var bar := -1.0 if lobby else float(info.hp) / maxf(info.hp_max, 1.0)
+		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status, "bar": bar})
+	_session.refresh(rows, lobby, "Anyone walking out of the circle starts the match.")
+
+
+func _show_controls() -> void:
+	var keys := [["WASD / arrows", "Move"], ["Space", "Dash"]]
+	var pad := [["Left stick", "Move"], ["A", "Dash"]]
+	if _choosing:
+		keys.append(["1  2  3", "Pick an upgrade"])
+		pad.append(["X  Y  B", "Pick an upgrade"])
+	keys.append(["Esc", "Menu"])
+	pad.append(["Start", "Menu"])
+	_controls.refresh(keys, pad)
+
+
+## The key labels for the device in use: the level-up cards, the controls list, the match-over hint.
+func _label_keys() -> void:
+	var keys: Array[String] = PAD_KEYS if Game.using_pad else KEYS
 	var cards := Unified.constants.upgrades
-	if option - 1 >= cards.size():
-		return
-	var card: DataUpgradeCard = cards[option - 1]
+	for i in mini(_options.get_child_count(), cards.size()):
+		var card: DataUpgradeCard = cards[i]
+		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, keys[i]]
+	_menu_hint.text = Game.hint("Esc: menu", "Start: menu")
+	_show_controls()
+
+
+func _pop_levelup() -> void:
+	for button: Button in _options.get_children():
+		button.modulate = Color.WHITE
+		button.scale = Vector2.ONE
+	_levelup.visible = true
+	_levelup.scale = Vector2(0.9, 0.9)
+	_levelup.pivot_offset = _levelup.size / 2.0
+	_levelup.create_tween().tween_property(_levelup, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK)
+
+
+## A level-up pick (key, pad button or click): pops the card, holds the panel a moment and sends the `pick` command
+## with card `index`'s upgrade.
+func _choose(index: int) -> void:
+	var button := _options.get_child(index) as Button
+	button.pivot_offset = button.size / 2.0
+	button.modulate = Color(1.6, 1.4, 0.6)
+	var tween := button.create_tween()
+	tween.tween_property(button, "scale", Vector2(1.12, 1.12), 0.08)
+	tween.tween_property(button, "scale", Vector2.ONE, 0.12)
+	_hold_until = _t + PICK_HOLD_S
+	Sfx.play(&"click")
+	var card: DataUpgradeCard = Unified.constants.upgrades[index]
 	var pick := CommandPick.new()
 	pick.upgrade = card.upgrade
 	Unified.session.send_command(pick)
 
 
+func _on_match_over(hud: DataHud, me: DataHudPlayer) -> void:
+	_over_since = _t
+	_survived.text = "You survived %s" % UiTheme.clock(hud.time_s)
+	_stats.text = "Wave %d  ·  level %d  ·  %d enemies left" % [hud.wave, me.level if me != null else 0,
+		hud.enemies_alive]
+	var best := Settings.best_time
+	var new_best := hud.time_s > best + 0.01
+	if new_best:
+		Settings.best_time = hud.time_s
+	_best.text = "New best!" if new_best else "Best: %s" % UiTheme.clock(best)
+	_best.add_theme_color_override(&"font_color", UiTheme.GOLD if new_best else UiTheme.TEXT_DIM)
+	_over_panel.pivot_offset = _over_panel.size / 2.0
+	_over_panel.scale = Vector2(0.85, 0.85)
+	_over_panel.modulate.a = 0.0
+	var tween := _over_panel.create_tween().set_parallel()
+	tween.tween_property(_over_panel, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_over_panel, "modulate:a", 1.0, 0.25)
+
+
 ## A player's name for a banner: the session's (it still knows a player who left), else "P<slot + 1>".
 func _name_of(player: int, slot: int) -> String:
-	var synced := Game.session.get_player_name(player)
+	var synced := Unified.session.get_player_name(player)
 	return synced if synced != "" else "P%d" % (slot + 1)
-
-
-static func _clock(seconds: float) -> String:
-	var s := int(seconds)
-	return "%02d:%02d" % [floori(s / 60.0), s % 60]
 
 
 ## The local player's row of the HUD data (null until they hold a slot).

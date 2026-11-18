@@ -22,7 +22,7 @@ private_suites :: proc() -> []cli.Suite {
 			},
 			{
 				name = "godot-bindings",
-				summary = "tests/godot and tests/godot_views (views, then the session lifecycle) under headless Godot",
+				summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle) under headless Godot",
 				budget = 5,
 				run = suite_godot_bindings,
 				beside = true,
@@ -190,7 +190,8 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
 // The Godot-side library tests: the gdext bindings (tests/godot), unified:godot's views and send_command's refusals,
-// and its session lifecycle (tests/godot_views), each an extension plus a test script under headless Godot.
+// Unified.level_markers against the level exporter, and its session lifecycle (tests/godot_views), each an extension
+// plus a test script under headless Godot.
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
 // nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
 suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
@@ -222,6 +223,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"is not a member of the game's View enum",
 			},
 		},
+		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil},
 		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", nil},
 	}
 	cli.ensure_bindings()
@@ -253,8 +255,10 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			cli.fatal("building %s failed", cli.rel(started.build.pkg))
 		}
 	}
-	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first)
+	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first);
+	// tests/godot_views/markers_check.gd extends it (loaded by path: no import)
 	cli.ensure_imported(projects[0].dir)
+	cli.sync_tools(views)
 	// One more run beside them: a script error under the debugger (-d, as `uni tool` runs headless) must end the run
 	// at once through the `quit` on its stdin, with the error printed (tests/godot/debugger_error.gd).
 	runs := make([]cli.Run, len(projects) + 1)

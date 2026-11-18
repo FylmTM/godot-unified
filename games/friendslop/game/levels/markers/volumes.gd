@@ -1,13 +1,13 @@
 @tool
 extends Node3D
 ## Level marker for the sim's volumes and triggers: pads, plates, bells, switches, bumpers, checkpoints, the run's
-## start and finish, player spawns. One script, the kind picked per node; static, so its visuals stay in place.
+## start and finish, player spawns. One script for several kinds, so the kind is a property (`unified_kind`), picked per
+## node; static, so its visuals stay in place.
 
 @export_enum("pad", "plate", "bell", "switch", "lock", "bumper", "checkpoint", "start", "finish", "spawn")
 var unified_kind := "pad":
 	set(v):
 		unified_kind = v
-		set_meta("unified_kind", v)
 		if is_inside_tree():
 			_build()
 @export var size := Vector3(0.75, 0.3, 0.75):  ## half extents of the volume
@@ -25,7 +25,6 @@ var unified_kind := "pad":
 
 
 func _ready() -> void:
-	set_meta("unified_kind", unified_kind)
 	_build()
 
 

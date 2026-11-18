@@ -1,6 +1,128 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://game/ui/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://game/ui/banner.gd" id="2_banner"]
+[ext_resource type="Script" path="res://game/ui/session_panel.gd" id="3_session"]
+[ext_resource type="Script" path="res://game/ui/controls_panel.gd" id="4_controls"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Top" type="VBoxContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 14.0
+offset_right = 200.0
+grow_horizontal = 2
+mouse_filter = 2
+
+[node name="Phase" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Dim"
+horizontal_alignment = 1
+
+[node name="Clock" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Heading"
+horizontal_alignment = 1
+
+[node name="Best" type="Label" parent="Root/Top"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Dim"
+horizontal_alignment = 1
+
+[node name="Crosshair" type="Label" parent="Root"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -20.0
+offset_top = -20.0
+offset_right = 20.0
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 28
+text = "·"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="State" type="Label" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = 40.0
+offset_right = 200.0
+offset_bottom = 70.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+
+[node name="Charge" type="ProgressBar" parent="Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -80.0
+offset_top = 24.0
+offset_right = 80.0
+offset_bottom = 34.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+max_value = 1.0
+show_percentage = false
+
+[node name="Banner" type="Label" parent="Root"]
+unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -140.0
+offset_right = 300.0
+offset_bottom = -80.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_type_variation = &"Heading"
+theme_override_font_sizes/font_size = 48
+horizontal_alignment = 1
+script = ExtResource("2_banner")
+
+[node name="Session" type="PanelContainer" parent="Root"]
+unique_name_in_owner = true
+script = ExtResource("3_session")
+
+[node name="Controls" type="PanelContainer" parent="Root"]
+unique_name_in_owner = true
+script = ExtResource("4_controls")

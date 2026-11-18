@@ -89,13 +89,13 @@ tick.
 
 ## View contract (`simulation/extension`)
 
-- Scene views: `player` (keyed by `sim.player_key`, its data `hp`), `crate` and `barrel` (keyed by the item's index,
-  posed with their physics rotation). A destroyed barrel's view goes; the one that comes back is new.
+- Scene views: `player` (keyed by `sim.player_key`, its data `hp` and `dashing`), `crate` and `barrel` (keyed by the
+  item's index, posed with their physics rotation). A destroyed barrel's view goes; the one that comes back is new.
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.
 - Session data `Data_Hud` (`Unified.data.hud`): phase, match time, wave (1-based in a match), enemies alive, circle
-  radius, matches, and per slot alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds.
-- Constants (`Unified.constants`): `over_hold_s`, `arena_half`, `start_radius`, the three level-up cards, the item
-  grid (positions and kinds: the menu backdrop shows it).
+  radius, and per slot alive, hp, hp_max, xp, xp_next, level, pending level-ups, respawn seconds.
+- Constants (`Unified.constants`): `over_hold_s`, `start_radius`, `blast_radius`, the three level-up cards, the item
+  grid (kinds and resting positions: the menu backdrop shows it).
 - Input: the stick and the dash from the InputMap; the HUD sends the pick (`CommandPick`) on a key, pad button or
   click.

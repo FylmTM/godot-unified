@@ -12,7 +12,7 @@ var hp_frac := 1.0:
 		hp_frac = v
 		queue_redraw()
 
-var _r := 80.0  ## the hexagon's corner radius, in pixels
+var _r: float  ## the hexagon's corner radius (the sim's station_radius), in pixels
 var _flash := 0.0
 var _t := 0.0
 

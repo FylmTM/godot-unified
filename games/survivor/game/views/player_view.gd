@@ -5,7 +5,6 @@ extends Node3D
 ## marker's) is the player it shows (their key); the view lives while the player is in the session (dead too). The
 ## colour is their slot's, so it follows them when they come back in another slot.
 
-const DASH_SPEED := 9.0  # m/s; faster than the 6 m/s walk + upgrades means a dash
 const GHOST_EVERY := 0.025
 
 @onready var _marker: UnifiedView = %UnifiedView
@@ -34,6 +33,8 @@ var hp := -1:
 			if _is_local():
 				Sfx.play(&"hit", -4.0)
 		hp = v
+## The sim's Player_View data: the dash is on (an after-image trail while it lasts).
+var dashing := false
 var _yaw := 0.0
 var _flash := 0.0
 var _ghost_t := 0.0
@@ -79,7 +80,7 @@ func _process(dt: float) -> void:
 	_bob += dt * speed * 2.2
 	_body.position.y = absf(sin(_bob)) * 0.08 * minf(speed / 6.0, 1.0)
 	_update_hud_state(dt)
-	if speed > DASH_SPEED:
+	if dashing:
 		_ghost_t -= dt
 		if _ghost_t <= 0.0:
 			_ghost_t = GHOST_EVERY

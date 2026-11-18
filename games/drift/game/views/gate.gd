@@ -9,7 +9,7 @@ var charge := 0.0:
 			_burst = 1.0  # just used
 		charge = v
 
-var _r := 25.6  ## the sim's gate radius, in pixels
+var _r: float  ## the sim's gate radius, in pixels
 var _t := 0.0
 var _burst := 0.0
 

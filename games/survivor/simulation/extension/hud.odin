@@ -32,7 +32,6 @@ Data_Hud :: struct {
 	wave:          u32, // 1-based during a match, 0 in the lobby
 	enemies_alive: i32,
 	circle_radius: f32, // the start circle (lobby), 0 otherwise
-	matches:       u32,
 	players:       [g.PLAYERS]Hud_Player,
 }
 
@@ -49,7 +48,6 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	}
 	hud.enemies_alive = state.enemies.count
 	hud.circle_radius = state.circle_radius
-	hud.matches = state.matches
 	for slot in 0 ..< g.PLAYERS {
 		character := sim.slot_data(&state.players, slot)
 		if character == nil do continue

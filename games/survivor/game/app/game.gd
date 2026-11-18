@@ -50,6 +50,14 @@ var _frame_ms := 16.7
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	UiTheme.install()
+	if not InputMap.has_action(&"menu"):  # Esc and a pad's Start open the pause menu
+		InputMap.add_action(&"menu")
+		var esc := InputEventKey.new()
+		esc.physical_keycode = KEY_ESCAPE
+		InputMap.action_add_event(&"menu", esc)
+		var start := InputEventJoypadButton.new()
+		start.button_index = JOY_BUTTON_START
+		InputMap.action_add_event(&"menu", start)
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer = 50
