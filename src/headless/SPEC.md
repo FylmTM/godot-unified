@@ -27,7 +27,7 @@ The runs are played by the game's scripted player (`sim.Game.scripted_input`, `s
 - `relay`, `client`: separate processes over local UDP on the real clock.
 - `bench`: the game's standard benchmark (`Headless.bench`, `sim.Game.bench_prepare` holding its population): step, save,
   checksum, a portable snapshot's encode, a restore and a re-sim at the prediction cap every tick. `uni bench` runs
-  it.
+  it; a game without one (a small example) has no row.
 - `<lobby>-host`, `<lobby>-client` (a game that opts in): a scripted session over the lobby service, two processes
   (`src/eos/SPEC.md`).
 

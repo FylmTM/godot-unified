@@ -133,10 +133,6 @@ cmd_vet :: proc(args: []string) -> Result {
 			append(&jobs, Job{vet_pkg, VET_TARGETS[0], "-define:UNIFIED_DEVUI=false"})
 		}
 	}
-	template := vet_template()
-	for vet_pkg in template {
-		append(&jobs, Job{vet_pkg, VET_TARGETS[0], ""})
-	}
 	// the suites as `test --long` builds them
 	if uses_scenarios(test_root()) {
 		append(&jobs, Job{Vet_Package{pkg = test_root()}, VET_TARGETS[0], "-define:UNIFIED_LONG_TESTS=true"})
@@ -188,10 +184,9 @@ cmd_vet :: proc(args: []string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"vet ok: %d packages x %d targets%s, in %.2fs",
+			"vet ok: %d packages x %d targets, in %.2fs",
 			len(pkgs),
 			len(VET_TARGETS),
-			len(template) > 0 ? " + uni init's template" : "",
 			seconds_since(start),
 		),
 		data    = box(names),

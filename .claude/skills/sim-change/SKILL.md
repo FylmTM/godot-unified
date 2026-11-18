@@ -11,7 +11,7 @@ They change only on purpose, never to make a test pass.
 ## When a reference run or the golden trace fails
 
 `./uni test` runs every game's reference run (`reference_reproduces`, its constants in the game's
-`simulation/tests/suite_test.odin`, the toy's in `tests/scenarios/suite_test.odin`) and checks the golden
+`simulation/tests/` suite, the toy's in `tests/scenarios/suite_test.odin`) and checks the golden
 traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS` and `GOLDEN_FIELD`). A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or

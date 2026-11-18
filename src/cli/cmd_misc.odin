@@ -43,6 +43,7 @@ Bench_Stat :: struct {
 
 // A game's `bench` report (the headless mode's JSON line), with the target check added.
 Bench_Report :: struct {
+	skipped:            bool, // the game has no standard benchmark
 	what:               string,
 	entities:           int,
 	window:             int,
@@ -146,6 +147,9 @@ cmd_bench :: proc(args: []string) -> Result {
 		if !run_report(headless_path(game.name, .release), {"bench"}, join(work, game.name), 900, &bench) {
 			append(&failed, game.name)
 			continue
+		}
+		if bench.skipped {
+			continue // no standard benchmark (Headless.bench): nothing to measure
 		}
 		bench.frame_p99_us = bench.step_us.p99 + bench.restore_us.p99 + bench.resim_us.p99 + bench.checksum_deep_us.p99
 		bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
@@ -269,7 +273,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		ok      = true,
 		summary = aprintf(
 			"bench: %d game(s), the sim and netcode benchmarks%s, reported in .out/bench.json",
-			len(games),
+			len(summary.benchmarks),
 			len(state.config.bench) > 0 ? " and the project's own" : "",
 		),
 		data    = summary^,

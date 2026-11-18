@@ -60,8 +60,7 @@ For every upgrade:
   ./uni vet && ./uni test --suite godot,godot-bindings   # vet regenerates the bindings: the dump changed
   ```
 
-  `compatibility_minimum` in every `.gdextension` (the games', `tests/godot*` and the template game's in
-  `src/cli/template/`) follows the baseline. `bindings.txt` lists what we bind (a test fails on unused entries).
+  `compatibility_minimum` in every `.gdextension` (the games' and `tests/godot*`'s) follows the baseline. `bindings.txt` lists what we bind (a test fails on unused entries).
   Never edit the dump by hand.
 
 ## Odin
