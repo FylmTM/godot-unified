@@ -5,7 +5,8 @@ import "unified:sim"
 
 MOVE_SPEED :: f32(4) // metres per second at full input
 
-on_player_join :: proc(t: ^Tick) {
+// Someone new starts at x = their slot; someone who comes back keeps their position.
+place_new_players :: proc(t: ^Tick) {
 	for player in t.player_changes.joined {
 		slot := sim.player_slot(t, player)
 		player_data := sim.player_data(t, player)

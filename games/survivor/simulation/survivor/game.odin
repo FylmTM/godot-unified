@@ -2,8 +2,8 @@
 // waves of enemies, with crates, barrels and a level-up pick.
 //
 // The files, by feature: game (this: the descriptors and the tick), tuning (every rule number), input, state,
-// events, world (the physics world from the level, bodies, init), phase, players, enemies, weapons, barrels, and the
-// scripted inputs (script) and the bot (bot).
+// events, world (the physics world from the level, bodies, init), phase, players, enemies, weapons, barrels, grid (the
+// enemies' neighbour grid) and the scripted inputs (script). The balance test's bot is the tests' (tests/bot.odin).
 package survivor
 
 import "unified:physics"
@@ -14,7 +14,7 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout.
-VERSION :: "5"
+VERSION :: "6"
 
 Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
 Tick :: sim.Tick(Game)

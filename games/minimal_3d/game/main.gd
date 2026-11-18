@@ -11,9 +11,9 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_accept"):
-		var drop := CommandBallDrop.new()
-		drop.speed = 4
-		session.send_command(drop)
+		var throw := CommandThrowBall.new()
+		throw.speed = 4
+		session.send_command(throw)
 
 
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:

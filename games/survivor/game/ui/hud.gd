@@ -22,7 +22,6 @@ var _hurt := 0.0
 var _low_hp := 0.0
 var _choosing := false
 var _hold_until := 0.0
-var _over_since := 0.0
 var _arena: SurvivorArena
 
 @onready var _root: Control = $Root
@@ -87,7 +86,7 @@ func _process(delta: float) -> void:
 		_start_hint.self_modulate = UiTheme.CYAN.lerp(UiTheme.ACCENT, urgency)
 		_hint.modulate.a = lerpf(0.65 + 0.35 * sin(_t * 3.0), 1.0, urgency)
 	if _over.visible:
-		var left := ceilf(Unified.constants.over_hold_s - (_t - _over_since))
+		var left := ceilf(Unified.data.hud.reset_in_s)
 		_back.text = "Back to the lobby in %d" % int(left) if left >= 1.0 else "Back to the lobby"
 		_back.modulate.a = 0.6 + 0.4 * sin(_t * 4.0)
 
@@ -135,6 +134,8 @@ func _on_hud_changed() -> void:
 	var over := hud.phase == EnumPhase.OVER
 	if over and _last_phase != EnumPhase.OVER:
 		_on_match_over(hud, me)
+	elif not over and _last_phase == EnumPhase.OVER:
+		_best.text = ""  # the next match's best time shows when its end is confirmed
 	_over.visible = over
 	_banner.visible = not over
 	_notice.visible = not over
@@ -150,12 +151,15 @@ func _on_roster_changed() -> void:
 	_show_session()
 
 
-## Banners show when an event is confirmed (its tick verified), never on a prediction.
+## Banners and the best time follow an event once it is confirmed (its tick verified), never a prediction: they
+## stay. Effects and sounds play on the prediction (arena.gd).
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	var local := Unified.session.local_player
-	if event is EventMatchStarted:
+	if event is EventMatchOver:
+		_show_best((event as EventMatchOver).duration_s)
+	elif event is EventMatchStarted:
 		_banner.show_message("SURVIVE!", UiTheme.ACCENT)
 		_flash.color.a = 0.12
 		_flash.create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
@@ -271,22 +275,25 @@ func _choose(index: int) -> void:
 
 
 func _on_match_over(hud: DataHud, me: DataHudPlayer) -> void:
-	_over_since = _t
 	_survived.text = "You survived %s" % UiTheme.clock(hud.time_s)
 	_stats.text = "Wave %d  ·  level %d  ·  %d enemies left" % [hud.wave, me.level if me != null else 0,
 		hud.enemies_alive]
-	var best := Settings.best_time
-	var new_best := hud.time_s > best + 0.01
-	if new_best:
-		Settings.best_time = hud.time_s
-	_best.text = "New best!" if new_best else "Best: %s" % UiTheme.clock(best)
-	_best.add_theme_color_override(&"font_color", UiTheme.GOLD if new_best else UiTheme.TEXT_DIM)
 	_over_panel.pivot_offset = _over_panel.size / 2.0
 	_over_panel.scale = Vector2(0.85, 0.85)
 	_over_panel.modulate.a = 0.0
 	var tween := _over_panel.create_tween().set_parallel()
 	tween.tween_property(_over_panel, "scale", Vector2.ONE, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(_over_panel, "modulate:a", 1.0, 0.25)
+
+
+## The match's end is confirmed: its length against the best time (kept in the settings).
+func _show_best(duration_s: float) -> void:
+	var best := Settings.best_time
+	var new_best := duration_s > best + 0.01
+	if new_best:
+		Settings.best_time = duration_s
+	_best.text = "New best!" if new_best else "Best: %s" % UiTheme.clock(best)
+	_best.add_theme_color_override(&"font_color", UiTheme.GOLD if new_best else UiTheme.TEXT_DIM)
 
 
 ## A player's name for a banner: the session's (it still knows a player who left), else "P<slot + 1>".

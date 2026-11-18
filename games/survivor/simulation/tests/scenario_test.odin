@@ -35,18 +35,14 @@ scenario_tick :: proc(t: ^g.Tick) {
 	g.tick(t)
 }
 
-SCENARIO := g.Game {
-	name              = "survivor-scenario",
-	version           = g.VERSION,
-	tick_hz           = g.TICK_HZ,
-	content           = #load("../../game/levels/arena.level"),
-	world_create      = g.world_create,
-	world_destroy     = g.world_destroy,
-	extra             = g.extra,
-	init              = g.init_stress, // the dense stress spawner
-	tick              = scenario_tick,
-	scripted_input    = g.scripted_input,
-	scripted_commands = g.scripted_commands,
+// The stress game (its dense spawner) with the forced events: set before the tests run.
+SCENARIO: g.Game
+
+@(init)
+scenario_init :: proc "contextless" () {
+	SCENARIO = g.GAME_STRESS
+	SCENARIO.name = "survivor-scenario"
+	SCENARIO.tick = scenario_tick
 }
 
 SCENARIO_SUITE := scenarios.Suite(g.Game) {

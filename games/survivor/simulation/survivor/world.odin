@@ -26,6 +26,11 @@ World :: struct {
 	pillars:      [MAX_PILLARS]Box2,
 	pillar_count: int,
 	arena_inner:  f32,
+	// Where the level puts things: each slot's start spot (its `spawn` markers, in scene order) and each item (its
+	// `item` markers, in scene order: the item's index).
+	spawns:       [PLAYERS][3]f32,
+	items:        [MAX_ITEMS]Item_Spot,
+	item_count:   int,
 	scratch:      Scratch,
 }
 
@@ -35,32 +40,39 @@ Box2 :: struct {
 	half:   [2]f32,
 }
 
+// An item's place in the level, where its body is created (at the start, at a reset, when a barrel comes back):
+// resting on the floor.
+Item_Spot :: struct {
+	pos:  [3]f32,
+	rot:  [4]f32,
+	kind: Item_Kind,
+}
+
 // Per-tick scratch (rebuilt every tick, never snapshotted): the enemy grid and the items' positions.
 Scratch :: struct {
 	grid:    Grid,
 	new_vel: [MAX_ENEMIES][2]f32,
-	items:   [ITEM_COUNT][2]f32, // each alive item's position (x, z) this tick
+	items:   [MAX_ITEMS][2]f32, // each alive item's position (x, z) this tick
 }
 
-// What the keyed rolls are for (sim.roll_below).
+// What the keyed rolls are for (sim.roll_below, sim.roll_f32).
 Roll :: enum u8 {
 	Spawn_Direction,
-	Spawn_Jitter,
+	Spawn_Jitter_X,
+	Spawn_Jitter_Z,
 	Spawn_Kind,
 }
 
-// Start spots by slot, inside the start circle.
-@(rodata)
-PLAYER_START := [PLAYERS][3]f32{{1.5, 1, 1.5}, {-1.5, 1, 1.5}, {1.5, 1, -1.5}, {-1.5, 1, -1.5}}
-
-// The physics world with the level's static geometry (src/level/SPEC.md); the pillars and walls the enemies keep to.
+// The physics world with the level's static geometry (src/level/SPEC.md); the pillars and walls the enemies keep to;
+// the start spots and the items from the level's markers.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world := new(World)
-	loaded, ok := level.load(content)
-	assert(ok, "survivor: the level file is missing or not a level (src/level/SPEC.md)")
-	world.level = loaded
-	world.phys = physics.create({tick_hz = TICK_HZ, workers = PHYSICS_WORKERS})
-	problem := physics.create_static(world.phys, &world.level, CAT_STATIC)
+	problem: string
+	world.phys, world.level, problem = physics.create_with_level(
+		{tick_hz = TICK_HZ, workers = PHYSICS_WORKERS},
+		content,
+		CAT_STATIC,
+	)
 	assert(problem == "", problem)
 	world.arena_inner = ARENA_HALF
 	for &body in world.level.bodies {
@@ -77,23 +89,38 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			world.arena_inner = dmath.min(world.arena_inner, abs(box.center.x) - box.half.x)
 		}
 	}
+	spawn_count := 0
+	for &marker in world.level.markers {
+		switch marker.kind {
+		case "spawn":
+			assert(spawn_count < PLAYERS, "survivor: more spawn markers than slots")
+			world.spawns[spawn_count] = marker.pos
+			spawn_count += 1
+		case "item":
+			assert(world.item_count < MAX_ITEMS, "survivor: more item markers than MAX_ITEMS")
+			// prop_view.gd's export_enum: the names, lowercased
+			kind, known := level.prop_enum(&marker, "kind", Item_Kind.Crate)
+			assert(known, "survivor: an item marker's kind is no Item_Kind")
+			world.items[world.item_count] = {marker.pos, marker.rot, kind}
+			world.item_count += 1
+		}
+	}
+	assert(spawn_count == PLAYERS, "survivor: the level needs a spawn marker per slot")
 	return world
 }
 
 // Frees what world_create made: the physics world, the level and the World itself.
 world_destroy :: proc(world: ^World) {
-	physics.destroy(world.phys)
-	level.destroy(&world.level)
+	physics.destroy_with_level(world.phys, &world.level)
 	free(world)
 }
 
-// The tick-0 state: the lobby, the `play` tuning, items with their bodies; players join when they are first present
-// (update_players).
+// The tick-0 state: the lobby, the `play` tuning, the level's items with their bodies; players join when they are
+// first present (update_players).
 init :: proc(t: ^Tick) {
 	t.state.phase = .Lobby
-	t.state.circle_radius = START_RADIUS
 	t.state.tuning = TUNINGS[.Play]
-	for i in 0 ..< ITEM_COUNT {
+	for i in 0 ..< t.world.item_count {
 		item_reset(t.state, t.world, i)
 	}
 }
@@ -104,48 +131,25 @@ init_stress :: proc(t: ^Tick) {
 	t.state.tuning = TUNINGS[.Stress]
 }
 
-// The spawn spot of item i on the 5×8 grid: the body's centre. The extension and the tests read it too.
-item_position :: proc(i: int) -> [3]f32 {
-	// The two grid spots inside the start circle move to free lanes north and south.
-	switch i {
-	case 19:
-		return {-2, 1, 12}
-	case 20:
-		return {2, 1, -12}
-	}
-	return {f32(i % 8) * 4 - 14, 1, f32(i / 8) * 4 - 8}
-}
-
-// Whether item i is a barrel or a crate (every fifth item from index 2 is a barrel).
-item_kind :: proc(i: int) -> Item_Kind {
-	return i % 5 == 2 ? .Barrel : .Crate
-}
-
-// Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its grid spot. The caller
-// destroys any old body first.
+// Puts item i back as the world starts it: alive, full HP for a barrel, with a new body at its spot, tagged with i.
+// The caller destroys any old body first.
 item_reset :: proc(state: ^State, world: ^World, i: int) {
 	item := &state.items[i]
-	item.kind = item_kind(i)
+	spot := &world.items[i]
 	item.alive = true
-	item.hp = item.kind == .Barrel ? BARREL_HP : 0
+	item.hp = spot.kind == .Barrel ? BARREL_HP : 0
 	item.respawn_tick = 0
-	item.body = create_item_body(world, i)
-}
-
-// Creates the body of item i (a crate or a barrel) at its grid spot, tagged with i.
-create_item_body :: proc(world: ^World, i: int) -> physics.Body_Ref {
-	body_def := physics.body_def(.Dynamic, item_position(i))
-	if item_kind(i) == .Barrel {
+	body_def := physics.body_def(.Dynamic, spot.pos, spot.rot)
+	if spot.kind == .Barrel {
 		shape_def := physics.shape_def(CAT_BARREL)
 		shape_def.density = 1
 		segment := physics.Capsule{{0, -BARREL_HALF_HEIGHT, 0}, {0, BARREL_HALF_HEIGHT, 0}, BARREL_RADIUS}
-		ref, _ := physics.create_capsule(world.phys, body_def, shape_def, segment, u64(i))
-		return ref
+		item.body, _ = physics.create_capsule(world.phys, body_def, shape_def, segment, u64(i))
+	} else {
+		shape_def := physics.shape_def(CAT_CRATE)
+		shape_def.density = 1
+		item.body, _ = physics.create_box(world.phys, body_def, shape_def, CRATE_HALF, u64(i))
 	}
-	shape_def := physics.shape_def(CAT_CRATE)
-	shape_def.density = 1
-	ref, _ := physics.create_box(world.phys, body_def, shape_def, CRATE_HALF, u64(i))
-	return ref
 }
 
 // Fresh progress (no body, not alive): a new player's, and everyone's at a reset. The body must be gone.
@@ -157,13 +161,13 @@ character_reset :: proc(character: ^Character) {
 	}
 }
 
-// A body at the start spot of `slot`, with full HP.
+// A body at the start spot of `slot` (the level's spawn marker), with full HP.
 character_spawn :: proc(world: ^World, character: ^Character, slot: int) {
 	character.alive = true
 	character.hp = PLAYER_HP
 	character.respawn = 0
-	character.pos = PLAYER_START[slot]
-	body_def := physics.body_def(.Dynamic, PLAYER_START[slot])
+	character.pos = world.spawns[slot]
+	body_def := physics.body_def(.Dynamic, world.spawns[slot])
 	body_def.motion_locks = {
 		angular_x = true,
 		angular_y = true,

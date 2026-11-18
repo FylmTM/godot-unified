@@ -285,7 +285,9 @@ session the host checks that every `View` member has a scene and every indexed k
 
 **Command-line flags** (after `--`; `Args` lists them and says what each does): the game and its tool scripts read
 their own flags from the same command line, so other flags pass through; a bad value of one of ours, or a near miss of
-a name, prints an error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning.
+a name, prints an error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning; the
+session flags (`--autostart`, `--ticks`, `--quit-at-end`, hosting and joining) work in every build, so `uni release`
+smoke-tests the public build with them.
 
 ## Library tooling
 

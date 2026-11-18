@@ -3,7 +3,7 @@
 // properties, `changed` when it changes): `phase` is an EnumPhase value, `players` an Array[DataHudPlayer] by slot
 // (zero for an empty slot). Who holds a slot, the names and the local player come from the session. View code, not
 // simulation code: f32 for display only. Plain and padding-free (`_pad`).
-package survivor_extension
+package extension
 
 import "unified:sim"
 
@@ -31,7 +31,7 @@ Data_Hud :: struct {
 	time_s:        f32, // match time: 0 in the lobby, frozen when over
 	wave:          u32, // 1-based during a match, 0 in the lobby
 	enemies_alive: i32,
-	circle_radius: f32, // the start circle (lobby), 0 otherwise
+	reset_in_s:    f32, // over: seconds until the world resets and the lobby begins again (0 otherwise)
 	players:       [g.PLAYERS]Hud_Player,
 }
 
@@ -45,9 +45,9 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	case .Over:
 		hud.time_s = sim.seconds(state.over_tick - state.match_tick, g.TICK_HZ)
 		hud.wave = state.wave + 1
+		hud.reset_in_s = sim.seconds(state.over_tick + g.OVER_HOLD_TICKS - tick, g.TICK_HZ)
 	}
 	hud.enemies_alive = state.enemies.count
-	hud.circle_radius = state.circle_radius
 	for slot in 0 ..< g.PLAYERS {
 		character := sim.slot_data(&state.players, slot)
 		if character == nil do continue

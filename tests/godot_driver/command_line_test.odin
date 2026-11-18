@@ -65,11 +65,12 @@ command_line_rejects_bad_numbers_and_near_misses :: proc(t: ^testing.T) {
 @(test)
 command_line_without_the_dev_ui_ignores_dev_flags :: proc(t: ^testing.T) {
 	args, problems, ignored := godot.parse_command_line(
-		{"--scripted", "--ticks", "abc", "--lag", "80", "--bench", "500", "--devui", "--seed", "4", "--autostart"},
+		{"--scripted", "--lag", "80", "--bench", "500", "--devui", "--seed", "4", "--autostart", "--ticks", "300"},
 		false,
 	)
 	testing.expect_value(t, len(problems), 0) // an ignored flag's value isn't read
-	testing.expect_value(t, len(ignored), 6)
+	testing.expect_value(t, len(ignored), 5)
 	testing.expect(t, args.autostart && !args.scripted && !args.devui)
-	testing.expect(t, args.ticks == 0 && args.lag_ms == 0 && args.bench == 0 && args.seed == 0)
+	testing.expect(t, args.lag_ms == 0 && args.bench == 0 && args.seed == 0)
+	testing.expect_value(t, args.ticks, 300) // not a dev flag: a release build's smoke test bounds its session with it
 }

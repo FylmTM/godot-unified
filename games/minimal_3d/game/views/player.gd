@@ -10,7 +10,7 @@ var color: Color:
 var _tween: Tween
 
 func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	if event is EventBallDropped and state == UnifiedSession.EVENT_EMITTED:
+	if event is EventBallThrown and state == UnifiedSession.EVENT_EMITTED:
 		if _tween:
 			_tween.kill()
 		body.scale = Vector3(1.25, 0.8, 1.25)
