@@ -35,7 +35,7 @@ func _run() -> void:
 		"the lobby with the player")
 	await seconds(1.0)
 	await shot("r02_lobby")
-	step("lobby: circle %.1f m, %d views" % [Unified.data.hud.circle_radius,
+	step("lobby: circle %.1f m, %d views" % [Unified.constants.start_radius,
 		current_scene.get_node(^"Views").get_child_count()])
 
 	# Walk out of the circle (diagonally, between the crates).

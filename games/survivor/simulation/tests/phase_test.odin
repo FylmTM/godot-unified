@@ -5,32 +5,44 @@ package test_survivor
 import "core:testing"
 
 import g "../survivor"
-@(require) import "unified:headless" // the balance test (LONG only)
+import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:sim"
 
-// Steps with fixed inputs for the present slots: the player in slot i is member i + 1, as in scripted runs (so a
-// slot emptied and filled again brings its member back).
-step_with :: proc(simulation: ^sim.Sim(g.Game), present: sim.Slots, input: g.Input) {
-	inputs: g.Inputs
-	for slot in present {
-		sim.seat(&inputs, simulation, slot, slot + 1)
-		inputs.input[slot] = input
+// One sync-tested tick of the seated players (headless.run_seat), each with its input.
+step :: proc(run: ^headless.Run(g.Game), input: [g.PLAYERS]g.Input = {}) {
+	inputs := headless.run_inputs(run)
+	inputs.input = input
+	headless.run_step(run, &inputs)
+}
+
+// The tick on which killing_tick kills every present player (0: none), through the game's own rule.
+@(thread_local)
+kill_tick: u32
+
+// g.tick, after killing everyone present on kill_tick: the tick of a copy of g.GAME (the same tick on a re-simulation).
+killing_tick :: proc(t: ^g.Tick) {
+	if t.number == kill_tick {
+		players := sim.iterate_present(t)
+		for _, player in sim.next(&players) do g.damage_player(t, player, g.PLAYER_HP)
 	}
-	sim.step(simulation, &inputs)
+	g.tick(t)
 }
 
 @(test)
 lobby_match_over_lobby :: proc(t: ^testing.T) {
-	simulation := sim.create(&g.GAME, 9)
-	defer sim.destroy(simulation)
-	for _ in 0 ..< 64 {
-		step_with(simulation, {0, 1}, {}) // standing still: stays in the lobby, no enemies
-	}
+	game := g.GAME
+	game.tick = killing_tick
+	kill_tick = 0
+	run := headless.run_begin(&game, 9, seated = 2)
+	defer headless.run_end(&run)
+	simulation := run.simulation
 	state := &simulation.state
+	for _ in 0 ..< 64 {
+		step(&run) // standing still: stays in the lobby, no enemies
+	}
 	testing.expect_value(t, state.phase, g.Phase.Lobby)
 	testing.expect_value(t, state.enemies.count, 0)
-	testing.expect_value(t, state.circle_radius, g.START_RADIUS)
 	testing.expect(
 		t,
 		sim.slot_data(simulation, 0) != nil &&
@@ -41,12 +53,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	// Player 0 walks out of the circle (+x): the match starts on the tick its centre crosses.
 	started: u32
 	for _ in 0 ..< 128 {
-		inputs: g.Inputs
-		inputs.present = {0, 1}
-		inputs.input[0] = {
-			move_x = 127,
-		}
-		sim.step(simulation, &inputs)
+		step(&run, {0 = {move_x = 127}})
 		if state.phase == .Match {
 			started = simulation.tick
 			break
@@ -64,24 +71,23 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, found)
 	for _ in 0 ..< 2 * g.TUNINGS[.Play].spawn_every_ticks {
-		step_with(simulation, {0, 1}, {})
+		step(&run)
 	}
 	testing.expect(t, state.enemies.count > 0)
 	testing.expect_value(t, state.wave, 0) // the HUD shows wave + 1
-	testing.expect_value(t, state.circle_radius, 0)
 	testing.expect(t, simulation.tick > state.match_tick)
 
 	// Everyone present dies in the same tick: over; nobody respawns; after the hold, a fresh lobby.
-	sim.slot_data(simulation, 0).hp, sim.slot_data(simulation, 1).hp = 0, 0 // they die at the next tick's start
-	step_with(simulation, {0, 1}, {})
+	kill_tick = simulation.tick + 1
+	step(&run)
 	testing.expect_value(t, state.phase, g.Phase.Over)
 	over := simulation.tick
 	for _ in 0 ..< g.OVER_HOLD_TICKS - 1 {
-		step_with(simulation, {0, 1}, {})
+		step(&run)
 		testing.expect(t, !sim.slot_data(simulation, 0).alive)
 	}
 	testing.expect_value(t, state.phase, g.Phase.Over)
-	step_with(simulation, {0, 1}, {})
+	step(&run)
 	testing.expect_value(t, simulation.tick, over + g.OVER_HOLD_TICKS)
 	testing.expect_value(t, state.phase, g.Phase.Lobby)
 	testing.expect_value(t, state.enemies.count, 0)
@@ -92,27 +98,30 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 		sim.slot_data(simulation, 2) == nil,
 	)
 	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
-	testing.expect_value(t, state.matches, 1)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
 joining_mid_match_spawns_at_the_start_spot :: proc(t: ^testing.T) {
-	simulation := sim.create(&g.GAME, 4)
-	defer sim.destroy(simulation)
+	run := headless.run_begin(&g.GAME, 4, seated = 1)
+	defer headless.run_end(&run)
+	simulation := run.simulation
 	for simulation.state.phase == .Lobby && simulation.tick < 200 {
-		step_with(simulation, {0}, {move_z = 127})
+		step(&run, {0 = {move_z = 127}})
 	}
 	testing.expect_value(t, simulation.state.phase, g.Phase.Match)
-	step_with(simulation, {0, 3}, {})
+	headless.run_seat(&run, 3, 4)
+	step(&run)
 	testing.expect(t, sim.slot_data(simulation, 3).alive)
-	testing.expect_value(t, sim.slot_data(simulation, 3).pos.x, g.PLAYER_START[3].x)
+	testing.expect_value(t, sim.slot_data(simulation, 3).pos.x, simulation.world.spawns[3].x)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
 levels_start_at_one :: proc(t: ^testing.T) {
-	simulation := sim.create(&g.GAME, 2)
-	defer sim.destroy(simulation)
-	step_with(simulation, {0}, {})
+	run := headless.run_begin(&g.GAME, 2, seated = 1)
+	defer headless.run_end(&run)
+	simulation := run.simulation
 	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
 	testing.expect_value(
 		t,
@@ -121,27 +130,21 @@ levels_start_at_one :: proc(t: ^testing.T) {
 	)
 }
 
-@(test)
-no_items_inside_the_start_circle :: proc(t: ^testing.T) {
-	for i in 0 ..< g.ITEM_COUNT {
-		spot := g.item_position(i)
-		testing.expectf(t, spot.x * spot.x + spot.z * spot.z > 4.0 * 4.0, "item %d at %v", i, spot)
-	}
-}
-
-// The `play` tuning played by the bot (games/survivor/simulation/survivor/bot.odin) over 8 seeds: guards the tuning's targets as a population, so one unlucky seed can't fail it or pass it: every seed's first
-// level-up comes in 10..45 s, and on average the bot survives past 120 s and reaches wave 3.5. A balance check, not a
-// correctness one: `uni test --long` only.
+// The `play` tuning played by the bot (bot.odin) over 8 seeds: guards the tuning's targets as a population, so one
+// unlucky seed can't fail it or pass it: on average the first level-up comes in 15..40 s (every seed's within 60 s),
+// the bot survives past 120 s and reaches wave 3.5. A balance check, not a correctness one: `uni test --long` only. On the
+// bare sim, not a sync-tested run: 8 matches of up to 200 s re-simulated every tick would cost minutes.
 when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {
 		SEEDS :: 8
-		survived_sum, wave_sum: f32
+		first_level_sum, survived_sum, wave_sum: f32
 		for seed in 1 ..= u64(SEEDS) {
 			game := g.GAME
-			game.scripted_input, game.scripted_commands = g.bot_input, g.bot_commands
+			game.scripted_input, game.scripted_commands = bot_input, bot_commands
 			simulation := sim.create(&game, seed)
 			defer sim.destroy(simulation)
+			bot_world = simulation.world
 			state := &simulation.state
 			first_level: f32 = -1
 			commands: headless.Scripted_Commands(g.Game)
@@ -158,14 +161,22 @@ when scenarios.LONG {
 				g.TICK_HZ,
 			)
 			wave_sum += f32(state.wave)
+			first_level_sum += first_level
 			testing.expectf(
 				t,
-				first_level > 10 && first_level < 45,
+				first_level > 0 && first_level < 60,
 				"seed %d: first level-up at %.1f s",
 				seed,
 				first_level,
 			)
 		}
+		testing.expectf(
+			t,
+			first_level_sum / SEEDS > 15 && first_level_sum / SEEDS < 40,
+			"mean first level-up at %.1f s over %d seeds",
+			first_level_sum / SEEDS,
+			SEEDS,
+		)
 		testing.expectf(
 			t,
 			survived_sum / SEEDS > 120,

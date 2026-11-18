@@ -10,7 +10,7 @@ import "unified:dmath"
 MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512
 MAX_GEMS :: 1024
-ITEM_COUNT :: 40 // crates and barrels, one per grid spot (item_position)
+MAX_ITEMS :: 64 // crates and barrels: the most item markers a level may hold
 PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
 
 // ---- the arena (its walls and pillars are the level's: game/levels/arena.tscn)
@@ -18,7 +18,8 @@ PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more 
 ARENA_HALF :: 32 // the ground is 2 * ARENA_HALF square, centred (m); the walls stand inside it
 START_RADIUS :: 3.5 // the lobby's start circle at the arena centre (m)
 SPAWN_RING :: 27 // enemies spawn this far from the centre (m)
-SPAWN_JITTER :: 1 // ... plus or minus this much along both axes (m)
+SPAWN_JITTER :: 1 // ... plus or minus this much along each axis, rolled apart (m)
+BENCH_HALF :: ARENA_HALF - 4 // the bench pre-spawns its population over this square's half size (m), inside the walls
 
 // ---- players
 
@@ -53,6 +54,7 @@ CONTACT_COOLDOWN_TICKS :: u16(0.5 * TICK_HZ) // an enemy hurts a player once per
 ENEMY_STEER :: 0.2 // each tick, velocity moves this far towards the desired one
 ENEMY_OVERSPEED :: 1.5 // the speed limit, times the enemy's speed (separation can push it past its own)
 SEPARATION :: 0.5 // the push between overlapping enemies, over their distance squared
+SEPARATION_MIN_SQ :: 1e-8 // two enemies closer than this (squared, m²) stand on one spot: no push (no direction)
 CLIMB_CHECK_TICKS :: u32(0.125 * TICK_HZ) // how often an enemy checks whether it stands on an item
 CLIMB_HEIGHT :: 0.8 // standing on something higher than this (m) is climbing
 CLIMB_SLOWDOWN :: 0.5 // speed times this while climbing
@@ -84,6 +86,10 @@ BARREL_RESPAWN_TICKS :: u32(10.0 * TICK_HZ)
 CRATE_HALF :: 0.5 // m
 BARREL_RADIUS :: 0.4 // the capsule's radius (m)
 BARREL_HALF_HEIGHT :: 0.3 // half its segment (m)
+// How far from its centre an item reaches on the ground however it lies (m): a crate's half diagonal, a barrel's
+// radius plus half its segment. Enemies near an item check whether they stand on it.
+CRATE_REACH :: CRATE_HALF * 1.7320508 // √3
+BARREL_REACH :: BARREL_RADIUS + BARREL_HALF_HEIGHT
 BLAST_RADIUS :: 5 // bodies and enemies within this are hit (m)
 BLAST_ENEMY_DAMAGE :: 25
 BLAST_PLAYER_RADIUS :: 3 // players within this are hurt (m)

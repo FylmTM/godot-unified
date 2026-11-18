@@ -1,7 +1,6 @@
-// The survivor's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game
-// with the `stress` tuning (what its headless binary runs), and its reference run. The game's own scenarios follow the standard ones here and
-// in the other files of this package (scenario_test.odin: explosions, deaths and resets inside
-// rollback windows).
+// The survivor's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game with the `stress`
+// tuning (what its headless binary runs), and its reference run. The game's own scenarios are in the other files of
+// this package (scenario_test.odin: explosions, deaths and resets inside rollback windows).
 package test_survivor
 
 import "core:testing"
@@ -22,15 +21,15 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 3600,
 	snapshot_tick = 1800,
-	checkpoints   = {0x8ecc3dfed447de08, 0xb0f40a276d268744, 0x749b4de73b7274c5, 0xb25497c2ab16d77c},
-	trace         = 0x6a918b583aebc4af,
-	snapshot      = 0xdef62f033d43a401,
-	log           = 0x159e278909cd2d0f,
+	checkpoints   = {0x7412b15f02a6c4e8, 0xb90f5373bd3e17ab, 0x694c0c328994444a, 0x93fe089adba3c832},
+	trace         = 0xfd814d4685c75961,
+	snapshot      = 0xf8f91ed1fb7f490a,
+	log           = 0x3a1768f4200835e2,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
-// library): rollback every tick, a bad-network session, a session whose inputs change every tick, a late joiner and
-// the reference run, on short runs.
+// library): rollback every tick, players coming and going (presence churn), a bad-network session, a session whose
+// inputs change every tick, a late joiner and the reference run, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}

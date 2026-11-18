@@ -52,6 +52,8 @@ Event_Match_Over :: struct {
 }
 
 Event :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
 	Event_Player_Died,
 	Event_Player_Respawned,
 	Event_Enemy_Died,
@@ -60,6 +62,4 @@ Event :: union {
 	Event_Level_Up,
 	Event_Match_Started,
 	Event_Match_Over,
-	sim.Event_Player_Joined,
-	sim.Event_Player_Left,
 }

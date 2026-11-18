@@ -1,6 +1,9 @@
 [gd_scene format=3]
 
 [ext_resource type="Shader" path="res://game/shaders/floor.gdshader" id="1_floor"]
+[ext_resource type="Script" path="res://game/levels/markers/spawn.gd" id="2_spawn"]
+[ext_resource type="PackedScene" path="res://game/views/crate.tscn" id="3_crate"]
+[ext_resource type="PackedScene" path="res://game/views/barrel.tscn" id="4_barrel"]
 
 [sub_resource type="Environment" id="env"]
 background_mode = 1
@@ -298,3 +301,143 @@ mesh = SubResource("pillar_mesh")
 [node name="Cap" type="MeshInstance3D" parent="Pillar7/Mesh"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
 mesh = SubResource("cap_mesh")
+
+[node name="Spawns" type="Node3D" parent="."]
+
+[node name="Spawn0" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 1, 1.5)
+script = ExtResource("2_spawn")
+
+[node name="Spawn1" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 1, 1.5)
+script = ExtResource("2_spawn")
+
+[node name="Spawn2" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 1, -1.5)
+script = ExtResource("2_spawn")
+
+[node name="Spawn3" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 1, -1.5)
+script = ExtResource("2_spawn")
+
+[node name="Items" type="Node3D" parent="."]
+
+[node name="Item00" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0.5, -8)
+
+[node name="Item01" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.5, -8)
+
+[node name="Item02" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.7, -8)
+
+[node name="Item03" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, -8)
+
+[node name="Item04" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, -8)
+
+[node name="Item05" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.5, -8)
+
+[node name="Item06" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.5, -8)
+
+[node name="Item07" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.7, -8)
+
+[node name="Item08" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0.5, -4)
+
+[node name="Item09" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.5, -4)
+
+[node name="Item10" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.5, -4)
+
+[node name="Item11" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, -4)
+
+[node name="Item12" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.7, -4)
+
+[node name="Item13" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.5, -4)
+
+[node name="Item14" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.5, -4)
+
+[node name="Item15" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.5, -4)
+
+[node name="Item16" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0.5, 0)
+
+[node name="Item17" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.7, 0)
+
+[node name="Item18" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.5, 0)
+
+[node name="Item19" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, 12)
+
+[node name="Item20" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, -12)
+
+[node name="Item21" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.5, 0)
+
+[node name="Item22" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.7, 0)
+
+[node name="Item23" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.5, 0)
+
+[node name="Item24" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0.5, 4)
+
+[node name="Item25" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.5, 4)
+
+[node name="Item26" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.5, 4)
+
+[node name="Item27" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.7, 4)
+
+[node name="Item28" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, 4)
+
+[node name="Item29" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.5, 4)
+
+[node name="Item30" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.5, 4)
+
+[node name="Item31" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.5, 4)
+
+[node name="Item32" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0.7, 8)
+
+[node name="Item33" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.5, 8)
+
+[node name="Item34" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.5, 8)
+
+[node name="Item35" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.5, 8)
+
+[node name="Item36" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.5, 8)
+
+[node name="Item37" parent="Items" instance=ExtResource("4_barrel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.7, 8)
+
+[node name="Item38" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.5, 8)
+
+[node name="Item39" parent="Items" instance=ExtResource("3_crate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0.5, 8)

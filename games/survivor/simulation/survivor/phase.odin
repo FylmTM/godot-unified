@@ -17,13 +17,11 @@ advance_phase :: proc(t: ^Tick) {
 	case .Lobby:
 		players = sim.iterate_present(t)
 		for character, player in sim.next(&players) {
-			if character.alive && dmath.length_sq(character.pos.xz) > t.state.circle_radius * t.state.circle_radius {
+			if character.alive && dmath.length_sq(character.pos.xz) > START_RADIUS * START_RADIUS {
 				t.state.phase = .Match
 				t.state.match_tick = t.number
 				t.state.over_tick = 0
 				t.state.wave = 0
-				t.state.circle_radius = 0
-				t.state.matches += 1
 				sim.emit(t, Event_Match_Started{position = sim.Position(character.pos), player = player})
 				break
 			}
@@ -44,11 +42,11 @@ advance_phase :: proc(t: ^Tick) {
 	}
 }
 
-// Back to the lobby: every dynamic body is destroyed and rebuilt in creation order (items, then present players at
-// their start spots, in slot order); everyone's progress starts fresh, absent players' too; enemies, projectiles and
-// gems go.
+// Back to the lobby: every dynamic body is destroyed and rebuilt in creation order (items at their spots, then
+// present players at their start spots, in slot order); everyone's progress starts fresh, absent players' too;
+// enemies, projectiles and gems go.
 reset_world :: proc(t: ^Tick) {
-	for &item in t.state.items {
+	for &item in t.state.items[:t.world.item_count] {
 		physics.destroy_body(t.world.phys, &item.body)
 	}
 	known := sim.iterate_known(t)
@@ -56,7 +54,7 @@ reset_world :: proc(t: ^Tick) {
 		physics.destroy_body(t.world.phys, &character.body)
 		character_reset(character)
 	}
-	for i in 0 ..< ITEM_COUNT {
+	for i in 0 ..< t.world.item_count {
 		item_reset(t.state, t.world, i)
 	}
 	for slot in 0 ..< PLAYERS {
@@ -70,7 +68,6 @@ reset_world :: proc(t: ^Tick) {
 	sim.despawn_all(&t.state.projectiles)
 	sim.despawn_all(&t.state.gems)
 	t.state.phase = .Lobby
-	t.state.circle_radius = START_RADIUS
 	t.state.match_tick = 0
 	t.state.over_tick = 0
 	t.state.wave = 0
