@@ -315,10 +315,21 @@ forces_and_impulses_2d :: proc(t: ^testing.T) {
 	shape_def := physics.default_shape_def()
 	physics.create_circle_shape_2d(world, body, shape_def, 1)
 	mass := physics.body_mass(world, body)
+	physics.body_set_linear_velocity_2d(world, body, {1, 2})
 	physics.body_set_transform_2d(world, body, {3, 4}, {0, 1})
 	pos, rot := physics.body_position_2d(world, body), physics.body_rotation_2d(world, body)
 	testing.expectf(t, pos == {3, 4} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
 	testing.expect(t, on_plane(world, body))
+	testing.expect_value(t, physics.body_linear_velocity_2d(world, body), [2]f32{1, 2}) // the transform keeps it
+	// A teleport moves it and stops it, like body_teleport in 3D.
+	physics.body_set_angular_velocity_2d(world, body, 3)
+	physics.body_teleport_2d(world, body, {-1, 2})
+	testing.expect_value(t, physics.body_position_2d(world, body), [2]f32{-1, 2})
+	testing.expect_value(t, physics.body_rotation_2d(world, body), [2]f32{1, 0})
+	testing.expect_value(t, physics.body_linear_velocity_2d(world, body), [2]f32{})
+	testing.expect_value(t, physics.body_angular_velocity_2d(world, body), 0)
+	testing.expect(t, on_plane(world, body))
+	physics.body_set_transform_2d(world, body, {3, 4}, {0, 1})
 	// An impulse through the centre: a velocity change of impulse / mass, no spin.
 	physics.body_apply_linear_impulse_2d(world, body, {2 * mass, -mass}, {3, 4})
 	testing.expectf(

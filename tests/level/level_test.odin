@@ -127,13 +127,18 @@ round_trip :: proc(t: ^testing.T) {
 		Lift,
 		Big_Lift,
 	}
-	testing.expect_value(t, level.prop_enum(marker, "label", Label.Ferry), Label.Lift) // "lift": the lowercased name
-	testing.expect_value(t, level.prop_enum(marker, "count", Label.Big_Lift), Label.Big_Lift) // not a string
-	testing.expect_value(t, level.prop_enum(marker, "nope", Label.Big_Lift), Label.Big_Lift)
+	label, known := level.prop_enum(marker, "label", Label.Ferry)
+	testing.expect(t, label == .Lift && known, "\"lift\": the lowercased name")
+	label, known = level.prop_enum(marker, "count", Label.Big_Lift)
+	testing.expect(t, label == .Big_Lift && !known, "an int is no member's name")
+	label, known = level.prop_enum(marker, "nope", Label.Big_Lift)
+	testing.expect(t, label == .Big_Lift && known, "missing: the default, known")
+	testing.expect_value(t, level.prop_enum(marker, "label", Label.Ferry), Label.Lift) // #optional_ok: the value alone
 	Other :: enum {
 		Crate,
 	}
-	testing.expect_value(t, level.prop_enum(marker, "label", Other.Crate), Other.Crate) // no such member
+	other, other_known := level.prop_enum(marker, "label", Other.Crate)
+	testing.expect(t, other == .Crate && !other_known, "\"lift\" names no Other: the default, unknown")
 	testing.expect_value(t, level.prop_ref(marker, "gate"), 1)
 	testing.expect_value(t, level.prop_ref(marker, "nope"), -1)
 	testing.expect_value(t, level.prop_f32(marker, "nope", 9), 9)
@@ -201,6 +206,22 @@ create_static_bodies :: proc(t: ^testing.T) {
 	expect_top(t, world, -3.2, 5, 1.25) // along x from -3.5 to -2.5
 	hit, _ := physics.world_cast_ray_closest(world, {0, 10, 5}, {0, -20, 0})
 	testing.expect_value(t, hit.material, 77)
+}
+
+// create_with_level: the level loaded and its static bodies in a new world, in one call; no level: a problem, no world.
+@(test)
+create_with_level_loads_and_builds :: proc(t: ^testing.T) {
+	data := fixture()
+	defer delete(data)
+	phys, loaded, problem := physics.create_with_level({tick_hz = 64}, data, 1)
+	defer physics.destroy_with_level(phys, &loaded)
+	testing.expect_value(t, problem, "")
+	testing.expect(t, phys != nil && len(loaded.bodies) > 0)
+	hit, ok := physics.world_cast_ray_closest(phys, {0, 10, 0}, {0, -20, 0})
+	testing.expect(t, ok && abs(hit.point.y) < 1e-3, "the floor is built")
+	none, empty, refused := physics.create_with_level({tick_hz = 64}, data[:8], 1)
+	defer physics.destroy_with_level(none, &empty)
+	testing.expect(t, none == nil && refused != "", "a cut file is no level")
 }
 
 // A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_static names the first one (#149).

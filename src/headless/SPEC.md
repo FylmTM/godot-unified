@@ -54,11 +54,12 @@ a re-simulation compared tick by tick (checksums, events, a NaN scan, the Extra'
 scripted player (`run_scripted(&run, players, seats)`) or its own inputs, and seats people itself:
 
 ```odin
-run := headless.run_begin(&GAME, seed)      // nobody seated; content: GAME.content (or a test's own bytes)
+run := headless.run_begin(&GAME, seed, seated = 2) // slots 0, 1: members 1, 2, present after one step; content: GAME.content
 defer headless.run_end(&run)
-headless.run_seat(&run, 0, 1)               // member 1 holds slot 0 from the next step on (0: nobody)
+headless.run_seat(&run, 2, 7)               // member 7 holds slot 2 from the next step on (0: nobody)
 inputs := headless.run_inputs(&run)         // the seated members present, join records where needed (sim.seat)
 inputs.input[0] = input
+sim.add_command(&inputs, 0, command)        // a Cmd_X value, or the game's Cmd union
 headless.run_step(&run, &inputs)
 ship := sim.slot_data(run.simulation, 0)
 headless.run_pin(&run)                      // the test changed the state: never restore before this tick
@@ -84,7 +85,7 @@ Network profiles: `netcode.PROFILES[.Ideal | .Wan | .Bad]` (`src/netcode/SPEC.md
 
 Each game has its own suite of Odin tests calling the library in process
 (`games/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario, named for what it checks, then
-the game's own scenarios, with its reference run's constants in its `Suite`. A new game copies minimal_3d's
+the game's own scenarios, and its reference run's constants (`REFERENCE`). A new game copies minimal_3d's
 (`games/minimal_3d/simulation/tests/`, what `uni init` copies); the toy's (`tests/scenarios/`) proves the library: it
 runs every scenario.
 
@@ -94,9 +95,8 @@ Suite :: struct($G: typeid) {    // G: the game type, a sim.Game
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
-	ref:     Reference,
 }
-Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pinned by hashes
+Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pinned by hashes: REFERENCE :: scenarios.Reference{...}
 	seed, players, ticks, snapshot_tick, // the snapshot taken at snapshot_tick resumes to `ticks`
 	checkpoints: [4]u64,           // the checksum at ticks / 4, ticks / 2, 3 * ticks / 4 and ticks
 	trace, snapshot, log: u64,     // the hashes of every tick's checksum, the snapshot's and the log's bytes
@@ -110,7 +110,7 @@ Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pi
 | `runs_match(t, suite)` | two runs alive at once (the second created halfway through the first): every tick equal. Catches state instances share, which back-to-back runs miss |
 | `session_agrees(t, suite, clients, network, churn = false)` | a virtual-clock session: 0 desyncs, every client's checksums equal, all reach `ticks`, the relay's log replays to them, rollbacks > 0 unless `.Ideal`; `churn`: inputs change every tick (`Session_Config.churn`), every client rolls back on most ticks |
 | `late_join_agrees(t, suite, network, slot, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick; the log replays to them |
-| `reference_reproduces(t, suite)` | the reference run's checkpoints and hashes are the suite's constants; its log replays, and its snapshot resumes, to the same checksums |
+| `reference_reproduces(t, game, REFERENCE)` | the reference run's checkpoints and hashes are the suite's constants; its log replays, and its snapshot resumes, to the same checksums |
 
 **Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, 4
 clients under `bad`, 4 under `wan` with churn, a late joiner, `presence_churn`, the reference run) on short runs, each scenario its own test so
@@ -119,9 +119,11 @@ and the slow tests a game keeps behind it.
 
 ## Reference runs
 
-A reference run is a run every platform must reproduce, pinned in the suite as constants: the checksums at four
-checkpoints, the hash of every tick's checksum, and the hashes of the input log's and the snapshot's bytes, so this
-platform both computes and encodes what every other does. A mismatch names the first checkpoint that differs and
+A reference run is a run every platform must reproduce, pinned in the game's tests as one constant
+(`REFERENCE :: scenarios.Reference{...}`, a test calling `reference_reproduces(t, &GAME, REFERENCE)`): the checksums at
+four checkpoints, the hash of every tick's checksum, and the hashes of the input log's and the snapshot's bytes, so
+this platform both computes and encodes what every other does. A game pins its first by setting `seed`, `players`,
+`ticks` and `snapshot_tick`: the run prints the rest. A mismatch names the first checkpoint that differs and
 prints the literal to paste: paste it only after a change that alters the simulation or the log or snapshot format,
 saying why (the `sim-change` skill). The log and snapshot carry compat, so a version or pin bump moves their hashes
 while the checkpoints and trace stay. To find the first tick that differs between two builds, compare the

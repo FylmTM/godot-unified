@@ -111,23 +111,21 @@ GEM_FADE_S :: 2 // a gem fades out over its last seconds
 fill_frame :: proc(f: ^Frame) {
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
-		godot.push_view(f, {
-			kind   = .Ship,
-			player = player,
-			pos    = sim.position(physics.body_position_2d(f.world.phys, ship.body)),
-			rot    = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
+		godot.push_view(f, player, {
+			kind = .Ship,
+			pos  = sim.position_2d(physics.body_position_2d(f.world.phys, ship.body)),
+			rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
 		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(g.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
 	}
 	godot.push_view(f, {
 		kind = .Station,
-		pos  = sim.position(physics.body_position_2d(f.world.phys, f.state.station)),
+		pos  = sim.position_2d(physics.body_position_2d(f.world.phys, f.state.station)),
 		rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, f.state.station)),
 	}, Station_View{hp_frac = f32(f.state.station_hp) / g.STATION_HP})
 	for gate_def, gate in f.world.gates[:f.world.gate_count] {
-		godot.push_view(f, {
-			key  = u64(gate),
+		godot.push_view(f, sim.entity(gate), {
 			kind = .Gate,
-			pos  = sim.position(gate_def.pos),
+			pos  = sim.position_2d(gate_def.pos),
 		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(g.GATE_CHARGE_TICKS)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
@@ -141,7 +139,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(int(MultiView.Rock_0) + int(rock.variant)),
-			pos    = sim.position(physics.body_position_2d(f.world.phys, rock.body)),
+			pos    = sim.position_2d(physics.body_position_2d(f.world.phys, rock.body)),
 			rot    = physics.quat_2d(physics.body_rotation_2d(f.world.phys, rock.body)),
 			scale  = {radius * (1 + HIT_SQUASH * flash), radius * (1 - HIT_SQUASH * flash), 1},
 			custom = {f32(rock.size), flash, 0, 0},
@@ -155,7 +153,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Bullet,
-			pos    = sim.position(bullet.pos),
+			pos    = sim.position_2d(bullet.pos),
 			rot    = physics.quat_2d(bullet.vel),
 			scale  = BULLET_SCALE,
 			custom = {f32(owner_slot), 0, 0, 0},
@@ -171,7 +169,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
-			pos    = sim.position(gem.pos),
+			pos    = sim.position_2d(gem.pos),
 			rot    = godot.quat_angle_2d(age * GEM_SPIN),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},

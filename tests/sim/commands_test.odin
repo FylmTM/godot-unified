@@ -112,6 +112,22 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	testing.expect(t, !made)
 }
 
+// A value of the game's Cmd union is added as the command it holds, the same bytes as its struct's (a test that
+// switches over its own Cmd needs no case per kind); nil adds nothing.
+@(test)
+a_command_union_value_is_the_command_it_holds :: proc(t: ^testing.T) {
+	inputs, by_struct: toy.Inputs
+	commands := [?]toy.Cmd{toy.Cmd_Bump{4}, toy.Cmd_Mark{at = {1, 2}, count = 3}, toy.Cmd_Clear_Bumps{}}
+	for command in commands do testing.expect(t, sim.add_command(&inputs, 1, command))
+	sim.add_command(&by_struct, 1, toy.Cmd_Bump{4})
+	sim.add_command(&by_struct, 1, toy.Cmd_Mark{at = {1, 2}, count = 3})
+	sim.add_command(&by_struct, 1, toy.Cmd_Clear_Bumps{})
+	testing.expect(t, sim.inputs_same(&inputs, &by_struct), "the union's commands are the structs'")
+	testing.expect(t, !sim.add_command(&inputs, 1, toy.Cmd(nil)), "nil is no command")
+	testing.expect(t, !sim.add_command(&inputs, toy.PLAYERS, toy.Cmd(toy.Cmd_Bump{1})), "no such slot")
+	testing.expect_value(t, inputs.command_count, 3)
+}
+
 // A command without fields is zero bytes: made, sent in a tick's record, read back from the wire and applied in
 // order like any other.
 @(test)

@@ -85,17 +85,15 @@ sample_input :: proc(input: ^g.Input) {
 fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
-		godot.push_view(f, {
-			kind   = .Player,
-			player = player,
-			pos    = sim.Position(character.pos),
+		godot.push_view(f, player, {
+			kind = .Player,
+			pos  = sim.Position(character.pos),
 		}, Player_View{hp = max(character.hp, 0), dashing = character.dash_ticks > 0})
 	}
 	for i in 0 ..< g.ITEM_COUNT {
 		item := &f.state.items[i]
 		if !item.alive do continue
-		godot.push_view(f, {
-			key  = u64(i),
+		godot.push_view(f, sim.entity(i), {
 			kind = item.kind == .Barrel ? .Barrel : .Crate,
 			pos  = sim.Position(physics.body_position(f.world.phys, item.body)),
 			rot  = physics.body_rotation(f.world.phys, item.body),
@@ -107,7 +105,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = MultiView(enemy.kind),
 			pos    = {enemy.pos.x, 0, enemy.pos.y},
-			rot    = facing(enemy.vel),
+			rot    = dmath.quat_yaw(dmath.normalize(enemy.vel, 0)),
 			custom = {hit_flash(f.tick, enemy.hit_tick), age_s(f.tick, enemy.spawn_tick), 0, 0},
 		})
 	}
@@ -117,7 +115,7 @@ fill_frame :: proc(f: ^Frame) {
 			key  = sim.handle_key(handle),
 			kind = .Projectile,
 			pos  = {projectile.pos.x, 0, projectile.pos.z},
-			rot  = facing(projectile.vel.xz),
+			rot  = dmath.quat_yaw(dmath.normalize(projectile.vel.xz, 0)),
 		})
 	}
 	gems := sim.iterate(&f.state.gems)
@@ -133,12 +131,6 @@ fill_frame :: proc(f: ^Frame) {
 }
 
 HIT_FLASH_S :: 0.15
-
-// The rotation about +Y that turns +Z towards `dir` (x, z on the floor, any length; zero: the identity).
-facing :: proc(dir: [2]f32) -> [4]f32 {
-	unit := dmath.normalize(dir, 0)
-	return unit == {} ? {} : dmath.quat_yaw(unit)
-}
 
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
 hit_flash :: proc(tick, hit_tick: u32) -> f32 {

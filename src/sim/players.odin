@@ -73,9 +73,12 @@ player_of_key :: proc(key: u64) -> Player {
 // (`sim.player_data(&state.players, player)`, outside a tick: views, tests).
 
 // The player's data, or nil when the handle is nobody, stale or forgotten. Valid while the player is absent.
+// The player's data (nil: a member the state doesn't remember), of the tick being computed, a State's Players or a
+// simulation's current state.
 player_data :: proc {
 	player_data_of_players,
 	player_data_of_tick,
+	player_data_of_sim,
 }
 
 player_data_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> ^T {
@@ -90,15 +93,37 @@ player_data_of_tick :: proc(
 	return player_data_of_players(&tick.state.players, player)
 }
 
+player_data_of_sim :: proc(
+	simulation: ^Sim($G),
+	player: Player,
+) -> ^part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0) {
+	return player_data_of_players(&simulation.state.players, player)
+}
+
 // Whether the handle names a member the table still remembers (present or absent).
-player_known :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
+player_known :: proc {
+	player_known_of_players,
+	player_known_of_tick,
+	player_known_of_sim,
+}
+
+player_known_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
 	return player.id != 0 && int(player.index) < len(players.members) && players.members[player.index].id == player.id
+}
+
+player_known_of_tick :: proc(tick: ^Tick($G), player: Player) -> bool {
+	return player_known_of_players(&tick.state.players, player)
+}
+
+player_known_of_sim :: proc(simulation: ^Sim($G), player: Player) -> bool {
+	return player_known_of_players(&simulation.state.players, player)
 }
 
 // The slot the player holds this tick, or -1 (and false) when absent or unknown: `slot := sim.player_slot(t, player)`.
 player_slot :: proc {
 	player_slot_of_players,
 	player_slot_of_tick,
+	player_slot_of_sim,
 }
 
 player_slot_of_players :: proc(
@@ -118,10 +143,15 @@ player_slot_of_tick :: proc(tick: ^Tick($G), player: Player) -> (slot: int, pres
 	return player_slot_of_players(&tick.state.players, player)
 }
 
+player_slot_of_sim :: proc(simulation: ^Sim($G), player: Player) -> (slot: int, present: bool) #optional_ok {
+	return player_slot_of_players(&simulation.state.players, player)
+}
+
 // Whether the player holds a slot this tick.
 player_present :: proc {
 	player_present_of_players,
 	player_present_of_tick,
+	player_present_of_sim,
 }
 
 player_present_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
@@ -131,6 +161,10 @@ player_present_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), playe
 
 player_present_of_tick :: proc(tick: ^Tick($G), player: Player) -> bool {
 	return player_present_of_players(&tick.state.players, player)
+}
+
+player_present_of_sim :: proc(simulation: ^Sim($G), player: Player) -> bool {
+	return player_present_of_players(&simulation.state.players, player)
 }
 
 // Who holds `slot` (Player{}: nobody, or a slot out of range); also of a simulation's current state, for drivers
@@ -184,6 +218,7 @@ slot_data_of_sim :: proc(
 present_count :: proc {
 	present_count_of_players,
 	present_count_of_tick,
+	present_count_of_sim,
 }
 
 present_count_of_players :: proc(players: ^Players($T, $Input, $PLAYERS)) -> (count: int) {
@@ -197,8 +232,12 @@ present_count_of_tick :: proc(tick: ^Tick($G)) -> int {
 	return present_count_of_players(&tick.state.players)
 }
 
-// Walks the players with their data (iterate_present or iterate_known, then next), of the tick being computed or a
-// State's Players:
+present_count_of_sim :: proc(simulation: ^Sim($G)) -> int {
+	return present_count_of_players(&simulation.state.players)
+}
+
+// Walks the players with their data (iterate_present or iterate_known, then next), of the tick being computed, a
+// State's Players or a simulation's current state:
 //
 //   players := sim.iterate_present(t)
 //   for data, player in sim.next(&players) { ... }
@@ -214,11 +253,13 @@ Players_Iterator :: struct($T: typeid, $Input: typeid, $PLAYERS: int) {
 iterate_present :: proc {
 	iterate_present_of_players,
 	iterate_present_of_tick,
+	iterate_present_of_sim,
 }
 
 iterate_known :: proc {
 	iterate_known_of_players,
 	iterate_known_of_tick,
+	iterate_known_of_sim,
 }
 
 iterate_present_of_players :: #force_inline proc(
@@ -255,6 +296,26 @@ iterate_known_of_tick :: #force_inline proc(
 		part(G, GAME_PLAYERS),
 	) {
 	return {players = &tick.state.players, known = true}
+}
+
+iterate_present_of_sim :: #force_inline proc(
+	simulation: ^Sim($G),
+) -> Players_Iterator(
+		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_INPUT),
+		part(G, GAME_PLAYERS),
+	) {
+	return {players = &simulation.state.players}
+}
+
+iterate_known_of_sim :: #force_inline proc(
+	simulation: ^Sim($G),
+) -> Players_Iterator(
+		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_INPUT),
+		part(G, GAME_PLAYERS),
+	) {
+	return {players = &simulation.state.players, known = true}
 }
 // odinfmt: enable
 

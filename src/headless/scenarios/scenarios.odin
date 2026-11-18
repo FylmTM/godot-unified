@@ -22,12 +22,11 @@ Suite :: struct($G: typeid) {
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
-	ref:     Reference,
 }
 
 // A run every platform must reproduce, pinned by hashes: the game's scripted run of `ticks` ticks with `players`
-// players and `seed` (run_sim). reference_reproduces prints the literal to paste when a deliberate sim change moves it
-// (the sim-change skill).
+// players and `seed` (run_sim). A game's tests keep it as a constant (`REFERENCE :: scenarios.Reference{...}`);
+// reference_reproduces prints the literal to paste when a deliberate sim change moves it (the sim-change skill).
 Reference :: struct {
 	seed:          u64,
 	players:       int,
@@ -226,10 +225,12 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // the input log it records encodes to the same bytes and replays to the same checksums, and the snapshot at
 // `snapshot_tick` encodes to the same bytes and resumes to the same checksums. A mismatch prints the new literal: paste
 // it only for a deliberate sim change (the sim-change skill). To find the first tick that differs between two builds,
-// run `uni headless <game> -- sim --trace FILE` on both and compare the files.
-reference_reproduces :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	runs := headless_of(suite)
-	reference := suite.ref
+// run `uni headless <game> -- sim --trace FILE` on both and compare the files. A new game pins its first one with the
+// four parameters set (seed, players, ticks, snapshot_tick): the run then prints the rest.
+reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
+	runs := headless.Headless(G) {
+		game = game,
+	}
 	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
 	if !testing.expectf(
 		t,
@@ -259,9 +260,9 @@ reference_reproduces :: proc(t: ^testing.T, suite: ^Suite($G)) {
 		testing.expectf(
 			t,
 			false,
-			"%s: this platform computes another run%s. If the sim changed on purpose, the suite's reference is now:\n" +
-			"ref = {{seed = %d, players = %d, ticks = %d, snapshot_tick = %d, checkpoints = {{0x%016x, 0x%016x, 0x%016x, " +
-			"0x%016x}}, trace = 0x%016x, snapshot = 0x%016x, log = 0x%016x}}",
+			"%s: this platform computes another run%s. If the sim changed on purpose, the reference is now:\n" +
+			"REFERENCE :: scenarios.Reference{{seed = %d, players = %d, ticks = %d, snapshot_tick = %d, checkpoints = " +
+			"{{0x%016x, 0x%016x, 0x%016x, 0x%016x}}, trace = 0x%016x, snapshot = 0x%016x, log = 0x%016x}}",
 			what,
 			first_checkpoint(reference, got),
 			got.seed,

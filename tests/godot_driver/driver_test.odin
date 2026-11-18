@@ -44,11 +44,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	fill_frame = proc(frame: ^godot.Frame(toy.Game, View, MultiView)) {
 		players := sim.iterate_present(&frame.state.players)
 		for data, player in sim.next(&players) {
-			godot.push_view(frame, {
-				kind   = .Dot,
-				player = player,
-				pos    = {data.pos.x, 0, data.pos.y},
-			})
+			godot.push_view(frame, player, {kind = .Dot, pos = {data.pos.x, 0, data.pos.y}})
 			godot.push_multi_view(frame, {
 				key  = sim.player_key(player),
 				kind = .Spark,
@@ -378,10 +374,10 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	testing.expect_value(t, x, 22)
 }
 
-// Players' views pushed with a zero key (the key is then the player's): each finds its own tick - 1 pose, not the
-// first pushed one's.
+// Players' views (pushed with the player as their subject, keyed by their key): each finds its own tick - 1 pose, not
+// the first pushed one's.
 @(test)
-zero_key_player_views_remember_their_own_poses :: proc(t: ^testing.T) {
+player_views_remember_their_own_poses :: proc(t: ^testing.T) {
 	memory: godot.Pose_Memory
 	godot.pose_memory_init(&memory, 4, 4)
 	defer godot.pose_memory_destroy(&memory)
@@ -409,12 +405,14 @@ zero_key_player_views_remember_their_own_poses :: proc(t: ^testing.T) {
 		data.n_views = 0
 		data.n_data = 0
 		frame.tick = tick
-		godot.push_view(&frame, {kind = .Dot, player = first, pos = {f32(tick), 0, 0}})
-		godot.push_view(&frame, {kind = .Dot, player = second, pos = {100 + f32(tick), 0, 0}})
+		godot.push_view(&frame, first, {kind = .Dot, pos = {f32(tick), 0, 0}})
+		godot.push_view(&frame, second, {kind = .Dot, pos = {100 + f32(tick), 0, 0}})
 	}
 	for player, i in ([2]sim.Player{first, second}) {
 		view := data.views[i]
 		testing.expect_value(t, view.key, sim.player_key(player))
+		testing.expect_value(t, view.player, sim.player_key(player)) // a player's view shows them
+		testing.expect_value(t, view.subject, typeid_of(sim.Player))
 		testing.expect(t, view.has_prev, "each player's view has its tick - 1 pose")
 		testing.expect_value(t, view.prev_pos.x, f32(100 * i + 10)) // its own, not the first player's
 	}

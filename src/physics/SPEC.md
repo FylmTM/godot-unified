@@ -156,7 +156,10 @@ drive_kinematic(world, Body_Ref, target: [3]f32)       // velocity = (target −
 ## Static level geometry
 
 `create_static(world, ^level.Level, default_category := 1) -> (problem: string)`: one static body per level
-body, in file order, the World's (shapes without a category get `default_category`); `create_level_shape(world,
+body, in file order, the World's (shapes without a category get `default_category`). A game's World does both steps in
+one call, keeping its own shape: `world.phys, world.level, problem = create_with_level(settings, content,
+default_category)` loads the level and builds the world with its static bodies (`problem`: no level, or a refused
+shape), `destroy_with_level(world.phys, &world.level)` frees both; `create_level_shape(world,
 Body_Ref, Shape_Def, ^level.Shape) -> bool` adds one level shape to any body. A shape Box3D refuses (a hull under 4
 points, or past its edge limit) is never a silent hole: `problem` names it, and the games assert on it.
 
@@ -172,7 +175,7 @@ form; the rest (mass, tags, sleep, local and world point conversions, the other 
 ```odin
 body_def_2d(type, pos: [2]f32, rot: [2]f32 = {1, 0}) -> Body_Def  // z = 0, locks linear Z, angular X and Y
 quat_2d(rot: [2]f32) -> [4]f32  rot_2d(q: [4]f32) -> [2]f32    // any direction (normalised; zero: identity) ↔ about +Z
-body_position_2d, body_rotation_2d, body_set_transform_2d, ..., body_apply_angular_impulse_2d   // angles and torques: f32
+body_position_2d, body_rotation_2d, body_set_transform_2d, body_teleport_2d, ..., body_apply_angular_impulse_2d   // angles and torques: f32
 create_circle_shape_2d(world, Body_Ref, Shape_Def, radius, center: [2]f32 = {}) -> Shape_Ref      // a sphere at z = 0
 create_box_shape_2d(world, Body_Ref, Shape_Def, half: [2]f32, depth) -> Shape_Ref                 // centred on the plane
 create_polygon_shape_2d(world, Body_Ref, Shape_Def, points: [][2]f32, depth) -> (Shape_Ref, bool) // convex hull of 3..32 points

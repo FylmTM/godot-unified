@@ -15,7 +15,11 @@ View :: enum u8 {
 	Typed2D,
 	Plain2D,
 	Plain3D,
+	Decoy2D,
 }
+
+// The decoy views' subject: another table's handle, given each thing's key (fill_frame).
+Decoy :: struct {}
 
 MultiView :: enum u8 {
 	Multi2D,
@@ -141,19 +145,18 @@ bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 // The benchmark's frame: the local player's typed2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
 // changes every tick, so nothing is the same as the tick before).
 bench_frame :: proc(f: ^Frame) {
-	godot.push_view(f, {key = 1, kind = .Typed2D, player = f.local_player})
+	godot.push_view(f, f.local_player, {kind = .Typed2D})
 	seconds := f32(f.tick) / toy.HZ
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
-		godot.push_view(f, {
-			key  = u64(100 + i),
+		godot.push_view(f, sim.entity(100 + i), {
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
 			rot  = quat_yaw_angle(angle),
 		})
 	}
 	for i in 0 ..< BENCH_STATIC_VIEWS {
-		godot.push_view(f, {key = u64(200 + i), kind = .Plain3D, pos = {f32(i % 8), 2, f32(i / 8)}})
+		godot.push_view(f, sim.entity(200 + i), {kind = .Plain3D, pos = {f32(i % 8), 2, f32(i / 8)}})
 	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
 	for i in 0 ..< bench_instances {
@@ -193,12 +196,10 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	q2 := godot.quat_angle_2d(ANGLE_2D)
 	q3 := quat_yaw_angle(YAW_3D)
-	godot.push_view(f, {
-		key    = 1,
-		kind   = .Typed2D,
-		player = f.local_player,
-		pos    = POS_2D / VIEW_SCALE,
-		rot    = q2,
+	godot.push_view(f, f.local_player, {
+		kind = .Typed2D,
+		pos  = POS_2D / VIEW_SCALE,
+		rot  = q2,
 	}, Typed2D_Data {
 		shown  = true,
 		mode   = .Open,
@@ -208,24 +209,30 @@ fill_frame :: proc(f: ^Frame) {
 		dir    = {0.6, -0.8},
 		tint   = {1, 0.5, 0.25, 1},
 	})
-	godot.push_view(f, {
-		key  = 2,
+	godot.push_view(f, sim.entity(2), {
 		kind = .Plain2D,
 		pos  = (POS_2D + {10, 0, 0}) / VIEW_SCALE,
 		rot  = q2,
 	})
 	// the same key in another kind: another view
-	godot.push_view(f, {
-		key  = 2,
+	godot.push_view(f, sim.entity(2), {
 		kind = .Plain3D,
 		pos  = POS_3D / VIEW_SCALE,
 		rot  = q3,
 	})
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
-		godot.push_view(f, {
-			key  = 5,
+		godot.push_view(f, sim.entity(5), {
 			kind = .Plain2D,
 			pos  = {-5, -5, 0},
+		})
+	}
+	// A decoy per thing: a view of another table's handle with the thing's key. A Spawned event (its subject a
+	// Handle(Thing)) reaches only views pushed with a Handle(Thing), so not these: it falls back to its player's view.
+	things := sim.iterate(&f.state.things)
+	for _, thing in sim.next(&things) {
+		godot.push_view(f, sim.Handle(Decoy){index = thing.index, generation = thing.generation}, {
+			kind = .Decoy2D,
+			pos  = {-9, -9, 0},
 		})
 	}
 	mark := &local.last_mark
@@ -277,7 +284,8 @@ fill_frame :: proc(f: ^Frame) {
 }
 
 // Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
-// subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
+// subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none: the
+// decoys have its key, not its type).
 event_key :: proc(event: toy.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in event {
 	case toy.Event_Expired:

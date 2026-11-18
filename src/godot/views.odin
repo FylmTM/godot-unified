@@ -39,7 +39,8 @@ Scene_View :: struct {
 	marker_id:   u64,
 	kind:        u8,
 	player:      u64, // the player's key (sim.player_key; 0: none)
-	key:         u64, // its key (View_Item.key as published)
+	key:         u64, // its subject's key (push_view)
+	subject:     typeid, // its subject's type (push_view; nil: none): only events with a subject of this type reach it
 	linger_s:    f64, // its marker's
 	spawn_tick:  u32, // the tick it first appeared at
 	verified:    bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
@@ -200,7 +201,7 @@ register_classes :: proc() {
 		"key",
 		proc(node: ^Unified_View_Node) -> i64 {return node.key},
 		proc(node: ^Unified_View_Node, key: i64) {node.key = key},
-		doc = "The view's key within its kind, as fill_frame pushed it (a handle's or a player's key, an index): the host sets it.",
+		doc = "The key of the subject fill_frame pushed the view with (a player's key, a fixed thing's index, a handle's key; 0: none): the host sets it.",
 	)
 	gd.bind_property(
 		class,
@@ -372,7 +373,8 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	}
 	kind := api.view_names[item.kind]
 	scene_view.id = gdi.object_get_instance_id(node.ptr)
-	scene_view.kind, scene_view.player, scene_view.key = item.kind, item.player, item.key
+	scene_view.kind, scene_view.player, scene_view.key, scene_view.subject =
+		item.kind, item.player, item.key, item.subject
 	scene_view.linger_s = LINGER_S
 	scene_view.spawn_tick = frame.tick
 	scene_view.marker = find_marker(node)
@@ -707,9 +709,9 @@ views_of_kind :: proc(view_kind: i64) -> gd.Array {
 }
 
 // An event to its subject's scene views (_sim_event(event, state) on the root's script): the view Glue.event_key
-// names (or none); else the views keyed by the event's subject (of any kind, in kind order): a handle field's key, a
-// sim.Entity field's index; else (no such view, or no such field) its player's views. A view named or keyed is found
-// by its id; only the player route walks the views.
+// names (or none); else the views pushed with the event's subject (in kind order): its handle field's type and key, or
+// its sim.Entity field's index among the views pushed with an Entity; else (no such view, or no such field) its
+// player's views. A view named or keyed is found by its id; only the player route walks the views.
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
 	player, subject_key := event_subject(layout, raw.data[:raw.size])
 	view_key, keyed_subject := subject_key, subject_key != 0
@@ -737,7 +739,7 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 		keyed := false // a view has the subject's key (whether or not it takes events): the event goes to those only
 		for kind in 0 ..< len(api.view_names) {
 			entry := set_get(&V.set, View_Id{u8(kind), view_key})
-			if entry == nil || entry.view == nil do continue
+			if entry == nil || entry.view == nil || entry.view.subject != layout.subject_type do continue
 			keyed = true
 			call_sim_event(entry.view, event, state)
 		}

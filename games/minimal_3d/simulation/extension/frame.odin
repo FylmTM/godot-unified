@@ -48,12 +48,10 @@ fill_frame_players :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {
 		slot := sim.player_slot(&f.state.players, player)
-		item := godot.View_Item(View) {
-			kind   = .Player,
-			player = player,
-			pos    = {data.position.x, 0, data.position.y},
-		}
-		godot.push_view(f, item, Player_View_Data{color = PLAYER_COLORS[slot]})
+		godot.push_view(f, player, {
+			kind = .Player,
+			pos  = {data.position.x, 0, data.position.y},
+		}, Player_View_Data{color = PLAYER_COLORS[slot]})
 	}
 }
 

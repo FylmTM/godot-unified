@@ -367,15 +367,28 @@ prop_string :: proc(marker: ^Marker, key: string, default := "") -> string {
 
 // A String property naming a member of the enum E (`@export_enum("crate", "ball")` in the marker's script): the member
 // whose name, lowercased, is the string (`Item_Kind.Crate` for "crate", `.Ping_Pong` for "ping_pong"); `default` when
-// it is missing, of another type or no member's: `level.prop_enum(&marker, "kind", Item_Kind.Crate)`.
-prop_enum :: proc(marker: ^Marker, key: string, default: $E) -> E where intrinsics.type_is_enum(E) {
-	name := prop_string(marker, key)
-	if name == "" do return default
+// it is missing. `known` is false for a property that names no member (a typo in a scene, a renamed member) or is not
+// a String: `default` then too, and the game asserts.
+//
+//   kind, known := level.prop_enum(&marker, "kind", Item_Kind.Crate)
+//   assert(known, "an item's kind is no Item_Kind")
+prop_enum :: proc(
+	marker: ^Marker,
+	key: string,
+	default: $E,
+) -> (
+	value: E,
+	known: bool,
+) where intrinsics.type_is_enum(E) #optional_ok {
+	property := prop(marker, key)
+	if property == nil do return default, true
+	name, is_string := property.value.(string)
+	if !is_string do return default, false
 	info := runtime.type_info_base(type_info_of(E)).variant.(runtime.Type_Info_Enum)
 	for member, i in info.names {
-		if lower_equal(member, name) do return E(info.values[i])
+		if lower_equal(member, name) do return E(info.values[i]), true
 	}
-	return default
+	return default, false
 }
 
 // Whether `name` is `lowercase` with its ASCII letters lowercased (no allocation).

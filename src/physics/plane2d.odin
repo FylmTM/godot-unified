@@ -67,6 +67,14 @@ body_set_transform_2d :: proc(world: ^World, ref: Body_Ref, pos: [2]f32, rot := 
 	)
 }
 
+// Moves a plane-locked body and stops it: its velocities zeroed (respawns, resets), as body_teleport does in 3D.
+body_teleport_2d :: proc(world: ^World, ref: Body_Ref, pos: [2]f32, rot := [2]f32{1, 0}) {
+	id := body_id(world, ref)
+	box3d.Body_SetTransform(id, transmute(box3d.Vec3)[3]f32{pos.x, pos.y, 0}, transmute(box3d.Quat)quat_2d(rot))
+	box3d.Body_SetLinearVelocity(id, {})
+	box3d.Body_SetAngularVelocity(id, {})
+}
+
 // A plane-locked body's linear velocity in the plane (m/s).
 body_linear_velocity_2d :: proc(world: ^World, ref: Body_Ref) -> [2]f32 {
 	velocity := transmute([3]f32)box3d.Body_GetLinearVelocity(body_id(world, ref))

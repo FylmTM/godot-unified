@@ -28,7 +28,7 @@ collect_gems :: proc(t: ^Tick) {
 			picker.ship.gems += 1
 			t.state.score += 1
 			t.state.station_hp = dmath.min(t.state.station_hp + GEM_REPAIR, STATION_HP)
-			sim.emit(t, Event_Gem_Picked{position = sim.position(gem.pos), player = picker.player})
+			sim.emit(t, Event_Gem_Picked{position = sim.position_2d(gem.pos), player = picker.player})
 			sim.despawn(&t.state.gems, handle)
 			continue each_gem
 		}

@@ -31,7 +31,7 @@ For every upgrade:
 - `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed: update
   it and regenerate the reference runs deliberately (`sim-change`).
 - The `tag` is part of `sim.compat_of` (builds on other releases refuse each other), so every reference run's log and
-  snapshot carry a new compat: paste each suite's new `ref` literal (the games' and the toy's), with the bump. The
+  snapshot carry a new compat: paste each suite's new `REFERENCE` literal (the games' and the toy's), with the bump. The
   results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim
   change.
 - CI on all four platforms proves each platform's library (they must agree on every golden value and reference run):

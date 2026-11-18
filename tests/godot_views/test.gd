@@ -108,12 +108,18 @@ func _initialize() -> void:
 	check("start_single", session.start_single())
 
 	var typed: Node = null
+	var decoy_events: Array = []  # a decoy view's (another table's handle with a thing's key): it gets no event
+	var decoys_seen := false
 	var blink: Node2D = null
 	var blink_despawned := false
 	var blink_kept := false
 	for i in 150:  # up to ~3 s
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
+		var decoy := child_of_kind(views, "decoy2d")
+		if decoy != null and not decoys_seen:
+			decoys_seen = true
+			decoy_events = decoy.get("events")
 		if blink == null:
 			for child in views.get_children():
 				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
@@ -146,8 +152,8 @@ func _initialize() -> void:
 	var me := session.local_player
 	check("status and tick properties", session.status == UnifiedSession.STATUS_CONNECTED and session.running \
 		and session.tick > 0, [session.status, session.tick])
-	check("the marker: kind from the scene, player and key from the host", me != 0 \
-		and marker.player == me and marker.kind == "typed2d" and marker.key == 1,
+	check("the marker: kind from the scene, player and key from the host (the player's)", me != 0 \
+		and marker.player == me and marker.kind == "typed2d" and marker.key == me,
 		[me, marker.player, marker.kind, marker.key])
 	var plain := child_of_kind(views, "plain2d")
 	check("plain Node2D view", plain != null and (plain.get("marker") as UnifiedView).key == 2 \
@@ -165,6 +171,8 @@ func _initialize() -> void:
 	check("a sim.Position in session data: view units (x 10), a Vector2",
 		toy.at.is_equal_approx(Vector2(toy.x, toy.y) * 10.0), [toy.at, toy.x, toy.y])
 	check_events(events, typed, plain, me)
+	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
+		decoys_seen and decoy_events.is_empty(), decoy_events)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
@@ -209,6 +217,8 @@ func _initialize() -> void:
 	check("a game's own custom_aabb is kept", plain_multi.custom_aabb == GAME_BOUNDS, plain_multi.custom_aabb)
 	await check_game_input(session, toy)
 	var input: UnifiedInput = Unified.input
+	var wanted := [0]
+	session.input_wanted.connect(func() -> void: wanted[0] += 1)
 	input.drift = 3.0
 	check("Unified.input reads back as set", near(input.drift, 3.0), input.drift)
 	check("a sim.Entity as its index (-1: none)", toy.lamp == 4 and toy.no_lamp == -1, [toy.lamp, toy.no_lamp])
@@ -223,6 +233,7 @@ func _initialize() -> void:
 	for i in 20:
 		await create_timer(0.02).timeout
 	check("Unified.input reaches sample_input", toy.y > y0, [y0, toy.y])
+	check("input_wanted: every frame before the sample", wanted[0] >= 15, wanted[0])
 	await check_commands(session, toy)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])

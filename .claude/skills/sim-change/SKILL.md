@@ -18,7 +18,7 @@ traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS` and 
    a dependency bump you thought neutral: no, so find the cause. Check main in a throwaway worktree
    (`git worktree add --detach .out/main-check origin/main`, run the check there, `git worktree remove --force .out/main-check`); never
    `git stash`, the stash is shared by every session. A determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
-2. **If it was meant to:** paste the `ref = {...}` literal the failing test prints into the suite's `Reference`, and
+2. **If it was meant to:** paste the `REFERENCE :: scenarios.Reference{...}` literal the failing test prints over the suite's `REFERENCE`, and
    for a Box3D change `BOX3D_GOLDEN` in `tests/physics/box3d_test.odin`, in the same commit as the change. Only the `snapshot`
    and `log` hashes moving (the checkpoints and `trace` unchanged) means the format or compat changed, not the
    results. To find where two builds part: `./uni headless <game> -- sim --trace FILE` on each, compare the files.

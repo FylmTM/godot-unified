@@ -283,6 +283,11 @@ register_session_class :: proc() {
 	gd.bind_signal(class, "lobby_code", {{"code", .STRING, ""}}, doc = "The code other players join with.")
 	gd.bind_signal(
 		class,
+		"input_wanted",
+		doc = "Every frame, just before the session samples the local player's input (at priority -1000, before every other node's [code]_process[/code]): set [code]Unified.input[/code]'s values here, whatever your node's priority, and this frame's sample takes them.",
+	)
+	gd.bind_signal(
+		class,
 		"desync",
 		{{"tick", .INT, ""}, {"detail", .STRING, ""}},
 		doc = "The players' checksums of [param tick] differ.",
@@ -573,7 +578,10 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	if is_editor() || active != session do return
 	dev_begin()
 	input_sample_begin(dev_wants_keyboard())
-	if api.installed do api.sample_input()
+	if api.installed {
+		gd.emit_signal(session.obj, gd.sn("input_wanted")) // scripts set Unified.input for this very sample
+		api.sample_input()
+	}
 	if lobby != nil && lobby.main_frame != nil && api.running() do lobby.main_frame()
 	started := time.tick_now()
 	// the newest frame: views first, then the events of the ticks it covers

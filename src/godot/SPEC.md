@@ -69,9 +69,10 @@ from the tick before; a one-shot value is a command).
   `action_strength(action)`, `action_vector(negative_x, positive_x, negative_y, positive_y)` (y is "back"): analog.
 - `input_values(Input_Values) -> ^Input_Values`: what only scripts know (a camera's look direction). `Glue.input_values`
   names a plain struct; scripts set its fields on `Unified.input` (class `UnifiedInput`, typed like data, below), and
-  `sample_input` reads the latest values. The session samples at process priority −1000: a value set in a node's
-  `_process` at a later priority (the default 0) reaches the next frame's sample; set it from a node below −1000 or
-  from `_input`.
+  `sample_input` reads the latest values. The session samples at process priority −1000, before any other node's
+  `_process`, and emits `UnifiedSession.input_wanted` just before: a script sets its values there (a camera rig's look
+  direction), whatever its node's priority, and this frame's sample takes them (set in `_process`, they would reach
+  the next frame's).
 - An axis is `dmath.axis_i8(x)`; a direction a `dmath.Dir2` / `Dir3`. An `Input` holds no bools and no floats.
 
 **Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
@@ -96,14 +97,23 @@ once when `view_root` is not at the world origin).
 `fill_frame(f)` runs on the session thread for every published tick, with `f.state`, `f.world`, `f.tick` and
 `f.local_player` (the `sim.Player` this client plays then; `{}` before its join tick). It pushes:
 
-- `push_view(f, View_Item{key, kind, player, pos, rot})` and `push_view(f, item, data)`: a scene view, identified by
-  its **kind and key** (a `u64`, unique within its kind; a new key is a new view). A player's view keyed by
-  `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
-  `sim.handle_key`, a fixed thing's by its index (its events carry `sim.entity(index)`). The key and `player` route
-  events to it (Events, below). `pos` is a `sim.Position` in sim units (2D: x, y). `rot` is a unit quaternion
-  (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle_2d`). `data` is a plain struct set as the view's
-  properties of the same names, converted like any sim-facing field (Data and classes, below), on spawn and whenever
-  its bytes change; one kind always pushes one data type.
+- `push_view(f, subject, View_Item{kind, player, pos, rot})` and `push_view(f, subject, item, data)`: a scene view of
+  the **subject** it stands for, which is its identity, its key (`UnifiedView.key`) and what events reach it:
+
+  ```odin
+  godot.push_view(f, player, {kind = .Ship, pos = p}, Ship_View{...}) // a player's: keyed by sim.player_key
+  godot.push_view(f, sim.entity(i), {kind = .Gate, pos = p})        // a fixed thing's (a level marker): its index
+  godot.push_view(f, handle, {kind = .Rock, pos = p})               // a table item's: sim.handle_key
+  godot.push_view(f, {kind = .Station, pos = p})                    // no subject: the one view of its kind (key 0)
+  ```
+
+  A new subject is a new view; a player's survives a slot change and a rejoin. One kind always pushes one subject type
+  (and one data type), so its keys are unique within it. `player` is the player the view shows (`get_player_view`,
+  their events): its subject when that is a player, else none unless set (a car's driver); a view without a subject
+  that names a player panics (a player's view takes the player as its subject). `pos` is a `sim.Position` in sim
+  units (2D: x, y). `rot` is a unit quaternion (zero: identity; `dmath.quat_yaw` from a facing,
+  `godot.quat_angle_2d`). `data` is a plain struct set as the view's properties of the same names, converted like any
+  sim-facing field (Data and classes, below), on spawn and whenever its bytes change.
 - `push_multi_view(f, Multi_View_Item{key, kind, pos, rot, scale, color, custom})`: one MultiMesh instance. `key`
   (per kind; 0: never interpolated) identifies it across ticks; `rot` interpolates on the shorter arc; `scale` per
   axis (zero: 1), `color` (zero: white), `custom` the shader's custom data.
@@ -129,7 +139,7 @@ unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a
 command can take it). The engine singleton **`Unified`** holds them: `Unified.data.<name>` (`Data_Hud` -> `.hud`, a
 `DataHud` with a `changed` signal), `Unified.constants` (`UnifiedConstants`), `Unified.input` (`UnifiedInput`),
 `Unified.session`, `Unified.tick_hz`, `Unified.view_scale`, and `Unified.level_markers(root) -> Array[Node]`: a level
-scene's markers in the order its `.level` file holds them (`src/level/SPEC.md`), so a view keyed by a marker index
+scene's markers in the order its `.level` file holds them (`src/level/SPEC.md`), so a view of a marker's entity
 finds its node. Session data is set from the newest predicted tick when
 its bytes change (no interpolation), after the views and before the frame's events, and goes back to zero (one
 `changed`) when a session ends; the objects live on, so connections survive. They are freed at Godot's shutdown
@@ -170,7 +180,7 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 **`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts, hosts,
 joins and leaves sessions; `running` (a session's thread is alive, until its goodbye ends), `status` (enum `Status`) and
 `status_changed`; `mode` (enum `Mode`: single player, hosting or joining, online or direct); `lobby_code` (the code
-others join with) and `desync(tick, detail)`; the shown tick's `tick`, `local_player`; the roster (`get_players()`,
+others join with) and `desync(tick, detail)`; `input_wanted` (Input, above); the shown tick's `tick`, `local_player`; the roster (`get_players()`,
 `get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`, `roster_changed`; a name is
 the one the player gave, else "P" and their slot from 1); `get_view(kind, key)`, `get_player_view(kind, player)`,
 `get_views(kind)` from the host's own tables (`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`;
@@ -217,9 +227,10 @@ first `sim.Handle(T)` or `sim.Entity` field), found by type, whatever the fields
 - **Identity.** Each state arrives as a new object; its `id` is the same in an event's EMITTED and its CONFIRMED or
   CANCELLED, and never repeats in the process. A re-simulation may change an event's fields but not its id. Events
   still pending when a session ends get no final state.
-- **Where.** Each event, in each state, goes first to its subject's views: those keyed by its handle's key or its
-  `Entity`'s index (of any kind), else (none has that key, or it has no such field) its player's views; then to the
-  `sim_event` signal. `Glue.event_key(event, subject)` gets the event as the game's union and the `Subject{player,
+- **Where.** Each event, in each state, goes first to its subject's views: those pushed with a subject of its subject
+  field's type and the same key (a `Handle(T)` reaches only views pushed with a `Handle(T)` of that table; an
+  `Entity` the views pushed with that `Entity`, of any kind: the kinds that take Entity events share one index space,
+  a level's marker index), else (no such view, or no such field) its player's views; then to the `sim_event` signal. `Glue.event_key(event, subject)` gets the event as the game's union and the `Subject{player,
   handle, entity}` the host read, and reroutes a game's special events: `.View` (the view of the kind and key it
   returns), `.No_View`, or `.Subject` (the zero value: a bare `return`).
 - **When.** An event is delivered once the Frame of its tick is shown, so an event about a view spawned at its tick

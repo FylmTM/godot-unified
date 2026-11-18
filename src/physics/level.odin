@@ -7,6 +7,35 @@ import box3d "box3d:bindings"
 import "unified:dmath"
 import "unified:level"
 
+// A game World's level and physics in one call (world_create): the level loaded from `content` (sim.Game.content),
+// a physics world made with `settings`, then the level's static bodies (create_static) as its first bodies. `problem`:
+// the content is no level (`phys` nil then), or create_static's; "" when all is built. destroy_with_level frees both.
+//
+//   world.phys, world.level, problem = physics.create_with_level({tick_hz = TICK_HZ}, content, CAT_STATIC)
+//   assert(problem == "", problem)
+create_with_level :: proc(
+	settings: Settings,
+	content: []u8,
+	default_category: u64 = 1,
+) -> (
+	phys: ^World,
+	level_data: level.Level,
+	problem: string,
+) {
+	ok: bool
+	level_data, ok = level.load(content)
+	if !ok do return nil, {}, "the level file is missing or not a level (src/level/SPEC.md)"
+	phys = create(settings)
+	problem = create_static(phys, &level_data, default_category)
+	return
+}
+
+// Frees what create_with_level made: the physics world and the loaded level (not the content).
+destroy_with_level :: proc(phys: ^World, level_data: ^level.Level) {
+	if phys != nil do destroy(phys)
+	level.destroy(level_data)
+}
+
 // Creates every static body of the level, in file order (the World's, when made before `extra`: call it first in
 // world_create). Shapes without a category in the file get `default_category`. `problem` names the first level shape
 // Box3D refused (a hull it can't build: under 4 points, or past its edge limit), "" when every shape was built: a

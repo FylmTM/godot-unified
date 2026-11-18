@@ -14,7 +14,9 @@ World is created. The scene is also the view: its meshes render as they are, its
 - **Markers:** any node whose script has `const UNIFIED_KIND := "platform"` (a script for several kinds: a
   `unified_kind` property; a node without a script: metadata `unified_kind`), in the game's own vocabulary. The
   exporter writes the kind, the node's name and transform, every exported script property (bool, int, float, Vector3,
-  String, a NodePath to another marker), and the points of a `Path3D` child. Markers are in scene-tree order
+  String, a NodePath to another marker), and the points of a `Path3D` child. Every exported property is written,
+  defaults included, so the marker script is a property's one home: the sim reads it without a default of its own
+  (a `prop_*` default only covers a marker whose script lacks the property) and asserts what its rule needs. Markers are in scene-tree order
   (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the nodes in that order.
 
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
@@ -59,7 +61,8 @@ m.path                                        // a Path3D/Path2D child's points,
 m.props: []Prop                               // Prop{key, value: union {bool, i32, f32, [3]f32, string, Marker_Ref}}
 level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string // default: missing or another type
 level.prop_ref(&m, "target") -> int           // a NodePath to another marker: its index (-1: none)
-level.prop_enum(&m, "kind", Item_Kind.Crate)  // a String naming an enum member, lowercased ("crate"); else the default
+level.prop_enum(&m, "kind", Item_Kind.Crate)  // a String naming an enum member, lowercased ("crate"); missing: the default
+                                               // (value, known): known false for a name that is no member or not a String
 ```
 
 `physics.create_static` builds a level's static bodies (`src/physics/SPEC.md`). A level's identity is

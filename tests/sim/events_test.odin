@@ -36,11 +36,14 @@ Prefixed_Events :: union {
 	Plain,
 }
 
-// A 2D game's point on the plane as an event's position (the toy's spawn uses it).
+// A [2]f32 point as an event's position names its plane: a 2D game's XY plane (the toy's spawn uses it), or a 3D
+// game's floor kept as (x, z).
 @(test)
-a_position_from_a_point_on_the_plane :: proc(t: ^testing.T) {
-	testing.expect_value(t, sim.position({1.5, -2}), sim.Position{1.5, -2, 0})
-	testing.expect_value(t, sim.position({}), sim.Position{})
+a_position_from_a_point_names_its_plane :: proc(t: ^testing.T) {
+	testing.expect_value(t, sim.position_2d({1.5, -2}), sim.Position{1.5, -2, 0})
+	testing.expect_value(t, sim.position_2d({}), sim.Position{})
+	testing.expect_value(t, sim.position_floor({1.5, -2}), sim.Position{1.5, 0, -2})
+	testing.expect_value(t, sim.position_floor({1.5, -2}, 0.25), sim.Position{1.5, 0.25, -2})
 }
 
 @(test)

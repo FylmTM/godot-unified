@@ -24,15 +24,13 @@ FRAME_MULTIS_LIMIT :: 1 << 22
 @(private)
 FRAME_DATA_LIMIT :: 1 << 26
 
-// A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to. A view is
-// identified by its kind and key.
+// A scene view this tick (fill_frame: push_view, after the subject it stands for). Its scene is the one the view index
+// maps `kind` to. A view is identified by its kind and its subject's key (UnifiedView.key): a new subject is a new view.
 View_Item :: struct($View: typeid) {
-	// Unique within its kind (a handle's or a player's key, an index; 0 too): a new key = a new view. 0 with `player`
-	// set: the player's key (sim.player_key). Events whose subject is this key come here: a handle with this key, a
-	// sim.Entity whose index it is (sim.entity(i): the view keyed i).
-	key:    u64,
 	kind:   View,
-	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
+	// The player it shows ({}: its subject when that is a player, else none): get_player_view finds it by them, and
+	// their events that no view took by subject come here. A view of a thing may show a player (a car's driver).
+	player: sim.Player,
 	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
 }
@@ -63,6 +61,7 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 View_Out :: struct {
 	key:         u64,
 	kind:        u8,
+	subject:     typeid, // the subject's type: sim.Player, sim.Entity, a sim.Handle(T); nil: none (push_view)
 	has_prev:    bool,
 	player:      u64, // the player's key (sim.player_key; 0: none)
 	pos:         [3]f32,
@@ -142,7 +141,7 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 
 	// Main thread, optional: where an event (the game's union) goes. `.View`: the scene view of that kind and key;
 	// `.No_View`: none; `.Subject` (the zero value: a bare `return`): the routing by its subject (its first handle or
-	// sim.Entity field: the views keyed by it, of any kind; else, or when none is, its first sim.Player field: that
+	// sim.Entity field: the views pushed with that subject; else, or when none is, its first sim.Player field: that
 	// player's views). So a game handles only its special events.
 	event_key:    proc(
 		event: sim.part(G, sim.GAME_EVENT),
@@ -280,33 +279,127 @@ roster_reset :: proc() {
 	sync.atomic_add(&roster.changes, 1)
 }
 
-// Session thread (fill_frame): a scene view.
-push_view_item :: proc(frame: ^Frame($G, $View, $MultiView), item: View_Item(View), loc := #caller_location) {
-	push_view_out(frame, item, nil, nil, loc)
+// Pushes a scene view from fill_frame (session thread): after the frame, the subject the view stands for, then the
+// item and, optionally, its data struct (set as the view's properties; a kind always pushes one data type and one
+// subject type). The subject is the view's identity and its key (UnifiedView.key), and decides which events reach it
+// (src/godot/SPEC.md, Events): an event goes to the views pushed with its subject's type and key.
+//
+//   godot.push_view(f, player, {kind = .Ship, pos = ...}, Ship_View{...})  // a player's: keyed by sim.player_key
+//   godot.push_view(f, sim.entity(i), {kind = .Gate, pos = ...})         // a fixed thing's: keyed by its index
+//   godot.push_view(f, handle, {kind = .Rock, pos = ...})                // a table item's: keyed by sim.handle_key
+//   godot.push_view(f, {kind = .Station, pos = ...})                     // none: the one view of its kind, key 0
+push_view :: proc {
+	push_view_alone,
+	push_view_alone_data,
+	push_view_of_player,
+	push_view_of_player_data,
+	push_view_of_entity,
+	push_view_of_entity_data,
+	push_view_of_handle,
+	push_view_of_handle_data,
 }
 
-// Session thread (fill_frame): a scene view with its data, set as the view's properties (a kind always pushes the
-// same data type).
-push_view_data :: proc(
+// No subject: the one view of its kind (key 0); only Glue.event_key sends it events. A player's view takes the player
+// as its subject (push_view(f, player, item)): `item.player` here panics, every player's view would be key 0.
+push_view_alone :: proc(frame: ^Frame($G, $View, $MultiView), item: View_Item(View), loc := #caller_location) {
+	if item.player != {} do panic(ALONE_WITH_PLAYER, loc)
+	push_view_out(frame, item, 0, nil, nil, nil, loc)
+}
+
+@(private)
+ALONE_WITH_PLAYER :: "push_view: a view without a subject shows a player; a player's view takes them as its subject: push_view(f, player, {kind = ...})"
+
+push_view_alone_data :: proc(
 	frame: ^Frame($G, $View, $MultiView),
 	item: View_Item(View),
-	data: $T,
+	data: $D,
 	loc := #caller_location,
 ) {
+	if item.player != {} do panic(ALONE_WITH_PLAYER, loc)
 	data := data
-	push_view_out(frame, item, T, ([^]u8)(&data)[:size_of(T)], loc)
+	push_view_out(frame, item, 0, nil, D, ([^]u8)(&data)[:size_of(D)], loc)
 }
 
-// Pushes a scene view from fill_frame, with or without its data struct.
-push_view :: proc {
-	push_view_item,
-	push_view_data,
+// A player's view: keyed by their key, through slot changes and rejoins; it shows them unless item.player says else.
+push_view_of_player :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	player: sim.Player,
+	item: View_Item(View),
+	loc := #caller_location,
+) {
+	if player == {} do panic("push_view: the subject is nobody (Player{})", loc)
+	item := item
+	if item.player == {} do item.player = player
+	push_view_out(frame, item, sim.player_key(player), sim.Player, nil, nil, loc)
+}
+
+push_view_of_player_data :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	player: sim.Player,
+	item: View_Item(View),
+	data: $D,
+	loc := #caller_location,
+) {
+	if player == {} do panic("push_view: the subject is nobody (Player{})", loc)
+	item, data := item, data
+	if item.player == {} do item.player = player
+	push_view_out(frame, item, sim.player_key(player), sim.Player, D, ([^]u8)(&data)[:size_of(D)], loc)
+}
+
+// A fixed thing's view (sim.entity(index): a level marker, an item of a fixed array): keyed by its index.
+push_view_of_entity :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	entity: sim.Entity,
+	item: View_Item(View),
+	loc := #caller_location,
+) {
+	index, ok := sim.entity_index(entity)
+	if !ok do panic("push_view: the subject is the zero Entity (none)", loc)
+	push_view_out(frame, item, u64(index), sim.Entity, nil, nil, loc)
+}
+
+push_view_of_entity_data :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	entity: sim.Entity,
+	item: View_Item(View),
+	data: $D,
+	loc := #caller_location,
+) {
+	index, ok := sim.entity_index(entity)
+	if !ok do panic("push_view: the subject is the zero Entity (none)", loc)
+	data := data
+	push_view_out(frame, item, u64(index), sim.Entity, D, ([^]u8)(&data)[:size_of(D)], loc)
+}
+
+// A table item's view: keyed by sim.handle_key; only events whose subject is a Handle(T) of the same table reach it.
+push_view_of_handle :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	handle: sim.Handle($T),
+	item: View_Item(View),
+	loc := #caller_location,
+) {
+	if handle == {} do panic("push_view: the subject is the null handle", loc)
+	push_view_out(frame, item, sim.handle_key(handle), sim.Handle(T), nil, nil, loc)
+}
+
+push_view_of_handle_data :: proc(
+	frame: ^Frame($G, $View, $MultiView),
+	handle: sim.Handle($T),
+	item: View_Item(View),
+	data: $D,
+	loc := #caller_location,
+) {
+	if handle == {} do panic("push_view: the subject is the null handle", loc)
+	data := data
+	push_view_out(frame, item, sim.handle_key(handle), sim.Handle(T), D, ([^]u8)(&data)[:size_of(D)], loc)
 }
 
 @(private)
 push_view_out :: proc(
 	frame: ^Frame($G, $View, $MultiView),
 	item: View_Item(View),
+	key: u64,
+	subject: typeid,
 	data_type: typeid,
 	data: []u8,
 	loc := #caller_location,
@@ -315,12 +408,13 @@ push_view_out :: proc(
 	room(&out.views, out.n_views + 1, FRAME_VIEWS_LIMIT, out.alloc, loc)
 	room(&out.data, out.n_data + len(data), FRAME_DATA_LIMIT, out.alloc, loc)
 	kind := u8(item.kind)
-	view_data_type(kind, data_type, loc)
+	view_kind_types(kind, subject, data_type, loc)
 	view_out := &out.views[out.n_views]
 	out.n_views += 1
 	view_out^ = {
-		key         = u64(item.key if item.key != 0 || item.player == {} else sim.player_key(item.player)),
+		key         = key,
 		kind        = kind,
+		subject     = subject,
 		player      = sim.player_key(item.player),
 		pos         = ([3]f32)(item.pos),
 		rot         = item.rot == {} ? IDENTITY : item.rot,

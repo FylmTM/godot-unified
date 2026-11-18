@@ -90,11 +90,10 @@ Player_View :: struct {
 fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
-		godot.push_view(f, {
-			kind   = .Player,
-			player = player,
-			pos    = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
-			rot    = dmath.quat_yaw(character.facing),
+		godot.push_view(f, player, {
+			kind = .Player,
+			pos  = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
+			rot  = dmath.quat_yaw(character.facing),
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
@@ -103,8 +102,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	add_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
-		godot.push_view(f, {
-			key  = u64(marker),
+		godot.push_view(f, sim.entity(marker), {
 			kind = .Marker,
 			pos  = sim.Position(physics.body_position(f.world.phys, body)),
 			rot  = physics.body_rotation(f.world.phys, body),
@@ -116,8 +114,7 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< f.world.platform_count do add_body(f, f.state.platforms[i].body, f.world.platforms[i].marker)
 	for i in 0 ..< f.world.trigger_count {
 		marker := f.world.triggers[i].marker
-		godot.push_view(f, {
-			key  = u64(marker),
+		godot.push_view(f, sim.entity(marker), {
 			kind = .Marker,
 			pos  = sim.Position(f.world.triggers[i].volume.pos),
 			rot  = f.world.level.markers[marker].rot,

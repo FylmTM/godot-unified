@@ -160,7 +160,7 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	testing.expect_value(t, run.last_warp.to_gate, 1)
 	pos := physics.body_position_2d(world.phys, ship.body)
 	to := world.gates[1].pos
-	testing.expect_value(t, run.last_warp.position, sim.position(to))
+	testing.expect_value(t, run.last_warp.position, sim.position_2d(to))
 	testing.expect(t, dmath.dist_sq(pos, to) < 1, "the ship comes out of the other gate")
 	vel := physics.body_linear_velocity_2d(world.phys, ship.body)
 	testing.expect(t, vel.x > 3, "it keeps its velocity")

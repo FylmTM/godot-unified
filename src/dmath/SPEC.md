@@ -18,7 +18,7 @@ cross2(a, b)                              // a.x * b.y - a.y * b.x
 normalize(v, eps = 0.0001)                // zero when |v| <= eps
 clamp_length(v, max_len)
 quat_rotate(quat, v)                      // v turned by the unit quaternion (x, y, z, w)
-quat_yaw(facing: [2]f32) -> [4]f32        // about +Y, turning +Z toward the unit floor direction (x, z): sqrt only
+quat_yaw(facing: [2]f32) -> [4]f32        // about +Y, turning +Z toward the unit floor direction (x, z): sqrt only; zero: identity
 to_i32_clamped(x, lo, hi)                 // clamp the f32, then convert; NaN gives lo
 DIR8                                      // [8][2]f32: the 8 compass directions, exact table values (@(rodata))
 // input encodings (input.odin): the client quantizes, the sim decodes any bits safely
