@@ -124,14 +124,14 @@ iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
 // The next live item of a table walk and its handle; ok is false once past the slots in use when it started.
 table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) {
 	table := iterator.table
-	for iterator.index < iterator.end {
-		index := iterator.index
-		iterator.index += 1
+	for index := iterator.index; index < iterator.end; index += 1 {
 		slot := &table.slots[index]
 		if slot.alive {
+			iterator.index = index + 1
 			return &table.items[index], {u32(index), slot.generation}, true
 		}
 	}
+	iterator.index = iterator.end
 	return
 }
 
