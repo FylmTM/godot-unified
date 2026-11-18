@@ -14,7 +14,25 @@ sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return intrinsics.sqrt(x)
 }
 
-// The length of a 2D vector.
+// The smaller of two numbers: `a` when it is below `b`, else `b` (a tie, -0 against +0, or a NaN `a` gives `b`). A
+// compare and a select, so the same bits on every platform: the builtin `min` on floats lowers to an instruction
+// free to return either zero on a tie, and x64 and arm64, debug and release builds, and even two inlined calls of
+// one build pick differently. The lint bans the builtin in tick code; integers come here too (the lint can't see
+// types, and it costs nothing).
+min :: #force_inline proc "contextless" (a, b: $T) -> T where intrinsics.type_is_numeric(T) {
+	return a if a < b else b
+}
+
+// The larger of two numbers: `a` when it is above `b`, else `b` (a tie or a NaN `a` gives `b`). As `min`.
+max :: #force_inline proc "contextless" (a, b: $T) -> T where intrinsics.type_is_numeric(T) {
+	return a if a > b else b
+}
+
+// `x` limited to [lo, hi]: lo when x is below it, hi when above, else x (a NaN x stays NaN). As `min`; lo <= hi.
+clamp :: #force_inline proc "contextless" (x, lo, hi: $T) -> T where intrinsics.type_is_numeric(T) {
+	return lo if x < lo else (hi if hi < x else x)
+}
+
 // A vector's length, 2D or 3D.
 length :: proc {
 	length2,

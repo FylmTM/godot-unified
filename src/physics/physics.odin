@@ -8,6 +8,7 @@ package physics
 import "core:sync"
 
 import box3d "box3d:bindings"
+import "unified:dmath"
 import "unified:sim"
 
 // World options. Results are bit-identical for any worker count (unified-box3d tests it).
@@ -34,24 +35,25 @@ Body_Flag :: enum u8 {
 }
 
 World :: struct {
-	id:          box3d.WorldId,
-	tick_hz:     int, // Settings.tick_hz
-	dt:          f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
-	substeps:    int,
+	id:           box3d.WorldId,
+	tick_hz:      int, // Settings.tick_hz
+	dt:           f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
+	substeps:     int,
 	// In-process snapshots (Box3D's world arena: a memcpy) and the body table, one per ring slot.
-	ring:        [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
-	body_ring:   [sim.MAX_RING_SIZE][dynamic]Body_Entry,
-	scratch:     box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
-	image:       ^box3d.WorldState, // the last Box3D image `image` built
-	image_bytes: [dynamic]u8, // the last portable image: Box3D's, then the body table
-	bodies:      [dynamic]Body_Entry, // by body index (rolled back: body_ring)
-	sealed:      bool, // `extra` was made: bodies created from now on are the block's
-	refs:        Ref_Layout, // the State's (extra)
-	layouts:     [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
-	owned:       [dynamic]bool, // check_refs' scratch
-	visitors:    [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
-	anchor:      box3d.BodyId, // the World's first body (world_anchor)
-	workers:     i32, // Box3D's worker count (Settings.workers, at least 1)
+	ring:         [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
+	body_ring:    [sim.MAX_RING_SIZE][dynamic]Body_Entry,
+	scratch:      box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
+	image:        ^box3d.WorldState, // the last Box3D image `image` built
+	image_bytes:  [dynamic]u8, // the last portable image: Box3D's, then the body table
+	bodies:       [dynamic]Body_Entry, // by body index (rolled back: body_ring)
+	sealed:       bool, // `extra` was made: bodies created from now on are the block's
+	refs:         Ref_Layout, // the State's (extra)
+	layouts:      [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
+	owned:        [dynamic]bool, // check_refs' scratch
+	visitors:     [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
+	sort_scratch: [dynamic]u64, // sort_results' merge buffer (any result type: words, for alignment)
+	anchor:       box3d.BodyId, // the World's first body (world_anchor)
+	workers:      i32, // Box3D's worker count (Settings.workers, at least 1)
 }
 
 // b3CreateWorld/b3DestroyWorld scan and modify Box3D's global world table and lazily initialise its
@@ -68,7 +70,7 @@ create :: proc(settings := Settings{}) -> ^World {
 	world.substeps = settings.substeps if settings.substeps > 0 else 4
 	sync.guard(&world_mutex)
 	world_def := box3d.DefaultWorldDef()
-	world.workers = max(1, settings.workers)
+	world.workers = dmath.max(1, settings.workers)
 	world_def.workerCount = u32(world.workers)
 	if gravity, ok := settings.gravity.?; ok {
 		world_def.gravity = transmute(box3d.Vec3)gravity
@@ -107,6 +109,7 @@ destroy :: proc(world: ^World) {
 	delete(world.bodies)
 	delete(world.owned)
 	delete(world.visitors)
+	delete(world.sort_scratch)
 	delete(world.image_bytes)
 	free(world)
 }

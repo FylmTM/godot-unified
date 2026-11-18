@@ -321,7 +321,7 @@ body_shapes :: proc(world: ^World, ref: Body_Ref, out: ^[dynamic]Shape_Ref) {
 	for &shape in out^ {
 		shape = shape_ref_of(transmute(box3d.ShapeId)shape)
 	}
-	insertion_sort(out[:], proc(a, b: Shape_Ref) -> bool {return a.index1 < b.index1})
+	sort_results(world, out[:], proc(a, b: Shape_Ref) -> bool {return a.index1 < b.index1})
 }
 
 // The number of joints attached to the body.
@@ -338,7 +338,7 @@ body_joints :: proc(world: ^World, ref: Body_Ref, out: ^[dynamic]Joint_Ref) {
 	for &joint in out^ {
 		joint = joint_ref_of(transmute(box3d.JointId)joint)
 	}
-	insertion_sort(out[:], proc(a, b: Joint_Ref) -> bool {return a.index1 < b.index1})
+	sort_results(world, out[:], proc(a, b: Joint_Ref) -> bool {return a.index1 < b.index1})
 }
 
 #assert(size_of(Shape_Ref) == size_of(box3d.ShapeId) && size_of(Joint_Ref) == size_of(box3d.JointId))

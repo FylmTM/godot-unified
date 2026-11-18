@@ -45,8 +45,8 @@ holding :: proc(character: ^Character) -> bool {
 
 // The yaw quaternion turning local +z to `facing` (unit x, z), from half-angle identities (sqrt only).
 yaw_quat :: proc(facing: [2]f32) -> [4]f32 {
-	cos_half := dmath.sqrt(max(0, (1 + facing.y) * 0.5))
-	sin_half := dmath.sqrt(max(0, (1 - facing.y) * 0.5))
+	cos_half := dmath.sqrt(dmath.max(0, (1 + facing.y) * 0.5))
+	sin_half := dmath.sqrt(dmath.max(0, (1 - facing.y) * 0.5))
 	if facing.x < 0 do sin_half = -sin_half
 	return {0, sin_half, 0, cos_half}
 }
@@ -176,7 +176,7 @@ player_actions :: proc(t: ^Tick, player: sim.Player, input: Input) -> (jump: boo
 		try_grab(t, player, true) // catch
 	}
 	if holding(character) {
-		if .Throw in buttons.down do character.charge = min(character.charge + 1, THROW_CHARGE_TICKS)
+		if .Throw in buttons.down do character.charge = dmath.min(character.charge + 1, THROW_CHARGE_TICKS)
 		if .Throw in buttons.released do throw(t, player)
 	} else {
 		character.charge = 0

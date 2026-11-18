@@ -245,7 +245,7 @@ character_update :: proc(
 			surface_vy = box3d.Body_GetLinearVelocity(link_id(world, character.ground)).y
 		}
 		vy := box3d.Body_GetLinearVelocity(body).y
-		delta_speed := max(0, def.jump_speed - vy) + surface_vy
+		delta_speed := dmath.max(0, def.jump_speed - vy) + surface_vy
 		box3d.Body_ApplyLinearImpulseToCenter(
 			body,
 			transmute(box3d.Vec3)[3]f32{0, box3d.Body_GetMass(body) * delta_speed, 0},
@@ -314,12 +314,12 @@ character_update :: proc(
 		if .Jumping in character.flags do character.flags -= {.On_Ground}
 		else do character.flags += {.On_Ground}
 		if .On_Ground in character.flags {
-			if .Walkable in character.flags do character.time_sliding = max(character.time_sliding - dt, 0)
-			else do character.time_sliding = min(character.time_sliding + dt, def.slide_s)
+			if .Walkable in character.flags do character.time_sliding = dmath.max(character.time_sliding - dt, 0)
+			else do character.time_sliding = dmath.min(character.time_sliding + dt, def.slide_s)
 		}
 	} else {
 		character.flags -= {.On_Ground, .Walkable}
-		character.time_sliding = max(character.time_sliding - dt, 0)
+		character.time_sliding = dmath.max(character.time_sliding - dt, 0)
 	}
 	if .On_Ground in character.flags && .Walkable in character.flags {
 		character.coyote = ticks_u16(def.coyote_s, world.tick_hz)
@@ -355,7 +355,7 @@ character_update :: proc(
 		} else {
 			control := speed < def.stop_speed ? def.stop_speed : speed
 			drop := control * def.friction * dt
-			ratio := max(0, speed - drop) / speed
+			ratio := dmath.max(0, speed - drop) / speed
 			character.velocity.x *= ratio
 			character.velocity.z *= ratio
 		}
@@ -364,7 +364,7 @@ character_update :: proc(
 	max_force: f32
 	if .On_Ground in character.flags {
 		if def.slide_s > 0 {
-			max_force = clamp(1 - character.time_sliding / def.slide_s, 0, 1) * def.max_ground_force
+			max_force = dmath.clamp(1 - character.time_sliding / def.slide_s, 0, 1) * def.max_ground_force
 		} else {
 			max_force = .Walkable in character.flags ? def.max_ground_force : 0
 		}
@@ -383,11 +383,11 @@ character_update :: proc(
 	} else {
 		want_speed = 0
 	}
-	want_speed = min(want_speed, max_speed)
+	want_speed = dmath.min(want_speed, max_speed)
 	add := want_speed - dmath.dot3(character.velocity, dir)
 	if add > 0 {
 		steer: f32 = .Walkable in character.flags ? 1 : def.air_steer
-		accel := min(steer * def.accelerate * max_speed * dt, add)
+		accel := dmath.min(steer * def.accelerate * max_speed * dt, add)
 		character.velocity.x += accel * dir.x
 		character.velocity.z += accel * dir.z
 	}
@@ -445,5 +445,5 @@ character_update :: proc(
 // Seconds as whole ticks (sim.ticks: rounded), clamped to u16.
 @(private)
 ticks_u16 :: proc(seconds: f32, tick_hz: int) -> u16 {
-	return u16(min(sim.ticks(seconds, tick_hz), u32(max(u16))))
+	return u16(dmath.min(sim.ticks(seconds, tick_hz), u32(max(u16))))
 }

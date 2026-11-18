@@ -517,3 +517,35 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	testing.expect(t, !physics.body_valid(world, physics.link(loose.body)) && !physics.joint_valid(world, loose.hinge))
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 }
+
+// A broad query sorts many results (a merge sort above a handful, through the World's scratch): an overlap over a
+// 12 x 12 field of boxes made in a scattered order comes back by body index, a ray along a row of 40 by fraction, the
+// same on a second call that reuses the scratch.
+@(test)
+broad_queries_come_back_in_order :: proc(t: ^testing.T) {
+	world := api_world()
+	defer physics.destroy(world)
+	for k in 0 ..< 144 {
+		cell := k * 89 % 144 // every cell once, out of order: the tree's order is not the bodies'
+		box(world, {f32(cell % 12) * 1.5, 0.5, f32(cell / 12) * 1.5}, {0.5, 0.5, 0.5})
+	}
+	for k in 0 ..< 40 {
+		box(world, {f32((k * 17) % 40) * 1.5, 0.5, -10}, {0.5, 0.5, 0.5})
+	}
+	overlaps: [dynamic]physics.Overlap
+	defer delete(overlaps)
+	hits: [dynamic]physics.Hit
+	defer delete(hits)
+	for _ in 0 ..< 2 {
+		physics.world_overlap_aabb(world, {-1, 0, -1}, {18, 1, 18}, &overlaps)
+		testing.expect_value(t, len(overlaps), 144)
+		for i in 1 ..< len(overlaps) {
+			testing.expect(t, overlaps[i - 1].body.index1 < overlaps[i].body.index1, "overlaps out of body order")
+		}
+		physics.world_cast_ray(world, {-5, 0.5, -10}, {80, 0, 0}, &hits)
+		testing.expect_value(t, len(hits), 40)
+		for i in 1 ..< len(hits) {
+			testing.expect(t, hits[i - 1].fraction < hits[i].fraction, "hits out of fraction order")
+		}
+	}
+}

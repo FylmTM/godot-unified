@@ -29,7 +29,7 @@ RULES := []Rule {
 	// (base:runtime).
 	{pkg = "level", kind = .Tick, imports = {"unified:wire", "base:runtime"}},
 	// The harness: also walks RTTI, hashes and formats errors.
-	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS},
+	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS, allow_fields = {"replaced"}}, // it fills and logs Inputs.replaced
 	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK
 	// bindings need f64 fields and system: libraries), the headless library, modes and scenarios, the lint itself.
 	{pkg = "wire", kind = .Realtime},
@@ -59,6 +59,7 @@ PHYSICS_IMPORTS :: []string {
 }
 
 SIM_IMPORTS :: []string {
+	"unified:dmath",
 	"unified:wire",
 	"base:intrinsics",
 	"base:runtime",
@@ -242,6 +243,9 @@ import "unified:sim"
 // matrix f64 "core:math" map foreign x := 1.5 in a comment
 s := "matrix f64 core:math"
 z := intrinsics.sqrt(f32(2))
+lo := dmath.min(a, b) + m.max(c, d) + dmath.clamp(x, 0, 1) // dmath's, under any import name
+top := max(u16) + min(i32) // a type's bound
+bounds.max = cell.min // fields named like the builtins
 k := 0.5 / d2 // typed by d2
 c: f32 = 1.5
 D :: 1.5
@@ -348,6 +352,10 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"import \"base:intrinsics\"\n", false}, // a game lists the low-level imports it uses
 		{"import \"core:math/bits\"\n", false},
 		{"import \"unified:wire\"\n", false},
+		{"f :: proc(x: f32) -> f32 {\n\treturn max(x, 0)\n}\n", true}, // -0 against +0: dmath.max
+		{"f :: proc(x: f32) -> f32 {\n\treturn min(\n\t\tx,\n\t\tg(1, 2),\n\t)\n}\n", true},
+		{"f :: proc(x: f32) -> f32 {\n\treturn clamp(x, -1, 1)\n}\n", true},
+		{"f :: proc(t: ^Tick) -> bool {\n\treturn t.inputs.replaced != {}\n}\n", false}, // differs per peer
 	}
 	game_rule := lint.sim_rule("survivor", "")
 	sim_rule: Rule

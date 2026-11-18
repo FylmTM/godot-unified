@@ -8,6 +8,7 @@ package physics
 import "base:runtime"
 
 import box3d "box3d:bindings"
+import "unified:dmath"
 
 // A shape an overlap, a sensor or a contact names.
 Overlap :: struct {
@@ -126,7 +127,7 @@ world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynami
 		ray_callback,
 		&ray,
 	)
-	insertion_sort(out[:], hit_before)
+	sort_results(world, out[:], hit_before)
 }
 
 // Every shape the proxy at `origin`, swept by `translation`, hits, into `out` (replaced), sensors skipped, sorted like
@@ -155,7 +156,7 @@ world_cast_shape :: proc(
 		ray_callback,
 		&ray,
 	)
-	insertion_sort(out[:], hit_before)
+	sort_results(world, out[:], hit_before)
 }
 
 // Box3D calls it for each shape along a cast: -1 skips the shape, `fraction` clips the cast to the hit (the closest
@@ -203,7 +204,7 @@ world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap
 		overlap_callback,
 		&overlap,
 	)
-	insertion_sort(out[:], overlap_before)
+	sort_results(world, out[:], overlap_before)
 }
 
 // Every shape the proxy at `origin` overlaps (exactly), into `out` (replaced), sorted like world_overlap_aabb's.
@@ -225,7 +226,7 @@ world_overlap_shape :: proc(
 		overlap_callback,
 		&overlap,
 	)
-	insertion_sort(out[:], overlap_before)
+	sort_results(world, out[:], overlap_before)
 }
 
 @(private)
@@ -307,7 +308,7 @@ world_collide_mover :: proc(
 		mover_planes_callback,
 		&ctx,
 	)
-	insertion_sort(out[:], plane_before)
+	sort_results(world, out[:], plane_before)
 }
 
 @(private)
@@ -443,7 +444,7 @@ body_collide_mover :: proc(
 	for plane in planes[:count] {
 		append(out, mover_plane_of(world, plane.shapeId, plane.result))
 	}
-	insertion_sort(out[:], plane_before)
+	sort_results(world, out[:], plane_before)
 }
 
 // When the mover capsule (relative to `origin`) swept by `translation` first touches this body moving from `pose1` to
@@ -515,7 +516,7 @@ shape_sensor_data :: proc(world: ^World, sensor: Shape_Ref, out: ^[dynamic]Overl
 	for visitor in world.visitors[:count] {
 		append(out, overlap_of(world, visitor))
 	}
-	insertion_sort(out[:], overlap_before)
+	sort_results(world, out[:], overlap_before)
 }
 
 // ---- contact data
@@ -568,13 +569,61 @@ collect_contacts :: proc(world: ^World, out: ^[dynamic]Contact_Data, body: box3d
 		}
 	}
 	resize(out, manifolds)
-	insertion_sort(out[:], contact_before)
+	sort_results(world, out[:], contact_before)
 }
 
 // ---- deterministic order
 
-// Sorts `items` by `before`, stably (equal keys keep Box3D's order): a handful of results, and no core:slice in tick
-// code.
+// Results up to this many are sorted by insertion; above, a merge sort of insertion-sorted runs this long.
+@(private)
+SORT_RUN :: 16
+
+// Sorts `items` by `before`, stably (equal keys keep Box3D's order), without core:slice (not in tick code): by
+// insertion for a handful of results; above SORT_RUN (a broad overlap, a crowd in a sensor) a bottom-up merge sort
+// through the World's scratch, O(n log n) and the same order.
+@(private)
+sort_results :: proc(world: ^World, items: []$T, before: proc(a, b: T) -> bool) {
+	if len(items) <= SORT_RUN {
+		insertion_sort(items, before)
+		return
+	}
+	#assert(align_of(T) <= align_of(u64))
+	words := (len(items) * size_of(T) + size_of(u64) - 1) / size_of(u64)
+	if len(world.sort_scratch) < words do resize(&world.sort_scratch, words)
+	scratch := ([^]T)(raw_data(world.sort_scratch))[:len(items)]
+	for start := 0; start < len(items); start += SORT_RUN {
+		insertion_sort(items[start:dmath.min(start + SORT_RUN, len(items))], before)
+	}
+	from, to := items, scratch
+	for width := SORT_RUN; width < len(items); width *= 2 {
+		for start := 0; start < len(items); start += 2 * width {
+			middle := dmath.min(start + width, len(items))
+			end := dmath.min(start + 2 * width, len(items))
+			merge_runs(from[start:middle], from[middle:end], to[start:end], before)
+		}
+		from, to = to, from
+	}
+	if raw_data(from) != raw_data(items) do copy(items, from)
+}
+
+// Merges two sorted runs into `out`; on equal keys the left run's item goes first (stable).
+@(private)
+merge_runs :: proc(left, right, out: []$T, before: proc(a, b: T) -> bool) {
+	i, j := 0, 0
+	for i < len(left) && j < len(right) {
+		if before(right[j], left[i]) {
+			out[i + j] = right[j]
+			j += 1
+		} else {
+			out[i + j] = left[i]
+			i += 1
+		}
+	}
+	copy(out[i + j:], left[i:])
+	copy(out[i + j + len(left) - i:], right[j:])
+}
+
+// Sorts a handful of `items` by `before`, stably.
 @(private)
 insertion_sort :: proc(items: []$T, before: proc(a, b: T) -> bool) {
 	for i in 1 ..< len(items) {

@@ -60,6 +60,43 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	testing.expect(t, !bad)
 }
 
+// A recording that never ended (a relay stopped mid-session) whose last tick is cut, by a torn write or a copy of a
+// growing file, decodes to its whole ticks; a cut inside an ended log stays an error (input_log_round_trip).
+@(test)
+an_unended_log_with_a_cut_tail_keeps_its_whole_ticks :: proc(t: ^testing.T) {
+	recording: [dynamic]u8
+	defer delete(recording)
+	stream: sim.Log_Stream
+	sim.log_stream_begin(
+		&stream,
+		sim.log_sink_memory(&recording),
+		{seed = 1, players = toy.PLAYERS, input_size = size_of(toy.Input)},
+	)
+	defer delete(stream.writer.buf)
+	for k in 0 ..< 20 {
+		inputs: toy.Inputs
+		inputs.present = {0}
+		if k == 0 do sim.join(&inputs, 0, 1)
+		inputs.input[0] = toy.scripted_input(1, 0, u32(k + 1))
+		sim.log_stream_tick(&stream, &inputs)
+	}
+	whole, whole_ok := sim.log_decode(recording[:], toy.Game)
+	testing.expect(t, whole_ok && len(whole.ticks) == 20)
+	sim.log_destroy(&whole)
+	for short in ([]int{1, 3, 7}) {
+		cut, cut_ok := sim.log_decode(recording[:len(recording) - short], toy.Game)
+		testing.expectf(
+			t,
+			cut_ok && len(cut.ticks) == 19,
+			"%d bytes short: %v, %d ticks",
+			short,
+			cut_ok,
+			len(cut.ticks),
+		)
+		sim.log_destroy(&cut)
+	}
+}
+
 @(test)
 portable_snapshot_round_trip :: proc(t: ^testing.T) {
 	original := sim.create(&toy.GAME, 7)

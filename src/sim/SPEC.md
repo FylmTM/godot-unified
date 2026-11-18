@@ -25,7 +25,9 @@ GAME := Game{name = "coins", version = "1", tick_hz = 64, tick = tick, scripted_
   in a field named `players` (Players, below).
 - `Input`, one player's **input** for one tick: plain data **without bools or floats**. It comes from another
   machine and is compared and logged as raw bytes: a bool's byte may hold neither 0 nor 1 there (use a bit_set), a
-  float may be a NaN (quantize: `dmath.axis_i8`, a `dmath.Dir2` / `Dir3`). The netcode may repeat or substitute
+  float may be a NaN (quantize: `dmath.axis_i8`, a `dmath.Dir2` / `Dir3`). Enums and bit_sets are fine: `tick` reads
+  an enum outside its declared values as its zero value and a bit_set without the bits of no element, on every peer
+  alike (the caller's `Inputs` stay as sent). The netcode may repeat or substitute
   it, so it is the controls' state, never a one-shot: buttons are a bit_set field named `buttons` holding what is
   down, and `buttons(t, player)` gives `down`, `pressed` and `released` against the slot's input of the tick before
   (`input_before(t, player)`). A one-shot value is a command.
@@ -79,7 +81,8 @@ helpers take it (`input`, `buttons`, `commands`, `emit`, `roll_below`, `player_d
 (`Slots`, a `bit_set[0 ..< 32; u32]`) is which slots are in the game this tick: joining and leaving are presence
 changes the relay decides, never flags in `Input`. `joins` holds each slot's **join record**: the relay's member id
 of who becomes present there, non-zero only on that tick. `replaced` marks inputs the relay substituted
-(informational: games don't branch on it). `inputs_same(a, b)`: the same presence, join records, input bytes and
+(informational, for tools and stats: a peer that predicted the tick right steps it without the mark, one catching
+up or replaying the log with it, so the lint bans reading it in tick code). `inputs_same(a, b)`: the same presence, join records, input bytes and
 commands.
 
 ## Players
@@ -150,7 +153,9 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
 - The harness decodes a tick's commands once, before `tick`. `commands(t, player)` never holds a nil entry: one whose
   bytes don't decode (an unknown kind, a wrong size from the network) is left out on every peer alike.
 - The union is checked like the block (plain, no padding, 1..64 bytes, at most 255 variants, names unique; not
-  `#no_nil` or `#shared_nil`). A command may hold bools: decoding reads each back as 0 or 1. Names: command types
+  `#no_nil` or `#shared_nil`). Decoding reads a command as it came from another machine: each bool as 0 or 1, each
+  bit_set without the bits of no element, and a command whose enum field holds an undeclared value or whose float is
+  not finite (a NaN, an infinity) is left out on every peer alike, as an undecodable one. Names: command types
   `Cmd_<Name>`, event types `Event_<Name>`; the names and Godot classes leave the prefix out (`drop_coin`,
   `CommandDropCoin`).
 - A tick holds at most `COMMANDS_PER_SLOT` of one slot and `TICK_COMMANDS` in all, inline in `Inputs`, so a record
@@ -240,13 +245,18 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
 
 - **Input log** (`UNIL`): seed, content hash, the recording build's compat, then each tick's presence, inputs,
   commands and join records. Seed + content + log is the whole session. `Input_Log(G)` in memory: `log_append`,
-  `log_inputs(&log, k)` (tick k + 1), `log_encode`, `log_decode(bytes, G)`; decoding refuses a malformed tick. A
-  recording grows through a `Log_Stream` into a `Log_Sink` (`log_sink_memory`; `headless.log_sink_file`). File I/O
-  is `unified:headless`'s (`log_write`, `log_read`): this package touches no files.
+  `log_inputs(&log, k)` (tick k + 1), `log_encode`, `log_decode(bytes, G)`; decoding refuses a malformed tick, but a
+  recording that never ended (a stopped relay's) keeps its whole ticks and leaves out a cut last one. A recording
+  grows through a `Log_Stream` into a `Log_Sink` (`log_sink_memory`; `headless.log_sink_file`). File I/O is
+  `unified:headless`'s (`log_write`, `log_read`): this package touches no files.
 - **Portable snapshot** (`UNIS`): seed, content hash, tick, `layout_hash(State)`, the build's compat, a payload digest,
   the block, the Extra's image. `snapshot_encode(simulation, tick)` (`snapshot_encode_into` reuses a buffer),
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)`: `Bad_Header`, `Layout_Differs`, `Content_Differs`,
   `Build_Differs` (the same layout, another compat), `Checksum_Mismatch`, `Extra_Rejected`. The library never prints.
 - `snapshot_diff(State, a, b) -> string`: what differs between two snapshots of one build, down to the leaf field
   ("tick 4160: enemies[12].pos.x 3.25 vs 3.5", a table read by item index), then the Extra's image by its first
-  differing byte: the typed desync report.
+  differing byte: the typed desync report. `events_diff(a, b, Event) -> string`: the same for two lists of one tick's
+  events (count, kinds, fields; padding aside), what the sync-test compares a re-simulated tick's events with.
+- `find_nan(simulation, &floats) -> string`: where a NaN is in the block ("tick 40: enemies[12].pos.x is a NaN
+  (ffc00000)"; "": none), the State's float offsets kept in `floats` after the first call. No NaN may reach the
+  block (`src/dmath/SPEC.md`); the sync-test (`headless.Run`) runs it after every forward tick.

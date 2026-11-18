@@ -1,6 +1,7 @@
 package test_dmath
 
 import "base:intrinsics"
+import "core:log"
 import "core:testing"
 
 import "unified:dmath"
@@ -92,6 +93,92 @@ mul_add :: proc "contextless" (a, b, c: f32) -> f32 {
 
 mul_add3 :: proc "contextless" (a, b, c: dmath.Vec3) -> dmath.Vec3 {
 	return a * b + c
+}
+
+// The min/max canary: dmath.min, max and clamp give the same zero on a -0/+0 tie everywhere (the second operand, or
+// x inside [lo, hi]), inlined or not, from values the optimizer can't see. The builtins don't: on floats they lower to
+// minnum/maxnum, free to return either zero, so x64 gives the first operand where a call isn't inlined and may give
+// another where it is, and arm64 orders -0 below +0. What the builtin does here is logged (the lint bans it in ticks).
+@(test)
+min_max_ties_are_the_same_everywhere :: proc(t: ^testing.T) {
+	plus, minus := f32(0), transmute(f32)u32(0x8000_0000)
+	p, m := intrinsics.volatile_load(&plus), intrinsics.volatile_load(&minus)
+	Case :: struct {
+		what:      string,
+		got, want: f32,
+	}
+	cases := []Case {
+		{"min(+0, -0)", dmath.min(p, m), m},
+		{"min(-0, +0)", dmath.min(m, p), p},
+		{"max(+0, -0)", dmath.max(p, m), m},
+		{"max(-0, +0)", dmath.max(m, p), p},
+		{"clamp(-0, +0, 1)", dmath.clamp(m, p, 1), m},
+		{"clamp(+0, -0, 1)", dmath.clamp(p, m, 1), p},
+		{"clamp(-0, -1, +0)", dmath.clamp(m, -1, p), m},
+		{"min(+0, -0), not inlined", select_min(p, m), m},
+		{"max(-0, +0), not inlined", select_max(m, p), p},
+		{"clamp(-0, +0, 1), not inlined", select_clamp(m, p, 1), m},
+	}
+	for test_case in cases {
+		testing.expectf(
+			t,
+			transmute(u32)test_case.got == transmute(u32)test_case.want,
+			"dmath.%s = %08x, want %08x: dmath's select gave another zero on a tie",
+			test_case.what,
+			transmute(u32)test_case.got,
+			transmute(u32)test_case.want,
+		)
+	}
+	nan := transmute(f32)u32(0x7FC0_0000)
+	testing.expect_value(t, dmath.min(intrinsics.volatile_load(&nan), 1), 1) // a NaN first operand gives the second
+	testing.expect_value(t, dmath.max(i32(-3), 2), 2) // integers too
+	testing.expect_value(t, dmath.clamp(u8(200), 10, 100), 100)
+	log.infof(
+		"%v: the builtins on ties: min(+0,-0) %08x, min(-0,+0) %08x, max(+0,-0) %08x, max(-0,+0) %08x; not inlined %08x %08x %08x %08x",
+		ODIN_ARCH,
+		transmute(u32)min(p, m),
+		transmute(u32)min(m, p),
+		transmute(u32)max(p, m),
+		transmute(u32)max(m, p),
+		transmute(u32)builtin_min(p, m),
+		transmute(u32)builtin_min(m, p),
+		transmute(u32)builtin_max(p, m),
+		transmute(u32)builtin_max(m, p),
+	)
+}
+
+select_min :: #force_no_inline proc "contextless" (a, b: f32) -> f32 {return dmath.min(a, b)}
+select_max :: #force_no_inline proc "contextless" (a, b: f32) -> f32 {return dmath.max(a, b)}
+select_clamp :: #force_no_inline proc "contextless" (x, lo, hi: f32) -> f32 {return dmath.clamp(x, lo, hi)}
+builtin_min :: #force_no_inline proc "contextless" (a, b: f32) -> f32 {return min(a, b)}
+builtin_max :: #force_no_inline proc "contextless" (a, b: f32) -> f32 {return max(a, b)}
+
+// The NaN canary: a NaN made at run time has the platform's bits, ffc00000 on x64 (the sign set) and 7fc00000 on
+// arm64, so a NaN in the state block gives each platform its own checksum. Why no NaN may reach the block, and why the
+// sync-test scans for one (headless.Run). If a platform starts giving other bits, this says which.
+@(test)
+runtime_nan_bits_differ_per_platform :: proc(t: ^testing.T) {
+	zero, big, minus_one: f32 = 0, 1e30, -1
+	inf := intrinsics.volatile_load(&big) * intrinsics.volatile_load(&big)
+	made := [4]f32 {
+		intrinsics.volatile_load(&zero) / intrinsics.volatile_load(&zero),
+		inf - inf,
+		intrinsics.sqrt(intrinsics.volatile_load(&minus_one)),
+		intrinsics.volatile_load(&zero) * inf,
+	}
+	want: u32 = 0x7FC0_0000 if ODIN_ARCH == .arm64 else 0xFFC0_0000
+	for nan, i in made {
+		testing.expectf(
+			t,
+			transmute(u32)nan == want,
+			"%v: NaN %d (0/0, inf - inf, sqrt(-1), 0 * inf) is %08x, want this platform's default %08x",
+			ODIN_ARCH,
+			i,
+			transmute(u32)nan,
+			want,
+		)
+	}
+	log.infof("%v: a NaN made at run time is %08x", ODIN_ARCH, transmute(u32)made[0])
 }
 
 // Input encodings (src/dmath/input.odin): axes clamp, a stick is at most 1 long, directions round-trip within a

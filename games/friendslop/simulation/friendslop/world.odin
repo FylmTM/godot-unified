@@ -2,6 +2,7 @@
 // markers (games/friendslop/SPEC.md "Level"), body creation, and the game descriptor.
 package friendslop
 
+import "unified:dmath"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"
@@ -302,7 +303,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			wait := level.prop_f32(&marker, "wait", 0.5)
 			def.path.ease = level.prop_bool(&marker, "smooth", true) ? .Smooth : .Linear
 			def.path.mode = def.mode == .Loop ? .Loop : def.mode == .Ping_Pong ? .Ping_Pong : .Once
-			point_count := min(len(marker.path), physics.MAX_PATH_POINTS)
+			point_count := dmath.min(len(marker.path), physics.MAX_PATH_POINTS)
 			if point_count == 0 {
 				def.path.points[0] = marker.pos
 				point_count = 1

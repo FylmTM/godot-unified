@@ -19,13 +19,13 @@ determinism_lint :: proc(t: ^testing.T) {
 }
 
 Kind :: enum {Host, Realtime, Tick}
-Rule { pkg, dir, kind, imports, bans, allow_globals }
+Rule { pkg, dir, kind, imports, bans, allow_globals, allow_fields }
 sim_rule(pkg, dir, extra_imports) -> Rule      // a game's sim package
 check(t, Rule)                                 // lint every .odin file under rule.dir
 check_game(t, simulation_dir, extra_imports) -> sim dirs
 scan(Rule, name, src) -> []string              // one line per violation (imports, identifiers, constructs)
 scan_globals(Rule, name, src) -> []string      // Tick packages: package-level variables not @(rodata)
-TICK_IMPORTS, GAME_TICK_IMPORTS, GAME_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, B3, BOX3D
+TICK_IMPORTS, GAME_TICK_IMPORTS, GAME_IMPORTS, SIM_IDENTS, BUILTIN_CALLS, SIM_FIELDS, FLOAT_TRAPS, BOX3D
 ```
 
 ## Rules
@@ -34,6 +34,10 @@ TICK_IMPORTS, GAME_TICK_IMPORTS, GAME_IMPORTS, SIM_IDENTS, FLOAT_TRAPS, B3, BOX3
   - `Tick`, code inside a tick: only the rule's `imports` (Odin's own included); none of `SIM_IDENTS` (f64 and f16
     types, fused multiply-add, quaternion and complex types, cycle counters, random generators, `static` and
     `thread_local`: state outside the block, `ODIN_OS`, `ODIN_ARCH`, `ODIN_DEBUG`: a sim per platform or build); no
+    call of `BUILTIN_CALLS` (`min`, `max`, `clamp`) with two or more arguments, whose float result on a -0/+0 tie
+    differs per platform and build (`dmath`'s of the same names; `max(u16)`, one argument, is a type's bound); no read
+    of `SIM_FIELDS` (`x.replaced`: `sim.Inputs.replaced` differs between peers computing one tick) but the rule's
+    `allow_fields` (the sim harness, which fills it); no
     `matrix`, `foreign`, `map`, `---` (uninitialised memory), `#config`, or `x := 1.5` (an untyped float literal is
     f64); every package-level variable is `@(rodata)` or in `allow_globals`, each with a reason where listed (a
     write during a tick would be state outside the block).

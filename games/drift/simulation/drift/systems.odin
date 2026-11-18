@@ -90,7 +90,7 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 		if dot < 0 {
 			spin = cross >= 0 ? TURN_MAX : -TURN_MAX
 		} else {
-			spin = clamp(TURN_GAIN * cross, -TURN_MAX, TURN_MAX)
+			spin = dmath.clamp(TURN_GAIN * cross, -TURN_MAX, TURN_MAX)
 		}
 	}
 	vel := physics.body_linear_velocity_2d(t.world.phys, ship.body) // after the thrust: what a bullet inherits
@@ -173,7 +173,7 @@ update_rocks :: proc(t: ^Tick) {
 		if t.state.phase != .Over &&
 		   dmath.dist_sq2(pos, station) < (STATION_RADIUS + radius) * (STATION_RADIUS + radius) {
 			damage := ROCK_STATION_DAMAGE[rock.size]
-			if t.state.phase == .Match do t.state.station_hp = max(t.state.station_hp - damage, 0)
+			if t.state.phase == .Match do t.state.station_hp = dmath.max(t.state.station_hp - damage, 0)
 			sim.emit(t, Event_Station_Hit {
 				position = position_of(pos),
 				damage   = damage,
@@ -291,7 +291,7 @@ update_gems :: proc(t: ^Tick) {
 			if dmath.dist_sq2(picker.pos, gem.pos) > GEM_PICK_RADIUS * GEM_PICK_RADIUS do continue
 			picker.ship.gems += 1
 			t.state.score += 1
-			t.state.station_hp = min(t.state.station_hp + GEM_REPAIR, STATION_HP)
+			t.state.station_hp = dmath.min(t.state.station_hp + GEM_REPAIR, STATION_HP)
 			sim.emit(t, Event_Gem_Picked{position = position_of(gem.pos), player = picker.player})
 			sim.despawn(&t.state.gems, handle)
 			continue each_gem
