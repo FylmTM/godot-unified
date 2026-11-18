@@ -131,14 +131,14 @@ levels_start_at_one :: proc(t: ^testing.T) {
 }
 
 // The `play` tuning played by the bot (bot.odin) over 8 seeds: guards the tuning's targets as a population, so one
-// unlucky seed can't fail it or pass it: every seed's first level-up comes in 10..45 s, and on average the bot
-// survives past 120 s and reaches wave 3.5. A balance check, not a correctness one: `uni test --long` only. On the
+// unlucky seed can't fail it or pass it: on average the first level-up comes in 15..40 s (every seed's within 60 s),
+// the bot survives past 120 s and reaches wave 3.5. A balance check, not a correctness one: `uni test --long` only. On the
 // bare sim, not a sync-tested run: 8 matches of up to 200 s re-simulated every tick would cost minutes.
 when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {
 		SEEDS :: 8
-		survived_sum, wave_sum: f32
+		first_level_sum, survived_sum, wave_sum: f32
 		for seed in 1 ..= u64(SEEDS) {
 			game := g.GAME
 			game.scripted_input, game.scripted_commands = bot_input, bot_commands
@@ -161,14 +161,22 @@ when scenarios.LONG {
 				g.TICK_HZ,
 			)
 			wave_sum += f32(state.wave)
+			first_level_sum += first_level
 			testing.expectf(
 				t,
-				first_level > 10 && first_level < 45,
+				first_level > 0 && first_level < 60,
 				"seed %d: first level-up at %.1f s",
 				seed,
 				first_level,
 			)
 		}
+		testing.expectf(
+			t,
+			first_level_sum / SEEDS > 15 && first_level_sum / SEEDS < 40,
+			"mean first level-up at %.1f s over %d seeds",
+			first_level_sum / SEEDS,
+			SEEDS,
+		)
 		testing.expectf(
 			t,
 			survived_sum / SEEDS > 120,

@@ -47,7 +47,8 @@ The pace of a match is state (`State.tuning`, a copy of a `TUNINGS` preset), so 
 `enemy_cap`; enemy HP `· (100 + hp_pct · wave) / 100`; the next level at `xp_first + (level − 1) · xp_step` XP.
 `play` is the game (`GAME`), `stress` the dense spawner the headless modes, the end-to-end suite and the bench run
 (`GAME_STRESS`), `bench` an endless match holding a fixed population (`bench_prepare`). The long suite checks `play`
-with the bot (`simulation/tests/bot.odin`) over 8 seeds: each first level-up in 10–45 s, on average a survival past 120 s and wave 3.5.
+with the bot (`simulation/tests/bot.odin`) over 8 seeds: on average the first level-up in 15–40 s (each within
+60 s), a survival past 120 s and wave 3.5.
 
 ## Systems (`tick`, in this order)
 
