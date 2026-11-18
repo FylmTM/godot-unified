@@ -930,6 +930,13 @@ generate_inputs :: proc(client: ^Client($G)) {
 	if client.ticks != 0 {
 		target = min(target, client.ticks)
 	}
+	// A clock far ahead of the inputs (after a long outage; or a relay time that is no relay's, which would cost a
+	// step per tick) generates only the ring's worth: the older ticks would be overwritten unsent, and the relay
+	// replaced their inputs long ago.
+	if target > client.own_last + OWN_RING {
+		client.own_last = target - OWN_RING
+		client.own_acked = max(client.own_acked, client.own_last)
+	}
 	first_gen := client.own_last < client.first_tick
 	for tick := client.own_last + 1; tick <= target; tick += 1 {
 		if tick < target && !first_gen {
@@ -1051,7 +1058,7 @@ schedule :: proc(client: ^Client($G), now: i64) -> (advanced: bool) {
 		client.started = true
 		client.delay = delay
 		client.delay_eval_us = now
-		client.local = max(u32(relay_tick + clock_lead(client, delay)), client.verified)
+		client.local = max(clock_ticks(relay_tick + clock_lead(client, delay)), client.verified)
 		client.next_tick_us = f64(now) + tick_us
 		generate_inputs(client)
 		return true
@@ -1082,13 +1089,32 @@ schedule :: proc(client: ^Client($G), now: i64) -> (advanced: bool) {
 		behind -= 1
 		advanced = true
 	}
-	// Far behind (e.g. after an outage): catch up without waiting for the slew.
-	for behind > 4 && !at_end(client, client.local) {
+	// Far behind (e.g. after an outage): catch up without waiting for the slew, the last OWN_RING ticks one by one (their
+	// inputs are sampled), any before them in one jump.
+	if behind > OWN_RING && !at_end(client, client.local) {
+		skip := min(clock_ticks(behind - OWN_RING), CLOCK_MAX - client.local)
+		if client.ticks != 0 {
+			skip = min(skip, client.ticks - client.local)
+		}
+		client.local += skip
+		behind = min(behind - f64(skip), OWN_RING) // past CLOCK_MAX: no relay's clock
+		advanced = true
+	}
+	for behind > 4 && !at_end(client, client.local) && client.local < CLOCK_MAX {
 		clock_tick(client)
 		behind -= 1
 		advanced = true
 	}
 	return
+}
+
+// The local clock stays below this (2.1 years at 64 Hz): a relay time past it is no relay's, and the clock never wraps.
+CLOCK_MAX :: max(u32) / 2
+
+// A tick count from the clock's f64, clamped to [0, CLOCK_MAX] (a converted out-of-range float is the platform's own).
+@(private)
+clock_ticks :: proc(ticks: f64) -> u32 {
+	return u32(clamp(ticks, 0, f64(CLOCK_MAX)))
 }
 
 @(private)

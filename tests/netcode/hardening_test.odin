@@ -910,3 +910,41 @@ a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
 	net_run(&session, 1)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
 }
+
+// A relay time far off (a mangled first Finalized, a relay that is no relay) throws the client's clock far ahead, but
+// a step still does a ring's worth of work: it samples at most OWN_RING inputs, not one per tick of the jump (2^50 µs
+// would be ~7e10 ticks at 64 Hz).
+@(test)
+a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	fake: Fake_Relay
+	fake_make(&fake, hub)
+	defer fake_destroy(&fake)
+	samples := 0
+	hooks := Hooks {
+		user = &samples,
+		sample = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+			(^int)(user)^ += 1
+			return {}
+		},
+	}
+	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks)
+	defer netcode.client_destroy(client)
+	fake_welcome(&fake, client)
+	far := [1]toy.Inputs{finalized_of(1, 1)}
+	writer := fake_begin(&fake, .Finalized)
+	wire.w_u64(writer, 1 << 50) // relay time: 35 years after tick 0
+	wire.w_u32(writer, 0)
+	wire.w_u32(writer, 0)
+	wire.w_u32(writer, 1)
+	wire.w_u8(writer, 1)
+	netcode.window_write_tick(writer, &far[0], nil)
+	fake_send(&fake, .Unreliable)
+	for _ in 0 ..< 20 {
+		fake_step(&fake, client)
+	}
+	testing.expect(t, client.local > 1 << 30, "the clock followed the relay time")
+	testing.expectf(t, samples <= 2 * netcode.OWN_RING, "%d inputs sampled", samples)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+}
