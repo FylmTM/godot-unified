@@ -52,13 +52,6 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	UiTheme.install()
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
-	session = UnifiedSession.new()
-	session.name = &"UnifiedSession"
-	session.local_name = Settings.get_value(&"player_name")  # before it enters the tree: flags start it there
-	add_child(session)
-	session.status_changed.connect(_on_status_changed)
-	session.lobby_code.connect(_on_lobby_code)
-
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer = 50
 	add_child(_overlay_layer)
@@ -72,6 +65,13 @@ func _ready() -> void:
 	fps_layer.add_child(_fps_label)
 	Settings.changed.connect(_on_setting_changed)
 	_fit_window.call_deferred()
+	session = UnifiedSession.new()
+	session.name = &"UnifiedSession"
+	# before it enters the tree, where the command line's session flags start it: the flow follows from there
+	session.local_name = Settings.get_value(&"player_name")
+	session.status_changed.connect(_on_status_changed)
+	session.lobby_code.connect(_on_lobby_code)
+	add_child(session)
 	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
 	if _smoke_test():
 		print("%s: smoke test, starting single player" % _game_name())
@@ -275,6 +275,8 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 			if flow == Flow.MENU:
 				_adopt()
 		UnifiedSession.STATUS_CONNECTED:
+			if flow == Flow.MENU:
+				_adopt()
 			if flow == Flow.CONNECTING:
 				_hide_connect_overlay()
 				_set_flow(Flow.PLAYING)

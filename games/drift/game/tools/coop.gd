@@ -4,6 +4,7 @@ extends UnifiedCoop
 
 
 func _host_play() -> void:
+	await wait_for_scene("Arena", 10.0)
 	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 10.0, "the lobby")
 	await click(current_scene.get_node(^"HUD").start_button)
 	await wait_for(_playing, 5.0, "the match after Start")
