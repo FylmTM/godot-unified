@@ -115,6 +115,115 @@ inputs_from_the_wire_read_as_declared :: proc(t: ^testing.T) {
 	testing.expect_value(t, bytes[offset_of(Moded_Input, mode)], 9)
 }
 
+// Every kind of field the Input check compiles (src/sim/variant.odin, Wire_Check): a dense enum, a signed enum with
+// holes, a bit_set of that enum and one of a range, in arrays and a nested struct.
+Holed :: enum i16 {
+	Zero  = 0,
+	Low   = -3,
+	High  = 7,
+	Lower = -300,
+}
+
+Sparse :: enum u8 {
+	A = 1,
+	B = 4,
+	C = 6,
+}
+
+Holed_Inner :: struct {
+	holed: [2]Holed,
+	range: bit_set[2 ..= 9;u16],
+}
+
+Mixed_Input :: struct {
+	mode:    Mode,
+	holes:   bit_set[Sparse;u8],
+	inner:   Holed_Inner,
+	buttons: toy.Buttons,
+	_pad:    [3]u8,
+}
+
+Mixed_Data :: struct {
+	unused: u32,
+}
+
+Mixed_State :: struct {
+	players: sim.Players(Mixed_Data, Mixed_Input, 2),
+}
+
+Mixed_Event :: union {
+	sim.Event_Player_Joined,
+	sim.Event_Player_Left,
+}
+
+Mixed :: sim.Game(Mixed_State, Mixed_Input, sim.No_World, Mixed_Event, sim.No_Commands, 2)
+
+MIXED := Mixed {
+	name = "mixed",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Mixed)) {},
+}
+
+// The input as the tick must read it, written out by hand: undeclared enum values as 0, bit_sets without the bits of
+// no element.
+mixed_as_read :: proc(input: Mixed_Input) -> (read: Mixed_Input) {
+	read = input
+	if u8(read.mode) > u8(max(Mode)) do read.mode = .Walk
+	for &holed in read.inner.holed {
+		switch holed {
+		case .Zero, .Low, .High, .Lower:
+		case:
+			holed = .Zero
+		}
+	}
+	read.holes &= {.A, .B, .C}
+	read.inner.range &= {2, 3, 4, 5, 6, 7, 8, 9}
+	read.buttons &= {.Spawn}
+	return
+}
+
+// Random bytes, and valid inputs among them, read as wire_fix reads them, through the check compiled at create.
+@(test)
+fuzz_inputs_read_as_declared :: proc(t: ^testing.T) {
+	simulation := sim.create(&MIXED, 1)
+	defer sim.destroy(simulation)
+	inputs: sim.Inputs(Mixed)
+	sim.join(&inputs, 0, 1)
+	state: u64 = 0x9E37_79B9_7F4A_7C15
+	for k in 0 ..< 4000 {
+		bytes := cast(^[size_of(Mixed_Input)]u8)&inputs.input[0]
+		for &b in bytes {
+			state = state * 6364136223846793005 + 1442695040888963407
+			b = u8(state >> 56)
+		}
+		if k % 4 != 3 do inputs.input[0] = mixed_as_read(inputs.input[0]) // valid
+		switch k % 4 {
+		case 1:
+			// Stray bits in the bit_sets only: the enums are declared values.
+			bytes[offset_of(Mixed_Input, holes)] |= u8(state >> 8)
+			bytes[offset_of(Mixed_Input, inner) + offset_of(Holed_Inner, range) + 1] |= u8(state >> 16)
+			bytes[offset_of(Mixed_Input, buttons)] |= u8(state >> 24)
+		case 2:
+			// One enum field off by a little: just past its range, or in a hole.
+			value := i64(state >> 8 & 0xF) - 6
+			switch state >> 40 % 3 {
+			case 0:
+				bytes[offset_of(Mixed_Input, mode)] = u8(value + 6)
+			case:
+				(^i16)(&inputs.input[0].inner.holed[state >> 40 % 3 - 1])^ = i16(value)
+			}
+		}
+		inputs.input[0]._pad = {}
+		sent := inputs.input[0]
+		sim.step(simulation, &inputs)
+		inputs.joins = {}
+		want := mixed_as_read(sent)
+		got := simulation.state.players.before[0]
+		if !testing.expectf(t, got == want, "input %d: %v read as %v, want %v", k, sent, got, want) do return
+	}
+}
+
 // An Input's enum must declare a member of value 0: an undeclared value reads as 0, and an absent player's input is
 // all zeros. Without one, `tick` would read a value of no member (indexing an enumerated array with it is out of
 // bounds), so the game is refused. The state's enums may start anywhere.

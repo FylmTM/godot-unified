@@ -130,9 +130,10 @@ Client_Stats :: struct {
 	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
 	steps:          [Step_Kind]int, // ticks stepped, by kind
 	step_us:        [Step_Kind]i64, // time spent stepping them (saves included), µs
-	// The client_steps that stepped the sim: each one's time verifying (rolling back, re-simulating, the checksums,
-	// the snapshots joiners wait for, the verified hook), advancing the clock and predicting. What the frame budget is
-	// about.
+	// The client_steps that stepped the sim, restored a snapshot (a joiner) or encoded a kept tick (a desync report):
+	// each one's whole time, receiving (the restore, the image) included, verifying (rolling back, re-simulating, the
+	// checksums, the snapshots joiners wait for, the verified hook), advancing the clock and predicting. What the
+	// frame budget is about.
 	client_steps:   Durations,
 	snapshot_bytes: int, // a joiner: the snapshot it restored
 	snapshot_us:    i64, // ... from its Snap_Begin to its last chunk
@@ -206,6 +207,7 @@ Client :: struct($G: typeid) {
 	snap_tick:      u32,
 	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
 	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
+	received_work:  bool, // this step's messages restored a snapshot or encoded a kept tick (client_steps times it)
 	// The checksum ticks kept for a desync report (Welcome's Keep_Images), by the sim's keep slot (0: none): a copy
 	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it, into image_buf.
 	kept_ticks:     [DESYNC_IMAGES]u32,
@@ -620,6 +622,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 // that tick (a checksum tick) and says Snap_Ok, or sends a snapshot from someone else. Until then the sim waits.
 @(private)
 load_snapshot :: proc(client: ^Client($G), now: i64) {
+	client.received_work = true
 	sim, err := usim.from_snapshot(client.game, client.snap_buf[:], client.cfg.content)
 	client.snap_total = 0
 	if err != .None || sim.tick != client.snap_tick {
@@ -816,6 +819,7 @@ send_snapshot :: proc(client: ^Client($G), target: u8, tick: u32, data: []u8, no
 send_image :: proc(client: ^Client($G), tick: u32, now: i64) {
 	for kept_tick, k in client.kept_ticks {
 		if kept_tick == tick && tick != 0 && client.sim != nil {
+			client.received_work = true
 			if bytes, kept, ok := usim.snapshot_encode_kept(client.sim, k, &client.image_buf); ok && kept == tick {
 				send_snapshot(client, RELAY_TARGET, tick, bytes, now)
 				return
@@ -1159,6 +1163,8 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		client.hello_sent = true
 		set_status(client, .Connecting, "")
 	}
+	work_start := time.tick_now()
+	client.received_work = false
 	for event in channel_poll(client.ch, now) {
 		if event.peer != client.relay {
 			continue // not from the relay
@@ -1184,11 +1190,10 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	}
 	client.resim_from = 0
 	if !client.leaving {
-		work_start := time.tick_now()
 		advance_verified(client, now)
 		advanced := schedule(client, now)
 		predict(client)
-		if client.resim_from != 0 {
+		if client.resim_from != 0 || client.received_work {
 			durations_add(&client.stats.client_steps, i64(time.duration_microseconds(time.tick_since(work_start))))
 		}
 		if client.resim_from != 0 && client.hooks.frame != nil {

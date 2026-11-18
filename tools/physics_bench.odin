@@ -34,7 +34,9 @@ Physics_Rollback :: struct {
 	step_us:                   cli.Bench_Stat,
 	rollback_us:               cli.Bench_Stat,
 	step_plus_rollback_p99_us: f64,
-	within_target:             bool,
+	// The awake bodies in dense contact a step and a rollback at the cap fit in the frame budget, scaled from the pile
+	// (the cost per body is about flat): what physics bounds a tick to (src/physics/SPEC.md, Capacity).
+	bodies_fit:                int,
 }
 
 physics_bench :: proc(work: string) -> (data: any, ok: bool) {
@@ -67,23 +69,23 @@ physics_bench :: proc(work: string) -> (data: any, ok: bool) {
 		report.characters_us.mean,
 	)
 	for &row in ([]^Physics_Rollback{&report.rollback.workers_1, &report.rollback.workers_4}) {
-		row.within_target = row.step_plus_rollback_p99_us <= cli.BENCH_TARGET_US
+		row.bodies_fit = int(f64(report.rollback.bodies) * cli.BENCH_TARGET_US / max(row.step_plus_rollback_p99_us, 1))
 	}
 	one, four := report.rollback.workers_1, report.rollback.workers_4
 	cli.log(
-		"%-12s %d boxes: step + %d-tick rollback %.2f ms at p99 on 1 worker (target <= %.0f ms: %s; means %.0f + %.0f us), %.2f ms on 4 (%s; means %.0f + %.0f us)",
+		"%-12s %d boxes: step + %d-tick rollback %.2f ms at p99 on 1 worker (means %.0f + %.0f us), %.2f ms on 4 (means %.0f + %.0f us): about %d awake bodies fit the %.0f ms target on 1 worker, %d on 4",
 		"",
 		report.rollback.bodies,
 		report.rollback.cap,
 		one.step_plus_rollback_p99_us / 1000,
-		cli.BENCH_TARGET_US / 1000,
-		one.within_target ? "yes" : "NO",
 		one.step_us.mean,
 		one.rollback_us.mean,
 		four.step_plus_rollback_p99_us / 1000,
-		four.within_target ? "yes" : "NO",
 		four.step_us.mean,
 		four.rollback_us.mean,
+		one.bodies_fit,
+		cli.BENCH_TARGET_US / 1000,
+		four.bodies_fit,
 	)
 	return report^, true
 }

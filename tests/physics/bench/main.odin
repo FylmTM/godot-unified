@@ -9,7 +9,7 @@
 // swapped out and back) and as the live tick (no swap; the same bytes), and its load into a second world (a late
 // join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
 // tick, apart from the step. Then the capacity against the frame budget: a smaller pile (ROLLBACK_SIDE³ boxes, sized
-// to the bench's time) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
+// to the bench's time; the bodies that would fit the budget scale from it) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
 // CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. One
 // JSON line.
 package physics_bench
@@ -33,8 +33,10 @@ RING :: 16
 IMAGE_EVERY :: 16
 CHARACTERS :: 64
 CHARACTER_TICKS :: 300
-ROLLBACK_SIDE :: 6 // 216 boxes: about what fits a rollback at the cap on one worker
-ROLLBACK_TICKS :: 64
+// The capacity pile: 125 boxes (the cost per body is flat from 64 to 216), for enough ticks that the p99 leaves out the
+// slowest one (a preempted sample on a busy machine).
+ROLLBACK_SIDE :: 5
+ROLLBACK_TICKS :: 100
 CAP :: 14 // the netcode's prediction cap at 64 Hz (headless.prediction_window): the deepest rollback it makes
 
 Stat :: struct {

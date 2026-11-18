@@ -71,6 +71,7 @@ fake: struct {
 	// more users
 	users:              [FIRST_JOINER + JOINERS]u8,
 	packet_from:        int, // the user P2P_ReceivePacket hands one packet from (0: none)
+	packet_size:        u32, // its size (0: 1 byte)
 }
 
 @(private = "file")
@@ -255,11 +256,13 @@ FAKE := eos.Api {
 		}
 		peer^ = eos.Product_User_Id(&fake.users[fake.packet_from])
 		fake.packet_from = 0
+		size := fake.packet_size if fake.packet_size != 0 else 1
+		fake.packet_size = 0
 		name := "unified-"
 		for i in 0 ..< len(name) do sock.socket_name[i] = name[i]
 		for i in 0 ..< len(fake.last_code) do sock.socket_name[len(name) + i] = fake.last_code[i]
-		([^]u8)(data)[0] = 0
-		written^ = 1
+		for i in 0 ..< size do ([^]u8)(data)[i] = 0
+		written^ = size
 		return .Success
 	},
 	P2P_AddNotifyPeerConnectionRequest = proc "c" (
@@ -682,8 +685,9 @@ session_state_machine :: proc(t: ^testing.T) {
 	fake.accepted = {}
 
 	// A long-lived lobby serves any number of people over time: a user who left the lobby and whom the netcode forgot
-	// frees its peer number for the next new user, whichever happened first; one who never sent a packet is freed when
-	// it leaves. (A member the netcode forgot keeps its number: #32 above.)
+	// frees its peer number for the next new user, whichever happened first; one who never sent a packet, or only one
+	// larger than a netcode datagram (the netcode never heard of it), is freed when it leaves. (A member the netcode
+	// forgot keeps its number: #32 above.)
 	host_link, host_ok = eos.open_host(BUILD)
 	testing.expect(t, host_ok)
 	stage, _, _ = pump_until(.Ready)
@@ -697,7 +701,13 @@ session_state_machine :: proc(t: ^testing.T) {
 		eos.pump()
 		testing.expect_value(t, eos.status().peers, 1)
 		drain_events(host_link)
-		if k % 3 != 2 {
+		if k % 4 == 3 {
+			fake.packet_from = user // a packet no netcode datagram is: dropped
+			fake.packet_size = netcode.MAX_DATAGRAM + 1
+			buf: [netcode.MAX_DATAGRAM]u8
+			_, _, got := netcode.link_recv(&host_link, buf[:])
+			testing.expectf(t, !got, "user %d of %d: an oversized packet reached the netcode", k + 1, JOINERS)
+		} else if k % 4 != 2 {
 			fake.packet_from = user // its first packet: the netcode knows the peer from now on
 			buf: [netcode.MAX_DATAGRAM]u8
 			_, peer, got := netcode.link_recv(&host_link, buf[:])
@@ -705,7 +715,7 @@ session_state_machine :: proc(t: ^testing.T) {
 				break
 			}
 		}
-		switch k % 3 {
+		switch k % 4 {
 		case 0:
 			member(lobby, user, .Left)
 			_, lost := drain_events(host_link)
@@ -715,7 +725,7 @@ session_state_machine :: proc(t: ^testing.T) {
 			host_link.forget(host_link.data, 1) // the netcode forgets it first (a goodbye)
 			member(lobby, user, .Left)
 		case:
-			member(lobby, user, .Left) // never sent a packet
+			member(lobby, user, .Left) // never sent a packet the netcode got
 		}
 		eos.pump()
 		testing.expect_value(t, eos.status().peers, 0)

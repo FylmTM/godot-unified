@@ -41,7 +41,7 @@ JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock 
 START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
 BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (a heartbeat waits a tick)
 CHECK_WAIT_MS :: 1000 // a checksum tick is judged once every expected report is in, or this long after it is due
-IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots
+IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots to make progress (asked, a part)
 SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Seat.report_from of a slot that sends no checksums yet
@@ -147,7 +147,7 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	pending:             [2]Pending_Image, // the typed report's snapshots: a majority slot's, a diverged one's
 	pending_on:          bool,
 	pending_tick:        u32,
-	pending_us:          i64,
+	pending_us:          i64, // when the typed report last made progress (asked, a part of a snapshot came)
 	detailed:            bool, // the session's first desync got its typed report (later ones are its consequences)
 	first_desync:        Desync_Report, // the first desync reported (its detail owned by the relay)
 	replaced:            int, // inputs that came too late, replaced by the slot's previous one
@@ -832,7 +832,7 @@ send_reports :: proc(relay: ^Relay($G), now: i64) {
 
 // A typed desync report's snapshot coming in from one of the two slots asked.
 @(private)
-take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader) {
+take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader, now: i64) {
 	if !relay.pending_on {
 		return
 	}
@@ -849,6 +849,7 @@ take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader
 			pending.total = tick == relay.pending_tick && total <= IMAGE_MAX ? total : 0
 			clear(&pending.image)
 			pending.done = pending.total == 0
+			relay.pending_us = now // progress: a large image arrives at the pace, however long it takes
 			return
 		}
 		offset := wire.r_u32(reader)
@@ -861,6 +862,7 @@ take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader
 		}
 		append(&pending.image, ..bytes)
 		pending.done = u32(len(pending.image)) == pending.total
+		relay.pending_us = now
 		return
 	}
 }
@@ -1087,7 +1089,7 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	target := wire.r_u8(reader)
 	if reader.ok && target == RELAY_TARGET {
-		take_image(relay, slot, kind, reader)
+		take_image(relay, slot, kind, reader, now)
 		return
 	}
 	joiner := int(target)

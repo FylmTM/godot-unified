@@ -1462,10 +1462,10 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 			}
 			online.received += 1
 			online.remotes[i].heard = true
-			online.remotes[i].known = true
 			if int(written) > len(buf) {
-				continue // larger than any netcode datagram: not ours
+				continue // larger than any netcode datagram: not ours, and the netcode never hears of the peer
 			}
+			online.remotes[i].known = true // the netcode now knows the peer: link_forget frees it
 			return copy(buf, pkt[:written]), netcode.Peer(i), true
 		}
 		if attempt == 0 && netcode.now_us() - online.last_tick_us >= TICK_EVERY_US {

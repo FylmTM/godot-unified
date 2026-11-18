@@ -98,11 +98,15 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
 	}
 }
 
-// A plain relay (no host player) whose clock starts once `start_players` clients connected.
-net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32) {
+// A plain relay (no host player) whose clock starts once `start_players` clients connected; `desync_detail`: typed
+// desync reports.
+net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32, desync_detail := false) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	session.relay = netcode.relay_create(&toy.GAME, {seed = SEED, ticks = ticks, start_players = start_players})
+	session.relay = netcode.relay_create(
+		&toy.GAME,
+		{seed = SEED, ticks = ticks, start_players = start_players, desync_detail = desync_detail},
+	)
 	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 }
 
