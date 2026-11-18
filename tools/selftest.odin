@@ -279,8 +279,8 @@ download_env :: proc(work, cache: string) -> []string {
 // The game `init --in-repo` makes inside the clone, at games/<it>.
 IN_REPO_GAME :: "selftest_game"
 
-// What `init --in-repo` changed in the clone (next to `game`'s repo): the game's directory and tests/tests.odin,
-// nothing else.
+// What `init --in-repo` changed in the clone (next to `game`'s repo): the game's directory, nothing else (its tests
+// join the test compile through the git-ignored tests/games.gen.odin).
 check_in_repo :: proc(game, head: string) -> string {
 	clone := cli.join(os.dir(game), "unified")
 	status := cli.run_proc({
@@ -289,9 +289,9 @@ check_in_repo :: proc(game, head: string) -> string {
 		quiet   = true,
 	})
 	changes := strings.split_lines(strings.trim_right(status.stdout, "\r\n"))
-	want := []string{" M tests/tests.odin", cli.aprintf("?? games/%s/", IN_REPO_GAME)}
-	if len(changes) != len(want) || changes[0] != want[0] || changes[1] != want[1] {
-		return cli.aprintf("the clone's changes are not just the game and its tests import:\n%s", status.stdout)
+	want := cli.aprintf("?? games/%s/", IN_REPO_GAME)
+	if len(changes) != 1 || changes[0] != want {
+		return cli.aprintf("the clone's changes are not just the game:\n%s", status.stdout)
 	}
 	return ""
 }

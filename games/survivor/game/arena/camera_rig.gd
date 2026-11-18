@@ -26,9 +26,9 @@ func add_trauma(amount: float) -> void:
 
 
 func _process(delta: float) -> void:
-	var v := Game.session.get_player_view("player", Game.local_player()) as SurvivorPlayerView
+	var v := Game.session.get_player_view(EnumView.PLAYER, Game.local_player()) as SurvivorPlayerView
 	if v == null:
-		var views := Game.session.get_views("player")
+		var views := Game.session.get_views(EnumView.PLAYER)
 		v = views[0] as SurvivorPlayerView if not views.is_empty() else null
 	var goal := Vector3(v.position.x, 0, v.position.z) if v != null else _target
 	var vel := v.velocity if v != null else Vector3.ZERO

@@ -1,5 +1,6 @@
 package cli
 
+import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -116,19 +117,12 @@ start_extension :: proc(game: Game, mode: Mode, force := false, defines: []strin
 		fatal("%s has no simulation/extension to build", game.name)
 	}
 	refresh_view_index(game)
-	if game_uses_box3d(game) {
+	uses_box3d := game_uses_box3d(game)
+	if uses_box3d {
 		ensure_box3d()
 		stage_box3d(os.dir(extension_lib(game)), debug = mode == .debug)
-		for ext in gdextensions(game.dir) {
-			if text, _ := read_text(ext); !strings.contains(text, aprintf("res://.out/bin/%s", lib_name("box3d"))) {
-				log(
-					"uni: warning: %s's [dependencies] don't list %s: an export won't load",
-					rel(ext),
-					lib_name("box3d"),
-				)
-			}
-		}
 	}
+	write_dependencies(game, uses_box3d, extension_uses_eos(game))
 	ensure_bindings()
 	stage_eos(game)
 	build := extension_build(game, mode)
@@ -239,6 +233,94 @@ timestamp :: proc(moment: time.Time) -> string {
 	hour, minute, second := time.clock(moment)
 	millis := (time.to_unix_nanoseconds(moment) / 1_000_000) % 1000
 	return aprintf("%04d%02d%02d-%02d%02d%02d-%03d", year, int(month), day, hour, minute, second, millis)
+}
+
+// --- a .gdextension's [dependencies] ------------------------------------------------------------------------------
+
+// The runtime libraries an extension links, on every platform an export targets: the section `uni build` keeps in the
+// game's .gdextension (Godot loads them with the extension, an export ships them next to it). Linux has no EOS SDK
+// in an export. Empty when it links neither.
+dependencies_section :: proc(box3d, eos: bool) -> string {
+	if !box3d && !eos do return ""
+	Platform :: struct {
+		keys:            []string,
+		box3d, eos, dir: string,
+	}
+	PLATFORMS :: []Platform {
+		{{"macos.debug", "macos.release"}, "libbox3d.dylib", "libEOSSDK-Mac-Shipping.dylib", "Contents/Frameworks"},
+		{{"windows.x86_64"}, "box3d.dll", "EOSSDK-Win64-Shipping.dll", ""},
+		{{"linux.x86_64"}, "libbox3d.so", "", ""},
+	}
+	builder := strings.builder_make()
+	strings.write_string(
+		&builder,
+		"; Runtime libraries Godot loads with ours and the export ships next to it, from what the extension links (Box3D,\n" +
+		"; the EOS SDK): written by `uni build`, which also copies this OS's into .out/bin.\n" +
+		"[dependencies]\n\n",
+	)
+	for platform in PLATFORMS {
+		libs: [dynamic]string
+		if box3d do append(&libs, platform.box3d)
+		if eos && platform.eos != "" do append(&libs, platform.eos)
+		if len(libs) == 0 do continue
+		entries: [dynamic]string
+		for lib in libs do append(&entries, aprintf(`"res://.out/bin/%s": "%s"`, lib, platform.dir))
+		for key in platform.keys {
+			fmt.sbprintf(&builder, "%s = {{ %s }}\n", key, strings.join(entries[:], ", "))
+		}
+	}
+	return strings.to_string(builder)
+}
+
+// A .gdextension's text with its [dependencies] section (and the comment lines right above it) replaced by
+// `section` (empty: removed), or appended when it has none.
+with_dependencies :: proc(text, section: string) -> string {
+	lines := strings.split_lines(strings.trim_right(text, "\n"))
+	start, end := -1, len(lines)
+	for line, i in lines {
+		trimmed := strings.trim_space(line)
+		if start < 0 && trimmed == "[dependencies]" {
+			start = i
+			for start > 0 && strings.has_prefix(strings.trim_space(lines[start - 1]), ";") do start -= 1
+		} else if start >= 0 && strings.has_prefix(trimmed, "[") {
+			end = i
+			break
+		}
+	}
+	before := lines[:]
+	after: []string
+	if start >= 0 {
+		before, after = lines[:start], lines[end:]
+	}
+	head := strings.trim_right(strings.join(before, "\n"), "\n")
+	out := strings.builder_make()
+	strings.write_string(&out, head)
+	strings.write_byte(&out, '\n')
+	if section != "" {
+		strings.write_byte(&out, '\n')
+		strings.write_string(&out, section)
+	}
+	if len(after) > 0 {
+		strings.write_byte(&out, '\n')
+		strings.write_string(&out, strings.join(after, "\n"))
+		strings.write_byte(&out, '\n')
+	}
+	return strings.to_string(out)
+}
+
+// Keeps the game's .gdextension files' [dependencies] what the extension links (dependencies_section), rewriting a
+// missing or stale section: a game never copies it by hand, and one that starts using physics or EOS ships it.
+write_dependencies :: proc(game: Game, box3d, eos: bool) {
+	section := dependencies_section(box3d, eos)
+	for ext in gdextensions(game.dir) {
+		text, ok := read_text(ext)
+		if !ok do continue
+		want := with_dependencies(text, section)
+		if want != text {
+			write_text(ext, want)
+			log("uni: %s: [dependencies] written from what the extension links", rel(ext))
+		}
+	}
 }
 
 // --- Godot's extension list ---------------------------------------------------------------------------------------

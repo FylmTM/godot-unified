@@ -158,50 +158,58 @@ init_public_url :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.public_url("C:/work/unified"), "C:/work/unified")
 }
 
-// `init --in-repo` imports the game's tests in tests/tests.odin, sorted among the other games' imports, once.
+// A .gdextension's [dependencies], written by `uni build` from what the extension links: added when missing, replaced
+// when stale (with the comment above it), removed when it links nothing, the rest of the file as it was.
 @(test)
-init_imports_game_tests :: proc(t: ^testing.T) {
+dependencies_follow_what_the_extension_links :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
-	ROOT :: `package tests
-
-@(require) import "sim"
-
-@(require) import drift_tests "../games/drift/simulation/tests"
-@(require) import survivor_tests "../games/survivor/simulation/tests"
-`
-	text, added := cli.import_game_tests(ROOT, "minimal")
-	testing.expect(t, added)
+	BASE :: "[configuration]\n\nentry_symbol = \"g_init\"\n\n[libraries]\n\nwindows.x86_64 = \"res://.out/bin/g.dll\"\n"
+	testing.expect_value(t, cli.dependencies_section(false, false), "")
+	testing.expect_value(t, cli.with_dependencies(BASE, ""), BASE)
+	box3d := cli.dependencies_section(true, false)
+	both := cli.dependencies_section(true, true)
+	testing.expect(t, strings.contains(box3d, `windows.x86_64 = { "res://.out/bin/box3d.dll": "" }`))
+	testing.expect(t, !strings.contains(box3d, "EOSSDK"))
+	testing.expect(
+		t,
+		strings.contains(
+			both,
+			`macos.release = { "res://.out/bin/libbox3d.dylib": "Contents/Frameworks", "res://.out/bin/libEOSSDK-Mac-Shipping.dylib": "Contents/Frameworks" }`,
+		),
+	)
+	testing.expect(t, strings.contains(both, `linux.x86_64 = { "res://.out/bin/libbox3d.so": "" }`)) // no EOS on Linux
+	added := cli.with_dependencies(BASE, box3d)
+	testing.expect_value(t, added, strings.concatenate({BASE, "\n", box3d}))
+	testing.expect_value(t, cli.with_dependencies(added, box3d), added) // current: unchanged
+	replaced := cli.with_dependencies(added, both)
+	testing.expect_value(t, replaced, strings.concatenate({BASE, "\n", both}))
+	testing.expect_value(t, cli.with_dependencies(replaced, ""), BASE)
+	// a section after it stays
+	LATER :: "[icons]\n\nGame = \"res://icon.svg\"\n"
 	testing.expect_value(
 		t,
-		text,
-		`package tests
-
-@(require) import "sim"
-
-@(require) import drift_tests "../games/drift/simulation/tests"
-@(require) import minimal_tests "../games/minimal/simulation/tests"
-@(require) import survivor_tests "../games/survivor/simulation/tests"
-`,
+		cli.with_dependencies(strings.concatenate({added, "\n", LATER}), both),
+		strings.concatenate({BASE, "\n", both, "\n", LATER}),
 	)
-	again, added_again := cli.import_game_tests(text, "minimal")
-	testing.expect(t, !added_again)
-	testing.expect_value(t, again, text)
-	first, _ := cli.import_game_tests(ROOT, "alpha")
-	testing.expect(t, strings.contains(first, "\"sim\"\n\n@(require) import alpha_tests"))
-	last, _ := cli.import_game_tests(ROOT, "zeta")
+}
+
+// The test root's game imports (tests/games.gen.odin, written by uni): every in-repo game's tests, sorted, so a new
+// game (init --in-repo) edits no shared file.
+@(test)
+game_test_imports_are_generated :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	text := cli.game_test_imports({"survivor", "drift", "minimal"})
+	testing.expect(t, strings.contains(text, "package tests\n"))
 	testing.expect(
 		t,
 		strings.has_suffix(
-			last,
-			"survivor_tests \"../games/survivor/simulation/tests\"\n@(require) import zeta_tests \"../games/zeta/simulation/tests\"\n",
+			text,
+			"\n@(require) import drift_tests \"../games/drift/simulation/tests\"\n" +
+			"@(require) import minimal_tests \"../games/minimal/simulation/tests\"\n" +
+			"@(require) import survivor_tests \"../games/survivor/simulation/tests\"\n",
 		),
 	)
-	none, _ := cli.import_game_tests("package tests\n\n@(require) import \"sim\"\n", "alpha")
-	testing.expect_value(
-		t,
-		none,
-		"package tests\n\n@(require) import \"sim\"\n\n@(require) import alpha_tests \"../games/alpha/simulation/tests\"\n",
-	)
+	testing.expect(t, strings.has_suffix(cli.game_test_imports({}), "package tests\n"))
 }
 
 // The test runner's output (-define:ODIN_TEST_LOG_STATE_CHANGES=true) as the test watchdog reads it.

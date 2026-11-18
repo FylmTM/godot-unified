@@ -163,15 +163,20 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 **`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts,
 hosts, joins and leaves sessions; `status` (enum `Status`) and `status_changed`; the shown tick's `tick`,
 `local_player`, `get_players()`, `get_player_slot(player)` and the roster's names; `get_view(kind, key)`,
-`get_player_view(kind, player)`, `get_views(kind)` from the host's own tables; `sim_event`; `view_root`, `seed`,
+`get_player_view(kind, player)`, `get_views(kind)` from the host's own tables (`kind`: an `EnumView` value,
+`session.get_view(EnumView.STATION, 0)`; one that is no member is an error once); `sim_event`; `view_root`, `seed`,
 `ticks`, `local_name`, `game_input`, `devui_visible`. Players are ints: a player's key, the same while they are in the
 session whatever slot they hold (0: nobody). Nothing about the session answers once it is over. A client's LAN token
 is kept in `user://unified_token_<n>`: each running copy of the game claims its own by an OS file lock held for the
 process's life, so a restarted one takes its token back.
 
+The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMultiView`, whatever the game named them
+(members upper case, `name(value)` like any enum class).
+
 **`UnifiedView`** (Node): the marker a scene view's scene holds as a direct child of its root, `kind` set in the
-scene; the host sets its `key` and keeps its `player` (the key of the player it shows; 0: none) current. The root can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else
-only data, all before any other node's `_process` (the session runs at priority −1000), so a view's own `_process`
+scene (a View member's name, lowercased, which stays right when the enum is reordered; the inspector offers the
+names); the host sets its `key` and keeps its `player` (the key of the player it shows; 0: none) current. The root
+can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else only data, all before any other node's `_process` (the session runs at priority −1000), so a view's own `_process`
 sees the frame's pose. Its script may define `_sim_event(event, state)`, `_sim_despawned()` (its key is gone: it
 lingers `linger_s`, no longer posed, then is freed), `_sim_revived()` (a rollback brought it back while it lingered)
 and `_sim_cancelled()` (a rollback removed it before its spawn tick was verified: freed at once). A `view_root` that

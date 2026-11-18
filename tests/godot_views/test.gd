@@ -405,9 +405,12 @@ func finish(session: UnifiedSession) -> void:
 # The view lookup: by kind and key, by kind and player, and every view of a kind (UnifiedSession.get_view...). An
 # unknown kind is null or empty, with an error line once (the suite expects it).
 func check_view_lookup(session: UnifiedSession, typed: Node, plain: Node, me: int) -> void:
-	check("get_view by kind and key", session.get_view("plain2d", 2) == plain and session.get_view("plain2d", 99) == null \
-		and session.get_view("nothing", 2) == null, session.get_view("plain2d", 2))
-	check("get_player_view by kind and player", session.get_player_view("typed2d", me) == typed \
-		and session.get_player_view("typed2d", 0) == null, session.get_player_view("typed2d", me))
-	var plains: Array[Node] = session.get_views("plain2d")  # typed: assigning it to Array[Node] would fail otherwise
-	check("get_views: every view of a kind", plains.has(plain) and session.get_views("nothing").is_empty(), plains)
+	check("get_view by kind and key", session.get_view(EnumView.PLAIN2D, 2) == plain and session.get_view(EnumView.PLAIN2D, 99) == null \
+		and session.get_view(99, 2) == null, session.get_view(EnumView.PLAIN2D, 2))
+	check("get_player_view by kind and player", session.get_player_view(EnumView.TYPED2D, me) == typed \
+		and session.get_player_view(EnumView.TYPED2D, 0) == null, session.get_player_view(EnumView.TYPED2D, me))
+	var plains: Array[Node] = session.get_views(EnumView.PLAIN2D)  # typed: assigning it to Array[Node] would fail otherwise
+	check("get_views: every view of a kind", plains.has(plain) and session.get_views(99).is_empty(), plains)
+	check("the view kinds are the classes EnumView and EnumMultiView", EnumView.PLAIN3D == 2 \
+		and EnumView.name(EnumView.TYPED2D) == "typed2d" and EnumMultiView.MULTI3D == 1,
+		[EnumView.PLAIN3D, EnumMultiView.MULTI3D])

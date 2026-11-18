@@ -745,11 +745,12 @@ bind_method :: proc {
 }
 
 Property_Hint :: enum u32 {
-	NONE       = 0,
-	RANGE      = 1,
-	ENUM       = 2,
-	ARRAY_TYPE = 31, // a typed Array (hint_string: the element type, "int", "Vector2", a class): Array[int] in GDScript
-	NODE_TYPE  = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
+	NONE            = 0,
+	RANGE           = 1,
+	ENUM            = 2,
+	ENUM_SUGGESTION = 3, // a String with its values offered (hint_string: "a,b,c"); any string is kept
+	ARRAY_TYPE      = 31, // a typed Array (hint_string: the element type, "int", "Vector2", a class): Array[int] in GDScript
+	NODE_TYPE       = 34, // an Object property holding a Node: a node picker; a scene saves it as a path (hint_string: the class)
 }
 
 // A property backed by get_<name>/set_<name> methods made from `get` and `set`. With a setter it is saved and shown in

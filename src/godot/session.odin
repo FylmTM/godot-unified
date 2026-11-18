@@ -209,22 +209,22 @@ register_session_class :: proc() {
 	gd.bind_method(
 		class,
 		"get_view",
-		proc(session: ^Session_Node, kind: string, key: i64) -> gd.Node {return view_of_key(kind, u64(key))},
+		proc(session: ^Session_Node, kind: i64, key: i64) -> gd.Node {return view_of_key(kind, u64(key))},
 		{"kind", "key"},
-		doc = "The scene view of [param kind] (a View member, lowercased) and [param key], null when there is none (or it lingers, gone from the sim).",
+		doc = "The scene view of [param kind] (an [EnumView] value) and [param key], null when there is none (or it lingers, gone from the sim).",
 	)
 	gd.bind_method(
 		class,
 		"get_player_view",
-		proc(session: ^Session_Node, kind: string, player: i64) -> gd.Node {return view_of_player(kind, u64(player))},
+		proc(session: ^Session_Node, kind: i64, player: i64) -> gd.Node {return view_of_player(kind, u64(player))},
 		{"kind", "player"},
-		doc = "The scene view of [param kind] that shows [param player] (its marker's [member UnifiedView.player]), null when there is none.",
+		doc = "The scene view of [param kind] (an [EnumView] value) that shows [param player] (its marker's [member UnifiedView.player]), null when there is none.",
 	)
 	gd.bind_dynamic_method(class, "get_views", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
-			kind, _ := gd.from_variant(string, args[0])
+			kind, _ := gd.from_variant(i64, args[0])
 			views := views_of_kind(kind)
 			return array_variant(&views)
-		}, nil, {{"kind", .STRING, ""}}, gd.Dynamic_Arg{"", .ARRAY, "Node"}, doc = "Every scene view of [param kind] that is in the sim (not lingering), by key.")
+		}, nil, {{"kind", .INT, ""}}, gd.Dynamic_Arg{"", .ARRAY, "Node"}, doc = "Every scene view of [param kind] (an [EnumView] value) that is in the sim (not lingering), by key.")
 	// starting, leaving, sending
 	gd.bind_method(
 		class,

@@ -29,7 +29,7 @@ func _process(delta: float) -> void:
 		_radius = r  # the sim reports 0 outside the lobby; keep the ring's size while it fades
 	var furthest := 0.0
 	if lobby:
-		for v: Node3D in Game.session.get_views("player"):
+		for v: Node3D in Game.session.get_views(EnumView.PLAYER):
 			furthest = maxf(furthest, Vector2(v.position.x, v.position.z).length() / _radius)
 	start_urgency = move_toward(start_urgency, smoothstep(0.55, 1.0, furthest) if lobby else 0.0, delta * 4.0)
 	var mat := _circle.mesh.surface_get_material(0) as ShaderMaterial

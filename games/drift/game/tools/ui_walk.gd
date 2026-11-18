@@ -30,7 +30,7 @@ func _walk_play() -> void:
 
 func _lobby_and_start() -> void:
 	await wait_for(func() -> bool: return _me() != null, 8.0, "the local ship's view")
-	await wait_for(func() -> bool: return views(&"station").size() == 1 and views(&"gate").size() == 2, 3.0,
+	await wait_for(func() -> bool: return views(EnumView.STATION).size() == 1 and views(EnumView.GATE).size() == 2, 3.0,
 		"the station and 2 gate views")
 	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 3.0, "the lobby")
 	if failed():
@@ -104,7 +104,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 
 
 func _me() -> Node2D:
-	return session.get_player_view("ship", session.local_player) as Node2D
+	return session.get_player_view(EnumView.SHIP, session.local_player) as Node2D
 
 
 func _rocks_drawn() -> int:
@@ -119,7 +119,7 @@ func _rocks_drawn() -> int:
 ## miss the level's static bodies (the play scene holds them) and the station's circle.
 func _clear_rock(from: Vector2) -> Vector2:
 	var space := (current_scene as Node2D).get_world_2d().direct_space_state
-	var station := session.get_view("station", 0) as Node2D
+	var station := session.get_view(EnumView.STATION, 0) as Node2D
 	var station_reach := (Unified.constants.station_radius + Unified.constants.ship_radius) * Unified.view_scale
 	var best := Vector2.INF
 	for rock: Vector2 in _rock_positions():

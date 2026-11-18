@@ -31,7 +31,7 @@ func _run() -> void:
 
 	await click_menu("Single")
 	await wait_for_scene("Arena", 5.0)
-	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(&"player").size() >= 1, 8.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(EnumView.PLAYER).size() >= 1, 8.0,
 		"the lobby with the player")
 	await seconds(1.0)
 	await shot("r02_lobby")
@@ -119,7 +119,7 @@ func _tap(action: StringName) -> void:
 ## Barrels only explode from stray shots, so a run rarely sees one: plays the effect (client-only, no sim change)
 ## near the player to measure its first use.
 func _probe_explosion() -> void:
-	var players := views(&"player")
+	var players := views(EnumView.PLAYER)
 	if players.is_empty():
 		return
 	frame_tag("probe: barrel_exploded")

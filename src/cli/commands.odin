@@ -106,7 +106,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name      = "init",
-			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout, its tests imported in tests/tests.odin",
+			summary   = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout (its tests join the test compile by themselves)",
 			no_budget = "clones unified",
 			options   = option_types(Init_Opts),
 			run       = cmd_init,

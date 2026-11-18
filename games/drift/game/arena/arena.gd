@@ -52,7 +52,7 @@ func _process(_delta: float) -> void:
 
 ## The local player's ship view (null until they have one).
 func local_ship_view() -> Node2D:
-	return Game.session.get_player_view("ship", Game.local_player()) as Node2D
+	return Game.session.get_player_view(EnumView.SHIP, Game.local_player()) as Node2D
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.
@@ -119,7 +119,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	elif event is EventMatchStarted:
 		Sfx.play(&"start")
 	elif event is EventMatchOver:
-		var station := Game.session.get_view("station", 0) as Node2D
+		var station := Game.session.get_view(EnumView.STATION, 0) as Node2D
 		var c := station.global_position if station != null else Vector2.ZERO
 		effects.debris(c, 40, UiTheme.BAD, 320.0, 5.0)
 		effects.ring(c, 20.0, 260.0, 1.0, UiTheme.BAD, 5.0)
