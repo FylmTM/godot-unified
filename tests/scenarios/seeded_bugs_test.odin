@@ -12,6 +12,7 @@ import "core:testing"
 import "../toy"
 import "unified:headless"
 import "unified:netcode"
+import "unified:sim"
 
 // Bug: the tick reads the World's count of the ticks it ran, which is never rolled back, so a re-simulated tick sees
 // another count. Detector: rollback_every_tick (run_synctest).
@@ -27,6 +28,56 @@ seeded_world_state_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) {
 	}
 	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
 	testing.expectf(t, result.mismatches > 0, "a World count read by tick: synctest saw no mismatch")
+}
+
+// Bug: the tick emits an event built from the World's count of the ticks it ran, which is never rolled back: the
+// state and its checksum are right, but a re-simulated tick emits another event than the first time, so a view shows
+// doubled or cancelled effects after each rollback. Detector: rollback_every_tick (run_synctest compares each
+// re-simulated tick's events with the first run's).
+@(test)
+seeded_world_state_in_an_event_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.tick = proc(tick: ^toy.Tick) {
+		toy.tick(tick)
+		if tick.number % 4 == 0 {
+			sim.emit(tick, toy.Event_Expired{thing = {index = u32(tick.world.ticks_run % 32)}})
+		}
+	}
+	bugged := headless.Headless(toy.Game) {
+		game = &game,
+	}
+	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
+	testing.expectf(
+		t,
+		result.mismatches > 0 && strings.contains(result.problem, "emitted other events"),
+		"an event from the World: synctest saw %d mismatches (%q)",
+		result.mismatches,
+		result.problem,
+	)
+}
+
+// Bug: a NaN reaches the state block (an unguarded 0/0): every peer on one CPU agrees, but its bits differ between x64
+// and arm64, so a mixed session desyncs. Detector: the sync-test's NaN scan (sim.find_nan), which names the field.
+@(test)
+seeded_nan_in_the_block_is_caught_by_rollback_every_tick :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.tick = proc(tick: ^toy.Tick) {
+		toy.tick(tick)
+		if data := toy.in_slot(tick.state, 1); data != nil && tick.number == 50 {
+			data.pos.y = data.pos.x * 0 / (data.pos.x - data.pos.x) // 0/0 at run time
+		}
+	}
+	bugged := headless.Headless(toy.Game) {
+		game = &game,
+	}
+	result := headless.run_synctest(&bugged, 120, 8, SUITE.seed, 2)
+	testing.expectf(
+		t,
+		strings.has_prefix(result.problem, "tick 50: players.data[") &&
+		strings.contains(result.problem, "].pos[1] is a NaN"),
+		"a NaN in the block: synctest says %q",
+		result.problem,
+	)
 }
 
 // Bug: a counter every instance shares (a package global, or a library's static), reset when a world is created, as

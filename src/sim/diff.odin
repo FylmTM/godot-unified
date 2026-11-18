@@ -6,6 +6,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:strings"
 
+import "unified:dmath"
 import "unified:wire"
 
 @(private)
@@ -61,7 +62,7 @@ diff_blocks :: proc(
 		diff_note(&diff, "extra: an image is cut short")
 	} else if string(image_a) != string(image_b) {
 		first := 0
-		for first < min(len(image_a), len(image_b)) && image_a[first] == image_b[first] {
+		for first < dmath.min(len(image_a), len(image_b)) && image_a[first] == image_b[first] {
 			first += 1
 		}
 		diff_note(&diff, "extra: its image differs from byte %d (%d vs %d bytes)", first, len(image_a), len(image_b))
@@ -73,6 +74,43 @@ diff_blocks :: proc(
 		fmt.sbprintf(&diff.text, "; and %d more", diff.count - DIFF_MAX)
 	}
 	return fmt.tprintf("tick %d: %s", header_a.tick, strings.to_string(diff.text))
+}
+
+// What differs between two lists of one tick's events ("" when nothing does; temp-allocated): their count, an event's
+// kind, or its fields, padding aside ("event 2 of 3, hit: damage 3 vs 4"). The sync-test compares a re-simulated
+// tick's events with the first run's: a tick emits the same events every time it is computed.
+events_diff :: proc(a, b: []Raw_Event, $Event: typeid) -> string {
+	return events_diff_of(a, b, union_variants(Event))
+}
+
+// events_diff's body, for the union's variants at run time.
+@(private)
+events_diff_of :: proc(a, b: []Raw_Event, variants: []^runtime.Type_Info) -> string {
+	if len(a) != len(b) {
+		return fmt.tprintf("%d events, then %d", len(b), len(a))
+	}
+	for i in 0 ..< len(a) {
+		x, y := &a[i], &b[i]
+		if x.kind != y.kind || x.size != y.size || int(x.kind) >= len(variants) {
+			return fmt.tprintf("event %d of %d: kind %d, then %d", i + 1, len(a), y.kind, x.kind)
+		}
+		if string(x.data[:x.size]) == string(y.data[:y.size]) do continue // the usual case: the same bytes
+		variant := variants[x.kind]
+		diff := Diff {
+			text = strings.builder_make(context.temp_allocator),
+		}
+		diff_value(&diff, "", variant, y.data[:y.size], x.data[:x.size])
+		if diff.count > 0 {
+			return fmt.tprintf(
+				"event %d of %d, %s: %s",
+				i + 1,
+				len(a),
+				variant_name(variant, EVENT_PREFIX),
+				strings.to_string(diff.text),
+			)
+		}
+	}
+	return ""
 }
 
 // Notes where two values of `type` differ: each differing leaf field (a struct's fields and an array's elements are

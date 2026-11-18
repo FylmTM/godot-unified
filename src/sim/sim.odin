@@ -22,6 +22,8 @@ import "core:fmt"
 import "core:hash/xxhash"
 import "core:strings"
 
+import "unified:dmath"
+
 MAX_PLAYERS :: 32
 
 // The library's own simulation (src/sim, src/dmath, src/physics): bump it in a change that makes a reference
@@ -62,7 +64,8 @@ Slots :: bit_set[0 ..< MAX_PLAYERS;u32]
 // sent for this tick (command.odin). A slot not in `present` has a zero input. `joins` holds each slot's join record:
 // the relay's member id of who becomes present in it, non-zero only on that tick (a slot that becomes present without
 // one stays absent; sim.join). `replaced` marks inputs the relay substituted (the slot's last one) because the real
-// one came too late; it is informational, games should not branch on it. Commands are never repeated or
+// one came too late; it is informational (tools, stats): peers step the same tick with and without it, so the lint
+// bans reading it in tick code. Commands are never repeated or
 // substituted: each arrives in one tick only.
 Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	present:       Slots,
@@ -212,7 +215,7 @@ MAX_RING_SIZE :: 32
 // The ring keeps about 250 ms of ticks at any rate: 8 at 32 Hz, 16 at 64, 32 at 128. It bounds
 // rollback: the netcode predicts at most ring_size - 2 ticks ahead.
 ring_size :: proc(tick_hz: int) -> int {
-	return clamp(tick_hz / 4, MIN_RING_SIZE, MAX_RING_SIZE)
+	return dmath.clamp(tick_hz / 4, MIN_RING_SIZE, MAX_RING_SIZE)
 }
 
 @(private)
@@ -225,22 +228,24 @@ Ring_Slot :: struct($State: typeid) {
 }
 
 Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
-	game:         ^G,
-	seed:         u64,
-	content:      []u8, // borrowed: the caller of create keeps it alive
-	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
-	compat:       u64, // compat_of(game, content): recorded in snapshots
-	layout:       u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
-	tick:         u32,
-	state:        part(G, GAME_STATE),
-	world:        ^part(G, GAME_WORLD),
-	extra:        Extra, // the game's (Game.extra; zero: none)
-	ring:         []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
-	changes:      Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
-	commands:     Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
+	game:          ^G,
+	seed:          u64,
+	content:       []u8, // borrowed: the caller of create keeps it alive
+	content_hash:  u64, // content_hash(content): recorded in input logs and snapshots
+	compat:        u64, // compat_of(game, content): recorded in snapshots
+	layout:        u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
+	tick:          u32,
+	state:         part(G, GAME_STATE),
+	world:         ^part(G, GAME_WORLD),
+	extra:         Extra, // the game's (Game.extra; zero: none)
+	ring:          []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
+	changes:       Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
+	commands:      Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
+	input_fixable: bool, // the Input holds an enum or a bit_set: step reads each slot's through wire_fix
+	read_inputs:   Inputs(G), // a step's inputs as read when one slot's Input needed it (inputs_as_read)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
-	hash_buf:     [dynamic]u8,
+	hash_buf:      [dynamic]u8,
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -296,7 +301,7 @@ compat_with :: proc(
 		tick_hz  = u32(game.tick_hz),
 		library  = library.version != 0 ? library.version : LIBRARY_VERSION,
 	}
-	return max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
+	return dmath.max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }
 
 // Whether two ticks' inputs are the same for the simulation: the same slots present, the same join
@@ -399,6 +404,7 @@ create :: proc(
 	simulation.content_hash = content_hash(content)
 	simulation.layout = layout_hash(State)
 	simulation.compat = compat_with(game, simulation.layout, content, {})
+	simulation.input_fixable = wire_fixable(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
@@ -447,8 +453,10 @@ ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 // there: for ticks nothing will roll back to (the netcode re-simulating ticks that are already final; a benchmark
 // timing the save apart); events_at answers for such a tick, state_at, restore and snapshot_encode don't. The slot is
 // the new tick's from the start: it never answers for the tick it held before. The State's Players is updated first
-// (players.odin) and its join and leave events emitted before the game's.
-step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
+// (players.odin) and its join and leave events emitted before the game's. Each Input is read as every peer reads
+// bytes from another machine (inputs_as_read); `inputs` itself is left as it is.
+step :: proc(simulation: ^Sim($G), given: ^Inputs(G), save := true) {
+	inputs := inputs_as_read(simulation, given)
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
@@ -468,6 +476,26 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	players_remember(&simulation.state.players, inputs)
 	simulation.tick = number
 	if save do save_tick(simulation)
+}
+
+// The inputs as the tick reads them: an enum field outside its declared values reads as its zero value and a bit_set
+// holds only its own elements (wire_fix), so an Input from a modified or buggy client can't make `tick` index out of
+// bounds or see a phantom button, on any peer. Valid inputs (every honest client's) are used as they are; otherwise a
+// fixed copy is.
+@(private)
+inputs_as_read :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) -> ^Inputs(G) {
+	Input :: part(G, GAME_INPUT)
+	if !simulation.input_fixable do return inputs
+	for &input in inputs.input {
+		if changed, _ := wire_fix(&input, type_info_of(Input), .Input, apply = false); changed {
+			simulation.read_inputs = inputs^
+			for &fixed in simulation.read_inputs.input {
+				wire_fix(&fixed, type_info_of(Input), .Input, apply = true)
+			}
+			return &simulation.read_inputs
+		}
+	}
+	return inputs
 }
 
 // The Tick for computing tick `number` (no player changes: step fills them).

@@ -2,6 +2,7 @@
 // are doing. The extension pushes it as the game's session data (Unified.data.hud).
 package friendslop
 
+import "unified:dmath"
 import "unified:sim"
 
 // A slot's player (players[slot]; zero while the slot is empty: who holds it, UnifiedSession.get_players).
@@ -38,7 +39,10 @@ hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 		result.run_s = sim.seconds(tick - state.run_tick, TICK_HZ)
 	case .Finished:
 		result.run_s = sim.seconds(state.finish_tick - state.run_tick, TICK_HZ)
-		result.reset_in_s = sim.seconds(FINISH_HOLD_TICKS - min(tick - state.finish_tick, FINISH_HOLD_TICKS), TICK_HZ)
+		result.reset_in_s = sim.seconds(
+			FINISH_HOLD_TICKS - dmath.min(tick - state.finish_tick, FINISH_HOLD_TICKS),
+			TICK_HZ,
+		)
 	}
 	for trigger, i in state.triggers {
 		if trigger.active do result.triggers |= 1 << u32(i)

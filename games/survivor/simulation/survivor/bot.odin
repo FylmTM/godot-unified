@@ -35,7 +35,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 			flee.x += away.x * weight
 			flee.y += away.y * weight
 		}
-		nearest2 = min(nearest2, distance2)
+		nearest2 = dmath.min(nearest2, distance2)
 	}
 	// Gems: head for the nearest one in sight.
 	to_gem: dmath.Vec2

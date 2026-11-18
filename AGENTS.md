@@ -26,8 +26,9 @@ games in `games/` prove it.
   Box3D library and its bindings first), has independent tests covering everything we use: determinism, save/restore,
   rollback, replays. Upgrading a dependency must be safe because the tests say so.
 - **Deterministic simulation.** f32 only. No FMA contraction. No transcendentals except our own deterministic ones
-  (hardware `+ − × ÷ sqrt` only). No `matrix` types, no `core:math` transcendentals, no wall-clock time, no
-  unordered iteration that affects state, no pointers or heap data in sim state. The state block is pointer-free and
+  (hardware `+ − × ÷ sqrt` only). No `matrix` types, no `core:math` transcendentals, no builtin `min`/`max`/`clamp`
+  (`dmath`'s), no NaN in the state block, no wall-clock time, no unordered iteration that affects state, no pointers
+  or heap data in sim state. The state block is pointer-free and
   padding-free, so a snapshot is a memcpy and the bytes are the checksum. Physics state lives in Box3D and is
   snapshotted through unified-box3d (our Odin port).
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
