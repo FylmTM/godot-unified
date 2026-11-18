@@ -1,12 +1,12 @@
 # devui
 
-Status: draft, pending #358
+Status: signed off 2026-11-18 (#334)
 
 The in-game dev UI, built from Godot's own controls and driven from Odin (`src/devui`). Game-agnostic: the host passes
 its values; it knows nothing about any game. `unified:godot` reaches it only through `godot/dev.odin`, which also
-says what the host feeds it; building with `-define:UNIFIED_DEVUI=false` turns those calls into no-ops and drops the
-package. Player builds keep it while friends playtest (F3 notes are how they report a problem); `uni release
---no-devui` builds without it. No third-party code.
+says what the host feeds it; building with `-define:UNIFIED_DEVUI=false` turns those calls into no-ops. Player builds
+keep it while friends playtest (F3 notes are how they report a problem); a public build turns it off. No third-party
+code.
 
 ## API
 
@@ -43,10 +43,10 @@ devui.wants_state()                                 // the Inspector or Input pa
   stretch, so a game's `canvas_items` stretch doesn't grow the dev UI.
 - **Theme.** Complete and its own (`theme.odin`): a game may change Godot's default theme in place, and theme
   lookup ends there, so every item the dev UI uses is set.
-- **Overlay** (a corner of the screen, movable): the panel toggles, the graph-group toggles, the stat lines, the
-  graphs. Clicks go through it, except on its buttons. Its first line is `frames`: p50, p99 and max frame time since
-  the session started (a click starts it over). The value column only grows while the same lines are shown, so
-  numbers changing width never move the overlay.
+- **Overlay** (a corner of the screen; its button moves it to the next corner): the panel toggles, the graph-group
+  toggles, the stat lines, the graphs. Clicks go through it, except on its buttons. Its first line is `frames`: p50,
+  p99 and max frame time since the session started (a click starts it over). The value column only grows while the
+  same lines are shown, so numbers changing width never move the overlay.
 - **Graphs** share one time axis, real time: each frame takes a width proportional to how long it lasted, so a
   hitch covers as much of a graph as the time it cost and the graphs line up. Columns are fixed slices of absolute
   time, so the graphs scroll by whole columns. A pixel column shows the frames overlapping it: the frame graph and
