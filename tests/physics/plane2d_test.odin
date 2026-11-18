@@ -627,11 +627,36 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 	session3 := sim.create(&FIELD, 3)
 	defer sim.destroy(session3)
 	before := sim.checksum(session3)
-	image := session.extra.image(session.extra.data, sim.ring_slot(session, 100))
+	image := session.extra.image(session.extra.data, sim.ring_slot(session, 100), false)
 	testing.expect(t, !session3.extra.load(session3.extra.data, image[:len(image) / 2]))
 	testing.expect_value(t, sim.checksum(session3), before)
 	inputs := field_inputs(1)
 	sim.step(session3, &inputs)
+}
+
+// A snapshot of the tick the sim is at images the live world (Extra.image's `live`: no swap out and back): the same
+// bytes as the slot put in place first, on every tick of a field that splits, shoots and respawns rocks; and the
+// live world is untouched by either.
+@(test)
+the_live_image_is_the_slots :: proc(t: ^testing.T) {
+	session := sim.create(&FIELD, 3)
+	defer sim.destroy(session)
+	extra := &session.extra
+	live: [dynamic]u8
+	defer delete(live)
+	differ := 0
+	for tick in u32(1) ..= FIELD_TICKS {
+		inputs := field_inputs(tick)
+		sim.step(session, &inputs)
+		before := sim.checksum(session)
+		slot := sim.ring_slot(session, tick)
+		clear(&live)
+		append(&live, ..extra.image(extra.data, slot, true))
+		if string(live[:]) != string(extra.image(extra.data, slot, false)) do differ += 1
+		testing.expect_value(t, sim.checksum(session), before)
+	}
+	testing.expect_value(t, differ, 0)
+	field_did_its_job(t, session)
 }
 
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every

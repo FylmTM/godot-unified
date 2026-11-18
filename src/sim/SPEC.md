@@ -226,8 +226,9 @@ save, the events). Ticks count from 1; tick 0 is the initial state.
 - **Extra**: rollback state outside the block, at most one per game (a game with two kinds composes them). The
   harness asks `Game.extra` for it right after `world_create`, so bodies made there are the World's. `save` and
   `restore` take the ring slot; `hash(tick, out)` covers the whole internal state on multiples of
-  `DEEP_CHECKSUM_EVERY` (the ticks the netcode compares) and may cover less otherwise; `image(slot)` and
-  `load(bytes)` are its portable form; optional `size(slot)` (what a slot's save holds) and `check(state) -> string`
+  `DEEP_CHECKSUM_EVERY` (the ticks the netcode compares) and may cover less otherwise; `image(slot, live)` and
+  `load(bytes)` are its portable form (`live`: the slot is the current tick's, saved after its last change, so the
+  live state may be imaged as it is); optional `size(slot)` (what a slot's save holds) and `check(state) -> string`
   ("" when it agrees with the block, else why: physics' broken refs and orphaned bodies). `check_extra(simulation)`
   runs the check; the sync-tests run it after every restore. `save_size` and `snapshot_size` measure a tick's save
   and its portable image.

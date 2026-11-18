@@ -76,7 +76,7 @@ save_restore_hash :: proc(t: ^testing.T) {
 	world2 := make_world(&state2)
 	defer physics.destroy(world2)
 	extra2 := physics.extra(world2, State)
-	testing.expect(t, extra2.load(extra2.data, extra.image(extra.data, 1)))
+	testing.expect(t, extra2.load(extra2.data, extra.image(extra.data, 1, false)))
 	state2 = state
 	state2.crates[1].body = state2.crates[0].body // the hash reads the world, not the block's refs
 	state.crates[1].body = state.crates[0].body

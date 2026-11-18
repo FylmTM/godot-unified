@@ -125,8 +125,10 @@ Extra :: struct {
 	// DEEP_CHECKSUM_EVERY (the ones the netcode compares) it covers all of its internal state; on others it may cover
 	// less (a cheaper summary).
 	hash:    proc(data: rawptr, tick: u32, out: ^[dynamic]u8),
-	// Portable bytes of a ring slot (valid until that slot is saved again).
-	image:   proc(data: rawptr, slot: int) -> []u8,
+	// Portable bytes of a ring slot (valid until that slot is saved again or the next image). `live`: the slot holds
+	// the current tick, saved after its last change, so the live state is that slot's and the Extra may image it
+	// directly instead of putting the slot in place first (physics skips swapping its world out and back).
+	image:   proc(data: rawptr, slot: int, live: bool) -> []u8,
 	// Loads portable bytes (from `image`, possibly another machine) into the live state.
 	load:    proc(data: rawptr, bytes: []u8) -> bool,
 	// Optional: the bytes the save of a ring slot holds (what each tick's save copies; save_size, the benchmarks).
@@ -228,6 +230,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	content:      []u8, // borrowed: the caller of create keeps it alive
 	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
 	compat:       u64, // compat_of(game, content): recorded in snapshots
+	layout:       u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
 	tick:         u32,
 	state:        part(G, GAME_STATE),
 	world:        ^part(G, GAME_WORLD),
@@ -260,7 +263,17 @@ compat_of :: proc(
 	content: []u8 = nil,
 	library := Library{},
 ) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
-	State :: part(G, GAME_STATE)
+	return compat_with(game, layout_hash(part(G, GAME_STATE)), content, library)
+}
+
+// compat_of for a caller that has the State's layout hash already (create, from_snapshot): one RTTI walk fewer.
+@(private)
+compat_with :: proc(
+	game: ^$G,
+	state_layout: u64,
+	content: []u8,
+	library: Library,
+) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
 	Input :: part(G, GAME_INPUT)
 	Event :: part(G, GAME_EVENT)
 	Cmd :: part(G, GAME_CMD)
@@ -270,7 +283,7 @@ compat_of :: proc(
 		players, tick_hz, library, _pad:                                       u32, // no padding: hashed as bytes
 	}
 	ids := Ids {
-		state    = layout_hash(State),
+		state    = state_layout,
 		input    = layout_hash(Input),
 		inputs   = layout_hash(Inputs(G)),
 		name     = hash_bytes(transmute([]u8)game.name),
@@ -384,7 +397,8 @@ create :: proc(
 	simulation.seed = seed
 	simulation.content = content
 	simulation.content_hash = content_hash(content)
-	simulation.compat = compat_of(game, content)
+	simulation.layout = layout_hash(State)
+	simulation.compat = compat_with(game, simulation.layout, content, {})
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
@@ -557,7 +571,9 @@ save_size :: proc(simulation: ^Sim($G)) -> int {
 snapshot_size :: proc(simulation: ^Sim($G)) -> int {
 	size := size_of(simulation.state)
 	if extra := &simulation.extra; extra.image != nil {
-		size += len(extra.image(extra.data, ring_slot(simulation, simulation.tick)))
+		index := ring_slot(simulation, simulation.tick)
+		slot := &simulation.ring[index]
+		size += len(extra.image(extra.data, index, slot.saved && slot.tick == simulation.tick))
 	}
 	return size
 }

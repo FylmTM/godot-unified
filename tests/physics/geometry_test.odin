@@ -279,7 +279,7 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 	testing.expect(t, physics.shape_compound(world, block.shapes[2]) == compound)
 	steps(world, 10)
 	extra.save(extra.data, 0)
-	image := extra.image(extra.data, 0)
+	image := extra.image(extra.data, 0, true) // just saved: the live world is the slot's
 
 	late, late_extra := geometry_world()
 	defer physics.destroy(late)

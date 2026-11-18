@@ -21,7 +21,9 @@ world_anchor(world) -> Body_Link            // a static body every World has (it
 The `Extra`: a save is a Box3D snapshot (a memcpy of the world's arena) per ring slot, and a restore puts back
 everything, so a re-simulation continues bit-exactly. The hash is Box3D's whole-world hash on `DEEP_CHECKSUM_EVERY`
 ticks (what peers compare), else the awake bodies' (id, pose, velocities). Saves, deep hashes and images carry
-physics' body table too. Images are Box3D's canonical images with their geometry; `load` keeps the world on a refusal.
+physics' body table too. Images are Box3D's canonical images with their geometry: a past slot's is built with the slot put in the world and
+the live state put back after, the current tick's from the live world as it is. `load` keeps the
+world on a refusal.
 
 ## The boundary
 

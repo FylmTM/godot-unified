@@ -1,5 +1,6 @@
-// #262: the session's steady state allocates nothing on the heap: queued messages, loopback datagrams, the
-// netsim's delayed datagrams and early reliable messages live in reused buffers, the kept desync images reuse theirs.
+// #262: the session's steady state allocates nothing, on the heap or the temp allocator: queued messages, loopback
+// datagrams, the netsim's delayed datagrams and early reliable messages live in reused buffers, the kept desync
+// images reuse theirs.
 package test_netcode
 
 import "base:runtime"
@@ -40,6 +41,10 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 		inner = context.allocator,
 	}
 	context.allocator = {counting_proc, &counting}
+	temp := Counting {
+		inner = context.temp_allocator,
+	}
+	context.temp_allocator = {counting_proc, &temp}
 	session: Net
 	// A host and two remote clients under `wan` (loss, duplicates, reordering), the toy's commands, typed desync
 	// reports (every client keeps a snapshot of every checksum tick). No recording: an in-memory log grows by design.
@@ -48,9 +53,11 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 	net_run(&session, 8) // everyone in, every buffer at its size
 	testing.expect(t, len(session.clients) == 2 && session.clients[1].status == .Connected)
 	counting.allocs, counting.frees = 0, 0
+	temp.allocs, temp.frees = 0, 0
 	from := session.host.relay.finalized
 	net_run(&session, 8)
 	testing.expectf(t, session.host.relay.finalized - from > 400, "only %d ticks", session.host.relay.finalized - from)
 	testing.expect_value(t, counting.allocs, 0)
 	testing.expect_value(t, counting.frees, 0)
+	testing.expect_value(t, temp.allocs, 0)
 }

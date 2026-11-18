@@ -157,15 +157,19 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 				append(out, ..hash_bytes[:])
 			}
 		},
-		// A portable image of the slot's tick (late join): Box3D's canonical image with its geometry (the slot is put
-		// in the world for the time it takes, then the live state is put back), its size first, then the slot's
-		// body table.
-		image = proc(data: rawptr, slot: int) -> []u8 {
+		// A portable image of the slot's tick (late join, desync reports): Box3D's canonical image with its geometry,
+		// its size first, then the slot's body table. When the world is not at the slot's tick (`live` false) the slot
+		// is put in the world for the time it takes and the live state put back after: most of the cost.
+		image = proc(data: rawptr, slot: int, live: bool) -> []u8 {
 			world := (^World)(data)
-			box3d.World_SaveSnapshot(world.id, &world.scratch)
-			box3d.World_RestoreSnapshot(world.id, &world.ring[slot])
+			if !live {
+				box3d.World_SaveSnapshot(world.id, &world.scratch)
+				box3d.World_RestoreSnapshot(world.id, &world.ring[slot])
+			}
 			size := box3d.World_SaveImage(world.id, world.image, true)
-			box3d.World_RestoreSnapshot(world.id, &world.scratch)
+			if !live {
+				box3d.World_RestoreSnapshot(world.id, &world.scratch)
+			}
 			clear(&world.image_bytes)
 			size_bytes := transmute([4]u8)u32le(u32(size))
 			append(&world.image_bytes, ..size_bytes[:])
