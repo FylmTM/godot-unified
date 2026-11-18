@@ -6,13 +6,13 @@ extends UnifiedUiWalk
 ## one. Splitting and destroying rocks and warping through a gate: the full tour (`uni tool drift tour`).
 
 const ROCK_KINDS: Array[StringName] = [&"rock_0", &"rock_1", &"rock_2", &"rock_3"]
-const HUNT_S := 15
+const HUNT_S := 20
+## How far the hunt shoots (pixels): well inside a bullet's reach (BULLET_SPEED × BULLET_LIFE_S ≈ 500 px), so a rock
+## drifting while a bullet flies is still hit.
+const HUNT_RANGE := 400.0
 
 ## Confirmed rock hits, from sim_event.
 var _rock_hits := 0
-## Where a bullet last hit or split a rock (pixels) and when (msec): what the hunt aims at when it reads back no rock.
-var _rock_seen := Vector2.INF
-var _rock_seen_ms := 0
 
 
 func _walk_play() -> void:
@@ -68,9 +68,9 @@ func _aim_and_thrust() -> void:
 		cam.get_screen_center_position().x - c0.x])
 
 
-## Fires while the first wave drifts in, then hunts until a bullet hits a rock, 3 s aimed and 3 s swept in turn:
-## aimed, at the nearest rock (read back from the rock multi views), thrusting into range; with none read back, at the
-## last rock hit for a second after each hit; swept, the aim turning around while the rocks drift at the station.
+## Fires while the first wave drifts in, then hunts until a bullet hits a rock. The ship holds still and aims at the
+## nearest rock it can hit: in range, with nothing between (the level's walls, reefs and pillars, the station). The
+## rocks drift at the station, so one comes into a clear line within seconds; until then the aim sweeps.
 func _fire_and_hunt() -> void:
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
@@ -89,34 +89,18 @@ func _fire_and_hunt() -> void:
 ## Steers the hunt for this frame (never done: the hunt ends on a hit).
 func _hunt_steer(start: int) -> bool:
 	var at := _me().global_position
-	var elapsed := Time.get_ticks_msec() - start
-	var dir := Vector2.from_angle(elapsed * 0.002)  # 2 rad/s, slower than the ship turns
-	# Aimed for 3 s, then swept for 3 s, and so on: an aimed shot can stall (the station between the ship and the rock,
-	# a rock drifting along the line of fire) where a sweep sprays the whole field.
-	if elapsed % 6000 >= 3000:
-		_stick(dir)
-		_move(Vector2.ZERO)
-		return false
-	var target := _nearest_rock(at)
+	var target := _clear_rock(at)
 	if target != Vector2.INF:
-		dir = (target - at).normalized()
-	elif _rock_seen != Vector2.INF and Time.get_ticks_msec() - _rock_seen_ms < 1000:
-		dir = (_rock_seen - at).normalized()
-	_stick(dir)
-	_move(dir if target != Vector2.INF and at.distance_to(target) > 350.0 else Vector2.ZERO)  # into range
+		_stick((target - at).normalized())
+	else:
+		_stick(Vector2.from_angle((Time.get_ticks_msec() - start) * 0.002))  # 2 rad/s, slower than the ship turns
+	_move(Vector2.ZERO)
 	return false
 
 
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	if event is EventRockHit:
-		if state == UnifiedSession.EVENT_CONFIRMED:
-			_rock_hits += 1
-		elif state == UnifiedSession.EVENT_EMITTED:
-			_rock_seen = (event as EventRockHit).position
-			_rock_seen_ms = Time.get_ticks_msec()
-	elif event is EventRockSplit and state == UnifiedSession.EVENT_EMITTED:
-		_rock_seen = (event as EventRockSplit).position
-		_rock_seen_ms = Time.get_ticks_msec()
+	if event is EventRockHit and state == UnifiedSession.EVENT_CONFIRMED:
+		_rock_hits += 1
 
 
 func _me() -> Node2D:
@@ -130,25 +114,41 @@ func _rocks_drawn() -> int:
 	return n
 
 
-## The nearest rock's position, read back from the rock multi views' buffers (what the host wrote), or Vector2.INF
-## when none is drawn.
-func _nearest_rock(from: Vector2) -> Vector2:
+## The nearest rock within HUNT_RANGE of `from` that a bullet from there reaches, or Vector2.INF. The rocks are read
+## back from the rock multi views' buffers (what the host wrote; the dummy renderer keeps them); the line of fire must
+## miss the level's static bodies (the play scene holds them) and the station's circle.
+func _clear_rock(from: Vector2) -> Vector2:
+	var space := (current_scene as Node2D).get_world_2d().direct_space_state
+	var station := session.get_view("station", 0) as Node2D
+	var station_reach := (Unified.constants.station_radius + Unified.constants.ship_radius) * Unified.view_scale
 	var best := Vector2.INF
+	for rock: Vector2 in _rock_positions():
+		if from.distance_to(rock) > HUNT_RANGE or (best != Vector2.INF and from.distance_to(rock) >= from.distance_to(best)):
+			continue
+		if station != null and Geometry2D.get_closest_point_to_segment(station.global_position, from, rock) \
+				.distance_to(station.global_position) < station_reach:
+			continue
+		if not space.intersect_ray(PhysicsRayQueryParameters2D.create(from, rock)).is_empty():
+			continue
+		best = rock
+	return best
+
+
+## Every drawn rock's position (global pixels).
+func _rock_positions() -> Array[Vector2]:
+	var out: Array[Vector2] = []
 	for b in current_scene.get_node(^"MultiViews").get_children():
 		var mmi := b as MultiMeshInstance2D
 		var marker := b.get_node_or_null(^"UnifiedMultiView") as UnifiedMultiView
 		if mmi == null or mmi.multimesh == null or marker == null or not (StringName(marker.kind) in ROCK_KINDS):
 			continue
 		var mm := mmi.multimesh
-		var buffer := mm.buffer  # the dummy renderer (headless) keeps the buffer, not the instance transforms
+		var buffer := mm.buffer
 		var stride := 8 + (4 if mm.use_colors else 0) + (4 if mm.use_custom_data else 0)  # a 2D transform: 2x4
 		for i in mini(maxi(mm.visible_instance_count, 0), buffer.size() / stride):
 			var at := i * stride
-			var p := mmi.global_transform * Vector2(buffer[at + 3], buffer[at + 7])
-			if best == Vector2.INF or from.distance_to(p) < from.distance_to(best):
-				best = p
-	return best
-
+			out.append(mmi.global_transform * Vector2(buffer[at + 3], buffer[at + 7]))
+	return out
 
 ## The right stick, as Input actions (what Input.get_vector reads).
 func _stick(dir: Vector2) -> void:
