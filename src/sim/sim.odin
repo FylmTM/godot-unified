@@ -455,15 +455,15 @@ ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 // the new tick's from the start: it never answers for the tick it held before. The State's Players is updated first
 // (players.odin) and its join and leave events emitted before the game's. Each Input is read as every peer reads
 // bytes from another machine (inputs_as_read); `inputs` itself is left as it is.
-step :: proc(simulation: ^Sim($G), given: ^Inputs(G), save := true) {
-	inputs := inputs_as_read(simulation, given)
+step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
+	read := inputs_as_read(simulation, inputs) // as every peer reads them: `inputs` stays as sent
 	number := simulation.tick + 1
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
 	slot.valid = true
 	slot.saved = false
 	clear(&slot.events.list)
-	tick := make_tick(simulation, number, inputs, &slot.events)
+	tick := make_tick(simulation, number, read, &slot.events)
 	changes := &simulation.changes
 	players_update(&tick, changes)
 	tick.player_changes = {
@@ -471,9 +471,9 @@ step :: proc(simulation: ^Sim($G), given: ^Inputs(G), save := true) {
 		joined  = changes.joined[:changes.joined_count],
 		left    = changes.left[:changes.left_count],
 	}
-	commands_decode(&simulation.commands, inputs)
+	commands_decode(&simulation.commands, read)
 	simulation.game.tick(&tick)
-	players_remember(&simulation.state.players, inputs)
+	players_remember(&simulation.state.players, read)
 	simulation.tick = number
 	if save do save_tick(simulation)
 }
